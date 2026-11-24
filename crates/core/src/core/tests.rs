@@ -100,6 +100,55 @@ async fn relative_roots_are_rejected() {
 }
 
 #[tokio::test]
+async fn project_state_is_saved_normalized_and_kept_inside() {
+    let f = fixture();
+    let p = add(&f.core, "/work/a").await;
+    let get = |id: ProjectId| {
+        f.core
+            .handle(Request::Projects(ProjectsRequest::GetState { id }))
+    };
+    let set = |id: ProjectId, state: ProjectState| {
+        f.core
+            .handle(Request::Projects(ProjectsRequest::SetState { id, state }))
+    };
+    assert_eq!(
+        get(p.id.clone()).await,
+        Ok(Response::Projects(ProjectsResponse::State(
+            ProjectState::default()
+        )))
+    );
+
+    let state = |open: &[&str], active: Option<&str>, dirs: &[&str]| ProjectState {
+        open_files: open.iter().map(|s| (*s).to_owned()).collect(),
+        active_file: active.map(str::to_owned),
+        expanded_dirs: dirs.iter().map(|s| (*s).to_owned()).collect(),
+    };
+    let saved = set(
+        p.id.clone(),
+        state(
+            &["./src//main.rs", "README.md"],
+            Some("README.md"),
+            &["src/"],
+        ),
+    )
+    .await;
+    assert_eq!(saved, Ok(Response::Ok(OkResponse::Ok)));
+    assert_eq!(
+        get(p.id.clone()).await,
+        Ok(Response::Projects(ProjectsResponse::State(state(
+            &["src/main.rs", "README.md"],
+            Some("README.md"),
+            &["src"]
+        ))))
+    );
+
+    let escape = set(p.id.clone(), state(&[], Some("../b/secret"), &[])).await;
+    assert_eq!(escape.err().map(|e| e.code), Some(ErrorCode::Forbidden));
+    let unknown = get(ProjectId("nope".into())).await;
+    assert_eq!(unknown.err().map(|e| e.code), Some(ErrorCode::NotFound));
+}
+
+#[tokio::test]
 async fn fs_requests_resolve_project_and_reject_escapes() {
     let f = fixture();
     let p = add(&f.core, "/work/a").await;
@@ -222,6 +271,11 @@ fn wire_format_is_stable() {
         "responses": [
             Response::Ok(OkResponse::Ok),
             Response::Fs(FsResponse::Written { mtime_ms: 5 }),
+            Response::Projects(ProjectsResponse::State(ProjectState {
+                open_files: vec!["a.rs".into()],
+                active_file: Some("a.rs".into()),
+                expanded_dirs: vec!["src".into()],
+            })),
         ],
         "events": [
             Event::Info(InfoEvent::Ready),
@@ -239,6 +293,8 @@ fn every_request_round_trips() {
         serde_json::json!({"method": "projects.add", "params": {"root": "/x"}}),
         serde_json::json!({"method": "projects.remove", "params": {"id": "p1"}}),
         serde_json::json!({"method": "projects.open", "params": {"id": "p1"}}),
+        serde_json::json!({"method": "projects.get_state", "params": {"id": "p1"}}),
+        serde_json::json!({"method": "projects.set_state", "params": {"id": "p1", "state": {"open_files": ["a"], "active_file": null, "expanded_dirs": []}}}),
         serde_json::json!({"method": "fs.list_dir", "params": {"project": "p1", "path": ""}}),
         serde_json::json!({"method": "fs.read_file", "params": {"project": "p1", "path": "a"}}),
         serde_json::json!({"method": "fs.write_file", "params": {"project": "p1", "path": "a", "text": "", "expected_mtime_ms": null}}),

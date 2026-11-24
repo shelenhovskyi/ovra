@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use ovra_core::protocol::projects::{Project, ProjectId};
+use ovra_core::protocol::projects::{Project, ProjectId, ProjectState};
 use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::{ProjectStore, Result};
 use rusqlite::{Connection, OptionalExtension, Row, params};
@@ -145,6 +145,20 @@ impl ProjectStore for Store {
             .optional()
             .map_err(db_error)?
             .ok_or_else(|| not_found(id))
+    }
+
+    fn state(&self, _id: &ProjectId) -> Result<ProjectState> {
+        Err(ProtocolError::new(
+            ErrorCode::Unavailable,
+            "project state is not stored yet",
+        ))
+    }
+
+    fn set_state(&self, _id: &ProjectId, _state: &ProjectState) -> Result<()> {
+        Err(ProtocolError::new(
+            ErrorCode::Unavailable,
+            "project state is not stored yet",
+        ))
     }
 }
 

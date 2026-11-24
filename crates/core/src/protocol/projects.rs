@@ -18,6 +18,19 @@ pub struct Project {
     pub last_opened_ms: Option<u64>,
 }
 
+/// What a project looked like when it was last left, restored when it is
+/// opened again. Paths are relative to the project root.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ProjectState {
+    /// Open tabs, in tab order.
+    pub open_files: Vec<String>,
+    /// The focused tab, if any.
+    pub active_file: Option<String>,
+    /// Expanded folders in the file tree.
+    pub expanded_dirs: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "method", content = "params")]
 pub enum ProjectsRequest {
@@ -33,6 +46,12 @@ pub enum ProjectsRequest {
     /// Makes a project the active one and starts watching it.
     #[serde(rename = "projects.open")]
     Open { id: ProjectId },
+    /// The saved state of a project; empty if none was saved.
+    #[serde(rename = "projects.get_state")]
+    GetState { id: ProjectId },
+    /// Replaces the saved state of a project. Answers `ok`.
+    #[serde(rename = "projects.set_state")]
+    SetState { id: ProjectId, state: ProjectState },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -42,6 +61,8 @@ pub enum ProjectsResponse {
     List(Vec<Project>),
     #[serde(rename = "projects.project")]
     Project(Project),
+    #[serde(rename = "projects.state")]
+    State(ProjectState),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

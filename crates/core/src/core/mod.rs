@@ -7,7 +7,9 @@ use crate::path::RelPath;
 use crate::protocol::fs::{FsRequest, FsResponse};
 use crate::protocol::info::{CoreInfo, InfoRequest, InfoResponse};
 use crate::protocol::open::OpenRequest;
-use crate::protocol::projects::{ProjectId, ProjectsEvent, ProjectsRequest, ProjectsResponse};
+use crate::protocol::projects::{
+    ProjectId, ProjectState, ProjectsEvent, ProjectsRequest, ProjectsResponse,
+};
 use crate::protocol::{ErrorCode, Event, OkResponse, ProtocolError, Request, Response};
 use crate::services::{EventSink, FsService, Opener, ProjectStore, Unavailable};
 
@@ -108,7 +110,7 @@ impl Core {
                 version: env!("CARGO_PKG_VERSION").to_owned(),
                 mode: self.inner.mode.clone(),
             }))),
-            Request::Projects(r) => self.projects(r).map(Response::Projects),
+            Request::Projects(r) => self.projects(r),
             Request::Fs(r) => self.fs(r).await.map(Response::Fs),
             Request::Open(r) => self.open(r).map(|()| Response::Ok(OkResponse::Ok)),
         }
@@ -121,9 +123,9 @@ impl Core {
             .unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn projects(&self, request: ProjectsRequest) -> Result<ProjectsResponse, ProtocolError> {
+    fn projects(&self, request: ProjectsRequest) -> Result<Response, ProtocolError> {
         let store = &self.inner.projects;
-        match request {
+        let response = match request {
             ProjectsRequest::List => store.list().map(ProjectsResponse::List),
             ProjectsRequest::Add { root } => {
                 let root = PathBuf::from(root);
@@ -164,7 +166,13 @@ impl Core {
                 self.emit_projects_changed();
                 Ok(ProjectsResponse::Project(project))
             }
-        }
+            ProjectsRequest::GetState { id } => store.state(&id).map(ProjectsResponse::State),
+            ProjectsRequest::SetState { id, state } => {
+                store.set_state(&id, &checked_state(state)?)?;
+                return Ok(Response::Ok(OkResponse::Ok));
+            }
+        };
+        response.map(Response::Projects)
     }
 
     fn emit_projects_changed(&self) {
@@ -242,6 +250,24 @@ fn check_web_url(url: &str) -> Result<(), ProtocolError> {
             "only http:// and https:// URLs can be opened",
         ))
     }
+}
+
+/// Normalizes every path in `state`, rejecting any that leaves the project.
+fn checked_state(state: ProjectState) -> Result<ProjectState, ProtocolError> {
+    let norm = |p: String| RelPath::parse(&p).map(|p| p.to_string());
+    Ok(ProjectState {
+        open_files: state
+            .open_files
+            .into_iter()
+            .map(norm)
+            .collect::<Result<_, _>>()?,
+        active_file: state.active_file.map(norm).transpose()?,
+        expanded_dirs: state
+            .expanded_dirs
+            .into_iter()
+            .map(norm)
+            .collect::<Result<_, _>>()?,
+    })
 }
 
 #[cfg(test)]

@@ -55,6 +55,18 @@ expression: samples
         "mtime_ms": 5
       },
       "type": "fs.written"
+    },
+    {
+      "data": {
+        "active_file": "a.rs",
+        "expanded_dirs": [
+          "src"
+        ],
+        "open_files": [
+          "a.rs"
+        ]
+      },
+      "type": "projects.state"
     }
   ]
 }

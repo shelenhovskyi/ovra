@@ -7,7 +7,7 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use crate::path::RelPath;
 use crate::protocol::fs::{DirEntry, DirListing, EntryKind, FileBody, FileContent};
-use crate::protocol::projects::{Project, ProjectId};
+use crate::protocol::projects::{Project, ProjectId, ProjectState};
 use crate::protocol::{ErrorCode, ProtocolError};
 use crate::services::{BoxFuture, EventSink, FsService, Opener, ProjectStore, Result};
 
@@ -23,6 +23,7 @@ fn not_found(what: impl std::fmt::Display) -> ProtocolError {
 #[derive(Debug, Default)]
 pub struct MemoryProjects {
     state: Mutex<(Vec<Project>, u64)>,
+    saved: Mutex<BTreeMap<ProjectId, ProjectState>>,
 }
 
 impl ProjectStore for MemoryProjects {
@@ -55,6 +56,7 @@ impl ProjectStore for MemoryProjects {
         if state.0.len() == before {
             return Err(not_found(&id.0));
         }
+        lock(&self.saved).remove(id);
         Ok(())
     }
 
@@ -78,6 +80,17 @@ impl ProjectStore for MemoryProjects {
             .ok_or_else(|| not_found(&id.0))?;
         project.last_opened_ms = Some(now);
         Ok(project.clone())
+    }
+
+    fn state(&self, id: &ProjectId) -> Result<ProjectState> {
+        self.get(id)?;
+        Ok(lock(&self.saved).get(id).cloned().unwrap_or_default())
+    }
+
+    fn set_state(&self, id: &ProjectId, state: &ProjectState) -> Result<()> {
+        self.get(id)?;
+        lock(&self.saved).insert(id.clone(), state.clone());
+        Ok(())
     }
 }
 

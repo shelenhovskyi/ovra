@@ -32,12 +32,16 @@ export type ResponseFor<R extends Request> = R extends { method: "info.get" }
     ? Extract<Response, { type: "projects.list" }>
     : R extends { method: "projects.add" | "projects.open" }
       ? Extract<Response, { type: "projects.project" }>
-      : R extends { method: "fs.list_dir" }
-        ? Extract<Response, { type: "fs.dir" }>
-        : R extends { method: "fs.read_file" }
-          ? Extract<Response, { type: "fs.file" }>
-          : R extends { method: "fs.write_file" }
-            ? Extract<Response, { type: "fs.written" }>
-            : R extends { method: "open.external" | "open.url" }
-              ? { type: "ok" }
-              : never;
+      : R extends { method: "projects.get_state" }
+        ? Extract<Response, { type: "projects.state" }>
+        : R extends { method: "projects.set_state" }
+          ? { type: "ok" }
+          : R extends { method: "fs.list_dir" }
+            ? Extract<Response, { type: "fs.dir" }>
+            : R extends { method: "fs.read_file" }
+              ? Extract<Response, { type: "fs.file" }>
+              : R extends { method: "fs.write_file" }
+                ? Extract<Response, { type: "fs.written" }>
+                : R extends { method: "open.external" | "open.url" }
+                  ? { type: "ok" }
+                  : never;
