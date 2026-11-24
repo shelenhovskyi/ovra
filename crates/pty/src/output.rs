@@ -53,17 +53,22 @@ pub(crate) enum Chunk {
 pub(crate) struct Activity {
     reads: AtomicU64,
     in_read: AtomicBool,
+    /// The reader saw the end of the output, or an error.
+    finished: AtomicBool,
 }
 
 impl Activity {
-    /// Returns once the reader has waited `QUIET` for output that did not
-    /// come, or a background job kept writing for `DRAIN_GRACE`. Waits as
-    /// long as output is held back for a slow subscriber.
+    /// Returns once the reader finished, has waited `QUIET` for output that
+    /// did not come, or a background job kept writing for `DRAIN_GRACE`.
+    /// Waits as long as output is held back for a slow subscriber.
     pub(crate) fn wait_until_drained(&self) {
         let mut since = Instant::now();
         let mut last = self.reads.load(Ordering::SeqCst);
         loop {
             thread::sleep(QUIET);
+            if self.finished.load(Ordering::SeqCst) {
+                return;
+            }
             let reads = self.reads.load(Ordering::SeqCst);
             let idle = self.in_read.load(Ordering::SeqCst);
             if !idle {
@@ -98,6 +103,7 @@ pub(crate) fn serve(
             reading.in_read.store(false, Ordering::SeqCst);
             reading.reads.fetch_add(1, Ordering::SeqCst);
             match read {
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
                 // Unix reports EIO once the shell and its children are gone.
                 Ok(0) | Err(_) => break,
                 // Blocks while the emitter is behind; an error means it is done.
@@ -108,6 +114,7 @@ pub(crate) fn serve(
                 }
             }
         }
+        reading.finished.store(true, Ordering::SeqCst);
     });
     thread::spawn(move || emit_all(&rx, &id, &sink, &output));
     (tx, activity)
@@ -227,5 +234,16 @@ mod tests {
         assert_eq!(text.matches("line é\r\n").count(), READS);
         assert_eq!(text.len(), READS * "line é\r\n".len());
         assert_eq!(lock(&output).tail().1, events);
+    }
+
+    #[test]
+    fn drained_returns_when_the_reader_ended_first() {
+        // As on macOS, where the shell's exit can end reads before the
+        // terminal is closed.
+        let core = Core::new("test");
+        let output = Arc::new(Mutex::new(Scrollback::default()));
+        let ended: Box<dyn Read + Send> = Box::new(std::io::empty());
+        let (_exited, activity) = serve(ended, TerminalId("t1".into()), core.sink(), output);
+        activity.wait_until_drained();
     }
 }
