@@ -6,7 +6,7 @@ use std::sync::Arc;
 use super::transcript::MAX_TEXT_BYTES;
 use super::{AgentHost, Launch, Sessions};
 use crate::protocol::agents::{
-    AgentKind, AgentMessage, AgentStatus, AgentsEvent, AgentsRequest, AgentsResponse,
+    AgentKind, AgentMessage, AgentStatus, AgentsEvent, AgentsRequest, AgentsResponse, MessageFrom,
     ProjectConfigReview, SessionId, SessionInfo, SessionMode, TurnUsage,
 };
 use crate::protocol::permissions::{
@@ -79,6 +79,7 @@ pub(crate) async fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Resp
                 prompt,
                 cwd: None,
                 tools: None,
+                from: MessageFrom::Person,
             };
             let info = start(ctx, new).await?;
             Ok(Response::Agents(AgentsResponse::Session(info)))
@@ -107,11 +108,19 @@ pub(crate) async fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Resp
             review_from(ctx, &session, &launch, base);
             sessions.find(&session, |s| s.restart())?;
             let target = trusted_in(ctx, target, &launch.cwd).await;
-            let info = run(ctx, &session, target, launch, prompt, Some(agent_session))?;
+            let resume = Some(agent_session);
+            let info = run(
+                ctx,
+                &session,
+                target,
+                launch,
+                (prompt, MessageFrom::Person),
+                resume,
+            )?;
             Ok(Response::Agents(AgentsResponse::Session(info)))
         }
         AgentsRequest::Send { session, text } => {
-            send(ctx, session, text)?;
+            send(ctx, session, text, MessageFrom::Person)?;
             Ok(OK)
         }
         AgentsRequest::Interrupt { session } => {
@@ -151,6 +160,8 @@ pub(crate) struct NewSession {
     /// Where it works; `None` for the project root.
     pub(crate) cwd: Option<PathBuf>,
     pub(crate) tools: Option<ToolRole>,
+    /// Who wrote `prompt`.
+    pub(crate) from: MessageFrom,
 }
 
 /// Starts a session and returns it as it is now.
@@ -177,7 +188,7 @@ pub(crate) async fn start(ctx: &Ctx<'_>, new: NewSession) -> Result<SessionInfo>
     });
     review_from(ctx, &id, &launch, base);
     let target = trusted_in(ctx, target, &launch.cwd).await;
-    run(ctx, &id, target, launch, new.prompt, None)
+    run(ctx, &id, target, launch, (new.prompt, new.from), None)
 }
 
 /// The project a session may start in, with what the runtime needs to know.
@@ -248,7 +259,7 @@ fn run(
     id: &SessionId,
     target: Target,
     launch: Launch,
-    prompt: String,
+    (prompt, from): (String, MessageFrom),
     resume: Option<String>,
 ) -> Result<SessionInfo> {
     let sessions = ctx.sessions;
@@ -265,6 +276,7 @@ fn run(
     let host = AgentHost::new(id.clone(), project, sessions.clone(), ctx.sink.clone());
     host.message(AgentMessage::UserText {
         text: prompt.clone(),
+        from,
     });
     let (agent, mode) = sessions.find(id, |s| {
         let info = s.info();
@@ -344,8 +356,13 @@ pub(crate) async fn trust(
     ctx.projects.set_trusted(project, Some(current))
 }
 
-/// Sends `text` as the running session's next message.
-pub(crate) fn send(ctx: &Ctx<'_>, session: SessionId, text: String) -> Result<()> {
+/// Sends `text`, written by `from`, as the running session's next message.
+pub(crate) fn send(
+    ctx: &Ctx<'_>,
+    session: SessionId,
+    text: String,
+    from: MessageFrom,
+) -> Result<()> {
     check_text(&text)?;
     let sessions = ctx.sessions;
     let (process, project, stopping) =
@@ -356,7 +373,10 @@ pub(crate) fn send(ctx: &Ctx<'_>, session: SessionId, text: String) -> Result<()
         None => return Err(conflict("the session has ended")),
     };
     let host = AgentHost::new(session, project, sessions.clone(), ctx.sink.clone());
-    host.message(AgentMessage::UserText { text: text.clone() });
+    host.message(AgentMessage::UserText {
+        text: text.clone(),
+        from,
+    });
     host.set_status(AgentStatus::Working);
     process.send(text)
 }

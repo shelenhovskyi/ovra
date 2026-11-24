@@ -60,7 +60,7 @@ fn add(total: &mut TurnUsage, turn: &TurnUsage) {
 /// Cuts long texts so that one tool output cannot flood memory or the UI.
 fn clip(mut message: AgentMessage) -> AgentMessage {
     match &mut message {
-        AgentMessage::UserText { text }
+        AgentMessage::UserText { text, .. }
         | AgentMessage::AssistantText { text, .. }
         | AgentMessage::Error { message: text } => clip_text(text),
         AgentMessage::ToolResult { output, .. } => clip_text(output),

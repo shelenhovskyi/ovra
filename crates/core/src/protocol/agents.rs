@@ -80,11 +80,28 @@ pub struct TurnUsage {
 
 /// One entry of a session transcript. Agent-neutral: each runtime maps its
 /// own messages to these.
+/// Who wrote a message an agent was sent.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MessageFrom {
+    /// The person: a prompt, a reply or a review comment.
+    #[default]
+    Person,
+    /// The task's coordinator: a worker's task or a `send_message`.
+    Coordinator,
+    /// Ovra itself, in its own words (a note that a worker's review was
+    /// decided, for example).
+    Ovra,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AgentMessage {
     UserText {
         text: String,
+        /// Who wrote it: a person decides on approvals by what *they* asked.
+        #[serde(default)]
+        from: MessageFrom,
     },
     AssistantText {
         text: String,

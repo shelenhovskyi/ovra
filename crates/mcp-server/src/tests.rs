@@ -178,7 +178,7 @@ async fn a_coordinator_runs_a_worker_through_the_tools() {
     };
     assert_eq!(
         output["messages"][0],
-        json!({"kind": "user_text", "text": "fix the login"})
+        json!({"kind": "user_text", "text": "fix the login", "from": "coordinator"})
     );
     assert_eq!(output["messages"][1]["text"], "on it");
     let (later, _) = tool(

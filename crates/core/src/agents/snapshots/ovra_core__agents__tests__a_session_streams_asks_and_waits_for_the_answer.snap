@@ -5,7 +5,8 @@ expression: transcript(&core).await
 [
   {
     "kind": "user_text",
-    "text": "List the files\nthen stop"
+    "text": "List the files\nthen stop",
+    "from": "person"
   },
   {
     "kind": "assistant_text",

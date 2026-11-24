@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use super::{Result, Workspace, conflict, forbidden, not_found, review};
 use crate::Core;
 use crate::agents::{self, NewSession};
-use crate::protocol::agents::{AgentKind, AgentStatus, SessionId, SessionMode};
+use crate::protocol::agents::{AgentKind, AgentStatus, MessageFrom, SessionId, SessionMode};
 use crate::protocol::orchestration::{
     OrchestrationEvent, OrchestrationRequest, OrchestrationResponse, Task, TaskId, TaskLimits,
     Worker,
@@ -109,6 +109,7 @@ async fn start(
         prompt,
         cwd: None,
         tools: Some(ToolRole::Coordinator),
+        from: MessageFrom::Person,
     };
     let coordinator = agents::start(&core.agents_ctx(), new).await?.id;
     let entry = {
@@ -180,7 +181,12 @@ pub(super) fn tell_coordinator(core: &Core, worker: &SessionId, what: &str) {
         worker.0
     );
     // A coordinator that is stopping or gone simply misses the note.
-    let _ = agents::send(&core.agents_ctx(), task.coordinator, text);
+    let _ = agents::send(
+        &core.agents_ctx(),
+        task.coordinator,
+        text,
+        MessageFrom::Ovra,
+    );
 }
 
 /// A stopped coordinator takes its workers with it: the person stopped the
@@ -377,6 +383,7 @@ async fn create_worker(
         prompt,
         cwd: Some(info.path.clone()),
         tools: Some(ToolRole::Worker),
+        from: MessageFrom::Coordinator,
     };
     let session = match agents::start(&core.agents_ctx(), new).await {
         Ok(session) => session.id,

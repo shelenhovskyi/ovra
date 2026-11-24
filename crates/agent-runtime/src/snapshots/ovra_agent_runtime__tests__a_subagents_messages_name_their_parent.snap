@@ -5,7 +5,8 @@ expression: transcript
 [
   {
     "kind": "user_text",
-    "text": "Use the Task tool to start exactly one general-purpose subagent that reads README.md and returns its last line. Do not read the file yourself. Then tell me that line."
+    "text": "Use the Task tool to start exactly one general-purpose subagent that reads README.md and returns its last line. Do not read the file yourself. Then tell me that line.",
+    "from": "person"
   },
   {
     "kind": "tool_use",

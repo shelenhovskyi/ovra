@@ -92,7 +92,7 @@ export class FakeAgentCore implements Transport {
         const { project, prompt } = request.params;
         const info = this.addSession(project, prompt.split("\n")[0] ?? "");
         this.status(info.id, { state: "starting" });
-        this.message(info.id, { kind: "user_text", text: prompt });
+        this.message(info.id, { kind: "user_text", text: prompt, from: "person" });
         return { type: "agents.session", data: { ...info } };
       }
       case "orchestration.start": {
@@ -123,7 +123,7 @@ export class FakeAgentCore implements Transport {
         if (!info) throw new CoreError({ code: "not_found", message: "no such session" });
         info.resumable = false;
         this.status(info.id, { state: "starting" });
-        this.message(info.id, { kind: "user_text", text: request.params.prompt });
+        this.message(info.id, { kind: "user_text", text: request.params.prompt, from: "person" });
         return { type: "agents.session", data: { ...info } };
       }
       case "agents.setup":

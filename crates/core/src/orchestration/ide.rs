@@ -6,7 +6,7 @@ use super::{Result, forbidden, not_found, review, tasks};
 use crate::Core;
 use crate::agents;
 use crate::path::RelPath;
-use crate::protocol::agents::{AgentMessage, AgentStatus, SessionId};
+use crate::protocol::agents::{AgentMessage, AgentStatus, MessageFrom, SessionId};
 use crate::protocol::orchestration::{OrchestrationEvent, ShowTarget, Worker};
 use crate::protocol::review::{ReviewId, ReviewItem, ReviewState};
 use crate::protocol::{ErrorCode, ProtocolError};
@@ -86,7 +86,12 @@ impl Core {
     /// person's choice, not the coordinator's.
     pub fn send_message(&self, caller: &ToolCaller, agent: &SessionId, text: &str) -> Result<()> {
         let worker = self.worker_of(caller, agent)?;
-        agents::send(&self.agents_ctx(), worker.session, text.to_owned()).map_err(|err| {
+        agents::send(
+            &self.agents_ctx(),
+            worker.session,
+            text.to_owned(),
+            MessageFrom::Coordinator,
+        ).map_err(|err| {
             if err.code != ErrorCode::Conflict {
                 return err;
             }

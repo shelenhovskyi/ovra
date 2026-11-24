@@ -203,7 +203,7 @@ async fn each_message_plays_the_next_turn_until_stopped() {
         .await
         .into_iter()
         .filter_map(|m| match m {
-            AgentMessage::UserText { text } | AgentMessage::AssistantText { text, .. } => {
+            AgentMessage::UserText { text, .. } | AgentMessage::AssistantText { text, .. } => {
                 Some(text)
             }
             _ => None,
@@ -784,7 +784,7 @@ async fn sessions_survive_a_restart_and_resume() {
     let said = |t: Vec<AgentMessage>| -> Vec<String> {
         t.into_iter()
             .filter_map(|m| match m {
-                AgentMessage::UserText { text } | AgentMessage::AssistantText { text, .. } => {
+                AgentMessage::UserText { text, .. } | AgentMessage::AssistantText { text, .. } => {
                     Some(text)
                 }
                 _ => None,

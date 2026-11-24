@@ -5,7 +5,8 @@ expression: transcript
 [
   {
     "kind": "user_text",
-    "text": "Run the shell command `ping -c 120 127.0.0.1` with the Bash tool in the foreground (not in the background), then tell me its last line."
+    "text": "Run the shell command `ping -c 120 127.0.0.1` with the Bash tool in the foreground (not in the background), then tell me its last line.",
+    "from": "person"
   },
   {
     "kind": "tool_use",
@@ -37,7 +38,8 @@ expression: transcript
   },
   {
     "kind": "user_text",
-    "text": "Never mind. Reply with just the word: ready"
+    "text": "Never mind. Reply with just the word: ready",
+    "from": "person"
   },
   {
     "kind": "assistant_text",

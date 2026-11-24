@@ -5,7 +5,8 @@ expression: transcript
 [
   {
     "kind": "user_text",
-    "text": "Fix the typo in README.md with the Edit tool. Do not run commands and do not change anything else."
+    "text": "Fix the typo in README.md with the Edit tool. Do not run commands and do not change anything else.",
+    "from": "person"
   },
   {
     "kind": "tool_use",
@@ -52,7 +53,8 @@ expression: transcript
   },
   {
     "kind": "user_text",
-    "text": "Now run `echo ok > done.txt` with the Bash tool once, then say done."
+    "text": "Now run `echo ok > done.txt` with the Bash tool once, then say done.",
+    "from": "person"
   },
   {
     "kind": "tool_use",

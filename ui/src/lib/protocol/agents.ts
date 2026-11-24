@@ -38,9 +38,12 @@ export type TurnUsage = {
   cost_micro_usd: number | null;
 };
 
+/** Who wrote a message an agent was sent: the person, the task's coordinator, or Ovra in its own words. */
+export type MessageFrom = "person" | "coordinator" | "ovra";
+
 /** `parent` is set when a subagent produced the message: the tool call that started it. */
 export type AgentMessage =
-  | { kind: "user_text"; text: string }
+  | { kind: "user_text"; text: string; from: MessageFrom }
   | { kind: "assistant_text"; text: string; parent?: string }
   | { kind: "tool_use"; id: string; name: string; input: unknown; parent?: string }
   | { kind: "tool_result"; tool_use_id: string; output: string; is_error: boolean; parent?: string }

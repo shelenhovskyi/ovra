@@ -4,11 +4,13 @@
 // tool output; outputs are folded, since they are mostly written for the
 // model.
 import { describeTool } from "../approvals/describe";
-import type { AgentMessage } from "../lib/protocol";
+import type { AgentMessage, MessageFrom } from "../lib/protocol";
 import { usageText } from "./sessions.svelte";
 
 let { messages }: { messages: AgentMessage[] } = $props();
 
+/** Who wrote what an agent was sent: never "You" for text the person did not write. */
+const FROM: Record<MessageFrom, string> = { person: "You", coordinator: "Coordinator", ovra: "Ovra" };
 const MAX_OUTPUT = 2000;
 const MAX_SPOKEN = 300;
 /** How the claude CLI tells the model that a person denied or interrupted a tool call. */
@@ -57,7 +59,7 @@ $effect(() => {
     {@const sub = "parent" in message && message.parent ? "Subagent " : ""}
     <li class={message.kind} class:sub={sub !== ""}>
       {#if message.kind === "user_text"}
-        <span class="who">You</span>
+        <span class="who">{FROM[message.from]}</span>
         <p>{message.text}</p>
       {:else if message.kind === "assistant_text"}
         <span class="who">{sub}Claude</span>

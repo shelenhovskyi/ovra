@@ -5,7 +5,8 @@ expression: transcript
 [
   {
     "kind": "user_text",
-    "text": "Use the Write tool to create the file ../notes.txt (next to this project folder, not inside it) containing the word hi. If the write is denied, do not retry; just say so."
+    "text": "Use the Write tool to create the file ../notes.txt (next to this project folder, not inside it) containing the word hi. If the write is denied, do not retry; just say so.",
+    "from": "person"
   },
   {
     "kind": "tool_use",

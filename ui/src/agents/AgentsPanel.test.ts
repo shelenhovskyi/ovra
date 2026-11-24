@@ -120,10 +120,22 @@ describe("AgentsPanel", () => {
     );
   });
 
+  it("names who wrote each message an agent was sent", async () => {
+    const core = new FakeAgentCore();
+    core.addSession("p1", "Write the notes", { state: "idle" });
+    core.transcripts.set("s1", [
+      { kind: "user_text", text: "Write the notes", from: "coordinator" },
+      { kind: "user_text", text: "Ovra: worker w stopped.", from: "ovra" },
+      { kind: "user_text", text: "Thanks", from: "person" },
+    ]);
+    await setup(core);
+    expect(transcript()).toEqual(["Coordinator Write the notes", "Ovra Ovra: worker w stopped.", "You Thanks"]);
+  });
+
   it("replies only when the agent waits, and stops", async () => {
     const core = new FakeAgentCore();
     core.addSession("p1", "Earlier task", { state: "working" });
-    core.transcripts.set("s1", [{ kind: "user_text", text: "Earlier task" }]);
+    core.transcripts.set("s1", [{ kind: "user_text", text: "Earlier task", from: "person" }]);
     await setup(core);
     expect(transcript()).toEqual(["You Earlier task"]);
     const send = () => [...target.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Send");
@@ -154,7 +166,7 @@ describe("AgentsPanel", () => {
   it("resumes an ended session that can be resumed", async () => {
     const core = new FakeAgentCore();
     core.addSession("p1", "Earlier task", { state: "working" });
-    core.transcripts.set("s1", [{ kind: "user_text", text: "Earlier task" }]);
+    core.transcripts.set("s1", [{ kind: "user_text", text: "Earlier task", from: "person" }]);
     await setup(core);
     const info = core.sessions[0];
     if (info) info.resumable = true;
@@ -173,7 +185,7 @@ describe("AgentsPanel", () => {
   it("says plainly that a tool call was denied, and re-reads everything after a resync", async () => {
     const core = new FakeAgentCore();
     core.addSession("p1", "Earlier task", { state: "working" });
-    core.transcripts.set("s1", [{ kind: "user_text", text: "Earlier task" }]);
+    core.transcripts.set("s1", [{ kind: "user_text", text: "Earlier task", from: "person" }]);
     await setup(core);
     core.message("s1", {
       kind: "tool_result",
@@ -185,7 +197,7 @@ describe("AgentsPanel", () => {
     expect(transcript()).toEqual(["You Earlier task", "Not run: you denied it or interrupted the turn"]);
     // Events were dropped: the core's transcript is the truth.
     core.transcripts.set("s1", [
-      { kind: "user_text", text: "Earlier task" },
+      { kind: "user_text", text: "Earlier task", from: "person" },
       { kind: "assistant_text", text: "Missed" },
     ]);
     core.emit({ type: "info.resync", data: { skipped: 3 } });

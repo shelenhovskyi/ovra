@@ -7,7 +7,7 @@ use tokio::sync::broadcast;
 use crate::Core;
 use crate::fakes::{MemoryFs, MemoryProjects, MemoryWorktrees, ScriptedAgent, Step};
 use crate::protocol::agents::{
-    AgentMessage, AgentStatus, AgentsEvent, SessionId, SessionMode, TurnUsage,
+    AgentMessage, AgentStatus, AgentsEvent, MessageFrom, SessionId, SessionMode, TurnUsage,
 };
 use crate::protocol::orchestration::{OrchestrationEvent, OrchestrationResponse, ShowTarget, Task};
 use crate::protocol::permissions::PermissionsEvent;
@@ -539,7 +539,7 @@ async fn a_comment_after_a_reject_continues_the_worker_with_the_lost_diff() {
         .await
         .into_iter()
         .filter_map(|m| match m {
-            AgentMessage::UserText { text } => Some(text),
+            AgentMessage::UserText { text, .. } => Some(text),
             _ => None,
         })
         .collect();
@@ -1007,7 +1007,7 @@ async fn the_coordinator_hears_when_a_worker_asks_for_review_or_stops() {
         .await
         .into_iter()
         .filter_map(|m| match m {
-            AgentMessage::UserText { text } if text.starts_with("Ovra:") => Some(text),
+            AgentMessage::UserText { text, .. } if text.starts_with("Ovra:") => Some(text),
             _ => None,
         })
         .collect();
@@ -1018,6 +1018,52 @@ async fn the_coordinator_hears_when_a_worker_asks_for_review_or_stops() {
         notes.iter().all(|n| !n.contains("done")),
         "the worker's own words stay out"
     );
+}
+
+#[tokio::test]
+async fn messages_to_agents_say_who_wrote_them() {
+    let f = fx(say()).await;
+    let mut rx = f.core.subscribe();
+    start_task(&f.core, 3).await;
+    until(&mut rx, "s1", AgentStatus::Idle).await;
+    let boss = caller("s1", ToolRole::Coordinator);
+    let worker = f.core.spawn_agent(&boss, "w", "write the notes").await;
+    let worker = worker.unwrap_or_else(|e| panic!("{e}"));
+    until(&mut rx, "s2", AgentStatus::Idle).await;
+    assert!(
+        f.core
+            .send_message(&boss, &worker.session, "and the tests")
+            .is_ok()
+    );
+    until(&mut rx, "s2", AgentStatus::Idle).await;
+    let me = caller("s2", ToolRole::Worker);
+    assert!(f.core.request_review(&me, None, "done").await.is_ok());
+
+    let sent = |messages: Vec<AgentMessage>| -> Vec<(MessageFrom, String)> {
+        messages
+            .into_iter()
+            .filter_map(|m| match m {
+                AgentMessage::UserText { text, from } => {
+                    Some((from, text.lines().next().unwrap_or("").to_owned()))
+                }
+                _ => None,
+            })
+            .collect()
+    };
+    // The person never wrote the worker's task: the coordinator did.
+    assert_eq!(
+        sent(transcript(&f.core, "s2").await),
+        [
+            (MessageFrom::Coordinator, "write the notes".to_owned()),
+            (MessageFrom::Coordinator, "and the tests".to_owned()),
+        ]
+    );
+    let boss_got = sent(transcript(&f.core, "s1").await);
+    assert_eq!(
+        boss_got[0],
+        (MessageFrom::Person, "split the work".to_owned())
+    );
+    assert_eq!(boss_got.last().map(|m| m.0), Some(MessageFrom::Ovra));
 }
 
 #[tokio::test]
