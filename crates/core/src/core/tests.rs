@@ -173,6 +173,34 @@ async fn open_external_passes_absolute_path() {
     assert_eq!(opened, vec![(PathBuf::from("/w/a/b.rs"), Some(3))]);
 }
 
+#[tokio::test]
+async fn open_url_accepts_only_web_pages() {
+    let f = fixture();
+    let open = |url: &str| {
+        f.core
+            .handle(Request::Open(OpenRequest::Url { url: url.into() }))
+    };
+    for url in ["https://example.com/a?b#c", "HTTP://localhost:8080"] {
+        assert_eq!(open(url).await, Ok(Response::Ok(OkResponse::Ok)), "{url}");
+    }
+    for url in [
+        "file:///etc/passwd",
+        "javascript:alert(1)",
+        "vscode://open",
+        "https://",
+        "https:///etc/passwd",
+        "https://a b",
+        "https://a\nb",
+        "-https://a",
+        "",
+    ] {
+        let code = open(url).await.err().map(|e| e.code);
+        assert_eq!(code, Some(ErrorCode::BadRequest), "{url}");
+    }
+    let urls = f.opener.urls.lock().map(|u| u.clone()).unwrap_or_default();
+    assert_eq!(urls, ["https://example.com/a?b#c", "HTTP://localhost:8080"]);
+}
+
 #[test]
 fn events_reach_subscribers() {
     let core = Core::new("test");
@@ -189,6 +217,7 @@ fn wire_format_is_stable() {
             Request::Projects(ProjectsRequest::Open { id: ProjectId("p1".into()) }),
             Request::Fs(FsRequest::ListDir { project: ProjectId("p1".into()), path: "src".into() }),
             Request::Open(OpenRequest::External { project: ProjectId("p1".into()), path: "a.rs".into(), line: None }),
+            Request::Open(OpenRequest::Url { url: "https://example.com".into() }),
         ],
         "responses": [
             Response::Ok(OkResponse::Ok),
@@ -214,6 +243,7 @@ fn every_request_round_trips() {
         serde_json::json!({"method": "fs.read_file", "params": {"project": "p1", "path": "a"}}),
         serde_json::json!({"method": "fs.write_file", "params": {"project": "p1", "path": "a", "text": "", "expected_mtime_ms": null}}),
         serde_json::json!({"method": "open.external", "params": {"project": "p1", "path": "a", "line": 1}}),
+        serde_json::json!({"method": "open.url", "params": {"url": "https://example.com"}}),
     ];
     for json in requests {
         let parsed: Request = req(json.clone());

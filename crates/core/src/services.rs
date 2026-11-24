@@ -63,6 +63,9 @@ pub trait FsService: Send + Sync + Debug {
 pub trait Opener: Send + Sync + Debug {
     /// Opens `file` in the user's external editor, at `line` when supported.
     fn open_in_editor(&self, file: &Path, line: Option<u32>) -> Result<()>;
+    /// Opens a web page in the system browser. The core passes only
+    /// `http://` and `https://` URLs.
+    fn open_url(&self, url: &str) -> Result<()>;
 }
 
 /// Placeholder for services a front end has not wired in.
@@ -120,6 +123,9 @@ impl FsService for Unavailable {
 
 impl Opener for Unavailable {
     fn open_in_editor(&self, _: &Path, _: Option<u32>) -> Result<()> {
+        self.err()
+    }
+    fn open_url(&self, _: &str) -> Result<()> {
         self.err()
     }
 }

@@ -217,7 +217,30 @@ impl Core {
                 let file = RelPath::parse(&path)?.under(&self.root(&project)?);
                 self.inner.opener.open_in_editor(&file, line)
             }
+            OpenRequest::Url { url } => {
+                check_web_url(&url)?;
+                self.inner.opener.open_url(&url)
+            }
         }
+    }
+}
+
+/// Only web pages may leave the IDE: no `file:`, `javascript:` or custom
+/// schemes that could start other programs, and nothing a system handler
+/// could read as an option or a second argument.
+fn check_web_url(url: &str) -> Result<(), ProtocolError> {
+    let lower = url.get(..8).unwrap_or(url).to_ascii_lowercase();
+    let has_host = ["http://", "https://"]
+        .iter()
+        .find_map(|scheme| lower.starts_with(scheme).then(|| &url[scheme.len()..]))
+        .is_some_and(|rest| !rest.is_empty() && !rest.starts_with('/'));
+    if has_host && !url.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        Ok(())
+    } else {
+        Err(ProtocolError::new(
+            ErrorCode::BadRequest,
+            "only http:// and https:// URLs can be opened",
+        ))
     }
 }
 

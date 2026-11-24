@@ -14,4 +14,8 @@ pub enum OpenRequest {
         path: String,
         line: Option<u32>,
     },
+    /// Opens a web page in the system browser. Only `http` and `https` URLs
+    /// are accepted.
+    #[serde(rename = "open.url")]
+    Url { url: String },
 }

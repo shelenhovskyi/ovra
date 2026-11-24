@@ -203,15 +203,20 @@ impl FsService for MemoryFs {
     }
 }
 
-/// Records every file it is asked to open.
+/// Records every file and URL it is asked to open.
 #[derive(Debug, Default)]
 pub struct RecordingOpener {
     pub opened: Mutex<Vec<(PathBuf, Option<u32>)>>,
+    pub urls: Mutex<Vec<String>>,
 }
 
 impl Opener for RecordingOpener {
     fn open_in_editor(&self, file: &Path, line: Option<u32>) -> Result<()> {
         lock(&self.opened).push((file.to_path_buf(), line));
+        Ok(())
+    }
+    fn open_url(&self, url: &str) -> Result<()> {
+        lock(&self.urls).push(url.to_owned());
         Ok(())
     }
 }

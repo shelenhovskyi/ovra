@@ -38,6 +38,12 @@ expression: samples
         "path": "a.rs",
         "project": "p1"
       }
+    },
+    {
+      "method": "open.url",
+      "params": {
+        "url": "https://example.com"
+      }
     }
   ],
   "responses": [

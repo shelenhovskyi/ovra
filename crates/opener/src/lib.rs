@@ -1,6 +1,7 @@
 //! Opens files in other applications: the user's external editor from
 //! `$VISUAL` or `$EDITOR`, else the platform's default handler (`open` on
-//! macOS, `explorer` on Windows, `xdg-open` elsewhere).
+//! macOS, `explorer` on Windows, `xdg-open` elsewhere). Web pages go to the
+//! default handler, which is the system browser.
 //! Contract: `ovra_core::services::Opener`.
 
 mod editor;
@@ -12,7 +13,7 @@ use std::process::{Command, Stdio};
 use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::{Opener, Result};
 
-use editor::{Invocation, Platform, candidates};
+use editor::{Invocation, Platform, candidates, system_handler};
 
 /// The real opener.
 #[derive(Debug, Default)]
@@ -35,6 +36,11 @@ impl Opener for SystemOpener {
         let plan = candidates(|var| std::env::var_os(var), Platform::current(), file, line);
         launch_first(&plan, spawn_detached)
     }
+
+    fn open_url(&self, url: &str) -> Result<()> {
+        let handler = system_handler(Platform::current(), url.as_ref());
+        launch_first(&[handler], spawn_detached)
+    }
 }
 
 /// Starts the first invocation that spawns. A missing or broken editor in
@@ -53,7 +59,7 @@ fn launch_first(
     Err(ProtocolError::new(
         ErrorCode::Unavailable,
         format!(
-            "could not start an editor ({}); set $VISUAL to a graphical editor",
+            "could not start a program to open it ({}); set $VISUAL to a graphical editor",
             failures.join("; ")
         ),
     ))

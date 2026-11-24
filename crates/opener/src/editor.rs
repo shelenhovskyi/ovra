@@ -77,7 +77,7 @@ pub(crate) fn candidates(
         .filter_map(|value| from_editor_var(&value, file, line))
         .collect();
     out.dedup();
-    out.push(system_handler(platform, file));
+    out.push(system_handler(platform, file.as_os_str()));
     out
 }
 
@@ -134,7 +134,8 @@ fn with_suffix(file: OsString, line: u32) -> OsString {
     s
 }
 
-fn system_handler(platform: Platform, file: &Path) -> Invocation {
+/// The platform's default handler for a file or URL.
+pub(crate) fn system_handler(platform: Platform, target: &OsStr) -> Invocation {
     let program = match platform {
         Platform::Macos => "open",
         // `explorer <file>` uses the registered handler and, unlike
@@ -144,7 +145,7 @@ fn system_handler(platform: Platform, file: &Path) -> Invocation {
     };
     Invocation {
         program: program.into(),
-        args: vec![file.as_os_str().to_owned()],
+        args: vec![target.to_owned()],
     }
 }
 
@@ -239,6 +240,16 @@ mod tests {
         assert_eq!(
             plan(&vars, Platform::Unix, None),
             ["xdg-open /p/src/main.rs"]
+        );
+    }
+
+    #[test]
+    fn web_pages_go_to_the_default_handler() {
+        let page = OsStr::new("https://example.com");
+        let open = system_handler(Platform::Macos, page);
+        assert_eq!(
+            (open.program, open.args),
+            ("open".into(), vec![page.to_owned()])
         );
     }
 
