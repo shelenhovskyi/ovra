@@ -9,9 +9,11 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use clap::Parser;
+use ovra_agent_runtime::ClaudeCli;
 use ovra_core::Core;
 use ovra_fs_index::FsIndex;
 use ovra_opener::SystemOpener;
+use ovra_pty::Pty;
 use ovra_store::Store;
 use ovra_transport::ws::{self, Access};
 use rand::Rng;
@@ -64,6 +66,8 @@ async fn main() -> anyhow::Result<()> {
         .projects(Arc::new(Store::open(&args.data_dir)?))
         .fs(Arc::new(FsIndex::new()))
         .opener(Arc::new(SystemOpener::new()))
+        .terminals(Arc::new(Pty::new()))
+        .agents(Arc::new(ClaudeCli::new(None)))
         .build();
     let app = ws::router(
         core,

@@ -26,12 +26,16 @@ Before every push: `just test && just e2e && just lint` must pass.
 ## Layout and boundaries
 
 - `crates/core` - protocol (`src/protocol/`, one module per domain), request
-  handling, path validation (`src/path.rs`) and the service traits
-  (`src/services.rs`) with in-memory fakes (`src/fakes.rs`, `fakes` feature).
+  handling, agent sessions and permission requests (`src/agents/`), path
+  validation (`src/path.rs`) and the service traits (`src/services.rs`) with
+  in-memory fakes (`src/fakes.rs`, `fakes` feature).
   No UI, no OS APIs, no Tauri, no axum.
 - `crates/fs-index` - `FsService`: listings, `.gitignore`, git status, watching.
 - `crates/store` - `ProjectStore`: the project list, persisted.
 - `crates/opener` - `Opener`: hands files to other applications.
+- `crates/pty` - `TerminalService`: shells in pseudo-terminals.
+- `crates/agent-runtime` - `AgentRuntime`: Claude sessions through the
+  user's installed `claude` CLI (ADR 0006).
 - `crates/transport` - JSON frames and the WebSocket endpoint (`ws` feature).
 - `crates/daemon` - headless binary: wires services into the core, serves
   WebSocket + static UI.

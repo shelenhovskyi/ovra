@@ -18,6 +18,8 @@ tauri-build = { version = "2", features = [] }
 ovra-core.workspace = true
 ovra-fs-index.workspace = true
 ovra-opener.workspace = true
+ovra-pty.workspace = true
+ovra-agent-runtime.workspace = true
 ovra-store.workspace = true
 ovra-transport.workspace = true
 tauri = { version = "2", features = [] }
