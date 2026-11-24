@@ -359,4 +359,31 @@ describe("ProjectList", () => {
     await settle();
     expect(opened).toEqual(["demo"]);
   });
+
+  it("explains a full file watch limit until it is dismissed or lifted", async () => {
+    const core = new FakeCore(dirsFromPaths(["a.ts"]));
+    mountTree(core);
+    await settle();
+    const notice = () => document.querySelector<HTMLElement>("[data-testid=watch-limit-notice]");
+    expect(notice()).toBeNull();
+
+    core.emit({ type: "fs.watch_limited", data: { project: "other", unwatched: 5 } });
+    flushSync();
+    expect(notice()).toBeNull();
+    core.emit({ type: "fs.watch_limited", data: { project: "p1", unwatched: 3 } });
+    flushSync();
+    expect(notice()?.textContent).toContain("3 folders are not watched");
+    expect(notice()?.textContent).toContain("sudo sysctl fs.inotify.max_user_watches=524288");
+
+    notice()?.querySelector("button")?.click();
+    flushSync();
+    expect(notice()).toBeNull();
+    // More folders without a watch: worth telling again.
+    core.emit({ type: "fs.watch_limited", data: { project: "p1", unwatched: 4 } });
+    flushSync();
+    expect(notice()).not.toBeNull();
+    core.emit({ type: "fs.watch_limited", data: { project: "p1", unwatched: 0 } });
+    flushSync();
+    expect(notice()).toBeNull();
+  });
 });

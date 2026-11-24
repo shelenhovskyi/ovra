@@ -9,6 +9,7 @@ import type { GitStatus, ProjectId } from "../lib/protocol";
 import type { Transport } from "../lib/transport";
 import { ancestorsOf, type Filter, parentOf, type Row, TreeModel, typeaheadMatch, visibleRange } from "./model";
 import { ExpandedSaver, loadExpanded } from "./persist";
+import WatchLimitNotice from "./WatchLimitNotice.svelte";
 
 let {
   transport,
@@ -40,6 +41,8 @@ let rows = $state.raw<Row[]>([]);
 let error = $state<string | null>(null);
 let rootLoading = $state(true);
 let filter = $state<Filter>("all");
+/** Folders the core polls instead of watching (`fs.watch_limited`). */
+let unwatched = $state(0);
 /** Path of the active row; survives rebuilds. */
 let selected = $state<string | null>(null);
 let scrollTop = $state(0);
@@ -110,6 +113,7 @@ $effect(() => {
   const off = transport.onEvent((event) => {
     if (event.type === "fs.changed" && event.data.project === project) void model.invalidatePaths(event.data.paths);
     if (event.type === "fs.git_changed" && event.data.project === project) void model.invalidateAll();
+    if (event.type === "fs.watch_limited" && event.data.project === project) unwatched = event.data.unwatched;
     // Events may have been dropped while this client lagged behind.
     if (event.type === "info.resync") void model.invalidateAll();
   });
@@ -317,6 +321,7 @@ function onkeydown(e: KeyboardEvent): void {
       Changed only
     </button>
   </div>
+  <WatchLimitNotice {unwatched} />
   <div
     class="viewport"
     role="tree"
