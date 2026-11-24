@@ -121,6 +121,7 @@ pub(crate) fn on_status(core: &Core, session: &SessionId, status: &AgentStatus) 
         let review = state
             .reviews
             .iter()
+            .rev()
             .find(|r| &r.session == session)
             .map(|r| r.id.clone());
         let task = state

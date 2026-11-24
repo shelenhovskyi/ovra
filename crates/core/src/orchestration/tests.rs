@@ -442,7 +442,8 @@ async fn a_comment_after_a_reject_continues_the_worker_with_the_lost_diff() {
         panic!("unexpected {done:?}");
     };
     assert_eq!(item.state, ReviewState::Rejected);
-    assert!(item.files.is_empty());
+    let record: Vec<_> = item.files.iter().map(|f| f.path.as_str()).collect();
+    assert_eq!(record, ["a.rs"], "the decided item keeps what was rejected");
     assert_eq!(
         f.wt.files(&worker.worktree),
         f.wt.files(ROOT),
@@ -724,5 +725,42 @@ async fn after_a_restart_a_direct_review_lists_its_files_and_can_be_kept() {
     assert_eq!(
         wt.files(ROOT).get("a.rs").map(String::as_str),
         Some("two\n")
+    );
+}
+
+#[tokio::test]
+async fn work_after_a_decision_opens_a_new_item_and_the_old_one_keeps_its_record() {
+    let f = fx(say()).await;
+    start_task(&f.core, 3).await;
+    let boss = caller("s1", ToolRole::Coordinator);
+    let worker = f.core.spawn_agent(&boss, "w", "x").await;
+    let worker = worker.unwrap_or_else(|e| panic!("{e}"));
+    f.wt.put(&worker.worktree, "a.rs", "two\n");
+    ok(
+        &f.core,
+        json!({"method": "review.approve", "params": {"id": "r1", "commit": null}}),
+    )
+    .await;
+
+    f.wt.put(&worker.worktree, "b.rs", "next\n");
+    let items = reviews(&f.core).await;
+    let summary: Vec<_> = items
+        .iter()
+        .map(|i| {
+            let files: Vec<_> = i.files.iter().map(|f| f.path.as_str()).collect();
+            (i.id.0.as_str(), i.state, files)
+        })
+        .collect();
+    assert_eq!(
+        summary,
+        [
+            ("r2", ReviewState::Open, vec!["b.rs"]),
+            ("r1", ReviewState::Approved, vec!["a.rs"]),
+        ]
+    );
+    assert_eq!(
+        reviews(&f.core).await.len(),
+        2,
+        "listing again opens nothing more"
     );
 }

@@ -817,10 +817,11 @@ mod through_the_core {
         assert_eq!(restored, ["fmt.rs"]);
         assert_eq!(item.state, ReviewState::Rejected);
         assert!(item.can_undo);
-        assert!(
-            item.files.iter().all(|f| f.by == Outside),
-            "{:?}",
-            item.files
+        // The decided item keeps the files it was rejected with.
+        let by: Vec<_> = item.files.iter().map(|f| (f.path.as_str(), f.by)).collect();
+        assert_eq!(
+            by,
+            [("a.rs", Outside), ("fmt.rs", Agent), ("later.rs", Outside)]
         );
         let files = trees.files(DIR);
         let left: Vec<_> = files

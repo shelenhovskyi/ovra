@@ -31,6 +31,10 @@ pub(super) struct Entry {
     requested: bool,
     /// The diff of the last reject, sent with the next comment.
     rejected: Option<String>,
+    /// The files as they were when the person decided, kept as the record
+    /// of what was approved or rejected.
+    #[serde(default)]
+    decided: Vec<FileChange>,
 }
 
 /// Records what `session`'s review compares, creating its item. Direct
@@ -44,7 +48,12 @@ pub(crate) fn set_workspace(core: &Core, session: &SessionId, workspace: Workspa
     };
     let orchestration = core.orchestration_state();
     let mut state = orchestration.lock();
-    if let Some(entry) = state.reviews.iter_mut().find(|r| &r.session == session) {
+    if let Some(entry) = state
+        .reviews
+        .iter_mut()
+        .rev()
+        .find(|r| &r.session == session)
+    {
         entry.workspace = workspace;
         orchestration.save(&state);
         return;
@@ -61,6 +70,7 @@ pub(crate) fn set_workspace(core: &Core, session: &SessionId, workspace: Workspa
         summary: None,
         requested: false,
         rejected: None,
+        decided: Vec::new(),
     });
     orchestration.save(&state);
 }
@@ -76,6 +86,7 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
     match request {
         ReviewRequest::List { project } => {
             core.project_store().get(&project)?;
+            follow_up(core, &project).await;
             let entries: Vec<Entry> = core
                 .orchestration_state()
                 .lock()
@@ -131,11 +142,13 @@ fn find(core: &Core, id: &ReviewId) -> Result<Entry> {
         .ok_or_else(|| not_found(format!("review {}", id.0)))
 }
 
+/// The session's latest review item.
 pub(super) fn of_session(core: &Core, session: &SessionId) -> Option<Entry> {
     core.orchestration_state()
         .lock()
         .reviews
         .iter()
+        .rev()
         .find(|r| &r.session == session)
         .cloned()
 }
@@ -170,7 +183,11 @@ pub(super) async fn item(core: &Core, entry: &Entry) -> Result<ReviewItem> {
         mode: entry.mode,
         state: entry.state,
         summary: entry.summary.clone(),
-        files: files(core, entry).await?,
+        files: if entry.state == ReviewState::Open {
+            files(core, entry).await?
+        } else {
+            entry.decided.clone()
+        },
         can_undo: entry.mode == SessionMode::Direct
             && entry.state == ReviewState::Rejected
             && core.sessions().direct.can_undo(&entry.session),
@@ -274,12 +291,18 @@ async fn approve(
         if commit.is_none() && direct.files(&entry.session).await.is_err() {
             // Ovra no longer knows which files are the agent's (it
             // restarted since): keeping the changes needs no such knowledge.
-            let entry = update(core, id, |e| e.state = ReviewState::Approved)?;
+            let decided = files(core, &entry).await?;
+            let entry = update(core, id, |e| {
+                e.state = ReviewState::Approved;
+                e.decided = decided;
+            })?;
             return Ok((item(core, &entry).await?, Vec::new()));
         }
+        let decided = files(core, &entry).await?;
         let outcome = direct.approve(&entry.session, commit).await?;
         let entry = update(core, id, |e| {
             e.state = ReviewState::Approved;
+            e.decided = decided;
             if let Some(base) = outcome.base {
                 e.workspace.base = base;
             }
@@ -289,10 +312,9 @@ async fn approve(
     let root = core.root(&entry.project)?;
     let ws = entry.workspace.clone();
     let worktrees = core.worktrees();
-    let (waiting, ready): (Vec<FileChange>, Vec<FileChange>) = files(core, &entry)
-        .await?
-        .into_iter()
-        .partition(|f| f.blocked);
+    let decided = files(core, &entry).await?;
+    let (waiting, ready): (Vec<FileChange>, Vec<FileChange>) =
+        decided.iter().cloned().partition(|f| f.blocked);
     let mut conflicts = worktrees
         .apply(
             ws.dir.clone(),
@@ -311,17 +333,13 @@ async fn approve(
         worktrees.commit(root, applied, message).await?;
     }
     conflicts.extend(waiting.into_iter().map(|f| f.path));
-    // With everything applied, later work shows as a new diff after a comment.
-    let base = if conflicts.is_empty() {
-        Some(worktrees.snapshot(ws.dir).await?)
-    } else {
-        None
-    };
+    // What the worker does from now on is a new review; files left for the
+    // person are in the outcome and the decided record.
+    let base = worktrees.snapshot(ws.dir).await?;
     let entry = update(core, id, |e| {
         e.state = ReviewState::Approved;
-        if let Some(base) = base {
-            e.workspace.base = base;
-        }
+        e.workspace.base = base;
+        e.decided = decided;
     })?;
     Ok((item(core, &entry).await?, conflicts))
 }
@@ -343,11 +361,12 @@ async fn reject(core: &Core, id: &ReviewId) -> Result<(ReviewItem, Vec<String>, 
     worktrees
         .restore(ws.dir, ws.base, rel_paths(&files)?)
         .await?;
+    let restored = files.iter().map(|f| f.path.clone()).collect();
     let entry = update(core, id, |e| {
         e.state = ReviewState::Rejected;
         e.rejected = Some(diff);
+        e.decided = files;
     })?;
-    let restored = files.into_iter().map(|f| f.path).collect();
     Ok((item(core, &entry).await?, Vec::new(), restored))
 }
 
@@ -357,9 +376,11 @@ async fn reject_direct(
     core: &Core,
     entry: &Entry,
 ) -> Result<(ReviewItem, Vec<String>, Vec<String>)> {
+    let decided = files(core, entry).await?;
     let outcome = core.sessions().direct.reject(&entry.session).await?;
     let entry = update(core, &entry.id, |e| {
         e.state = ReviewState::Rejected;
+        e.decided = decided;
         e.rejected = Some(outcome.diff);
         if let Some(base) = outcome.base {
             e.workspace.base = base;
@@ -383,6 +404,7 @@ async fn undo_reject(core: &Core, id: &ReviewId) -> Result<(ReviewItem, Vec<Stri
     let entry = update(core, id, |e| {
         e.state = ReviewState::Open;
         e.rejected = None;
+        e.decided = Vec::new();
         if let Some(base) = outcome.base {
             e.workspace.base = base;
         }
@@ -404,10 +426,16 @@ async fn comment(core: &Core, id: &ReviewId, text: String) -> Result<()> {
         _ => text,
     };
     continue_session(core, &entry.session, message).await?;
-    update(core, id, |e| {
-        e.state = ReviewState::Open;
-        e.rejected = None;
-    })?;
+    // An older item stays the record of its decision; the session's latest
+    // item is the one that shows its new work.
+    let latest = of_session(core, &entry.session).is_some_and(|l| l.id == entry.id);
+    if latest {
+        update(core, id, |e| {
+            e.state = ReviewState::Open;
+            e.rejected = None;
+            e.decided = Vec::new();
+        })?;
+    }
     Ok(())
 }
 
@@ -449,10 +477,68 @@ fn with_rejected(text: &str, diff: &str) -> String {
 
 /// `request_review`: the agent's summary, shown in the inbox.
 pub(super) fn request(core: &Core, session: &SessionId, summary: String) -> Result<Entry> {
-    let entry = of_session(core, session)
+    let mut entry = of_session(core, session)
         .ok_or_else(|| conflict("this session has no changes to review"))?;
+    if entry.state != ReviewState::Open {
+        entry = open_after(core, &entry);
+    }
     update(core, &entry.id, |e| {
         e.summary = Some(summary);
         e.requested = true;
     })
+}
+
+/// Opens a new item for what each session of `project` changed since its
+/// latest item was decided, so new work is not hidden in a decided item.
+/// Changes made only outside the agent open nothing; a reject that can
+/// still be undone keeps its item.
+async fn follow_up(core: &Core, project: &ProjectId) {
+    let latest: Vec<Entry> = {
+        let state = core.orchestration_state().lock();
+        let mut seen = BTreeSet::new();
+        state
+            .reviews
+            .iter()
+            .rev()
+            .filter(|r| &r.project == project && seen.insert(r.session.clone()))
+            .filter(|r| r.state != ReviewState::Open)
+            .cloned()
+            .collect()
+    };
+    for entry in latest {
+        let undoable = entry.state == ReviewState::Rejected
+            && entry.mode == SessionMode::Direct
+            && core.sessions().direct.can_undo(&entry.session);
+        if undoable {
+            continue;
+        }
+        let new = files(core, &entry).await.unwrap_or_default();
+        if new.iter().any(|f| f.by != ChangedBy::Outside) {
+            let opened = open_after(core, &entry);
+            core.emit(ReviewEvent::Changed {
+                project: opened.project.clone(),
+                id: opened.id,
+            });
+        }
+    }
+}
+
+/// A new open item for `decided`'s session, comparing from where the
+/// decision left it.
+fn open_after(core: &Core, decided: &Entry) -> Entry {
+    let orchestration = core.orchestration_state();
+    let mut state = orchestration.lock();
+    state.reviews_made += 1;
+    let entry = Entry {
+        id: ReviewId(format!("r{}", state.reviews_made)),
+        state: ReviewState::Open,
+        summary: None,
+        requested: false,
+        rejected: None,
+        decided: Vec::new(),
+        ..decided.clone()
+    };
+    state.reviews.push(entry.clone());
+    orchestration.save(&state);
+    entry
 }
