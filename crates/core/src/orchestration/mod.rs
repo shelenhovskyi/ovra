@@ -1,50 +1,73 @@
-//! Orchestration and review state (`docs/specs/orchestration.md`): tasks,
-//! roles, limits and review items, and the holds running sessions keep on
-//! their projects. Tasks and review items are stubs until the next commits.
+//! Orchestration and review state (`docs/specs/orchestration.md`): tasks of
+//! a coordinator and its workers, their limits, review items, and the holds
+//! running sessions keep on their projects. Pure state: worktrees and agents are reached through services.
 //!
 //! Lock order: this state's lock may be held while taking the sessions'
 //! lock, never the other way round; sessions call in here only without
 //! holding theirs.
 
+mod ide;
+mod review;
+mod tasks;
+
 use std::collections::BTreeSet;
+use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard, PoisonError};
+
+pub use ide::{Output, WorkerState};
 
 use crate::Core;
 use crate::protocol::agents::{AgentStatus, SessionId};
-use crate::protocol::orchestration::OrchestrationRequest;
-use crate::protocol::review::ReviewRequest;
+use crate::protocol::orchestration::{OrchestrationEvent, OrchestrationRequest};
+use crate::protocol::review::{ReviewEvent, ReviewRequest};
 use crate::protocol::{ErrorCode, ProtocolError, Response};
 
-#[derive(Debug, Default)]
+type Result<T> = std::result::Result<T, ProtocolError>;
+
+/// What a session's review compares: the working tree of `dir` against the
+/// commit `base` (a worker's worktree and its start, or the main checkout
+/// and a direct session's baseline).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Workspace {
+    pub(crate) dir: PathBuf,
+    pub(crate) base: String,
+}
+
+#[derive(Debug)]
 pub(crate) struct Orchestration {
     state: Mutex<State>,
+    worktrees_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Default)]
 struct State {
+    tasks: Vec<tasks::Entry>,
+    tasks_made: u64,
+    reviews: Vec<review::Entry>,
+    reviews_made: u64,
     /// Sessions that hold their project open while they run.
     holds: BTreeSet<SessionId>,
 }
 
 impl Orchestration {
+    pub(crate) fn new(worktrees_dir: Option<PathBuf>) -> Self {
+        Self {
+            state: Mutex::new(State::default()),
+            worktrees_dir,
+        }
+    }
+
     fn lock(&self) -> MutexGuard<'_, State> {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
 
-fn not_yet(what: &str, task: &str) -> ProtocolError {
-    ProtocolError::new(
-        ErrorCode::Unavailable,
-        format!("{what} is not implemented yet (task {task})"),
-    )
+pub(crate) async fn review(core: &Core, request: ReviewRequest) -> Result<Response> {
+    review::handle(core, request).await
 }
 
-pub(crate) fn review(_: ReviewRequest) -> Result<Response, ProtocolError> {
-    Err(not_yet("review", "3.B"))
-}
-
-pub(crate) fn orchestration(_: OrchestrationRequest) -> Result<Response, ProtocolError> {
-    Err(not_yet("orchestration", "3.B"))
+pub(crate) async fn orchestration(core: &Core, request: OrchestrationRequest) -> Result<Response> {
+    tasks::handle(core, request).await
 }
 
 /// Called whenever a session changes state (and with `starting` when it
@@ -70,6 +93,45 @@ pub(crate) fn on_status(core: &Core, session: &SessionId, status: &AgentStatus) 
     if status.is_ended() && state.lock().holds.remove(session) {
         core.release(&project);
     }
+    if !(status.is_ended() || *status == AgentStatus::Idle) {
+        return;
+    }
+    // A finished turn or session may have changed files or spent money.
+    let (review, task) = {
+        let state = state.lock();
+        let review = state
+            .reviews
+            .iter()
+            .find(|r| &r.session == session)
+            .map(|r| r.id.clone());
+        let task = state
+            .tasks
+            .iter()
+            .find(|t| t.has_session(session))
+            .map(|t| t.id.clone());
+        (review, task)
+    };
+    if let Some(id) = review {
+        core.emit(ReviewEvent::Changed {
+            project: project.clone(),
+            id,
+        });
+    }
+    if let Some(task) = task {
+        core.emit(OrchestrationEvent::Changed { project, task });
+    }
+}
+
+fn not_found(what: impl std::fmt::Display) -> ProtocolError {
+    ProtocolError::new(ErrorCode::NotFound, format!("{what} not found"))
+}
+
+fn conflict(message: impl Into<String>) -> ProtocolError {
+    ProtocolError::new(ErrorCode::Conflict, message)
+}
+
+fn forbidden(message: impl Into<String>) -> ProtocolError {
+    ProtocolError::new(ErrorCode::Forbidden, message)
 }
 
 #[cfg(test)]

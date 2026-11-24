@@ -76,6 +76,7 @@ async fn main() -> anyhow::Result<()> {
         .fs(Arc::new(FsIndex::new()))
         .opener(Arc::new(SystemOpener::new()))
         .worktrees(Arc::new(GitWorktrees::new()))
+        .worktrees_dir(args.data_dir.join("worktrees"))
         .ide_tools(Arc::new(IdeServer::new()))
         .terminals(Arc::new(Pty::new()))
         .agents(agents(&args))

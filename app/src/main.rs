@@ -35,6 +35,7 @@ fn main() {
                 .fs(Arc::new(FsIndex::new()))
                 .opener(Arc::new(SystemOpener::new()))
                 .worktrees(Arc::new(GitWorktrees::new()))
+                .worktrees_dir(data_dir.join("worktrees"))
                 .ide_tools(Arc::new(IdeServer::new()))
                 .terminals(Arc::new(Pty::new()))
                 .agents(Arc::new(ClaudeCli::new(None)))

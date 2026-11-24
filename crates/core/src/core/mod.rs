@@ -33,6 +33,7 @@ pub struct CoreBuilder {
     agents: Arc<dyn AgentRuntime>,
     sessions: Arc<dyn SessionStore>,
     worktrees: Arc<dyn Worktrees>,
+    worktrees_dir: Option<PathBuf>,
     ide_tools: Arc<dyn IdeTools>,
 }
 
@@ -74,6 +75,14 @@ impl CoreBuilder {
         self
     }
 
+    /// Where workers' worktrees go: a folder in Ovra's data directory,
+    /// outside every repository. Without one, coordinators cannot start
+    /// workers.
+    pub fn worktrees_dir(mut self, dir: PathBuf) -> Self {
+        self.worktrees_dir = Some(dir);
+        self
+    }
+
     pub fn ide_tools(mut self, tools: Arc<dyn IdeTools>) -> Self {
         self.ide_tools = tools;
         self
@@ -91,7 +100,7 @@ impl CoreBuilder {
                 agents: self.agents,
                 sessions: Arc::new(Sessions::new(self.sessions)),
                 worktrees: self.worktrees,
-                orchestration: Orchestration::default(),
+                orchestration: Orchestration::new(self.worktrees_dir),
                 held: Mutex::new(None),
                 open: Mutex::new(BTreeMap::new()),
             }),
@@ -119,10 +128,6 @@ struct Inner {
     opener: Arc<dyn Opener>,
     terminals: Arc<dyn TerminalService>,
     agents: Arc<dyn AgentRuntime>,
-    #[expect(
-        dead_code,
-        reason = "read by review and orchestration (tasks 3.B, 3.F)"
-    )]
     worktrees: Arc<dyn Worktrees>,
     orchestration: Orchestration,
     sessions: Arc<Sessions>,
@@ -191,6 +196,7 @@ impl Core {
             agents: Arc::new(Unavailable("agents")),
             sessions: Arc::new(Unavailable("keeping sessions")),
             worktrees: Arc::new(Unavailable("worktrees")),
+            worktrees_dir: None,
             ide_tools: Arc::new(Unavailable("IDE tools")),
         }
     }
@@ -266,8 +272,8 @@ impl Core {
             Request::Terminals(r) => self.terminals(r),
             Request::Agents(r) => agents::handle_agents(&self.agents_ctx(), r).await,
             Request::Permissions(r) => agents::handle_permissions(&self.agents_ctx(), r),
-            Request::Review(r) => orchestration::review(r),
-            Request::Orchestration(r) => orchestration::orchestration(r),
+            Request::Review(r) => orchestration::review(self, r).await,
+            Request::Orchestration(r) => orchestration::orchestration(self, r).await,
         }
     }
 
@@ -284,7 +290,15 @@ impl Core {
         &self.inner.orchestration
     }
 
-    fn agents_ctx(&self) -> agents::Ctx<'_> {
+    pub(crate) fn worktrees(&self) -> &dyn Worktrees {
+        self.inner.worktrees.as_ref()
+    }
+
+    pub(crate) fn project_store(&self) -> &dyn ProjectStore {
+        self.inner.projects.as_ref()
+    }
+
+    pub(crate) fn agents_ctx(&self) -> agents::Ctx<'_> {
         agents::Ctx {
             sessions: &self.inner.sessions,
             runtime: self.inner.agents.as_ref(),

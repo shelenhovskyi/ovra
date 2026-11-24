@@ -24,8 +24,10 @@ use crate::services::{
 
 pub(crate) use permissions::Permissions;
 pub(crate) use requests::{
-    Ctx, agents as handle_agents, permissions as handle_permissions, stop_project, trust,
+    Ctx, NewSession, agents as handle_agents, check_text, permissions as handle_permissions, start,
+    stop, stop_project, trust,
 };
+pub(crate) use transcript::MAX_TEXT_BYTES;
 use transcript::Transcript;
 
 /// Ended sessions kept per project, with their transcripts; older ones are

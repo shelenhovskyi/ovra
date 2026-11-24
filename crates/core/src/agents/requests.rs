@@ -305,7 +305,7 @@ pub(crate) async fn trust(
 
 /// Denies what the agent waits for and asks it to end; the runtime then
 /// reports `stopped`. Stopping an ended session does nothing.
-fn stop(ctx: &Ctx<'_>, session: SessionId) -> Result<()> {
+pub(crate) fn stop(ctx: &Ctx<'_>, session: SessionId) -> Result<()> {
     let sessions = ctx.sessions;
     let (process, project, denied) = sessions.find(&session, |s| {
         let denied = if s.status().is_ended() {
@@ -333,7 +333,7 @@ pub(crate) fn stop_project(ctx: &Ctx<'_>, project: &ProjectId) {
 }
 
 /// Prompts and messages must say something and fit in the transcript.
-fn check_text(text: &str) -> Result<()> {
+pub(crate) fn check_text(text: &str) -> Result<()> {
     if text.trim().is_empty() {
         return Err(ProtocolError::new(
             ErrorCode::BadRequest,

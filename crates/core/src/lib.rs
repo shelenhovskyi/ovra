@@ -16,3 +16,4 @@ pub mod protocol;
 pub mod services;
 
 pub use crate::core::{Client, Core, CoreBuilder};
+pub use crate::orchestration::{Output, WorkerState};
