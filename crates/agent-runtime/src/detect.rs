@@ -7,7 +7,7 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use ovra_core::protocol::agents::{AgentSetup, SetupState};
+use ovra_core::protocol::agents::{AgentSetup, Billing, SetupState};
 
 /// Oldest version the protocol was checked against (the 2026-11-24 spike).
 const MIN_VERSION: Version = Version(2, 1, 331);
@@ -117,6 +117,8 @@ pub(crate) struct Env {
     pub(crate) app_data: Option<PathBuf>,
     /// `Some(PATHEXT)` on Windows, where `claude` is `claude.exe` or `claude.cmd`.
     pub(crate) windows_ext: Option<OsString>,
+    /// `ANTHROPIC_API_KEY` is set (its value is never read).
+    pub(crate) api_key: bool,
 }
 
 impl Env {
@@ -128,6 +130,7 @@ impl Env {
             home: var(if windows { "USERPROFILE" } else { "HOME" }).map(PathBuf::from),
             app_data: var("APPDATA").map(PathBuf::from),
             windows_ext: windows.then(|| var("PATHEXT").unwrap_or_else(|| ".EXE;.CMD".into())),
+            api_key: var("ANTHROPIC_API_KEY").is_some(),
         }
     }
 
@@ -227,10 +230,24 @@ pub(crate) async fn check_version(executable: &Path) -> Result<Version, Problem>
 }
 
 /// Reads `loggedIn` from `claude auth status --json`; `None` if the answer
-/// does not say. Every other field is ignored.
+/// does not say.
 fn signed_in(output: &str) -> Option<bool> {
     let status: serde_json::Value = serde_json::from_str(output.trim()).ok()?;
     status.get("loggedIn")?.as_bool()
+}
+
+/// Reads who pays from `authMethod` and `apiProvider` of `claude auth status
+/// --json` (values of Claude Code 2.1.331); `None` for anything else.
+fn billing(output: &str) -> Option<Billing> {
+    let status: serde_json::Value = serde_json::from_str(output.trim()).ok()?;
+    match status.get("authMethod")?.as_str()? {
+        "claude.ai" | "oauth_token" => Some(Billing::Subscription),
+        "api_key" | "api_key_helper" => Some(Billing::ApiKey),
+        "third_party" => Some(Billing::Cloud {
+            provider: status.get("apiProvider")?.as_str()?.to_owned(),
+        }),
+        _ => None,
+    }
 }
 
 /// The whole onboarding check.
@@ -240,6 +257,8 @@ pub(crate) async fn setup(chosen: Option<PathBuf>, env: &Env) -> AgentSetup {
         executable: None,
         version: None,
         state: SetupState::Ready,
+        billing: None,
+        api_key_in_env: env.api_key,
     };
     let executable = match find(chosen.as_deref(), env) {
         Ok(executable) => executable,
@@ -261,10 +280,12 @@ pub(crate) async fn setup(chosen: Option<PathBuf>, env: &Env) -> AgentSetup {
     }
     // An answer that cannot be read does not block: a session that is
     // really signed out fails with Claude's own message.
-    if let Ok((stdout, _)) = ask(&executable, &["auth", "status", "--json"]).await
-        && signed_in(&stdout) == Some(false)
-    {
-        setup.state = SetupState::SignedOut;
+    if let Ok((stdout, _)) = ask(&executable, &["auth", "status", "--json"]).await {
+        if signed_in(&stdout) == Some(false) {
+            setup.state = SetupState::SignedOut;
+        } else {
+            setup.billing = billing(&stdout);
+        }
     }
     setup
 }
@@ -308,12 +329,34 @@ mod tests {
         assert_eq!(signed_in(r#"{"loggedIn": "yes"}"#), None);
     }
 
+    #[test]
+    fn the_sign_in_says_who_pays() {
+        let paid = |method: &str| {
+            billing(&format!(
+                r#"{{"loggedIn": true, "authMethod": "{method}", "apiProvider": "bedrock"}}"#
+            ))
+        };
+        assert_eq!(paid("claude.ai"), Some(Billing::Subscription));
+        assert_eq!(paid("oauth_token"), Some(Billing::Subscription));
+        assert_eq!(paid("api_key"), Some(Billing::ApiKey));
+        assert_eq!(paid("api_key_helper"), Some(Billing::ApiKey));
+        assert_eq!(
+            paid("third_party"),
+            Some(Billing::Cloud {
+                provider: "bedrock".into()
+            })
+        );
+        assert_eq!(paid("none"), None);
+        assert_eq!(billing("not json"), None);
+    }
+
     fn env(path: &[PathBuf], home: PathBuf, windows_ext: Option<&str>) -> Env {
         Env {
             path: std::env::join_paths(path).ok(),
             home: Some(home),
             app_data: Some(std::env::temp_dir().join("roaming")),
             windows_ext: windows_ext.map(OsString::from),
+            api_key: false,
         }
     }
 

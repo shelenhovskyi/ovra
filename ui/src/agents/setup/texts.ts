@@ -13,6 +13,30 @@ export const INSTALL_COMMANDS: { label: string; command: string }[] = [
   { label: "npm", command: "npm install -g @anthropic-ai/claude-code" },
 ];
 
+const PROVIDERS: Record<string, string> = {
+  bedrock: "Amazon Bedrock",
+  vertex: "Google Vertex AI",
+  foundry: "Microsoft Foundry",
+};
+
+/** Who pays for agents' usage, and a warning when that may not be what the user expects. */
+export function billingText(setup: AgentSetup): { paid: string | null; warning: string | null } {
+  const billing = setup.billing;
+  const paid =
+    billing?.kind === "subscription"
+      ? "Usage counts against your Claude plan's limits."
+      : billing?.kind === "api_key"
+        ? "Usage is billed to an Anthropic API key, at API prices."
+        : billing?.kind === "cloud"
+          ? `Usage is billed to your ${PROVIDERS[billing.provider] ?? billing.provider} account.`
+          : null;
+  const warning =
+    setup.api_key_in_env && billing?.kind !== "cloud"
+      ? "ANTHROPIC_API_KEY is set where Ovra runs. Claude Code may bill that key instead of your plan; unset it and restart Ovra to use your subscription."
+      : null;
+  return { paid, warning };
+}
+
 export type SetupAdvice = {
   /** One line for the card's heading. */
   title: string;

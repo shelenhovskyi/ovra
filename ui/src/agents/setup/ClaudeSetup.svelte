@@ -5,7 +5,7 @@ import { untrack } from "svelte";
 import type { AgentSetup } from "../../lib/protocol";
 import { CoreError } from "../../lib/transport";
 import { useOvra } from "../../shell/context";
-import { advice, INSTALL_COMMANDS, SETUP_DOCS } from "./texts";
+import { advice, billingText, INSTALL_COMMANDS, SETUP_DOCS } from "./texts";
 
 const { transport } = useOvra();
 
@@ -17,6 +17,7 @@ let path = $state("");
 
 const tip = $derived(setup ? advice(setup) : null);
 const ready = $derived(setup?.state.state === "ready");
+const billing = $derived(setup && ready ? billingText(setup) : null);
 
 $effect(() => {
   untrack(() => void check());
@@ -78,6 +79,12 @@ function openDocs(): void {
     {/if}
     {#if setup?.executable && setup.state.state !== "not_found"}
       <p class="detail" data-testid="claude-executable">Using {setup.executable}</p>
+    {/if}
+    {#if billing?.paid}
+      <p class="detail" data-testid="claude-billing">{billing.paid}</p>
+    {/if}
+    {#if billing?.warning}
+      <p class="warning" role="note" data-testid="claude-api-key">{billing.warning}</p>
     {/if}
   {/if}
   {#if error}
@@ -204,6 +211,9 @@ function openDocs(): void {
   }
   .error {
     color: #ff8f8f;
+  }
+  .warning {
+    color: #ffd36b;
   }
   @media (forced-colors: active) {
     .setup.problem {

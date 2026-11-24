@@ -4,7 +4,7 @@ import type { AgentSetup } from "../../lib/protocol";
 import { Workspace } from "../../shell/workspace.svelte";
 import { FakeAgentCore } from "../fake-core";
 import TestHost from "../TestHost.svelte";
-import { advice, changes } from "./texts";
+import { advice, billingText, changes } from "./texts";
 
 let app: Record<string, unknown> | null = null;
 let target: HTMLElement;
@@ -99,6 +99,22 @@ describe("ClaudeSetup", () => {
     button(card(), "Change path")?.click();
     flushSync();
     expect(card()?.querySelector("#claude-path")).not.toBeNull();
+  });
+
+  it("says who pays for usage and warns about an API key in the environment", async () => {
+    const core = new FakeAgentCore();
+    await show(core);
+    expect(card()?.querySelector("[data-testid=claude-billing]")?.textContent).toBe(
+      "Usage counts against your Claude plan's limits.",
+    );
+    expect(card()?.querySelector("[data-testid=claude-api-key]")).toBeNull();
+
+    const keyed = setup({ state: "ready" }, { api_key_in_env: true });
+    expect(billingText(keyed).warning).toContain("ANTHROPIC_API_KEY is set");
+    const cloud = setup({ state: "ready" }, { billing: { kind: "cloud", provider: "bedrock" }, api_key_in_env: true });
+    expect(billingText(cloud)).toEqual({ paid: "Usage is billed to your Amazon Bedrock account.", warning: null });
+    expect(billingText(setup({ state: "ready" }, { billing: { kind: "api_key" } })).paid).toContain("API prices");
+    expect(billingText(setup({ state: "ready" }, { billing: null })).paid).toBeNull();
   });
 
   it("explains how to install and saves a chosen path", async () => {
