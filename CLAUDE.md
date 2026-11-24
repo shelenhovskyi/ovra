@@ -45,6 +45,9 @@ Before every push: `just test && just e2e && just lint` must pass.
   area (`shell`, `tree`, `viewers`, `editor`, `palette`, `keys`); panels get the
   transport and workspace state from `useOvra()` (`ui/src/shell/context.ts`).
 - `tests/e2e` - Playwright against headless mode.
+- `site/` - the project site on GitHub Pages (Astro): landing page, `docs/`
+  rendered as pages, speed gate results from CI. `just site` builds it;
+  `.github/workflows/pages.yml` deploys it. Not part of `just test`.
 
 A new OS-facing feature is a trait in `crates/core/src/services.rs`, a fake in
 `fakes.rs`, and a real implementation in its own crate wired in by `daemon`
