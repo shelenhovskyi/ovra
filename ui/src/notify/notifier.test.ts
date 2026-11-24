@@ -67,4 +67,34 @@ describe("watchAgents", () => {
     core.status("s1", { state: "failed", message: "crashed" });
     expect(notifier.toasts.map((t) => [t.level, t.text])).toEqual([["error", "Session s1 failed: crashed"]]);
   });
+
+  it("says a task finished only when none of its agents works", async () => {
+    const core = new FakeAgentCore();
+    core.addSession("p1", "Add notes", { state: "working" });
+    core.addSession("p1", "Write the notes", { state: "working" });
+    core.tasks.push({
+      id: "t1",
+      project: "p1",
+      coordinator: "s1",
+      workers: [{ session: "s2", name: "docs", branch: "ovra/t1/docs", worktree: "/w/docs" }],
+      limits: { max_workers: 3, budget_micro_usd: null },
+      spent_micro_usd: 0,
+    });
+    const notifier = new Notifier(system(false, true).api);
+    watchAgents(core, notifier, vi.fn());
+    const texts = async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      return notifier.toasts.map((t) => t.text);
+    };
+    core.status("s1", { state: "working" });
+    core.status("s2", { state: "working" });
+    // The coordinator handed out the work; its worker still runs.
+    core.status("s1", { state: "idle" });
+    expect(await texts()).toEqual([]);
+    core.status("s2", { state: "idle" });
+    expect(await texts()).toEqual(["Task: Add notes finished: none of its agents is working"]);
+    // Work starts again: the toast no longer holds.
+    core.status("s2", { state: "working" });
+    expect(await texts()).toEqual([]);
+  });
 });
