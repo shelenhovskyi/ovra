@@ -7,8 +7,21 @@ license.workspace = true
 rust-version.workspace = true
 publish = false
 
+[[bin]]
+# The helper on its own, for this crate's tests; the daemon and the app are
+# the helper themselves (`helper_if_asked`).
+name = "ovra-sandbox-helper"
+path = "src/bin/helper.rs"
+test = false
+
 [target.'cfg(target_os = "linux")'.dependencies]
 ovra-core.workspace = true
+landlock = "0.4.8"
+libc = "0.2"
+seccompiler = "0.5"
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+insta.workspace = true
 
 [lints]
 workspace = true

@@ -1,0 +1,84 @@
+---
+source: crates/sandbox-linux/src/plan/tests.rs
+expression: root.show(&line)
+---
+--unshare-user
+--unshare-pid
+--unshare-ipc
+--unshare-uts
+--unshare-cgroup-try
+--die-with-parent
+--new-session
+--cap-drop ALL
+--ro-bind /
+--dev /dev
+--proc /proc
+--tmpfs /tmp
+--tmpfs /run
+--tmpfs ROOT/home
+--tmpfs ROOT/data
+--ro-bind ROOT/home/.claude
+--tmpfs ROOT/home/.claude/backups
+--tmpfs ROOT/home/.claude/cache
+--tmpfs ROOT/home/.claude/debug
+--tmpfs ROOT/home/.claude/file-history
+--tmpfs ROOT/home/.claude/ide
+--tmpfs ROOT/home/.claude/logs
+--tmpfs ROOT/home/.claude/paste-cache
+--tmpfs ROOT/home/.claude/plans
+--tmpfs ROOT/home/.claude/session-env
+--tmpfs ROOT/home/.claude/sessions
+--tmpfs ROOT/home/.claude/shell-snapshots
+--tmpfs ROOT/home/.claude/statsig
+--tmpfs ROOT/home/.claude/telemetry
+--tmpfs ROOT/home/.claude/todos
+--bind ROOT/home/.claude/projects/-ROOT-projects-app
+--bind ROOT/home/.claude/history.jsonl
+--bind ROOT/home/.claude.json
+--ro-bind ROOT/home/.cargo
+--ro-bind ROOT/home/.local/bin
+--ro-bind /dev/null ROOT/home/.cargo/credentials.toml
+--bind ROOT/home/.cargo/registry
+--bind ROOT/home/.cargo/git
+--bind ROOT/projects/app
+--bind ROOT/projects/app/docs
+--bind ROOT/projects/app/docs/guide
+--ro-bind ROOT/projects/app/.claude
+--ro-bind ROOT/projects/app/.git
+--ro-bind ROOT/projects/app/docs/guide/CLAUDE.md
+--ro-bind ROOT/bin/ovra
+--ro-bind ROOT/home/.local/share/claude/versions
+--chdir ROOT/projects/app
+--
+ROOT/bin/ovra
+--ovra-sandbox-helper
+--landlock require
+--rw /tmp
+--rw /dev
+--rw ROOT/home
+--rw ROOT/home/.claude/backups
+--rw ROOT/home/.claude/cache
+--rw ROOT/home/.claude/debug
+--rw ROOT/home/.claude/file-history
+--rw ROOT/home/.claude/ide
+--rw ROOT/home/.claude/logs
+--rw ROOT/home/.claude/paste-cache
+--rw ROOT/home/.claude/plans
+--rw ROOT/home/.claude/session-env
+--rw ROOT/home/.claude/sessions
+--rw ROOT/home/.claude/shell-snapshots
+--rw ROOT/home/.claude/statsig
+--rw ROOT/home/.claude/telemetry
+--rw ROOT/home/.claude/todos
+--rw ROOT/home/.claude/projects/-ROOT-projects-app
+--rw ROOT/home/.claude/history.jsonl
+--rw ROOT/home/.claude.json
+--rw ROOT/home/.cargo/registry
+--rw ROOT/home/.cargo/git
+--rw ROOT/projects/app
+--
+ROOT/home/.local/share/claude/versions/2.1.0
+-p
+env CLAUDECODE = None
+env PATH = Some("ROOT/home/.local/bin:ROOT/home/.cargo/bin:/usr/bin")
+env TMPDIR = Some("/tmp")

@@ -1,0 +1,7 @@
+---
+source: crates/sandbox-linux/tests/sandbox.rs
+expression: out
+---
+write the allowed folder: yes
+write another folder: no
+start a user namespace: no

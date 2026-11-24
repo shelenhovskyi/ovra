@@ -1,0 +1,13 @@
+---
+source: crates/sandbox-linux/tests/sandbox.rs
+expression: out
+---
+git status: yes
+stage a change: no
+write its own git folder: yes
+write its commondir: no
+write config.worktree: no
+write its .git file: no
+commit: no
+change the main checkout: yes
+write the main objects: no
