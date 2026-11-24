@@ -31,6 +31,51 @@ expression: samples
         "version": 7
       },
       "type": "fs.files_changed"
+    },
+    {
+      "data": {
+        "project": "p1",
+        "session": "s1",
+        "status": {
+          "message": "no model",
+          "state": "failed"
+        }
+      },
+      "type": "agents.status"
+    },
+    {
+      "data": {
+        "message": {
+          "id": "tool1",
+          "input": {
+            "prompt": "look"
+          },
+          "kind": "tool_use",
+          "name": "Task",
+          "parent": "tool0"
+        },
+        "session": "s1"
+      },
+      "type": "agents.message"
+    },
+    {
+      "data": {
+        "id": "perm1",
+        "input": {
+          "command": "ls"
+        },
+        "session": "s1",
+        "title": "List files",
+        "tool": "Bash"
+      },
+      "type": "permissions.requested"
+    },
+    {
+      "data": {
+        "code": null,
+        "id": "t1"
+      },
+      "type": "terminals.exited"
     }
   ],
   "requests": [

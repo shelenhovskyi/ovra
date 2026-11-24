@@ -8,9 +8,12 @@ use std::pin::Pin;
 
 use tokio::sync::broadcast;
 
+pub use crate::agents::AgentHost;
 use crate::path::RelPath;
+use crate::protocol::agents::{AgentKind, SessionId, SessionMode};
 use crate::protocol::fs::{DirListing, FileContent, FileList};
 use crate::protocol::projects::{Project, ProjectId, ProjectState, ProjectStatePatch};
+use crate::protocol::terminals::{TermSize, TerminalId};
 use crate::protocol::{ErrorCode, Event, ProtocolError};
 
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -75,6 +78,44 @@ pub trait Opener: Send + Sync + Debug {
     /// Opens a web page in the system browser. The core passes only
     /// `http://` and `https://` URLs.
     fn open_url(&self, url: &str) -> Result<()>;
+}
+
+/// Shells in pseudo-terminals (implemented by `ovra-pty`).
+pub trait TerminalService: Send + Sync + Debug {
+    /// Starts the user's shell in `cwd` and emits `terminals.output` and
+    /// `terminals.exited` for it through `sink`.
+    fn open(&self, cwd: PathBuf, size: TermSize, sink: EventSink) -> Result<TerminalId>;
+    fn input(&self, id: &TerminalId, data: &str) -> Result<()>;
+    fn resize(&self, id: &TerminalId, size: TermSize) -> Result<()>;
+    /// Ends the shell; `terminals.exited` follows.
+    fn close(&self, id: &TerminalId) -> Result<()>;
+}
+
+/// What a runtime needs to start one session.
+#[derive(Debug, Clone)]
+pub struct AgentSpec {
+    pub session: SessionId,
+    pub agent: AgentKind,
+    pub mode: SessionMode,
+    /// Absolute path the agent works in: the project root in direct mode.
+    pub cwd: PathBuf,
+    pub prompt: String,
+}
+
+/// Starts agent sessions (implemented by `ovra-agent-runtime`). One runtime
+/// serves every session of the agents it supports.
+pub trait AgentRuntime: Send + Sync + Debug {
+    /// Starts a session and returns at once; the agent then works in the
+    /// background and reports through `host` until it ends.
+    fn start(&self, spec: AgentSpec, host: AgentHost) -> Result<Box<dyn RunningAgent>>;
+}
+
+/// A started session, owned by the core.
+pub trait RunningAgent: Send + Sync + Debug {
+    /// Queues the next user message.
+    fn send(&self, text: String) -> Result<()>;
+    /// Ends the session. The runtime reports `stopped` through the host.
+    fn stop(&self);
 }
 
 /// Placeholder for services a front end has not wired in.
@@ -144,6 +185,27 @@ impl Opener for Unavailable {
         self.err()
     }
     fn open_url(&self, _: &str) -> Result<()> {
+        self.err()
+    }
+}
+
+impl TerminalService for Unavailable {
+    fn open(&self, _: PathBuf, _: TermSize, _: EventSink) -> Result<TerminalId> {
+        self.err()
+    }
+    fn input(&self, _: &TerminalId, _: &str) -> Result<()> {
+        self.err()
+    }
+    fn resize(&self, _: &TerminalId, _: TermSize) -> Result<()> {
+        self.err()
+    }
+    fn close(&self, _: &TerminalId) -> Result<()> {
+        self.err()
+    }
+}
+
+impl AgentRuntime for Unavailable {
+    fn start(&self, _: AgentSpec, _: AgentHost) -> Result<Box<dyn RunningAgent>> {
         self.err()
     }
 }

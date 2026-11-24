@@ -6,10 +6,16 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use crate::path::RelPath;
+use crate::protocol::agents::{AgentMessage, AgentStatus, TurnUsage};
 use crate::protocol::fs::{DirEntry, DirListing, EntryKind, FileBody, FileContent, FileList};
+use crate::protocol::permissions::Decision;
 use crate::protocol::projects::{Project, ProjectId, ProjectState, ProjectStatePatch};
+use crate::protocol::terminals::{TermSize, TerminalId, TerminalsEvent};
 use crate::protocol::{ErrorCode, ProtocolError};
-use crate::services::{BoxFuture, EventSink, FsService, Opener, ProjectStore, Result};
+use crate::services::{
+    AgentHost, AgentRuntime, AgentSpec, BoxFuture, EventSink, FsService, Opener, ProjectStore,
+    Result, RunningAgent, TerminalService,
+};
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(PoisonError::into_inner)
@@ -259,5 +265,185 @@ impl Opener for RecordingOpener {
     fn open_url(&self, url: &str) -> Result<()> {
         lock(&self.urls).push(url.to_owned());
         Ok(())
+    }
+}
+
+/// Terminals that echo their input back as output; ids are `t1`, `t2`, ...
+#[derive(Debug, Default)]
+pub struct EchoTerminals {
+    open: Mutex<Vec<(TerminalId, PathBuf, TermSize, EventSink)>>,
+    opened: Mutex<u64>,
+}
+
+impl EchoTerminals {
+    /// Working directory and size of each open terminal.
+    pub fn open_terminals(&self) -> Vec<(TerminalId, PathBuf, TermSize)> {
+        lock(&self.open)
+            .iter()
+            .map(|(id, cwd, size, _)| (id.clone(), cwd.clone(), *size))
+            .collect()
+    }
+
+    fn with<T>(
+        &self,
+        id: &TerminalId,
+        f: impl FnOnce(&mut TermSize, &EventSink) -> T,
+    ) -> Result<T> {
+        let mut open = lock(&self.open);
+        let (_, _, size, sink) = open
+            .iter_mut()
+            .find(|(t, ..)| t == id)
+            .ok_or_else(|| not_found(format!("terminal {}", id.0)))?;
+        Ok(f(size, sink))
+    }
+}
+
+impl TerminalService for EchoTerminals {
+    fn open(&self, cwd: PathBuf, size: TermSize, sink: EventSink) -> Result<TerminalId> {
+        let mut opened = lock(&self.opened);
+        *opened += 1;
+        let id = TerminalId(format!("t{opened}"));
+        lock(&self.open).push((id.clone(), cwd, size, sink));
+        Ok(id)
+    }
+
+    fn input(&self, id: &TerminalId, data: &str) -> Result<()> {
+        self.with(id, |_, sink| {
+            sink.emit(TerminalsEvent::Output {
+                id: id.clone(),
+                data: data.to_owned(),
+            });
+        })
+    }
+
+    fn resize(&self, id: &TerminalId, new: TermSize) -> Result<()> {
+        self.with(id, |size, _| *size = new)
+    }
+
+    fn close(&self, id: &TerminalId) -> Result<()> {
+        let sink = self.with(id, |_, sink| sink.clone())?;
+        lock(&self.open).retain(|(t, ..)| t != id);
+        sink.emit(TerminalsEvent::Exited {
+            id: id.clone(),
+            code: Some(0),
+        });
+        Ok(())
+    }
+}
+
+/// One step of a [`ScriptedAgent`] turn.
+#[derive(Debug, Clone)]
+pub enum Step {
+    /// Writes assistant text.
+    Say(&'static str),
+    /// Asks to use a tool. If allowed, reports a successful result; if
+    /// denied, an error result with the denial message.
+    Use {
+        tool: &'static str,
+        input: serde_json::Value,
+    },
+    /// Fails the session.
+    Fail(&'static str),
+}
+
+/// An agent that plays a script: turn 0 on start, turn N on the N-th
+/// message. After the last turn it waits idle. Needs a Tokio runtime.
+#[derive(Debug, Default)]
+pub struct ScriptedAgent {
+    turns: Vec<Vec<Step>>,
+    /// Every spec it was started with.
+    pub started: Mutex<Vec<AgentSpec>>,
+}
+
+impl ScriptedAgent {
+    pub fn new(turns: Vec<Vec<Step>>) -> Self {
+        Self {
+            turns,
+            started: Mutex::default(),
+        }
+    }
+}
+
+impl AgentRuntime for ScriptedAgent {
+    fn start(&self, spec: AgentSpec, host: AgentHost) -> Result<Box<dyn RunningAgent>> {
+        lock(&self.started).push(spec);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Option<String>>();
+        let turns = self.turns.clone();
+        tokio::spawn(async move {
+            let mut turns = turns.into_iter();
+            let mut next = turns.next();
+            loop {
+                if let Some(steps) = next.take() {
+                    host.status(AgentStatus::Working);
+                    if !play(&host, steps).await {
+                        return;
+                    }
+                }
+                host.message(AgentMessage::TurnEnd {
+                    usage: TurnUsage::default(),
+                });
+                host.status(AgentStatus::Idle);
+                match rx.recv().await {
+                    Some(Some(_)) => next = turns.next(),
+                    Some(None) | None => break,
+                }
+            }
+            host.status(AgentStatus::Stopped);
+        });
+        Ok(Box::new(ScriptedProcess(tx)))
+    }
+}
+
+/// Plays one turn; `false` if the session failed.
+async fn play(host: &AgentHost, steps: Vec<Step>) -> bool {
+    for (n, step) in steps.into_iter().enumerate() {
+        match step {
+            Step::Say(text) => host.message(AgentMessage::AssistantText {
+                text: text.to_owned(),
+                parent: None,
+            }),
+            Step::Use { tool, input } => {
+                let id = format!("tool{n}");
+                host.message(AgentMessage::ToolUse {
+                    id: id.clone(),
+                    name: tool.to_owned(),
+                    input: input.clone(),
+                    parent: None,
+                });
+                let answer = host.ask(tool.to_owned(), input, None).await;
+                let (output, is_error) = match answer.decision {
+                    Decision::Allow => ("done".to_owned(), false),
+                    Decision::Deny => (answer.message.unwrap_or_default(), true),
+                };
+                host.message(AgentMessage::ToolResult {
+                    tool_use_id: id,
+                    output,
+                    is_error,
+                    parent: None,
+                });
+            }
+            Step::Fail(message) => {
+                host.status(AgentStatus::Failed {
+                    message: message.to_owned(),
+                });
+                return false;
+            }
+        }
+    }
+    true
+}
+
+#[derive(Debug)]
+struct ScriptedProcess(tokio::sync::mpsc::UnboundedSender<Option<String>>);
+
+impl RunningAgent for ScriptedProcess {
+    fn send(&self, text: String) -> Result<()> {
+        self.0
+            .send(Some(text))
+            .map_err(|_| ProtocolError::new(ErrorCode::Conflict, "the session has ended"))
+    }
+
+    fn stop(&self) {
+        let _ = self.0.send(None);
     }
 }

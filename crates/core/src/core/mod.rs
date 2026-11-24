@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use tokio::sync::broadcast;
 
+use crate::agents::{self, Sessions};
 use crate::path::RelPath;
 use crate::protocol::fs::{FsRequest, FsResponse, MAX_FILES_PAGE};
 use crate::protocol::info::{CoreInfo, InfoEvent, InfoRequest, InfoResponse};
@@ -10,8 +11,11 @@ use crate::protocol::open::OpenRequest;
 use crate::protocol::projects::{
     ProjectId, ProjectStatePatch, ProjectsEvent, ProjectsRequest, ProjectsResponse,
 };
+use crate::protocol::terminals::{TerminalsRequest, TerminalsResponse};
 use crate::protocol::{ErrorCode, Event, OkResponse, ProtocolError, Request, Response};
-use crate::services::{EventSink, FsService, Opener, ProjectStore, Unavailable};
+use crate::services::{
+    AgentRuntime, EventSink, FsService, Opener, ProjectStore, TerminalService, Unavailable,
+};
 
 const EVENT_CAPACITY: usize = 1024;
 
@@ -22,6 +26,8 @@ pub struct CoreBuilder {
     projects: Arc<dyn ProjectStore>,
     fs: Arc<dyn FsService>,
     opener: Arc<dyn Opener>,
+    terminals: Arc<dyn TerminalService>,
+    agents: Arc<dyn AgentRuntime>,
 }
 
 impl CoreBuilder {
@@ -40,6 +46,16 @@ impl CoreBuilder {
         self
     }
 
+    pub fn terminals(mut self, terminals: Arc<dyn TerminalService>) -> Self {
+        self.terminals = terminals;
+        self
+    }
+
+    pub fn agents(mut self, runtime: Arc<dyn AgentRuntime>) -> Self {
+        self.agents = runtime;
+        self
+    }
+
     pub fn build(self) -> Core {
         let (events, _) = broadcast::channel(EVENT_CAPACITY);
         Core {
@@ -48,6 +64,9 @@ impl CoreBuilder {
                 projects: self.projects,
                 fs: self.fs,
                 opener: self.opener,
+                terminals: self.terminals,
+                agents: self.agents,
+                sessions: Arc::new(Sessions::default()),
                 active: Mutex::new(None),
             }),
             events,
@@ -68,6 +87,9 @@ struct Inner {
     projects: Arc<dyn ProjectStore>,
     fs: Arc<dyn FsService>,
     opener: Arc<dyn Opener>,
+    terminals: Arc<dyn TerminalService>,
+    agents: Arc<dyn AgentRuntime>,
+    sessions: Arc<Sessions>,
     active: Mutex<Option<ProjectId>>,
 }
 
@@ -79,6 +101,8 @@ impl Core {
             projects: Arc::new(Unavailable("project store")),
             fs: Arc::new(Unavailable("file access")),
             opener: Arc::new(Unavailable("opening files externally")),
+            terminals: Arc::new(Unavailable("terminals")),
+            agents: Arc::new(Unavailable("agents")),
         }
     }
 
@@ -126,7 +150,38 @@ impl Core {
             Request::Projects(r) => self.projects(r),
             Request::Fs(r) => self.fs(r).await.map(Response::Fs),
             Request::Open(r) => self.open(r).map(|()| Response::Ok(OkResponse::Ok)),
+            Request::Terminals(r) => self.terminals(r),
+            Request::Agents(r) => agents::handle_agents(&self.agents_ctx(), r),
+            Request::Permissions(r) => agents::handle_permissions(&self.agents_ctx(), r),
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn inner_sessions(&self) -> Arc<Sessions> {
+        self.inner.sessions.clone()
+    }
+
+    fn agents_ctx(&self) -> agents::Ctx<'_> {
+        agents::Ctx {
+            sessions: &self.inner.sessions,
+            runtime: self.inner.agents.as_ref(),
+            projects: self.inner.projects.as_ref(),
+            sink: self.sink(),
+        }
+    }
+
+    fn terminals(&self, request: TerminalsRequest) -> Result<Response, ProtocolError> {
+        let terminals = &self.inner.terminals;
+        match request {
+            TerminalsRequest::Open { project, size } => {
+                let id = terminals.open(self.root(&project)?, size, self.sink())?;
+                return Ok(Response::Terminals(TerminalsResponse::Opened { id }));
+            }
+            TerminalsRequest::Input { id, data } => terminals.input(&id, &data)?,
+            TerminalsRequest::Resize { id, size } => terminals.resize(&id, size)?,
+            TerminalsRequest::Close { id } => terminals.close(&id)?,
+        }
+        Ok(Response::Ok(OkResponse::Ok))
     }
 
     fn active(&self) -> std::sync::MutexGuard<'_, Option<ProjectId>> {

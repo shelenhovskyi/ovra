@@ -3,9 +3,12 @@ use std::sync::Arc;
 
 use super::*;
 use crate::fakes::{MemoryFs, MemoryProjects, RecordingOpener};
+use crate::protocol::agents::{AgentMessage, AgentStatus, AgentsEvent, SessionId};
 use crate::protocol::fs::{FileBody, FsEvent};
 use crate::protocol::info::InfoEvent;
+use crate::protocol::permissions::{PermissionId, PermissionRequest, PermissionsEvent};
 use crate::protocol::projects::{Project, ProjectState};
+use crate::protocol::terminals::{TerminalId, TerminalsEvent};
 
 struct Fixture {
     core: Core,
@@ -305,6 +308,28 @@ fn wire_format_is_stable() {
                 removed: vec!["a.rs".into()],
                 version: 7,
             }),
+            Event::Agents(AgentsEvent::Status {
+                session: SessionId("s1".into()),
+                project: ProjectId("p1".into()),
+                status: AgentStatus::Failed { message: "no model".into() },
+            }),
+            Event::Agents(AgentsEvent::Message {
+                session: SessionId("s1".into()),
+                message: AgentMessage::ToolUse {
+                    id: "tool1".into(),
+                    name: "Task".into(),
+                    input: serde_json::json!({"prompt": "look"}),
+                    parent: Some("tool0".into()),
+                },
+            }),
+            Event::Permissions(PermissionsEvent::Requested(PermissionRequest {
+                id: PermissionId("perm1".into()),
+                session: SessionId("s1".into()),
+                tool: "Bash".into(),
+                input: serde_json::json!({"command": "ls"}),
+                title: Some("List files".into()),
+            })),
+            Event::Terminals(TerminalsEvent::Exited { id: TerminalId("t1".into()), code: None }),
         ],
     });
     insta::assert_json_snapshot!(samples);
@@ -327,6 +352,18 @@ fn every_request_round_trips() {
         serde_json::json!({"method": "fs.write_file", "params": {"project": "p1", "path": "a", "text": "", "expected_mtime_ms": null}}),
         serde_json::json!({"method": "open.external", "params": {"project": "p1", "path": "a", "line": 1}}),
         serde_json::json!({"method": "open.url", "params": {"url": "https://example.com"}}),
+        serde_json::json!({"method": "terminals.open", "params": {"project": "p1", "size": {"cols": 80, "rows": 24}}}),
+        serde_json::json!({"method": "terminals.input", "params": {"id": "t1", "data": "ls\r"}}),
+        serde_json::json!({"method": "terminals.resize", "params": {"id": "t1", "size": {"cols": 100, "rows": 30}}}),
+        serde_json::json!({"method": "terminals.close", "params": {"id": "t1"}}),
+        serde_json::json!({"method": "agents.list", "params": {"project": "p1"}}),
+        serde_json::json!({"method": "agents.start", "params": {"project": "p1", "agent": "claude", "mode": "direct", "prompt": "hi"}}),
+        serde_json::json!({"method": "agents.send", "params": {"session": "s1", "text": "more"}}),
+        serde_json::json!({"method": "agents.stop", "params": {"session": "s1"}}),
+        serde_json::json!({"method": "agents.transcript", "params": {"session": "s1"}}),
+        serde_json::json!({"method": "permissions.pending"}),
+        serde_json::json!({"method": "permissions.answer", "params": {"id": "perm1", "decision": "allow"}}),
+        serde_json::json!({"method": "permissions.answer", "params": {"id": "perm1", "decision": "deny", "message": "no"}}),
     ];
     for json in requests {
         let parsed: Request = req(json.clone());
