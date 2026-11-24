@@ -37,6 +37,8 @@ pub(crate) fn command(executable: &Path) -> Command {
     command
 }
 
+use ovra_core::services::AgentSpec;
+
 /// Which Claude Code session the process works in.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Conversation {
@@ -44,6 +46,23 @@ pub(crate) enum Conversation {
     New(String),
     /// Continues an earlier session; `fork` branches it into a new one.
     Resume { id: String, fork: bool },
+}
+
+impl Conversation {
+    /// Continues `spec.resume` (keeping its id), or starts anew.
+    pub(crate) fn for_spec(spec: &AgentSpec) -> Self {
+        match spec.resume.clone() {
+            Some(id) => Self::Resume { id, fork: false },
+            None => Self::New(uuid::Uuid::new_v4().to_string()),
+        }
+    }
+
+    /// The Claude session id, for a resume without a fork the one continued.
+    pub(crate) fn id(&self) -> &str {
+        match self {
+            Self::New(id) | Self::Resume { id, .. } => id,
+        }
+    }
 }
 
 /// The arguments for one session. Ovra never passes `--bare` (it ignores the
@@ -143,5 +162,34 @@ mod tests {
         let trusted = line(&Conversation::New("id".into()), true);
         assert!(trusted.contains("--setting-sources user,project,local --strict-mcp-config"));
         assert!(trusted.contains("--permission-prompt-tool stdio --permission-mode default"));
+    }
+
+    #[test]
+    fn a_resumed_session_keeps_its_id() {
+        let mut spec = AgentSpec {
+            session: ovra_core::protocol::agents::SessionId("s1".into()),
+            agent: ovra_core::protocol::agents::AgentKind::Claude,
+            mode: ovra_core::protocol::agents::SessionMode::Direct,
+            cwd: "/work".into(),
+            prompt: "go".into(),
+            executable: None,
+            trusted: false,
+            resume: None,
+        };
+        let new = Conversation::for_spec(&spec);
+        assert!(
+            matches!(&new, Conversation::New(id) if id.len() == 36),
+            "{new:?}"
+        );
+        spec.resume = Some("abc".into());
+        let resumed = Conversation::for_spec(&spec);
+        assert_eq!(
+            resumed,
+            Conversation::Resume {
+                id: "abc".into(),
+                fork: false
+            }
+        );
+        assert_eq!(resumed.id(), "abc");
     }
 }

@@ -73,9 +73,12 @@ impl ClaudeCli {
 }
 
 impl AgentRuntime for ClaudeCli {
+    /// Starts a new Claude session with an id Ovra chooses, or continues
+    /// `spec.resume`, which keeps its id. Either way the core learns the id.
     fn start(&self, spec: AgentSpec, host: AgentHost) -> Result<Box<dyn RunningAgent>> {
-        let id = uuid::Uuid::new_v4().to_string();
-        self.launch(spec, host, Conversation::New(id))
+        let conversation = Conversation::for_spec(&spec);
+        host.agent_session(conversation.id().to_owned());
+        self.launch(spec, host, conversation)
     }
 
     fn setup(&self, path: Option<PathBuf>) -> BoxFuture<'_, AgentSetup> {
