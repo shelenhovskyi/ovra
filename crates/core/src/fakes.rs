@@ -7,7 +7,7 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use crate::path::RelPath;
 use crate::protocol::fs::{DirEntry, DirListing, EntryKind, FileBody, FileContent};
-use crate::protocol::projects::{Project, ProjectId, ProjectState};
+use crate::protocol::projects::{Project, ProjectId, ProjectState, ProjectStatePatch};
 use crate::protocol::{ErrorCode, ProtocolError};
 use crate::services::{BoxFuture, EventSink, FsService, Opener, ProjectStore, Result};
 
@@ -87,9 +87,9 @@ impl ProjectStore for MemoryProjects {
         Ok(lock(&self.saved).get(id).cloned().unwrap_or_default())
     }
 
-    fn set_state(&self, id: &ProjectId, state: &ProjectState) -> Result<()> {
+    fn update_state(&self, id: &ProjectId, patch: ProjectStatePatch) -> Result<()> {
         self.get(id)?;
-        lock(&self.saved).insert(id.clone(), state.clone());
+        patch.apply(lock(&self.saved).entry(id.clone()).or_default());
         Ok(())
     }
 }

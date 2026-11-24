@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use ovra_core::protocol::projects::{Project, ProjectId, ProjectState};
+use ovra_core::protocol::projects::{Project, ProjectId, ProjectState, ProjectStatePatch};
 use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::{ProjectStore, Result};
 use rusqlite::{Connection, OptionalExtension, Row, params};
@@ -157,29 +157,16 @@ impl ProjectStore for Store {
     }
 
     fn state(&self, id: &ProjectId) -> Result<ProjectState> {
-        let db = self.db();
-        find(&db, id)?;
-        let json: Option<String> = db
-            .query_row(
-                "SELECT state FROM project_state WHERE project_id = ?1",
-                [&id.0],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(db_error)?;
-        json.map_or_else(
-            || Ok(ProjectState::default()),
-            |json| {
-                serde_json::from_str(&json)
-                    .map_err(|e| internal(format!("saved state of project {}: {e}", id.0)))
-            },
-        )
+        load_state(&self.db(), id)
     }
 
-    fn set_state(&self, id: &ProjectId, state: &ProjectState) -> Result<()> {
-        let json = serde_json::to_string(state).map_err(|e| internal(e.to_string()))?;
+    fn update_state(&self, id: &ProjectId, patch: ProjectStatePatch) -> Result<()> {
+        // Read, merge and write under one lock so concurrent patches from
+        // different panels cannot lose each other's fields.
         let db = self.db();
-        find(&db, id)?;
+        let mut state = load_state(&db, id)?;
+        patch.apply(&mut state);
+        let json = serde_json::to_string(&state).map_err(|e| internal(e.to_string()))?;
         db.execute(
             "INSERT INTO project_state (project_id, state) VALUES (?1, ?2)
              ON CONFLICT (project_id) DO UPDATE SET state = excluded.state",
@@ -188,6 +175,26 @@ impl ProjectStore for Store {
         .map_err(db_error)?;
         Ok(())
     }
+}
+
+/// The saved state, the default if none was saved, `not_found` without a project.
+fn load_state(db: &Connection, id: &ProjectId) -> Result<ProjectState> {
+    find(db, id)?;
+    let json: Option<String> = db
+        .query_row(
+            "SELECT state FROM project_state WHERE project_id = ?1",
+            [&id.0],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(db_error)?;
+    json.map_or_else(
+        || Ok(ProjectState::default()),
+        |json| {
+            serde_json::from_str(&json)
+                .map_err(|e| internal(format!("saved state of project {}: {e}", id.0)))
+        },
+    )
 }
 
 fn find(db: &Connection, id: &ProjectId) -> Result<Project> {

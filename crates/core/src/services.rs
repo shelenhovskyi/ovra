@@ -10,7 +10,7 @@ use tokio::sync::broadcast;
 
 use crate::path::RelPath;
 use crate::protocol::fs::{DirListing, FileContent};
-use crate::protocol::projects::{Project, ProjectId, ProjectState};
+use crate::protocol::projects::{Project, ProjectId, ProjectState, ProjectStatePatch};
 use crate::protocol::{ErrorCode, Event, ProtocolError};
 
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -42,8 +42,9 @@ pub trait ProjectStore: Send + Sync + Debug {
     /// The saved state, or the default if none was saved. `not_found` if the
     /// project does not exist. Removing a project removes its state.
     fn state(&self, id: &ProjectId) -> Result<ProjectState>;
-    /// Replaces the saved state. Paths are already validated.
-    fn set_state(&self, id: &ProjectId, state: &ProjectState) -> Result<()>;
+    /// Writes the fields present in `patch` atomically, keeping the others.
+    /// Paths are already validated.
+    fn update_state(&self, id: &ProjectId, patch: ProjectStatePatch) -> Result<()>;
 }
 
 /// File access, `.gitignore` handling, git status and watching
@@ -105,7 +106,7 @@ impl ProjectStore for Unavailable {
     fn state(&self, _: &ProjectId) -> Result<ProjectState> {
         self.err()
     }
-    fn set_state(&self, _: &ProjectId, _: &ProjectState) -> Result<()> {
+    fn update_state(&self, _: &ProjectId, _: ProjectStatePatch) -> Result<()> {
         self.err()
     }
 }

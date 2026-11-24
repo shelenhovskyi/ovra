@@ -8,7 +8,7 @@ use crate::protocol::fs::{FsRequest, FsResponse};
 use crate::protocol::info::{CoreInfo, InfoRequest, InfoResponse};
 use crate::protocol::open::OpenRequest;
 use crate::protocol::projects::{
-    ProjectId, ProjectState, ProjectsEvent, ProjectsRequest, ProjectsResponse,
+    ProjectId, ProjectStatePatch, ProjectsEvent, ProjectsRequest, ProjectsResponse,
 };
 use crate::protocol::{ErrorCode, Event, OkResponse, ProtocolError, Request, Response};
 use crate::services::{EventSink, FsService, Opener, ProjectStore, Unavailable};
@@ -168,7 +168,7 @@ impl Core {
             }
             ProjectsRequest::GetState { id } => store.state(&id).map(ProjectsResponse::State),
             ProjectsRequest::SetState { id, state } => {
-                store.set_state(&id, &checked_state(state)?)?;
+                store.update_state(&id, checked_patch(state)?)?;
                 return Ok(Response::Ok(OkResponse::Ok));
             }
         };
@@ -252,21 +252,17 @@ fn check_web_url(url: &str) -> Result<(), ProtocolError> {
     }
 }
 
-/// Normalizes every path in `state`, rejecting any that leaves the project.
-fn checked_state(state: ProjectState) -> Result<ProjectState, ProtocolError> {
+/// Normalizes every path in `patch`, rejecting any that leaves the project.
+fn checked_patch(patch: ProjectStatePatch) -> Result<ProjectStatePatch, ProtocolError> {
     let norm = |p: String| RelPath::parse(&p).map(|p| p.to_string());
-    Ok(ProjectState {
-        open_files: state
-            .open_files
-            .into_iter()
-            .map(norm)
-            .collect::<Result<_, _>>()?,
-        active_file: state.active_file.map(norm).transpose()?,
-        expanded_dirs: state
-            .expanded_dirs
-            .into_iter()
-            .map(norm)
-            .collect::<Result<_, _>>()?,
+    let all = |paths: Vec<String>| paths.into_iter().map(norm).collect::<Result<_, _>>();
+    Ok(ProjectStatePatch {
+        open_files: patch.open_files.map(all).transpose()?,
+        active_file: patch
+            .active_file
+            .map(|file| file.map(norm).transpose())
+            .transpose()?,
+        expanded_dirs: patch.expanded_dirs.map(all).transpose()?,
     })
 }
 

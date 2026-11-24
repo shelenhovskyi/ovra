@@ -31,6 +31,47 @@ pub struct ProjectState {
     pub expanded_dirs: Vec<String>,
 }
 
+/// A partial [`ProjectState`]: only the fields present are written, so panels
+/// can save their part without overwriting each other's.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectStatePatch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub open_files: Option<Vec<String>>,
+    /// `null` clears the active file; leaving the field out keeps it.
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub active_file: Option<Option<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expanded_dirs: Option<Vec<String>>,
+}
+
+impl ProjectStatePatch {
+    /// Writes the present fields into `state`.
+    pub fn apply(self, state: &mut ProjectState) {
+        if let Some(open_files) = self.open_files {
+            state.open_files = open_files;
+        }
+        if let Some(active_file) = self.active_file {
+            state.active_file = active_file;
+        }
+        if let Some(expanded_dirs) = self.expanded_dirs {
+            state.expanded_dirs = expanded_dirs;
+        }
+    }
+}
+
+/// Tells a present field (even `null`) from a missing one.
+fn present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    T::deserialize(deserializer).map(Some)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "method", content = "params")]
 pub enum ProjectsRequest {
@@ -49,9 +90,12 @@ pub enum ProjectsRequest {
     /// The saved state of a project; empty if none was saved.
     #[serde(rename = "projects.get_state")]
     GetState { id: ProjectId },
-    /// Replaces the saved state of a project. Answers `ok`.
+    /// Writes the fields present in `state`, keeping the others. Answers `ok`.
     #[serde(rename = "projects.set_state")]
-    SetState { id: ProjectId, state: ProjectState },
+    SetState {
+        id: ProjectId,
+        state: ProjectStatePatch,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -5,7 +5,7 @@ use super::*;
 use crate::fakes::{MemoryFs, MemoryProjects, RecordingOpener};
 use crate::protocol::fs::FileBody;
 use crate::protocol::info::InfoEvent;
-use crate::protocol::projects::Project;
+use crate::protocol::projects::{Project, ProjectState};
 
 struct Fixture {
     core: Core,
@@ -107,43 +107,44 @@ async fn project_state_is_saved_normalized_and_kept_inside() {
         f.core
             .handle(Request::Projects(ProjectsRequest::GetState { id }))
     };
-    let set = |id: ProjectId, state: ProjectState| {
-        f.core
-            .handle(Request::Projects(ProjectsRequest::SetState { id, state }))
+    let set = |state: serde_json::Value| {
+        f.core.handle(req(serde_json::json!({
+            "method": "projects.set_state",
+            "params": {"id": p.id.0, "state": state},
+        })))
     };
-    assert_eq!(
-        get(p.id.clone()).await,
-        Ok(Response::Projects(ProjectsResponse::State(
-            ProjectState::default()
-        )))
-    );
+    let state = |open: &[&str], active: Option<&str>, dirs: &[&str]| {
+        Ok(Response::Projects(ProjectsResponse::State(ProjectState {
+            open_files: open.iter().map(|s| (*s).to_owned()).collect(),
+            active_file: active.map(str::to_owned),
+            expanded_dirs: dirs.iter().map(|s| (*s).to_owned()).collect(),
+        })))
+    };
+    assert_eq!(get(p.id.clone()).await, state(&[], None, &[]));
 
-    let state = |open: &[&str], active: Option<&str>, dirs: &[&str]| ProjectState {
-        open_files: open.iter().map(|s| (*s).to_owned()).collect(),
-        active_file: active.map(str::to_owned),
-        expanded_dirs: dirs.iter().map(|s| (*s).to_owned()).collect(),
-    };
-    let saved = set(
-        p.id.clone(),
-        state(
-            &["./src//main.rs", "README.md"],
-            Some("README.md"),
-            &["src/"],
-        ),
-    )
-    .await;
+    // Panels save only their own fields, normalized.
+    let saved = set(serde_json::json!({"expanded_dirs": ["src/"]})).await;
     assert_eq!(saved, Ok(Response::Ok(OkResponse::Ok)));
+    set(serde_json::json!({"open_files": ["./src//main.rs", "README.md"], "active_file": "README.md"}))
+        .await
+        .expect("save tabs");
+    let tabs_and_tree = state(&["src/main.rs", "README.md"], Some("README.md"), &["src"]);
+    assert_eq!(get(p.id.clone()).await, tabs_and_tree);
+    set(serde_json::json!({})).await.expect("empty patch");
+    assert_eq!(get(p.id.clone()).await, tabs_and_tree);
+    // `null` clears the active file; a missing field would keep it.
+    set(serde_json::json!({"active_file": null}))
+        .await
+        .expect("clear active");
     assert_eq!(
         get(p.id.clone()).await,
-        Ok(Response::Projects(ProjectsResponse::State(state(
-            &["src/main.rs", "README.md"],
-            Some("README.md"),
-            &["src"]
-        ))))
+        state(&["src/main.rs", "README.md"], None, &["src"])
     );
 
-    let escape = set(p.id.clone(), state(&[], Some("../b/secret"), &[])).await;
+    let escape = set(serde_json::json!({"active_file": "../b/secret"})).await;
     assert_eq!(escape.err().map(|e| e.code), Some(ErrorCode::Forbidden));
+    let escape = set(serde_json::json!({"expanded_dirs": ["/etc"]})).await;
+    assert!(escape.is_err(), "{escape:?}");
     let unknown = get(ProjectId("nope".into())).await;
     assert_eq!(unknown.err().map(|e| e.code), Some(ErrorCode::NotFound));
 }
@@ -295,6 +296,7 @@ fn every_request_round_trips() {
         serde_json::json!({"method": "projects.open", "params": {"id": "p1"}}),
         serde_json::json!({"method": "projects.get_state", "params": {"id": "p1"}}),
         serde_json::json!({"method": "projects.set_state", "params": {"id": "p1", "state": {"open_files": ["a"], "active_file": null, "expanded_dirs": []}}}),
+        serde_json::json!({"method": "projects.set_state", "params": {"id": "p1", "state": {"expanded_dirs": ["src"]}}}),
         serde_json::json!({"method": "fs.list_dir", "params": {"project": "p1", "path": ""}}),
         serde_json::json!({"method": "fs.read_file", "params": {"project": "p1", "path": "a"}}),
         serde_json::json!({"method": "fs.write_file", "params": {"project": "p1", "path": "a", "text": "", "expected_mtime_ms": null}}),

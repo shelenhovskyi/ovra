@@ -65,24 +65,38 @@ fn contract(store: &dyn ProjectStore, folders: &Folders) {
     store.touch(&c.id).expect("touch c");
     assert_eq!(names(&store.list().expect("list")), ["c", "a", "b"]);
 
-    // Per-project state: empty until saved, then whatever was saved last.
+    // Per-project state: empty until saved; patches write only their fields.
     assert_eq!(store.state(&a.id), Ok(ProjectState::default()));
-    let state = ProjectState {
-        open_files: vec!["src/main.rs".into(), "README.md".into()],
-        active_file: Some("README.md".into()),
-        expanded_dirs: vec!["src".into()],
+    let tree = ProjectStatePatch {
+        expanded_dirs: Some(vec!["src".into()]),
+        ..ProjectStatePatch::default()
     };
-    store.set_state(&a.id, &state).expect("save state");
+    let tabs = ProjectStatePatch {
+        open_files: Some(vec!["src/main.rs".into(), "README.md".into()]),
+        active_file: Some(Some("README.md".into())),
+        ..ProjectStatePatch::default()
+    };
+    store.update_state(&a.id, tree).expect("save tree");
+    store.update_state(&a.id, tabs).expect("save tabs");
     store
-        .set_state(&b.id, &ProjectState::default())
-        .expect("save state");
-    assert_eq!(store.state(&a.id), Ok(state.clone()));
-    let replaced = ProjectState {
-        open_files: Vec::new(),
-        ..state
+        .update_state(&b.id, ProjectStatePatch::default())
+        .expect("empty patch");
+    assert_eq!(store.state(&a.id), Ok(sample_state()));
+    assert_eq!(store.state(&b.id), Ok(ProjectState::default()));
+    let clear_active = ProjectStatePatch {
+        active_file: Some(None),
+        ..ProjectStatePatch::default()
     };
-    store.set_state(&a.id, &replaced).expect("replace state");
-    assert_eq!(store.state(&a.id), Ok(replaced));
+    store
+        .update_state(&a.id, clear_active)
+        .expect("clear active");
+    assert_eq!(
+        store.state(&a.id),
+        Ok(ProjectState {
+            active_file: None,
+            ..sample_state()
+        })
+    );
 
     store.remove(&a.id).expect("remove a");
     assert_eq!(names(&store.list().expect("list")), ["c", "b"]);
@@ -92,7 +106,7 @@ fn contract(store: &dyn ProjectStore, folders: &Folders) {
         store.get(&gone).map(drop),
         store.touch(&gone).map(drop),
         store.state(&gone).map(drop),
-        store.set_state(&gone, &ProjectState::default()),
+        store.update_state(&gone, ProjectStatePatch::default()),
         store.remove(&gone),
     ] {
         assert_eq!(result.map_err(|e| e.code), Err(ErrorCode::NotFound));
@@ -119,7 +133,9 @@ fn projects_and_order_survive_a_restart() {
         let b = store.add(&folders.path("b")).expect("add b");
         store.touch(&a.id).expect("touch a");
         store.touch(&b.id).expect("touch b");
-        store.set_state(&a.id, &sample_state()).expect("save state");
+        store
+            .update_state(&a.id, full(sample_state()))
+            .expect("save state");
         store.list().expect("list")
     };
     let store = Store::open(data.path()).expect("reopen");
@@ -129,9 +145,17 @@ fn projects_and_order_survive_a_restart() {
 
 fn sample_state() -> ProjectState {
     ProjectState {
-        open_files: vec!["a.rs".into()],
-        active_file: Some("a.rs".into()),
+        open_files: vec!["src/main.rs".into(), "README.md".into()],
+        active_file: Some("README.md".into()),
         expanded_dirs: vec!["src".into()],
+    }
+}
+
+fn full(state: ProjectState) -> ProjectStatePatch {
+    ProjectStatePatch {
+        open_files: Some(state.open_files),
+        active_file: Some(state.active_file),
+        expanded_dirs: Some(state.expanded_dirs),
     }
 }
 
@@ -140,7 +164,9 @@ fn removing_a_project_drops_its_state() {
     let (data, folders) = (TempDir::new().expect("temp dir"), Folders::new());
     let store = Store::open(data.path()).expect("open");
     let a = store.add(&folders.path("a")).expect("add a");
-    store.set_state(&a.id, &sample_state()).expect("save state");
+    store
+        .update_state(&a.id, full(sample_state()))
+        .expect("save state");
     store.remove(&a.id).expect("remove a");
     let rows: u32 = store
         .db()
@@ -283,6 +309,8 @@ fn a_database_from_the_first_schema_is_upgraded() {
     }
     let store = Store::open(data.path()).expect("upgrade");
     let id = ProjectId("old".into());
-    store.set_state(&id, &sample_state()).expect("save state");
+    store
+        .update_state(&id, full(sample_state()))
+        .expect("save state");
     assert_eq!(store.state(&id), Ok(sample_state()));
 }

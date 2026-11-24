@@ -16,13 +16,19 @@ export type ProjectState = {
   expanded_dirs: string[];
 };
 
+/**
+ * Only the fields present are written, so panels save their own part without
+ * overwriting each other's. `active_file: null` clears it; leaving it out keeps it.
+ */
+export type ProjectStatePatch = Partial<ProjectState>;
+
 export type ProjectsRequest =
   | { method: "projects.list" }
   | { method: "projects.add"; params: { root: string } }
   | { method: "projects.remove"; params: { id: ProjectId } }
   | { method: "projects.open"; params: { id: ProjectId } }
   | { method: "projects.get_state"; params: { id: ProjectId } }
-  | { method: "projects.set_state"; params: { id: ProjectId; state: ProjectState } };
+  | { method: "projects.set_state"; params: { id: ProjectId; state: ProjectStatePatch } };
 
 export type ProjectsResponse =
   | { type: "projects.list"; data: Project[] }
