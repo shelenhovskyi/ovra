@@ -1,0 +1,15 @@
+---
+source: crates/fs-index/src/tests.rs
+expression: "list(&fs, root, \"notes\").await.expect(\"notes\")"
+---
+{
+  "path": "notes",
+  "entries": [
+    {
+      "name": "todo.md",
+      "kind": "file",
+      "ignored": false,
+      "git": "untracked"
+    }
+  ]
+}

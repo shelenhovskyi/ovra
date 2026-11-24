@@ -1,0 +1,16 @@
+---
+source: crates/fs-index/src/git.rs
+expression: statuses
+---
+Statuses {
+    paths: {
+        "gone/x": Deleted,
+        "merge.txt": Conflicted,
+        "notes.md": Untracked,
+        "sub/a.txt": Modified,
+        "sub/fresh/": Untracked,
+        "sub/new file.txt": Added,
+        "sub/to.txt": Renamed,
+    },
+    all_untracked: false,
+}

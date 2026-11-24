@@ -1,0 +1,57 @@
+---
+source: crates/fs-index/src/tests.rs
+expression: "list(&fs, root, \"\").await.expect(\"root\")"
+---
+{
+  "path": "",
+  "entries": [
+    {
+      "name": ".git",
+      "kind": "dir",
+      "ignored": true,
+      "git": null
+    },
+    {
+      "name": "notes",
+      "kind": "dir",
+      "ignored": false,
+      "git": "untracked"
+    },
+    {
+      "name": "src",
+      "kind": "dir",
+      "ignored": false,
+      "git": "modified"
+    },
+    {
+      "name": "target",
+      "kind": "dir",
+      "ignored": true,
+      "git": null
+    },
+    {
+      "name": ".gitignore",
+      "kind": "file",
+      "ignored": false,
+      "git": null
+    },
+    {
+      "name": "README.md",
+      "kind": "file",
+      "ignored": false,
+      "git": null
+    },
+    {
+      "name": "debug.log",
+      "kind": "file",
+      "ignored": true,
+      "git": null
+    },
+    {
+      "name": "link",
+      "kind": "symlink",
+      "ignored": false,
+      "git": "untracked"
+    }
+  ]
+}

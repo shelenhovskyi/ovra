@@ -1,0 +1,27 @@
+---
+source: crates/fs-index/src/tests.rs
+expression: "list(&fs, root, \"src\").await.expect(\"src\")"
+---
+{
+  "path": "src",
+  "entries": [
+    {
+      "name": "lib.rs",
+      "kind": "file",
+      "ignored": false,
+      "git": null
+    },
+    {
+      "name": "main.rs",
+      "kind": "file",
+      "ignored": false,
+      "git": "modified"
+    },
+    {
+      "name": "staged.rs",
+      "kind": "file",
+      "ignored": false,
+      "git": "added"
+    }
+  ]
+}

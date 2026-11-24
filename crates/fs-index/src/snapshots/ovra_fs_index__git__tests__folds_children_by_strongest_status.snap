@@ -1,0 +1,22 @@
+---
+source: crates/fs-index/src/git.rs
+expression: root
+---
+[
+    (
+        "gone",
+        Deleted,
+    ),
+    (
+        "merge.txt",
+        Conflicted,
+    ),
+    (
+        "notes.md",
+        Untracked,
+    ),
+    (
+        "sub",
+        Modified,
+    ),
+]
