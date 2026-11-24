@@ -1,0 +1,6 @@
+{
+  "name": "TypeScript",
+  "extensions": ["ts", "mts", "cts"],
+  "grammar": "tree-sitter-typescript/tree-sitter-typescript.wasm",
+  "highlights": ["typescript/highlights.scm", "javascript/highlights.scm"]
+}

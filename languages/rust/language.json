@@ -1,0 +1,6 @@
+{
+  "name": "Rust",
+  "extensions": ["rs"],
+  "grammar": "tree-sitter-rust/tree-sitter-rust.wasm",
+  "highlights": ["rust/highlights.scm"]
+}
