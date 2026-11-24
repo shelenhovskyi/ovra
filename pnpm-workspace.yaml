@@ -3,6 +3,7 @@ packages:
   - tests/e2e
   - tests/perf
   - site
+  - tests/agents
 onlyBuiltDependencies:
   - esbuild
   - lefthook

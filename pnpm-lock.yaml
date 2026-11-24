@@ -33,6 +33,15 @@ importers:
         specifier: 7.4.13
         version: 7.4.13(@types/node@22.20.5)(jiti@2.7.0)(yaml@2.9.1)
 
+  tests/agents:
+    devDependencies:
+      '@playwright/test':
+        specifier: 1.63.0
+        version: 1.63.0
+      '@types/node':
+        specifier: ^22.20.5
+        version: 22.20.5
+
   tests/e2e:
     devDependencies:
       '@playwright/test':

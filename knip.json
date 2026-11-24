@@ -13,6 +13,9 @@
     },
     "site": {
       "entry": ["screenshots.ts"]
+    },
+    "tests/agents": {
+      "entry": ["specs/**/*.ts", "recorder.ts"]
     }
   }
 }

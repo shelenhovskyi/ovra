@@ -38,6 +38,12 @@ perf:
     cargo build --release -p ovra-daemon
     pnpm --filter @ovra/perf test
 
+# Live agent suite: the real, signed-in `claude` through headless mode
+# (tests/agents/README.md). Opt-in: it uses the plan's limits and takes minutes.
+# `just agents-live record` also rewrites crates/agent-runtime/fixtures.
+agents-live mode="check": build-headless
+    OVRA_UPDATE_FIXTURES={{ if mode == "record" { "1" } else { "0" } }} pnpm --filter @ovra/agents-live test
+
 # Everything CI lints.
 lint: check
     cargo clippy -p ovra-app --all-targets -- -D warnings
