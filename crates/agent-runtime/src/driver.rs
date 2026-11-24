@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use ovra_core::protocol::agents::{AgentMessage, AgentStatus};
-use ovra_core::protocol::permissions::Decision;
+use ovra_core::protocol::permissions::{Decision, PermissionReason};
 use ovra_core::services::AgentHost;
 use serde_json::Value;
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt};
@@ -129,7 +129,8 @@ impl Driver {
                 tool,
                 input,
                 title,
-            } => self.ask(request_id, tool, input, title),
+                reason,
+            } => self.ask(request_id, tool, input, title, reason),
             Incoming::Hook {
                 request_id,
                 callback_id,
@@ -174,7 +175,14 @@ impl Driver {
     }
 
     /// Asks the person through the core and answers the CLI when they do.
-    fn ask(&mut self, request_id: String, tool: String, input: Value, title: Option<String>) {
+    fn ask(
+        &mut self,
+        request_id: String,
+        tool: String,
+        input: Value,
+        title: Option<String>,
+        reason: Option<PermissionReason>,
+    ) {
         let Some(out) = self.out.clone() else {
             return;
         };
@@ -182,7 +190,7 @@ impl Driver {
         self.asking.retain(|_, task| !task.is_finished());
         let id = request_id.clone();
         let task = tokio::spawn(async move {
-            let answer = host.ask(tool, input.clone(), title, None).await;
+            let answer = host.ask(tool, input.clone(), title, reason).await;
             let response = match answer.decision {
                 Decision::Allow => wire::allow(input),
                 Decision::Deny => wire::deny(

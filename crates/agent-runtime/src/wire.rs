@@ -3,6 +3,7 @@
 //! and fields are ignored, so newer CLI versions can add to the protocol.
 
 use ovra_core::protocol::agents::{AgentMessage, TurnUsage};
+use ovra_core::protocol::permissions::PermissionReason;
 use serde_json::{Value, json};
 
 /// Request id of our `initialize` control request.
@@ -29,6 +30,8 @@ pub(crate) enum Incoming {
         tool: String,
         input: Value,
         title: Option<String>,
+        /// Why the CLI's rules ask (`decision_reason`, `decision_reason_type`).
+        reason: Option<PermissionReason>,
     },
     /// The CLI runs one of our hooks.
     Hook {
@@ -94,6 +97,10 @@ fn control_request(v: &Value) -> Incoming {
                 tool,
                 input: request.get("input").cloned().unwrap_or(json!({})),
                 title: str_field(request, "title").or_else(|| str_field(request, "description")),
+                reason: str_field(request, "decision_reason").map(|text| PermissionReason {
+                    text,
+                    kind: str_field(request, "decision_reason_type"),
+                }),
             },
             None => Incoming::UnknownControl {
                 request_id,
@@ -259,6 +266,27 @@ mod tests {
         ] {
             assert_eq!(parse(line), Incoming::Ignored, "{line}");
         }
+    }
+
+    #[test]
+    fn a_permission_request_keeps_the_reason_it_asks() {
+        let line = r#"{"type":"control_request","request_id":"r7","request":{
+            "subtype":"can_use_tool","tool_name":"Bash","input":{"command":"ls"},
+            "description":"List files","decision_reason":"This command requires approval",
+            "decision_reason_type":"other"}}"#;
+        assert_eq!(
+            parse(&line.replace('\n', "")),
+            Incoming::CanUseTool {
+                request_id: "r7".into(),
+                tool: "Bash".into(),
+                input: json!({"command": "ls"}),
+                title: Some("List files".into()),
+                reason: Some(PermissionReason {
+                    text: "This command requires approval".into(),
+                    kind: Some("other".into()),
+                }),
+            }
+        );
     }
 
     #[test]
