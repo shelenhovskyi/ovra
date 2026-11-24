@@ -16,6 +16,7 @@ use ovra_fs_index::FsIndex;
 use ovra_mcp_server::IdeServer;
 use ovra_opener::SystemOpener;
 use ovra_pty::Pty;
+use ovra_secrets::KeychainSecrets;
 use ovra_store::Store;
 use ovra_transport::ws::{self, Access};
 use ovra_worktree::GitWorktrees;
@@ -80,6 +81,7 @@ async fn main() -> anyhow::Result<()> {
         .ide_tools(Arc::new(IdeServer::new()))
         .terminals(Arc::new(Pty::new()))
         .agents(agents(&args))
+        .secrets(Arc::new(KeychainSecrets::new(&args.data_dir)))
         .build();
     let app = ws::router(
         core,

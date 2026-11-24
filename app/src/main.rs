@@ -11,6 +11,7 @@ use ovra_fs_index::FsIndex;
 use ovra_mcp_server::IdeServer;
 use ovra_opener::SystemOpener;
 use ovra_pty::Pty;
+use ovra_secrets::KeychainSecrets;
 use ovra_store::Store;
 use ovra_worktree::GitWorktrees;
 use tauri::{Emitter, Manager};
@@ -39,6 +40,7 @@ fn main() {
                 .ide_tools(Arc::new(IdeServer::new()))
                 .terminals(Arc::new(Pty::new()))
                 .agents(Arc::new(ClaudeCli::new(None, ovra_sandbox::for_this_os())))
+                .secrets(Arc::new(KeychainSecrets::new(&data_dir)))
                 .build();
             let mut events = core.subscribe();
             // One window, one client.

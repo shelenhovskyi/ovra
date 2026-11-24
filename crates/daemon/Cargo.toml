@@ -26,6 +26,7 @@ ovra-worktree.workspace = true
 ovra-mcp-server.workspace = true
 ovra-store.workspace = true
 ovra-sandbox.workspace = true
+ovra-secrets.workspace = true
 ovra-transport = { workspace = true, features = ["ws"] }
 anyhow.workspace = true
 axum.workspace = true
