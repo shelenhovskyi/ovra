@@ -1,16 +1,38 @@
 import { describe, expect, it } from "vitest";
 import { listCommands } from "../keys/commands";
+import type { Project } from "../lib/protocol";
 import { registerPaletteCommands } from "./commands";
+import { palette } from "./mode.svelte";
+
+const project: Project = { id: "p1", name: "demo", root: "/demo", last_opened_ms: null };
+const run = (id: string) =>
+  listCommands()
+    .find((c) => c.id === id)
+    ?.run();
 
 describe("palette commands", () => {
-  it("palette.show opens the palette on Mod+Shift+P", async () => {
-    const workspace = { paletteOpen: false };
+  it("open the palette in the right mode and close the project", async () => {
+    const workspace = { paletteOpen: false, project: null as Project | null, openPath: null as string | null };
     const unregister = registerPaletteCommands(workspace);
-    const show = listCommands().find((c) => c.id === "palette.show");
-    expect(show?.keys).toBe("Mod+Shift+P");
-    await show?.run();
-    expect(workspace.paletteOpen).toBe(true);
+    expect(listCommands().map((c) => [c.id, c.keys])).toEqual([
+      ["palette.close_project", undefined],
+      ["palette.go_to_file", "Mod+P"],
+      ["palette.show", "Mod+Shift+P"],
+      ["palette.switch_project", undefined],
+    ]);
+
+    await run("palette.go_to_file");
+    expect([workspace.paletteOpen, palette.mode]).toEqual([true, "projects"]);
+    workspace.project = project;
+    await run("palette.go_to_file");
+    expect(palette.mode).toBe("files");
+    await run("palette.show");
+    expect(palette.mode).toBe("commands");
+
+    workspace.openPath = "a.md";
+    await run("palette.close_project");
+    expect([workspace.project, workspace.openPath]).toEqual([null, null]);
     unregister();
-    expect(listCommands().find((c) => c.id === "palette.show")).toBeUndefined();
+    expect(listCommands()).toEqual([]);
   });
 });
