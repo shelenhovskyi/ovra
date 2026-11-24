@@ -4,7 +4,7 @@
 // like the tree's expanded folders, stay as they are. Each tab may have an
 // editor buffer; a tab with unsaved text is never closed without asking.
 
-import { untrack } from "svelte";
+import { tick, untrack } from "svelte";
 import type { ProjectId, ProjectStatePatch } from "../lib/protocol";
 import type { Transport } from "../lib/transport";
 import type { Workspace } from "../shell/workspace.svelte";
@@ -140,6 +140,18 @@ function closeTab(workspace: Target, current: OpenFiles, path: string): void {
   const wasActive = current.active === path;
   const next = current.close(path);
   if (wasActive) show(workspace, next);
+}
+
+/**
+ * Moves focus into the main area (the viewer's content, or the panel itself)
+ * once it has rendered, so it never drops to the page body.
+ */
+export async function focusMain(): Promise<void> {
+  await tick();
+  const panel = document.getElementById("ovra-tabpanel");
+  const candidates = [...(panel?.querySelectorAll<HTMLElement>(".cm-content, [data-panel] [tabindex='-1']") ?? [])];
+  const target = candidates.find((element) => element.offsetParent !== null) ?? panel;
+  target?.focus();
 }
 
 /** Shows the file at `path` (or nothing), keeping the current mode unless one is given. */

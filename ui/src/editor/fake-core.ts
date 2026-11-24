@@ -2,7 +2,7 @@
 // `fs.write_file` with conflicts) and per-project state with partial updates.
 
 import type { CoreEvent, FileBody, ProjectState, Request } from "../lib/protocol";
-import { CoreError, type Transport } from "../lib/transport";
+import { type ConnectionStatus, CoreError, type Transport } from "../lib/transport";
 
 export class FakeCore implements Transport {
   files = new Map<string, { body: FileBody; mtime: number }>();
@@ -11,6 +11,19 @@ export class FakeCore implements Transport {
   sentStates: unknown[] = [];
   private clock = 100;
   private listeners = new Set<(event: CoreEvent) => void>();
+  private statusListeners = new Set<(status: ConnectionStatus) => void>();
+  private status: ConnectionStatus = "open";
+
+  setStatus(status: ConnectionStatus): void {
+    this.status = status;
+    for (const listener of this.statusListeners) listener(status);
+  }
+
+  onStatus(listener: (status: ConnectionStatus) => void): () => void {
+    this.statusListeners.add(listener);
+    listener(this.status);
+    return () => this.statusListeners.delete(listener);
+  }
 
   /** Writes a file "on disk", as another program would, without an event. */
   put(path: string, text: string): void {

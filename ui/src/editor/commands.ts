@@ -2,16 +2,17 @@
 
 import { registerCommand } from "../keys/commands";
 import type { Workspace } from "../shell/workspace.svelte";
-import { requestClose, show, tabs } from "./open-files.svelte";
+import { focusMain, requestClose, show, tabs } from "./open-files.svelte";
 
 type Target = Pick<Workspace, "openPath" | "mode" | "openFile">;
 
 /** Switches between viewing and editing; files that cannot be edited say why instead. */
-async function toggle(workspace: Target): Promise<void> {
+export async function toggle(workspace: Target): Promise<void> {
   const path = workspace.openPath;
   if (!path) return;
   if (workspace.mode === "edit") {
     workspace.mode = "view";
+    await focusMain();
     return;
   }
   tabs.notice = null;

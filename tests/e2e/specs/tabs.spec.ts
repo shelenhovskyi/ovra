@@ -1,11 +1,14 @@
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 
 function project(files: Record<string, string>): string {
   const dir = mkdtempSync(join(tmpdir(), "ovra-tabs-"));
-  for (const [name, text] of Object.entries(files)) writeFileSync(join(dir, name), text);
+  for (const [name, text] of Object.entries(files)) {
+    mkdirSync(dirname(join(dir, name)), { recursive: true });
+    writeFileSync(join(dir, name), text);
+  }
   return dir;
 }
 
@@ -48,10 +51,12 @@ test("tabs switch with the keyboard, keep undo and focus, and ask before closing
   await page.keyboard.press("ControlOrMeta+Shift+Z");
   await expect(content).toContainText("edited");
 
-  // Closing asks; Cancel keeps everything, Save writes and closes.
+  // Closing asks in a modal: Tab stays inside, Cancel keeps everything, Save writes and closes.
   await tabs.getByRole("button", { name: "Close a.txt (unsaved changes)" }).click();
-  const question = page.getByRole("alertdialog", { name: "Save changes to a.txt before closing?" });
+  const question = page.getByRole("dialog", { name: "Save changes to a.txt before closing?" });
   await expect(question.getByRole("button", { name: "Save", exact: true })).toBeFocused();
+  for (let i = 0; i < 4; i++) await page.keyboard.press("Tab");
+  await expect(question.getByRole("button", { name: "Don't save" })).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(question).toBeHidden();
   await expect(tabs.getByRole("tab")).toHaveCount(2);
@@ -61,6 +66,38 @@ test("tabs switch with the keyboard, keep undo and focus, and ask before closing
   await expect(tabs.getByRole("tab")).toHaveText(["b.txt"]);
   expect(readFileSync(join(dir, "a.txt"), "utf8")).toBe("edited alpha\n");
   await expect(page.getByTestId("editor-path")).toHaveText("b.txt");
+
+  // Ctrl+S while the question is open saves and closes it.
+  await content.click();
+  await page.keyboard.type("more ");
+  await page.keyboard.press("Alt+W");
+  await expect(question.or(page.getByRole("dialog"))).toBeVisible();
+  await page.keyboard.press("ControlOrMeta+S");
+  await expect(page.getByRole("dialog")).toBeHidden();
+  expect(readFileSync(join(dir, "b.txt"), "utf8")).toContain("more ");
+
+  // With the last tab gone, focus is in the main area, not on the page body.
+  await expect(tabs).toBeHidden();
+  await expect(page.locator("#ovra-tabpanel")).toBeFocused();
+});
+
+test("a visible Edit button switches modes, and focus follows into the viewer", async ({ page }) => {
+  const dir = project({ "sub/notes.txt": "hello\n" });
+  await open(page, dir);
+  await page.getByRole("treeitem", { name: /sub/ }).click();
+  await page.getByRole("treeitem", { name: /notes\.txt/ }).click();
+  const tabs = page.getByRole("tablist", { name: "Open files" });
+  await tabs.getByRole("button", { name: "Edit" }).click();
+  const content = page.getByTestId("main").locator(".cm-content");
+  await expect(content).toBeFocused();
+  await page.keyboard.type("x");
+  await page.keyboard.press("ControlOrMeta+E");
+  await expect(tabs.getByRole("button", { name: "Edit" })).toBeVisible();
+  await expect(page.locator("#ovra-tabpanel .content")).toBeFocused();
+
+  // The close question names the file by its path.
+  await tabs.getByRole("button", { name: /Close notes\.txt/ }).click();
+  await expect(page.getByRole("dialog", { name: "Save changes to sub/notes.txt before closing?" })).toBeVisible();
 });
 
 test("unsaved text survives a reload and an outside change becomes a conflict", async ({ page }) => {

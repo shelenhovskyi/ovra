@@ -1,15 +1,17 @@
 <script lang="ts">
 // Tabs for the open files of the project, above the main area. One Tab stop
 // for the strip; arrows, Home and End move between tabs, Delete closes one.
-// Closing a tab with unsaved text asks Save / Don't save / Cancel.
+// Closing a tab with unsaved text asks Save / Don't save / Cancel in a
+// modal dialog. The Edit / View button switches the open file's mode.
 import { tick } from "svelte";
 import { useOvra } from "../shell/context";
-import { answerClose, requestClose, show, tabs } from "./open-files.svelte";
+import { toggle } from "./commands";
+import { answerClose, focusMain, requestClose, show, tabs } from "./open-files.svelte";
 
 const { workspace } = useOvra();
 
 let strip = $state<HTMLDivElement>();
-let dialog = $state<HTMLDivElement>();
+let dialog = $state<HTMLDialogElement>();
 
 function name(path: string): string {
   return path.slice(path.lastIndexOf("/") + 1);
@@ -36,6 +38,20 @@ async function focusTab(path: string | null): Promise<void> {
   tab?.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
 
+/** After a tab closed: focus the next tab, or the main area when none is left. */
+function focusAfterClose(next: string | null | undefined): void {
+  if (next) void focusTab(next);
+  else void focusMain();
+}
+
+function close(path: string): void {
+  const files = tabs.current?.files ?? [];
+  const index = files.indexOf(path);
+  const next = path === tabs.current?.active ? (files[index + 1] ?? files[index - 1]) : tabs.current?.active;
+  requestClose(workspace, path);
+  if (!tabs.closing) focusAfterClose(next);
+}
+
 function select(path: string): void {
   show(workspace, path);
   void focusTab(path);
@@ -55,21 +71,45 @@ function onkeydown(event: KeyboardEvent, path: string): void {
     select(target);
   } else if (event.key === "Delete") {
     event.preventDefault();
-    const next = files[index + 1] ?? files[index - 1] ?? null;
-    requestClose(workspace, path);
-    if (!tabs.closing) void focusTab(next);
+    close(path);
   }
 }
 
 async function answer(choice: "save" | "discard" | "cancel"): Promise<void> {
   const path = tabs.closing;
   await answerClose(workspace, choice);
-  void focusTab(choice === "cancel" ? path : (tabs.current?.active ?? null));
+  if (choice === "cancel" || tabs.current?.files.includes(path ?? "")) void focusTab(path);
+  else focusAfterClose(tabs.current?.active);
 }
 
+// A real modal: the rest of the page is inert and Tab stays inside.
 $effect(() => {
-  if (tabs.closing && dialog) dialog.querySelector<HTMLButtonElement>("button")?.focus();
+  if (tabs.closing && dialog && !dialog.open) {
+    dialog.showModal();
+    dialog.querySelector<HTMLButtonElement>("button")?.focus();
+  }
 });
+
+// Saved some other way (Ctrl+S) while the question is open: nothing left to ask.
+$effect(() => {
+  const path = tabs.closing;
+  if (path && tabs.current && !tabs.current.buffers.isDirty(path)) void answer("discard");
+});
+
+function ondialogkeydown(event: KeyboardEvent): void {
+  if (event.key === "Tab" && dialog) {
+    // Keep Tab inside the dialog, wrapping at both ends.
+    const buttons = [...dialog.querySelectorAll<HTMLButtonElement>("button")];
+    const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+    const next = buttons[(index + (event.shiftKey ? -1 : 1) + buttons.length) % buttons.length];
+    event.preventDefault();
+    next?.focus();
+  } else if ((event.ctrlKey || event.metaKey) && event.code === "KeyS") {
+    event.preventDefault();
+    event.stopPropagation();
+    void answer("save");
+  }
+}
 
 $effect(() => {
   const active = tabs.current?.active;
@@ -107,10 +147,15 @@ function scrollToActive(): void {
           class:dirty
           tabindex="-1"
           aria-label={dirty ? `Close ${labels.get(path)} (unsaved changes)` : `Close ${labels.get(path)}`}
-          onclick={() => requestClose(workspace, path)}
+          onclick={() => close(path)}
         ></button>
       </div>
     {/each}
+    {#if workspace.openPath}
+      <button type="button" class="mode" onclick={() => toggle(workspace)}>
+        {workspace.mode === "edit" ? "View" : "Edit"}
+      </button>
+    {/if}
   </div>
 {/if}
 
@@ -118,24 +163,23 @@ function scrollToActive(): void {
 
 {#if tabs.closing}
   {@const closing = tabs.closing}
-  <div
+  <dialog
     class="confirm"
-    role="alertdialog"
     aria-labelledby="ovra-close-question"
-    tabindex="-1"
     bind:this={dialog}
-    onkeydown={(event) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        void answer("cancel");
-      }
+    oncancel={(event) => {
+      event.preventDefault();
+      void answer("cancel");
     }}
+    onkeydown={ondialogkeydown}
   >
-    <span id="ovra-close-question">Save changes to {name(closing)} before closing?</span>
-    <button type="button" onclick={() => answer("save")}>Save</button>
-    <button type="button" onclick={() => answer("discard")}>Don't save</button>
-    <button type="button" onclick={() => answer("cancel")}>Cancel</button>
-  </div>
+    <p id="ovra-close-question">Save changes to {closing} before closing?</p>
+    <div class="answers">
+      <button type="button" onclick={() => answer("save")}>Save</button>
+      <button type="button" onclick={() => answer("discard")}>Don't save</button>
+      <button type="button" onclick={() => answer("cancel")}>Cancel</button>
+    </div>
+  </dialog>
 {/if}
 
 <style>
@@ -201,14 +245,33 @@ function scrollToActive(): void {
     background: #2a2a3a;
     color: #e6e6e6;
   }
+  .mode {
+    margin-left: auto;
+    flex-shrink: 0;
+    padding: 4px 12px;
+    color: #82aaff;
+  }
+  .mode:hover {
+    background: #2a2a31;
+  }
   .confirm {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 12px;
-    background: #2a2a3a;
+    padding: 16px;
+    border: 1px solid #4a4a5a;
+    border-radius: 6px;
+    background: #1d1d23;
     color: #e6e6e6;
+  }
+  .confirm::backdrop {
+    background: rgb(0 0 0 / 40%);
+  }
+  .confirm p {
+    margin: 0 0 12px;
+    overflow-wrap: anywhere;
+  }
+  .answers {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
   }
   .confirm button {
     padding: 2px 8px;
