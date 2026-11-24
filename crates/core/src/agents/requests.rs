@@ -66,25 +66,10 @@ pub(crate) async fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Resp
             mode,
             prompt,
         } => {
-            let target = ctx.projects.get(&project)?;
-            let executable = ctx.projects.agent_settings()?.claude_path;
             check_text(&prompt)?;
-            // Settings that changed since the user trusted them (or cannot
-            // be read) do not load until the user reviews them again.
-            let trusted = target.trusted && review(ctx, &project).await.is_ok_and(|r| r.applies());
-            if mode == SessionMode::Isolated {
-                return Err(ProtocolError::new(
-                    ErrorCode::Unavailable,
-                    "isolated sessions need worktrees, which arrive in phase 3",
-                ));
-            }
-            if sessions.any_running(|s| s.project == project && s.mode == SessionMode::Direct) {
-                return Err(conflict(
-                    "another agent already works in this project's main checkout",
-                ));
-            }
+            let launch = prepare(ctx, &project, mode).await?;
             let id = sessions.next_id();
-            let info = SessionInfo {
+            sessions.insert(SessionInfo {
                 id: id.clone(),
                 project: project.clone(),
                 agent,
@@ -92,37 +77,29 @@ pub(crate) async fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Resp
                 status: AgentStatus::Starting,
                 title: title(&prompt),
                 usage: TurnUsage::default(),
-            };
-            sessions.insert(info.clone());
-            ctx.sink.emit(AgentsEvent::Status {
-                session: id.clone(),
-                project: project.clone(),
-                status: AgentStatus::Starting,
+                resumable: false,
             });
-            let host = AgentHost::new(id.clone(), project, sessions.clone(), ctx.sink.clone());
-            host.message(AgentMessage::UserText {
-                text: prompt.clone(),
-            });
-            let spec = AgentSpec {
-                session: id.clone(),
-                agent,
-                mode,
-                cwd: PathBuf::from(target.root),
-                prompt,
-                executable: executable.map(PathBuf::from),
-                trusted,
-            };
-            match ctx.runtime.start(spec, host.clone()) {
-                Ok(process) => sessions.find(&id, |s| s.set_process(Arc::from(process)))?,
-                Err(err) => {
-                    host.status(AgentStatus::Failed {
-                        message: err.message.clone(),
-                    });
-                    return Err(err);
-                }
+            run(ctx, &id, project, launch, prompt, None)
+        }
+        AgentsRequest::Resume { session, prompt } => {
+            check_text(&prompt)?;
+            let (info, agent_session) =
+                sessions.find(&session, |s| (s.info(), s.agent_session()))?;
+            if !info.status.is_ended() {
+                return Err(conflict("the session is still running"));
             }
-            let info = sessions.find(&id, |s| s.info())?;
-            Ok(Response::Agents(AgentsResponse::Session(info)))
+            let agent_session = agent_session
+                .ok_or_else(|| conflict("the agent did not report how to resume this session"))?;
+            let launch = prepare(ctx, &info.project, info.mode).await?;
+            sessions.find(&session, |s| s.restart())?;
+            run(
+                ctx,
+                &session,
+                info.project,
+                launch,
+                prompt,
+                Some(agent_session),
+            )
         }
         AgentsRequest::Send { session, text } => {
             check_text(&text)?;
@@ -165,6 +142,85 @@ pub(crate) async fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Resp
             Ok(Response::Agents(AgentsResponse::Transcript(transcript)))
         }
     }
+}
+
+/// What starting a session in a project needs, once it may start there.
+struct Launch {
+    target: Project,
+    mode: SessionMode,
+    executable: Option<String>,
+    trusted: bool,
+}
+
+async fn prepare(ctx: &Ctx<'_>, project: &ProjectId, mode: SessionMode) -> Result<Launch> {
+    let target = ctx.projects.get(project)?;
+    let executable = ctx.projects.agent_settings()?.claude_path;
+    // Settings that changed since the user trusted them (or cannot be read)
+    // do not load until the user reviews them again.
+    let trusted = target.trusted && review(ctx, project).await.is_ok_and(|r| r.applies());
+    if mode == SessionMode::Isolated {
+        return Err(ProtocolError::new(
+            ErrorCode::Unavailable,
+            "isolated sessions need worktrees, which arrive in phase 3",
+        ));
+    }
+    if ctx
+        .sessions
+        .any_running(|s| &s.project == project && s.mode == SessionMode::Direct)
+    {
+        return Err(conflict(
+            "another agent already works in this project's main checkout",
+        ));
+    }
+    Ok(Launch {
+        target,
+        mode,
+        executable,
+        trusted,
+    })
+}
+
+/// Starts the runtime for session `id`, which is `starting`, with `prompt`.
+fn run(
+    ctx: &Ctx<'_>,
+    id: &SessionId,
+    project: ProjectId,
+    launch: Launch,
+    prompt: String,
+    resume: Option<String>,
+) -> Result<Response> {
+    let sessions = ctx.sessions;
+    ctx.sink.emit(AgentsEvent::Status {
+        session: id.clone(),
+        project: project.clone(),
+        status: AgentStatus::Starting,
+    });
+    let host = AgentHost::new(id.clone(), project, sessions.clone(), ctx.sink.clone());
+    host.message(AgentMessage::UserText {
+        text: prompt.clone(),
+    });
+    let agent = sessions.find(id, |s| s.info().agent)?;
+    let spec = AgentSpec {
+        session: id.clone(),
+        agent,
+        mode: launch.mode,
+        cwd: PathBuf::from(launch.target.root),
+        prompt,
+        executable: launch.executable.map(PathBuf::from),
+        trusted: launch.trusted,
+        resume,
+    };
+    match ctx.runtime.start(spec, host.clone()) {
+        Ok(process) => sessions.find(id, |s| s.set_process(Arc::from(process)))?,
+        Err(err) => {
+            host.status(AgentStatus::Failed {
+                message: err.message.clone(),
+            });
+            return Err(err);
+        }
+    }
+    let info = sessions.find(id, |s| s.info())?;
+    Ok(Response::Agents(AgentsResponse::Session(info)))
 }
 
 /// What the project would load now, and what the user trusted.

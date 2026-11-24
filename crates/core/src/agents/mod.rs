@@ -15,7 +15,7 @@ use crate::protocol::permissions::{
 };
 use crate::protocol::projects::ProjectId;
 use crate::protocol::{ErrorCode, ProtocolError};
-use crate::services::{EventSink, RunningAgent};
+use crate::services::{EventSink, RunningAgent, SessionStore, StoredSession};
 
 pub(crate) use permissions::Permissions;
 pub(crate) use requests::{
@@ -39,17 +39,56 @@ struct Session {
     /// Set by `agents.stop`: the session takes no more messages and its
     /// agent may no longer ask for permissions.
     stopping: bool,
+    /// The agent's own id for the conversation, which `agents.resume` needs.
+    agent_session: Option<String>,
 }
 
-/// Every session of this core run, in start order.
-#[derive(Debug, Default)]
+/// Every session kept, in start order: this run's and those loaded from the
+/// [`SessionStore`]. Store failures do not stop sessions; they are only not
+/// kept.
+#[derive(Debug)]
 pub(crate) struct Sessions {
     list: Mutex<Vec<Session>>,
+    store: Arc<dyn SessionStore>,
     started: Mutex<u64>,
     pub(crate) permissions: Permissions,
 }
 
 impl Sessions {
+    /// Loads the kept sessions. Those that ran when the core last quit have
+    /// no process any more, so they show as stopped.
+    pub(crate) fn new(store: Arc<dyn SessionStore>) -> Self {
+        let mut started = 0;
+        let mut list = Vec::new();
+        for (stored, messages) in store.load(transcript::MAX_MESSAGES).unwrap_or_default() {
+            let number = stored
+                .info
+                .id
+                .0
+                .strip_prefix('s')
+                .and_then(|n| n.parse().ok());
+            started = started.max(number.unwrap_or(0));
+            let mut session = Session {
+                transcript: Transcript::restore(messages, stored.info.usage.clone()),
+                info: stored.info,
+                process: None,
+                stopping: false,
+                agent_session: stored.agent_session,
+            };
+            if !session.info.status.is_ended() {
+                session.info.status = AgentStatus::Stopped;
+                let _ = store.save(&session.stored());
+            }
+            list.push(session);
+        }
+        Self {
+            list: Mutex::new(list),
+            store,
+            started: Mutex::new(started),
+            permissions: Permissions::default(),
+        }
+    }
+
     pub(crate) fn next_id(&self) -> SessionId {
         let mut started = lock(&self.started);
         *started += 1;
@@ -59,12 +98,15 @@ impl Sessions {
     pub(crate) fn insert(&self, info: SessionInfo) {
         let mut list = lock(&self.list);
         let project = info.project.clone();
-        list.push(Session {
+        let session = Session {
             info,
             transcript: Transcript::default(),
             process: None,
             stopping: false,
-        });
+            agent_session: None,
+        };
+        let _ = self.store.save(&session.stored());
+        list.push(session);
         let ended = |s: &Session| s.info.project == project && s.info.status.is_ended();
         let mut extra = list
             .iter()
@@ -73,7 +115,10 @@ impl Sessions {
             .saturating_sub(MAX_ENDED_PER_PROJECT);
         list.retain(|s| {
             let forget = extra > 0 && ended(s);
-            extra -= usize::from(forget);
+            if forget {
+                extra -= 1;
+                let _ = self.store.remove(&s.info.id);
+            }
             !forget
         });
     }
@@ -98,6 +143,7 @@ impl Sessions {
         Ok(f(&mut SessionView {
             session,
             permissions: &self.permissions,
+            store: self.store.as_ref(),
         }))
     }
 
@@ -122,16 +168,25 @@ impl Session {
     fn info(&self) -> SessionInfo {
         SessionInfo {
             usage: self.transcript.usage().clone(),
+            resumable: self.info.status.is_ended() && self.agent_session.is_some(),
             ..self.info.clone()
+        }
+    }
+
+    fn stored(&self) -> StoredSession {
+        StoredSession {
+            info: self.info(),
+            agent_session: self.agent_session.clone(),
         }
     }
 }
 
 /// Access to one session while the registry is locked. Lock order: the
-/// registry, then the permission requests.
+/// registry, then the permission requests or the store.
 pub(crate) struct SessionView<'a> {
     session: &'a mut Session,
     permissions: &'a Permissions,
+    store: &'a dyn SessionStore,
 }
 
 impl SessionView<'_> {
@@ -146,7 +201,27 @@ impl SessionView<'_> {
     }
     /// Adds a message and returns it as kept (long texts cut).
     pub(crate) fn push(&mut self, message: AgentMessage) -> AgentMessage {
-        self.session.transcript.push(message)
+        let kept = self.session.transcript.push(message);
+        let _ = self.store.append(&self.session.info.id, &kept);
+        kept
+    }
+    fn save(&self) {
+        let _ = self.store.save(&self.session.stored());
+    }
+    pub(crate) fn agent_session(&self) -> Option<String> {
+        self.session.agent_session.clone()
+    }
+    fn set_agent_session(&mut self, id: String) {
+        if self.session.agent_session.as_ref() != Some(&id) {
+            self.session.agent_session = Some(id);
+            self.save();
+        }
+    }
+    /// Starts an ended session over for `agents.resume`.
+    pub(crate) fn restart(&mut self) {
+        self.session.info.status = AgentStatus::Starting;
+        self.session.stopping = false;
+        self.save();
     }
     /// Moves to `status` if the state machine allows it; `false` if not.
     fn set_status(&mut self, status: AgentStatus) -> bool {
@@ -161,6 +236,7 @@ impl SessionView<'_> {
             self.session.process = None;
         }
         self.session.info.status = status;
+        self.save();
         true
     }
     pub(crate) fn process(&self) -> Option<Arc<dyn RunningAgent>> {
@@ -210,6 +286,14 @@ impl AgentHost {
 
     pub fn session(&self) -> &SessionId {
         &self.session
+    }
+
+    /// Records the agent's own id for the conversation, so that the session
+    /// can be resumed later, also after a restart.
+    pub fn agent_session(&self, id: String) {
+        let _ = self
+            .sessions
+            .find(&self.session, |s| s.set_agent_session(id));
     }
 
     /// Adds a message to the transcript and shows it.

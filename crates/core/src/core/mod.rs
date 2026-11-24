@@ -15,7 +15,8 @@ use crate::protocol::projects::{
 use crate::protocol::terminals::{TerminalsRequest, TerminalsResponse};
 use crate::protocol::{ErrorCode, Event, OkResponse, ProtocolError, Request, Response};
 use crate::services::{
-    AgentRuntime, EventSink, FsService, Opener, ProjectStore, TerminalService, Unavailable,
+    AgentRuntime, EventSink, FsService, Opener, ProjectStore, SessionStore, TerminalService,
+    Unavailable,
 };
 
 const EVENT_CAPACITY: usize = 1024;
@@ -29,6 +30,7 @@ pub struct CoreBuilder {
     opener: Arc<dyn Opener>,
     terminals: Arc<dyn TerminalService>,
     agents: Arc<dyn AgentRuntime>,
+    sessions: Arc<dyn SessionStore>,
 }
 
 impl CoreBuilder {
@@ -57,6 +59,13 @@ impl CoreBuilder {
         self
     }
 
+    /// Where agent sessions are kept across restarts; without one they last
+    /// for this run only.
+    pub fn sessions(mut self, store: Arc<dyn SessionStore>) -> Self {
+        self.sessions = store;
+        self
+    }
+
     pub fn build(self) -> Core {
         let (events, _) = broadcast::channel(EVENT_CAPACITY);
         Core {
@@ -67,7 +76,7 @@ impl CoreBuilder {
                 opener: self.opener,
                 terminals: self.terminals,
                 agents: self.agents,
-                sessions: Arc::new(Sessions::default()),
+                sessions: Arc::new(Sessions::new(self.sessions)),
                 held: Mutex::new(None),
                 open: Mutex::new(BTreeMap::new()),
             }),
@@ -138,6 +147,7 @@ impl Core {
             opener: Arc::new(Unavailable("opening files externally")),
             terminals: Arc::new(Unavailable("terminals")),
             agents: Arc::new(Unavailable("agents")),
+            sessions: Arc::new(Unavailable("keeping sessions")),
         }
     }
 

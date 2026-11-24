@@ -11,7 +11,8 @@ use tokio::sync::broadcast;
 pub use crate::agents::AgentHost;
 use crate::path::RelPath;
 use crate::protocol::agents::{
-    AgentKind, AgentSettings, AgentSetup, ProjectAgentConfig, SessionId, SessionMode, SetupState,
+    AgentKind, AgentMessage, AgentSettings, AgentSetup, ProjectAgentConfig, SessionId, SessionInfo,
+    SessionMode, SetupState,
 };
 use crate::protocol::fs::{DirListing, FileContent, FileList};
 use crate::protocol::projects::{Project, ProjectId, ProjectState, ProjectStatePatch};
@@ -116,6 +117,9 @@ pub struct AgentSpec {
     /// trusts the project and it has not changed since. Otherwise only the
     /// user's own settings load.
     pub trusted: bool,
+    /// The agent's own id of a conversation to continue, as the runtime
+    /// reported it through [`AgentHost::agent_session`]; `None` starts anew.
+    pub resume: Option<String>,
 }
 
 /// Starts agent sessions (implemented by `ovra-agent-runtime`). One runtime
@@ -156,6 +160,28 @@ pub trait RunningAgent: Send + Sync + Debug {
     }
     /// Ends the session. The runtime reports `stopped` through the host.
     fn stop(&self);
+}
+
+/// A session as kept between core runs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredSession {
+    pub info: SessionInfo,
+    /// The agent's own id for the conversation (Claude Code's session id).
+    pub agent_session: Option<String>,
+}
+
+/// Keeps agent sessions and their transcripts across restarts (implemented
+/// by `ovra-store`). The core keeps working when a call fails.
+pub trait SessionStore: Send + Sync + Debug {
+    /// Every kept session, oldest first, with at most the last
+    /// `max_messages` messages of its transcript.
+    fn load(&self, max_messages: usize) -> Result<Vec<(StoredSession, Vec<AgentMessage>)>>;
+    /// Adds a session or replaces its metadata.
+    fn save(&self, session: &StoredSession) -> Result<()>;
+    /// Adds a message to the end of a saved session's transcript.
+    fn append(&self, session: &SessionId, message: &AgentMessage) -> Result<()>;
+    /// Forgets a session and its transcript.
+    fn remove(&self, session: &SessionId) -> Result<()>;
 }
 
 /// Placeholder for services a front end has not wired in.
@@ -253,6 +279,21 @@ impl TerminalService for Unavailable {
     }
     fn close(&self, _: &TerminalId) -> Result<()> {
         self.err()
+    }
+}
+
+impl SessionStore for Unavailable {
+    fn load(&self, _: usize) -> Result<Vec<(StoredSession, Vec<AgentMessage>)>> {
+        Ok(Vec::new())
+    }
+    fn save(&self, _: &StoredSession) -> Result<()> {
+        Ok(())
+    }
+    fn append(&self, _: &SessionId, _: &AgentMessage) -> Result<()> {
+        Ok(())
+    }
+    fn remove(&self, _: &SessionId) -> Result<()> {
+        Ok(())
     }
 }
 

@@ -27,6 +27,8 @@ export type SessionInfo = {
   title: string;
   /** The sum of every finished turn's usage. */
   usage: TurnUsage;
+  /** Whether `agents.resume` can continue it: it ended and the agent reported its own id. */
+  resumable: boolean;
 };
 
 export type TurnUsage = {
@@ -110,6 +112,7 @@ export type AgentsRequest =
       params: { project: ProjectId; agent: AgentKind; mode: SessionMode; prompt: string };
     }
   | { method: "agents.send"; params: { session: SessionId; text: string } }
+  | { method: "agents.resume"; params: { session: SessionId; prompt: string } }
   | { method: "agents.interrupt"; params: { session: SessionId } }
   | { method: "agents.stop"; params: { session: SessionId } }
   | { method: "agents.transcript"; params: { session: SessionId } };

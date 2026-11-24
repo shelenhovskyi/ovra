@@ -63,6 +63,10 @@ pub struct SessionInfo {
     pub title: String,
     /// The sum of every finished turn's usage.
     pub usage: TurnUsage,
+    /// Whether `agents.resume` can continue it: it ended and the agent
+    /// reported its own id for the conversation.
+    #[serde(default)]
+    pub resumable: bool,
 }
 
 /// Tokens and cost of one turn, as the agent reports them, or their sum.
@@ -252,6 +256,10 @@ pub enum AgentsRequest {
     /// Sends the next message. Answers `ok`.
     #[serde(rename = "agents.send")]
     Send { session: SessionId, text: String },
+    /// Continues an ended session, also one from before a restart, with a
+    /// new prompt. Answers `agents.session`.
+    #[serde(rename = "agents.resume")]
+    Resume { session: SessionId, prompt: String },
     /// Ends the current turn; the session then waits for the next message.
     /// Pending permission requests are denied. Answers `ok`.
     #[serde(rename = "agents.interrupt")]

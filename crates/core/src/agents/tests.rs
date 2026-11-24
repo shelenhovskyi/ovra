@@ -4,7 +4,7 @@ use serde_json::json;
 use tokio::sync::broadcast;
 
 use crate::Core;
-use crate::fakes::{EchoTerminals, MemoryProjects, ScriptedAgent, Step};
+use crate::fakes::{EchoTerminals, MemoryProjects, MemorySessions, ScriptedAgent, Step};
 use crate::protocol::agents::{
     AgentMessage, AgentStatus, AgentsEvent, AgentsResponse, SessionInfo, TurnUsage,
 };
@@ -703,4 +703,115 @@ async fn sessions_get_the_chosen_executable_and_the_project_trust() {
         .await,
         ErrorCode::NotFound
     );
+}
+
+/// Two cores over the same projects and sessions: a run, then a restart.
+fn restartable(
+    agent: ScriptedAgent,
+    projects: &Arc<MemoryProjects>,
+    kept: &Arc<MemorySessions>,
+) -> Core {
+    Core::builder("test")
+        .projects(projects.clone())
+        .sessions(kept.clone())
+        .agents(Arc::new(agent))
+        .build()
+}
+
+#[tokio::test]
+async fn sessions_survive_a_restart_and_resume() {
+    let projects = Arc::new(MemoryProjects::default());
+    let kept = Arc::new(MemorySessions::default());
+    let first = restartable(
+        ScriptedAgent::new(vec![vec![Step::Say("one")]]),
+        &projects,
+        &kept,
+    );
+    project(&first).await;
+    let mut rx = first.subscribe();
+    ok(&first, start("go")).await;
+    until(&mut rx, AgentStatus::Idle).await;
+    host(&first).message(AgentMessage::TurnEnd {
+        usage: TurnUsage {
+            input_tokens: 7,
+            output_tokens: 3,
+            cost_micro_usd: Some(40),
+        },
+    });
+    // A status change saves the summed usage, as after every real turn.
+    host(&first).status(AgentStatus::Working);
+    assert!(
+        !sessions(&first).await[0].resumable,
+        "a running session is not resumable"
+    );
+    drop(first);
+
+    let agent = Arc::new(ScriptedAgent::new(vec![vec![Step::Say("two")]]));
+    let second = Core::builder("test")
+        .projects(projects)
+        .sessions(kept)
+        .agents(agent.clone())
+        .build();
+    // It ran when the core quit, so it shows as stopped and can resume.
+    let before = sessions(&second).await;
+    assert_eq!(before.len(), 1);
+    assert_eq!(before[0].status, AgentStatus::Stopped);
+    assert!(before[0].resumable);
+    assert_eq!(before[0].usage.cost_micro_usd, Some(40));
+    let said = |t: Vec<AgentMessage>| -> Vec<String> {
+        t.into_iter()
+            .filter_map(|m| match m {
+                AgentMessage::UserText { text } | AgentMessage::AssistantText { text, .. } => {
+                    Some(text)
+                }
+                _ => None,
+            })
+            .collect()
+    };
+    assert_eq!(said(transcript(&second).await), ["go", "one"]);
+
+    let mut rx = second.subscribe();
+    let resume = json!({"method": "agents.resume", "params": {"session": "s1", "prompt": "again"}});
+    ok(&second, resume.clone()).await;
+    until(&mut rx, AgentStatus::Idle).await;
+    assert_eq!(
+        said(transcript(&second).await),
+        ["go", "one", "again", "two"]
+    );
+    let resumed = agent.started.lock().unwrap_or_else(|e| e.into_inner())[0]
+        .resume
+        .clone();
+    assert_eq!(resumed.as_deref(), Some("scripted-s1"));
+    // Running again: neither a second resume nor a new direct session.
+    assert_eq!(code(&second, resume).await, ErrorCode::Conflict);
+    ok(
+        &second,
+        json!({"method": "agents.stop", "params": {"session": "s1"}}),
+    )
+    .await;
+    until(&mut rx, AgentStatus::Stopped).await;
+    // New sessions do not reuse kept ids.
+    match ok(&second, start("new")).await {
+        Response::Agents(AgentsResponse::Session(info)) => assert_eq!(info.id.0, "s2"),
+        other => panic!("unexpected {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn a_session_without_the_agents_id_cannot_resume() {
+    let projects = Arc::new(MemoryProjects::default());
+    let kept = Arc::new(MemorySessions::default());
+    // Without a runtime the start fails before any agent reports an id.
+    let core = Core::builder("test")
+        .projects(projects.clone())
+        .sessions(kept.clone())
+        .build();
+    project(&core).await;
+    assert_eq!(code(&core, start("x")).await, ErrorCode::Unavailable);
+    assert!(!sessions(&core).await[0].resumable);
+    let resume = json!({"method": "agents.resume", "params": {"session": "s1", "prompt": "again"}});
+    assert_eq!(code(&core, resume).await, ErrorCode::Conflict);
+    let unknown =
+        json!({"method": "agents.resume", "params": {"session": "s9", "prompt": "again"}});
+    assert_eq!(code(&core, unknown).await, ErrorCode::NotFound);
 }

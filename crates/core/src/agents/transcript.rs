@@ -31,6 +31,15 @@ impl Transcript {
         message
     }
 
+    /// A transcript loaded from the store, with the usage summed when saved
+    /// (older turns may no longer be among the messages).
+    pub(crate) fn restore(messages: Vec<AgentMessage>, usage: TurnUsage) -> Self {
+        Self {
+            messages: messages.into(),
+            usage,
+        }
+    }
+
     pub(crate) fn messages(&self) -> Vec<AgentMessage> {
         self.messages.iter().cloned().collect()
     }

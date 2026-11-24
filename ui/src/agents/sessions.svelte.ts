@@ -81,6 +81,7 @@ export class AgentSessions {
         status,
         title: "",
         usage: NO_USAGE,
+        resumable: false,
       });
       void this.load(project).catch(() => {});
     } else if (event.type === "agents.message") {

@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use crate::path::RelPath;
 use crate::protocol::agents::{
-    AgentMessage, AgentSettings, AgentStatus, ProjectAgentConfig, TurnUsage,
+    AgentMessage, AgentSettings, AgentStatus, ProjectAgentConfig, SessionId, TurnUsage,
 };
 use crate::protocol::fs::{DirEntry, DirListing, EntryKind, FileBody, FileContent, FileList};
 use crate::protocol::permissions::Decision;
@@ -17,7 +17,7 @@ use crate::protocol::terminals::{TermSize, TerminalId, TerminalsEvent};
 use crate::protocol::{ErrorCode, ProtocolError};
 use crate::services::{
     AgentHost, AgentRuntime, AgentSpec, BoxFuture, EventSink, FsService, Opener, ProjectStore,
-    Result, RunningAgent, TerminalService,
+    Result, RunningAgent, SessionStore, StoredSession, TerminalService,
 };
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -373,6 +373,51 @@ impl TerminalService for EchoTerminals {
     }
 }
 
+/// Sessions kept in memory; share one between two cores to test a restart.
+#[derive(Debug, Default)]
+pub struct MemorySessions {
+    sessions: Mutex<Vec<(StoredSession, Vec<AgentMessage>)>>,
+}
+
+impl SessionStore for MemorySessions {
+    fn load(&self, max_messages: usize) -> Result<Vec<(StoredSession, Vec<AgentMessage>)>> {
+        Ok(lock(&self.sessions)
+            .iter()
+            .map(|(session, messages)| {
+                let skip = messages.len().saturating_sub(max_messages);
+                (session.clone(), messages[skip..].to_vec())
+            })
+            .collect())
+    }
+
+    fn save(&self, session: &StoredSession) -> Result<()> {
+        let mut sessions = lock(&self.sessions);
+        match sessions
+            .iter_mut()
+            .find(|(s, _)| s.info.id == session.info.id)
+        {
+            Some((kept, _)) => *kept = session.clone(),
+            None => sessions.push((session.clone(), Vec::new())),
+        }
+        Ok(())
+    }
+
+    fn append(&self, session: &SessionId, message: &AgentMessage) -> Result<()> {
+        let mut sessions = lock(&self.sessions);
+        let (_, messages) = sessions
+            .iter_mut()
+            .find(|(s, _)| &s.info.id == session)
+            .ok_or_else(|| not_found(format!("session {}", session.0)))?;
+        messages.push(message.clone());
+        Ok(())
+    }
+
+    fn remove(&self, session: &SessionId) -> Result<()> {
+        lock(&self.sessions).retain(|(s, _)| &s.info.id != session);
+        Ok(())
+    }
+}
+
 /// One step of a [`ScriptedAgent`] turn.
 #[derive(Debug, Clone)]
 pub enum Step {
@@ -389,7 +434,8 @@ pub enum Step {
 }
 
 /// An agent that plays a script: turn 0 on start, turn N on the N-th
-/// message. After the last turn it waits idle. An interrupt skips the rest of
+/// message. After the last turn it waits idle. It reports `scripted-<id>` as
+/// its own session id, or keeps the one it resumes. An interrupt skips the rest of
 /// the turn. Needs a Tokio runtime.
 #[derive(Debug, Default)]
 pub struct ScriptedAgent {
@@ -411,6 +457,11 @@ impl ScriptedAgent {
 
 impl AgentRuntime for ScriptedAgent {
     fn start(&self, spec: AgentSpec, host: AgentHost) -> Result<Box<dyn RunningAgent>> {
+        let own = spec
+            .resume
+            .clone()
+            .unwrap_or_else(|| format!("scripted-{}", spec.session.0));
+        host.agent_session(own);
         lock(&self.started).push(spec);
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Option<String>>();
         let turns = self.turns.clone();
