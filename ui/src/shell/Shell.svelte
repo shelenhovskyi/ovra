@@ -2,6 +2,7 @@
 import { untrack } from "svelte";
 import AgentsPanel from "../agents/AgentsPanel.svelte";
 import Approvals from "../approvals/Approvals.svelte";
+import AuditLog from "../audit/AuditLog.svelte";
 import Editor from "../editor/Editor.svelte";
 import { persistOpenFiles } from "../editor/open-files.svelte";
 import Tabs from "../editor/Tabs.svelte";
@@ -88,6 +89,7 @@ const status = $derived.by((): { text: string; ok: boolean } => {
     <h1>Ovra</h1>
     <span class="project">{workspace.project?.name ?? "No project"}</span>
     <Inbox />
+    <AuditLog />
   </header>
   <aside data-testid="sidebar">
     {#if workspace.project}

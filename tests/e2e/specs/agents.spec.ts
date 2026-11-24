@@ -96,6 +96,21 @@ test("reply to an agent, allow with the mouse and stop it while it waits", async
   await expect(session.getByRole("status")).toHaveText("Stopped");
   await expect(status).toBeHidden();
   await expect(session.getByRole("textbox", { name: "Reply to Claude" })).toBeHidden();
+
+  // The audit log says what was decided and by whom, newest first.
+  await page.getByRole("button", { name: "Audit log", exact: true }).click();
+  const audit = page.getByRole("dialog", { name: "Audit log" });
+  const entries = audit.getByTestId("audit-entry");
+  await expect(entries).toHaveCount(4);
+  await expect(entries.nth(0)).toContainText("Refused Bash");
+  await expect(entries.nth(0)).toContainText("because the session stopped or ended");
+  await expect(entries.nth(1)).toContainText("Allowed Edit");
+  await expect(entries.nth(1)).toContainText("SHA-256 of what it writes");
+  await expect(entries.nth(2)).toContainText("Allowed by a person");
+  await expect(entries.nth(3)).toContainText("Session started");
+  await expect(entries.nth(3)).toContainText("no sandbox");
+  await page.keyboard.press("Escape");
+  await expect(audit).toBeHidden();
 });
 
 test("a task's coordinator splits the work among three workers whose diffs wait for review", async ({ page }) => {
