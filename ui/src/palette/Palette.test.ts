@@ -143,7 +143,7 @@ describe("Palette", async () => {
         })) as Transport["call"],
       onEvent: () => () => {},
     };
-    const project = { id: "files-2", name: "demo", root: "/demo", last_opened_ms: null };
+    const project = { id: "files-2", name: "demo", root: "/demo", last_opened_ms: null, trusted: false };
     const workspace = new Workspace();
     workspace.project = project;
     workspace.openFile("README.md", "edit");
@@ -176,7 +176,7 @@ describe("Palette", async () => {
         Promise.resolve({ type: "fs.files", data: { paths, total: paths.length, version: 1 } })) as Transport["call"],
       onEvent: () => () => {},
     };
-    const project = { id: "files-3", name: "demo", root: "/demo", last_opened_ms: null };
+    const project = { id: "files-3", name: "demo", root: "/demo", last_opened_ms: null, trusted: false };
     const { target, input } = await open("files", core, project);
     await type(input, "page");
     expect(target.textContent).toContain("Showing 100 of 150");
