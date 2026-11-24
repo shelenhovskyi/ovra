@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use tokio::sync::broadcast;
 
 use crate::path::RelPath;
-use crate::protocol::fs::{FsRequest, FsResponse};
+use crate::protocol::fs::{FsRequest, FsResponse, MAX_FILES_PAGE};
 use crate::protocol::info::{CoreInfo, InfoEvent, InfoRequest, InfoResponse};
 use crate::protocol::open::OpenRequest;
 use crate::protocol::projects::{
@@ -207,6 +207,16 @@ impl Core {
             FsRequest::ReadFile { project, path } => {
                 let (root, path) = (self.root(&project)?, RelPath::parse(&path)?);
                 fs.read_file(root, path).await.map(FsResponse::File)
+            }
+            FsRequest::ListFiles {
+                project,
+                offset,
+                limit,
+            } => {
+                let limit = limit.unwrap_or(MAX_FILES_PAGE).min(MAX_FILES_PAGE);
+                fs.list_files(self.root(&project)?, offset, limit)
+                    .await
+                    .map(FsResponse::Files)
             }
             FsRequest::WriteFile {
                 project,

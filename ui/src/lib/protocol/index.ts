@@ -42,6 +42,8 @@ export type ResponseFor<R extends Request> = R extends { method: "info.get" }
               ? Extract<Response, { type: "fs.file" }>
               : R extends { method: "fs.write_file" }
                 ? Extract<Response, { type: "fs.written" }>
-                : R extends { method: "open.external" | "open.url" }
-                  ? { type: "ok" }
-                  : never;
+                : R extends { method: "fs.list_files" }
+                  ? Extract<Response, { type: "fs.files" }>
+                  : R extends { method: "open.external" | "open.url" }
+                    ? { type: "ok" }
+                    : never;

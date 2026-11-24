@@ -379,7 +379,9 @@ async fn watcher_reports_git_changes_and_stops_on_unwatch() {
                 assert_eq!(paths, ["b.txt"]);
                 break;
             }
-            FsEvent::Changed { project, .. } | FsEvent::GitChanged { project } => {
+            FsEvent::Changed { project, .. }
+            | FsEvent::GitChanged { project }
+            | FsEvent::FilesChanged { project, .. } => {
                 assert_ne!(project, p1, "event after unwatch");
             }
         }
@@ -427,5 +429,29 @@ async fn mass_writes_coalesce_git_status_runs() {
     assert!(
         runs <= 2,
         "git status ran {runs} times for {rounds} batches"
+    );
+}
+
+#[tokio::test]
+async fn lists_all_files_that_are_not_ignored() {
+    let tmp = dir();
+    let root = tmp.path();
+    git(root, &["init", "-q"]);
+    put(root, ".gitignore", "target/\n");
+    put(root, "target/out", "");
+    put(root, "src/b.rs", "");
+    put(root, "src/a.rs", "");
+    put(root, "README.md", "");
+    let fs = FsIndex::new();
+    let page = |offset, limit| fs.list_files(root.to_path_buf(), offset, limit);
+    let all = page(0, 100).await.expect("list");
+    assert_eq!(
+        all.paths,
+        [".gitignore", "README.md", "src/a.rs", "src/b.rs"]
+    );
+    let second = page(1, 2).await.expect("page");
+    assert_eq!(
+        (second.paths, second.total),
+        (vec!["README.md".to_owned(), "src/a.rs".to_owned()], 4)
     );
 }

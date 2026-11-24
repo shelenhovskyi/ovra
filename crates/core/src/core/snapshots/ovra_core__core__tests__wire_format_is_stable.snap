@@ -18,6 +18,19 @@ expression: samples
         "active": null
       },
       "type": "projects.changed"
+    },
+    {
+      "data": {
+        "added": [
+          "b.rs"
+        ],
+        "project": "p1",
+        "removed": [
+          "a.rs"
+        ],
+        "version": 7
+      },
+      "type": "fs.files_changed"
     }
   ],
   "requests": [

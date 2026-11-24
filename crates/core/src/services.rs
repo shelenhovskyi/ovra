@@ -9,7 +9,7 @@ use std::pin::Pin;
 use tokio::sync::broadcast;
 
 use crate::path::RelPath;
-use crate::protocol::fs::{DirListing, FileContent};
+use crate::protocol::fs::{DirListing, FileContent, FileList};
 use crate::protocol::projects::{Project, ProjectId, ProjectState, ProjectStatePatch};
 use crate::protocol::{ErrorCode, Event, ProtocolError};
 
@@ -52,6 +52,9 @@ pub trait ProjectStore: Send + Sync + Debug {
 pub trait FsService: Send + Sync + Debug {
     fn list_dir(&self, root: PathBuf, path: RelPath) -> BoxFuture<'_, Result<DirListing>>;
     fn read_file(&self, root: PathBuf, path: RelPath) -> BoxFuture<'_, Result<FileContent>>;
+    /// A page of the project's non-ignored files; `limit` is already capped.
+    fn list_files(&self, root: PathBuf, offset: u32, limit: u32)
+    -> BoxFuture<'_, Result<FileList>>;
     /// Returns the new modification time in Unix milliseconds.
     fn write_file(
         &self,
@@ -116,6 +119,9 @@ impl FsService for Unavailable {
         Box::pin(async move { self.err() })
     }
     fn read_file(&self, _: PathBuf, _: RelPath) -> BoxFuture<'_, Result<FileContent>> {
+        Box::pin(async move { self.err() })
+    }
+    fn list_files(&self, _: PathBuf, _: u32, _: u32) -> BoxFuture<'_, Result<FileList>> {
         Box::pin(async move { self.err() })
     }
     fn write_file(

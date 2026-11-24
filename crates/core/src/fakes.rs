@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use crate::path::RelPath;
-use crate::protocol::fs::{DirEntry, DirListing, EntryKind, FileBody, FileContent};
+use crate::protocol::fs::{DirEntry, DirListing, EntryKind, FileBody, FileContent, FileList};
 use crate::protocol::projects::{Project, ProjectId, ProjectState, ProjectStatePatch};
 use crate::protocol::{ErrorCode, ProtocolError};
 use crate::services::{BoxFuture, EventSink, FsService, Opener, ProjectStore, Result};
@@ -181,6 +181,32 @@ impl FsService for MemoryFs {
                 size: text.len() as u64,
                 mtime_ms: *mtime,
                 body: FileBody::Text { text: text.clone() },
+            })
+        })
+    }
+
+    fn list_files(
+        &self,
+        root: PathBuf,
+        offset: u32,
+        limit: u32,
+    ) -> BoxFuture<'_, Result<FileList>> {
+        Box::pin(async move {
+            let files = lock(&self.files);
+            let all: Vec<&String> = files
+                .keys()
+                .filter(|(r, _)| *r == root)
+                .map(|(_, p)| p)
+                .collect();
+            Ok(FileList {
+                total: u32::try_from(all.len()).unwrap_or(u32::MAX),
+                paths: all
+                    .into_iter()
+                    .skip(offset as usize)
+                    .take(limit as usize)
+                    .cloned()
+                    .collect(),
+                version: *lock(&self.clock),
             })
         })
     }

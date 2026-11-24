@@ -6,6 +6,7 @@
 //! symlinks are not followed outside the root. Blocking work runs on tokio's
 //! blocking pool.
 
+mod file_list;
 mod files;
 mod git;
 mod listing;
@@ -17,7 +18,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use ovra_core::path::RelPath;
-use ovra_core::protocol::fs::{DirListing, FileContent};
+use ovra_core::protocol::fs::{DirListing, FileContent, FileList};
 use ovra_core::protocol::projects::ProjectId;
 use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::{BoxFuture, EventSink, FsService, Result};
@@ -85,6 +86,18 @@ impl FsService for FsIndex {
 
     fn read_file(&self, root: PathBuf, path: RelPath) -> BoxFuture<'_, Result<FileContent>> {
         blocking(move || files::read(&root, &path))
+    }
+
+    fn list_files(
+        &self,
+        root: PathBuf,
+        offset: u32,
+        limit: u32,
+    ) -> BoxFuture<'_, Result<FileList>> {
+        blocking(move || {
+            let files = file_list::scan(&resolve::root(&root)?);
+            Ok(file_list::page(&files, offset, limit, 0))
+        })
     }
 
     fn write_file(

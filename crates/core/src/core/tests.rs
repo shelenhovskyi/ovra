@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use super::*;
 use crate::fakes::{MemoryFs, MemoryProjects, RecordingOpener};
-use crate::protocol::fs::FileBody;
+use crate::protocol::fs::{FileBody, FsEvent};
 use crate::protocol::info::InfoEvent;
 use crate::protocol::projects::{Project, ProjectState};
 
@@ -299,6 +299,12 @@ fn wire_format_is_stable() {
             Event::Info(InfoEvent::Ready),
             Event::Info(InfoEvent::Resync { skipped: 3 }),
             Event::Projects(ProjectsEvent::Changed { active: None }),
+            Event::Fs(FsEvent::FilesChanged {
+                project: ProjectId("p1".into()),
+                added: vec!["b.rs".into()],
+                removed: vec!["a.rs".into()],
+                version: 7,
+            }),
         ],
     });
     insta::assert_json_snapshot!(samples);
@@ -317,6 +323,7 @@ fn every_request_round_trips() {
         serde_json::json!({"method": "projects.set_state", "params": {"id": "p1", "state": {"expanded_dirs": ["src"]}}}),
         serde_json::json!({"method": "fs.list_dir", "params": {"project": "p1", "path": ""}}),
         serde_json::json!({"method": "fs.read_file", "params": {"project": "p1", "path": "a"}}),
+        serde_json::json!({"method": "fs.list_files", "params": {"project": "p1", "offset": 2, "limit": 10}}),
         serde_json::json!({"method": "fs.write_file", "params": {"project": "p1", "path": "a", "text": "", "expected_mtime_ms": null}}),
         serde_json::json!({"method": "open.external", "params": {"project": "p1", "path": "a", "line": 1}}),
         serde_json::json!({"method": "open.url", "params": {"url": "https://example.com"}}),
@@ -325,4 +332,43 @@ fn every_request_round_trips() {
         let parsed: Request = req(json.clone());
         assert_eq!(serde_json::to_value(&parsed).ok(), Some(json));
     }
+}
+
+#[tokio::test]
+async fn list_files_pages_through_the_project() {
+    let f = fixture();
+    let project = f
+        .core
+        .handle(Request::Projects(ProjectsRequest::Add {
+            root: "/w".into(),
+        }))
+        .await;
+    let Ok(Response::Projects(ProjectsResponse::Project(project))) = project else {
+        panic!("add failed: {project:?}");
+    };
+    for path in ["a.rs", "b.rs", "src/c.rs"] {
+        f.fs.put(Path::new("/w"), path, "");
+    }
+    let page = |offset, limit| {
+        f.core.handle(Request::Fs(FsRequest::ListFiles {
+            project: project.id.clone(),
+            offset,
+            limit,
+        }))
+    };
+    let Ok(Response::Fs(FsResponse::Files(list))) = page(1, Some(5)).await else {
+        panic!("list_files failed");
+    };
+    assert_eq!(
+        (list.paths, list.total),
+        (vec!["b.rs".to_owned(), "src/c.rs".to_owned()], 3)
+    );
+    let Ok(Response::Fs(FsResponse::Files(list))) = page(0, Some(u32::MAX)).await else {
+        panic!("list_files failed");
+    };
+    assert_eq!(
+        list.paths.len(),
+        3,
+        "an oversized limit is capped, not refused"
+    );
 }
