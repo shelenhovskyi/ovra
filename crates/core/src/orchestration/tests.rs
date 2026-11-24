@@ -977,3 +977,46 @@ async fn a_worker_waiting_for_review_frees_its_place() {
     assert!(asked.is_ok(), "{asked:?}");
     assert!(f.core.spawn_agent(&boss, "v", "x").await.is_ok());
 }
+
+#[tokio::test]
+async fn a_worker_loads_project_settings_only_if_its_copy_is_the_trusted_one() {
+    let f = fx(say()).await;
+    let mut rx = f.core.subscribe();
+    ok(
+        &f.core,
+        json!({"method": "projects.trust", "params": {"id": "p1", "trusted": true, "fingerprint": ""}}),
+    )
+    .await;
+    start_task(&f.core, 3).await;
+    let boss = caller("s1", ToolRole::Coordinator);
+    let same = f.core.spawn_agent(&boss, "same", "x").await;
+    let same = same.unwrap_or_else(|e| panic!("{e}"));
+    until(&mut rx, "s2", AgentStatus::Idle).await;
+    // Another worker's copy was changed, say by that worker before a resume.
+    let changed = std::path::Path::new(WORKTREES)
+        .join("p1")
+        .join("t1")
+        .join("changed");
+    let edited = crate::protocol::agents::ProjectAgentConfig {
+        fingerprint: "edited".into(),
+        items: Vec::new(),
+    };
+    if let Ok(mut configs) = f.agent.configs.lock() {
+        configs.insert(changed, edited);
+    }
+    assert!(f.core.spawn_agent(&boss, "changed", "x").await.is_ok());
+    let trusted: Vec<(PathBuf, bool)> = f
+        .agent
+        .started
+        .lock()
+        .map(|s| {
+            s.iter()
+                .map(|spec| (spec.cwd.clone(), spec.trusted))
+                .collect()
+        })
+        .unwrap_or_default();
+    assert_eq!(trusted.len(), 3);
+    assert!(trusted[0].1, "the coordinator in the main checkout");
+    assert_eq!(trusted[1], (PathBuf::from(&same.worktree), true));
+    assert!(!trusted[2].1, "the worker whose copy differs");
+}

@@ -578,8 +578,10 @@ pub struct ScriptedAgent {
     writer: Option<Arc<Writer>>,
     /// Every spec it was started with.
     pub started: Mutex<Vec<AgentSpec>>,
-    /// What `project_config` reports for every project.
+    /// What `project_config` reports for every project...
     pub config: Mutex<ProjectAgentConfig>,
+    /// ...except for these folders.
+    pub configs: Mutex<BTreeMap<PathBuf, ProjectAgentConfig>>,
 }
 
 /// Writes a file for an allowed `Write` step: the absolute path and text.
@@ -590,6 +592,7 @@ impl std::fmt::Debug for ScriptedAgent {
         f.debug_struct("ScriptedAgent")
             .field("turns", &self.turns)
             .field("roles", &self.roles)
+            .field("configs", &self.configs)
             .field("writes_files", &self.writer.is_some())
             .finish_non_exhaustive()
     }
@@ -671,8 +674,11 @@ impl AgentRuntime for ScriptedAgent {
         Ok(Box::new(process))
     }
 
-    fn project_config(&self, _: PathBuf) -> BoxFuture<'_, Result<ProjectAgentConfig>> {
-        Box::pin(async move { Ok(lock(&self.config).clone()) })
+    fn project_config(&self, root: PathBuf) -> BoxFuture<'_, Result<ProjectAgentConfig>> {
+        Box::pin(async move {
+            let config = lock(&self.configs).get(&root).cloned();
+            Ok(config.unwrap_or_else(|| lock(&self.config).clone()))
+        })
     }
 }
 

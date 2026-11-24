@@ -106,6 +106,7 @@ pub(crate) async fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Resp
             let base = baseline(ctx, &info.project, &session, info.mode, &launch).await?;
             review_from(ctx, &session, &launch, base);
             sessions.find(&session, |s| s.restart())?;
+            let target = trusted_in(ctx, target, &launch.cwd).await;
             let info = run(ctx, &session, target, launch, prompt, Some(agent_session))?;
             Ok(Response::Agents(AgentsResponse::Session(info)))
         }
@@ -175,6 +176,7 @@ pub(crate) async fn start(ctx: &Ctx<'_>, new: NewSession) -> Result<SessionInfo>
         resumable: false,
     });
     review_from(ctx, &id, &launch, base);
+    let target = trusted_in(ctx, target, &launch.cwd).await;
     run(ctx, &id, target, launch, new.prompt, None)
 }
 
@@ -289,6 +291,23 @@ fn run(
         }
     }
     sessions.find(id, |s| s.info())
+}
+
+/// A session outside the project root (a worker's worktree) loads the
+/// project's settings only if the copy in its own folder is exactly what the
+/// user trusted: an agent could have changed it there.
+async fn trusted_in(ctx: &Ctx<'_>, mut target: Target, cwd: &Path) -> Target {
+    if target.trusted && cwd != Path::new(&target.project.root) {
+        let trusted = ctx
+            .projects
+            .trusted_config(&target.project.id)
+            .ok()
+            .flatten();
+        let here = ctx.runtime.project_config(cwd.to_path_buf()).await.ok();
+        target.trusted =
+            matches!((trusted, here), (Some(t), Some(h)) if t.fingerprint == h.fingerprint);
+    }
+    target
 }
 
 /// What the project would load now, and what the user trusted.
