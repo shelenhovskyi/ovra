@@ -12,7 +12,7 @@ use crate::fakes::MemoryWorktrees;
 use crate::protocol::review::ChangeKind;
 use crate::services::{BoxFuture, WorktreeInfo};
 
-const DIR: &str = "/p";
+const DIR: &str = crate::test_path!("/p");
 
 /// [`MemoryWorktrees`] plus renames, failing snapshots and paths that
 /// `restore` silently skips, like the real one does for unsafe paths.
@@ -604,15 +604,18 @@ async fn file_tools_outside_the_project_and_other_tools_claim_nothing() {
 
 #[test]
 fn tool_paths_are_relative_to_the_project() {
-    let dir = Path::new("/w/p");
-    assert_eq!(relative(dir, "/w/p/src/a.rs").as_deref(), Some("src/a.rs"));
+    let dir = Path::new(crate::test_path!("/w/p"));
+    assert_eq!(
+        relative(dir, crate::test_path!("/w/p/src/a.rs")).as_deref(),
+        Some("src/a.rs")
+    );
     assert_eq!(
         relative(dir, "src/./x/../a.rs").as_deref(),
         Some("src/a.rs")
     );
-    assert_eq!(relative(dir, "/w/p/../q/a.rs"), None);
+    assert_eq!(relative(dir, crate::test_path!("/w/p/../q/a.rs")), None);
     assert_eq!(relative(dir, "../p/a.rs"), None, "lexical only");
-    assert_eq!(relative(dir, "/w/p"), None);
+    assert_eq!(relative(dir, crate::test_path!("/w/p")), None);
     assert_eq!(relative(dir, "/etc/passwd"), None);
 }
 

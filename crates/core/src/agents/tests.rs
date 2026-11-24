@@ -44,7 +44,7 @@ async fn code(core: &Core, json: serde_json::Value) -> ErrorCode {
 async fn project(core: &Core) {
     ok(
         core,
-        json!({"method": "projects.add", "params": {"root": "/work/a"}}),
+        json!({"method": "projects.add", "params": {"root": crate::test_path!("/work/a")}}),
     )
     .await;
 }
@@ -595,9 +595,12 @@ async fn setup_checks_the_saved_path_and_only_absolute_paths_are_saved() {
         code(&core, set(json!("bin/claude"))).await,
         ErrorCode::BadRequest
     );
-    ok(&core, set(json!("/opt/claude"))).await;
+    ok(&core, set(json!(crate::test_path!("/opt/claude")))).await;
     let saved = setup(&core).await;
-    assert_eq!(saved.path.as_deref(), Some("/opt/claude"));
+    assert_eq!(
+        saved.path.as_deref(),
+        Some(crate::test_path!("/opt/claude"))
+    );
     assert_eq!(saved.state, SetupState::Ready);
     // An empty field clears the path.
     ok(&core, set(json!("  "))).await;
@@ -662,7 +665,7 @@ async fn sessions_get_the_chosen_executable_and_the_project_trust() {
     let mut rx = core.subscribe();
     ok(
         &core,
-        json!({"method": "agents.set_path", "params": {"agent": "claude", "path": "/opt/claude"}}),
+        json!({"method": "agents.set_path", "params": {"agent": "claude", "path": crate::test_path!("/opt/claude")}}),
     )
     .await;
     assert!(!run_once(&core, &agent, &mut rx).await);
@@ -705,7 +708,7 @@ async fn sessions_get_the_chosen_executable_and_the_project_trust() {
     ok(&core, trust(None)).await;
     assert!(!run_once(&core, &agent, &mut rx).await);
     let started = agent.started.lock().map(|s| s.clone()).unwrap_or_default();
-    let opt = Some(std::path::PathBuf::from("/opt/claude"));
+    let opt = Some(std::path::PathBuf::from(crate::test_path!("/opt/claude")));
     assert!(started.iter().all(|s| s.executable == opt));
     assert_eq!(
         code(

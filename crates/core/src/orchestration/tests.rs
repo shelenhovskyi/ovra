@@ -16,8 +16,8 @@ use crate::protocol::review::{ChangeKind, ReviewItem, ReviewResponse, ReviewStat
 use crate::protocol::{ErrorCode, Event, ProtocolError, Request, Response};
 use crate::services::{ToolCaller, ToolRole};
 
-const ROOT: &str = "/work/a";
-const WORKTREES: &str = "/data/worktrees";
+const ROOT: &str = crate::test_path!("/work/a");
+const WORKTREES: &str = crate::test_path!("/data/worktrees");
 
 struct Fx {
     core: Core,
@@ -175,7 +175,13 @@ async fn workers_start_in_their_own_worktrees_within_the_limit() {
         .await;
     let worker = worker.unwrap_or_else(|e| panic!("{e}"));
     assert_eq!(worker.branch, "ovra/t1/fix-login");
-    assert_eq!(worker.worktree, "/data/worktrees/p1/t1/fix-login");
+    assert_eq!(
+        std::path::Path::new(&worker.worktree),
+        std::path::Path::new(WORKTREES)
+            .join("p1")
+            .join("t1")
+            .join("fix-login")
+    );
     assert_eq!(f.wt.files(&worker.worktree), f.wt.files(ROOT));
     let spec = f.agent.started.lock().map(|s| s[1].clone());
     let spec = spec.unwrap_or_else(|e| panic!("{e}"));

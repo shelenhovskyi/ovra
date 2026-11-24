@@ -8,6 +8,20 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 mod worktrees;
 
+/// An absolute path for tests on every OS, as a `&'static str`: the Unix
+/// path itself, or with a drive in front on Windows (`C:/work/a`), where
+/// `/work/a` is not absolute. Compare built paths as `Path`s, not strings.
+#[macro_export]
+macro_rules! test_path {
+    ($path:literal) => {
+        if cfg!(windows) {
+            concat!("C:", $path)
+        } else {
+            $path
+        }
+    };
+}
+
 pub use worktrees::MemoryWorktrees;
 
 use crate::path::RelPath;

@@ -75,8 +75,8 @@ async fn unwired_services_are_unavailable() {
 async fn open_switches_the_watched_project_and_emits() {
     let f = fixture();
     let mut events = f.core.subscribe();
-    let a = add(&f.core, "/work/a").await;
-    let b = add(&f.core, "/work/b").await;
+    let a = add(&f.core, crate::test_path!("/work/a")).await;
+    let b = add(&f.core, crate::test_path!("/work/b")).await;
     for id in [&a.id, &b.id] {
         let r = f
             .core
@@ -110,7 +110,7 @@ async fn relative_roots_are_rejected() {
 #[tokio::test]
 async fn project_state_is_saved_normalized_and_kept_inside() {
     let f = fixture();
-    let p = add(&f.core, "/work/a").await;
+    let p = add(&f.core, crate::test_path!("/work/a")).await;
     let get = |id: ProjectId| {
         f.core
             .handle(Request::Projects(ProjectsRequest::GetState { id }))
@@ -160,8 +160,12 @@ async fn project_state_is_saved_normalized_and_kept_inside() {
 #[tokio::test]
 async fn fs_requests_resolve_project_and_reject_escapes() {
     let f = fixture();
-    let p = add(&f.core, "/work/a").await;
-    f.fs.put(Path::new("/work/a"), "src/main.rs", "fn main() {}");
+    let p = add(&f.core, crate::test_path!("/work/a")).await;
+    f.fs.put(
+        Path::new(crate::test_path!("/work/a")),
+        "src/main.rs",
+        "fn main() {}",
+    );
 
     let read = f
         .core
@@ -193,8 +197,8 @@ async fn fs_requests_resolve_project_and_reject_escapes() {
 #[tokio::test]
 async fn write_conflicts_when_file_changed() {
     let f = fixture();
-    let p = add(&f.core, "/w").await;
-    f.fs.put(Path::new("/w"), "a.txt", "one");
+    let p = add(&f.core, crate::test_path!("/w")).await;
+    f.fs.put(Path::new(crate::test_path!("/w")), "a.txt", "one");
     let write = |expected| {
         f.core.handle(Request::Fs(FsRequest::WriteFile {
             project: p.id.clone(),
@@ -212,7 +216,7 @@ async fn write_conflicts_when_file_changed() {
 #[tokio::test]
 async fn open_external_passes_absolute_path() {
     let f = fixture();
-    let p = add(&f.core, "/w").await;
+    let p = add(&f.core, crate::test_path!("/w")).await;
     let r = f
         .core
         .handle(Request::Open(OpenRequest::External {
@@ -228,7 +232,10 @@ async fn open_external_passes_absolute_path() {
         .lock()
         .map(|o| o.clone())
         .unwrap_or_default();
-    assert_eq!(opened, vec![(PathBuf::from("/w/a/b.rs"), Some(3))]);
+    assert_eq!(
+        opened,
+        vec![(PathBuf::from(crate::test_path!("/w/a/b.rs")), Some(3))]
+    );
 }
 
 #[tokio::test]
@@ -425,14 +432,14 @@ async fn list_files_pages_through_the_project() {
     let project = f
         .core
         .handle(Request::Projects(ProjectsRequest::Add {
-            root: "/w".into(),
+            root: crate::test_path!("/w").into(),
         }))
         .await;
     let Ok(Response::Projects(ProjectsResponse::Project(project))) = project else {
         panic!("add failed: {project:?}");
     };
     for path in ["a.rs", "b.rs", "src/c.rs"] {
-        f.fs.put(Path::new("/w"), path, "");
+        f.fs.put(Path::new(crate::test_path!("/w")), path, "");
     }
     let page = |offset, limit| {
         f.core.handle(Request::Fs(FsRequest::ListFiles {
@@ -474,8 +481,8 @@ async fn fake_write_conflicts_when_the_file_is_gone() {
 #[tokio::test]
 async fn each_client_keeps_its_project_watched_until_it_lets_go() {
     let f = fixture();
-    let a = add(&f.core, "/work/a").await;
-    let b = add(&f.core, "/work/b").await;
+    let a = add(&f.core, crate::test_path!("/work/a")).await;
+    let b = add(&f.core, crate::test_path!("/work/b")).await;
     async fn open(client: &Client, id: &ProjectId) -> Result<Response, ProtocolError> {
         client
             .handle(Request::Projects(ProjectsRequest::Open { id: id.clone() }))
