@@ -252,7 +252,8 @@ impl AgentHost {
 
     /// Asks a person whether the agent may use `tool` with `input`, and
     /// waits for the answer. The session shows as waiting meanwhile. A
-    /// stopping or ended session is denied without asking.
+    /// stopping or ended session is denied without asking. Dropping the
+    /// future withdraws the request.
     pub async fn ask(
         &self,
         tool: String,
@@ -274,14 +275,36 @@ impl AgentHost {
             Ok(Err(answer)) => return answer,
             Err(_) => return PermissionAnswer::deny("the session ended"),
         };
+        let mut waiting = Waiting {
+            host: self,
+            id: Some(request.id.clone()),
+        };
         self.sink.emit(PermissionsEvent::Requested(request));
         self.set_status(AgentStatus::WaitingForApproval);
         let answer = answer
             .await
             .unwrap_or_else(|_| PermissionAnswer::deny("the session ended"));
+        waiting.id = None;
         // Ignored while other requests of the session still wait.
         self.set_status(AgentStatus::Working);
         answer
+    }
+}
+
+/// Withdraws the request when the agent stops waiting before it is answered
+/// (the [`AgentHost::ask`] future is dropped, e.g. the agent cancelled it).
+struct Waiting<'a> {
+    host: &'a AgentHost,
+    id: Option<PermissionId>,
+}
+
+impl Drop for Waiting<'_> {
+    fn drop(&mut self) {
+        let Some(id) = self.id.take() else { return };
+        if self.host.sessions.permissions.withdraw(&id) {
+            self.host.resolved(vec![id], Decision::Deny);
+            self.host.set_status(AgentStatus::Working);
+        }
     }
 }
 

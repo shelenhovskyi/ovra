@@ -71,6 +71,14 @@ impl Permissions {
         true
     }
 
+    /// Removes a request nobody waits for any more. `false` if it was not pending.
+    pub(crate) fn withdraw(&self, id: &PermissionId) -> bool {
+        let mut state = lock(&self.state);
+        let before = state.pending.len();
+        state.pending.retain(|(r, _)| &r.id != id);
+        state.pending.len() != before
+    }
+
     /// Answers every request of a session with `answer`.
     pub(crate) fn deny_session(
         &self,

@@ -373,6 +373,39 @@ async fn the_state_machine_ignores_reports_that_make_no_sense() {
 }
 
 #[tokio::test]
+async fn a_request_the_agent_cancels_is_withdrawn() {
+    let core = core_with(ScriptedAgent::default());
+    project(&core).await;
+    let mut rx = core.subscribe();
+    ok(&core, start("x")).await;
+    until(&mut rx, AgentStatus::Idle).await;
+    let host = host(&core);
+    let asking = tokio::spawn({
+        let host = host.clone();
+        async move { host.ask("Bash".into(), json!({}), None).await }
+    });
+    until(&mut rx, AgentStatus::WaitingForApproval).await;
+    asking.abort();
+    let mut resolved = false;
+    loop {
+        match Core::next_event(&mut rx).await {
+            Some(Event::Permissions(PermissionsEvent::Resolved { .. })) => resolved = true,
+            Some(Event::Agents(AgentsEvent::Status { status, .. })) => {
+                assert_eq!(status, AgentStatus::Working);
+                break;
+            }
+            Some(_) => {}
+            None => panic!("core closed"),
+        }
+    }
+    assert!(resolved, "the withdrawn request was not resolved");
+    match ok(&core, json!({"method": "permissions.pending"})).await {
+        Response::Permissions(PermissionsResponse::Pending(p)) => assert!(p.is_empty()),
+        other => panic!("unexpected {other:?}"),
+    }
+}
+
+#[tokio::test]
 async fn sessions_add_up_their_usage() {
     let core = core_with(ScriptedAgent::default());
     project(&core).await;
