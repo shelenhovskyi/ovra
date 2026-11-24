@@ -11,6 +11,12 @@
 //! project once [`RelPath::under`] joins it. Such names cannot exist on
 //! Windows anyway. Elsewhere `c:x` is an ordinary name, kept so that a review
 //! with such a file can still be decided.
+//!
+//! On Windows, names Windows cannot store or reads as something else are
+//! refused too: device names (`CON`, `nul.txt`, `COM1`), names ending in a
+//! dot or a space (Windows drops those, so `a.` is `a` and `.git.` is
+//! `.git`) and the characters `<>"|?*` and control characters. These are
+//! the rules Git for Windows applies to paths in a repository.
 
 use std::path::{Path, PathBuf};
 
@@ -29,8 +35,9 @@ impl RelPath {
 
     /// Parses and normalizes a client-supplied path. `.` segments and empty
     /// segments are dropped; `..`, absolute paths, backslashes, NUL bytes, a
-    /// drive (`C:`) at the start of any segment on Windows and any `:` in the
-    /// first segment (a scheme such as `file:`) are rejected. Other colons
+    /// drive (`C:`) at the start of any segment on Windows, a name Windows
+    /// cannot store as written (see the module docs) on Windows, and any `:`
+    /// in the first segment (a scheme such as `file:`) are rejected. Other colons
     /// are kept: they are valid in names on Linux and macOS.
     pub fn parse(raw: &str) -> Result<Self, ProtocolError> {
         let forbidden = |why: &str| {
@@ -54,6 +61,9 @@ impl RelPath {
                     return forbidden("has a drive or scheme prefix");
                 }
                 s if cfg!(windows) && is_drive(s) => return forbidden("names a drive"),
+                s if cfg!(windows) && !is_win32_name(s) => {
+                    return forbidden("is not a name Windows can store as written");
+                }
                 s => parts.push(s),
             }
         }
@@ -92,6 +102,50 @@ impl RelPath {
 /// [`RelPath::parse`] refuses.
 fn is_drive(segment: &str) -> bool {
     matches!(segment.as_bytes(), [letter, b':', ..] if letter.is_ascii_alphabetic())
+}
+
+/// Whether Windows stores `segment` under exactly that name: not a device
+/// name, not ending in a dot or a space, and no `<>"|?*` or control
+/// characters. `:` is handled by the callers (drives and streams).
+fn is_win32_name(segment: &str) -> bool {
+    if segment.ends_with(['.', ' '])
+        || segment
+            .chars()
+            .any(|c| c.is_control() || "<>\"|?*".contains(c))
+    {
+        return false;
+    }
+    // A device name is reserved with any extension and with spaces before
+    // it: `nul`, `NUL.txt`, `con .md`, `COM1`, `lpt\u{b9}`, `CONIN$`.
+    let stem = segment
+        .split(['.', ':'])
+        .next()
+        .unwrap_or_default()
+        .trim_end_matches(' ');
+    let upper = stem.to_ascii_uppercase();
+    let numbered = |prefix: &str| {
+        upper.strip_prefix(prefix).is_some_and(|n| {
+            matches!(
+                n,
+                "1" | "2"
+                    | "3"
+                    | "4"
+                    | "5"
+                    | "6"
+                    | "7"
+                    | "8"
+                    | "9"
+                    | "\u{b9}"
+                    | "\u{b2}"
+                    | "\u{b3}"
+            )
+        })
+    };
+    let device = matches!(
+        upper.as_str(),
+        "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
+    );
+    !(device || numbered("COM") || numbered("LPT"))
 }
 
 impl std::fmt::Display for RelPath {
@@ -147,6 +201,47 @@ mod tests {
         assert!(is_drive("C:a") && is_drive("z:") && !is_drive("ab:c") && !is_drive("1:x"));
         let joined = RelPath::parse("a").and_then(|p| p.join("C:x"));
         assert_eq!(joined.is_err(), cfg!(windows));
+    }
+
+    #[test]
+    fn names_windows_cannot_store_are_refused_there() {
+        let bad = [
+            "CON",
+            "con",
+            "nul.txt",
+            "Aux.tar.gz",
+            "con .md",
+            "COM1",
+            "lpt9.log",
+            "COM\u{b9}",
+            "conin$",
+            "CONOUT$.x",
+            "a.",
+            "a ",
+            ".git.",
+            ".. ",
+            "a?b",
+            "a*",
+            "a<b",
+            "a|b",
+            "a\"b",
+            "a\u{1}b",
+        ];
+        for name in bad {
+            assert!(!is_win32_name(name), "{name:?}");
+            let parsed = RelPath::parse(&format!("src/{name}")).err().map(|e| e.code);
+            assert_eq!(
+                parsed,
+                cfg!(windows).then_some(ErrorCode::Forbidden),
+                "{name:?}"
+            );
+        }
+        for name in [
+            "console", "COM10", "COM0", "nul-x", "a.b", ".git", "aux_", "LPT", "a b",
+        ] {
+            assert!(is_win32_name(name), "{name:?}");
+            assert!(RelPath::parse(&format!("src/{name}")).is_ok(), "{name:?}");
+        }
     }
 
     #[test]
