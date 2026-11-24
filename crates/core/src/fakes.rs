@@ -159,6 +159,7 @@ impl FsService for MemoryFs {
                     kind,
                     ignored: false,
                     git: None,
+                    renamed_from: None,
                 })
                 .collect();
             entries.sort_by_key(|e| (e.kind != EntryKind::Dir, e.name.clone()));

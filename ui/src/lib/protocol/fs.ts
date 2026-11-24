@@ -12,7 +12,18 @@ export type EntryKind = "file" | "dir" | "symlink";
 
 export type GitStatus = "modified" | "added" | "deleted" | "renamed" | "untracked" | "conflicted";
 
-export type DirEntry = { name: string; kind: EntryKind; ignored: boolean; git: GitStatus | null };
+/**
+ * Listings are dirs first, then natural order by name. Tracked files deleted
+ * from disk are listed with `git: "deleted"`. `renamed_from` is the old
+ * project-relative path of a `renamed` entry, absent otherwise.
+ */
+export type DirEntry = {
+  name: string;
+  kind: EntryKind;
+  ignored: boolean;
+  git: GitStatus | null;
+  renamed_from?: string;
+};
 
 export type DirListing = { path: string; entries: DirEntry[] };
 

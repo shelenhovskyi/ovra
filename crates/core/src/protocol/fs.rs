@@ -8,7 +8,10 @@ use super::projects::ProjectId;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "method", content = "params")]
 pub enum FsRequest {
-    /// Direct children of a directory (`""` is the root), dirs first, then by name.
+    /// Direct children of a directory (`""` is the root), dirs first, then by
+    /// name in natural order (`a2` before `a10`, case-insensitive). Tracked
+    /// files deleted from disk are listed too, with `git: deleted`; so is a
+    /// directory that only holds such files.
     #[serde(rename = "fs.list_dir")]
     ListDir { project: ProjectId, path: String },
     #[serde(rename = "fs.read_file")]
@@ -48,6 +51,10 @@ pub struct DirEntry {
     /// Matched by `.gitignore` and friends. Ignored entries are still listed.
     pub ignored: bool,
     pub git: Option<GitStatus>,
+    /// For `git: renamed`, the project-relative path it was renamed from.
+    /// Left out otherwise, and when the old path is outside the project.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub renamed_from: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
