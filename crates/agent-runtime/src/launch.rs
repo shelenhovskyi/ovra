@@ -171,6 +171,7 @@ mod tests {
             agent: ovra_core::protocol::agents::AgentKind::Claude,
             mode: ovra_core::protocol::agents::SessionMode::Direct,
             cwd: "/work".into(),
+            tools: None,
             prompt: "go".into(),
             executable: None,
             trusted: false,
