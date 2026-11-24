@@ -1,0 +1,24 @@
+{"ovra":{"type":"control_request","request_id":"init","request":{"subtype":"initialize","hooks":{"PreToolUse":[{"matcher":null,"hookCallbackIds":["ovra_policy"]}]}}}}
+{"cli":{"type":"control_response","response":{"subtype":"success","request_id":"init","response":{"commands":[],"models":[],"output_style":"default"}}}}
+{"ovra":{"type":"user","message":{"role":"user","content":"Fix the typo in README.md"}}}
+{"cli":{"type":"system","subtype":"init","session_id":"0b8e","cwd":"/w","tools":["Read","Edit","Bash"],"mcp_servers":[],"model":"claude-opus-5-5","permissionMode":"default","apiKeySource":"none"}}
+{"cli":{"type":"stream_event","session_id":"0b8e","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"I'll"}}}}
+{"cli":{"type":"assistant","session_id":"0b8e","parent_tool_use_id":null,"message":{"role":"assistant","content":[{"type":"thinking","thinking":"A one-word fix."},{"type":"text","text":"I'll fix it."},{"type":"tool_use","id":"toolu_1","name":"Edit","input":{"file_path":"/w/README.md","old_string":"teh","new_string":"the"}}]}}}
+{"cli":{"type":"control_request","request_id":"req-1","request":{"subtype":"hook_callback","callback_id":"ovra_policy","tool_use_id":"toolu_1","input":{"hook_event_name":"PreToolUse","session_id":"0b8e","cwd":"/w","tool_name":"Edit","tool_input":{"file_path":"/w/README.md","old_string":"teh","new_string":"the"}}}}}
+{"ovra":{"type":"control_response","response":{"subtype":"success","request_id":"req-1","response":{}}}}
+{"cli":{"type":"control_request","request_id":"req-2","request":{"subtype":"can_use_tool","tool_name":"Edit","input":{"file_path":"/w/README.md","old_string":"teh","new_string":"the"},"tool_use_id":"toolu_1","permission_suggestions":[{"type":"setMode","mode":"acceptEdits","destination":"session"}]}}}
+{"wait":{"type":"permissions.requested","data":{"tool":"Edit"}}}
+{"core":{"method":"permissions.answer","params":{"id":"perm1","decision":"allow"}}}
+{"ovra":{"type":"control_response","response":{"subtype":"success","request_id":"req-2","response":{"behavior":"allow","updatedInput":{"file_path":"/w/README.md","old_string":"teh","new_string":"the"}}}}}
+{"cli":{"type":"user","session_id":"0b8e","parent_tool_use_id":null,"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"The file /w/README.md has been updated."}]}}}
+{"cli":{"type":"assistant","session_id":"0b8e","parent_tool_use_id":null,"message":{"role":"assistant","content":[{"type":"text","text":"Fixed."}]}}}
+{"cli":{"type":"rate_limit_event","session_id":"0b8e","rate_limit_info":{"status":"allowed","resetsAt":1795000000}}}
+{"cli":{"type":"result","subtype":"success","is_error":false,"duration_ms":4200,"num_turns":2,"result":"Fixed.","session_id":"0b8e","total_cost_usd":0.0421,"usage":{"input_tokens":12,"cache_creation_input_tokens":3000,"cache_read_input_tokens":9000,"output_tokens":150}}}
+{"wait":{"type":"agents.status","data":{"status":{"state":"idle"}}}}
+{"core":{"method":"agents.send","params":{"session":"s1","text":"Thanks"}}}
+{"ovra":{"type":"user","message":{"role":"user","content":"Thanks"}}}
+{"cli":{"type":"assistant","session_id":"0b8e","parent_tool_use_id":null,"message":{"role":"assistant","content":[{"type":"text","text":"Glad to help."}]}}}
+{"cli":{"type":"result","subtype":"success","is_error":false,"result":"Glad to help.","session_id":"0b8e","total_cost_usd":0.0441,"usage":{"input_tokens":5,"output_tokens":4}}}
+{"wait":{"type":"agents.status","data":{"status":{"state":"idle"}}}}
+{"core":{"method":"agents.stop","params":{"session":"s1"}}}
+{"ovra":{"type":"control_request","request_id":"interrupt1","request":{"subtype":"interrupt"}}}
