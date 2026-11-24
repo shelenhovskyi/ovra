@@ -512,7 +512,7 @@ pub(crate) fn unless_cleaned<T>(
     let guard = state.lock();
     if guard.tasks.iter().any(|t| t.cleaned.contains(session)) {
         return Err(conflict(
-            "this worker's task has ended and its worktree was cleaned up; start a new task to rework it",
+            "this worker's worktree is removed, or being removed, because its task had ended; start a new worker to rework it",
         ));
     }
     let restarted = restart();
