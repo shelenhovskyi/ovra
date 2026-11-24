@@ -341,7 +341,7 @@ async fn watcher_reports_git_changes_and_stops_on_unwatch() {
     git(root, &["commit", "-qm", "init"]);
     let core = Core::new("test");
     let mut rx = core.subscribe();
-    let fs = FsIndex::new();
+    let fs = FsIndex::fast();
     let p1 = ProjectId("p1".into());
     fs.watch(p1.clone(), root.to_path_buf(), core.sink())
         .expect("watch");
@@ -384,4 +384,48 @@ async fn watcher_reports_git_changes_and_stops_on_unwatch() {
             }
         }
     }
+}
+
+#[tokio::test]
+async fn mass_writes_coalesce_git_status_runs() {
+    let tmp = dir();
+    let root = tmp.path();
+    git(root, &["init", "-q"]);
+    put(root, "gen/keep.txt", "");
+    git(root, &["add", "."]);
+    git(root, &["commit", "-qm", "init"]);
+    let core = Core::new("test");
+    let mut rx = core.subscribe();
+    let fs = FsIndex::fast();
+    let project = ProjectId("p".into());
+    fs.watch(project.clone(), root.to_path_buf(), core.sink())
+        .expect("watch");
+    let runs = || {
+        fs.git_cache(&root.to_path_buf())
+            .expect("watched")
+            .runs
+            .load(std::sync::atomic::Ordering::Relaxed)
+    };
+    list(&fs, root, "").await.expect("prime the cache");
+    let before = runs();
+
+    // An agent writing 1,000 files in 10 bursts: each burst is its own batch
+    // of file events, but git status runs once for all of them.
+    let rounds = 10;
+    for round in 0..rounds {
+        for i in 0..100 {
+            put(root, &format!("gen/r{round}-{i}.txt"), "x");
+        }
+        changed_until(&mut rx, &format!("gen/r{round}-99.txt")).await;
+    }
+    while next_fs(&mut rx).await
+        != (FsEvent::GitChanged {
+            project: project.clone(),
+        })
+    {}
+    let runs = runs() - before;
+    assert!(
+        runs <= 2,
+        "git status ran {runs} times for {rounds} batches"
+    );
 }

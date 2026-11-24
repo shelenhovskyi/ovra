@@ -2,13 +2,14 @@
 //!
 //! Only directories that are not ignored are watched (so `target/` or
 //! `node_modules/` cost nothing), plus the git directory for `index` and
-//! `HEAD`. Events are batched until the folder is quiet for [`QUIET`].
+//! `HEAD`. File events are batched briefly; `git status` runs on its own
+//! thread, debounced and one at a time (see [`Timing`]).
 
 use std::collections::{BTreeSet, HashSet};
 use std::path::{Component, Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
 use ignore::WalkBuilder;
@@ -22,26 +23,59 @@ use crate::files::TMP_SUFFIX;
 use crate::git::{Repo, Statuses};
 use crate::listing::visible_names;
 
-/// A batch is sent once no new event arrived for this long...
-const QUIET: Duration = Duration::from_millis(20);
-/// ...or once it has been collecting for this long.
-const MAX_DELAY: Duration = Duration::from_millis(200);
+/// How long the watcher waits before reporting.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Timing {
+    /// A batch of file events is sent once none arrived for this long...
+    pub(crate) quiet: Duration,
+    /// ...or once it has been collecting for this long.
+    pub(crate) max_delay: Duration,
+    /// `git status` runs once file batches stopped for this long...
+    pub(crate) git_quiet: Duration,
+    /// ...or at the latest this long after the first change, so a long
+    /// stream of writes (an agent at work) still refreshes the status.
+    pub(crate) git_max_delay: Duration,
+}
+
+impl Default for Timing {
+    fn default() -> Self {
+        Self {
+            quiet: Duration::from_millis(20),
+            max_delay: Duration::from_millis(200),
+            git_quiet: Duration::from_millis(300),
+            git_max_delay: Duration::from_secs(2),
+        }
+    }
+}
+
 /// Larger batches are reported as their top-level entries.
 const MAX_PATHS: usize = 512;
 
-/// Git status of a watched project, kept fresh by the watcher.
+/// Git status of a watched project, kept fresh by the watcher. The lock is
+/// held while `git status` runs, so at most one runs per project.
 #[derive(Debug)]
 pub(crate) struct GitCache {
     repo: Option<Repo>,
     status: Mutex<Option<Statuses>>,
+    /// How many times `git status` ran.
+    pub(crate) runs: AtomicUsize,
 }
 
 impl GitCache {
+    fn lock(&self) -> MutexGuard<'_, Option<Statuses>> {
+        self.status.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn run(&self, repo: &Repo) -> Option<Statuses> {
+        self.runs.fetch_add(1, Ordering::Relaxed);
+        repo.status()
+    }
+
     pub(crate) fn current(&self) -> Option<Statuses> {
         let repo = self.repo.as_ref()?;
-        let mut status = self.status.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut status = self.lock();
         if status.is_none() {
-            *status = repo.status();
+            *status = self.run(repo);
         }
         status.clone()
     }
@@ -51,8 +85,8 @@ impl GitCache {
         let Some(repo) = &self.repo else {
             return false;
         };
-        let fresh = repo.status();
-        let mut status = self.status.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut status = self.lock();
+        let fresh = self.run(repo);
         let changed = *status != fresh;
         *status = fresh;
         changed
@@ -88,12 +122,29 @@ fn internal(err: &notify::Error) -> ProtocolError {
 impl Watch {
     /// Sets up the watches before returning, so changes made right after
     /// this call are reported.
-    pub(crate) fn start(project: ProjectId, given_root: PathBuf, sink: EventSink) -> Result<Self> {
+    pub(crate) fn start(
+        project: ProjectId,
+        given_root: PathBuf,
+        sink: EventSink,
+        timing: Timing,
+    ) -> Result<Self> {
         let root = crate::resolve::root(&given_root)?;
         let git = Arc::new(GitCache {
             repo: Repo::discover(&root),
             status: Mutex::new(None),
+            runs: AtomicUsize::new(0),
         });
+        let stopped = Arc::new(AtomicBool::new(false));
+        let git_tx = match git.repo {
+            Some(_) => Some(spawn_git_refresher(
+                project.clone(),
+                sink.clone(),
+                Arc::clone(&git),
+                Arc::clone(&stopped),
+                timing,
+            )?),
+            None => None,
+        };
         let (tx, rx) = mpsc::channel();
         let events = tx.clone();
         let watcher = notify::recommended_watcher(move |e| {
@@ -104,10 +155,11 @@ impl Watch {
             project,
             root,
             sink,
-            git: Arc::clone(&git),
+            git_tx,
             watcher,
             dirs: HashSet::new(),
-            stopped: Arc::new(AtomicBool::new(false)),
+            stopped: Arc::clone(&stopped),
+            timing,
         };
         let root = worker.root.clone();
         worker.watch_tree(&root);
@@ -118,11 +170,10 @@ impl Watch {
                 .watcher
                 .watch(&repo.git_dir, RecursiveMode::NonRecursive);
         }
-        let stopped = Arc::clone(&worker.stopped);
         std::thread::Builder::new()
             .name("ovra-fs-watch".to_owned())
             .spawn(move || worker.run(&rx))
-            .map_err(|e| ProtocolError::new(ErrorCode::Internal, e.to_string()))?;
+            .map_err(|e| thread_error(&e))?;
         Ok(Self {
             given_root,
             git,
@@ -132,14 +183,55 @@ impl Watch {
     }
 }
 
+fn thread_error(err: &std::io::Error) -> ProtocolError {
+    ProtocolError::new(ErrorCode::Internal, err.to_string())
+}
+
+/// Runs `git status` on its own thread so file events never wait for git.
+/// Signals that arrive while it waits or runs fold into one refresh.
+fn spawn_git_refresher(
+    project: ProjectId,
+    sink: EventSink,
+    git: Arc<GitCache>,
+    stopped: Arc<AtomicBool>,
+    timing: Timing,
+) -> Result<mpsc::Sender<()>> {
+    let (tx, rx) = mpsc::channel::<()>();
+    std::thread::Builder::new()
+        .name("ovra-git-status".to_owned())
+        .spawn(move || {
+            git.current();
+            while rx.recv().is_ok() {
+                let started = Instant::now();
+                loop {
+                    let left = timing.git_max_delay.saturating_sub(started.elapsed());
+                    match rx.recv_timeout(timing.git_quiet.min(left)) {
+                        Ok(()) if !left.is_zero() => {}
+                        Ok(()) | Err(RecvTimeoutError::Timeout) => break,
+                        Err(RecvTimeoutError::Disconnected) => return,
+                    }
+                }
+                if git.refresh() && !stopped.load(Ordering::SeqCst) {
+                    sink.emit(FsEvent::GitChanged {
+                        project: project.clone(),
+                    });
+                }
+            }
+        })
+        .map_err(|e| thread_error(&e))?;
+    Ok(tx)
+}
+
 struct Worker {
     project: ProjectId,
     root: PathBuf,
     sink: EventSink,
-    git: Arc<GitCache>,
+    /// Asks for a git status refresh; `None` outside a repository.
+    git_tx: Option<mpsc::Sender<()>>,
     watcher: RecommendedWatcher,
     dirs: HashSet<PathBuf>,
     stopped: Arc<AtomicBool>,
+    timing: Timing,
 }
 
 impl Worker {
@@ -167,7 +259,6 @@ impl Worker {
     }
 
     fn run(mut self, rx: &mpsc::Receiver<Msg>) {
-        self.git.current();
         loop {
             let Ok(Msg::Fs(first)) = rx.recv() else {
                 return;
@@ -175,8 +266,8 @@ impl Worker {
             let mut batch = vec![first];
             let started = Instant::now();
             loop {
-                let left = MAX_DELAY.saturating_sub(started.elapsed());
-                match rx.recv_timeout(QUIET.min(left)) {
+                let left = self.timing.max_delay.saturating_sub(started.elapsed());
+                match rx.recv_timeout(self.timing.quiet.min(left)) {
                     Ok(Msg::Fs(e)) => batch.push(e),
                     Ok(Msg::Stop) | Err(RecvTimeoutError::Disconnected) => return,
                     Err(RecvTimeoutError::Timeout) => break,
@@ -199,7 +290,10 @@ impl Worker {
                 }
             }
         }
-        let git_changed = self.git.refresh();
+        // Changes inside `.git` (commits, checkouts) count too.
+        if let Some(git) = &self.git_tx {
+            let _ = git.send(());
+        }
         if self.stopped.load(Ordering::SeqCst) {
             return;
         }
@@ -215,11 +309,6 @@ impl Worker {
             self.sink.emit(FsEvent::Changed {
                 project: self.project.clone(),
                 paths,
-            });
-        }
-        if git_changed {
-            self.sink.emit(FsEvent::GitChanged {
-                project: self.project.clone(),
             });
         }
     }

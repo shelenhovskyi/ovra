@@ -22,17 +22,30 @@ use ovra_core::protocol::projects::ProjectId;
 use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::{BoxFuture, EventSink, FsService, Result};
 
-use crate::watch::{GitCache, Watch};
+use crate::watch::{GitCache, Timing, Watch};
 
 /// The real file service.
 #[derive(Debug, Default)]
 pub struct FsIndex {
     watches: Mutex<HashMap<ProjectId, Watch>>,
+    timing: Timing,
 }
 
 impl FsIndex {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Shorter delays, so watcher tests finish quickly.
+    #[cfg(test)]
+    fn fast() -> Self {
+        Self {
+            timing: Timing {
+                git_quiet: std::time::Duration::from_millis(100),
+                ..Timing::default()
+            },
+            ..Self::default()
+        }
     }
 
     fn watches(&self) -> MutexGuard<'_, HashMap<ProjectId, Watch>> {
@@ -85,7 +98,7 @@ impl FsService for FsIndex {
     }
 
     fn watch(&self, project: ProjectId, root: PathBuf, sink: EventSink) -> Result<()> {
-        let watch = Watch::start(project.clone(), root, sink)?;
+        let watch = Watch::start(project.clone(), root, sink, self.timing)?;
         self.watches().insert(project, watch);
         Ok(())
     }
