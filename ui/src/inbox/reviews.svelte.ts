@@ -2,7 +2,7 @@
 // events. The core is the source of truth: nothing here approves, rejects or
 // merges on its own; every action is one call made for a person's press.
 
-import type { CoreEvent, ProjectId, ReviewId, ReviewItem } from "../lib/protocol";
+import type { CoreEvent, FileChange, ProjectId, ReviewId, ReviewItem } from "../lib/protocol";
 import { CoreError, type Transport } from "../lib/transport";
 
 /** What the last approve, reject or undo did, and what it left for the person. */
@@ -12,6 +12,8 @@ export type Outcome = {
   conflicts: string[];
   /** Files a reject restored, or an undo put back. */
   restored: string[];
+  /** The commit message an approve committed with. */
+  commit?: string | null;
 };
 
 export class ReviewInbox {
@@ -25,7 +27,13 @@ export class ReviewInbox {
   outcome = $state<Outcome | null>(null);
   /** Bumped whenever the core says an item changed, so open diffs reload. */
   changes = $state(0);
+  /** Decided items whose files the core no longer lists: the files they were decided with. */
+  private kept: Record<ReviewId, FileChange[]> = {};
+  /** Items shown with the files they were decided with (their diffs are gone). */
+  decidedFiles = $state<ReviewId[]>([]);
   private latest = 0;
+  private inFlight = false;
+  private again = false;
   private readonly off: (() => void)[];
 
   constructor(private readonly transport: Transport) {
@@ -50,11 +58,17 @@ export class ReviewInbox {
     return this.items.filter((item) => item.state === "open");
   }
 
+  /** Open items with at least one of the agent's files: what waits for the person. */
+  get waiting(): ReviewItem[] {
+    return this.open.filter((item) => item.files.some((f) => f.by !== "outside"));
+  }
+
   /** Shows `project`'s items; null clears the list. */
   async show(project: ProjectId | null): Promise<void> {
     if (project !== this.project) {
       this.items = [];
       this.outcome = null;
+      this.kept = {};
     }
     this.project = project;
     await this.reload();
@@ -71,7 +85,7 @@ export class ReviewInbox {
     try {
       const { data } = await this.transport.call({ method: "review.list", params: { project } });
       if (mine !== this.latest) return;
-      this.items = data;
+      this.setItems(data);
       this.error = null;
     } catch (err) {
       if (mine !== this.latest) return;
@@ -90,7 +104,7 @@ export class ReviewInbox {
   approve(id: ReviewId, commit: string | null): Promise<boolean> {
     return this.act(id, async () => {
       const { data } = await this.transport.call({ method: "review.approve", params: { id, commit } });
-      this.settle("approved", data);
+      this.settle("approved", data, commit);
     });
   }
 
@@ -132,18 +146,61 @@ export class ReviewInbox {
     }
   }
 
+  /** Re-fetches once, however many changes arrive while a fetch runs. */
+  private async refresh(): Promise<void> {
+    if (this.inFlight) {
+      this.again = true;
+      return;
+    }
+    this.inFlight = true;
+    try {
+      do {
+        this.again = false;
+        this.changes++;
+        await this.reload();
+      } while (this.again);
+    } finally {
+      this.inFlight = false;
+    }
+  }
+
+  private setItems(items: ReviewItem[]): void {
+    const decided: ReviewId[] = [];
+    this.items = items.map((item) => {
+      const files = this.kept[item.id];
+      if (item.state === "open" || item.files.length > 0 || !files) return item;
+      decided.push(item.id);
+      return { ...item, files };
+    });
+    this.decidedFiles = decided;
+  }
+
   private settle(
     action: Outcome["action"],
     { item, conflicts, restored }: { item: ReviewItem; conflicts: string[]; restored: string[] },
+    commit: string | null = null,
   ): void {
-    this.items = this.items.map((i) => (i.id === item.id ? item : i));
-    this.outcome = { id: item.id, action, conflicts, restored };
+    const before = this.items.find((i) => i.id === item.id)?.files ?? [];
+    if (item.state === "open") delete this.kept[item.id];
+    else if (before.length > 0) this.kept[item.id] = $state.snapshot(before);
+    this.setItems(this.items.map((i) => (i.id === item.id ? item : i)));
+    this.outcome = { id: item.id, action, conflicts, restored, commit };
   }
 
   private apply(event: CoreEvent): void {
-    if (event.type !== "review.changed" || event.data.project !== this.project) return;
-    this.changes++;
-    void this.reload();
+    switch (event.type) {
+      // The core missed sending us events: everything may be stale.
+      case "info.resync":
+        void this.refresh();
+        return;
+      // A file changed (the person's editor, a formatter, git): an open
+      // review's files and markers may have changed with it.
+      case "review.changed":
+      case "fs.changed":
+      case "fs.files_changed":
+        if (event.data.project === this.project) void this.refresh();
+        return;
+    }
   }
 }
 

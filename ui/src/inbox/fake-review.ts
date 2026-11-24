@@ -36,6 +36,8 @@ export class FakeReviewCore implements Transport {
   conflicts: string[] = [];
   /** What reject reports as restored and undo as put back. */
   restored: string[] = [];
+  /** Like the core: a decided item no longer lists its files. */
+  forgetDecidedFiles = false;
   /** Makes the next call of this method fail with this error. */
   failNext = new Map<Request["method"], CoreError>();
   private listeners = new Set<(event: CoreEvent) => void>();
@@ -72,7 +74,11 @@ export class FakeReviewCore implements Transport {
   private answer(request: Request): unknown {
     switch (request.method) {
       case "review.list":
-        return { type: "review.list", data: this.items.filter((i) => i.project === request.params.project) };
+        // Copies, as over the wire: later changes here must not reach the UI's items.
+        return {
+          type: "review.list",
+          data: structuredClone(this.items.filter((i) => i.project === request.params.project)),
+        };
       case "review.diff":
         this.find(request.params.id);
         return { type: "review.diff", data: { path: request.params.path, patch: patchFor(request.params.path) } };
@@ -87,8 +93,9 @@ export class FakeReviewCore implements Transport {
         } as const;
         item.state = state[request.method];
         item.can_undo = request.method === "review.reject";
+        if (this.forgetDecidedFiles && item.state !== "open") item.files = [];
         const restored = request.method === "review.approve" ? [] : [...this.restored];
-        return { type: "review.done", data: { item: { ...item }, conflicts: [...this.conflicts], restored } };
+        return { type: "review.done", data: { item: structuredClone(item), conflicts: [...this.conflicts], restored } };
       }
       case "review.comment":
         this.find(request.params.id);

@@ -35,6 +35,8 @@ export function itemSummary(item: ReviewItem): string {
   const files = item.files.length === 1 ? "1 file" : `${item.files.length} files`;
   const outside = item.files.filter((f) => f.by !== "agent").length;
   const blocked = item.files.filter((f) => f.blocked).length;
+  if (item.files.length > 0 && item.files.every((f) => f.by === "outside"))
+    return `${files}, all changed outside the agent`;
   const parts = [files];
   if (outside > 0) parts.push(`${outside} changed outside the agent`);
   if (blocked > 0) parts.push(`${blocked} waiting for the direct agent`);

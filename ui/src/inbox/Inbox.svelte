@@ -8,7 +8,7 @@
 import { tick, untrack } from "svelte";
 import { agentSessions, sessionName } from "../agents/sessions.svelte";
 import { registerCommand } from "../keys/commands";
-import { formatShortcut, inBrowserTab, isApple, liveKeys } from "../keys/shortcut";
+import { formatShortcut, inBrowserTab, isApple, liveKeys, matchesShortcut, parseShortcut } from "../keys/shortcut";
 import type { ReviewId, ReviewItem } from "../lib/protocol";
 import { useOvra } from "../shell/context";
 import PatchView from "../viewers/PatchView.svelte";
@@ -48,7 +48,9 @@ const item = $derived(inbox.items.find((i) => i.id === selectedId) ?? null);
 const file = $derived(item?.files.find((f) => f.path === selectedPath) ?? null);
 const busy = $derived(item ? inbox.busy.includes(item.id) : false);
 const outcome = $derived(inbox.outcome && inbox.outcome.id === item?.id ? inbox.outcome : null);
-const diffKey = $derived(item && file ? `${item.id}\n${file.path}\n${inbox.changes}` : null);
+const diffKey = $derived(
+  item && file && !inbox.decidedFiles.includes(item.id) ? `${item.id}\n${file.path}\n${inbox.changes}` : null,
+);
 
 $effect(() => () => inbox.dispose());
 
@@ -123,6 +125,8 @@ async function show(): Promise<void> {
   returnTo = active instanceof HTMLElement ? active : null;
   opened = true;
   asked = false;
+  // Never show a list older than the moment the person looks at it.
+  void inbox.reload();
   await tick();
   const target =
     dialog?.querySelector<HTMLElement>("[data-item][aria-current='true']") ??
@@ -167,10 +171,22 @@ function moveIn(event: KeyboardEvent, selector: string, pick: (el: HTMLElement) 
   target.focus();
 }
 
+async function cancelReject(): Promise<void> {
+  confirmingReject = false;
+  await tick();
+  dialog?.querySelector<HTMLElement>("[data-start-reject]")?.focus();
+}
+
+const toggleKeys = parseShortcut(liveKeys(KEYS, inBrowserTab()), isApple());
+
 function onDialogKeydown(event: KeyboardEvent): void {
+  // Shortcuts of the panels behind the modal must not act; only the inbox's own toggle gets through.
+  if (!(toggleKeys && matchesShortcut(event, toggleKeys))) event.stopPropagation();
   if (event.code === "Escape" && !event.defaultPrevented) {
     event.preventDefault();
-    close();
+    // Escape in the reject step leaves the step, not the inbox.
+    if (confirmingReject) void cancelReject();
+    else close();
     return;
   }
   if (event.code !== "Tab") return;
@@ -238,7 +254,8 @@ async function sendComment(review: ReviewItem): Promise<void> {
 /** Says what actually happened: a reject that restored nothing says so and why. */
 function outcomeText(outcome: Outcome): string {
   const left = outcome.conflicts.length === 0 ? "" : ` Left for you: ${outcome.conflicts.join(", ")}.`;
-  if (outcome.action === "approved") return `Approved.${left}`;
+  if (outcome.action === "approved")
+    return outcome.commit ? `Approved and committed as “${outcome.commit}”.${left}` : `Approved.${left}`;
   if (outcome.action === "undone") {
     const back =
       outcome.restored.length === 0 ? " Nothing needed putting back." : ` Put back: ${outcome.restored.join(", ")}.`;
@@ -272,7 +289,7 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
   title="Review inbox ({shortcut})"
   onclick={toggle}
 >
-  Reviews{#if inbox.open.length > 0}{" "}<span class="count">({inbox.open.length} waiting)</span>{/if}
+  Reviews{#if inbox.waiting.length > 0}{" "}<span class="count">({inbox.waiting.length} waiting)</span>{/if}
 </button>
 <span class="visually-hidden" aria-live="polite" data-testid="inbox-asked"
   >{asked ? `An agent asks you to review its changes. Open the review inbox with ${shortcut}.` : ""}</span
@@ -355,14 +372,18 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                   {#if commit}
                     <label class="field">
                       Commit message
-                      <input type="text" bind:value={commitMessage} />
+                      <input type="text" bind:value={commitMessage} aria-describedby="inbox-commit-why" />
                     </label>
+                    {#if !commitMessage.trim()}
+                      <p class="hint" id="inbox-commit-why">Write a commit message to approve and commit.</p>
+                    {/if}
                   {/if}
                   <div class="buttons">
                     <button
                       type="button"
                       class="approve"
                       aria-disabled={busy || (commit && !commitMessage.trim())}
+                      aria-describedby={commit && !commitMessage.trim() ? "inbox-commit-why" : undefined}
                       onclick={() => {
                         if (!busy) void approve(item);
                       }}>{commit ? "Approve and commit" : "Approve"}</button
@@ -370,11 +391,13 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                     {#if !confirmingReject}
                       <button
                         type="button"
+                        data-start-reject
                         aria-disabled={busy}
                         onclick={async () => {
                           confirmingReject = true;
                           await tick();
-                          dialog?.querySelector<HTMLElement>("[data-confirm-reject]")?.focus();
+                          // Start on the safe choice, so a second Enter does not reject.
+                          dialog?.querySelector<HTMLElement>("[data-cancel-reject]")?.focus();
                         }}>Reject…</button
                       >
                     {/if}
@@ -392,7 +415,7 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                             if (!busy) void reject(item);
                           }}>Reject the changes</button
                         >
-                        <button type="button" onclick={() => (confirmingReject = false)}>Keep reviewing</button>
+                        <button type="button" data-cancel-reject onclick={cancelReject}>Keep reviewing</button>
                       </div>
                     </div>
                   {/if}
@@ -462,6 +485,10 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                 <div class="diff" data-testid="inbox-diff">
                   {#if !file}
                     <p class="empty">This review has no files.</p>
+                  {:else if inbox.decidedFiles.includes(item.id)}
+                    <p class="empty">
+                      Decided: these are the files it was decided with. Their diffs are no longer kept.
+                    </p>
                   {:else if diff?.error}
                     <p class="error" role="alert">Could not load the diff of {file.path}: {diff.error}</p>
                   {:else if diff?.patch === null || !diff}
@@ -702,6 +729,29 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
     overflow: hidden;
     clip-path: inset(50%);
     white-space: nowrap;
+  }
+  /* Narrow windows and 200% zoom: stack the lists over the diff so it keeps the width. */
+  @media (max-width: 900px) {
+    .backdrop {
+      padding: 0;
+    }
+    .body,
+    .files-and-diff {
+      grid-template-columns: 1fr;
+      grid-template-rows: auto 1fr;
+    }
+    nav,
+    .files {
+      max-height: 25vh;
+      border-right: none;
+      border-bottom: 1px solid #2a2a31;
+    }
+    .detail {
+      overflow: auto;
+    }
+    .diff {
+      min-height: 60vh;
+    }
   }
   @media (forced-colors: active) {
     .entry[aria-current="true"] {

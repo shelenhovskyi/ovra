@@ -12,6 +12,7 @@ globalThis.ResizeObserver ??= class {
 };
 
 let app: Record<string, unknown> | null = null;
+let workspace: Workspace;
 let target: HTMLElement;
 
 beforeEach(() => {
@@ -37,7 +38,7 @@ async function settle() {
 async function setup(items = [review("r1")]) {
   const core = new FakeReviewCore();
   core.items = items;
-  const workspace = new Workspace();
+  workspace = new Workspace();
   workspace.project = { id: "p1", name: "demo", root: "/demo", last_opened_ms: null, trusted: false };
   app = mount(TestHost, { target, props: { transport: core, workspace } });
   await settle();
@@ -97,11 +98,24 @@ describe("Inbox", () => {
     expect(core.sent("review.approve")).toEqual([]);
     $<HTMLInputElement>("[data-testid=inbox] input[type=checkbox]")?.click();
     flushSync();
-    expect($<HTMLInputElement>("[data-testid=inbox] input[type=text]")?.value).toBe("Fix the typo");
+    const message = $<HTMLInputElement>("[data-testid=inbox] input[type=text]");
+    expect(message?.value).toBe("Fix the typo");
+    // An empty message says why approve waits.
+    if (message) message.value = " ";
+    message?.dispatchEvent(new Event("input", { bubbles: true }));
+    flushSync();
+    expect(button(/^Approve and commit$/)?.getAttribute("aria-describedby")).toBe("inbox-commit-why");
+    expect($("#inbox-commit-why")?.textContent).toBe("Write a commit message to approve and commit.");
+    button(/^Approve and commit$/)?.click();
+    await settle();
+    expect(core.sent("review.approve")).toEqual([]);
+    if (message) message.value = "Fix the typo";
+    message?.dispatchEvent(new Event("input", { bubbles: true }));
+    flushSync();
     button(/^Approve and commit$/)?.click();
     await settle();
     expect(core.sent("review.approve").map((c) => c.params)).toEqual([{ id: "r1", commit: "Fix the typo" }]);
-    expect($("[data-testid=inbox-outcome]")?.textContent?.trim()).toBe("Approved.");
+    expect($("[data-testid=inbox-outcome]")?.textContent?.trim()).toBe("Approved and committed as “Fix the typo”.");
     expect(button(/^Approve/)).toBeUndefined();
     expect(document.activeElement?.id).toBe("inbox-item-title");
   });
@@ -114,9 +128,17 @@ describe("Inbox", () => {
     button(/^Reject…$/)?.click();
     await settle();
     expect(core.sent("review.reject")).toEqual([]);
-    expect(document.activeElement?.textContent).toBe("Reject the changes");
+    // The step starts on the safe choice; Escape leaves the step, not the inbox.
+    expect(document.activeElement?.textContent).toBe("Keep reviewing");
     expect($("#inbox-reject-hint")?.textContent).toContain("Changes made outside the agent stay as they are");
-    (document.activeElement as HTMLElement).click();
+    press("Escape");
+    await settle();
+    expect($("[data-testid=inbox]")).not.toBeNull();
+    expect($("#inbox-reject-hint")).toBeNull();
+    expect(document.activeElement?.textContent).toBe("Reject…");
+    button(/^Reject…$/)?.click();
+    await settle();
+    button(/^Reject the changes$/)?.click();
     await settle();
     expect(core.sent("review.reject")).toHaveLength(1);
     expect($("[data-testid=inbox-outcome]")?.textContent?.trim()).toBe(
@@ -129,7 +151,7 @@ describe("Inbox", () => {
     await open();
     button(/^Reject…$/)?.click();
     await settle();
-    (document.activeElement as HTMLElement).click();
+    button(/^Reject the changes$/)?.click();
     await settle();
     expect($("[data-testid=inbox-outcome]")?.textContent?.trim()).toBe(
       "Rejected, but nothing was restored: no file here is known to be the agent's alone, so all of them stay as they are.",
@@ -181,5 +203,19 @@ describe("Inbox", () => {
     await open();
     expect($("[data-testid=inbox]")?.textContent).toContain("No agent changes wait for review.");
     expect(document.activeElement?.id).toBe("inbox-title");
+  });
+
+  it("keeps the shortcuts of the panels behind it from acting, and shows what a decided item had", async () => {
+    const core = await setup([review("r1", { files: [change("README.md"), change("src/a.ts")] })]);
+    core.forgetDecidedFiles = true;
+    await open();
+    press("KeyP", { altKey: true });
+    await settle();
+    expect(workspace.paletteOpen).toBe(false);
+    button(/^Approve$/)?.click();
+    await settle();
+    expect($("[data-item=r1]")?.textContent).toContain("2 files");
+    expect($("[data-file='src/a.ts']")).not.toBeNull();
+    expect($("[data-testid=inbox-diff]")?.textContent).toContain("Their diffs are no longer kept.");
   });
 });
