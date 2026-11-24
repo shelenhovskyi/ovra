@@ -1,5 +1,5 @@
 import { EditorView } from "@codemirror/view";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import type { CoreEvent, FileBody, Request } from "../lib/protocol";
 import { CoreError, type Transport } from "../lib/transport";
 import type { HighlightClient } from "./highlight/client";
@@ -48,6 +48,12 @@ class FakeCore implements Transport {
     throw new Error(`unexpected ${request.method}`);
   }
 }
+
+// jsdom has no layout; CodeMirror measures text ranges when it draws the selection.
+beforeAll(() => {
+  Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
+  Range.prototype.getBoundingClientRect = () => new DOMRect();
+});
 
 const sessions: EditorSession[] = [];
 afterEach(() => {

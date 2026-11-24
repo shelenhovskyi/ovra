@@ -6,6 +6,7 @@ import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirro
 import { highlightSelectionMatches, searchKeymap } from "@codemirror/search";
 import { EditorState, type Extension, type Text } from "@codemirror/state";
 import { drawSelection, EditorView, highlightActiveLine, keymap, lineNumbers } from "@codemirror/view";
+import { SvelteSet } from "svelte/reactivity";
 import type { FileContent, ProjectId } from "../lib/protocol";
 import { CoreError, type Transport } from "../lib/transport";
 import type { HighlightClient } from "./highlight/client";
@@ -28,10 +29,22 @@ type Options = {
 /** Unsaved text of files the user switched away from, by project and path. */
 const unsaved = new Map<string, { text: string; saved: string; mtime: number }>();
 
+/** Files with unsaved changes, open or stashed, by `fileKey`. */
+const dirtyFiles = new SvelteSet<string>();
+
+function fileKey(project: ProjectId, path: string): string {
+  return `${project}\u0000${path}`;
+}
+
+/** Whether a file has unsaved changes in the editor. Reactive. */
+export function hasUnsavedChanges(project: ProjectId, path: string): boolean {
+  return dirtyFiles.has(fileKey(project, path));
+}
+
 export class EditorSession {
   status = $state<SessionStatus>("loading");
   error = $state<string | null>(null);
-  dirty = $state(false);
+  #dirty = $state(false);
   /** The file changed on disk since it was loaded; saving needs a choice. */
   conflict = $state(false);
   readonly language: Language | null;
@@ -51,7 +64,17 @@ export class EditorSession {
   }
 
   private get key(): string {
-    return `${this.options.project}\u0000${this.options.path}`;
+    return fileKey(this.options.project, this.options.path);
+  }
+
+  get dirty(): boolean {
+    return this.#dirty;
+  }
+
+  private set dirty(value: boolean) {
+    this.#dirty = value;
+    if (value) dirtyFiles.add(this.key);
+    else dirtyFiles.delete(this.key);
   }
 
   /** The editor text, or null before the file is loaded. */
@@ -118,6 +141,8 @@ export class EditorSession {
     this.unsubscribe();
     if (this.view && this.dirty && this.saved) {
       unsaved.set(this.key, { text: this.view.state.doc.toString(), saved: this.saved.toString(), mtime: this.mtime });
+    } else if (this.dirty) {
+      this.dirty = false;
     }
     this.view?.destroy();
     this.view = null;

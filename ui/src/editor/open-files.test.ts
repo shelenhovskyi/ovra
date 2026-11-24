@@ -28,13 +28,13 @@ function fakeCore(initial: ProjectState) {
 const empty: ProjectState = { open_files: [], active_file: null, expanded_dirs: [] };
 const project: Project = { id: "p1", name: "p", root: "/p", last_opened_ms: null };
 
-test("writes only its own fields and moves a reopened file to the end", async () => {
+test("writes only its own fields and keeps the tab order", async () => {
   const core = fakeCore({ open_files: ["a.rs", "b.rs"], active_file: "b.rs", expanded_dirs: ["src"] });
   const files = new OpenFiles(core.transport, "p1");
   expect(await files.restore()).toBe("b.rs");
 
   await files.opened("a.rs");
-  expect(core.sent.at(-1)).toEqual({ open_files: ["b.rs", "a.rs"], active_file: "a.rs" });
+  expect(core.sent.at(-1)).toEqual({ open_files: ["a.rs", "b.rs"], active_file: "a.rs" });
   // Another panel changes its field meanwhile; it must survive our writes.
   await core.transport.call({
     method: "projects.set_state",
@@ -42,10 +42,22 @@ test("writes only its own fields and moves a reopened file to the end", async ()
   });
   await files.opened("b.rs");
   await files.opened("a.rs");
-  expect(core.state()).toEqual({ open_files: ["b.rs", "a.rs"], active_file: "a.rs", expanded_dirs: ["src", "docs"] });
+  expect(core.state()).toEqual({ open_files: ["a.rs", "b.rs"], active_file: "a.rs", expanded_dirs: ["src", "docs"] });
 
   await files.opened(null);
-  expect(core.state()).toEqual({ open_files: ["b.rs", "a.rs"], active_file: null, expanded_dirs: ["src", "docs"] });
+  expect(core.state()).toEqual({ open_files: ["a.rs", "b.rs"], active_file: null, expanded_dirs: ["src", "docs"] });
+});
+
+test("closing the active tab activates its right neighbour, else its left", async () => {
+  const core = fakeCore({ open_files: ["a", "b", "c"], active_file: "b", expanded_dirs: [] });
+  const files = new OpenFiles(core.transport, "p1");
+  await files.restore();
+  expect(files.close("b")).toBe("c");
+  expect(files.close("a")).toBe("c");
+  expect(files.close("c")).toBeNull();
+  expect(files.files).toEqual([]);
+  await files.opened(null);
+  expect(core.state()).toEqual({ open_files: [], active_file: null, expanded_dirs: [] });
 });
 
 test("keeps at most 20 open files", async () => {
