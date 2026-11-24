@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CoreEvent, Request } from "../lib/protocol";
 import { CoreError, type Transport } from "../lib/transport";
-import { loadView, touches } from "./load";
+import { exists, formatSize, loadView, touches } from "./load";
 
 function fakeTransport(reply: (request: Request) => unknown): Transport & { calls: Request[] } {
   const calls: Request[] = [];
@@ -25,7 +25,10 @@ describe("loadView", () => {
       type: "fs.file",
       data: { path: "README.md", size: 3, mtime_ms: 1, body: { kind: "text", text: "# x" } },
     }));
-    await expect(loadView(transport, "p1", "README.md")).resolves.toEqual({ view: { kind: "markdown", text: "# x" } });
+    await expect(loadView(transport, "p1", "README.md")).resolves.toEqual({
+      view: { kind: "markdown", text: "# x" },
+      size: 3,
+    });
     expect(transport.calls).toEqual([{ method: "fs.read_file", params: { project: "p1", path: "README.md" } }]);
   });
 
@@ -52,5 +55,37 @@ describe("touches", () => {
 
   it("matches info.resync, after which everything may be stale", () => {
     expect(touches({ type: "info.resync", data: { skipped: 3 } }, "p1", "a.md")).toBe(true);
+  });
+});
+
+describe("exists", () => {
+  it("looks the file up in its parent's listing", async () => {
+    const transport = fakeTransport((request) => {
+      if (request.method !== "fs.list_dir") throw new Error("unexpected");
+      if (request.params.path === "gone") throw new CoreError({ code: "not_found", message: "gone" });
+      return {
+        type: "fs.dir",
+        data: { path: request.params.path, entries: [{ name: "b.md", kind: "file", ignored: false, git: null }] },
+      };
+    });
+    await expect(exists(transport, "p1", "docs/b.md")).resolves.toBe(true);
+    await expect(exists(transport, "p1", "docs/nope.md")).resolves.toBe(false);
+    await expect(exists(transport, "p1", "gone/b.md")).resolves.toBe(false);
+    await expect(exists(transport, "p1", "b.md")).resolves.toBe(true);
+    expect(transport.calls.map((c) => ("params" in c && "path" in c.params ? c.params.path : null))).toEqual([
+      "docs",
+      "docs",
+      "gone",
+      "",
+    ]);
+  });
+});
+
+describe("formatSize", () => {
+  it("uses bytes, KB and MB", () => {
+    expect(formatSize(1)).toBe("1 byte");
+    expect(formatSize(900)).toBe("900 bytes");
+    expect(formatSize(200 * 1024)).toBe("200 KB");
+    expect(formatSize(6 * 1024 * 1024)).toBe("6.0 MB");
   });
 });

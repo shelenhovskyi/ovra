@@ -75,3 +75,38 @@ export function parsePatch(text: string): PatchFile[] {
   }
   return files;
 }
+
+/** Display name of a patched file: its new path, or the old one when deleted. */
+export function fileName(file: PatchFile): string {
+  return file.newPath ?? file.oldPath ?? "";
+}
+
+export type FileStats = { added: number; removed: number };
+
+export function fileStats(file: PatchFile): FileStats {
+  let added = 0;
+  let removed = 0;
+  for (const hunk of file.hunks)
+    for (const line of hunk.lines) {
+      if (line.kind === "added") added++;
+      else if (line.kind === "removed") removed++;
+    }
+  return { added, removed };
+}
+
+/** One row of the virtualized patch view. */
+export type PatchRow = { kind: "file"; file: number } | { kind: "hunk"; text: string } | PatchLine;
+
+/** Flattens files into rows; collapsed files keep only their header row. */
+export function patchRows(files: PatchFile[], collapsed: ReadonlySet<number>): PatchRow[] {
+  const rows: PatchRow[] = [];
+  files.forEach((file, index) => {
+    rows.push({ kind: "file", file: index });
+    if (collapsed.has(index)) return;
+    for (const hunk of file.hunks) {
+      rows.push({ kind: "hunk", text: hunk.header });
+      for (const line of hunk.lines) rows.push(line);
+    }
+  });
+  return rows;
+}
