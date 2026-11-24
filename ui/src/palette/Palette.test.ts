@@ -1,10 +1,10 @@
 import { flushSync, mount, unmount } from "svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { registerCommand } from "../keys/commands";
-import type { Project } from "../lib/protocol";
+import type { Project, Request } from "../lib/protocol";
 import type { Transport } from "../lib/transport";
 import { Workspace } from "../shell/workspace.svelte";
-import { dirsFromPaths, FakeCore } from "../tree/fake-core";
+import { FakeCore } from "../tree/fake-core";
 import { type PaletteMode, palette } from "./mode.svelte";
 import PaletteHarness from "./PaletteHarness.svelte";
 
@@ -108,7 +108,14 @@ describe("Palette", async () => {
   });
 
   it("goes to a file of the open project", async () => {
-    const core = new FakeCore(dirsFromPaths(["README.md", "src/main.rs", "src/lib.rs"]));
+    const paths = ["README.md", "src/lib.rs", "src/main.rs"];
+    const core: Transport = {
+      call: ((request: Request) =>
+        request.method === "fs.list_files"
+          ? Promise.resolve({ type: "fs.files", data: { paths, total: paths.length, version: 1 } })
+          : Promise.reject(new Error(request.method))) as Transport["call"],
+      onEvent: () => () => {},
+    };
     const project = { id: "files-1", name: "demo", root: "/demo", last_opened_ms: null };
     const { workspace, target, input } = await open("files", core, project);
     expect(input.placeholder).toBe("Go to file in demo");
