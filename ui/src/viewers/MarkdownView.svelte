@@ -34,6 +34,7 @@ function onclick(event: MouseEvent) {
   event.preventDefault();
   const link = resolveLink(path, anchor.getAttribute("href") ?? "");
   if (link.kind === "file") open(link.path);
+  else if (link.kind === "web") void transport.call({ method: "open.url", params: { url: link.url } }).catch(() => {});
   else if (link.kind === "anchor") root?.querySelector(`[id="${CSS.escape(link.id)}"]`)?.scrollIntoView();
 }
 </script>

@@ -11,8 +11,13 @@ type Files = Record<string, FileBody>;
 function fakeCore(files: Files) {
   const listeners = new Set<(event: CoreEvent) => void>();
   const reads: string[] = [];
+  const urls: string[] = [];
   const transport: Transport = {
     call: ((request: Request) => {
+      if (request.method === "open.url") {
+        urls.push(request.params.url);
+        return Promise.resolve({ type: "ok" });
+      }
       if (request.method !== "fs.read_file") return Promise.reject(new Error(`unexpected ${request.method}`));
       const { path } = request.params;
       reads.push(path);
@@ -28,7 +33,7 @@ function fakeCore(files: Files) {
   const emit = (event: CoreEvent) => {
     for (const listener of listeners) listener(event);
   };
-  return { transport, reads, emit, listeners };
+  return { transport, reads, urls, emit, listeners };
 }
 
 async function settle() {
@@ -103,7 +108,7 @@ describe("Viewer", () => {
   });
 
   it("renders markdown, follows project links and loads project images", async () => {
-    const { target, workspace, reads } = show(
+    const { target, workspace, reads, urls } = show(
       {
         "docs/a.md": { kind: "text", text: "# A\n\n[next](b.md) [web](https://example.com)\n\n![logo](img/logo.png)" },
         "docs/img/logo.png": { kind: "binary", mime: "image/png", base64: "AAA=" },
@@ -117,6 +122,7 @@ describe("Viewer", () => {
     const web = target.querySelector<HTMLAnchorElement>('a[href^="https"]');
     expect(web?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }))).toBe(false);
     expect(workspace.openPath).toBe("docs/a.md");
+    expect(urls).toEqual(["https://example.com"]);
     target.querySelector<HTMLAnchorElement>('a[href="b.md"]')?.click();
     await settle();
     expect(workspace.openPath).toBe("docs/b.md");

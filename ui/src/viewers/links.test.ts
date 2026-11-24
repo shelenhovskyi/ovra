@@ -16,8 +16,15 @@ describe("resolveLink", () => {
     expect(resolveLink("a.md", "#rules")).toEqual({ kind: "anchor", id: "rules" });
   });
 
+  it("sends http and https links to the browser", () => {
+    expect(resolveLink("a.md", "https://example.com/x#y")).toEqual({ kind: "web", url: "https://example.com/x#y" });
+    expect(resolveLink("a.md", "HTTP://example.com")).toEqual({ kind: "web", url: "HTTP://example.com" });
+  });
+
   it("does not navigate to other schemes or outside the project", () => {
-    expect(resolveLink("a.md", "https://example.com")).toEqual({ kind: "external" });
+    expect(resolveLink("a.md", "file:///etc/passwd")).toEqual({ kind: "external" });
+    expect(resolveLink("a.md", "javascript:alert(1)")).toEqual({ kind: "external" });
+    expect(resolveLink("a.md", "https:///etc/passwd")).toEqual({ kind: "external" });
     expect(resolveLink("a.md", "mailto:x@y.z")).toEqual({ kind: "external" });
     expect(resolveLink("a.md", "//evil.test/x")).toEqual({ kind: "external" });
     expect(resolveLink("docs/a.md", "../../etc/passwd")).toEqual({ kind: "external" });
