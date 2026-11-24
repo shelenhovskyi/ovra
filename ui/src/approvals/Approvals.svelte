@@ -13,7 +13,7 @@
 //   next answer needs the key released first.
 import { tick, untrack } from "svelte";
 import { SvelteMap } from "svelte/reactivity";
-import { agentSessions, sessionName } from "../agents/sessions.svelte";
+import { agentSessions } from "../agents/sessions.svelte";
 import { registerCommand } from "../keys/commands";
 import type { Decision, PermissionId, PermissionRequest, Project, ProjectId } from "../lib/protocol";
 import { useOvra } from "../shell/context";
@@ -284,7 +284,7 @@ function folderOf(request: PermissionRequest, project: Project | undefined): { p
           onkeydown={(event) => onKeydown(event, request)}
         >
           <p class="session" id="{domId}-session">
-            {sessionName(sessions.byId.get(request.session), request.session)} in {project?.name ?? "an unknown project"}
+            {sessions.name(request.session)} in {project?.name ?? "an unknown project"}
             asks to use {request.tool}
           </p>
           <h3 id="{domId}-action">{summary.action}</h3>

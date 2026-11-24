@@ -64,6 +64,28 @@ describe("AgentsPanel", () => {
     expect(target.querySelector<HTMLTextAreaElement>("#agent-prompt")?.value).toBe("");
   });
 
+  it("names a task's workers and lists them under their coordinator", async () => {
+    const core = await setup();
+    type(target.querySelector("#agent-prompt"), "Write the notes");
+    flushSync();
+    [...target.querySelectorAll("button")].find((b) => b.textContent === "Start task")?.click();
+    await settle();
+    const docs = core.addSession("p1", "Write the docs notes.");
+    core.addSession("p1", "A plain session");
+    core.tasks[0]?.workers.push({ session: docs.id, name: "docs", branch: "ovra/t1/docs", worktree: "/wt/docs" });
+    core.emit({ type: "orchestration.changed", data: { project: "p1", task: "t1" } });
+    core.status(docs.id, { state: "working" });
+    await settle();
+    const rows = [...target.querySelectorAll(".sessions button")];
+    expect(rows.map((b) => b.querySelector(".title")?.textContent)).toEqual([
+      "Task: Write the notes",
+      "Worker docs",
+      "A plain session",
+    ]);
+    expect(rows[1]?.classList.contains("worker")).toBe(true);
+    expect(rows[1]?.getAttribute("title")).toBe("Branch ovra/t1/docs");
+  });
+
   it("starts a session in the open project and streams its transcript", async () => {
     const core = await setup();
     type(target.querySelector("#agent-prompt"), "Fix the typo\nin README.md");

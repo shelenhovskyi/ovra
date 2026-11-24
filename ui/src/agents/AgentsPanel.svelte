@@ -7,7 +7,7 @@ import { formatShortcut, isApple } from "../keys/shortcut";
 import type { SessionId } from "../lib/protocol";
 import { CoreError } from "../lib/transport";
 import { useOvra } from "../shell/context";
-import { agentSessions, sessionName, usageText } from "./sessions.svelte";
+import { agentSessions, usageText } from "./sessions.svelte";
 import ClaudeSetup from "./setup/ClaudeSetup.svelte";
 import ProjectTrust from "./setup/ProjectTrust.svelte";
 import { isEnded, statusLabel } from "./status";
@@ -25,7 +25,7 @@ let error = $state<string | null>(null);
 let promptField = $state<HTMLTextAreaElement>();
 
 const project = $derived(workspace.project);
-const list = $derived(project ? sessions.inProject(project.id) : []);
+const list = $derived(project ? sessions.grouped(project.id) : []);
 const current = $derived(list.find((s) => s.id === selected) ?? null);
 const messages = $derived(current ? sessions.transcripts.get(current.id) : undefined);
 
@@ -194,13 +194,16 @@ const canReply = $derived(current !== null && current.status.state === "idle");
       <h3 id="sessions-heading">Sessions</h3>
       <ul class="sessions" aria-labelledby="sessions-heading">
         {#each list as session (session.id)}
+          {@const role = sessions.roles.get(session.id)}
           <li>
             <button
               type="button"
+              class:worker={role?.kind === "worker"}
               aria-current={session.id === current?.id ? "true" : undefined}
+              title={role?.kind === "worker" ? `Branch ${role.branch}` : undefined}
               onclick={() => (selected = session.id)}
             >
-              <span class="title">{sessionName(session, session.id)}</span>
+              <span class="title">{sessions.name(session.id)}</span>
               <span class="state" data-state={session.status.state}>{statusLabel(session.status)}</span>
             </button>
           </li>
@@ -210,7 +213,7 @@ const canReply = $derived(current !== null && current.status.state === "idle");
     {#if current}
       <div class="detail" data-testid="agent-session">
         <div class="row">
-          <h3>{sessionName(current, current.id)}</h3>
+          <h3>{sessions.name(current.id)}</h3>
           <div class="buttons">
             {#if busyAgent}
               <button type="button" disabled={busy} onclick={() => interrupt(current.id)}>Interrupt</button>
@@ -362,6 +365,10 @@ const canReply = $derived(current !== null && current.status.state === "idle");
     text-align: left;
     background: transparent;
     border-color: transparent;
+  }
+  .sessions button.worker {
+    /* A task's workers sit under its coordinator. */
+    padding-left: 22px;
   }
   .sessions button[aria-current="true"] {
     background: #2a2a33;

@@ -14,6 +14,7 @@ import type {
   ResponseFor,
   SessionId,
   SessionInfo,
+  Task,
 } from "../lib/protocol";
 import { CoreError, type Transport } from "../lib/transport";
 
@@ -22,6 +23,8 @@ export class FakeAgentCore implements Transport {
   sessions: SessionInfo[] = [];
   transcripts = new Map<SessionId, AgentMessage[]>();
   pending: PermissionRequest[] = [];
+  /** Tasks `orchestration.start` made; a test adds their workers. */
+  tasks: Task[] = [];
   /** What `projects.list` answers. */
   projects: Project[] = [{ id: "p1", name: "demo", root: "/demo", last_opened_ms: null, trusted: false }];
   /** What `agents.setup` answers; `agents.set_path` records the path in it. */
@@ -96,9 +99,19 @@ export class FakeAgentCore implements Transport {
         const { project, prompt } = request.params;
         const info = this.addSession(project, prompt.split("\n")[0] ?? "");
         this.status(info.id, { state: "starting" });
-        const task = { id: "t1", project, coordinator: info.id, workers: [], spent_micro_usd: 0 };
-        return { type: "orchestration.task", data: { ...task, limits: { max_workers: 3, budget_micro_usd: null } } };
+        const task: Task = {
+          id: `t${this.tasks.length + 1}`,
+          project,
+          coordinator: info.id,
+          workers: [],
+          limits: { max_workers: 3, budget_micro_usd: null },
+          spent_micro_usd: 0,
+        };
+        this.tasks.push(task);
+        return { type: "orchestration.task", data: { ...task } };
       }
+      case "orchestration.list":
+        return { type: "orchestration.list", data: this.tasks.filter((t) => t.project === request.params.project) };
       case "agents.transcript":
         return { type: "agents.transcript", data: this.transcripts.get(request.params.session) ?? [] };
       case "agents.send":

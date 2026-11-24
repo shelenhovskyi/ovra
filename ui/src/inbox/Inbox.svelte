@@ -6,7 +6,7 @@
 // approves or merges on its own. Keys: arrows move in a list, N / P move
 // between changes in the diff, Mod+Enter sends a comment, Escape closes.
 import { tick, untrack } from "svelte";
-import { agentSessions, sessionName } from "../agents/sessions.svelte";
+import { agentSessions } from "../agents/sessions.svelte";
 import { registerCommand } from "../keys/commands";
 import { formatShortcut, inBrowserTab, isApple, liveKeys, matchesShortcut, parseShortcut } from "../keys/shortcut";
 import type { ReviewId, ReviewItem } from "../lib/protocol";
@@ -148,7 +148,7 @@ function toggle(): void {
 }
 
 function sessionLabel(review: ReviewItem): string {
-  const name = sessionName(sessions.byId.get(review.session), review.session);
+  const name = sessions.name(review.session);
   return `${review.mode === "direct" ? "Direct agent" : "Worker"}: ${name}`;
 }
 

@@ -3,10 +3,17 @@
 // notifications (`agentSessions(transport)`).
 
 import { SvelteMap } from "svelte/reactivity";
-import type { AgentMessage, CoreEvent, ProjectId, SessionId, SessionInfo, TurnUsage } from "../lib/protocol";
+import type { AgentMessage, CoreEvent, ProjectId, SessionId, SessionInfo, TaskId, TurnUsage } from "../lib/protocol";
 import type { Transport } from "../lib/transport";
 
+/** A session's part in a task, if it has one. */
+export type SessionRole =
+  | { kind: "coordinator"; task: TaskId }
+  | { kind: "worker"; task: TaskId; name: string; branch: string; coordinator: SessionId };
+
 export class AgentSessions {
+  /** Coordinators and workers of the projects' tasks. */
+  readonly roles = new SvelteMap<SessionId, SessionRole>();
   /** Every known session by id, in the order they became known. */
   readonly byId = new SvelteMap<SessionId, SessionInfo>();
   /** Transcripts of sessions watched since they started or since `loadTranscript`. */
@@ -33,6 +40,55 @@ export class AgentSessions {
     const { data } = await this.transport.call({ method: "agents.list", params: { project } });
     this.loaded.add(project);
     for (const info of data) this.byId.set(info.id, info);
+    await this.loadTasks(project);
+  }
+
+  /** Who coordinates and who works in the project's tasks. Front ends without tasks have none. */
+  private async loadTasks(project: ProjectId): Promise<void> {
+    try {
+      const { data } = await this.transport.call({ method: "orchestration.list", params: { project } });
+      for (const task of data) {
+        this.roles.set(task.coordinator, { kind: "coordinator", task: task.id });
+        for (const w of task.workers)
+          this.roles.set(w.session, {
+            kind: "worker",
+            task: task.id,
+            name: w.name,
+            branch: w.branch,
+            coordinator: task.coordinator,
+          });
+      }
+    } catch {
+      // No tasks to show.
+    }
+  }
+
+  /** A session's name for people: workers by their name, coordinators as the task. */
+  name(id: SessionId): string {
+    const role = this.roles.get(id);
+    const base = sessionName(this.byId.get(id), id);
+    if (role?.kind === "worker") return `Worker ${role.name}`;
+    if (role?.kind === "coordinator") return `Task: ${base}`;
+    return base;
+  }
+
+  /** Sessions of `project` with each task's workers right after their coordinator. */
+  grouped(project: ProjectId): SessionInfo[] {
+    const all = this.inProject(project);
+    const workersOf = (coordinator: SessionId) =>
+      all.filter((s) => {
+        const role = this.roles.get(s.id);
+        return role?.kind === "worker" && role.coordinator === coordinator;
+      });
+    return all
+      .filter((s) => this.roles.get(s.id)?.kind !== "worker")
+      .flatMap((s) => [s, ...workersOf(s.id)])
+      .concat(
+        all.filter((s) => {
+          const role = this.roles.get(s.id);
+          return role?.kind === "worker" && !all.some((c) => c.id === role.coordinator);
+        }),
+      );
   }
 
   /** Starts a task: a coordinator that splits the work among workers in
@@ -80,6 +136,7 @@ export class AgentSessions {
   private apply(event: CoreEvent): void {
     // Events were dropped: what is on screen may be missing or doubled.
     if (event.type === "info.resync") this.resync();
+    else if (event.type === "orchestration.changed") void this.loadTasks(event.data.project);
     else if (event.type === "agents.status") {
       const { session, project, status } = event.data;
       const known = this.byId.get(session);
