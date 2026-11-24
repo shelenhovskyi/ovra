@@ -72,7 +72,13 @@ describe("AgentsPanel", () => {
     await settle();
     const docs = core.addSession("p1", "Write the docs notes.");
     core.addSession("p1", "A plain session");
-    core.tasks[0]?.workers.push({ session: docs.id, name: "docs", branch: "ovra/t1/docs", worktree: "/wt/docs" });
+    core.tasks[0]?.workers.push({
+      session: docs.id,
+      name: "docs",
+      branch: "ovra/t1/docs",
+      worktree: "/wt/docs",
+      kept: null,
+    });
     core.emit({ type: "orchestration.changed", data: { project: "p1", task: "t1" } });
     core.status(docs.id, { state: "working" });
     await settle();

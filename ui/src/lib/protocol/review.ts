@@ -37,6 +37,8 @@ export type ReviewItem = {
   can_undo: boolean;
   /** A worker's files approve did not copy; the worker's version stays in its diff. */
   not_copied: string[];
+  /** The last `review.take` can be undone (`review.undo_take`). */
+  can_undo_take: boolean;
 };
 
 export type ReviewRequest =
@@ -49,6 +51,10 @@ export type ReviewRequest =
   | { method: "review.undo_reject"; params: { id: ReviewId } }
   /** The person is done with what a partly approved item did not copy: it becomes approved. */
   | { method: "review.resolve"; params: { id: ReviewId } }
+  /** Puts the worker's version over the person's for what a partly approved item left; files the worker changed since come back as conflicts. */
+  | { method: "review.take"; params: { id: ReviewId } }
+  /** Puts back the person's versions from just before the last take. */
+  | { method: "review.undo_take"; params: { id: ReviewId } }
   /** The same session continues with the comment; a decided item stays decided. */
   | { method: "review.comment"; params: { id: ReviewId; text: string } };
 

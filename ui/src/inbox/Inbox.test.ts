@@ -171,6 +171,31 @@ describe("Inbox", () => {
     expect($("[data-file='NOTES.md']")?.textContent).toContain("Not copied (your version changed); marked done");
   });
 
+  it("replaces my version with the worker's and undoes it", async () => {
+    const core = await setup([
+      review("r1", {
+        mode: "isolated",
+        state: "partly_approved",
+        files: [change("NOTES.md"), change("a.rs")],
+        not_copied: ["NOTES.md", "a.rs"],
+      }),
+    ]);
+    core.conflicts = ["a.rs"];
+    await open();
+    $<HTMLButtonElement>("[data-testid=inbox-take]")?.click();
+    await settle();
+    expect(core.sent("review.take").map((c) => c.params)).toEqual([{ id: "r1" }]);
+    expect($("[data-testid=inbox-outcome]")?.textContent?.trim()).toBe(
+      "Replaced with the worker's version: NOTES.md. Not replaced, because the worker changed them after you approved: a.rs.",
+    );
+    core.restored = ["NOTES.md"];
+    $<HTMLButtonElement>("[data-testid=inbox-undo-take]")?.click();
+    await settle();
+    expect(core.sent("review.undo_take").map((c) => c.params)).toEqual([{ id: "r1" }]);
+    expect($("[data-testid=inbox-outcome]")?.textContent?.trim()).toBe("Your versions are back: NOTES.md.");
+    expect($("[data-testid=inbox-undo-take]")).toBeNull();
+  });
+
   it("says a worker's reject discarded files from its own copy", async () => {
     const core = await setup([review("r1", { mode: "isolated", files: [change("NOTES.md")] })]);
     core.restored = ["NOTES.md"];

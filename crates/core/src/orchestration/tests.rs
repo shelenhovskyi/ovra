@@ -1228,6 +1228,16 @@ async fn an_ended_tasks_settled_worktrees_are_removed_and_the_rest_kept() {
     until(&mut rx, "s1", AgentStatus::Stopped).await;
     ok(&f.core, list.clone()).await;
     assert!(!f.wt.has(&done.worktree), "approved and ended: removed");
+    let deleted =
+        f.wt.deleted_branches
+            .lock()
+            .map(|d| d.clone())
+            .unwrap_or_default();
+    assert_eq!(
+        deleted.iter().map(|d| d.1.as_str()).collect::<Vec<_>>(),
+        [done.branch.as_str()],
+        "its branch goes with it"
+    );
     assert!(f.wt.has(&busy.worktree), "undecided changes stay");
     // A removed worker cannot be resumed into a folder that is gone.
     let resumed = call(
@@ -1380,4 +1390,122 @@ async fn a_coordinator_that_exits_unasked_leaves_its_task_running() {
     )
     .await;
     assert!(!f.wt.has(&worker.worktree));
+}
+
+#[tokio::test]
+async fn a_worktree_git_will_not_remove_is_kept_and_says_why() {
+    let f = fx(say()).await;
+    let mut rx = f.core.subscribe();
+    start_task(&f.core, 3).await;
+    let boss = caller("s1", ToolRole::Coordinator);
+    let worker = f.core.spawn_agent(&boss, "w", "x").await;
+    let worker = worker.unwrap_or_else(|e| panic!("{e}"));
+    until(&mut rx, "s2", AgentStatus::Idle).await;
+    if let Ok(mut refuse) = f.wt.refuse_remove.lock() {
+        *refuse = Some("the worktree holds ignored files: .env".into());
+    }
+    ok(
+        &f.core,
+        json!({"method": "orchestration.stop", "params": {"task": "t1"}}),
+    )
+    .await;
+    until(&mut rx, "s1", AgentStatus::Stopped).await;
+    let listed = ok(
+        &f.core,
+        json!({"method": "orchestration.list", "params": {"project": "p1"}}),
+    )
+    .await;
+    let Response::Orchestration(OrchestrationResponse::List(tasks)) = listed else {
+        panic!("unexpected {listed:?}");
+    };
+    assert!(f.wt.has(&worker.worktree));
+    assert_eq!(
+        tasks[0].workers[0].kept.as_deref(),
+        Some("the worktree holds ignored files: .env")
+    );
+    // It can still be resumed: nothing was removed.
+    let resumed = call(
+        &f.core,
+        json!({"method": "agents.resume", "params": {"session": "s2", "prompt": "more"}}),
+    )
+    .await;
+    assert!(resumed.is_ok(), "{resumed:?}");
+}
+
+#[tokio::test]
+async fn the_workers_version_can_be_copied_over_mine_and_back() {
+    let f = fx(say()).await;
+    let mut rx = f.core.subscribe();
+    start_task(&f.core, 3).await;
+    let boss = caller("s1", ToolRole::Coordinator);
+    let worker = f.core.spawn_agent(&boss, "w", "x").await;
+    let worker = worker.unwrap_or_else(|e| panic!("{e}"));
+    until(&mut rx, "s2", AgentStatus::Idle).await;
+    f.wt.put(&worker.worktree, "b.rs", "new\n");
+    f.wt.put(&worker.worktree, "c.rs", "worker\n");
+    f.wt.put(ROOT, "b.rs", "mine\n");
+    f.wt.put(ROOT, "c.rs", "mine too\n");
+    ok(
+        &f.core,
+        json!({"method": "review.approve", "params": {"id": "r1", "commit": null}}),
+    )
+    .await;
+    // The worker changed c.rs after the approve: that is not what was approved.
+    f.wt.put(&worker.worktree, "c.rs", "later\n");
+    let done = ok(
+        &f.core,
+        json!({"method": "review.take", "params": {"id": "r1"}}),
+    )
+    .await;
+    let Response::Review(ReviewResponse::Done {
+        item,
+        conflicts,
+        restored,
+    }) = done
+    else {
+        panic!("unexpected {done:?}");
+    };
+    assert_eq!(
+        (restored, conflicts),
+        (vec!["b.rs".to_owned()], vec!["c.rs".to_owned()])
+    );
+    assert_eq!(
+        (item.state, item.not_copied, item.can_undo_take),
+        (ReviewState::PartlyApproved, vec!["c.rs".to_owned()], true)
+    );
+    assert_eq!(
+        f.wt.files(ROOT).get("b.rs").map(String::as_str),
+        Some("new\n")
+    );
+    assert_eq!(
+        f.wt.files(ROOT).get("c.rs").map(String::as_str),
+        Some("mine too\n")
+    );
+
+    let done = ok(
+        &f.core,
+        json!({"method": "review.undo_take", "params": {"id": "r1"}}),
+    )
+    .await;
+    let Response::Review(ReviewResponse::Done { item, .. }) = done else {
+        panic!("unexpected {done:?}");
+    };
+    assert_eq!(
+        f.wt.files(ROOT).get("b.rs").map(String::as_str),
+        Some("mine\n")
+    );
+    assert_eq!(
+        (item.state, item.not_copied, item.can_undo_take),
+        (
+            ReviewState::PartlyApproved,
+            vec!["b.rs".to_owned(), "c.rs".to_owned()],
+            false
+        )
+    );
+    let again = call(
+        &f.core,
+        json!({"method": "review.undo_take", "params": {"id": "r1"}}),
+    )
+    .await;
+    assert_eq!(code(again), ErrorCode::Conflict);
 }

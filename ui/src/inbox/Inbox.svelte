@@ -250,6 +250,20 @@ async function undoReject(review: ReviewItem): Promise<void> {
   }
 }
 
+async function take(review: ReviewItem): Promise<void> {
+  if ((await inbox.take(review.id)) && inbox.outcome) {
+    announcement = outcomeText(inbox.outcome);
+    await refocus();
+  }
+}
+
+async function undoTake(review: ReviewItem): Promise<void> {
+  if ((await inbox.undoTake(review.id)) && inbox.outcome) {
+    announcement = outcomeText(inbox.outcome);
+    await refocus();
+  }
+}
+
 async function resolve(review: ReviewItem): Promise<void> {
   if ((await inbox.resolve(review.id)) && inbox.outcome) {
     announcement = outcomeText(inbox.outcome);
@@ -278,6 +292,16 @@ function outcomeText(outcome: Outcome): string {
         ? ` Not copied: ${files}.`
         : ` Kept as you changed them: ${files}.`;
   if (outcome.action === "resolved") return "Marked done. Your versions of the files that were not copied stay.";
+  if (outcome.action === "taken") {
+    const put =
+      outcome.restored.length > 0 ? `Replaced with the worker's version: ${outcome.restored.join(", ")}.` : "";
+    const kept =
+      outcome.conflicts.length > 0
+        ? ` Not replaced, because the worker changed them after you approved: ${outcome.conflicts.join(", ")}.`
+        : "";
+    return `${put}${kept}`.trim();
+  }
+  if (outcome.action === "untaken") return `Your versions are back: ${outcome.restored.join(", ")}.`;
   if (outcome.action === "approved") {
     const what = outcome.conflicts.length > 0 && worker ? "Approved, not all copied." : "Approved.";
     const committed = outcome.commit ? ` Committed as “${outcome.commit}”.` : "";
@@ -456,11 +480,35 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                   <div class="buttons">
                     <button
                       type="button"
+                      data-testid="inbox-take"
+                      aria-disabled={busy}
+                      onclick={() => {
+                        if (!busy) void take(item);
+                      }}>Replace mine with the worker's version</button
+                    >
+                    <button
+                      type="button"
                       data-testid="inbox-resolve"
                       aria-disabled={busy}
                       onclick={() => {
                         if (!busy) void resolve(item);
                       }}>Mark done</button
+                    >
+                  </div>
+                </div>
+              {/if}
+
+              {#if item.can_undo_take}
+                <div class="actions" role="group" aria-label="Undo the copy">
+                  <p class="hint">Puts back your versions from just before you replaced them.</p>
+                  <div class="buttons">
+                    <button
+                      type="button"
+                      data-testid="inbox-undo-take"
+                      aria-disabled={busy}
+                      onclick={() => {
+                        if (!busy) void undoTake(item);
+                      }}>Undo replace</button
                     >
                   </div>
                 </div>

@@ -76,7 +76,7 @@ describe("watchAgents", () => {
       id: "t1",
       project: "p1",
       coordinator: "s1",
-      workers: [{ session: "s2", name: "docs", branch: "ovra/t1/docs", worktree: "/w/docs" }],
+      workers: [{ session: "s2", name: "docs", branch: "ovra/t1/docs", worktree: "/w/docs", kept: null }],
       limits: { max_workers: 3, budget_micro_usd: null },
       spent_micro_usd: 0,
     });

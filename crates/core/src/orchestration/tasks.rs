@@ -431,6 +431,7 @@ async fn create_worker(
         name: name.to_owned(),
         branch: info.branch,
         worktree: info.path.to_string_lossy().into_owned(),
+        kept: None,
     };
     let workspace = Workspace {
         dir: info.path,
@@ -472,17 +473,40 @@ pub(super) async fn clean_up(core: &Core, project: &ProjectId) {
             continue;
         }
         let dir = PathBuf::from(&worker.worktree);
-        let removed = review::settled(core, &worker.session).await
-            && core.worktrees().remove(root.clone(), dir).await.is_ok();
+        let worktrees = core.worktrees();
+        let (removed, kept) = match review::settled(core, &worker.session).await {
+            None => (false, None),
+            Some(base) => match worktrees.remove(root.clone(), dir).await {
+                Ok(()) => {
+                    // Its start is a snapshot and its decisions are kept as
+                    // snapshots; a branch with more than that stays.
+                    let _ = worktrees
+                        .delete_branch(root.clone(), worker.branch.clone(), base)
+                        .await;
+                    (true, None)
+                }
+                Err(err) => (false, Some(err.message)),
+            },
+        };
         let mut guard = state.lock();
-        if let Some(entry) = guard.tasks.iter_mut().find(|t| t.id == task)
-            && !removed
-        {
-            entry.cleaned.retain(|s| s != &worker.session);
+        let mut changed = removed;
+        if let Some(entry) = guard.tasks.iter_mut().find(|t| t.id == task) {
+            if !removed {
+                entry.cleaned.retain(|s| s != &worker.session);
+            }
+            if let Some(w) = entry
+                .workers
+                .iter_mut()
+                .find(|w| w.session == worker.session)
+                && w.kept != kept
+            {
+                w.kept = kept;
+                changed = true;
+            }
         }
         state.save(&guard);
         drop(guard);
-        if removed {
+        if changed {
             core.emit(OrchestrationEvent::Changed {
                 project: project.clone(),
                 task,

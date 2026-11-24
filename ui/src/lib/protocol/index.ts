@@ -124,7 +124,15 @@ type PhaseThreeResponseFor<R extends Request> = R extends { method: "review.list
   ? Extract<Response, { type: "review.list" }>
   : R extends { method: "review.diff" }
     ? Extract<Response, { type: "review.diff" }>
-    : R extends { method: "review.approve" | "review.reject" | "review.undo_reject" | "review.resolve" }
+    : R extends {
+          method:
+            | "review.approve"
+            | "review.reject"
+            | "review.undo_reject"
+            | "review.resolve"
+            | "review.take"
+            | "review.undo_take";
+        }
       ? Extract<Response, { type: "review.done" }>
       : R extends { method: "orchestration.start" }
         ? Extract<Response, { type: "orchestration.task" }>

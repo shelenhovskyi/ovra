@@ -75,6 +75,9 @@ pub struct ReviewItem {
     /// `review.diff`.
     #[serde(default)]
     pub not_copied: Vec<String>,
+    /// The last `review.take` can be undone (`review.undo_take`).
+    #[serde(default)]
+    pub can_undo_take: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -107,6 +110,16 @@ pub enum ReviewRequest {
     /// approved and keeps the list. Answers `review.done`.
     #[serde(rename = "review.resolve")]
     Resolve { id: ReviewId },
+    /// Copies the worker's version over the person's for the files a partly
+    /// approved item did not copy (not those that wait for the direct
+    /// agent). A file the worker changed since the approve is skipped and
+    /// listed as a conflict. When nothing is left the item is approved.
+    #[serde(rename = "review.take")]
+    Take { id: ReviewId },
+    /// Puts back the person's versions from just before the last
+    /// `review.take`; the item is partly approved again.
+    #[serde(rename = "review.undo_take")]
+    UndoTake { id: ReviewId },
     /// Sends the comment to the same session, which continues. An open item
     /// stays open; a decided one stays decided, and the session's next
     /// changes open a new item. Answers `ok`.

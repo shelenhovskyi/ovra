@@ -8,7 +8,7 @@ import { CoreError, type Transport } from "../lib/transport";
 /** What the last approve, reject or undo did, and what it left for the person. */
 export type Outcome = {
   id: ReviewId;
-  action: "approved" | "rejected" | "undone" | "resolved";
+  action: "approved" | "rejected" | "undone" | "resolved" | "taken" | "untaken";
   conflicts: string[];
   /** Files a reject restored, or an undo put back. */
   restored: string[];
@@ -119,6 +119,22 @@ export class ReviewInbox {
     return this.act(id, async () => {
       const { data } = await this.transport.call({ method: "review.undo_reject", params: { id } });
       this.settle("undone", data);
+    });
+  }
+
+  /** Puts the worker's version over the person's for what a partly approved item left. */
+  take(id: ReviewId): Promise<boolean> {
+    return this.act(id, async () => {
+      const { data } = await this.transport.call({ method: "review.take", params: { id } });
+      this.settle("taken", data);
+    });
+  }
+
+  /** Puts back the person's versions from just before the last take. */
+  undoTake(id: ReviewId): Promise<boolean> {
+    return this.act(id, async () => {
+      const { data } = await this.transport.call({ method: "review.undo_take", params: { id } });
+      this.settle("untaken", data);
     });
   }
 

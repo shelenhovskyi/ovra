@@ -200,7 +200,9 @@ const canReply = $derived(current !== null && current.status.state === "idle");
               type="button"
               class:worker={role?.kind === "worker"}
               aria-current={session.id === current?.id ? "true" : undefined}
-              title={role?.kind === "worker" ? `Branch ${role.branch}` : undefined}
+              title={role?.kind === "worker"
+                ? `Branch ${role.branch}${role.kept ? `. Its folder was kept: ${role.kept}` : ""}`
+                : undefined}
               onclick={() => (selected = session.id)}
             >
               <span class="title">{sessions.name(session.id)}</span>

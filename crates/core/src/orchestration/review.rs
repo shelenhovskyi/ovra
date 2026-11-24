@@ -46,6 +46,10 @@ pub(super) struct Entry {
     /// A worker's files approve did not copy.
     #[serde(default)]
     not_copied: Vec<String>,
+    /// The last `review.take`: the snapshot of the checkout from just
+    /// before, and the files it wrote.
+    #[serde(default)]
+    taken: Option<(String, Vec<String>)>,
 }
 
 /// Records what `session`'s review compares, creating its item. Direct
@@ -82,6 +86,7 @@ pub(crate) fn set_workspace(core: &Core, session: &SessionId, workspace: Workspa
         requested: false,
         rejected: None,
         not_copied: Vec::new(),
+        taken: None,
         decided: Vec::new(),
         decided_diffs: BTreeMap::new(),
     });
@@ -176,9 +181,23 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
                     "only a partly approved review waits to be resolved",
                 ));
             }
-            let entry = update(core, &id, |e| e.state = ReviewState::Approved)?;
+            let entry = update(core, &id, |e| {
+                e.state = ReviewState::Approved;
+                e.taken = None;
+            })?;
             super::tasks::clean_up(core, &entry.project).await;
             Ok(done((item(core, &entry).await?, Vec::new(), Vec::new())))
+        }
+        ReviewRequest::Take { id } => {
+            let outcome = take(core, &id).await?;
+            prune(core, &outcome.0.project).await;
+            super::tasks::clean_up(core, &outcome.0.project).await;
+            Ok(done(outcome))
+        }
+        ReviewRequest::UndoTake { id } => {
+            let outcome = undo_take(core, &id).await?;
+            prune(core, &outcome.0.project).await;
+            Ok(done(outcome))
         }
         ReviewRequest::UndoReject { id } => Ok(done(undo_reject(core, &id).await?)),
         ReviewRequest::Comment { id, text } => {
@@ -209,10 +228,10 @@ pub(super) fn of_session(core: &Core, session: &SessionId) -> Option<Entry> {
         .cloned()
 }
 
-/// Whether nothing of `session`'s work waits for the person any more: no
-/// item of it is partly approved, and its workspace has no change since
-/// its last decision. Unknown means no.
-pub(super) async fn settled(core: &Core, session: &SessionId) -> bool {
+/// The base of `session`'s last decision, if nothing of its work waits for
+/// the person any more: no item of it is partly approved, and its
+/// workspace has no change since. Unknown means no.
+pub(super) async fn settled(core: &Core, session: &SessionId) -> Option<String> {
     let (partial, latest) = {
         let state = core.orchestration_state();
         let state = state.lock();
@@ -220,14 +239,9 @@ pub(super) async fn settled(core: &Core, session: &SessionId) -> bool {
         let partial = mine().any(|r| r.state == ReviewState::PartlyApproved);
         (partial, mine().next_back().cloned())
     };
-    let Some(latest) = latest.filter(|_| !partial) else {
-        return false;
-    };
-    let ws = latest.workspace;
-    core.worktrees()
-        .changes(ws.dir, ws.base)
-        .await
-        .is_ok_and(|changes| changes.is_empty())
+    let ws = latest.filter(|_| !partial)?.workspace;
+    let changes = core.worktrees().changes(ws.dir, ws.base.clone()).await;
+    changes.is_ok_and(|c| c.is_empty()).then_some(ws.base)
 }
 
 /// Changes `id`'s entry and tells clients.
@@ -272,6 +286,7 @@ pub(super) async fn item(core: &Core, entry: &Entry) -> Result<ReviewItem> {
             && entry.state == ReviewState::Rejected
             && core.sessions().direct.can_undo(&entry.session),
         not_copied: entry.not_copied.clone(),
+        can_undo_take: entry.taken.is_some(),
     })
 }
 
@@ -469,6 +484,99 @@ async fn approve(
 
 /// Puts a worker's worktree back to where it started, keeping the diff for
 /// a later comment. Nothing in the main checkout changes.
+/// `review.take`: the worker's version over the person's, for what a partly
+/// approved item left. Only what the person approved is copied: a file the
+/// worker changed since is skipped.
+async fn take(core: &Core, id: &ReviewId) -> Result<(ReviewItem, Vec<String>, Vec<String>)> {
+    let entry = find(core, id)?;
+    if entry.state != ReviewState::PartlyApproved {
+        return Err(conflict(
+            "only a partly approved review has files to copy over yours",
+        ));
+    }
+    let waits: BTreeSet<&str> = entry
+        .decided
+        .iter()
+        .filter(|f| f.blocked)
+        .map(|f| f.path.as_str())
+        .collect();
+    let wanted: Vec<String> = entry
+        .not_copied
+        .iter()
+        .filter(|p| !waits.contains(p.as_str()))
+        .cloned()
+        .collect();
+    if wanted.is_empty() {
+        return Err(conflict(
+            "the files left wait for the direct agent; decide its review first",
+        ));
+    }
+    let ws = entry.workspace.clone();
+    let worktrees = core.worktrees();
+    // Since the approve the base is the worktree as the person approved it.
+    let since: BTreeSet<String> = worktrees
+        .changes(ws.dir.clone(), ws.base.clone())
+        .await?
+        .into_iter()
+        .map(|d| d.path)
+        .collect();
+    let (changed, same): (Vec<String>, Vec<String>) =
+        wanted.into_iter().partition(|p| since.contains(p));
+    let mut skipped = changed;
+    let mut written = Vec::new();
+    let mut undo = None;
+    if !same.is_empty() {
+        let root = core.root(&entry.project)?;
+        let paths = same
+            .iter()
+            .map(|p| RelPath::parse(p))
+            .collect::<Result<Vec<_>>>()?;
+        let taken = worktrees.take(ws.dir, root, paths).await?;
+        written = same
+            .into_iter()
+            .filter(|p| !taken.skipped.contains(p))
+            .collect();
+        skipped.extend(taken.skipped);
+        undo = Some(taken.undo);
+    }
+    skipped.sort();
+    let entry = update(core, id, |e| {
+        e.not_copied.retain(|p| !written.contains(p));
+        if e.not_copied.is_empty() {
+            e.state = ReviewState::Approved;
+        }
+        if let Some(undo) = undo {
+            e.taken = Some((undo, written.clone()));
+        }
+    })?;
+    Ok((item(core, &entry).await?, skipped, written))
+}
+
+/// `review.undo_take`: the person's versions from just before the last take.
+async fn undo_take(core: &Core, id: &ReviewId) -> Result<(ReviewItem, Vec<String>, Vec<String>)> {
+    let entry = find(core, id)?;
+    let Some((undo, paths)) = entry.taken.clone() else {
+        return Err(conflict("there is no copy to undo"));
+    };
+    let root = core.root(&entry.project)?;
+    let rel = paths
+        .iter()
+        .map(|p| RelPath::parse(p))
+        .collect::<Result<Vec<_>>>()?;
+    core.worktrees().restore(root, undo, rel).await?;
+    let entry = update(core, id, |e| {
+        for p in &paths {
+            if !e.not_copied.contains(p) {
+                e.not_copied.push(p.clone());
+            }
+        }
+        e.not_copied.sort();
+        e.state = ReviewState::PartlyApproved;
+        e.taken = None;
+    })?;
+    Ok((item(core, &entry).await?, Vec::new(), paths))
+}
+
 async fn reject(core: &Core, id: &ReviewId) -> Result<(ReviewItem, Vec<String>, Vec<String>)> {
     let entry = find(core, id)?;
     check_open(&entry)?;
@@ -659,6 +767,7 @@ fn open_after(core: &Core, decided: &Entry) -> Entry {
         requested: false,
         rejected: None,
         not_copied: Vec::new(),
+        taken: None,
         decided: Vec::new(),
         decided_diffs: BTreeMap::new(),
         ..decided.clone()
@@ -718,7 +827,10 @@ async fn prune(core: &Core, project: &ProjectId) {
             return;
         }
     }
-    let keep: BTreeSet<String> = entries.into_iter().map(|e| e.workspace.base).collect();
+    let keep: BTreeSet<String> = entries
+        .into_iter()
+        .flat_map(|e| std::iter::once(e.workspace.base).chain(e.taken.map(|(undo, _)| undo)))
+        .collect();
     if let Ok(root) = core.root(project) {
         // Failing to prune only keeps more than needed.
         let _ = core

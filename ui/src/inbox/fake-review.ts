@@ -25,6 +25,7 @@ export const review = (id: string, extra: Partial<ReviewItem> = {}): ReviewItem 
   files: [change("README.md")],
   can_undo: false,
   not_copied: [],
+  can_undo_take: false,
   ...extra,
 });
 
@@ -105,6 +106,27 @@ export class FakeReviewCore implements Transport {
         item.can_undo = request.method === "review.reject";
         const restored = request.method === "review.approve" ? [] : [...this.restored];
         return { type: "review.done", data: { item: structuredClone(item), conflicts: [...this.conflicts], restored } };
+      }
+      case "review.take": {
+        const item = this.find(request.params.id);
+        const taken = item.not_copied.filter((p) => !this.conflicts.includes(p));
+        item.not_copied = item.not_copied.filter((p) => !taken.includes(p));
+        if (item.not_copied.length === 0) item.state = "approved";
+        item.can_undo_take = taken.length > 0;
+        return {
+          type: "review.done",
+          data: { item: structuredClone(item), conflicts: [...this.conflicts], restored: taken },
+        };
+      }
+      case "review.undo_take": {
+        const item = this.find(request.params.id);
+        item.not_copied = [...item.not_copied, ...this.restored].sort();
+        item.state = "partly_approved";
+        item.can_undo_take = false;
+        return {
+          type: "review.done",
+          data: { item: structuredClone(item), conflicts: [], restored: [...this.restored] },
+        };
       }
       case "review.resolve": {
         const item = this.find(request.params.id);

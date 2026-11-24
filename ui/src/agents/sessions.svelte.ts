@@ -9,7 +9,15 @@ import type { Transport } from "../lib/transport";
 /** A session's part in a task, if it has one. */
 export type SessionRole =
   | { kind: "coordinator"; task: TaskId }
-  | { kind: "worker"; task: TaskId; name: string; branch: string; coordinator: SessionId };
+  | {
+      kind: "worker";
+      task: TaskId;
+      name: string;
+      branch: string;
+      /** Why its worktree stays although its task ended. */
+      kept: string | null;
+      coordinator: SessionId;
+    };
 
 export class AgentSessions {
   /** Coordinators and workers of the projects' tasks. */
@@ -55,6 +63,7 @@ export class AgentSessions {
             task: task.id,
             name: w.name,
             branch: w.branch,
+            kept: w.kept,
             coordinator: task.coordinator,
           });
       }

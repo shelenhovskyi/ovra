@@ -36,6 +36,10 @@ pub struct Worker {
     pub branch: String,
     /// Absolute path of its worktree.
     pub worktree: String,
+    /// Why its worktree stays although its task ended (for example files
+    /// git ignores, such as `.env`, that only exist there).
+    #[serde(default)]
+    pub kept: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

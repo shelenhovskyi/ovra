@@ -87,7 +87,7 @@ export function notCopiedHint(item: ReviewItem): string {
     changed.length > 0 ? `because your version changed since the worker started: ${changed.join(", ")}` : "",
     waited.length > 0 ? `because the direct agent had changed them too: ${waited.join(", ")}` : "",
   ].filter(Boolean);
-  return `Not copied into your project folder, ${why.join("; and ")}. The worker's version of each is in its diff below. Copy what you want by hand, then mark this done.`;
+  return `Not copied into your project folder, ${why.join("; and ")}. The worker's version of each is in its diff below. Replace yours with the worker's version (you can undo it), copy parts by hand, or keep yours and mark this done.`;
 }
 
 /** What reject does; files changed outside the agent are never restored. */

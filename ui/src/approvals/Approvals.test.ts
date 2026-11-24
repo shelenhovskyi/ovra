@@ -79,7 +79,7 @@ describe("Approvals", () => {
           id: "t1",
           project: "p1",
           coordinator: "s9",
-          workers: [{ session: "s1", name: "docs", branch: "ovra/t1/docs", worktree: "/wt/docs" }],
+          workers: [{ session: "s1", name: "docs", branch: "ovra/t1/docs", worktree: "/wt/docs", kept: null }],
           limits: { max_workers: 3, budget_micro_usd: null },
           spent_micro_usd: 0,
         },

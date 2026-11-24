@@ -24,6 +24,9 @@ pub struct MemoryWorktrees {
     pub pruned: Mutex<Vec<(PathBuf, Vec<String>)>>,
     /// `(root, branch, base)` of every `delete_branch` call.
     pub deleted_branches: Mutex<Vec<(PathBuf, String, String)>>,
+    /// When set, `remove` refuses with this reason, as the real one does
+    /// for a worktree that holds ignored files.
+    pub refuse_remove: Mutex<Option<String>>,
 }
 
 impl MemoryWorktrees {
@@ -284,6 +287,12 @@ impl Worktrees for MemoryWorktrees {
 
     fn remove(&self, _root: PathBuf, dir: PathBuf) -> BoxFuture<'_, Result<()>> {
         Box::pin(async move {
+            if let Some(reason) = lock(&self.refuse_remove).clone() {
+                return Err(crate::protocol::ProtocolError::new(
+                    crate::protocol::ErrorCode::Conflict,
+                    reason,
+                ));
+            }
             lock(&self.dirs)
                 .remove(&dir)
                 .map(|_| ())

@@ -18,6 +18,8 @@ export type Worker = {
   branch: string;
   /** Absolute path of its worktree. */
   worktree: string;
+  /** Why its worktree stays although its task ended (for example ignored files such as `.env`). */
+  kept: string | null;
 };
 
 export type Task = {

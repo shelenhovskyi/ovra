@@ -51,7 +51,7 @@ describe("inbox wording", () => {
       not_copied: ["NOTES.md", "a.rs"],
     });
     expect(notCopiedHint(both)).toBe(
-      "Not copied into your project folder, because your version changed since the worker started: NOTES.md; and because the direct agent had changed them too: a.rs. The worker's version of each is in its diff below. Copy what you want by hand, then mark this done.",
+      "Not copied into your project folder, because your version changed since the worker started: NOTES.md; and because the direct agent had changed them too: a.rs. The worker's version of each is in its diff below. Replace yours with the worker's version (you can undo it), copy parts by hand, or keep yours and mark this done.",
     );
     expect(fileMarkers(change("a.rs", { blocked: true }), false, "partly_approved")).toEqual([
       "Not copied: it waited for the direct agent",
