@@ -8,7 +8,7 @@ use super::{lock, not_found};
 use crate::path::RelPath;
 use crate::protocol::review::ChangeKind;
 use crate::protocol::{ErrorCode, ProtocolError};
-use crate::services::{BoxFuture, Delta, Result, WorktreeInfo, Worktrees};
+use crate::services::{BoxFuture, Delta, Result, Taken, WorktreeInfo, Worktrees};
 
 type Files = BTreeMap<String, String>;
 
@@ -22,6 +22,8 @@ pub struct MemoryWorktrees {
     pub committed: Mutex<Vec<(PathBuf, Vec<String>, String)>>,
     /// `(root, keep)` of every `prune_snapshots` call; commits stay.
     pub pruned: Mutex<Vec<(PathBuf, Vec<String>)>>,
+    /// `(root, branch, base)` of every `delete_branch` call.
+    pub deleted_branches: Mutex<Vec<(PathBuf, String, String)>>,
 }
 
 impl MemoryWorktrees {
@@ -231,6 +233,45 @@ impl Worktrees for MemoryWorktrees {
             let paths = paths.iter().map(|p| p.as_str().to_owned()).collect();
             lock(&self.committed).push((dir, paths, message));
             Ok(self.record(files))
+        })
+    }
+
+    fn take(
+        &self,
+        from: PathBuf,
+        into: PathBuf,
+        paths: Vec<RelPath>,
+    ) -> BoxFuture<'_, Result<Taken>> {
+        Box::pin(async move {
+            let (before, source) = (self.tree(&into)?, self.tree(&from)?);
+            let undo = self.record(before);
+            let mut dirs = lock(&self.dirs);
+            let target = dirs
+                .get_mut(&into)
+                .ok_or_else(|| not_found(format!("working tree {}", into.display())))?;
+            for path in paths {
+                let key = path.as_str();
+                match source.get(key) {
+                    Some(text) => target.insert(key.to_owned(), text.clone()),
+                    None => target.remove(key),
+                };
+            }
+            Ok(Taken {
+                undo,
+                skipped: Vec::new(),
+            })
+        })
+    }
+
+    fn delete_branch(
+        &self,
+        root: PathBuf,
+        branch: String,
+        base: String,
+    ) -> BoxFuture<'_, Result<()>> {
+        Box::pin(async move {
+            lock(&self.deleted_branches).push((root, branch, base));
+            Ok(())
         })
     }
 

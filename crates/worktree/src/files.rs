@@ -117,7 +117,24 @@ pub(crate) fn apply(
     paths: &[RelPath],
 ) -> Result<Vec<String>> {
     let base = git::commit_id(into, base)?;
-    let expected = blobs(into, &base, paths)?;
+    copy_over(from, into, paths, Some(&blobs(into, &base, paths)?))
+}
+
+/// Copies `paths` from `from` into `into` whatever `into` holds; returns
+/// the paths it could not write safely.
+pub(crate) fn take(from: &Path, into: &Path, paths: &[RelPath]) -> Result<Vec<String>> {
+    copy_over(from, into, paths, None)
+}
+
+/// Copies `paths` from `from` into `into`. With `expected` (blob ids by
+/// path; a missing entry means no file), a file of `into` that differs is
+/// skipped and returned as a conflict.
+fn copy_over(
+    from: &Path,
+    into: &Path,
+    paths: &[RelPath],
+    expected: Option<&BTreeMap<String, String>>,
+) -> Result<Vec<String>> {
     let mut present = Vec::new();
     let mut conflicts = Vec::new();
     let mut todo = Vec::new();
@@ -142,7 +159,7 @@ pub(crate) fn apply(
         }
     }
     // Hashed the way `git add` would, so line-ending filters match.
-    let hashes = if present.is_empty() {
+    let hashes = if present.is_empty() || expected.is_none() {
         Vec::new()
     } else {
         let list: Vec<&str> = present.iter().map(|p| p.as_str()).collect();
@@ -162,10 +179,8 @@ pub(crate) fn apply(
         // Looked at again just before writing: the path or a folder on the
         // way may have changed since (an agent in direct mode works here
         // too). What changes between this look and the write is not seen.
-        if current.get(key).copied() != expected.get(key)
-            || on_disk(into, path)? != here
-            || is_symlink(into, path)
-        {
+        let changed = expected.is_some_and(|e| current.get(key).copied() != e.get(key));
+        if changed || on_disk(into, path)? != here || is_symlink(into, path) {
             conflicts.push(key.to_owned());
             continue;
         }

@@ -114,6 +114,22 @@ impl Worktrees for Trees {
     fn prune_snapshots(&self, root: PathBuf, keep: Vec<String>) -> BoxFuture<'_, Result<()>> {
         self.mem.prune_snapshots(root, keep)
     }
+    fn take(
+        &self,
+        from: PathBuf,
+        into: PathBuf,
+        paths: Vec<RelPath>,
+    ) -> BoxFuture<'_, Result<crate::services::Taken>> {
+        self.mem.take(from, into, paths)
+    }
+    fn delete_branch(
+        &self,
+        root: PathBuf,
+        branch: String,
+        base: String,
+    ) -> BoxFuture<'_, Result<()>> {
+        self.mem.delete_branch(root, branch, base)
+    }
 }
 
 struct Harness {

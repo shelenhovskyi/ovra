@@ -551,3 +551,73 @@ async fn apply_recreates_only_symlinks_that_stay_inside() {
     assert_eq!(target("s"), Some(PathBuf::from(".")));
     assert!(!root.join("abs").exists() && target("bypass").is_none());
 }
+
+#[tokio::test]
+async fn taking_the_workers_version_can_be_undone() {
+    let repo = Repo::new(&[("a.txt", "a\n"), ("gone.txt", "gone\n")]);
+    let root = &repo.root;
+    let w = GitWorktrees::new();
+    let (_, wt) = repo.worker(&w).await;
+    put(&wt, "a.txt", "agent\n");
+    fs::remove_file(wt.join("gone.txt")).unwrap_or_else(|e| panic!("{e}"));
+    put(root, "a.txt", "mine\n");
+
+    let paths = rels(&["a.txt", "gone.txt"]);
+    let taken = w.take(wt.clone(), root.clone(), paths.clone()).await;
+    let taken = taken.unwrap_or_else(|e| panic!("{e:?}"));
+    assert!(taken.skipped.is_empty(), "{:?}", taken.skipped);
+    assert_eq!(read(root, "a.txt").as_deref(), Some("agent\n"));
+    assert_eq!(read(root, "gone.txt"), None);
+
+    assert!(w.restore(root.clone(), taken.undo, paths).await.is_ok());
+    assert_eq!(read(root, "a.txt").as_deref(), Some("mine\n"));
+    assert_eq!(read(root, "gone.txt").as_deref(), Some("gone\n"));
+}
+
+#[tokio::test]
+async fn ended_workers_lose_nothing_when_cleaned_up() {
+    let repo = Repo::new(&[("a.txt", "a\n"), (".gitignore", "*.env\ntarget/\n")]);
+    let root = &repo.root;
+    let w = GitWorktrees::new();
+    let (base, wt) = repo.worker(&w).await;
+    put(&wt, "target/debug/out.bin", "build output\n");
+    put(&wt, "secrets.env", "TOKEN=1\n");
+
+    let refused = w.remove(root.clone(), wt.clone()).await;
+    let err = refused.err();
+    assert_eq!(err.as_ref().map(|e| e.code), Some(ErrorCode::Conflict));
+    assert!(format!("{err:?}").contains("secrets.env"), "{err:?}");
+    assert!(wt.join("secrets.env").exists());
+    fs::remove_file(wt.join("secrets.env")).unwrap_or_else(|e| panic!("{e}"));
+    let removed = w.remove(root.clone(), wt.clone()).await;
+    assert!(removed.is_ok(), "{removed:?}");
+
+    // A branch with only its base goes; one the worker committed on stays.
+    let other = "ovra/t1/committed";
+    git(root, &["branch", other, &base]);
+    git(root, &["commit", "--allow-empty", "--quiet", "-m", "x"]);
+    git(
+        root,
+        &["update-ref", &format!("refs/heads/{other}"), "HEAD"],
+    );
+    git(root, &["reset", "--quiet", "--hard", "HEAD~1"]);
+    let kept = w
+        .delete_branch(root.clone(), other.into(), base.clone())
+        .await;
+    assert_eq!(kept.err().map(|e| e.code), Some(ErrorCode::Conflict));
+    assert!(
+        w.delete_branch(root.clone(), BRANCH.into(), base.clone())
+            .await
+            .is_ok()
+    );
+    assert!(git_fails(
+        root,
+        &["rev-parse", "--verify", "--quiet", BRANCH]
+    ));
+    // Already gone is fine.
+    assert!(
+        w.delete_branch(root.clone(), BRANCH.into(), base)
+            .await
+            .is_ok()
+    );
+}

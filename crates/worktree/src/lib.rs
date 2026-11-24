@@ -21,7 +21,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use ovra_core::path::RelPath;
 use ovra_core::protocol::{ErrorCode, ProtocolError};
-use ovra_core::services::{BoxFuture, Delta, Result, WorktreeInfo, Worktrees};
+use ovra_core::services::{BoxFuture, Delta, Result, Taken, WorktreeInfo, Worktrees};
 
 use crate::git::Git;
 
@@ -170,7 +170,33 @@ fn create(root: &Path, dir: &Path, branch: &str, base: &str) -> Result<WorktreeI
     })
 }
 
+/// Ignored files outside ignored folders: hand-made files such as `.env`
+/// that no snapshot holds. Ignored folders (`target/`, `node_modules/`) are
+/// build output and may go.
+fn ignored_files(dir: &Path) -> Result<Vec<String>> {
+    let out = Git::new(dir, "status")
+        .args(["--porcelain=v1", "-z", "--ignored=traditional"])
+        .args(["--untracked-files=normal"])
+        .run()?;
+    Ok(git::fields(&out)
+        .filter_map(|f| f.strip_prefix("!! ").map(str::to_owned))
+        .filter(|path| !path.ends_with('/'))
+        .collect())
+}
+
 fn remove(root: &Path, dir: &Path) -> Result<()> {
+    if dir.exists() {
+        let ignored = ignored_files(dir)?;
+        if !ignored.is_empty() {
+            return Err(ProtocolError::new(
+                ErrorCode::Conflict,
+                format!(
+                    "the worktree holds ignored files no snapshot keeps: {}",
+                    ignored.join(", ")
+                ),
+            ));
+        }
+    }
     // The session is over: its uncommitted files go, its branch stays. The
     // second `--force` removes the lock, also when the folder is gone.
     let removed = Git::new(root, "worktree")
@@ -184,6 +210,37 @@ fn remove(root: &Path, dir: &Path) -> Result<()> {
         Git::new(root, "worktree").arg("prune").run()?;
     }
     Ok(())
+}
+
+fn take(from: &Path, into: &Path, paths: &[RelPath], snapshot_ref: &Mutex<()>) -> Result<Taken> {
+    let undo = snapshot(into, snapshot_ref)?;
+    let skipped = files::take(from, into, paths)?;
+    Ok(Taken { undo, skipped })
+}
+
+fn delete_branch(root: &Path, branch: &str, base: &str) -> Result<()> {
+    let Some(tip) = Git::new(root, "rev-parse")
+        .args(["--verify", "--quiet"])
+        .arg(format!("refs/heads/{branch}^{{commit}}"))
+        .try_text()?
+    else {
+        return Ok(());
+    };
+    let base = git::commit_id(root, base)?;
+    let mut ahead = Git::new(root, "rev-list").args(["--max-count=1", &tip, "--not", &base]);
+    if let Some(head) = git::head(root)? {
+        ahead = ahead.arg(head);
+    }
+    if !ahead.text()?.is_empty() {
+        return Err(ProtocolError::new(
+            ErrorCode::Conflict,
+            format!("branch {branch} has commits that are not in HEAD"),
+        ));
+    }
+    Git::new(root, "branch")
+        .args(["--quiet", "-D", "--", branch])
+        .run()
+        .map(|_| ())
 }
 
 impl Worktrees for GitWorktrees {
@@ -245,6 +302,25 @@ impl Worktrees for GitWorktrees {
 
     fn remove(&self, root: PathBuf, dir: PathBuf) -> BoxFuture<'_, Result<()>> {
         blocking(move || remove(&root, &dir))
+    }
+
+    fn take(
+        &self,
+        from: PathBuf,
+        into: PathBuf,
+        paths: Vec<RelPath>,
+    ) -> BoxFuture<'_, Result<Taken>> {
+        let snapshot_ref = Arc::clone(&self.snapshot_ref);
+        blocking(move || take(&from, &into, &paths, &snapshot_ref))
+    }
+
+    fn delete_branch(
+        &self,
+        root: PathBuf,
+        branch: String,
+        base: String,
+    ) -> BoxFuture<'_, Result<()>> {
+        blocking(move || delete_branch(&root, &branch, &base))
     }
 
     fn prune_snapshots(&self, root: PathBuf, keep: Vec<String>) -> BoxFuture<'_, Result<()>> {

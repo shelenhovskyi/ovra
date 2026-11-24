@@ -335,6 +335,17 @@ pub trait Worktrees: Send + Sync + Debug {
         into: PathBuf,
         paths: Vec<RelPath>,
     ) -> BoxFuture<'_, Result<Vec<String>>>;
+    /// Copies `paths` from the working tree of `from` into `into` whatever
+    /// `into` holds now: the person chose the worker's version over theirs.
+    /// `into` is snapshotted first so this can be undone with `restore`.
+    /// Paths that cannot be written safely (a folder, a symlink) are
+    /// skipped.
+    fn take(
+        &self,
+        from: PathBuf,
+        into: PathBuf,
+        paths: Vec<RelPath>,
+    ) -> BoxFuture<'_, Result<Taken>>;
     /// Commits exactly `paths` in `dir` with `message`; returns the commit id.
     fn commit(
         &self,
@@ -343,12 +354,32 @@ pub trait Worktrees: Send + Sync + Debug {
         message: String,
     ) -> BoxFuture<'_, Result<String>>;
     /// Removes the worktree at `dir` from the repository at `root`. Its
-    /// branch is kept.
+    /// branch is kept. Refused (`Conflict`, naming them) while it holds
+    /// ignored files outside ignored folders, such as a `.env`: those are
+    /// in no snapshot and would be lost.
     fn remove(&self, root: PathBuf, dir: PathBuf) -> BoxFuture<'_, Result<()>>;
     /// Lets go of every snapshot of the repository at `root` (its main
     /// checkout and its worktrees) except those in `keep`, so that git can
     /// collect them. The core calls it when reviews no longer need them.
     fn prune_snapshots(&self, root: PathBuf, keep: Vec<String>) -> BoxFuture<'_, Result<()>>;
+    /// Deletes a worker's `branch` in the repository at `root`. Refused
+    /// (`Conflict`) while it has commits that are neither in `base` nor in
+    /// HEAD. A branch that is already gone is fine.
+    fn delete_branch(
+        &self,
+        root: PathBuf,
+        branch: String,
+        base: String,
+    ) -> BoxFuture<'_, Result<()>>;
+}
+
+/// What [`Worktrees::take`] did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Taken {
+    /// A snapshot of `into` from just before: `restore` from it undoes.
+    pub undo: String,
+    /// Paths left as they were.
+    pub skipped: Vec<String>,
 }
 
 /// Placeholder for services a front end has not wired in.
@@ -544,6 +575,12 @@ impl Worktrees for Unavailable {
         Box::pin(async move { self.err() })
     }
     fn prune_snapshots(&self, _: PathBuf, _: Vec<String>) -> BoxFuture<'_, Result<()>> {
+        Box::pin(async move { self.err() })
+    }
+    fn take(&self, _: PathBuf, _: PathBuf, _: Vec<RelPath>) -> BoxFuture<'_, Result<Taken>> {
+        Box::pin(async move { self.err() })
+    }
+    fn delete_branch(&self, _: PathBuf, _: String, _: String) -> BoxFuture<'_, Result<()>> {
         Box::pin(async move { self.err() })
     }
 }
