@@ -1,10 +1,15 @@
 import type { SessionId } from "./agents";
+import type { ProjectId } from "./projects";
 
 export type PermissionId = string;
 
 export type PermissionRequest = {
   id: PermissionId;
   session: SessionId;
+  /** The session's project, so a client that does not know the session still knows where it comes from. */
+  project: ProjectId;
+  /** The folder the session works in (the project root, or a worker's worktree); paths are judged against it. */
+  cwd?: string;
   /** Tool name as the agent reports it, e.g. `Bash` or `Edit`. */
   tool: string;
   input: unknown;

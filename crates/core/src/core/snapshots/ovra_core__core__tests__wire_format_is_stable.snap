@@ -60,10 +60,12 @@ expression: samples
     },
     {
       "data": {
+        "cwd": "/work/demo",
         "id": "perm1",
         "input": {
           "command": "ls"
         },
+        "project": "p1",
         "reason": {
           "kind": "other",
           "text": "This command requires approval"

@@ -113,6 +113,14 @@ async fn a_session_streams_asks_and_waits_for_the_answer() {
             AgentStatus::WaitingForApproval
         ]
     );
+    // The request says where it comes from and which folder paths are judged against.
+    match ok(&core, json!({"method": "permissions.pending"})).await {
+        Response::Permissions(PermissionsResponse::Pending(p)) => {
+            assert_eq!(p[0].project.0, "p1");
+            assert_eq!(p[0].cwd.as_deref(), Some(crate::test_path!("/work/a")));
+        }
+        other => panic!("unexpected {other:?}"),
+    }
     let id = pending_id(&core).await;
     ok(
         &core,

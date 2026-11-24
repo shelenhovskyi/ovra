@@ -9,6 +9,8 @@ import TestHost from "./TestHost.svelte";
 const bash = (id: string, command = "ls -la"): PermissionRequest => ({
   id,
   session: "s1",
+  project: "p1",
+  cwd: "/demo",
   tool: "Bash",
   input: { command },
   title: null,
@@ -172,7 +174,7 @@ describe("Approvals", () => {
     core.addSession("p2", "Elsewhere task", { state: "working" });
     core.status("s2", { state: "working" });
     core.ask(bash("perm1"));
-    core.ask({ ...bash("perm2"), session: "s2" });
+    core.ask({ ...bash("perm2"), session: "s2", project: "p2", cwd: "/other" });
     await settle();
     const other = cards().map((c) => c.querySelector("[data-testid=approval-other-project]") !== null);
     expect(other).toEqual([false, true]);

@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::agents::SessionId;
+use super::projects::ProjectId;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -13,6 +14,13 @@ pub struct PermissionId(pub String);
 pub struct PermissionRequest {
     pub id: PermissionId,
     pub session: SessionId,
+    /// The session's project, so a client that does not know the session
+    /// still knows where the request comes from.
+    pub project: ProjectId,
+    /// The folder the session works in (the project root, or a worker's
+    /// worktree); paths are judged against it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
     /// Tool name as the agent reports it, e.g. `Bash` or `Edit`.
     pub tool: String,
     /// The tool's input, as the agent sent it.

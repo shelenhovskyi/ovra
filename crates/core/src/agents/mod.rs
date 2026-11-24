@@ -15,7 +15,7 @@ use crate::protocol::agents::{
     AgentMessage, AgentStatus, AgentsEvent, SessionId, SessionInfo, SessionMode,
 };
 use crate::protocol::permissions::{
-    Decision, PermissionAnswer, PermissionId, PermissionReason, PermissionsEvent,
+    Decision, PermissionAnswer, PermissionId, PermissionReason, PermissionRequest, PermissionsEvent,
 };
 use crate::protocol::projects::ProjectId;
 use crate::protocol::{ErrorCode, ProtocolError};
@@ -469,8 +469,16 @@ impl AgentHost {
             if s.status().is_ended() {
                 return Err(PermissionAnswer::deny("the session ended"));
             }
-            Ok(s.permissions
-                .register(self.session.clone(), tool, input, title, reason))
+            Ok(s.permissions.register(PermissionRequest {
+                id: PermissionId(String::new()),
+                session: self.session.clone(),
+                project: s.info().project,
+                cwd: s.launch().map(|l| l.cwd.to_string_lossy().into_owned()),
+                tool,
+                input,
+                title,
+                reason,
+            }))
         });
         let (request, answer) = match registered {
             Ok(Ok(registered)) => registered,

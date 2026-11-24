@@ -6,9 +6,7 @@ use tokio::sync::oneshot;
 
 use super::lock;
 use crate::protocol::agents::SessionId;
-use crate::protocol::permissions::{
-    PermissionAnswer, PermissionId, PermissionReason, PermissionRequest,
-};
+use crate::protocol::permissions::{PermissionAnswer, PermissionId, PermissionRequest};
 
 #[derive(Debug, Default)]
 pub(crate) struct Permissions {
@@ -24,24 +22,14 @@ struct State {
 type Pending = (PermissionRequest, oneshot::Sender<PermissionAnswer>);
 
 impl Permissions {
+    /// Gives `request` its id and keeps it until it is answered.
     pub(crate) fn register(
         &self,
-        session: SessionId,
-        tool: String,
-        input: serde_json::Value,
-        title: Option<String>,
-        reason: Option<PermissionReason>,
+        mut request: PermissionRequest,
     ) -> (PermissionRequest, oneshot::Receiver<PermissionAnswer>) {
         let mut state = lock(&self.state);
         state.asked += 1;
-        let request = PermissionRequest {
-            id: PermissionId(format!("perm{}", state.asked)),
-            session,
-            tool,
-            input,
-            title,
-            reason,
-        };
+        request.id = PermissionId(format!("perm{}", state.asked));
         let (tx, rx) = oneshot::channel();
         state.pending.push((request.clone(), tx));
         (request, rx)

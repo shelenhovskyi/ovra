@@ -355,6 +355,8 @@ fn wire_format_is_stable() {
             Event::Permissions(PermissionsEvent::Requested(PermissionRequest {
                 id: PermissionId("perm1".into()),
                 session: SessionId("s1".into()),
+                project: ProjectId("p1".into()),
+                cwd: Some("/work/demo".into()),
                 tool: "Bash".into(),
                 input: serde_json::json!({"command": "ls"}),
                 title: Some("List files".into()),

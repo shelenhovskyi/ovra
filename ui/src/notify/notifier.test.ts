@@ -51,7 +51,7 @@ describe("watchAgents", () => {
     watchAgents(core, notifier, review);
     core.emit({ type: "agents.status", data: { session: "s1", project: "p1", status: { state: "starting" } } });
 
-    core.ask({ id: "perm1", session: "s1", tool: "Bash", input: { command: "ls" }, title: null });
+    core.ask({ id: "perm1", session: "s1", project: "p1", tool: "Bash", input: { command: "ls" }, title: null });
     expect(notifier.toasts.map((t) => [t.level, t.text])).toEqual([["attention", "Session s1 needs approval: Run ls"]]);
     back.shown[0]?.click();
     expect(review).toHaveBeenCalledExactlyOnceWith("perm1");

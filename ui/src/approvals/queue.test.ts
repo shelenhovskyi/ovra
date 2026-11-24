@@ -3,7 +3,14 @@ import { FakeAgentCore } from "../agents/fake-core";
 import { CoreError } from "../lib/transport";
 import { ApprovalQueue } from "./queue.svelte";
 
-const bash = (id: string) => ({ id, session: "s1", tool: "Bash", input: { command: "ls" }, title: null });
+const bash = (id: string) => ({
+  id,
+  session: "s1",
+  project: "p1",
+  tool: "Bash",
+  input: { command: "ls" },
+  title: null,
+});
 const tick = () => new Promise((resolve) => setTimeout(resolve));
 
 describe("ApprovalQueue", () => {
