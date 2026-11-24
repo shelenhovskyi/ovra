@@ -566,6 +566,9 @@ async fn taking_the_workers_version_can_be_undone() {
     let taken = w.take(wt.clone(), root.clone(), paths.clone()).await;
     let taken = taken.unwrap_or_else(|e| panic!("{e:?}"));
     assert!(taken.skipped.is_empty(), "{:?}", taken.skipped);
+    // `after` holds the worker's version: nothing changed since the take.
+    let since = w.changes(root.clone(), taken.after.clone()).await;
+    assert_eq!(since.map(|c| c.len()).ok(), Some(0));
     assert_eq!(read(root, "a.txt").as_deref(), Some("agent\n"));
     assert_eq!(read(root, "gone.txt"), None);
 

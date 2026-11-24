@@ -215,7 +215,12 @@ fn remove(root: &Path, dir: &Path) -> Result<()> {
 fn take(from: &Path, into: &Path, paths: &[RelPath], snapshot_ref: &Mutex<()>) -> Result<Taken> {
     let undo = snapshot(into, snapshot_ref)?;
     let skipped = files::take(from, into, paths)?;
-    Ok(Taken { undo, skipped })
+    let after = snapshot(into, snapshot_ref)?;
+    Ok(Taken {
+        undo,
+        after,
+        skipped,
+    })
 }
 
 fn delete_branch(root: &Path, branch: &str, base: &str) -> Result<()> {

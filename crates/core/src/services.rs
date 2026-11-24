@@ -378,6 +378,9 @@ pub trait Worktrees: Send + Sync + Debug {
 pub struct Taken {
     /// A snapshot of `into` from just before: `restore` from it undoes.
     pub undo: String,
+    /// A snapshot of `into` right after writing, to tell later edits from
+    /// the take.
+    pub after: String,
     /// Paths left as they were.
     pub skipped: Vec<String>,
 }

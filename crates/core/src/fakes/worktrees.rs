@@ -259,8 +259,10 @@ impl Worktrees for MemoryWorktrees {
                     None => target.remove(key),
                 };
             }
+            let after = self.record(target.clone());
             Ok(Taken {
                 undo,
+                after,
                 skipped: Vec::new(),
             })
         })
