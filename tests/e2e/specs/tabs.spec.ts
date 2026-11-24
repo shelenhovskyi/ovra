@@ -28,16 +28,16 @@ test("open files become tabs that switch, show unsaved changes and close", async
   await page.keyboard.type("edited ");
   await expect(tabs.getByRole("button", { name: "Close a.txt (unsaved changes)" })).toBeVisible();
 
-  // Ctrl+Tab keeps the mode; the unsaved text survives the switch.
-  await page.keyboard.press("Control+Tab");
+  // Next tab (Alt+] in a browser tab, Ctrl+Tab on the desktop) keeps the mode; the unsaved text survives the switch.
+  await page.keyboard.press("Alt+BracketRight");
   await expect(tabs.getByRole("tab", { name: "b.txt" })).toHaveAttribute("aria-selected", "true");
   await expect(main.locator(".cm-content")).toHaveText("beta");
   await expect(tabs.getByRole("button", { name: "Close a.txt (unsaved changes)" })).toBeVisible();
-  await page.keyboard.press("Control+Shift+Tab");
+  await page.keyboard.press("Alt+BracketLeft");
   await expect(main.locator(".cm-content")).toContainText("edited");
 
   await tabs.getByRole("button", { name: "Close b.txt" }).click();
   await expect(tabs.getByRole("tab")).toHaveText(["a.txt"]);
-  await page.keyboard.press("ControlOrMeta+W");
+  await page.keyboard.press("Alt+W");
   await expect(tabs).toBeHidden();
 });

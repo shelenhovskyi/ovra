@@ -19,6 +19,10 @@ test("the command palette opens on Mod+Shift+P, filters and closes", async ({ pa
   await expect(palette(page)).toBeVisible();
   await expect(page.getByRole("combobox", { name: "Type a command" })).toBeFocused();
 
+  // The palette shows the shortcut that works here: browser-safe ones in a browser tab.
+  await page.keyboard.type("go to file");
+  await expect(page.getByRole("option", { selected: true })).toContainText("Alt+P");
+  await page.getByRole("combobox").fill("");
   await page.keyboard.type("swpro");
   await expect(page.getByRole("option", { name: /Switch project/ })).toHaveAttribute("aria-selected", "true");
 
@@ -34,7 +38,7 @@ test("the command palette opens on Mod+Shift+P, filters and closes", async ({ pa
   await expect(palette(page)).toBeHidden();
 });
 
-test("Mod+P goes to a file; the palette switches and closes projects", async ({ page }) => {
+test("Alt+P goes to a file; the palette switches and closes projects", async ({ page }) => {
   const dir = mkdtempSync(join(tmpdir(), "ovra-palette-"));
   mkdirSync(join(dir, "src/deep/inside"), { recursive: true });
   writeFileSync(join(dir, "src/deep/inside/target.md"), "# Target\n");
@@ -46,7 +50,8 @@ test("Mod+P goes to a file; the palette switches and closes projects", async ({ 
   await projects.getByRole("button", { name: "Open", exact: true }).click();
   await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();
 
-  await page.keyboard.press("ControlOrMeta+P");
+  // Headless mode runs in a browser tab, which keeps Ctrl+P for printing.
+  await page.keyboard.press("Alt+P");
   await page.keyboard.type("deeptarget");
   await expect(page.getByRole("option", { name: "src/deep/inside/target.md" })).toBeVisible();
   await page.keyboard.press("Enter");

@@ -4,7 +4,7 @@
 // `workspace.paletteOpen` is true; it closes by setting it to false.
 import { tick } from "svelte";
 import { runCommand } from "../keys/keybindings";
-import { formatShortcut, isApple } from "../keys/shortcut";
+import { formatShortcut, inBrowserTab, isApple, liveKeys } from "../keys/shortcut";
 import { useOvra } from "../shell/context";
 import { type Ranked, rank, segments } from "./fuzzy";
 import { palette } from "./mode.svelte";
@@ -14,6 +14,7 @@ const { transport, workspace } = useOvra();
 // svelte-ignore state_referenced_locally
 const from = source(palette.mode, transport, workspace);
 const apple = isApple();
+const browser = inBrowserTab();
 
 let entries = $state<Entry[] | null>(null);
 let failure = $state<string | null>(null);
@@ -128,7 +129,7 @@ function onfocusout(event: FocusEvent): void {
             {/each}
             {#if item.item.detail}<span class="detail">{item.item.detail}</span>{/if}
           </span>
-          {#if item.item.keys}<kbd>{formatShortcut(item.item.keys, apple)}</kbd>{/if}
+          {#if item.item.keys}<kbd>{formatShortcut(liveKeys(item.item.keys, browser), apple)}</kbd>{/if}
         </li>
       {:else}
         <li class="empty" role="presentation">{failure ?? (entries === null ? "Loading…" : from.empty)}</li>

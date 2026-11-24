@@ -67,4 +67,19 @@ describe("keybindings", () => {
     keydown({ key: "F2", code: "F2" });
     await vi.waitFor(() => expect(error).toHaveBeenCalledWith("command t.fail failed", expect.any(Error)));
   });
+
+  it("uses the browser-safe stand-in in a browser tab and the original in the desktop window", () => {
+    const run = vi.fn();
+    cleanups.push(registerCommand({ id: "t.close", title: "Close tab", keys: "Mod+W", run }));
+    const uninstallBrowser = installKeybindings(window, false, true);
+    keydown({ key: "w", code: "KeyW", ctrlKey: true });
+    expect(run).not.toHaveBeenCalled();
+    keydown({ key: "w", code: "KeyW", altKey: true });
+    expect(run).toHaveBeenCalledOnce();
+    uninstallBrowser();
+
+    cleanups.push(installKeybindings(window, false, false));
+    keydown({ key: "w", code: "KeyW", ctrlKey: true });
+    expect(run).toHaveBeenCalledTimes(2);
+  });
 });
