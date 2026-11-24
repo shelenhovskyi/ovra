@@ -130,6 +130,15 @@ impl Git {
 
     /// Runs to the end; fails only if git could not be started.
     pub(crate) fn output(mut self) -> Result<Output> {
+        let started = std::time::Instant::now();
+        let out = self.output_inner();
+        if std::env::var_os("OVRA_GIT_TIMES").is_some() {
+            eprintln!("git-time {} {}", self.name, started.elapsed().as_millis());
+        }
+        out
+    }
+
+    fn output_inner(&mut self) -> Result<Output> {
         let mut child = self
             .command
             .spawn()

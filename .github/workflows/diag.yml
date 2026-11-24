@@ -1,0 +1,50 @@
+name: Diag (worktree timings on Windows)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  diag:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: cargo-nextest
+      - name: Spawn cost
+        shell: bash
+        run: |
+          which -a git; git --exec-path; git version
+          REAL="$(dirname "$(dirname "$(git --exec-path)")")/bin/git.exe"; ls -la "$REAL"
+          time (for i in $(seq 40); do git --version >/dev/null; done)
+          time (for i in $(seq 40); do "$REAL" --version >/dev/null; done)
+          git config --show-origin --list | grep -iE "fsync|fscache|preload|untracked|symlink|autocrlf" || true
+      - name: Build tests
+        run: cargo nextest run -p ovra-worktree --no-run
+      - name: Direct tests, one at a time
+        shell: bash
+        env:
+          OVRA_GIT_TIMES: "1"
+        run: |
+          cargo nextest run -p ovra-worktree -E 'test(direct::reject_keeps)' --no-capture -j 1 --slow-timeout 60s 2>&1 | grep -E "git-time|PASS|FAIL|SLOW" > times.txt || true
+          grep -E "PASS|FAIL" times.txt
+          awk '/git-time/ {n[$2]++; t[$2]+=$3; all+=$3; c++} END {for (k in n) printf "%-14s %3d calls %6d ms\n", k, n[k], t[k]; printf "total %d calls %d ms\n", c, all}' times.txt
+      - name: Same with core.fsync=none
+        shell: bash
+        env:
+          OVRA_GIT_TIMES: "1"
+          GIT_CONFIG_PARAMETERS: "'core.fsync'='none'"
+        run: |
+          cargo nextest run -p ovra-worktree -E 'test(direct::reject_keeps)' --no-capture -j 1 --slow-timeout 60s 2>&1 | grep -E "git-time|PASS|FAIL" > times.txt || true
+          grep -E "PASS|FAIL" times.txt
+          awk '/git-time/ {n[$2]++; t[$2]+=$3; all+=$3; c++} END {for (k in n) printf "%-14s %3d calls %6d ms\n", k, n[k], t[k]; printf "total %d calls %d ms\n", c, all}' times.txt
+      - name: Whole crate in parallel
+        shell: bash
+        run: cargo nextest run -p ovra-worktree --no-fail-fast --slow-timeout 60s 2>&1 | grep -E "PASS|FAIL|Summary" || true
