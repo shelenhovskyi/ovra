@@ -16,6 +16,8 @@ mod git;
 mod tests;
 
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use ovra_core::path::RelPath;
 use ovra_core::protocol::{ErrorCode, ProtocolError};
@@ -27,14 +29,26 @@ use crate::git::Git;
 /// base of a worktree while a session needs it; its reflog lists them all.
 const SNAPSHOT_REF: &str = "refs/ovra/snapshot";
 
+/// Snapshots this young are kept by `prune_snapshots` whatever the core
+/// says: a worker's snapshot is taken before its review item exists.
+const KEEP_YOUNG: Duration = Duration::from_secs(10 * 60);
+
 /// Worktrees through the `git` command line.
 #[derive(Debug, Default)]
-pub struct GitWorktrees {}
+pub struct GitWorktrees {
+    /// Held while the snapshot ref changes, so a prune never drops a
+    /// snapshot taken while it rewrites the reflog.
+    snapshot_ref: Arc<Mutex<()>>,
+}
 
 impl GitWorktrees {
     pub fn new() -> Self {
-        Self {}
+        Self::default()
     }
+}
+
+fn hold(lock: &Mutex<()>) -> MutexGuard<'_, ()> {
+    lock.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 fn blocking<T: Send + 'static>(
@@ -47,7 +61,7 @@ fn blocking<T: Send + 'static>(
     })
 }
 
-fn snapshot(dir: &Path) -> Result<String> {
+fn snapshot(dir: &Path, snapshot_ref: &Mutex<()>) -> Result<String> {
     let tree = git::working_tree(dir)?;
     let parent = git::head(dir)?;
     let mut commit = Git::new(dir, "commit-tree").arg("--no-gpg-sign").arg(&tree);
@@ -63,10 +77,58 @@ fn snapshot(dir: &Path) -> Result<String> {
         .env("GIT_COMMITTER_NAME", "Ovra")
         .env("GIT_COMMITTER_EMAIL", "ovra@localhost")
         .text()?;
-    Git::new(dir, "update-ref")
-        .args(["--create-reflog", "-m", "ovra: snapshot", SNAPSHOT_REF, &id])
-        .run()?;
+    let _held = hold(snapshot_ref);
+    log_snapshot(dir, &id)?;
     Ok(id)
+}
+
+fn log_snapshot(dir: &Path, id: &str) -> Result<()> {
+    Git::new(dir, "update-ref")
+        .args(["--create-reflog", "-m", "ovra: snapshot", SNAPSHOT_REF, id])
+        .run()
+        .map(|_| ())
+}
+
+/// Rewrites the snapshot reflog with only the snapshots in `keep` and the
+/// young ones, oldest first; the rest become unreachable for `git gc`.
+fn prune_snapshots(root: &Path, keep: &[String], snapshot_ref: &Mutex<()>) -> Result<()> {
+    let _held = hold(snapshot_ref);
+    // `<id> <committer time>`, newest first; nothing to do without the ref.
+    let Some(log) = Git::new(root, "log")
+        .args(["--walk-reflogs", "--format=%H %ct", SNAPSHOT_REF, "--"])
+        .try_text()?
+    else {
+        return Ok(());
+    };
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let young_since = now.saturating_sub(KEEP_YOUNG.as_secs());
+    let mut kept: Vec<&str> = Vec::new();
+    let mut dropped = false;
+    for line in log.lines() {
+        let Some((id, time)) = line.split_once(' ') else {
+            continue;
+        };
+        let young = time.parse::<u64>().is_ok_and(|t| t >= young_since);
+        if (young || keep.iter().any(|k| k == id)) && !kept.contains(&id) {
+            kept.push(id);
+        } else {
+            dropped = true;
+        }
+    }
+    if !dropped {
+        return Ok(());
+    }
+    // Deleting the ref deletes its reflog too.
+    Git::new(root, "update-ref")
+        .args(["-d", SNAPSHOT_REF])
+        .run()?;
+    for id in kept.iter().rev() {
+        log_snapshot(root, id)?;
+    }
+    Ok(())
 }
 
 fn create(root: &Path, dir: &Path, branch: &str, base: &str) -> Result<WorktreeInfo> {
@@ -109,7 +171,8 @@ fn remove(root: &Path, dir: &Path) -> Result<()> {
 
 impl Worktrees for GitWorktrees {
     fn snapshot(&self, dir: PathBuf) -> BoxFuture<'_, Result<String>> {
-        blocking(move || snapshot(&dir))
+        let snapshot_ref = Arc::clone(&self.snapshot_ref);
+        blocking(move || snapshot(&dir, &snapshot_ref))
     }
 
     fn create(
@@ -167,8 +230,8 @@ impl Worktrees for GitWorktrees {
         blocking(move || remove(&root, &dir))
     }
 
-    /// Keeps every snapshot for now (task 3.A prunes the snapshot reflog).
-    fn prune_snapshots(&self, _root: PathBuf, _keep: Vec<String>) -> BoxFuture<'_, Result<()>> {
-        Box::pin(async { Ok(()) })
+    fn prune_snapshots(&self, root: PathBuf, keep: Vec<String>) -> BoxFuture<'_, Result<()>> {
+        let snapshot_ref = Arc::clone(&self.snapshot_ref);
+        blocking(move || prune_snapshots(&root, &keep, &snapshot_ref))
     }
 }

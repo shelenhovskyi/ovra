@@ -417,3 +417,56 @@ async fn create_refuses_taken_names_and_unknown_bases() {
     assert_eq!(code(exists.await), Some(ErrorCode::Conflict));
     assert!(!dir.exists());
 }
+
+/// A snapshot-like commit from 2020, logged in the snapshot ref.
+fn old_snapshot(root: &Path, message: &str) -> String {
+    let tree = git(root, &["write-tree"]);
+    let out = Command::new("git")
+        .args(["commit-tree", &tree, "-m", message])
+        .env("GIT_COMMITTER_DATE", "2020-01-01T00:00:00Z")
+        .current_dir(root)
+        .output()
+        .unwrap_or_else(|e| panic!("git: {e}"));
+    let id = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+    git(
+        root,
+        &[
+            "update-ref",
+            "--create-reflog",
+            "-m",
+            "old",
+            "refs/ovra/snapshot",
+            &id,
+        ],
+    );
+    id
+}
+
+#[tokio::test]
+async fn pruning_keeps_the_snapshots_asked_for_and_the_young_ones() {
+    let repo = Repo::new(&[("a.txt", "a\n")]);
+    let root = &repo.root;
+    let w = GitWorktrees::new();
+    // Nothing to prune before the first snapshot.
+    assert!(w.prune_snapshots(root.clone(), Vec::new()).await.is_ok());
+
+    let kept = old_snapshot(root, "kept");
+    let dropped = old_snapshot(root, "dropped");
+    let young = w.snapshot(root.clone()).await;
+    let young = young.unwrap_or_else(|e| panic!("{e:?}"));
+    let log = |root: &Path| {
+        git(
+            root,
+            &["log", "--walk-reflogs", "--format=%H", "refs/ovra/snapshot"],
+        )
+    };
+    assert_eq!(log(root), format!("{young}\n{dropped}\n{kept}"));
+
+    let pruned = w.prune_snapshots(root.clone(), vec![kept.clone()]).await;
+    assert!(pruned.is_ok(), "{pruned:?}");
+    assert_eq!(log(root), format!("{young}\n{kept}"));
+    assert_eq!(git(root, &["rev-parse", "refs/ovra/snapshot"]), young);
+
+    assert!(w.prune_snapshots(root.clone(), Vec::new()).await.is_ok());
+    assert_eq!(log(root), young);
+}
