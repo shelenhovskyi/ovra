@@ -205,6 +205,6 @@ export function agentSessions(transport: Transport): AgentSessions {
 }
 
 /** A session's name for people: its title, or its id while the title is unknown. */
-export function sessionName(info: SessionInfo | undefined, id: SessionId): string {
+function sessionName(info: SessionInfo | undefined, id: SessionId): string {
   return info?.title || `Session ${id}`;
 }
