@@ -10,6 +10,7 @@ publish = false
 [dependencies]
 ovra-core.workspace = true
 httparse = "1"
+rand.workspace = true
 tokio = { workspace = true, features = ["io-util", "net", "rt", "sync", "time"] }
 
 [dev-dependencies]

@@ -309,9 +309,10 @@ async fn run(
     let prompt = joined(&parts)?;
     let sessions = ctx.sessions;
     let project = target.project.id.clone();
-    sessions.find(id, |s| {
+    let run = sessions.find(id, |s| {
         s.set_launch(launch.clone());
         s.set_trusted(target.trusted);
+        s.run()
     })?;
     ctx.sink.emit(AgentsEvent::Status {
         session: id.clone(),
@@ -335,10 +336,12 @@ async fn run(
         (info.agent, info.mode)
     })?;
     let network = sessions
-        .net_start(ctx.projects, &project, id, ctx.sink.clone())
+        .net_start(ctx.projects, &project, id, run, ctx.sink.clone())
         .await;
     let network = match network {
         Ok(network) => network,
+        // Another run owns the session now: leave its state alone.
+        Err(err) if sessions.find(id, |s| s.run() != run)? => return Err(err),
         Err(err) => {
             host.status(AgentStatus::Failed {
                 message: format!("the session's netproxy did not start: {}", err.message),

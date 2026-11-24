@@ -22,7 +22,6 @@ mod url;
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock};
 
 use ovra_core::protocol::agents::SessionId;
@@ -37,8 +36,10 @@ use crate::rules::{Rule, Rules};
 use crate::serve::{SessionNet, Shared};
 use crate::upstream::Upstream;
 
-/// Connections one session's proxy serves at once; more wait.
-const MAX_CONNECTIONS: usize = 128;
+/// Connections all proxies serve at once, and one session's proxy; more
+/// wait. Keeps agents from using up the daemon's file descriptors.
+const MAX_CONNECTIONS: usize = 256;
+const MAX_SESSION_CONNECTIONS: usize = 64;
 
 /// The netproxies of every session.
 #[derive(Debug)]
@@ -47,7 +48,8 @@ pub struct NetProxies {
     shared: Arc<Shared>,
     /// A private folder for the sockets (Unix).
     dir: PathBuf,
-    next: AtomicU64,
+    /// Connections all sessions' proxies serve at once.
+    connections: Arc<Semaphore>,
     running: Mutex<BTreeMap<SessionId, Running>>,
 }
 
@@ -56,14 +58,15 @@ struct Running {
     net: Arc<SessionNet>,
     /// The accept loop; it owns the connections, so aborting it ends them.
     task: JoinHandle<()>,
+    /// The socket's own folder (Unix).
     socket: Option<PathBuf>,
 }
 
 impl Running {
     fn end(self) {
         self.task.abort();
-        if let Some(socket) = self.socket {
-            let _ = std::fs::remove_file(socket);
+        if let Some(folder) = self.socket {
+            let _ = std::fs::remove_dir_all(folder);
         }
     }
 }
@@ -94,7 +97,7 @@ impl NetProxies {
                 upstream: Upstream::from_env(var),
             }),
             dir: private_dir()?,
-            next: AtomicU64::new(1),
+            connections: Arc::new(Semaphore::new(MAX_CONNECTIONS)),
             running: Mutex::default(),
         })
     }
@@ -107,8 +110,8 @@ fn private_dir() -> Result<PathBuf> {
     let mut builder = std::fs::DirBuilder::new();
     #[cfg(unix)]
     std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
-    for attempt in 0..100u32 {
-        let dir = tmp.join(format!("ovra-net-{}-{attempt}", std::process::id()));
+    for _ in 0..100u32 {
+        let dir = tmp.join(format!("ovra-net-{}", random_name()));
         match builder.create(&dir) {
             Ok(()) => return Ok(dir),
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
@@ -116,6 +119,11 @@ fn private_dir() -> Result<PathBuf> {
         }
     }
     Err(internal("no free folder for the netproxy's sockets".into()))
+}
+
+/// 64 random bits as hex: a folder name nobody can guess or take first.
+fn random_name() -> String {
+    format!("{:016x}", rand::random::<u64>())
 }
 
 impl Drop for NetProxies {
@@ -146,13 +154,30 @@ impl NetProxy for NetProxies {
                 }),
                 reporter: refusals,
             });
-            let n = self.next.fetch_add(1, Ordering::Relaxed);
-            let (listener, address, socket) = bind(&self.dir, n).await?;
-            let task = tokio::spawn(accept(listener, self.shared.clone(), net.clone()));
-            let old = lock(&self.running).insert(session, Running { net, task, socket });
-            if let Some(old) = old {
-                old.end();
+            if lock(&self.running).contains_key(&session) {
+                return Err(ProtocolError::new(
+                    ErrorCode::Conflict,
+                    format!("session {} already has a netproxy", session.0),
+                ));
             }
+            let (listener, address, socket) = bind(&self.dir).await?;
+            let task = tokio::spawn(accept(
+                listener,
+                self.shared.clone(),
+                net.clone(),
+                self.connections.clone(),
+            ));
+            let running = Running { net, task, socket };
+            let mut all = lock(&self.running);
+            if all.contains_key(&session) {
+                drop(all);
+                running.end();
+                return Err(ProtocolError::new(
+                    ErrorCode::Conflict,
+                    format!("session {} already has a netproxy", session.0),
+                ));
+            }
+            all.insert(session, running);
             Ok(address)
         })
     }
@@ -181,18 +206,26 @@ type Listener = tokio::net::UnixListener;
 #[cfg(not(unix))]
 type Listener = tokio::net::TcpListener;
 
-/// A Unix socket in `dir`: the address is its path.
+/// A Unix socket in its own new folder in `dir`, with a name nobody can
+/// guess, so that a sandbox can open exactly one session's socket: the
+/// address is its path.
 #[cfg(unix)]
-async fn bind(dir: &std::path::Path, n: u64) -> Result<(Listener, String, Option<PathBuf>)> {
-    let path = dir.join(format!("{n}.sock"));
+async fn bind(dir: &std::path::Path) -> Result<(Listener, String, Option<PathBuf>)> {
+    let folder = dir.join(random_name());
+    let mut builder = std::fs::DirBuilder::new();
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    builder
+        .create(&folder)
+        .map_err(|e| internal(format!("creating {}: {e}", folder.display())))?;
+    let path = folder.join("p.sock");
     let listener = Listener::bind(&path)
         .map_err(|e| internal(format!("netproxy socket {}: {e}", path.display())))?;
-    Ok((listener, path.to_string_lossy().into_owned(), Some(path)))
+    Ok((listener, path.to_string_lossy().into_owned(), Some(folder)))
 }
 
 /// A 127.0.0.1 port: the address is `127.0.0.1:<port>`.
 #[cfg(not(unix))]
-async fn bind(_dir: &std::path::Path, _n: u64) -> Result<(Listener, String, Option<PathBuf>)> {
+async fn bind(_dir: &std::path::Path) -> Result<(Listener, String, Option<PathBuf>)> {
     let listener = Listener::bind(("127.0.0.1", 0))
         .await
         .map_err(|e| internal(format!("netproxy port: {e}")))?;
@@ -203,11 +236,19 @@ async fn bind(_dir: &std::path::Path, _n: u64) -> Result<(Listener, String, Opti
     Ok((listener, address, None))
 }
 
-async fn accept(listener: Listener, shared: Arc<Shared>, net: Arc<SessionNet>) {
-    let limit = Arc::new(Semaphore::new(MAX_CONNECTIONS));
+async fn accept(
+    listener: Listener,
+    shared: Arc<Shared>,
+    net: Arc<SessionNet>,
+    all: Arc<Semaphore>,
+) {
+    let limit = Arc::new(Semaphore::new(MAX_SESSION_CONNECTIONS));
     let mut connections = JoinSet::new();
     loop {
-        let Ok(permit) = limit.clone().acquire_owned().await else {
+        let (Ok(permit), Ok(global)) = (
+            limit.clone().acquire_owned().await,
+            all.clone().acquire_owned().await,
+        ) else {
             return;
         };
         let accepted = tokio::select! {
@@ -222,7 +263,7 @@ async fn accept(listener: Listener, shared: Arc<Shared>, net: Arc<SessionNet>) {
         let (shared, net) = (shared.clone(), net.clone());
         connections.spawn(async move {
             serve::serve(stream, shared, net).await;
-            drop(permit);
+            drop((permit, global));
         });
     }
 }

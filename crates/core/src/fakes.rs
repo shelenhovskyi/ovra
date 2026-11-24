@@ -464,15 +464,14 @@ impl Sandbox for FakeSandbox {
 
 /// A netproxy that proxies nothing: it records what each session's proxy
 /// allows, hands out `fake-proxy:<session>` addresses, keeps each session's
-/// reporter for tests to refuse through, and fails to start when `fails`.
+/// reporter for tests to refuse through, and fails to start when `fails`
+/// or when the session's proxy already runs.
 #[derive(Debug, Default)]
 pub struct FakeNetProxy {
     pub base: Vec<AllowedHost>,
     pub fails: bool,
     /// Running proxies: what each allows besides `base`, and its reporter.
     pub running: Mutex<BTreeMap<SessionId, (Allowlist, NetReporter)>>,
-    /// Every start, in order.
-    pub started: Mutex<Vec<SessionId>>,
 }
 
 impl NetProxy for FakeNetProxy {
@@ -495,9 +494,15 @@ impl NetProxy for FakeNetProxy {
                     "the fake netproxy fails",
                 ));
             }
-            lock(&self.started).push(session.clone());
             let address = format!("fake-proxy:{}", session.0);
-            lock(&self.running).insert(session, (allow, refusals));
+            let mut running = lock(&self.running);
+            if running.contains_key(&session) {
+                return Err(ProtocolError::new(
+                    ErrorCode::Conflict,
+                    "the session's proxy already runs",
+                ));
+            }
+            running.insert(session, (allow, refusals));
             Ok(address)
         })
     }

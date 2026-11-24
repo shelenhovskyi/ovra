@@ -61,6 +61,8 @@ struct Session {
     launch: Option<Launch>,
     /// Whether this run loads the project's own agent settings.
     trusted: bool,
+    /// Counts the runs of this session: a resume starts the next one.
+    run: u64,
 }
 
 /// Where a session works and which IDE tools it gets; kept to resume it the
@@ -86,6 +88,9 @@ pub(crate) struct Sessions {
     /// Each running session's network goes through its proxy here; without
     /// one, sessions' network is open.
     net: Option<Arc<dyn NetProxy>>,
+    /// Held while a project's allowlist is stored and passed to proxies,
+    /// so that running proxies end with the stored list.
+    allowlists: Mutex<()>,
 }
 
 /// Where sessions' IDE tool calls go; set once when the core is built.
@@ -121,6 +126,7 @@ impl Sessions {
                 agent_session: stored.agent_session,
                 launch: None,
                 trusted: false,
+                run: 0,
             };
             if !session.info.status.is_ended() {
                 session.info.status = AgentStatus::Stopped;
@@ -136,6 +142,7 @@ impl Sessions {
             ide: Mutex::new(None),
             direct: Direct::new(worktrees),
             net,
+            allowlists: Mutex::new(()),
         }
     }
 
@@ -165,6 +172,7 @@ impl Sessions {
             agent_session: None,
             launch: None,
             trusted: false,
+            run: 0,
         };
         let _ = self.store.save(&session.stored());
         list.push(session);
@@ -306,8 +314,12 @@ impl SessionView<'_> {
         self.save();
         true
     }
+    pub(crate) fn run(&self) -> u64 {
+        self.session.run
+    }
     /// Starts an ended session over for `agents.resume`.
     pub(crate) fn restart(&mut self) {
+        self.session.run += 1;
         self.session.info.status = AgentStatus::Starting;
         self.session.stopping = false;
         // The new process reports its own sandbox; until it does, none.

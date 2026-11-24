@@ -317,6 +317,26 @@ async fn each_session_runs_behind_its_own_proxy_until_it_ends() {
         }
     }
     assert_eq!(allowed(&net), None);
+
+    // A resumed session gets a proxy of its own again, with today's list.
+    call(
+        &core,
+        json!({"method": "agents.resume", "params": {"session": "s1", "prompt": "again"}}),
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(
+        allowed(&net),
+        Some(Allowlist {
+            hosts: vec![host("crates.io", None)]
+        })
+    );
+    let specs = agent
+        .started
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .len();
+    assert_eq!(specs, 2);
 }
 
 #[tokio::test]

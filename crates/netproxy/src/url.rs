@@ -52,7 +52,10 @@ pub(crate) fn host_port(text: &str) -> Option<(String, Option<u16>)> {
         }
     };
     let port = match port {
-        Some(port) => Some(port.parse::<u16>().ok().filter(|p| *p != 0)?),
+        Some(port) if port.bytes().all(|b| b.is_ascii_digit()) => {
+            Some(port.parse::<u16>().ok().filter(|p| *p != 0)?)
+        }
+        Some(_) => return None,
         None => None,
     };
     let host = host.to_ascii_lowercase();

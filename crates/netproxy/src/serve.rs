@@ -3,12 +3,13 @@
 
 use std::io;
 use std::net::{IpAddr, SocketAddr};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use ovra_core::netproxy::is_reachable;
 use ovra_core::services::NetReporter;
-use tokio::io::{AsyncReadExt, AsyncWriteExt, copy_bidirectional};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::time::timeout;
 
 use crate::dial::{Conn, Dial, Stream};
@@ -20,6 +21,8 @@ const MAX_HEAD: usize = 16 * 1024;
 const MAX_HEADERS: usize = 64;
 const HEAD_TIMEOUT: Duration = Duration::from_secs(30);
 const DIAL_TIMEOUT: Duration = Duration::from_secs(10);
+/// An open connection where nothing moves this long is closed.
+pub(crate) const IDLE_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 
 /// What every session's proxy shares.
 #[derive(Debug)]
@@ -58,6 +61,8 @@ struct Request {
     target: String,
     version: u8,
     headers: Vec<(String, Vec<u8>)>,
+    /// Plain HTTP: the request body's length; nothing after it is passed on.
+    body: u64,
 }
 
 impl Request {
@@ -126,13 +131,82 @@ async fn handle(client: &mut impl Stream, shared: &Shared, session: &SessionNet)
             .write_all(b"HTTP/1.1 200 Connection established\r\n\r\n")
             .await?;
         client.write_all(&early).await?;
-    } else {
-        let upstream = shared.upstream.server(&request.host, false);
-        server.write_all(&request.head(upstream)).await?;
+        server.write_all(&rest).await?;
+        return relay(client, &mut server, IDLE_TIMEOUT).await;
     }
-    server.write_all(&rest).await?;
-    copy_bidirectional(client, &mut server).await?;
-    Ok(())
+    let upstream = shared.upstream.server(&request.host, false);
+    server.write_all(&request.head(upstream)).await?;
+    // Exactly one body: a pipelined second request never passes, so it
+    // cannot reach a host the rules did not check.
+    let first = rest
+        .len()
+        .min(usize::try_from(request.body).unwrap_or(usize::MAX));
+    server.write_all(&rest[..first]).await?;
+    let remaining = request.body - first as u64;
+    let (from_client, mut to_client) = tokio::io::split(client);
+    let (mut from_server, mut to_server) = tokio::io::split(server);
+    let mut body_in = from_client.take(remaining);
+    let moved = AtomicBool::new(false);
+    // The server's side stays open after the body: some servers close on a
+    // half-closed request.
+    let both = async {
+        tokio::try_join!(
+            pump(&mut body_in, &mut to_server, &moved, false),
+            pump(&mut from_server, &mut to_client, &moved, true),
+        )
+    };
+    tokio::select! {
+        result = both => result.map(|_| ()),
+        () = idle(&moved, IDLE_TIMEOUT) => Ok(()),
+    }
+}
+
+/// Returns once nothing moved for `period`.
+async fn idle(moved: &AtomicBool, period: Duration) {
+    loop {
+        tokio::time::sleep(period).await;
+        if !moved.swap(false, Ordering::Relaxed) {
+            return;
+        }
+    }
+}
+
+/// Passes bytes both ways until either side closes or nothing moves for
+/// `idle`.
+async fn relay(a: &mut impl Stream, b: &mut Conn, period: Duration) -> io::Result<()> {
+    let (mut a_read, mut a_write) = tokio::io::split(a);
+    let (mut b_read, mut b_write) = tokio::io::split(b);
+    let moved = AtomicBool::new(false);
+    let both = async {
+        tokio::try_join!(
+            pump(&mut a_read, &mut b_write, &moved, true),
+            pump(&mut b_read, &mut a_write, &moved, true)
+        )
+    };
+    tokio::select! {
+        result = both => result.map(|_| ()),
+        () = idle(&moved, period) => Ok(()),
+    }
+}
+
+async fn pump(
+    from: &mut (impl tokio::io::AsyncRead + Unpin),
+    to: &mut (impl tokio::io::AsyncWrite + Unpin),
+    moved: &AtomicBool,
+    shutdown: bool,
+) -> io::Result<()> {
+    let mut buf = vec![0u8; 16 * 1024];
+    loop {
+        let n = from.read(&mut buf).await?;
+        if n == 0 {
+            if shutdown {
+                let _ = to.shutdown().await;
+            }
+            return Ok(());
+        }
+        to.write_all(&buf[..n]).await?;
+        moved.store(true, Ordering::Relaxed);
+    }
 }
 
 /// Reads up to the end of the head: the head and the bytes after it, or
@@ -156,13 +230,16 @@ async fn read_head(stream: &mut (impl Stream + ?Sized)) -> io::Result<Option<(Ve
     }
 }
 
-/// Headers that belong to this hop, never passed on.
-const HOP: [&str; 5] = [
+/// Headers that belong to this hop, never passed on, besides every
+/// `Proxy-*` header and those the client's `Connection` names.
+const HOP: [&str; 7] = [
     "host",
     "connection",
     "keep-alive",
-    "proxy-connection",
-    "proxy-authorization",
+    "te",
+    "trailer",
+    "upgrade",
+    "content-length",
 ];
 
 fn parse(head: &[u8]) -> Result<Request, &'static str> {
@@ -176,12 +253,47 @@ fn parse(head: &[u8]) -> Result<Request, &'static str> {
     else {
         return Err("not an HTTP request");
     };
-    let headers = parsed
+    let named: Vec<String> = parsed
         .headers
         .iter()
-        .filter(|h| !HOP.iter().any(|hop| h.name.eq_ignore_ascii_case(hop)))
+        .filter(|h| h.name.eq_ignore_ascii_case("connection"))
+        .flat_map(|h| {
+            String::from_utf8_lossy(h.value)
+                .split(',')
+                .map(|n| n.trim().to_ascii_lowercase())
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    let mut body: Option<u64> = None;
+    for h in parsed.headers.iter() {
+        if h.name.eq_ignore_ascii_case("transfer-encoding") {
+            return Err("chunked request bodies are not supported: send Content-Length");
+        }
+        if h.name.eq_ignore_ascii_case("content-length") {
+            let len = std::str::from_utf8(h.value)
+                .ok()
+                .filter(|v| !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit()))
+                .and_then(|v| v.parse::<u64>().ok())
+                .ok_or("a bad Content-Length")?;
+            if body.is_some_and(|b| b != len) || body.is_some() {
+                return Err("more than one Content-Length");
+            }
+            body = Some(len);
+        }
+    }
+    let body = body.unwrap_or(0);
+    let mut headers: Vec<(String, Vec<u8>)> = parsed
+        .headers
+        .iter()
+        .filter(|h| {
+            let name = h.name.to_ascii_lowercase();
+            !HOP.contains(&name.as_str()) && !name.starts_with("proxy-") && !named.contains(&name)
+        })
         .map(|h| (h.name.to_owned(), h.value.to_vec()))
         .collect();
+    if body > 0 {
+        headers.push(("Content-Length".to_owned(), body.to_string().into_bytes()));
+    }
     if method == "CONNECT" {
         let (host, port) = crate::url::host_port(target).ok_or("CONNECT needs host:port")?;
         return Ok(Request {
@@ -192,6 +304,7 @@ fn parse(head: &[u8]) -> Result<Request, &'static str> {
             target: String::new(),
             version,
             headers: Vec::new(),
+            body: 0,
         });
     }
     let lower = target.to_ascii_lowercase();
@@ -220,6 +333,7 @@ fn parse(head: &[u8]) -> Result<Request, &'static str> {
         target: path,
         version,
         headers,
+        body,
     })
 }
 

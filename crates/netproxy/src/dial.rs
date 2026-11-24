@@ -24,7 +24,13 @@ pub(crate) struct Net;
 
 impl Dial for Net {
     fn resolve(&self, host: String, port: u16) -> BoxFuture<'_, io::Result<Vec<SocketAddr>>> {
-        Box::pin(async move { Ok(tokio::net::lookup_host((host, port)).await?.collect()) })
+        // Fully qualified, so the resolver's search domains never apply.
+        let name = if host.parse::<std::net::IpAddr>().is_ok() {
+            host
+        } else {
+            format!("{host}.")
+        };
+        Box::pin(async move { Ok(tokio::net::lookup_host((name, port)).await?.collect()) })
     }
 
     fn connect(&self, addr: SocketAddr) -> BoxFuture<'_, io::Result<Conn>> {

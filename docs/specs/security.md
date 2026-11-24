@@ -190,17 +190,26 @@ pub trait NetProxy: Send + Sync + Debug {
   session fails; it never runs with an open network instead. Without a
   netproxy wired in (tests, other front ends), the profile says `Open`.
 - **Address.** A Unix socket path on Linux and macOS, because a sandbox
-  without a network namespace has no loopback. The sockets are in a new
-  folder under the system's temporary folder that only the user can open.
-  On Windows it is a 127.0.0.1 port. The platform's helper bridges the
+  without a network namespace has no loopback. Each socket has its own
+  folder with a random name, inside a randomly named folder under the
+  system's temporary folder; only the user can open either. A sandbox must
+  make only its own session's socket reachable, never the folder above
+  it, or an agent could use another project's allowlist (4.A, 4.B). On
+  Windows it is a 127.0.0.1 port, which any local process can use; 4.F
+  records this. The platform's helper bridges the
   socket to a local port inside the sandbox. `wrap` sets `HTTP_PROXY` and
   `HTTPS_PROXY` to that port, clears `NO_PROXY`, and sets
   `NODE_USE_ENV_PROXY=1` (4.A, 4.B). Until a platform sandbox exists the
   proxy runs but nothing uses it, and the session reports no sandbox.
 - **Requests.** `CONNECT host:port` for TLS, and plain `http://` requests
   in absolute form. A plain request is passed on as one request with
-  `Connection: close`, its `Host` set from the URL and the `Proxy-*`
-  headers removed. Anything else is refused with 400.
+  `Connection: close`, its `Host` set from the URL, and the hop headers
+  removed (`Proxy-*`, `Connection` and those it names, `Keep-Alive`, `TE`,
+  `Trailer`, `Upgrade`). Its body is framed by one `Content-Length`;
+  exactly that many bytes are passed on and nothing after them, so a
+  pipelined second request never reaches the server or the user's proxy.
+  `Transfer-Encoding` and repeated or malformed `Content-Length` are
+  refused. Anything else is refused with 400.
 - **Allowlist.** Host names or IP addresses, each optionally with a port.
   Names match exactly: no wildcards, so `github.com` does not allow
   `api.github.com`.
@@ -245,7 +254,15 @@ pub trait NetProxy: Send + Sync + Debug {
     allowed name on the same address (domain fronting). The
     `netproxy.allowlist` answer lists such entries under `broad`, and the
     UI warns about each.
-  - Each proxy serves at most 128 connections at once; more wait.
+  - The proxies serve at most 256 connections at once, one session's
+    proxy at most 64; more wait. A connection where nothing moves for
+    10 minutes is closed.
+  - `api.anthropic.com` and the provider endpoints in the base list are
+    channels out too: an agent can send data with someone else's API key.
+    4.F records this, like the broad entries.
+  - The runtime reports `Proxy` from the profile. Once a platform sandbox
+    reports it, policy `auto` rules turn on, so 4.A and 4.B must prove that
+    `wrap` really leaves the proxy as the only way out.
 
 ## Secrets (4.D)
 

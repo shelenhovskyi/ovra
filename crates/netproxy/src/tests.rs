@@ -27,6 +27,8 @@ enum Server {
     Http,
     /// A user's proxy: keeps the CONNECT head, answers 200, then echoes.
     Upstream,
+    /// A user's proxy that answers every request with 407.
+    Refuse,
 }
 
 #[derive(Debug, Default)]
@@ -99,10 +101,32 @@ impl Dial for FakeNet {
                 match server {
                     Server::Echo => echo(theirs).await,
                     Server::Http => {
-                        let head = head_of(&mut theirs).await;
-                        lock(&heads).push(head);
+                        let mut head = head_of(&mut theirs).await;
+                        let length = head
+                            .lines()
+                            .find_map(|l| l.strip_prefix("Content-Length: "))
+                            .and_then(|l| l.trim().parse::<usize>().ok())
+                            .unwrap_or(0);
+                        let mut body = vec![0u8; length];
+                        let _ = theirs.read_exact(&mut body).await;
+                        head.push_str(&String::from_utf8_lossy(&body));
                         let _ = theirs
                             .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+                            .await;
+                        let _ = theirs.shutdown().await;
+                        // Whatever else arrives would be a second request.
+                        let mut after = Vec::new();
+                        let _ = theirs.read_to_end(&mut after).await;
+                        if !after.is_empty() {
+                            head.push_str("<after>");
+                            head.push_str(&String::from_utf8_lossy(&after));
+                        }
+                        lock(&heads).push(head);
+                    }
+                    Server::Refuse => {
+                        let _ = head_of(&mut theirs).await;
+                        let _ = theirs
+                            .write_all(b"HTTP/1.1 407 Proxy Authentication Required\r\n\r\n")
                             .await;
                     }
                     Server::Upstream => {
@@ -205,6 +229,20 @@ fn web() -> FakeNet {
         .server("93.184.216.34:8443", Server::Echo)
         .server("93.184.216.34:80", Server::Http)
         .server("160.79.104.10:443", Server::Echo)
+        .name("proxy.corp", &["10.1.1.1"])
+        .server("10.1.1.1:3128", Server::Upstream)
+        .server("10.1.1.1:3129", Server::Http)
+}
+
+/// Waits until the fake servers kept `n` heads.
+async fn heads(p: &Proxy, n: usize) -> Vec<String> {
+    loop {
+        let heads = lock(&p.dial.heads).clone();
+        if heads.len() >= n {
+            return heads;
+        }
+        tokio::task::yield_now().await;
+    }
 }
 
 #[tokio::test]
@@ -307,7 +345,7 @@ async fn plain_http_goes_on_as_one_request_without_proxy_headers() {
     let _ = stream.read_to_string(&mut body).await;
     assert_eq!(body, "ok");
     assert_eq!(
-        lock(&p.dial.heads).as_slice(),
+        heads(&p, 1).await,
         ["GET /api?q=1 HTTP/1.1\r\nAccept: */*\r\nHost: crates.io\r\nConnection: close\r\n\r\n"]
     );
 }
@@ -354,9 +392,7 @@ async fn a_client_that_never_finishes_its_head_is_dropped() {
 
 #[tokio::test]
 async fn the_users_own_proxy_carries_tunnels_unless_no_proxy_says_otherwise() {
-    let fake = web()
-        .name("proxy.corp", &["10.1.1.1"])
-        .server("10.1.1.1:3128", Server::Upstream);
+    let fake = web();
     let var = |name: &str| match name {
         "HTTPS_PROXY" => Some("http://me:p%40ss@proxy.corp:3128".to_owned()),
         "NO_PROXY" => Some("localhost, .anthropic.com".to_owned()),
@@ -504,4 +540,127 @@ async fn each_session_gets_a_socket_that_follows_updates_and_closes_on_stop() {
     let dir = proxies.dir.clone();
     drop(proxies);
     assert!(!dir.exists());
+}
+
+fn corp_proxy() -> Upstream {
+    Upstream::from_env(&|name: &str| match name {
+        "HTTPS_PROXY" => Some("http://proxy.corp:3128".to_owned()),
+        "HTTP_PROXY" => Some("http://me:pw@proxy.corp:3129".to_owned()),
+        "NO_PROXY" => Some("10.0.0.0/8,*.internal.example".to_owned()),
+        _ => None,
+    })
+}
+
+#[tokio::test]
+async fn plain_http_passes_one_body_and_never_a_pipelined_request() {
+    let p = proxy(web(), rules(&[("crates.io", None)]), corp_proxy());
+    let (head, mut stream) = p
+        .ask("POST http://crates.io/up HTTP/1.1\r\nContent-Length: 5\r\nConnection: x-secret\r\nX-Secret: 1\r\nProxy-Foo: 1\r\nUpgrade: h2c\r\n\r\nhelloGET http://169.254.169.254/ HTTP/1.1\r\nHost: x\r\n\r\n")
+        .await;
+    assert!(head.starts_with("HTTP/1.1 200 OK"), "{head}");
+    let mut body = String::new();
+    let _ = stream.read_to_string(&mut body).await;
+    assert_eq!(
+        heads(&p, 1).await,
+        [
+            "POST http://crates.io/up HTTP/1.1\r\nContent-Length: 5\r\nHost: crates.io\r\nConnection: close\r\nProxy-Authorization: Basic bWU6cHc=\r\n\r\nhello"
+        ]
+    );
+}
+
+#[tokio::test]
+async fn bodies_that_cannot_be_framed_are_refused() {
+    let p = proxy(web(), rules(&[("crates.io", None)]), Upstream::default());
+    for request in [
+        "POST http://crates.io/ HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n",
+        "POST http://crates.io/ HTTP/1.1\r\nContent-Length: 1\r\nContent-Length: 1\r\n\r\nx",
+        "POST http://crates.io/ HTTP/1.1\r\nContent-Length: +1\r\n\r\nx",
+    ] {
+        let (head, _) = p.ask(request).await;
+        assert!(head.starts_with("HTTP/1.1 400"), "{request}: {head}");
+    }
+    assert!(lock(&p.dial.connected).is_empty());
+}
+
+#[tokio::test]
+async fn an_upstream_that_refuses_the_tunnel_is_a_bad_gateway() {
+    let fake = web().server("10.1.1.1:3130", Server::Refuse);
+    let upstream = Upstream::from_env(&|name: &str| {
+        (name == "HTTPS_PROXY").then(|| "proxy.corp:3130".to_owned())
+    });
+    let p = proxy(fake, rules(&[("crates.io", None)]), upstream);
+    let (head, _) = p.ask("CONNECT crates.io:443 HTTP/1.1\r\n\r\n").await;
+    assert!(head.starts_with("HTTP/1.1 502"), "{head}");
+    // An upstream that cannot be reached is one too.
+    let p = proxy(
+        web(),
+        rules(&[("crates.io", None)]),
+        Upstream::from_env(&|name: &str| {
+            (name == "HTTPS_PROXY").then(|| "proxy.corp:9".to_owned())
+        }),
+    );
+    let (head, _) = p.ask("CONNECT crates.io:443 HTTP/1.1\r\n\r\n").await;
+    assert!(head.starts_with("HTTP/1.1 502"), "{head}");
+}
+
+#[tokio::test]
+async fn targets_are_normalized_before_the_rules_see_them() {
+    let fake = web()
+        .server("93.184.216.34:443", Server::Echo)
+        .server("[2606:4700::1111]:443", Server::Echo);
+    let mut p = proxy(
+        fake,
+        rules(&[("crates.io", None), ("2606:4700::1111", None)]),
+        Upstream::default(),
+    );
+    for (request, status) in [
+        ("CONNECT CRATES.IO.:443 HTTP/1.1\r\n\r\n", "200"),
+        ("CONNECT [2606:4700:0::1111]:443 HTTP/1.1\r\n\r\n", "200"),
+        ("CONNECT crates.io:+443 HTTP/1.1\r\n\r\n", "400"),
+        ("CONNECT crates.io:443:443 HTTP/1.1\r\n\r\n", "400"),
+        ("CONNECT crates.io:0 HTTP/1.1\r\n\r\n", "400"),
+    ] {
+        let (head, _) = p.ask(request).await;
+        assert!(
+            head.starts_with(&format!("HTTP/1.1 {status}")),
+            "{request}: {head}"
+        );
+    }
+    assert!(p.refused().is_empty());
+}
+
+#[tokio::test]
+async fn a_configured_gateway_lends_its_private_pass_to_no_other_entry() {
+    let fake = FakeNet::default()
+        .name("gateway.lan", &["192.168.1.20"])
+        .server("192.168.1.20:4000", Server::Echo)
+        .server("192.168.1.20:443", Server::Echo);
+    let var =
+        |name: &str| (name == "ANTHROPIC_BASE_URL").then(|| "http://gateway.lan:4000".to_owned());
+    let p = proxy(
+        fake,
+        Rules {
+            base: crate::base::rules(&var).into(),
+            project: vec![AllowedHost {
+                host: "gateway.lan".into(),
+                port: None,
+            }],
+        },
+        Upstream::default(),
+    );
+    let (head, _) = p.ask("CONNECT gateway.lan:443 HTTP/1.1\r\n\r\n").await;
+    assert!(head.starts_with("HTTP/1.1 403"), "{head}");
+    let (head, _) = p.ask("CONNECT gateway.lan:4000 HTTP/1.1\r\n\r\n").await;
+    assert!(head.starts_with("HTTP/1.1 200"), "{head}");
+}
+
+#[test]
+fn no_proxy_takes_names_suffixes_and_networks() {
+    let upstream = corp_proxy();
+    assert!(upstream.server("crates.io", true).is_some());
+    assert!(upstream.server("10.9.8.7", true).is_none());
+    assert!(upstream.server("a.internal.example", true).is_none());
+    assert!(upstream.server("internal.example", true).is_none());
+    assert!(upstream.server("notinternal.example", true).is_some());
+    assert!(upstream.server("11.0.0.1", false).is_some());
 }

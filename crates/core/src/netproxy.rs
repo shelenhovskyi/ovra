@@ -60,8 +60,7 @@ pub(crate) fn handle(core: &Core, request: NetproxyRequest) -> Result<Response, 
         }
         NetproxyRequest::SetAllowlist { project, allowlist } => {
             let allowlist = normalize(allowlist)?;
-            store.set_allowlist(&project, &allowlist)?;
-            core.sessions().net_changed(&project, &allowlist);
+            core.sessions().set_allowlist(store, &project, &allowlist)?;
             core.emit(NetproxyEvent::Changed {
                 project: project.clone(),
             });
@@ -112,7 +111,7 @@ fn normalize(allowlist: Allowlist) -> Result<Allowlist, ProtocolError> {
 /// trailing dot, or an IP address in its usual form. Refuses wildcards,
 /// anything else that is not a plain name, and addresses that are never
 /// reachable ([`is_reachable`]).
-pub fn parse_host(raw: &str) -> Result<String, &'static str> {
+pub(crate) fn parse_host(raw: &str) -> Result<String, &'static str> {
     let host = raw.trim().to_ascii_lowercase();
     let host = host.strip_suffix('.').unwrap_or(&host);
     let unbracketed = host
@@ -157,7 +156,7 @@ pub fn parse_host(raw: &str) -> Result<String, &'static str> {
 
 /// Whether `host` (as [`parse_host`] keeps it) is one where anyone can
 /// receive data, so that allowing it lets an agent send the project out.
-pub fn is_broad(host: &str) -> bool {
+pub(crate) fn is_broad(host: &str) -> bool {
     BROAD
         .iter()
         .any(|b| host == *b || host.strip_suffix(b).is_some_and(|rest| rest.ends_with('.')))
