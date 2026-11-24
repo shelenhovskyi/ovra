@@ -1,16 +1,11 @@
 name: CI
 
-# Linux checks run on every push to main and every PR. The slow jobs run on
-# PRs, on demand, and on main when it got new commits: the speed gate hourly,
-# the desktop builds on three OSes daily. Only PR runs cancel each other:
-# every commit on main gets a complete run.
+# Every push to main gets a complete run on all jobs; only PR runs cancel
+# each other.
 on:
   pull_request:
   push:
     branches: [main]
-  schedule:
-    - cron: "17 * * * *" # speed gate
-    - cron: "43 2 * * *" # desktop builds
   workflow_dispatch:
 
 concurrency:
@@ -28,7 +23,6 @@ env:
 jobs:
   checks:
     name: Checks, tests, e2e (Linux)
-    if: github.event_name != 'schedule'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -55,41 +49,8 @@ jobs:
       - run: pnpm --filter @ovra/e2e exec playwright install --with-deps chromium
       - run: just e2e
 
-  # Decides which slow jobs run. PRs and manual runs get all of them. The
-  # hourly schedule runs the speed gate and the daily one the desktop builds,
-  # each only when main got commits since the previous window.
-  slow:
-    name: Slow jobs needed?
-    if: github.event_name != 'push'
-    runs-on: ubuntu-24.04
-    outputs:
-      perf: ${{ steps.decide.outputs.perf }}
-      app: ${{ steps.decide.outputs.app }}
-    steps:
-      - uses: actions/checkout@v4
-        if: github.event_name == 'schedule'
-      - id: decide
-        env:
-          EVENT: ${{ github.event_name }}
-          CRON: ${{ github.event.schedule }}
-        run: |
-          perf=true app=true
-          if [ "$EVENT" = schedule ]; then
-            age=$(( $(date +%s) - $(git log -1 --format=%ct) ))
-            if [ "$CRON" = "17 * * * *" ]; then
-              app=false; [ "$age" -lt 3600 ] || perf=false
-            else
-              perf=false; [ "$age" -lt 86400 ] || app=false
-            fi
-          fi
-          echo "perf=$perf" >> "$GITHUB_OUTPUT"
-          echo "app=$app" >> "$GITHUB_OUTPUT"
-          echo "speed gate: $perf, desktop builds: $app"
-
   perf:
     name: Speed gate (100k-file repo)
-    needs: slow
-    if: needs.slow.outputs.perf == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -115,8 +76,6 @@ jobs:
 
   app:
     name: Desktop app (${{ matrix.os }})
-    needs: slow
-    if: needs.slow.outputs.app == 'true'
     strategy:
       fail-fast: false
       matrix:
