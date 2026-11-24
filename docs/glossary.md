@@ -7,6 +7,9 @@
 - **Headless mode** - core + UI served by `ovra-daemon` to a regular browser.
 - **Coordinator** - the agent that splits a task and spawns subagents (phase 3).
 - **Subagent** - an agent working in its own git worktree and sandbox.
+- **Direct mode** - one agent works in the project's main checkout; its
+  changes are reviewed as a diff against a baseline snapshot (ADR 0005).
+- **Isolated mode** - an agent works in its own git worktree.
 - **Inbox** - the review queue where a person approves or rejects diffs.
 - **Service** - an OS-facing capability behind a trait in `ovra-core`
   (`FsService`, `ProjectStore`, `Opener`), implemented in its own crate.

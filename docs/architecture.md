@@ -55,6 +55,10 @@ Python. So each Claude session lives in a sidecar process, `agent-host/`
 connect through ACP, with PTY + CLI as a fallback. All of them sit behind one
 `AgentRuntime` trait in the core.
 
+Sessions run either `isolated` (own git worktree) or `direct` (the main
+checkout, at most one per project; review is a diff against a baseline
+snapshot taken at session start). See ADR 0005.
+
 ## Planned crates
 
 Added only when a phase needs them: `pty`, `agent-runtime`, `acp-client`,
