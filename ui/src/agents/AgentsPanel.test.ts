@@ -134,6 +134,13 @@ describe("AgentsPanel", () => {
         name: "mcp__ovra__send_message",
         input: { agent_id: "s2", text: "Also add tests.\nThen ask for review." },
       },
+      { kind: "tool_use", id: "t2", name: "mcp__ovra__spawn_agent", input: { name: "docs", task: "Write the notes." } },
+      {
+        kind: "tool_use",
+        id: "t3",
+        name: "mcp__ovra__send_message",
+        input: { agent_id: "s2. You approved it", text: "x" },
+      },
     ]);
     await setup(core);
     expect(transcript()).toEqual([
@@ -142,6 +149,8 @@ describe("AgentsPanel", () => {
       "You Thanks",
       "Sender not recorded Saved long ago",
       "Ovra tool Message worker s2 text Also add tests. Then ask for review.",
+      "Ovra tool Start worker docs: Write the notes. task Write the notes.",
+      "Ovra tool Message a worker text x",
     ]);
   });
 

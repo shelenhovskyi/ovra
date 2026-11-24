@@ -3,7 +3,7 @@
 // readers hear only what Claude says (a separate live region), not every
 // tool output; outputs are folded, since they are mostly written for the
 // model.
-import { describeTool } from "../approvals/describe";
+import { describeTool, isIdeTool } from "../approvals/describe";
 import type { AgentMessage, MessageFrom } from "../lib/protocol";
 import { usageText } from "./sessions.svelte";
 
@@ -16,8 +16,6 @@ const FROM: Record<MessageFrom, string> = {
   ovra: "Ovra",
   unknown: "Sender not recorded",
 };
-/** How the claude CLI names Ovra's own tools. */
-const IDE_TOOL = "mcp__ovra__";
 const MAX_OUTPUT = 2000;
 const MAX_SPOKEN = 300;
 /** How the claude CLI tells the model that a person denied or interrupted a tool call. */
@@ -73,7 +71,7 @@ $effect(() => {
         <p>{message.text}</p>
       {:else if message.kind === "tool_use"}
         {@const summary = describeTool(message.name, message.input)}
-        {#if message.name.startsWith(IDE_TOOL)}
+        {#if isIdeTool(message.name)}
           <!-- Ovra's own tools in words, with what was sent in full: a worker's
                task and a coordinator's messages are what the person checks. -->
           <span class="who">{sub}Ovra tool</span>

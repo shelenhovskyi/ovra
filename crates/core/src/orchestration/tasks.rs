@@ -82,6 +82,16 @@ pub(super) async fn handle(core: &Core, request: OrchestrationRequest) -> Result
                 // Sessions that already ended are fine to skip.
                 let _ = agents::stop(&ctx, session.clone());
             }
+            // A coordinator that already ended (it crashed, or Ovra shut
+            // down) gets no new status: the person's stop ends its task.
+            let ended = core
+                .sessions()
+                .find(&entry.coordinator, |s| s.status().is_ended())
+                .unwrap_or(false);
+            if ended {
+                set_ended(core, &entry.coordinator, true);
+                clean_up(core, &entry.project).await;
+            }
             Ok(Response::Ok(OkResponse::Ok))
         }
     }

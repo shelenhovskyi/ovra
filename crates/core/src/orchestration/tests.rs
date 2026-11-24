@@ -1373,4 +1373,11 @@ async fn a_coordinator_that_exits_unasked_leaves_its_task_running() {
     )
     .await;
     assert!(f.wt.has(&worker.worktree), "the task may be resumed");
+    // Until the person stops it.
+    ok(
+        &f.core,
+        json!({"method": "orchestration.stop", "params": {"task": "t1"}}),
+    )
+    .await;
+    assert!(!f.wt.has(&worker.worktree));
 }

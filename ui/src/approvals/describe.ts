@@ -36,7 +36,7 @@ export function describeTool(tool: string, input: unknown): ToolSummary {
       return text === undefined ? [] : [{ label: key.replace(/_/g, " "), text }];
     });
 
-  const ide = tool.startsWith("mcp__ovra__") ? describeIdeTool(tool.slice("mcp__ovra__".length), input) : null;
+  const ide = isIdeTool(tool) ? describeIdeTool(tool.slice(IDE_PREFIX.length), input) : null;
   if (ide) return { action: ide, details: pick("task", "text", "summary", "path") };
   if (tool === "Bash" && command !== undefined) {
     return { action: `Run ${oneLine(command)}`, details: pick("command", "description") };
@@ -73,14 +73,38 @@ export function describeTool(tool: string, input: unknown): ToolSummary {
   return { action: `Use ${tool}`, details: [raw(input)] };
 }
 
+const IDE_PREFIX = "mcp__ovra__";
+const IDE_TOOLS = new Set([
+  "spawn_agent",
+  "list_agents",
+  "read_output",
+  "send_message",
+  "stop_agent",
+  "request_review",
+  "open_in_ui",
+]);
+
+/** Whether `tool` is one of Ovra's own tools, by its exact name. */
+export function isIdeTool(tool: string): boolean {
+  return tool.startsWith(IDE_PREFIX) && IDE_TOOLS.has(tool.slice(IDE_PREFIX.length));
+}
+
+/** A worker name or session id as the tools allow it; anything else is not pasted into a sentence. */
+const ID = /^[a-z0-9][a-z0-9-]{0,39}$/;
+const id = (input: unknown, key: string): string | undefined => {
+  const value = str(input, key);
+  return value !== undefined && ID.test(value) ? value : undefined;
+};
+
 /** Ovra's own tools (`mcp__ovra__*`), which a task's coordinator and workers call. */
 function describeIdeTool(name: string, input: unknown): string | null {
-  const agent = str(input, "agent_id");
+  const agent = id(input, "agent_id");
   const worker = agent ? `worker ${agent}` : "a worker";
   switch (name) {
     case "spawn_agent": {
       const task = str(input, "task");
-      return `Start worker ${str(input, "name") ?? ""}${task ? `: ${oneLine(task)}` : ""}`.replace(" :", ":");
+      const named = id(input, "name");
+      return `Start ${named ? `worker ${named}` : "a worker"}${task ? `: ${oneLine(task)}` : ""}`;
     }
     case "list_agents":
       return "List the task's workers";
