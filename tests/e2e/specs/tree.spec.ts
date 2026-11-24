@@ -13,8 +13,8 @@ test("the sidebar starts on the project list", async ({ page }) => {
   await page.goto(daemonUrl());
   const sidebar = page.getByTestId("project-list");
   await expect(sidebar.getByRole("heading", { name: "Projects" })).toBeVisible();
-  await expect(sidebar.getByRole("textbox", { name: "Project folder" })).toBeVisible();
-  await expect(sidebar.getByRole("button", { name: "Add" })).toBeEnabled();
+  await expect(sidebar.getByRole("textbox", { name: "Open a folder" })).toBeVisible();
+  await expect(sidebar.getByRole("button", { name: "Open", exact: true })).toBeEnabled();
 });
 
 test("an added project shows its files and picks up new ones", async ({ page }) => {
@@ -25,8 +25,8 @@ test("an added project shows its files and picks up new ones", async ({ page }) 
 
   await page.goto(daemonUrl());
   const projects = page.getByTestId("project-list");
-  await projects.getByRole("textbox", { name: "Project folder" }).fill(dir);
-  await projects.getByRole("button", { name: "Add" }).click();
+  await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
+  await projects.getByRole("button", { name: "Open", exact: true }).click();
 
   const tree = page.getByTestId("file-tree");
   await expect(tree.getByRole("treeitem")).toHaveText([/src/, /README\.md/]);

@@ -12,8 +12,8 @@ test("open files become tabs that switch, show unsaved changes and close", async
 
   await page.goto(url);
   const projects = page.getByTestId("project-list");
-  await projects.getByRole("textbox", { name: "Project folder" }).fill(dir);
-  await projects.getByRole("button", { name: "Add" }).click();
+  await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
+  await projects.getByRole("button", { name: "Open", exact: true }).click();
   await page.getByRole("treeitem", { name: /a\.txt/ }).click();
   await page.getByRole("treeitem", { name: /b\.txt/ }).click();
 

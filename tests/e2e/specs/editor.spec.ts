@@ -11,8 +11,8 @@ test("edit a file with highlighting and save it to disk", async ({ page }) => {
 
   await page.goto(url);
   const projects = page.getByTestId("project-list");
-  await projects.getByRole("textbox", { name: "Project folder" }).fill(dir);
-  await projects.getByRole("button", { name: "Add" }).click();
+  await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
+  await projects.getByRole("button", { name: "Open", exact: true }).click();
   await page.getByRole("treeitem", { name: /main\.rs/ }).click();
   await page.keyboard.press("ControlOrMeta+E");
 
@@ -51,8 +51,8 @@ test("reopens the file that was open when the project was left", async ({ page }
 
   await page.goto(url);
   const projects = page.getByTestId("project-list");
-  await projects.getByRole("textbox", { name: "Project folder" }).fill(dir);
-  await projects.getByRole("button", { name: "Add" }).click();
+  await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
+  await projects.getByRole("button", { name: "Open", exact: true }).click();
   await page.getByRole("treeitem", { name: /notes\.md/ }).click();
   await expect(page.getByTestId("main")).toContainText("Notes");
   await saved;
