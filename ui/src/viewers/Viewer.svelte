@@ -1,6 +1,7 @@
 <script lang="ts">
 // Shows workspace.openPath in view mode: markdown, images, diffs, plain text.
 import { unsavedText } from "../editor/open-files.svelte";
+import { CoreError } from "../lib/transport";
 import { useOvra } from "../shell/context";
 import ImageView from "./ImageView.svelte";
 import Lines from "./Lines.svelte";
@@ -67,8 +68,10 @@ async function openExternal() {
   try {
     await transport.call({ method: "open.external", params: { project, path, line: null } });
     notice = `Opened ${path} in its default app.`;
-  } catch {
-    notice = `Could not open ${path} in another app.`;
+  } catch (err) {
+    // The core says why, for example that the file could run as a program.
+    const why = err instanceof CoreError ? `: ${err.error.message}` : "";
+    notice = `Could not open ${path} in another app${why}.`;
   }
 }
 </script>

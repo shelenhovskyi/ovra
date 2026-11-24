@@ -1,10 +1,12 @@
 //! Opens files in other applications: the user's external editor from
 //! `$VISUAL` or `$EDITOR`, else the platform's default handler (`open` on
 //! macOS, `explorer` on Windows, `xdg-open` elsewhere). Web pages go to the
-//! default handler, which is the system browser.
+//! default handler, which is the system browser. A file the default handler
+//! would run (see [`launcher`]) is only ever given to an editor.
 //! Contract: `ovra_core::services::Opener`.
 
 mod editor;
+mod launcher;
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -35,7 +37,7 @@ impl Opener for SystemOpener {
             &file,
             line,
         );
-        launch_first(&plan, spawn_detached)
+        launch_first(&safe(plan, &file, path)?, spawn_detached)
     }
 
     fn open_url(&self, url: &str) -> Result<()> {
@@ -63,6 +65,25 @@ fn inside(root: &Path, path: &RelPath) -> Result<PathBuf> {
         return Err(not_found());
     }
     Ok(root.join(rest))
+}
+
+/// `plan` without the default handler when that would run `file` as a
+/// program; refused when no editor is left to open it.
+fn safe(mut plan: Vec<Invocation>, file: &Path, path: &RelPath) -> Result<Vec<Invocation>> {
+    if launcher::may_run(file) {
+        let handler = system_handler(Platform::current(), file.as_os_str());
+        plan.retain(|invocation| *invocation != handler);
+        if plan.is_empty() {
+            return Err(ProtocolError::new(
+                ErrorCode::Forbidden,
+                format!(
+                    "{path} could run as a program, so Ovra does not hand it to the default \
+                     app; set $VISUAL to an editor to open it there"
+                ),
+            ));
+        }
+    }
+    Ok(plan)
 }
 
 /// Starts the first invocation that spawns. A missing or broken editor in
@@ -164,6 +185,22 @@ mod tests {
             let shown = Some(alias.join("src").join("a.rs"));
             assert_eq!(inside(&alias, &rel("src/a.rs")).ok(), shown);
         }
+    }
+
+    #[test]
+    fn a_launcher_goes_only_to_an_editor() {
+        let path = rel("tools/setup.exe");
+        let file = Path::new("/p/tools/setup.exe");
+        let handler = system_handler(Platform::current(), file.as_os_str());
+        let editor = inv("code");
+        let plan = safe(vec![editor.clone(), handler.clone()], file, &path);
+        assert_eq!(plan.ok(), Some(vec![editor]));
+        let refused = safe(vec![handler.clone()], file, &path);
+        assert_eq!(refused.err().map(|e| e.code), Some(ErrorCode::Forbidden));
+        let text = Path::new("/p/notes.md");
+        let handler = system_handler(Platform::current(), text.as_os_str());
+        let kept = safe(vec![handler.clone()], text, &rel("notes.md"));
+        assert_eq!(kept.ok(), Some(vec![handler]));
     }
 
     #[test]

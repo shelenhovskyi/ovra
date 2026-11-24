@@ -15,7 +15,7 @@ globalThis.ResizeObserver ??= class {
 type Files = Record<string, FileBody>;
 
 /** Serves fs.read_file and fs.list_dir from `files`; `emit` pushes core events. */
-function fakeCore(files: Files, options: { failOpen?: boolean } = {}) {
+function fakeCore(files: Files, options: { failOpen?: boolean | Error } = {}) {
   const listeners = new Set<(event: CoreEvent) => void>();
   const reads: string[] = [];
   const urls: string[] = [];
@@ -23,7 +23,8 @@ function fakeCore(files: Files, options: { failOpen?: boolean } = {}) {
     call: ((request: Request) => {
       if (request.method === "open.url" || request.method === "open.external") {
         urls.push("url" in request.params ? request.params.url : `file:${request.params.path}`);
-        return options.failOpen ? Promise.reject(new Error("no opener")) : Promise.resolve({ type: "ok" });
+        if (!options.failOpen) return Promise.resolve({ type: "ok" });
+        return Promise.reject(options.failOpen === true ? new Error("no opener") : options.failOpen);
       }
       if (request.method === "fs.list_dir") {
         const dir = request.params.path;
@@ -64,7 +65,7 @@ afterEach(() => {
   app = null;
 });
 
-function show(files: Files, path: string | null, options: { failOpen?: boolean } = {}) {
+function show(files: Files, path: string | null, options: { failOpen?: boolean | Error } = {}) {
   const core = fakeCore(files, options);
   const workspace = new Workspace();
   workspace.project = { id: "p1", name: "demo", root: "/demo", last_opened_ms: null, trusted: false };
@@ -264,6 +265,19 @@ describe("Viewer", () => {
     await settle();
     expect(urls).toEqual(["file:big.txt"]);
     expect(target.querySelector("[role=status]")?.textContent).toBe("Opened big.txt in its default app.");
+  });
+
+  it("says why the core refused to open a file elsewhere", async () => {
+    const message = "tools/setup.exe could run as a program";
+    const { target } = show({ "tools/setup.exe": { kind: "too_large" } }, "tools/setup.exe", {
+      failOpen: new CoreError({ code: "forbidden", message }),
+    });
+    await settle();
+    [...target.querySelectorAll("button")].find((b) => b.textContent === "Open in default app")?.click();
+    await settle();
+    expect(target.querySelector("[role=status]")?.textContent).toBe(
+      `Could not open tools/setup.exe in another app: ${message}.`,
+    );
   });
 
   it("explains broken and failed links instead of opening them", async () => {
