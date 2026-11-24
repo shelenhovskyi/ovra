@@ -10,6 +10,7 @@ use crate::Core;
 use crate::agents;
 use crate::path::RelPath;
 use crate::protocol::agents::{AgentStatus, MessageFrom, SessionId, SessionMode};
+use crate::protocol::audit::{AuditEvent, ReviewAction};
 use crate::protocol::projects::ProjectId;
 use crate::protocol::review::{
     ChangeKind, ChangedBy, FileChange, ReviewEvent, ReviewId, ReviewItem, ReviewRequest,
@@ -105,6 +106,15 @@ pub(crate) fn set_workspace(core: &Core, session: &SessionId, workspace: Workspa
     orchestration.save(&state);
 }
 
+/// Records the person's decision on `item` in the audit log.
+fn audit(core: &Core, item: &ReviewItem, action: ReviewAction) {
+    let event = AuditEvent::ReviewDecided {
+        review: item.id.clone(),
+        action,
+    };
+    crate::audit::record(core, &item.project, Some(&item.session), event);
+}
+
 pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Response> {
     let done = |(item, conflicts, restored)| {
         Response::Review(ReviewResponse::Done {
@@ -183,6 +193,12 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
             fingerprint,
         } => {
             let (item, conflicts) = approve(core, &id, commit, fingerprint).await?;
+            let action = if item.state == ReviewState::PartlyApproved {
+                ReviewAction::PartlyApproved
+            } else {
+                ReviewAction::Approved
+            };
+            audit(core, &item, action);
             prune(core, &item.project).await;
             super::tasks::clean_up(core, &item.project).await;
             let what = if item.state == ReviewState::PartlyApproved {
@@ -197,6 +213,7 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
         }
         ReviewRequest::Reject { id } => {
             let outcome = reject(core, &id).await?;
+            audit(core, &outcome.0, ReviewAction::Rejected);
             prune(core, &outcome.0.project).await;
             super::tasks::clean_up(core, &outcome.0.project).await;
             super::tasks::tell_coordinator(
@@ -218,20 +235,29 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
                 e.taken = None;
             })?;
             super::tasks::clean_up(core, &entry.project).await;
-            Ok(done((item(core, &entry).await?, Vec::new(), Vec::new())))
+            let resolved = item(core, &entry).await?;
+            // The person settled what was left: the work counts as approved.
+            audit(core, &resolved, ReviewAction::Approved);
+            Ok(done((resolved, Vec::new(), Vec::new())))
         }
         ReviewRequest::Take { id } => {
             let outcome = take(core, &id).await?;
+            audit(core, &outcome.0, ReviewAction::Taken);
             prune(core, &outcome.0.project).await;
             super::tasks::clean_up(core, &outcome.0.project).await;
             Ok(done(outcome))
         }
         ReviewRequest::UndoTake { id } => {
             let outcome = undo_take(core, &id).await?;
+            audit(core, &outcome.0, ReviewAction::UndoneTake);
             prune(core, &outcome.0.project).await;
             Ok(done(outcome))
         }
-        ReviewRequest::UndoReject { id } => Ok(done(undo_reject(core, &id).await?)),
+        ReviewRequest::UndoReject { id } => {
+            let outcome = undo_reject(core, &id).await?;
+            audit(core, &outcome.0, ReviewAction::UndoneReject);
+            Ok(done(outcome))
+        }
         ReviewRequest::Comment { id, text } => {
             comment(core, &id, text).await?;
             Ok(Response::Ok(OkResponse::Ok))

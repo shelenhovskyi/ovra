@@ -6,6 +6,7 @@ use tokio::sync::oneshot;
 
 use super::lock;
 use crate::protocol::agents::SessionId;
+use crate::protocol::audit::DecidedBy;
 use crate::protocol::permissions::{PermissionAnswer, PermissionId, PermissionRequest};
 
 #[derive(Debug, Default)]
@@ -19,14 +20,21 @@ struct State {
     pending: Vec<Pending>,
 }
 
-type Pending = (PermissionRequest, oneshot::Sender<PermissionAnswer>);
+/// A request and where its answer goes, with who gave it.
+type Pending = (
+    PermissionRequest,
+    oneshot::Sender<(PermissionAnswer, DecidedBy)>,
+);
 
 impl Permissions {
     /// Gives `request` its id and keeps it until it is answered.
     pub(crate) fn register(
         &self,
         mut request: PermissionRequest,
-    ) -> (PermissionRequest, oneshot::Receiver<PermissionAnswer>) {
+    ) -> (
+        PermissionRequest,
+        oneshot::Receiver<(PermissionAnswer, DecidedBy)>,
+    ) {
         let mut state = lock(&self.state);
         state.asked += 1;
         request.id = PermissionId(format!("perm{}", state.asked));
@@ -50,7 +58,8 @@ impl Permissions {
             .any(|(r, _)| &r.session == session)
     }
 
-    /// Passes the answer to the waiting agent. `false` if nothing waits for `id`.
+    /// Passes the person's answer to the waiting agent. `false` if nothing
+    /// waits for `id`.
     pub(crate) fn answer(&self, id: &PermissionId, answer: PermissionAnswer) -> bool {
         let mut state = lock(&self.state);
         let Some(index) = state.pending.iter().position(|(r, _)| &r.id == id) else {
@@ -59,7 +68,7 @@ impl Permissions {
         let (_, tx) = state.pending.remove(index);
         drop(state);
         // The agent may have stopped waiting; then the answer has no effect.
-        let _ = tx.send(answer);
+        let _ = tx.send((answer, DecidedBy::Person));
         true
     }
 
@@ -71,17 +80,18 @@ impl Permissions {
         state.pending.len() != before
     }
 
-    /// Answers every request of a session with `answer`.
+    /// Answers every request of a session with `answer`, given `by`.
     pub(crate) fn deny_session(
         &self,
         session: &SessionId,
         answer: &PermissionAnswer,
+        by: &DecidedBy,
     ) -> Vec<PermissionId> {
         let requests = self.drop_requests(session);
         requests
             .into_iter()
             .map(|(request, tx)| {
-                let _ = tx.send(answer.clone());
+                let _ = tx.send((answer.clone(), by.clone()));
                 request.id
             })
             .collect()

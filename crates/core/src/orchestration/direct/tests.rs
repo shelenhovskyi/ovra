@@ -773,10 +773,12 @@ mod through_the_core {
         let trees = Arc::new(Trees::default());
         trees.put(DIR, "a.rs", "a\n");
         let runtime = Arc::new(Manual::default());
+        let audit = Arc::new(crate::fakes::MemoryAudit::default());
         let core = Core::builder("test")
             .projects(Arc::new(MemoryProjects::default()))
             .agents(runtime.clone())
             .worktrees(trees.clone())
+            .audit(audit.clone())
             .build();
         let added = call(
             &core,
@@ -902,6 +904,25 @@ mod through_the_core {
         assert_eq!(
             trees.files(DIR).get("fmt.rs").map(String::as_str),
             Some("formatted\n")
+        );
+        // The person's decisions are in the audit log.
+        use crate::protocol::audit::{AuditEvent, ReviewAction};
+        use crate::services::AuditLog;
+        let actions: Vec<_> = audit
+            .list(&ProjectId("p1".into()), None, 100)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|e| match e.event {
+                AuditEvent::ReviewDecided { action, .. } => Some((e.session, action)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            actions,
+            [
+                (Some(s1.clone()), ReviewAction::Rejected),
+                (Some(s1), ReviewAction::UndoneReject)
+            ]
         );
     }
 

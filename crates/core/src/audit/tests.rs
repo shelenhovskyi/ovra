@@ -94,3 +94,288 @@ fn wire_format_is_stable() {
         "event": Event::from(AuditLogEvent::Appended(entry)),
     }));
 }
+
+mod inputs {
+    use serde_json::json;
+
+    use super::super::input::{MAX_INPUT_BYTES, REDACTED, input};
+    use crate::protocol::audit::AuditInput;
+
+    fn text(tool: &str, value: serde_json::Value) -> String {
+        match input(tool, &value) {
+            AuditInput::Json { text } => text,
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    #[test]
+    fn file_tools_keep_the_path_and_a_hash_never_the_content() {
+        let kept = input(
+            "Write",
+            &json!({"file_path": "src/a.rs", "content": "ghp_secretsecretsecret"}),
+        );
+        assert_eq!(
+            kept,
+            AuditInput::File {
+                path: "src/a.rs".into(),
+                sha256: Some(sha("ghp_secretsecretsecret")),
+            }
+        );
+        let edit = input(
+            "Edit",
+            &json!({"file_path": "a", "old_string": "x", "new_string": "y"}),
+        );
+        assert_eq!(
+            edit,
+            AuditInput::File {
+                path: "a".into(),
+                sha256: Some(sha("y"))
+            }
+        );
+        let notebook = input("NotebookEdit", &json!({"notebook_path": "n.ipynb"}));
+        assert_eq!(
+            notebook,
+            AuditInput::File {
+                path: "n.ipynb".into(),
+                sha256: None
+            }
+        );
+    }
+
+    fn sha(text: &str) -> String {
+        use sha2::{Digest, Sha256};
+        Sha256::digest(text.as_bytes())
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect()
+    }
+
+    #[test]
+    fn token_like_words_are_removed() {
+        let jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl";
+        for secret in [
+            "sk-ant-api03-abcdefghijkl",
+            "ghp_0123456789abcdefABCDEF",
+            "gho_0123456789abcdef",
+            "github_pat_11AAAAAAA0123456789",
+            "xoxb-123456789012-abcdef",
+            "AKIAIOSFODNN7EXAMPLE",
+            jwt,
+        ] {
+            let kept = text(
+                "Bash",
+                json!({"command": format!("deploy --token={secret} && echo {secret}.")}),
+            );
+            assert!(!kept.contains(secret), "{kept}");
+            assert_eq!(kept.matches(REDACTED).count(), 2, "{kept}");
+        }
+        // Words that only start like a token stay.
+        let kept = text(
+            "Bash",
+            json!({"command": "pip install sk-learn task-sk-12345678"}),
+        );
+        assert!(kept.contains("sk-learn task-sk-12345678"), "{kept}");
+    }
+
+    #[test]
+    fn header_values_and_credential_fields_are_removed() {
+        let kept = text(
+            "Bash",
+            json!({"command": "curl -H 'Authorization: Bearer abc.def' -H \"Cookie: id=42; s=1\" -H 'X-Other: fine' https://x"}),
+        );
+        assert_eq!(
+            kept,
+            json!({"command": format!("curl -H 'Authorization: {REDACTED}' -H \"Cookie: {REDACTED}\" -H 'X-Other: fine' https://x")}).to_string()
+        );
+        let kept = text(
+            "WebFetch",
+            json!({"url": "https://x", "headers": {"authorization": "Basic Zm9v", "Set-Cookie": "a=b", "password": 7, "client_secret": ["s"], "accept": "json"}}),
+        );
+        for gone in ["Basic", "Zm9v", "a=b", "7", "\"s\""] {
+            assert!(!kept.contains(gone), "{gone} in {kept}");
+        }
+        assert!(kept.contains(r#""accept":"json""#), "{kept}");
+    }
+
+    #[test]
+    fn long_inputs_are_cut_without_leaking_a_token_cut_in_half() {
+        let token = "ghp_0123456789abcdefABCDEF";
+        // A long token first shrinks to `[redacted]`, which pulls what follows
+        // forward: a token cut at the clip must not become visible.
+        let filler = format!("ghp_{}", "a".repeat(2 * MAX_INPUT_BYTES - 20));
+        let value = format!("{filler} {token} {}", "é".repeat(5000));
+        let kept = text("Bash", json!({ "command": value }));
+        assert!(kept.len() <= MAX_INPUT_BYTES, "{}", kept.len());
+        assert!(!kept.contains("ghp_0"), "{kept}");
+        let long = text("Bash", json!({ "command": "é".repeat(5000) }));
+        assert!(
+            long.len() <= MAX_INPUT_BYTES && long.ends_with('…'),
+            "{}",
+            long.len()
+        );
+    }
+
+    #[test]
+    fn secret_looking_field_names_are_removed_too() {
+        let kept = text("Task", json!({"ghp_0123456789abcdefABCDEF": 1}));
+        assert_eq!(kept, json!({ REDACTED: 1 }).to_string());
+    }
+}
+
+mod recording {
+    use std::sync::Arc;
+
+    use serde_json::json;
+    use tokio::sync::broadcast;
+
+    use super::project;
+    use crate::Core;
+    use crate::fakes::{MemoryAudit, MemoryProjects, ScriptedAgent, Step};
+    use crate::protocol::agents::{AgentStatus, AgentsEvent, AgentsResponse};
+    use crate::protocol::audit::{AuditEntry, AuditLogEvent};
+    use crate::protocol::permissions::PermissionsResponse;
+    use crate::protocol::{Event, Request, Response};
+    use crate::services::AuditLog;
+
+    async fn ok(core: &Core, json: serde_json::Value) -> Response {
+        let request: Request =
+            serde_json::from_value(json).unwrap_or_else(|e| panic!("bad request: {e}"));
+        core.handle(request)
+            .await
+            .unwrap_or_else(|e| panic!("request failed: {e}"))
+    }
+
+    /// Reads events until the session reaches `want`; returns the entries
+    /// shown to live viewers meanwhile.
+    async fn until(rx: &mut broadcast::Receiver<Event>, want: &AgentStatus) -> Vec<AuditEntry> {
+        let mut shown = Vec::new();
+        loop {
+            match Core::next_event(rx).await {
+                Some(Event::Agents(AgentsEvent::Status { status, .. })) if &status == want => {
+                    return shown;
+                }
+                Some(Event::Audit(AuditLogEvent::Appended(entry))) => shown.push(entry),
+                Some(_) => {}
+                None => panic!("core closed while waiting for {want:?}"),
+            }
+        }
+    }
+
+    async fn pending(core: &Core) -> String {
+        match ok(core, json!({"method": "permissions.pending"})).await {
+            Response::Permissions(PermissionsResponse::Pending(p)) if p.len() == 1 => {
+                p[0].id.0.clone()
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn the_core_records_who_decided_what() {
+        let log = Arc::new(MemoryAudit::default());
+        let agent = ScriptedAgent::new(vec![vec![
+            Step::Use {
+                tool: "Bash",
+                input: json!({"command": "echo ghp_0123456789abcdefABCDEF"}),
+            },
+            Step::Use {
+                tool: "WebFetch",
+                input: json!({"url": "https://example.com"}),
+            },
+            Step::Use {
+                tool: "Write",
+                input: json!({"file_path": "a.txt", "content": "hello"}),
+            },
+        ]]);
+        let core = Core::builder("test")
+            .projects(Arc::new(MemoryProjects::default()))
+            .agents(Arc::new(agent))
+            .audit(log.clone())
+            .build();
+        let root = crate::test_path!("/work/a");
+        ok(
+            &core,
+            json!({"method": "projects.add", "params": {"root": root}}),
+        )
+        .await;
+        ok(
+            &core,
+            json!({"method": "policy.set", "params": {"project": "p1", "policy": {"rules": [
+            {"tool": "WebFetch", "action": "deny"}]}}}),
+        )
+        .await;
+        let fingerprint = match ok(
+            &core,
+            json!({"method": "agents.project_config", "params": {"project": "p1"}}),
+        )
+        .await
+        {
+            Response::Agents(AgentsResponse::ProjectConfig(review)) => review.current.fingerprint,
+            other => panic!("unexpected {other:?}"),
+        };
+        ok(
+            &core,
+            json!({"method": "projects.trust", "params": {
+            "id": "p1", "trusted": true, "fingerprint": fingerprint}}),
+        )
+        .await;
+
+        let mut rx = core.subscribe();
+        ok(
+            &core,
+            json!({"method": "agents.start", "params": {
+            "project": "p1", "agent": "claude", "mode": "direct", "prompt": "go"}}),
+        )
+        .await;
+        let mut shown = until(&mut rx, &AgentStatus::WaitingForApproval).await;
+        let id = pending(&core).await;
+        ok(
+            &core,
+            json!({"method": "permissions.answer", "params": {"id": id, "decision": "allow"}}),
+        )
+        .await;
+        // The policy refuses WebFetch; then Write asks, and stopping refuses it.
+        shown.extend(until(&mut rx, &AgentStatus::WaitingForApproval).await);
+        ok(
+            &core,
+            json!({"method": "agents.stop", "params": {"session": "s1"}}),
+        )
+        .await;
+        shown.extend(until(&mut rx, &AgentStatus::Stopped).await);
+        ok(
+            &core,
+            json!({"method": "projects.trust", "params": {"id": "p1", "trusted": false}}),
+        )
+        .await;
+
+        let entries = log
+            .list(&project("p1"), None, 100)
+            .unwrap_or_else(|e| panic!("{e}"));
+        // Every entry after subscribing was shown live, in order.
+        assert_eq!(shown, entries[2..entries.len() - 1]);
+        insta::assert_json_snapshot!(entries);
+    }
+
+    #[tokio::test]
+    async fn a_log_that_fails_does_not_stop_the_session() {
+        let agent = ScriptedAgent::new(vec![vec![Step::Say("hi")]]);
+        let core = Core::builder("test")
+            .projects(Arc::new(MemoryProjects::default()))
+            .agents(Arc::new(agent))
+            .build();
+        let root = crate::test_path!("/work/a");
+        ok(
+            &core,
+            json!({"method": "projects.add", "params": {"root": root}}),
+        )
+        .await;
+        let mut rx = core.subscribe();
+        ok(
+            &core,
+            json!({"method": "agents.start", "params": {
+            "project": "p1", "agent": "claude", "mode": "direct", "prompt": "go"}}),
+        )
+        .await;
+        assert_eq!(until(&mut rx, &AgentStatus::Idle).await, Vec::new());
+    }
+}

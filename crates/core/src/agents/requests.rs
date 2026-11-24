@@ -9,6 +9,7 @@ use crate::protocol::agents::{
     AgentKind, AgentMessage, AgentStatus, AgentsEvent, AgentsRequest, AgentsResponse, MessageFrom,
     ProjectConfigReview, SessionId, SessionInfo, SessionMode, TurnUsage,
 };
+use crate::protocol::audit::DecidedBy;
 use crate::protocol::permissions::{
     Decision, PermissionAnswer, PermissionsEvent, PermissionsRequest, PermissionsResponse,
 };
@@ -103,9 +104,11 @@ pub(crate) async fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Resp
                 None => return Err(conflict("the session has ended")),
             };
             process.interrupt()?;
+            // The person interrupted the turn, which refuses what it asked.
             let denied = sessions.permissions.deny_session(
                 &session,
                 &PermissionAnswer::deny("the turn was interrupted"),
+                &DecidedBy::Person,
             );
             AgentHost::new(session, project, sessions.clone(), ctx.sink.clone())
                 .resolved(denied, Decision::Deny);
@@ -303,7 +306,10 @@ fn run(
     let prompt = joined(&parts)?;
     let sessions = ctx.sessions;
     let project = target.project.id.clone();
-    sessions.find(id, |s| s.set_launch(launch.clone()))?;
+    sessions.find(id, |s| {
+        s.set_launch(launch.clone());
+        s.set_trusted(target.trusted);
+    })?;
     ctx.sink.emit(AgentsEvent::Status {
         session: id.clone(),
         project: project.clone(),

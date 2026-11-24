@@ -5,16 +5,19 @@ use serde_json::json;
 use tokio::sync::broadcast;
 
 use crate::Core;
-use crate::fakes::{MemoryFs, MemoryProjects, MemoryWorktrees, ScriptedAgent, Step};
+use crate::fakes::{MemoryAudit, MemoryFs, MemoryProjects, MemoryWorktrees, ScriptedAgent, Step};
 use crate::protocol::agents::{
     AgentMessage, AgentStatus, AgentsEvent, MessageFrom, SessionId, SessionMode, TurnUsage,
 };
+use crate::protocol::audit::{AuditEvent, DecidedBy, ReviewAction};
 use crate::protocol::orchestration::{OrchestrationEvent, OrchestrationResponse, ShowTarget, Task};
 use crate::protocol::permissions::PermissionsEvent;
 use crate::protocol::projects::ProjectId;
 use crate::protocol::review::{ChangeKind, ReviewItem, ReviewResponse, ReviewState};
 use crate::protocol::{ErrorCode, Event, ProtocolError, Request, Response};
-use crate::services::{AgentHost, AgentRuntime, AgentSpec, RunningAgent, ToolCaller, ToolRole};
+use crate::services::{
+    AgentHost, AgentRuntime, AgentSpec, AuditLog, RunningAgent, ToolCaller, ToolRole,
+};
 
 const ROOT: &str = crate::test_path!("/work/a");
 const WORKTREES: &str = crate::test_path!("/data/worktrees");
@@ -24,6 +27,7 @@ struct Fx {
     agent: Arc<ScriptedAgent>,
     wt: Arc<MemoryWorktrees>,
     fs: Arc<MemoryFs>,
+    audit: Arc<MemoryAudit>,
 }
 
 /// A core with project `p1` at [`ROOT`]; every session plays `turns`.
@@ -32,7 +36,9 @@ async fn fx(turns: Vec<Vec<Step>>) -> Fx {
     let wt = Arc::new(MemoryWorktrees::default());
     let fs = Arc::new(MemoryFs::default());
     wt.put(ROOT, "a.rs", "one\n");
+    let audit = Arc::new(MemoryAudit::default());
     let core = Core::builder("test")
+        .audit(audit.clone())
         .projects(Arc::new(MemoryProjects::default()))
         .fs(fs.clone())
         .agents(agent.clone())
@@ -49,6 +55,7 @@ async fn fx(turns: Vec<Vec<Step>>) -> Fx {
         agent,
         wt,
         fs,
+        audit,
     }
 }
 
@@ -393,6 +400,37 @@ async fn ovra_tools_are_decided_by_role_without_asking() {
             Event::Permissions(PermissionsEvent::Requested(_))
         ));
     }
+    // The audit log says the role rules decided each call.
+    let decided: Vec<_> = audited(&f)
+        .into_iter()
+        .filter_map(|(session, event)| match event {
+            AuditEvent::ToolDecided {
+                tool, allowed, by, ..
+            } => Some((session, tool, allowed, by)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(decided.len(), 12);
+    assert!(decided.iter().all(|(.., by)| *by == DecidedBy::Role));
+    assert_eq!(
+        decided[0],
+        (
+            Some(sid("s1")),
+            "mcp__ovra__spawn_agent".to_owned(),
+            true,
+            DecidedBy::Role
+        )
+    );
+}
+
+/// The project's audit entries: who and what.
+fn audited(f: &Fx) -> Vec<(Option<SessionId>, AuditEvent)> {
+    f.audit
+        .list(&ProjectId("p1".into()), None, 1000)
+        .unwrap_or_else(|e| panic!("{e}"))
+        .into_iter()
+        .map(|e| (e.session, e.event))
+        .collect()
 }
 
 /// A worker's rename moves the file in the main checkout: the old path goes.
@@ -507,6 +545,17 @@ async fn approving_a_worker_applies_its_files_to_the_main_checkout() {
     else {
         panic!("unexpected {done:?}");
     };
+    let last = audited(&f).pop();
+    assert_eq!(
+        last,
+        Some((
+            Some(sid("s2")),
+            AuditEvent::ReviewDecided {
+                review: crate::protocol::review::ReviewId("r1".into()),
+                action: ReviewAction::PartlyApproved,
+            }
+        ))
+    );
     // The person's own b.rs is left alone, and the item says so.
     assert_eq!(
         (item.state, conflicts, item.not_copied.clone()),

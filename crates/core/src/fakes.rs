@@ -784,6 +784,8 @@ impl AgentRuntime for ScriptedAgent {
             .clone()
             .unwrap_or_else(|| format!("scripted-{}", spec.session.0));
         host.agent_session(own);
+        // Like the real runtime, which reports after each spawn.
+        host.sandboxed(None);
         let turns = self
             .roles
             .iter()

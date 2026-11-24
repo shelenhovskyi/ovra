@@ -15,6 +15,7 @@ use crate::protocol::agents::SandboxReport;
 use crate::protocol::agents::{
     AgentMessage, AgentStatus, AgentsEvent, Billing, SessionId, SessionInfo, SessionMode,
 };
+use crate::protocol::audit::{AuditEvent, DecidedBy};
 use crate::protocol::permissions::{
     Decision, PermissionAnswer, PermissionId, PermissionReason, PermissionRequest, PermissionsEvent,
 };
@@ -32,6 +33,9 @@ pub(crate) use requests::{
 };
 pub(crate) use transcript::MAX_TEXT_BYTES;
 use transcript::Transcript;
+
+/// The rule the audit log names when a policy could not be read.
+const UNREADABLE_POLICY: &str = "the policy could not be read";
 
 /// Ended sessions kept per project, with their transcripts; older ones are
 /// forgotten when a new session starts.
@@ -53,6 +57,8 @@ struct Session {
     agent_session: Option<String>,
     /// How this run started it; `None` for a session loaded from the store.
     launch: Option<Launch>,
+    /// Whether this run loads the project's own agent settings.
+    trusted: bool,
 }
 
 /// Where a session works and which IDE tools it gets; kept to resume it the
@@ -105,6 +111,7 @@ impl Sessions {
                 stopping: false,
                 agent_session: stored.agent_session,
                 launch: None,
+                trusted: false,
             };
             if !session.info.status.is_ended() {
                 session.info.status = AgentStatus::Stopped;
@@ -147,6 +154,7 @@ impl Sessions {
             stopping: false,
             agent_session: None,
             launch: None,
+            trusted: false,
         };
         let _ = self.store.save(&session.stored());
         list.push(session);
@@ -264,6 +272,9 @@ impl SessionView<'_> {
     pub(crate) fn set_launch(&mut self, launch: Launch) {
         self.session.launch = Some(launch);
     }
+    fn set_trusted(&mut self, trusted: bool) {
+        self.session.trusted = trusted;
+    }
     fn set_agent_session(&mut self, id: String) {
         if self.session.agent_session.as_ref() != Some(&id) {
             self.session.agent_session = Some(id);
@@ -326,6 +337,7 @@ impl SessionView<'_> {
         self.permissions.deny_session(
             &self.session.info.id,
             &PermissionAnswer::deny("the session was stopped"),
+            &DecidedBy::SessionEnded,
         )
     }
 }
@@ -429,8 +441,40 @@ impl AgentHost {
     /// The runtime ran the session as `report` says (`None`: without a
     /// sandbox). Runtimes report after every spawn; one that never does
     /// counts as unsandboxed.
+    ///
+    /// Each report is one run of the agent, so it is what the audit log
+    /// records as the session's start.
     pub fn sandboxed(&self, report: Option<SandboxReport>) {
-        let _ = self.sessions.find(&self.session, |s| s.set_sandbox(report));
+        let started = self.sessions.find(&self.session, |s| {
+            s.set_sandbox(report.clone());
+            AuditEvent::SessionStarted {
+                mode: s.session.info.mode,
+                trusted: s.session.trusted,
+                sandbox: report,
+            }
+        });
+        if let Ok(event) = started {
+            self.audit(event);
+        }
+    }
+
+    fn audit(&self, event: AuditEvent) {
+        if let Some(core) = self.sessions.core() {
+            crate::audit::record(&core, &self.project, Some(&self.session), event);
+        }
+    }
+
+    /// Records who decided a tool call and passes the answer on.
+    fn decided(
+        &self,
+        tool: &str,
+        input: &serde_json::Value,
+        answer: PermissionAnswer,
+        by: DecidedBy,
+    ) -> PermissionAnswer {
+        let allowed = answer.decision == Decision::Allow;
+        self.audit(crate::audit::tool_decided(tool, input, allowed, by));
+        answer
     }
 
     /// The agent is about to run a tool: the input of a `PreToolUse` hook
@@ -452,19 +496,24 @@ impl AgentHost {
             .unwrap_or(serde_json::Value::Null);
         // Ovra's own tools follow their role rules (`Self::ask`).
         if !name.starts_with(crate::orchestration::IDE_TOOL_PREFIX) {
-            match self.policy(name, &input) {
-                Ok(Some((PolicyAction::Deny, rule))) => {
-                    return Some(format!(
+            let refused = match self.policy(name, &input) {
+                Ok(Some((PolicyAction::Deny, rule))) => Some((
+                    format!(
                         "The project's policy refuses this ({rule}). Ask the person if it is needed."
-                    ));
-                }
-                Err(()) => {
-                    return Some(
-                        "Ovra could not read the project's policy, so it refuses tool calls."
-                            .to_owned(),
-                    );
-                }
-                Ok(_) => {}
+                    ),
+                    rule,
+                )),
+                Err(()) => Some((
+                    "Ovra could not read the project's policy, so it refuses tool calls."
+                        .to_owned(),
+                    UNREADABLE_POLICY.to_owned(),
+                )),
+                Ok(_) => None,
+            };
+            if let Some((why, rule)) = refused {
+                let by = DecidedBy::Policy { rule };
+                self.audit(crate::audit::tool_decided(name, &input, false, by));
+                return Some(why);
             }
         }
         self.sessions
@@ -544,7 +593,10 @@ impl AgentHost {
         if let Some(name) = tool.strip_prefix(crate::orchestration::IDE_TOOL_PREFIX) {
             // Ovra's own tools are decided by role and limits, never asked.
             return match self.sessions.core() {
-                Some(core) => crate::orchestration::decide(&core, &self.session, name, &input),
+                Some(core) => {
+                    let answer = crate::orchestration::decide(&core, &self.session, name, &input);
+                    self.decided(&tool, &input, answer, DecidedBy::Role)
+                }
                 None => PermissionAnswer::deny("Ovra is shutting down"),
             };
         }
@@ -556,11 +608,15 @@ impl AgentHost {
                     .direct
                     .tool_answered(&self.session, &tool, &input, false)
                     .await;
-                return PermissionAnswer::deny(format!(
+                let answer = PermissionAnswer::deny(format!(
                     "The project's policy refuses this ({rule}). Ask the person if it is needed."
                 ));
+                return self.decided(&tool, &input, answer, DecidedBy::Policy { rule });
             }
-            Ok(Some((PolicyAction::Auto, _))) => return PermissionAnswer::allow(),
+            Ok(Some((PolicyAction::Auto, rule))) => {
+                let by = DecidedBy::Policy { rule };
+                return self.decided(&tool, &input, PermissionAnswer::allow(), by);
+            }
             // Unreadable policy: ask, never decide on its own.
             _ => {}
         }
@@ -585,7 +641,10 @@ impl AgentHost {
         });
         let (request, answer) = match registered {
             Ok(Ok(registered)) => registered,
-            Ok(Err(answer)) => return answer,
+            Ok(Err(answer)) => {
+                let (tool, input) = &tool_input;
+                return self.decided(tool, input, answer, DecidedBy::SessionEnded);
+            }
             Err(_) => return PermissionAnswer::deny("the session ended"),
         };
         let mut waiting = Waiting {
@@ -597,10 +656,14 @@ impl AgentHost {
         direct.tool_waiting(&self.session, &tool, &input).await;
         self.sink.emit(PermissionsEvent::Requested(request));
         self.set_status(AgentStatus::WaitingForApproval);
-        let answer = answer
-            .await
-            .unwrap_or_else(|_| PermissionAnswer::deny("the session ended"));
+        let (answer, by) = answer.await.unwrap_or_else(|_| {
+            (
+                PermissionAnswer::deny("the session ended"),
+                DecidedBy::SessionEnded,
+            )
+        });
         waiting.id = None;
+        let answer = self.decided(&tool, &input, answer, by);
         let allowed = answer.decision == Decision::Allow;
         direct
             .tool_answered(&self.session, &tool, &input, allowed)
