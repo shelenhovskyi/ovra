@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use super::{Result, Workspace, conflict, forbidden, not_found, review};
 use crate::Core;
 use crate::agents::{self, NewSession};
-use crate::protocol::agents::{AgentKind, SessionId, SessionMode};
+use crate::protocol::agents::{AgentKind, AgentStatus, SessionId, SessionMode};
 use crate::protocol::orchestration::{
     OrchestrationEvent, OrchestrationRequest, OrchestrationResponse, Task, TaskId, TaskLimits,
     Worker,
@@ -144,6 +144,45 @@ fn find(core: &Core, task: &TaskId) -> Result<Entry> {
         .ok_or_else(|| not_found(format!("task {}", task.0)))
 }
 
+/// Tells a worker's coordinator, as its next message, that something
+/// happened to the worker it may want to act on, so a coordinator that ended
+/// its turn wakes up. Only Ovra's own words: nothing a worker wrote is
+/// passed on. A coordinator that ended is not resumed.
+pub(super) fn tell_coordinator(core: &Core, worker: &SessionId, what: &str) {
+    let task = core
+        .orchestration_state()
+        .lock()
+        .tasks
+        .iter()
+        .find(|t| t.workers.iter().any(|w| &w.session == worker))
+        .cloned();
+    let Some(task) = task else {
+        return;
+    };
+    let Some(name) = task
+        .workers
+        .iter()
+        .find(|w| &w.session == worker)
+        .map(|w| w.name.clone())
+    else {
+        return;
+    };
+    let ended = core
+        .sessions()
+        .find(&task.coordinator, |s| s.status().is_ended())
+        .unwrap_or(true);
+    if ended {
+        return;
+    }
+    let text = format!(
+        "Ovra: worker {name} (agent_id {}) {what}. Check with list_agents or read_output, \
+         then go on with the task.",
+        worker.0
+    );
+    // A coordinator that is stopping or gone simply misses the note.
+    let _ = agents::send(&core.agents_ctx(), task.coordinator, text);
+}
+
 /// A stopped coordinator takes its workers with it: the person stopped the
 /// task. Their worktrees and reviews stay. A coordinator that failed leaves
 /// them running.
@@ -190,7 +229,18 @@ fn spent(core: &Core, entry: &Entry) -> u64 {
 }
 
 /// Why the task may not start another worker now, if it may not.
-pub(super) fn spawn_blocked(core: &Core, entry: &Entry) -> Option<String> {
+/// Sessions that asked for a review, from the state's review items.
+pub(super) fn asked_for_review(reviews: &[review::Entry]) -> Vec<SessionId> {
+    reviews
+        .iter()
+        .filter(|r| r.requested)
+        .map(|r| r.session.clone())
+        .collect()
+}
+
+/// Why `entry` may not start another worker now, if it may not. `asked` is
+/// [`asked_for_review`] of the current state.
+pub(super) fn spawn_blocked(core: &Core, entry: &Entry, asked: &[SessionId]) -> Option<String> {
     let ended = |id: &SessionId| {
         core.sessions()
             .find(id, |s| s.status().is_ended())
@@ -199,8 +249,21 @@ pub(super) fn spawn_blocked(core: &Core, entry: &Entry) -> Option<String> {
     if ended(&entry.coordinator) {
         return Some("the task has ended".to_owned());
     }
-    let running =
-        entry.workers.iter().filter(|w| !ended(&w.session)).count() + entry.starting.len();
+    // A worker that asked for review and waits idle for the person does no
+    // work, so it does not hold a place; a message wakes it again.
+    let waiting = |id: &SessionId| {
+        let idle = core
+            .sessions()
+            .find(id, |s| *s.status() == AgentStatus::Idle)
+            .unwrap_or(false);
+        idle && asked.contains(id)
+    };
+    let running = entry
+        .workers
+        .iter()
+        .filter(|w| !ended(&w.session) && !waiting(&w.session))
+        .count()
+        + entry.starting.len();
     let max = entry.limits.max_workers;
     if running >= usize::try_from(max).unwrap_or(usize::MAX) {
         return Some(format!(
@@ -255,12 +318,13 @@ pub(super) async fn spawn(
     };
     let entry = {
         let mut guard = state.lock();
+        let asked = asked_for_review(&guard.reviews);
         let entry = guard
             .tasks
             .iter_mut()
             .find(|t| &t.coordinator == coordinator)
             .ok_or_else(|| forbidden("only a task's coordinator may start workers"))?;
-        if let Some(reason) = spawn_blocked(core, entry) {
+        if let Some(reason) = spawn_blocked(core, entry, &asked) {
             return Err(conflict(reason));
         }
         if entry.workers.iter().any(|w| w.name == name) || entry.starting.contains(&name) {

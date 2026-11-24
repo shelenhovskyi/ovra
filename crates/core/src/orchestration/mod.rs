@@ -115,6 +115,13 @@ pub(crate) fn on_status(core: &Core, session: &SessionId, status: &AgentStatus) 
     if *status == AgentStatus::Stopped {
         tasks::stop_workers_of(core, session);
     }
+    match status {
+        AgentStatus::Stopped => tasks::tell_coordinator(core, session, "stopped"),
+        AgentStatus::Failed { message } => {
+            tasks::tell_coordinator(core, session, &format!("failed: {message}"));
+        }
+        _ => {}
+    }
     if !(status.is_ended() || *status == AgentStatus::Idle) {
         return;
     }

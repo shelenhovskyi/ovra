@@ -924,3 +924,56 @@ async fn a_task_needs_a_repository_before_its_coordinator_starts() {
             .unwrap_or(false)
     );
 }
+
+#[tokio::test]
+async fn the_coordinator_hears_when_a_worker_asks_for_review_or_stops() {
+    let f = fx(say()).await;
+    let mut rx = f.core.subscribe();
+    start_task(&f.core, 3).await;
+    let boss = caller("s1", ToolRole::Coordinator);
+    let worker = f.core.spawn_agent(&boss, "w", "x").await;
+    let worker = worker.unwrap_or_else(|e| panic!("{e}"));
+    until(&mut rx, "s2", AgentStatus::Idle).await;
+    f.wt.put(&worker.worktree, "b.rs", "new\n");
+    let me = caller("s2", ToolRole::Worker);
+    let asked = f.core.request_review(&me, None, "done").await;
+    assert!(asked.is_ok(), "{asked:?}");
+    assert!(f.core.stop_agent(&boss, &worker.session).is_ok());
+    until(&mut rx, "s2", AgentStatus::Stopped).await;
+
+    let notes: Vec<String> = transcript(&f.core, "s1")
+        .await
+        .into_iter()
+        .filter_map(|m| match m {
+            AgentMessage::UserText { text } if text.starts_with("Ovra:") => Some(text),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(notes.len(), 2, "{notes:?}");
+    assert!(notes[0].starts_with("Ovra: worker w (agent_id s2) asked for review."));
+    assert!(notes[1].starts_with("Ovra: worker w (agent_id s2) stopped."));
+    assert!(
+        notes.iter().all(|n| !n.contains("done")),
+        "the worker's own words stay out"
+    );
+}
+
+#[tokio::test]
+async fn a_worker_waiting_for_review_frees_its_place() {
+    let f = fx(say()).await;
+    let mut rx = f.core.subscribe();
+    start_task(&f.core, 1).await;
+    let boss = caller("s1", ToolRole::Coordinator);
+    let worker = f.core.spawn_agent(&boss, "w", "x").await;
+    let worker = worker.unwrap_or_else(|e| panic!("{e}"));
+    until(&mut rx, "s2", AgentStatus::Idle).await;
+    let full = f.core.spawn_agent(&boss, "v", "x").await;
+    assert_eq!(code(full), ErrorCode::Conflict, "the one place is taken");
+    f.wt.put(&worker.worktree, "b.rs", "new\n");
+    let asked = f
+        .core
+        .request_review(&caller("s2", ToolRole::Worker), None, "done")
+        .await;
+    assert!(asked.is_ok(), "{asked:?}");
+    assert!(f.core.spawn_agent(&boss, "v", "x").await.is_ok());
+}

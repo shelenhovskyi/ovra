@@ -128,6 +128,9 @@ impl Core {
             ));
         }
         let entry = review::request(self, &session, summary.to_owned())?;
+        if caller.role == ToolRole::Worker {
+            tasks::tell_coordinator(self, &session, "asked for review");
+        }
         review::item(self, &entry).await
     }
 

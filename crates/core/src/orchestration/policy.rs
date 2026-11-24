@@ -69,7 +69,8 @@ fn decide_for(
         ToolRole::Worker => Ok(()),
         ToolRole::Coordinator => {
             let task = tasks::of_coordinator(core, session).map_err(|e| e.message)?;
-            match tasks::spawn_blocked(core, &task) {
+            let asked = tasks::asked_for_review(&core.orchestration_state().lock().reviews);
+            match tasks::spawn_blocked(core, &task, &asked) {
                 Some(reason) if name == "spawn_agent" => Err(reason),
                 _ => Ok(()),
             }

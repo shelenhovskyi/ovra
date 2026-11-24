@@ -25,8 +25,8 @@ use crate::services::{
 
 pub(crate) use permissions::Permissions;
 pub(crate) use requests::{
-    Ctx, NewSession, agents as handle_agents, check_text, permissions as handle_permissions, start,
-    stop, stop_project, trust,
+    Ctx, NewSession, agents as handle_agents, check_text, permissions as handle_permissions, send,
+    start, stop, stop_project, trust,
 };
 pub(crate) use transcript::MAX_TEXT_BYTES;
 use transcript::Transcript;

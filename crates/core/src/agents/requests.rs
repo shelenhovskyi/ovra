@@ -110,18 +110,7 @@ pub(crate) async fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Resp
             Ok(Response::Agents(AgentsResponse::Session(info)))
         }
         AgentsRequest::Send { session, text } => {
-            check_text(&text)?;
-            let (process, project, stopping) =
-                sessions.find(&session, |s| (s.process(), s.info().project, s.stopping()))?;
-            let process = match process {
-                Some(process) if !stopping => process,
-                Some(_) => return Err(conflict("the session is stopping")),
-                None => return Err(conflict("the session has ended")),
-            };
-            let host = AgentHost::new(session, project, sessions.clone(), ctx.sink.clone());
-            host.message(AgentMessage::UserText { text: text.clone() });
-            host.set_status(AgentStatus::Working);
-            process.send(text)?;
+            send(ctx, session, text)?;
             Ok(OK)
         }
         AgentsRequest::Interrupt { session } => {
@@ -334,6 +323,23 @@ pub(crate) async fn trust(
         ));
     }
     ctx.projects.set_trusted(project, Some(current))
+}
+
+/// Sends `text` as the running session's next message.
+pub(crate) fn send(ctx: &Ctx<'_>, session: SessionId, text: String) -> Result<()> {
+    check_text(&text)?;
+    let sessions = ctx.sessions;
+    let (process, project, stopping) =
+        sessions.find(&session, |s| (s.process(), s.info().project, s.stopping()))?;
+    let process = match process {
+        Some(process) if !stopping => process,
+        Some(_) => return Err(conflict("the session is stopping")),
+        None => return Err(conflict("the session has ended")),
+    };
+    let host = AgentHost::new(session, project, sessions.clone(), ctx.sink.clone());
+    host.message(AgentMessage::UserText { text: text.clone() });
+    host.set_status(AgentStatus::Working);
+    process.send(text)
 }
 
 /// Denies what the agent waits for and asks it to end; the runtime then

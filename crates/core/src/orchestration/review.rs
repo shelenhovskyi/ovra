@@ -33,7 +33,7 @@ pub(super) struct Entry {
     pub(super) state: ReviewState,
     summary: Option<String>,
     /// The agent asked for a review, so the item shows even without changes.
-    requested: bool,
+    pub(super) requested: bool,
     /// The diff of the last reject, sent with the next comment.
     rejected: Option<String>,
     /// The files as they were when the person decided, kept as the record
@@ -143,11 +143,22 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
         ReviewRequest::Approve { id, commit } => {
             let (item, conflicts) = approve(core, &id, commit).await?;
             prune(core, &item.project).await;
+            let what = if conflicts.is_empty() {
+                "had its work approved by the person"
+            } else {
+                "had its work approved by the person, except files that conflict with the checkout"
+            };
+            super::tasks::tell_coordinator(core, &item.session, what);
             Ok(done((item, conflicts, Vec::new())))
         }
         ReviewRequest::Reject { id } => {
             let outcome = reject(core, &id).await?;
             prune(core, &outcome.0.project).await;
+            super::tasks::tell_coordinator(
+                core,
+                &outcome.0.session,
+                "had its work rejected by the person; its changes were discarded",
+            );
             Ok(done(outcome))
         }
         ReviewRequest::UndoReject { id } => Ok(done(undo_reject(core, &id).await?)),
