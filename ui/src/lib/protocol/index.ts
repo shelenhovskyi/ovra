@@ -70,7 +70,7 @@ export type ResponseFor<R extends Request> = R extends { method: "info.get" }
                       ? Extract<Response, { type: "terminals.opened" }>
                       : R extends { method: "agents.list" }
                         ? Extract<Response, { type: "agents.list" }>
-                        : R extends { method: "agents.start" }
+                        : R extends { method: "agents.start" | "agents.resume" }
                           ? Extract<Response, { type: "agents.session" }>
                           : R extends { method: "agents.transcript" }
                             ? Extract<Response, { type: "agents.transcript" }>
