@@ -138,8 +138,9 @@ const status = $derived.by((): { text: string; ok: boolean } => {
   .shell {
     display: grid;
     height: 100%;
-    grid-template-columns: 260px 1fr 340px;
-    grid-template-rows: 36px 1fr 24px;
+    /* Side columns give way before the main area does (WCAG 1.4.10 Reflow). */
+    grid-template-columns: minmax(160px, 260px) minmax(300px, 1fr) minmax(220px, 340px);
+    grid-template-rows: 36px minmax(0, 1fr) 24px;
     grid-template-areas:
       "header header header"
       "sidebar main agents"
@@ -147,6 +148,8 @@ const status = $derived.by((): { text: string; ok: boolean } => {
   }
   header {
     grid-area: header;
+    min-width: 0;
+    overflow: hidden;
     display: flex;
     align-items: center;
     gap: 12px;
@@ -158,10 +161,15 @@ const status = $derived.by((): { text: string; ok: boolean } => {
     font-size: 14px;
   }
   .project {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     color: #9a9aa6;
   }
   aside {
     grid-area: sidebar;
+    min-width: 0;
     overflow: hidden;
     border-right: 1px solid #2a2a31;
   }
@@ -214,5 +222,40 @@ const status = $derived.by((): { text: string; ok: boolean } => {
   }
   .error {
     color: #ff6b6b;
+  }
+  /* About 200% zoom on a laptop: agents and approvals move under the main area. */
+  @media (max-width: 900px) {
+    .shell {
+      grid-template-columns: minmax(140px, 220px) minmax(0, 1fr);
+      grid-template-rows: 36px minmax(240px, 1fr) minmax(160px, 35%) 24px;
+      grid-template-areas:
+        "header header"
+        "sidebar main"
+        "agents agents"
+        "footer footer";
+    }
+    .agents {
+      border-left: none;
+      border-top: 1px solid #2a2a31;
+    }
+  }
+  /* Narrower still: one column; the page scrolls down, never sideways. */
+  @media (max-width: 600px) {
+    .shell {
+      height: auto;
+      min-height: 100%;
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-rows: 36px minmax(320px, 70vh) minmax(200px, 40vh) minmax(200px, 40vh) 24px;
+      grid-template-areas:
+        "header"
+        "main"
+        "sidebar"
+        "agents"
+        "footer";
+    }
+    aside {
+      border-right: none;
+      border-top: 1px solid #2a2a31;
+    }
   }
 </style>
