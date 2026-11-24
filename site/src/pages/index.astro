@@ -1,0 +1,383 @@
+---
+import Base from "../layouts/Base.astro";
+import { GITHUB } from "../lib/rewrite-links.mjs";
+
+const base = import.meta.env.BASE_URL;
+const shot = (name: string): string => `${base}screenshots/${name}.png`;
+const adr = (id: string): string => `${base}docs/adr/${id}/`;
+
+const today = [
+  {
+    title: "A file tree that stays fast",
+    body: "Virtualized and lazy, with .gitignore, git status and live file watching. Tested in CI against a 100,000-file repository.",
+  },
+  {
+    title: "Viewers and a light editor",
+    body: "Markdown without raw HTML, images, diffs, and a CodeMirror 6 editor with tree-sitter highlighting. Unsaved text survives reloads and conflicts.",
+  },
+  {
+    title: "Keyboard first",
+    body: "Command palette, Go to file, and shortcuts that work on any keyboard layout, in the desktop app and in a browser.",
+  },
+  {
+    title: "Terminals",
+    body: "Your own shell in a pseudo-terminal, in tabs next to the code.",
+  },
+  {
+    title: "Claude sessions",
+    body: "Start a task, watch the transcript stream, reply, interrupt or stop. Each session runs your installed claude CLI with your own sign-in.",
+  },
+  {
+    title: "One approval queue",
+    body: "Every tool call an agent wants to make lands in one queue you can clear from the keyboard, with in-app and system notifications.",
+  },
+];
+
+const principles = [
+  {
+    title: "All logic in a Rust core",
+    body: "The UI and the OS are thin, replaceable layers. The same core runs in the Tauri window, in a browser and in tests.",
+    link: adr("0002-core-without-ui"),
+  },
+  {
+    title: "Headless mode",
+    body: "The daemon serves the real UI to a regular browser on 127.0.0.1 with a per-launch token, so agents in a cloud container can run and test it.",
+    link: adr("0003-headless-mode-security"),
+  },
+  {
+    title: "Your own Claude, untouched",
+    body: "Ovra drives the unmodified claude CLI you already signed in to. It never reads, stores or relays your credentials.",
+    link: adr("0006-claude-via-installed-cli"),
+  },
+  {
+    title: "Isolated or direct",
+    body: "Agents will work in their own git worktrees, or one at a time in your checkout, reviewed as a diff against a snapshot.",
+    link: adr("0005-direct-mode"),
+  },
+];
+
+const phases = [
+  {
+    n: 0,
+    title: "Scaffold",
+    state: "done",
+    body: "Monorepo, transport, headless daemon, CI on Linux, macOS and Windows.",
+  },
+  {
+    n: 1,
+    title: "Viewer and editor",
+    state: "done",
+    body: "Tree, viewers, editor, palette, speed gate. Fixing UX review findings.",
+  },
+  {
+    n: 2,
+    title: "Agents",
+    state: "now",
+    body: "Terminals, Claude sessions and approvals have landed. Next: Claude onboarding and other agents over ACP.",
+  },
+  { n: 3, title: "Orchestration", state: "next", body: "A coordinator agent, subagents in worktrees, a review inbox." },
+  { n: 4, title: "Security", state: "next", body: "Per-agent sandboxes, a network proxy and secrets handling." },
+  { n: 5, title: "Release", state: "next", body: "Windows polish, signed installers, updates." },
+  { n: 6, title: "Extensions", state: "next", body: "A public extension API." },
+];
+const stateLabel: Record<string, string> = { done: "Done", now: "In progress", next: "Planned" };
+---
+
+<Base title="Ovra: an agent-first IDE" section="home" description="Ovra is a lightweight, agent-first IDE: agents do the work, you set tasks and approve results. Rust core, Svelte 5 UI, Tauri 2. Pre-alpha.">
+  <section class="hero wrap">
+    <span class="pill"><span class="dot" aria-hidden="true"></span>Pre-alpha, in active development</span>
+    <h1>An IDE where agents do the work and you approve it.</h1>
+    <p class="sub">
+      Ovra is a lightweight, agent-first IDE. You set tasks; Claude sessions work in your project; you watch,
+      answer their questions and approve tool calls and diffs from one keyboard-fast queue. A Rust core, a Svelte 5 UI
+      and a thin Tauri 2 shell.
+    </p>
+    <div class="actions">
+      <a class="button primary" href={`${base}docs/architecture/`}>How it works</a>
+      <a class="button" href={GITHUB}>View on GitHub</a>
+    </div>
+    <p class="muted small">There is no release yet. You can build it from source; expect rough edges and breaking changes.</p>
+  </section>
+
+  <section class="wrap">
+    <figure class="frame">
+      <img
+        src={shot("workspace")}
+        width="1440"
+        height="900"
+        alt="Ovra showing its own repository: the file tree with git status on the left, the rendered architecture document in the middle, and the agents column on the right."
+      />
+    </figure>
+    <p class="caption muted">Ovra open on its own repository, in headless mode. Screenshots are taken by Playwright from the current build.</p>
+  </section>
+
+  <section class="wrap block">
+    <h2>What works today</h2>
+    <div class="grid">
+      {
+        today.map((f) => (
+          <div class="card">
+            <h3>{f.title}</h3>
+            <p>{f.body}</p>
+          </div>
+        ))
+      }
+    </div>
+  </section>
+
+  <section class="wrap block split">
+    <div>
+      <h2>Agents ask, you decide</h2>
+      <p>
+        Every Claude session is your own <code>claude</code> CLI, started by Ovra and spoken to over stream-json. When it
+        wants to run a command or edit a file, the request waits in the approvals column: allow with <kbd>Y</kbd>, deny
+        with <kbd>N</kbd>, or deny and tell the agent why. Usage comes from your own plan; Ovra shows it and never adds
+        to it.
+      </p>
+      <p><a href={`${base}docs/specs/claude-cli-protocol/`}>The part of the CLI protocol Ovra uses</a></p>
+    </div>
+    <figure class="frame">
+      <img
+        src={shot("agents")}
+        width="1440"
+        height="900"
+        alt="A Claude session with its streaming transcript and a pending request to run a shell command, with Allow and Deny buttons."
+      />
+    </figure>
+  </section>
+
+  <section class="wrap block split reverse">
+    <div>
+      <h2>Code, terminal, keyboard</h2>
+      <p>
+        Open any file from Go to file in a few keystrokes, edit it with tree-sitter highlighting, and keep a real shell
+        next to it. Shortcuts match physical keys, so they work on any keyboard layout.
+      </p>
+    </div>
+    <figure class="frame">
+      <img
+        src={shot("editor")}
+        width="1440"
+        height="900"
+        alt="A Rust source file in the editor with syntax highlighting and a terminal panel below it."
+      />
+    </figure>
+  </section>
+
+  <section class="wrap block">
+    <h2>How it is built</h2>
+    <div class="grid">
+      {
+        principles.map((p) => (
+          <a class="card link" href={p.link}>
+            <h3>{p.title}</h3>
+            <p>{p.body}</p>
+          </a>
+        ))
+      }
+      <a class="card link" href={`${base}speed/`}>
+        <h3>Speed is tested, not promised</h3>
+        <p>Cold start under 1 s and idle memory under 150 MB are CI targets, measured on every push to main.</p>
+      </a>
+      <a class="card link" href={`${base}docs/ux-reviews/`}>
+        <h3>Reviewed by personas</h3>
+        <p>Agents play a newcomer, a keyboard power user, a monorepo maintainer and others, and report what gets in the way.</p>
+      </a>
+    </div>
+  </section>
+
+  <section class="wrap block">
+    <h2>Roadmap</h2>
+    <ol class="phases">
+      {
+        phases.map((p) => (
+          <li class={p.state}>
+            <span class="badge">{stateLabel[p.state]}</span>
+            <div>
+              <h3>
+                Phase {p.n}: {p.title}
+              </h3>
+              <p>{p.body}</p>
+            </div>
+          </li>
+        ))
+      }
+    </ol>
+  </section>
+
+  <section class="wrap block">
+    <h2>Built the way it wants you to work</h2>
+    <p class="narrow">
+      Ovra is written mostly by AI agents working in parallel, each in its own area of the repository, with a person
+      setting goals and approving decisions. The rules they follow are in
+      <a href={`${GITHUB}/blob/main/CLAUDE.md`}><code>CLAUDE.md</code></a>, and the decisions they may not make alone are
+      written down. <a href={`${base}contribute/`}>Want to help?</a>
+    </p>
+  </section>
+</Base>
+
+<style>
+  .hero {
+    padding-top: 72px;
+    padding-bottom: 40px;
+    max-width: 900px;
+    margin-left: auto;
+    margin-right: auto;
+    text-align: center;
+  }
+  .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+  h1 {
+    font-size: clamp(34px, 6vw, 56px);
+    line-height: 1.08;
+    letter-spacing: -0.02em;
+    margin: 20px 0;
+  }
+  .sub {
+    font-size: 19px;
+    color: var(--muted);
+    max-width: 720px;
+    margin: 0 auto;
+  }
+  .actions {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin: 28px 0 14px;
+  }
+  .small {
+    font-size: 14px;
+  }
+  .frame {
+    margin: 0;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 18px 50px -20px rgb(0 0 0 / 35%);
+    background: var(--bg-soft);
+  }
+  .frame img {
+    display: block;
+    width: 100%;
+  }
+  .caption {
+    text-align: center;
+    font-size: 14px;
+  }
+  .block {
+    margin-top: 88px;
+  }
+  h2 {
+    font-size: 28px;
+    letter-spacing: -0.01em;
+    margin: 0 0 20px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
+  }
+  .card {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 18px 20px;
+    background: var(--bg);
+  }
+  .card h3 {
+    font-size: 17px;
+    margin: 0 0 6px;
+  }
+  .card p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 15px;
+  }
+  .card.link {
+    color: inherit;
+    text-decoration: none;
+  }
+  .card.link:hover {
+    border-color: var(--accent);
+  }
+  .split {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+    gap: 40px;
+    align-items: center;
+  }
+  .split.reverse > div {
+    order: 2;
+  }
+  kbd {
+    border: 1px solid var(--line);
+    border-bottom-width: 2px;
+    border-radius: 4px;
+    padding: 0 5px;
+  }
+  .phases {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: grid;
+    gap: 10px;
+  }
+  .phases li {
+    display: grid;
+    grid-template-columns: 110px minmax(0, 1fr);
+    gap: 16px;
+    align-items: baseline;
+    padding: 12px 16px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+  }
+  .phases h3 {
+    margin: 0;
+    font-size: 16px;
+  }
+  .phases p {
+    margin: 2px 0 0;
+    color: var(--muted);
+    font-size: 15px;
+  }
+  .badge {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+  }
+  .phases .done .badge {
+    color: var(--ok);
+  }
+  .phases .now {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+  .phases .now .badge {
+    color: var(--accent);
+  }
+  .narrow {
+    max-width: 760px;
+  }
+  @media (max-width: 820px) {
+    .hero {
+      padding-top: 40px;
+    }
+    .split {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 20px;
+    }
+    .split.reverse > div {
+      order: 0;
+    }
+    .phases li {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 4px;
+    }
+  }
+</style>

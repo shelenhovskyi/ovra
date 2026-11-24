@@ -1,0 +1,224 @@
+:root {
+  --bg: #fbfbfa;
+  --bg-soft: #f2f2ef;
+  --fg: #1d1d1b;
+  --muted: #5d5d58;
+  --line: #e2e2dd;
+  --accent: #4b3fd6;
+  --accent-soft: #ecebfc;
+  --ok: #1a7f37;
+  --bad: #c0362c;
+  --code-bg: #f2f2ef;
+  --radius: 10px;
+  --wide: 1120px;
+  --text: 760px;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111113;
+    --bg-soft: #1a1a1d;
+    --fg: #ececea;
+    --muted: #a3a39e;
+    --line: #2b2b30;
+    --accent: #a59cff;
+    --accent-soft: #24223d;
+    --ok: #57c26f;
+    --bad: #ff7b6e;
+    --code-bg: #1a1a1d;
+  }
+  /* Shiki writes the light colours inline; the dark ones are CSS variables. */
+  .astro-code,
+  .astro-code span {
+    /* biome-ignore lint/complexity/noImportantStyles: overrides Shiki's inline light theme */
+    color: var(--shiki-dark) !important;
+    /* biome-ignore lint/complexity/noImportantStyles: overrides Shiki's inline light theme */
+    background-color: var(--shiki-dark-bg) !important;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+html {
+  -webkit-text-size-adjust: 100%;
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font:
+    16px / 1.6 ui-sans-serif,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
+}
+a {
+  color: var(--accent);
+  text-underline-offset: 2px;
+}
+code,
+pre,
+kbd {
+  font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+  font-size: 0.9em;
+}
+:not(pre) > code {
+  background: var(--code-bg);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+}
+pre {
+  padding: 14px 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  overflow-x: auto;
+  line-height: 1.45;
+}
+img {
+  max-width: 100%;
+  height: auto;
+}
+.wrap {
+  max-width: var(--wide);
+  margin: 0 auto;
+  padding: 0 16px;
+}
+
+/* Header and footer */
+.top {
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(8px);
+  z-index: 10;
+}
+.top .wrap {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  height: 56px;
+}
+.brand {
+  font-weight: 700;
+  font-size: 18px;
+  color: var(--fg);
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.brand-mark {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 5px solid var(--accent);
+}
+.top nav {
+  display: flex;
+  gap: 18px;
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+.top nav a {
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 15px;
+}
+.top nav a:hover,
+.top nav a[aria-current="page"] {
+  color: var(--fg);
+}
+.foot {
+  border-top: 1px solid var(--line);
+  margin-top: 80px;
+  padding: 28px 0 40px;
+  color: var(--muted);
+  font-size: 14px;
+}
+.foot .wrap {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+
+/* Prose */
+.prose {
+  max-width: var(--text);
+}
+.prose h1 {
+  font-size: 34px;
+  line-height: 1.2;
+  margin: 8px 0 20px;
+}
+.prose h2 {
+  font-size: 23px;
+  margin: 40px 0 12px;
+}
+.prose h3 {
+  font-size: 18px;
+  margin: 28px 0 8px;
+}
+.prose table {
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+  font-size: 14px;
+  margin: 16px 0;
+}
+.prose th,
+.prose td {
+  border: 1px solid var(--line);
+  padding: 6px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+.prose th {
+  background: var(--bg-soft);
+}
+.prose blockquote {
+  margin: 16px 0;
+  padding: 2px 16px;
+  border-left: 3px solid var(--line);
+  color: var(--muted);
+}
+
+/* Small parts */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 600;
+}
+.button {
+  display: inline-block;
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-weight: 600;
+  text-decoration: none;
+  border: 1px solid var(--line);
+  color: var(--fg);
+}
+.button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+}
+.muted {
+  color: var(--muted);
+}
+.ok {
+  color: var(--ok);
+}
+.bad {
+  color: var(--bad);
+}

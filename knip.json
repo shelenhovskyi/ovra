@@ -10,6 +10,9 @@
     },
     "tests/perf": {
       "entry": ["specs/**/*.ts"]
+    },
+    "site": {
+      "entry": ["screenshots.ts"]
     }
   }
 }

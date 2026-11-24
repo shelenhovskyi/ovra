@@ -1,0 +1,13 @@
+{
+  "name": "@ovra/site",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build"
+  },
+  "devDependencies": {
+    "astro": "7.4.13"
+  }
+}

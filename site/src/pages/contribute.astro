@@ -1,0 +1,70 @@
+---
+import Base from "../layouts/Base.astro";
+import { GITHUB } from "../lib/rewrite-links.mjs";
+
+const base = import.meta.env.BASE_URL;
+---
+
+<Base title="Contribute" section="contribute" description="How to build Ovra from source, run its checks and contribute.">
+  <div class="wrap prose page">
+    <h1>Contribute</h1>
+    <p>
+      Ovra is pre-alpha. The architecture is settled enough to build on, but APIs and the protocol still change without
+      notice. Issues and focused pull requests are welcome; for anything larger than a day of work, open an issue first,
+      because bigger features start with a short spec in <code>docs/specs/</code>.
+    </p>
+
+    <h2>Build from source</h2>
+    <p>
+      You need Rust (the version in <code>rust-toolchain.toml</code>), Node.js 22 with pnpm, <code>just</code>, and on
+      Linux the WebKitGTK development packages. <code>scripts/cloud-setup.sh</code> installs all of it on Ubuntu.
+    </p>
+    <pre><code>git clone {GITHUB}.git
+cd ovra
+scripts/cloud-setup.sh   # Linux: system packages, just, cargo tools, pnpm install
+just dev-headless        # core + UI in your browser: open the printed OVRA_URL
+just dev                 # the desktop app (needs a display)</code></pre>
+    <p>
+      Agent sessions need Claude Code installed and signed in (<code>claude</code> on your <code>PATH</code>). Ovra runs
+      it as is, with your own account.
+    </p>
+
+    <h2>Checks</h2>
+    <p><code>just</code> is the only entry point; <code>just --list</code> shows every recipe.</p>
+    <ul>
+      <li><code>just check</code>: formatting, clippy, repository rules. Run it often.</li>
+      <li><code>just test</code>: Rust and UI unit tests.</li>
+      <li><code>just e2e</code>: Playwright against headless mode.</li>
+      <li><code>just lint</code>: everything CI lints, including licenses.</li>
+      <li><code>just perf</code>: the <a href={`${base}speed/`}>speed gate</a> against a generated 100,000-file repository.</li>
+    </ul>
+    <p>
+      Tests have time budgets and the suite must stay fast: no sleeps, fake clocks and fake agents instead of real ones.
+    </p>
+
+    <h2>Rules of the road</h2>
+    <ul>
+      <li>Read <a href={`${base}docs/architecture/`}>the architecture</a>, <a href={`${base}docs/glossary/`}>the glossary</a> and the <a href={`${base}docs/adr/`}>decision records</a> that touch your change.</li>
+      <li>All logic goes in the Rust core. A new OS-facing feature is a trait with a fake in the core and a real implementation in its own crate.</li>
+      <li>Every behaviour change comes with a test. Conventional Commits, small changes (about 400 lines at most).</li>
+      <li>Repository content and the UI are English only.</li>
+      <li>Security-sensitive code (sandbox, CSP, Tauri capabilities, secrets) needs a separate human review.</li>
+    </ul>
+    <p>
+      The full rules, which human and AI contributors follow alike, are in
+      <a href={`${GITHUB}/blob/main/CLAUDE.md`}><code>CLAUDE.md</code></a>.
+    </p>
+
+    <h2>License</h2>
+    <p>
+      Ovra is licensed under the <a href={`${GITHUB}/blob/main/LICENSE`}>Apache License 2.0</a>. Contributions are
+      accepted under the same license.
+    </p>
+  </div>
+</Base>
+
+<style>
+  .page {
+    padding-top: 32px;
+  }
+</style>

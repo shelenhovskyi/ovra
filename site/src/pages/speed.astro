@@ -1,0 +1,189 @@
+---
+import Base from "../layouts/Base.astro";
+import { fmt, loadRuns, targets, unit } from "../lib/perf";
+import { GITHUB } from "../lib/rewrite-links.mjs";
+
+const runs = loadRuns();
+const latest = runs[0];
+const history = runs.slice(0, 20).reverse();
+const names = Object.keys(targets);
+const missed = latest ? names.filter((n) => (latest.values[n] ?? 0) > (targets[n]?.max ?? Infinity)).length : 0;
+const date = (iso: string): string => new Date(iso).toISOString().slice(0, 16).replace("T", " ");
+
+/** Points of a sparkline: each value as a share of the target, so the target line sits at the same height everywhere. */
+function spark(name: string): { points: string; targetY: number } | null {
+  const max = targets[name]?.max ?? 1;
+  const values = history.map((r) => r.values[name]).filter((v): v is number => typeof v === "number");
+  if (values.length < 2) return null;
+  const top = Math.max(max * 1.25, ...values);
+  const y = (v: number): number => 28 - (v / top) * 26;
+  const step = 96 / (values.length - 1);
+  return {
+    points: values.map((v, i) => `${(2 + i * step).toFixed(1)},${y(v).toFixed(1)}`).join(" "),
+    targetY: y(max),
+  };
+}
+---
+
+<Base title="Speed" section="speed" description="Ovra's speed gate: cold start, memory and file tree timings against a 100,000-file repository, from CI.">
+  <div class="wrap prose-wide">
+    <h1>Speed gate</h1>
+    <p class="lead">
+      Speed is a feature, so it is tested like one. On every push to <code>main</code>, CI builds the release daemon,
+      generates a git repository with 100,000 files and measures cold start, memory, file listing, file watching and the
+      virtualized tree in headless Chromium. Each number has a target in
+      <a href={`${GITHUB}/blob/main/tests/perf/targets.json`}><code>tests/perf/targets.json</code></a>; "concept"
+      targets are product promises (1 s cold start, 150 MB idle memory), "budget" targets keep the parts that add up to
+      them in check. Raising a target needs a human.
+    </p>
+
+    {
+      latest ? (
+        <p class="run">
+          Latest run: <a href={latest.url}>CI run {latest.run}</a> on commit{" "}
+          <a href={`${GITHUB}/commit/${latest.sha}`}>
+            <code>{latest.sha.slice(0, 7)}</code>
+          </a>
+          , {date(latest.at)} UTC, Linux (GitHub-hosted <code>ubuntu-24.04</code>).{" "}
+          {missed === 0 ? (
+            <strong class="ok">All targets met.</strong>
+          ) : (
+            <strong class="bad">{missed} target(s) missed.</strong>
+          )}
+        </p>
+      ) : (
+        <p class="run">
+          No results published yet. The table fills in after the next CI run on <code>main</code>; until then it shows
+          the targets only.
+        </p>
+      )
+    }
+
+    <div class="table">
+      <table>
+        <thead>
+          <tr>
+            <th>Metric</th>
+            <th class="num">Result</th>
+            <th class="num">Target</th>
+            <th>Status</th>
+            {history.length > 1 && <th>Last {history.length} runs</th>}
+          </tr>
+        </thead>
+        <tbody>
+          {
+            names.map((name) => {
+              const t = targets[name];
+              if (!t) return null;
+              const v = latest?.values[name];
+              const u = unit(name);
+              const s = spark(name);
+              let status = "not run";
+              let cls = "muted";
+              if (v === null) status = "n/a on this OS";
+              else if (typeof v === "number") {
+                status = v <= t.max ? "ok" : `over by ${fmt(v - t.max)} ${u}`;
+                cls = v <= t.max ? "ok" : "bad";
+              }
+              return (
+                <tr>
+                  <td>
+                    {t.label}
+                    <div class="id">
+                      <code>{name}</code> · {t.source}
+                    </div>
+                  </td>
+                  <td class="num">{typeof v === "number" ? `${fmt(v)} ${u}` : "-"}</td>
+                  <td class="num">
+                    {fmt(t.max)} {u}
+                  </td>
+                  <td class={cls}>{status}</td>
+                  {history.length > 1 && (
+                    <td>
+                      {s && (
+                        <svg viewBox="0 0 100 30" width="100" height="30" role="img" aria-label={`Trend of ${t.label}`}>
+                          <line x1="0" x2="100" y1={s.targetY} y2={s.targetY} class="target" />
+                          <polyline points={s.points} class="trend" />
+                        </svg>
+                      )}
+                    </td>
+                  )}
+                </tr>
+              );
+            })
+          }
+        </tbody>
+      </table>
+    </div>
+    <p class="muted note">
+      Sparklines: the dashed line is the target. Results come from shared CI machines, so single runs are noisy; the trend
+      matters more than one number. Older runs drop off when their CI artifacts expire (30 days). Run it yourself with
+      <code>just perf</code>.
+    </p>
+  </div>
+</Base>
+
+<style>
+  .prose-wide {
+    max-width: 980px;
+    padding-top: 32px;
+  }
+  h1 {
+    font-size: 34px;
+    margin: 8px 0 16px;
+  }
+  .lead {
+    max-width: 760px;
+  }
+  .run {
+    padding: 12px 16px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--bg-soft);
+  }
+  .table {
+    overflow-x: auto;
+    margin-top: 20px;
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 14px;
+  }
+  th,
+  td {
+    text-align: left;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: middle;
+  }
+  th {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+  }
+  .num {
+    text-align: right;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .id {
+    font-size: 12px;
+    color: var(--muted);
+  }
+  svg .target {
+    stroke: var(--muted);
+    stroke-dasharray: 3 3;
+    stroke-width: 1;
+  }
+  svg .trend {
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 1.6;
+  }
+  .note {
+    font-size: 14px;
+    margin-top: 16px;
+  }
+</style>

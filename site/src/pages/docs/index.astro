@@ -1,0 +1,30 @@
+---
+import Docs from "../../layouts/Docs.astro";
+import { docGroups } from "../../lib/docs";
+
+const base = import.meta.env.BASE_URL;
+const groups = await docGroups();
+---
+
+<Docs title="Documentation">
+  <h1>Documentation</h1>
+  <p>
+    These pages are built from the <code>docs/</code> folder of the repository on every push to <code>main</code>, so
+    they match the code. Start with the architecture page; the decision records explain why things are the way they
+    are.
+  </p>
+  {
+    groups.map((g) => (
+      <>
+        <h2>{g.title}</h2>
+        <ul>
+          {g.docs.map((d) => (
+            <li>
+              <a href={`${base}docs/${d.id}/`}>{d.title}</a>
+            </li>
+          ))}
+        </ul>
+      </>
+    ))
+  }
+</Docs>

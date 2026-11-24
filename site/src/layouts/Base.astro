@@ -1,0 +1,59 @@
+---
+import "../styles/site.css";
+import { GITHUB } from "../lib/rewrite-links.mjs";
+
+interface Props {
+  title: string;
+  description?: string;
+  section?: "home" | "docs" | "speed" | "contribute";
+}
+const { title, description = "Ovra: a lightweight, agent-first IDE.", section } = Astro.props;
+const base = import.meta.env.BASE_URL;
+const pageTitle = section === "home" ? title : `${title} · Ovra`;
+const links = [
+  { href: `${base}docs/`, label: "Docs", id: "docs" },
+  { href: `${base}speed/`, label: "Speed", id: "speed" },
+  { href: `${base}contribute/`, label: "Contribute", id: "contribute" },
+  { href: GITHUB, label: "GitHub", id: "github" },
+];
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{pageTitle}</title>
+    <meta name="description" content={description} />
+    <meta property="og:title" content={pageTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:image" content={new URL(`${base}screenshots/workspace.png`, Astro.site)} />
+    <link rel="icon" href={`${base}favicon.svg`} type="image/svg+xml" />
+    <link rel="canonical" href={new URL(Astro.url.pathname, Astro.site)} />
+  </head>
+  <body>
+    <header class="top">
+      <div class="wrap">
+        <a class="brand" href={base}><span class="brand-mark" aria-hidden="true"></span>Ovra</a>
+        <nav aria-label="Site">
+          {
+            links.map((l) => (
+              <a href={l.href} aria-current={l.id === section ? "page" : undefined}>
+                {l.label}
+              </a>
+            ))
+          }
+        </nav>
+      </div>
+    </header>
+    <main>
+      <slot />
+    </main>
+    <footer class="foot">
+      <div class="wrap">
+        <span>Ovra is pre-alpha software under active development. Apache-2.0.</span>
+        <a href={GITHUB}>Source on GitHub</a>
+      </div>
+    </footer>
+  </body>
+</html>

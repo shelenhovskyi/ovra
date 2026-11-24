@@ -1,0 +1,18 @@
+---
+import { getCollection } from "astro:content";
+import Docs from "../../layouts/Docs.astro";
+import { docTitle } from "../../lib/docs";
+import { rewriteHtml } from "../../lib/rewrite-links.mjs";
+
+export async function getStaticPaths() {
+  const docs = await getCollection("docs");
+  return docs.map((doc) => ({ params: { slug: doc.id }, props: { doc } }));
+}
+const { doc } = Astro.props;
+const source = `docs/${doc.filePath?.split("docs/").slice(1).join("docs/")}`;
+const html = rewriteHtml(doc.rendered?.html ?? "", source);
+---
+
+<Docs title={docTitle(doc)} current={doc.id} source={source}>
+  <Fragment set:html={html} />
+</Docs>

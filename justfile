@@ -65,3 +65,11 @@ fmt:
 # UX review: run a persona script against headless mode (docs/ux-reviews/README.md).
 ux script *args: build-headless
     node tests/e2e/ux/run.ts {{script}} {{args}}
+
+# Project site (site/): build it into site/dist. Not part of `just test`.
+site:
+    pnpm --filter @ovra/site build
+
+# Retake the site's screenshots from headless mode.
+site-screenshots: build-headless
+    node tests/e2e/ux/run.ts site/screenshots.ts --out target/ux/site-screenshots
