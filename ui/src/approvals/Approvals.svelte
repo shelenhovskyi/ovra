@@ -171,6 +171,11 @@ function onKeydown(event: KeyboardEvent, request: PermissionRequest): void {
             {sessionName(sessions.byId.get(request.session), request.session)} asks to use {request.tool}
           </p>
           <h3 id="{domId}-action">{summary.action}</h3>
+          {#if request.reason}
+            <p class="title" data-testid="approval-reason">
+              Why it asks: {request.reason.text}{#if request.reason.kind}{" "}({request.reason.kind}){/if}
+            </p>
+          {/if}
           {#if request.title && request.title !== summary.action}
             <p class="title">Agent's note: {request.title}</p>
           {/if}

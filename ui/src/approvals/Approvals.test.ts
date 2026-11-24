@@ -67,6 +67,12 @@ describe("Approvals", () => {
     const card = cards()[0];
     expect(card?.querySelector("h3")?.textContent).toBe("Run ls -la");
     expect(card?.textContent).toContain("Fix the typo asks to use Bash");
+    expect(card?.querySelector("[data-testid=approval-reason]")).toBeNull();
+    core.ask({ ...bash("perm2"), reason: { text: "Path is outside allowed working directories", kind: "rule" } });
+    await settle();
+    expect(cards()[1]?.querySelector("[data-testid=approval-reason]")?.textContent?.trim()).toBe(
+      "Why it asks: Path is outside allowed working directories (rule)",
+    );
     expect(document.activeElement).toBe(elsewhere);
     press("KeyY");
     press("Enter");
