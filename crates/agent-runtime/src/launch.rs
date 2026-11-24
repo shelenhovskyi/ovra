@@ -1,6 +1,41 @@
 //! The command line `claude` is started with.
 
 use std::ffi::OsString;
+use std::path::Path;
+
+use tokio::process::Command;
+
+/// Variables a running Claude Code session sets for the processes it starts.
+/// When Ovra itself runs inside such a session (an IDE terminal, a Claude
+/// Code tool call), they would make our `claude` think it is nested in that
+/// session or attach to its IDE, so they are removed. Exact names only:
+/// everything else, including the user's configuration (`ANTHROPIC_*`,
+/// `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, proxies), is kept.
+pub(crate) const NESTED_SESSION_VARS: [&str; 9] = [
+    // Set to 1 inside a session; the CLI treats its children as nested.
+    "CLAUDECODE",
+    // How the parent was started (`cli`, `sdk-ts`, ...).
+    "CLAUDE_CODE_ENTRYPOINT",
+    // The parent's IDE connection.
+    "CLAUDE_CODE_SSE_PORT",
+    "ENABLE_IDE_INTEGRATION",
+    // The parent session's identity and process.
+    "CLAUDE_CODE_SESSION_ID",
+    "CLAUDE_CODE_CHILD_SESSION",
+    "CLAUDE_CODE_EXECPATH",
+    "CLAUDE_PID",
+    "CLAUDE_AGENT_SDK_VERSION",
+];
+
+/// A command for `claude` with the user's environment minus
+/// [`NESTED_SESSION_VARS`].
+pub(crate) fn command(executable: &Path) -> Command {
+    let mut command = Command::new(executable);
+    for name in NESTED_SESSION_VARS {
+        command.env_remove(name);
+    }
+    command
+}
 
 /// Which Claude Code session the process works in.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -13,7 +48,7 @@ pub(crate) enum Conversation {
 
 /// The arguments for one session. Ovra never passes `--bare` (it ignores the
 /// subscription login) and never touches `CLAUDE_CONFIG_DIR` or credentials;
-/// the environment is inherited unchanged (ADR 0006).
+/// the environment is inherited except for [`NESTED_SESSION_VARS`] (ADR 0006).
 pub(crate) fn args(conversation: &Conversation, trusted: bool) -> Vec<OsString> {
     let mut args: Vec<&str> = vec![
         "-p",
@@ -58,6 +93,27 @@ pub(crate) fn args(conversation: &Conversation, trusted: bool) -> Vec<OsString> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn nested_session_markers_are_removed_and_configuration_is_kept() {
+        let command = command(Path::new("claude"));
+        let envs: Vec<_> = command.as_std().get_envs().collect();
+        let removed: Vec<_> = envs
+            .iter()
+            .filter(|(_, value)| value.is_none())
+            .map(|(name, _)| name.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(removed.len(), NESTED_SESSION_VARS.len());
+        for name in NESTED_SESSION_VARS {
+            assert!(removed.iter().any(|r| r == name), "{name}");
+        }
+        assert!(envs.iter().all(|(_, value)| value.is_none()));
+        assert!(
+            !removed
+                .iter()
+                .any(|r| r.contains("BEDROCK") || r.starts_with("ANTHROPIC"))
+        );
+    }
 
     fn line(conversation: &Conversation, trusted: bool) -> String {
         args(conversation, trusted)

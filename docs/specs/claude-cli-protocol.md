@@ -21,7 +21,8 @@ claude -p
 ```
 
 - cwd: the project root (direct mode) or the worktree (isolated mode).
-- Environment: the user's own, unchanged. Never `--bare` (it ignores the
+- Environment: the user's own, minus the nested-session markers listed in ADR
+  0006 (`CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT`, ...). Never `--bare` (it ignores the
   subscription login) and never a different `CLAUDE_CONFIG_DIR` (it hides
   the login). Ovra never reads or passes credentials.
 - `-p` skips Claude Code's workspace trust dialog, hence `--setting-sources

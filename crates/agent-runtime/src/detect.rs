@@ -8,7 +8,6 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use ovra_core::protocol::agents::{AgentSetup, SetupState};
-use tokio::process::Command;
 
 /// Oldest version the protocol was checked against (the 2026-11-24 spike).
 const MIN_VERSION: Version = Version(2, 1, 331);
@@ -189,7 +188,7 @@ pub(crate) fn find(chosen: Option<&Path>, env: &Env) -> Result<PathBuf, Problem>
 /// Runs `executable` with `args` and returns its stdout and whether it
 /// exited successfully.
 async fn ask(executable: &Path, args: &[&str]) -> Result<(String, bool), Problem> {
-    let run = Command::new(executable)
+    let run = crate::launch::command(executable)
         .args(args)
         .stdin(std::process::Stdio::null())
         .kill_on_drop(true)

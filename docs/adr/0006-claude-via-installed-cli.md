@@ -49,6 +49,16 @@ the CLI directly, without the SDK:
   passes or proxies credentials. It never uses `--bare` (which ignores the
   subscription login) and never changes `CLAUDE_CONFIG_DIR` (which would hide
   the login).
+- The environment is the user's own with one exception: when Ovra itself runs
+  inside a Claude Code session (an IDE terminal, a tool call), the variables
+  that session sets for its children would make our `claude` think it is
+  nested in that session or attach to its IDE. Ovra removes exactly these:
+  `CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT`, `CLAUDE_CODE_SSE_PORT`,
+  `ENABLE_IDE_INTEGRATION`, `CLAUDE_CODE_SESSION_ID`,
+  `CLAUDE_CODE_CHILD_SESSION`, `CLAUDE_CODE_EXECPATH`, `CLAUDE_PID` and
+  `CLAUDE_AGENT_SDK_VERSION` (`crates/agent-runtime/src/launch.rs`). Every
+  other variable stays, including the user's configuration (`ANTHROPIC_*`,
+  `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, proxies, CA bundles).
 - The binary is run as published, unmodified. Ovra finds it on `PATH` (or a
   path the user sets), checks its version against a tested range and tells
   the user how to install, update or sign in when needed.

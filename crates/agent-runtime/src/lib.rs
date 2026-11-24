@@ -18,7 +18,6 @@ use ovra_core::protocol::agents::{AgentSetup, AgentStatus, ProjectAgentConfig};
 use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::{AgentHost, AgentRuntime, AgentSpec, BoxFuture, Result, RunningAgent};
 use tokio::io::{AsyncReadExt, BufReader};
-use tokio::process::Command as Process;
 use tokio::sync::mpsc;
 
 use crate::driver::{Command, Ended};
@@ -109,7 +108,7 @@ async fn session(
     if let Err(problem) = detect::check_version(&executable).await {
         return failed(problem.to_string());
     }
-    let child = Process::new(&executable)
+    let child = launch::command(&executable)
         .args(launch::args(&conversation, spec.trusted))
         .current_dir(&spec.cwd)
         .stdin(Stdio::piped())
