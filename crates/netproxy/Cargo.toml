@@ -1,0 +1,20 @@
+[package]
+name = "ovra-netproxy"
+description = "Per-session HTTP proxies with a host allowlist, the only way out of an agent sandbox (implements ovra_core::services::NetProxy)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+ovra-core.workspace = true
+httparse = "1"
+tokio = { workspace = true, features = ["io-util", "net", "rt", "sync", "time"] }
+
+[dev-dependencies]
+ovra-core = { workspace = true, features = ["fakes"] }
+tokio = { workspace = true, features = ["macros", "test-util"] }
+
+[lints]
+workspace = true
