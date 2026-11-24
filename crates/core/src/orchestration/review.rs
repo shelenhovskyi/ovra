@@ -487,18 +487,10 @@ async fn comment(core: &Core, id: &ReviewId, text: String) -> Result<()> {
         Some(diff) if entry.state == ReviewState::Rejected => with_rejected(&text, diff),
         _ => text,
     };
+    // A decided item stays the record of its decision: what the session
+    // changes next opens a new item (`follow_up`), so a rejected item never
+    // comes back open with nothing in it.
     continue_session(core, &entry.session, message).await?;
-    // An older item stays the record of its decision; the session's latest
-    // item is the one that shows its new work.
-    let latest = of_session(core, &entry.session).is_some_and(|l| l.id == entry.id);
-    if latest {
-        update(core, id, |e| {
-            e.state = ReviewState::Open;
-            e.rejected = None;
-            e.decided = Vec::new();
-            e.decided_diffs = BTreeMap::new();
-        })?;
-    }
     Ok(())
 }
 

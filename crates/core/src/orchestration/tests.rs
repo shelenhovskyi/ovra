@@ -513,7 +513,25 @@ async fn a_comment_after_a_reject_continues_the_worker_with_the_lost_diff() {
     assert_eq!(sent.len(), 2);
     assert!(sent[1].starts_with("keep one\n\nThe person rejected your changes"));
     assert!(sent[1].contains("+wrong"));
-    assert_eq!(reviews(&f.core).await[0].state, ReviewState::Open);
+    let listed = reviews(&f.core).await;
+    assert_eq!(
+        listed.iter().map(|r| r.state).collect::<Vec<_>>(),
+        [ReviewState::Rejected],
+        "the reject stands; nothing reopens empty"
+    );
+    // The reworked files open a new item.
+    f.wt.put(&worker.worktree, "a.rs", "right\n");
+    let listed = reviews(&f.core).await;
+    assert_eq!(
+        listed
+            .iter()
+            .map(|r| (r.id.0.as_str(), r.state, r.files.len()))
+            .collect::<Vec<_>>(),
+        [
+            ("r2", ReviewState::Open, 1),
+            ("r1", ReviewState::Rejected, 1)
+        ]
+    );
 
     // A stopped worker resumes on a comment.
     assert!(f.core.stop_agent(&boss, &worker.session).is_ok());

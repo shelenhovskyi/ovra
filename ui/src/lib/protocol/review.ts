@@ -44,7 +44,7 @@ export type ReviewRequest =
   | { method: "review.reject"; params: { id: ReviewId } }
   /** Puts back what the last reject reverted; files changed since come back as conflicts. */
   | { method: "review.undo_reject"; params: { id: ReviewId } }
-  /** The same session continues with the comment; the item stays open. */
+  /** The same session continues with the comment; a decided item stays decided. */
   | { method: "review.comment"; params: { id: ReviewId; text: string } };
 
 export type ReviewResponse =

@@ -92,8 +92,9 @@ pub enum ReviewRequest {
     /// listed as conflicts. The item is open again.
     #[serde(rename = "review.undo_reject")]
     UndoReject { id: ReviewId },
-    /// Sends the comment to the same session, which continues; the item
-    /// stays open. Answers `ok`.
+    /// Sends the comment to the same session, which continues. An open item
+    /// stays open; a decided one stays decided, and the session's next
+    /// changes open a new item. Answers `ok`.
     #[serde(rename = "review.comment")]
     Comment { id: ReviewId, text: String },
 }
