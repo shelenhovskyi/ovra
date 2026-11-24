@@ -1,7 +1,7 @@
 //! Review items: one per session with a workspace. `open` until a person
 //! approves or rejects it; a comment reopens it and continues the session.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::{Result, Workspace, conflict, not_found};
 use crate::Core;
@@ -17,6 +17,11 @@ use crate::protocol::{ErrorCode, OkResponse, ProtocolError, Response};
 
 /// Room left in a message for the words around a rejected diff.
 const WRAPPER_BYTES: usize = 256;
+
+/// A decided item keeps the diffs of at most this many files, and of at
+/// most this many bytes in all; a bigger change keeps only its file list.
+const KEPT_DIFF_FILES: usize = 50;
+const KEPT_DIFF_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(super) struct Entry {
@@ -35,6 +40,9 @@ pub(super) struct Entry {
     /// of what was approved or rejected.
     #[serde(default)]
     decided: Vec<FileChange>,
+    /// The diffs of `decided`'s files, by path, if they were small enough.
+    #[serde(default)]
+    decided_diffs: BTreeMap<String, String>,
 }
 
 /// Records what `session`'s review compares, creating its item. Direct
@@ -71,6 +79,7 @@ pub(crate) fn set_workspace(core: &Core, session: &SessionId, workspace: Workspa
         requested: false,
         rejected: None,
         decided: Vec::new(),
+        decided_diffs: BTreeMap::new(),
     });
     orchestration.save(&state);
 }
@@ -109,6 +118,18 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
         ReviewRequest::Diff { id, path } => {
             let entry = find(core, &id)?;
             let path = RelPath::parse(&path)?;
+            if entry.state != ReviewState::Open {
+                let patch = entry.decided_diffs.get(path.as_str()).cloned();
+                let patch = patch.ok_or_else(|| {
+                    not_found(format!(
+                        "the diff of {path} as it was decided (only small changes keep theirs)"
+                    ))
+                })?;
+                return Ok(Response::Review(ReviewResponse::Diff {
+                    path: path.to_string(),
+                    patch,
+                }));
+            }
             let ws = entry.workspace;
             let patch = core
                 .worktrees()
@@ -292,17 +313,21 @@ async fn approve(
             // Ovra no longer knows which files are the agent's (it
             // restarted since): keeping the changes needs no such knowledge.
             let decided = files(core, &entry).await?;
+            let diffs = freeze(core, &entry, &decided).await;
             let entry = update(core, id, |e| {
                 e.state = ReviewState::Approved;
                 e.decided = decided;
+                e.decided_diffs = diffs;
             })?;
             return Ok((item(core, &entry).await?, Vec::new()));
         }
         let decided = files(core, &entry).await?;
+        let diffs = freeze(core, &entry, &decided).await;
         let outcome = direct.approve(&entry.session, commit).await?;
         let entry = update(core, id, |e| {
             e.state = ReviewState::Approved;
             e.decided = decided;
+            e.decided_diffs = diffs;
             if let Some(base) = outcome.base {
                 e.workspace.base = base;
             }
@@ -313,6 +338,7 @@ async fn approve(
     let ws = entry.workspace.clone();
     let worktrees = core.worktrees();
     let decided = files(core, &entry).await?;
+    let diffs = freeze(core, &entry, &decided).await;
     let (waiting, ready): (Vec<FileChange>, Vec<FileChange>) =
         decided.iter().cloned().partition(|f| f.blocked);
     let mut conflicts = worktrees
@@ -340,6 +366,7 @@ async fn approve(
         e.state = ReviewState::Approved;
         e.workspace.base = base;
         e.decided = decided;
+        e.decided_diffs = diffs;
     })?;
     Ok((item(core, &entry).await?, conflicts))
 }
@@ -355,6 +382,7 @@ async fn reject(core: &Core, id: &ReviewId) -> Result<(ReviewItem, Vec<String>, 
     let ws = entry.workspace.clone();
     let worktrees = core.worktrees();
     let files = files(core, &entry).await?;
+    let diffs = freeze(core, &entry, &files).await;
     let diff = worktrees
         .patch(ws.dir.clone(), ws.base.clone(), rel_paths(&files)?)
         .await?;
@@ -366,6 +394,7 @@ async fn reject(core: &Core, id: &ReviewId) -> Result<(ReviewItem, Vec<String>, 
         e.state = ReviewState::Rejected;
         e.rejected = Some(diff);
         e.decided = files;
+        e.decided_diffs = diffs;
     })?;
     Ok((item(core, &entry).await?, Vec::new(), restored))
 }
@@ -377,10 +406,12 @@ async fn reject_direct(
     entry: &Entry,
 ) -> Result<(ReviewItem, Vec<String>, Vec<String>)> {
     let decided = files(core, entry).await?;
+    let diffs = freeze(core, entry, &decided).await;
     let outcome = core.sessions().direct.reject(&entry.session).await?;
     let entry = update(core, &entry.id, |e| {
         e.state = ReviewState::Rejected;
         e.decided = decided;
+        e.decided_diffs = diffs;
         e.rejected = Some(outcome.diff);
         if let Some(base) = outcome.base {
             e.workspace.base = base;
@@ -405,6 +436,7 @@ async fn undo_reject(core: &Core, id: &ReviewId) -> Result<(ReviewItem, Vec<Stri
         e.state = ReviewState::Open;
         e.rejected = None;
         e.decided = Vec::new();
+        e.decided_diffs = BTreeMap::new();
         if let Some(base) = outcome.base {
             e.workspace.base = base;
         }
@@ -434,6 +466,7 @@ async fn comment(core: &Core, id: &ReviewId, text: String) -> Result<()> {
             e.state = ReviewState::Open;
             e.rejected = None;
             e.decided = Vec::new();
+            e.decided_diffs = BTreeMap::new();
         })?;
     }
     Ok(())
@@ -536,9 +569,37 @@ fn open_after(core: &Core, decided: &Entry) -> Entry {
         requested: false,
         rejected: None,
         decided: Vec::new(),
+        decided_diffs: BTreeMap::new(),
         ..decided.clone()
     };
     state.reviews.push(entry.clone());
     orchestration.save(&state);
     entry
+}
+
+/// The diffs of `files` as they are now, to keep with the decision; none
+/// for a change too big to keep (its file list is kept either way).
+async fn freeze(core: &Core, entry: &Entry, files: &[FileChange]) -> BTreeMap<String, String> {
+    let mut diffs = BTreeMap::new();
+    if files.len() > KEPT_DIFF_FILES {
+        return diffs;
+    }
+    let ws = &entry.workspace;
+    let mut bytes = 0;
+    for file in files {
+        let Ok(path) = RelPath::parse(&file.path) else {
+            continue;
+        };
+        let patch = core
+            .worktrees()
+            .patch(ws.dir.clone(), ws.base.clone(), vec![path])
+            .await;
+        let Ok(patch) = patch else { continue };
+        bytes += patch.len();
+        if bytes > KEPT_DIFF_BYTES {
+            return BTreeMap::new();
+        }
+        diffs.insert(file.path.clone(), patch);
+    }
+    diffs
 }
