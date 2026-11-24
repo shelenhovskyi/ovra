@@ -87,7 +87,7 @@ $effect(() =>
 $effect(() => {
   const items = inbox.items;
   untrack(() => {
-    if (!items.some((i) => i.id === selectedId)) select((inbox.open[0] ?? items[0])?.id ?? null);
+    if (!items.some((i) => i.id === selectedId)) select((inbox.waiting[0] ?? inbox.open[0] ?? items[0])?.id ?? null);
     else if (item && !item.files.some((f) => f.path === selectedPath)) selectedPath = item.files[0]?.path ?? null;
   });
 });
@@ -275,7 +275,7 @@ function outcomeText(outcome: Outcome): string {
     outcome.conflicts.length === 0
       ? ""
       : worker && outcome.action === "approved"
-        ? ` Not copied, because your version changed: ${files}.`
+        ? ` Not copied: ${files}.`
         : ` Kept as you changed them: ${files}.`;
   if (outcome.action === "resolved") return "Marked done. Your versions of the files that were not copied stay.";
   if (outcome.action === "approved") {
@@ -508,7 +508,7 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                     {@const markers = fileMarkers(
                       changed,
                       shared.has(changed.path),
-                      item.not_copied.includes(changed.path),
+                      item.not_copied.includes(changed.path) ? item.state : null,
                     )}
                     <li>
                       <button

@@ -32,9 +32,13 @@ pub(super) struct Entry {
     /// Names of workers being set up, which count against `max_workers`.
     #[serde(skip)]
     starting: Vec<String>,
-    /// Workers whose worktree was removed after the task ended.
+    /// Workers whose worktree was removed, or is being removed, after the
+    /// task ended.
     #[serde(default)]
     cleaned: Vec<SessionId>,
+    /// The coordinator ended while Ovra ran; only then are worktrees removed.
+    #[serde(default)]
+    ended: bool,
 }
 
 impl Entry {
@@ -132,6 +136,7 @@ async fn start(
             limits,
             starting: Vec::new(),
             cleaned: Vec::new(),
+            ended: false,
         };
         state.tasks.push(entry.clone());
         orchestration.save(&state);
@@ -193,8 +198,7 @@ pub(super) fn tell_coordinator(core: &Core, worker: &SessionId, what: &str) {
     let _ = agents::send(
         &core.agents_ctx(),
         task.coordinator,
-        text,
-        MessageFrom::Ovra,
+        vec![(text, MessageFrom::Ovra)],
     );
 }
 
@@ -427,24 +431,20 @@ async fn create_worker(
 
 /// Removes the worktrees of an ended task's workers once nothing in them
 /// waits for the person: the worker ended, no item of it is partly approved
-/// and its worktree has no change its review has not decided. Branches stay
-/// (their start is a snapshot). On any doubt nothing is removed.
+/// and its worktree has no change its review has not decided (the decided
+/// state is the review's snapshot, which stays kept). Branches stay. On any
+/// doubt nothing is removed.
 pub(super) async fn clean_up(core: &Core, project: &ProjectId) {
-    let ended = |id: &SessionId| {
-        core.sessions()
-            .find(id, |s| s.status().is_ended())
-            .unwrap_or(true)
-    };
     let state = core.orchestration_state();
     let candidates: Vec<(TaskId, Worker)> = state
         .lock()
         .tasks
         .iter()
-        .filter(|t| &t.project == project && ended(&t.coordinator))
+        .filter(|t| &t.project == project && t.ended)
         .flat_map(|t| {
             t.workers
                 .iter()
-                .filter(|w| !t.cleaned.contains(&w.session) && ended(&w.session))
+                .filter(|w| !t.cleaned.contains(&w.session))
                 .map(|w| (t.id.clone(), w.clone()))
         })
         .collect();
@@ -455,28 +455,91 @@ pub(super) async fn clean_up(core: &Core, project: &ProjectId) {
         return;
     };
     for (task, worker) in candidates {
-        if !review::settled(core, &worker.session).await {
+        // Marked first, together with the check that it ended: from here
+        // on it cannot be resumed (see `unless_cleaned`), so what `settled`
+        // finds stays true while the worktree goes.
+        if !mark(core, &task, &worker.session) {
             continue;
         }
         let dir = PathBuf::from(&worker.worktree);
-        if core.worktrees().remove(root.clone(), dir).await.is_err() {
-            continue;
-        }
+        let removed = review::settled(core, &worker.session).await
+            && core.worktrees().remove(root.clone(), dir).await.is_ok();
         let mut guard = state.lock();
-        if let Some(entry) = guard.tasks.iter_mut().find(|t| t.id == task) {
-            entry.cleaned.push(worker.session.clone());
+        if let Some(entry) = guard.tasks.iter_mut().find(|t| t.id == task)
+            && !removed
+        {
+            entry.cleaned.retain(|s| s != &worker.session);
         }
         state.save(&guard);
         drop(guard);
-        core.emit(OrchestrationEvent::Changed {
-            project: project.clone(),
-            task,
-        });
+        if removed {
+            core.emit(OrchestrationEvent::Changed {
+                project: project.clone(),
+                task,
+            });
+        }
+    }
+}
+
+/// Marks `worker` of `task` cleaned if it has ended and is not marked yet.
+fn mark(core: &Core, task: &TaskId, worker: &SessionId) -> bool {
+    let state = core.orchestration_state();
+    let mut guard = state.lock();
+    let Some(entry) = guard.tasks.iter_mut().find(|t| &t.id == task) else {
+        return false;
+    };
+    // The sessions' lock is taken inside this one, as the lock order allows.
+    let ended = core
+        .sessions()
+        .find(worker, |s| s.status().is_ended())
+        .unwrap_or(false);
+    if !ended || entry.cleaned.contains(worker) {
+        return false;
+    }
+    entry.cleaned.push(worker.clone());
+    true
+}
+
+/// Runs `restart` (a resume of `session`) unless `session` is a worker
+/// whose worktree is removed or being removed; checked and run under one
+/// lock, so the two never cross.
+pub(crate) fn unless_cleaned<T>(
+    core: &Core,
+    session: &SessionId,
+    restart: impl FnOnce() -> T,
+) -> Result<T> {
+    let state = core.orchestration_state();
+    let guard = state.lock();
+    if guard.tasks.iter().any(|t| t.cleaned.contains(session)) {
+        return Err(conflict(
+            "this worker's task has ended and its worktree was cleaned up; start a new task to rework it",
+        ));
+    }
+    let restarted = restart();
+    drop(guard);
+    Ok(restarted)
+}
+
+/// Keeps whether `coordinator`'s task has ended: the coordinator ended while
+/// Ovra ran (a restart alone does not end a task), or it runs again.
+pub(super) fn set_ended(core: &Core, coordinator: &SessionId, ended: bool) {
+    let state = core.orchestration_state();
+    let mut guard = state.lock();
+    let Some(entry) = guard
+        .tasks
+        .iter_mut()
+        .find(|t| &t.coordinator == coordinator)
+    else {
+        return;
+    };
+    if entry.ended != ended {
+        entry.ended = ended;
+        state.save(&guard);
     }
 }
 
 /// Whether `session` is a worker whose worktree was cleaned up.
-pub(crate) fn cleaned(core: &Core, session: &SessionId) -> bool {
+pub(super) fn cleaned(core: &Core, session: &SessionId) -> bool {
     core.orchestration_state()
         .lock()
         .tasks

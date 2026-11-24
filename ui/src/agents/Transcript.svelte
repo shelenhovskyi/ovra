@@ -10,7 +10,12 @@ import { usageText } from "./sessions.svelte";
 let { messages }: { messages: AgentMessage[] } = $props();
 
 /** Who wrote what an agent was sent: never "You" for text the person did not write. */
-const FROM: Record<MessageFrom, string> = { person: "You", coordinator: "Coordinator", ovra: "Ovra" };
+const FROM: Record<MessageFrom, string> = {
+  person: "You",
+  coordinator: "Coordinator",
+  ovra: "Ovra",
+  unknown: "Sender not recorded",
+};
 const MAX_OUTPUT = 2000;
 const MAX_SPOKEN = 300;
 /** How the claude CLI tells the model that a person denied or interrupted a tool call. */

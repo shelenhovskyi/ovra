@@ -535,17 +535,24 @@ async fn a_comment_after_a_reject_continues_the_worker_with_the_lost_diff() {
     )
     .await;
     until(&mut rx, "s2", AgentStatus::Idle).await;
-    let sent: Vec<String> = transcript(&f.core, "s2")
+    let sent: Vec<(MessageFrom, String)> = transcript(&f.core, "s2")
         .await
         .into_iter()
         .filter_map(|m| match m {
-            AgentMessage::UserText { text, .. } => Some(text),
+            AgentMessage::UserText { text, from } => Some((from, text)),
             _ => None,
         })
         .collect();
-    assert_eq!(sent.len(), 2);
-    assert!(sent[1].starts_with("keep one\n\nThe person rejected your changes"));
-    assert!(sent[1].contains("+wrong"));
+    // The person's words are theirs; what Ovra adds is shown as Ovra's.
+    assert_eq!(sent.len(), 3);
+    assert_eq!(sent[1], (MessageFrom::Person, "keep one".to_owned()));
+    assert_eq!(sent[2].0, MessageFrom::Ovra);
+    assert!(
+        sent[2]
+            .1
+            .starts_with("Ovra: the person rejected your changes")
+    );
+    assert!(sent[2].1.contains("+wrong"));
     let listed = reviews(&f.core).await;
     assert_eq!(
         listed.iter().map(|r| r.state).collect::<Vec<_>>(),
@@ -1064,6 +1071,16 @@ async fn messages_to_agents_say_who_wrote_them() {
         (MessageFrom::Person, "split the work".to_owned())
     );
     assert_eq!(boss_got.last().map(|m| m.0), Some(MessageFrom::Ovra));
+    // A transcript saved before authors were recorded never reads as the person's.
+    let old: AgentMessage = serde_json::from_value(json!({"kind": "user_text", "text": "x"}))
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(
+        old,
+        AgentMessage::UserText {
+            text: "x".into(),
+            from: MessageFrom::Unknown
+        }
+    );
 }
 
 #[tokio::test]
@@ -1226,4 +1243,102 @@ async fn an_ended_tasks_settled_worktrees_are_removed_and_the_rest_kept() {
     )
     .await;
     assert!(!f.wt.has(&busy.worktree));
+}
+
+#[tokio::test]
+async fn a_partly_approved_worker_keeps_its_worktree_until_resolved() {
+    let f = fx(say()).await;
+    let mut rx = f.core.subscribe();
+    start_task(&f.core, 3).await;
+    let boss = caller("s1", ToolRole::Coordinator);
+    let worker = f.core.spawn_agent(&boss, "w", "x").await;
+    let worker = worker.unwrap_or_else(|e| panic!("{e}"));
+    until(&mut rx, "s2", AgentStatus::Idle).await;
+    f.wt.put(&worker.worktree, "b.rs", "new\n");
+    f.wt.put(ROOT, "b.rs", "mine\n");
+    // Too many files for the decided record to keep their diffs.
+    for n in 0..60 {
+        f.wt.put(&worker.worktree, &format!("many/{n}.rs"), "x\n");
+    }
+    ok(
+        &f.core,
+        json!({"method": "review.approve", "params": {"id": "r1", "commit": null}}),
+    )
+    .await;
+    // What was not copied keeps its diff whatever the size.
+    let diff = ok(
+        &f.core,
+        json!({"method": "review.diff", "params": {"id": "r1", "path": "b.rs"}}),
+    )
+    .await;
+    let Response::Review(ReviewResponse::Diff { patch, .. }) = diff else {
+        panic!("unexpected {diff:?}");
+    };
+    assert!(patch.contains("+new"));
+    let other = call(
+        &f.core,
+        json!({"method": "review.diff", "params": {"id": "r1", "path": "many/1.rs"}}),
+    )
+    .await;
+    assert_eq!(code(other), ErrorCode::NotFound);
+    ok(
+        &f.core,
+        json!({"method": "orchestration.stop", "params": {"task": "t1"}}),
+    )
+    .await;
+    until(&mut rx, "s1", AgentStatus::Stopped).await;
+    let list = json!({"method": "orchestration.list", "params": {"project": "p1"}});
+    ok(&f.core, list.clone()).await;
+    assert!(f.wt.has(&worker.worktree), "b.rs waits for the person");
+    ok(
+        &f.core,
+        json!({"method": "review.resolve", "params": {"id": "r1"}}),
+    )
+    .await;
+    assert!(!f.wt.has(&worker.worktree));
+    assert_eq!(reviews(&f.core).await.len(), 1, "the list still works");
+    let resumed = call(
+        &f.core,
+        json!({"method": "agents.resume", "params": {"session": "s2", "prompt": "more"}}),
+    )
+    .await;
+    assert_eq!(code(resumed), ErrorCode::Conflict);
+}
+
+#[tokio::test]
+async fn a_restart_alone_does_not_end_a_task_or_remove_its_worktrees() {
+    let projects = Arc::new(MemoryProjects::default());
+    let kept = Arc::new(crate::fakes::MemorySessions::default());
+    let wt = Arc::new(MemoryWorktrees::default());
+    wt.put(ROOT, "a.rs", "one\n");
+    let build = || {
+        Core::builder("test")
+            .projects(projects.clone())
+            .sessions(kept.clone())
+            .agents(Arc::new(ScriptedAgent::new(say())))
+            .worktrees(wt.clone())
+            .worktrees_dir(PathBuf::from(WORKTREES))
+            .build()
+    };
+    let before = build();
+    ok(
+        &before,
+        json!({"method": "projects.add", "params": {"root": ROOT}}),
+    )
+    .await;
+    let mut rx = before.subscribe();
+    start_task(&before, 3).await;
+    let boss = caller("s1", ToolRole::Coordinator);
+    let worker = before.spawn_agent(&boss, "w", "x").await;
+    let worker = worker.unwrap_or_else(|e| panic!("{e}"));
+    until(&mut rx, "s2", AgentStatus::Idle).await;
+    drop(before);
+
+    let after = build();
+    ok(
+        &after,
+        json!({"method": "orchestration.list", "params": {"project": "p1"}}),
+    )
+    .await;
+    assert!(wt.has(&worker.worktree));
 }

@@ -86,22 +86,17 @@ impl Core {
     /// person's choice, not the coordinator's.
     pub fn send_message(&self, caller: &ToolCaller, agent: &SessionId, text: &str) -> Result<()> {
         let worker = self.worker_of(caller, agent)?;
-        agents::send(
-            &self.agents_ctx(),
-            worker.session,
-            text.to_owned(),
-            MessageFrom::Coordinator,
-        ).map_err(|err| {
+        let parts = vec![(text.to_owned(), MessageFrom::Coordinator)];
+        agents::send(&self.agents_ctx(), worker.session, parts).map_err(|err| {
             if err.code != ErrorCode::Conflict {
                 return err;
             }
-            ProtocolError::new(
-                ErrorCode::Conflict,
-                format!(
-                    "worker {} has ended ({}); only the person can resume it. Start a new worker if the task needs one.",
-                    worker.name, err.message
-                ),
-            )
+            let why = format!(
+                "worker {} has ended ({}); only the person can resume it. \
+                 Start a new worker if the task needs one.",
+                worker.name, err.message
+            );
+            ProtocolError::new(ErrorCode::Conflict, why)
         })
     }
 

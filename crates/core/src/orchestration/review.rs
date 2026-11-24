@@ -7,7 +7,7 @@ use super::{Result, Workspace, conflict, not_found};
 use crate::Core;
 use crate::agents;
 use crate::path::RelPath;
-use crate::protocol::agents::{AgentStatus, AgentsRequest, SessionId, SessionMode};
+use crate::protocol::agents::{AgentStatus, MessageFrom, SessionId, SessionMode};
 use crate::protocol::projects::ProjectId;
 use crate::protocol::review::{
     ChangedBy, FileChange, ReviewEvent, ReviewId, ReviewItem, ReviewRequest, ReviewResponse,
@@ -149,7 +149,7 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
             prune(core, &item.project).await;
             super::tasks::clean_up(core, &item.project).await;
             let what = if item.state == ReviewState::PartlyApproved {
-                "had its work approved by the person, except files the person had changed too: those were not copied and wait for the person"
+                "had its work approved by the person, except files the person had changed too or that wait for the direct session: those were not copied and wait for the person"
             } else if conflicts.is_empty() {
                 "had its work approved by the person"
             } else {
@@ -260,10 +260,13 @@ pub(super) async fn item(core: &Core, entry: &Entry) -> Result<ReviewItem> {
         mode: entry.mode,
         state: entry.state,
         summary: entry.summary.clone(),
-        files: if entry.state == ReviewState::Open {
-            files(core, entry).await?
-        } else {
+        files: if entry.state != ReviewState::Open {
             entry.decided.clone()
+        } else if super::tasks::cleaned(core, &entry.session) {
+            // Removed only once nothing in it changed (`clean_up`).
+            Vec::new()
+        } else {
+            files(core, entry).await?
         },
         can_undo: entry.mode == SessionMode::Direct
             && entry.state == ReviewState::Rejected
@@ -409,7 +412,7 @@ async fn approve(
     let ws = entry.workspace.clone();
     let worktrees = core.worktrees();
     let decided = files(core, &entry).await?;
-    let diffs = freeze(core, &entry, &decided).await;
+    let mut diffs = freeze(core, &entry, &decided).await;
     let (waiting, ready): (Vec<FileChange>, Vec<FileChange>) =
         decided.iter().cloned().partition(|f| f.blocked);
     let mut conflicts = worktrees
@@ -430,6 +433,22 @@ async fn approve(
         worktrees.commit(root, applied, message).await?;
     }
     conflicts.extend(waiting.into_iter().map(|f| f.path));
+    // What was not copied lives on only in the worktree, so its diff is
+    // kept whatever its size: it is the person's way to the worker's version.
+    for path in &conflicts {
+        if diffs.contains_key(path) {
+            continue;
+        }
+        let Ok(rel) = RelPath::parse(path) else {
+            continue;
+        };
+        if let Ok(patch) = worktrees
+            .patch(ws.dir.clone(), ws.base.clone(), vec![rel])
+            .await
+        {
+            diffs.insert(path.clone(), patch);
+        }
+    }
     // What the worker does from now on is a new review; files left for the
     // person are in the outcome and the decided record.
     let base = worktrees.snapshot(ws.dir).await?;
@@ -530,10 +549,17 @@ async fn undo_reject(core: &Core, id: &ReviewId) -> Result<(ReviewItem, Vec<Stri
 async fn comment(core: &Core, id: &ReviewId, text: String) -> Result<()> {
     agents::check_text(&text)?;
     let entry = find(core, id)?;
-    let message = match &entry.rejected {
-        Some(diff) if entry.state == ReviewState::Rejected => with_rejected(&text, diff),
-        _ => text,
-    };
+    // The person's words and Ovra's note of what was rejected go as one
+    // message, each part shown with its author.
+    let mut message = vec![(text, MessageFrom::Person)];
+    if let Some(diff) = entry
+        .rejected
+        .as_ref()
+        .filter(|_| entry.state == ReviewState::Rejected)
+    {
+        let note = rejected_note(message[0].0.len(), diff);
+        message.push((note, MessageFrom::Ovra));
+    }
     // A decided item stays the record of its decision: what the session
     // changes next opens a new item (`follow_up`), so a rejected item never
     // comes back open with nothing in it.
@@ -542,26 +568,21 @@ async fn comment(core: &Core, id: &ReviewId, text: String) -> Result<()> {
 }
 
 /// Sends `text` as the session's next message, resuming it if it ended.
-pub(super) async fn continue_session(core: &Core, session: &SessionId, text: String) -> Result<()> {
+async fn continue_session(core: &Core, session: &SessionId, parts: agents::Parts) -> Result<()> {
     let ended = core.sessions().find(session, |s| s.status().is_ended())?;
-    let request = if ended {
-        AgentsRequest::Resume {
-            session: session.clone(),
-            prompt: text,
-        }
+    let ctx = core.agents_ctx();
+    if ended {
+        agents::resume(&ctx, session.clone(), parts).await?;
     } else {
-        AgentsRequest::Send {
-            session: session.clone(),
-            text,
-        }
-    };
-    agents::handle_agents(&core.agents_ctx(), request).await?;
+        agents::send(&ctx, session.clone(), parts)?;
+    }
     Ok(())
 }
 
-fn with_rejected(text: &str, diff: &str) -> String {
-    // The comment and the diff go as one message, which has a size limit.
-    let room = agents::MAX_TEXT_BYTES.saturating_sub(text.len() + WRAPPER_BYTES);
+/// Ovra's note of a rejected `diff`, to follow a comment of `comment_len`
+/// bytes in one message, which has a size limit.
+fn rejected_note(comment_len: usize, diff: &str) -> String {
+    let room = agents::MAX_TEXT_BYTES.saturating_sub(comment_len + WRAPPER_BYTES);
     let mut cut = diff.len().min(room);
     while !diff.is_char_boundary(cut) {
         cut -= 1;
@@ -572,7 +593,7 @@ fn with_rejected(text: &str, diff: &str) -> String {
         ""
     };
     format!(
-        "{text}\n\nThe person rejected your changes, and they were reverted. This was the rejected diff:\n```diff\n{}\n```{more}",
+        "Ovra: the person rejected your changes, and they were reverted. This was the rejected diff:\n```diff\n{}\n```{more}",
         &diff[..cut]
     )
 }
@@ -611,7 +632,7 @@ async fn follow_up(core: &Core, project: &ProjectId) {
         let undoable = entry.state == ReviewState::Rejected
             && entry.mode == SessionMode::Direct
             && core.sessions().direct.can_undo(&entry.session);
-        if undoable {
+        if undoable || super::tasks::cleaned(core, &entry.session) {
             continue;
         }
         let new = files(core, &entry).await.unwrap_or_default();

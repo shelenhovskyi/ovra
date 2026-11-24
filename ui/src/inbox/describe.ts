@@ -17,12 +17,15 @@ const KIND_LABEL: Record<ChangeKind, string> = {
 };
 
 /** Markers shown next to a file; each one also reads out to screen readers. */
-export function fileMarkers(file: FileChange, shared = false, notCopied = false): string[] {
+export function fileMarkers(file: FileChange, shared = false, notCopied: ReviewState | null = null): string[] {
   const markers: string[] = [];
-  if (notCopied) markers.push("Not copied: your version changed");
+  if (notCopied) {
+    const why = file.blocked ? "it waited for the direct agent" : "your version changed";
+    markers.push(notCopied === "approved" ? `Not copied (${why}); marked done` : `Not copied: ${why}`);
+  }
   if (file.by === "outside") markers.push("Changed outside the agent");
   if (file.by === "both") markers.push("Also changed outside the agent");
-  if (file.blocked) markers.push("Waits for the direct agent");
+  if (file.blocked && !notCopied) markers.push("Waits for the direct agent");
   if (shared) markers.push("Also changed in another open review");
   return markers;
 }
@@ -61,7 +64,8 @@ export function itemSummary(item: ReviewItem, shared = 0): string {
   if (outside > 0) parts.push(`${outside} changed outside the agent`);
   if (blocked > 0) parts.push(`${blocked} waiting for the direct agent`);
   if (shared > 0) parts.push(`${shared} also in another open review`);
-  if (item.not_copied.length > 0) parts.push(`${item.not_copied.length} not copied`);
+  if (item.not_copied.length > 0)
+    parts.push(`${item.not_copied.length} not copied${item.state === "approved" ? ", marked done" : ""}`);
   return parts.join(", ");
 }
 
@@ -76,7 +80,14 @@ export function approveHint(item: ReviewItem): string {
 
 /** What a partly approved item left, and what the person can do about it. */
 export function notCopiedHint(item: ReviewItem): string {
-  return `Not copied into your project folder, because your version changed since the worker started: ${item.not_copied.join(", ")}. The worker's version is in the diff below. Copy what you want by hand, then mark this done.`;
+  const blocked = new Set(item.files.filter((f) => f.blocked).map((f) => f.path));
+  const changed = item.not_copied.filter((p) => !blocked.has(p));
+  const waited = item.not_copied.filter((p) => blocked.has(p));
+  const why = [
+    changed.length > 0 ? `because your version changed since the worker started: ${changed.join(", ")}` : "",
+    waited.length > 0 ? `because the direct agent had changed them too: ${waited.join(", ")}` : "",
+  ].filter(Boolean);
+  return `Not copied into your project folder, ${why.join("; and ")}. The worker's version of each is in its diff below. Copy what you want by hand, then mark this done.`;
 }
 
 /** What reject does; files changed outside the agent are never restored. */

@@ -44,6 +44,18 @@ describe("inbox wording", () => {
     const partial = review("r5", { mode: "isolated", state: "partly_approved", not_copied: ["NOTES.md"] });
     expect(itemSummary(partial)).toBe("1 file, 1 not copied");
     expect(notCopiedHint(partial)).toContain("your version changed since the worker started: NOTES.md");
+    const both = review("r6", {
+      mode: "isolated",
+      state: "partly_approved",
+      files: [change("NOTES.md"), change("a.rs", { blocked: true })],
+      not_copied: ["NOTES.md", "a.rs"],
+    });
+    expect(notCopiedHint(both)).toBe(
+      "Not copied into your project folder, because your version changed since the worker started: NOTES.md; and because the direct agent had changed them too: a.rs. The worker's version of each is in its diff below. Copy what you want by hand, then mark this done.",
+    );
+    expect(fileMarkers(change("a.rs", { blocked: true }), false, "partly_approved")).toEqual([
+      "Not copied: it waited for the direct agent",
+    ]);
     expect(rejectHint(review("r2", { files: [change("a", { by: "both" })] }))).toContain(
       "Changes made outside the agent stay as they are",
     );

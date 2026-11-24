@@ -127,9 +127,15 @@ describe("AgentsPanel", () => {
       { kind: "user_text", text: "Write the notes", from: "coordinator" },
       { kind: "user_text", text: "Ovra: worker w stopped.", from: "ovra" },
       { kind: "user_text", text: "Thanks", from: "person" },
+      { kind: "user_text", text: "Saved long ago", from: "unknown" },
     ]);
     await setup(core);
-    expect(transcript()).toEqual(["Coordinator Write the notes", "Ovra Ovra: worker w stopped.", "You Thanks"]);
+    expect(transcript()).toEqual([
+      "Coordinator Write the notes",
+      "Ovra Ovra: worker w stopped.",
+      "You Thanks",
+      "Sender not recorded Saved long ago",
+    ]);
   });
 
   it("replies only when the agent waits, and stops", async () => {

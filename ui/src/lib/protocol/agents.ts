@@ -38,8 +38,8 @@ export type TurnUsage = {
   cost_micro_usd: number | null;
 };
 
-/** Who wrote a message an agent was sent: the person, the task's coordinator, or Ovra in its own words. */
-export type MessageFrom = "person" | "coordinator" | "ovra";
+/** Who wrote a message an agent was sent: the person, the task's coordinator, Ovra in its own words, or `unknown` for one saved before Ovra recorded it. */
+export type MessageFrom = "person" | "coordinator" | "ovra" | "unknown";
 
 /** `parent` is set when a subagent produced the message: the tool call that started it. */
 export type AgentMessage =

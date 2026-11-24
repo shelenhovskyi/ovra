@@ -29,7 +29,7 @@ use crate::protocol::{ErrorCode, ProtocolError, Response};
 use crate::services::SessionStore;
 
 pub(crate) use saved::restore;
-pub(crate) use tasks::cleaned;
+pub(crate) use tasks::unless_cleaned;
 
 type Result<T> = std::result::Result<T, ProtocolError>;
 
@@ -99,6 +99,7 @@ pub(crate) fn on_status(core: &Core, session: &SessionId, status: &AgentStatus) 
     };
     let state = core.orchestration_state();
     if *status == AgentStatus::Starting {
+        tasks::set_ended(core, session, false);
         if !state.lock().holds.contains(session) {
             // Without a watcher (a front end without file access) the
             // session simply holds nothing.
@@ -109,6 +110,9 @@ pub(crate) fn on_status(core: &Core, session: &SessionId, status: &AgentStatus) 
             }
         }
         return;
+    }
+    if status.is_ended() {
+        tasks::set_ended(core, session, true);
     }
     if status.is_ended() && state.lock().holds.remove(session) {
         core.release(&project);

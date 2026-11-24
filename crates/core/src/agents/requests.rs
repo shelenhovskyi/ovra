@@ -85,49 +85,11 @@ pub(crate) async fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Resp
             Ok(Response::Agents(AgentsResponse::Session(info)))
         }
         AgentsRequest::Resume { session, prompt } => {
-            check_text(&prompt)?;
-            let (info, agent_session, launch) =
-                sessions.find(&session, |s| (s.info(), s.agent_session(), s.launch()))?;
-            if !info.status.is_ended() {
-                return Err(conflict("the session is still running"));
-            }
-            let agent_session = agent_session
-                .ok_or_else(|| conflict("the agent did not report how to resume this session"))?;
-            if info.mode == SessionMode::Isolated && launch.is_none() {
-                return Err(conflict(
-                    "this worker's worktree is not known since Ovra restarted",
-                ));
-            }
-            if let Some(core) = sessions.core()
-                && crate::orchestration::cleaned(&core, &session)
-            {
-                return Err(conflict(
-                    "this worker's task has ended and its worktree was cleaned up; start a new task to rework it",
-                ));
-            }
-            let tools = launch.as_ref().and_then(|l| l.tools);
-            let target = prepare(ctx, &info.project, info.mode, tools).await?;
-            let launch = launch.unwrap_or(Launch {
-                cwd: PathBuf::from(&target.project.root),
-                tools: None,
-            });
-            let base = baseline(ctx, &info.project, &session, info.mode, &launch).await?;
-            review_from(ctx, &session, &launch, base);
-            sessions.find(&session, |s| s.restart())?;
-            let target = trusted_in(ctx, target, &launch.cwd).await;
-            let resume = Some(agent_session);
-            let info = run(
-                ctx,
-                &session,
-                target,
-                launch,
-                (prompt, MessageFrom::Person),
-                resume,
-            )?;
+            let info = resume(ctx, session, vec![(prompt, MessageFrom::Person)]).await?;
             Ok(Response::Agents(AgentsResponse::Session(info)))
         }
         AgentsRequest::Send { session, text } => {
-            send(ctx, session, text, MessageFrom::Person)?;
+            send(ctx, session, vec![(text, MessageFrom::Person)])?;
             Ok(OK)
         }
         AgentsRequest::Interrupt { session } => {
@@ -195,7 +157,7 @@ pub(crate) async fn start(ctx: &Ctx<'_>, new: NewSession) -> Result<SessionInfo>
     });
     review_from(ctx, &id, &launch, base);
     let target = trusted_in(ctx, target, &launch.cwd).await;
-    run(ctx, &id, target, launch, (new.prompt, new.from), None)
+    run(ctx, &id, target, launch, vec![(new.prompt, new.from)], None)
 }
 
 /// The project a session may start in, with what the runtime needs to know.
@@ -260,15 +222,65 @@ fn review_from(ctx: &Ctx<'_>, id: &SessionId, launch: &Launch, base: Option<Stri
     }
 }
 
-/// Starts the runtime for session `id`, which is `starting`, with `prompt`.
+/// A message to an agent in parts, each with who wrote it: the agent gets
+/// them as one text, the transcript shows each part with its author.
+pub(crate) type Parts = Vec<(String, MessageFrom)>;
+
+fn joined(parts: &Parts) -> Result<String> {
+    let text = parts
+        .iter()
+        .map(|(text, _)| text.as_str())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    check_text(&text)?;
+    Ok(text)
+}
+
+/// Resumes the ended session `session` with `parts` as its next prompt.
+pub(crate) async fn resume(ctx: &Ctx<'_>, session: SessionId, parts: Parts) -> Result<SessionInfo> {
+    joined(&parts)?;
+    let sessions = ctx.sessions;
+    let (info, agent_session, launch) =
+        sessions.find(&session, |s| (s.info(), s.agent_session(), s.launch()))?;
+    if !info.status.is_ended() {
+        return Err(conflict("the session is still running"));
+    }
+    let agent_session = agent_session
+        .ok_or_else(|| conflict("the agent did not report how to resume this session"))?;
+    if info.mode == SessionMode::Isolated && launch.is_none() {
+        return Err(conflict(
+            "this worker's worktree is not known since Ovra restarted",
+        ));
+    }
+    let tools = launch.as_ref().and_then(|l| l.tools);
+    let target = prepare(ctx, &info.project, info.mode, tools).await?;
+    let launch = launch.unwrap_or(Launch {
+        cwd: PathBuf::from(&target.project.root),
+        tools: None,
+    });
+    let base = baseline(ctx, &info.project, &session, info.mode, &launch).await?;
+    review_from(ctx, &session, &launch, base);
+    let restart = || sessions.find(&session, |s| s.restart());
+    match sessions.core() {
+        // Checked together with the restart, so a worktree being removed
+        // is never resumed into.
+        Some(core) => crate::orchestration::unless_cleaned(&core, &session, restart)??,
+        None => restart()?,
+    }
+    let target = trusted_in(ctx, target, &launch.cwd).await;
+    run(ctx, &session, target, launch, parts, Some(agent_session))
+}
+
+/// Starts the runtime for session `id`, which is `starting`, with `parts`.
 fn run(
     ctx: &Ctx<'_>,
     id: &SessionId,
     target: Target,
     launch: Launch,
-    (prompt, from): (String, MessageFrom),
+    parts: Parts,
     resume: Option<String>,
 ) -> Result<SessionInfo> {
+    let prompt = joined(&parts)?;
     let sessions = ctx.sessions;
     let project = target.project.id.clone();
     sessions.find(id, |s| s.set_launch(launch.clone()))?;
@@ -281,10 +293,9 @@ fn run(
         crate::orchestration::on_status(&core, id, &AgentStatus::Starting);
     }
     let host = AgentHost::new(id.clone(), project, sessions.clone(), ctx.sink.clone());
-    host.message(AgentMessage::UserText {
-        text: prompt.clone(),
-        from,
-    });
+    for (text, from) in parts {
+        host.message(AgentMessage::UserText { text, from });
+    }
     let (agent, mode) = sessions.find(id, |s| {
         let info = s.info();
         (info.agent, info.mode)
@@ -363,14 +374,9 @@ pub(crate) async fn trust(
     ctx.projects.set_trusted(project, Some(current))
 }
 
-/// Sends `text`, written by `from`, as the running session's next message.
-pub(crate) fn send(
-    ctx: &Ctx<'_>,
-    session: SessionId,
-    text: String,
-    from: MessageFrom,
-) -> Result<()> {
-    check_text(&text)?;
+/// Sends `parts` as the running session's next message.
+pub(crate) fn send(ctx: &Ctx<'_>, session: SessionId, parts: Parts) -> Result<()> {
+    let text = joined(&parts)?;
     let sessions = ctx.sessions;
     let (process, project, stopping) =
         sessions.find(&session, |s| (s.process(), s.info().project, s.stopping()))?;
@@ -380,10 +386,9 @@ pub(crate) fn send(
         None => return Err(conflict("the session has ended")),
     };
     let host = AgentHost::new(session, project, sessions.clone(), ctx.sink.clone());
-    host.message(AgentMessage::UserText {
-        text: text.clone(),
-        from,
-    });
+    for (text, from) in parts {
+        host.message(AgentMessage::UserText { text, from });
+    }
     host.set_status(AgentStatus::Working);
     process.send(text)
 }
