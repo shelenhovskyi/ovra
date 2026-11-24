@@ -46,6 +46,31 @@ jobs:
       - run: pnpm --filter @ovra/e2e exec playwright install --with-deps chromium
       - run: just e2e
 
+  perf:
+    name: Speed gate (100k-file repo)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: just
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @ovra/perf exec playwright install --with-deps chromium
+      - run: just perf
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: perf-results
+          path: tests/perf/test-results/
+          retention-days: 30
+
   app:
     name: Desktop app (${{ matrix.os }})
     strategy:
