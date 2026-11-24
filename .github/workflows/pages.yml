@@ -1,0 +1,63 @@
+name: Site
+
+# Builds site/ and publishes it to GitHub Pages: after every CI run on main
+# (so the Speed page picks up the new speed gate results), when the site or
+# the docs change, and by hand.
+on:
+  push:
+    branches: [main]
+    paths:
+      - site/**
+      - docs/**
+      - tests/perf/targets.json
+      - pnpm-lock.yaml
+      - .github/workflows/pages.yml
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deployment at a time; a newer one waits instead of cancelling a running one.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --filter @ovra/site
+      - name: Download speed gate results
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/fetch-perf-results.sh site/perf-data
+      - run: pnpm --filter @ovra/site build
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
