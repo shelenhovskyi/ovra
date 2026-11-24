@@ -492,3 +492,33 @@ async fn pruning_keeps_the_snapshots_asked_for_and_the_young_ones() {
     assert!(w.prune_snapshots(root.clone(), Vec::new()).await.is_ok());
     assert_eq!(log(root), young);
 }
+
+/// A symlink in the main checkout is a conflict, never written through to
+/// whatever it points to.
+#[cfg(unix)]
+#[tokio::test]
+async fn apply_leaves_a_symlink_in_the_checkout_to_the_person() {
+    let repo = Repo::new(&[("a.txt", "a\n")]);
+    let root = &repo.root;
+    let outside = repo.tmp.path().join("outside.txt");
+    fs::write(&outside, "outside\n").unwrap_or_else(|e| panic!("{e}"));
+    std::os::unix::fs::symlink(&outside, root.join("link.txt")).unwrap_or_else(|e| panic!("{e}"));
+    git(root, &["add", "link.txt"]);
+    git(root, &["commit", "--quiet", "-m", "link"]);
+    let base = git(root, &["rev-parse", "HEAD"]);
+    let worker = repo.tmp.path().join("worker");
+    put(&worker, "link.txt", "agent\n");
+
+    let w = GitWorktrees::new();
+    let conflicts = w
+        .apply(worker, base, root.clone(), rels(&["link.txt"]))
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(conflicts, ["link.txt"]);
+    assert_eq!(
+        read(repo.tmp.path(), "outside.txt").as_deref(),
+        Some("outside\n")
+    );
+    let meta = fs::symlink_metadata(root.join("link.txt")).unwrap_or_else(|e| panic!("{e}"));
+    assert!(meta.is_symlink());
+}

@@ -123,6 +123,14 @@ pub(crate) fn apply(
     for path in paths {
         match (on_disk(into, path)?, on_disk(from, path)?) {
             (OnDisk::Off, _) | (_, OnDisk::Off) => conflicts.push(path.to_string()),
+            // A symlink in the checkout is left for a person: its hash would
+            // be of what it points to, and copying would write through it.
+            (OnDisk::File, _) if is_symlink(into, path) => conflicts.push(path.to_string()),
+            // Only Unix recreates a symlink; elsewhere copying one would copy
+            // whatever it points to.
+            (_, OnDisk::File) if !cfg!(unix) && is_symlink(from, path) => {
+                conflicts.push(path.to_string());
+            }
             (OnDisk::File, source) => {
                 present.push(path);
                 todo.push((path, source));
@@ -162,12 +170,22 @@ pub(crate) fn apply(
     Ok(conflicts)
 }
 
+/// Whether `path` under `dir` is a symlink itself (not followed).
+fn is_symlink(dir: &Path, path: &RelPath) -> bool {
+    fs::symlink_metadata(path.under(dir)).is_ok_and(|m| m.is_symlink())
+}
+
 /// Copies one file, or recreates a symlink, creating parent directories.
+/// A symlink that appeared at `to` since [`apply`] looked is replaced, never
+/// written through. On Unix a symlink at `from` is recreated as a link;
+/// elsewhere [`apply`] refuses one before getting here, since copying it
+/// would copy whatever it points to.
 fn copy(from: &Path, to: &Path) -> Result<()> {
     let fail = |e: std::io::Error| internal(format!("cannot copy to {}: {e}", to.display()));
     if let Some(parent) = to.parent() {
         fs::create_dir_all(parent).map_err(fail)?;
     }
+    let replace_link = fs::symlink_metadata(to).is_ok_and(|m| m.is_symlink());
     #[cfg(unix)]
     if fs::symlink_metadata(from).map_err(fail)?.is_symlink() {
         let target: std::path::PathBuf = fs::read_link(from).map_err(fail)?;
@@ -176,6 +194,9 @@ fn copy(from: &Path, to: &Path) -> Result<()> {
             _ => {}
         }
         return std::os::unix::fs::symlink(target, to).map_err(fail);
+    }
+    if replace_link {
+        fs::remove_file(to).map_err(fail)?;
     }
     fs::copy(from, to).map(|_| ()).map_err(fail)
 }
