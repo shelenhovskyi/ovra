@@ -42,8 +42,8 @@ test("Mod+P goes to a file; the palette switches and closes projects", async ({ 
 
   await page.goto(daemonUrl());
   const projects = page.getByTestId("project-list");
-  await projects.getByRole("textbox", { name: "Project folder" }).fill(dir);
-  await projects.getByRole("button", { name: "Add" }).click();
+  await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
+  await projects.getByRole("button", { name: "Open", exact: true }).click();
   await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();
 
   await page.keyboard.press("ControlOrMeta+P");
