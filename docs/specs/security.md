@@ -149,7 +149,9 @@ its changes on approve.
     their folder is missing, so the agent cannot put a repository there
     that git steps into; so do config files inside the project that git
     includes. A missing folder or include is made empty first, so it can
-    be bound;
+    be bound; these show up as untracked files in the project. Planning
+    never runs git in a repository the agent could have made, and never
+    with `core.fsmonitor`;
   - the folder `core.hooksPath` names, for example `.husky/`;
   - `refs/ovra/` and its reflog;
   - for a worker, its worktree's `.git` file, plus `commondir`, `gitdir` and

@@ -444,3 +444,33 @@ fn landlock_and_seccomp_hold_without_bubblewrap_too() {
     };
     insta::assert_snapshot!(out);
 }
+
+#[test]
+fn starting_a_session_runs_nothing_a_nested_repository_names() {
+    let root = Dir::new("fsmonitor");
+    let home = root.0.join("home");
+    fs::create_dir_all(&home).unwrap();
+    let project = root.0.join("project");
+    let nested = project.join("vendor/x");
+    fs::create_dir_all(&nested).unwrap();
+    git(&project, &["init", "-q"]);
+    git(&nested, &["init", "-q"]);
+    let marker = root.0.join("ran");
+    git(
+        &nested,
+        &[
+            "config",
+            "core.fsmonitor",
+            &format!("touch {}", marker.display()),
+        ],
+    );
+    let Some(sandbox) = sandbox(&home, Vec::new()) else {
+        return;
+    };
+    run(
+        &sandbox,
+        &profile(&project, ProfileNetwork::Blocked),
+        "true",
+    );
+    assert!(!marker.exists());
+}

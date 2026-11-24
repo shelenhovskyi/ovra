@@ -608,15 +608,7 @@ fn protected_paths(
         made.push((hooks, true));
     }
     made.extend(config_files(work_dir, home).into_iter().map(|f| (f, false)));
-    let mut repos = vec![work_dir.to_path_buf()];
-    repos.extend(
-        found
-            .iter()
-            .filter(|p| p.file_name().is_some_and(|n| n == ".git"))
-            .filter_map(|p| p.parent().map(Path::to_path_buf)),
-    );
-    repos.dedup();
-    made.extend(empty_submodules(repos).into_iter().map(|d| (d, true)));
+    made.extend(empty_submodules(work_dir).into_iter().map(|d| (d, true)));
     for (path, folder) in made {
         found.extend(made_inside(work_dir, &path, folder)?);
     }
@@ -647,7 +639,9 @@ fn protected_paths(
 /// What `git <args>` prints in `work_dir`, as the user's git sees it;
 /// `None` outside a repository or without git.
 fn git(work_dir: &Path, args: &[&str]) -> Option<String> {
+    // Never anything from the repository's config that runs a program.
     let out = Command::new("git")
+        .args(["-c", "core.fsmonitor=false", "--no-optional-locks"])
         .args(args)
         .current_dir(work_dir)
         .env_remove("GIT_DIR")
@@ -736,10 +730,13 @@ fn lexically_inside(path: &Path, dir: &Path) -> bool {
 /// Submodule folders (gitlinks in the index) that are not checked out,
 /// looking inside every submodule that is: `git status` steps into those
 /// whether or not they are active, which `ls-files --recurse-submodules`
-/// does not follow. `repos` are where to start: the project and the
-/// repositories nested in it.
-fn empty_submodules(mut repos: Vec<PathBuf>) -> Vec<PathBuf> {
+/// does not follow. Only gitlinks are followed, from `work_dir` down, and
+/// only through real folders inside it: a repository the agent made is
+/// never asked, as its config could run code.
+fn empty_submodules(work_dir: &Path) -> Vec<PathBuf> {
     let mut empty = Vec::new();
+    let mut seen = std::collections::HashSet::from([work_dir.to_path_buf()]);
+    let mut repos = vec![work_dir.to_path_buf()];
     while let Some(repo) = repos.pop() {
         let text = git(&repo, &["ls-files", "--stage", "-z"]).unwrap_or_default();
         for record in text.split('\0') {
@@ -749,17 +746,56 @@ fn empty_submodules(mut repos: Vec<PathBuf>) -> Vec<PathBuf> {
             else {
                 continue;
             };
-            let dir = repo.join(path);
-            // A link is not stepped through; it is refused later.
-            let is_dir = fs::symlink_metadata(&dir).is_ok_and(|m| m.is_dir());
-            if is_dir && fs::symlink_metadata(dir.join(".git")).is_ok() {
-                repos.push(dir);
-            } else {
+            // Outside `work_dir` it is read-only already.
+            let Some(parts) = parts_inside(work_dir, &repo.join(path)) else {
+                continue;
+            };
+            let dir = parts.iter().fold(work_dir.to_path_buf(), |d, p| d.join(p));
+            let real = parts.iter().scan(work_dir.to_path_buf(), |at, part| {
+                at.push(part);
+                Some(fs::symlink_metadata(&*at).is_ok_and(|m| m.is_dir()))
+            });
+            let checked_out = real.into_iter().all(|is_dir| is_dir)
+                && fs::symlink_metadata(dir.join(".git")).is_ok();
+            if !checked_out {
                 empty.push(dir);
+            } else if seen.insert(dir.clone()) {
+                repos.push(dir);
             }
         }
     }
     empty
+}
+
+/// The parts of `path` below `work_dir`, with `.` and `..` resolved by
+/// name; `None` when it is not below it. An absolute path that reaches
+/// `work_dir` through a link (`/home` for `/var/home`) counts too.
+fn parts_inside(work_dir: &Path, path: &Path) -> Option<Vec<std::ffi::OsString>> {
+    use std::path::Component;
+    let rest = match path.strip_prefix(work_dir) {
+        Ok(rest) => rest.to_path_buf(),
+        Err(_) => {
+            let (ancestor, real) = path
+                .ancestors()
+                .find_map(|a| fs::canonicalize(a).ok().map(|r| (a, r)))?;
+            real.join(path.strip_prefix(ancestor).ok()?)
+                .strip_prefix(work_dir)
+                .ok()?
+                .to_path_buf()
+        }
+    };
+    let mut parts = Vec::new();
+    for part in rest.components() {
+        match part {
+            Component::Normal(name) => parts.push(name.to_os_string()),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                parts.pop()?;
+            }
+            _ => return None,
+        }
+    }
+    (!parts.is_empty()).then_some(parts)
 }
 
 /// The folder `core.hooksPath` names, if set and inside `work_dir`.
@@ -783,25 +819,9 @@ fn hooks_path(work_dir: &Path, home: &Path) -> Option<PathBuf> {
 /// that is not a folder. `None` when `path` is not inside `work_dir`.
 fn made_inside(work_dir: &Path, path: &Path, folder: bool) -> Result<Option<PathBuf>> {
     use std::os::unix::fs::OpenOptionsExt as _;
-    use std::path::Component;
-    let mut parts = Vec::new();
-    let Ok(rest) = path.strip_prefix(work_dir) else {
+    let Some(parts) = parts_inside(work_dir, path) else {
         return Ok(None);
     };
-    for part in rest.components() {
-        match part {
-            Component::Normal(name) => parts.push(name),
-            Component::CurDir => {}
-            Component::ParentDir => match parts.pop() {
-                Some(_) => {}
-                None => return Ok(None),
-            },
-            _ => return Ok(None),
-        }
-    }
-    if parts.is_empty() {
-        return Ok(None);
-    }
     let refuse = |at: &Path, error: std::io::Error| {
         invalid(format!(
             "cannot make {} for the sandbox to keep read-only: {error}",
