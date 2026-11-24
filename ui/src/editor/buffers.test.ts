@@ -167,6 +167,22 @@ describe("Buffer", () => {
     type("\n");
     expect(edits).toEqual([[{ from: 12, to: 12, insert: "\n" }]]);
   });
+
+  test("a minified or very large file opens as plain text, without the highlighter", async () => {
+    const highlighter = { open: vi.fn() } as unknown as HighlightClient;
+    const { core, show } = setup(highlighter);
+    core.put("small.js", "let a = 1;\n");
+    core.put("app.min.js", `let a = 1;\n${"x".repeat(10_001)}\n`);
+    core.put("big.js", `${"x".repeat(9_999)}\n`.repeat(110));
+    const small = await show("small.js");
+    expect(small.heavy).toBe(false);
+    expect(highlighter.open).toHaveBeenCalledTimes(1);
+    for (const path of ["app.min.js", "big.js"]) {
+      const buffer = await show(path);
+      expect([path, buffer.status, buffer.heavy]).toEqual([path, "ready", true]);
+    }
+    expect(highlighter.open).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("drafts", () => {

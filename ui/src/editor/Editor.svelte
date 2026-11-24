@@ -80,7 +80,9 @@ function discard(path: string): void {
       {#if buffer.dirty}
         <span class="dirty" title="Unsaved changes" data-testid="editor-dirty">●<span class="visually-hidden">Unsaved changes</span></span>
       {/if}
-      <span class="language">{buffer.language?.name ?? "Plain text"}</span>
+      <span class="language" data-testid="editor-language"
+        >{buffer.heavy ? "Plain text (large file, highlighting off)" : (buffer.language?.name ?? "Plain text")}</span
+      >
       {#if buffer.status === "ready"}
         <button type="button" onclick={() => save()} disabled={!buffer.dirty}>Save</button>
       {/if}

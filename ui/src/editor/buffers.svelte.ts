@@ -24,6 +24,27 @@ type BufferStatus = "loading" | "ready" | "binary" | "too_large" | "failed";
 /** Unsaved text is written to drafts this long after the last keystroke. */
 const DRAFT_DELAY_MS = 300;
 
+/**
+ * Texts above either limit open without syntax highlighting or selection
+ * match marks: both cost time on every edit and scroll, and minified files
+ * gain nothing from them. First guesses; the speed gate tunes them.
+ */
+const HEAVY_TEXT_CHARS = 1024 * 1024;
+const HEAVY_LINE_CHARS = 10_000;
+
+/** Whether `text` is too big, or has too long a line, for the costly extensions. */
+function isHeavy(text: string): boolean {
+  if (text.length > HEAVY_TEXT_CHARS) return true;
+  let start = 0;
+  while (start < text.length) {
+    const end = text.indexOf("\n", start);
+    const stop = end < 0 ? text.length : end;
+    if (stop - start > HEAVY_LINE_CHARS) return true;
+    start = stop + 1;
+  }
+  return false;
+}
+
 type Options = {
   transport: Transport;
   project: ProjectId;
@@ -42,6 +63,8 @@ export class Buffer {
   unsaved = $state<string | null>(null);
   /** The file is gone from disk; saving recreates it. */
   deleted = $state(false);
+  /** The text is too large or has too long a line: no highlighting (see `isHeavy`). */
+  heavy = $state(false);
   readonly language: Language | null;
   readonly loaded: Promise<void>;
 
@@ -233,7 +256,8 @@ export class Buffer {
 
   private create(text: string, cursor = 0): EditorState {
     this.highlight?.close();
-    const highlighter = this.source && this.options.highlighter();
+    this.heavy = isHeavy(text);
+    const highlighter = this.source && !this.heavy && this.options.highlighter();
     this.highlight = this.source && highlighter ? highlighter.open(this.source, text) : null;
     return EditorState.create({
       doc: text,
@@ -248,7 +272,7 @@ export class Buffer {
       history(),
       drawSelection(),
       highlightActiveLine(),
-      highlightSelectionMatches(),
+      this.heavy ? [] : highlightSelectionMatches(),
       keymap.of([
         {
           key: "Mod-s",
