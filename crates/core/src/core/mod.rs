@@ -317,6 +317,13 @@ impl Core {
             TerminalsRequest::Input { id, data } => terminals.input(&id, &data)?,
             TerminalsRequest::Resize { id, size } => terminals.resize(&id, size)?,
             TerminalsRequest::Close { id } => terminals.close(&id)?,
+            TerminalsRequest::Scrollback { id } => {
+                let (data, seq) = terminals.scrollback(&id)?;
+                return Ok(Response::Terminals(TerminalsResponse::Scrollback {
+                    data,
+                    seq,
+                }));
+            }
         }
         Ok(Response::Ok(OkResponse::Ok))
     }

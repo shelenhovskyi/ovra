@@ -32,6 +32,13 @@ impl EventSink {
     pub fn emit(&self, event: impl Into<Event>) {
         let _ = self.0.send(event.into());
     }
+
+    /// Events not yet received by every subscriber. A service that can wait
+    /// (terminal output) holds back while this is high, so that subscribers
+    /// do not fall behind and miss events.
+    pub fn backlog(&self) -> usize {
+        self.0.len()
+    }
 }
 
 /// The list of projects, persisted across restarts (implemented by `ovra-store`).
@@ -99,8 +106,12 @@ pub trait TerminalService: Send + Sync + Debug {
     fn open(&self, cwd: PathBuf, size: TermSize, sink: EventSink) -> Result<TerminalId>;
     fn input(&self, id: &TerminalId, data: &str) -> Result<()>;
     fn resize(&self, id: &TerminalId, size: TermSize) -> Result<()>;
-    /// Ends the shell; `terminals.exited` follows.
+    /// Ends the shell if it still runs, and forgets the terminal;
+    /// `terminals.exited` follows for a running shell.
     fn close(&self, id: &TerminalId) -> Result<()>;
+    /// The kept tail of the output and the `seq` of the last output event
+    /// it contains. Answers for an ended terminal until it is closed.
+    fn scrollback(&self, id: &TerminalId) -> Result<(String, u64)>;
 }
 
 /// What a runtime needs to start one session.
@@ -376,6 +387,9 @@ impl TerminalService for Unavailable {
         self.err()
     }
     fn close(&self, _: &TerminalId) -> Result<()> {
+        self.err()
+    }
+    fn scrollback(&self, _: &TerminalId) -> Result<(String, u64)> {
         self.err()
     }
 }

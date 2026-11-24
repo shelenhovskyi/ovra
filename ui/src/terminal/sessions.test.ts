@@ -24,7 +24,7 @@ describe("TerminalSessions", () => {
 
     await sessions.start(session, SIZE);
     expect(session.state).toEqual({ kind: "running", id: "t1" });
-    expect(core.open.get("t1")).toEqual({ project: "p1", size: SIZE });
+    expect(core.open.get("t1")).toMatchObject({ project: "p1", size: SIZE });
 
     const written: string[] = [];
     session.attach((data) => written.push(data));
@@ -51,12 +51,12 @@ describe("TerminalSessions", () => {
     const { core, sessions } = setup();
     const session = sessions.add("p1");
     await sessions.start(session, SIZE);
-    core.emit({ type: "terminals.output", data: { id: "t1", data: "hello" } });
+    core.emit({ type: "terminals.output", data: { id: "t1", data: "hello", seq: 1 } });
     const written: string[] = [];
     const detach = session.attach((data) => written.push(data));
     expect(written).toEqual(["hello"]);
     detach();
-    core.emit({ type: "terminals.output", data: { id: "t1", data: " again" } });
+    core.emit({ type: "terminals.output", data: { id: "t1", data: " again", seq: 2 } });
     session.attach((data) => written.push(data));
     expect(written).toEqual(["hello", " again"]);
   });

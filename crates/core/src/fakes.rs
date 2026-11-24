@@ -315,10 +315,21 @@ impl Opener for RecordingOpener {
 }
 
 /// Terminals that echo their input back as output; ids are `t1`, `t2`, ...
+/// The scrollback is everything echoed so far.
 #[derive(Debug, Default)]
 pub struct EchoTerminals {
-    open: Mutex<Vec<(TerminalId, PathBuf, TermSize, EventSink)>>,
+    open: Mutex<Vec<EchoTerminal>>,
     opened: Mutex<u64>,
+}
+
+#[derive(Debug)]
+struct EchoTerminal {
+    id: TerminalId,
+    cwd: PathBuf,
+    size: TermSize,
+    sink: EventSink,
+    output: String,
+    seq: u64,
 }
 
 impl EchoTerminals {
@@ -326,21 +337,17 @@ impl EchoTerminals {
     pub fn open_terminals(&self) -> Vec<(TerminalId, PathBuf, TermSize)> {
         lock(&self.open)
             .iter()
-            .map(|(id, cwd, size, _)| (id.clone(), cwd.clone(), *size))
+            .map(|t| (t.id.clone(), t.cwd.clone(), t.size))
             .collect()
     }
 
-    fn with<T>(
-        &self,
-        id: &TerminalId,
-        f: impl FnOnce(&mut TermSize, &EventSink) -> T,
-    ) -> Result<T> {
+    fn with<T>(&self, id: &TerminalId, f: impl FnOnce(&mut EchoTerminal) -> T) -> Result<T> {
         let mut open = lock(&self.open);
-        let (_, _, size, sink) = open
+        let terminal = open
             .iter_mut()
-            .find(|(t, ..)| t == id)
+            .find(|t| &t.id == id)
             .ok_or_else(|| not_found(format!("terminal {}", id.0)))?;
-        Ok(f(size, sink))
+        Ok(f(terminal))
     }
 }
 
@@ -349,31 +356,45 @@ impl TerminalService for EchoTerminals {
         let mut opened = lock(&self.opened);
         *opened += 1;
         let id = TerminalId(format!("t{opened}"));
-        lock(&self.open).push((id.clone(), cwd, size, sink));
+        lock(&self.open).push(EchoTerminal {
+            id: id.clone(),
+            cwd,
+            size,
+            sink,
+            output: String::new(),
+            seq: 0,
+        });
         Ok(id)
     }
 
     fn input(&self, id: &TerminalId, data: &str) -> Result<()> {
-        self.with(id, |_, sink| {
-            sink.emit(TerminalsEvent::Output {
+        self.with(id, |t| {
+            t.seq += 1;
+            t.output.push_str(data);
+            t.sink.emit(TerminalsEvent::Output {
                 id: id.clone(),
                 data: data.to_owned(),
+                seq: t.seq,
             });
         })
     }
 
     fn resize(&self, id: &TerminalId, new: TermSize) -> Result<()> {
-        self.with(id, |size, _| *size = new)
+        self.with(id, |t| t.size = new)
     }
 
     fn close(&self, id: &TerminalId) -> Result<()> {
-        let sink = self.with(id, |_, sink| sink.clone())?;
-        lock(&self.open).retain(|(t, ..)| t != id);
+        let sink = self.with(id, |t| t.sink.clone())?;
+        lock(&self.open).retain(|t| &t.id != id);
         sink.emit(TerminalsEvent::Exited {
             id: id.clone(),
             code: Some(0),
         });
         Ok(())
+    }
+
+    fn scrollback(&self, id: &TerminalId) -> Result<(String, u64)> {
+        self.with(id, |t| (t.output.clone(), t.seq))
     }
 }
 

@@ -70,7 +70,13 @@ async fn runs_a_program_streams_its_output_and_reports_the_exit_code() {
     let id = pty.open(here(), SIZE, core.sink()).expect("open");
     output_until(&mut rx, &id, "hi").await;
     assert_eq!(exit_code(&mut rx, &id).await, Some(3));
-    let gone = pty.input(&id, "x").expect_err("closed");
+    let ended = pty.input(&id, "x").expect_err("ended");
+    assert_eq!(ended.code, ErrorCode::NotFound);
+    // The output stays readable until the terminal is closed.
+    let (text, seq) = pty.scrollback(&id).expect("scrollback");
+    assert!(text.contains("hi") && seq >= 1, "{text:?} {seq}");
+    pty.close(&id).expect("close an ended terminal");
+    let gone = pty.scrollback(&id).expect_err("closed");
     assert_eq!(gone.code, ErrorCode::NotFound);
 }
 
@@ -152,8 +158,9 @@ fn refuses_a_missing_folder_and_unknown_ids() {
         pty.input(&unknown, "x").err().map(|e| e.code),
         pty.resize(&unknown, SIZE).err().map(|e| e.code),
         pty.close(&unknown).err().map(|e| e.code),
+        pty.scrollback(&unknown).err().map(|e| e.code),
     ];
-    assert_eq!(codes, [Some(ErrorCode::NotFound); 3]);
+    assert_eq!(codes, [Some(ErrorCode::NotFound); 4]);
 }
 
 #[cfg(unix)]

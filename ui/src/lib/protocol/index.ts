@@ -84,32 +84,34 @@ export type ResponseFor<R extends Request> = R extends { method: "info.get" }
                     ? { type: "ok" }
                     : R extends { method: "terminals.open" }
                       ? Extract<Response, { type: "terminals.opened" }>
-                      : R extends { method: "agents.list" }
-                        ? Extract<Response, { type: "agents.list" }>
-                        : R extends { method: "agents.start" | "agents.resume" }
-                          ? Extract<Response, { type: "agents.session" }>
-                          : R extends { method: "agents.transcript" }
-                            ? Extract<Response, { type: "agents.transcript" }>
-                            : R extends { method: "agents.setup" | "agents.set_path" }
-                              ? Extract<Response, { type: "agents.setup" }>
-                              : R extends { method: "agents.project_config" }
-                                ? Extract<Response, { type: "agents.project_config" }>
-                                : R extends { method: "permissions.pending" }
-                                  ? Extract<Response, { type: "permissions.pending" }>
-                                  : R extends {
-                                        method:
-                                          | "terminals.input"
-                                          | "terminals.resize"
-                                          | "terminals.close"
-                                          | "agents.send"
-                                          | "agents.interrupt"
-                                          | "agents.stop"
-                                          | "permissions.answer"
-                                          | "review.comment"
-                                          | "orchestration.stop";
-                                      }
-                                    ? { type: "ok" }
-                                    : PhaseThreeResponseFor<R>;
+                      : R extends { method: "terminals.scrollback" }
+                        ? Extract<Response, { type: "terminals.scrollback" }>
+                        : R extends { method: "agents.list" }
+                          ? Extract<Response, { type: "agents.list" }>
+                          : R extends { method: "agents.start" | "agents.resume" }
+                            ? Extract<Response, { type: "agents.session" }>
+                            : R extends { method: "agents.transcript" }
+                              ? Extract<Response, { type: "agents.transcript" }>
+                              : R extends { method: "agents.setup" | "agents.set_path" }
+                                ? Extract<Response, { type: "agents.setup" }>
+                                : R extends { method: "agents.project_config" }
+                                  ? Extract<Response, { type: "agents.project_config" }>
+                                  : R extends { method: "permissions.pending" }
+                                    ? Extract<Response, { type: "permissions.pending" }>
+                                    : R extends {
+                                          method:
+                                            | "terminals.input"
+                                            | "terminals.resize"
+                                            | "terminals.close"
+                                            | "agents.send"
+                                            | "agents.interrupt"
+                                            | "agents.stop"
+                                            | "permissions.answer"
+                                            | "review.comment"
+                                            | "orchestration.stop";
+                                        }
+                                      ? { type: "ok" }
+                                      : PhaseThreeResponseFor<R>;
 
 /** `ResponseFor` for the review and orchestration domains. */
 type PhaseThreeResponseFor<R extends Request> = R extends { method: "review.list" }

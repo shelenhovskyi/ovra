@@ -15,7 +15,7 @@ use crate::protocol::permissions::{
 };
 use crate::protocol::projects::{Project, ProjectState};
 use crate::protocol::review::{ReviewEvent, ReviewId};
-use crate::protocol::terminals::{TerminalId, TerminalsEvent};
+use crate::protocol::terminals::{TerminalId, TerminalsEvent, TerminalsResponse};
 
 struct Fixture {
     core: Core,
@@ -297,6 +297,7 @@ fn wire_format_is_stable() {
         "responses": [
             Response::Ok(OkResponse::Ok),
             Response::Fs(FsResponse::Written { mtime_ms: 5 }),
+            Response::Terminals(TerminalsResponse::Scrollback { data: "$ ls\r\n".into(), seq: 2 }),
             Response::Agents(AgentsResponse::Setup(AgentSetup {
                 path: None,
                 executable: Some("/usr/local/bin/claude".into()),
@@ -355,6 +356,7 @@ fn wire_format_is_stable() {
                     kind: Some("other".into()),
                 }),
             })),
+            Event::Terminals(TerminalsEvent::Output { id: TerminalId("t1".into()), data: "$ ".into(), seq: 1 }),
             Event::Terminals(TerminalsEvent::Exited { id: TerminalId("t1".into()), code: None }),
             Event::Review(ReviewEvent::Changed { project: ProjectId("p1".into()), id: ReviewId("r1".into()) }),
             Event::Orchestration(OrchestrationEvent::Show {
@@ -387,6 +389,7 @@ fn every_request_round_trips() {
         serde_json::json!({"method": "terminals.input", "params": {"id": "t1", "data": "ls\r"}}),
         serde_json::json!({"method": "terminals.resize", "params": {"id": "t1", "size": {"cols": 100, "rows": 30}}}),
         serde_json::json!({"method": "terminals.close", "params": {"id": "t1"}}),
+        serde_json::json!({"method": "terminals.scrollback", "params": {"id": "t1"}}),
         serde_json::json!({"method": "agents.list", "params": {"project": "p1"}}),
         serde_json::json!({"method": "agents.start", "params": {"project": "p1", "agent": "claude", "mode": "direct", "prompt": "hi"}}),
         serde_json::json!({"method": "agents.send", "params": {"session": "s1", "text": "more"}}),

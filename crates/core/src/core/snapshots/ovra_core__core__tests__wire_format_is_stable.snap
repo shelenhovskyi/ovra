@@ -76,6 +76,14 @@ expression: samples
     },
     {
       "data": {
+        "data": "$ ",
+        "id": "t1",
+        "seq": 1
+      },
+      "type": "terminals.output"
+    },
+    {
+      "data": {
         "code": null,
         "id": "t1"
       },
@@ -141,6 +149,13 @@ expression: samples
         "mtime_ms": 5
       },
       "type": "fs.written"
+    },
+    {
+      "data": {
+        "data": "$ ls\r\n",
+        "seq": 2
+      },
+      "type": "terminals.scrollback"
     },
     {
       "data": {

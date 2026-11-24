@@ -8,6 +8,7 @@
 //! waits for the shell to end, drops the pseudo-terminal and emits
 //! `terminals.exited` once the output is drained.
 
+mod scrollback;
 mod utf8;
 
 use std::collections::HashMap;
@@ -24,6 +25,7 @@ use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::{EventSink, Result, TerminalService};
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 
+use crate::scrollback::Scrollback;
 use crate::utf8::Utf8Stream;
 
 /// How long `terminals.exited` waits for the last output after the shell
@@ -33,11 +35,18 @@ const DRAIN_GRACE: Duration = Duration::from_millis(500);
 /// The real terminal service.
 #[derive(Debug, Default)]
 pub struct Pty {
-    sessions: Arc<Mutex<HashMap<TerminalId, Session>>>,
+    terminals: Arc<Mutex<HashMap<TerminalId, Terminal>>>,
     opened: AtomicU64,
     /// Program and arguments to run instead of the user's shell.
     #[cfg(test)]
     program: Option<Vec<String>>,
+}
+
+/// An open terminal; `session` is gone once the shell ended.
+#[derive(Debug)]
+struct Terminal {
+    session: Option<Session>,
+    output: Arc<Mutex<Scrollback>>,
 }
 
 struct Session {
@@ -77,28 +86,34 @@ impl Pty {
         CommandBuilder::new_default_prog()
     }
 
-    fn sessions(&self) -> MutexGuard<'_, HashMap<TerminalId, Session>> {
-        lock(&self.sessions)
+    fn terminals(&self) -> MutexGuard<'_, HashMap<TerminalId, Terminal>> {
+        lock(&self.terminals)
     }
 
+    /// Runs `f` on the shell of a terminal that still runs.
     fn with_session<T>(
         &self,
         id: &TerminalId,
         f: impl FnOnce(&mut Session) -> std::io::Result<T>,
     ) -> Result<T> {
-        let mut sessions = self.sessions();
-        let session = sessions.get_mut(id).ok_or_else(|| {
-            ProtocolError::new(
-                ErrorCode::NotFound,
-                format!("terminal {} is not open", id.0),
-            )
-        })?;
+        let mut terminals = self.terminals();
+        let session = terminals
+            .get_mut(id)
+            .and_then(|t| t.session.as_mut())
+            .ok_or_else(|| not_open(id))?;
         f(session).map_err(|e| internal(format!("terminal {}: {e}", id.0)))
     }
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+fn not_open(id: &TerminalId) -> ProtocolError {
+    ProtocolError::new(
+        ErrorCode::NotFound,
+        format!("terminal {} is not open", id.0),
+    )
 }
 
 fn internal(message: String) -> ProtocolError {
@@ -152,12 +167,16 @@ impl TerminalService for Pty {
             self.opened.fetch_add(1, Ordering::Relaxed) + 1
         ));
         let killer = child.clone_killer();
-        self.sessions().insert(
+        let output = Arc::new(Mutex::new(Scrollback::default()));
+        self.terminals().insert(
             id.clone(),
-            Session {
-                master: pair.master,
-                writer,
-                killer,
+            Terminal {
+                session: Some(Session {
+                    master: pair.master,
+                    writer,
+                    killer,
+                }),
+                output: Arc::clone(&output),
             },
         );
 
@@ -165,16 +184,18 @@ impl TerminalService for Pty {
         let reader_id = id.clone();
         let reader_sink = sink.clone();
         thread::spawn(move || {
-            pump(reader, &reader_id, &reader_sink);
+            pump(reader, &reader_id, &reader_sink, &output);
             let _ = drained.send(());
         });
-        let sessions = Arc::clone(&self.sessions);
+        let terminals = Arc::clone(&self.terminals);
         let waiter_id = id.clone();
         thread::spawn(move || {
             let id = waiter_id;
             let status = child.wait();
-            // Dropping the master ends the reader on Windows (ConPTY).
-            drop(lock(&sessions).remove(&id));
+            // Dropping the master ends the reader on Windows (ConPTY). The
+            // scrollback stays until the terminal is closed.
+            let session = lock(&terminals).get_mut(&id).and_then(|t| t.session.take());
+            drop(session);
             let _ = wait_drained.recv_timeout(DRAIN_GRACE);
             let code = match status {
                 Ok(s) if s.signal().is_none() => i32::try_from(s.exit_code()).ok(),
@@ -201,22 +222,37 @@ impl TerminalService for Pty {
     }
 
     fn close(&self, id: &TerminalId) -> Result<()> {
-        self.with_session(id, |s| s.killer.kill())
+        let terminal = self.terminals().remove(id).ok_or_else(|| not_open(id))?;
+        match terminal.session {
+            Some(mut s) => s
+                .killer
+                .kill()
+                .map_err(|e| internal(format!("terminal {}: {e}", id.0))),
+            None => Ok(()),
+        }
+    }
+
+    fn scrollback(&self, id: &TerminalId) -> Result<(String, u64)> {
+        let output = self
+            .terminals()
+            .get(id)
+            .map(|t| Arc::clone(&t.output))
+            .ok_or_else(|| not_open(id))?;
+        let tail = lock(&output).tail();
+        Ok(tail)
     }
 }
 
 /// Emits everything the shell writes until the terminal closes.
-fn pump(mut reader: Box<dyn Read + Send>, id: &TerminalId, sink: &EventSink) {
+fn pump(
+    mut reader: Box<dyn Read + Send>,
+    id: &TerminalId,
+    sink: &EventSink,
+    output: &Mutex<Scrollback>,
+) {
     let mut stream = Utf8Stream::default();
     let mut buf = [0u8; 16 * 1024];
-    let emit = |data: String| {
-        if !data.is_empty() {
-            sink.emit(TerminalsEvent::Output {
-                id: id.clone(),
-                data,
-            });
-        }
-    };
+    let emit = |data: String| lock(output).emit(sink, id, data);
     loop {
         match reader.read(&mut buf) {
             // Unix reports EIO once the shell and its children are gone.

@@ -113,7 +113,7 @@ describe("Terminals", () => {
 
     await run("terminal.toggle");
     expect(panel.hidden).toBe(false);
-    expect(core.open.get("t1")).toEqual({ project: "p1", size: { cols: 100, rows: 20 } });
+    expect(core.open.get("t1")).toMatchObject({ project: "p1", size: { cols: 100, rows: 20 } });
     expect(tabs().map((t) => t.textContent?.trim())).toEqual(["Terminal 1"]);
     expect(tabs()[0]?.getAttribute("aria-selected")).toBe("true");
     const xterm = xterms[0];

@@ -1,13 +1,14 @@
 // Test-only fake of the core's `terminals.*`, like `EchoTerminals` in
 // `crates/core/src/fakes.rs`: ids are `t1`, `t2`, ..., input is echoed back as
-// output and closing emits `terminals.exited` with code 0.
+// output (the scrollback is everything echoed) and closing emits
+// `terminals.exited` with code 0.
 
 import type { CoreEvent, ProjectId, Request, ResponseFor, TermSize } from "../lib/protocol";
 import { CoreError, type Transport } from "../lib/transport";
 
 export class FakeTerminals implements Transport {
   calls: Request[] = [];
-  open = new Map<string, { project: ProjectId; size: TermSize }>();
+  open = new Map<string, { project: ProjectId; size: TermSize; output: string; seq: number }>();
   /** When set, `terminals.open` fails with this error. */
   openError: CoreError | null = null;
   /** When set, `terminals.open` waits for this promise before answering. */
@@ -33,8 +34,10 @@ export class FakeTerminals implements Transport {
     return this.calls.map((c) => c.method);
   }
 
-  private known(id: string): void {
-    if (!this.open.has(id)) throw new CoreError({ code: "not_found", message: `terminal ${id}` });
+  private known(id: string) {
+    const terminal = this.open.get(id);
+    if (!terminal) throw new CoreError({ code: "not_found", message: `terminal ${id}` });
+    return terminal;
   }
 
   private async answer(request: Request): Promise<unknown> {
@@ -43,17 +46,23 @@ export class FakeTerminals implements Transport {
         if (this.openGate) await this.openGate;
         if (this.openError) throw this.openError;
         const id = `t${++this.opened}`;
-        this.open.set(id, { project: request.params.project, size: request.params.size });
+        this.open.set(id, { project: request.params.project, size: request.params.size, output: "", seq: 0 });
         return { type: "terminals.opened", data: { id } };
       }
-      case "terminals.input":
-        this.known(request.params.id);
-        this.emit({ type: "terminals.output", data: { id: request.params.id, data: request.params.data } });
+      case "terminals.input": {
+        const terminal = this.known(request.params.id);
+        const { id, data } = request.params;
+        terminal.output += data;
+        terminal.seq += 1;
+        this.emit({ type: "terminals.output", data: { id, data, seq: terminal.seq } });
         return { type: "ok" };
+      }
+      case "terminals.scrollback": {
+        const terminal = this.known(request.params.id);
+        return { type: "terminals.scrollback", data: { data: terminal.output, seq: terminal.seq } };
+      }
       case "terminals.resize": {
-        this.known(request.params.id);
-        const terminal = this.open.get(request.params.id);
-        if (terminal) terminal.size = request.params.size;
+        this.known(request.params.id).size = request.params.size;
         return { type: "ok" };
       }
       case "terminals.close":

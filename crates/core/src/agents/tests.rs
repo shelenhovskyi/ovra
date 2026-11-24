@@ -11,7 +11,7 @@ use crate::protocol::agents::{
 use crate::protocol::agents::{ProjectAgentConfig, ProjectConfigReview, SetupState};
 use crate::protocol::permissions::{PermissionAnswer, PermissionsEvent, PermissionsResponse};
 use crate::protocol::projects::{Project, ProjectsEvent, ProjectsResponse};
-use crate::protocol::terminals::TerminalsEvent;
+use crate::protocol::terminals::{TerminalsEvent, TerminalsResponse};
 use crate::protocol::{ErrorCode, Event, ProtocolError, Request, Response};
 
 fn core_with(agent: ScriptedAgent) -> Core {
@@ -544,6 +544,18 @@ async fn terminals_open_in_the_project_root() {
         json!({"method": "terminals.input", "params": {"id": "t1", "data": "ls\r"}}),
     )
     .await;
+    let scrollback = ok(
+        &core,
+        json!({"method": "terminals.scrollback", "params": {"id": "t1"}}),
+    )
+    .await;
+    assert_eq!(
+        scrollback,
+        Response::Terminals(TerminalsResponse::Scrollback {
+            data: "ls\r".into(),
+            seq: 1
+        })
+    );
     ok(
         &core,
         json!({"method": "terminals.close", "params": {"id": "t1"}}),
@@ -554,7 +566,7 @@ async fn terminals_open_in_the_project_root() {
         events.push(e);
     }
     assert!(
-        matches!(&events[..], [TerminalsEvent::Output { data, .. }, TerminalsEvent::Exited { .. }] if data == "ls\r")
+        matches!(&events[..], [TerminalsEvent::Output { data, seq: 1, .. }, TerminalsEvent::Exited { .. }] if data == "ls\r")
     );
     let input = json!({"method": "terminals.input", "params": {"id": "t1", "data": "x"}});
     assert_eq!(code(&core, input).await, ErrorCode::NotFound);
