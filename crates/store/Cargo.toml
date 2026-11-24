@@ -9,9 +9,12 @@ publish = false
 
 [dependencies]
 ovra-core.workspace = true
+rusqlite = { version = "0.41", features = ["bundled", "fallible_uint"] }
 
 [dev-dependencies]
 ovra-core = { workspace = true, features = ["fakes"] }
+tempfile = "3"
+tokio = { workspace = true, features = ["macros", "rt"] }
 
 [lints]
 workspace = true
