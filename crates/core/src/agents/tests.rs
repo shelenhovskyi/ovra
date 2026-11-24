@@ -320,6 +320,52 @@ async fn stopping_a_waiting_session_denies_its_request() {
 }
 
 #[tokio::test]
+async fn an_interrupt_ends_the_turn_and_denies_the_waiting_tool() {
+    let core = core_with(ScriptedAgent::new(vec![
+        vec![
+            Step::Use {
+                tool: "Bash",
+                input: json!({"command": "make"}),
+            },
+            Step::Say("built"),
+        ],
+        vec![Step::Say("next")],
+    ]));
+    project(&core).await;
+    let mut rx = core.subscribe();
+    ok(&core, start("build")).await;
+    until(&mut rx, AgentStatus::WaitingForApproval).await;
+    let interrupt = json!({"method": "agents.interrupt", "params": {"session": "s1"}});
+    ok(&core, interrupt.clone()).await;
+    until(&mut rx, AgentStatus::Idle).await;
+    // The session goes on with the next message.
+    ok(
+        &core,
+        json!({"method": "agents.send", "params": {"session": "s1", "text": "go on"}}),
+    )
+    .await;
+    until(&mut rx, AgentStatus::Idle).await;
+
+    let texts: Vec<String> = transcript(&core)
+        .await
+        .into_iter()
+        .filter_map(|m| match m {
+            AgentMessage::AssistantText { text, .. } => Some(text),
+            AgentMessage::ToolResult { output, .. } => Some(output),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(texts, ["the turn was interrupted", "next"]);
+    ok(
+        &core,
+        json!({"method": "agents.stop", "params": {"session": "s1"}}),
+    )
+    .await;
+    until(&mut rx, AgentStatus::Stopped).await;
+    assert_eq!(code(&core, interrupt).await, ErrorCode::Conflict);
+}
+
+#[tokio::test]
 async fn the_state_machine_ignores_reports_that_make_no_sense() {
     let core = core_with(ScriptedAgent::default());
     project(&core).await;

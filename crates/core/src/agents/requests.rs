@@ -10,7 +10,7 @@ use crate::protocol::agents::{
     SessionMode, TurnUsage,
 };
 use crate::protocol::permissions::{
-    Decision, PermissionsEvent, PermissionsRequest, PermissionsResponse,
+    Decision, PermissionAnswer, PermissionsEvent, PermissionsRequest, PermissionsResponse,
 };
 use crate::protocol::projects::ProjectId;
 use crate::protocol::{ErrorCode, OkResponse, ProtocolError, Response};
@@ -108,6 +108,23 @@ pub(crate) fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Response> 
             host.message(AgentMessage::UserText { text: text.clone() });
             host.set_status(AgentStatus::Working);
             process.send(text)?;
+            Ok(OK)
+        }
+        AgentsRequest::Interrupt { session } => {
+            let (process, project, stopping) =
+                sessions.find(&session, |s| (s.process(), s.info().project, s.stopping()))?;
+            let process = match process {
+                Some(process) if !stopping => process,
+                Some(_) => return Err(conflict("the session is stopping")),
+                None => return Err(conflict("the session has ended")),
+            };
+            process.interrupt()?;
+            let denied = sessions.permissions.deny_session(
+                &session,
+                &PermissionAnswer::deny("the turn was interrupted"),
+            );
+            AgentHost::new(session, project, sessions.clone(), ctx.sink.clone())
+                .resolved(denied, Decision::Deny);
             Ok(OK)
         }
         AgentsRequest::Stop { session } => {

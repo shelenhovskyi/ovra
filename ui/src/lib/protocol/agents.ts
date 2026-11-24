@@ -52,6 +52,7 @@ export type AgentsRequest =
       params: { project: ProjectId; agent: AgentKind; mode: SessionMode; prompt: string };
     }
   | { method: "agents.send"; params: { session: SessionId; text: string } }
+  | { method: "agents.interrupt"; params: { session: SessionId } }
   | { method: "agents.stop"; params: { session: SessionId } }
   | { method: "agents.transcript"; params: { session: SessionId } };
 

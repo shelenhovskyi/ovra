@@ -128,6 +128,10 @@ pub enum AgentsRequest {
     /// Sends the next message. Answers `ok`.
     #[serde(rename = "agents.send")]
     Send { session: SessionId, text: String },
+    /// Ends the current turn; the session then waits for the next message.
+    /// Pending permission requests are denied. Answers `ok`.
+    #[serde(rename = "agents.interrupt")]
+    Interrupt { session: SessionId },
     /// Stops the session. Answers `ok`.
     #[serde(rename = "agents.stop")]
     Stop { session: SessionId },

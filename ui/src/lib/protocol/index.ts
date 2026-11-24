@@ -82,6 +82,7 @@ export type ResponseFor<R extends Request> = R extends { method: "info.get" }
                                       | "terminals.resize"
                                       | "terminals.close"
                                       | "agents.send"
+                                      | "agents.interrupt"
                                       | "agents.stop"
                                       | "permissions.answer";
                                   }
