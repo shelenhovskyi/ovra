@@ -13,9 +13,13 @@ export default async function globalSetup(): Promise<() => void> {
   if (!existsSync(bin)) throw new Error(`${bin} not found; run \`just build-headless\` first`);
 
   const dataDir = mkdtempSync(join(tmpdir(), "ovra-e2e-"));
-  const daemon: ChildProcess = spawn(bin, ["--ui-dir", resolve(root, "ui/dist"), "--data-dir", dataDir], {
-    stdio: ["ignore", "pipe", "inherit"],
-  });
+  const daemon: ChildProcess = spawn(
+    bin,
+    ["--ui-dir", resolve(root, "ui/dist"), "--data-dir", dataDir, "--fake-agent"],
+    {
+      stdio: ["ignore", "pipe", "inherit"],
+    },
+  );
 
   process.env.OVRA_URL = await new Promise<string>((ok, fail) => {
     const timer = setTimeout(() => fail(new Error("ovra-daemon did not print OVRA_URL in 10 s")), 10_000);

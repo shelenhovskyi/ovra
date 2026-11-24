@@ -24,7 +24,7 @@ test:
 # Build the UI and the headless daemon.
 build-headless:
     pnpm --filter @ovra/ui build
-    cargo build -p ovra-daemon
+    cargo build -p ovra-daemon --features fake-agent
 
 # End-to-end UI tests against headless mode.
 e2e: build-headless

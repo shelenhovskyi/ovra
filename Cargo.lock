@@ -2559,6 +2559,7 @@ dependencies = [
  "ovra-store",
  "ovra-transport",
  "rand",
+ "serde_json",
  "tokio",
  "tower-http",
  "tracing",
