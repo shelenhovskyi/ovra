@@ -28,6 +28,7 @@ use crate::path::RelPath;
 use crate::protocol::agents::{
     AgentMessage, AgentSettings, AgentStatus, ProjectAgentConfig, SessionId, TurnUsage,
 };
+use crate::protocol::audit::{AuditEntry, AuditEvent};
 use crate::protocol::fs::{DirEntry, DirListing, EntryKind, FileBody, FileContent, FileList};
 use crate::protocol::permissions::Decision;
 use crate::protocol::policy::Policy;
@@ -36,8 +37,9 @@ use crate::protocol::search::{FileMatches, LineMatch, SearchEvent, SearchId, Sea
 use crate::protocol::terminals::{TermSize, TerminalId, TerminalsEvent};
 use crate::protocol::{ErrorCode, ProtocolError};
 use crate::services::{
-    AgentHost, AgentRuntime, AgentSpec, BoxFuture, EventSink, FsService, Opener, ProjectStore,
-    Result, RunningAgent, SearchCancel, SessionStore, StoredSession, TerminalService, ToolRole,
+    AgentHost, AgentRuntime, AgentSpec, AuditLog, BoxFuture, CommandLine, EventSink, FsService,
+    Opener, ProjectStore, Result, RunningAgent, Sandbox, SandboxProfile, SandboxStatus,
+    SearchCancel, SessionStore, StoredSession, TerminalService, ToolRole,
 };
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -403,6 +405,87 @@ impl FsService for MemoryFs {
 
     fn unwatch(&self, project: &ProjectId) {
         lock(&self.watched).retain(|(id, _)| id != project);
+    }
+}
+
+/// A sandbox that limits nothing: it records each profile and marks the
+/// command line with `OVRA_FAKE_SANDBOX=1`, or fails when `fails`.
+#[derive(Debug)]
+pub struct FakeSandbox {
+    pub status: SandboxStatus,
+    pub fails: bool,
+    pub wrapped: Mutex<Vec<SandboxProfile>>,
+}
+
+impl FakeSandbox {
+    pub fn available() -> Self {
+        Self {
+            status: SandboxStatus::Available {
+                name: "fake".into(),
+            },
+            fails: false,
+            wrapped: Mutex::default(),
+        }
+    }
+}
+
+impl Sandbox for FakeSandbox {
+    fn status(&self) -> SandboxStatus {
+        self.status.clone()
+    }
+
+    fn wrap(&self, profile: &SandboxProfile, mut line: CommandLine) -> Result<CommandLine> {
+        lock(&self.wrapped).push(profile.clone());
+        if self.fails {
+            return Err(ProtocolError::new(
+                ErrorCode::Unavailable,
+                "the fake sandbox fails",
+            ));
+        }
+        line.env
+            .push(("OVRA_FAKE_SANDBOX".into(), Some("1".into())));
+        Ok(line)
+    }
+}
+
+/// An audit log in memory; `seq` and `at_ms` count up from 1.
+#[derive(Debug, Default)]
+pub struct MemoryAudit {
+    entries: Mutex<Vec<AuditEntry>>,
+}
+
+impl AuditLog for MemoryAudit {
+    fn append(
+        &self,
+        project: &ProjectId,
+        session: Option<&SessionId>,
+        event: AuditEvent,
+    ) -> Result<AuditEntry> {
+        let mut entries = lock(&self.entries);
+        let seq = entries.len() as u64 + 1;
+        let entry = AuditEntry {
+            seq,
+            at_ms: seq,
+            project: project.clone(),
+            session: session.cloned(),
+            event,
+        };
+        entries.push(entry.clone());
+        Ok(entry)
+    }
+
+    fn list(
+        &self,
+        project: &ProjectId,
+        after: Option<u64>,
+        limit: usize,
+    ) -> Result<Vec<AuditEntry>> {
+        Ok(lock(&self.entries)
+            .iter()
+            .filter(|e| &e.project == project && after.is_none_or(|a| e.seq > a))
+            .take(limit)
+            .cloned()
+            .collect())
     }
 }
 

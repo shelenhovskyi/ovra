@@ -14,7 +14,9 @@ use crate::protocol::permissions::{
 };
 use crate::protocol::projects::{Project, ProjectId};
 use crate::protocol::{ErrorCode, OkResponse, ProtocolError, Response};
-use crate::services::{AgentRuntime, AgentSpec, EventSink, ProjectStore, ToolRole};
+use crate::services::{
+    AgentRuntime, AgentSpec, EventSink, ProfileNetwork, ProjectStore, SandboxProfile, ToolRole,
+};
 
 type Result<T> = std::result::Result<T, ProtocolError>;
 
@@ -273,6 +275,22 @@ pub(crate) async fn resume(ctx: &Ctx<'_>, session: SessionId, parts: Parts) -> R
     run(ctx, &session, target, launch, parts, Some(agent_session))
 }
 
+/// What a session may touch in a sandbox. A worker reads its main
+/// repository's git folder, which its worktree's history lives in. The
+/// network stays open until the netproxy exists (task 4.C), so policies'
+/// auto rules stay off.
+fn profile(project: &Project, mode: SessionMode, cwd: &Path) -> SandboxProfile {
+    SandboxProfile {
+        work_dir: cwd.to_path_buf(),
+        read: match mode {
+            SessionMode::Isolated => vec![PathBuf::from(&project.root).join(".git")],
+            SessionMode::Direct => Vec::new(),
+        },
+        write: Vec::new(),
+        network: ProfileNetwork::Open,
+    }
+}
+
 /// Starts the runtime for session `id`, which is `starting`, with `parts`.
 fn run(
     ctx: &Ctx<'_>,
@@ -302,6 +320,7 @@ fn run(
         let info = s.info();
         (info.agent, info.mode)
     })?;
+    let sandbox = profile(&target.project, mode, &launch.cwd);
     let spec = AgentSpec {
         session: id.clone(),
         agent,
@@ -312,6 +331,7 @@ fn run(
         executable: target.executable.map(PathBuf::from),
         trusted: target.trusted,
         resume,
+        sandbox,
     };
     match ctx.runtime.start(spec, host.clone()) {
         Ok(process) => sessions.find(id, |s| s.set_process(Arc::from(process)))?,

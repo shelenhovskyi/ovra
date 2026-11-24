@@ -198,6 +198,16 @@ async fn workers_start_in_their_own_worktrees_within_the_limit() {
     assert_eq!(spec.mode, SessionMode::Isolated);
     assert_eq!(spec.tools, Some(ToolRole::Worker));
     assert_eq!(spec.cwd, PathBuf::from(&worker.worktree));
+    // A sandbox lets it write its worktree and read the main repository's
+    // history, nothing else of the project.
+    let profile = &spec.sandbox;
+    assert_eq!(profile.work_dir, spec.cwd);
+    assert_eq!(profile.read, [PathBuf::from(ROOT).join(".git")]);
+    assert!(profile.write.is_empty());
+    let coordinator = f.agent.started.lock().map(|s| s[0].sandbox.clone());
+    let coordinator = coordinator.unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(coordinator.work_dir, PathBuf::from(ROOT));
+    assert!(coordinator.read.is_empty());
 
     // One worker at a time; names are unique and branch-safe; workers and
     // strangers cannot start workers.

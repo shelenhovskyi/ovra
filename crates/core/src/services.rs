@@ -2,6 +2,7 @@
 //! implementation in its own crate and a fake in [`crate::fakes`].
 
 use std::collections::BTreeMap;
+use std::ffi::OsString;
 use std::fmt::Debug;
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -17,6 +18,7 @@ use crate::protocol::agents::{
     AgentKind, AgentMessage, AgentSettings, AgentSetup, ProjectAgentConfig, SessionId, SessionInfo,
     SessionMode, SetupState,
 };
+use crate::protocol::audit::{AuditEntry, AuditEvent};
 use crate::protocol::fs::{DirListing, FileContent, FileList};
 use crate::protocol::policy::Policy;
 use crate::protocol::projects::{Project, ProjectId, ProjectState, ProjectStatePatch};
@@ -181,6 +183,77 @@ pub struct AgentSpec {
     /// The agent's own id of a conversation to continue, as the runtime
     /// reported it through [`AgentHost::agent_session`]; `None` starts anew.
     pub resume: Option<String>,
+    /// What the session may touch if the runtime sandboxes it.
+    pub sandbox: SandboxProfile,
+}
+
+/// A program to start: plain data, so the core can pass it around without
+/// starting anything.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommandLine {
+    pub program: PathBuf,
+    pub args: Vec<OsString>,
+    /// Variables to set (`Some`) or remove (`None`); the rest is inherited.
+    pub env: Vec<(OsString, Option<OsString>)>,
+    pub cwd: PathBuf,
+}
+
+/// What one sandboxed session may touch (`docs/specs/security.md`). The
+/// platform adds what only it knows: the agent's own state, the system,
+/// temporary files, the protected paths of `ovra-sandbox`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SandboxProfile {
+    /// The session's folder, readable and writable.
+    pub work_dir: PathBuf,
+    /// More folders it may read but not write.
+    pub read: Vec<PathBuf>,
+    /// More folders it may write.
+    pub write: Vec<PathBuf>,
+    pub network: ProfileNetwork,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProfileNetwork {
+    Blocked,
+    /// Only through the session's netproxy at `address`.
+    Proxy {
+        address: String,
+    },
+    /// Not limited, until a netproxy exists (task 4.C).
+    Open,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SandboxStatus {
+    Available { name: String },
+    Unavailable { reason: String },
+}
+
+/// Runs agent processes inside a sandbox (implemented by the platform
+/// crates through `ovra-sandbox`). Wired into the agent runtime, which
+/// reports what it did through [`AgentHost::sandboxed`].
+pub trait Sandbox: Send + Sync + Debug {
+    fn status(&self) -> SandboxStatus;
+    /// The command line that runs `line` inside `profile`. Starts nothing.
+    fn wrap(&self, profile: &SandboxProfile, line: CommandLine) -> Result<CommandLine>;
+}
+
+/// The append-only audit log (`docs/specs/security.md`; stored by
+/// `ovra-store` from task 4.E).
+pub trait AuditLog: Send + Sync + Debug {
+    fn append(
+        &self,
+        project: &ProjectId,
+        session: Option<&SessionId>,
+        event: AuditEvent,
+    ) -> Result<AuditEntry>;
+    /// Up to `limit` entries of `project` after `after` (a `seq`), oldest first.
+    fn list(
+        &self,
+        project: &ProjectId,
+        after: Option<u64>,
+        limit: usize,
+    ) -> Result<Vec<AuditEntry>>;
 }
 
 /// Starts agent sessions (implemented by `ovra-agent-runtime`). One runtime
