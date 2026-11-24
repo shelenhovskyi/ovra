@@ -20,7 +20,8 @@ afterEach(() => {
 
 /** Lets pending fake calls resolve and Svelte re-render. */
 async function settle(): Promise<void> {
-  for (let i = 0; i < 5; i++) await Promise.resolve();
+  flushSync();
+  await new Promise((resolve) => setTimeout(resolve));
   flushSync();
 }
 
@@ -99,6 +100,20 @@ describe("FileTree", () => {
     await settle();
     expect(t.rows().map((r) => r.dataset.path)).toEqual(["a.ts", "b.ts"]);
     expect(t.row("a.ts").textContent).toContain("M");
+  });
+
+  it("restores the folders expanded last time and saves new ones", async () => {
+    const core = new FakeCore(dirsFromPaths(["src/lib/b.ts", "docs/a.md"]));
+    core.states.set("p1", { open_files: [], active_file: null, expanded_dirs: ["src", "src/lib"] });
+    const t = mountTree(core);
+    await settle();
+    expect(t.rows().map((r) => r.dataset.path)).toEqual(["docs", "src", "src/lib", "src/lib/b.ts"]);
+    t.row("docs").click();
+    await settle();
+    cleanup?.(); // closing the tree flushes the pending save
+    cleanup = null;
+    await settle();
+    expect(core.states.get("p1")?.expanded_dirs).toEqual(["docs", "src", "src/lib"]);
   });
 
   it("shows why the tree could not load", async () => {

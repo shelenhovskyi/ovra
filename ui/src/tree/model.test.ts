@@ -39,6 +39,13 @@ describe("TreeModel", () => {
     expect(core.listedPaths()).toEqual(["", "src", "src/lib"]);
   });
 
+  it("restores expanded directories and drops the ones that are gone", async () => {
+    const { model, names } = setup(["src/lib/b.ts", "docs/a.md"]);
+    await model.start(["src/lib", "src", "old"]);
+    expect(names()).toEqual(["docs", "src/", "  lib/", "    b.ts"]);
+    expect(model.expandedDirs()).toEqual(["src", "src/lib"]);
+  });
+
   it("marks an expanding directory as loading until its listing arrives", async () => {
     const { model } = setup(["src/a.ts"]);
     await model.start();

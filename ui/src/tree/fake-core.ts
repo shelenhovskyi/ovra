@@ -2,7 +2,7 @@
 // in-memory listing per directory and `projects.*` from a list, and can push
 // events. Mirrors the core's ordering: dirs first, then by name.
 
-import type { CoreEvent, DirEntry, GitStatus, Project, Request, ResponseFor } from "../lib/protocol";
+import type { CoreEvent, DirEntry, GitStatus, Project, ProjectState, Request, ResponseFor } from "../lib/protocol";
 import { CoreError, type Transport } from "../lib/transport";
 import { joinPath } from "./model";
 
@@ -46,6 +46,7 @@ function sortKey(e: DirEntry): string {
 
 export class FakeCore implements Transport {
   calls: Request[] = [];
+  states = new Map<string, ProjectState>();
   private listeners = new Set<(event: CoreEvent) => void>();
 
   constructor(
@@ -96,6 +97,14 @@ export class FakeCore implements Transport {
         this.projects.push(project);
         return { type: "projects.project", data: project };
       }
+      case "projects.get_state":
+        return {
+          type: "projects.state",
+          data: this.states.get(request.params.id) ?? { open_files: [], active_file: null, expanded_dirs: [] },
+        };
+      case "projects.set_state":
+        this.states.set(request.params.id, request.params.state);
+        return { type: "ok" };
       default:
         throw new CoreError({ code: "unavailable", message: `${request.method} is not faked` });
     }

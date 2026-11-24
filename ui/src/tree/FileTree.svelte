@@ -5,6 +5,7 @@
 import type { GitStatus, ProjectId } from "../lib/protocol";
 import type { Transport } from "../lib/transport";
 import { parentOf, type Row, TreeModel, visibleRange } from "./model";
+import { ExpandedSaver, loadExpanded } from "./persist";
 
 let {
   transport,
@@ -45,15 +46,33 @@ const model = new TreeModel(
     rows = model.rows;
     error = model.error;
     rootLoading = model.isLoading("");
+    saver?.update(model.expandedDirs());
   },
 );
+let saver: ExpandedSaver | null = null;
 
 $effect(() => {
-  void model.start();
-  return transport.onEvent((event) => {
+  void loadExpanded(transport, project).then((expanded) => {
+    // Save only once restored, so the first rebuilds cannot overwrite the saved shape.
+    void model.start(expanded).then(() => {
+      saver = new ExpandedSaver(transport, project, expanded);
+      saver.update(model.expandedDirs());
+    });
+  });
+  const off = transport.onEvent((event) => {
     if (event.type === "fs.changed" && event.data.project === project) void model.refreshPaths(event.data.paths);
     if (event.type === "fs.git_changed" && event.data.project === project) void model.refreshAll();
   });
+  // Closing or reloading the window does not unmount the tree; try to save then too.
+  // Best effort: the socket may close before the reply, so a change made in the
+  // last moment before closing can be lost.
+  const flush = () => void saver?.flush();
+  window.addEventListener("pagehide", flush);
+  return () => {
+    off();
+    window.removeEventListener("pagehide", flush);
+    flush();
+  };
 });
 
 let range = $derived(visibleRange(scrollTop, height, ROW_HEIGHT, rows.length, OVERSCAN));

@@ -48,9 +48,15 @@ export class TreeModel {
     private readonly onChange: () => void,
   ) {}
 
-  /** Loads the root listing. */
-  start(): Promise<void> {
-    return this.fetch("");
+  /** Loads the root listing, and the listings of `expanded` (restored from the last session). */
+  async start(expanded: string[] = []): Promise<void> {
+    for (const dir of expanded) if (dir !== "") this.expanded.add(dir);
+    await Promise.all(["", ...this.expanded].filter((d, i, all) => all.indexOf(d) === i).map((d) => this.fetch(d)));
+  }
+
+  /** Expanded directories, outermost first, for saving the tree's shape. */
+  expandedDirs(): string[] {
+    return [...this.expanded].filter((d) => d !== "").sort();
   }
 
   isLoading(path: string): boolean {
