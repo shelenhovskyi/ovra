@@ -42,7 +42,7 @@ async function open(page: Page, dir: string): Promise<void> {
 
 async function startSession(page: Page, prompt: string): Promise<Locator> {
   await page.getByRole("textbox", { name: "Task for a new Claude session" }).fill(prompt);
-  await page.getByRole("button", { name: "Start" }).click();
+  await page.getByRole("button", { name: "Start", exact: true }).click();
   return page.getByTestId("agent-session");
 }
 
@@ -123,7 +123,7 @@ test("allow an edit, reply, allow a command and stop", async ({ page }) => {
   await answer(page, /Run echo ok > done\.txt/, "Allow");
   await waitingForYou(session);
   expect(readFileSync(join(dir, "done.txt"), "utf8")).toBe("ok\n");
-  await expect(page.getByTestId("transcript")).toContainText("Tool result");
+  await expect(page.getByTestId("transcript")).toContainText("Tool output");
   await stop(session);
 
   const lines = cliLines(recording(before, base, "edit_allowed"));

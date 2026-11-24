@@ -32,3 +32,7 @@ update and before raising the supported version range. Linux and macOS.
   `PreToolUse` hook turns into a prompt, denied with a message; interrupting
   a running command and going on; a subagent; resuming a session with
   Ovra's flags (the CLI directly: `agents.*` has no resume yet).
+- `specs/task.spec.ts`: "Start task" starts a coordinator that starts two
+  workers through Ovra's MCP tools; each writes one file in its worktree and
+  asks for review. The test checks both review items and that the task cost
+  less than $1 (about half a cent with haiku).
