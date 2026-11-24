@@ -62,15 +62,22 @@ $effect(() => {
 $effect(() => registerCommand({ id: "inbox.toggle", title: "Review inbox", keys: KEYS, run: toggle }));
 
 // An agent asked to show a review (`open_in_ui`): choose it and say so on the
-// button, but never open the dialog or move focus on an agent's behalf.
+// button, but never open the dialog or move focus on an agent's behalf. While
+// the person reviews, the choice stays theirs: an agent switching the item
+// under a focused Approve could get the wrong work approved.
 $effect(() =>
   transport.onEvent((event) => {
     if (event.type !== "orchestration.show" || event.data.target.kind !== "review") return;
     if (event.data.project !== workspace.project?.id) return;
     const id = event.data.target.id;
     void inbox.reload().then(() => {
-      select(id);
-      if (!opened) asked = true;
+      if (!opened) {
+        select(id);
+        asked = true;
+      } else if (id !== selectedId) {
+        const wanted = inbox.items.find((i) => i.id === id);
+        if (wanted) announcement = `An agent asks you to look at ${sessionLabel(wanted)}. It is in the list.`;
+      }
     });
   }),
 );

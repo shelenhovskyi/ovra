@@ -15,7 +15,7 @@ import { tick, untrack } from "svelte";
 import { SvelteMap } from "svelte/reactivity";
 import { agentSessions } from "../agents/sessions.svelte";
 import { registerCommand } from "../keys/commands";
-import type { Decision, PermissionId, PermissionRequest, Project, ProjectId } from "../lib/protocol";
+import type { Decision, PermissionId, PermissionRequest, Project, ProjectId, SessionId } from "../lib/protocol";
 import { useOvra } from "../shell/context";
 import { describeTool } from "./describe";
 import { ARM_MS, approvalQueue } from "./queue.svelte";
@@ -237,6 +237,13 @@ function folderOf(request: PermissionRequest, project: Project | undefined): { p
   const own = project !== undefined && sameFolder(path, project.root);
   return { path, name: own ? "the project folder" : "the agent's working folder" };
 }
+
+/** A worker acts on its own copy of the project, not on the project itself. */
+function workerCopy(session: SessionId): string {
+  const role = sessions.roles.get(session);
+  const branch = role?.kind === "worker" ? role.branch : "";
+  return `Works in its own copy of the project, on branch ${branch}.`;
+}
 </script>
 
 <section class="approvals" aria-labelledby="approvals-heading" data-testid="approvals">
@@ -287,6 +294,9 @@ function folderOf(request: PermissionRequest, project: Project | undefined): { p
             {sessions.name(request.session)} in {project?.name ?? "an unknown project"}
             asks to use {request.tool}
           </p>
+          {#if sessions.roles.get(request.session)?.kind === "worker"}
+            <p class="where" data-testid="approval-worker-copy">{workerCopy(request.session)}</p>
+          {/if}
           <h3 id="{domId}-action">{summary.action}</h3>
           {#if request.project !== workspace.project?.id}
             <p class="other" data-testid="approval-other-project">Not the project open in this window</p>

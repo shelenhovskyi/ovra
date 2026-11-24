@@ -196,6 +196,12 @@ describe("Inbox", () => {
     core.emit({ type: "review.changed", data: { project: "p1", id: "r2" } });
     await settle();
     expect(core.sent("review.diff").length).toBe(diffs + 1);
+
+    // While the person reviews, an agent cannot switch the item under their Approve.
+    core.emit({ type: "orchestration.show", data: { project: "p1", target: { kind: "review", id: "r1" } } });
+    await settle();
+    expect($("[data-item][aria-current='true']")?.getAttribute("data-item")).toBe("r2");
+    expect($("[data-testid=inbox] [role=status]")?.textContent).toContain("An agent asks you to look at");
   });
 
   it("says when nothing waits", async () => {

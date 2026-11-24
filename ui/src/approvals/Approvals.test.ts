@@ -32,8 +32,9 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-async function setup() {
+async function setup(prepare: (core: FakeAgentCore) => void = () => {}) {
   const core = new FakeAgentCore();
+  prepare(core);
   core.addSession("p1", "Fix the typo", { state: "working" });
   const workspace = new Workspace();
   workspace.project = { id: "p1", name: "demo", root: "/demo", last_opened_ms: null, trusted: false };
@@ -71,6 +72,27 @@ const cards = () => [...target.querySelectorAll<HTMLElement>("[data-request]")];
 const answers = (core: FakeAgentCore) => core.sent("permissions.answer").map((c) => c.params);
 
 describe("Approvals", () => {
+  it("says when a worker asks from its own copy of the project", async () => {
+    const core = await setup((c) => {
+      c.tasks = [
+        {
+          id: "t1",
+          project: "p1",
+          coordinator: "s9",
+          workers: [{ session: "s1", name: "docs", branch: "ovra/t1/docs", worktree: "/wt/docs" }],
+          limits: { max_workers: 3, budget_micro_usd: null },
+          spent_micro_usd: 0,
+        },
+      ];
+    });
+    core.ask(bash("perm1"));
+    await settle();
+    expect(cards()[0]?.querySelector(".session")?.textContent?.replace(/\s+/g, " ")).toContain("Worker docs in demo");
+    expect(cards()[0]?.querySelector("[data-testid=approval-worker-copy]")?.textContent).toBe(
+      "Works in its own copy of the project, on branch ovra/t1/docs.",
+    );
+  });
+
   it("shows what the agent asks for without taking focus", async () => {
     const core = await setup();
     const elsewhere = target.querySelector<HTMLElement>("[data-testid=elsewhere]");
