@@ -7,7 +7,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::ErrorKind;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use ovra_core::path::RelPath;
 use ovra_core::protocol::{ErrorCode, ProtocolError};
@@ -172,7 +172,7 @@ fn copy(from: &Path, to: &Path) -> Result<()> {
     }
     #[cfg(unix)]
     if fs::symlink_metadata(from).map_err(fail)?.is_symlink() {
-        let target: PathBuf = fs::read_link(from).map_err(fail)?;
+        let target: std::path::PathBuf = fs::read_link(from).map_err(fail)?;
         match fs::remove_file(to) {
             Err(e) if e.kind() != ErrorKind::NotFound => return Err(fail(e)),
             _ => {}
