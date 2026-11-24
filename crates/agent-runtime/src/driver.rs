@@ -112,7 +112,16 @@ impl Driver {
     async fn line(&mut self, line: &str) -> Result<(), String> {
         match wire::parse(line) {
             Incoming::Started => self.host.status(AgentStatus::Working),
-            Incoming::Messages(messages) => messages.into_iter().for_each(|m| self.host.message(m)),
+            Incoming::Messages(messages) => {
+                let results = messages
+                    .iter()
+                    .any(|m| matches!(m, AgentMessage::ToolResult { .. }));
+                messages.into_iter().for_each(|m| self.host.message(m));
+                if results {
+                    // A direct session snapshots the tree as the tool ends.
+                    self.host.tools_settled().await;
+                }
+            }
             Incoming::TurnEnd { mut usage, error } => {
                 if let Some(total) = usage.cost_micro_usd {
                     usage.cost_micro_usd = Some(total.saturating_sub(self.cost_micro_usd));
@@ -137,6 +146,9 @@ impl Driver {
                 input,
             } => {
                 let line = if callback_id == wire::POLICY_HOOK {
+                    // The CLI waits for the hook, so the tool has not run yet:
+                    // a direct session snapshots the tree first (ADR 0005).
+                    self.host.before_tool(&input).await;
                     wire::success(
                         &request_id,
                         policy::pre_tool_use(&self.cwd, &input).to_hook_output(),
