@@ -61,6 +61,9 @@ async fn lists_with_gitignore_and_git_status() {
     put(root, ".gitignore", "target/\n*.log\n");
     put(root, "src/main.rs", "fn main() {}\n");
     put(root, "src/lib.rs", "\n");
+    put(root, "src/util.rs", "\n");
+    put(root, "src/module-10.rs", "\n");
+    put(root, "src/module-2.rs", "\n");
     put(root, "old/gone.txt", "bye\n");
     put(root, "README.md", "# hi\n");
     git(root, &["add", "."]);
@@ -68,6 +71,8 @@ async fn lists_with_gitignore_and_git_status() {
     put(root, "src/main.rs", "fn main() { changed() }\n");
     put(root, "src/staged.rs", "\n");
     git(root, &["add", "src/staged.rs"]);
+    git(root, &["mv", "src/util.rs", "src/helpers.rs"]);
+    fs::remove_file(root.join("src/lib.rs")).expect("rm");
     fs::remove_file(root.join("old/gone.txt")).expect("rm");
     fs::remove_dir(root.join("old")).expect("rmdir");
     put(root, "target/debug/app", "bin");
@@ -81,6 +86,8 @@ async fn lists_with_gitignore_and_git_status() {
     insta::assert_json_snapshot!("src", list(&fs, root, "src").await.expect("src"));
     // Everything inside an untracked directory is untracked.
     insta::assert_json_snapshot!("notes", list(&fs, root, "notes").await.expect("notes"));
+    // A directory that only holds deleted files still lists them.
+    insta::assert_json_snapshot!("old", list(&fs, root, "old").await.expect("old"));
 }
 
 #[tokio::test]

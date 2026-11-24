@@ -67,7 +67,8 @@ impl Repo {
 /// reports without listing their contents) end with `/`.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(crate) struct Statuses {
-    paths: BTreeMap<String, GitStatus>,
+    /// Status and, for renames inside the project, the old path.
+    paths: BTreeMap<String, (GitStatus, Option<String>)>,
     /// The project folder itself lies inside an untracked directory.
     all_untracked: bool,
 }
@@ -107,12 +108,13 @@ impl Statuses {
             .split(|b| *b == 0)
             .filter_map(|f| std::str::from_utf8(f).ok());
         while let Some(record) = fields.next() {
+            let mut from = None;
             let parsed = match record.split_once(' ') {
                 Some(("1", rest)) => rest.splitn(8, ' ').nth(7).map(|p| (p, from_xy(rest))),
                 Some(("2", rest)) => {
-                    let path = rest.splitn(9, ' ').nth(8);
-                    fields.next(); // the original path of the rename
-                    path.map(|p| (p, from_xy(rest)))
+                    // With -z the original path follows as its own field.
+                    from = fields.next().and_then(|f| f.strip_prefix(prefix));
+                    rest.splitn(9, ' ').nth(8).map(|p| (p, from_xy(rest)))
                 }
                 Some(("u", rest)) => rest
                     .splitn(10, ' ')
@@ -127,7 +129,10 @@ impl Statuses {
             if path.ends_with('/') && prefix.starts_with(path) {
                 statuses.all_untracked = true;
             } else if let Some(path) = path.strip_prefix(prefix) {
-                statuses.paths.insert(path.to_owned(), status);
+                let from = from
+                    .filter(|_| status == GitStatus::Renamed)
+                    .map(str::to_owned);
+                statuses.paths.insert(path.to_owned(), (status, from));
             }
         }
         statuses
@@ -135,7 +140,7 @@ impl Statuses {
 
     /// Status of each direct child of `dir` that has one, by name. The second
     /// value is true when `dir` itself lies inside an untracked directory.
-    pub(crate) fn children(&self, dir: &RelPath) -> (HashMap<String, GitStatus>, bool) {
+    pub(crate) fn children(&self, dir: &RelPath) -> (HashMap<String, Child>, bool) {
         let prefix = if dir.is_root() {
             String::new()
         } else {
@@ -144,28 +149,50 @@ impl Statuses {
         if self.all_untracked {
             return (HashMap::new(), true);
         }
-        let mut children: HashMap<String, GitStatus> = HashMap::new();
-        for (path, &status) in &self.paths {
+        let mut children: HashMap<String, Child> = HashMap::new();
+        for (path, (status, from)) in &self.paths {
+            let status = *status;
             if path.ends_with('/') && prefix.starts_with(path.as_str()) {
                 return (HashMap::new(), true);
             }
             let Some(rest) = path.strip_prefix(&prefix) else {
                 continue;
             };
-            let Some(name) = rest.split('/').next().filter(|n| !n.is_empty()) else {
-                continue;
+            let (name, below) = match rest.split_once('/') {
+                Some((name, below)) => (name, !below.is_empty()),
+                None => (rest, false),
             };
-            children
-                .entry(name.to_owned())
-                .and_modify(|s| {
-                    if rank(status) > rank(*s) {
-                        *s = status;
-                    }
-                })
-                .or_insert(status);
+            if name.is_empty() {
+                continue;
+            }
+            let child = children.entry(name.to_owned()).or_insert(Child {
+                status,
+                renamed_from: None,
+                dir: false,
+                deleted: false,
+            });
+            if rank(status) > rank(child.status) {
+                child.status = status;
+            }
+            child.dir |= below || rest.ends_with('/');
+            child.deleted |= status == GitStatus::Deleted;
+            if !below {
+                child.renamed_from.clone_from(from);
+            }
         }
         (children, false)
     }
+}
+
+/// What git says about one entry of a listing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Child {
+    /// The strongest status of the entry and, for a directory, its contents.
+    pub(crate) status: GitStatus,
+    pub(crate) renamed_from: Option<String>,
+    pub(crate) dir: bool,
+    /// The entry, or something inside it, is a tracked file deleted from disk.
+    pub(crate) deleted: bool,
 }
 
 #[cfg(test)]
@@ -191,6 +218,8 @@ u UU N... 100644 100644 100644 100644 e1 e2 e3 merge.txt\0\
         let statuses = Statuses::parse(OUT, "sub/");
         let keys: Vec<_> = statuses.paths.keys().map(String::as_str).collect();
         assert_eq!(keys, ["a.txt", "fresh/", "new file.txt", "to.txt"]);
+        let to = &statuses.paths["to.txt"];
+        assert_eq!(to, &(GitStatus::Renamed, Some("from.txt".to_owned())));
     }
 
     #[test]
@@ -200,6 +229,8 @@ u UU N... 100644 100644 100644 100644 e1 e2 e3 merge.txt\0\
         assert!(!inside_untracked);
         let mut root: Vec<_> = root.into_iter().collect();
         root.sort_by(|a, b| a.0.cmp(&b.0));
+        let (sub, _) = statuses.children(&RelPath::parse("sub").expect("valid path"));
+        assert_eq!(sub["to.txt"].renamed_from.as_deref(), Some("sub/from.txt"));
         insta::assert_debug_snapshot!(root);
 
         let fresh = RelPath::parse("sub/fresh/deeper").expect("valid path");

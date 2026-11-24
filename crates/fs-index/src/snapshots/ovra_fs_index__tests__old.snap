@@ -1,0 +1,15 @@
+---
+source: crates/fs-index/src/tests.rs
+expression: "list(&fs, root, \"old\").await.expect(\"old\")"
+---
+{
+  "path": "old",
+  "entries": [
+    {
+      "name": "gone.txt",
+      "kind": "file",
+      "ignored": false,
+      "git": "deleted"
+    }
+  ]
+}

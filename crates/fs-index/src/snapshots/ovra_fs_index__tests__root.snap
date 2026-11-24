@@ -18,6 +18,12 @@ expression: "list(&fs, root, \"\").await.expect(\"root\")"
       "git": "untracked"
     },
     {
+      "name": "old",
+      "kind": "dir",
+      "ignored": false,
+      "git": "deleted"
+    },
+    {
       "name": "src",
       "kind": "dir",
       "ignored": false,
@@ -36,12 +42,6 @@ expression: "list(&fs, root, \"\").await.expect(\"root\")"
       "git": null
     },
     {
-      "name": "README.md",
-      "kind": "file",
-      "ignored": false,
-      "git": null
-    },
-    {
       "name": "debug.log",
       "kind": "file",
       "ignored": true,
@@ -52,6 +52,12 @@ expression: "list(&fs, root, \"\").await.expect(\"root\")"
       "kind": "symlink",
       "ignored": false,
       "git": "untracked"
+    },
+    {
+      "name": "README.md",
+      "kind": "file",
+      "ignored": false,
+      "git": null
     }
   ]
 }
