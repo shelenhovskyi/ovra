@@ -1,0 +1,54 @@
+---
+source: crates/core/src/core/tests.rs
+expression: samples
+---
+{
+  "events": [
+    {
+      "type": "info.ready"
+    },
+    {
+      "data": {
+        "active": null
+      },
+      "type": "projects.changed"
+    }
+  ],
+  "requests": [
+    {
+      "method": "info.get"
+    },
+    {
+      "method": "projects.open",
+      "params": {
+        "id": "p1"
+      }
+    },
+    {
+      "method": "fs.list_dir",
+      "params": {
+        "path": "src",
+        "project": "p1"
+      }
+    },
+    {
+      "method": "open.external",
+      "params": {
+        "line": null,
+        "path": "a.rs",
+        "project": "p1"
+      }
+    }
+  ],
+  "responses": [
+    {
+      "type": "ok"
+    },
+    {
+      "data": {
+        "mtime_ms": 5
+      },
+      "type": "fs.written"
+    }
+  ]
+}

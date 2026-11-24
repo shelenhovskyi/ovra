@@ -7,6 +7,10 @@ license.workspace = true
 rust-version.workspace = true
 publish = false
 
+[features]
+# In-memory fakes of all services, for tests in other crates.
+fakes = []
+
 [dependencies]
 serde.workspace = true
 tokio = { workspace = true, features = ["sync"] }

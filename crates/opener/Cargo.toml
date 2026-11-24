@@ -1,0 +1,17 @@
+[package]
+name = "ovra-opener"
+description = "Opens files in other applications, such as the user's external editor (implements ovra_core::services::Opener)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+ovra-core.workspace = true
+
+[dev-dependencies]
+ovra-core = { workspace = true, features = ["fakes"] }
+
+[lints]
+workspace = true

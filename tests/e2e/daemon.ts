@@ -1,6 +1,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import { existsSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { existsSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -11,7 +12,8 @@ export default async function globalSetup(): Promise<() => void> {
   const bin = resolve(root, "target/debug", exe);
   if (!existsSync(bin)) throw new Error(`${bin} not found; run \`just build-headless\` first`);
 
-  const daemon: ChildProcess = spawn(bin, ["--ui-dir", resolve(root, "ui/dist")], {
+  const dataDir = mkdtempSync(join(tmpdir(), "ovra-e2e-"));
+  const daemon: ChildProcess = spawn(bin, ["--ui-dir", resolve(root, "ui/dist"), "--data-dir", dataDir], {
     stdio: ["ignore", "pipe", "inherit"],
   });
 

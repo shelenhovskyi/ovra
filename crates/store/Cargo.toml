@@ -1,0 +1,17 @@
+[package]
+name = "ovra-store"
+description = "Persistent project list in SQLite (implements ovra_core::services::ProjectStore)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+ovra-core.workspace = true
+
+[dev-dependencies]
+ovra-core = { workspace = true, features = ["fakes"] }
+
+[lints]
+workspace = true

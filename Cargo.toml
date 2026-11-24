@@ -13,6 +13,9 @@ rust-version = "1.90"
 [workspace.dependencies]
 ovra-core = { path = "crates/core" }
 ovra-transport = { path = "crates/transport" }
+ovra-fs-index = { path = "crates/fs-index" }
+ovra-store = { path = "crates/store" }
+ovra-opener = { path = "crates/opener" }
 anyhow = "1"
 axum = { version = "0.8", features = ["ws"] }
 futures-util = "0.3"

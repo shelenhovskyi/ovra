@@ -13,14 +13,27 @@ mode) and in tests.
                                \/
                      crates/transport  (JSON frames, WS endpoint)
                                |
-                         crates/core  (protocol, state, events)
+                         crates/core  (protocol, state, events, service traits)
+                               |
+        services wired in by app/daemon: fs-index, store, opener, ...
 ```
+
+## Services
+
+The core never touches the OS. Each OS-facing capability is a trait in
+`crates/core/src/services.rs` (`FsService`, `ProjectStore`, `Opener`, ...),
+implemented in its own crate and wired in by `app` and `daemon` through
+`Core::builder()`. Services that are not wired answer `unavailable`. Every
+trait has an in-memory fake in `crates/core/src/fakes.rs` that tests in any
+crate can use (`ovra-core` with the `fakes` feature). Client paths are checked
+by `RelPath::parse` before they reach a service, so a request cannot leave its
+project.
 
 ## Frames
 
 Both transports carry identical JSON frames (`crates/transport/src/lib.rs`):
 
-- client to core: `{"id": 1, "method": "get_info", "params": ...}`
+- client to core: `{"id": 1, "method": "fs.list_dir", "params": ...}`
 - core to client: `{"id": 1, "result": ...}`, `{"id": 1, "error": ...}`,
   or `{"event": ...}` for pushed events.
 
@@ -34,10 +47,18 @@ fans out events; only the wire under it differs.
 WebSocket connections need the token and, from browsers, an allowed `Origin`.
 This is what lets agents in a Linux cloud container run Playwright e2e tests.
 
+## Agents (phase 2, ADR 0004)
+
+Claude runs through the Claude Agent SDK, which exists only for TypeScript and
+Python. So each Claude session lives in a sidecar process, `agent-host/`
+(TypeScript), that the core supervises over JSON lines on stdio. Other agents
+connect through ACP, with PTY + CLI as a fallback. All of them sit behind one
+`AgentRuntime` trait in the core.
+
 ## Planned crates
 
-Added only when a phase needs them: `orchestrator`, `acp-client`, `pty`,
-`fs-index`, `worktree`, `mcp-server`, `ext-host`, `sandbox` (+ `-linux`,
+Added only when a phase needs them: `pty`, `agent-runtime`, `acp-client`,
+`worktree`, `orchestrator`, `mcp-server`, `ext-host`, `sandbox` (+ `-linux`,
 `-macos`, `-windows`), `netproxy`, `secrets`. Platform code sits behind traits
 with fake implementations so everything except the platform crates builds and
 tests on Linux.

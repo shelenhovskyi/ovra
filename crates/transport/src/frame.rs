@@ -1,4 +1,6 @@
 use ovra_core::Core;
+#[cfg(test)]
+use ovra_core::protocol::info::InfoEvent;
 use ovra_core::protocol::{ErrorCode, Event, ProtocolError, Request, Response};
 use serde::{Deserialize, Serialize};
 
@@ -34,11 +36,17 @@ impl ServerFrame {
 }
 
 /// Parses one client frame, runs it on the core and returns the reply frame.
-pub fn dispatch(core: &Core, text: &str) -> String {
+pub async fn dispatch(core: &Core, text: &str) -> String {
     let frame = match serde_json::from_str::<ClientFrame>(text) {
-        Ok(frame) => ServerFrame::Result {
-            id: frame.id,
-            result: core.handle(frame.request),
+        Ok(frame) => match core.handle(frame.request).await {
+            Ok(result) => ServerFrame::Result {
+                id: frame.id,
+                result,
+            },
+            Err(error) => ServerFrame::Error {
+                id: Some(frame.id),
+                error,
+            },
         },
         Err(err) => ServerFrame::Error {
             id: serde_json::from_str::<serde_json::Value>(text)
@@ -62,34 +70,46 @@ pub fn event_frame(event: Event) -> String {
 mod tests {
     use super::*;
 
-    #[test]
-    fn get_info_round_trip() {
+    #[tokio::test]
+    async fn get_info_round_trip() {
         let core = Core::new("test");
-        let reply = dispatch(&core, r#"{"id":7,"method":"get_info"}"#);
+        let reply = dispatch(&core, r#"{"id":7,"method":"info.get"}"#).await;
         let value: serde_json::Value = serde_json::from_str(&reply).unwrap_or_default();
         insta::assert_json_snapshot!(value, {".result.data.version" => "[version]"});
     }
 
-    #[test]
-    fn unknown_method_is_bad_request_with_id() {
+    #[tokio::test]
+    async fn unknown_method_is_bad_request_with_id() {
         let core = Core::new("test");
-        let reply = dispatch(&core, r#"{"id":3,"method":"nope"}"#);
+        let reply = dispatch(&core, r#"{"id":3,"method":"nope"}"#).await;
         let value: serde_json::Value = serde_json::from_str(&reply).unwrap_or_default();
         assert_eq!(value["id"], 3);
         assert_eq!(value["error"]["code"], "bad_request");
     }
 
-    #[test]
-    fn garbage_is_bad_request_without_id() {
+    #[tokio::test]
+    async fn garbage_is_bad_request_without_id() {
         let core = Core::new("test");
-        let reply = dispatch(&core, "not json");
+        let reply = dispatch(&core, "not json").await;
         let value: serde_json::Value = serde_json::from_str(&reply).unwrap_or_default();
         assert!(value["id"].is_null());
         assert_eq!(value["error"]["code"], "bad_request");
     }
 
+    #[tokio::test]
+    async fn service_errors_keep_the_request_id() {
+        let core = Core::new("test");
+        let reply = dispatch(&core, r#"{"id":4,"method":"projects.list"}"#).await;
+        let value: serde_json::Value = serde_json::from_str(&reply).unwrap_or_default();
+        assert_eq!(value["id"], 4);
+        assert_eq!(value["error"]["code"], "unavailable");
+    }
+
     #[test]
     fn event_frame_shape() {
-        assert_eq!(event_frame(Event::Ready), r#"{"event":{"type":"ready"}}"#);
+        assert_eq!(
+            event_frame(Event::Info(InfoEvent::Ready)),
+            r#"{"event":{"type":"info.ready"}}"#
+        );
     }
 }

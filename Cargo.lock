@@ -2306,6 +2306,9 @@ name = "ovra-app"
 version = "0.1.0"
 dependencies = [
  "ovra-core",
+ "ovra-fs-index",
+ "ovra-opener",
+ "ovra-store",
  "ovra-transport",
  "tauri",
  "tauri-build",
@@ -2329,12 +2332,36 @@ dependencies = [
  "axum",
  "clap",
  "ovra-core",
+ "ovra-fs-index",
+ "ovra-opener",
+ "ovra-store",
  "ovra-transport",
  "rand",
  "tokio",
  "tower-http",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "ovra-fs-index"
+version = "0.1.0"
+dependencies = [
+ "ovra-core",
+]
+
+[[package]]
+name = "ovra-opener"
+version = "0.1.0"
+dependencies = [
+ "ovra-core",
+]
+
+[[package]]
+name = "ovra-store"
+version = "0.1.0"
+dependencies = [
+ "ovra-core",
 ]
 
 [[package]]

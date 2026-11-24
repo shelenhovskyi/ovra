@@ -12,6 +12,12 @@ test("UI connects to the headless core", async ({ page }) => {
   await expect(page.getByTestId("status")).toHaveText(/^Connected to ovra \d+\.\d+\.\d+ \(headless\)$/);
 });
 
+test("the shell shows its panels", async ({ page }) => {
+  await page.goto(daemonUrl().href);
+  await expect(page.getByTestId("sidebar")).toContainText("File tree");
+  await expect(page.getByTestId("main")).toContainText("Viewer");
+});
+
 test("a wrong token is refused", async ({ page }) => {
   const url = daemonUrl();
   url.searchParams.set("token", "wrong");

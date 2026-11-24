@@ -30,9 +30,12 @@ async fn ready_then_get_info() {
         .unwrap();
 
     let ready = ws.next().await.unwrap().unwrap();
-    assert_eq!(ready.to_text().unwrap(), r#"{"event":{"type":"ready"}}"#);
+    assert_eq!(
+        ready.to_text().unwrap(),
+        r#"{"event":{"type":"info.ready"}}"#
+    );
 
-    ws.send(Message::text(r#"{"id":1,"method":"get_info"}"#))
+    ws.send(Message::text(r#"{"id":1,"method":"info.get"}"#))
         .await
         .unwrap();
     let reply: serde_json::Value =

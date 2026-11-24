@@ -14,6 +14,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use futures_util::{SinkExt, StreamExt};
 use ovra_core::Core;
+use ovra_core::protocol::info::InfoEvent;
 use serde::Deserialize;
 use tokio::sync::broadcast::error::RecvError;
 
@@ -88,9 +89,7 @@ async fn serve(socket: WebSocket, core: Core) {
     let (mut tx, mut rx) = socket.split();
     let mut events = core.subscribe();
     if tx
-        .send(Message::Text(
-            event_frame(ovra_core::protocol::Event::Ready).into(),
-        ))
+        .send(Message::Text(event_frame(InfoEvent::Ready.into()).into()))
         .await
         .is_err()
     {
@@ -100,7 +99,7 @@ async fn serve(socket: WebSocket, core: Core) {
         tokio::select! {
             incoming = rx.next() => match incoming {
                 Some(Ok(Message::Text(text))) => {
-                    let reply = dispatch(&core, &text);
+                    let reply = dispatch(&core, &text).await;
                     if tx.send(Message::Text(reply.into())).await.is_err() {
                         break;
                     }

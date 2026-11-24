@@ -1,10 +1,20 @@
 // One transport interface for every front end (ADR 0002): Tauri IPC inside
 // the desktop window, WebSocket in headless mode. Both carry the same frames.
 
-import type { CoreEvent, Request, Response, ServerFrame } from "./protocol";
+import type { CoreEvent, ProtocolError, Request, Response, ResponseFor, ServerFrame } from "./protocol";
+
+/** A failed call; `code` is the core's error code. */
+export class CoreError extends Error {
+  constructor(readonly error: ProtocolError) {
+    super(`${error.code}: ${error.message}`);
+  }
+  get code() {
+    return this.error.code;
+  }
+}
 
 export interface Transport {
-  call(request: Request): Promise<Response>;
+  call<R extends Request>(request: R): Promise<ResponseFor<R>>;
   onEvent(listener: (event: CoreEvent) => void): () => void;
 }
 
@@ -19,10 +29,10 @@ export class FrameRouter implements Transport {
 
   constructor(private readonly send: Wire) {}
 
-  call(request: Request): Promise<Response> {
+  call<R extends Request>(request: R): Promise<ResponseFor<R>> {
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      this.pending.set(id, { resolve: resolve as (r: Response) => void, reject });
       this.send(JSON.stringify({ id, ...request }));
     });
   }
@@ -43,7 +53,7 @@ export class FrameRouter implements Transport {
     if (!waiter) return;
     this.pending.delete(frame.id);
     if ("result" in frame) waiter.resolve(frame.result);
-    else waiter.reject(new Error(`${frame.error.code}: ${frame.error.message}`));
+    else waiter.reject(new CoreError(frame.error));
   }
 
   failAll(error: Error): void {

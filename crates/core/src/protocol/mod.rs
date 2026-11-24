@@ -1,0 +1,108 @@
+//! Messages exchanged between a front end and the core.
+//!
+//! The protocol is split by domain so parallel work touches different files.
+//! Each domain has its own request, response and event enums whose tags are
+//! namespaced (`fs.list_dir`, `projects.changed`, ...); the top-level enums
+//! below only combine them. Keep `ui/src/lib/protocol/` in sync.
+
+pub mod fs;
+pub mod info;
+pub mod open;
+pub mod projects;
+
+use serde::{Deserialize, Serialize};
+
+/// A request from a front end. Wire form: `{"method": "<domain>.<name>", "params": ...}`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum Request {
+    Info(info::InfoRequest),
+    Projects(projects::ProjectsRequest),
+    Fs(fs::FsRequest),
+    Open(open::OpenRequest),
+}
+
+/// The core's answer to a [`Request`]. Wire form: `{"type": "<domain>.<name>", "data": ...}`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum Response {
+    Info(info::InfoResponse),
+    Projects(projects::ProjectsResponse),
+    Fs(fs::FsResponse),
+    /// The request succeeded and has nothing to return.
+    Ok(OkResponse),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum OkResponse {
+    Ok,
+}
+
+/// A notification pushed by the core. Wire form: `{"type": "<domain>.<name>", "data": ...}`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum Event {
+    Info(info::InfoEvent),
+    Projects(projects::ProjectsEvent),
+    Fs(fs::FsEvent),
+}
+
+/// An error returned instead of a [`Response`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProtocolError {
+    pub code: ErrorCode,
+    pub message: String,
+}
+
+impl ProtocolError {
+    pub fn new(code: ErrorCode, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+        }
+    }
+}
+
+impl std::fmt::Display for ProtocolError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}: {}", self.code, self.message)
+    }
+}
+
+impl std::error::Error for ProtocolError {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ErrorCode {
+    /// The message could not be parsed or has invalid parameters.
+    BadRequest,
+    /// The project, file or other target does not exist.
+    NotFound,
+    /// The target changed since the client last saw it.
+    Conflict,
+    /// A path points outside its project.
+    Forbidden,
+    /// The feature is not wired into this front end (yet).
+    Unavailable,
+    /// Anything else; the message has details.
+    Internal,
+}
+
+impl From<info::InfoEvent> for Event {
+    fn from(e: info::InfoEvent) -> Self {
+        Self::Info(e)
+    }
+}
+
+impl From<projects::ProjectsEvent> for Event {
+    fn from(e: projects::ProjectsEvent) -> Self {
+        Self::Projects(e)
+    }
+}
+
+impl From<fs::FsEvent> for Event {
+    fn from(e: fs::FsEvent) -> Self {
+        Self::Fs(e)
+    }
+}

@@ -5,10 +5,14 @@
 
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use anyhow::Context;
 use clap::Parser;
 use ovra_core::Core;
+use ovra_fs_index::FsIndex;
+use ovra_opener::SystemOpener;
+use ovra_store::Store;
 use ovra_transport::ws::{self, Access};
 use rand::Rng;
 use tower_http::services::{ServeDir, ServeFile};
@@ -22,6 +26,9 @@ struct Args {
     /// Directory with the built UI (`pnpm --dir ui build`).
     #[arg(long, default_value = "ui/dist")]
     ui_dir: PathBuf,
+    /// Where the project list and other state are kept.
+    #[arg(long, default_value = ".ovra-data")]
+    data_dir: PathBuf,
 }
 
 #[tokio::main]
@@ -52,8 +59,14 @@ async fn main() -> anyhow::Result<()> {
         tracing::warn!(path = %index.display(), "UI not built; only /ws will work");
     }
     let static_files = ServeDir::new(&args.ui_dir).fallback(ServeFile::new(index));
+    std::fs::create_dir_all(&args.data_dir).context("creating the data directory")?;
+    let core = Core::builder("headless")
+        .projects(Arc::new(Store::open(&args.data_dir)?))
+        .fs(Arc::new(FsIndex::new()))
+        .opener(Arc::new(SystemOpener::new()))
+        .build();
     let app = ws::router(
-        Core::new("headless"),
+        core,
         Access {
             token: token.clone(),
             allowed_origins,

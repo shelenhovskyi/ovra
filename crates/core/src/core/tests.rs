@@ -1,0 +1,222 @@
+use std::path::Path;
+use std::sync::Arc;
+
+use super::*;
+use crate::fakes::{MemoryFs, MemoryProjects, RecordingOpener};
+use crate::protocol::fs::FileBody;
+use crate::protocol::info::InfoEvent;
+use crate::protocol::projects::Project;
+
+struct Fixture {
+    core: Core,
+    fs: Arc<MemoryFs>,
+    opener: Arc<RecordingOpener>,
+}
+
+fn fixture() -> Fixture {
+    let fs = Arc::new(MemoryFs::default());
+    let opener = Arc::new(RecordingOpener::default());
+    let core = Core::builder("test")
+        .projects(Arc::new(MemoryProjects::default()))
+        .fs(fs.clone())
+        .opener(opener.clone())
+        .build();
+    Fixture { core, fs, opener }
+}
+
+fn req(json: serde_json::Value) -> Request {
+    serde_json::from_value(json).unwrap_or_else(|e| panic!("bad request in test: {e}"))
+}
+
+async fn add(core: &Core, root: &str) -> Project {
+    match core
+        .handle(req(
+            serde_json::json!({"method": "projects.add", "params": {"root": root}}),
+        ))
+        .await
+    {
+        Ok(Response::Projects(ProjectsResponse::Project(p))) => p,
+        other => panic!("unexpected {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn info_reports_mode_and_version() {
+    let core = Core::new("test");
+    let reply = core
+        .handle(req(serde_json::json!({"method": "info.get"})))
+        .await;
+    let Ok(Response::Info(InfoResponse::Info(info))) = reply else {
+        panic!("{reply:?}")
+    };
+    assert_eq!((info.name.as_str(), info.mode.as_str()), ("ovra", "test"));
+}
+
+#[tokio::test]
+async fn unwired_services_are_unavailable() {
+    let core = Core::new("test");
+    let reply = core
+        .handle(req(serde_json::json!({"method": "projects.list"})))
+        .await;
+    assert_eq!(reply.err().map(|e| e.code), Some(ErrorCode::Unavailable));
+}
+
+#[tokio::test]
+async fn open_switches_the_watched_project_and_emits() {
+    let f = fixture();
+    let mut events = f.core.subscribe();
+    let a = add(&f.core, "/work/a").await;
+    let b = add(&f.core, "/work/b").await;
+    for id in [&a.id, &b.id] {
+        let r = f
+            .core
+            .handle(Request::Projects(ProjectsRequest::Open { id: id.clone() }))
+            .await;
+        assert!(r.is_ok(), "{r:?}");
+    }
+    assert_eq!(f.fs.watched_ids(), vec![b.id.clone()]);
+    let mut last = None;
+    while let Ok(event) = events.try_recv() {
+        last = Some(event);
+    }
+    assert_eq!(
+        last,
+        Some(Event::Projects(ProjectsEvent::Changed {
+            active: Some(b.id)
+        }))
+    );
+}
+
+#[tokio::test]
+async fn relative_roots_are_rejected() {
+    let f = fixture();
+    let r = f
+        .core
+        .handle(Request::Projects(ProjectsRequest::Add {
+            root: "rel".into(),
+        }))
+        .await;
+    assert_eq!(r.err().map(|e| e.code), Some(ErrorCode::BadRequest));
+}
+
+#[tokio::test]
+async fn fs_requests_resolve_project_and_reject_escapes() {
+    let f = fixture();
+    let p = add(&f.core, "/work/a").await;
+    f.fs.put(Path::new("/work/a"), "src/main.rs", "fn main() {}");
+
+    let read = f
+        .core
+        .handle(Request::Fs(FsRequest::ReadFile {
+            project: p.id.clone(),
+            path: "./src//main.rs".into(),
+        }))
+        .await;
+    let Ok(Response::Fs(FsResponse::File(file))) = read else {
+        panic!("{read:?}")
+    };
+    assert_eq!(
+        file.body,
+        FileBody::Text {
+            text: "fn main() {}".into()
+        }
+    );
+
+    let escape = f
+        .core
+        .handle(Request::Fs(FsRequest::ReadFile {
+            project: p.id,
+            path: "../b/secret".into(),
+        }))
+        .await;
+    assert_eq!(escape.err().map(|e| e.code), Some(ErrorCode::Forbidden));
+}
+
+#[tokio::test]
+async fn write_conflicts_when_file_changed() {
+    let f = fixture();
+    let p = add(&f.core, "/w").await;
+    f.fs.put(Path::new("/w"), "a.txt", "one");
+    let write = |expected| {
+        f.core.handle(Request::Fs(FsRequest::WriteFile {
+            project: p.id.clone(),
+            path: "a.txt".into(),
+            text: "two".into(),
+            expected_mtime_ms: Some(expected),
+        }))
+    };
+    assert_eq!(
+        write(999).await.err().map(|e| e.code),
+        Some(ErrorCode::Conflict)
+    );
+}
+
+#[tokio::test]
+async fn open_external_passes_absolute_path() {
+    let f = fixture();
+    let p = add(&f.core, "/w").await;
+    let r = f
+        .core
+        .handle(Request::Open(OpenRequest::External {
+            project: p.id,
+            path: "a/b.rs".into(),
+            line: Some(3),
+        }))
+        .await;
+    assert_eq!(r, Ok(Response::Ok(OkResponse::Ok)));
+    let opened = f
+        .opener
+        .opened
+        .lock()
+        .map(|o| o.clone())
+        .unwrap_or_default();
+    assert_eq!(opened, vec![(PathBuf::from("/w/a/b.rs"), Some(3))]);
+}
+
+#[test]
+fn events_reach_subscribers() {
+    let core = Core::new("test");
+    let mut rx = core.subscribe();
+    core.emit(InfoEvent::Ready);
+    assert_eq!(rx.try_recv().ok(), Some(Event::Info(InfoEvent::Ready)));
+}
+
+#[test]
+fn wire_format_is_stable() {
+    let samples = serde_json::json!({
+        "requests": [
+            Request::Info(InfoRequest::Get),
+            Request::Projects(ProjectsRequest::Open { id: ProjectId("p1".into()) }),
+            Request::Fs(FsRequest::ListDir { project: ProjectId("p1".into()), path: "src".into() }),
+            Request::Open(OpenRequest::External { project: ProjectId("p1".into()), path: "a.rs".into(), line: None }),
+        ],
+        "responses": [
+            Response::Ok(OkResponse::Ok),
+            Response::Fs(FsResponse::Written { mtime_ms: 5 }),
+        ],
+        "events": [
+            Event::Info(InfoEvent::Ready),
+            Event::Projects(ProjectsEvent::Changed { active: None }),
+        ],
+    });
+    insta::assert_json_snapshot!(samples);
+}
+
+#[test]
+fn every_request_round_trips() {
+    let requests = [
+        serde_json::json!({"method": "info.get"}),
+        serde_json::json!({"method": "projects.list"}),
+        serde_json::json!({"method": "projects.add", "params": {"root": "/x"}}),
+        serde_json::json!({"method": "projects.remove", "params": {"id": "p1"}}),
+        serde_json::json!({"method": "projects.open", "params": {"id": "p1"}}),
+        serde_json::json!({"method": "fs.list_dir", "params": {"project": "p1", "path": ""}}),
+        serde_json::json!({"method": "fs.read_file", "params": {"project": "p1", "path": "a"}}),
+        serde_json::json!({"method": "fs.write_file", "params": {"project": "p1", "path": "a", "text": "", "expected_mtime_ms": null}}),
+        serde_json::json!({"method": "open.external", "params": {"project": "p1", "path": "a", "line": 1}}),
+    ];
+    for json in requests {
+        let parsed: Request = req(json.clone());
+        assert_eq!(serde_json::to_value(&parsed).ok(), Some(json));
+    }
+}

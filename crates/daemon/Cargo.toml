@@ -13,6 +13,9 @@ path = "src/main.rs"
 
 [dependencies]
 ovra-core.workspace = true
+ovra-fs-index.workspace = true
+ovra-opener.workspace = true
+ovra-store.workspace = true
 ovra-transport = { workspace = true, features = ["ws"] }
 anyhow.workspace = true
 axum.workspace = true

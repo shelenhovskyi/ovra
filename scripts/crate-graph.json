@@ -3,12 +3,18 @@
   "allowed": {
     "ovra-core": [],
     "ovra-transport": ["ovra-core"],
-    "ovra-daemon": ["ovra-core", "ovra-transport"],
-    "ovra-app": ["ovra-core", "ovra-transport"]
+    "ovra-fs-index": ["ovra-core"],
+    "ovra-store": ["ovra-core"],
+    "ovra-opener": ["ovra-core"],
+    "ovra-daemon": ["ovra-core", "ovra-transport", "ovra-fs-index", "ovra-store", "ovra-opener"],
+    "ovra-app": ["ovra-core", "ovra-transport", "ovra-fs-index", "ovra-store", "ovra-opener"]
   },
   "banned": {
     "ovra-core": ["tauri", "wry", "axum", "hyper", "tokio-tungstenite"],
     "ovra-transport": ["tauri", "wry"],
-    "ovra-daemon": ["tauri", "wry"]
+    "ovra-daemon": ["tauri", "wry"],
+    "ovra-fs-index": ["tauri", "wry", "axum", "hyper", "tokio-tungstenite"],
+    "ovra-store": ["tauri", "wry", "axum", "hyper", "tokio-tungstenite"],
+    "ovra-opener": ["tauri", "wry", "axum", "hyper", "tokio-tungstenite"]
   }
 }
