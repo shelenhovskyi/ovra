@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use crate::orchestration::direct::Direct;
 use crate::protocol::agents::{
-    AgentMessage, AgentStatus, AgentsEvent, SessionId, SessionInfo, SessionMode,
+    AgentMessage, AgentStatus, AgentsEvent, Billing, SessionId, SessionInfo, SessionMode,
 };
 use crate::protocol::permissions::{
     Decision, PermissionAnswer, PermissionId, PermissionReason, PermissionRequest, PermissionsEvent,
@@ -268,6 +268,15 @@ impl SessionView<'_> {
             self.save();
         }
     }
+    /// Records who pays; true if that changed.
+    fn set_billing(&mut self, billing: Billing) -> bool {
+        if self.session.info.billing.as_ref() == Some(&billing) {
+            return false;
+        }
+        self.session.info.billing = Some(billing);
+        self.save();
+        true
+    }
     /// Starts an ended session over for `agents.resume`.
     pub(crate) fn restart(&mut self) {
         self.session.info.status = AgentStatus::Starting;
@@ -366,6 +375,19 @@ impl AgentHost {
         let _ = self
             .sessions
             .find(&self.session, |s| s.set_agent_session(id));
+    }
+
+    /// The agent said who pays for the session's usage.
+    pub fn billing(&self, billing: Billing) {
+        let changed = self
+            .sessions
+            .find(&self.session, |s| s.set_billing(billing.clone()));
+        if changed == Ok(true) {
+            self.sink.emit(AgentsEvent::Billing {
+                session: self.session.clone(),
+                billing,
+            });
+        }
     }
 
     /// The agent is about to run a tool: the input of a `PreToolUse` hook

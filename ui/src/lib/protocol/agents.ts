@@ -29,6 +29,8 @@ export type SessionInfo = {
   usage: TurnUsage;
   /** Whether `agents.resume` can continue it: it ended and the agent reported its own id. */
   resumable: boolean;
+  /** Who pays for the session's usage, as the agent said when it started. */
+  billing: Billing | null;
 };
 
 export type TurnUsage = {
@@ -138,4 +140,6 @@ export type AgentsResponse =
 
 export type AgentsEvent =
   | { type: "agents.message"; data: { session: SessionId; message: AgentMessage } }
-  | { type: "agents.status"; data: { session: SessionId; project: ProjectId; status: AgentStatus } };
+  | { type: "agents.status"; data: { session: SessionId; project: ProjectId; status: AgentStatus } }
+  /** The agent said who pays for the session (`SessionInfo.billing`). */
+  | { type: "agents.billing"; data: { session: SessionId; billing: Billing } };

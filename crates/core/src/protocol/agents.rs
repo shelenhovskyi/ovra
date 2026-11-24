@@ -67,6 +67,10 @@ pub struct SessionInfo {
     /// reported its own id for the conversation.
     #[serde(default)]
     pub resumable: bool,
+    /// Who pays for this session's usage, as the agent said when it
+    /// started; `None` until then, or if it did not say.
+    #[serde(default)]
+    pub billing: Option<Billing>,
 }
 
 /// Tokens and cost of one turn, as the agent reports them, or their sum.
@@ -343,5 +347,11 @@ pub enum AgentsEvent {
         session: SessionId,
         project: ProjectId,
         status: AgentStatus,
+    },
+    /// The agent said who pays for the session (`SessionInfo::billing`).
+    #[serde(rename = "agents.billing")]
+    Billing {
+        session: SessionId,
+        billing: Billing,
     },
 }

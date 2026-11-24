@@ -146,6 +146,7 @@ mod tests {
                 title: format!("task {id}"),
                 usage: TurnUsage::default(),
                 resumable: false,
+                billing: None,
             },
             agent_session: None,
         }

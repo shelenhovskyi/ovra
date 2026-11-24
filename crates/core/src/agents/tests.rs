@@ -910,3 +910,23 @@ async fn ide_tool_calls_reach_the_tools_with_the_caller() {
         Some(-32601)
     );
 }
+
+#[tokio::test]
+async fn a_session_says_who_pays_once_the_agent_tells() {
+    let core = core_with(ScriptedAgent::new(vec![vec![Step::Say("hi")]]));
+    project(&core).await;
+    ok(&core, start("x")).await;
+    assert_eq!(sessions(&core).await[0].billing, None);
+    let mut rx = core.subscribe();
+    let cloud = crate::protocol::agents::Billing::Cloud {
+        provider: "bedrock".into(),
+    };
+    host(&core).billing(cloud.clone());
+    host(&core).billing(cloud.clone());
+    assert_eq!(sessions(&core).await[0].billing, Some(cloud));
+    let mut told = 0;
+    while let Ok(event) = rx.try_recv() {
+        told += usize::from(matches!(event, Event::Agents(AgentsEvent::Billing { .. })));
+    }
+    assert_eq!(told, 1, "the same answer again is no news");
+}
