@@ -43,6 +43,8 @@ export class FakeReviewCore implements Transport {
   diffGone = new Map<string, string>();
   /** Makes the next call of this method fail with this error. */
   failNext = new Map<Request["method"], CoreError>();
+  /** Diffs say they were read with this fingerprint instead of the item's. */
+  diffFingerprint: string | null = null;
   private listeners = new Set<(event: CoreEvent) => void>();
 
   async call<R extends Request>(request: R): Promise<ResponseFor<R>> {
@@ -82,13 +84,16 @@ export class FakeReviewCore implements Transport {
           type: "review.list",
           data: structuredClone(this.items.filter((i) => i.project === request.params.project)),
         };
-      case "review.diff":
-        this.find(request.params.id);
-        {
-          const gone = this.diffGone.get(request.params.path);
-          if (gone) throw new CoreError({ code: "not_found", message: gone });
-        }
-        return { type: "review.diff", data: { path: request.params.path, patch: patchFor(request.params.path) } };
+      case "review.diff": {
+        const item = this.find(request.params.id);
+        const gone = this.diffGone.get(request.params.path);
+        if (gone) throw new CoreError({ code: "not_found", message: gone });
+        const fingerprint = this.diffFingerprint ?? item.fingerprint;
+        return {
+          type: "review.diff",
+          data: { path: request.params.path, patch: patchFor(request.params.path), fingerprint },
+        };
+      }
       case "review.approve":
       case "review.reject":
       case "review.undo_reject": {

@@ -120,6 +120,28 @@ describe("Inbox", () => {
     expect(document.activeElement?.id).toBe("inbox-item-title");
   });
 
+  it("does not approve a worker's files when the diff on screen is older than them", async () => {
+    const core = await setup([review("r1", { mode: "isolated", fingerprint: "f2" })]);
+    await open();
+    // The item moved on to f2 while the diff on screen was read at f1.
+    core.diffFingerprint = "f1";
+    core.emit({ type: "review.changed", data: { project: "p1", id: "r1" } });
+    await settle();
+    button(/^Approve$/)?.click();
+    await settle();
+    expect(core.sent("review.approve")).toEqual([]);
+    expect($("[data-testid=inbox-stale]")?.textContent).toContain("nothing was approved");
+    const diffs = core.sent("review.diff").length;
+    expect(diffs).toBeGreaterThan(2);
+    core.diffFingerprint = null;
+    core.emit({ type: "review.changed", data: { project: "p1", id: "r1" } });
+    await settle();
+    button(/^Approve$/)?.click();
+    await settle();
+    expect(core.sent("review.approve").map((c) => c.params)).toEqual([{ id: "r1", commit: null, fingerprint: "f2" }]);
+    expect($("[data-testid=inbox-stale]")).toBeNull();
+  });
+
   it("rejects after a confirmation that says what stays, and lists what was left", async () => {
     const core = await setup([review("r1", { files: [change("README.md", { by: "both" })] })]);
     core.conflicts = ["README.md"];

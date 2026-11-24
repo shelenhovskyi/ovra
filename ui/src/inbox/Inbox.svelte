@@ -35,12 +35,14 @@ const modEnter = formatShortcut("Mod+Enter", isApple());
 let opened = $state(false);
 let selectedId = $state<ReviewId | null>(null);
 let selectedPath = $state<string | null>(null);
-let diff = $state<{ key: string; patch: string | null; error: string | null } | null>(null);
+let diff = $state<{ key: string; patch: string | null; fingerprint: string | null; error: string | null } | null>(null);
 let commit = $state(false);
 let commitMessage = $state("");
 let confirmingReject = $state(false);
 let comment = $state("");
 let announcement = $state("");
+/** Approve was stopped because the diff shown was older than the item. */
+let staleDiff = $state(false);
 /** An agent asked for a review since the inbox was last open. */
 let asked = $state(false);
 let dialog = $state<HTMLElement>();
@@ -102,14 +104,14 @@ $effect(() => {
   const [id = "", path = ""] = key.split("\n");
   let live = true;
   untrack(() => {
-    if (!diff?.key.startsWith(`${id}\n${path}\n`)) diff = { key, patch: null, error: null };
+    if (!diff?.key.startsWith(`${id}\n${path}\n`)) diff = { key, patch: null, fingerprint: null, error: null };
   });
   inbox.diff(id, path).then(
-    (patch) => {
-      if (live) diff = { key, patch, error: null };
+    (loaded) => {
+      if (live) diff = { key, ...loaded, error: null };
     },
     (err: unknown) => {
-      if (live) diff = { key, patch: null, error: errorText(err) };
+      if (live) diff = { key, patch: null, fingerprint: null, error: errorText(err) };
     },
   );
   return () => {
@@ -120,6 +122,7 @@ $effect(() => {
 function select(id: ReviewId | null): void {
   if (id === selectedId) return;
   selectedId = id;
+  staleDiff = false;
   const next = inbox.items.find((i) => i.id === id);
   selectedPath = next?.files[0]?.path ?? null;
   commit = false;
@@ -229,6 +232,15 @@ async function refocus(): Promise<void> {
 async function approve(review: ReviewItem): Promise<void> {
   const message = commit ? commitMessage.trim() : null;
   if (commit && !message) return;
+  // The diff on screen must be of the files approve would land: if it was
+  // read from another version of the worker's files, show both anew first.
+  const shown = diff?.key.startsWith(`${review.id}\n`) ? diff.fingerprint : null;
+  if (review.fingerprint && shown && shown !== review.fingerprint) {
+    staleDiff = true;
+    await inbox.recheck();
+    return;
+  }
+  staleDiff = false;
   if ((await inbox.approve(review.id, message)) && inbox.outcome) {
     announcement = outcomeText(inbox.outcome);
     await refocus();
@@ -374,6 +386,11 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
       </header>
       {#if inbox.error}
         <p class="error" role="alert">{inbox.error}</p>
+      {/if}
+      {#if staleDiff}
+        <p class="error" role="alert" data-testid="inbox-stale">
+          The worker's files changed since this diff loaded, so nothing was approved. Look at them again, then approve.
+        </p>
       {/if}
       <p class="visually-hidden" role="status">{announcement}</p>
 

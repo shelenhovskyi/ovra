@@ -93,9 +93,16 @@ export class ReviewInbox {
     }
   }
 
-  async diff(id: ReviewId, path: string): Promise<string> {
+  /** A file's diff, with the item fingerprint it was read with (workers only). */
+  async diff(id: ReviewId, path: string): Promise<{ patch: string; fingerprint: string | null }> {
     const { data } = await this.transport.call({ method: "review.diff", params: { id, path } });
-    return data.patch;
+    return { patch: data.patch, fingerprint: data.fingerprint ?? null };
+  }
+
+  /** Shows every item and open diff as they are now. */
+  recheck(): Promise<void> {
+    this.changes++;
+    return this.reload();
   }
 
   /**
@@ -170,8 +177,7 @@ export class ReviewInbox {
       this.error = message(err);
       // A refusal often means the item moved on (a worker's files changed
       // since the person looked): show it as it is now, diffs included.
-      this.changes++;
-      void this.reload();
+      void this.recheck();
       return false;
     } finally {
       this.busy = this.busy.filter((b) => b !== id);
