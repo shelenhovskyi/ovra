@@ -15,7 +15,7 @@ expression: samples
     },
     {
       "data": {
-        "active": null
+        "open": []
       },
       "type": "projects.changed"
     },

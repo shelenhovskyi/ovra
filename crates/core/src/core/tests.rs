@@ -87,9 +87,7 @@ async fn open_switches_the_watched_project_and_emits() {
     }
     assert_eq!(
         last,
-        Some(Event::Projects(ProjectsEvent::Changed {
-            active: Some(b.id)
-        }))
+        Some(Event::Projects(ProjectsEvent::Changed { open: vec![b.id] }))
     );
 }
 
@@ -317,7 +315,7 @@ fn wire_format_is_stable() {
         "events": [
             Event::Info(InfoEvent::Ready),
             Event::Info(InfoEvent::Resync { skipped: 3 }),
-            Event::Projects(ProjectsEvent::Changed { active: None }),
+            Event::Projects(ProjectsEvent::Changed { open: vec![] }),
             Event::Fs(FsEvent::FilesChanged {
                 project: ProjectId("p1".into()),
                 added: vec!["b.rs".into()],

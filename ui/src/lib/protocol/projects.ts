@@ -39,4 +39,8 @@ export type ProjectsResponse =
   | { type: "projects.project"; data: Project }
   | { type: "projects.state"; data: ProjectState };
 
-export type ProjectsEvent = { type: "projects.changed"; data: { active: ProjectId | null } };
+/**
+ * The list or the set of open projects changed. `open` lists the projects
+ * some client has open (each connection holds the one it opened last).
+ */
+export type ProjectsEvent = { type: "projects.changed"; data: { open: ProjectId[] } };
