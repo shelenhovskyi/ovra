@@ -46,7 +46,11 @@ export type FsResponse =
   | { type: "fs.written"; data: { mtime_ms: number } }
   | { type: "fs.files"; data: FileList };
 
-/** One page of `fs.list_files`; `total` counts the whole project. */
+/**
+ * One page of `fs.list_files`; `total` counts the whole project. `version` 0
+ * means the project is still being indexed: list again on the next
+ * `fs.files_changed`, which arrives once indexing ends.
+ */
 export type FileList = { paths: string[]; total: number; version: number };
 
 export type FsEvent =
