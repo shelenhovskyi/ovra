@@ -40,6 +40,13 @@ function small(root: string): void {
   put(root, "assets/logo.png", PNG);
   put(root, "Cargo.toml", '[package]\nname = "demo"\nversion = "0.1.0"\n');
   put(root, "a file with spaces.txt", "spaces\n");
+  put(
+    root,
+    "changes.patch",
+    "--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1,3 +1,3 @@\n pub fn add(a: i32, b: i32) -> i32 {\n-    a + b\n+    a.wrapping_add(b)\n }\n",
+  );
+  put(root, "data/blob.bin", Buffer.from([0, 1, 2, 255, 0, 7]));
+  put(root, "data/huge.txt", "x".repeat(6 * 1024 * 1024));
   put(root, "very-long-directory-name-that-will-not-fit-in-the-sidebar/and-a-long-file-name-too.config.json", "{}\n");
   git(root, "init", "-q", "-b", "main");
   git(root, "add", ".");
