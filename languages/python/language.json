@@ -1,0 +1,6 @@
+{
+  "name": "Python",
+  "extensions": ["py", "pyi"],
+  "grammar": "tree-sitter-python/tree-sitter-python.wasm",
+  "highlights": ["python/highlights.scm"]
+}
