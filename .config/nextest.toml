@@ -6,3 +6,13 @@ fail-fast = false
 
 [profile.default.junit]
 path = "junit.xml"
+
+# Tests that run real git start many short processes. On Windows and macOS
+# runners process starts slow each other down when many run at once, so
+# these run at most two at a time; on Linux that costs almost nothing.
+[test-groups]
+git = { max-threads = 2 }
+
+[[profile.default.overrides]]
+filter = "package(ovra-worktree)"
+test-group = "git"
