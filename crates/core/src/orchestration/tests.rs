@@ -385,6 +385,54 @@ async fn ovra_tools_are_decided_by_role_without_asking() {
     }
 }
 
+/// A worker's rename moves the file in the main checkout: the old path goes.
+/// Rejecting one brings the old file back in the worktree.
+#[tokio::test]
+async fn a_workers_rename_moves_the_file_when_approved_and_back_when_rejected() {
+    let f = fx(say()).await;
+    let mut rx = f.core.subscribe();
+    start_task(&f.core, 3).await;
+    let boss = caller("s1", ToolRole::Coordinator);
+    let worker = f.core.spawn_agent(&boss, "w", "x").await;
+    let worker = worker.unwrap_or_else(|e| panic!("{e}"));
+    until(&mut rx, "s2", AgentStatus::Idle).await;
+
+    f.wt.delete(&worker.worktree, "a.rs");
+    f.wt.put(&worker.worktree, "moved.rs", "one\n");
+    let items = reviews(&f.core).await;
+    let files: Vec<_> = items[0]
+        .files
+        .iter()
+        .map(|f| (f.path.as_str(), f.kind, f.from.as_deref()))
+        .collect();
+    assert_eq!(files, [("moved.rs", ChangeKind::Renamed, Some("a.rs"))]);
+
+    let rejected = ok(
+        &f.core,
+        json!({"method": "review.reject", "params": {"id": "r1"}}),
+    )
+    .await;
+    assert!(matches!(
+        rejected,
+        Response::Review(ReviewResponse::Done { .. })
+    ));
+    let back = f.wt.files(&worker.worktree);
+    assert_eq!(back.keys().collect::<Vec<_>>(), ["a.rs"]);
+
+    // The worker moves it again; this time the person approves.
+    f.wt.delete(&worker.worktree, "a.rs");
+    f.wt.put(&worker.worktree, "moved.rs", "one\n");
+    let items = reviews(&f.core).await;
+    let id = items[0].id.0.clone();
+    let done = ok(&f.core, approval(&f.core, &id, json!(null)).await).await;
+    let Response::Review(ReviewResponse::Done { conflicts, .. }) = done else {
+        panic!("unexpected {done:?}");
+    };
+    assert!(conflicts.is_empty(), "{conflicts:?}");
+    let main = f.wt.files(ROOT);
+    assert_eq!(main.keys().collect::<Vec<_>>(), ["moved.rs"]);
+}
+
 #[tokio::test]
 async fn approving_a_worker_applies_its_files_to_the_main_checkout() {
     let f = fx(say()).await;

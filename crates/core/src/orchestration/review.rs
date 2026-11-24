@@ -452,8 +452,16 @@ fn check_open(entry: &Entry) -> Result<()> {
     }
 }
 
+/// Every path of `files`, the old path of a rename too: approving a rename
+/// deletes the old file, rejecting it brings the old file back.
 fn rel_paths(files: &[FileChange]) -> Result<Vec<RelPath>> {
-    files.iter().map(|f| RelPath::parse(&f.path)).collect()
+    let mut paths: Vec<&str> = files
+        .iter()
+        .flat_map(|f| std::iter::once(f.path.as_str()).chain(f.from.as_deref()))
+        .collect();
+    paths.sort_unstable();
+    paths.dedup();
+    paths.into_iter().map(RelPath::parse).collect()
 }
 
 /// Applies a worker's files to the main checkout, except those the direct

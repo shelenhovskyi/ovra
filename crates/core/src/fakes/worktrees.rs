@@ -13,7 +13,7 @@ use crate::services::{BoxFuture, Delta, Result, Taken, WorktreeInfo, Worktrees};
 type Files = BTreeMap<String, String>;
 
 /// Working trees keyed by directory, and commits keyed `c1`, `c2`, ...
-/// Diffs count whole lines; there are no renames.
+/// Diffs count whole lines; a file moved with its exact text is a rename.
 #[derive(Debug, Default)]
 pub struct MemoryWorktrees {
     dirs: Mutex<BTreeMap<PathBuf, Files>>,
@@ -97,6 +97,36 @@ fn unified(path: &str, old: Option<&String>, new: Option<&String>) -> String {
     patch
 }
 
+/// What differs from `old` to `new`, by path. A deleted file whose exact
+/// text was added under another path is a rename, as git would find it.
+fn deltas(old: &Files, new: &Files) -> Vec<Delta> {
+    let mut paths: Vec<&String> = old.keys().chain(new.keys()).collect();
+    paths.sort();
+    paths.dedup();
+    let mut all: Vec<Delta> = paths
+        .into_iter()
+        .filter_map(|p| delta(p, old.get(p), new.get(p)))
+        .collect();
+    let gone: Vec<String> = all
+        .iter()
+        .filter(|d| d.kind == ChangeKind::Deleted)
+        .map(|d| d.path.clone())
+        .collect();
+    for from in gone {
+        let text = old.get(&from);
+        let to = all
+            .iter_mut()
+            .find(|d| d.kind == ChangeKind::Added && d.from.is_none() && new.get(&d.path) == text);
+        if let Some(to) = to {
+            to.kind = ChangeKind::Renamed;
+            to.from = Some(from.clone());
+            (to.additions, to.deletions) = (0, 0);
+            all.retain(|d| d.path != from);
+        }
+    }
+    all
+}
+
 fn delta(path: &str, old: Option<&String>, new: Option<&String>) -> Option<Delta> {
     let kind = match (old, new) {
         (None, Some(_)) => ChangeKind::Added,
@@ -155,13 +185,7 @@ impl Worktrees for MemoryWorktrees {
     fn changes(&self, dir: PathBuf, base: String) -> BoxFuture<'_, Result<Vec<Delta>>> {
         Box::pin(async move {
             let (old, new) = (self.commit_files(&base)?, self.tree(&dir)?);
-            let mut paths: Vec<&String> = old.keys().chain(new.keys()).collect();
-            paths.sort();
-            paths.dedup();
-            Ok(paths
-                .into_iter()
-                .filter_map(|p| delta(p, old.get(p), new.get(p)))
-                .collect())
+            Ok(deltas(&old, &new))
         })
     }
 
@@ -196,13 +220,7 @@ impl Worktrees for MemoryWorktrees {
     fn diff(&self, _dir: PathBuf, from: String, to: String) -> BoxFuture<'_, Result<Vec<Delta>>> {
         Box::pin(async move {
             let (old, new) = (self.commit_files(&from)?, self.commit_files(&to)?);
-            let mut paths: Vec<&String> = old.keys().chain(new.keys()).collect();
-            paths.sort();
-            paths.dedup();
-            Ok(paths
-                .into_iter()
-                .filter_map(|p| delta(p, old.get(p), new.get(p)))
-                .collect())
+            Ok(deltas(&old, &new))
         })
     }
 
