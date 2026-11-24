@@ -263,6 +263,8 @@ const canReply = $derived(current !== null && current.status.state === "idle");
     min-height: 0;
     flex: 1;
     padding: 8px 0 0;
+    /* Setup and trust cards above must not squeeze the transcript: scroll instead. */
+    overflow-y: auto;
   }
   h2,
   h3 {
@@ -367,8 +369,7 @@ const canReply = $derived(current !== null && current.status.state === "idle");
   .detail {
     display: flex;
     flex-direction: column;
-    min-height: 0;
-    flex: 1;
+    flex: none;
     border-top: 1px solid #2a2a31;
     padding-top: 8px;
   }

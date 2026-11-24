@@ -70,7 +70,9 @@ export class AgentSessions {
   }
 
   private apply(event: CoreEvent): void {
-    if (event.type === "agents.status") {
+    // Events were dropped: what is on screen may be missing or doubled.
+    if (event.type === "info.resync") this.resync();
+    else if (event.type === "agents.status") {
       const { session, project, status } = event.data;
       const known = this.byId.get(session);
       if (known) {

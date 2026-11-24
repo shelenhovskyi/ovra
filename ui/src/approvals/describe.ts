@@ -47,6 +47,13 @@ export function describeTool(tool: string, input: unknown): ToolSummary {
         edits.length > 0 ? [{ label: "file", text: file }, ...edits] : [{ label: "file", text: file }, raw(input)],
     };
   }
+  if (tool === "Agent" || tool === "Task") {
+    const what = str(input, "description") ?? str(input, "prompt");
+    return {
+      action: what ? `Start a helper agent: ${oneLine(what)}` : "Start a helper agent",
+      details: pick("description", "prompt"),
+    };
+  }
   if (tool === "Write" && file !== undefined) {
     return { action: `Write ${file}`, details: [{ label: "file", text: file }, ...pick("content")] };
   }

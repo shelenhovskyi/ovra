@@ -46,7 +46,7 @@ const modEnter = () =>
 
 const panel = () => target.querySelector<HTMLElement>("[data-testid=agents-panel]");
 const transcript = () =>
-  [...target.querySelectorAll("[data-testid=transcript] li")].map((li) => li.textContent?.trim());
+  [...target.querySelectorAll("[data-testid=transcript] li")].map((li) => li.textContent?.replace(/\s+/g, " ").trim());
 
 describe("AgentsPanel", () => {
   it("starts a session in the open project and streams its transcript", async () => {
@@ -68,13 +68,16 @@ describe("AgentsPanel", () => {
     });
     await settle();
     expect(transcript()).toEqual([
-      "You Fix the typo\nin README.md",
+      "You Fix the typo in README.md",
       "Claude Looking.",
       "Tool Bash Run ls",
-      "Subagent Tool result README.md",
+      "Subagent Tool output (1 line) README.md",
       "Turn ended: 10 tokens in, 5 out, $0.0012",
     ]);
     expect(panel()?.querySelector("[role=status]")?.textContent).toBe("Working");
+    // Outputs are folded; screen readers hear what Claude says, not tool output.
+    expect(panel()?.querySelector("[data-testid=transcript] details")?.hasAttribute("open")).toBe(false);
+    expect(target.querySelector(".spoken")?.textContent).toBe("Claude: Looking.");
     expect(panel()?.querySelector("[data-testid=agent-usage]")?.textContent).toBe(
       "Total: 10 tokens in, 5 out, $0.0012",
     );
@@ -128,6 +131,30 @@ describe("AgentsPanel", () => {
     expect(transcript()).toEqual(["You Earlier task", "You Carry on"]);
     expect(target.querySelector("#agent-resume")).toBeNull();
     expect(target.querySelector("#agent-reply")).not.toBeNull();
+  });
+
+  it("says plainly that a tool call was denied, and re-reads everything after a resync", async () => {
+    const core = new FakeAgentCore();
+    core.addSession("p1", "Earlier task", { state: "working" });
+    core.transcripts.set("s1", [{ kind: "user_text", text: "Earlier task" }]);
+    await setup(core);
+    core.message("s1", {
+      kind: "tool_result",
+      tool_use_id: "t1",
+      output: "The user doesn't want to proceed with this tool use. STOP what you are doing.",
+      is_error: true,
+    });
+    await settle();
+    expect(transcript()).toEqual(["You Earlier task", "Not run: you denied it or interrupted the turn"]);
+    // Events were dropped: the core's transcript is the truth.
+    core.transcripts.set("s1", [
+      { kind: "user_text", text: "Earlier task" },
+      { kind: "assistant_text", text: "Missed" },
+    ]);
+    core.emit({ type: "info.resync", data: { skipped: 3 } });
+    await settle();
+    await settle();
+    expect(transcript()).toEqual(["You Earlier task", "Claude Missed"]);
   });
 
   it("shows why a session could not start", async () => {
