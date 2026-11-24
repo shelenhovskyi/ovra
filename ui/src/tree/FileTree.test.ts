@@ -150,6 +150,22 @@ describe("FileTree", () => {
     expect(description(t.row("dist"))).toBe("ignored");
   });
 
+  it("shows deleted files struck through and unopenable, and where a renamed file came from", async () => {
+    const dirs = dirsFromPaths(["gone.ts", "new.ts"], { "gone.ts": "deleted", "new.ts": "renamed" });
+    const renamed = dirs.get("")?.find((e) => e.name === "new.ts");
+    if (renamed) renamed.renamed_from = "old/name.ts";
+    const t = mountTree(new FakeCore(dirs));
+    await settle();
+    const description = (el: HTMLElement) =>
+      document.getElementById(el.getAttribute("aria-describedby") ?? "")?.textContent ?? null;
+    expect(description(t.row("gone.ts"))).toBe("deleted");
+    expect(t.row("gone.ts").querySelector(".name.git-deleted")).not.toBeNull();
+    t.row("gone.ts").click();
+    expect(t.opened).toEqual([]);
+    expect(description(t.row("new.ts"))).toBe("renamed, from old/name.ts");
+    expect(t.row("new.ts").title).toBe("new.ts (renamed, from old/name.ts)");
+  });
+
   it("keeps a selection when its row goes away: parent on collapse, neighbour on delete", async () => {
     const core = new FakeCore(dirsFromPaths(["src/a.ts", "src/b.ts", "src/c.ts"]));
     const t = mountTree(core);

@@ -11,6 +11,8 @@ export type Row = {
   depth: number;
   kind: EntryKind;
   git: GitStatus | null;
+  /** For `git: "renamed"`, the old project-relative path, when the core knows it. */
+  renamedFrom: string | null;
   ignored: boolean;
   /** Only meaningful for directories. */
   expanded: boolean;
@@ -281,6 +283,7 @@ export class TreeModel {
           depth,
           kind: entry.kind,
           git: entry.git,
+          renamedFrom: entry.renamed_from ?? null,
           ignored,
           expanded,
           loading: expanded && this.loading.has(path),

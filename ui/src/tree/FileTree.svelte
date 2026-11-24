@@ -152,6 +152,7 @@ function rowId(index: number): string {
 function describe(row: Row): string {
   const parts = [];
   if (row.git) parts.push(row.kind === "dir" ? `contains ${row.git} files` : row.git);
+  if (row.renamedFrom) parts.push(`from ${row.renamedFrom}`);
   if (row.ignored) parts.push("ignored");
   if (row.loading) parts.push("loading");
   return parts.join(", ");
@@ -161,7 +162,8 @@ function activate(row: Row): void {
   selected = row.path;
   viewport?.focus(); // a click focuses the row itself; focus belongs on the tree
   if (row.kind === "dir") void model.toggle(row.path);
-  else onopen(row.path);
+  // A deleted file is listed so the change is visible, but there is nothing on disk to open.
+  else if (row.git !== "deleted") onopen(row.path);
 }
 
 function select(index: number, center = false): void {
@@ -435,6 +437,9 @@ function onkeydown(e: KeyboardEvent): void {
   .git-added,
   .git-untracked {
     color: #73c991;
+  }
+  .name.git-deleted {
+    text-decoration: line-through;
   }
   .git-deleted,
   .git-conflicted {
