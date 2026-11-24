@@ -221,7 +221,8 @@ impl FsService for MemoryFs {
         Box::pin(async move {
             let key = (root, path.to_string());
             let current = lock(&self.files).get(&key).map(|(_, mtime)| *mtime);
-            if expected_mtime_ms.is_some_and(|expected| current.is_some_and(|c| c != expected)) {
+            // A file deleted since the client read it is a conflict too.
+            if expected_mtime_ms.is_some_and(|expected| current != Some(expected)) {
                 return Err(ProtocolError::new(
                     ErrorCode::Conflict,
                     format!("{path} changed on disk"),

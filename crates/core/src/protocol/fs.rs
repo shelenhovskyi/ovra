@@ -30,7 +30,7 @@ pub enum FsRequest {
         limit: Option<u32>,
     },
     /// Writes a UTF-8 file. With `expected_mtime_ms`, fails with `conflict`
-    /// if the file changed on disk since then.
+    /// if the file changed on disk since then or no longer exists.
     #[serde(rename = "fs.write_file")]
     WriteFile {
         project: ProjectId,

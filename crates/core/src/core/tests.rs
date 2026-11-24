@@ -372,3 +372,16 @@ async fn list_files_pages_through_the_project() {
         "an oversized limit is capped, not refused"
     );
 }
+
+#[tokio::test]
+async fn fake_write_conflicts_when_the_file_is_gone() {
+    let fs = MemoryFs::default();
+    let write = fs.write_file(
+        "/w".into(),
+        RelPath::parse("a").expect("path"),
+        "x".into(),
+        Some(1),
+    );
+    let err = write.await.expect_err("conflict");
+    assert_eq!(err.code, ErrorCode::Conflict);
+}
