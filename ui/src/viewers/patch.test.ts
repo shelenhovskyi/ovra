@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fileName, fileStats, parsePatch, patchRows } from "./patch";
+import { changeStarts, fileName, fileStats, parsePatch, patchRows } from "./patch";
 
 describe("parsePatch", () => {
   it("numbers lines on both sides of a git diff", () => {
@@ -85,6 +85,11 @@ describe("patch rows", () => {
       { added: 0, removed: 1 },
     ]);
     expect(files.map(fileName)).toEqual(["a.txt", "gone.txt"]);
+  });
+
+  it("finds where each run of changed lines starts", () => {
+    expect(changeStarts(patchRows(files, new Set()))).toEqual([2, 7]);
+    expect(changeStarts(patchRows(files, new Set([0])))).toEqual([3]);
   });
 
   it("flattens files and hunks, keeping only the header of collapsed files", () => {

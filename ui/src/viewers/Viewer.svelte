@@ -82,13 +82,15 @@ async function openExternal() {
     if (event.relatedTarget instanceof Node && !root?.contains(event.relatedTarget)) hadFocus = false;
   }}
 >
-  {#if !workspace.openPath}
+  {#if !workspace.project}
+    <p class="note">Open a project to see its files here.</p>
+  {:else if !workspace.openPath}
     <p class="note">Open a file from the tree on the left.</p>
   {:else}
     <div class="bar">
       <span class="path" title={workspace.openPath}>{workspace.openPath}</span>
-      {#if !loaded || !("view" in loaded) || (loaded.view.kind !== "binary" && loaded.view.kind !== "too_large")}
-        <button type="button" onclick={openExternal}>Open in default app</button>
+      {#if loaded && "view" in loaded && loaded.view.kind !== "binary" && loaded.view.kind !== "too_large"}
+        <button type="button" class="quiet" onclick={openExternal}>Open in default app</button>
       {/if}
     </div>
     <p class="notice" role="status">{notice}</p>
@@ -161,6 +163,18 @@ async function openExternal() {
   }
   .notice:empty {
     display: none;
+  }
+  .quiet {
+    background: none;
+    color: #b4b4c0;
+    border: 1px solid #3a3a44;
+    border-radius: 3px;
+    padding: 1px 8px;
+    font: inherit;
+    cursor: pointer;
+  }
+  .quiet:hover {
+    color: #e6e6e6;
   }
   .content {
     flex: 1;

@@ -5,6 +5,8 @@ const name = $derived(path.slice(path.lastIndexOf("/") + 1));
 
 let size = $state<{ width: number; height: number } | null>(null);
 let failed = $state(false);
+// Tiny images (icons, 1 × 1 pixels) are enlarged by whole steps so they can be seen.
+const scale = $derived(size ? Math.max(1, Math.floor(64 / Math.max(size.width, size.height, 1))) : 1);
 
 function onload(event: Event) {
   const img = event.currentTarget as HTMLImageElement;
@@ -16,9 +18,16 @@ function onload(event: Event) {
   {#if failed}
     <p class="note">This image cannot be shown.</p>
   {:else}
-    <img {src} alt={name} {onload} onerror={() => (failed = true)} />
+    <img
+      {src}
+      alt={name}
+      {onload}
+      onerror={() => (failed = true)}
+      class:pixelated={scale > 1}
+      style:width={size && scale > 1 ? `${size.width * scale}px` : null}
+    />
   {/if}
-  {#if size}<figcaption>{name}, {size.width} × {size.height} pixels</figcaption>{/if}
+  {#if size}<figcaption>{name}, {size.width} × {size.height} pixels{scale > 1 ? `, shown ${scale}× larger` : ""}</figcaption>{/if}
 </figure>
 
 <style>
@@ -39,6 +48,9 @@ function onload(event: Event) {
     max-width: 100%;
     max-height: calc(100% - 24px);
     object-fit: contain;
+  }
+  .pixelated {
+    image-rendering: pixelated;
   }
   figcaption,
   .note {

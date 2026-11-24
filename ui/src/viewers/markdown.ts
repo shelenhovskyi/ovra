@@ -20,6 +20,11 @@ export function renderMarkdown(text: string): string {
     seen.set(base, count + 1);
     heading.id = count ? `${base}-${count}` : base;
   }
+  // Task-list checkboxes are named after their item, so they are not read as just "checkbox".
+  for (const box of doc.querySelectorAll('li > input[type="checkbox"]')) {
+    const item = box.parentElement?.textContent?.trim();
+    if (item) box.setAttribute("aria-label", item);
+  }
   for (const img of doc.querySelectorAll("img[src]")) {
     img.setAttribute("data-src", img.getAttribute("src") ?? "");
     img.removeAttribute("src");

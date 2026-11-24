@@ -15,7 +15,7 @@ test("UI connects to the headless core", async ({ page }) => {
 test("the shell shows its panels", async ({ page }) => {
   await page.goto(daemonUrl().href);
   await expect(page.getByTestId("sidebar")).toContainText("File tree");
-  await expect(page.getByTestId("main")).toContainText("Open a file from the tree");
+  await expect(page.getByTestId("main")).toContainText("Open a project to see its files here.");
 });
 
 test("a wrong token is refused", async ({ page }) => {

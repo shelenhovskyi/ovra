@@ -110,3 +110,15 @@ export function patchRows(files: PatchFile[], collapsed: ReadonlySet<number>): P
   });
   return rows;
 }
+
+/** Indices of rows that start a run of added or removed lines. */
+export function changeStarts(rows: readonly PatchRow[]): number[] {
+  const starts: number[] = [];
+  let inChange = false;
+  rows.forEach((row, index) => {
+    const changed = row.kind === "added" || row.kind === "removed";
+    if (changed && !inChange) starts.push(index);
+    inChange = changed;
+  });
+  return starts;
+}
