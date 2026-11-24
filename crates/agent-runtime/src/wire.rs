@@ -187,7 +187,14 @@ fn turn_end(v: &Value) -> Incoming {
             .and_then(Value::as_str)
             .is_some_and(|s| s != "success");
     let error = failed.then(|| {
+        let interrupted = v
+            .get("terminal_reason")
+            .and_then(Value::as_str)
+            .is_some_and(|r| r.starts_with("aborted"));
         let reason = match v.get("subtype").and_then(Value::as_str) {
+            // An interrupt ends the turn with `error_during_execution` and a
+            // terminal reason such as `aborted_tools` or `aborted_streaming`.
+            _ if interrupted => Some("Interrupted."),
             Some("error_max_budget_usd") => Some("The turn stopped: it reached its budget."),
             Some("error_max_turns") => Some("The turn stopped: it reached its turn limit."),
             _ => None,

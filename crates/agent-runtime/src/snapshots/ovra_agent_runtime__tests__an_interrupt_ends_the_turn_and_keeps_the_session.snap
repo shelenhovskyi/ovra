@@ -25,7 +25,7 @@ expression: transcript
   },
   {
     "kind": "error",
-    "message": "The turn failed."
+    "message": "Interrupted."
   },
   {
     "kind": "turn_end",
