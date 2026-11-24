@@ -23,6 +23,7 @@ export const review = (id: string, extra: Partial<ReviewItem> = {}): ReviewItem 
   state: "open",
   summary: null,
   files: [change("README.md")],
+  can_undo: false,
   ...extra,
 });
 
@@ -33,6 +34,8 @@ export class FakeReviewCore implements Transport {
   items: ReviewItem[] = [];
   /** What approve and reject report as left for the person. */
   conflicts: string[] = [];
+  /** What reject reports as restored and undo as put back. */
+  restored: string[] = [];
   /** Makes the next call of this method fail with this error. */
   failNext = new Map<Request["method"], CoreError>();
   private listeners = new Set<(event: CoreEvent) => void>();
@@ -74,10 +77,18 @@ export class FakeReviewCore implements Transport {
         this.find(request.params.id);
         return { type: "review.diff", data: { path: request.params.path, patch: patchFor(request.params.path) } };
       case "review.approve":
-      case "review.reject": {
+      case "review.reject":
+      case "review.undo_reject": {
         const item = this.find(request.params.id);
-        item.state = request.method === "review.approve" ? "approved" : "rejected";
-        return { type: "review.done", data: { item: { ...item }, conflicts: [...this.conflicts] } };
+        const state = {
+          "review.approve": "approved",
+          "review.reject": "rejected",
+          "review.undo_reject": "open",
+        } as const;
+        item.state = state[request.method];
+        item.can_undo = request.method === "review.reject";
+        const restored = request.method === "review.approve" ? [] : [...this.restored];
+        return { type: "review.done", data: { item: { ...item }, conflicts: [...this.conflicts], restored } };
       }
       case "review.comment":
         this.find(request.params.id);

@@ -34,7 +34,7 @@ describe("ReviewInbox", () => {
     core.conflicts = ["notes.md"];
     expect(await inbox.reject("r1")).toBe(true);
     expect(inbox.items[0]?.state).toBe("rejected");
-    expect(inbox.outcome).toEqual({ id: "r1", state: "rejected", conflicts: ["notes.md"] });
+    expect(inbox.outcome).toEqual({ id: "r1", action: "rejected", conflicts: ["notes.md"], restored: [] });
     expect(await inbox.approve("r2", "Fix the typo")).toBe(true);
     expect(core.sent("review.approve")[0]?.params).toEqual({ id: "r2", commit: "Fix the typo" });
   });

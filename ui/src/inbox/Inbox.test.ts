@@ -108,6 +108,7 @@ describe("Inbox", () => {
   it("rejects after a confirmation that says what stays, and lists what was left", async () => {
     const core = await setup([review("r1", { files: [change("README.md", { by: "both" })] })]);
     core.conflicts = ["README.md"];
+    core.restored = ["src/a.rs"];
     await open();
     button(/^Reject…$/)?.click();
     await settle();
@@ -117,7 +118,27 @@ describe("Inbox", () => {
     (document.activeElement as HTMLElement).click();
     await settle();
     expect(core.sent("review.reject")).toHaveLength(1);
-    expect($("[data-testid=inbox-outcome]")?.textContent?.trim()).toBe("Rejected. Left for you: README.md.");
+    expect($("[data-testid=inbox-outcome]")?.textContent?.trim()).toBe(
+      "Rejected. Restored: src/a.rs. Left for you: README.md.",
+    );
+  });
+
+  it("says when a reject restored nothing, and undoes a reject", async () => {
+    const core = await setup([review("r1", { files: [change("README.md", { by: "outside" })] })]);
+    await open();
+    button(/^Reject…$/)?.click();
+    await settle();
+    (document.activeElement as HTMLElement).click();
+    await settle();
+    expect($("[data-testid=inbox-outcome]")?.textContent?.trim()).toBe(
+      "Rejected, but nothing was restored: no file here is known to be the agent's alone, so all of them stay as they are.",
+    );
+    core.restored = ["src/a.rs"];
+    button(/^Undo reject$/)?.click();
+    await settle();
+    expect(core.sent("review.undo_reject").map((c) => c.params)).toEqual([{ id: "r1" }]);
+    expect($("[data-testid=inbox-outcome]")?.textContent?.trim()).toBe("Reject undone. Put back: src/a.rs.");
+    expect(button(/^Undo reject$/)).toBeUndefined();
   });
 
   it("sends a comment with Mod+Enter and keeps the item open", async () => {

@@ -5,8 +5,14 @@
 import type { CoreEvent, ProjectId, ReviewId, ReviewItem } from "../lib/protocol";
 import { CoreError, type Transport } from "../lib/transport";
 
-/** What the last approve or reject left for the person. */
-export type Outcome = { id: ReviewId; state: ReviewItem["state"]; conflicts: string[] };
+/** What the last approve, reject or undo did, and what it left for the person. */
+export type Outcome = {
+  id: ReviewId;
+  action: "approved" | "rejected" | "undone";
+  conflicts: string[];
+  /** Files a reject restored, or an undo put back. */
+  restored: string[];
+};
 
 export class ReviewInbox {
   /** Items of `project`, newest first, as the core lists them. */
@@ -84,7 +90,7 @@ export class ReviewInbox {
   approve(id: ReviewId, commit: string | null): Promise<boolean> {
     return this.act(id, async () => {
       const { data } = await this.transport.call({ method: "review.approve", params: { id, commit } });
-      this.settle(data.item, data.conflicts);
+      this.settle("approved", data);
     });
   }
 
@@ -92,7 +98,15 @@ export class ReviewInbox {
   reject(id: ReviewId): Promise<boolean> {
     return this.act(id, async () => {
       const { data } = await this.transport.call({ method: "review.reject", params: { id } });
-      this.settle(data.item, data.conflicts);
+      this.settle("rejected", data);
+    });
+  }
+
+  /** Puts back what the last reject of a direct session reverted; files changed since stay and come back as conflicts. */
+  undoReject(id: ReviewId): Promise<boolean> {
+    return this.act(id, async () => {
+      const { data } = await this.transport.call({ method: "review.undo_reject", params: { id } });
+      this.settle("undone", data);
     });
   }
 
@@ -118,9 +132,12 @@ export class ReviewInbox {
     }
   }
 
-  private settle(item: ReviewItem, conflicts: string[]): void {
+  private settle(
+    action: Outcome["action"],
+    { item, conflicts, restored }: { item: ReviewItem; conflicts: string[]; restored: string[] },
+  ): void {
     this.items = this.items.map((i) => (i.id === item.id ? item : i));
-    this.outcome = { id: item.id, state: item.state, conflicts };
+    this.outcome = { id: item.id, action, conflicts, restored };
   }
 
   private apply(event: CoreEvent): void {

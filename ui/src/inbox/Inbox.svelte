@@ -21,7 +21,7 @@ import {
   rejectHint,
   STATE_LABEL,
 } from "./describe";
-import { ReviewInbox } from "./reviews.svelte";
+import { type Outcome, ReviewInbox } from "./reviews.svelte";
 
 const KEYS = "Mod+Shift+R";
 const { transport, workspace } = useOvra();
@@ -193,14 +193,18 @@ function onDialogKeydown(event: KeyboardEvent): void {
 async function approve(review: ReviewItem): Promise<void> {
   const message = commit ? commitMessage.trim() : null;
   if (commit && !message) return;
-  if (await inbox.approve(review.id, message)) announcement = outcomeText("approved", inbox.outcome?.conflicts ?? []);
+  if ((await inbox.approve(review.id, message)) && inbox.outcome) announcement = outcomeText(inbox.outcome);
 }
 
 async function reject(review: ReviewItem): Promise<void> {
   if (await inbox.reject(review.id)) {
     confirmingReject = false;
-    announcement = outcomeText("rejected", inbox.outcome?.conflicts ?? []);
+    if (inbox.outcome) announcement = outcomeText(inbox.outcome);
   }
+}
+
+async function undoReject(review: ReviewItem): Promise<void> {
+  if ((await inbox.undoReject(review.id)) && inbox.outcome) announcement = outcomeText(inbox.outcome);
 }
 
 async function sendComment(review: ReviewItem): Promise<void> {
@@ -212,9 +216,19 @@ async function sendComment(review: ReviewItem): Promise<void> {
   }
 }
 
-function outcomeText(state: "approved" | "rejected", conflicts: string[]): string {
-  const done = state === "approved" ? "Approved." : "Rejected.";
-  return conflicts.length === 0 ? done : `${done} Left for you: ${conflicts.join(", ")}.`;
+/** Says what actually happened: a reject that restored nothing says so and why. */
+function outcomeText(outcome: Outcome): string {
+  const left = outcome.conflicts.length === 0 ? "" : ` Left for you: ${outcome.conflicts.join(", ")}.`;
+  if (outcome.action === "approved") return `Approved.${left}`;
+  if (outcome.action === "undone") {
+    const back =
+      outcome.restored.length === 0 ? " Nothing needed putting back." : ` Put back: ${outcome.restored.join(", ")}.`;
+    return `Reject undone.${back}${left}`;
+  }
+  if (outcome.restored.length === 0) {
+    return `Rejected, but nothing was restored: no file here is known to be the agent's alone, so all of them stay as they are.${left}`;
+  }
+  return `Rejected. Restored: ${outcome.restored.join(", ")}.${left}`;
 }
 
 function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
@@ -307,7 +321,7 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                 {/if}
                 {#if outcome}
                   <p class="outcome" data-testid="inbox-outcome">
-                    {outcomeText(outcome.state === "approved" ? "approved" : "rejected", outcome.conflicts)}
+                    {outcomeText(outcome)}
                   </p>
                 {/if}
               </div>
@@ -363,6 +377,22 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                       </div>
                     </div>
                   {/if}
+                </div>
+              {/if}
+
+              {#if item.state === "rejected" && item.can_undo}
+                <div class="actions" role="group" aria-label="Undo the reject">
+                  <p class="hint">Puts back the files the reject restored. Files changed since stay as they are.</p>
+                  <div class="buttons">
+                    <button
+                      type="button"
+                      data-testid="inbox-undo-reject"
+                      aria-disabled={busy}
+                      onclick={() => {
+                        if (!busy) void undoReject(item);
+                      }}>Undo reject</button
+                    >
+                  </div>
                 </div>
               {/if}
 
