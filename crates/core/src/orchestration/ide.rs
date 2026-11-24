@@ -81,15 +81,23 @@ impl Core {
         })
     }
 
-    /// `send_message`: the worker's next message; an ended worker resumes.
-    pub async fn send_message(
-        &self,
-        caller: &ToolCaller,
-        agent: &SessionId,
-        text: &str,
-    ) -> Result<()> {
+    /// `send_message`: the running worker's next message. An ended worker
+    /// stays ended: resuming one, perhaps one the person stopped, is the
+    /// person's choice, not the coordinator's.
+    pub fn send_message(&self, caller: &ToolCaller, agent: &SessionId, text: &str) -> Result<()> {
         let worker = self.worker_of(caller, agent)?;
-        review::continue_session(self, &worker.session, text.to_owned()).await
+        agents::send(&self.agents_ctx(), worker.session, text.to_owned()).map_err(|err| {
+            if err.code != ErrorCode::Conflict {
+                return err;
+            }
+            ProtocolError::new(
+                ErrorCode::Conflict,
+                format!(
+                    "worker {} has ended ({}); only the person can resume it. Start a new worker if the task needs one.",
+                    worker.name, err.message
+                ),
+            )
+        })
     }
 
     /// `stop_agent`: stops a worker; its worktree and review stay.
@@ -113,7 +121,17 @@ impl Core {
                     "a worker may ask for a review of its own work only",
                 ));
             }
-            (ToolRole::Coordinator, Some(agent)) => self.worker_of(caller, agent)?.session,
+            (ToolRole::Coordinator, Some(agent)) => {
+                let session = self.worker_of(caller, agent)?.session;
+                if review::of_session(self, &session).is_some_and(|e| e.requested) {
+                    // The worker's own summary is what the person reads.
+                    return Err(ProtocolError::new(
+                        ErrorCode::Conflict,
+                        "this worker already asked for review with its own summary",
+                    ));
+                }
+                session
+            }
             (ToolRole::Coordinator, None) => {
                 return Err(ProtocolError::new(
                     ErrorCode::BadRequest,

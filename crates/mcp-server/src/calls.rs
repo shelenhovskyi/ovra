@@ -118,9 +118,7 @@ pub(crate) async fn call(
         "send_message" => {
             let Send { agent_id, text } = parse(arguments)?;
             let agent = SessionId(agent_id);
-            core.send_message(caller, &agent, &text)
-                .await
-                .map_err(failed)?;
+            core.send_message(caller, &agent, &text).map_err(failed)?;
             Ok(format!("Sent to {}.", agent.0))
         }
         "request_review" => {

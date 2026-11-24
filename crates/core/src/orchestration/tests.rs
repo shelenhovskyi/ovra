@@ -378,11 +378,13 @@ async fn ovra_tools_are_decided_by_role_without_asking() {
 #[tokio::test]
 async fn approving_a_worker_applies_its_files_to_the_main_checkout() {
     let f = fx(say()).await;
+    let mut rx = f.core.subscribe();
     start_task(&f.core, 3).await;
     let boss = caller("s1", ToolRole::Coordinator);
     let worker = f.core.spawn_agent(&boss, "w", "x").await;
     let worker = worker.unwrap_or_else(|e| panic!("{e}"));
     assert!(reviews(&f.core).await.is_empty(), "no changes yet");
+    until(&mut rx, "s2", AgentStatus::Idle).await;
 
     f.wt.put(&worker.worktree, "a.rs", "one\ntwo\n");
     f.wt.put(&worker.worktree, "b.rs", "new\n");
@@ -576,12 +578,7 @@ async fn ide_calls_reach_only_the_callers_own_workers() {
     assert_eq!(first.next, 2);
     let rest = f.core.read_output(&boss, &worker.session, first.next, 50);
     assert_eq!(rest.map(|o| o.next).ok(), Some(3), "prompt, text, turn end");
-    assert!(
-        f.core
-            .send_message(&boss, &worker.session, "next")
-            .await
-            .is_ok()
-    );
+    assert!(f.core.send_message(&boss, &worker.session, "next").is_ok());
 
     // A second task's coordinator cannot reach the first task's worker.
     start_task(&f.core, 3).await;
@@ -775,10 +772,12 @@ async fn after_a_restart_a_direct_review_lists_its_files_and_can_be_kept() {
 #[tokio::test]
 async fn work_after_a_decision_opens_a_new_item_and_the_old_one_keeps_its_record() {
     let f = fx(say()).await;
+    let mut rx = f.core.subscribe();
     start_task(&f.core, 3).await;
     let boss = caller("s1", ToolRole::Coordinator);
     let worker = f.core.spawn_agent(&boss, "w", "x").await;
     let worker = worker.unwrap_or_else(|e| panic!("{e}"));
+    until(&mut rx, "s2", AgentStatus::Idle).await;
     f.wt.put(&worker.worktree, "a.rs", "two\n");
     ok(
         &f.core,
@@ -938,8 +937,20 @@ async fn the_coordinator_hears_when_a_worker_asks_for_review_or_stops() {
     let me = caller("s2", ToolRole::Worker);
     let asked = f.core.request_review(&me, None, "done").await;
     assert!(asked.is_ok(), "{asked:?}");
+    let overwrite = f.core.request_review(&boss, Some(&worker.session), "mine");
+    assert_eq!(
+        code(overwrite.await),
+        ErrorCode::Conflict,
+        "its summary stays"
+    );
     assert!(f.core.stop_agent(&boss, &worker.session).is_ok());
     until(&mut rx, "s2", AgentStatus::Stopped).await;
+    let resumed = f.core.send_message(&boss, &worker.session, "go on");
+    assert_eq!(
+        code(resumed),
+        ErrorCode::Conflict,
+        "a stopped worker stays stopped"
+    );
 
     let notes: Vec<String> = transcript(&f.core, "s1")
         .await
@@ -1019,4 +1030,29 @@ async fn a_worker_loads_project_settings_only_if_its_copy_is_the_trusted_one() {
     assert!(trusted[0].1, "the coordinator in the main checkout");
     assert_eq!(trusted[1], (PathBuf::from(&same.worktree), true));
     assert!(!trusted[2].1, "the worker whose copy differs");
+}
+
+#[tokio::test]
+async fn work_is_approved_only_once_its_agent_stopped_changing_it() {
+    let bash = Step::Use {
+        tool: "Bash",
+        input: json!({"command": "ls"}),
+    };
+    let f = fx(vec![vec![bash]]).await;
+    let mut rx = f.core.subscribe();
+    start_task(&f.core, 3).await;
+    let boss = caller("s1", ToolRole::Coordinator);
+    let worker = f.core.spawn_agent(&boss, "w", "x").await;
+    let worker = worker.unwrap_or_else(|e| panic!("{e}"));
+    until(&mut rx, "s2", AgentStatus::WaitingForApproval).await;
+    f.wt.put(&worker.worktree, "b.rs", "new\n");
+    let me = caller("s2", ToolRole::Worker);
+    let item = f.core.request_review(&me, None, "done").await;
+    let id = item.unwrap_or_else(|e| panic!("{e}")).id;
+    let approve = json!({"method": "review.approve", "params": {"id": id, "commit": null}});
+    let err = call(&f.core, approve.clone()).await.err();
+    assert_eq!(err.map(|e| e.code), Some(ErrorCode::Conflict));
+    assert!(f.core.stop_agent(&boss, &worker.session).is_ok());
+    until(&mut rx, "s2", AgentStatus::Stopped).await;
+    ok(&f.core, approve).await;
 }

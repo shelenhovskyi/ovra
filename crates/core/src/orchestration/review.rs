@@ -7,7 +7,7 @@ use super::{Result, Workspace, conflict, not_found};
 use crate::Core;
 use crate::agents;
 use crate::path::RelPath;
-use crate::protocol::agents::{AgentsRequest, SessionId, SessionMode};
+use crate::protocol::agents::{AgentStatus, AgentsRequest, SessionId, SessionMode};
 use crate::protocol::projects::ProjectId;
 use crate::protocol::review::{
     ChangedBy, FileChange, ReviewEvent, ReviewId, ReviewItem, ReviewRequest, ReviewResponse,
@@ -317,6 +317,20 @@ async fn approve(
 ) -> Result<(ReviewItem, Vec<String>)> {
     let entry = find(core, id)?;
     check_open(&entry)?;
+    // What gets applied is the worktree as it is now, so it must be the
+    // work the person looked at: a session still at work could change it
+    // between their reading and this click.
+    let busy = core
+        .sessions()
+        .find(&entry.session, |s| {
+            !s.status().is_ended() && *s.status() != AgentStatus::Idle
+        })
+        .unwrap_or(false);
+    if busy {
+        return Err(conflict(
+            "the agent is still working on these changes; approve once it is idle or stopped",
+        ));
+    }
     if commit.as_deref().is_some_and(|m| m.trim().is_empty()) {
         return Err(ProtocolError::new(
             ErrorCode::BadRequest,
