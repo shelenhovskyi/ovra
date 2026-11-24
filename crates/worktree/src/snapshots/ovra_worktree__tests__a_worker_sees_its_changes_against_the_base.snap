@@ -1,0 +1,9 @@
+---
+source: crates/worktree/src/tests.rs
+expression: "summary.join(\"\\n\")"
+---
+Modified a.rs +2 -1
+Deleted b.rs +0 -1
+Modified bin.dat +0 -0
+Added c.rs +1 -0
+Renamed dir/new é.txt from dir/old name.txt +0 -0
