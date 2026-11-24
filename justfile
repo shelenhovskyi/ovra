@@ -37,6 +37,7 @@ e2e: build-headless
 perf:
     pnpm --filter @ovra/ui build
     cargo build --release -p ovra-daemon
+    cargo build --release -p ovra-worktree --example bench
     pnpm --filter @ovra/perf test
 
 # Live agent suite: the real, signed-in `claude` through headless mode

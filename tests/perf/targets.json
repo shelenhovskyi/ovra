@@ -25,6 +25,11 @@
     "tree.expand_flat_ms": { "max": 300, "source": "budget", "label": "Expand 5,000-file folder" },
     "tree.dom_rows": { "max": 100, "source": "budget", "label": "Rows in the DOM, 5k-row list" },
     "tree.scroll_jump_ms": { "max": 100, "source": "budget", "label": "Jump to the end of 5k rows" },
-    "tree.scroll_frame_p95_ms": { "max": 34, "source": "budget", "label": "Frame time p95 while scrolling" }
+    "tree.scroll_frame_p95_ms": { "max": 34, "source": "budget", "label": "Frame time p95 while scrolling" },
+    "worktree.snapshot_first_ms": { "max": 2500, "source": "budget", "label": "First snapshot, 10k untracked files" },
+    "worktree.snapshot_ms": { "max": 300, "source": "budget", "label": "Next snapshot, 600 files changed" },
+    "worktree.changes_ms": { "max": 300, "source": "budget", "label": "Changed files against a snapshot" },
+    "worktree.patch_600_ms": { "max": 500, "source": "budget", "label": "One diff of 600 files" },
+    "worktree.restore_600_ms": { "max": 800, "source": "budget", "label": "Restore 600 files" }
   }
 }
