@@ -9,7 +9,9 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@tauri-apps/api": "2.12.5"
+    "@tauri-apps/api": "2.12.5",
+    "micromark": "4.0.3",
+    "micromark-extension-gfm": "3.0.0"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "7.3.2",
