@@ -35,7 +35,7 @@ use crate::protocol::terminals::{TermSize, TerminalId, TerminalsEvent};
 use crate::protocol::{ErrorCode, ProtocolError};
 use crate::services::{
     AgentHost, AgentRuntime, AgentSpec, BoxFuture, EventSink, FsService, Opener, ProjectStore,
-    Result, RunningAgent, SessionStore, StoredSession, TerminalService,
+    Result, RunningAgent, SessionStore, StoredSession, TerminalService, ToolRole,
 };
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -473,7 +473,11 @@ pub enum Step {
     /// Writes assistant text.
     Say(&'static str),
     /// Asks to use a tool. If allowed, reports a successful result; if
-    /// denied, an error result with the denial message.
+    /// denied, an error result with the denial message. An allowed call of
+    /// one of Ovra's tools (`mcp__ovra__<name>`, input = its arguments) goes
+    /// to the IDE tools and reports their answer; an allowed `Write`
+    /// (`file_path` relative to the session's folder, `content`) goes to
+    /// the [`ScriptedAgent::writes_files`] writer, if any.
     Use {
         tool: &'static str,
         input: serde_json::Value,
@@ -486,13 +490,29 @@ pub enum Step {
 /// message. After the last turn it waits idle. It reports `scripted-<id>` as
 /// its own session id, or keeps the one it resumes. An interrupt skips the rest of
 /// the turn. Needs a Tokio runtime.
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct ScriptedAgent {
     turns: Vec<Vec<Step>>,
+    /// Scripts for sessions with IDE tools of a role, instead of `turns`.
+    roles: Vec<(ToolRole, Vec<Vec<Step>>)>,
+    writer: Option<Arc<Writer>>,
     /// Every spec it was started with.
     pub started: Mutex<Vec<AgentSpec>>,
     /// What `project_config` reports for every project.
     pub config: Mutex<ProjectAgentConfig>,
+}
+
+/// Writes a file for an allowed `Write` step: the absolute path and text.
+type Writer = dyn Fn(&Path, &str) -> std::io::Result<()> + Send + Sync;
+
+impl std::fmt::Debug for ScriptedAgent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ScriptedAgent")
+            .field("turns", &self.turns)
+            .field("roles", &self.roles)
+            .field("writes_files", &self.writer.is_some())
+            .finish_non_exhaustive()
+    }
 }
 
 impl ScriptedAgent {
@@ -501,6 +521,24 @@ impl ScriptedAgent {
             turns,
             ..Self::default()
         }
+    }
+
+    /// Sessions with IDE tools of `role` play `turns` instead.
+    #[must_use]
+    pub fn for_role(mut self, role: ToolRole, turns: Vec<Vec<Step>>) -> Self {
+        self.roles.push((role, turns));
+        self
+    }
+
+    /// Allowed `Write` steps call `writer`; the core itself never touches
+    /// files, so a front end that wants real changes passes one.
+    #[must_use]
+    pub fn writes_files(
+        mut self,
+        writer: impl Fn(&Path, &str) -> std::io::Result<()> + Send + Sync + 'static,
+    ) -> Self {
+        self.writer = Some(Arc::new(writer));
+        self
     }
 }
 
@@ -511,9 +549,18 @@ impl AgentRuntime for ScriptedAgent {
             .clone()
             .unwrap_or_else(|| format!("scripted-{}", spec.session.0));
         host.agent_session(own);
+        let turns = self
+            .roles
+            .iter()
+            .find(|(role, _)| Some(*role) == spec.tools)
+            .map_or_else(|| self.turns.clone(), |(_, turns)| turns.clone());
+        let tools = Tools {
+            role: spec.tools,
+            cwd: spec.cwd.clone(),
+            writer: self.writer.clone(),
+        };
         lock(&self.started).push(spec);
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Option<String>>();
-        let turns = self.turns.clone();
         let interrupted = Arc::new(AtomicBool::new(false));
         let process = ScriptedProcess {
             tx,
@@ -526,7 +573,7 @@ impl AgentRuntime for ScriptedAgent {
                 if let Some(steps) = next.take() {
                     host.status(AgentStatus::Working);
                     interrupted.store(false, Ordering::SeqCst);
-                    if !play(&host, steps, &interrupted).await {
+                    if !play(&host, &tools, steps, &interrupted).await {
                         return;
                     }
                 }
@@ -549,8 +596,43 @@ impl AgentRuntime for ScriptedAgent {
     }
 }
 
+/// What a scripted session's allowed tool calls reach.
+struct Tools {
+    role: Option<ToolRole>,
+    cwd: PathBuf,
+    writer: Option<Arc<Writer>>,
+}
+
+impl Tools {
+    /// The result of an allowed call: output and whether it is an error.
+    async fn run(&self, host: &AgentHost, tool: &str, input: serde_json::Value) -> (String, bool) {
+        if let Some(name) = tool.strip_prefix(crate::orchestration::IDE_TOOL_PREFIX) {
+            let Some(role) = self.role else {
+                return ("this session has no Ovra tools".to_owned(), true);
+            };
+            let call = serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                "params": {"name": name, "arguments": input}});
+            let result = host.call_ide(role, call).await.unwrap_or_default();
+            let result = &result["result"];
+            let text = result["content"][0]["text"].as_str().unwrap_or("no answer");
+            return (text.to_owned(), result["isError"] == true);
+        }
+        if let ("Write", Some(writer)) = (tool, &self.writer) {
+            let path = self
+                .cwd
+                .join(input["file_path"].as_str().unwrap_or_default());
+            let content = input["content"].as_str().unwrap_or_default();
+            return match writer(&path, content) {
+                Ok(()) => ("done".to_owned(), false),
+                Err(e) => (e.to_string(), true),
+            };
+        }
+        ("done".to_owned(), false)
+    }
+}
+
 /// Plays one turn; `false` if the session failed.
-async fn play(host: &AgentHost, steps: Vec<Step>, interrupted: &AtomicBool) -> bool {
+async fn play(host: &AgentHost, tools: &Tools, steps: Vec<Step>, interrupted: &AtomicBool) -> bool {
     for (n, step) in steps.into_iter().enumerate() {
         if interrupted.load(Ordering::SeqCst) {
             break;
@@ -568,9 +650,9 @@ async fn play(host: &AgentHost, steps: Vec<Step>, interrupted: &AtomicBool) -> b
                     input: input.clone(),
                     parent: None,
                 });
-                let answer = host.ask(tool.to_owned(), input, None, None).await;
+                let answer = host.ask(tool.to_owned(), input.clone(), None, None).await;
                 let (output, is_error) = match answer.decision {
-                    Decision::Allow => ("done".to_owned(), false),
+                    Decision::Allow => tools.run(host, tool, input).await,
                     Decision::Deny => (answer.message.unwrap_or_default(), true),
                 };
                 host.message(AgentMessage::ToolResult {

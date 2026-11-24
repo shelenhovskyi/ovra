@@ -268,3 +268,83 @@ async fn bad_arguments_and_refusals_are_tool_errors() {
     .await;
     assert!(error && text.contains("own work"), "{text}");
 }
+
+#[tokio::test]
+async fn a_scripted_coordinator_splits_a_task_among_workers_that_ask_for_review() {
+    let spawn = |name: &'static str| Step::Use {
+        tool: "mcp__ovra__spawn_agent",
+        input: json!({"name": name, "task": format!("write the {name} notes")}),
+    };
+    let worker = vec![vec![
+        Step::Use {
+            tool: "Write",
+            input: json!({"file_path": "NOTES.md", "content": "notes\n"}),
+        },
+        Step::Use {
+            tool: "mcp__ovra__request_review",
+            input: json!({"summary": "wrote the notes"}),
+        },
+    ]];
+    let worktrees = Arc::new(MemoryWorktrees::default());
+    worktrees.put(ROOT, "a.rs", "one\n");
+    let written = worktrees.clone();
+    let agent = ScriptedAgent::new(Vec::new())
+        .for_role(
+            ToolRole::Coordinator,
+            vec![vec![spawn("docs"), spawn("tests"), spawn("lint")]],
+        )
+        .for_role(ToolRole::Worker, worker)
+        .writes_files(move |path, text| {
+            let (Some(dir), Some(name)) = (path.parent(), path.file_name()) else {
+                return Err(std::io::Error::other("no file name"));
+            };
+            written.put(dir, &name.to_string_lossy(), text);
+            Ok(())
+        });
+    let core = Core::builder("test")
+        .projects(Arc::new(MemoryProjects::default()))
+        .fs(Arc::new(MemoryFs::default()))
+        .agents(Arc::new(agent))
+        .worktrees(worktrees)
+        .worktrees_dir(PathBuf::from(ovra_core::test_path!("/data/worktrees")))
+        .ide_tools(Arc::new(IdeServer::new()))
+        .build();
+    let mut rx = core.subscribe();
+    for request in [
+        json!({"method": "projects.add", "params": {"root": ROOT}}),
+        json!({"method": "orchestration.start", "params": {"project": "p1", "prompt": "split"}}),
+    ] {
+        let request: Request = serde_json::from_value(request).unwrap_or_else(|e| panic!("{e}"));
+        core.handle(request).await.unwrap_or_else(|e| panic!("{e}"));
+    }
+    let list: Request =
+        serde_json::from_value(json!({"method": "review.list", "params": {"project": "p1"}}))
+            .unwrap_or_else(|e| panic!("{e}"));
+    let reviews = loop {
+        let reviews = core
+            .handle(list.clone())
+            .await
+            .unwrap_or_else(|e| panic!("{e}"));
+        let reviews = serde_json::to_value(reviews).unwrap_or_default();
+        let summaries = reviews["data"].as_array().map_or(0, |items| {
+            items
+                .iter()
+                .filter(|r| r["summary"] == "wrote the notes")
+                .count()
+        });
+        if summaries == 3 {
+            break reviews;
+        }
+        // The person allows every write.
+        let event = serde_json::to_value(Core::next_event(&mut rx).await).unwrap_or_default();
+        if event["type"] == "permissions.requested" {
+            let answer = json!({"method": "permissions.answer", "params": {
+                "id": event["data"]["id"], "decision": "allow"}});
+            let answer: Request = serde_json::from_value(answer).unwrap_or_else(|e| panic!("{e}"));
+            core.handle(answer).await.unwrap_or_else(|e| panic!("{e}"));
+        }
+    };
+    for item in reviews["data"].as_array().into_iter().flatten() {
+        assert_eq!(item["files"][0]["path"], "NOTES.md", "{item}");
+    }
+}
