@@ -14,6 +14,7 @@ fakes = ["tokio/rt"]
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
+sha2 = "0.10"
 tokio = { workspace = true, features = ["sync"] }
 
 [dev-dependencies]

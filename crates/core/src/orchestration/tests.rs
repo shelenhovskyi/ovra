@@ -125,6 +125,16 @@ async fn reviews(core: &Core) -> Vec<ReviewItem> {
     }
 }
 
+/// A `review.approve` of item `id` with the fingerprint the list shows now.
+async fn approval(core: &Core, id: &str, commit: serde_json::Value) -> serde_json::Value {
+    let items = reviews(core).await;
+    let fingerprint = items
+        .iter()
+        .find(|i| i.id.0 == id)
+        .and_then(|i| i.fingerprint.clone());
+    json!({"method": "review.approve", "params": {"id": id, "commit": commit, "fingerprint": fingerprint}})
+}
+
 async fn transcript(core: &Core, session: &str) -> Vec<AgentMessage> {
     core.sessions()
         .find(&sid(session), |s| s.transcript())
@@ -411,11 +421,7 @@ async fn approving_a_worker_applies_its_files_to_the_main_checkout() {
     };
     assert!(patch.contains("+two"));
 
-    let done = ok(
-        &f.core,
-        json!({"method": "review.approve", "params": {"id": "r1", "commit": "Fix a"}}),
-    )
-    .await;
+    let done = ok(&f.core, approval(&f.core, "r1", json!("Fix a")).await).await;
     let Response::Review(ReviewResponse::Done {
         item, conflicts, ..
     }) = done
@@ -453,11 +459,7 @@ async fn approving_a_worker_applies_its_files_to_the_main_checkout() {
     assert_eq!(pruned.len(), 1);
     assert_eq!(pruned[0].0, PathBuf::from(ROOT));
     assert_eq!(pruned[0].1.len(), 1);
-    let twice = call(
-        &f.core,
-        json!({"method": "review.approve", "params": {"id": "r1", "commit": null}}),
-    )
-    .await;
+    let twice = call(&f.core, approval(&f.core, "r1", json!(null)).await).await;
     assert_eq!(code(twice), ErrorCode::Conflict);
     // The worker's version of what was not copied stays readable.
     let diff = ok(
@@ -748,11 +750,7 @@ async fn tasks_and_open_reviews_survive_a_restart() {
     let resumed = resumed.unwrap_or_else(|e| panic!("{e}"));
     assert_eq!(resumed.cwd, PathBuf::from(&worker.worktree));
     assert_eq!(resumed.tools, Some(ToolRole::Worker));
-    ok(
-        &after,
-        json!({"method": "review.approve", "params": {"id": "r1", "commit": null}}),
-    )
-    .await;
+    ok(&after, approval(&after, "r1", json!(null)).await).await;
     assert_eq!(
         wt.files(ROOT).get("a.rs").map(String::as_str),
         Some("two\n")
@@ -812,11 +810,7 @@ async fn after_a_restart_a_direct_review_lists_its_files_and_can_be_kept() {
         ErrorCode::Conflict,
         "nothing is known to be the agent's"
     );
-    let done = ok(
-        &after,
-        json!({"method": "review.approve", "params": {"id": "r1", "commit": null}}),
-    )
-    .await;
+    let done = ok(&after, approval(&after, "r1", json!(null)).await).await;
     let Response::Review(ReviewResponse::Done { item, .. }) = done else {
         panic!("unexpected {done:?}");
     };
@@ -837,11 +831,7 @@ async fn work_after_a_decision_opens_a_new_item_and_the_old_one_keeps_its_record
     let worker = worker.unwrap_or_else(|e| panic!("{e}"));
     until(&mut rx, "s2", AgentStatus::Idle).await;
     f.wt.put(&worker.worktree, "a.rs", "two\n");
-    ok(
-        &f.core,
-        json!({"method": "review.approve", "params": {"id": "r1", "commit": null}}),
-    )
-    .await;
+    ok(&f.core, approval(&f.core, "r1", json!(null)).await).await;
 
     f.wt.put(&worker.worktree, "b.rs", "next\n");
     let items = reviews(&f.core).await;
@@ -887,11 +877,7 @@ async fn snapshots_are_not_pruned_while_a_direct_session_runs() {
         .into_iter()
         .find(|i| i.session == worker.session);
     let id = id.map(|i| i.id.0).unwrap_or_default();
-    ok(
-        &f.core,
-        json!({"method": "review.approve", "params": {"id": id, "commit": null}}),
-    )
-    .await;
+    ok(&f.core, approval(&f.core, &id, json!(null)).await).await;
     assert!(f.wt.pruned.lock().map(|p| p.is_empty()).unwrap_or(false));
 }
 
@@ -1163,7 +1149,7 @@ async fn work_is_approved_only_once_its_agent_stopped_changing_it() {
     let me = caller("s2", ToolRole::Worker);
     let item = f.core.request_review(&me, None, "done").await;
     let id = item.unwrap_or_else(|e| panic!("{e}")).id;
-    let approve = json!({"method": "review.approve", "params": {"id": id, "commit": null}});
+    let approve = approval(&f.core, &id.0, json!(null)).await;
     let err = call(&f.core, approve.clone()).await.err();
     assert_eq!(err.map(|e| e.code), Some(ErrorCode::Conflict));
     assert!(f.core.stop_agent(&boss, &worker.session).is_ok());
@@ -1210,11 +1196,7 @@ async fn an_ended_tasks_settled_worktrees_are_removed_and_the_rest_kept() {
     until(&mut rx, "s3", AgentStatus::Idle).await;
     f.wt.put(&done.worktree, "a.rs", "approved\n");
     f.wt.put(&busy.worktree, "b.rs", "not decided\n");
-    ok(
-        &f.core,
-        json!({"method": "review.approve", "params": {"id": "r1", "commit": null}}),
-    )
-    .await;
+    ok(&f.core, approval(&f.core, "r1", json!(null)).await).await;
     // While the task runs, nothing is removed.
     let list = json!({"method": "orchestration.list", "params": {"project": "p1"}});
     ok(&f.core, list.clone()).await;
@@ -1270,11 +1252,7 @@ async fn a_partly_approved_worker_keeps_its_worktree_until_resolved() {
     for n in 0..60 {
         f.wt.put(&worker.worktree, &format!("many/{n}.rs"), "x\n");
     }
-    ok(
-        &f.core,
-        json!({"method": "review.approve", "params": {"id": "r1", "commit": null}}),
-    )
-    .await;
+    ok(&f.core, approval(&f.core, "r1", json!(null)).await).await;
     // What was not copied keeps its diff whatever the size.
     let diff = ok(
         &f.core,
@@ -1445,11 +1423,7 @@ async fn the_workers_version_can_be_copied_over_mine_and_back() {
     f.wt.put(&worker.worktree, "c.rs", "worker\n");
     f.wt.put(ROOT, "b.rs", "mine\n");
     f.wt.put(ROOT, "c.rs", "mine too\n");
-    ok(
-        &f.core,
-        json!({"method": "review.approve", "params": {"id": "r1", "commit": null}}),
-    )
-    .await;
+    ok(&f.core, approval(&f.core, "r1", json!(null)).await).await;
     // The worker changed c.rs after the approve: that is not what was approved.
     f.wt.put(&worker.worktree, "c.rs", "later\n");
     let done = ok(
@@ -1535,11 +1509,7 @@ async fn an_undone_replace_keeps_what_the_person_wrote_since() {
     until(&mut rx, "s2", AgentStatus::Idle).await;
     f.wt.put(&worker.worktree, "b.rs", "new\n");
     f.wt.put(ROOT, "b.rs", "mine\n");
-    ok(
-        &f.core,
-        json!({"method": "review.approve", "params": {"id": "r1", "commit": null}}),
-    )
-    .await;
+    ok(&f.core, approval(&f.core, "r1", json!(null)).await).await;
     ok(
         &f.core,
         json!({"method": "orchestration.stop", "params": {"task": "t1"}}),
@@ -1604,11 +1574,7 @@ async fn new_work_ends_the_undo_of_a_replace() {
     until(&mut rx, "s2", AgentStatus::Idle).await;
     f.wt.put(&worker.worktree, "b.rs", "new\n");
     f.wt.put(ROOT, "b.rs", "mine\n");
-    ok(
-        &f.core,
-        json!({"method": "review.approve", "params": {"id": "r1", "commit": null}}),
-    )
-    .await;
+    ok(&f.core, approval(&f.core, "r1", json!(null)).await).await;
     ok(
         &f.core,
         json!({"method": "review.take", "params": {"id": "r1"}}),
@@ -1629,4 +1595,38 @@ async fn new_work_ends_the_undo_of_a_replace() {
     )
     .await;
     assert_eq!(code(late), ErrorCode::Conflict);
+}
+
+#[tokio::test]
+async fn approve_lands_only_the_files_the_person_reviewed() {
+    let f = fx(say()).await;
+    let mut rx = f.core.subscribe();
+    start_task(&f.core, 3).await;
+    let boss = caller("s1", ToolRole::Coordinator);
+    let worker = f.core.spawn_agent(&boss, "w", "x").await;
+    let worker = worker.unwrap_or_else(|e| panic!("{e}"));
+    until(&mut rx, "s2", AgentStatus::Idle).await;
+    f.wt.put(&worker.worktree, "a.rs", "reviewed\n");
+    let seen = approval(&f.core, "r1", json!(null)).await;
+    assert!(seen["params"]["fingerprint"].is_string(), "{seen}");
+
+    let blind = json!({"method": "review.approve", "params": {"id": "r1", "commit": null}});
+    assert_eq!(
+        call(&f.core, blind).await.err().map(|e| e.code),
+        Some(ErrorCode::BadRequest)
+    );
+    f.wt.put(&worker.worktree, "a.rs", "swapped after the look\n");
+    let stale = call(&f.core, seen).await.err();
+    assert_eq!(stale.as_ref().map(|e| e.code), Some(ErrorCode::Conflict));
+    assert!(stale.is_some_and(|e| e.message.contains("review them again")));
+    assert_eq!(
+        f.wt.files(ROOT).get("a.rs").map(String::as_str),
+        Some("one\n")
+    );
+
+    ok(&f.core, approval(&f.core, "r1", json!(null)).await).await;
+    assert_eq!(
+        f.wt.files(ROOT).get("a.rs").map(String::as_str),
+        Some("swapped after the look\n")
+    );
 }

@@ -78,6 +78,11 @@ pub struct ReviewItem {
     /// The last `review.take` can be undone (`review.undo_take`).
     #[serde(default)]
     pub can_undo_take: bool,
+    /// An open worker item's files as listed here (paths and contents);
+    /// `review.approve` sends it back and is refused if the worker's files
+    /// changed since. `None` for direct and decided items.
+    #[serde(default)]
+    pub fingerprint: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -95,6 +100,10 @@ pub enum ReviewRequest {
     Approve {
         id: ReviewId,
         commit: Option<String>,
+        /// The `ReviewItem::fingerprint` the person reviewed; a worker's
+        /// item needs it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fingerprint: Option<String>,
     },
     /// Restores the agent's files from the base. Files changed outside the
     /// agent since are left alone and listed as conflicts.
