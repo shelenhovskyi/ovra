@@ -44,7 +44,11 @@ test("start an agent and answer its requests from the keyboard", async ({ page }
   await expect(run.getByRole("button", { name: "Allow" })).toHaveAttribute("aria-disabled", "false");
   await page.keyboard.press("y");
 
+  // The next request is not focused when it arrives: typing must not answer it.
   const edit = approvals.getByRole("group", { name: "Edit README.md" });
+  await expect(edit).toBeVisible();
+  await expect(approvals.getByRole("heading", { name: /Approvals/ })).toBeFocused();
+  await page.keyboard.press("ArrowDown");
   await expect(edit).toBeFocused();
   await arm(page);
   await expect(edit.getByRole("button", { name: "Allow" })).toHaveAttribute("aria-disabled", "false");
@@ -57,8 +61,8 @@ test("start an agent and answer its requests from the keyboard", async ({ page }
   await expect(session.getByRole("status")).toHaveText("Waiting for you");
   await expect(approvals).toContainText("Nothing waits for your approval.");
   const transcript = page.getByTestId("transcript");
-  await expect(transcript).toContainText(/Tool result\s*done/);
-  await expect(transcript).toContainText(/Tool failed\s*Leave the readme alone/);
+  await expect(transcript).toContainText(/Tool output \(1 line\)\s*done/);
+  await expect(transcript).toContainText(/Tool failed \(1 line\)\s*Leave the readme alone/);
   await expect(transcript).toContainText(/Claude\s*Done\./);
 });
 

@@ -2,7 +2,8 @@
 // from the text of the paths only: symlinks are not followed, so "inside"
 // means "inside by name".
 
-export type PathScope = { path: string; inside: boolean };
+/** `relative`: the path from the project folder, when it is inside. */
+export type PathScope = { path: string; inside: boolean; relative?: string };
 
 const PATH_KEYS = ["file_path", "notebook_path", "path"];
 
@@ -27,11 +28,13 @@ export function pathScopes(input: unknown, root: string): PathScope[] {
   if (typeof input !== "object" || input === null) return [];
   const record = input as Record<string, unknown>;
   const base = normalize(root, "/");
-  return PATH_KEYS.flatMap((key) => {
+  return PATH_KEYS.flatMap((key): PathScope[] => {
     const path = record[key];
     if (typeof path !== "string" || path === "") return [];
     const target = normalize(path, root);
-    const inside = target === base || target.startsWith(base.endsWith("/") ? base : `${base}/`);
-    return [{ path, inside }];
+    const prefix = base.endsWith("/") ? base : `${base}/`;
+    const inside = target === base || target.startsWith(prefix);
+    if (!inside) return [{ path, inside }];
+    return [{ path, inside, relative: target === base ? "." : target.slice(prefix.length) }];
   });
 }

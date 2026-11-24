@@ -20,7 +20,7 @@ import { describeTool } from "./describe";
 import { ARM_MS, approvalQueue } from "./queue.svelte";
 import { pathScopes } from "./scope";
 
-const { transport } = useOvra();
+const { transport, workspace } = useOvra();
 const queue = approvalQueue(transport);
 const sessions = agentSessions(transport);
 
@@ -64,7 +64,11 @@ $effect(() => {
 });
 
 $effect(() => {
-  const release = () => (keyHeld = false);
+  const release = () => {
+    // The next card arms ARM_MS after the key that answered comes up.
+    if (keyHeld) quiet();
+    keyHeld = false;
+  };
   window.addEventListener("keyup", release);
   // A key released in another window sends no keyup here; held keys only repeat, which is ignored.
   window.addEventListener("blur", release);
@@ -143,7 +147,8 @@ async function answer(request: PermissionRequest, decision: Decision, message?: 
   if (!focused) return;
   const next = cards();
   const target = next[Math.min(index, next.length - 1)];
-  // With nothing left, stay here: the next request is focused when it arrives.
+  // With nothing left, stay on the heading. A request that arrives later is
+  // never focused on its own: typing must not land on it.
   (target ?? heading)?.focus();
 }
 
@@ -154,13 +159,6 @@ function answerByKey(event: KeyboardEvent, request: PermissionRequest, decision:
   void answer(request, decision, message);
   keyHeld = true;
 }
-
-// Someone waiting on the empty list gets the next request focused. Focus
-// never jumps here from elsewhere.
-$effect(() => {
-  if (queue.pending.length > 0 && heading && document.activeElement === heading)
-    void tick().then(() => cards()[0]?.focus());
-});
 
 async function openDeny(request: PermissionRequest): Promise<void> {
   denying = request.id;
@@ -213,6 +211,12 @@ function onKeydown(event: KeyboardEvent, request: PermissionRequest): void {
   if (handled) event.preventDefault();
 }
 
+/** Whether the agent's title only repeats what the card already shows. */
+function repeats(title: string, request: PermissionRequest, action: string): boolean {
+  const record = typeof request.input === "object" && request.input !== null ? request.input : {};
+  return action.includes(title) || Object.values(record).some((v) => v === title);
+}
+
 function projectOf(request: PermissionRequest): Project | undefined {
   const id = sessions.byId.get(request.session)?.project;
   return id === undefined ? undefined : projects.get(id);
@@ -227,6 +231,10 @@ function projectOf(request: PermissionRequest): Project | undefined {
     bind:this={heading}
     onkeydown={(event) => {
       if (event.code === "Escape") leave();
+      else if (event.code === "ArrowDown") {
+        event.preventDefault();
+        cards()[0]?.focus();
+      }
     }}
   >
     Approvals{#if queue.pending.length > 0}{" "}<span class="count">({queue.pending.length} waiting)</span>{/if}
@@ -262,17 +270,23 @@ function projectOf(request: PermissionRequest): Project | undefined {
             asks to use {request.tool}
           </p>
           <h3 id="{domId}-action">{summary.action}</h3>
+          {#if project && project.id !== workspace.project?.id}
+            <p class="other" data-testid="approval-other-project">Not the project open in this window</p>
+          {/if}
           {#each project ? pathScopes(request.input, project.root) : [] as scope}
             <p class="scope" class:outside={!scope.inside} data-testid="approval-scope">
-              {scope.inside ? "Inside the project folder" : "⚠ Outside the project folder"}: {scope.path}
+              {#if scope.inside}Inside the project folder: {scope.relative}{:else}⚠ Outside the project folder: {scope.path}{/if}
             </p>
           {/each}
+          {#if request.tool === "Bash"}
+            <p class="scope" data-testid="approval-scope">Shell commands are not checked for paths: read the command.</p>
+          {/if}
           {#if request.reason}
             <p class="title" data-testid="approval-reason">
-              Why it asks: {request.reason.text}{#if request.reason.kind}{" "}({request.reason.kind}){/if}
+              Why it asks: {request.reason.text}
             </p>
           {/if}
-          {#if request.title && request.title !== summary.action}
+          {#if request.title && !repeats(request.title, request, summary.action)}
             <p class="title">Agent's note: {request.title}</p>
           {/if}
           <dl>
@@ -371,6 +385,12 @@ function projectOf(request: PermissionRequest): Project | undefined {
     margin: 0 0 6px;
     font-size: 12px;
     overflow-wrap: anywhere;
+  }
+  .other {
+    margin: 0 0 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #ffd36b;
   }
   .scope.outside {
     font-weight: 600;

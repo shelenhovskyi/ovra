@@ -72,7 +72,8 @@ export class ApprovalQueue {
   }
 
   private apply(event: CoreEvent): void {
-    if (event.type === "permissions.requested") {
+    if (event.type === "info.resync") void this.load();
+    else if (event.type === "permissions.requested") {
       if (this.pending.some((r) => r.id === event.data.id)) return;
       this.arrived.set(event.data.id, Date.now());
       this.pending = [...this.pending, event.data];

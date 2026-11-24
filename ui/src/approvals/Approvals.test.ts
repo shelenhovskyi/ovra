@@ -82,7 +82,7 @@ describe("Approvals", () => {
     core.ask({ ...bash("perm2"), reason: { text: "Path is outside allowed working directories", kind: "rule" } });
     await settle();
     expect(cards()[1]?.querySelector("[data-testid=approval-reason]")?.textContent?.trim()).toBe(
-      "Why it asks: Path is outside allowed working directories (rule)",
+      "Why it asks: Path is outside allowed working directories",
     );
     expect(document.activeElement).toBe(elsewhere);
     press("KeyY");
@@ -130,7 +130,7 @@ describe("Approvals", () => {
     ]);
   });
 
-  it("waits in the list for the next request after the last answer", async () => {
+  it("never moves focus to a request that arrives, so typing cannot answer it", async () => {
     const core = await setup();
     core.ask(bash("perm1"));
     await settle();
@@ -142,13 +142,41 @@ describe("Approvals", () => {
     await settle();
     expect(document.activeElement?.id).toBe("approvals-heading");
     core.ask(bash("perm2"));
-    await settle();
-    expect(document.activeElement).toBe(cards()[0]);
-    press("KeyY"); // too soon after it appeared
+    await settle(ARM_MS);
+    expect(document.activeElement?.id).toBe("approvals-heading");
+    for (const code of ["KeyC", "KeyA", "KeyR", "KeyR", "KeyY", "Space", "KeyA", "KeyN", "KeyD"]) press(code);
     await settle(ARM_MS);
     expect(answers(core)).toEqual([{ id: "perm1", decision: "allow" }]);
+    press("ArrowDown");
+    expect(document.activeElement).toBe(cards()[0]);
     press("Escape");
     expect(document.activeElement).toBe(elsewhere);
+  });
+
+  it("ignores Y and N typed in a text field", async () => {
+    const core = await setup();
+    const field = document.createElement("textarea");
+    target.append(field);
+    core.ask(bash("perm1"));
+    await settle(ARM_MS);
+    field.focus();
+    for (const code of ["KeyY", "KeyN"]) press(code);
+    await settle();
+    expect(answers(core)).toEqual([]);
+    expect(document.activeElement).toBe(field);
+  });
+
+  it("marks requests from a project other than the open one", async () => {
+    const core = await setup();
+    core.projects.push({ id: "p2", name: "other", root: "/other", last_opened_ms: null, trusted: false });
+    core.addSession("p2", "Elsewhere task", { state: "working" });
+    core.status("s2", { state: "working" });
+    core.ask(bash("perm1"));
+    core.ask({ ...bash("perm2"), session: "s2" });
+    await settle();
+    const other = cards().map((c) => c.querySelector("[data-testid=approval-other-project]") !== null);
+    expect(other).toEqual([false, true]);
+    expect(cards()[1]?.textContent?.replace(/\s+/g, " ")).toContain("Elsewhere task in other asks to use Bash");
   });
 
   it("answers one request per key press, however long the key is held", async () => {
@@ -223,7 +251,7 @@ describe("Approvals", () => {
     await settle();
     const scopes = cards().map((c) => c.querySelector("[data-testid=approval-scope]")?.textContent?.trim());
     expect(scopes).toEqual([
-      "Inside the project folder: /demo/README.md",
+      "Inside the project folder: README.md",
       "⚠ Outside the project folder: /demo/../etc/passwd",
     ]);
   });

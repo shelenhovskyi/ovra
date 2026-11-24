@@ -22,6 +22,12 @@ describe("pathScopes", () => {
     expect(inside("D:\\work\\demo\\a.txt", "C:\\work\\demo")).toBe(false);
   });
 
+  it("gives inside paths relative to the project", () => {
+    expect(pathScopes({ file_path: "/work/demo/src/a.rs" }, "/work/demo")).toEqual([
+      { path: "/work/demo/src/a.rs", inside: true, relative: "src/a.rs" },
+    ]);
+  });
+
   it("lists every path key and ignores input without paths", () => {
     expect(pathScopes({ path: "/tmp", pattern: "*" }, "/work/demo")).toEqual([{ path: "/tmp", inside: false }]);
     expect(pathScopes({ command: "ls" }, "/work/demo")).toEqual([]);
