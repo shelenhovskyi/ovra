@@ -1,13 +1,20 @@
 name: CI
 
+# Linux checks run on every push to main and every PR. The slow jobs (desktop
+# builds on three OSes, the speed gate) run on PRs, hourly on main when it got
+# new commits, and on demand. Only PR runs cancel each other: every commit on
+# main gets a complete run.
 on:
   pull_request:
   push:
     branches: [main]
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
 
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.event_name == 'pull_request' && format('ci-{0}', github.ref) || format('ci-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -20,6 +27,7 @@ env:
 jobs:
   checks:
     name: Checks, tests, e2e (Linux)
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -46,8 +54,31 @@ jobs:
       - run: pnpm --filter @ovra/e2e exec playwright install --with-deps chromium
       - run: just e2e
 
+  # Decides whether the slow jobs run: always, except for a scheduled run
+  # when main has no commits from the last hour.
+  slow:
+    name: Slow jobs needed?
+    if: github.event_name != 'push'
+    runs-on: ubuntu-24.04
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+    steps:
+      - uses: actions/checkout@v4
+        if: github.event_name == 'schedule'
+      - id: decide
+        run: |
+          run=true
+          if [ "${{ github.event_name }}" = schedule ]; then
+            age=$(( $(date +%s) - $(git log -1 --format=%ct) ))
+            [ "$age" -lt 3600 ] || run=false
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          echo "slow jobs: $run"
+
   perf:
     name: Speed gate (100k-file repo)
+    needs: slow
+    if: needs.slow.outputs.run == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -73,6 +104,8 @@ jobs:
 
   app:
     name: Desktop app (${{ matrix.os }})
+    needs: slow
+    if: needs.slow.outputs.run == 'true'
     strategy:
       fail-fast: false
       matrix:
