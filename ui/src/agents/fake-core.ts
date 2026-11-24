@@ -3,9 +3,11 @@
 
 import type {
   AgentMessage,
+  AgentSetup,
   AgentStatus,
   CoreEvent,
   PermissionRequest,
+  ProjectAgentConfig,
   ProjectId,
   Request,
   ResponseFor,
@@ -19,6 +21,10 @@ export class FakeAgentCore implements Transport {
   sessions: SessionInfo[] = [];
   transcripts = new Map<SessionId, AgentMessage[]>();
   pending: PermissionRequest[] = [];
+  /** What `agents.setup` answers; `agents.set_path` records the path in it. */
+  setup: AgentSetup = { path: null, executable: "/usr/bin/claude", version: "2.1.331", state: { state: "ready" } };
+  /** What `agents.project_config` answers. */
+  config: ProjectAgentConfig = { items: [] };
   /** Makes the next call of this method fail with this error. */
   failNext = new Map<Request["method"], CoreError>();
   private listeners = new Set<(event: CoreEvent) => void>();
@@ -79,6 +85,19 @@ export class FakeAgentCore implements Transport {
       case "agents.send":
       case "agents.stop":
       case "agents.interrupt":
+        return { type: "ok" };
+      case "agents.setup":
+        return { type: "agents.setup", data: { ...this.setup } };
+      case "agents.set_path":
+        this.setup = { ...this.setup, path: request.params.path };
+        return { type: "agents.setup", data: { ...this.setup } };
+      case "agents.project_config":
+        return { type: "agents.project_config", data: this.config };
+      case "projects.trust": {
+        const { id, trusted } = request.params;
+        return { type: "projects.project", data: { id, name: "demo", root: "/demo", last_opened_ms: null, trusted } };
+      }
+      case "open.url":
         return { type: "ok" };
       case "permissions.pending":
         return { type: "permissions.pending", data: [...this.pending] };

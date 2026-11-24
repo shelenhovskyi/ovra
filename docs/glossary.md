@@ -19,3 +19,6 @@
   behind `AgentRuntime` (ADR 0004).
 - **ACP** - Agent Client Protocol, how other agents (Codex, Gemini CLI) connect.
 - **MCP** - Model Context Protocol, how the IDE exposes tools to agents.
+- **Trusted project** - a project whose own Claude configuration (`.claude/`
+  settings, hooks, agents, commands, skills) the user let load; untrusted
+  projects run `claude` with `--setting-sources user` (ADR 0006).

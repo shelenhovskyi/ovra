@@ -8,6 +8,8 @@ import type { SessionId } from "../lib/protocol";
 import { CoreError } from "../lib/transport";
 import { useOvra } from "../shell/context";
 import { agentSessions, sessionName, usageText } from "./sessions.svelte";
+import ClaudeSetup from "./setup/ClaudeSetup.svelte";
+import ProjectTrust from "./setup/ProjectTrust.svelte";
 import { isEnded, statusLabel } from "./status";
 import Transcript from "./Transcript.svelte";
 
@@ -134,9 +136,11 @@ const canReply = $derived(current !== null && current.status.state === "idle");
 
 <section class="agents" aria-labelledby="agents-heading" data-testid="agents-panel">
   <h2 id="agents-heading">Agents</h2>
+  <ClaudeSetup />
   {#if !project}
     <p class="empty">Open a project to start an agent.</p>
   {:else}
+    <ProjectTrust />
     <form
       class="new"
       onsubmit={(event) => {
