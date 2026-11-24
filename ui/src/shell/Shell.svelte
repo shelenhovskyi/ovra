@@ -7,6 +7,7 @@ import Keybindings from "../keys/Keybindings.svelte";
 import type { CoreInfo } from "../lib/protocol";
 import type { ConnectionStatus, Transport } from "../lib/transport";
 import Palette from "../palette/Palette.svelte";
+import Terminals from "../terminal/Terminals.svelte";
 import Tree from "../tree/Tree.svelte";
 import Viewer from "../viewers/Viewer.svelte";
 import { provideOvra } from "./context";
@@ -91,6 +92,7 @@ const status = $derived.by((): { text: string; ok: boolean } => {
         <Viewer />
       {/if}
     </div>
+    <Terminals />
   </main>
   <footer>
     <span data-testid="status" role="status" class:error={!status.ok}>{status.text}</span>
