@@ -17,14 +17,21 @@ const DB_FILE: &str = "projects.sqlite3";
 
 /// Schema migrations, applied in order; `PRAGMA user_version` counts how many
 /// have run. Append new steps, never edit old ones.
-const MIGRATIONS: &[&str] = &["CREATE TABLE projects (
+const MIGRATIONS: &[&str] = &[
+    "CREATE TABLE projects (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         root TEXT NOT NULL UNIQUE,
         added_ms INTEGER NOT NULL,
         last_opened_ms INTEGER
     ) STRICT;
-    CREATE INDEX projects_by_last_opened ON projects (last_opened_ms DESC);"];
+    CREATE INDEX projects_by_last_opened ON projects (last_opened_ms DESC);",
+    // Per-project UI state as JSON, so new fields need no migration.
+    "CREATE TABLE project_state (
+        project_id TEXT PRIMARY KEY REFERENCES projects (id) ON DELETE CASCADE,
+        state TEXT NOT NULL
+    ) STRICT;",
+];
 
 const COLUMNS: &str = "id, name, root, last_opened_ms";
 
@@ -45,6 +52,8 @@ impl Store {
         })?;
         let mut db = Connection::open(data_dir.join(DB_FILE)).map_err(db_error)?;
         db.pragma_update(None, "journal_mode", "WAL")
+            .map_err(db_error)?;
+        db.pragma_update(None, "foreign_keys", true)
             .map_err(db_error)?;
         db.busy_timeout(std::time::Duration::from_secs(2))
             .map_err(db_error)?;
@@ -147,18 +156,37 @@ impl ProjectStore for Store {
             .ok_or_else(|| not_found(id))
     }
 
-    fn state(&self, _id: &ProjectId) -> Result<ProjectState> {
-        Err(ProtocolError::new(
-            ErrorCode::Unavailable,
-            "project state is not stored yet",
-        ))
+    fn state(&self, id: &ProjectId) -> Result<ProjectState> {
+        let db = self.db();
+        find(&db, id)?;
+        let json: Option<String> = db
+            .query_row(
+                "SELECT state FROM project_state WHERE project_id = ?1",
+                [&id.0],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(db_error)?;
+        json.map_or_else(
+            || Ok(ProjectState::default()),
+            |json| {
+                serde_json::from_str(&json)
+                    .map_err(|e| internal(format!("saved state of project {}: {e}", id.0)))
+            },
+        )
     }
 
-    fn set_state(&self, _id: &ProjectId, _state: &ProjectState) -> Result<()> {
-        Err(ProtocolError::new(
-            ErrorCode::Unavailable,
-            "project state is not stored yet",
-        ))
+    fn set_state(&self, id: &ProjectId, state: &ProjectState) -> Result<()> {
+        let json = serde_json::to_string(state).map_err(|e| internal(e.to_string()))?;
+        let db = self.db();
+        find(&db, id)?;
+        db.execute(
+            "INSERT INTO project_state (project_id, state) VALUES (?1, ?2)
+             ON CONFLICT (project_id) DO UPDATE SET state = excluded.state",
+            params![id.0, json],
+        )
+        .map_err(db_error)?;
+        Ok(())
     }
 }
 
