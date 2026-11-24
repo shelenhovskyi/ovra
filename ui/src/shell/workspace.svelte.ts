@@ -5,6 +5,12 @@ import type { Project } from "../lib/protocol";
 
 export type MainMode = "view" | "edit";
 
+/** What the left sidebar shows. */
+export type SidebarView = "files" | "search";
+
+/** A place in a file to show and select: `from` and `to` are UTF-16 offsets in line `line` (from 1). */
+export type TextSpot = { line: number; from: number; to: number };
+
 export class Workspace {
   /** The project shown in the window, or null on the start screen. */
   project = $state<Project | null>(null);
@@ -13,9 +19,14 @@ export class Workspace {
   /** Whether the main area shows a viewer or the editor for `openPath`. */
   mode = $state<MainMode>("view");
   paletteOpen = $state(false);
+  sidebar = $state<SidebarView>("files");
+  /** A spot the editor should select once it shows `path`; it clears this when done. */
+  reveal = $state<(TextSpot & { path: string }) | null>(null);
 
-  openFile(path: string, mode: MainMode = "view"): void {
+  /** Opens `path`; with `at`, in the editor with that spot selected. */
+  openFile(path: string, mode: MainMode = "view", at?: TextSpot): void {
     this.openPath = path;
-    this.mode = mode;
+    this.mode = at ? "edit" : mode;
+    this.reveal = at ? { path, ...at } : null;
   }
 }
