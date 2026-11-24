@@ -68,8 +68,25 @@ async fn runs_a_program_streams_its_output_and_reports_the_exit_code() {
     let core = Core::new("test");
     let mut rx = core.subscribe();
     let id = pty.open(here(), SIZE, core.sink()).expect("open");
-    output_until(&mut rx, &id, "hi").await;
+    // ConPTY asks for the cursor position (portable-pty sets
+    // PSEUDOCONSOLE_INHERIT_CURSOR) and shows nothing until it gets an
+    // answer; xterm.js answers in the app, the test does it here.
+    #[cfg(windows)]
+    let mut text = {
+        let text = output_until(&mut rx, &id, "\x1b[6n").await;
+        pty.input(&id, "\x1b[1;1R")
+            .expect("answer the cursor query");
+        text
+    };
+    #[cfg(unix)]
+    let mut text = String::new();
+    // Stages go to stderr, which nextest shows when it kills a hung test.
+    if !text.contains("hi") {
+        text += &output_until(&mut rx, &id, "hi").await;
+    }
+    eprintln!("output so far: {text:?}");
     assert_eq!(exit_code(&mut rx, &id).await, Some(3));
+    eprintln!("exited");
     let ended = pty.input(&id, "x").expect_err("ended");
     assert_eq!(ended.code, ErrorCode::NotFound);
     // The output stays readable until the terminal is closed.
