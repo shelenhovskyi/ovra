@@ -87,8 +87,9 @@ ran. Everything else in the diff is "changed outside the agent".
 
 How direct mode tells them apart (`crates/core/src/orchestration/direct.rs`):
 
-- Snapshots split the session into intervals. The `PreToolUse` hook, which
-  the CLI waits for, opens one before a file-changing tool runs; the tool's
+- Looks at the tree (tree ids, not snapshot commits) split the session into
+  intervals. The `PreToolUse` hook, which the CLI waits for, opens one
+  before a file-changing tool runs; the tool's
   result closes it once no such tool runs. A tool waiting for the person's
   approval does not count as running.
 - What changed in an interval is the agent's if a `Bash` call ran in it,

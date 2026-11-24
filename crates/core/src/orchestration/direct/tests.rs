@@ -22,6 +22,7 @@ struct Trees {
     /// `(from, to)`: a deletion of `from` and an addition of `to` in one
     /// diff are reported as one rename.
     renames: Mutex<Vec<(String, String)>>,
+    /// Makes snapshots and looks fail.
     fail_snapshots: Mutex<bool>,
     skip_restore: Mutex<BTreeSet<String>>,
 }
@@ -119,7 +120,12 @@ impl Worktrees for Trees {
         self.mem.prune_snapshots(root, keep)
     }
     fn look(&self, dir: PathBuf) -> BoxFuture<'_, Result<String>> {
-        self.mem.look(dir)
+        Box::pin(async move {
+            if *lock(&self.fail_snapshots) {
+                return Err(conflict("look failed"));
+            }
+            self.mem.look(dir).await
+        })
     }
     fn patches(
         &self,
@@ -602,7 +608,7 @@ async fn failed_snapshots_make_nothing_the_agents() {
     let h = Harness::start(&[("a.rs", "a\n")]).await;
     h.agent_writes("t1", "a.rs", "agent\n").await;
     *lock(&h.mem().fail_snapshots) = true;
-    // The interval's own snapshots fail: neither its file nor the earlier
+    // The interval's own looks fail: neither its file nor the earlier
     // one can be vouched for.
     h.agent_writes("t2", "b.rs", "agent\n").await;
     *lock(&h.mem().fail_snapshots) = false;

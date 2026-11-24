@@ -8,10 +8,11 @@
 //! before or after. Anything unclear is "changed outside the agent" or a
 //! conflict, and is left alone.
 //!
-//! How the evidence is gathered. Snapshots split the session into
+//! How the evidence is gathered. Looks at the tree split the session into
 //! intervals. While any file-changing tool of the agent runs (`Write`,
 //! `Edit`, `MultiEdit`, `NotebookEdit`, `Bash`), an interval is open; it
-//! starts with a snapshot (`pre`) and ends with one (`post`). What changed
+//! starts with a look at the tree (`pre`, a tree id written from a temporary
+//! index) and ends with another (`post`). What changed
 //! from `pre` to the end belongs to the agent if a `Bash` call ran in the
 //! interval, or if a file tool named the file; the rest changed outside it.
 //! Between intervals only the person (or a formatter, or git) changes files:
@@ -21,7 +22,7 @@
 //! by both and never reverted.
 //!
 //! Tool events come from the `PreToolUse` hook (the CLI waits for it, so the
-//! `pre` snapshot is taken before the tool runs), from permission requests
+//! `pre` look is taken before the tool runs), from permission requests
 //! (a tool waiting for the person is not running) and from tool results.
 //! Late or missing events only make files look changed outside, which keeps
 //! them.
@@ -144,6 +145,10 @@ pub(crate) struct Outcome {
     pub(crate) diff: String,
     /// Reject: the files it restored; undo: the files it put back.
     pub(crate) restored: Vec<String>,
+    /// Approve and reject: the files as the decision saw them, read from
+    /// `seen`, so the review keeps what was decided without reading again.
+    pub(crate) files: Vec<FileChange>,
+    pub(crate) seen: Option<String>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -265,7 +270,7 @@ impl Direct {
     }
 
     /// The `PreToolUse` hook: the agent is about to run a tool. `input` is
-    /// the tool's input. Waits for the `pre` snapshot when it opens an
+    /// the tool's input. Waits for the `pre` look when it opens an
     /// interval; errors are swallowed because the tool must still run (its
     /// changes then look changed outside).
     pub(crate) async fn tool_started(
@@ -408,6 +413,8 @@ impl Direct {
             base: None,
             diff: String::new(),
             restored: Vec::new(),
+            files: Vec::new(),
+            seen: now,
         };
         if let Some(message) = commit {
             let mine = paths(&files, ChangedBy::Agent)?;
@@ -418,6 +425,7 @@ impl Direct {
             }
         }
         outcome.base = self.reviewed(session, &writer, &mut tracker).await;
+        outcome.files = files;
         Ok(outcome)
     }
 
@@ -485,10 +493,12 @@ impl Direct {
         }
         Ok(Outcome {
             conflicts,
-            snapshot: Some(snapshot),
+            snapshot: Some(snapshot.clone()),
             base,
             diff,
             restored,
+            files,
+            seen: Some(snapshot),
         })
     }
 
@@ -553,6 +563,8 @@ impl Direct {
             base,
             diff: String::new(),
             restored: back.iter().map(|p| p.as_str().to_owned()).collect(),
+            files: Vec::new(),
+            seen: None,
         })
     }
 
@@ -645,7 +657,7 @@ struct Tool {
 /// An interval in which agent tools run.
 #[derive(Debug)]
 struct Interval {
-    /// The snapshot it started from; `None` if taking it failed, which makes
+    /// The tree it started from; `None` if the look failed, which makes
     /// nothing in the interval the agent's.
     pre: Option<String>,
     shell: bool,
@@ -657,7 +669,9 @@ struct Interval {
 #[derive(Debug)]
 struct Tracker {
     baseline: String,
-    /// The snapshot at the end of the last interval (the baseline at first).
+    /// The tree at the end of the last interval (the baseline at first): a
+    /// look, not a snapshot, so it costs one git call. Git may prune it after
+    /// two weeks; then the comparison fails and agent files count as tainted.
     /// `None` if taking it failed: then the next comparison is impossible
     /// and every agent file counts as tainted.
     last: Option<String>,
@@ -668,6 +682,20 @@ struct Tracker {
     agent: BTreeMap<String, bool>,
     /// Files changed outside the agent since the baseline.
     outside: BTreeSet<String>,
+}
+
+/// What differs from `from` to `to`; nothing, without asking git, when both
+/// name the same tree. That is the usual case between intervals.
+async fn between(
+    worktrees: &dyn Worktrees,
+    dir: PathBuf,
+    from: &String,
+    to: &String,
+) -> Result<Vec<Delta>> {
+    if from == to {
+        return Ok(Vec::new());
+    }
+    worktrees.diff(dir, from.clone(), to.clone()).await
 }
 
 fn delta_paths(delta: &Delta) -> impl Iterator<Item = String> + '_ {
@@ -707,12 +735,12 @@ impl Tracker {
     }
 
     /// Marks what changed since the last interval as changed outside:
-    /// up to `now`, a snapshot of the working tree just taken, or else up
+    /// up to `now`, a tree of the working tree just taken, or else up
     /// to the working tree itself.
     async fn catch_up(&mut self, worktrees: &dyn Worktrees, dir: &Path, now: Option<&String>) {
         let dir = dir.to_path_buf();
         let changed = match (&self.last, now) {
-            (Some(last), Some(now)) => worktrees.diff(dir, last.clone(), now.clone()).await,
+            (Some(last), Some(now)) => between(worktrees, dir, last, now).await,
             (Some(last), None) => worktrees.changes(dir, last.clone()).await,
             (None, _) => Err(conflict("no snapshot to compare with")),
         };
@@ -749,7 +777,7 @@ impl Tracker {
     /// `tool` runs now: opens an interval if none is open, and adds it.
     async fn run(&mut self, worktrees: &dyn Worktrees, dir: &Path, tool: &Tool) {
         if self.open.is_none() {
-            let pre = worktrees.snapshot(dir.to_path_buf()).await.ok();
+            let pre = worktrees.look(dir.to_path_buf()).await.ok();
             self.catch_up(worktrees, dir, pre.as_ref()).await;
             self.open = Some(Interval {
                 pre,
@@ -779,10 +807,10 @@ impl Tracker {
         };
         // `post` first: a change slipping in after it shows up again in the
         // next comparison, as changed outside.
-        let post = worktrees.snapshot(dir.to_path_buf()).await.ok();
+        let post = worktrees.look(dir.to_path_buf()).await.ok();
         let dir = dir.to_path_buf();
         let changed = match (&open.pre, &post) {
-            (Some(pre), Some(post)) => worktrees.diff(dir, pre.clone(), post.clone()).await.ok(),
+            (Some(pre), Some(post)) => between(worktrees, dir, pre, post).await.ok(),
             (Some(pre), None) => worktrees.changes(dir, pre.clone()).await.ok(),
             (None, _) => None,
         };

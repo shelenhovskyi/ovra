@@ -11,13 +11,7 @@ use ovra_core::services::{Delta, Result};
 use crate::git::{self, Git, TempIndex, internal};
 
 pub(crate) fn changes(dir: &Path, base: &str) -> Result<Vec<Delta>> {
-    let base = git::commit_id(dir, base)?;
-    let tree = git::working_tree(dir)?;
-    let out = Git::new(dir, "diff-tree")
-        .args(["-r", "-z", "-M", "--raw", "--numstat", "--relative"])
-        .args([&base, &tree])
-        .run()?;
-    parse(&out)
+    diff(dir, base, &git::working_tree(dir)?)
 }
 
 /// What differs between two commits or trees; the working tree is not read.

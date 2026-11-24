@@ -503,12 +503,11 @@ async fn approve(
             })?;
             return Ok((item(core, &entry).await?, Vec::new()));
         }
-        let decided = files(core, &entry).await?;
-        let diffs = freeze(core, &entry, &decided, None).await;
         let outcome = direct.approve(&entry.session, commit).await?;
+        let diffs = freeze(core, &entry, &outcome.files, outcome.seen.as_ref()).await;
         let entry = update(core, id, |e| {
             e.state = ReviewState::Approved;
-            e.decided = decided;
+            e.decided = outcome.files;
             e.decided_diffs = diffs;
             if let Some(base) = outcome.base {
                 e.workspace.base = base;
@@ -754,12 +753,12 @@ async fn reject_direct(
     core: &Core,
     entry: &Entry,
 ) -> Result<(ReviewItem, Vec<String>, Vec<String>)> {
-    let decided = files(core, entry).await?;
-    let diffs = freeze(core, entry, &decided, None).await;
     let outcome = core.sessions().direct.reject(&entry.session).await?;
+    // From the snapshot taken just before the revert.
+    let diffs = freeze(core, entry, &outcome.files, outcome.seen.as_ref()).await;
     let entry = update(core, &entry.id, |e| {
         e.state = ReviewState::Rejected;
-        e.decided = decided;
+        e.decided = outcome.files;
         e.decided_diffs = diffs;
         e.rejected = Some(outcome.diff);
         if let Some(base) = outcome.base {
