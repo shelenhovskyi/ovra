@@ -338,15 +338,34 @@ async fn ovra_tools_are_decided_by_role_without_asking() {
         denied.message.as_deref(),
         Some("the task already runs 1 workers, its limit; wait for one to finish or stop one")
     );
-    // A worker may show files inside its project only.
-    let show = |path: &str| {
-        crate::orchestration::decide(&f.core, &sid("s2"), "open_in_ui", &json!({ "path": path }))
+    // Workers and coordinators may show files inside their project only.
+    let show = |session: &str, path: serde_json::Value| {
+        crate::orchestration::decide(
+            &f.core,
+            &sid(session),
+            "open_in_ui",
+            &json!({ "path": path }),
+        )
+        .message
     };
     assert_eq!(
-        show("~/.ssh/id_rsa").message.as_deref(),
-        Some(r#"open_in_ui shows files inside the project only, not "~/.ssh/id_rsa""#)
+        show("s2", json!("~/.ssh/id_rsa")).as_deref(),
+        Some(
+            r#"open_in_ui shows files inside the project only: path "~/.ssh/id_rsa" may name a home folder or a variable"#
+        )
     );
-    assert_eq!(show("src/a.rs").message, None);
+    assert_eq!(
+        show("s1", json!("$HOME/x")).as_deref(),
+        Some(
+            r#"open_in_ui shows files inside the project only: path "$HOME/x" may name a home folder or a variable"#
+        )
+    );
+    assert_eq!(
+        show("s2", json!(null)).as_deref(),
+        Some("open_in_ui takes the path as a string")
+    );
+    assert_eq!(show("s2", json!("src/a.rs")), None);
+    assert_eq!(show("s1", json!("src/a.rs")), None);
     // Nobody was asked.
     while let Ok(event) = rx.try_recv() {
         assert!(!matches!(
@@ -583,6 +602,11 @@ async fn ide_calls_reach_only_the_callers_own_workers() {
         line: None,
     };
     assert!(f.core.open_in_ui(&me, escape).is_err());
+    let home = ShowTarget::File {
+        path: "~/x".into(),
+        line: None,
+    };
+    assert_eq!(code(f.core.open_in_ui(&me, home)), ErrorCode::Forbidden);
     let file = ShowTarget::File {
         path: "./a.rs".into(),
         line: Some(3),
@@ -816,12 +840,16 @@ async fn snapshots_are_not_pruned_while_a_direct_session_runs() {
 
 #[test]
 fn shown_files_are_surely_inside_the_project() {
-    use super::{ide::shown_file, policy::shows_inside};
+    use super::{ide::shown_file, policy::shown_inside};
     let paths = [
         "a.rs",
         "./src/a.rs",
         "src/~notes.md",
         "src/a~b.rs",
+        "src/C:a",
+        "a.rs:x",
+        ".",
+        "./",
         "~",
         "~/x",
         "~user/x",
@@ -845,14 +873,12 @@ fn shown_files_are_surely_inside_the_project() {
     let judged: Vec<String> = paths
         .iter()
         .map(|p| match shown_file(p) {
-            Ok(shown) => format!("{p:?} -> {shown:?}"),
-            Err(e) => format!("{p:?} refused: {}", e.message),
+            Ok(shown) => format!("{p} -> {shown}"),
+            Err(e) => format!("{p} refused ({:?}): {}", e.code, e.message),
         })
         .collect();
-    for p in paths {
-        assert_eq!(shows_inside(&json!({ "path": p })), shown_file(p).is_ok());
-    }
-    assert!(shows_inside(&json!({ "agent_id": "s1" })));
-    assert!(!shows_inside(&json!({ "path": 3 })));
-    insta::assert_debug_snapshot!(judged);
+    assert!(shown_inside(&json!({ "path": "~/x" })).is_err());
+    assert!(shown_inside(&json!({ "agent_id": "s1" })).is_ok());
+    assert!(shown_inside(&json!({ "path": 3 })).is_err());
+    insta::assert_snapshot!(judged.join("\n"));
 }

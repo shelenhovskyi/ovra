@@ -184,19 +184,28 @@ fn coordinator(caller: &ToolCaller) -> Result<()> {
 }
 
 /// The project-relative file `raw` names for `open_in_ui`. Beyond what
-/// [`RelPath::parse`] refuses (absolute, UNC, rooted or drive paths, `..`),
-/// a segment starting with `~`, `$` or `%` is refused too: a shell or a
-/// person reads it as a home folder or a variable, so it cannot be told to
-/// stay inside the project. The approval cards treat these the same way.
+/// [`RelPath::parse`] refuses (absolute, UNC, rooted paths, a drive in the
+/// first segment, `..`), this also refuses:
+/// - a segment starting with `~`, `$` or `%`, which a shell or a person reads
+///   as a home folder or a variable (stricter than the approval cards, which
+///   look at the start of the path only);
+/// - a `:` in any segment: on Windows `src/C:a` is drive-relative once
+///   joined, and `a.rs:x` names a stream;
+/// - the project root itself, which is not a file.
 pub(super) fn shown_file(raw: &str) -> Result<String> {
     let path = RelPath::parse(raw)?;
-    if path
-        .as_str()
-        .split('/')
-        .any(|s| s.starts_with(['~', '$', '%']))
-    {
+    if path.is_root() {
+        return Err(ProtocolError::new(ErrorCode::BadRequest, "name a file"));
+    }
+    let segments = || path.as_str().split('/');
+    if segments().any(|s| s.starts_with(['~', '$', '%'])) {
         return Err(forbidden(format!(
             "path {raw:?} may name a home folder or a variable"
+        )));
+    }
+    if segments().any(|s| s.contains(':')) {
+        return Err(forbidden(format!(
+            "path {raw:?} may name a drive or a stream"
         )));
     }
     Ok(path.to_string())

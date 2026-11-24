@@ -56,6 +56,9 @@ fn decide_for(
     if !coordinator_only && !SHARED_TOOLS.contains(&name) {
         return Err(format!("Ovra has no tool named {name}"));
     }
+    if name == "open_in_ui" {
+        shown_inside(input)?;
+    }
     match role {
         ToolRole::Worker if coordinator_only => {
             Err(format!("only the task's coordinator may use {name}"))
@@ -63,10 +66,6 @@ fn decide_for(
         ToolRole::Worker if name == "request_review" && input.get("agent_id").is_some() => {
             Err("a worker may ask for a review of its own work only".to_owned())
         }
-        _ if name == "open_in_ui" && !shows_inside(input) => Err(format!(
-            "open_in_ui shows files inside the project only, not {}",
-            input["path"]
-        )),
         ToolRole::Worker => Ok(()),
         ToolRole::Coordinator => {
             let task = tasks::of_coordinator(core, session).map_err(|e| e.message)?;
@@ -78,13 +77,18 @@ fn decide_for(
     }
 }
 
-/// Whether the `path` of an `open_in_ui` call, if it has one, surely names
-/// a file inside the project. Anything that could be read as a home folder,
-/// a variable, a drive, a share or a way out is refused, never allowed.
-pub(super) fn shows_inside(input: &serde_json::Value) -> bool {
+/// Refuses an `open_in_ui` call whose `path` does not surely name a file
+/// inside the project. Anything that could be read as a home folder, a
+/// variable, a drive, a share or a way out is refused, never allowed.
+pub(super) fn shown_inside(input: &serde_json::Value) -> Result<(), String> {
     match input.get("path") {
-        None => true,
-        Some(serde_json::Value::String(path)) => ide::shown_file(path).is_ok(),
-        Some(_) => false,
+        None => Ok(()),
+        Some(serde_json::Value::String(path)) => ide::shown_file(path).map(drop).map_err(|e| {
+            format!(
+                "open_in_ui shows files inside the project only: {}",
+                e.message
+            )
+        }),
+        Some(_) => Err("open_in_ui takes the path as a string".to_owned()),
     }
 }
