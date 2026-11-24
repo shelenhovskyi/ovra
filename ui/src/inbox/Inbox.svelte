@@ -20,6 +20,7 @@ import {
   itemSummary,
   rejectHint,
   STATE_LABEL,
+  sharedFiles,
 } from "./describe";
 import { message as errorText, type Outcome, ReviewInbox } from "./reviews.svelte";
 
@@ -46,6 +47,7 @@ let returnTo: HTMLElement | null = null;
 
 const item = $derived(inbox.items.find((i) => i.id === selectedId) ?? null);
 const file = $derived(item?.files.find((f) => f.path === selectedPath) ?? null);
+const shared = $derived(item ? sharedFiles(item, inbox.items) : new Set<string>());
 const busy = $derived(item ? inbox.busy.includes(item.id) : false);
 const outcome = $derived(inbox.outcome && inbox.outcome.id === item?.id ? inbox.outcome : null);
 const diffKey = $derived(item && file ? `${item.id}\n${file.path}\n${inbox.changes}` : null);
@@ -338,7 +340,7 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                   >
                     <span class="name">{sessionLabel(review)}</span>
                     <span class="state {review.state}">{STATE_LABEL[review.state]}</span>
-                    <span class="meta">{itemSummary(review)}</span>
+                    <span class="meta">{itemSummary(review, sharedFiles(review, inbox.items).size)}</span>
                   </button>
                 </li>
               {/each}
@@ -459,7 +461,7 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
               <div class="files-and-diff">
                 <ul class="files" aria-label="Changed files">
                   {#each item.files as changed (changed.path)}
-                    {@const markers = fileMarkers(changed)}
+                    {@const markers = fileMarkers(changed, shared.has(changed.path))}
                     <li>
                       <button
                         type="button"

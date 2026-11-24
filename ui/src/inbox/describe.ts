@@ -16,12 +16,30 @@ const KIND_LABEL: Record<ChangeKind, string> = {
 };
 
 /** Markers shown next to a file; each one also reads out to screen readers. */
-export function fileMarkers(file: FileChange): string[] {
+export function fileMarkers(file: FileChange, shared = false): string[] {
   const markers: string[] = [];
   if (file.by === "outside") markers.push("Changed outside the agent");
   if (file.by === "both") markers.push("Also changed outside the agent");
   if (file.blocked) markers.push("Waits for the direct agent");
+  if (shared) markers.push("Also changed in another open review");
   return markers;
+}
+
+/**
+ * Files an agent changed in `item` that an agent of another open item
+ * changed too: approving one of them first decides what the other merges
+ * into. Empty unless `item` is open.
+ */
+export function sharedFiles(item: ReviewItem, items: readonly ReviewItem[]): Set<string> {
+  const shared = new Set<string>();
+  if (item.state !== "open") return shared;
+  const others = new Set<string>();
+  for (const other of items) {
+    if (other.id === item.id || other.state !== "open") continue;
+    for (const f of other.files) if (f.by !== "outside") others.add(f.path);
+  }
+  for (const f of item.files) if (f.by !== "outside" && others.has(f.path)) shared.add(f.path);
+  return shared;
 }
 
 /** `src/a.ts, modified, +3 −1` and, for a rename, where it came from. */
@@ -31,7 +49,7 @@ export function fileSummary(file: FileChange): string {
 }
 
 /** One line for the item list: how many files, and what needs attention. */
-export function itemSummary(item: ReviewItem): string {
+export function itemSummary(item: ReviewItem, shared = 0): string {
   const files = item.files.length === 1 ? "1 file" : `${item.files.length} files`;
   const outside = item.files.filter((f) => f.by !== "agent").length;
   const blocked = item.files.filter((f) => f.blocked).length;
@@ -40,6 +58,7 @@ export function itemSummary(item: ReviewItem): string {
   const parts = [files];
   if (outside > 0) parts.push(`${outside} changed outside the agent`);
   if (blocked > 0) parts.push(`${blocked} waiting for the direct agent`);
+  if (shared > 0) parts.push(`${shared} also in another open review`);
   return parts.join(", ");
 }
 

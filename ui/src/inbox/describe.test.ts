@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { approveHint, defaultCommitMessage, fileMarkers, fileSummary, itemSummary, rejectHint } from "./describe";
+import {
+  approveHint,
+  defaultCommitMessage,
+  fileMarkers,
+  fileSummary,
+  itemSummary,
+  rejectHint,
+  sharedFiles,
+} from "./describe";
 import { change, review } from "./fake-review";
 
 describe("inbox wording", () => {
@@ -30,5 +38,17 @@ describe("inbox wording", () => {
     );
     expect(defaultCommitMessage(worker)).toBe("Fix the typo");
     expect(defaultCommitMessage(review("r3"))).toBe("");
+  });
+
+  it("finds the files that agents of other open reviews changed too", () => {
+    const a = review("a", { files: [change("x"), change("y"), change("z", { by: "outside" })] });
+    const b = review("b", { files: [change("x", { by: "both" }), change("z")] });
+    const done = review("c", { state: "approved", files: [change("y")] });
+    const items = [a, b, done];
+    expect([...sharedFiles(a, items)]).toEqual(["x"]);
+    expect([...sharedFiles(b, items)]).toEqual(["x"]);
+    expect([...sharedFiles(done, items)]).toEqual([]);
+    expect(fileMarkers(change("x"), true)).toEqual(["Also changed in another open review"]);
+    expect(itemSummary(a, 1)).toBe("3 files, 1 changed outside the agent, 1 also in another open review");
   });
 });
