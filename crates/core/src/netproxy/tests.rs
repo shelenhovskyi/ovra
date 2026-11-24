@@ -307,6 +307,29 @@ async fn each_session_runs_behind_its_own_proxy_until_it_ends() {
         })
         .count();
     assert_eq!(logged, 1);
+    // An agent in a loop fills neither the log nor the UI.
+    let reporter = net
+        .running
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&s1)
+        .map(|(_, r)| r.clone())
+        .unwrap_or_else(|| panic!("no reporter"));
+    let long = "x".repeat(10_000);
+    for _ in 0..1000 {
+        reporter.refused(&long, "not in the allowlist");
+    }
+    let entries =
+        crate::services::AuditLog::list(audit.as_ref(), &p1, None, 10_000).unwrap_or_default();
+    let refusals: Vec<_> = entries
+        .iter()
+        .filter_map(|e| match &e.event {
+            crate::protocol::audit::AuditEvent::NetworkRefused { host, .. } => Some(host.len()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(refusals.len(), 30);
+    assert!(refusals.iter().all(|len| *len <= 255));
     let refused = loop {
         match rx.recv().await {
             Ok(event @ Event::Netproxy(_)) => break Some(event),

@@ -277,7 +277,23 @@ pub struct NetReporter {
     /// Where refusals are written to the audit log; `None` in tests of
     /// other crates.
     core: Option<crate::core::WeakCore>,
+    /// Shared by the clones of one session's reporter.
+    limit: Arc<std::sync::Mutex<RefusalWindow>>,
 }
+
+/// Refusals recorded in the current minute, and those left out.
+#[derive(Debug)]
+struct RefusalWindow {
+    started: std::time::Instant,
+    recorded: u32,
+    left_out: u32,
+}
+
+/// Refusals one session records per minute; an agent in a loop must not
+/// fill the audit log or flood the UI.
+const MAX_REFUSALS_PER_MINUTE: u32 = 30;
+/// Hosts and reasons are cut to this many characters.
+const MAX_REFUSAL_TEXT: usize = 255;
 
 impl NetReporter {
     pub fn new(project: ProjectId, session: SessionId, sink: EventSink) -> Self {
@@ -286,6 +302,11 @@ impl NetReporter {
             session,
             sink,
             core: None,
+            limit: Arc::new(std::sync::Mutex::new(RefusalWindow {
+                started: std::time::Instant::now(),
+                recorded: 0,
+                left_out: 0,
+            })),
         }
     }
 
@@ -295,8 +316,44 @@ impl NetReporter {
     }
 
     /// The proxy refused a connection to `host` (`host:port`): written to
-    /// the audit log as `NetworkRefused` and shown to every front end.
+    /// the audit log as `NetworkRefused` and shown to every front end, at
+    /// most 30 a minute for one session. The first refusal after a full
+    /// minute says how many were left out.
     pub fn refused(&self, host: &str, reason: &str) {
+        let left_out = {
+            let mut window = self
+                .limit
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut left_out = None;
+            if window.started.elapsed() >= std::time::Duration::from_secs(60) {
+                left_out = Some(window.left_out).filter(|n| *n > 0);
+                *window = RefusalWindow {
+                    started: std::time::Instant::now(),
+                    recorded: 0,
+                    left_out: 0,
+                };
+            }
+            if window.recorded >= MAX_REFUSALS_PER_MINUTE {
+                window.left_out += 1;
+                return;
+            }
+            window.recorded += 1;
+            left_out
+        };
+        if let Some(n) = left_out {
+            self.record(
+                "(more)",
+                &format!("{n} more refusals in the last minute were left out"),
+            );
+        }
+        self.record(host, reason);
+    }
+
+    fn record(&self, host: &str, reason: &str) {
+        let cut = |text: &str| text.chars().take(MAX_REFUSAL_TEXT).collect::<String>();
+        let (host, reason) = (cut(host), cut(reason));
+        let (host, reason) = (host.as_str(), reason.as_str());
         if let Some(core) = self.core.as_ref().and_then(|c| c.upgrade()) {
             crate::audit::record(
                 &core,

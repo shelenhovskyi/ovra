@@ -43,10 +43,14 @@ impl Sessions {
         let _held = lock(&self.allowlists);
         let now = projects.allowlist(project);
         let current = self.find(session, |s| {
-            let current = !s.info().status.is_ended() && s.run() == run;
-            if !current {
+            let ours = s.run() == run;
+            let current = ours && !s.info().status.is_ended();
+            // A later run's proxy is left alone: ending this run already
+            // stopped this one's.
+            if ours && !current {
                 net.stop(session);
-            } else if let Ok(now) = &now
+            } else if current
+                && let Ok(now) = &now
                 && *now != allow
             {
                 net.update(session, now.clone());

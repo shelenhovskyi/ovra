@@ -240,7 +240,10 @@ pub trait NetProxy: Send + Sync + Debug {
     port; an entry with a port allows only that port.
   - Every refusal goes to the core through `NetReporter`, which pushes
     `netproxy.refused { project, session, host, reason }` to the UI and
-    writes it to the audit log as `NetworkRefused`.
+    writes it to the audit log as `NetworkRefused`: at most 30 a minute
+    for one session, with the host and reason cut to 255 characters, and
+    one entry saying how many were left out, so an agent in a loop fills
+    neither the log nor the UI.
 - **Upstream proxy.** If the user's own proxy is set where Ovra runs
   (`https_proxy`, `HTTPS_PROXY`, `http_proxy`, `HTTP_PROXY`, as Claude Code
   reads them, with `NO_PROXY`), the netproxy chains to it, with the user
