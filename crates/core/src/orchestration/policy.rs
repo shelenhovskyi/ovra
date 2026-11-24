@@ -3,7 +3,7 @@
 //! decide (`docs/specs/orchestration.md`). The tools check the same again
 //! when they run.
 
-use super::tasks;
+use super::{ide, tasks};
 use crate::Core;
 use crate::protocol::agents::SessionId;
 use crate::protocol::permissions::PermissionAnswer;
@@ -63,6 +63,10 @@ fn decide_for(
         ToolRole::Worker if name == "request_review" && input.get("agent_id").is_some() => {
             Err("a worker may ask for a review of its own work only".to_owned())
         }
+        _ if name == "open_in_ui" && !shows_inside(input) => Err(format!(
+            "open_in_ui shows files inside the project only, not {}",
+            input["path"]
+        )),
         ToolRole::Worker => Ok(()),
         ToolRole::Coordinator => {
             let task = tasks::of_coordinator(core, session).map_err(|e| e.message)?;
@@ -71,5 +75,16 @@ fn decide_for(
                 _ => Ok(()),
             }
         }
+    }
+}
+
+/// Whether the `path` of an `open_in_ui` call, if it has one, surely names
+/// a file inside the project. Anything that could be read as a home folder,
+/// a variable, a drive, a share or a way out is refused, never allowed.
+pub(super) fn shows_inside(input: &serde_json::Value) -> bool {
+    match input.get("path") {
+        None => true,
+        Some(serde_json::Value::String(path)) => ide::shown_file(path).is_ok(),
+        Some(_) => false,
     }
 }

@@ -1,0 +1,29 @@
+---
+source: crates/core/src/orchestration/tests.rs
+expression: judged
+---
+[
+    "\"a.rs\" -> \"a.rs\"",
+    "\"./src/a.rs\" -> \"src/a.rs\"",
+    "\"src/~notes.md\" refused: path \"src/~notes.md\" may name a home folder or a variable",
+    "\"src/a~b.rs\" -> \"src/a~b.rs\"",
+    "\"~\" refused: path \"~\" may name a home folder or a variable",
+    "\"~/x\" refused: path \"~/x\" may name a home folder or a variable",
+    "\"~user/x\" refused: path \"~user/x\" may name a home folder or a variable",
+    "\"src/~/x\" refused: path \"src/~/x\" may name a home folder or a variable",
+    "\"$HOME/x\" refused: path \"$HOME/x\" may name a home folder or a variable",
+    "\"${HOME}/x\" refused: path \"${HOME}/x\" may name a home folder or a variable",
+    "\"src/$TMP\" refused: path \"src/$TMP\" may name a home folder or a variable",
+    "\"%USERPROFILE%/x\" refused: path \"%USERPROFILE%/x\" may name a home folder or a variable",
+    "\"%APPDATA%\" refused: path \"%APPDATA%\" may name a home folder or a variable",
+    "\"C:a\" refused: path \"C:a\" has a drive or scheme prefix",
+    "\"C:/x\" refused: path \"C:/x\" has a drive or scheme prefix",
+    "\"C:\\\\x\" refused: path \"C:\\\\x\" contains a backslash or NUL",
+    "\"\\\\x\" refused: path \"\\\\x\" contains a backslash or NUL",
+    "\"\\\\\\\\server\\\\share\\\\x\" refused: path \"\\\\\\\\server\\\\share\\\\x\" contains a backslash or NUL",
+    "\"//server/share/x\" refused: path \"//server/share/x\" is absolute",
+    "\"/etc/passwd\" refused: path \"/etc/passwd\" is absolute",
+    "\"../x\" refused: path \"../x\" leaves the project",
+    "\"src/../../x\" refused: path \"src/../../x\" leaves the project",
+    "\"\" -> \"\"",
+]

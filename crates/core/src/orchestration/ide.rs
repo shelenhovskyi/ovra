@@ -135,7 +135,7 @@ impl Core {
     pub fn open_in_ui(&self, caller: &ToolCaller, target: ShowTarget) -> Result<()> {
         let target = match target {
             ShowTarget::File { path, line } => ShowTarget::File {
-                path: RelPath::parse(&path)?.to_string(),
+                path: shown_file(&path)?,
                 line,
             },
             ShowTarget::Agent { session } => {
@@ -181,4 +181,23 @@ fn coordinator(caller: &ToolCaller) -> Result<()> {
         ToolRole::Coordinator => Ok(()),
         ToolRole::Worker => Err(forbidden("only the task's coordinator may manage workers")),
     }
+}
+
+/// The project-relative file `raw` names for `open_in_ui`. Beyond what
+/// [`RelPath::parse`] refuses (absolute, UNC, rooted or drive paths, `..`),
+/// a segment starting with `~`, `$` or `%` is refused too: a shell or a
+/// person reads it as a home folder or a variable, so it cannot be told to
+/// stay inside the project. The approval cards treat these the same way.
+pub(super) fn shown_file(raw: &str) -> Result<String> {
+    let path = RelPath::parse(raw)?;
+    if path
+        .as_str()
+        .split('/')
+        .any(|s| s.starts_with(['~', '$', '%']))
+    {
+        return Err(forbidden(format!(
+            "path {raw:?} may name a home folder or a variable"
+        )));
+    }
+    Ok(path.to_string())
 }

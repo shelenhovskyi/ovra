@@ -338,6 +338,15 @@ async fn ovra_tools_are_decided_by_role_without_asking() {
         denied.message.as_deref(),
         Some("the task already runs 1 workers, its limit; wait for one to finish or stop one")
     );
+    // A worker may show files inside its project only.
+    let show = |path: &str| {
+        crate::orchestration::decide(&f.core, &sid("s2"), "open_in_ui", &json!({ "path": path }))
+    };
+    assert_eq!(
+        show("~/.ssh/id_rsa").message.as_deref(),
+        Some(r#"open_in_ui shows files inside the project only, not "~/.ssh/id_rsa""#)
+    );
+    assert_eq!(show("src/a.rs").message, None);
     // Nobody was asked.
     while let Ok(event) = rx.try_recv() {
         assert!(!matches!(
@@ -803,4 +812,47 @@ async fn snapshots_are_not_pruned_while_a_direct_session_runs() {
     )
     .await;
     assert!(f.wt.pruned.lock().map(|p| p.is_empty()).unwrap_or(false));
+}
+
+#[test]
+fn shown_files_are_surely_inside_the_project() {
+    use super::{ide::shown_file, policy::shows_inside};
+    let paths = [
+        "a.rs",
+        "./src/a.rs",
+        "src/~notes.md",
+        "src/a~b.rs",
+        "~",
+        "~/x",
+        "~user/x",
+        "src/~/x",
+        "$HOME/x",
+        "${HOME}/x",
+        "src/$TMP",
+        "%USERPROFILE%/x",
+        "%APPDATA%",
+        "C:a",
+        "C:/x",
+        "C:\\x",
+        "\\x",
+        "\\\\server\\share\\x",
+        "//server/share/x",
+        "/etc/passwd",
+        "../x",
+        "src/../../x",
+        "",
+    ];
+    let judged: Vec<String> = paths
+        .iter()
+        .map(|p| match shown_file(p) {
+            Ok(shown) => format!("{p:?} -> {shown:?}"),
+            Err(e) => format!("{p:?} refused: {}", e.message),
+        })
+        .collect();
+    for p in paths {
+        assert_eq!(shows_inside(&json!({ "path": p })), shown_file(p).is_ok());
+    }
+    assert!(shows_inside(&json!({ "agent_id": "s1" })));
+    assert!(!shows_inside(&json!({ "path": 3 })));
+    insta::assert_debug_snapshot!(judged);
 }
