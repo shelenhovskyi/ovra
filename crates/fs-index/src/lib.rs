@@ -74,6 +74,9 @@ fn blocking<T: Send + 'static>(
 
 impl FsService for FsIndex {
     fn list_dir(&self, root: PathBuf, path: RelPath) -> BoxFuture<'_, Result<DirListing>> {
+        if path.is_root() {
+            self.watched(&root, Watch::remind_unwatched);
+        }
         let watched = self.watched(&root, |w| (Arc::clone(&w.git), Arc::clone(&w.dirs)));
         blocking(move || {
             let status = match watched {

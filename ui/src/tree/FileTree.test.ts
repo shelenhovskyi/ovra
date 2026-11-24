@@ -379,6 +379,9 @@ describe("ProjectList", () => {
     flushSync();
     expect(notice()).toBeNull();
     // More folders without a watch: worth telling again.
+    core.emit({ type: "fs.watch_limited", data: { project: "p1", unwatched: 2 } });
+    flushSync();
+    expect(notice()).toBeNull();
     core.emit({ type: "fs.watch_limited", data: { project: "p1", unwatched: 4 } });
     flushSync();
     expect(notice()).not.toBeNull();

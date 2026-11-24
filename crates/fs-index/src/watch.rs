@@ -123,6 +123,8 @@ pub(crate) struct Watch {
     pub(crate) git: Arc<GitCache>,
     pub(crate) files: Arc<SharedFiles>,
     pub(crate) dirs: Arc<Dirs>,
+    project: ProjectId,
+    sink: EventSink,
     tx: mpsc::Sender<Msg>,
     stopped: Arc<AtomicBool>,
 }
@@ -144,6 +146,18 @@ fn internal(err: &notify::Error) -> ProtocolError {
 }
 
 impl Watch {
+    /// Repeats `fs.watch_limited` for clients that joined after it was
+    /// sent (a reload, a second window); they list the root first.
+    pub(crate) fn remind_unwatched(&self) {
+        let unwatched = self.dirs.unwatched();
+        if unwatched > 0 && !self.stopped.load(Ordering::SeqCst) {
+            self.sink.emit(FsEvent::WatchLimited {
+                project: self.project.clone(),
+                unwatched: u32::try_from(unwatched).unwrap_or(u32::MAX),
+            });
+        }
+    }
+
     /// Watches the root and the git directory, then returns; the rest of
     /// the tree is walked and watched on the watcher thread. A directory
     /// is watched before it is read, so nothing that changes during the
@@ -187,14 +201,15 @@ impl Watch {
         });
         dirs.add(&root);
         if let Some(repo) = &git.repo {
-            // Best effort: without it, commits and checkouts surface on the
-            // next worktree change.
+            // Best effort (it also fails once the watch limit is reached):
+            // without it, commits and checkouts surface on the next
+            // worktree change.
             let _ = lock(&dirs.watcher).watch(&repo.git_dir, RecursiveMode::NonRecursive);
         }
         let worker = Worker {
-            project,
+            project: project.clone(),
             root,
-            sink,
+            sink: sink.clone(),
             git_tx,
             files: Arc::new(SharedFiles::default()),
             dirs: Arc::clone(&dirs),
@@ -213,6 +228,8 @@ impl Watch {
             git,
             files,
             dirs,
+            project,
+            sink,
             tx,
             stopped,
         })
@@ -361,19 +378,30 @@ impl Dirs {
     }
 
     /// How many directories are polled rather than watched.
-    fn unwatched(&self) -> usize {
+    pub(crate) fn unwatched(&self) -> usize {
         lock(&self.polled).len()
     }
 
-    /// Rescans the polled directories, first trying again to watch each (the
-    /// limit may have been raised, or watches freed). Returns the paths that
-    /// changed since the last scan, including directories that are gone.
+    /// Rescans the polled directories, first trying again to watch them (the
+    /// limit may have been raised, or watches freed) until the OS refuses
+    /// one. Returns the paths that changed since the last scan, including
+    /// directories that are gone.
     fn rescan(&self) -> Vec<PathBuf> {
         let dirs: Vec<PathBuf> = lock(&self.polled).keys().cloned().collect();
         let mut changed = Vec::new();
+        // Each attempt is a round trip to notify's thread: with thousands
+        // of polled directories, stop at the first refusal.
+        let mut full = false;
         for dir in dirs {
             // Watch, then read, so nothing that happens between is missed.
-            let watching = self.watch_os(&dir).is_ok();
+            let watching = !full
+                && match self.watch_os(&dir) {
+                    Ok(()) => true,
+                    Err(e) => {
+                        full = matches!(e.kind, notify::ErrorKind::MaxFilesWatch);
+                        false
+                    }
+                };
             let fresh = snapshot(&dir);
             let mut polled = lock(&self.polled);
             let Some(old) = polled.get_mut(&dir) else {

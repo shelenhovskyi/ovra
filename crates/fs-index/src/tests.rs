@@ -594,12 +594,27 @@ async fn a_listed_directory_reports_changes_before_indexing_ends() {
     changed_until(&mut rx, "src/a.rs").await;
 }
 
-/// Waits for `fs.watch_limited` and returns its count.
-async fn unwatched(rx: &mut broadcast::Receiver<Event>) -> u32 {
-    loop {
-        if let FsEvent::WatchLimited { unwatched, .. } = next_fs(rx).await {
-            return unwatched;
+/// Changed paths and the latest `fs.watch_limited` count, gathered from
+/// events in whatever order they come.
+#[derive(Default)]
+struct Seen {
+    paths: Vec<String>,
+    unwatched: Option<u32>,
+}
+
+impl Seen {
+    async fn until(&mut self, rx: &mut broadcast::Receiver<Event>, done: impl Fn(&Self) -> bool) {
+        while !done(self) {
+            match next_fs(rx).await {
+                FsEvent::Changed { paths, .. } => self.paths.extend(paths),
+                FsEvent::WatchLimited { unwatched, .. } => self.unwatched = Some(unwatched),
+                _ => {}
+            }
         }
+    }
+
+    fn has(&self, path: &str) -> bool {
+        self.paths.iter().any(|p| p == path)
     }
 }
 
@@ -629,13 +644,22 @@ async fn directories_beyond_the_watch_limit_are_polled() {
     put(root, "build/out.o", "");
     let core = Core::new("test");
     let mut rx = core.subscribe();
-    // The root and one more directory get a watch; two are polled.
-    let fs = limited(2);
+    // Only the root gets a watch (whatever order the walk takes), so `a`,
+    // `b` and `c` are polled; ignored `build` is not.
+    let fs = limited(1);
     let project = ProjectId("p".into());
     fs.watch(project.clone(), root.to_path_buf(), core.sink())
         .expect("watch");
     ready(&mut rx, "p").await;
-    assert_eq!(unwatched(&mut rx).await, 2);
+    let mut seen = Seen::default();
+    seen.until(&mut rx, |s| s.unwatched.is_some()).await;
+    assert_eq!(seen.unwatched, Some(3));
+
+    // A client that lists the root later hears the count again.
+    seen.unwatched = None;
+    list(&fs, root, "").await.expect("list");
+    seen.until(&mut rx, |s| s.unwatched.is_some()).await;
+    assert_eq!(seen.unwatched, Some(3));
 
     // Edits, new files and new directories in polled directories surface,
     // and ignored ones still do not.
@@ -643,27 +667,27 @@ async fn directories_beyond_the_watch_limit_are_polled() {
     put(root, "b/new.txt", "");
     fs::create_dir(root.join("c/sub")).expect("mkdir");
     put(root, "c/build/x.o", "");
-    let mut seen = Vec::new();
-    let wants = ["c/three.txt", "b/new.txt", "c/sub"];
-    while !wants.iter().all(|w| seen.iter().any(|p| p == w)) {
-        if let FsEvent::Changed { paths, .. } = next_fs(&mut rx).await {
-            seen.extend(paths);
-        }
-    }
-    assert_eq!(unwatched(&mut rx).await, 3, "c/sub is polled too");
+    seen.until(&mut rx, |s| {
+        s.has("c/three.txt") && s.has("b/new.txt") && s.has("c/sub") && s.unwatched == Some(4)
+    })
+    .await;
     put(root, "c/sub/deep.txt", "");
-    seen.extend(changed_until(&mut rx, "c/sub/deep.txt").await);
-    assert!(!seen.iter().any(|p| p.contains("build/")), "{seen:?}");
+    seen.until(&mut rx, |s| s.has("c/sub/deep.txt")).await;
+    assert!(
+        !seen.paths.iter().any(|p| p.contains("build/")),
+        "{:?}",
+        seen.paths
+    );
     let files = fs
         .list_files(root.to_path_buf(), 0, 100)
         .await
         .expect("list");
     assert!(files.paths.contains(&"b/new.txt".to_owned()), "{files:?}");
 
-    // A polled directory that is removed is forgotten.
+    // A polled directory that is removed is forgotten, with all below it.
     fs::remove_dir_all(root.join("c")).expect("rm");
-    changed_until(&mut rx, "c").await;
-    assert_eq!(unwatched(&mut rx).await, 1);
+    seen.until(&mut rx, |s| s.has("c") && s.unwatched == Some(2))
+        .await;
 
     // Once the limit is raised, the rest gets a watch and clients hear so.
     fs.watched(&root.to_path_buf(), |w| {
@@ -671,5 +695,5 @@ async fn directories_beyond_the_watch_limit_are_polled() {
             .watch_budget
             .store(usize::MAX, std::sync::atomic::Ordering::SeqCst);
     });
-    assert_eq!(unwatched(&mut rx).await, 0);
+    seen.until(&mut rx, |s| s.unwatched == Some(0)).await;
 }

@@ -1,13 +1,13 @@
 <script lang="ts">
 // Shown while the core polls folders because the OS ran out of file
-// watches (`fs.watch_limited`). Dismissing hides it until the count changes.
+// watches (`fs.watch_limited`). Dismissing hides it until the count grows.
 let { unwatched }: { unwatched: number } = $props();
 
 const SETTING = "fs.inotify.max_user_watches=524288";
 let dismissed = $state<number | null>(null);
 </script>
 
-{#if unwatched > 0 && dismissed !== unwatched}
+{#if unwatched > (dismissed ?? 0)}
   <div class="notice" role="status" data-testid="watch-limit-notice">
     <p>
       {unwatched === 1 ? "1 folder is" : `${unwatched} folders are`} not watched for changes: the system limit on file
