@@ -1,5 +1,7 @@
 <script lang="ts">
-let { src, alt }: { src: string; alt: string } = $props();
+let { src, path }: { src: string; path: string } = $props();
+
+const name = $derived(path.slice(path.lastIndexOf("/") + 1));
 
 let size = $state<{ width: number; height: number } | null>(null);
 let failed = $state(false);
@@ -10,13 +12,13 @@ function onload(event: Event) {
 }
 </script>
 
-<figure class="image" data-testid="image-view">
+<figure class="image" data-testid="image-view" aria-label="Image {name}">
   {#if failed}
     <p class="note">This image cannot be shown.</p>
   {:else}
-    <img {src} {alt} {onload} onerror={() => (failed = true)} />
+    <img {src} alt={name} {onload} onerror={() => (failed = true)} />
   {/if}
-  {#if size}<figcaption>{size.width} × {size.height}</figcaption>{/if}
+  {#if size}<figcaption>{name}, {size.width} × {size.height} pixels</figcaption>{/if}
 </figure>
 
 <style>
@@ -40,7 +42,7 @@ function onload(event: Event) {
   }
   figcaption,
   .note {
-    color: #9a9aa6;
+    color: #b4b4c0;
     font-size: 12px;
   }
 </style>

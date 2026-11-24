@@ -1,7 +1,7 @@
 import { flushSync, mount, unmount } from "svelte";
 import { describe, expect, it } from "vitest";
 import type { Request } from "../lib/protocol";
-import type { Transport } from "../lib/transport";
+import { FrameRouter, type Transport } from "../lib/transport";
 import Shell from "./Shell.svelte";
 
 /** A transport that answers info.get and nothing else. */
@@ -26,4 +26,53 @@ describe("Shell", () => {
     expect(target.querySelector("[data-testid=status]")?.textContent).toBe("Connected to ovra 0.0.0 (test)");
     unmount(app);
   });
+
+  it("tells the truth about the connection and asks again after a reconnect", async () => {
+    const sent: { id: number; method: string }[] = [];
+    const router = new FrameRouter((frame) => sent.push(JSON.parse(frame)), "connecting");
+    const answerInfo = () => {
+      for (const { id, method } of sent.splice(0)) {
+        if (method === "info.get") router.deliver(JSON.stringify({ id, result: INFO }));
+      }
+    };
+    const target = document.createElement("div");
+    const app = mount(Shell, { target, props: { transport: router } });
+    const status = async () => {
+      await Promise.resolve();
+      flushSync();
+      return target.querySelector("[role=status]")?.textContent;
+    };
+
+    expect(await status()).toBe("Connecting…");
+    router.setStatus("open");
+    answerInfo();
+    expect(await status()).toBe("Connected to ovra 0.0.0 (test)");
+
+    router.setStatus("closed");
+    expect(await status()).toBe("Connection to core lost, reconnecting…");
+    router.setStatus("connecting");
+    expect(await status()).toBe("Connection to core lost, reconnecting…");
+
+    router.setStatus("open");
+    answerInfo();
+    expect(await status()).toBe("Connected to ovra 0.0.0 (test)");
+    unmount(app);
+  });
+
+  it("says the core is unavailable when the connection never opens", async () => {
+    const router = new FrameRouter(() => {}, "connecting");
+    const target = document.createElement("div");
+    const app = mount(Shell, { target, props: { transport: router } });
+    flushSync();
+    router.setStatus("closed");
+    await new Promise((resolve) => setTimeout(resolve));
+    flushSync();
+    expect(target.querySelector("[role=status]")?.textContent).toBe("Core unavailable: could not connect, retrying…");
+    router.setStatus("connecting");
+    flushSync();
+    expect(target.querySelector("[role=status]")?.textContent).toBe("Core unavailable: could not connect, retrying…");
+    unmount(app);
+  });
 });
+
+const INFO = { type: "info", data: { name: "ovra", version: "0.0.0", mode: "test" } };

@@ -1,0 +1,26 @@
+import type { SessionId } from "./agents";
+
+export type PermissionId = string;
+
+export type PermissionRequest = {
+  id: PermissionId;
+  session: SessionId;
+  /** Tool name as the agent reports it, e.g. `Bash` or `Edit`. */
+  tool: string;
+  input: unknown;
+  title: string | null;
+};
+
+export type Decision = "allow" | "deny";
+
+export type PermissionsRequest =
+  | { method: "permissions.pending" }
+  /** `message` is shown to the agent on deny. */
+  | { method: "permissions.answer"; params: { id: PermissionId; decision: Decision; message?: string } };
+
+export type PermissionsResponse = { type: "permissions.pending"; data: PermissionRequest[] };
+
+export type PermissionsEvent =
+  | { type: "permissions.requested"; data: PermissionRequest }
+  /** Answered, or dropped as `deny` because its session ended. */
+  | { type: "permissions.resolved"; data: { id: PermissionId; decision: Decision } };

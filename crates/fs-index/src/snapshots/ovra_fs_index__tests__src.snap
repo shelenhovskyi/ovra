@@ -6,16 +6,35 @@ expression: "list(&fs, root, \"src\").await.expect(\"src\")"
   "path": "src",
   "entries": [
     {
+      "name": "helpers.rs",
+      "kind": "file",
+      "ignored": false,
+      "git": "renamed",
+      "renamed_from": "src/util.rs"
+    },
+    {
       "name": "lib.rs",
       "kind": "file",
       "ignored": false,
-      "git": null
+      "git": "deleted"
     },
     {
       "name": "main.rs",
       "kind": "file",
       "ignored": false,
       "git": "modified"
+    },
+    {
+      "name": "module-2.rs",
+      "kind": "file",
+      "ignored": false,
+      "git": null
+    },
+    {
+      "name": "module-10.rs",
+      "kind": "file",
+      "ignored": false,
+      "git": null
     },
     {
       "name": "staged.rs",

@@ -1,0 +1,28 @@
+{
+  "$comment": "Phase 1 speed gate. Every metric a benchmark reports must be listed here. 'concept' targets come from the product concept (ADR 0002: 1 s cold start, 150 MB idle RAM); 'budget' targets keep the parts that add up to them in check. Raising a target needs a human's approval.",
+  "metrics": {
+    "startup.daemon_ready_ms": { "max": 300, "source": "budget", "label": "Daemon spawn to listening" },
+    "startup.ui_ready_ms": { "max": 1000, "source": "concept", "label": "Cold start: spawn to project list" },
+    "startup.start_to_tree_ms": {
+      "max": 1500,
+      "source": "budget",
+      "label": "Spawn to 100k-file tree, incl. click"
+    },
+    "startup.open_to_tree_ms": { "max": 500, "source": "budget", "label": "Open 100k project to first rows" },
+    "memory.daemon_idle_mb": { "max": 150, "source": "concept", "label": "Daemon RSS, 100k project open" },
+    "memory.daemon_peak_mb": { "max": 200, "source": "budget", "label": "Daemon peak RSS" },
+    "memory.ui_js_heap_mb": { "max": 30, "source": "budget", "label": "UI JS heap, 5k rows expanded" },
+    "fs.git_status_ms": { "max": 1000, "source": "budget", "label": "list_dir with git status, unwatched" },
+    "fs.watch_start_ms": { "max": 1000, "source": "budget", "label": "projects.open (walk + watches)" },
+    "fs.list_root_ms": { "max": 50, "source": "budget", "label": "list_dir root, watched" },
+    "fs.list_leaf_ms": { "max": 50, "source": "budget", "label": "list_dir 90 files, watched" },
+    "fs.list_flat_ms": { "max": 150, "source": "budget", "label": "list_dir 5,000 files, watched" },
+    "fs.watch_create_ms": { "max": 400, "source": "budget", "label": "New file to fs.changed" },
+    "fs.watch_new_dir_ms": { "max": 400, "source": "budget", "label": "File in a new dir to fs.changed" },
+    "fs.watch_git_ms": { "max": 1500, "source": "budget", "label": "Edit tracked file to fs.git_changed" },
+    "tree.expand_flat_ms": { "max": 300, "source": "budget", "label": "Expand 5,000-file folder" },
+    "tree.dom_rows": { "max": 100, "source": "budget", "label": "Rows in the DOM, 5k-row list" },
+    "tree.scroll_jump_ms": { "max": 100, "source": "budget", "label": "Jump to the end of 5k rows" },
+    "tree.scroll_frame_p95_ms": { "max": 34, "source": "budget", "label": "Frame time p95 while scrolling" }
+  }
+}

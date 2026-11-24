@@ -1,0 +1,7 @@
+{
+  "name": "JSON",
+  "extensions": ["json"],
+  "filenames": [".prettierrc", ".babelrc"],
+  "grammar": "tree-sitter-json/tree-sitter-json.wasm",
+  "highlights": ["json/highlights.scm"]
+}

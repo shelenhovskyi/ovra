@@ -1,0 +1,6 @@
+{
+  "name": "CSS",
+  "extensions": ["css"],
+  "grammar": "tree-sitter-css/tree-sitter-css.wasm",
+  "highlights": ["css/highlights.scm"]
+}

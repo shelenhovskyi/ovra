@@ -16,6 +16,8 @@ ovra-transport = { path = "crates/transport" }
 ovra-fs-index = { path = "crates/fs-index" }
 ovra-store = { path = "crates/store" }
 ovra-opener = { path = "crates/opener" }
+ovra-pty = { path = "crates/pty" }
+ovra-agent-runtime = { path = "crates/agent-runtime" }
 anyhow = "1"
 axum = { version = "0.8", features = ["ws"] }
 futures-util = "0.3"

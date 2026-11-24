@@ -47,13 +47,19 @@ fans out events; only the wire under it differs.
 WebSocket connections need the token and, from browsers, an allowed `Origin`.
 This is what lets agents in a Linux cloud container run Playwright e2e tests.
 
-## Agents (phase 2, ADR 0004)
+## Agents (phase 2, ADR 0004, ADR 0006)
 
-Claude runs through the Claude Agent SDK, which exists only for TypeScript and
-Python. So each Claude session lives in a sidecar process, `agent-host/`
-(TypeScript), that the core supervises over JSON lines on stdio. Other agents
-connect through ACP, with PTY + CLI as a fallback. All of them sit behind one
-`AgentRuntime` trait in the core.
+Each Claude session is a `claude -p` process from the user's own Claude Code
+installation, signed in with the user's own account. `crates/agent-runtime`
+starts it and speaks stream-json on stdio: messages stream out, tool approvals
+arrive as `can_use_tool` control requests and go to the core's approval flow.
+Ovra never touches credentials. Other agents connect through ACP, with PTY +
+CLI as a fallback. An Agent SDK sidecar (ADR 0004) may come later. All of them
+sit behind one `AgentRuntime` trait in the core.
+
+Sessions run either `isolated` (own git worktree) or `direct` (the main
+checkout, at most one per project; review is a diff against a baseline
+snapshot taken at session start). See ADR 0005.
 
 ## Planned crates
 

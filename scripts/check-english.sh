@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Repository content must be English; only locales/ may hold other languages.
+# Repository content and the UI are English only (no translations for now).
 set -euo pipefail
-if rg --hidden -n '\p{Cyrillic}' --glob '!locales/**' --glob '!.git/**' --glob '!**/node_modules/**' --glob '!target/**' .; then
-  echo "error: Cyrillic text found outside locales/ (see above)" >&2
+if rg --hidden -n '\p{Cyrillic}' --glob '!.git/**' --glob '!**/node_modules/**' --glob '!target/**' .; then
+  echo "error: Cyrillic text found (see above); repository content and the UI are English only" >&2
   exit 1
 fi

@@ -6,8 +6,10 @@ Read `docs/architecture.md` (one page) and `docs/glossary.md` before changing
 code, and the ADRs in `docs/adr/` that touch the area you change.
 
 Always write repository content in English, even when the user writes in
-another language. Only `locales/` may contain other languages; CI fails on
-Cyrillic anywhere else.
+another language. The UI is English only: no translations, locale files or
+i18n layer until the owner asks for one. CI fails on Cyrillic anywhere in the
+repository. Keyboard shortcuts must still work on non-Latin layouts (match on
+`KeyboardEvent.code`, not `key`); that is not localization.
 
 ## Commands
 
@@ -24,12 +26,16 @@ Before every push: `just test && just e2e && just lint` must pass.
 ## Layout and boundaries
 
 - `crates/core` - protocol (`src/protocol/`, one module per domain), request
-  handling, path validation (`src/path.rs`) and the service traits
-  (`src/services.rs`) with in-memory fakes (`src/fakes.rs`, `fakes` feature).
+  handling, agent sessions and permission requests (`src/agents/`), path
+  validation (`src/path.rs`) and the service traits (`src/services.rs`) with
+  in-memory fakes (`src/fakes.rs`, `fakes` feature).
   No UI, no OS APIs, no Tauri, no axum.
 - `crates/fs-index` - `FsService`: listings, `.gitignore`, git status, watching.
 - `crates/store` - `ProjectStore`: the project list, persisted.
 - `crates/opener` - `Opener`: hands files to other applications.
+- `crates/pty` - `TerminalService`: shells in pseudo-terminals.
+- `crates/agent-runtime` - `AgentRuntime`: Claude sessions through the
+  user's installed `claude` CLI (ADR 0006).
 - `crates/transport` - JSON frames and the WebSocket endpoint (`ws` feature).
 - `crates/daemon` - headless binary: wires services into the core, serves
   WebSocket + static UI.

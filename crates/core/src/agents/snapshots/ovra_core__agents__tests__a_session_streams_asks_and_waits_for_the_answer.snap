@@ -1,0 +1,36 @@
+---
+source: crates/core/src/agents/tests.rs
+expression: transcript(&core).await
+---
+[
+  {
+    "kind": "user_text",
+    "text": "List the files\nthen stop"
+  },
+  {
+    "kind": "assistant_text",
+    "text": "Looking."
+  },
+  {
+    "kind": "tool_use",
+    "id": "tool1",
+    "name": "Bash",
+    "input": {
+      "command": "ls"
+    }
+  },
+  {
+    "kind": "tool_result",
+    "tool_use_id": "tool1",
+    "output": "done",
+    "is_error": false
+  },
+  {
+    "kind": "turn_end",
+    "usage": {
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "cost_micro_usd": null
+    }
+  }
+]

@@ -95,7 +95,8 @@ fn base64(bytes: &[u8]) -> String {
 }
 
 /// Writes `text` atomically (temporary file + rename), keeping the old
-/// file's permissions. Missing parent directories are created.
+/// file's permissions. Missing parent directories are created. With
+/// `expected_mtime_ms`, the file must still exist and have that mtime.
 pub(crate) fn write(
     root: &Path,
     path: &RelPath,
@@ -113,6 +114,14 @@ pub(crate) fn write(
                 ));
             }
             Some(meta.permissions())
+        }
+        // The client saw this file, so it was deleted or renamed since:
+        // writing would silently bring it back.
+        Err(e) if e.kind() == io::ErrorKind::NotFound && expected_mtime_ms.is_some() => {
+            return Err(ProtocolError::new(
+                ErrorCode::Conflict,
+                format!("{path} was deleted on disk"),
+            ));
         }
         Err(e) if e.kind() == io::ErrorKind::NotFound => None,
         Err(e) => return Err(io_error(path, &e)),

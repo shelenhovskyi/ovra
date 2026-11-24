@@ -15,6 +15,27 @@ export function isApple(): boolean {
   return typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 }
 
+/** Whether the UI runs in a regular browser tab (headless mode) rather than the desktop window. */
+export function inBrowserTab(): boolean {
+  return typeof window !== "undefined" && !("__TAURI_INTERNALS__" in window);
+}
+
+/**
+ * Shortcuts a browser keeps for itself (close tab, switch tabs, print), with
+ * the stand-ins used in headless mode. The desktop window gets the originals.
+ */
+const BROWSER_SAFE: Record<string, string> = {
+  "Mod+W": "Alt+W",
+  "Ctrl+Tab": "Alt+]",
+  "Ctrl+Shift+Tab": "Alt+[",
+  "Mod+P": "Alt+P",
+};
+
+/** The shortcut that is live where the UI runs: `keys` itself, or its browser-safe stand-in. */
+export function liveKeys(keys: string, browser: boolean): string {
+  return (browser && BROWSER_SAFE[keys]) || keys;
+}
+
 /** Parses `Mod+Shift+P`; returns null for a malformed string. */
 export function parseShortcut(text: string, apple: boolean): Shortcut | null {
   const parts = text.split("+");
@@ -43,6 +64,20 @@ export function parseShortcut(text: string, apple: boolean): Shortcut | null {
   return shortcut;
 }
 
+const PUNCTUATION: Record<string, string> = {
+  BracketLeft: "[",
+  BracketRight: "]",
+  Comma: ",",
+  Period: ".",
+  Slash: "/",
+  Semicolon: ";",
+  Quote: "'",
+  Backslash: "\\",
+  Minus: "-",
+  Equal: "=",
+  Backquote: "`",
+};
+
 type KeyEventLike = Pick<KeyboardEvent, "key" | "code" | "ctrlKey" | "metaKey" | "altKey" | "shiftKey">;
 
 /**
@@ -53,9 +88,10 @@ type KeyEventLike = Pick<KeyboardEvent, "key" | "code" | "ctrlKey" | "metaKey" |
 function pressedKey(event: KeyEventLike): string {
   const key = event.key.toLowerCase();
   if (key.length === 1 && key >= " " && key <= "~") return key;
+  if (key.length !== 1) return key;
   const physical = /^(?:Key([A-Z])|Digit(\d))$/.exec(event.code);
-  if (physical && key.length === 1) return (physical[1] ?? physical[2] ?? "").toLowerCase();
-  return key;
+  if (physical) return (physical[1] ?? physical[2] ?? "").toLowerCase();
+  return PUNCTUATION[event.code] ?? key;
 }
 
 export function matchesShortcut(event: KeyEventLike, shortcut: Shortcut): boolean {

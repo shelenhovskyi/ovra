@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatShortcut, matchesShortcut, parseShortcut } from "./shortcut";
+import { formatShortcut, liveKeys, matchesShortcut, parseShortcut } from "./shortcut";
 
 const press = (key: string, code: string, mods: Partial<Record<"ctrl" | "meta" | "alt" | "shift", boolean>> = {}) => ({
   key,
@@ -41,5 +41,23 @@ describe("shortcuts", () => {
     expect(formatShortcut("Mod+Shift+P", true)).toBe("⇧⌘P");
     expect(formatShortcut("Mod+Shift+P", false)).toBe("Ctrl+Shift+P");
     expect(formatShortcut("Alt+F1", false)).toBe("Alt+F1");
+  });
+
+  it("swaps shortcuts a browser keeps for browser-safe ones, only in a browser tab", () => {
+    expect(liveKeys("Mod+W", true)).toBe("Alt+W");
+    expect(liveKeys("Ctrl+Tab", true)).toBe("Alt+]");
+    expect(liveKeys("Ctrl+Shift+Tab", true)).toBe("Alt+[");
+    expect(liveKeys("Mod+P", true)).toBe("Alt+P");
+    expect(liveKeys("Mod+S", true)).toBe("Mod+S");
+    expect(liveKeys("Mod+W", false)).toBe("Mod+W");
+  });
+
+  it("matches punctuation by physical key when Alt changes the character", () => {
+    const next = parseShortcut("Alt+]", true);
+    if (!next) throw new Error("parse failed");
+    // Option+] on a Mac keyboard types a quote mark.
+    expect(matchesShortcut(press("\u2018", "BracketRight", { alt: true }), next)).toBe(true);
+    expect(formatShortcut("Alt+]", true)).toBe("\u2325]");
+    expect(formatShortcut("Alt+]", false)).toBe("Alt+]");
   });
 });

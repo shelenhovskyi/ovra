@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use ovra_core::protocol::projects::{Project, ProjectId};
+use ovra_core::protocol::projects::{Project, ProjectId, ProjectState, ProjectStatePatch};
 use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::{ProjectStore, Result};
 use rusqlite::{Connection, OptionalExtension, Row, params};
@@ -17,14 +17,21 @@ const DB_FILE: &str = "projects.sqlite3";
 
 /// Schema migrations, applied in order; `PRAGMA user_version` counts how many
 /// have run. Append new steps, never edit old ones.
-const MIGRATIONS: &[&str] = &["CREATE TABLE projects (
+const MIGRATIONS: &[&str] = &[
+    "CREATE TABLE projects (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         root TEXT NOT NULL UNIQUE,
         added_ms INTEGER NOT NULL,
         last_opened_ms INTEGER
     ) STRICT;
-    CREATE INDEX projects_by_last_opened ON projects (last_opened_ms DESC);"];
+    CREATE INDEX projects_by_last_opened ON projects (last_opened_ms DESC);",
+    // Per-project UI state as JSON, so new fields need no migration.
+    "CREATE TABLE project_state (
+        project_id TEXT PRIMARY KEY REFERENCES projects (id) ON DELETE CASCADE,
+        state TEXT NOT NULL
+    ) STRICT;",
+];
 
 const COLUMNS: &str = "id, name, root, last_opened_ms";
 
@@ -45,6 +52,8 @@ impl Store {
         })?;
         let mut db = Connection::open(data_dir.join(DB_FILE)).map_err(db_error)?;
         db.pragma_update(None, "journal_mode", "WAL")
+            .map_err(db_error)?;
+        db.pragma_update(None, "foreign_keys", true)
             .map_err(db_error)?;
         db.busy_timeout(std::time::Duration::from_secs(2))
             .map_err(db_error)?;
@@ -146,6 +155,46 @@ impl ProjectStore for Store {
             .map_err(db_error)?
             .ok_or_else(|| not_found(id))
     }
+
+    fn state(&self, id: &ProjectId) -> Result<ProjectState> {
+        load_state(&self.db(), id)
+    }
+
+    fn update_state(&self, id: &ProjectId, patch: ProjectStatePatch) -> Result<()> {
+        // Read, merge and write under one lock so concurrent patches from
+        // different panels cannot lose each other's fields.
+        let db = self.db();
+        let mut state = load_state(&db, id)?;
+        patch.apply(&mut state);
+        let json = serde_json::to_string(&state).map_err(|e| internal(e.to_string()))?;
+        db.execute(
+            "INSERT INTO project_state (project_id, state) VALUES (?1, ?2)
+             ON CONFLICT (project_id) DO UPDATE SET state = excluded.state",
+            params![id.0, json],
+        )
+        .map_err(db_error)?;
+        Ok(())
+    }
+}
+
+/// The saved state, the default if none was saved, `not_found` without a project.
+fn load_state(db: &Connection, id: &ProjectId) -> Result<ProjectState> {
+    find(db, id)?;
+    let json: Option<String> = db
+        .query_row(
+            "SELECT state FROM project_state WHERE project_id = ?1",
+            [&id.0],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(db_error)?;
+    json.map_or_else(
+        || Ok(ProjectState::default()),
+        |json| {
+            serde_json::from_str(&json)
+                .map_err(|e| internal(format!("saved state of project {}: {e}", id.0)))
+        },
+    )
 }
 
 fn find(db: &Connection, id: &ProjectId) -> Result<Project> {

@@ -13,33 +13,64 @@ export class CoreError extends Error {
   }
 }
 
+/** Whether frames can reach the core right now. */
+export type ConnectionStatus = "connecting" | "open" | "closed";
+
 export interface Transport {
   call<R extends Request>(request: R): Promise<ResponseFor<R>>;
   onEvent(listener: (event: CoreEvent) => void): () => void;
+  /** Reports the current status at once, then every change. Absent means always open. */
+  onStatus?(listener: (status: ConnectionStatus) => void): () => void;
 }
 
 /** Sends a serialized frame; replies and events arrive via `deliver`. */
 type Wire = (frame: string) => void;
+
+const CLOSED_MESSAGE = "connection to core closed";
 
 /** Matches replies to calls and fans events out. Transport-agnostic. */
 export class FrameRouter implements Transport {
   private nextId = 1;
   private pending = new Map<number, { resolve: (r: Response) => void; reject: (e: Error) => void }>();
   private listeners = new Set<(event: CoreEvent) => void>();
+  private statusListeners = new Set<(status: ConnectionStatus) => void>();
 
-  constructor(private readonly send: Wire) {}
+  constructor(
+    private readonly send: Wire,
+    private status: ConnectionStatus = "open",
+  ) {}
 
   call<R extends Request>(request: R): Promise<ResponseFor<R>> {
+    if (this.status === "closed") return Promise.reject(new Error(CLOSED_MESSAGE));
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve: resolve as (r: Response) => void, reject });
-      this.send(JSON.stringify({ id, ...request }));
+      try {
+        this.send(JSON.stringify({ id, ...request }));
+      } catch (err) {
+        this.pending.delete(id);
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
     });
   }
 
   onEvent(listener: (event: CoreEvent) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  onStatus(listener: (status: ConnectionStatus) => void): () => void {
+    this.statusListeners.add(listener);
+    listener(this.status);
+    return () => this.statusListeners.delete(listener);
+  }
+
+  /** Moves to `status`; closing rejects every pending call. */
+  setStatus(status: ConnectionStatus): void {
+    if (status === "closed") this.failAll(new Error(CLOSED_MESSAGE));
+    if (status === this.status) return;
+    this.status = status;
+    for (const listener of this.statusListeners) listener(status);
   }
 
   deliver(raw: string): void {
@@ -81,21 +112,61 @@ function connectTauri(): Transport {
   return router;
 }
 
+/** The part of `WebSocket` the transport uses, so tests can pass a fake. */
+export interface SocketLike {
+  send(data: string): void;
+  addEventListener(type: "open" | "close", listener: () => void): void;
+  addEventListener(type: "message", listener: (event: { data: unknown }) => void): void;
+}
+
+const RECONNECT_INITIAL_MS = 250;
+const RECONNECT_MAX_MS = 10_000;
+
+/**
+ * Runs the router over sockets from `openSocket`. Frames wait in a queue only
+ * while a socket is connecting; after a close, calls fail at once and a new
+ * socket is opened after a delay that doubles up to `RECONNECT_MAX_MS` and
+ * resets after a successful open.
+ */
+export function connectSocket(openSocket: () => SocketLike): FrameRouter {
+  let socket: SocketLike;
+  let queue: string[] = [];
+  let delay = RECONNECT_INITIAL_MS;
+  let status: ConnectionStatus = "connecting";
+  const router = new FrameRouter((frame) => {
+    if (status === "open") socket.send(frame);
+    else queue.push(frame);
+  }, status);
+  const setStatus = (next: ConnectionStatus) => {
+    status = next;
+    router.setStatus(next);
+  };
+
+  const open = () => {
+    setStatus("connecting");
+    socket = openSocket();
+    socket.addEventListener("open", () => {
+      delay = RECONNECT_INITIAL_MS;
+      setStatus("open");
+      for (const frame of queue.splice(0)) socket.send(frame);
+    });
+    socket.addEventListener("message", (e) => router.deliver(String(e.data)));
+    socket.addEventListener("close", () => {
+      queue = [];
+      setStatus("closed");
+      setTimeout(open, delay);
+      delay = Math.min(delay * 2, RECONNECT_MAX_MS);
+    });
+  };
+  open();
+  return router;
+}
+
 function connectWebSocket(): Transport {
   const token = new URLSearchParams(location.search).get("token") ?? "";
   const scheme = location.protocol === "https:" ? "wss" : "ws";
-  const socket = new WebSocket(`${scheme}://${location.host}/ws?token=${encodeURIComponent(token)}`);
-  const queue: string[] = [];
-  const router = new FrameRouter((frame) => {
-    if (socket.readyState === WebSocket.OPEN) socket.send(frame);
-    else queue.push(frame);
-  });
-  socket.addEventListener("open", () => {
-    for (const frame of queue.splice(0)) socket.send(frame);
-  });
-  socket.addEventListener("message", (e) => router.deliver(String(e.data)));
-  socket.addEventListener("close", () => router.failAll(new Error("connection to core closed")));
-  return router;
+  const url = `${scheme}://${location.host}/ws?token=${encodeURIComponent(token)}`;
+  return connectSocket(() => new WebSocket(url));
 }
 
 export function connect(): Transport {

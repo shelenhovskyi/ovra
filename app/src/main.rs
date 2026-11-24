@@ -5,9 +5,11 @@
 
 use std::sync::Arc;
 
+use ovra_agent_runtime::ClaudeCli;
 use ovra_core::Core;
 use ovra_fs_index::FsIndex;
 use ovra_opener::SystemOpener;
+use ovra_pty::Pty;
 use ovra_store::Store;
 use tauri::{Emitter, Manager};
 
@@ -26,12 +28,15 @@ fn main() {
                 .projects(Arc::new(Store::open(&data_dir)?))
                 .fs(Arc::new(FsIndex::new()))
                 .opener(Arc::new(SystemOpener::new()))
+                .terminals(Arc::new(Pty::new()))
+                .agents(Arc::new(ClaudeCli::new(None)))
                 .build();
             app.manage(core);
             let handle = app.handle().clone();
             let mut events = app.state::<Core>().subscribe();
             tauri::async_runtime::spawn(async move {
-                while let Ok(event) = events.recv().await {
+                // A lagging window gets `info.resync` and keeps receiving.
+                while let Some(event) = Core::next_event(&mut events).await {
                     let _ = handle.emit("ovra://frame", ovra_transport::event_frame(event));
                 }
             });

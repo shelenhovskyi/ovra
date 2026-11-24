@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { type Dirs, dirsFromPaths, FakeCore, flatDir } from "./fake-core";
-import { TreeModel, visibleRange } from "./model";
+import { sortEntries, TreeModel, typeaheadMatch, visibleRange } from "./model";
 
 function setup(paths: string[] | Dirs, git = {}) {
   const core = new FakeCore(Array.isArray(paths) ? dirsFromPaths(paths, git) : paths);
@@ -39,6 +39,13 @@ describe("TreeModel", () => {
     expect(core.listedPaths()).toEqual(["", "src", "src/lib"]);
   });
 
+  it("restores expanded directories and drops the ones that are gone", async () => {
+    const { model, names } = setup(["src/lib/b.ts", "docs/a.md"]);
+    await model.start(["src/lib", "src", "old"]);
+    expect(names()).toEqual(["docs", "src/", "  lib/", "    b.ts"]);
+    expect(model.expandedDirs()).toEqual(["src", "src/lib"]);
+  });
+
   it("marks an expanding directory as loading until its listing arrives", async () => {
     const { model } = setup(["src/a.ts"]);
     await model.start();
@@ -57,13 +64,30 @@ describe("TreeModel", () => {
     ]);
   });
 
+  it("dims everything inside an ignored directory", async () => {
+    const dirs = dirsFromPaths(["dist/app.js", "src/a.ts"]);
+    // The core marks only the top ignored entry; its contents inherit the flag.
+    const dist = dirs.get("")?.find((e) => e.name === "dist");
+    if (dist) dist.ignored = true;
+    const { model } = setup(dirs);
+    await model.start();
+    await model.expand("dist");
+    await model.expand("src");
+    expect(model.rows.map((r) => [r.path, r.ignored])).toEqual([
+      ["dist", true],
+      ["dist/app.js", true],
+      ["src", false],
+      ["src/a.ts", false],
+    ]);
+  });
+
   it("reloads only the directories an fs.changed event touches", async () => {
     const { core, model, names } = setup(["src/a.ts", "docs/x.md"]);
     await model.start();
     await model.expand("src");
     core.dirs = dirsFromPaths(["src/a.ts", "src/new.ts", "docs/x.md"]);
     core.calls = [];
-    await model.refreshPaths(["src/new.ts", "docs/x.md"]);
+    await model.invalidatePaths(["src/new.ts", "docs/x.md"]);
     // `docs` is not loaded, so only `src` (parent of new.ts) reloads.
     expect(core.listedPaths()).toEqual(["src"]);
     expect(names()).toEqual(["docs", "src/", "  a.ts", "  new.ts"]);
@@ -74,7 +98,7 @@ describe("TreeModel", () => {
     await model.start();
     await model.expand("src");
     core.dirs = dirsFromPaths(["src/a.ts"], { src: "modified", "src/a.ts": "modified" });
-    await model.refreshAll();
+    await model.invalidateAll();
     expect(model.rows.map((r) => r.git)).toEqual(["modified", "modified"]);
   });
 
@@ -84,11 +108,11 @@ describe("TreeModel", () => {
     await model.expand("src");
     await model.expand("src/lib");
     core.dirs = dirsFromPaths(["a.ts"]);
-    await model.refreshPaths(["src"]);
+    await model.invalidatePaths(["src"]);
     expect(names()).toEqual(["a.ts"]);
     // Re-created later: it comes back collapsed and is listed afresh.
     core.dirs = dirsFromPaths(["src/lib/b.ts", "a.ts"]);
-    await model.refreshPaths(["src"]);
+    await model.invalidatePaths(["src"]);
     expect(names()).toEqual(["src", "a.ts"]);
     expect(model.isExpanded("src/lib")).toBe(false);
   });
@@ -115,6 +139,137 @@ describe("TreeModel", () => {
     expect(model.rows).toHaveLength(100_001);
     expect(model.rows[100_000]?.path).toBe("big/f099999");
     expect(changes()).toBeLessThan(10);
+  });
+});
+
+describe("TreeModel restore", () => {
+  it("loads restored folders only once their row is on screen", async () => {
+    const paths = Array.from({ length: 50 }, (_, i) => `pkg${i}/src/a.ts`);
+    const { core, model } = setup(paths);
+    await model.setView(new Set());
+    const saved = paths.flatMap((p) => [p.split("/")[0] as string, p.split("/").slice(0, 2).join("/")]);
+    await model.start(saved);
+    expect(core.listedPaths()).toEqual([""]);
+    await model.setView(new Set(["pkg0", "pkg1"])); // the first rows come on screen
+    expect(core.listedPaths().sort()).toEqual(["", "pkg0", "pkg1"]);
+    await model.setView(new Set(["pkg0", "pkg0/src"]));
+    expect(core.listedPaths()).toContain("pkg0/src");
+    expect(core.listedPaths()).not.toContain("pkg1/src");
+    expect(model.expandedDirs()).toHaveLength(100); // the saved shape is kept
+  });
+});
+
+describe("TreeModel refresh", () => {
+  const tree = ["a/x.ts", "b/y.ts", "c/z.ts"];
+
+  it("on fs.git_changed reloads only listings on screen, the rest when shown again", async () => {
+    const { core, model } = setup(tree);
+    await model.start(["a", "b", "c"]);
+    model.collapse("c");
+    await model.setView(new Set(["a", "a/x.ts"])); // rows of "" and of a are on screen
+    core.calls = [];
+    await model.invalidateAll();
+    expect(core.listedPaths().sort()).toEqual(["", "a"]);
+    core.calls = [];
+    await model.setView(new Set(["b/y.ts"])); // scrolled to b's children
+    expect(core.listedPaths()).toEqual(["b"]);
+    core.calls = [];
+    await model.expand("c"); // collapsed while stale: shown from cache at once...
+    expect(core.listedPaths()).toEqual([]);
+    expect(model.rows.map((r) => r.path)).toContain("c/z.ts");
+    await model.setView(new Set(["c/z.ts"])); // ...and reloaded once its rows are on screen
+    expect(core.listedPaths()).toEqual(["c"]);
+  });
+
+  it("does not show the loading hint when reloading a listing it already has", async () => {
+    const { model } = setup(tree);
+    await model.start(["a"]);
+    const seen: boolean[] = [];
+    const done = model.invalidateAll();
+    seen.push(model.rows.some((r) => r.loading));
+    await done;
+    expect(seen).toEqual([false]);
+  });
+
+  it("reloads everything loaded under a folder the watcher reports as one path", async () => {
+    const { core, model } = setup(["pkg/src/deep/a.ts"]);
+    await model.start(["pkg", "pkg/src", "pkg/src/deep"]);
+    core.calls = [];
+    await model.invalidatePaths(["pkg"]);
+    expect(core.listedPaths().sort()).toEqual(["", "pkg", "pkg/src", "pkg/src/deep"]);
+  });
+
+  it("re-lists shown ignored folders on request, since the core does not watch them", async () => {
+    const dirs = dirsFromPaths(["dist/a.js", "src/b.ts"]);
+    const dist = dirs.get("")?.find((e) => e.name === "dist");
+    if (dist) dist.ignored = true;
+    const { core, model } = setup(dirs);
+    await model.start(["dist", "src"]);
+    core.calls = [];
+    await model.invalidateIgnored();
+    expect(core.listedPaths()).toEqual(["dist"]);
+  });
+});
+
+describe("TreeModel navigation", () => {
+  it("sorts naturally, folders first, and hides .git", () => {
+    const entry = (name: string, kind: "file" | "dir" = "file") => ({ name, kind, ignored: false, git: null });
+    const sorted = sortEntries([
+      entry("module-10"),
+      entry("module-2"),
+      entry("b", "dir"),
+      entry(".git", "dir"),
+      entry("README.md"),
+      entry("a file"),
+    ]);
+    expect(sorted.map((e) => e.name)).toEqual(["b", "a file", "module-2", "module-10", "README.md"]);
+  });
+
+  it("numbers rows among their siblings", async () => {
+    const { model } = setup(["src/a.ts", "src/b.ts", "z.md"]);
+    await model.start(["src"]);
+    expect(model.rows.map((r) => [r.path, r.posinset, r.setsize])).toEqual([
+      ["src", 1, 2],
+      ["src/a.ts", 1, 2],
+      ["src/b.ts", 2, 2],
+      ["z.md", 2, 2],
+    ]);
+  });
+
+  it("collapses everything and reveals a deep file", async () => {
+    const { model, names } = setup(["a/b/c/d.ts", "z.md"]);
+    await model.start(["a"]);
+    model.collapseAll();
+    expect(names()).toEqual(["a", "z.md"]);
+    await model.reveal("a/b/c/d.ts");
+    expect(names()).toEqual(["a/", "  b/", "    c/", "      d.ts", "z.md"]);
+  });
+
+  it("shows changed files only, opening folders with changes, and restores the tree after", async () => {
+    const git = {
+      src: "modified",
+      "src/lib": "modified",
+      "src/lib/a.ts": "modified",
+      "docs/new.md": "untracked",
+      docs: "untracked",
+    } as const;
+    const { model, names } = setup(["src/lib/a.ts", "src/lib/b.ts", "src/c.ts", "docs/new.md", "README.md"], git);
+    await model.start(["src"]);
+    await model.setFilter("changed");
+    // docs is wholly untracked, so it stays closed.
+    expect(names()).toEqual(["docs", "src/", "  lib/", "    a.ts"]);
+    expect(model.expandedDirs()).toEqual(["src"]);
+    await model.setFilter("all");
+    expect(names()).toEqual(["docs", "src/", "  lib", "  c.ts", "README.md"]);
+  });
+
+  it("finds the next row by typed prefix, wrapping around", async () => {
+    const { model } = setup(["alpha.ts", "beta.ts", "bravo.ts"]);
+    await model.start();
+    expect(typeaheadMatch(model.rows, 0, "b")).toBe(1);
+    expect(typeaheadMatch(model.rows, 2, "BR")).toBe(2);
+    expect(typeaheadMatch(model.rows, 2, "a")).toBe(0);
+    expect(typeaheadMatch(model.rows, 0, "x")).toBe(-1);
   });
 });
 

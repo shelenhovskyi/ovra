@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parsePatch } from "./patch";
+import { fileName, fileStats, parsePatch, patchRows } from "./patch";
 
 describe("parsePatch", () => {
   it("numbers lines on both sides of a git diff", () => {
@@ -60,5 +60,49 @@ describe("parsePatch", () => {
 
   it("returns nothing for text that is not a diff", () => {
     expect(parsePatch("just some notes\n+ not a hunk")).toEqual([]);
+  });
+});
+
+describe("patch rows", () => {
+  const files = parsePatch(
+    [
+      "--- a/a.txt",
+      "+++ b/a.txt",
+      "@@ -1,2 +1,2 @@",
+      "-x",
+      "+y",
+      " z",
+      "--- a/gone.txt",
+      "+++ /dev/null",
+      "@@ -1 +0,0 @@",
+      "-q",
+    ].join("\n"),
+  );
+
+  it("counts changes and names files", () => {
+    expect(files.map(fileStats)).toEqual([
+      { added: 1, removed: 1 },
+      { added: 0, removed: 1 },
+    ]);
+    expect(files.map(fileName)).toEqual(["a.txt", "gone.txt"]);
+  });
+
+  it("flattens files and hunks, keeping only the header of collapsed files", () => {
+    expect(patchRows(files, new Set()).map((row) => row.kind)).toEqual([
+      "file",
+      "hunk",
+      "removed",
+      "added",
+      "context",
+      "file",
+      "hunk",
+      "removed",
+    ]);
+    expect(patchRows(files, new Set([0]))).toEqual([
+      { kind: "file", file: 0 },
+      { kind: "file", file: 1 },
+      { kind: "hunk", text: "@@ -1 +0,0 @@" },
+      { kind: "removed", text: "q", old: 1 },
+    ]);
   });
 });

@@ -1,0 +1,6 @@
+{
+  "name": "JavaScript",
+  "extensions": ["js", "mjs", "cjs", "jsx"],
+  "grammar": "tree-sitter-javascript/tree-sitter-javascript.wasm",
+  "highlights": ["javascript/highlights-jsx.scm", "javascript/highlights.scm"]
+}

@@ -9,9 +9,73 @@ expression: samples
     },
     {
       "data": {
+        "skipped": 3
+      },
+      "type": "info.resync"
+    },
+    {
+      "data": {
         "active": null
       },
       "type": "projects.changed"
+    },
+    {
+      "data": {
+        "added": [
+          "b.rs"
+        ],
+        "project": "p1",
+        "removed": [
+          "a.rs"
+        ],
+        "version": 7
+      },
+      "type": "fs.files_changed"
+    },
+    {
+      "data": {
+        "project": "p1",
+        "session": "s1",
+        "status": {
+          "message": "no model",
+          "state": "failed"
+        }
+      },
+      "type": "agents.status"
+    },
+    {
+      "data": {
+        "message": {
+          "id": "tool1",
+          "input": {
+            "prompt": "look"
+          },
+          "kind": "tool_use",
+          "name": "Task",
+          "parent": "tool0"
+        },
+        "session": "s1"
+      },
+      "type": "agents.message"
+    },
+    {
+      "data": {
+        "id": "perm1",
+        "input": {
+          "command": "ls"
+        },
+        "session": "s1",
+        "title": "List files",
+        "tool": "Bash"
+      },
+      "type": "permissions.requested"
+    },
+    {
+      "data": {
+        "code": null,
+        "id": "t1"
+      },
+      "type": "terminals.exited"
     }
   ],
   "requests": [
@@ -38,6 +102,12 @@ expression: samples
         "path": "a.rs",
         "project": "p1"
       }
+    },
+    {
+      "method": "open.url",
+      "params": {
+        "url": "https://example.com"
+      }
     }
   ],
   "responses": [
@@ -49,6 +119,18 @@ expression: samples
         "mtime_ms": 5
       },
       "type": "fs.written"
+    },
+    {
+      "data": {
+        "active_file": "a.rs",
+        "expanded_dirs": [
+          "src"
+        ],
+        "open_files": [
+          "a.rs"
+        ]
+      },
+      "type": "projects.state"
     }
   ]
 }

@@ -5,10 +5,13 @@
 //! namespaced (`fs.list_dir`, `projects.changed`, ...); the top-level enums
 //! below only combine them. Keep `ui/src/lib/protocol/` in sync.
 
+pub mod agents;
 pub mod fs;
 pub mod info;
 pub mod open;
+pub mod permissions;
 pub mod projects;
+pub mod terminals;
 
 use serde::{Deserialize, Serialize};
 
@@ -20,6 +23,9 @@ pub enum Request {
     Projects(projects::ProjectsRequest),
     Fs(fs::FsRequest),
     Open(open::OpenRequest),
+    Terminals(terminals::TerminalsRequest),
+    Agents(agents::AgentsRequest),
+    Permissions(permissions::PermissionsRequest),
 }
 
 /// The core's answer to a [`Request`]. Wire form: `{"type": "<domain>.<name>", "data": ...}`.
@@ -29,6 +35,9 @@ pub enum Response {
     Info(info::InfoResponse),
     Projects(projects::ProjectsResponse),
     Fs(fs::FsResponse),
+    Terminals(terminals::TerminalsResponse),
+    Agents(agents::AgentsResponse),
+    Permissions(permissions::PermissionsResponse),
     /// The request succeeded and has nothing to return.
     Ok(OkResponse),
 }
@@ -46,6 +55,9 @@ pub enum Event {
     Info(info::InfoEvent),
     Projects(projects::ProjectsEvent),
     Fs(fs::FsEvent),
+    Terminals(terminals::TerminalsEvent),
+    Agents(agents::AgentsEvent),
+    Permissions(permissions::PermissionsEvent),
 }
 
 /// An error returned instead of a [`Response`].
@@ -104,5 +116,23 @@ impl From<projects::ProjectsEvent> for Event {
 impl From<fs::FsEvent> for Event {
     fn from(e: fs::FsEvent) -> Self {
         Self::Fs(e)
+    }
+}
+
+impl From<terminals::TerminalsEvent> for Event {
+    fn from(e: terminals::TerminalsEvent) -> Self {
+        Self::Terminals(e)
+    }
+}
+
+impl From<agents::AgentsEvent> for Event {
+    fn from(e: agents::AgentsEvent) -> Self {
+        Self::Agents(e)
+    }
+}
+
+impl From<permissions::PermissionsEvent> for Event {
+    fn from(e: permissions::PermissionsEvent) -> Self {
+        Self::Permissions(e)
     }
 }

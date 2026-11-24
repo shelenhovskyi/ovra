@@ -6,6 +6,7 @@
 //! symlinks are not followed outside the root. Blocking work runs on tokio's
 //! blocking pool.
 
+mod file_list;
 mod files;
 mod git;
 mod listing;
@@ -17,22 +18,35 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use ovra_core::path::RelPath;
-use ovra_core::protocol::fs::{DirListing, FileContent};
+use ovra_core::protocol::fs::{DirListing, FileContent, FileList};
 use ovra_core::protocol::projects::ProjectId;
 use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::{BoxFuture, EventSink, FsService, Result};
 
-use crate::watch::{GitCache, Watch};
+use crate::watch::{GitCache, Timing, Watch};
 
 /// The real file service.
 #[derive(Debug, Default)]
 pub struct FsIndex {
     watches: Mutex<HashMap<ProjectId, Watch>>,
+    timing: Timing,
 }
 
 impl FsIndex {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Shorter delays, so watcher tests finish quickly.
+    #[cfg(test)]
+    fn fast() -> Self {
+        Self {
+            timing: Timing {
+                git_quiet: std::time::Duration::from_millis(100),
+                ..Timing::default()
+            },
+            ..Self::default()
+        }
     }
 
     fn watches(&self) -> MutexGuard<'_, HashMap<ProjectId, Watch>> {
@@ -74,6 +88,29 @@ impl FsService for FsIndex {
         blocking(move || files::read(&root, &path))
     }
 
+    fn list_files(
+        &self,
+        root: PathBuf,
+        offset: u32,
+        limit: u32,
+    ) -> BoxFuture<'_, Result<FileList>> {
+        let watched = self
+            .watches()
+            .values()
+            .find(|w| w.given_root == root)
+            .map(|w| Arc::clone(&w.files));
+        blocking(move || match watched {
+            Some(files) => {
+                let files = files.lock();
+                Ok(file_list::page(&files.paths, offset, limit, files.version))
+            }
+            None => {
+                let files = file_list::scan(&resolve::root(&root)?);
+                Ok(file_list::page(&files, offset, limit, 0))
+            }
+        })
+    }
+
     fn write_file(
         &self,
         root: PathBuf,
@@ -85,7 +122,7 @@ impl FsService for FsIndex {
     }
 
     fn watch(&self, project: ProjectId, root: PathBuf, sink: EventSink) -> Result<()> {
-        let watch = Watch::start(project.clone(), root, sink)?;
+        let watch = Watch::start(project.clone(), root, sink, self.timing)?;
         self.watches().insert(project, watch);
         Ok(())
     }

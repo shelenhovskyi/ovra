@@ -8,9 +8,12 @@ use std::pin::Pin;
 
 use tokio::sync::broadcast;
 
+pub use crate::agents::AgentHost;
 use crate::path::RelPath;
-use crate::protocol::fs::{DirListing, FileContent};
-use crate::protocol::projects::{Project, ProjectId};
+use crate::protocol::agents::{AgentKind, SessionId, SessionMode};
+use crate::protocol::fs::{DirListing, FileContent, FileList};
+use crate::protocol::projects::{Project, ProjectId, ProjectState, ProjectStatePatch};
+use crate::protocol::terminals::{TermSize, TerminalId};
 use crate::protocol::{ErrorCode, Event, ProtocolError};
 
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -39,6 +42,12 @@ pub trait ProjectStore: Send + Sync + Debug {
     fn get(&self, id: &ProjectId) -> Result<Project>;
     /// Records that the project was opened now and returns it.
     fn touch(&self, id: &ProjectId) -> Result<Project>;
+    /// The saved state, or the default if none was saved. `not_found` if the
+    /// project does not exist. Removing a project removes its state.
+    fn state(&self, id: &ProjectId) -> Result<ProjectState>;
+    /// Writes the fields present in `patch` atomically, keeping the others.
+    /// Paths are already validated.
+    fn update_state(&self, id: &ProjectId, patch: ProjectStatePatch) -> Result<()>;
 }
 
 /// File access, `.gitignore` handling, git status and watching
@@ -46,6 +55,9 @@ pub trait ProjectStore: Send + Sync + Debug {
 pub trait FsService: Send + Sync + Debug {
     fn list_dir(&self, root: PathBuf, path: RelPath) -> BoxFuture<'_, Result<DirListing>>;
     fn read_file(&self, root: PathBuf, path: RelPath) -> BoxFuture<'_, Result<FileContent>>;
+    /// A page of the project's non-ignored files; `limit` is already capped.
+    fn list_files(&self, root: PathBuf, offset: u32, limit: u32)
+    -> BoxFuture<'_, Result<FileList>>;
     /// Returns the new modification time in Unix milliseconds.
     fn write_file(
         &self,
@@ -63,6 +75,47 @@ pub trait FsService: Send + Sync + Debug {
 pub trait Opener: Send + Sync + Debug {
     /// Opens `file` in the user's external editor, at `line` when supported.
     fn open_in_editor(&self, file: &Path, line: Option<u32>) -> Result<()>;
+    /// Opens a web page in the system browser. The core passes only
+    /// `http://` and `https://` URLs.
+    fn open_url(&self, url: &str) -> Result<()>;
+}
+
+/// Shells in pseudo-terminals (implemented by `ovra-pty`).
+pub trait TerminalService: Send + Sync + Debug {
+    /// Starts the user's shell in `cwd` and emits `terminals.output` and
+    /// `terminals.exited` for it through `sink`.
+    fn open(&self, cwd: PathBuf, size: TermSize, sink: EventSink) -> Result<TerminalId>;
+    fn input(&self, id: &TerminalId, data: &str) -> Result<()>;
+    fn resize(&self, id: &TerminalId, size: TermSize) -> Result<()>;
+    /// Ends the shell; `terminals.exited` follows.
+    fn close(&self, id: &TerminalId) -> Result<()>;
+}
+
+/// What a runtime needs to start one session.
+#[derive(Debug, Clone)]
+pub struct AgentSpec {
+    pub session: SessionId,
+    pub agent: AgentKind,
+    pub mode: SessionMode,
+    /// Absolute path the agent works in: the project root in direct mode.
+    pub cwd: PathBuf,
+    pub prompt: String,
+}
+
+/// Starts agent sessions (implemented by `ovra-agent-runtime`). One runtime
+/// serves every session of the agents it supports.
+pub trait AgentRuntime: Send + Sync + Debug {
+    /// Starts a session and returns at once; the agent then works in the
+    /// background and reports through `host` until it ends.
+    fn start(&self, spec: AgentSpec, host: AgentHost) -> Result<Box<dyn RunningAgent>>;
+}
+
+/// A started session, owned by the core.
+pub trait RunningAgent: Send + Sync + Debug {
+    /// Queues the next user message.
+    fn send(&self, text: String) -> Result<()>;
+    /// Ends the session. The runtime reports `stopped` through the host.
+    fn stop(&self);
 }
 
 /// Placeholder for services a front end has not wired in.
@@ -94,6 +147,12 @@ impl ProjectStore for Unavailable {
     fn touch(&self, _: &ProjectId) -> Result<Project> {
         self.err()
     }
+    fn state(&self, _: &ProjectId) -> Result<ProjectState> {
+        self.err()
+    }
+    fn update_state(&self, _: &ProjectId, _: ProjectStatePatch) -> Result<()> {
+        self.err()
+    }
 }
 
 impl FsService for Unavailable {
@@ -101,6 +160,9 @@ impl FsService for Unavailable {
         Box::pin(async move { self.err() })
     }
     fn read_file(&self, _: PathBuf, _: RelPath) -> BoxFuture<'_, Result<FileContent>> {
+        Box::pin(async move { self.err() })
+    }
+    fn list_files(&self, _: PathBuf, _: u32, _: u32) -> BoxFuture<'_, Result<FileList>> {
         Box::pin(async move { self.err() })
     }
     fn write_file(
@@ -120,6 +182,30 @@ impl FsService for Unavailable {
 
 impl Opener for Unavailable {
     fn open_in_editor(&self, _: &Path, _: Option<u32>) -> Result<()> {
+        self.err()
+    }
+    fn open_url(&self, _: &str) -> Result<()> {
+        self.err()
+    }
+}
+
+impl TerminalService for Unavailable {
+    fn open(&self, _: PathBuf, _: TermSize, _: EventSink) -> Result<TerminalId> {
+        self.err()
+    }
+    fn input(&self, _: &TerminalId, _: &str) -> Result<()> {
+        self.err()
+    }
+    fn resize(&self, _: &TerminalId, _: TermSize) -> Result<()> {
+        self.err()
+    }
+    fn close(&self, _: &TerminalId) -> Result<()> {
+        self.err()
+    }
+}
+
+impl AgentRuntime for Unavailable {
+    fn start(&self, _: AgentSpec, _: AgentHost) -> Result<Box<dyn RunningAgent>> {
         self.err()
     }
 }

@@ -31,4 +31,8 @@ pub enum InfoEvent {
     /// The core is up and accepting requests.
     #[serde(rename = "info.ready")]
     Ready,
+    /// The client fell behind and missed `skipped` events. Its view of the
+    /// core may be stale: it should reload whatever it shows.
+    #[serde(rename = "info.resync")]
+    Resync { skipped: u64 },
 }

@@ -1,12 +1,19 @@
-//! Opens files in other applications.
-//!
-//! Status: stub (task 1.G implements it per OS: `$VISUAL`/`$EDITOR`, then the
-//! platform default handler). Contract: `ovra_core::services::Opener`.
+//! Opens files in other applications: the user's external editor from
+//! `$VISUAL` or `$EDITOR`, else the platform's default handler (`open` on
+//! macOS, `explorer` on Windows, `xdg-open` elsewhere). Web pages go to the
+//! default handler, which is the system browser.
+//! Contract: `ovra_core::services::Opener`.
 
+mod editor;
+
+use std::io;
 use std::path::Path;
+use std::process::{Command, Stdio};
 
 use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::{Opener, Result};
+
+use editor::{Invocation, Platform, candidates, system_handler};
 
 /// The real opener.
 #[derive(Debug, Default)]
@@ -19,21 +26,109 @@ impl SystemOpener {
 }
 
 impl Opener for SystemOpener {
-    fn open_in_editor(&self, _file: &Path, _line: Option<u32>) -> Result<()> {
-        Err(ProtocolError::new(
-            ErrorCode::Unavailable,
-            "opening files is not implemented yet (task 1.G)",
-        ))
+    fn open_in_editor(&self, file: &Path, line: Option<u32>) -> Result<()> {
+        if !file.is_file() {
+            return Err(ProtocolError::new(
+                ErrorCode::NotFound,
+                format!("no such file: {}", file.display()),
+            ));
+        }
+        let plan = candidates(|var| std::env::var_os(var), Platform::current(), file, line);
+        launch_first(&plan, spawn_detached)
     }
+
+    fn open_url(&self, url: &str) -> Result<()> {
+        let handler = system_handler(Platform::current(), url.as_ref());
+        launch_first(&[handler], spawn_detached)
+    }
+}
+
+/// Starts the first invocation that spawns. A missing or broken editor in
+/// `$VISUAL` falls through to the next candidate.
+fn launch_first(
+    plan: &[Invocation],
+    mut spawn: impl FnMut(&Invocation) -> io::Result<()>,
+) -> Result<()> {
+    let mut failures = Vec::new();
+    for invocation in plan {
+        match spawn(invocation) {
+            Ok(()) => return Ok(()),
+            Err(e) => failures.push(format!("{}: {e}", invocation.program.to_string_lossy())),
+        }
+    }
+    Err(ProtocolError::new(
+        ErrorCode::Unavailable,
+        format!(
+            "could not start a program to open it ({}); set $VISUAL to a graphical editor",
+            failures.join("; ")
+        ),
+    ))
+}
+
+/// Starts the program without waiting for it; a background thread reaps it.
+fn spawn_detached(invocation: &Invocation) -> io::Result<()> {
+    let mut child = Command::new(&invocation.program)
+        .args(&invocation.args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()?;
+    std::thread::spawn(move || child.wait());
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn inv(program: &str) -> Invocation {
+        Invocation {
+            program: program.into(),
+            args: vec!["/f".into()],
+        }
+    }
+
     #[test]
-    fn stub_reports_unavailable() {
-        let r = SystemOpener::new().open_in_editor(Path::new("/x"), None);
-        assert_eq!(r.err().map(|e| e.code), Some(ErrorCode::Unavailable));
+    fn missing_file_is_not_found() {
+        let r = SystemOpener::new().open_in_editor(Path::new("/no/such/ovra-file"), None);
+        assert_eq!(r.err().map(|e| e.code), Some(ErrorCode::NotFound));
+    }
+
+    #[test]
+    fn falls_through_to_the_next_candidate() {
+        let mut tried = Vec::new();
+        let r = launch_first(&[inv("broken"), inv("works"), inv("unused")], |i| {
+            tried.push(i.program.clone());
+            if i.program == "broken" {
+                Err(io::ErrorKind::NotFound.into())
+            } else {
+                Ok(())
+            }
+        });
+        assert!(r.is_ok());
+        assert_eq!(tried, ["broken", "works"]);
+    }
+
+    #[test]
+    fn reports_every_failure_when_nothing_starts() {
+        let r = launch_first(&[inv("a"), inv("b")], |_| {
+            Err(io::ErrorKind::NotFound.into())
+        });
+        let err = r.expect_err("no candidate started");
+        assert_eq!(err.code, ErrorCode::Unavailable);
+        assert!(
+            err.message.contains("a: ") && err.message.contains("b: "),
+            "{}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn a_missing_program_fails_to_spawn() {
+        let missing = spawn_detached(&inv("ovra-definitely-missing-editor"));
+        assert_eq!(
+            missing.err().map(|e| e.kind()),
+            Some(io::ErrorKind::NotFound)
+        );
     }
 }

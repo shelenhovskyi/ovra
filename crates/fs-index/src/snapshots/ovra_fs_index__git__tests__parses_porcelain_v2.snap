@@ -4,13 +4,36 @@ expression: statuses
 ---
 Statuses {
     paths: {
-        "gone/x": Deleted,
-        "merge.txt": Conflicted,
-        "notes.md": Untracked,
-        "sub/a.txt": Modified,
-        "sub/fresh/": Untracked,
-        "sub/new file.txt": Added,
-        "sub/to.txt": Renamed,
+        "gone/x": (
+            Deleted,
+            None,
+        ),
+        "merge.txt": (
+            Conflicted,
+            None,
+        ),
+        "notes.md": (
+            Untracked,
+            None,
+        ),
+        "sub/a.txt": (
+            Modified,
+            None,
+        ),
+        "sub/fresh/": (
+            Untracked,
+            None,
+        ),
+        "sub/new file.txt": (
+            Added,
+            None,
+        ),
+        "sub/to.txt": (
+            Renamed,
+            Some(
+                "sub/from.txt",
+            ),
+        ),
     },
     all_untracked: false,
 }

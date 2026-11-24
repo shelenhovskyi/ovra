@@ -7,10 +7,15 @@
 - **Headless mode** - core + UI served by `ovra-daemon` to a regular browser.
 - **Coordinator** - the agent that splits a task and spawns subagents (phase 3).
 - **Subagent** - an agent working in its own git worktree and sandbox.
+- **Direct mode** - one agent works in the project's main checkout; its
+  changes are reviewed as a diff against a baseline snapshot (ADR 0005).
+- **Isolated mode** - an agent works in its own git worktree.
 - **Inbox** - the review queue where a person approves or rejects diffs.
 - **Service** - an OS-facing capability behind a trait in `ovra-core`
   (`FsService`, `ProjectStore`, `Opener`), implemented in its own crate.
-- **Claude Agent SDK** - Claude Code as a library; how Ovra runs Claude.
-- **agent-host** - the TypeScript sidecar that runs Agent SDK sessions.
+- **claude CLI** - the user's installed Claude Code; v1 runs each Claude
+  session as `claude -p` over stream-json (ADR 0006).
+- **Claude Agent SDK** - Claude Code as a library; a possible later runtime
+  behind `AgentRuntime` (ADR 0004).
 - **ACP** - Agent Client Protocol, how other agents (Codex, Gemini CLI) connect.
 - **MCP** - Model Context Protocol, how the IDE exposes tools to agents.

@@ -1,10 +1,15 @@
 <script lang="ts">
 import { useOvra } from "../shell/context";
 import { resolveLink } from "./links";
-import { loadView } from "./load";
+import { exists, loadView } from "./load";
 import { renderMarkdown } from "./markdown";
 
-let { text, path, open }: { text: string; path: string; open: (path: string) => void } = $props();
+let {
+  text,
+  path,
+  open,
+  notify,
+}: { text: string; path: string; open: (path: string) => void; notify: (message: string) => void } = $props();
 
 const { transport, workspace } = useOvra();
 
@@ -33,8 +38,26 @@ function onclick(event: MouseEvent) {
   // The viewer never navigates the window away from the IDE.
   event.preventDefault();
   const link = resolveLink(path, anchor.getAttribute("href") ?? "");
-  if (link.kind === "file") open(link.path);
+  if (link.kind === "file") void openFile(link.path);
+  else if (link.kind === "web") void openWeb(link.url);
   else if (link.kind === "anchor") root?.querySelector(`[id="${CSS.escape(link.id)}"]`)?.scrollIntoView();
+  else notify("This link cannot be opened from Ovra.");
+}
+
+async function openFile(target: string) {
+  const project = workspace.project?.id;
+  if (!project) return;
+  if (await exists(transport, project, target)) open(target);
+  else notify(`The link points to ${target}, which was not found.`);
+}
+
+async function openWeb(url: string) {
+  notify(`Opening ${url} in your browser…`);
+  try {
+    await transport.call({ method: "open.url", params: { url } });
+  } catch {
+    notify(`Could not open ${url} in a browser.`);
+  }
 }
 </script>
 

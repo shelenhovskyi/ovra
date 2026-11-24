@@ -5,18 +5,38 @@ expression: root
 [
     (
         "gone",
-        Deleted,
+        Child {
+            status: Deleted,
+            renamed_from: None,
+            dir: true,
+            deleted: true,
+        },
     ),
     (
         "merge.txt",
-        Conflicted,
+        Child {
+            status: Conflicted,
+            renamed_from: None,
+            dir: false,
+            deleted: false,
+        },
     ),
     (
         "notes.md",
-        Untracked,
+        Child {
+            status: Untracked,
+            renamed_from: None,
+            dir: false,
+            deleted: false,
+        },
     ),
     (
         "sub",
-        Modified,
+        Child {
+            status: Modified,
+            renamed_from: None,
+            dir: true,
+            deleted: false,
+        },
     ),
 ]

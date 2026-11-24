@@ -6,6 +6,7 @@
 //! by services behind the traits in [`services`]; front ends plug in real
 //! implementations from other crates, tests plug in the fakes from [`fakes`].
 
+mod agents;
 mod core;
 #[cfg(any(test, feature = "fakes"))]
 pub mod fakes;

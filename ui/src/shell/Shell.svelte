@@ -1,8 +1,11 @@
 <script lang="ts">
+import { untrack } from "svelte";
 import Editor from "../editor/Editor.svelte";
+import { persistOpenFiles } from "../editor/open-files.svelte";
+import Tabs from "../editor/Tabs.svelte";
 import Keybindings from "../keys/Keybindings.svelte";
 import type { CoreInfo } from "../lib/protocol";
-import type { Transport } from "../lib/transport";
+import type { ConnectionStatus, Transport } from "../lib/transport";
 import Palette from "../palette/Palette.svelte";
 import Tree from "../tree/Tree.svelte";
 import Viewer from "../viewers/Viewer.svelte";
@@ -17,16 +20,58 @@ provideOvra({ transport, workspace });
 
 let info = $state<CoreInfo | null>(null);
 let error = $state<string | null>(null);
+let connection = $state<ConnectionStatus>("connecting");
+let wasOpen = $state(false);
+let everClosed = $state(false);
+let request = 0;
 
-$effect(() => {
+$effect(() => persistOpenFiles(transport, workspace));
+
+/** Asks the core who it is; only the latest request may update the status. */
+function requestInfo() {
+  const mine = ++request;
   transport
     .call({ method: "info.get" })
     .then((response) => {
+      if (mine !== request) return;
       info = response.data;
+      error = null;
     })
     .catch((err: unknown) => {
+      if (mine !== request) return;
       error = err instanceof Error ? err.message : String(err);
     });
+}
+
+$effect(() =>
+  untrack(() => {
+    if (!transport.onStatus) {
+      connection = "open";
+      requestInfo();
+      return;
+    }
+    return transport.onStatus((status) => {
+      connection = status;
+      if (status !== "open") {
+        info = null;
+        if (status === "closed") everClosed = true;
+        return;
+      }
+      wasOpen = true;
+      requestInfo();
+    });
+  }),
+);
+
+const status = $derived.by((): { text: string; ok: boolean } => {
+  if (connection === "open") {
+    if (info) return { text: `Connected to ${info.name} ${info.version} (${info.mode})`, ok: true };
+    if (error) return { text: `Core unavailable: ${error}`, ok: false };
+    return { text: "Connecting…", ok: true };
+  }
+  if (wasOpen) return { text: "Connection to core lost, reconnecting…", ok: false };
+  if (everClosed || error) return { text: `Core unavailable: ${error ?? "could not connect, retrying…"}`, ok: false };
+  return { text: "Connecting…", ok: true };
 });
 </script>
 
@@ -38,20 +83,17 @@ $effect(() => {
   </header>
   <aside data-testid="sidebar"><Tree /></aside>
   <main data-testid="main">
-    {#if workspace.mode === "edit"}
-      <Editor />
-    {:else}
-      <Viewer />
-    {/if}
+    <Tabs />
+    <div class="view">
+      {#if workspace.mode === "edit"}
+        <Editor />
+      {:else}
+        <Viewer />
+      {/if}
+    </div>
   </main>
   <footer>
-    {#if info}
-      <span data-testid="status">Connected to {info.name} {info.version} ({info.mode})</span>
-    {:else if error}
-      <span data-testid="status" class="error">Core unavailable: {error}</span>
-    {:else}
-      <span data-testid="status">Connecting…</span>
-    {/if}
+    <span data-testid="status" role="status" class:error={!status.ok}>{status.text}</span>
   </footer>
   {#if workspace.paletteOpen}
     <Palette />
@@ -102,7 +144,14 @@ $effect(() => {
   }
   main {
     grid-area: main;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
     overflow: hidden;
+  }
+  .view {
+    flex: 1;
+    min-height: 0;
   }
   footer {
     grid-area: footer;

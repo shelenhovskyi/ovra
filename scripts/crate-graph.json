@@ -6,8 +6,26 @@
     "ovra-fs-index": ["ovra-core"],
     "ovra-store": ["ovra-core"],
     "ovra-opener": ["ovra-core"],
-    "ovra-daemon": ["ovra-core", "ovra-transport", "ovra-fs-index", "ovra-store", "ovra-opener"],
-    "ovra-app": ["ovra-core", "ovra-transport", "ovra-fs-index", "ovra-store", "ovra-opener"]
+    "ovra-pty": ["ovra-core"],
+    "ovra-agent-runtime": ["ovra-core"],
+    "ovra-daemon": [
+      "ovra-core",
+      "ovra-transport",
+      "ovra-fs-index",
+      "ovra-store",
+      "ovra-opener",
+      "ovra-pty",
+      "ovra-agent-runtime"
+    ],
+    "ovra-app": [
+      "ovra-core",
+      "ovra-transport",
+      "ovra-fs-index",
+      "ovra-store",
+      "ovra-opener",
+      "ovra-pty",
+      "ovra-agent-runtime"
+    ]
   },
   "banned": {
     "ovra-core": ["tauri", "wry", "axum", "hyper", "tokio-tungstenite"],
@@ -15,6 +33,8 @@
     "ovra-daemon": ["tauri", "wry"],
     "ovra-fs-index": ["tauri", "wry", "axum", "hyper", "tokio-tungstenite"],
     "ovra-store": ["tauri", "wry", "axum", "hyper", "tokio-tungstenite"],
-    "ovra-opener": ["tauri", "wry", "axum", "hyper", "tokio-tungstenite"]
+    "ovra-opener": ["tauri", "wry", "axum", "hyper", "tokio-tungstenite"],
+    "ovra-pty": ["tauri", "wry", "axum", "hyper", "tokio-tungstenite"],
+    "ovra-agent-runtime": ["tauri", "wry", "axum", "hyper", "tokio-tungstenite"]
   }
 }

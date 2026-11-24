@@ -1,21 +1,46 @@
 <script lang="ts">
-// Command palette: fuzzy search over the registered commands. The shell mounts
-// it while `workspace.paletteOpen` is true; it closes by setting it to false.
-import { listCommands } from "../keys/commands";
+// The palette: fuzzy search over commands, the project's files or the known
+// projects (see `mode.svelte.ts`). The shell mounts it while
+// `workspace.paletteOpen` is true; it closes by setting it to false.
+import { tick } from "svelte";
 import { runCommand } from "../keys/keybindings";
-import { formatShortcut, isApple } from "../keys/shortcut";
+import { formatShortcut, inBrowserTab, isApple, liveKeys } from "../keys/shortcut";
 import { useOvra } from "../shell/context";
-import { filterCommands, type Item, segments } from "./fuzzy";
+import { type Ranked, rank, segments } from "./fuzzy";
+import { palette } from "./mode.svelte";
+import { type Entry, source } from "./sources";
 
-const { workspace } = useOvra();
-const commands = listCommands();
+const { transport, workspace } = useOvra();
+// svelte-ignore state_referenced_locally
+const from = source(palette.mode, transport, workspace);
 const apple = isApple();
+const browser = inBrowserTab();
 
+let entries = $state<Entry[] | null>(null);
+let failure = $state<string | null>(null);
 let query = $state("");
 let selected = $state(0);
 let input: HTMLInputElement | undefined = $state();
 let list: HTMLUListElement | undefined = $state();
-const items = $derived(filterCommands(commands, query));
+const items = $derived(entries ? rank(entries, (e) => e.label, query, from.limit) : []);
+const announcement = $derived(
+  failure ?? (entries === null ? "Loading" : items.length === 0 ? from.empty : `${items.length} results`),
+);
+
+$effect(() => {
+  let live = true;
+  Promise.resolve(from.entries()).then(
+    (loaded) => {
+      if (live) entries = loaded;
+    },
+    (error: unknown) => {
+      if (live) failure = error instanceof Error ? error.message : String(error);
+    },
+  );
+  return () => {
+    live = false;
+  };
+});
 
 $effect(() => {
   const previous = document.activeElement;
@@ -31,12 +56,15 @@ $effect(() => {
 
 function close(): void {
   workspace.paletteOpen = false;
+  palette.mode = "commands";
 }
 
-function run(item: Item | undefined): void {
+function run(item: Ranked<Entry> | undefined): void {
   if (!item) return;
   close();
-  void runCommand(item.command);
+  // Run once the palette is gone, so a command can open it again in another mode.
+  const { id, label, run } = item.item;
+  void tick().then(() => runCommand({ id, title: label, run }));
 }
 
 function onkeydown(event: KeyboardEvent): void {
@@ -78,13 +106,13 @@ function onfocusout(event: FocusEvent): void {
       aria-expanded="true"
       aria-controls="palette-list"
       aria-activedescendant={items.length ? `palette-item-${selected}` : undefined}
-      aria-label="Command"
-      placeholder="Type a command"
+      aria-label={from.placeholder}
+      placeholder={from.placeholder}
       spellcheck="false"
       autocomplete="off"
     />
-    <ul id="palette-list" role="listbox" aria-label="Commands" bind:this={list}>
-      {#each items as item, index (item.command.id)}
+    <ul id="palette-list" role="listbox" aria-label={from.name} bind:this={list}>
+      {#each items as item, index (item.item.id)}
         <li
           id="palette-item-{index}"
           data-index={index}
@@ -96,16 +124,18 @@ function onfocusout(event: FocusEvent): void {
           onkeydown={() => {}}
         >
           <span class="title">
-            {#each segments(item.command.title, item.positions) as part}
+            {#each segments(item.item.label, item.positions) as part}
               {#if part.hit}<mark>{part.text}</mark>{:else}{part.text}{/if}
             {/each}
+            {#if item.item.detail}<span class="detail">{item.item.detail}</span>{/if}
           </span>
-          {#if item.command.keys}<kbd>{formatShortcut(item.command.keys, apple)}</kbd>{/if}
+          {#if item.item.keys}<kbd>{formatShortcut(liveKeys(item.item.keys, browser), apple)}</kbd>{/if}
         </li>
       {:else}
-        <li class="empty" role="presentation">No matching commands</li>
+        <li class="empty" role="presentation">{failure ?? (entries === null ? "Loading…" : from.empty)}</li>
       {/each}
     </ul>
+    <p class="visually-hidden" role="status">{query || failure ? announcement : ""}</p>
   </div>
 </div>
 
@@ -167,6 +197,46 @@ function onfocusout(event: FocusEvent): void {
     font: inherit;
     font-size: 11px;
     color: #9a9aa6;
+  }
+  .title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .detail {
+    margin-left: 8px;
+    color: #9a9aa6;
+    font-size: 12px;
+  }
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  /* Forced colours (Windows High Contrast) drop backgrounds and text colours,
+     so the selection gets a system-coloured outline and matches an underline. */
+  @media (forced-colors: active) {
+    li[aria-selected="true"] {
+      outline: 2px solid Highlight;
+      outline-offset: -2px;
+      background: Highlight;
+      color: HighlightText;
+      forced-color-adjust: none;
+    }
+    li[aria-selected="true"] mark,
+    li[aria-selected="true"] .detail,
+    li[aria-selected="true"] kbd {
+      color: HighlightText;
+    }
+    mark {
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
   }
   .empty {
     color: #6f6f7a;

@@ -20,7 +20,11 @@ afterEach(() => {
 
 /** Lets pending fake calls resolve and Svelte re-render. */
 async function settle(): Promise<void> {
-  for (let i = 0; i < 5; i++) await Promise.resolve();
+  // A few rounds: restored folders load level by level as their rows appear.
+  for (let i = 0; i < 3; i++) {
+    flushSync();
+    await new Promise((resolve) => setTimeout(resolve));
+  }
   flushSync();
 }
 
@@ -101,13 +105,158 @@ describe("FileTree", () => {
     expect(t.row("a.ts").textContent).toContain("M");
   });
 
+  it("restores the folders expanded last time and saves new ones", async () => {
+    const core = new FakeCore(dirsFromPaths(["src/lib/b.ts", "docs/a.md"]));
+    core.states.set("p1", { open_files: [], active_file: null, expanded_dirs: ["src", "src/lib"] });
+    const t = mountTree(core);
+    await settle();
+    expect(t.rows().map((r) => r.dataset.path)).toEqual(["docs", "src", "src/lib", "src/lib/b.ts"]);
+    t.row("docs").click();
+    await settle();
+    cleanup?.(); // closing the tree flushes the pending save
+    cleanup = null;
+    await settle();
+    expect(core.states.get("p1")?.expanded_dirs).toEqual(["docs", "src", "src/lib"]);
+  });
+
+  it("names the active row through aria-activedescendant, even when it scrolls out of the window", async () => {
+    const t = mountTree(new FakeCore(new Map([["", flatDir(1000)]])));
+    await settle();
+    expect(document.activeElement).toBe(t.tree());
+    t.key("ArrowDown");
+    const active = () => document.getElementById(t.tree().getAttribute("aria-activedescendant") ?? "");
+    expect(active()?.dataset.path).toBe("f000000");
+    Object.defineProperty(t.tree(), "scrollTop", { value: 22 * 500, configurable: true, writable: true });
+    t.tree().dispatchEvent(new Event("scroll"));
+    flushSync();
+    expect(active()?.dataset.path).toBe("f000000");
+    expect(active()?.getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("gives rows clean names, per-folder positions and status as text and attributes", async () => {
+    const dirs = dirsFromPaths(["src/a.ts", "src/b.ts", "dist/x.js"], { src: "modified", "src/a.ts": "modified" });
+    const dist = dirs.get("")?.find((e) => e.name === "dist");
+    if (dist) dist.ignored = true;
+    const t = mountTree(new FakeCore(dirs));
+    await settle();
+    t.row("src").click();
+    await settle();
+    const description = (el: HTMLElement) =>
+      document.getElementById(el.getAttribute("aria-describedby") ?? "")?.textContent ?? null;
+    const a = t.row("src/a.ts");
+    expect(a.getAttribute("aria-label")).toBe("a.ts");
+    expect(description(a)).toBe("modified");
+    expect(a.dataset.git).toBe("modified");
+    expect([a.getAttribute("aria-posinset"), a.getAttribute("aria-setsize")]).toEqual(["1", "2"]);
+    expect(description(t.row("src"))).toBe("contains modified files");
+    expect(t.row("dist").dataset.ignored).toBe("true");
+    expect(description(t.row("dist"))).toBe("ignored");
+  });
+
+  it("shows deleted files struck through and unopenable, and where a renamed file came from", async () => {
+    const dirs = dirsFromPaths(["gone.ts", "new.ts"], { "gone.ts": "deleted", "new.ts": "renamed" });
+    const renamed = dirs.get("")?.find((e) => e.name === "new.ts");
+    if (renamed) renamed.renamed_from = "old/name.ts";
+    const t = mountTree(new FakeCore(dirs));
+    await settle();
+    const description = (el: HTMLElement) =>
+      document.getElementById(el.getAttribute("aria-describedby") ?? "")?.textContent ?? null;
+    expect(description(t.row("gone.ts"))).toBe("deleted");
+    expect(t.row("gone.ts").querySelector(".name.git-deleted")).not.toBeNull();
+    t.row("gone.ts").click();
+    expect(t.opened).toEqual([]);
+    expect(description(t.row("new.ts"))).toBe("renamed, from old/name.ts");
+    expect(t.row("new.ts").title).toBe("new.ts (renamed, from old/name.ts)");
+  });
+
+  it("keeps a selection when its row goes away: parent on collapse, neighbour on delete", async () => {
+    const core = new FakeCore(dirsFromPaths(["src/a.ts", "src/b.ts", "src/c.ts"]));
+    const t = mountTree(core);
+    await settle();
+    t.row("src").click();
+    await settle();
+    t.key("ArrowDown");
+    t.key("ArrowDown");
+    expect(t.row("src/b.ts").getAttribute("aria-selected")).toBe("true");
+    core.dirs = dirsFromPaths(["src/a.ts", "src/c.ts"]);
+    core.emit({ type: "fs.changed", data: { project: "p1", paths: ["src/b.ts"] } });
+    await settle();
+    expect(t.row("src/c.ts").getAttribute("aria-selected")).toBe("true");
+    [...document.querySelectorAll("button")].find((b) => b.textContent === "Collapse all")?.click();
+    await settle();
+    expect(t.row("src").getAttribute("aria-selected")).toBe("true");
+    expect(t.rows().map((r) => r.dataset.path)).toEqual(["src"]);
+  });
+
+  it("pages, and jumps by typed prefix", async () => {
+    const t = mountTree(new FakeCore(dirsFromPaths(["apple.ts", "banana.ts", "blueberry.ts", "cherry.ts"])));
+    await settle();
+    t.key("b");
+    expect(t.row("banana.ts").getAttribute("aria-selected")).toBe("true");
+    t.key("l");
+    expect(t.row("blueberry.ts").getAttribute("aria-selected")).toBe("true");
+    t.key("PageDown");
+    expect(t.row("cherry.ts").getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("collapses all, filters to changed files and reveals the open file from the toolbar", async () => {
+    const core = new FakeCore(dirsFromPaths(["a/b/c.ts", "a/d.ts"], { a: "modified", "a/d.ts": "modified" }));
+    const target = document.body.appendChild(document.createElement("div"));
+    const app = mount(FileTree, {
+      target,
+      props: { transport: core, project: "p1", openPath: "a/b/c.ts", onopen: () => {} },
+    });
+    cleanup = () => unmount(app);
+    await settle();
+    const button = (name: string) =>
+      [...target.querySelectorAll("button")].find((b) => b.textContent?.trim() === name) as HTMLButtonElement;
+    const paths = () => [...target.querySelectorAll<HTMLElement>("[role=treeitem]")].map((r) => r.dataset.path);
+    button("Reveal").click();
+    await settle();
+    expect(paths()).toEqual(["a", "a/b", "a/b/c.ts", "a/d.ts"]);
+    expect(target.querySelector("[aria-selected=true]")?.getAttribute("data-path")).toBe("a/b/c.ts");
+    button("Changed only").click();
+    await settle();
+    expect(paths()).toEqual(["a", "a/d.ts"]);
+    expect(button("Changed only").getAttribute("aria-pressed")).toBe("true");
+    button("Collapse all").click();
+    await settle();
+    expect(paths()).toEqual(["a"]);
+  });
+
+  it("keeps the rows under the user's eyes in place when files appear above", async () => {
+    const core = new FakeCore(new Map([["", flatDir(1000)]]));
+    const t = mountTree(core);
+    await settle();
+    let top = 22 * 500;
+    Object.defineProperty(t.tree(), "scrollTop", { get: () => top, set: (v: number) => (top = v), configurable: true });
+    t.tree().dispatchEvent(new Event("scroll"));
+    flushSync();
+    core.dirs = new Map([["", [...flatDir(3, "a"), ...flatDir(1000)]]]);
+    core.emit({ type: "fs.changed", data: { project: "p1", paths: ["a000000", "a000001", "a000002"] } });
+    await settle();
+    expect(top).toBe(22 * 503);
+  });
+
+  it("reveals and selects the open file without taking focus", async () => {
+    const core = new FakeCore(dirsFromPaths(["a/b/c.ts", "z.md"]));
+    const target = document.body.appendChild(document.createElement("div"));
+    const app = mount(FileTree, {
+      target,
+      props: { transport: core, project: "p1", openPath: "a/b/c.ts", onopen: () => {} },
+    });
+    cleanup = () => unmount(app);
+    await settle();
+    expect(target.querySelector("[aria-selected=true]")?.getAttribute("data-path")).toBe("a/b/c.ts");
+  });
+
   it("shows why the tree could not load", async () => {
     const core = new FakeCore(new Map());
     const target = document.body.appendChild(document.createElement("div"));
     const app = mount(FileTree, { target, props: { transport: core, project: "p1", onopen: () => {} } });
     cleanup = () => unmount(app);
     await settle();
-    expect(target.querySelector("[role=alert]")?.textContent).toBe("not_found: no such directory: ");
+    expect(target.querySelector("[role=alert]")?.textContent).toBe("no such directory: ");
   });
 });
 

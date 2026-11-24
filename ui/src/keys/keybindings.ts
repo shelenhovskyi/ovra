@@ -2,14 +2,14 @@
 // command whose `keys` match.
 
 import { type Command, listCommands } from "./commands";
-import { isApple, matchesShortcut, parseShortcut } from "./shortcut";
+import { inBrowserTab, isApple, liveKeys, matchesShortcut, parseShortcut } from "./shortcut";
 
 type KeyEventLike = Parameters<typeof matchesShortcut>[0];
 
-function findCommand(event: KeyEventLike, commands: Command[], apple: boolean): Command | undefined {
+function findCommand(event: KeyEventLike, commands: Command[], apple: boolean, browser: boolean): Command | undefined {
   return commands.find((command) => {
     if (!command.keys) return false;
-    const shortcut = parseShortcut(command.keys, apple);
+    const shortcut = parseShortcut(liveKeys(command.keys, browser), apple);
     return shortcut !== null && matchesShortcut(event, shortcut);
   });
 }
@@ -23,11 +23,14 @@ export async function runCommand(command: Command): Promise<void> {
   }
 }
 
-/** Listens for shortcuts on `target`; returns a function that stops listening. */
-export function installKeybindings(target: Window, apple = isApple()): () => void {
+/**
+ * Listens for shortcuts on `target`; returns a function that stops listening.
+ * In a browser tab, shortcuts the browser keeps are replaced (see `liveKeys`).
+ */
+export function installKeybindings(target: Window, apple = isApple(), browser = inBrowserTab()): () => void {
   const onKeydown = (event: KeyboardEvent): void => {
     if (event.defaultPrevented || event.isComposing) return;
-    const command = findCommand(event, listCommands(), apple);
+    const command = findCommand(event, listCommands(), apple, browser);
     if (!command) return;
     event.preventDefault();
     void runCommand(command);
