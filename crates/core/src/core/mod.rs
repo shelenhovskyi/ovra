@@ -17,7 +17,7 @@ use crate::protocol::terminals::{TerminalsRequest, TerminalsResponse};
 use crate::protocol::{ErrorCode, Event, OkResponse, ProtocolError, Request, Response};
 use crate::search::{self, Searches};
 use crate::services::{
-    AgentRuntime, EventSink, FsService, IdeTools, Opener, ProjectStore, SessionStore,
+    AgentRuntime, EventSink, FsService, IdeTools, Opener, ProjectStore, Secrets, SessionStore,
     TerminalService, Unavailable, Worktrees,
 };
 
@@ -36,6 +36,7 @@ pub struct CoreBuilder {
     worktrees: Arc<dyn Worktrees>,
     worktrees_dir: Option<PathBuf>,
     ide_tools: Arc<dyn IdeTools>,
+    secrets: Arc<dyn Secrets>,
 }
 
 impl CoreBuilder {
@@ -89,6 +90,12 @@ impl CoreBuilder {
         self
     }
 
+    /// Where secrets' values are kept: the OS keychain.
+    pub fn secrets(mut self, secrets: Arc<dyn Secrets>) -> Self {
+        self.secrets = secrets;
+        self
+    }
+
     pub fn build(self) -> Core {
         let (events, _) = broadcast::channel(EVENT_CAPACITY);
         let kept = self.sessions.clone();
@@ -106,6 +113,7 @@ impl CoreBuilder {
                 held: Mutex::new(None),
                 open: Mutex::new(BTreeMap::new()),
                 searches: Searches::default(),
+                secrets: self.secrets,
             }),
             events,
         };
@@ -140,6 +148,7 @@ struct Inner {
     /// Open projects and how many clients hold each; each is watched.
     open: Mutex<BTreeMap<ProjectId, usize>>,
     searches: Searches,
+    secrets: Arc<dyn Secrets>,
 }
 
 /// A [`Core`] that does not keep it alive; sessions hold one so their IDE
@@ -203,6 +212,7 @@ impl Core {
             worktrees: Arc::new(Unavailable("worktrees")),
             worktrees_dir: None,
             ide_tools: Arc::new(Unavailable("IDE tools")),
+            secrets: Arc::new(Unavailable("keeping secrets")),
         }
     }
 
@@ -281,6 +291,7 @@ impl Core {
             Request::Orchestration(r) => orchestration::orchestration(self, r).await,
             Request::Search(r) => search::handle(self, r),
             Request::Policy(r) => crate::policy::handle(self, r),
+            Request::Secrets(r) => crate::secrets::handle(self, r).await,
         }
     }
 
@@ -307,6 +318,10 @@ impl Core {
 
     pub(crate) fn searches(&self) -> &Searches {
         &self.inner.searches
+    }
+
+    pub(crate) fn secrets_store(&self) -> Arc<dyn Secrets> {
+        self.inner.secrets.clone()
     }
 
     pub(crate) fn project_store(&self) -> &dyn ProjectStore {
@@ -386,6 +401,11 @@ impl Core {
                 Ok(ProjectsResponse::Project(project))
             }
             ProjectsRequest::Remove { id } => {
+                store.get(&id)?;
+                // Its id is never reused, so its secrets could not be
+                // listed again: they go first, and a keychain error keeps
+                // the project.
+                crate::secrets::remove_project(self, &id).await?;
                 store.remove(&id)?;
                 agents::stop_project(&self.agents_ctx(), &id);
                 // Clients still holding it let go of nothing when they close.

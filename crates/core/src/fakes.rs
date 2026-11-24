@@ -34,12 +34,13 @@ use crate::protocol::permissions::Decision;
 use crate::protocol::policy::Policy;
 use crate::protocol::projects::{Project, ProjectId, ProjectState, ProjectStatePatch};
 use crate::protocol::search::{FileMatches, LineMatch, SearchEvent, SearchId, SearchQuery};
+use crate::protocol::secrets::{SecretInfo, SecretStoreStatus, SecretValue};
 use crate::protocol::terminals::{TermSize, TerminalId, TerminalsEvent};
 use crate::protocol::{ErrorCode, ProtocolError};
 use crate::services::{
     AgentHost, AgentRuntime, AgentSpec, AuditLog, BoxFuture, CommandLine, EventSink, FsService,
     Opener, ProjectStore, Result, RunningAgent, Sandbox, SandboxProfile, SandboxStatus,
-    SearchCancel, SessionStore, StoredSession, TerminalService, ToolRole,
+    SearchCancel, Secrets, SessionStore, StoredSession, TerminalService, ToolRole,
 };
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -487,6 +488,57 @@ impl AuditLog for MemoryAudit {
             .cloned()
             .collect())
     }
+}
+
+/// Secrets in memory, always available.
+#[derive(Debug, Default)]
+pub struct MemorySecrets {
+    secrets: Mutex<BTreeMap<(ProjectId, String), (SecretInfo, SecretValue)>>,
+}
+
+impl Secrets for MemorySecrets {
+    fn status(&self) -> SecretStoreStatus {
+        SecretStoreStatus::Available {
+            name: "memory".into(),
+        }
+    }
+
+    fn list(&self, project: &ProjectId) -> Result<Vec<SecretInfo>> {
+        Ok(lock(&self.secrets)
+            .iter()
+            .filter(|((p, _), _)| p == project)
+            .map(|(_, (info, _))| info.clone())
+            .collect())
+    }
+
+    fn set(&self, project: &ProjectId, secret: SecretInfo, value: SecretValue) -> Result<()> {
+        let key = (project.clone(), secret.name.clone());
+        lock(&self.secrets).insert(key, (secret, value));
+        Ok(())
+    }
+
+    fn remove(&self, project: &ProjectId, name: &str) -> Result<()> {
+        lock(&self.secrets)
+            .remove(&(project.clone(), name.to_owned()))
+            .map(|_| ())
+            .ok_or_else(|| no_secret(name))
+    }
+
+    fn remove_project(&self, project: &ProjectId) -> Result<()> {
+        lock(&self.secrets).retain(|(p, _), _| p != project);
+        Ok(())
+    }
+
+    fn value(&self, project: &ProjectId, name: &str) -> Result<SecretValue> {
+        lock(&self.secrets)
+            .get(&(project.clone(), name.to_owned()))
+            .map(|(_, value)| value.clone())
+            .ok_or_else(|| no_secret(name))
+    }
+}
+
+fn no_secret(name: &str) -> ProtocolError {
+    ProtocolError::new(ErrorCode::NotFound, format!("no secret named {name}"))
 }
 
 /// Records every file (as `path` under `root`, symlinks unresolved) and URL

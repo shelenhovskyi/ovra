@@ -410,6 +410,10 @@ fn every_request_round_trips() {
         serde_json::json!({"method": "policy.set", "params": {"project": "p1", "policy": {"rules": [
             {"tool": "Bash", "match": "npm test", "action": "auto"},
             {"tool": "WebFetch", "action": "deny"}]}}}),
+        serde_json::json!({"method": "secrets.list", "params": {"project": "p1"}}),
+        serde_json::json!({"method": "secrets.set", "params": {"project": "p1", "secret": {
+            "name": "gh", "host": "api.github.com", "header": "Authorization", "prefix": "Bearer "}, "value": "v"}}),
+        serde_json::json!({"method": "secrets.remove", "params": {"project": "p1", "name": "gh"}}),
         serde_json::json!({"method": "agents.start", "params": {"project": "p1", "agent": "claude", "mode": "direct", "prompt": "hi"}}),
         serde_json::json!({"method": "agents.send", "params": {"session": "s1", "text": "more"}}),
         serde_json::json!({"method": "agents.stop", "params": {"session": "s1"}}),

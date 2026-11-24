@@ -15,6 +15,7 @@ pub mod path;
 mod policy;
 pub mod protocol;
 mod search;
+mod secrets;
 pub mod services;
 
 pub use crate::core::{Client, Core, CoreBuilder};

@@ -24,6 +24,7 @@ use crate::protocol::policy::Policy;
 use crate::protocol::projects::{Project, ProjectId, ProjectState, ProjectStatePatch};
 use crate::protocol::review::ChangeKind;
 use crate::protocol::search::{SearchId, SearchQuery};
+use crate::protocol::secrets::{SecretInfo, SecretStoreStatus, SecretValue};
 use crate::protocol::terminals::{TermSize, TerminalId};
 use crate::protocol::{ErrorCode, Event, ProtocolError};
 
@@ -254,6 +255,26 @@ pub trait AuditLog: Send + Sync + Debug {
         after: Option<u64>,
         limit: usize,
     ) -> Result<Vec<AuditEntry>>;
+}
+
+/// Tokens in the OS keychain, each bound to one project, host and header
+/// (`docs/specs/secrets.md`; implemented by `ovra-secrets`). Calls may
+/// block on the keychain.
+pub trait Secrets: Send + Sync + Debug {
+    /// Whether values can be stored, and where.
+    fn status(&self) -> SecretStoreStatus;
+    /// The project's secrets without values, by name.
+    fn list(&self, project: &ProjectId) -> Result<Vec<SecretInfo>>;
+    /// Stores or replaces a secret. The core has checked every field.
+    /// `unavailable` without a keychain; never falls back to a file.
+    fn set(&self, project: &ProjectId, secret: SecretInfo, value: SecretValue) -> Result<()>;
+    /// `not_found` if the project has no such secret.
+    fn remove(&self, project: &ProjectId, name: &str) -> Result<()>;
+    /// Removes every secret of a project the person removes.
+    fn remove_project(&self, project: &ProjectId) -> Result<()>;
+    /// The value, for the netproxy and the audit log's redaction: no
+    /// protocol method reaches it.
+    fn value(&self, project: &ProjectId, name: &str) -> Result<SecretValue>;
 }
 
 /// Starts agent sessions (implemented by `ovra-agent-runtime`). One runtime
@@ -703,6 +724,29 @@ impl Worktrees for Unavailable {
     }
     fn delete_branch(&self, _: PathBuf, _: String, _: String) -> BoxFuture<'_, Result<()>> {
         Box::pin(async move { self.err() })
+    }
+}
+
+impl Secrets for Unavailable {
+    fn status(&self) -> SecretStoreStatus {
+        SecretStoreStatus::Unavailable {
+            reason: format!("{} is not available in this build", self.0),
+        }
+    }
+    fn list(&self, _: &ProjectId) -> Result<Vec<SecretInfo>> {
+        Ok(Vec::new())
+    }
+    fn set(&self, _: &ProjectId, _: SecretInfo, _: SecretValue) -> Result<()> {
+        self.err()
+    }
+    fn remove(&self, _: &ProjectId, _: &str) -> Result<()> {
+        self.err()
+    }
+    fn remove_project(&self, _: &ProjectId) -> Result<()> {
+        Ok(())
+    }
+    fn value(&self, _: &ProjectId, _: &str) -> Result<SecretValue> {
+        self.err()
     }
 }
 

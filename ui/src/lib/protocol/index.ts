@@ -10,6 +10,7 @@ import type { PolicyEvent, PolicyRequest, PolicyResponse } from "./policy";
 import type { ProjectsEvent, ProjectsRequest, ProjectsResponse } from "./projects";
 import type { ReviewEvent, ReviewRequest, ReviewResponse } from "./review";
 import type { SearchEvent, SearchRequest, SearchResponse } from "./search";
+import type { SecretsEvent, SecretsRequest, SecretsResponse } from "./secrets";
 import type { TerminalsEvent, TerminalsRequest, TerminalsResponse } from "./terminals";
 
 export type * from "./agents";
@@ -23,6 +24,7 @@ export type * from "./policy";
 export type * from "./projects";
 export type * from "./review";
 export type * from "./search";
+export type * from "./secrets";
 export type * from "./terminals";
 
 export type Request =
@@ -36,7 +38,8 @@ export type Request =
   | ReviewRequest
   | OrchestrationRequest
   | SearchRequest
-  | PolicyRequest;
+  | PolicyRequest
+  | SecretsRequest;
 
 export type Response =
   | InfoResponse
@@ -49,6 +52,7 @@ export type Response =
   | OrchestrationResponse
   | SearchResponse
   | PolicyResponse
+  | SecretsResponse
   | { type: "ok" };
 
 export type CoreEvent =
@@ -61,7 +65,8 @@ export type CoreEvent =
   | ReviewEvent
   | OrchestrationEvent
   | SearchEvent
-  | PolicyEvent;
+  | PolicyEvent
+  | SecretsEvent;
 
 export type ErrorCode = "bad_request" | "not_found" | "conflict" | "forbidden" | "unavailable" | "internal";
 
@@ -148,4 +153,8 @@ type PhaseThreeResponseFor<R extends Request> = R extends { method: "review.list
             ? Extract<Response, { type: "search.started" }>
             : R extends { method: "policy.get" | "policy.set" }
               ? Extract<Response, { type: "policy.policy" }>
-              : never;
+              : R extends { method: "secrets.list" }
+                ? Extract<Response, { type: "secrets.list" }>
+                : R extends { method: "secrets.set" | "secrets.remove" }
+                  ? { type: "ok" }
+                  : never;

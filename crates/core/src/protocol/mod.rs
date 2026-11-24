@@ -16,6 +16,7 @@ pub mod policy;
 pub mod projects;
 pub mod review;
 pub mod search;
+pub mod secrets;
 pub mod terminals;
 
 use serde::{Deserialize, Serialize};
@@ -35,6 +36,7 @@ pub enum Request {
     Orchestration(orchestration::OrchestrationRequest),
     Search(search::SearchRequest),
     Policy(policy::PolicyRequest),
+    Secrets(secrets::SecretsRequest),
 }
 
 /// The core's answer to a [`Request`]. Wire form: `{"type": "<domain>.<name>", "data": ...}`.
@@ -51,6 +53,7 @@ pub enum Response {
     Orchestration(orchestration::OrchestrationResponse),
     Search(search::SearchResponse),
     Policy(policy::PolicyResponse),
+    Secrets(secrets::SecretsResponse),
     /// The request succeeded and has nothing to return.
     Ok(OkResponse),
 }
@@ -75,6 +78,7 @@ pub enum Event {
     Orchestration(orchestration::OrchestrationEvent),
     Search(search::SearchEvent),
     Policy(policy::PolicyEvent),
+    Secrets(secrets::SecretsEvent),
 }
 
 /// An error returned instead of a [`Response`].
@@ -169,6 +173,12 @@ impl From<orchestration::OrchestrationEvent> for Event {
 impl From<policy::PolicyEvent> for Event {
     fn from(e: policy::PolicyEvent) -> Self {
         Self::Policy(e)
+    }
+}
+
+impl From<secrets::SecretsEvent> for Event {
+    fn from(e: secrets::SecretsEvent) -> Self {
+        Self::Secrets(e)
     }
 }
 
