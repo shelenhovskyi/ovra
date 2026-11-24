@@ -61,6 +61,14 @@ pub(crate) fn for_write(root: &Path, path: &RelPath) -> Result<PathBuf> {
     if !real.starts_with(&root) {
         return Err(outside(path));
     }
+    // Writing below a file: say so the same way on every platform (Linux
+    // reports ENOTDIR, Windows a generic error from create_dir_all).
+    if !missing.is_empty() && !real.is_dir() {
+        return Err(ProtocolError::new(
+            ErrorCode::NotFound,
+            format!("{path}: a parent is not a directory"),
+        ));
+    }
     real.extend(missing.iter().rev());
     Ok(real)
 }

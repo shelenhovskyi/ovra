@@ -36,6 +36,12 @@ expression: "list(&fs, root, \"\").await.expect(\"root\")"
       "git": null
     },
     {
+      "name": ".gitattributes",
+      "kind": "file",
+      "ignored": false,
+      "git": null
+    },
+    {
       "name": ".gitignore",
       "kind": "file",
       "ignored": false,
@@ -46,12 +52,6 @@ expression: "list(&fs, root, \"\").await.expect(\"root\")"
       "kind": "file",
       "ignored": true,
       "git": null
-    },
-    {
-      "name": "link",
-      "kind": "symlink",
-      "ignored": false,
-      "git": "untracked"
     },
     {
       "name": "README.md",

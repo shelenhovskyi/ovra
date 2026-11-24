@@ -58,6 +58,8 @@ async fn lists_with_gitignore_and_git_status() {
     let tmp = dir();
     let root = tmp.path();
     git(root, &["init", "-q"]);
+    // No line-ending conversion, so the statuses match on Windows too.
+    put(root, ".gitattributes", "* -text\n");
     put(root, ".gitignore", "target/\n*.log\n");
     put(root, "src/main.rs", "fn main() {}\n");
     put(root, "src/lib.rs", "\n");
@@ -78,8 +80,6 @@ async fn lists_with_gitignore_and_git_status() {
     put(root, "target/debug/app", "bin");
     put(root, "debug.log", "x");
     put(root, "notes/todo.md", "- a\n");
-    #[cfg(unix)]
-    std::os::unix::fs::symlink("README.md", root.join("link")).expect("symlink");
 
     let fs = FsIndex::new();
     insta::assert_json_snapshot!("root", list(&fs, root, "").await.expect("root"));
@@ -174,6 +174,17 @@ async fn symlinks_do_not_leave_the_root() {
     }
     assert!(!outside.path().join("new.txt").exists());
     assert!(!outside.path().join("deep").exists());
+
+    let link = list(&fs, root, "").await.expect("list");
+    let alias_kind = link
+        .entries
+        .iter()
+        .find(|e| e.name == "alias")
+        .map(|e| e.kind);
+    assert_eq!(
+        alias_kind,
+        Some(ovra_core::protocol::fs::EntryKind::Symlink)
+    );
 
     let (a, b) = r("alias");
     let alias = fs.read_file(a, b).await.expect("inside link");
