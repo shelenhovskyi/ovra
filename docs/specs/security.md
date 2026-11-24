@@ -1,0 +1,372 @@
+# Agent security (phase 4)
+
+Status: task 4.0. Reviewed twice by an independent reviewer agent in place
+of the owner (owner's rule, 2026-11-24). The environment change below
+amends ADR 0006 and waits for the owner. Builds on ADR 0005 (direct mode), ADR 0006
+(Claude through the user's `claude` CLI) and `docs/specs/orchestration.md`.
+
+Phase 4 has five parts. 4.0 defines the contracts between them:
+
+- a **sandbox** around each agent process (4.A Linux, 4.B macOS, 5.A Windows);
+- a **netproxy** that is the sandbox's only way out (4.C);
+- a **secrets broker** that keeps secret values outside the sandbox (4.D);
+- **policies** that decide a tool call without asking, or refuse it;
+- an **audit log** of what agents did and who allowed it (4.E).
+
+4.0 changes no behaviour. Sessions run as they do now, and every tool call
+still asks the person, until a platform sandbox and project policies exist.
+Nothing here loosens what holds today.
+
+## Sandbox
+
+**What is sandboxed.** The sandbox wraps the whole `claude` process of one
+session, because its tools (Bash, Edit, ...) run inside that process. Each
+session gets its own sandbox. Ovra's core, the UI and the person's own
+terminals are never sandboxed.
+
+**Contract.** `Sandbox` is a service trait in `crates/core/src/services.rs`:
+
+```rust
+pub trait Sandbox: Send + Sync + Debug {
+    /// Whether this machine can sandbox agents, and with what.
+    fn status(&self) -> SandboxStatus;
+    /// The command line that runs `line` inside `profile`.
+    fn wrap(&self, profile: &SandboxProfile, line: CommandLine) -> Result<CommandLine>;
+}
+```
+
+- `CommandLine` is plain data: the program, its arguments, environment
+  changes and the working folder. The core never spawns anything.
+- The runtime builds the `claude` command line as it does today, calls
+  `wrap`, and spawns the result.
+- `wrap` starts nothing itself. A wrapper such as `bwrap` or `sandbox-exec`
+  is the program it returns. Steps that must happen inside the process
+  before `exec` live in a small helper binary that the platform crate ships
+  and `wrap` names as the program: Landlock, seccomp, and handing `bwrap
+  --seccomp` its file descriptor (4.A).
+- `SandboxStatus` is `Available { name }` or `Unavailable { reason }`.
+
+**One source of truth.** The runtime gets the sandbox when it is built. The
+core only builds profiles.
+
+- After each spawn (a resume spawns again), the runtime reports what it
+  actually did with `AgentHost::sandboxed(Option<SandboxReport>)`. The
+  report holds the sandbox's name and its network mode, or `None` for no
+  sandbox. `SandboxReport` is a protocol type. A runtime that never reports
+  counts as unsandboxed.
+- Policies and the UI rely on this report only, never on what was
+  configured.
+- If the sandbox is `Available` and `wrap` fails, the session fails to
+  start. It does not fall back to running unsandboxed.
+
+**Profile.** The core builds it, because only the core knows the session:
+
+| Field       | Meaning                                                                                                                                                |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `work_dir`  | The session's folder: its worktree, or the project root in direct mode. Readable and writable, except `protected`.                                     |
+| `protected` | Paths under `work_dir`, and git folders of the session, that stay read-only (below).                                                                   |
+| `read`      | More folders the agent may read but not write. A worker's main repository git folder goes here: object store, refs, packed refs.                       |
+| `write`     | More folders the agent may write. A worker's own `<git dir>/worktrees/<name>` (its index and HEAD) goes here, except the protected files listed below. |
+| `network`   | `Blocked`, or `Proxy { address }` for the session's netproxy. `Open` exists only for platforms that cannot limit the network.                          |
+
+With the common object store read-only, a worker cannot commit. It does not
+need to, because Ovra applies its changes on approve.
+
+**What the platform adds.** Each platform crate documents what it adds:
+
+- **The agent's own state.**
+  - `~/.claude.json` and `~/.claude` stay readable, because `claude` needs
+    its login and settings.
+  - Writable: only the session data `claude` writes, such as `projects/`,
+    `todos/`, `shell-snapshots/` and `statsig/`, and
+    `~/.claude/.credentials.json`, which `claude` rewrites when it refreshes
+    its login (part of the known limit below).
+  - Read-only: `settings*.json`, `CLAUDE.md`, `agents/`, `commands/`,
+    `skills/`, `hooks/` and `plugins/`. An agent must not plant code that
+    runs later outside the sandbox.
+  - `~/.claude.json` holds `mcpServers` but must stay writable for
+    `claude`. This is a known limit. 4.F tests it, and the trust fingerprint
+    is the backstop until a platform can do better.
+  - On macOS, keychain access cannot be scoped to one item (4.B notes how
+    it limits this).
+- **System and toolchains.**
+  - The system's binaries and libraries are read-only.
+  - Toolchain folders on `PATH` are readable. A `PATH` entry that is the
+    home folder, an ancestor of it, or `.` is dropped from the sandbox's
+    `PATH`.
+  - Package caches the agent's builds need are writable, by default
+    `~/.cargo/registry`, `~/.npm`, `~/.cache/pip` and `~/.cache/pnpm`. The
+    platform crate lists them.
+- **Temporary files.** A private temporary folder is writable.
+- **Deny by default.** Everything else in the home folder is hidden,
+  including:
+  - secret stores: `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.config/gh`,
+    `~/.netrc`, `~/.docker/config.json` and browser profiles;
+  - Ovra's own data folder (store, trust, policies, audit), except the
+    session's own worktree;
+  - on Linux, `/run/user/<uid>`, because D-Bus reaches the keyring there;
+  - agent sockets such as `SSH_AUTH_SOCK` and the gpg agent.
+- **Environment (needs the owner).** ADR 0006 keeps every variable but
+  three. A sandbox should instead start from an allowlist, so that
+  `SSH_AUTH_SOCK`, `GITHUB_TOKEN`, `GH_TOKEN`, `AWS_*` and `NPM_TOKEN` do
+  not pass. This amends ADR 0006 and waits for the owner. Until then the
+  environment stays as ADR 0006 says. If the owner agrees:
+  - the list names variables one by one, never by prefix (a
+    `CLAUDE_CODE_*` prefix would pass `CLAUDE_CODE_OAUTH_TOKEN`);
+  - it includes `PATH`, `HOME`, `LANG`, `TERM`, `ANTHROPIC_API_KEY`,
+    `ANTHROPIC_BASE_URL`, the cloud-provider variables, CA bundles
+    (`SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`), toolchain homes (`CARGO_HOME`,
+    `RUSTUP_HOME`, `NVM_DIR`) and the proxy variables below;
+  - a project can add names to it.
+
+**Protected paths.** They stay read-only. The list lives in
+`crates/sandbox`, so every platform uses the same one:
+
+- Git:
+  - `.git/hooks`, `.git/config`, `.git/modules/*/hooks` and
+    `.git/modules/*/config`;
+  - the folder `core.hooksPath` names, for example `.husky/`;
+  - `refs/ovra/` and its reflog;
+  - for a worker, its worktree's `.git` file, plus `commondir`, `gitdir` and
+    `config.worktree` in `<git dir>/worktrees/<name>`, because Ovra later
+    runs git there unsandboxed.
+- Agent configuration: `.claude/`, `.mcp.json`, every `CLAUDE.md`,
+  `CLAUDE.local.md` and `AGENTS.md`.
+- Code that tools run on their own: `.vscode/`, `.idea/`, `.devcontainer/`
+  and `.envrc`.
+
+An agent that needs one of these changed says so in its summary, and the
+person makes the change.
+
+Not every platform can protect a path that does not exist yet, or make a
+subtree read-only. The backstop is outside the sandbox:
+
+- the review marks any change to a protected path, and approve never
+  applies one without saying so (4.A adds this to the inbox);
+- a change to agent configuration drops the project's trust (fingerprint,
+  task 2.F).
+
+**Without a sandbox.** If `status()` is `Unavailable`, the session runs
+unsandboxed, as it does today. The UI says so on the session, and the audit
+log records it. Policies never skip a question for such a session. A project
+setting that refuses unsandboxed sessions comes with 4.A.
+
+**Known limit.** The agent process reads Claude Code's own login, so its
+tools can read it too. The netproxy is what keeps that login from leaving
+the machine. The threat model in 4.F records this.
+
+**Crate.** `crates/sandbox` holds what all platforms share:
+
+- the protected-path list;
+- `Unsandboxed`, which is `Unavailable` and returns the line unchanged;
+- `for_this_os()`, which picks the platform crate or falls back to
+  `Unsandboxed`.
+
+`daemon` and `app` pass it to the agent runtime. Its edges in
+`scripts/crate-graph.json` are part of this task.
+
+## Netproxy (4.C)
+
+`NetProxy` is a service trait:
+
+```rust
+pub trait NetProxy: Send + Sync + Debug {
+    /// Starts a proxy for one session; it lives until `stop`.
+    fn start(&self, session: SessionId, allow: Allowlist) -> BoxFuture<'_, Result<ProxyAddress>>;
+    fn stop(&self, session: &SessionId);
+}
+```
+
+- **Address.** `ProxyAddress` is a Unix socket path on Linux and macOS,
+  because a sandbox without a network namespace has no loopback. On Windows
+  it is a 127.0.0.1 port. The platform's helper bridges the socket to a
+  local port inside the sandbox. `wrap` sets `HTTP_PROXY` and `HTTPS_PROXY`
+  to that port, clears `NO_PROXY`, and sets `NODE_USE_ENV_PROXY=1`.
+- **Allowlist.** The allowlist holds host names, each optionally with a port.
+  - The base list holds what `claude` itself needs: Anthropic's API and
+    login hosts, or the user's Bedrock, Vertex or Foundry endpoint.
+  - The project's own list adds to it. It is kept by `ProjectStore`, and
+    `netproxy.get_allowlist` and `netproxy.set_allowlist` read and change
+    it.
+- **Refusals.**
+  - The proxy resolves names itself. It refuses any address that is
+    loopback, link-local, private or the metadata service (169.254.169.254),
+    whatever the name. That keeps agents from reaching Ovra's own daemon or
+    the local network.
+  - It allows CONNECT only to ports 443 and 80, unless the allowlist names
+    another port.
+  - Every refusal is reported to the core and written to the audit log as
+    `NetworkRefused`.
+- **Upstream proxy.** If the user's own proxy is set where Ovra runs, the
+  netproxy chains to it.
+- **Limit.** Without TLS inspection, a broad domain such as `github.com` is
+  still a way to send data out. The UI warns about broad entries.
+
+## Secrets (4.D)
+
+A secret's value never enters the sandbox.
+
+- `Secrets` is a service trait over the OS keychain: `list()` returns
+  names, `set(name)` and `remove(name)` change them, and the netproxy calls
+  `value(name)`, which no protocol method exposes.
+- **Delivery.** Through the netproxy. A secret is bound to one host and one
+  header, for example `Authorization: Bearer <value>` for `api.github.com`.
+  The proxy adds the header to requests for that host only. To make this
+  possible for HTTPS, 4.D proposes how the proxy terminates TLS for bound
+  hosts. Its own spec needs review before code.
+- Each use is written to the audit log as `SecretUsed { name, host }`.
+
+## Policies: auto, ask, deny
+
+A policy decides a tool call before the person is asked. It is a list of
+rules for each project:
+
+```json
+{
+  "rules": [
+    { "tool": "Bash", "match": "npm test", "action": "auto" },
+    { "tool": "Edit", "match": "docs/**", "action": "auto" },
+    { "tool": "WebFetch", "action": "deny" }
+  ]
+}
+```
+
+- `tool` is a tool name. `match` is optional and tested against the call's
+  main argument.
+- For `Bash`, `match` is a command prefix, matched on word boundaries
+  (`npm test` matches `npm test -- -u`, not `npm testx`).
+  - A command that contains `;`, `&`, `|`, a backtick, `$(`, `>`, `<` or a
+    newline never matches an `auto` rule.
+  - A Bash `deny` rule is advisory: `env git push` or `git -C . push` gets
+    past it. The boundary that holds is the sandbox plus the netproxy. The
+    UI says so beside Bash deny rules.
+  - An `auto` rule runs more than its words: `npm test` runs the scripts in
+    `package.json`, which the agent can edit. The UI says so beside Bash
+    auto rules; the sandbox is what makes that acceptable.
+- For `Read`, `Edit`, `MultiEdit`, `Write` and `NotebookEdit`, `match` is a
+  glob on the path relative to `work_dir`.
+  - The path is normalized lexically first (as `RelPath::parse`): no `..`
+    segments. The core cannot see symlinks; the sandbox contains them,
+    which is one more reason `auto` needs a sandbox.
+  - On macOS and Windows the path is compared case-insensitively.
+  - A path outside `work_dir` never matches an `auto` rule.
+- `action` is `auto`, `ask` or `deny`.
+
+**How a call is decided.**
+
+- A `deny` rule wins and refuses the call. The agent receives the rule as
+  the reason.
+  - Deny is enforced in both places a tool call passes: `can_use_tool` and
+    the `PreToolUse` hook (ADR 0006). The runtime forwards the hook to the
+    core (`AgentHost::before_tool`, which already sees every call), so a
+    policy changed mid-session applies at once.
+  - The hook matters because calls the user's own Claude settings already
+    allow never reach `can_use_tool`.
+- An `auto` rule applies only when the runtime reported a sandbox for the
+  session (above) whose network is not `Open`. Ovra skips the question only
+  when the sandbox would contain a mistake. Otherwise `auto` counts as
+  `ask`.
+- Everything else asks the person, as now. That includes calls no rule
+  matches.
+- Ovra's own IDE tools (`mcp__ovra__*`) keep their role rules from the
+  orchestration spec. A policy does not change them.
+- The CLI's own permission rules still apply inside `claude` before Ovra is
+  asked. These are the user's settings, plus the project's
+  `.claude/settings.json` when the project is trusted. Policies add a layer
+  on top and replace nothing.
+
+**Storage and protocol.**
+
+- A project's policy is kept by `ProjectStore`.
+- `policy.get { project }` reads it. `policy.set { project, policy }`
+  replaces it.
+- Only the person changes a policy, through the UI. No agent tool can, and
+  policies live outside every sandbox.
+- `set` refuses unknown actions, empty tool names and globs that cannot
+  match inside `work_dir`.
+
+## Audit log
+
+The log gets one entry for each event that matters for security. The schema
+is part of the protocol (`protocol/audit.rs`) so the UI and tests share it:
+
+```rust
+pub struct AuditEntry {
+    pub seq: u64,          // increasing within one Ovra data folder
+    pub at_ms: u64,        // Unix time
+    pub project: ProjectId,
+    pub session: Option<SessionId>,
+    pub event: AuditEvent,
+}
+pub enum AuditEvent {
+    SessionStarted { mode: SessionMode, trusted: bool, sandbox: Option<SandboxReport> },
+    ToolDecided { tool: String, input: AuditInput, allowed: bool, by: DecidedBy },
+    TrustChanged { trusted: bool, fingerprint: Option<String> },
+    PolicyChanged { policy: Policy },
+    ReviewDecided { review: ReviewId, action: ReviewAction },
+    NetworkRefused { host: String, reason: String },
+    SecretUsed { name: String, host: String },
+}
+pub enum DecidedBy { Person, Policy { rule: String }, Role, SessionEnded }
+pub enum ReviewAction { Approved, PartlyApproved, Rejected, UndoneReject, Taken, UndoneTake }
+```
+
+**`AuditInput` keeps secrets out:**
+
+- For `Write`, `Edit`, `MultiEdit` and `NotebookEdit`, it records the path
+  and a SHA-256 of the content, never the content.
+- For anything else, it records the input as JSON, cut to 4 KiB, with these
+  removed first:
+  - values the secrets broker knows;
+  - strings that look like tokens: `sk-`, `ghp_`, `gho_`, `github_pat_`,
+    `xox`, `AKIA` and JWTs;
+  - the values of `Authorization` and `Cookie` headers.
+
+**Service:**
+
+```rust
+pub trait AuditLog: Send + Sync + Debug {
+    fn append(&self, project: &ProjectId, session: Option<&SessionId>, event: AuditEvent) -> Result<AuditEntry>;
+    fn list(&self, project: &ProjectId, after: Option<u64>, limit: usize) -> Result<Vec<AuditEntry>>;
+}
+```
+
+- **Storage.** `ovra-store` keeps it in its SQLite file (4.E). The file
+  mode is 0600.
+- **Protocol.** `audit.list { project, after, limit }`, plus an
+  `audit.appended` event for live viewers.
+- **No edits.** The log is only appended to. No method deletes or edits an
+  entry, and removing a project keeps its entries.
+- **4.0 versus 4.E.** 4.0 defines the trait and the schema, with an
+  in-memory fake. Writing entries from the core, the store and the viewer
+  are 4.E.
+
+## Tests
+
+- Unit and integration tests use the fake sandbox and the fake netproxy, as
+  for every service.
+- 4.F is the one exception. Its attack tests run a real sandbox and a real
+  netproxy around a scripted fake agent, never a real `claude`. They run on
+  Linux CI, and on macOS for 4.B.
+- The attacks, at least:
+  - reading `~/.ssh`;
+  - reaching a host outside the allowlist;
+  - reaching 127.0.0.1 and 169.254.169.254;
+  - writing `.git/hooks` and `~/.claude/settings.json`;
+  - changing `~/.claude.json` `mcpServers` (the known limit);
+  - widening rights from the repository.
+
+## Tasks this unblocks
+
+| Task | Builds on 4.0                                                                                                               |
+| ---- | --------------------------------------------------------------------------------------------------------------------------- |
+| 4.A  | `Sandbox` for Linux in `crates/sandbox-linux`: bubblewrap, the helper (Landlock, seccomp), inbox marks for protected paths. |
+| 4.B  | `Sandbox` for macOS in `crates/sandbox-macos` (Seatbelt).                                                                   |
+| 4.C  | `NetProxy` in `crates/netproxy`, project allowlists, `netproxy.*` methods.                                                  |
+| 4.D  | Its own short spec first (TLS for bound hosts), then `Secrets` in `crates/secrets`.                                         |
+| 4.E  | Writing `AuditEntry` from the core, the store in `ovra-store`, the viewer in `ui/src/audit`.                                |
+| 4.F  | Attack tests in `tests/security`.                                                                                           |
+
+Each of 4.A–4.F adds its own service trait or protocol module in a small
+first commit if 4.0 did not, as the parallel-work rules require. 4.0 adds
+`Sandbox`, `AuditLog`, the policy and audit protocol, and `AgentHost::sandboxed`.
