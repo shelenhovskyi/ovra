@@ -365,7 +365,7 @@ impl Dirs {
         #[cfg(test)]
         if self
             .watch_budget
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
             .is_err()
         {
             return Err(notify::Error::new(notify::ErrorKind::MaxFilesWatch));
