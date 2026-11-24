@@ -22,6 +22,8 @@ describe("ExpandedSaver", () => {
     expect(saves(core)).toBe(0);
     await vi.advanceTimersByTimeAsync(1);
     expect(saves(core)).toBe(1);
+    // One partial update, no read first.
+    expect(core.calls.map((c) => c.method)).toEqual(["projects.set_state"]);
     expect(core.states.get("p1")).toEqual({
       open_files: ["a.ts"],
       active_file: "a.ts",

@@ -63,9 +63,8 @@ $effect(() => {
     if (event.type === "fs.changed" && event.data.project === project) void model.refreshPaths(event.data.paths);
     if (event.type === "fs.git_changed" && event.data.project === project) void model.refreshAll();
   });
-  // Closing or reloading the window does not unmount the tree; try to save then too.
-  // Best effort: the socket may close before the reply, so a change made in the
-  // last moment before closing can be lost.
+  // Closing or reloading the window does not unmount the tree; save then too.
+  // The save is one message sent synchronously, so it leaves before the socket closes.
   const flush = () => void saver?.flush();
   window.addEventListener("pagehide", flush);
   return () => {
