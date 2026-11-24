@@ -204,9 +204,9 @@ mod tests {
     }
 
     #[test]
-    fn colon_is_fine_after_first_segment() {
+    fn colon_is_fine_after_first_segment_except_on_windows() {
         for raw in ["notes/ab:c.md", "notes/10:30", "notes/:x", "a/b.rs:x"] {
-            assert!(RelPath::parse(raw).is_ok(), "{raw:?}");
+            assert_eq!(RelPath::parse(raw).is_err(), cfg!(windows), "{raw:?}");
         }
     }
 

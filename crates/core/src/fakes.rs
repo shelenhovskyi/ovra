@@ -73,9 +73,13 @@ impl ProjectStore for MemoryProjects {
         }
         let mut added = lock(&self.added);
         *added += 1;
+        // The folder's name on every platform (`\` separates on Windows).
+        let name = Path::new(&root)
+            .file_name()
+            .map_or_else(|| root.clone(), |n| n.to_string_lossy().into_owned());
         let project = Project {
             id: ProjectId(format!("p{added}")),
-            name: root.rsplit('/').next().unwrap_or(&root).to_owned(),
+            name,
             root,
             last_opened_ms: None,
             trusted: false,
