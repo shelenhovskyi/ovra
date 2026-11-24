@@ -294,6 +294,9 @@ pub struct Delta {
     pub from: Option<String>,
     pub additions: u32,
     pub deletions: u32,
+    /// Names the content of the new side (empty for a deletion): equal
+    /// versions mean equal content and mode. Review fingerprints use it.
+    pub version: String,
 }
 
 /// Git worktrees, snapshots and diffs for review (implemented by
