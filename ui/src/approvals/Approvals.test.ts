@@ -367,6 +367,41 @@ describe("Approvals", () => {
     expect(answers(core)).toEqual([]);
   });
 
+  it("shows only the first request's details and never allows one unseen", async () => {
+    const core = await setup();
+    core.ask(bash("perm1"));
+    core.ask(bash("perm2", "rm -rf build"));
+    await settle(ARM_MS);
+    expect(cards().map((c) => c.querySelector("dl") !== null)).toEqual([true, false]);
+    const allow = cards()[1]?.querySelector<HTMLButtonElement>("button.allow");
+    allow?.click();
+    await settle();
+    // The first press shows what it would allow; the cards below moved, so it waits again.
+    expect(answers(core)).toEqual([]);
+    expect(cards()[1]?.querySelector("dl pre")?.textContent).toBe("rm -rf build");
+    expect(allow?.getAttribute("aria-disabled")).toBe("true");
+    await settle(ARM_MS);
+    allow?.click();
+    await settle();
+    expect(answers(core)).toEqual([{ id: "perm2", decision: "allow" }]);
+  });
+
+  it("can be hidden, and opens again for the shortcut", async () => {
+    const core = await setup();
+    core.ask(bash("perm1"));
+    await settle(ARM_MS);
+    const toggle = target.querySelector<HTMLButtonElement>("button.toggle");
+    toggle?.click();
+    await settle();
+    expect(cards()).toEqual([]);
+    expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+    expect(target.querySelector("#approvals-heading")?.textContent).toContain("(1 waiting)");
+    press("KeyA", { altKey: true, shiftKey: true });
+    await settle();
+    expect(document.activeElement).toBe(cards()[0]);
+    expect(toggle?.getAttribute("aria-expanded")).toBe("true");
+  });
+
   it("focuses the request a notification is about", async () => {
     const core = await setup();
     core.ask(bash("perm1"));

@@ -12,7 +12,7 @@
 // - one key press answers at most one request: auto-repeat is ignored and the
 //   next answer needs the key released first.
 import { tick, untrack } from "svelte";
-import { SvelteMap } from "svelte/reactivity";
+import { SvelteMap, SvelteSet } from "svelte/reactivity";
 import { agentSessions } from "../agents/sessions.svelte";
 import { registerCommand } from "../keys/commands";
 import type { Decision, PermissionId, PermissionRequest, Project, ProjectId, SessionId } from "../lib/protocol";
@@ -35,6 +35,10 @@ let note = $state("");
 let list = $state<HTMLElement>();
 let heading = $state<HTMLElement>();
 let returnTo: HTMLElement | null = null;
+/** The list is hidden; the heading still counts what waits. */
+let collapsed = $state(false);
+/** Requests after the first whose details the person opened. */
+const opened = new SvelteSet<PermissionId>();
 /** Said to screen readers: what a jump to a request found. */
 let notice = $state("");
 const projects = new SvelteMap<ProjectId, Project>();
@@ -64,6 +68,7 @@ $effect(() => {
   const ids = queue.pending.map((r) => r.id);
   untrack(() => {
     if (shown.some((id, i) => ids[i] !== id)) quiet();
+    for (const id of opened) if (!ids.includes(id)) opened.delete(id);
   });
   shown = ids;
 });
@@ -103,8 +108,9 @@ $effect(() =>
 );
 
 $effect(() => {
-  queue.revealer = (id) => {
+  queue.revealer = async (id) => {
     remember();
+    if (collapsed) await show();
     const target = card(id);
     // Never another request instead: a key press meant for this one would answer it.
     notice = target ? "" : "That request was already answered.";
@@ -128,9 +134,27 @@ function remember(): void {
   if (active instanceof HTMLElement && !list?.contains(active) && active !== heading) returnTo = active;
 }
 
-function enter(): void {
+async function enter(): Promise<void> {
   remember();
+  if (collapsed) await show();
   (cards()[0] ?? heading)?.focus();
+}
+
+async function show(): Promise<void> {
+  collapsed = false;
+  await tick();
+}
+
+/** Only the first request shows its details at once, so a few requests leave room for the agents. */
+function isOpen(id: PermissionId): boolean {
+  return queue.pending[0]?.id === id || opened.has(id);
+}
+
+/** Shows a request's details; the cards below move, so answers wait again. */
+function expand(id: PermissionId): void {
+  if (isOpen(id)) return;
+  opened.add(id);
+  quiet();
 }
 
 function leave(): void {
@@ -140,6 +164,11 @@ function leave(): void {
 
 async function answer(request: PermissionRequest, decision: Decision, message?: string): Promise<void> {
   if (!armed(request.id)) return;
+  // Nothing is allowed unseen: the first press shows what it would allow.
+  if (decision === "allow" && !isOpen(request.id)) {
+    expand(request.id);
+    return;
+  }
   // Only a request already on screen may take the focus next: one that
   // arrives while the answer is on its way was never seen.
   const before = queue.pending.map((r) => r.id);
@@ -247,6 +276,7 @@ function workerCopy(session: SessionId): string {
 </script>
 
 <section class="approvals" aria-labelledby="approvals-heading" data-testid="approvals">
+  <div class="head">
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <h2
     id="approvals-heading"
@@ -262,16 +292,25 @@ function workerCopy(session: SessionId): string {
   >
     Approvals{#if queue.pending.length > 0}{" "}<span class="count">({queue.pending.length} waiting)</span>{/if}
   </h2>
+  <button
+    type="button"
+    class="toggle"
+    aria-expanded={!collapsed}
+    aria-controls="approvals-list"
+    onclick={() => (collapsed = !collapsed)}>{collapsed ? "Show" : "Hide"}</button
+  >
+  </div>
   <p class="notice" aria-live="polite" data-testid="approvals-notice">{notice}</p>
   {#if queue.error}
     <p class="error" role="alert">{queue.error}</p>
   {/if}
   {#if queue.pending.length === 0}
     <p class="empty">Nothing waits for your approval.</p>
-  {:else}
+  {:else if !collapsed}
     <p class="hint" id="approvals-keys">On a request: Y allows, N denies, Shift+N denies with a message.</p>
   {/if}
-  <ul bind:this={list}>
+  <ul bind:this={list} id="approvals-list" hidden={collapsed}>
+    {#if !collapsed}
     {#each queue.pending as request (request.id)}
       {@const summary = describeTool(request.tool, request.input)}
       {@const ready = armed(request.id)}
@@ -289,6 +328,7 @@ function workerCopy(session: SessionId): string {
           aria-labelledby="{domId}-action"
           aria-describedby="{domId}-session approvals-keys"
           onkeydown={(event) => onKeydown(event, request)}
+          onfocusin={() => expand(request.id)}
         >
           <p class="session" id="{domId}-session">
             {sessions.name(request.session)} in {project?.name ?? "an unknown project"}
@@ -325,12 +365,18 @@ function workerCopy(session: SessionId): string {
           {#if request.title && !repeats(request.title, request, summary.action)}
             <p class="title">Agent's note: {request.title}</p>
           {/if}
-          <dl>
-            {#each summary.details as detail}
-              <dt>{detail.label}</dt>
-              <dd><pre>{detail.text}</pre></dd>
-            {/each}
-          </dl>
+          {#if isOpen(request.id)}
+            <dl>
+              {#each summary.details as detail}
+                <dt>{detail.label}</dt>
+                <dd><pre>{detail.text}</pre></dd>
+              {/each}
+            </dl>
+          {:else if summary.details.length > 0}
+            <button type="button" class="more" data-testid="approval-details" onclick={() => expand(request.id)}
+              >Show details</button
+            >
+          {/if}
           <div class="actions">
             <button
               type="button"
@@ -365,17 +411,39 @@ function workerCopy(session: SessionId): string {
         </div>
       </li>
     {/each}
+    {/if}
   </ul>
 </section>
 
 <style>
   .approvals {
+    /* At most about half the column: the agents stay in sight. */
+    flex: 0 1 auto;
+    max-height: 45%;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
     padding: 8px 12px;
     border-bottom: 1px solid #2a2a31;
   }
-  h2 {
+  .head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
     margin: 0 0 6px;
+  }
+  h2 {
+    margin: 0;
     font-size: 13px;
+  }
+  .toggle,
+  .more {
+    padding: 1px 8px;
+    font-size: 12px;
+  }
+  .more {
+    margin: 0 0 8px;
   }
   .count {
     color: #ffd36b;
@@ -387,7 +455,7 @@ function workerCopy(session: SessionId): string {
     display: flex;
     flex-direction: column;
     gap: 8px;
-    max-height: 50vh;
+    min-height: 0;
     overflow: auto;
   }
   .card {
