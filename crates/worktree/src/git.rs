@@ -38,7 +38,7 @@ pub(crate) fn internal(what: impl std::fmt::Display) -> ProtocolError {
 /// The git to run. On Windows `git` on the PATH is usually a launcher that
 /// starts the real `git.exe` as a second process; with dozens of git calls
 /// per review, that doubles the cost, so the real one is used if it works.
-fn program() -> &'static OsStr {
+pub(crate) fn program() -> &'static OsStr {
     static PROGRAM: OnceLock<PathBuf> = OnceLock::new();
     PROGRAM
         .get_or_init(|| {

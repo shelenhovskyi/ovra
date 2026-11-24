@@ -46,7 +46,7 @@ impl AgentRuntime for Manual {
 }
 
 fn git(dir: &Path, args: &[&str]) -> String {
-    let out = Command::new("git")
+    let out = Command::new(crate::git::program())
         .args(args)
         .current_dir(dir)
         .output()

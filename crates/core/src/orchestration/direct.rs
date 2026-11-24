@@ -383,7 +383,8 @@ impl Direct {
         let (_, writer) = self.held(session)?;
         let mut tracker = writer.lock(worktrees).await;
         let t = tracker.as_mut().ok_or_else(not_direct)?;
-        t.files(worktrees, &writer.dir).await
+        let now = worktrees.look(writer.dir.clone()).await.ok();
+        t.files(worktrees, &writer.dir, now.as_ref()).await
     }
 
     /// Keeps the changes. With `commit`, commits the
@@ -399,7 +400,8 @@ impl Direct {
         let mut tracker = writer.lock(worktrees).await;
         let t = tracker.as_mut().ok_or_else(not_direct)?;
         t.idle()?;
-        let files = t.files(worktrees, &writer.dir).await?;
+        let now = worktrees.look(writer.dir.clone()).await.ok();
+        let files = t.files(worktrees, &writer.dir, now.as_ref()).await?;
         let mut outcome = Outcome {
             conflicts: Vec::new(),
             snapshot: None,
@@ -428,23 +430,34 @@ impl Direct {
         let mut tracker = writer.lock(worktrees).await;
         let t = tracker.as_mut().ok_or_else(not_direct)?;
         t.idle()?;
-        let files = t.files(worktrees, &writer.dir).await?;
+        let snapshot = worktrees.snapshot(writer.dir.clone()).await?;
+        let files = t.files(worktrees, &writer.dir, Some(&snapshot)).await?;
         let mine = paths(&files, ChangedBy::Agent)?;
         let mut conflicts = names(&files, ChangedBy::Both);
-        let snapshot = worktrees.snapshot(writer.dir.clone()).await?;
-        let diff = worktrees
-            .patch(writer.dir.clone(), t.baseline.clone(), mine.clone())
-            .await?;
+        // The reverted files' parts of one diff; their order does not matter.
+        let diff: String = worktrees
+            .patches(
+                writer.dir.clone(),
+                t.baseline.clone(),
+                snapshot.clone(),
+                mine.clone(),
+            )
+            .await?
+            .into_values()
+            .collect();
+        // Nothing to revert: the tree stays as in `snapshot`.
+        let mut base = Some(snapshot.clone());
         if !mine.is_empty() {
             worktrees
                 .restore(writer.dir.clone(), t.baseline.clone(), mine.clone())
                 .await?;
-            let left: BTreeSet<String> = worktrees
-                .changes(writer.dir.clone(), t.baseline.clone())
-                .await?
-                .iter()
-                .flat_map(delta_paths)
-                .collect();
+            base = worktrees.snapshot(writer.dir.clone()).await.ok();
+            let (dir, baseline) = (writer.dir.clone(), t.baseline.clone());
+            let left = match &base {
+                Some(base) => worktrees.diff(dir, baseline, base.clone()).await?,
+                None => worktrees.changes(dir, baseline).await?,
+            };
+            let left: BTreeSet<String> = left.iter().flat_map(delta_paths).collect();
             conflicts.extend(
                 mine.iter()
                     .map(|p| p.as_str().to_owned())
@@ -458,7 +471,6 @@ impl Direct {
             .filter(|p| !conflicts.iter().any(|c| c == p.as_str()))
             .collect();
         let restored = reverted.iter().map(|p| p.as_str().to_owned()).collect();
-        let base = self.worktrees.snapshot(writer.dir.clone()).await.ok();
         let old = tracker.take().ok_or_else(not_direct)?;
         *lock(&writer.undo) = Some(Undo {
             snapshot: snapshot.clone(),
@@ -800,13 +812,22 @@ impl Tracker {
         self.last = post;
     }
 
-    async fn files(&mut self, worktrees: &dyn Worktrees, dir: &Path) -> Result<Vec<FileChange>> {
+    /// The files changed since the baseline: up to `now`, a snapshot or a
+    /// look just taken, or else up to the working tree.
+    async fn files(
+        &mut self,
+        worktrees: &dyn Worktrees,
+        dir: &Path,
+        now: Option<&String>,
+    ) -> Result<Vec<FileChange>> {
         if self.open.is_none() {
-            self.catch_up(worktrees, dir, None).await;
+            self.catch_up(worktrees, dir, now).await;
         }
-        let changed = worktrees
-            .changes(dir.to_path_buf(), self.baseline.clone())
-            .await?;
+        let (dir, baseline) = (dir.to_path_buf(), self.baseline.clone());
+        let changed = match now {
+            Some(now) => worktrees.diff(dir, baseline, now.clone()).await?,
+            None => worktrees.changes(dir, baseline).await?,
+        };
         Ok(changed
             .into_iter()
             .map(|delta| {

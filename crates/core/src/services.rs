@@ -315,8 +315,11 @@ pub trait Worktrees: Send + Sync + Debug {
     ) -> BoxFuture<'_, Result<WorktreeInfo>>;
     /// Files that differ between `base` and the working tree of `dir`.
     fn changes(&self, dir: PathBuf, base: String) -> BoxFuture<'_, Result<Vec<Delta>>>;
-    /// Files that differ between two commits (snapshots) of the repository
-    /// at `dir`. Much cheaper than `changes`: the working tree is not read.
+    /// The working tree of `dir` as it is now, for `diff` and `patches`
+    /// right away. Unlike a snapshot it is not kept: `git gc` may drop it.
+    fn look(&self, dir: PathBuf) -> BoxFuture<'_, Result<String>>;
+    /// Files that differ between two commits (snapshots) or looks of the
+    /// repository at `dir`; the working tree is not read.
     fn diff(&self, dir: PathBuf, from: String, to: String) -> BoxFuture<'_, Result<Vec<Delta>>>;
     /// The unified diff of `paths`, `base` to the working tree, in one
     /// piece (one call however many files: reviews can be large).
@@ -326,25 +329,15 @@ pub trait Worktrees: Send + Sync + Debug {
         base: String,
         paths: Vec<RelPath>,
     ) -> BoxFuture<'_, Result<String>>;
-    /// The unified diff of each of `paths`, `base` to the working tree, by
-    /// path (empty without changes): `patch` per path, which
-    /// implementations do in fewer steps.
+    /// The unified diff of each of `paths` between two commits or looks,
+    /// by path (empty without changes), from one diff.
     fn patches(
         &self,
         dir: PathBuf,
-        base: String,
+        from: String,
+        to: String,
         paths: Vec<RelPath>,
-    ) -> BoxFuture<'_, Result<BTreeMap<String, String>>> {
-        Box::pin(async move {
-            let mut patches = BTreeMap::new();
-            for path in paths {
-                let key = path.as_str().to_owned();
-                let patch = self.patch(dir.clone(), base.clone(), vec![path]).await?;
-                patches.insert(key, patch);
-            }
-            Ok(patches)
-        })
-    }
+    ) -> BoxFuture<'_, Result<BTreeMap<String, String>>>;
     /// Puts `paths` back as they are in `base` (deleting files `base` lacks).
     fn restore(&self, dir: PathBuf, base: String, paths: Vec<RelPath>)
     -> BoxFuture<'_, Result<()>>;
@@ -603,7 +596,19 @@ impl Worktrees for Unavailable {
     fn prune_snapshots(&self, _: PathBuf, _: Vec<String>) -> BoxFuture<'_, Result<()>> {
         Box::pin(async move { self.err() })
     }
+    fn look(&self, _: PathBuf) -> BoxFuture<'_, Result<String>> {
+        Box::pin(async move { self.err() })
+    }
     fn diff(&self, _: PathBuf, _: String, _: String) -> BoxFuture<'_, Result<Vec<Delta>>> {
+        Box::pin(async move { self.err() })
+    }
+    fn patches(
+        &self,
+        _: PathBuf,
+        _: String,
+        _: String,
+        _: Vec<RelPath>,
+    ) -> BoxFuture<'_, Result<BTreeMap<String, String>>> {
         Box::pin(async move { self.err() })
     }
     fn take(&self, _: PathBuf, _: PathBuf, _: Vec<RelPath>) -> BoxFuture<'_, Result<Taken>> {

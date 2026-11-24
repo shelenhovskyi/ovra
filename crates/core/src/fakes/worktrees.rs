@@ -85,6 +85,18 @@ fn lines(text: Option<&String>) -> Vec<&str> {
     text.map(|t| t.lines().collect()).unwrap_or_default()
 }
 
+/// Every old line removed, every new line added.
+fn unified(path: &str, old: Option<&String>, new: Option<&String>) -> String {
+    let mut patch = format!("--- a/{path}\n+++ b/{path}\n");
+    for line in lines(old) {
+        patch.push_str(&format!("-{line}\n"));
+    }
+    for line in lines(new) {
+        patch.push_str(&format!("+{line}\n"));
+    }
+    patch
+}
+
 fn delta(path: &str, old: Option<&String>, new: Option<&String>) -> Option<Delta> {
     let kind = match (old, new) {
         (None, Some(_)) => ChangeKind::Added,
@@ -151,6 +163,34 @@ impl Worktrees for MemoryWorktrees {
         })
     }
 
+    fn look(&self, dir: PathBuf) -> BoxFuture<'_, Result<String>> {
+        self.snapshot(dir)
+    }
+
+    fn patches(
+        &self,
+        _dir: PathBuf,
+        from: String,
+        to: String,
+        paths: Vec<RelPath>,
+    ) -> BoxFuture<'_, Result<BTreeMap<String, String>>> {
+        Box::pin(async move {
+            let (old, new) = (self.commit_files(&from)?, self.commit_files(&to)?);
+            Ok(paths
+                .into_iter()
+                .map(|path| {
+                    let key = path.as_str();
+                    let patch = if old.get(key) == new.get(key) {
+                        String::new()
+                    } else {
+                        unified(key, old.get(key), new.get(key))
+                    };
+                    (key.to_owned(), patch)
+                })
+                .collect())
+        })
+    }
+
     fn diff(&self, _dir: PathBuf, from: String, to: String) -> BoxFuture<'_, Result<Vec<Delta>>> {
         Box::pin(async move {
             let (old, new) = (self.commit_files(&from)?, self.commit_files(&to)?);
@@ -175,13 +215,7 @@ impl Worktrees for MemoryWorktrees {
             let mut patch = String::new();
             for path in paths {
                 let key = path.as_str();
-                patch.push_str(&format!("--- a/{key}\n+++ b/{key}\n"));
-                for line in lines(old.get(key)) {
-                    patch.push_str(&format!("-{line}\n"));
-                }
-                for line in lines(new.get(key)) {
-                    patch.push_str(&format!("+{line}\n"));
-                }
+                patch.push_str(&unified(key, old.get(key), new.get(key)));
             }
             Ok(patch)
         })

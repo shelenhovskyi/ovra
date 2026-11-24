@@ -287,10 +287,15 @@ impl Worktrees for GitWorktrees {
     fn patches(
         &self,
         dir: PathBuf,
-        base: String,
+        from: String,
+        to: String,
         paths: Vec<RelPath>,
     ) -> BoxFuture<'_, Result<BTreeMap<String, String>>> {
-        blocking(move || diff::patches(&dir, &base, &paths))
+        blocking(move || diff::patches(&dir, &from, &to, &paths))
+    }
+
+    fn look(&self, dir: PathBuf) -> BoxFuture<'_, Result<String>> {
+        blocking(move || git::working_tree(&dir))
     }
 
     fn restore(

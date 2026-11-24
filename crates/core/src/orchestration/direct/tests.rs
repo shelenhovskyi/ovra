@@ -118,6 +118,18 @@ impl Worktrees for Trees {
     fn prune_snapshots(&self, root: PathBuf, keep: Vec<String>) -> BoxFuture<'_, Result<()>> {
         self.mem.prune_snapshots(root, keep)
     }
+    fn look(&self, dir: PathBuf) -> BoxFuture<'_, Result<String>> {
+        self.mem.look(dir)
+    }
+    fn patches(
+        &self,
+        dir: PathBuf,
+        from: String,
+        to: String,
+        paths: Vec<RelPath>,
+    ) -> BoxFuture<'_, Result<std::collections::BTreeMap<String, String>>> {
+        self.mem.patches(dir, from, to, paths)
+    }
     fn diff(&self, dir: PathBuf, from: String, to: String) -> BoxFuture<'_, Result<Vec<Delta>>> {
         Box::pin(async move { Ok(self.renamed(self.mem.diff(dir, from, to).await?)) })
     }

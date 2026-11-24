@@ -20,13 +20,11 @@ pub(crate) fn changes(dir: &Path, base: &str) -> Result<Vec<Delta>> {
     parse(&out)
 }
 
-/// What differs between two commits; the working tree is not read.
+/// What differs between two commits or trees; the working tree is not read.
 pub(crate) fn diff(dir: &Path, from: &str, to: &str) -> Result<Vec<Delta>> {
-    let from = git::commit_id(dir, from)?;
-    let to = git::commit_id(dir, to)?;
     let out = Git::new(dir, "diff-tree")
         .args(["-r", "-z", "-M", "--raw", "--numstat", "--relative"])
-        .args([&from, &to])
+        .args(["--end-of-options", from, to])
         .run()?;
     parse(&out)
 }
@@ -47,11 +45,12 @@ pub(crate) fn patch(dir: &Path, base: &str, paths: &[RelPath]) -> Result<String>
     Ok(String::from_utf8_lossy(&out).into_owned())
 }
 
-/// The diff of each of `paths`, as `patch` would give it, from one diff:
-/// its raw records tell which file each part belongs to.
+/// The diff of each of `paths` between two commits or trees, from one
+/// diff of everything: its raw records tell which file each part is of.
 pub(crate) fn patches(
     dir: &Path,
-    base: &str,
+    from: &str,
+    to: &str,
     paths: &[RelPath],
 ) -> Result<BTreeMap<String, String>> {
     let mut patches: BTreeMap<String, String> = paths
@@ -61,10 +60,9 @@ pub(crate) fn patches(
     if paths.is_empty() {
         return Ok(patches);
     }
-    let (base, picked) = picked(dir, base, paths)?;
     let out = Git::new(dir, "diff-tree")
         .args(["-r", "-z", "-M", "--raw", "-p", "--relative"])
-        .args([&base, &picked])
+        .args(["--end-of-options", from, to])
         .run()?;
     // Raw records, an empty field (no path is empty), then the patch text.
     let Some(end) = out.windows(2).position(|w| w == b"\0\0") else {

@@ -38,7 +38,7 @@ fn read(dir: &Path, path: &str) -> Option<String> {
 /// Runs git for checks and setup; the repository's own config makes it
 /// independent of the machine's.
 fn git(dir: &Path, args: &[&str]) -> String {
-    let out = Command::new("git")
+    let out = Command::new(crate::git::program())
         .args(args)
         .current_dir(dir)
         .output()
@@ -53,7 +53,10 @@ fn git(dir: &Path, args: &[&str]) -> String {
 }
 
 fn git_fails(dir: &Path, args: &[&str]) -> bool {
-    let status = Command::new("git").args(args).current_dir(dir).output();
+    let status = Command::new(crate::git::program())
+        .args(args)
+        .current_dir(dir)
+        .output();
     status.map(|o| !o.status.success()).unwrap_or(false)
 }
 
@@ -330,16 +333,38 @@ async fn a_patch_shows_exactly_the_files_asked_for_with_their_renames() {
     assert!(patch.contains("deleted file mode"), "{patch}");
     assert_eq!(patch.matches("diff --git").count(), 2, "{patch}");
 
-    // All at once, each the same as on its own.
+    // Each file's part of one diff of the working tree: the parts make up
+    // the diff of them all.
     let all = ["a.rs", "new \u{e9}.txt", "gone.txt", "kind", "same.txt"];
-    let patches = w.patches(root.clone(), "HEAD".into(), rels(&all)).await;
+    let now = w
+        .look(root.clone())
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    let patches = w
+        .patches(root.clone(), "HEAD".into(), now, rels(&all))
+        .await;
     let patches = patches.unwrap_or_else(|e| panic!("{e:?}"));
-    let mut each = std::collections::BTreeMap::new();
-    for path in all {
-        let patch = w.patch(root.clone(), "HEAD".into(), rels(&[path])).await;
-        each.insert(path.to_owned(), patch.unwrap_or_else(|e| panic!("{e:?}")));
+    let whole = w.patch(root.clone(), "HEAD".into(), rels(&all)).await;
+    let whole = whole.unwrap_or_else(|e| panic!("{e:?}"));
+    let keys: Vec<&str> = patches.keys().map(String::as_str).collect();
+    let mut sorted = all.to_vec();
+    sorted.sort_unstable();
+    assert_eq!(keys, sorted);
+    for (path, patch) in &patches {
+        assert!(whole.contains(patch.as_str()), "{path}: {patch}");
     }
-    assert_eq!(patches, each);
+    let parts: usize = patches.values().map(String::len).sum();
+    assert_eq!(parts, whole.len());
+    let rename = patches
+        .get("new \u{e9}.txt")
+        .map(String::as_str)
+        .unwrap_or_default();
+    assert!(rename.contains("rename from old name.txt\n"), "{rename}");
+    #[cfg(unix)]
+    {
+        let kind = patches.get("kind").map(String::as_str).unwrap_or_default();
+        assert_eq!(kind.matches("diff --git").count(), 2, "{kind}");
+    }
     assert_eq!(patches.get("same.txt").map(String::as_str), Some(""));
 }
 
@@ -497,7 +522,7 @@ async fn create_refuses_taken_names_and_unknown_bases() {
 /// A snapshot-like commit from 2020, logged in the snapshot ref.
 fn old_snapshot(root: &Path, message: &str) -> String {
     let tree = git(root, &["write-tree"]);
-    let out = Command::new("git")
+    let out = Command::new(crate::git::program())
         .args(["commit-tree", &tree, "-m", message])
         .env("GIT_COMMITTER_DATE", "2020-01-01T00:00:00Z")
         .current_dir(root)

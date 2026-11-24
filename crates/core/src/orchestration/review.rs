@@ -835,10 +835,16 @@ async fn freeze(core: &Core, entry: &Entry, files: &[FileChange]) -> BTreeMap<St
     }
     let ws = &entry.workspace;
     let paths = files.iter().filter_map(|f| RelPath::parse(&f.path).ok());
-    let patches = core
-        .worktrees()
-        .patches(ws.dir.clone(), ws.base.clone(), paths.collect())
-        .await;
+    let worktrees = core.worktrees();
+    let patches = match worktrees.look(ws.dir.clone()).await {
+        Ok(now) => {
+            let paths = paths.collect();
+            worktrees
+                .patches(ws.dir.clone(), ws.base.clone(), now, paths)
+                .await
+        }
+        Err(e) => Err(e),
+    };
     let Ok(patches) = patches else {
         return diffs;
     };
