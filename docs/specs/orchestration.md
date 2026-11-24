@@ -22,6 +22,16 @@ A task is one coordinator and its workers. Limits per task: at most
 millionths of a dollar across all its sessions; `spawn_agent` fails with a
 clear message past either.
 
+## Roles
+
+The runtime appends a role prompt to Claude Code's system prompt
+(`--append-system-prompt`): `agents/roles/coordinator.md` for a coordinator,
+`agents/roles/worker.md` for a worker. A coordinator also gets
+`--tools Read,Grep,Glob`: it reads the project and directs workers, but
+cannot write files or run commands. In the UI, "Start task" in the agents
+panel starts a coordinator (`orchestration.start`); "Start" starts a single
+direct session.
+
 ## IDE tools (MCP)
 
 Defined in `crates/mcp-server/src/tools.json`, reviewed and approved by the

@@ -68,6 +68,11 @@ impl Conversation {
 /// The arguments for one session. Ovra never passes `--bare` (it ignores the
 /// subscription login) and never touches `CLAUDE_CONFIG_DIR` or credentials;
 /// the environment is inherited except for [`NESTED_SESSION_VARS`] (ADR 0006).
+/// What a coordinator and a worker are told about their role, after Claude
+/// Code's own system prompt.
+const COORDINATOR_PROMPT: &str = include_str!("../../../agents/roles/coordinator.md");
+const WORKER_PROMPT: &str = include_str!("../../../agents/roles/worker.md");
+
 /// `ide` passes Ovra's in-process `ovra` MCP server (its IDE tools), whose
 /// messages come back as `mcp_message` control requests. A coordinator only
 /// reads the project and directs workers: it gets no built-in tool that
@@ -109,8 +114,15 @@ pub(crate) fn args(
             r#"{"mcpServers":{}}"#
         },
     ];
-    if ide == Some(ToolRole::Coordinator) {
-        args.extend(["--tools", "Read,Grep,Glob"]);
+    match ide {
+        Some(ToolRole::Coordinator) => args.extend([
+            "--tools",
+            "Read,Grep,Glob",
+            "--append-system-prompt",
+            COORDINATOR_PROMPT,
+        ]),
+        Some(ToolRole::Worker) => args.extend(["--append-system-prompt", WORKER_PROMPT]),
+        None => {}
     }
     match conversation {
         Conversation::New(id) => args.extend(["--session-id", id]),
@@ -193,6 +205,14 @@ mod tests {
             Some(ovra)
         );
         assert_eq!(after(ToolRole::Worker, "--tools"), None);
+        assert_eq!(
+            after(ToolRole::Worker, "--append-system-prompt").as_deref(),
+            Some(WORKER_PROMPT)
+        );
+        assert_eq!(
+            after(ToolRole::Coordinator, "--append-system-prompt").as_deref(),
+            Some(COORDINATOR_PROMPT)
+        );
         assert_eq!(
             after(ToolRole::Coordinator, "--tools").as_deref(),
             Some("Read,Grep,Glob")
