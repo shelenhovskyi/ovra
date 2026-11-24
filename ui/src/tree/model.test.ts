@@ -102,7 +102,7 @@ describe("TreeModel", () => {
     expect(model.rows.map((r) => r.git)).toEqual(["modified", "modified"]);
   });
 
-  it("forgets a deleted directory and everything under it", async () => {
+  it("forgets the listings of a deleted directory and lists it afresh when it returns", async () => {
     const { core, model, names } = setup(["src/lib/b.ts", "a.ts"]);
     await model.start();
     await model.expand("src");
@@ -110,11 +110,12 @@ describe("TreeModel", () => {
     core.dirs = dirsFromPaths(["a.ts"]);
     await model.invalidatePaths(["src"]);
     expect(names()).toEqual(["a.ts"]);
-    // Re-created later: it comes back collapsed and is listed afresh.
-    core.dirs = dirsFromPaths(["src/lib/b.ts", "a.ts"]);
+    // Re-created later: listed afresh, and open as it was (UX round 3, ORCH-3).
+    core.calls = [];
+    core.dirs = dirsFromPaths(["src/lib/b.ts", "src/lib/c.ts", "a.ts"]);
     await model.invalidatePaths(["src"]);
-    expect(names()).toEqual(["src", "a.ts"]);
-    expect(model.isExpanded("src/lib")).toBe(false);
+    expect(names()).toEqual(["src/", "  lib/", "    b.ts", "    c.ts", "a.ts"]);
+    expect(core.listedPaths().sort()).toEqual(["", "src", "src/lib"]);
   });
 
   it("reports load errors", async () => {
@@ -199,6 +200,28 @@ describe("TreeModel with the core disconnected", () => {
     model.collapse("src");
     await model.expand("src");
     expect(model.rows.map((r) => r.path)).toEqual(["src", "src/a.ts"]);
+  });
+});
+
+describe("TreeModel restore and regenerate", () => {
+  it("reveals a file inside restored folders that have not loaded yet", async () => {
+    const { model, names } = setup(["a/b/c.ts", "z.md"]);
+    await model.setView(new Set()); // nothing on screen yet, so restored folders wait
+    await model.start(["a", "a/b"]);
+    expect(names()).toEqual(["a/", "z.md"]);
+    await model.reveal("a/b/c.ts");
+    expect(names()).toEqual(["a/", "  b/", "    c.ts", "z.md"]);
+  });
+
+  it("keeps a folder open when it is deleted and written again", async () => {
+    const { core, model, names } = setup(["gen/a.rs", "src/main.rs"]);
+    await model.start(["gen"]);
+    core.dirs = dirsFromPaths(["src/main.rs"]);
+    await model.invalidatePaths(["gen"]);
+    expect(names()).toEqual(["src"]);
+    core.dirs = dirsFromPaths(["gen/a.rs", "gen/b.rs", "src/main.rs"]);
+    await model.invalidatePaths(["gen"]);
+    expect(names()).toEqual(["gen/", "  a.rs", "  b.rs", "src"]);
   });
 });
 

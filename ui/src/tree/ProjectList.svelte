@@ -34,15 +34,29 @@ function message(err: unknown, path?: string): string {
   }
 }
 
-$effect(() => {
+function load(): void {
   transport
     .call({ method: "projects.list" })
     .then((r) => {
       projects = r.data;
+      error = null;
     })
     .catch((err: unknown) => {
       error = message(err);
     });
+}
+
+$effect(() => {
+  load();
+  // Load again when the core comes back after a lost connection.
+  let wasClosed = false;
+  return transport.onStatus?.((status) => {
+    if (status === "closed") wasClosed = true;
+    else if (status === "open" && wasClosed) {
+      wasClosed = false;
+      load();
+    }
+  });
 });
 
 $effect(() => {

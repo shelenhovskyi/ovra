@@ -162,3 +162,22 @@ describe("ProjectList start screen", () => {
     expect(t.opened).toEqual(["p2"]);
   });
 });
+
+describe("ProjectList after a lost connection", () => {
+  it("loads the list again when the core comes back", async () => {
+    const core = new FakeCore();
+    core.call = (() => Promise.reject(new Error("connection to core closed"))) as typeof core.call;
+    const target = document.body.appendChild(document.createElement("div"));
+    const app = mount(ProjectList, { target, props: { transport: core, onopen: () => {} } });
+    cleanup = () => unmount(app);
+    await settle();
+    expect(target.querySelector("[role=alert]")?.textContent).toBe("connection to core closed");
+    core.setStatus("closed");
+    core.call = FakeCore.prototype.call.bind(core);
+    core.projects = [{ id: "p1", name: "app", root: "/work/app", last_opened_ms: null }];
+    core.setStatus("open");
+    await settle();
+    expect(target.textContent).toContain("/work/app");
+    expect(target.querySelector("[role=alert]")).toBeNull();
+  });
+});
