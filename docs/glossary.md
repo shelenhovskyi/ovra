@@ -13,7 +13,9 @@
 - **Inbox** - the review queue where a person approves or rejects diffs.
 - **Service** - an OS-facing capability behind a trait in `ovra-core`
   (`FsService`, `ProjectStore`, `Opener`), implemented in its own crate.
-- **Claude Agent SDK** - Claude Code as a library; how Ovra runs Claude.
-- **agent-host** - the TypeScript sidecar that runs Agent SDK sessions.
+- **claude CLI** - the user's installed Claude Code; v1 runs each Claude
+  session as `claude -p` over stream-json (ADR 0006).
+- **Claude Agent SDK** - Claude Code as a library; a possible later runtime
+  behind `AgentRuntime` (ADR 0004).
 - **ACP** - Agent Client Protocol, how other agents (Codex, Gemini CLI) connect.
 - **MCP** - Model Context Protocol, how the IDE exposes tools to agents.

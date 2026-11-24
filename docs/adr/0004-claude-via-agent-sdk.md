@@ -1,6 +1,7 @@
 # 0004. Run Claude through the Claude Agent SDK in a sidecar
 
-- Status: accepted
+- Status: accepted; the sidecar is deferred by ADR 0006 (v1 runs the user's
+  installed `claude` CLI instead)
 - Date: 2026-11-24
 
 ## Context
