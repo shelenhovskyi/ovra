@@ -140,8 +140,9 @@ async fn session(
                 }));
                 line
             }
+            // Not reported: the session never ran, and a resume already
+            // dropped the last run's report.
             Err(e) => {
-                host.sandboxed(None);
                 return failed(format!("the sandbox could not wrap claude: {}", e.message));
             }
         },
