@@ -99,7 +99,7 @@ jobs:
       - name: Build app (UI + Tauri, no installers)
         run: pnpm exec tauri build --no-bundle
       - name: Core tests
-        run: cargo test --workspace --exclude ovra-app --all-features
+        run: cargo test --workspace --exclude ovra-app --all-features --no-fail-fast
       - uses: actions/upload-artifact@v4
         with:
           name: ovra-${{ matrix.os }}
