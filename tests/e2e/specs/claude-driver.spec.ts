@@ -47,7 +47,7 @@ test("a recorded Claude session runs through the real driver", async ({ page }) 
   await page
     .getByRole("textbox", { name: "Task for a new Claude session" })
     .fill("Fix the typo in README.md with the Edit tool. Do not run commands and do not change anything else.");
-  await page.getByRole("button", { name: "Start" }).click();
+  await page.getByRole("button", { name: "Start", exact: true }).click();
   await allow(page, /^Edit .*README\.md$/);
 
   const transcript = page.getByTestId("transcript");

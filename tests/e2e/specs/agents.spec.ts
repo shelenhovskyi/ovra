@@ -1,10 +1,13 @@
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 
 // The daemon runs with --fake-agent: every session asks to run `ls -la` and to
-// edit README.md, then waits; each reply asks to run `git status`.
+// edit README.md, then waits; each reply asks to run `git status`. A task's
+// coordinator starts three workers, and each asks to write NOTES.md in its
+// worktree, then asks for review.
 // Approvals are shared by all projects, so these tests take turns.
 test.describe.configure({ mode: "serial" });
 
@@ -69,7 +72,7 @@ test("start an agent and answer its requests from the keyboard", async ({ page }
 test("reply to an agent, allow with the mouse and stop it while it waits", async ({ page }) => {
   await openProject(page, "ovra-agents-reply-");
   await page.getByRole("textbox", { name: "Task for a new Claude session" }).fill("Tidy up");
-  await page.getByRole("button", { name: "Start" }).click();
+  await page.getByRole("button", { name: "Start", exact: true }).click();
 
   const approvals = page.getByTestId("approvals");
   for (const name of ["Run ls -la", "Edit README.md"]) {
@@ -93,4 +96,49 @@ test("reply to an agent, allow with the mouse and stop it while it waits", async
   await expect(session.getByRole("status")).toHaveText("Stopped");
   await expect(status).toBeHidden();
   await expect(session.getByRole("textbox", { name: "Reply to Claude" })).toBeHidden();
+});
+
+test("a task's coordinator splits the work among three workers whose diffs wait for review", async ({ page }) => {
+  const url = process.env.OVRA_URL;
+  if (!url) throw new Error("OVRA_URL is not set; globalSetup did not run");
+  // Workers need a git repository for their worktrees.
+  const dir = mkdtempSync(join(tmpdir(), "ovra-agents-task-"));
+  writeFileSync(join(dir, "README.md"), "readme\n");
+  const git = (...args: string[]) =>
+    execFileSync("git", ["-c", "user.name=e2e", "-c", "user.email=e2e@example.invalid", ...args], { cwd: dir });
+  git("init", "-q");
+  git("add", ".");
+  git("commit", "-q", "-m", "start");
+  await page.clock.install();
+  await page.goto(url);
+  const projects = page.getByTestId("project-list");
+  await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
+  await projects.getByRole("button", { name: "Open", exact: true }).click();
+  await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();
+
+  await page.getByRole("textbox", { name: "Task for a new Claude session" }).fill("Write the notes");
+  await page.getByRole("button", { name: "Start task" }).click();
+
+  // Each worker asks to write its notes; the person allows all three.
+  const approvals = page.getByTestId("approvals");
+  for (let allowed = 0; allowed < 3; allowed++) {
+    const card = approvals.getByRole("group", { name: "Write NOTES.md" }).first();
+    await expect(card).toBeVisible();
+    await arm(page);
+    await expect(card.getByRole("button", { name: "Allow" })).toHaveAttribute("aria-disabled", "false");
+    await card.getByRole("button", { name: "Allow" }).click();
+  }
+  await expect(approvals).toContainText("Nothing waits for your approval.");
+
+  await page.keyboard.press("Alt+Shift+R");
+  const inbox = page.getByRole("dialog", { name: "Review inbox" });
+  const items = inbox.getByRole("navigation", { name: "Review items" }).getByRole("button");
+  await expect(items).toHaveCount(3);
+  for (const index of [0, 1, 2]) {
+    await items.nth(index).click();
+    const item = inbox.getByTestId("inbox-item");
+    await expect(item).toContainText("Agent's summary: Wrote NOTES.md.");
+    await expect(item.getByRole("list", { name: "Changed files" })).toContainText("NOTES.md");
+    await expect(item.getByTestId("inbox-diff")).toContainText("Notes from a worker.");
+  }
 });

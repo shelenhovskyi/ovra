@@ -107,7 +107,8 @@ fn agents(_: &Args) -> Arc<dyn AgentRuntime> {
 }
 
 /// The fake agent asks to run a command and to edit a file, then waits for
-/// replies; every reply gets one more command to approve.
+/// replies; every reply gets one more command to approve. A task's
+/// coordinator and workers play their own scripts.
 #[cfg(feature = "fake-agent")]
 fn agents(args: &Args) -> Arc<dyn AgentRuntime> {
     use ovra_core::fakes::{ScriptedAgent, Step};
@@ -141,8 +142,35 @@ fn agents(args: &Args) -> Arc<dyn AgentRuntime> {
         Step::Say("Done."),
     ]];
     turns.extend(std::iter::repeat_with(reply).take(20));
+    // A task: the coordinator starts three workers, and each writes its notes
+    // (after an approval) and asks for review.
+    let spawn = |name: &str| Step::Use {
+        tool: "mcp__ovra__spawn_agent",
+        input: serde_json::json!({ "name": name, "task": format!("Write the {name} notes.") }),
+    };
+    let coordinator = vec![vec![
+        Step::Say("I will split this among three workers."),
+        spawn("docs"),
+        spawn("tests"),
+        spawn("lint"),
+        Step::Say("Three workers are on it."),
+    ]];
+    let worker = vec![vec![
+        Step::Use {
+            tool: "Write",
+            input: serde_json::json!({ "file_path": "NOTES.md", "content": "Notes from a worker.\n" }),
+        },
+        Step::Use {
+            tool: "mcp__ovra__request_review",
+            input: serde_json::json!({ "summary": "Wrote NOTES.md." }),
+        },
+    ]];
+    let script = ScriptedAgent::new(turns)
+        .for_role(ovra_core::services::ToolRole::Coordinator, coordinator)
+        .for_role(ovra_core::services::ToolRole::Worker, worker)
+        .writes_files(|path, text| std::fs::write(path, text));
     Arc::new(FakeAgent {
-        script: ScriptedAgent::new(turns),
+        script,
         claude: ClaudeCli::new(None),
     })
 }

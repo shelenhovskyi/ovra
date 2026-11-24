@@ -35,6 +35,14 @@ export class AgentSessions {
     for (const info of data) this.byId.set(info.id, info);
   }
 
+  /** Starts a task: a coordinator that splits the work among workers in
+   * their own worktrees. Resolves with the coordinator's session. */
+  async startTask(project: ProjectId, prompt: string): Promise<SessionId> {
+    const { data } = await this.transport.call({ method: "orchestration.start", params: { project, prompt } });
+    await this.load(project);
+    return data.coordinator;
+  }
+
   async loadTranscript(session: SessionId): Promise<void> {
     const { data } = await this.transport.call({ method: "agents.transcript", params: { session } });
     this.transcripts.set(session, data);

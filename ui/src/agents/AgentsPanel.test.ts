@@ -49,6 +49,21 @@ const transcript = () =>
   [...target.querySelectorAll("[data-testid=transcript] li")].map((li) => li.textContent?.replace(/\s+/g, " ").trim());
 
 describe("AgentsPanel", () => {
+  it("starts a task whose coordinator splits the work among workers", async () => {
+    const core = await setup();
+    type(target.querySelector("#agent-prompt"), "Write the notes");
+    flushSync();
+    const button = [...target.querySelectorAll("button")].find((b) => b.textContent === "Start task");
+    button?.click();
+    await settle();
+    expect(core.sent("orchestration.start").map((c) => c.params)).toEqual([
+      { project: "p1", prompt: "Write the notes" },
+    ]);
+    expect(core.sent("agents.start")).toEqual([]);
+    expect(panel()?.querySelector("[aria-current=true]")?.textContent).toContain("Write the notes");
+    expect(target.querySelector<HTMLTextAreaElement>("#agent-prompt")?.value).toBe("");
+  });
+
   it("starts a session in the open project and streams its transcript", async () => {
     const core = await setup();
     type(target.querySelector("#agent-prompt"), "Fix the typo\nin README.md");

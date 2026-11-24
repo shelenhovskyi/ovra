@@ -85,6 +85,13 @@ export class FakeAgentCore implements Transport {
         this.message(info.id, { kind: "user_text", text: prompt });
         return { type: "agents.session", data: { ...info } };
       }
+      case "orchestration.start": {
+        const { project, prompt } = request.params;
+        const info = this.addSession(project, prompt.split("\n")[0] ?? "");
+        this.status(info.id, { state: "starting" });
+        const task = { id: "t1", project, coordinator: info.id, workers: [], spent_micro_usd: 0 };
+        return { type: "orchestration.task", data: { ...task, limits: { max_workers: 3, budget_micro_usd: null } } };
+      }
       case "agents.transcript":
         return { type: "agents.transcript", data: this.transcripts.get(request.params.session) ?? [] };
       case "agents.send":

@@ -102,6 +102,16 @@ function start(): Promise<void> {
   });
 }
 
+function startTask(): Promise<void> {
+  const id = project?.id;
+  const body = prompt.trim();
+  if (!id || !body) return Promise.resolve();
+  return run(async () => {
+    selected = await sessions.startTask(id, body);
+    prompt = "";
+  });
+}
+
 function send(): Promise<void> {
   const id = current?.id;
   const body = reply.trim();
@@ -168,7 +178,11 @@ const canReply = $derived(current !== null && current.status.state === "idle");
         onkeydown={(event) => submitOnModEnter(event, start)}
       ></textarea>
       <div class="row">
-        <span class="hint" id="agent-prompt-hint">Works in the project folder. {modEnter} starts.</span>
+        <span class="hint" id="agent-prompt-hint"
+          >Works in the project folder. {modEnter} starts. Start task lets Claude split the work among up to 3 workers,
+          each in its own worktree, for you to review.</span
+        >
+        <button type="button" disabled={busy || !prompt.trim()} onclick={() => void startTask()}>Start task</button>
         <button type="submit" disabled={busy || !prompt.trim()}>Start</button>
       </div>
     </form>
