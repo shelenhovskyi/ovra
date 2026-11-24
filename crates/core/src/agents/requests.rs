@@ -103,6 +103,8 @@ pub(crate) async fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Resp
                 cwd: PathBuf::from(&target.project.root),
                 tools: None,
             });
+            let base = baseline(ctx, &info.project, &session, info.mode, &launch).await?;
+            review_from(ctx, &session, &launch, base);
             sessions.find(&session, |s| s.restart())?;
             let info = run(ctx, &session, target, launch, prompt, Some(agent_session))?;
             Ok(Response::Agents(AgentsResponse::Session(info)))
@@ -172,6 +174,7 @@ pub(crate) async fn start(ctx: &Ctx<'_>, new: NewSession) -> Result<SessionInfo>
         tools: new.tools,
     };
     let id = ctx.sessions.next_id();
+    let base = baseline(ctx, &new.project, &id, new.mode, &launch).await?;
     ctx.sessions.insert(SessionInfo {
         id: id.clone(),
         project: new.project,
@@ -182,6 +185,7 @@ pub(crate) async fn start(ctx: &Ctx<'_>, new: NewSession) -> Result<SessionInfo>
         usage: TurnUsage::default(),
         resumable: false,
     });
+    review_from(ctx, &id, &launch, base);
     run(ctx, &id, target, launch, new.prompt, None)
 }
 
@@ -216,6 +220,35 @@ async fn prepare(
         executable,
         trusted,
     })
+}
+
+/// A direct session that writes takes the project's direct-writer lock and
+/// records its baseline (ADR 0005), which its review compares against.
+/// Without a baseline (not a git repository, worktrees not wired) it still
+/// runs and holds the lock, but has nothing to review.
+async fn baseline(
+    ctx: &Ctx<'_>,
+    project: &ProjectId,
+    id: &SessionId,
+    mode: SessionMode,
+    launch: &Launch,
+) -> Result<Option<String>> {
+    if mode != SessionMode::Direct || launch.tools == Some(ToolRole::Coordinator) {
+        return Ok(None);
+    }
+    let direct = &ctx.sessions.direct;
+    match direct.begin(project, id, launch.cwd.clone()).await {
+        Ok(base) => Ok(Some(base)),
+        Err(refused) if direct.writer(project).as_ref() != Some(id) => Err(refused),
+        Err(_) => Ok(None),
+    }
+}
+
+/// Gives a direct session with a baseline its review item.
+fn review_from(ctx: &Ctx<'_>, id: &SessionId, launch: &Launch, base: Option<String>) {
+    if let (Some(base), Some(core)) = (base, ctx.sessions.core()) {
+        crate::orchestration::direct::review_from(&core, id, launch.cwd.clone(), base);
+    }
 }
 
 /// Starts the runtime for session `id`, which is `starting`, with `prompt`.

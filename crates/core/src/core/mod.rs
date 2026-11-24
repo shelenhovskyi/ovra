@@ -98,7 +98,7 @@ impl CoreBuilder {
                 opener: self.opener,
                 terminals: self.terminals,
                 agents: self.agents,
-                sessions: Arc::new(Sessions::new(self.sessions)),
+                sessions: Arc::new(Sessions::new(self.sessions, self.worktrees.clone())),
                 worktrees: self.worktrees,
                 orchestration: Orchestration::new(self.worktrees_dir),
                 held: Mutex::new(None),

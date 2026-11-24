@@ -166,10 +166,12 @@ pub(super) async fn item(core: &Core, entry: &Entry) -> Result<ReviewItem> {
 
 /// The entry's changed files as they are now.
 async fn files(core: &Core, entry: &Entry) -> Result<Vec<FileChange>> {
-    if entry.mode == SessionMode::Direct {
-        return Err(direct_not_yet());
-    }
     let ws = &entry.workspace;
+    if entry.mode == SessionMode::Direct
+        && let Ok(files) = core.sessions().direct.files(&entry.session).await
+    {
+        return Ok(files);
+    }
     let deltas = core
         .worktrees()
         .changes(ws.dir.clone(), ws.base.clone())
@@ -179,8 +181,13 @@ async fn files(core: &Core, entry: &Entry) -> Result<Vec<FileChange>> {
         .into_iter()
         .map(|d| FileChange {
             blocked: touched.contains(&d.path),
-            // Nobody but the worker writes its worktree.
-            by: ChangedBy::Agent,
+            // Nobody but the worker writes its worktree. A direct session
+            // no longer tracked (decided) vouches for nothing.
+            by: if entry.mode == SessionMode::Direct {
+                ChangedBy::Outside
+            } else {
+                ChangedBy::Agent
+            },
             path: d.path,
             kind: d.kind,
             from: d.from,
@@ -205,7 +212,6 @@ async fn direct_touched(core: &Core, project: &ProjectId) -> BTreeSet<String> {
         .collect();
     let mut touched = BTreeSet::new();
     for entry in open {
-        // Until direct-mode review exists, nothing is known to be touched.
         for file in Box::pin(files(core, &entry)).await.unwrap_or_default() {
             if file.by != ChangedBy::Outside {
                 touched.insert(file.path);
@@ -213,13 +219,6 @@ async fn direct_touched(core: &Core, project: &ProjectId) -> BTreeSet<String> {
         }
     }
     touched
-}
-
-fn direct_not_yet() -> ProtocolError {
-    ProtocolError::new(
-        ErrorCode::Unavailable,
-        "reviewing a direct session is not implemented yet (task 3.F)",
-    )
 }
 
 fn check_open(entry: &Entry) -> Result<()> {
@@ -245,14 +244,25 @@ async fn approve(
 ) -> Result<(ReviewItem, Vec<String>)> {
     let entry = find(core, id)?;
     check_open(&entry)?;
-    if entry.mode == SessionMode::Direct {
-        return Err(direct_not_yet());
-    }
     if commit.as_deref().is_some_and(|m| m.trim().is_empty()) {
         return Err(ProtocolError::new(
             ErrorCode::BadRequest,
             "the commit message is empty",
         ));
+    }
+    if entry.mode == SessionMode::Direct {
+        let outcome = core
+            .sessions()
+            .direct
+            .approve(&entry.session, commit)
+            .await?;
+        let entry = update(core, id, |e| {
+            e.state = ReviewState::Approved;
+            if let Some(base) = outcome.base {
+                e.workspace.base = base;
+            }
+        })?;
+        return Ok((item(core, &entry).await?, outcome.conflicts));
     }
     let root = core.root(&entry.project)?;
     let ws = entry.workspace.clone();
@@ -300,7 +310,7 @@ async fn reject(core: &Core, id: &ReviewId) -> Result<(ReviewItem, Vec<String>)>
     let entry = find(core, id)?;
     check_open(&entry)?;
     if entry.mode == SessionMode::Direct {
-        return Err(direct_not_yet());
+        return reject_direct(core, &entry).await;
     }
     let ws = entry.workspace.clone();
     let worktrees = core.worktrees();
@@ -321,6 +331,20 @@ async fn reject(core: &Core, id: &ReviewId) -> Result<(ReviewItem, Vec<String>)>
         e.rejected = Some(diff);
     })?;
     Ok((item(core, &entry).await?, Vec::new()))
+}
+
+/// Restores a direct session's own files from its baseline (ADR 0005);
+/// files someone else changed too stay and come back as conflicts.
+async fn reject_direct(core: &Core, entry: &Entry) -> Result<(ReviewItem, Vec<String>)> {
+    let outcome = core.sessions().direct.reject(&entry.session).await?;
+    let entry = update(core, &entry.id, |e| {
+        e.state = ReviewState::Rejected;
+        e.rejected = Some(outcome.diff);
+        if let Some(base) = outcome.base {
+            e.workspace.base = base;
+        }
+    })?;
+    Ok((item(core, &entry).await?, outcome.conflicts))
 }
 
 /// Reopens the item and sends `text` to its session, resuming it if it

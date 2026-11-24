@@ -7,6 +7,7 @@
 //! lock, never the other way round; sessions call in here only without
 //! holding theirs.
 
+pub(crate) mod direct;
 mod ide;
 mod policy;
 mod review;

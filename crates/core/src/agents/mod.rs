@@ -10,6 +10,7 @@ mod transcript;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+use crate::orchestration::direct::Direct;
 use crate::protocol::agents::{
     AgentMessage, AgentStatus, AgentsEvent, SessionId, SessionInfo, SessionMode,
 };
@@ -19,7 +20,7 @@ use crate::protocol::permissions::{
 use crate::protocol::projects::ProjectId;
 use crate::protocol::{ErrorCode, ProtocolError};
 use crate::services::{
-    EventSink, IdeTools, RunningAgent, SessionStore, StoredSession, ToolCaller, ToolRole,
+    EventSink, IdeTools, RunningAgent, SessionStore, StoredSession, ToolCaller, ToolRole, Worktrees,
 };
 
 pub(crate) use permissions::Permissions;
@@ -70,6 +71,8 @@ pub(crate) struct Sessions {
     started: Mutex<u64>,
     pub(crate) permissions: Permissions,
     ide: Mutex<Option<IdeLink>>,
+    /// Direct sessions' baselines and which files are their agents'.
+    pub(crate) direct: Direct,
 }
 
 /// Where sessions' IDE tool calls go; set once when the core is built.
@@ -82,7 +85,7 @@ struct IdeLink {
 impl Sessions {
     /// Loads the kept sessions. Those that ran when the core last quit have
     /// no process any more, so they show as stopped.
-    pub(crate) fn new(store: Arc<dyn SessionStore>) -> Self {
+    pub(crate) fn new(store: Arc<dyn SessionStore>, worktrees: Arc<dyn Worktrees>) -> Self {
         let mut started = 0;
         let mut list = Vec::new();
         for (stored, messages) in store.load(transcript::MAX_MESSAGES).unwrap_or_default() {
@@ -113,6 +116,7 @@ impl Sessions {
             started: Mutex::new(started),
             permissions: Permissions::default(),
             ide: Mutex::new(None),
+            direct: Direct::new(worktrees),
         }
     }
 
@@ -364,8 +368,37 @@ impl AgentHost {
             .find(&self.session, |s| s.set_agent_session(id));
     }
 
+    /// The agent is about to run a tool: the input of a `PreToolUse` hook
+    /// (`tool_use_id`, `tool_name`, `tool_input`). The runtime awaits this
+    /// before the tool runs, so a direct session can snapshot the tree
+    /// first (ADR 0005).
+    pub async fn before_tool(&self, hook_input: &serde_json::Value) {
+        let field = |name: &str| hook_input.get(name).and_then(serde_json::Value::as_str);
+        let (Some(id), Some(name)) = (field("tool_use_id"), field("tool_name")) else {
+            return;
+        };
+        let input = hook_input
+            .get("tool_input")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
+        self.sessions
+            .direct
+            .tool_started(&self.session, id, name, &input)
+            .await;
+    }
+
+    /// Finishes the bookkeeping for tool results reported with
+    /// [`Self::message`]. Runtimes await it after passing on a result, so a
+    /// direct session snapshots the tree right when the tool is done.
+    pub async fn tools_settled(&self) {
+        self.sessions.direct.catch_up(&self.session).await;
+    }
+
     /// Adds a message to the transcript and shows it.
     pub fn message(&self, message: AgentMessage) {
+        if let AgentMessage::ToolResult { tool_use_id, .. } = &message {
+            self.sessions.direct.tool_ended(&self.session, tool_use_id);
+        }
         if let Ok(message) = self.sessions.find(&self.session, |s| s.push(message)) {
             self.sink.emit(AgentsEvent::Message {
                 session: self.session.clone(),
@@ -378,6 +411,9 @@ impl AgentHost {
     /// drops its pending permission requests, which the agent sees as denied.
     pub fn status(&self, status: AgentStatus) {
         let ended = status.is_ended();
+        if ended {
+            self.sessions.direct.session_ended(&self.session);
+        }
         if self.set_status(status) && ended {
             let dropped = self.sessions.permissions.drop_session(&self.session);
             self.resolved(dropped, Decision::Deny);
@@ -425,6 +461,7 @@ impl AgentHost {
                 None => PermissionAnswer::deny("Ovra is shutting down"),
             };
         }
+        let tool_input = (tool.clone(), input.clone());
         let registered = self.sessions.find(&self.session, |s| {
             if s.stopping() {
                 return Err(PermissionAnswer::deny("the session was stopped"));
@@ -444,12 +481,19 @@ impl AgentHost {
             host: self,
             id: Some(request.id.clone()),
         };
+        let (tool, input) = tool_input;
+        let direct = &self.sessions.direct;
+        direct.tool_waiting(&self.session, &tool, &input).await;
         self.sink.emit(PermissionsEvent::Requested(request));
         self.set_status(AgentStatus::WaitingForApproval);
         let answer = answer
             .await
             .unwrap_or_else(|_| PermissionAnswer::deny("the session ended"));
         waiting.id = None;
+        let allowed = answer.decision == Decision::Allow;
+        direct
+            .tool_answered(&self.session, &tool, &input, allowed)
+            .await;
         // Ignored while other requests of the session still wait.
         self.set_status(AgentStatus::Working);
         answer

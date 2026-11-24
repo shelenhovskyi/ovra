@@ -1,0 +1,777 @@
+//! Direct mode against in-memory worktrees. The person's edits are made
+//! with `put`/`delete` between or during the agent's tool calls.
+
+use std::collections::BTreeSet;
+use std::path::PathBuf;
+use std::sync::Mutex;
+
+use serde_json::{Value, json};
+
+use super::*;
+use crate::fakes::MemoryWorktrees;
+use crate::protocol::review::ChangeKind;
+use crate::services::{BoxFuture, WorktreeInfo};
+
+const DIR: &str = "/p";
+
+/// [`MemoryWorktrees`] plus renames, failing snapshots and paths that
+/// `restore` silently skips, like the real one does for unsafe paths.
+#[derive(Debug, Default)]
+struct Trees {
+    mem: MemoryWorktrees,
+    /// `(from, to)`: a deletion of `from` and an addition of `to` in one
+    /// diff are reported as one rename.
+    renames: Mutex<Vec<(String, String)>>,
+    fail_snapshots: Mutex<bool>,
+    skip_restore: Mutex<BTreeSet<String>>,
+}
+
+impl std::ops::Deref for Trees {
+    type Target = MemoryWorktrees;
+    fn deref(&self) -> &MemoryWorktrees {
+        &self.mem
+    }
+}
+
+impl Worktrees for Trees {
+    fn snapshot(&self, dir: PathBuf) -> BoxFuture<'_, Result<String>> {
+        Box::pin(async move {
+            if *lock(&self.fail_snapshots) {
+                return Err(conflict("snapshot failed"));
+            }
+            self.mem.snapshot(dir).await
+        })
+    }
+    fn create(
+        &self,
+        root: PathBuf,
+        dir: PathBuf,
+        branch: String,
+        base: String,
+    ) -> BoxFuture<'_, Result<WorktreeInfo>> {
+        self.mem.create(root, dir, branch, base)
+    }
+    fn changes(&self, dir: PathBuf, base: String) -> BoxFuture<'_, Result<Vec<Delta>>> {
+        Box::pin(async move {
+            let mut changes = self.mem.changes(dir, base).await?;
+            for (from, to) in lock(&self.renames).iter() {
+                let deleted = changes
+                    .iter()
+                    .position(|d| &d.path == from && d.kind == ChangeKind::Deleted);
+                let added = changes
+                    .iter()
+                    .position(|d| &d.path == to && d.kind == ChangeKind::Added);
+                if let (Some(deleted), Some(added)) = (deleted, added) {
+                    changes[added].kind = ChangeKind::Renamed;
+                    changes[added].from = Some(from.clone());
+                    changes.remove(deleted);
+                }
+            }
+            Ok(changes)
+        })
+    }
+    fn patch(&self, dir: PathBuf, base: String, path: RelPath) -> BoxFuture<'_, Result<String>> {
+        self.mem.patch(dir, base, path)
+    }
+    fn restore(
+        &self,
+        dir: PathBuf,
+        base: String,
+        paths: Vec<RelPath>,
+    ) -> BoxFuture<'_, Result<()>> {
+        let skip = lock(&self.skip_restore).clone();
+        let paths = paths
+            .into_iter()
+            .filter(|p| !skip.contains(p.as_str()))
+            .collect();
+        self.mem.restore(dir, base, paths)
+    }
+    fn apply(
+        &self,
+        from: PathBuf,
+        base: String,
+        into: PathBuf,
+        paths: Vec<RelPath>,
+    ) -> BoxFuture<'_, Result<Vec<String>>> {
+        self.mem.apply(from, base, into, paths)
+    }
+    fn commit(
+        &self,
+        dir: PathBuf,
+        paths: Vec<RelPath>,
+        message: String,
+    ) -> BoxFuture<'_, Result<String>> {
+        self.mem.commit(dir, paths, message)
+    }
+    fn remove(&self, root: PathBuf, dir: PathBuf) -> BoxFuture<'_, Result<()>> {
+        self.mem.remove(root, dir)
+    }
+}
+
+struct Harness {
+    trees: Arc<Trees>,
+    direct: Direct,
+    project: ProjectId,
+    session: SessionId,
+}
+
+fn session(id: &str) -> SessionId {
+    SessionId(id.into())
+}
+
+fn write_input(path: &str) -> Value {
+    json!({"file_path": format!("{DIR}/{path}"), "content": "x"})
+}
+
+impl Harness {
+    /// A project whose checkout holds `files` when the session starts.
+    async fn start(files: &[(&str, &str)]) -> Self {
+        let trees = Trees::default();
+        trees.mem.put(DIR, ".keep", "");
+        for (path, text) in files {
+            trees.mem.put(DIR, path, text);
+        }
+        let trees = Arc::new(trees);
+        let h = Self {
+            direct: Direct::new(trees.clone()),
+            trees,
+            project: ProjectId("p1".into()),
+            session: session("s1"),
+        };
+        let baseline = h.direct.begin(&h.project, &h.session, DIR.into()).await;
+        assert!(baseline.is_ok(), "{baseline:?}");
+        h
+    }
+
+    fn mem(&self) -> &Trees {
+        &self.trees
+    }
+
+    /// The person (or anything but the agent) changes a file.
+    fn put(&self, path: &str, text: &str) {
+        self.mem().put(DIR, path, text);
+    }
+
+    fn delete(&self, path: &str) {
+        self.mem().delete(DIR, path);
+    }
+
+    fn text(&self, path: &str) -> Option<String> {
+        self.mem().files(DIR).get(path).cloned()
+    }
+
+    async fn started(&self, id: &str, tool: &str, input: Value) {
+        self.direct
+            .tool_started(&self.session, id, tool, &input)
+            .await;
+    }
+
+    async fn ended(&self, id: &str) {
+        assert!(self.direct.tool_ended(&self.session, id));
+        self.direct.catch_up(&self.session).await;
+    }
+
+    /// The agent writes one file with a file tool.
+    async fn agent_writes(&self, id: &str, path: &str, text: &str) {
+        self.started(id, "Write", write_input(path)).await;
+        self.put(path, text);
+        self.ended(id).await;
+    }
+
+    async fn by(&self) -> Vec<(String, ChangedBy)> {
+        let files = self.direct.files(&self.session).await;
+        files
+            .unwrap_or_else(|e| panic!("{e:?}"))
+            .into_iter()
+            .map(|f| (f.path, f.by))
+            .collect()
+    }
+
+    async fn reject(&self) -> Vec<String> {
+        let outcome = self.direct.reject(&self.session).await;
+        outcome.unwrap_or_else(|e| panic!("{e:?}")).conflicts
+    }
+}
+
+fn by(list: &[(&str, ChangedBy)]) -> Vec<(String, ChangedBy)> {
+    list.iter().map(|(p, b)| ((*p).to_owned(), *b)).collect()
+}
+
+use ChangedBy::{Agent, Both, Outside};
+
+#[tokio::test]
+async fn one_running_direct_writer_per_project_and_a_resumed_session_keeps_its_baseline() {
+    let h = Harness::start(&[]).await;
+    let s2 = session("s2");
+    let other = h.direct.begin(&h.project, &s2, DIR.into()).await;
+    assert_eq!(other.err().map(|e| e.code), Some(ErrorCode::Conflict));
+    // Another project is independent.
+    h.mem().put("/q", "a", "");
+    let elsewhere = h
+        .direct
+        .begin(&ProjectId("p2".into()), &session("s3"), "/q".into())
+        .await;
+    assert!(elsewhere.is_ok());
+
+    h.agent_writes("t1", "a.rs", "agent\n").await;
+    h.direct.session_ended(&h.session);
+    assert_eq!(h.direct.writer(&h.project), None, "ended: the lock is free");
+    // A resumed session (or a review comment) keeps its baseline.
+    let again = h.direct.begin(&h.project, &h.session, DIR.into()).await;
+    assert_eq!(again.ok().as_deref(), Some("c1"), "same baseline");
+    assert_eq!(h.direct.writer(&h.project), Some(h.session.clone()));
+    assert_eq!(h.by().await, by(&[("a.rs", Agent)]));
+    h.direct.session_ended(&h.session);
+
+    // The next session may start while the first one waits for review.
+    assert!(h.direct.begin(&h.project, &s2, DIR.into()).await.is_ok());
+    let resumed = h.direct.begin(&h.project, &h.session, DIR.into()).await;
+    assert_eq!(resumed.err().map(|e| e.code), Some(ErrorCode::Conflict));
+    assert!(h.direct.approve(&h.session, None).await.is_ok());
+    let reviewed = h.direct.files(&h.session).await;
+    assert_eq!(reviewed.err().map(|e| e.code), Some(ErrorCode::Conflict));
+}
+
+#[tokio::test]
+async fn to_an_earlier_session_a_later_ones_changes_are_outside() {
+    let h = Harness::start(&[("a.rs", "a\n")]).await;
+    h.agent_writes("t1", "a.rs", "first\n").await;
+    h.direct.session_ended(&h.session);
+    let s2 = session("s2");
+    assert!(h.direct.begin(&h.project, &s2, DIR.into()).await.is_ok());
+    h.direct
+        .tool_started(&s2, "t2", "Write", &write_input("a.rs"))
+        .await;
+    h.put("a.rs", "first + second\n");
+    h.direct
+        .tool_started(&s2, "t3", "Write", &write_input("b.rs"))
+        .await;
+    h.put("b.rs", "second\n");
+    assert!(h.direct.tool_ended(&s2, "t2") && h.direct.tool_ended(&s2, "t3"));
+    let later = h.direct.files(&s2).await.unwrap_or_default();
+    let later: Vec<_> = later.iter().map(|f| (f.path.as_str(), f.by)).collect();
+    assert_eq!(later, [("a.rs", Agent), ("b.rs", Agent)]);
+
+    assert_eq!(h.by().await, by(&[("a.rs", Both), ("b.rs", Outside)]));
+    assert_eq!(h.reject().await, ["a.rs"]);
+    assert_eq!(h.text("a.rs").as_deref(), Some("first + second\n"));
+    assert_eq!(h.text("b.rs").as_deref(), Some("second\n"));
+}
+
+#[tokio::test]
+async fn a_failed_baseline_holds_the_lock_untracked_until_the_session_ends() {
+    let direct = Direct::new(Arc::new(Trees::default()));
+    let project = ProjectId("p1".into());
+    // No working tree at /p: the snapshot fails.
+    let first = direct.begin(&project, &session("s1"), DIR.into()).await;
+    assert!(first.is_err());
+    assert_eq!(direct.writer(&project), Some(session("s1")));
+    let files = direct.files(&session("s1")).await;
+    assert_eq!(files.err().map(|e| e.code), Some(ErrorCode::Conflict));
+    direct.session_ended(&session("s1"));
+    assert_eq!(direct.writer(&project), None);
+}
+
+#[tokio::test]
+async fn reject_reverts_only_the_agents_files_and_keeps_the_persons() {
+    let h = Harness::start(&[("a.rs", "a\n"), ("b.rs", "b\n"), ("gone.rs", "g\n")]).await;
+    h.agent_writes("t1", "a.rs", "agent\n").await;
+    h.agent_writes("t2", "new.rs", "agent\n").await;
+    h.started("t3", "Bash", json!({"command": "rm gone.rs"}))
+        .await;
+    h.delete("gone.rs");
+    h.ended("t3").await;
+    // Between tool calls only the person edits.
+    h.put("b.rs", "mine\n");
+    h.put("notes.md", "mine\n");
+
+    assert_eq!(
+        h.by().await,
+        by(&[
+            ("a.rs", Agent),
+            ("b.rs", Outside),
+            ("gone.rs", Agent),
+            ("new.rs", Agent),
+            ("notes.md", Outside),
+        ])
+    );
+    assert_eq!(h.reject().await, Vec::<String>::new());
+    assert_eq!(h.text("a.rs").as_deref(), Some("a\n"));
+    assert_eq!(h.text("gone.rs").as_deref(), Some("g\n"));
+    assert_eq!(h.text("new.rs"), None);
+    assert_eq!(h.text("b.rs").as_deref(), Some("mine\n"));
+    assert_eq!(h.text("notes.md").as_deref(), Some("mine\n"));
+    // The agent still runs: it starts over from the tree as it is now.
+    assert_eq!(h.direct.writer(&h.project), Some(h.session.clone()));
+    assert!(h.by().await.is_empty());
+}
+
+#[tokio::test]
+async fn uncommitted_work_from_before_the_session_is_the_baseline() {
+    // The person's uncommitted edit is in the checkout when the agent starts.
+    let h = Harness::start(&[("wip.rs", "half done\n")]).await;
+    h.started("t1", "Bash", json!({"command": "rm wip.rs"}))
+        .await;
+    h.delete("wip.rs");
+    h.ended("t1").await;
+    assert_eq!(h.reject().await, Vec::<String>::new());
+    assert_eq!(h.text("wip.rs").as_deref(), Some("half done\n"));
+}
+
+#[tokio::test]
+async fn a_file_the_person_edited_before_the_agent_is_never_reverted() {
+    let h = Harness::start(&[("a.rs", "a\n")]).await;
+    h.put("a.rs", "mine\n");
+    h.agent_writes("t1", "a.rs", "mine + agent\n").await;
+    assert_eq!(h.by().await, by(&[("a.rs", Both)]));
+    assert_eq!(h.reject().await, ["a.rs"]);
+    assert_eq!(h.text("a.rs").as_deref(), Some("mine + agent\n"));
+}
+
+#[tokio::test]
+async fn a_file_the_person_edited_after_the_agent_is_never_reverted() {
+    let h = Harness::start(&[("a.rs", "a\n"), ("b.rs", "b\n")]).await;
+    h.agent_writes("t1", "a.rs", "agent\n").await;
+    h.agent_writes("t2", "b.rs", "agent\n").await;
+    // After the agent's last tool call, in the editor.
+    h.put("a.rs", "agent + mine\n");
+    assert_eq!(h.by().await, by(&[("a.rs", Both), ("b.rs", Agent)]));
+    assert_eq!(h.reject().await, ["a.rs"]);
+    assert_eq!(h.text("a.rs").as_deref(), Some("agent + mine\n"));
+    assert_eq!(h.text("b.rs").as_deref(), Some("b\n"));
+}
+
+#[tokio::test]
+async fn a_file_the_person_edited_between_two_agent_writes_is_never_reverted() {
+    let h = Harness::start(&[("a.rs", "a\n")]).await;
+    h.agent_writes("t1", "a.rs", "agent\n").await;
+    h.put("a.rs", "agent + mine\n");
+    h.agent_writes("t2", "a.rs", "agent + mine + agent\n").await;
+    assert_eq!(h.by().await, by(&[("a.rs", Both)]));
+    assert_eq!(h.reject().await, ["a.rs"]);
+    assert_eq!(h.text("a.rs").as_deref(), Some("agent + mine + agent\n"));
+}
+
+#[tokio::test]
+async fn a_file_the_person_recreated_after_the_agent_deleted_it_is_kept() {
+    let h = Harness::start(&[("a.rs", "a\n")]).await;
+    h.started("t1", "Bash", json!({"command": "rm a.rs"})).await;
+    h.delete("a.rs");
+    h.ended("t1").await;
+    h.put("a.rs", "mine\n");
+    assert_eq!(h.by().await, by(&[("a.rs", Both)]));
+    assert_eq!(h.reject().await, ["a.rs"]);
+    assert_eq!(h.text("a.rs").as_deref(), Some("mine\n"));
+}
+
+#[tokio::test]
+async fn the_person_editing_during_a_file_tool_is_outside() {
+    let h = Harness::start(&[("a.rs", "a\n"), ("b.rs", "b\n")]).await;
+    h.started("t1", "Edit", json!({"file_path": "a.rs"})).await;
+    h.put("a.rs", "agent\n");
+    h.put("b.rs", "mine\n");
+    h.ended("t1").await;
+    assert_eq!(h.by().await, by(&[("a.rs", Agent), ("b.rs", Outside)]));
+    assert!(h.reject().await.is_empty());
+    assert_eq!(h.text("b.rs").as_deref(), Some("mine\n"));
+}
+
+#[tokio::test]
+async fn a_tool_waiting_for_approval_does_not_claim_what_the_person_edits_meanwhile() {
+    let h = Harness::start(&[("a.rs", "a\n")]).await;
+    let input = json!({"command": "cargo fmt"});
+    h.started("t1", "Bash", input.clone()).await;
+    h.direct.tool_waiting(&h.session, "Bash", &input).await;
+    // The approval card is open; the person keeps working.
+    h.put("a.rs", "mine\n");
+    h.direct
+        .tool_answered(&h.session, "Bash", &input, true)
+        .await;
+    h.put("fmt.rs", "formatted\n");
+    h.ended("t1").await;
+    assert_eq!(h.by().await, by(&[("a.rs", Outside), ("fmt.rs", Agent)]));
+
+    // A denied tool never runs.
+    let rm = json!({"command": "rm a.rs"});
+    h.started("t2", "Bash", rm.clone()).await;
+    h.direct.tool_waiting(&h.session, "Bash", &rm).await;
+    h.direct.tool_answered(&h.session, "Bash", &rm, false).await;
+    h.put("later.rs", "mine\n");
+    h.ended("t2").await;
+    assert_eq!(
+        h.by().await,
+        by(&[("a.rs", Outside), ("fmt.rs", Agent), ("later.rs", Outside)])
+    );
+    assert!(h.reject().await.is_empty());
+    assert_eq!(h.text("a.rs").as_deref(), Some("mine\n"));
+    assert_eq!(h.text("fmt.rs"), None);
+}
+
+#[tokio::test]
+async fn overlapping_tools_share_one_interval() {
+    let h = Harness::start(&[]).await;
+    h.started("t1", "Write", write_input("one.rs")).await;
+    h.started("t2", "Write", write_input("two.rs")).await;
+    h.put("one.rs", "1\n");
+    h.ended("t1").await;
+    // t2 still runs: its file must not look changed outside.
+    h.put("two.rs", "2\n");
+    h.ended("t2").await;
+    assert_eq!(h.by().await, by(&[("one.rs", Agent), ("two.rs", Agent)]));
+    let refused = h.direct.reject(&h.session).await;
+    assert!(refused.is_ok());
+}
+
+#[tokio::test]
+async fn a_tool_result_is_applied_before_the_next_tool_starts() {
+    let h = Harness::start(&[("a.rs", "a\n")]).await;
+    h.started("t1", "Write", write_input("one.rs")).await;
+    h.put("one.rs", "1\n");
+    // The result is reported, but the follow-up has not run yet.
+    assert!(h.direct.tool_ended(&h.session, "t1"));
+    h.put("a.rs", "mine\n");
+    h.started("t2", "Write", write_input("two.rs")).await;
+    h.put("two.rs", "2\n");
+    h.ended("t2").await;
+    assert_eq!(
+        h.by().await,
+        by(&[("a.rs", Outside), ("one.rs", Agent), ("two.rs", Agent)])
+    );
+    assert!(!h.direct.tool_ended(&session("other"), "t3"));
+}
+
+#[tokio::test]
+async fn reject_waits_for_running_tools() {
+    let h = Harness::start(&[]).await;
+    h.started("t1", "Bash", json!({"command": "make"})).await;
+    let refused = h.direct.reject(&h.session).await;
+    assert_eq!(refused.err().map(|e| e.code), Some(ErrorCode::Conflict));
+    let refused = h.direct.approve(&h.session, None).await;
+    assert_eq!(refused.err().map(|e| e.code), Some(ErrorCode::Conflict));
+    // Ending the session drops its tools: what they changed is outside.
+    h.put("out.o", "bin\n");
+    h.direct.session_ended(&h.session);
+    assert_eq!(h.by().await, by(&[("out.o", Outside)]));
+    assert_eq!(h.reject().await, Vec::<String>::new());
+    assert_eq!(h.text("out.o").as_deref(), Some("bin\n"));
+}
+
+#[tokio::test]
+async fn renames_revert_both_paths_unless_the_person_was_involved() {
+    let h = Harness::start(&[("a.rs", "a\n"), ("x.rs", "x\n")]).await;
+    lock(&h.mem().renames).push(("a.rs".into(), "b.rs".into()));
+    lock(&h.mem().renames).push(("x.rs".into(), "y.rs".into()));
+    h.started("t1", "Bash", json!({"command": "git mv a.rs b.rs"}))
+        .await;
+    h.delete("a.rs");
+    h.put("b.rs", "a\n");
+    h.ended("t1").await;
+    // The person deletes x.rs; the agent writes a similar y.rs, and the
+    // diff pairs them as a rename.
+    h.delete("x.rs");
+    h.agent_writes("t2", "y.rs", "x\n").await;
+    let files = h.direct.files(&h.session).await.unwrap_or_default();
+    let renames: Vec<_> = files
+        .iter()
+        .map(|f| (f.path.as_str(), f.from.as_deref(), f.by))
+        .collect();
+    assert_eq!(
+        renames,
+        [("b.rs", Some("a.rs"), Agent), ("y.rs", Some("x.rs"), Both)]
+    );
+    assert_eq!(h.reject().await, ["y.rs"]);
+    assert_eq!(h.text("a.rs").as_deref(), Some("a\n"));
+    assert_eq!(h.text("b.rs"), None);
+    assert_eq!(h.text("x.rs"), None, "the person's delete stays");
+    assert_eq!(h.text("y.rs").as_deref(), Some("x\n"));
+}
+
+#[tokio::test]
+async fn a_file_restore_skipped_is_reported_as_a_conflict() {
+    let h = Harness::start(&[("a.rs", "a\n")]).await;
+    h.agent_writes("t1", "a.rs", "agent\n").await;
+    h.agent_writes("t2", "b.rs", "agent\n").await;
+    lock(&h.mem().skip_restore).insert("b.rs".into());
+    assert_eq!(h.reject().await, ["b.rs"]);
+    assert_eq!(h.text("a.rs").as_deref(), Some("a\n"));
+}
+
+#[tokio::test]
+async fn reject_keeps_a_snapshot_of_what_it_reverted() {
+    let h = Harness::start(&[]).await;
+    h.agent_writes("t1", "a.rs", "agent\n").await;
+    let outcome = h.direct.reject(&h.session).await;
+    let snapshot = outcome.ok().and_then(|o| o.snapshot).unwrap_or_default();
+    let kept = h.mem().changes(DIR.into(), snapshot).await;
+    let kept: Vec<_> = kept
+        .unwrap_or_default()
+        .into_iter()
+        .map(|d| d.path)
+        .collect();
+    assert_eq!(kept, ["a.rs"], "the snapshot still has the agent's a.rs");
+}
+
+#[tokio::test]
+async fn failed_snapshots_make_nothing_the_agents() {
+    let h = Harness::start(&[("a.rs", "a\n")]).await;
+    h.agent_writes("t1", "a.rs", "agent\n").await;
+    *lock(&h.mem().fail_snapshots) = true;
+    // The interval's own snapshots fail: neither its file nor the earlier
+    // one can be vouched for.
+    h.agent_writes("t2", "b.rs", "agent\n").await;
+    *lock(&h.mem().fail_snapshots) = false;
+    h.agent_writes("t3", "c.rs", "agent\n").await;
+    assert_eq!(
+        h.by().await,
+        by(&[("a.rs", Both), ("b.rs", Outside), ("c.rs", Agent)])
+    );
+    // Reject also needs its safety snapshot.
+    *lock(&h.mem().fail_snapshots) = true;
+    let refused = h.direct.reject(&h.session).await;
+    assert!(refused.is_err());
+    assert_eq!(h.text("c.rs").as_deref(), Some("agent\n"));
+}
+
+#[tokio::test]
+async fn file_tools_outside_the_project_and_other_tools_claim_nothing() {
+    let h = Harness::start(&[]).await;
+    h.started("t1", "Write", json!({"file_path": "/etc/x"}))
+        .await;
+    h.put("a.rs", "mine\n");
+    h.ended("t1").await;
+    h.started("t2", "Edit", json!({"file_path": "../p/b.rs"}))
+        .await;
+    h.put("b.rs", "mine\n");
+    h.ended("t2").await;
+    h.started("t3", "Read", json!({"file_path": "c.rs"})).await;
+    h.put("c.rs", "mine\n");
+    h.ended("t3").await;
+    assert_eq!(
+        h.by().await,
+        by(&[("a.rs", Outside), ("b.rs", Outside), ("c.rs", Outside)])
+    );
+    assert!(h.reject().await.is_empty());
+    assert_eq!(h.text("c.rs").as_deref(), Some("mine\n"));
+}
+
+#[test]
+fn tool_paths_are_relative_to_the_project() {
+    let dir = Path::new("/w/p");
+    assert_eq!(relative(dir, "/w/p/src/a.rs").as_deref(), Some("src/a.rs"));
+    assert_eq!(
+        relative(dir, "src/./x/../a.rs").as_deref(),
+        Some("src/a.rs")
+    );
+    assert_eq!(relative(dir, "/w/p/../q/a.rs"), None);
+    assert_eq!(relative(dir, "../p/a.rs"), None, "lexical only");
+    assert_eq!(relative(dir, "/w/p"), None);
+    assert_eq!(relative(dir, "/etc/passwd"), None);
+}
+
+#[tokio::test]
+async fn approve_commits_only_the_agents_own_files() {
+    let h = Harness::start(&[("a.rs", "a\n"), ("both.rs", "b\n")]).await;
+    lock(&h.mem().renames).push(("a.rs".into(), "moved.rs".into()));
+    h.started("t1", "Bash", json!({"command": "mv a.rs moved.rs"}))
+        .await;
+    h.delete("a.rs");
+    h.put("moved.rs", "a\n");
+    h.ended("t1").await;
+    h.agent_writes("t2", "both.rs", "agent\n").await;
+    h.put("both.rs", "agent + mine\n");
+    h.put("mine.rs", "mine\n");
+    let outcome = h
+        .direct
+        .approve(&h.session, Some("feat: move a".into()))
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(outcome.conflicts, ["both.rs"]);
+    assert!(outcome.snapshot.is_some());
+    let committed = lock(&h.mem().committed).clone();
+    assert_eq!(
+        committed,
+        [(
+            PathBuf::from(DIR),
+            vec!["moved.rs".to_owned(), "a.rs".to_owned()],
+            "feat: move a".to_owned()
+        )]
+    );
+    assert_eq!(h.text("both.rs").as_deref(), Some("agent + mine\n"));
+    assert!(h.by().await.is_empty(), "starts over");
+    h.direct.session_ended(&h.session);
+    assert_eq!(h.direct.writer(&h.project), None);
+}
+
+#[tokio::test]
+async fn a_session_without_agent_changes_is_forgotten_after_it_ends() {
+    let h = Harness::start(&[]).await;
+    h.put("mine.rs", "mine\n");
+    h.direct.session_ended(&h.session);
+    assert_eq!(h.direct.writer(&h.project), None);
+    // Forgotten when the next session starts.
+    assert!(
+        h.direct
+            .begin(&h.project, &session("s2"), DIR.into())
+            .await
+            .is_ok()
+    );
+    let gone = h.direct.files(&h.session).await;
+    assert_eq!(gone.err().map(|e| e.code), Some(ErrorCode::Conflict));
+}
+
+/// Through the core: `agents.start` takes the lock and the baseline, and the
+/// host's hooks feed the tracker.
+mod through_the_core {
+    use super::*;
+    use crate::Core;
+    use crate::fakes::MemoryProjects;
+    use crate::protocol::agents::AgentStatus;
+    use crate::protocol::permissions::PermissionsResponse;
+    use crate::protocol::review::{ReviewResponse, ReviewState};
+    use crate::protocol::{Request, Response};
+    use crate::services::{AgentHost, AgentRuntime, AgentSpec, RunningAgent};
+
+    /// A runtime the test drives by hand through the hosts it was given.
+    #[derive(Debug, Default)]
+    struct Manual {
+        hosts: Mutex<Vec<AgentHost>>,
+    }
+
+    #[derive(Debug)]
+    struct Quiet;
+
+    impl RunningAgent for Quiet {
+        fn send(&self, _: String) -> Result<()> {
+            Ok(())
+        }
+        fn stop(&self) {}
+    }
+
+    impl AgentRuntime for Manual {
+        fn start(&self, _: AgentSpec, host: AgentHost) -> Result<Box<dyn RunningAgent>> {
+            lock(&self.hosts).push(host);
+            Ok(Box::new(Quiet))
+        }
+    }
+
+    async fn call(core: &Core, json: Value) -> Result<Response> {
+        let request: Request = serde_json::from_value(json).unwrap_or_else(|e| panic!("{e}"));
+        core.handle(request).await
+    }
+
+    fn start() -> Value {
+        json!({"method": "agents.start", "params": {
+            "project": "p1", "agent": "claude", "mode": "direct", "prompt": "go"}})
+    }
+
+    async fn pending(core: &Core) -> Vec<crate::protocol::permissions::PermissionId> {
+        match call(core, json!({"method": "permissions.pending"})).await {
+            Ok(Response::Permissions(PermissionsResponse::Pending(list))) => {
+                list.into_iter().map(|r| r.id).collect()
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn hooks_permissions_and_results_attribute_files() {
+        let trees = Arc::new(Trees::default());
+        trees.put(DIR, "a.rs", "a\n");
+        let runtime = Arc::new(Manual::default());
+        let core = Core::builder("test")
+            .projects(Arc::new(MemoryProjects::default()))
+            .agents(runtime.clone())
+            .worktrees(trees.clone())
+            .build();
+        let added = call(
+            &core,
+            json!({"method": "projects.add", "params": {"root": DIR}}),
+        )
+        .await;
+        assert!(added.is_ok());
+        assert!(call(&core, start()).await.is_ok());
+        let second = call(&core, start()).await;
+        assert_eq!(second.err().map(|e| e.code), Some(ErrorCode::Conflict));
+        let host = lock(&runtime.hosts)[0].clone();
+        let s1 = host.session().clone();
+
+        let input = json!({"command": "cargo fmt"});
+        host.before_tool(&json!({
+            "hook_event_name": "PreToolUse", "tool_use_id": "t1",
+            "tool_name": "Bash", "tool_input": input,
+        }))
+        .await;
+        let asking = tokio::spawn({
+            let host = host.clone();
+            async move { host.ask("Bash".into(), input, None, None).await }
+        });
+        let id = loop {
+            if let Some(id) = pending(&core).await.pop() {
+                break id;
+            }
+            tokio::task::yield_now().await;
+        };
+        // The person edits while the approval card is open.
+        trees.put(DIR, "a.rs", "mine\n");
+        let answered = call(
+            &core,
+            json!({"method": "permissions.answer", "params": {"id": id, "decision": "allow"}}),
+        )
+        .await;
+        assert!(answered.is_ok(), "{answered:?}");
+        assert!(asking.await.is_ok());
+        trees.put(DIR, "fmt.rs", "formatted\n");
+        host.message(crate::protocol::agents::AgentMessage::ToolResult {
+            tool_use_id: "t1".into(),
+            output: String::new(),
+            is_error: false,
+            parent: None,
+        });
+        host.tools_settled().await;
+        trees.put(DIR, "later.rs", "mine\n");
+
+        let direct = &core.inner_sessions().direct;
+        let files = direct.files(&s1).await.unwrap_or_default();
+        let by: Vec<_> = files.iter().map(|f| (f.path.as_str(), f.by)).collect();
+        assert_eq!(
+            by,
+            [("a.rs", Outside), ("fmt.rs", Agent), ("later.rs", Outside)]
+        );
+
+        // Ending the session frees the lock; its review stays.
+        host.status(AgentStatus::Stopped);
+        assert_eq!(direct.writer(&ProjectId("p1".into())), None);
+        assert!(call(&core, start()).await.is_ok());
+        let list = call(
+            &core,
+            json!({"method": "review.list", "params": {"project": "p1"}}),
+        );
+        let Ok(Response::Review(ReviewResponse::List(items))) = list.await else {
+            panic!("no review list");
+        };
+        let item = items.iter().find(|i| i.session == s1).cloned();
+        let item = item.unwrap_or_else(|| panic!("no item for s1 in {items:?}"));
+        assert_eq!(item.files.len(), 3);
+
+        let done = call(
+            &core,
+            json!({"method": "review.reject", "params": {"id": item.id}}),
+        );
+        let Ok(Response::Review(ReviewResponse::Done { item, conflicts })) = done.await else {
+            panic!("reject failed");
+        };
+        assert!(conflicts.is_empty());
+        assert_eq!(item.state, ReviewState::Rejected);
+        assert!(
+            item.files.iter().all(|f| f.by == Outside),
+            "{:?}",
+            item.files
+        );
+        let files = trees.files(DIR);
+        let left: Vec<_> = files
+            .iter()
+            .map(|(p, t)| (p.as_str(), t.as_str()))
+            .collect();
+        assert_eq!(left, [("a.rs", "mine\n"), ("later.rs", "mine\n")]);
+    }
+}
