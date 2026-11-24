@@ -142,9 +142,8 @@ impl TerminalService for Pty {
             .slave
             .spawn_command(cmd)
             .map_err(|e| internal(format!("cannot start the shell: {e}")))?;
-        // Kept until the output is drained after the shell ends (see
-        // `output::Activity`); then the reader sees the end of the output.
-        let slave = pair.slave;
+        // The shell holds the only other end; output ends when it exits.
+        drop(pair.slave);
         let io = pair
             .master
             .try_clone_reader()
@@ -175,14 +174,12 @@ impl TerminalService for Pty {
             },
         );
 
-        let (exited, activity) = output::serve(reader, id.clone(), sink, output);
+        let exited = output::serve(reader, id.clone(), sink, output);
         let terminals = Arc::clone(&self.terminals);
         let waiter_id = id.clone();
         thread::spawn(move || {
             let id = waiter_id;
             let status = child.wait();
-            activity.wait_until_drained();
-            drop(slave);
             // Dropping the master ends the reader on Windows (ConPTY). The
             // scrollback stays until the terminal is closed.
             let session = lock(&terminals).get_mut(&id).and_then(|t| t.session.take());

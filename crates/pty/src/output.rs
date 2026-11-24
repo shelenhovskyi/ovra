@@ -9,11 +9,10 @@
 //! any slow terminal.
 
 use std::io::Read;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, TryRecvError, sync_channel};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use ovra_core::protocol::terminals::{TerminalId, TerminalsEvent};
 use ovra_core::services::EventSink;
@@ -33,9 +32,6 @@ const BUFFERED_READS: usize = 64;
 /// How long `terminals.exited` waits for more output after the shell ended.
 /// Output only keeps coming when a background job still holds the terminal.
 const DRAIN_GRACE: Duration = Duration::from_millis(500);
-/// How long the reader must wait for more output, after the shell ended,
-/// before the terminal counts as drained.
-const QUIET: Duration = Duration::from_millis(10);
 /// How often a held-back emitter looks at the backlog again.
 const BACKLOG_POLL: Duration = Duration::from_millis(1);
 
@@ -46,63 +42,21 @@ pub(crate) enum Chunk {
     Exited(Option<i32>),
 }
 
-/// What the reader is doing, so the shell's side of the terminal is only
-/// closed once nothing is left to read: macOS drops unread output when the
-/// last handle to that side closes.
-#[derive(Debug, Default)]
-pub(crate) struct Activity {
-    reads: AtomicU64,
-    in_read: AtomicBool,
-    /// The reader saw the end of the output, or an error.
-    finished: AtomicBool,
-}
-
-impl Activity {
-    /// Returns once the reader finished, has waited `QUIET` for output that
-    /// did not come, or a background job kept writing for `DRAIN_GRACE`.
-    /// Waits as long as output is held back for a slow subscriber.
-    pub(crate) fn wait_until_drained(&self) {
-        let mut since = Instant::now();
-        let mut last = self.reads.load(Ordering::SeqCst);
-        loop {
-            thread::sleep(QUIET);
-            if self.finished.load(Ordering::SeqCst) {
-                return;
-            }
-            let reads = self.reads.load(Ordering::SeqCst);
-            let idle = self.in_read.load(Ordering::SeqCst);
-            if !idle {
-                // Blocked on a full buffer: everything left is still unread.
-                since = Instant::now();
-            } else if reads == last || since.elapsed() > DRAIN_GRACE {
-                return;
-            }
-            last = reads;
-        }
-    }
-}
-
-/// Starts reading `reader` and emitting its output. When the shell ends,
-/// wait for [`Activity::wait_until_drained`], then send [`Chunk::Exited`]
-/// through the returned sender; `terminals.exited` follows the last output.
+/// Starts reading `reader` and emitting its output. Send [`Chunk::Exited`]
+/// through the returned sender when the shell ends; `terminals.exited`
+/// follows the last output.
 pub(crate) fn serve(
     mut reader: Box<dyn Read + Send>,
     id: TerminalId,
     sink: EventSink,
     output: Arc<Mutex<Scrollback>>,
-) -> (SyncSender<Chunk>, Arc<Activity>) {
+) -> SyncSender<Chunk> {
     let (tx, rx) = sync_channel(BUFFERED_READS);
     let reads = tx.clone();
-    let activity = Arc::new(Activity::default());
-    let reading = Arc::clone(&activity);
     thread::spawn(move || {
         let mut buf = vec![0u8; READ_BYTES];
         loop {
-            reading.in_read.store(true, Ordering::SeqCst);
-            let read = reader.read(&mut buf);
-            reading.in_read.store(false, Ordering::SeqCst);
-            reading.reads.fetch_add(1, Ordering::SeqCst);
-            match read {
+            match reader.read(&mut buf) {
                 Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
                 // Unix reports EIO once the shell and its children are gone.
                 Ok(0) | Err(_) => break,
@@ -114,10 +68,9 @@ pub(crate) fn serve(
                 }
             }
         }
-        reading.finished.store(true, Ordering::SeqCst);
     });
     thread::spawn(move || emit_all(&rx, &id, &sink, &output));
-    (tx, activity)
+    tx
 }
 
 fn emit_all(rx: &Receiver<Chunk>, id: &TerminalId, sink: &EventSink, output: &Mutex<Scrollback>) {
@@ -206,7 +159,6 @@ mod tests {
         let output = Arc::new(Mutex::new(Scrollback::default()));
         // The sender is dropped right away, as the waiter thread does.
         serve(Box::new(flood), id, core.sink(), Arc::clone(&output))
-            .0
             .send(Chunk::Exited(Some(0)))
             .expect("send");
         // A slow subscriber: read nothing until the output is held back
@@ -234,16 +186,5 @@ mod tests {
         assert_eq!(text.matches("line é\r\n").count(), READS);
         assert_eq!(text.len(), READS * "line é\r\n".len());
         assert_eq!(lock(&output).tail().1, events);
-    }
-
-    #[test]
-    fn drained_returns_when_the_reader_ended_first() {
-        // As on macOS, where the shell's exit can end reads before the
-        // terminal is closed.
-        let core = Core::new("test");
-        let output = Arc::new(Mutex::new(Scrollback::default()));
-        let ended: Box<dyn Read + Send> = Box::new(std::io::empty());
-        let (_exited, activity) = serve(ended, TerminalId("t1".into()), core.sink(), output);
-        activity.wait_until_drained();
     }
 }
