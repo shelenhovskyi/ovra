@@ -4,6 +4,7 @@ import type { AgentsEvent, AgentsRequest, AgentsResponse } from "./agents";
 import type { AuditLogEvent, AuditRequest, AuditResponse } from "./audit";
 import type { FsEvent, FsRequest, FsResponse } from "./fs";
 import type { InfoEvent, InfoRequest, InfoResponse } from "./info";
+import type { NetproxyEvent, NetproxyRequest, NetproxyResponse } from "./netproxy";
 import type { OpenRequest } from "./open";
 import type { OrchestrationEvent, OrchestrationRequest, OrchestrationResponse } from "./orchestration";
 import type { PermissionsEvent, PermissionsRequest, PermissionsResponse } from "./permissions";
@@ -18,6 +19,7 @@ export type * from "./agents";
 export type * from "./audit";
 export type * from "./fs";
 export type * from "./info";
+export type * from "./netproxy";
 export type * from "./open";
 export type * from "./orchestration";
 export type * from "./permissions";
@@ -41,7 +43,8 @@ export type Request =
   | SearchRequest
   | PolicyRequest
   | SecretsRequest
-  | AuditRequest;
+  | AuditRequest
+  | NetproxyRequest;
 
 export type Response =
   | InfoResponse
@@ -56,6 +59,7 @@ export type Response =
   | PolicyResponse
   | SecretsResponse
   | AuditResponse
+  | NetproxyResponse
   | { type: "ok" };
 
 export type CoreEvent =
@@ -70,7 +74,8 @@ export type CoreEvent =
   | SearchEvent
   | PolicyEvent
   | SecretsEvent
-  | AuditLogEvent;
+  | AuditLogEvent
+  | NetproxyEvent;
 
 export type ErrorCode = "bad_request" | "not_found" | "conflict" | "forbidden" | "unavailable" | "internal";
 
@@ -163,4 +168,6 @@ type PhaseThreeResponseFor<R extends Request> = R extends { method: "review.list
                   ? { type: "ok" }
                   : R extends { method: "audit.list" }
                     ? Extract<Response, { type: "audit.entries" }>
-                    : never;
+                    : R extends { method: "netproxy.get_allowlist" | "netproxy.set_allowlist" }
+                      ? Extract<Response, { type: "netproxy.allowlist" }>
+                      : never;

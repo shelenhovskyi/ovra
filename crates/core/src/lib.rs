@@ -11,6 +11,7 @@ mod audit;
 mod core;
 #[cfg(any(test, feature = "fakes"))]
 pub mod fakes;
+pub mod netproxy;
 mod orchestration;
 pub mod path;
 mod policy;

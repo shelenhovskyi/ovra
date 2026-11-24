@@ -20,6 +20,7 @@ use crate::protocol::agents::{
 };
 use crate::protocol::audit::{AuditEntry, AuditEvent};
 use crate::protocol::fs::{DirListing, FileContent, FileList};
+use crate::protocol::netproxy::{Allowlist, NetproxyEvent};
 use crate::protocol::policy::Policy;
 use crate::protocol::projects::{Project, ProjectId, ProjectState, ProjectStatePatch};
 use crate::protocol::review::ChangeKind;
@@ -78,6 +79,10 @@ pub trait ProjectStore: Send + Sync + Debug {
     /// The project's policy (`docs/specs/security.md`); empty if none was set.
     fn policy(&self, id: &ProjectId) -> Result<Policy>;
     fn set_policy(&self, id: &ProjectId, policy: &Policy) -> Result<()>;
+    /// The hosts the project's sessions may reach besides the netproxy's
+    /// base list; empty if none were set. Hosts are already normalized.
+    fn allowlist(&self, id: &ProjectId) -> Result<Allowlist>;
+    fn set_allowlist(&self, id: &ProjectId, allowlist: &Allowlist) -> Result<()>;
 }
 
 /// File access, `.gitignore` handling, git status and watching
@@ -220,7 +225,7 @@ pub enum ProfileNetwork {
     Proxy {
         address: String,
     },
-    /// Not limited, until a netproxy exists (task 4.C).
+    /// Not limited: no netproxy is wired in.
     Open,
 }
 
@@ -237,6 +242,58 @@ pub trait Sandbox: Send + Sync + Debug {
     fn status(&self) -> SandboxStatus;
     /// The command line that runs `line` inside `profile`. Starts nothing.
     fn wrap(&self, profile: &SandboxProfile, line: CommandLine) -> Result<CommandLine>;
+}
+
+/// Per-session HTTP proxies that are a sandbox's only way out
+/// (`docs/specs/security.md`; implemented by `ovra-netproxy`). Each allows
+/// [`NetProxy::base`] plus the project's allowlist and refuses everything
+/// else, loopback and private addresses whatever the name.
+pub trait NetProxy: Send + Sync + Debug {
+    /// What every session may reach: the hosts `claude` itself needs.
+    fn base(&self) -> Allowlist;
+    /// Starts the proxy of `session`, which allows `base()` and `allow`,
+    /// until [`NetProxy::stop`]. Returns the address for
+    /// [`ProfileNetwork::Proxy`]. Starting a session's proxy again replaces
+    /// the old one.
+    fn start(
+        &self,
+        session: SessionId,
+        allow: Allowlist,
+        refusals: NetReporter,
+    ) -> BoxFuture<'_, Result<String>>;
+    /// Replaces a running proxy's project allowlist; new connections follow
+    /// it. Does nothing for a session without a proxy.
+    fn update(&self, session: &SessionId, allow: Allowlist);
+    /// Stops the proxy and its connections. Does nothing without one.
+    fn stop(&self, session: &SessionId);
+}
+
+/// How a netproxy reports one session's refusals to the core. Cheap to clone.
+#[derive(Debug, Clone)]
+pub struct NetReporter {
+    project: ProjectId,
+    session: SessionId,
+    sink: EventSink,
+}
+
+impl NetReporter {
+    pub fn new(project: ProjectId, session: SessionId, sink: EventSink) -> Self {
+        Self {
+            project,
+            session,
+            sink,
+        }
+    }
+
+    /// The proxy refused a connection to `host` (`host:port`).
+    pub fn refused(&self, host: &str, reason: &str) {
+        self.sink.emit(NetproxyEvent::Refused {
+            project: self.project.clone(),
+            session: self.session.clone(),
+            host: host.to_owned(),
+            reason: reason.to_owned(),
+        });
+    }
 }
 
 /// The append-only audit log (`docs/specs/security.md`; stored by
@@ -554,6 +611,12 @@ impl ProjectStore for Unavailable {
         self.err()
     }
     fn set_policy(&self, _: &ProjectId, _: &Policy) -> Result<()> {
+        self.err()
+    }
+    fn allowlist(&self, _: &ProjectId) -> Result<Allowlist> {
+        self.err()
+    }
+    fn set_allowlist(&self, _: &ProjectId, _: &Allowlist) -> Result<()> {
         self.err()
     }
 }

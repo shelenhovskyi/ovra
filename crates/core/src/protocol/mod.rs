@@ -9,6 +9,7 @@ pub mod agents;
 pub mod audit;
 pub mod fs;
 pub mod info;
+pub mod netproxy;
 pub mod open;
 pub mod orchestration;
 pub mod permissions;
@@ -38,6 +39,7 @@ pub enum Request {
     Policy(policy::PolicyRequest),
     Secrets(secrets::SecretsRequest),
     Audit(audit::AuditRequest),
+    Netproxy(netproxy::NetproxyRequest),
 }
 
 /// The core's answer to a [`Request`]. Wire form: `{"type": "<domain>.<name>", "data": ...}`.
@@ -56,6 +58,7 @@ pub enum Response {
     Policy(policy::PolicyResponse),
     Secrets(secrets::SecretsResponse),
     Audit(audit::AuditResponse),
+    Netproxy(netproxy::NetproxyResponse),
     /// The request succeeded and has nothing to return.
     Ok(OkResponse),
 }
@@ -82,6 +85,7 @@ pub enum Event {
     Policy(policy::PolicyEvent),
     Secrets(secrets::SecretsEvent),
     Audit(audit::AuditLogEvent),
+    Netproxy(netproxy::NetproxyEvent),
 }
 
 /// An error returned instead of a [`Response`].
@@ -194,5 +198,11 @@ impl From<search::SearchEvent> for Event {
 impl From<audit::AuditLogEvent> for Event {
     fn from(e: audit::AuditLogEvent) -> Self {
         Self::Audit(e)
+    }
+}
+
+impl From<netproxy::NetproxyEvent> for Event {
+    fn from(e: netproxy::NetproxyEvent) -> Self {
+        Self::Netproxy(e)
     }
 }

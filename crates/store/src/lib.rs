@@ -14,6 +14,7 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use ovra_core::protocol::agents::{AgentSettings, ProjectAgentConfig};
+use ovra_core::protocol::netproxy::Allowlist;
 use ovra_core::protocol::policy::Policy;
 use ovra_core::protocol::projects::{Project, ProjectId, ProjectState, ProjectStatePatch};
 use ovra_core::protocol::{ErrorCode, ProtocolError};
@@ -80,6 +81,9 @@ const MIGRATIONS: &[&str] = &[
     BEGIN SELECT RAISE(ABORT, 'the audit log is append-only'); END;
     CREATE TRIGGER audit_no_delete BEFORE DELETE ON audit
     BEGIN SELECT RAISE(ABORT, 'the audit log is append-only'); END;",
+    // The hosts the project's agents may reach (`netproxy.*`) as JSON; none
+    // means the empty list.
+    "ALTER TABLE projects ADD COLUMN allowlist TEXT;",
 ];
 
 /// The `settings` key of [`AgentSettings`].
@@ -117,6 +121,65 @@ impl Store {
 
     fn db(&self) -> MutexGuard<'_, Connection> {
         self.db.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// A project's JSON column; the default if it was never set.
+    fn json_column<T: serde::de::DeserializeOwned + Default>(
+        &self,
+        id: &ProjectId,
+        column: Json,
+    ) -> Result<T> {
+        let json: Option<String> = self
+            .db()
+            .query_row(
+                &format!("SELECT {} FROM projects WHERE id = ?1", column.name()),
+                [&id.0],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(db_error)?
+            .ok_or_else(|| not_found(id))?;
+        match json {
+            None => Ok(T::default()),
+            Some(json) => serde_json::from_str(&json)
+                .map_err(|e| internal(format!("{} of project {}: {e}", column.name(), id.0))),
+        }
+    }
+
+    fn set_json_column<T: serde::Serialize>(
+        &self,
+        id: &ProjectId,
+        column: Json,
+        value: &T,
+    ) -> Result<()> {
+        let json = serde_json::to_string(value).map_err(|e| internal(e.to_string()))?;
+        let changed = self
+            .db()
+            .execute(
+                &format!("UPDATE projects SET {} = ?2 WHERE id = ?1", column.name()),
+                params![id.0, json],
+            )
+            .map_err(db_error)?;
+        if changed == 0 {
+            return Err(not_found(id));
+        }
+        Ok(())
+    }
+}
+
+/// The project columns kept as JSON.
+#[derive(Debug, Clone, Copy)]
+enum Json {
+    Policy,
+    Allowlist,
+}
+
+impl Json {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Policy => "policy",
+            Self::Allowlist => "allowlist",
+        }
     }
 }
 
@@ -306,36 +369,19 @@ impl ProjectStore for Store {
     }
 
     fn policy(&self, id: &ProjectId) -> Result<Policy> {
-        let json: Option<String> = self
-            .db()
-            .query_row(
-                "SELECT policy FROM projects WHERE id = ?1",
-                [&id.0],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(db_error)?
-            .ok_or_else(|| not_found(id))?;
-        match json {
-            None => Ok(Policy::default()),
-            Some(json) => serde_json::from_str(&json)
-                .map_err(|e| internal(format!("policy of project {}: {e}", id.0))),
-        }
+        self.json_column(id, Json::Policy)
     }
 
     fn set_policy(&self, id: &ProjectId, policy: &Policy) -> Result<()> {
-        let json = serde_json::to_string(policy).map_err(|e| internal(e.to_string()))?;
-        let changed = self
-            .db()
-            .execute(
-                "UPDATE projects SET policy = ?2 WHERE id = ?1",
-                params![id.0, json],
-            )
-            .map_err(db_error)?;
-        if changed == 0 {
-            return Err(not_found(id));
-        }
-        Ok(())
+        self.set_json_column(id, Json::Policy, policy)
+    }
+
+    fn allowlist(&self, id: &ProjectId) -> Result<Allowlist> {
+        self.json_column(id, Json::Allowlist)
+    }
+
+    fn set_allowlist(&self, id: &ProjectId, allowlist: &Allowlist) -> Result<()> {
+        self.set_json_column(id, Json::Allowlist, allowlist)
     }
 
     fn agent_settings(&self) -> Result<AgentSettings> {

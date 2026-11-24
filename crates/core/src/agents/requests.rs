@@ -164,7 +164,7 @@ pub(crate) async fn start(ctx: &Ctx<'_>, new: NewSession) -> Result<SessionInfo>
     });
     review_from(ctx, &id, &launch, base);
     let target = trusted_in(ctx, target, &launch.cwd).await;
-    run(ctx, &id, target, launch, vec![(new.prompt, new.from)], None)
+    run(ctx, &id, target, launch, vec![(new.prompt, new.from)], None).await
 }
 
 /// The project a session may start in, with what the runtime needs to know.
@@ -275,14 +275,17 @@ pub(crate) async fn resume(ctx: &Ctx<'_>, session: SessionId, parts: Parts) -> R
         None => restart()?,
     }
     let target = trusted_in(ctx, target, &launch.cwd).await;
-    run(ctx, &session, target, launch, parts, Some(agent_session))
+    run(ctx, &session, target, launch, parts, Some(agent_session)).await
 }
 
 /// What a session may touch in a sandbox. A worker reads its main
-/// repository's git folder, which its worktree's history lives in. The
-/// network stays open until the netproxy exists (task 4.C), so policies'
-/// auto rules stay off.
-fn profile(project: &Project, mode: SessionMode, cwd: &Path) -> SandboxProfile {
+/// repository's git folder, which its worktree's history lives in.
+fn profile(
+    project: &Project,
+    mode: SessionMode,
+    cwd: &Path,
+    network: ProfileNetwork,
+) -> SandboxProfile {
     SandboxProfile {
         work_dir: cwd.to_path_buf(),
         read: match mode {
@@ -290,12 +293,12 @@ fn profile(project: &Project, mode: SessionMode, cwd: &Path) -> SandboxProfile {
             SessionMode::Direct => Vec::new(),
         },
         write: Vec::new(),
-        network: ProfileNetwork::Open,
+        network,
     }
 }
 
 /// Starts the runtime for session `id`, which is `starting`, with `parts`.
-fn run(
+async fn run(
     ctx: &Ctx<'_>,
     id: &SessionId,
     target: Target,
@@ -318,7 +321,12 @@ fn run(
     if let Some(core) = sessions.core() {
         crate::orchestration::on_status(&core, id, &AgentStatus::Starting);
     }
-    let host = AgentHost::new(id.clone(), project, sessions.clone(), ctx.sink.clone());
+    let host = AgentHost::new(
+        id.clone(),
+        project.clone(),
+        sessions.clone(),
+        ctx.sink.clone(),
+    );
     for (text, from) in parts {
         host.message(AgentMessage::UserText { text, from });
     }
@@ -326,7 +334,19 @@ fn run(
         let info = s.info();
         (info.agent, info.mode)
     })?;
-    let sandbox = profile(&target.project, mode, &launch.cwd);
+    let network = sessions
+        .net_start(ctx.projects, &project, id, ctx.sink.clone())
+        .await;
+    let network = match network {
+        Ok(network) => network,
+        Err(err) => {
+            host.status(AgentStatus::Failed {
+                message: format!("the session's netproxy did not start: {}", err.message),
+            });
+            return Err(err);
+        }
+    };
+    let sandbox = profile(&target.project, mode, &launch.cwd, network);
     let spec = AgentSpec {
         session: id.clone(),
         agent,

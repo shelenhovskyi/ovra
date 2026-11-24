@@ -2,6 +2,7 @@
 //! runtimes report through. Runtimes themselves live behind
 //! [`AgentRuntime`](crate::services::AgentRuntime).
 
+mod net;
 mod permissions;
 mod requests;
 mod state;
@@ -23,7 +24,8 @@ use crate::protocol::policy::PolicyAction;
 use crate::protocol::projects::ProjectId;
 use crate::protocol::{ErrorCode, ProtocolError};
 use crate::services::{
-    EventSink, IdeTools, RunningAgent, SessionStore, StoredSession, ToolCaller, ToolRole, Worktrees,
+    EventSink, IdeTools, NetProxy, RunningAgent, SessionStore, StoredSession, ToolCaller, ToolRole,
+    Worktrees,
 };
 
 pub(crate) use permissions::Permissions;
@@ -81,6 +83,9 @@ pub(crate) struct Sessions {
     ide: Mutex<Option<IdeLink>>,
     /// Direct sessions' baselines and which files are their agents'.
     pub(crate) direct: Direct,
+    /// Each running session's network goes through its proxy here; without
+    /// one, sessions' network is open.
+    net: Option<Arc<dyn NetProxy>>,
 }
 
 /// Where sessions' IDE tool calls go; set once when the core is built.
@@ -93,7 +98,11 @@ struct IdeLink {
 impl Sessions {
     /// Loads the kept sessions. Those that ran when the core last quit have
     /// no process any more, so they show as stopped.
-    pub(crate) fn new(store: Arc<dyn SessionStore>, worktrees: Arc<dyn Worktrees>) -> Self {
+    pub(crate) fn new(
+        store: Arc<dyn SessionStore>,
+        worktrees: Arc<dyn Worktrees>,
+        net: Option<Arc<dyn NetProxy>>,
+    ) -> Self {
         let mut started = 0;
         let mut list = Vec::new();
         for (stored, messages) in store.load(transcript::MAX_MESSAGES).unwrap_or_default() {
@@ -126,6 +135,7 @@ impl Sessions {
             permissions: Permissions::default(),
             ide: Mutex::new(None),
             direct: Direct::new(worktrees),
+            net,
         }
     }
 
@@ -557,9 +567,15 @@ impl AgentHost {
     }
 
     pub(crate) fn set_status(&self, status: AgentStatus) -> bool {
-        let changed = self
-            .sessions
-            .find(&self.session, |s| s.set_status(status.clone()));
+        let changed = self.sessions.find(&self.session, |s| {
+            let changed = s.set_status(status.clone());
+            // Under the sessions' lock, so a resume cannot start a new
+            // proxy in between.
+            if changed && status.is_ended() {
+                self.sessions.net_stop(&self.session);
+            }
+            changed
+        });
         if changed == Ok(true) {
             self.sink.emit(AgentsEvent::Status {
                 session: self.session.clone(),

@@ -3292,6 +3292,7 @@ version = "0.1.0"
 dependencies = [
  "ovra-core",
  "rusqlite",
+ "serde",
  "serde_json",
  "tempfile",
  "tokio",

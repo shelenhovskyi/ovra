@@ -419,3 +419,29 @@ fn a_projects_policy_is_kept_across_opens() {
         Err(ErrorCode::NotFound)
     );
 }
+
+#[test]
+fn a_projects_allowlist_is_kept_across_opens() {
+    use ovra_core::protocol::netproxy::{AllowedHost, Allowlist};
+
+    let (data, folders) = (TempDir::new().expect("temp dir"), Folders::new());
+    let store = Store::open(data.path()).expect("open");
+    let a = store.add(&folders.path("a")).expect("add a");
+    assert_eq!(store.allowlist(&a.id), Ok(Allowlist::default()));
+    let allowlist = Allowlist {
+        hosts: vec![AllowedHost {
+            host: "registry.npmjs.org".into(),
+            port: Some(8443),
+        }],
+    };
+    store.set_allowlist(&a.id, &allowlist).expect("set");
+    drop(store);
+    let store = Store::open(data.path()).expect("reopen");
+    assert_eq!(store.allowlist(&a.id), Ok(allowlist.clone()));
+    assert_eq!(store.policy(&a.id), Ok(Default::default()));
+    let gone = ProjectId("p9".into());
+    assert_eq!(
+        store.set_allowlist(&gone, &allowlist).map_err(|e| e.code),
+        Err(ErrorCode::NotFound)
+    );
+}

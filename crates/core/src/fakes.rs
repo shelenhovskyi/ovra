@@ -30,6 +30,7 @@ use crate::protocol::agents::{
 };
 use crate::protocol::audit::{AuditEntry, AuditEvent};
 use crate::protocol::fs::{DirEntry, DirListing, EntryKind, FileBody, FileContent, FileList};
+use crate::protocol::netproxy::{AllowedHost, Allowlist};
 use crate::protocol::permissions::Decision;
 use crate::protocol::policy::Policy;
 use crate::protocol::projects::{Project, ProjectId, ProjectState, ProjectStatePatch};
@@ -39,8 +40,8 @@ use crate::protocol::terminals::{TermSize, TerminalId, TerminalsEvent};
 use crate::protocol::{ErrorCode, ProtocolError};
 use crate::services::{
     AgentHost, AgentRuntime, AgentSpec, AuditLog, BoxFuture, CommandLine, EventSink, FsService,
-    Opener, ProjectStore, Result, RunningAgent, Sandbox, SandboxProfile, SandboxStatus,
-    SearchCancel, Secrets, SessionStore, StoredSession, TerminalService, ToolRole,
+    NetProxy, NetReporter, Opener, ProjectStore, Result, RunningAgent, Sandbox, SandboxProfile,
+    SandboxStatus, SearchCancel, Secrets, SessionStore, StoredSession, TerminalService, ToolRole,
 };
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -59,6 +60,7 @@ pub struct MemoryProjects {
     settings: Mutex<AgentSettings>,
     trusted: Mutex<BTreeMap<ProjectId, ProjectAgentConfig>>,
     policies: Mutex<BTreeMap<ProjectId, Policy>>,
+    allowlists: Mutex<BTreeMap<ProjectId, Allowlist>>,
     /// Projects ever added, so ids are never reused.
     added: Mutex<u64>,
 }
@@ -177,6 +179,17 @@ impl ProjectStore for MemoryProjects {
 
     fn set_agent_settings(&self, settings: AgentSettings) -> Result<()> {
         *lock(&self.settings) = settings;
+        Ok(())
+    }
+
+    fn allowlist(&self, id: &ProjectId) -> Result<Allowlist> {
+        self.get(id)?;
+        Ok(lock(&self.allowlists).get(id).cloned().unwrap_or_default())
+    }
+
+    fn set_allowlist(&self, id: &ProjectId, allowlist: &Allowlist) -> Result<()> {
+        self.get(id)?;
+        lock(&self.allowlists).insert(id.clone(), allowlist.clone());
         Ok(())
     }
 }
@@ -446,6 +459,57 @@ impl Sandbox for FakeSandbox {
         line.env
             .push(("OVRA_FAKE_SANDBOX".into(), Some("1".into())));
         Ok(line)
+    }
+}
+
+/// A netproxy that proxies nothing: it records what each session's proxy
+/// allows, hands out `fake-proxy:<session>` addresses, keeps each session's
+/// reporter for tests to refuse through, and fails to start when `fails`.
+#[derive(Debug, Default)]
+pub struct FakeNetProxy {
+    pub base: Vec<AllowedHost>,
+    pub fails: bool,
+    /// Running proxies: what each allows besides `base`, and its reporter.
+    pub running: Mutex<BTreeMap<SessionId, (Allowlist, NetReporter)>>,
+    /// Every start, in order.
+    pub started: Mutex<Vec<SessionId>>,
+}
+
+impl NetProxy for FakeNetProxy {
+    fn base(&self) -> Allowlist {
+        Allowlist {
+            hosts: self.base.clone(),
+        }
+    }
+
+    fn start(
+        &self,
+        session: SessionId,
+        allow: Allowlist,
+        refusals: NetReporter,
+    ) -> BoxFuture<'_, Result<String>> {
+        Box::pin(async move {
+            if self.fails {
+                return Err(ProtocolError::new(
+                    ErrorCode::Unavailable,
+                    "the fake netproxy fails",
+                ));
+            }
+            lock(&self.started).push(session.clone());
+            let address = format!("fake-proxy:{}", session.0);
+            lock(&self.running).insert(session, (allow, refusals));
+            Ok(address)
+        })
+    }
+
+    fn update(&self, session: &SessionId, allow: Allowlist) {
+        if let Some(running) = lock(&self.running).get_mut(session) {
+            running.0 = allow;
+        }
+    }
+
+    fn stop(&self, session: &SessionId) {
+        lock(&self.running).remove(session);
     }
 }
 

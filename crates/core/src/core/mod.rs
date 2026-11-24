@@ -18,8 +18,8 @@ use crate::protocol::terminals::{TerminalsRequest, TerminalsResponse};
 use crate::protocol::{ErrorCode, Event, OkResponse, ProtocolError, Request, Response};
 use crate::search::{self, Searches};
 use crate::services::{
-    AgentRuntime, AuditLog, EventSink, FsService, IdeTools, Opener, ProjectStore, Secrets,
-    SessionStore, TerminalService, Unavailable, Worktrees,
+    AgentRuntime, AuditLog, EventSink, FsService, IdeTools, NetProxy, Opener, ProjectStore,
+    Secrets, SessionStore, TerminalService, Unavailable, Worktrees,
 };
 
 const EVENT_CAPACITY: usize = 1024;
@@ -39,6 +39,7 @@ pub struct CoreBuilder {
     ide_tools: Arc<dyn IdeTools>,
     secrets: Arc<dyn Secrets>,
     audit: Arc<dyn AuditLog>,
+    netproxy: Option<Arc<dyn NetProxy>>,
 }
 
 impl CoreBuilder {
@@ -105,6 +106,13 @@ impl CoreBuilder {
         self
     }
 
+    /// Proxies sessions' network through per-session netproxies. Without
+    /// one, sessions' network is open (`docs/specs/security.md`).
+    pub fn netproxy(mut self, netproxy: Arc<dyn NetProxy>) -> Self {
+        self.netproxy = Some(netproxy);
+        self
+    }
+
     pub fn build(self) -> Core {
         let (events, _) = broadcast::channel(EVENT_CAPACITY);
         let kept = self.sessions.clone();
@@ -116,7 +124,11 @@ impl CoreBuilder {
                 opener: self.opener,
                 terminals: self.terminals,
                 agents: self.agents,
-                sessions: Arc::new(Sessions::new(self.sessions, self.worktrees.clone())),
+                sessions: Arc::new(Sessions::new(
+                    self.sessions,
+                    self.worktrees.clone(),
+                    self.netproxy,
+                )),
                 worktrees: self.worktrees,
                 orchestration: Orchestration::new(self.worktrees_dir, kept),
                 held: Mutex::new(None),
@@ -229,6 +241,7 @@ impl Core {
             ide_tools: Arc::new(Unavailable("IDE tools")),
             secrets: Arc::new(Unavailable("keeping secrets")),
             audit: Arc::new(Unavailable("the audit log")),
+            netproxy: None,
         }
     }
 
@@ -309,6 +322,7 @@ impl Core {
             Request::Policy(r) => crate::policy::handle(self, r),
             Request::Secrets(r) => crate::secrets::handle(self, r).await,
             Request::Audit(r) => crate::audit::handle(self, r),
+            Request::Netproxy(r) => crate::netproxy::handle(self, r),
         }
     }
 
