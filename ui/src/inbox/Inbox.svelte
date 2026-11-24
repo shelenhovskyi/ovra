@@ -190,21 +190,40 @@ function onDialogKeydown(event: KeyboardEvent): void {
   }
 }
 
+/**
+ * After an action the pressed button is gone: focus the undo button when there
+ * is one, else the item's heading, so keyboard users stay on this item.
+ */
+async function refocus(): Promise<void> {
+  await tick();
+  const target =
+    dialog?.querySelector<HTMLElement>("[data-testid=inbox-undo-reject]") ??
+    dialog?.querySelector<HTMLElement>("#inbox-item-title");
+  target?.focus();
+}
+
 async function approve(review: ReviewItem): Promise<void> {
   const message = commit ? commitMessage.trim() : null;
   if (commit && !message) return;
-  if ((await inbox.approve(review.id, message)) && inbox.outcome) announcement = outcomeText(inbox.outcome);
+  if ((await inbox.approve(review.id, message)) && inbox.outcome) {
+    announcement = outcomeText(inbox.outcome);
+    await refocus();
+  }
 }
 
 async function reject(review: ReviewItem): Promise<void> {
   if (await inbox.reject(review.id)) {
     confirmingReject = false;
     if (inbox.outcome) announcement = outcomeText(inbox.outcome);
+    await refocus();
   }
 }
 
 async function undoReject(review: ReviewItem): Promise<void> {
-  if ((await inbox.undoReject(review.id)) && inbox.outcome) announcement = outcomeText(inbox.outcome);
+  if ((await inbox.undoReject(review.id)) && inbox.outcome) {
+    announcement = outcomeText(inbox.outcome);
+    await refocus();
+  }
 }
 
 async function sendComment(review: ReviewItem): Promise<void> {
@@ -314,7 +333,7 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
           {#if item}
             <section class="detail" aria-labelledby="inbox-item-title" data-testid="inbox-item">
               <div class="item-head">
-                <h3 id="inbox-item-title">{sessionLabel(item)}</h3>
+                <h3 id="inbox-item-title" tabindex="-1">{sessionLabel(item)}</h3>
                 <span class="state {item.state}">{STATE_LABEL[item.state]}</span>
                 {#if item.summary}
                   <p class="summary">Agent's summary: {item.summary}</p>
@@ -483,7 +502,8 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
   button:focus-visible,
   input:focus-visible,
   textarea:focus-visible,
-  h2:focus-visible {
+  h2:focus-visible,
+  h3:focus-visible {
     outline: 2px solid #7aa2ff;
     outline-offset: 1px;
   }

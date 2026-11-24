@@ -103,6 +103,7 @@ describe("Inbox", () => {
     expect(core.sent("review.approve").map((c) => c.params)).toEqual([{ id: "r1", commit: "Fix the typo" }]);
     expect($("[data-testid=inbox-outcome]")?.textContent?.trim()).toBe("Approved.");
     expect(button(/^Approve/)).toBeUndefined();
+    expect(document.activeElement?.id).toBe("inbox-item-title");
   });
 
   it("rejects after a confirmation that says what stays, and lists what was left", async () => {
@@ -133,12 +134,15 @@ describe("Inbox", () => {
     expect($("[data-testid=inbox-outcome]")?.textContent?.trim()).toBe(
       "Rejected, but nothing was restored: no file here is known to be the agent's alone, so all of them stay as they are.",
     );
+    // The pressed button is gone; focus lands on the undo instead of the page.
+    expect(document.activeElement?.textContent).toBe("Undo reject");
     core.restored = ["src/a.rs"];
     button(/^Undo reject$/)?.click();
     await settle();
     expect(core.sent("review.undo_reject").map((c) => c.params)).toEqual([{ id: "r1" }]);
     expect($("[data-testid=inbox-outcome]")?.textContent?.trim()).toBe("Reject undone. Put back: src/a.rs.");
     expect(button(/^Undo reject$/)).toBeUndefined();
+    expect(document.activeElement?.id).toBe("inbox-item-title");
   });
 
   it("sends a comment with Mod+Enter and keeps the item open", async () => {
