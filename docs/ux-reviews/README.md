@@ -31,8 +31,7 @@ a new kind of user matters (for example a reviewer of agent diffs in phase 3).
    ```
 
    The script's default export receives a `Session` (`tests/e2e/ux/run.ts`):
-   `page`, `open()`, `shot(name)`, `note(line)`, `roots` (fixture folders) and
-   `core`. Screenshots and `session.log` (console, page errors, every frame)
+   `page`, `open()`, `shot(name)`, `note(line)` and `roots` (fixture folders). Screenshots and `session.log` (console, page errors, every frame)
    land in `target/ux/<timestamp>/`. Scripts are scratch work and are not
    committed; the report quotes the steps.
 3. Each agent writes `docs/ux-reviews/<date>-<round>/<persona>.md` from the
@@ -43,13 +42,11 @@ a new kind of user matters (for example a reviewer of agent diffs in phase 3).
 
 ## Harness
 
-`tests/e2e/ux/` runs the real UI against the real daemon. Parts of the core
-that are still stubs on `main` (the project store, task 1.B) would stop a
-review at the start screen, so `fake-core.ts` answers `projects.*`, `fs.*` and
-`open.external` from real fixture folders (git repositories made by
-`fixtures.ts`) and forwards everything else to the daemon. Pass `--real-core`
-to use only the daemon; drop the stand-in once 1.B lands. Findings that come
-from the stand-in itself are not findings.
+`tests/e2e/ux/` runs the real UI against the real daemon with a fresh data
+folder. `fixtures.ts` makes the fixture projects (real git repositories:
+`small`, `monorepo`, `empty`); `--seed` adds them to the project list before
+the page loads. Every frame in both directions is logged, so a report can
+quote what the UI asked the core and what came back.
 
 ## Severity
 

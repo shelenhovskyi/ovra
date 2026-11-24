@@ -2,9 +2,12 @@
 
 Build: `dd5ffce` on `main` plus the UX harness, headless, Chromium, 1280x800.
 Scope: shell and status bar, start screen, file tree, command palette, global
-shortcuts. Viewer, editor and the project store are stubs on `main`; reviews
-went through the harness stand-in (`tests/e2e/ux/fake-core.ts`) except where
-marked "real core".
+shortcuts. Viewer, editor and the project store were stubs at that commit, so
+the reviews went through a stand-in for `projects.*` and `fs.*` (since
+removed) except where marked "real core". While the round ran, `main` gained
+the project store (1.B), viewers (1.E), editor (1.F), open-external (1.G) and
+per-project state: issue 3 and part of 8 and 13 are probably fixed; round 2
+re-checks them.
 
 Reports: [newcomer](newcomer.md), [keyboard-power-user](keyboard-power-user.md),
 [monorepo-maintainer](monorepo-maintainer.md),
