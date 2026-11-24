@@ -55,7 +55,7 @@ $effect(() => {
 
 /** Focus goes to the text, except while the user moves through the tabs. */
 function focusUnlessInTabs(): void {
-  if (!document.activeElement?.closest('[role="tablist"], [role="alertdialog"]')) view?.focus();
+  if (!document.activeElement?.closest('[role="tablist"], dialog')) view?.focus();
 }
 
 async function save(overwrite = false): Promise<void> {

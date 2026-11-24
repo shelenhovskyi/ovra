@@ -133,6 +133,7 @@ export class Buffer {
       return;
     }
     this.deleted = false;
+    if (file) this.error = null;
     if (file?.body.kind !== "text" || file.mtime_ms === this.mtime) return;
     if (this.dirty) this.conflict = true;
     else this.replace(file.body.text, file.mtime_ms);
@@ -275,15 +276,28 @@ export class Buffer {
 export class Buffers {
   private readonly buffers = new SvelteMap<string, Buffer>();
   private readonly unsubscribe: () => void;
+  private readonly unsubscribeStatus: () => void;
 
   constructor(private readonly options: Options) {
+    // After a reconnect, events from the outage are gone: check every buffer again.
+    let wasOpen = true;
+    this.unsubscribeStatus =
+      options.transport.onStatus?.((status) => {
+        if (status === "open" && !wasOpen) this.recheck();
+        wasOpen = status === "open";
+      }) ?? (() => {});
     this.unsubscribe = options.transport.onEvent((event) => {
       if (event.type === "info.resync") {
-        for (const buffer of this.buffers.values()) void buffer.diskChanged();
+        this.recheck();
       } else if (event.type === "fs.changed" && event.data.project === options.project) {
         for (const path of event.data.paths) void this.buffers.get(path)?.diskChanged();
       }
     });
+  }
+
+  /** Rereads clean buffers and turns outside changes to dirty ones into conflicts. */
+  private recheck(): void {
+    for (const buffer of this.buffers.values()) void buffer.diskChanged();
   }
 
   get project(): ProjectId {
@@ -338,6 +352,7 @@ export class Buffers {
   close(): void {
     this.flushDrafts();
     this.unsubscribe();
+    this.unsubscribeStatus();
   }
 }
 

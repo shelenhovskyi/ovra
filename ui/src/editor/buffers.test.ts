@@ -97,6 +97,22 @@ describe("Buffer", () => {
     expect(a.conflict).toBe(false);
   });
 
+  test("after a reconnect, clean buffers reread and dirty ones learn of outside changes", async () => {
+    const { core, show, type } = setup();
+    core.put("a.txt", "a1");
+    core.put("b.txt", "b1");
+    const a = await show("a.txt");
+    a.detach();
+    const b = await show("b.txt");
+    type(" mine");
+    core.setStatus("closed");
+    core.put("a.txt", "a2");
+    core.put("b.txt", "b2");
+    core.setStatus("open");
+    await vi.waitFor(() => expect([a.text, b.conflict]).toEqual(["a2", true]));
+    expect(b.text).toBe("b1 mine");
+  });
+
   test("revert drops edits for the disk version", async () => {
     const { core, show, type } = setup();
     core.put("a.txt", "one");
