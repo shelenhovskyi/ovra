@@ -29,9 +29,16 @@ describe("palette commands", () => {
     await run("palette.show");
     expect(palette.mode).toBe("commands");
 
+    // The start screen, as the tree shows it once the project is closed.
+    const screen = document.createElement("section");
+    screen.dataset.testid = "project-list";
+    screen.innerHTML = "<ul><li><button>demo</button></li></ul><input />";
+    document.body.append(screen);
     workspace.openPath = "a.md";
     await run("palette.close_project");
     expect([workspace.project, workspace.openPath]).toEqual([null, null]);
+    expect(document.activeElement).toBe(screen.querySelector("button"));
+    screen.remove();
     unregister();
     expect(listCommands()).toEqual([]);
   });

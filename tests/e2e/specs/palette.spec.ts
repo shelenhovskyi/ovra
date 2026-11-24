@@ -69,10 +69,22 @@ test("Alt+P goes to a file; the palette switches and closes projects", async ({ 
   await page.keyboard.press("Enter");
   await expect(page.getByRole("tab", { name: "target.md" })).toHaveAttribute("aria-selected", "true");
 
+  // Going to a file while editing keeps editing, with the text focused.
+  await page.keyboard.press("ControlOrMeta+E");
+  const text = page.getByTestId("main").locator(".cm-content");
+  await expect(text).toBeFocused();
+  await page.keyboard.press("Alt+P");
+  await page.keyboard.type("readme");
+  await expect(page.getByRole("option", { selected: true })).toContainText("README.md");
+  await page.keyboard.press("Enter");
+  await expect(text).toHaveText("readme");
+  await expect(text).toBeFocused();
+
   await page.keyboard.press("ControlOrMeta+Shift+P");
   await page.keyboard.type("close project");
   await page.keyboard.press("Enter");
   await expect(projects).toBeVisible();
+  await expect(projects.getByRole("button").first()).toBeFocused();
 
   await page.keyboard.press("ControlOrMeta+Shift+P");
   await page.keyboard.type("switch project");
