@@ -9,6 +9,7 @@ publish = false
 
 [dependencies]
 ovra-core.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]

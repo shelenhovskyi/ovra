@@ -1,3 +1,8 @@
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use ovra_core::fakes::{MemoryFs, MemoryProjects, MemoryWorktrees, ScriptedAgent, Step};
+use ovra_core::protocol::Request;
 use ovra_core::protocol::agents::SessionId;
 use ovra_core::protocol::projects::ProjectId;
 
@@ -80,14 +85,186 @@ async fn initialize_lists_and_calls_like_an_mcp_server() {
         text(ask(ToolRole::Worker, call("spawn_agent")).await).as_deref(),
         Some("unknown tool: spawn_agent")
     );
-    assert_eq!(
-        text(ask(ToolRole::Coordinator, call("spawn_agent")).await).as_deref(),
-        Some("spawn_agent is not implemented yet (task 3.C)")
-    );
     let unknown = json!({"jsonrpc": "2.0", "id": 3, "method": "resources/list"});
     let reply = ask(ToolRole::Worker, unknown).await;
     assert_eq!(
         reply.map(|r| r["error"]["code"].clone()),
         Some(json!(METHOD_NOT_FOUND))
     );
+}
+
+const ROOT: &str = ovra_core::test_path!("/work/a");
+
+/// A core with project `p1` whose task `t1` is led by session `s1`; every
+/// session says one thing and waits.
+async fn task() -> Core {
+    let worktrees = Arc::new(MemoryWorktrees::default());
+    worktrees.put(ROOT, "a.rs", "one\n");
+    let core = Core::builder("test")
+        .projects(Arc::new(MemoryProjects::default()))
+        .fs(Arc::new(MemoryFs::default()))
+        .agents(Arc::new(ScriptedAgent::new(vec![vec![Step::Say("on it")]])))
+        .worktrees(worktrees)
+        .worktrees_dir(PathBuf::from(ovra_core::test_path!("/data/worktrees")))
+        .build();
+    for request in [
+        json!({"method": "projects.add", "params": {"root": ROOT}}),
+        json!({"method": "orchestration.start", "params": {
+            "project": "p1", "prompt": "split the work", "limits": {"max_workers": 1}}}),
+    ] {
+        let request: Request = serde_json::from_value(request).unwrap_or_else(|e| panic!("{e}"));
+        core.handle(request).await.unwrap_or_else(|e| panic!("{e}"));
+    }
+    core
+}
+
+/// Calls `tool` as `caller`: the tool's text, and whether it is an error.
+async fn tool(core: &Core, caller: ToolCaller, tool: &str, arguments: Value) -> (String, bool) {
+    let message = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+        "params": {"name": tool, "arguments": arguments}});
+    let reply = IdeServer::new().handle(core.clone(), caller, message).await;
+    let result = reply.map(|r| r["result"].clone()).unwrap_or_default();
+    let text = result["content"][0]["text"]
+        .as_str()
+        .unwrap_or("")
+        .to_owned();
+    (text, result["isError"] == true)
+}
+
+fn parsed(text: &str) -> Value {
+    serde_json::from_str(text).unwrap_or_else(|e| panic!("{e}: {text}"))
+}
+
+#[tokio::test]
+async fn a_coordinator_runs_a_worker_through_the_tools() {
+    let core = task().await;
+    let boss = caller(ToolRole::Coordinator);
+    let mut rx = core.subscribe();
+    let (spawned, error) = tool(
+        &core,
+        boss.clone(),
+        "spawn_agent",
+        json!({"task": "fix the login", "name": "fix-login"}),
+    )
+    .await;
+    assert!(!error, "{spawned}");
+    let spawned = parsed(&spawned);
+    assert_eq!(spawned["branch"], "ovra/t1/fix-login");
+    let agent = spawned["agent_id"].clone();
+    assert_eq!(agent, "s2");
+
+    let (full, error) = tool(
+        &core,
+        boss.clone(),
+        "spawn_agent",
+        json!({"task": "x", "name": "two"}),
+    )
+    .await;
+    assert!(error && full.contains("limit"), "{full}");
+
+    let output = loop {
+        let (text, _) = tool(
+            &core,
+            boss.clone(),
+            "read_output",
+            json!({"agent_id": agent}),
+        )
+        .await;
+        let output = parsed(&text);
+        if output["next"] == 3 {
+            break output;
+        }
+        let _ = Core::next_event(&mut rx).await;
+    };
+    assert_eq!(
+        output["messages"][0],
+        json!({"kind": "user_text", "text": "fix the login"})
+    );
+    assert_eq!(output["messages"][1]["text"], "on it");
+    let (later, _) = tool(
+        &core,
+        boss.clone(),
+        "read_output",
+        json!({"agent_id": agent, "since": 1, "max_messages": 1}),
+    )
+    .await;
+    let later = parsed(&later);
+    assert_eq!(later["messages"].as_array().map(Vec::len), Some(1));
+    assert_eq!(later["next"], 2);
+
+    let (listed, _) = tool(&core, boss.clone(), "list_agents", json!({})).await;
+    let listed = parsed(&listed);
+    assert_eq!(listed["agents"][0]["name"], "fix-login");
+    assert_eq!(listed["agents"][0]["status"], json!({"state": "idle"}));
+
+    let (reviewed, error) = tool(
+        &core,
+        boss.clone(),
+        "request_review",
+        json!({"agent_id": agent, "summary": "login fixed"}),
+    )
+    .await;
+    assert!(!error, "{reviewed}");
+    let review = parsed(&reviewed)["review_id"].clone();
+    let (listed, _) = tool(&core, boss.clone(), "list_agents", Value::Null).await;
+    assert_eq!(parsed(&listed)["agents"][0]["review"]["id"], review);
+
+    assert_eq!(
+        tool(
+            &core,
+            boss.clone(),
+            "open_in_ui",
+            json!({"review_id": review})
+        )
+        .await,
+        ("Shown in Ovra.".to_owned(), false)
+    );
+    assert_eq!(
+        tool(
+            &core,
+            boss.clone(),
+            "stop_agent",
+            json!({"agent_id": agent})
+        )
+        .await,
+        ("Stopped s2.".to_owned(), false)
+    );
+}
+
+#[tokio::test]
+async fn bad_arguments_and_refusals_are_tool_errors() {
+    let core = task().await;
+    let boss = caller(ToolRole::Coordinator);
+    let (text, error) = tool(&core, boss.clone(), "list_agents", json!({"all": true})).await;
+    assert!(
+        error && text.starts_with("invalid arguments: unknown field `all`"),
+        "{text}"
+    );
+    let (text, error) = tool(&core, boss.clone(), "spawn_agent", json!({"task": "x"})).await;
+    assert!(error && text.contains("missing field `name`"), "{text}");
+    let (text, error) = tool(
+        &core,
+        boss.clone(),
+        "open_in_ui",
+        json!({"path": "a.rs", "agent_id": "s1"}),
+    )
+    .await;
+    assert!(error && text.starts_with("name exactly one"), "{text}");
+    let (text, error) = tool(&core, boss.clone(), "open_in_ui", json!({"line": 3})).await;
+    assert!(error && text.starts_with("name exactly one"), "{text}");
+    let (text, error) = tool(&core, boss.clone(), "open_in_ui", json!({"path": "../x"})).await;
+    assert!(error, "{text}");
+    let (text, error) = tool(&core, boss, "read_output", json!({"agent_id": "s9"})).await;
+    assert!(error && text.contains("not found"), "{text}");
+
+    // A worker reaches only its own work; a coordinator must name the worker.
+    let me = caller(ToolRole::Worker);
+    let (text, error) = tool(
+        &core,
+        me,
+        "request_review",
+        json!({"summary": "done", "agent_id": "s1"}),
+    )
+    .await;
+    assert!(error && text.contains("own work"), "{text}");
 }

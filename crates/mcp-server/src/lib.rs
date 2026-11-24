@@ -4,9 +4,11 @@
 //! Contract: `ovra_core::services::IdeTools`.
 //!
 //! The tool definitions in `tools.json` are an API other areas and agents
-//! depend on: changing them needs a human review. Stub: `initialize` and
-//! `tools/list` work; every `tools/call` reports that the tool is not
-//! implemented yet (task 3.C).
+//! depend on: changing them needs a human review. Each `tools/call` becomes
+//! a call of the core (`Core::spawn_agent` and its siblings), which checks
+//! the caller's role and its task's limits.
+
+mod calls;
 
 use ovra_core::Core;
 use ovra_core::services::{BoxFuture, IdeTools, ToolCaller, ToolRole};
@@ -47,7 +49,13 @@ impl IdeServer {
             .collect()
     }
 
-    fn answer(&self, caller: &ToolCaller, method: &str, params: &Value) -> Result<Value, Value> {
+    async fn answer(
+        &self,
+        core: Core,
+        caller: &ToolCaller,
+        method: &str,
+        params: &Value,
+    ) -> Result<Value, Value> {
         match method {
             "initialize" => {
                 let asked = params["protocolVersion"].as_str().unwrap_or("");
@@ -69,12 +77,17 @@ impl IdeServer {
                     .tools_for(caller.role)
                     .iter()
                     .any(|t| t["name"] == name);
-                let text = if known {
-                    format!("{name} is not implemented yet (task 3.C)")
+                let result = if known {
+                    calls::call(&core, caller, name, params["arguments"].clone()).await
                 } else {
-                    format!("unknown tool: {name}")
+                    Err(format!("unknown tool: {name}"))
                 };
-                Ok(json!({"content": [{"type": "text", "text": text}], "isError": true}))
+                Ok(match result {
+                    Ok(text) => json!({"content": [{"type": "text", "text": text}]}),
+                    Err(text) => {
+                        json!({"content": [{"type": "text", "text": text}], "isError": true})
+                    }
+                })
             }
             _ => Err(
                 json!({"code": METHOD_NOT_FOUND, "message": format!("unknown method: {method}")}),
@@ -92,7 +105,7 @@ impl Default for IdeServer {
 impl IdeTools for IdeServer {
     fn handle(
         &self,
-        _core: Core,
+        core: Core,
         caller: ToolCaller,
         message: Value,
     ) -> BoxFuture<'_, Option<Value>> {
@@ -100,10 +113,12 @@ impl IdeTools for IdeServer {
             // Notifications (no id) need no answer.
             let id = message.get("id")?.clone();
             let method = message["method"].as_str().unwrap_or("");
-            Some(match self.answer(&caller, method, &message["params"]) {
-                Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
-                Err(error) => json!({"jsonrpc": "2.0", "id": id, "error": error}),
-            })
+            Some(
+                match self.answer(core, &caller, method, &message["params"]).await {
+                    Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
+                    Err(error) => json!({"jsonrpc": "2.0", "id": id, "error": error}),
+                },
+            )
         })
     }
 }
