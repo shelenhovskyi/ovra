@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -67,7 +68,8 @@ impl CoreBuilder {
                 terminals: self.terminals,
                 agents: self.agents,
                 sessions: Arc::new(Sessions::default()),
-                active: Mutex::new(None),
+                held: Mutex::new(None),
+                open: Mutex::new(BTreeMap::new()),
             }),
             events,
         }
@@ -90,7 +92,40 @@ struct Inner {
     terminals: Arc<dyn TerminalService>,
     agents: Arc<dyn AgentRuntime>,
     sessions: Arc<Sessions>,
-    active: Mutex<Option<ProjectId>>,
+    /// The project held by requests sent through [`Core::handle`] directly.
+    held: Mutex<Option<ProjectId>>,
+    /// Open projects and how many clients hold each; each is watched.
+    open: Mutex<BTreeMap<ProjectId, usize>>,
+}
+
+/// One connection's view of the core (a window or a browser tab). It holds
+/// the project it opened last; the core watches a project while any client
+/// holds it, and dropping the client lets go of it.
+#[derive(Debug)]
+pub struct Client {
+    core: Core,
+    held: Mutex<Option<ProjectId>>,
+}
+
+impl Client {
+    /// Handles one request on behalf of this client.
+    pub async fn handle(&self, request: Request) -> Result<Response, ProtocolError> {
+        self.core.handle_for(request, &self.held).await
+    }
+}
+
+impl Drop for Client {
+    fn drop(&mut self) {
+        let held = lock(&self.held).take();
+        if let Some(id) = held {
+            self.core.release(&id);
+            self.core.emit_projects_changed();
+        }
+    }
+}
+
+fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 impl Core {
@@ -139,15 +174,32 @@ impl Core {
         self.sink().emit(event);
     }
 
-    /// Handles one request.
+    /// A client for one connection; see [`Client`].
+    pub fn connect(&self) -> Client {
+        Client {
+            core: self.clone(),
+            held: Mutex::new(None),
+        }
+    }
+
+    /// Handles one request as a single implicit client (tests, one-window
+    /// front ends).
     pub async fn handle(&self, request: Request) -> Result<Response, ProtocolError> {
+        self.handle_for(request, &self.inner.held).await
+    }
+
+    async fn handle_for(
+        &self,
+        request: Request,
+        held: &Mutex<Option<ProjectId>>,
+    ) -> Result<Response, ProtocolError> {
         match request {
             Request::Info(InfoRequest::Get) => Ok(Response::Info(InfoResponse::Info(CoreInfo {
                 name: "ovra".to_owned(),
                 version: env!("CARGO_PKG_VERSION").to_owned(),
                 mode: self.inner.mode.clone(),
             }))),
-            Request::Projects(r) => self.projects(r),
+            Request::Projects(r) => self.projects(r, held),
             Request::Fs(r) => self.fs(r).await.map(Response::Fs),
             Request::Open(r) => self.open(r).map(|()| Response::Ok(OkResponse::Ok)),
             Request::Terminals(r) => self.terminals(r),
@@ -184,14 +236,33 @@ impl Core {
         Ok(Response::Ok(OkResponse::Ok))
     }
 
-    fn active(&self) -> std::sync::MutexGuard<'_, Option<ProjectId>> {
-        self.inner
-            .active
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+    /// Takes a reference on a project, watching it if it was not open.
+    fn acquire(&self, id: &ProjectId, root: PathBuf) -> Result<(), ProtocolError> {
+        let mut open = lock(&self.inner.open);
+        if !open.contains_key(id) {
+            self.inner.fs.watch(id.clone(), root, self.sink())?;
+        }
+        *open.entry(id.clone()).or_insert(0) += 1;
+        Ok(())
     }
 
-    fn projects(&self, request: ProjectsRequest) -> Result<Response, ProtocolError> {
+    /// Drops a reference; the last one stops watching.
+    fn release(&self, id: &ProjectId) {
+        let mut open = lock(&self.inner.open);
+        if let Some(count) = open.get_mut(id) {
+            *count -= 1;
+            if *count == 0 {
+                open.remove(id);
+                self.inner.fs.unwatch(id);
+            }
+        }
+    }
+
+    fn projects(
+        &self,
+        request: ProjectsRequest,
+        held: &Mutex<Option<ProjectId>>,
+    ) -> Result<Response, ProtocolError> {
         let store = &self.inner.projects;
         let response = match request {
             ProjectsRequest::List => store.list().map(ProjectsResponse::List),
@@ -210,28 +281,23 @@ impl Core {
             ProjectsRequest::Remove { id } => {
                 store.remove(&id)?;
                 agents::stop_project(&self.agents_ctx(), &id);
-                let mut active = self.active();
-                if active.as_ref() == Some(&id) {
+                // Clients still holding it let go of nothing when they close.
+                if lock(&self.inner.open).remove(&id).is_some() {
                     self.inner.fs.unwatch(&id);
-                    *active = None;
                 }
-                drop(active);
                 self.emit_projects_changed();
                 Ok(ProjectsResponse::List(store.list()?))
             }
             ProjectsRequest::Open { id } => {
                 let project = store.touch(&id)?;
-                let mut active = self.active();
-                if active.as_ref() != Some(&id) {
-                    if let Some(previous) = active.take() {
-                        self.inner.fs.unwatch(&previous);
+                let mut held = lock(held);
+                if held.as_ref() != Some(&id) {
+                    self.acquire(&id, PathBuf::from(&project.root))?;
+                    if let Some(previous) = held.replace(id) {
+                        self.release(&previous);
                     }
-                    self.inner
-                        .fs
-                        .watch(id.clone(), PathBuf::from(&project.root), self.sink())?;
-                    *active = Some(id);
                 }
-                drop(active);
+                drop(held);
                 self.emit_projects_changed();
                 Ok(ProjectsResponse::Project(project))
             }
@@ -250,7 +316,7 @@ impl Core {
     }
 
     fn emit_projects_changed(&self) {
-        let open = self.active().iter().cloned().collect();
+        let open = lock(&self.inner.open).keys().cloned().collect();
         self.emit(ProjectsEvent::Changed { open });
     }
 

@@ -14,4 +14,4 @@ pub mod path;
 pub mod protocol;
 pub mod services;
 
-pub use crate::core::{Core, CoreBuilder};
+pub use crate::core::{Client, Core, CoreBuilder};

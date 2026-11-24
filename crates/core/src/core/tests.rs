@@ -440,3 +440,43 @@ async fn fake_write_conflicts_when_the_file_is_gone() {
     let err = write.await.expect_err("conflict");
     assert_eq!(err.code, ErrorCode::Conflict);
 }
+
+#[tokio::test]
+async fn each_client_keeps_its_project_watched_until_it_lets_go() {
+    let f = fixture();
+    let a = add(&f.core, "/work/a").await;
+    let b = add(&f.core, "/work/b").await;
+    async fn open(client: &Client, id: &ProjectId) -> Result<Response, ProtocolError> {
+        client
+            .handle(Request::Projects(ProjectsRequest::Open { id: id.clone() }))
+            .await
+    }
+    let (one, two, three) = (f.core.connect(), f.core.connect(), f.core.connect());
+    open(&one, &a.id).await.expect("open a");
+    open(&two, &b.id).await.expect("open b");
+    open(&three, &b.id).await.expect("open b again");
+    let mut watched = f.fs.watched_ids();
+    watched.sort();
+    assert_eq!(
+        watched,
+        vec![a.id.clone(), b.id.clone()],
+        "one watch per project"
+    );
+
+    let mut events = f.core.subscribe();
+    drop(two);
+    assert_eq!(f.fs.watched_ids().len(), 2, "b is still held by three");
+    drop(three);
+    assert_eq!(f.fs.watched_ids(), vec![a.id.clone()]);
+    let last = std::iter::from_fn(|| events.try_recv().ok()).last();
+    assert_eq!(
+        last,
+        Some(Event::Projects(ProjectsEvent::Changed {
+            open: vec![a.id.clone()]
+        }))
+    );
+
+    // Switching projects lets go of the previous one.
+    open(&one, &b.id).await.expect("switch");
+    assert_eq!(f.fs.watched_ids(), vec![b.id]);
+}
