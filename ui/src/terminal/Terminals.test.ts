@@ -51,6 +51,9 @@ vi.mock("@xterm/xterm", () => ({
     write(data: string) {
       this.record.written += data;
     }
+    reset() {
+      this.record.written = "";
+    }
     focus() {
       this.record.textarea.focus();
     }
@@ -153,7 +156,7 @@ describe("Terminals", () => {
     const { core, panel, outside, tabs } = setup();
     outside.focus();
     await run("terminal.toggle");
-    core.emit({ type: "terminals.exited", data: { id: "t1", code: 2 } });
+    core.exit("t1", 2);
     flushSync();
     expect(tabs()[0]?.textContent?.trim()).toBe("Terminal 1 (exited)");
     expect(xterms[0]?.written).toContain("Process exited with code 2.");
@@ -162,7 +165,9 @@ describe("Terminals", () => {
     await run("terminal.close");
     expect(panel.hidden).toBe(true);
     expect(document.activeElement).toBe(outside);
-    expect(core.methods()).toEqual(["terminals.open"]);
+    // The ended shell is closed too, so the core forgets its scrollback.
+    expect(core.methods()).toEqual(["terminals.open", "terminals.close"]);
+    expect(core.open.size).toBe(0);
   });
 
   it("explains a failed start in an alert", async () => {

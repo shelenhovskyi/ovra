@@ -7,7 +7,7 @@ import { tick } from "svelte";
 import { registerCommand } from "../keys/commands";
 import { formatShortcut, inBrowserTab, isApple, liveKeys } from "../keys/shortcut";
 import { useOvra } from "../shell/context";
-import { exitNotice, type TerminalSession, TerminalSessions } from "./sessions.svelte";
+import { exitNotice, LOST_NOTICE, type TerminalSession, TerminalSessions } from "./sessions.svelte";
 import TerminalView from "./TerminalView.svelte";
 
 const { transport, workspace } = useOvra();
@@ -115,6 +115,8 @@ function status(session: TerminalSession): string {
       return "exited";
     case "failed":
       return "failed";
+    case "lost":
+      return "gone";
     default:
       return "";
   }
@@ -224,6 +226,8 @@ $effect(() => {
           <p class="failed" role="alert">Could not start the terminal: {session.state.message}</p>
         {:else if session.state.kind === "exited"}
           <p class="sr-only" role="status">{session.title}: {exitNotice(session.state.code)}</p>
+        {:else if session.state.kind === "lost"}
+          <p class="sr-only" role="status">{session.title}: {LOST_NOTICE}</p>
         {/if}
         <TerminalView
           {session}

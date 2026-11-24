@@ -1,18 +1,22 @@
 // Test-only fake of the core's `terminals.*`, like `EchoTerminals` in
 // `crates/core/src/fakes.rs`: ids are `t1`, `t2`, ..., input is echoed back as
-// output (the scrollback is everything echoed) and closing emits
+// output, every output is kept as scrollback, and closing emits
 // `terminals.exited` with code 0.
 
 import type { CoreEvent, ProjectId, Request, ResponseFor, TermSize } from "../lib/protocol";
 import { CoreError, type Transport } from "../lib/transport";
 
+type FakeTerminal = { project: ProjectId; size: TermSize; seq: number; scrollback: string; exited: boolean };
+
 export class FakeTerminals implements Transport {
   calls: Request[] = [];
-  open = new Map<string, { project: ProjectId; size: TermSize; output: string; seq: number }>();
+  open = new Map<string, FakeTerminal>();
   /** When set, `terminals.open` fails with this error. */
   openError: CoreError | null = null;
   /** When set, `terminals.open` waits for this promise before answering. */
   openGate: Promise<void> | null = null;
+  /** When set, `terminals.scrollback` waits for this promise before answering. */
+  scrollbackGate: Promise<void> | null = null;
   private opened = 0;
   private listeners = new Set<(event: CoreEvent) => void>();
 
@@ -30,13 +34,33 @@ export class FakeTerminals implements Transport {
     for (const listener of this.listeners) listener(event);
   }
 
+  /** The shell writes `data`; with `missed`, the client never sees the event (a lagging client). */
+  output(id: string, data: string, missed = false): void {
+    const terminal = this.get(id);
+    terminal.seq += 1;
+    terminal.scrollback += data;
+    if (!missed) this.emit({ type: "terminals.output", data: { id, data, seq: terminal.seq } });
+  }
+
+  /** The shell ends on its own; the terminal stays known until closed. */
+  exit(id: string, code: number | null): void {
+    this.get(id).exited = true;
+    this.emit({ type: "terminals.exited", data: { id, code } });
+  }
+
   methods(): string[] {
     return this.calls.map((c) => c.method);
   }
 
-  private known(id: string) {
+  private get(id: string): FakeTerminal {
     const terminal = this.open.get(id);
     if (!terminal) throw new CoreError({ code: "not_found", message: `terminal ${id}` });
+    return terminal;
+  }
+
+  private running(id: string): FakeTerminal {
+    const terminal = this.get(id);
+    if (terminal.exited) throw new CoreError({ code: "not_found", message: `terminal ${id} has ended` });
     return terminal;
   }
 
@@ -46,30 +70,28 @@ export class FakeTerminals implements Transport {
         if (this.openGate) await this.openGate;
         if (this.openError) throw this.openError;
         const id = `t${++this.opened}`;
-        this.open.set(id, { project: request.params.project, size: request.params.size, output: "", seq: 0 });
+        const { project, size } = request.params;
+        this.open.set(id, { project, size, seq: 0, scrollback: "", exited: false });
         return { type: "terminals.opened", data: { id } };
       }
-      case "terminals.input": {
-        const terminal = this.known(request.params.id);
-        const { id, data } = request.params;
-        terminal.output += data;
-        terminal.seq += 1;
-        this.emit({ type: "terminals.output", data: { id, data, seq: terminal.seq } });
+      case "terminals.input":
+        this.running(request.params.id);
+        this.output(request.params.id, request.params.data);
         return { type: "ok" };
-      }
+      case "terminals.resize":
+        this.running(request.params.id).size = request.params.size;
+        return { type: "ok" };
       case "terminals.scrollback": {
-        const terminal = this.known(request.params.id);
-        return { type: "terminals.scrollback", data: { data: terminal.output, seq: terminal.seq } };
+        if (this.scrollbackGate) await this.scrollbackGate;
+        const { scrollback, seq } = this.get(request.params.id);
+        return { type: "terminals.scrollback", data: { data: scrollback, seq } };
       }
-      case "terminals.resize": {
-        this.known(request.params.id).size = request.params.size;
-        return { type: "ok" };
-      }
-      case "terminals.close":
-        this.known(request.params.id);
+      case "terminals.close": {
+        const { exited } = this.get(request.params.id);
         this.open.delete(request.params.id);
-        this.emit({ type: "terminals.exited", data: { id: request.params.id, code: 0 } });
+        if (!exited) this.emit({ type: "terminals.exited", data: { id: request.params.id, code: 0 } });
         return { type: "ok" };
+      }
       default:
         throw new CoreError({ code: "unavailable", message: `${request.method} is not faked` });
     }

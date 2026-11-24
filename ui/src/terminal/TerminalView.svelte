@@ -68,7 +68,7 @@ $effect(() =>
     ];
     const size = measure() ?? FALLBACK_SIZE;
     t.resize(size.cols, size.rows);
-    const detach = session.attach((data) => t.write(data));
+    const detach = session.attach({ write: (data) => t.write(data), reset: () => t.reset() });
     void sessions.start(session, size);
     term = t;
     onterminal(t);
