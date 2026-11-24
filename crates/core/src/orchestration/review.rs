@@ -327,7 +327,6 @@ async fn listed(core: &Core, entry: &Entry) -> Result<(Vec<FileChange>, Option<S
         .worktrees()
         .changes(ws.dir.clone(), ws.base.clone())
         .await?;
-    let fingerprint = (entry.mode == SessionMode::Isolated).then(|| fingerprint(&deltas));
     // Only a worker's files wait for the direct session. A direct item asking
     // this would recurse into itself through `direct_touched`.
     let touched = if entry.mode == SessionMode::Direct {
@@ -335,6 +334,7 @@ async fn listed(core: &Core, entry: &Entry) -> Result<(Vec<FileChange>, Option<S
     } else {
         direct_touched(core, &entry.project).await
     };
+    let fingerprint = (entry.mode == SessionMode::Isolated).then(|| fingerprint(&deltas, &touched));
     let files = deltas
         .into_iter()
         .map(|d| FileChange {
@@ -356,14 +356,26 @@ async fn listed(core: &Core, entry: &Entry) -> Result<(Vec<FileChange>, Option<S
     Ok((files, fingerprint))
 }
 
-/// SHA-256 over each changed file's path, old path, kind and content
-/// version: whatever differs in what the person would see changes it.
-fn fingerprint(deltas: &[Delta]) -> String {
+/// SHA-256 over each changed file's path, old path, kind, content version
+/// and whether it waits for the direct session: whatever differs in what the
+/// person would see, or in what approve would copy, changes it.
+fn fingerprint(deltas: &[Delta], waiting: &BTreeSet<String>) -> String {
     let mut hash = Sha256::new();
     hash.update(b"ovra-review-v1\0");
     for d in deltas {
         let from = d.from.as_deref().unwrap_or("");
-        for part in [d.path.as_str(), from, kind_name(d.kind), d.version.as_str()] {
+        let waits = if waiting.contains(&d.path) {
+            "waits"
+        } else {
+            ""
+        };
+        for part in [
+            d.path.as_str(),
+            from,
+            kind_name(d.kind),
+            d.version.as_str(),
+            waits,
+        ] {
             hash.update(part.as_bytes());
             hash.update(b"\0");
         }
