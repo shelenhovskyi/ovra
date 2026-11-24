@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use ovra_core::protocol::agents::{AgentMessage, AgentStatus};
+use ovra_core::protocol::agents::{AgentMessage, AgentStatus, Billing};
 use ovra_core::protocol::permissions::{Decision, PermissionReason};
 use ovra_core::services::{AgentHost, ToolRole};
 use serde_json::Value;
@@ -113,7 +113,12 @@ impl Driver {
     /// Handles one stdout line; `Err` ends the session.
     async fn line(&mut self, line: &str) -> Result<(), String> {
         match wire::parse(line) {
-            Incoming::Started => self.host.status(AgentStatus::Working),
+            Incoming::Started { billing } => {
+                if let Some(billing) = billing {
+                    self.host.billing(with_provider(billing));
+                }
+                self.host.status(AgentStatus::Working);
+            }
             Incoming::Messages(messages) => {
                 let results = messages
                     .iter()
@@ -302,4 +307,26 @@ pub(crate) async fn run(
         task.abort();
     }
     ended
+}
+
+/// Names the cloud provider from the variables Claude Code reads to choose
+/// one; `init` does not say which.
+fn with_provider(billing: Billing) -> Billing {
+    match billing {
+        Billing::Cloud { provider } if provider.is_empty() => {
+            let set =
+                |name: &str| std::env::var_os(name).is_some_and(|v| !v.is_empty() && v != "0");
+            let provider = [
+                ("CLAUDE_CODE_USE_BEDROCK", "bedrock"),
+                ("CLAUDE_CODE_USE_VERTEX", "vertex"),
+                ("CLAUDE_CODE_USE_FOUNDRY", "foundry"),
+            ]
+            .into_iter()
+            .find(|(name, _)| set(name))
+            .map(|(_, provider)| provider.to_owned())
+            .unwrap_or_default();
+            Billing::Cloud { provider }
+        }
+        other => other,
+    }
 }

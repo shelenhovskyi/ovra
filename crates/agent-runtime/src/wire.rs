@@ -2,7 +2,7 @@
 //! (`docs/specs/claude-cli-protocol.md`). Parsing is lenient: unknown types
 //! and fields are ignored, so newer CLI versions can add to the protocol.
 
-use ovra_core::protocol::agents::{AgentMessage, TurnUsage};
+use ovra_core::protocol::agents::{AgentMessage, Billing, TurnUsage};
 use ovra_core::protocol::permissions::PermissionReason;
 use serde_json::{Value, json};
 
@@ -16,8 +16,9 @@ pub(crate) const IDE_SERVER: &str = "ovra";
 /// What one stdout line means to the driver.
 #[derive(Debug, PartialEq)]
 pub(crate) enum Incoming {
-    /// `system/init`: the session is up and works on the turn.
-    Started,
+    /// `system/init`: the session is up and works on the turn, billed as
+    /// `billing` says (a cloud provider's name is left empty here).
+    Started { billing: Option<Billing> },
     /// Transcript entries from an `assistant` or `user` message.
     Messages(Vec<AgentMessage>),
     /// `result`: the turn ended, with an error when it did not succeed.
@@ -64,13 +65,32 @@ fn str_field(v: &Value, key: &str) -> Option<String> {
     v.get(key).and_then(Value::as_str).map(str::to_owned)
 }
 
+/// Who pays, from `system/init` of Claude Code 2.1.331: `served_by_anthropic`
+/// is false behind a cloud provider; otherwise `apiKeySource` is `none` on a
+/// Claude plan and names the key's source (`ANTHROPIC_API_KEY`,
+/// `apiKeyHelper`, a Console login) when an API key pays.
+fn billing(init: &Value) -> Option<Billing> {
+    if init.get("served_by_anthropic").and_then(Value::as_bool) == Some(false) {
+        return Some(Billing::Cloud {
+            provider: String::new(),
+        });
+    }
+    match init.get("apiKeySource")?.as_str()? {
+        "none" => Some(Billing::Subscription),
+        "" => None,
+        _ => Some(Billing::ApiKey),
+    }
+}
+
 pub(crate) fn parse(line: &str) -> Incoming {
     let Ok(v) = serde_json::from_str::<Value>(line) else {
         return Incoming::Ignored;
     };
     let kind = v.get("type").and_then(Value::as_str).unwrap_or("");
     match kind {
-        "system" if v.get("subtype").and_then(Value::as_str) == Some("init") => Incoming::Started,
+        "system" if v.get("subtype").and_then(Value::as_str) == Some("init") => Incoming::Started {
+            billing: billing(&v),
+        },
         "assistant" | "user" => Incoming::Messages(messages(&v)),
         "result" => turn_end(&v),
         "control_request" => control_request(&v),
@@ -286,6 +306,35 @@ mod tests {
         ] {
             assert_eq!(parse(line), Incoming::Ignored, "{line}");
         }
+    }
+
+    #[test]
+    fn init_says_who_pays() {
+        let init = |extra: &str| {
+            parse(&format!(
+                r#"{{"type":"system","subtype":"init","session_id":"x"{extra}}}"#
+            ))
+        };
+        let billed = |line: Incoming| match line {
+            Incoming::Started { billing } => billing,
+            other => panic!("unexpected {other:?}"),
+        };
+        let plan = r#","apiKeySource":"none","served_by_anthropic":true"#;
+        assert_eq!(billed(init(plan)), Some(Billing::Subscription));
+        let key = r#","apiKeySource":"ANTHROPIC_API_KEY","served_by_anthropic":true"#;
+        assert_eq!(billed(init(key)), Some(Billing::ApiKey));
+        assert_eq!(
+            billed(init(r#","apiKeySource":"apiKeyHelper""#)),
+            Some(Billing::ApiKey)
+        );
+        let cloud = r#","apiKeySource":"none","served_by_anthropic":false"#;
+        assert_eq!(
+            billed(init(cloud)),
+            Some(Billing::Cloud {
+                provider: String::new()
+            })
+        );
+        assert_eq!(billed(init("")), None, "an older CLI says nothing");
     }
 
     #[test]
