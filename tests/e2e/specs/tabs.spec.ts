@@ -76,9 +76,9 @@ test("tabs switch with the keyboard, keep undo and focus, and ask before closing
   await expect(page.getByRole("dialog")).toBeHidden();
   expect(readFileSync(join(dir, "b.txt"), "utf8")).toContain("more ");
 
-  // With the last tab gone, focus is in the main area, not on the page body.
+  // With the last tab gone, focus goes to the file tree, not the page body.
   await expect(tabs).toBeHidden();
-  await expect(page.locator("#ovra-tabpanel")).toBeFocused();
+  await expect(page.getByRole("tree", { name: "Files" })).toBeFocused();
 });
 
 test("a visible Edit button switches modes, and focus follows into the viewer", async ({ page }) => {
@@ -156,3 +156,18 @@ test("the viewer shows unsaved text, and binary files explain why they cannot be
   );
   await expect(content).toBeHidden();
 });
+
+for (const width of [640, 512]) {
+  test(`at 200% zoom (${width} px wide) the main area keeps a usable width`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 400 });
+    const dir = project({ "a.txt": "alpha\n" });
+    await open(page, dir);
+    await page.getByRole("treeitem", { name: /a\.txt/ }).click();
+    const main = await page.getByTestId("main").boundingBox();
+    expect(main?.width).toBeGreaterThanOrEqual(300);
+    const scroll = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
+    expect(scroll).toBeLessThanOrEqual(0);
+  });
+}

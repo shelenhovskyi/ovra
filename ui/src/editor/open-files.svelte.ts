@@ -140,6 +140,21 @@ function closeTab(workspace: Target, current: OpenFiles, path: string): void {
   const wasActive = current.active === path;
   const next = current.close(path);
   if (wasActive) show(workspace, next);
+  void keepFocus(current.files.length === 0);
+}
+
+/**
+ * After a tab closed, focus must not stay on the page body: with no tab left
+ * it goes to the file tree (where the file is still selected), otherwise
+ * into the main area.
+ */
+async function keepFocus(lastTab: boolean): Promise<void> {
+  await tick();
+  const active = document.activeElement;
+  if (active && active !== document.body && active.isConnected) return;
+  const tree = document.querySelector<HTMLElement>('[role="tree"]');
+  if (lastTab && tree) tree.focus();
+  else await focusMain();
 }
 
 /**

@@ -6,42 +6,37 @@
 import { tick } from "svelte";
 import { useOvra } from "../shell/context";
 import { toggle } from "./commands";
-import { answerClose, focusMain, requestClose, show, tabs } from "./open-files.svelte";
+import { tabLabels } from "./labels";
+import { answerClose, requestClose, show, tabs } from "./open-files.svelte";
 
 const { workspace } = useOvra();
 
 let strip = $state<HTMLDivElement>();
 let dialog = $state<HTMLDialogElement>();
 
-function name(path: string): string {
-  return path.slice(path.lastIndexOf("/") + 1);
+function label(path: string): string {
+  const entry = labels.get(path);
+  return entry?.hint ? `${entry.name} - ${entry.hint}` : (entry?.name ?? path);
 }
 
-/** File names, with the parent folder added where two tabs share a name. */
-let labels = $derived.by(() => {
-  const files = tabs.current?.files ?? [];
-  const counts = new Map<string, number>();
-  for (const path of files) counts.set(name(path), (counts.get(name(path)) ?? 0) + 1);
-  return new Map(
-    files.map((path) => {
-      const base = name(path);
-      const dir = path.slice(0, Math.max(0, path.lastIndexOf("/")));
-      return [path, (counts.get(base) ?? 0) > 1 && dir ? `${base} - ${dir}` : base];
-    }),
-  );
-});
+/**
+ * Tab labels: the file name, plus for names shared by several tabs the
+ * shortest trailing part of the folder that tells them apart (`src` in
+ * `pkg-003/src`), shown muted. The full path is in the tooltip.
+ */
+let labels = $derived(tabLabels(tabs.current?.files ?? []));
 
 async function focusTab(path: string | null): Promise<void> {
   await tick();
   const tab = [...(strip?.querySelectorAll<HTMLElement>('[role="tab"]') ?? [])].find((t) => t.dataset.path === path);
   tab?.focus();
-  tab?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  tab?.parentElement?.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
 
 /** After a tab closed: focus the next tab, or the main area when none is left. */
 function focusAfterClose(next: string | null | undefined): void {
+  // With no tab left, closeTab() moves focus to the tree.
   if (next) void focusTab(next);
-  else void focusMain();
 }
 
 function close(path: string): void {
@@ -117,7 +112,9 @@ $effect(() => {
 });
 
 function scrollToActive(): void {
-  strip?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  strip
+    ?.querySelector('[aria-selected="true"]')
+    ?.parentElement?.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
 </script>
 
@@ -134,19 +131,20 @@ function scrollToActive(): void {
           data-path={path}
           aria-selected={active}
           aria-controls="ovra-tabpanel"
-          aria-label={dirty ? `${labels.get(path)}, unsaved changes` : labels.get(path)}
+          aria-label={`${label(path)}${dirty ? ", unsaved changes" : ""}`}
           tabindex={active || (!current.active && path === current.files[0]) ? 0 : -1}
           onclick={() => select(path)}
           onkeydown={(event) => onkeydown(event, path)}
         >
-          {labels.get(path)}
+          <span class="name">{labels.get(path)?.name}</span>
+          {#if labels.get(path)?.hint}<span class="hint">{labels.get(path)?.hint}</span>{/if}
         </button>
         <button
           type="button"
           class="close"
           class:dirty
           tabindex="-1"
-          aria-label={dirty ? `Close ${labels.get(path)} (unsaved changes)` : `Close ${labels.get(path)}`}
+          aria-label={dirty ? `Close ${label(path)} (unsaved changes)` : `Close ${label(path)}`}
           onclick={() => close(path)}
         ></button>
       </div>
@@ -212,7 +210,26 @@ function scrollToActive(): void {
     cursor: pointer;
   }
   [role="tab"] {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    max-width: 240px;
     padding: 6px 4px 6px 12px;
+    white-space: nowrap;
+  }
+  .name,
+  .hint {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .name {
+    flex-shrink: 0;
+    max-width: 100%;
+  }
+  .hint {
+    min-width: 0;
+    font-size: 11px;
+    color: #6f6f7a;
   }
   .close {
     width: 20px;
