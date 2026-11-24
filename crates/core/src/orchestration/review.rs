@@ -63,7 +63,13 @@ pub(crate) fn set_workspace(core: &Core, session: &SessionId, workspace: Workspa
 }
 
 pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Response> {
-    let done = |item, conflicts| Response::Review(ReviewResponse::Done { item, conflicts });
+    let done = |(item, conflicts, restored)| {
+        Response::Review(ReviewResponse::Done {
+            item,
+            conflicts,
+            restored,
+        })
+    };
     match request {
         ReviewRequest::List { project } => {
             core.project_store().get(&project)?;
@@ -101,12 +107,10 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
         }
         ReviewRequest::Approve { id, commit } => {
             let (item, conflicts) = approve(core, &id, commit).await?;
-            Ok(done(item, conflicts))
+            Ok(done((item, conflicts, Vec::new())))
         }
-        ReviewRequest::Reject { id } => {
-            let (item, conflicts) = reject(core, &id).await?;
-            Ok(done(item, conflicts))
-        }
+        ReviewRequest::Reject { id } => Ok(done(reject(core, &id).await?)),
+        ReviewRequest::UndoReject { id } => Ok(done(undo_reject(core, &id).await?)),
         ReviewRequest::Comment { id, text } => {
             comment(core, &id, text).await?;
             Ok(Response::Ok(OkResponse::Ok))
@@ -161,6 +165,9 @@ pub(super) async fn item(core: &Core, entry: &Entry) -> Result<ReviewItem> {
         state: entry.state,
         summary: entry.summary.clone(),
         files: files(core, entry).await?,
+        can_undo: entry.mode == SessionMode::Direct
+            && entry.state == ReviewState::Rejected
+            && core.sessions().direct.can_undo(&entry.session),
     })
 }
 
@@ -176,7 +183,13 @@ async fn files(core: &Core, entry: &Entry) -> Result<Vec<FileChange>> {
         .worktrees()
         .changes(ws.dir.clone(), ws.base.clone())
         .await?;
-    let touched = direct_touched(core, &entry.project).await;
+    // Only a worker's files wait for the direct session. A direct item asking
+    // this would recurse into itself through `direct_touched`.
+    let touched = if entry.mode == SessionMode::Direct {
+        BTreeSet::new()
+    } else {
+        direct_touched(core, &entry.project).await
+    };
     Ok(deltas
         .into_iter()
         .map(|d| FileChange {
@@ -306,7 +319,7 @@ async fn approve(
 
 /// Puts a worker's worktree back to where it started, keeping the diff for
 /// a later comment. Nothing in the main checkout changes.
-async fn reject(core: &Core, id: &ReviewId) -> Result<(ReviewItem, Vec<String>)> {
+async fn reject(core: &Core, id: &ReviewId) -> Result<(ReviewItem, Vec<String>, Vec<String>)> {
     let entry = find(core, id)?;
     check_open(&entry)?;
     if entry.mode == SessionMode::Direct {
@@ -330,12 +343,16 @@ async fn reject(core: &Core, id: &ReviewId) -> Result<(ReviewItem, Vec<String>)>
         e.state = ReviewState::Rejected;
         e.rejected = Some(diff);
     })?;
-    Ok((item(core, &entry).await?, Vec::new()))
+    let restored = files.into_iter().map(|f| f.path).collect();
+    Ok((item(core, &entry).await?, Vec::new(), restored))
 }
 
 /// Restores a direct session's own files from its baseline (ADR 0005);
 /// files someone else changed too stay and come back as conflicts.
-async fn reject_direct(core: &Core, entry: &Entry) -> Result<(ReviewItem, Vec<String>)> {
+async fn reject_direct(
+    core: &Core,
+    entry: &Entry,
+) -> Result<(ReviewItem, Vec<String>, Vec<String>)> {
     let outcome = core.sessions().direct.reject(&entry.session).await?;
     let entry = update(core, &entry.id, |e| {
         e.state = ReviewState::Rejected;
@@ -344,7 +361,33 @@ async fn reject_direct(core: &Core, entry: &Entry) -> Result<(ReviewItem, Vec<St
             e.workspace.base = base;
         }
     })?;
-    Ok((item(core, &entry).await?, outcome.conflicts))
+    Ok((
+        item(core, &entry).await?,
+        outcome.conflicts,
+        outcome.restored,
+    ))
+}
+
+/// Puts back what a direct session's last reject reverted; the item is open
+/// again, as before the reject.
+async fn undo_reject(core: &Core, id: &ReviewId) -> Result<(ReviewItem, Vec<String>, Vec<String>)> {
+    let entry = find(core, id)?;
+    if entry.mode != SessionMode::Direct || entry.state != ReviewState::Rejected {
+        return Err(conflict("only a rejected direct session can be undone"));
+    }
+    let outcome = core.sessions().direct.undo_reject(&entry.session).await?;
+    let entry = update(core, id, |e| {
+        e.state = ReviewState::Open;
+        e.rejected = None;
+        if let Some(base) = outcome.base {
+            e.workspace.base = base;
+        }
+    })?;
+    Ok((
+        item(core, &entry).await?,
+        outcome.conflicts,
+        outcome.restored,
+    ))
 }
 
 /// Reopens the item and sends `text` to its session, resuming it if it

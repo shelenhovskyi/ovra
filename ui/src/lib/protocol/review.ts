@@ -32,6 +32,8 @@ export type ReviewItem = {
   /** The agent's own summary from `request_review`. */
   summary: string | null;
   files: FileChange[];
+  /** A direct session's last reject can be undone (`review.undo_reject`). */
+  can_undo: boolean;
 };
 
 export type ReviewRequest =
@@ -40,14 +42,16 @@ export type ReviewRequest =
   /** With `commit`, commits the agent's files with that message. */
   | { method: "review.approve"; params: { id: ReviewId; commit: string | null } }
   | { method: "review.reject"; params: { id: ReviewId } }
+  /** Puts back what the last reject reverted; files changed since come back as conflicts. */
+  | { method: "review.undo_reject"; params: { id: ReviewId } }
   /** The same session continues with the comment; the item stays open. */
   | { method: "review.comment"; params: { id: ReviewId; text: string } };
 
 export type ReviewResponse =
   | { type: "review.list"; data: ReviewItem[] }
   | { type: "review.diff"; data: { path: string; patch: string } }
-  /** After approve or reject; `conflicts` are files left for the person. */
-  | { type: "review.done"; data: { item: ReviewItem; conflicts: string[] } };
+  /** After approve, reject or undo; `conflicts` are files left for the person, `restored` what a reject restored or an undo put back. */
+  | { type: "review.done"; data: { item: ReviewItem; conflicts: string[]; restored: string[] } };
 
 /** Re-fetch the list. */
 export type ReviewEvent = { type: "review.changed"; data: { project: ProjectId; id: ReviewId } };

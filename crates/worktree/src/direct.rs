@@ -190,7 +190,10 @@ impl Checkout {
             params.extend(extra.clone());
         }
         let done = ok(&self.core, json!({"method": method, "params": params})).await;
-        let Response::Review(ReviewResponse::Done { item, conflicts }) = done else {
+        let Response::Review(ReviewResponse::Done {
+            item, conflicts, ..
+        }) = done
+        else {
             panic!("{done:?}");
         };
         (item, conflicts)
@@ -337,6 +340,17 @@ async fn reject_undoes_the_agents_renames_and_deletes() {
     assert_eq!(c.read("new name.txt"), None);
     assert_eq!(c.read("gone.txt").as_deref(), Some(&b"gone\n"[..]));
     assert_eq!(c.read("kept.txt"), None, "the person's delete stays");
+
+    // Undo puts the agent's rename and delete back, from the snapshot.
+    let (item, conflicts) = c.decide("review.undo_reject", json!({})).await;
+    assert_eq!(item.state, ReviewState::Open);
+    assert!(conflicts.is_empty());
+    assert_eq!(c.read("old name.txt"), None);
+    assert_eq!(
+        c.read("new name.txt").as_deref(),
+        Some(&b"moved\nwith history\n"[..])
+    );
+    assert_eq!(c.read("gone.txt"), None);
 }
 
 #[tokio::test]

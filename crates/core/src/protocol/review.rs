@@ -62,6 +62,9 @@ pub struct ReviewItem {
     /// The agent's own summary from `request_review`, if it gave one.
     pub summary: Option<String>,
     pub files: Vec<FileChange>,
+    /// A direct session's last reject can be undone (`review.undo_reject`).
+    #[serde(default)]
+    pub can_undo: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -84,6 +87,11 @@ pub enum ReviewRequest {
     /// agent since are left alone and listed as conflicts.
     #[serde(rename = "review.reject")]
     Reject { id: ReviewId },
+    /// Puts back what the last reject of a direct session reverted, from
+    /// the snapshot taken just before it; files changed since stay and are
+    /// listed as conflicts. The item is open again.
+    #[serde(rename = "review.undo_reject")]
+    UndoReject { id: ReviewId },
     /// Sends the comment to the same session, which continues; the item
     /// stays open. Answers `ok`.
     #[serde(rename = "review.comment")]
@@ -97,11 +105,14 @@ pub enum ReviewResponse {
     List(Vec<ReviewItem>),
     #[serde(rename = "review.diff")]
     Diff { path: String, patch: String },
-    /// After approve or reject: the item, and files left for the person.
+    /// After approve, reject or undo: the item, and files left for the person.
     #[serde(rename = "review.done")]
     Done {
         item: ReviewItem,
         conflicts: Vec<String>,
+        /// Files a reject restored, or an undo put back.
+        #[serde(default)]
+        restored: Vec<String>,
     },
 }
 

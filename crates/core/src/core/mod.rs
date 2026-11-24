@@ -447,9 +447,11 @@ impl Core {
                         "cannot write the project root",
                     ));
                 }
-                fs.write_file(root, path, text, expected_mtime_ms)
-                    .await
-                    .map(|mtime_ms| FsResponse::Written { mtime_ms })
+                let saved = path.as_str().to_owned();
+                let written = fs.write_file(root, path, text, expected_mtime_ms).await?;
+                // The person saved it: never the direct agent's alone.
+                self.inner.sessions.direct.person_saved(&project, &saved);
+                Ok(FsResponse::Written { mtime_ms: written })
             }
         }
     }

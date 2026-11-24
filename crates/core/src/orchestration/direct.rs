@@ -61,14 +61,36 @@ struct Writer {
     /// Results are reported synchronously, so they are queued here in order
     /// and applied before anything else touches the tracker.
     ended: Mutex<Vec<String>>,
+    /// Files the person saved through Ovra since the tracker last looked:
+    /// changed outside the agent, even while one of its tools runs.
+    saved: Mutex<Vec<String>>,
+    /// What the last reject reverted, so the person can undo it.
+    undo: Mutex<Option<Undo>>,
+}
+
+/// Enough to put back what a reject reverted.
+#[derive(Debug)]
+struct Undo {
+    /// The tree just before the revert.
+    snapshot: String,
+    /// The files the revert restored from `baseline`.
+    reverted: Vec<RelPath>,
+    baseline: String,
+    /// The attribution before the reject, for an ended session.
+    tracker: Tracker,
 }
 
 impl Writer {
     /// The tracker, with finished tools and the session's end applied.
     async fn lock(&self, worktrees: &dyn Worktrees) -> TrackerGuard<'_> {
         let mut tracker = self.tracker.lock().await;
+        let saved = std::mem::take(&mut *lock(&self.saved));
         let ended = std::mem::take(&mut *lock(&self.ended));
         if let Some(t) = tracker.as_mut() {
+            // Saves first: they happened before the results queued after them.
+            for path in saved {
+                t.saved(path);
+            }
             let mut any = false;
             for id in ended {
                 any |= t.tools.remove(&id).is_some();
@@ -87,7 +109,7 @@ impl Writer {
     /// Whether an ended session can be forgotten: nothing of the agent's to
     /// review, or no baseline to review it against.
     fn forgettable(&self) -> bool {
-        if *lock(&self.active) {
+        if *lock(&self.active) || lock(&self.undo).is_some() {
             return false;
         }
         match self.tracker.try_lock() {
@@ -120,6 +142,8 @@ pub(crate) struct Outcome {
     /// Reject: the unified diff of what it reverted, for the agent to see
     /// when a comment continues the session.
     pub(crate) diff: String,
+    /// Reject: the files it restored; undo: the files it put back.
+    pub(crate) restored: Vec<String>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -152,11 +176,15 @@ impl Direct {
         let worktrees = &*self.worktrees;
         let mut guard = match self.claim(project, session, &dir)? {
             Claim::Known(writer) => {
-                let tracker = writer.lock(worktrees).await;
-                return tracker
-                    .as_ref()
-                    .map(|t| t.baseline.clone())
-                    .ok_or_else(|| conflict("the session's baseline was not recorded"));
+                let mut tracker = writer.lock(worktrees).await;
+                if let Some(t) = tracker.as_ref() {
+                    return Ok(t.baseline.clone());
+                }
+                // Continued after a reject: a new start, and no more undo.
+                *lock(&writer.undo) = None;
+                let baseline = worktrees.snapshot(writer.dir.clone()).await?;
+                *tracker = Some(Tracker::new(baseline.clone()));
+                return Ok(baseline);
             }
             Claim::New(guard) => guard,
         };
@@ -193,6 +221,8 @@ impl Direct {
             active: Mutex::new(true),
             tracker,
             ended: Mutex::new(Vec::new()),
+            saved: Mutex::new(Vec::new()),
+            undo: Mutex::new(None),
         });
         writers.insert(session.clone(), writer);
         Ok(Claim::New(guard))
@@ -375,6 +405,7 @@ impl Direct {
             snapshot: None,
             base: None,
             diff: String::new(),
+            restored: Vec::new(),
         };
         if let Some(message) = commit {
             let mine = paths(&files, ChangedBy::Agent)?;
@@ -425,13 +456,105 @@ impl Direct {
         }
         conflicts.sort();
         conflicts.dedup();
-        let base = self.reviewed(session, &writer, &mut tracker).await;
+        let reverted: Vec<RelPath> = mine
+            .into_iter()
+            .filter(|p| !conflicts.iter().any(|c| c == p.as_str()))
+            .collect();
+        let restored = reverted.iter().map(|p| p.as_str().to_owned()).collect();
+        let base = self.worktrees.snapshot(writer.dir.clone()).await.ok();
+        let old = tracker.take().ok_or_else(not_direct)?;
+        *lock(&writer.undo) = Some(Undo {
+            snapshot: snapshot.clone(),
+            reverted,
+            baseline: old.baseline.clone(),
+            tracker: old,
+        });
+        // A running agent starts over; an ended session waits, untracked,
+        // for an undo or a comment that continues it.
+        if *lock(&writer.active) {
+            *tracker = base.clone().map(Tracker::new);
+        }
         Ok(Outcome {
             conflicts,
             snapshot: Some(snapshot),
             base,
             diff,
+            restored,
         })
+    }
+
+    /// Whether the last reject of `session` can still be undone.
+    pub(crate) fn can_undo(&self, session: &SessionId) -> bool {
+        self.find(session)
+            .is_some_and(|(_, w)| lock(&w.undo).is_some())
+    }
+
+    /// Puts back what the last reject reverted, from the snapshot taken just
+    /// before it. A file changed since the reject is left alone and listed
+    /// as a conflict. An ended session gets its attribution back, and
+    /// `base` is its baseline again.
+    pub(crate) async fn undo_reject(&self, session: &SessionId) -> Result<Outcome> {
+        let worktrees = &*self.worktrees;
+        let (_, writer) = self.held(session)?;
+        let mut tracker = writer.lock(worktrees).await;
+        let undo = lock(&writer.undo)
+            .take()
+            .ok_or_else(|| conflict("there is no reject to undo"))?;
+        let changed = worktrees
+            .changes(writer.dir.clone(), undo.baseline.clone())
+            .await;
+        let back: Vec<RelPath> = match changed {
+            Ok(changed) => {
+                let changed: BTreeSet<String> = changed.iter().flat_map(delta_paths).collect();
+                undo.reverted
+                    .iter()
+                    .filter(|p| !changed.contains(p.as_str()))
+                    .cloned()
+                    .collect()
+            }
+            Err(e) => {
+                *lock(&writer.undo) = Some(undo);
+                return Err(e);
+            }
+        };
+        if !back.is_empty()
+            && let Err(e) = worktrees
+                .restore(writer.dir.clone(), undo.snapshot.clone(), back.clone())
+                .await
+        {
+            *lock(&writer.undo) = Some(undo);
+            return Err(e);
+        }
+        let conflicts = undo
+            .reverted
+            .iter()
+            .filter(|p| !back.contains(p))
+            .map(|p| p.as_str().to_owned())
+            .collect();
+        let base = if tracker.is_none() {
+            let base = undo.baseline.clone();
+            *tracker = Some(undo.tracker);
+            Some(base)
+        } else {
+            None
+        };
+        Ok(Outcome {
+            conflicts,
+            snapshot: None,
+            base,
+            diff: String::new(),
+            restored: back.iter().map(|p| p.as_str().to_owned()).collect(),
+        })
+    }
+
+    /// The person saved `path` of `project` through Ovra (the editor): it is
+    /// changed outside the agent even if one of the agent's tools runs.
+    pub(crate) fn person_saved(&self, project: &ProjectId, path: &str) {
+        for writer in lock(&self.writers).values() {
+            if &writer.project == project {
+                lock(&writer.saved).push(path.to_owned());
+            }
+        }
     }
 
     fn held(&self, session: &SessionId) -> Result<(ProjectId, Arc<Writer>)> {
@@ -445,7 +568,10 @@ pub(crate) fn review_from(core: &crate::Core, session: &SessionId, dir: PathBuf,
 }
 
 fn not_direct() -> ProtocolError {
-    conflict("the session does not work directly in the project, or was already reviewed")
+    conflict(
+        "Ovra does not know which of these files the agent changed (it was already \
+         reviewed, or Ovra restarted since), so nothing was restored",
+    )
 }
 
 /// A file-changing tool and what it may change.
@@ -515,6 +641,8 @@ struct Interval {
     pre: Option<String>,
     shell: bool,
     files: BTreeSet<String>,
+    /// Files the person saved through Ovra meanwhile.
+    saved: BTreeSet<String>,
 }
 
 #[derive(Debug)]
@@ -586,6 +714,16 @@ impl Tracker {
         }
     }
 
+    /// The person saved `path` through Ovra.
+    fn saved(&mut self, path: String) {
+        match self.open.as_mut() {
+            Some(open) => {
+                open.saved.insert(path);
+            }
+            None => self.changed_outside(path),
+        }
+    }
+
     fn changed_outside(&mut self, path: String) {
         match self.agent.get_mut(&path) {
             Some(tainted) => *tainted = true,
@@ -604,6 +742,7 @@ impl Tracker {
                 pre,
                 shell: false,
                 files: BTreeSet::new(),
+                saved: BTreeSet::new(),
             });
         }
         if let Some(open) = self.open.as_mut() {
@@ -641,8 +780,13 @@ impl Tracker {
         for delta in &changed {
             let paths: Vec<String> = delta_paths(delta).collect();
             let mine = open.shell || paths.iter().any(|p| open.files.contains(p));
+            // Saved by the person meanwhile: maybe the agent's too, but
+            // never the agent's alone.
+            let saved = paths.iter().any(|p| open.saved.contains(p));
             for path in paths {
-                if mine {
+                if mine && saved {
+                    self.agent.insert(path, true);
+                } else if mine {
                     let before = self.outside.contains(&path);
                     self.agent.entry(path).or_insert(before);
                 } else {

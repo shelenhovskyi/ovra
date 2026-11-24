@@ -380,7 +380,10 @@ async fn approving_a_worker_applies_its_files_to_the_main_checkout() {
         json!({"method": "review.approve", "params": {"id": "r1", "commit": "Fix a"}}),
     )
     .await;
-    let Response::Review(ReviewResponse::Done { item, conflicts }) = done else {
+    let Response::Review(ReviewResponse::Done {
+        item, conflicts, ..
+    }) = done
+    else {
         panic!("unexpected {done:?}");
     };
     // The person's own b.rs is left alone.
