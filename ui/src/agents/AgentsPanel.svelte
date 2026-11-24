@@ -10,6 +10,7 @@ import { useOvra } from "../shell/context";
 import { agentSessions, usageText } from "./sessions.svelte";
 import ClaudeSetup from "./setup/ClaudeSetup.svelte";
 import ProjectTrust from "./setup/ProjectTrust.svelte";
+import { paidText } from "./setup/texts";
 import { isEnded, statusLabel } from "./status";
 import Transcript from "./Transcript.svelte";
 
@@ -229,6 +230,12 @@ const canReply = $derived(current !== null && current.status.state === "idle");
         {#if current.usage.input_tokens + current.usage.output_tokens > 0}
           <p class="status" data-testid="agent-usage">Total: {usageText(current.usage)}</p>
         {/if}
+        {#if current.billing}
+          <!-- An API key bills at API prices, often not what a plan user expects. -->
+          <p class={current.billing.kind === "api_key" ? "status billed-key" : "status"} data-testid="agent-billing">
+            This session: {paidText(current.billing)}
+          </p>
+        {/if}
         <Transcript messages={messages ?? []} />
         {#if !isEnded(current.status)}
           <form
@@ -385,6 +392,9 @@ const canReply = $derived(current !== null && current.status.state === "idle");
     flex: none;
     font-size: 12px;
     color: #b4b4c0;
+  }
+  .billed-key {
+    color: #ffd36b;
   }
   .state[data-state="waiting_for_approval"] {
     color: #ffd36b;

@@ -1,7 +1,7 @@
 // What the setup and trust cards say. Kept apart from the components so the
 // wording of every state is tested in one place.
 
-import type { AgentSetup, ConfigKind, ProjectAgentConfig } from "../../lib/protocol";
+import type { AgentSetup, Billing, ConfigKind, ProjectAgentConfig } from "../../lib/protocol";
 
 /** Where to read about installing; opened through `open.url`. */
 export const SETUP_DOCS = "https://code.claude.com/docs/en/setup";
@@ -19,17 +19,20 @@ const PROVIDERS: Record<string, string> = {
   foundry: "Microsoft Foundry",
 };
 
+/** One sentence on who pays for `billing`. */
+export function paidText(billing: Billing): string {
+  if (billing.kind === "subscription") return "Usage counts against your Claude plan's limits.";
+  if (billing.kind === "api_key") return "Usage is billed to an Anthropic API key, at API prices.";
+  const provider = PROVIDERS[billing.provider] ?? billing.provider;
+  return provider
+    ? `Usage is billed to your ${provider} account.`
+    : "Usage is billed to your cloud provider's account.";
+}
+
 /** Who pays for agents' usage, and a warning when that may not be what the user expects. */
 export function billingText(setup: AgentSetup): { paid: string | null; warning: string | null } {
   const billing = setup.billing;
-  const paid =
-    billing?.kind === "subscription"
-      ? "Usage counts against your Claude plan's limits."
-      : billing?.kind === "api_key"
-        ? "Usage is billed to an Anthropic API key, at API prices."
-        : billing?.kind === "cloud"
-          ? `Usage is billed to your ${PROVIDERS[billing.provider] ?? billing.provider} account.`
-          : null;
+  const paid = billing ? paidText(billing) : null;
   const warning =
     setup.api_key_in_env && billing?.kind !== "cloud"
       ? "ANTHROPIC_API_KEY is set where Ovra runs. Claude Code may bill that key instead of your plan; unset it and restart Ovra to use your subscription."

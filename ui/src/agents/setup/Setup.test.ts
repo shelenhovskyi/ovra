@@ -4,7 +4,7 @@ import type { AgentSetup } from "../../lib/protocol";
 import { Workspace } from "../../shell/workspace.svelte";
 import { FakeAgentCore } from "../fake-core";
 import TestHost from "../TestHost.svelte";
-import { advice, billingText, changes } from "./texts";
+import { advice, billingText, changes, paidText } from "./texts";
 
 let app: Record<string, unknown> | null = null;
 let target: HTMLElement;
@@ -115,6 +115,7 @@ describe("ClaudeSetup", () => {
     expect(billingText(cloud)).toEqual({ paid: "Usage is billed to your Amazon Bedrock account.", warning: null });
     expect(billingText(setup({ state: "ready" }, { billing: { kind: "api_key" } })).paid).toContain("API prices");
     expect(billingText(setup({ state: "ready" }, { billing: null })).paid).toBeNull();
+    expect(paidText({ kind: "cloud", provider: "" })).toBe("Usage is billed to your cloud provider's account.");
   });
 
   it("explains how to install and saves a chosen path", async () => {

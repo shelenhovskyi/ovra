@@ -173,6 +173,7 @@ export class FakeAgentCore implements Transport {
       title,
       usage: { input_tokens: 0, output_tokens: 0, cost_micro_usd: null },
       resumable: false,
+      billing: null,
     };
     this.sessions.push(info);
     return info;

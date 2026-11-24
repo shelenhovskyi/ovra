@@ -166,8 +166,12 @@ export class AgentSessions {
         title: "",
         usage: NO_USAGE,
         resumable: false,
+        billing: null,
       });
       void this.load(project).catch(() => {});
+    } else if (event.type === "agents.billing") {
+      const known = this.byId.get(event.data.session);
+      if (known) this.byId.set(event.data.session, { ...known, billing: event.data.billing });
     } else if (event.type === "agents.message") {
       const { session, message } = event.data;
       const transcript = this.transcripts.get(session);

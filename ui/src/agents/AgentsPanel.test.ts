@@ -124,6 +124,12 @@ describe("AgentsPanel", () => {
     expect(panel()?.querySelector("[data-testid=agent-usage]")?.textContent).toBe(
       "Total: 10 tokens in, 5 out, $0.0012",
     );
+    expect(panel()?.querySelector("[data-testid=agent-billing]")).toBeNull();
+    core.emit({ type: "agents.billing", data: { session: "s1", billing: { kind: "api_key" } } });
+    await settle();
+    const billed = panel()?.querySelector("[data-testid=agent-billing]");
+    expect(billed?.textContent?.trim()).toBe("This session: Usage is billed to an Anthropic API key, at API prices.");
+    expect(billed?.classList.contains("billed-key")).toBe(true);
   });
 
   it("names who wrote each message an agent was sent", async () => {
