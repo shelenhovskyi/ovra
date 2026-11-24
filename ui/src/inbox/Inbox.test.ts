@@ -164,9 +164,7 @@ describe("Inbox", () => {
     $<HTMLButtonElement>("[data-testid=inbox-resolve]")?.click();
     await settle();
     expect(core.sent("review.resolve").map((c) => c.params)).toEqual([{ id: "r1" }]);
-    expect($("[data-testid=inbox-outcome]")?.textContent?.trim()).toBe(
-      "Marked done. Your versions of the files that were not copied stay.",
-    );
+    expect($("[data-testid=inbox-outcome]")?.textContent?.trim()).toBe("Marked done. The files stay as they are now.");
     expect($("[data-testid=inbox-resolve]")).toBeNull();
     expect($("[data-file='NOTES.md']")?.textContent).toContain("Not copied (your version changed); marked done");
   });
@@ -194,6 +192,34 @@ describe("Inbox", () => {
     expect(core.sent("review.undo_take").map((c) => c.params)).toEqual([{ id: "r1" }]);
     expect($("[data-testid=inbox-outcome]")?.textContent?.trim()).toBe("Your versions are back: NOTES.md.");
     expect($("[data-testid=inbox-undo-take]")).toBeNull();
+  });
+
+  it("keeps a full replace, and offers no replace when every file waits for the direct agent", async () => {
+    const core = await setup([
+      review("r1", {
+        mode: "isolated",
+        state: "partly_approved",
+        files: [change("NOTES.md")],
+        not_copied: ["NOTES.md"],
+      }),
+      review("r2", {
+        mode: "isolated",
+        state: "partly_approved",
+        files: [change("a.rs", { blocked: true })],
+        not_copied: ["a.rs"],
+      }),
+    ]);
+    await open();
+    $<HTMLButtonElement>("[data-testid=inbox-take]")?.click();
+    await settle();
+    $<HTMLButtonElement>("[data-testid=inbox-keep-take]")?.click();
+    await settle();
+    expect(core.sent("review.resolve").map((c) => c.params)).toEqual([{ id: "r1" }]);
+    expect($("[data-testid=inbox-undo-take]")).toBeNull();
+    $<HTMLButtonElement>("[data-item=r2]")?.click();
+    await settle();
+    expect($("[data-testid=inbox-take]")).toBeNull();
+    expect($("[data-testid=inbox-resolve]")).not.toBeNull();
   });
 
   it("says a worker's reject discarded files from its own copy", async () => {

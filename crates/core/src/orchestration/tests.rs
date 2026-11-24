@@ -1482,6 +1482,20 @@ async fn the_workers_version_can_be_copied_over_mine_and_back() {
         Some("mine too\n")
     );
 
+    // One replace at a time, and its snapshots are kept for the undo.
+    let twice = call(
+        &f.core,
+        json!({"method": "review.take", "params": {"id": "r1"}}),
+    )
+    .await;
+    assert_eq!(code(twice), ErrorCode::Conflict);
+    let pruned = f.wt.pruned.lock().map(|p| p.clone()).unwrap_or_default();
+    assert_eq!(
+        pruned.last().map(|p| p.1.len()),
+        Some(3),
+        "base, before, after"
+    );
+
     let done = ok(
         &f.core,
         json!({"method": "review.undo_take", "params": {"id": "r1"}}),
@@ -1508,4 +1522,73 @@ async fn the_workers_version_can_be_copied_over_mine_and_back() {
     )
     .await;
     assert_eq!(code(again), ErrorCode::Conflict);
+}
+
+#[tokio::test]
+async fn an_undone_replace_keeps_what_the_person_wrote_since() {
+    let f = fx(say()).await;
+    let mut rx = f.core.subscribe();
+    start_task(&f.core, 3).await;
+    let boss = caller("s1", ToolRole::Coordinator);
+    let worker = f.core.spawn_agent(&boss, "w", "x").await;
+    let worker = worker.unwrap_or_else(|e| panic!("{e}"));
+    until(&mut rx, "s2", AgentStatus::Idle).await;
+    f.wt.put(&worker.worktree, "b.rs", "new\n");
+    f.wt.put(ROOT, "b.rs", "mine\n");
+    ok(
+        &f.core,
+        json!({"method": "review.approve", "params": {"id": "r1", "commit": null}}),
+    )
+    .await;
+    ok(
+        &f.core,
+        json!({"method": "orchestration.stop", "params": {"task": "t1"}}),
+    )
+    .await;
+    until(&mut rx, "s1", AgentStatus::Stopped).await;
+    let done = ok(
+        &f.core,
+        json!({"method": "review.take", "params": {"id": "r1"}}),
+    )
+    .await;
+    let Response::Review(ReviewResponse::Done { item, .. }) = done else {
+        panic!("unexpected {done:?}");
+    };
+    assert_eq!(
+        (item.state, item.can_undo_take),
+        (ReviewState::Approved, true)
+    );
+    assert!(
+        f.wt.has(&worker.worktree),
+        "kept while the replace can be undone"
+    );
+    // The person edits the replaced file; the undo leaves that edit alone.
+    f.wt.put(ROOT, "b.rs", "edited after\n");
+    let done = ok(
+        &f.core,
+        json!({"method": "review.undo_take", "params": {"id": "r1"}}),
+    )
+    .await;
+    let Response::Review(ReviewResponse::Done {
+        item, conflicts, ..
+    }) = done
+    else {
+        panic!("unexpected {done:?}");
+    };
+    assert_eq!(conflicts, ["b.rs"]);
+    assert_eq!(
+        f.wt.files(ROOT).get("b.rs").map(String::as_str),
+        Some("edited after\n")
+    );
+    assert_eq!(
+        (item.state, item.can_undo_take),
+        (ReviewState::Approved, false)
+    );
+    // With nothing left to undo, the ended task's worktree goes.
+    ok(
+        &f.core,
+        json!({"method": "orchestration.list", "params": {"project": "p1"}}),
+    )
+    .await;
+    assert!(!f.wt.has(&worker.worktree));
 }

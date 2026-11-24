@@ -291,7 +291,7 @@ function outcomeText(outcome: Outcome): string {
       : worker && outcome.action === "approved"
         ? ` Not copied: ${files}.`
         : ` Kept as you changed them: ${files}.`;
-  if (outcome.action === "resolved") return "Marked done. Your versions of the files that were not copied stay.";
+  if (outcome.action === "resolved") return "Marked done. The files stay as they are now.";
   if (outcome.action === "taken") {
     const put =
       outcome.restored.length > 0 ? `Replaced with the worker's version: ${outcome.restored.join(", ")}.` : "";
@@ -299,7 +299,7 @@ function outcomeText(outcome: Outcome): string {
       outcome.conflicts.length > 0
         ? ` Not replaced, because the worker changed them after you approved: ${outcome.conflicts.join(", ")}.`
         : "";
-    return `${put}${kept}`.trim();
+    return `${put}${kept}`.trim() || "Nothing was replaced.";
   }
   if (outcome.action === "untaken") return `Your versions are back: ${outcome.restored.join(", ")}.`;
   if (outcome.action === "approved") {
@@ -478,6 +478,7 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                 <div class="actions" role="group" aria-label="Files that were not copied">
                   <p class="hint" data-testid="inbox-not-copied">{notCopiedHint(item)}</p>
                   <div class="buttons">
+                    {#if item.not_copied.some((p) => !item.files.some((f) => f.path === p && f.blocked))}
                     <button
                       type="button"
                       data-testid="inbox-take"
@@ -486,6 +487,7 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                         if (!busy) void take(item);
                       }}>Replace mine with the worker's version</button
                     >
+                    {/if}
                     <button
                       type="button"
                       data-testid="inbox-resolve"
@@ -510,6 +512,16 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                         if (!busy) void undoTake(item);
                       }}>Undo replace</button
                     >
+                    {#if item.state === "approved"}
+                      <button
+                        type="button"
+                        data-testid="inbox-keep-take"
+                        aria-disabled={busy}
+                        onclick={() => {
+                          if (!busy) void resolve(item);
+                        }}>Keep the worker's version</button
+                      >
+                    {/if}
                   </div>
                 </div>
               {/if}

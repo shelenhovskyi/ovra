@@ -443,8 +443,8 @@ async fn create_worker(
 /// Removes the worktrees of an ended task's workers once nothing in them
 /// waits for the person: the worker ended, no item of it is partly approved
 /// and its worktree has no change its review has not decided (the decided
-/// state is the review's snapshot, which stays kept). Branches stay. On any
-/// doubt nothing is removed.
+/// state is the review's snapshot, which stays kept); then its branch goes
+/// too, unless it holds other commits. On any doubt nothing is removed.
 pub(super) async fn clean_up(core: &Core, project: &ProjectId) {
     let state = core.orchestration_state();
     let candidates: Vec<(TaskId, Worker)> = state
@@ -485,7 +485,10 @@ pub(super) async fn clean_up(core: &Core, project: &ProjectId) {
                         .await;
                     (true, None)
                 }
-                Err(err) => (false, Some(err.message)),
+                // Git refused (files only the worktree holds); other
+                // errors are retried next time without a reason shown.
+                Err(err) if err.code == ErrorCode::Conflict => (false, Some(err.message)),
+                Err(_) => (false, None),
             },
         };
         let mut guard = state.lock();
