@@ -18,5 +18,6 @@ export async function loadView(transport: Transport, project: ProjectId, path: s
 
 /** Whether `event` means the file at `path` in `project` may have changed. */
 export function touches(event: CoreEvent, project: ProjectId, path: string): boolean {
+  if (event.type === "info.resync") return true;
   return event.type === "fs.changed" && event.data.project === project && event.data.paths.includes(path);
 }

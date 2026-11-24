@@ -31,7 +31,8 @@ fn main() {
             let handle = app.handle().clone();
             let mut events = app.state::<Core>().subscribe();
             tauri::async_runtime::spawn(async move {
-                while let Ok(event) = events.recv().await {
+                // A lagging window gets `info.resync` and keeps receiving.
+                while let Some(event) = Core::next_event(&mut events).await {
                     let _ = handle.emit("ovra://frame", ovra_transport::event_frame(event));
                 }
             });

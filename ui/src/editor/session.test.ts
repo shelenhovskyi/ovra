@@ -134,6 +134,15 @@ describe("EditorSession", () => {
     expect(session.text).toBe("v2 local");
   });
 
+  test("info.resync reloads a clean file", async () => {
+    const core = new FakeCore();
+    core.put("a.txt", "v1");
+    const { session } = await open(core, "a.txt");
+    core.put("a.txt", "v2");
+    core.emit({ type: "info.resync", data: { skipped: 7 } });
+    await vi.waitFor(() => expect(session.text).toBe("v2"));
+  });
+
   test("unsaved text survives switching files unless the file changed", async () => {
     const core = new FakeCore();
     core.put("a.txt", "base");

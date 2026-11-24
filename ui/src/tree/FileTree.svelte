@@ -62,6 +62,7 @@ $effect(() => {
   const off = transport.onEvent((event) => {
     if (event.type === "fs.changed" && event.data.project === project) void model.refreshPaths(event.data.paths);
     if (event.type === "fs.git_changed" && event.data.project === project) void model.refreshAll();
+    if (event.type === "info.resync") void model.refreshAll();
   });
   // Closing or reloading the window does not unmount the tree; save then too.
   // The save is one message sent synchronously, so it leaves before the socket closes.

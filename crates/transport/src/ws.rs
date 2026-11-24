@@ -14,9 +14,9 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use futures_util::{SinkExt, StreamExt};
 use ovra_core::Core;
+use ovra_core::protocol::Event;
 use ovra_core::protocol::info::InfoEvent;
 use serde::Deserialize;
-use tokio::sync::broadcast::error::RecvError;
 
 use crate::{dispatch, event_frame};
 
@@ -107,16 +107,16 @@ async fn serve(socket: WebSocket, core: Core) {
                 Some(Ok(Message::Close(_))) | None | Some(Err(_)) => break,
                 Some(Ok(_)) => {}
             },
-            event = events.recv() => match event {
-                Ok(event) => {
+            event = Core::next_event(&mut events) => match event {
+                Some(event) => {
+                    if let Event::Info(InfoEvent::Resync { skipped }) = &event {
+                        tracing::warn!(skipped, "client lagged behind core events");
+                    }
                     if tx.send(Message::Text(event_frame(event).into())).await.is_err() {
                         break;
                     }
                 }
-                Err(RecvError::Lagged(skipped)) => {
-                    tracing::warn!(skipped, "client lagged behind core events");
-                }
-                Err(RecvError::Closed) => break,
+                None => break,
             },
         }
     }

@@ -259,6 +259,23 @@ fn events_reach_subscribers() {
     assert_eq!(rx.try_recv().ok(), Some(Event::Info(InfoEvent::Ready)));
 }
 
+#[tokio::test]
+async fn a_lagging_subscriber_gets_resync_and_keeps_receiving() {
+    let core = Core::new("test");
+    let mut rx = core.subscribe();
+    for _ in 0..EVENT_CAPACITY + 3 {
+        core.emit(InfoEvent::Ready);
+    }
+    assert_eq!(
+        Core::next_event(&mut rx).await,
+        Some(Event::Info(InfoEvent::Resync { skipped: 3 }))
+    );
+    assert_eq!(
+        Core::next_event(&mut rx).await,
+        Some(Event::Info(InfoEvent::Ready))
+    );
+}
+
 #[test]
 fn wire_format_is_stable() {
     let samples = serde_json::json!({
@@ -280,6 +297,7 @@ fn wire_format_is_stable() {
         ],
         "events": [
             Event::Info(InfoEvent::Ready),
+            Event::Info(InfoEvent::Resync { skipped: 3 }),
             Event::Projects(ProjectsEvent::Changed { active: None }),
         ],
     });

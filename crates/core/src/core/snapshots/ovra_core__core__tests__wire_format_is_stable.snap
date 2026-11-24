@@ -9,6 +9,12 @@ expression: samples
     },
     {
       "data": {
+        "skipped": 3
+      },
+      "type": "info.resync"
+    },
+    {
+      "data": {
         "active": null
       },
       "type": "projects.changed"

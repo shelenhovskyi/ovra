@@ -5,7 +5,7 @@ use tokio::sync::broadcast;
 
 use crate::path::RelPath;
 use crate::protocol::fs::{FsRequest, FsResponse};
-use crate::protocol::info::{CoreInfo, InfoRequest, InfoResponse};
+use crate::protocol::info::{CoreInfo, InfoEvent, InfoRequest, InfoResponse};
 use crate::protocol::open::OpenRequest;
 use crate::protocol::projects::{
     ProjectId, ProjectStatePatch, ProjectsEvent, ProjectsRequest, ProjectsResponse,
@@ -90,6 +90,19 @@ impl Core {
     /// Subscribes to events pushed by the core.
     pub fn subscribe(&self) -> broadcast::Receiver<Event> {
         self.events.subscribe()
+    }
+
+    /// Waits for the next event for one subscriber. A subscriber that fell
+    /// behind gets [`InfoEvent::Resync`] instead of the events it missed and
+    /// keeps receiving; `None` means the core is gone.
+    pub async fn next_event(rx: &mut broadcast::Receiver<Event>) -> Option<Event> {
+        match rx.recv().await {
+            Ok(event) => Some(event),
+            Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                Some(InfoEvent::Resync { skipped }.into())
+            }
+            Err(broadcast::error::RecvError::Closed) => None,
+        }
     }
 
     /// A handle services use to push events.

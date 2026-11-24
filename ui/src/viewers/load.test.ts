@@ -49,4 +49,8 @@ describe("touches", () => {
     expect(touches(changed, "p1", "c.md")).toBe(false);
     expect(touches({ type: "fs.git_changed", data: { project: "p1" } }, "p1", "a.md")).toBe(false);
   });
+
+  it("matches info.resync, after which everything may be stale", () => {
+    expect(touches({ type: "info.resync", data: { skipped: 3 } }, "p1", "a.md")).toBe(true);
+  });
 });

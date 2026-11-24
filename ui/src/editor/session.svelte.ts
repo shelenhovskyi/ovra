@@ -58,8 +58,10 @@ export class EditorSession {
   constructor(private readonly options: Options) {
     this.language = languageFor(options.path);
     this.unsubscribe = options.transport.onEvent((event) => {
+      if (this.dirty) return;
+      if (event.type === "info.resync") void this.refresh();
       if (event.type !== "fs.changed" || event.data.project !== options.project) return;
-      if (event.data.paths.includes(options.path) && !this.dirty) void this.refresh();
+      if (event.data.paths.includes(options.path)) void this.refresh();
     });
   }
 
