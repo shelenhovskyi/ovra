@@ -87,12 +87,18 @@ describe("AgentsPanel", () => {
     await setup(core);
     expect(transcript()).toEqual(["You Earlier task"]);
     const send = () => [...target.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Send");
+    const button = (name: string) =>
+      [...target.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === name);
+    button("Interrupt")?.click();
+    await settle();
+    expect(core.sent("agents.interrupt").map((c) => c.params)).toEqual([{ session: "s1" }]);
     type(target.querySelector("#agent-reply"), "and the docs");
     await settle();
     expect(send()?.disabled).toBe(true);
     core.status("s1", { state: "idle" });
     await settle();
     expect(send()?.disabled).toBe(false);
+    expect(button("Interrupt")).toBeUndefined();
     modEnter();
     await settle();
     expect(core.sent("agents.send").map((c) => c.params)).toEqual([{ session: "s1", text: "and the docs" }]);

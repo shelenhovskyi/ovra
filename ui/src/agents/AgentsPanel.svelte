@@ -52,6 +52,13 @@ $effect(() => {
   const off = [
     registerCommand({ id: "agents.new_session", title: "New agent session", run: () => promptField?.focus() }),
     registerCommand({
+      id: "agents.interrupt",
+      title: "Interrupt the agent's turn",
+      run: () => {
+        if (current && busyAgent) void interrupt(current.id);
+      },
+    }),
+    registerCommand({
       id: "agents.stop",
       title: "Stop the agent session",
       run: () => {
@@ -103,6 +110,10 @@ function send(): Promise<void> {
   });
 }
 
+function interrupt(id: SessionId): Promise<void> {
+  return run(() => sessions.interrupt(id));
+}
+
 function stop(id: SessionId): Promise<void> {
   return run(() => sessions.stop(id));
 }
@@ -114,6 +125,10 @@ function submitOnModEnter(event: KeyboardEvent, submit: () => Promise<void>): vo
   }
 }
 
+/** Working or waiting for an approval: a turn is in progress. */
+const busyAgent = $derived(
+  current !== null && (current.status.state === "working" || current.status.state === "waiting_for_approval"),
+);
 const canReply = $derived(current !== null && current.status.state === "idle");
 </script>
 
@@ -167,9 +182,14 @@ const canReply = $derived(current !== null && current.status.state === "idle");
       <div class="detail" data-testid="agent-session">
         <div class="row">
           <h3>{sessionName(current, current.id)}</h3>
-          {#if !isEnded(current.status)}
-            <button type="button" disabled={busy} onclick={() => stop(current.id)}>Stop</button>
-          {/if}
+          <div class="buttons">
+            {#if busyAgent}
+              <button type="button" disabled={busy} onclick={() => interrupt(current.id)}>Interrupt</button>
+            {/if}
+            {#if !isEnded(current.status)}
+              <button type="button" disabled={busy} onclick={() => stop(current.id)}>Stop</button>
+            {/if}
+          </div>
         </div>
         <p class="status" role="status">{statusLabel(current.status)}</p>
         {#if current.usage.input_tokens + current.usage.output_tokens > 0}
@@ -230,6 +250,10 @@ const canReply = $derived(current !== null && current.status.state === "idle");
     display: flex;
     flex-direction: column;
     gap: 4px;
+  }
+  .buttons {
+    display: flex;
+    gap: 6px;
   }
   .row {
     display: flex;

@@ -78,6 +78,7 @@ export class FakeAgentCore implements Transport {
         return { type: "agents.transcript", data: this.transcripts.get(request.params.session) ?? [] };
       case "agents.send":
       case "agents.stop":
+      case "agents.interrupt":
         return { type: "ok" };
       case "permissions.pending":
         return { type: "permissions.pending", data: [...this.pending] };

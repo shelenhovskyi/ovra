@@ -54,6 +54,11 @@ export class AgentSessions {
     await this.transport.call({ method: "agents.send", params: { session, text } });
   }
 
+  /** Ends the current turn; the agent's pending requests are denied and it waits for a message. */
+  async interrupt(session: SessionId): Promise<void> {
+    await this.transport.call({ method: "agents.interrupt", params: { session } });
+  }
+
   async stop(session: SessionId): Promise<void> {
     await this.transport.call({ method: "agents.stop", params: { session } });
   }
