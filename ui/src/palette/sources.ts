@@ -52,7 +52,7 @@ export function source(mode: PaletteMode, transport: Transport, workspace: Targe
         name: "Files",
         placeholder: project ? `Go to file in ${project.name}` : "Open a project first",
         empty: "No matching files",
-        limit: 100,
+        limit: 50,
         entries: async () =>
           project
             ? (await projectFiles(transport, project.id)).map((path) => ({

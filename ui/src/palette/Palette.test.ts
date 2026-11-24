@@ -134,7 +134,7 @@ describe("Palette", async () => {
   });
 
   it("keeps editing and queues an Enter typed before the files load", async () => {
-    const paths = ["src/main.rs", ...Array.from({ length: 150 }, (_, i) => `docs/page-${i}.md`)];
+    const paths = ["src/main.rs", "docs/page-1.md", "docs/page-2.md"];
     let answer: (() => void) | undefined;
     const core: Transport = {
       call: (() =>
@@ -170,7 +170,7 @@ describe("Palette", async () => {
   });
 
   it("says how many matches are not shown", async () => {
-    const paths = Array.from({ length: 150 }, (_, i) => `docs/page-${i}.md`);
+    const paths = Array.from({ length: 55 }, (_, i) => `docs/page-${i}.md`);
     const core: Transport = {
       call: (() =>
         Promise.resolve({ type: "fs.files", data: { paths, total: paths.length, version: 1 } })) as Transport["call"],
@@ -179,9 +179,9 @@ describe("Palette", async () => {
     const project = { id: "files-3", name: "demo", root: "/demo", last_opened_ms: null, trusted: false };
     const { target, input } = await open("files", core, project);
     await type(input, "page");
-    expect(target.textContent).toContain("Showing 100 of 150");
-    expect(target.querySelector("[role=status]")?.textContent).toBe("150 results");
-    await type(input, "page-149");
+    expect(target.textContent).toContain("Showing 50 of 55");
+    expect(target.querySelector("[role=status]")?.textContent).toBe("55 results");
+    await type(input, "page-54");
     expect(target.querySelector("[role=status]")?.textContent).toBe("1 result");
   });
 
