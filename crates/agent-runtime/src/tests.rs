@@ -156,6 +156,9 @@ fn steps(fixture: &str) -> Vec<Value> {
         .collect()
 }
 
+/// The project root of replayed sessions; the fixtures' paths start with `/w`.
+const ROOT: &str = if cfg!(windows) { r"C:\w" } else { "/w" };
+
 fn core_with(runtime: Arc<dyn AgentRuntime>) -> Core {
     Core::builder("test")
         .projects(Arc::new(MemoryProjects::default()))
@@ -209,7 +212,7 @@ async fn replay(fixture: &str, prompt: &str) -> (Vec<AgentMessage>, Vec<Ended>) 
     let core = core_with(runtime.clone());
     let _ = runtime.core.set(core.clone());
     let mut rx = core.subscribe();
-    start(&core, "/w", prompt).await;
+    start(&core, ROOT, prompt).await;
     let cli = lock(&runtime.cli).take();
     match cli {
         Some(cli) => cli
@@ -294,7 +297,7 @@ async fn a_failed_initialize_fails_the_session() {
     let core = core_with(runtime.clone());
     let _ = runtime.core.set(core.clone());
     let mut rx = core.subscribe();
-    start(&core, "/w", "hi").await;
+    start(&core, ROOT, "hi").await;
     assert_eq!(
         end(&mut rx).await,
         AgentStatus::Failed {
@@ -322,7 +325,7 @@ async fn a_process_that_ignores_a_stop_is_given_up_on() {
     let _ = runtime.core.set(core.clone());
     let mut rx = core.subscribe();
     let started = tokio::time::Instant::now();
-    start(&core, "/w", "hi").await;
+    start(&core, ROOT, "hi").await;
     assert_eq!(end(&mut rx).await, AgentStatus::Stopped);
     assert!(started.elapsed() >= driver::STOP_GRACE);
     assert_eq!(*lock(&runtime.ended), [Ended::Unresponsive]);
