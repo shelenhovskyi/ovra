@@ -29,6 +29,7 @@ use crate::protocol::{ErrorCode, ProtocolError, Response};
 use crate::services::SessionStore;
 
 pub(crate) use saved::restore;
+pub(crate) use tasks::cleaned;
 
 type Result<T> = std::result::Result<T, ProtocolError>;
 

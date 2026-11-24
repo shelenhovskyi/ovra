@@ -98,6 +98,13 @@ pub(crate) async fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Resp
                     "this worker's worktree is not known since Ovra restarted",
                 ));
             }
+            if let Some(core) = sessions.core()
+                && crate::orchestration::cleaned(&core, &session)
+            {
+                return Err(conflict(
+                    "this worker's task has ended and its worktree was cleaned up; start a new task to rework it",
+                ));
+            }
             let tools = launch.as_ref().and_then(|l| l.tools);
             let target = prepare(ctx, &info.project, info.mode, tools).await?;
             let launch = launch.unwrap_or(Launch {

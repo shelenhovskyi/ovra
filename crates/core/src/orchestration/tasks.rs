@@ -18,6 +18,10 @@ use crate::services::ToolRole;
 /// `claude` process with its own worktree.
 const MAX_WORKERS_CAP: u32 = 16;
 
+/// A task may start at most this many times `max_workers` workers over its
+/// life: each one is a branch and a worktree, and spawns need no approval.
+const SPAWNS_PER_PLACE: usize = 3;
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(super) struct Entry {
     pub(super) id: TaskId,
@@ -28,6 +32,9 @@ pub(super) struct Entry {
     /// Names of workers being set up, which count against `max_workers`.
     #[serde(skip)]
     starting: Vec<String>,
+    /// Workers whose worktree was removed after the task ended.
+    #[serde(default)]
+    cleaned: Vec<SessionId>,
 }
 
 impl Entry {
@@ -52,6 +59,7 @@ pub(super) async fn handle(core: &Core, request: OrchestrationRequest) -> Result
         }
         OrchestrationRequest::List { project } => {
             core.project_store().get(&project)?;
+            clean_up(core, &project).await;
             let entries: Vec<Entry> = core
                 .orchestration_state()
                 .lock()
@@ -123,6 +131,7 @@ async fn start(
             workers: Vec::new(),
             limits,
             starting: Vec::new(),
+            cleaned: Vec::new(),
         };
         state.tasks.push(entry.clone());
         orchestration.save(&state);
@@ -255,6 +264,17 @@ pub(super) fn spawn_blocked(core: &Core, entry: &Entry, asked: &[SessionId]) -> 
     if ended(&entry.coordinator) {
         return Some("the task has ended".to_owned());
     }
+    let max = entry.limits.max_workers;
+    let most = usize::try_from(max)
+        .unwrap_or(usize::MAX)
+        .saturating_mul(SPAWNS_PER_PLACE);
+    let started = entry.workers.len() + entry.starting.len();
+    if started >= most {
+        return Some(format!(
+            "the task has started {started} workers, the most it may over its life \
+             ({SPAWNS_PER_PLACE} times its limit of {max}); finish with the workers it has"
+        ));
+    }
     // A worker that asked for review and waits idle for the person does no
     // work, so it does not hold a place; a message wakes it again.
     let waiting = |id: &SessionId| {
@@ -270,7 +290,6 @@ pub(super) fn spawn_blocked(core: &Core, entry: &Entry, asked: &[SessionId]) -> 
         .filter(|w| !ended(&w.session) && !waiting(&w.session))
         .count()
         + entry.starting.len();
-    let max = entry.limits.max_workers;
     if running >= usize::try_from(max).unwrap_or(usize::MAX) {
         return Some(format!(
             "the task already runs {max} workers, its limit; wait for one to finish or stop one"
@@ -404,4 +423,63 @@ async fn create_worker(
         base: info.base,
     };
     Ok((worker, workspace))
+}
+
+/// Removes the worktrees of an ended task's workers once nothing in them
+/// waits for the person: the worker ended, no item of it is partly approved
+/// and its worktree has no change its review has not decided. Branches stay
+/// (their start is a snapshot). On any doubt nothing is removed.
+pub(super) async fn clean_up(core: &Core, project: &ProjectId) {
+    let ended = |id: &SessionId| {
+        core.sessions()
+            .find(id, |s| s.status().is_ended())
+            .unwrap_or(true)
+    };
+    let state = core.orchestration_state();
+    let candidates: Vec<(TaskId, Worker)> = state
+        .lock()
+        .tasks
+        .iter()
+        .filter(|t| &t.project == project && ended(&t.coordinator))
+        .flat_map(|t| {
+            t.workers
+                .iter()
+                .filter(|w| !t.cleaned.contains(&w.session) && ended(&w.session))
+                .map(|w| (t.id.clone(), w.clone()))
+        })
+        .collect();
+    if candidates.is_empty() {
+        return;
+    }
+    let Ok(root) = core.root(project) else {
+        return;
+    };
+    for (task, worker) in candidates {
+        if !review::settled(core, &worker.session).await {
+            continue;
+        }
+        let dir = PathBuf::from(&worker.worktree);
+        if core.worktrees().remove(root.clone(), dir).await.is_err() {
+            continue;
+        }
+        let mut guard = state.lock();
+        if let Some(entry) = guard.tasks.iter_mut().find(|t| t.id == task) {
+            entry.cleaned.push(worker.session.clone());
+        }
+        state.save(&guard);
+        drop(guard);
+        core.emit(OrchestrationEvent::Changed {
+            project: project.clone(),
+            task,
+        });
+    }
+}
+
+/// Whether `session` is a worker whose worktree was cleaned up.
+pub(crate) fn cleaned(core: &Core, session: &SessionId) -> bool {
+    core.orchestration_state()
+        .lock()
+        .tasks
+        .iter()
+        .any(|t| t.cleaned.contains(session))
 }

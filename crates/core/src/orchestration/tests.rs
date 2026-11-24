@@ -1153,3 +1153,77 @@ async fn work_is_approved_only_once_its_agent_stopped_changing_it() {
     until(&mut rx, "s2", AgentStatus::Stopped).await;
     ok(&f.core, approve).await;
 }
+
+#[tokio::test]
+async fn a_task_starts_at_most_three_times_its_limit_of_workers() {
+    let f = fx(say()).await;
+    let mut rx = f.core.subscribe();
+    start_task(&f.core, 1).await;
+    let boss = caller("s1", ToolRole::Coordinator);
+    for (n, name) in ["a", "b", "c"].into_iter().enumerate() {
+        let worker = f.core.spawn_agent(&boss, name, "x").await;
+        let worker = worker.unwrap_or_else(|e| panic!("{e}"));
+        let session = format!("s{}", n + 2);
+        until(&mut rx, &session, AgentStatus::Idle).await;
+        assert!(f.core.stop_agent(&boss, &worker.session).is_ok());
+        until(&mut rx, &session, AgentStatus::Stopped).await;
+    }
+    let fourth = f.core.spawn_agent(&boss, "d", "x").await;
+    assert_eq!(
+        fourth.err().map(|e| e.message),
+        Some(
+            "the task has started 3 workers, the most it may over its life \
+             (3 times its limit of 1); finish with the workers it has"
+                .to_owned()
+        )
+    );
+}
+
+#[tokio::test]
+async fn an_ended_tasks_settled_worktrees_are_removed_and_the_rest_kept() {
+    let f = fx(say()).await;
+    let mut rx = f.core.subscribe();
+    start_task(&f.core, 3).await;
+    let boss = caller("s1", ToolRole::Coordinator);
+    let done = f.core.spawn_agent(&boss, "done", "x").await;
+    let done = done.unwrap_or_else(|e| panic!("{e}"));
+    until(&mut rx, "s2", AgentStatus::Idle).await;
+    let busy = f.core.spawn_agent(&boss, "busy", "x").await;
+    let busy = busy.unwrap_or_else(|e| panic!("{e}"));
+    until(&mut rx, "s3", AgentStatus::Idle).await;
+    f.wt.put(&done.worktree, "a.rs", "approved\n");
+    f.wt.put(&busy.worktree, "b.rs", "not decided\n");
+    ok(
+        &f.core,
+        json!({"method": "review.approve", "params": {"id": "r1", "commit": null}}),
+    )
+    .await;
+    // While the task runs, nothing is removed.
+    let list = json!({"method": "orchestration.list", "params": {"project": "p1"}});
+    ok(&f.core, list.clone()).await;
+    assert!(f.wt.has(&done.worktree));
+
+    ok(
+        &f.core,
+        json!({"method": "orchestration.stop", "params": {"task": "t1"}}),
+    )
+    .await;
+    until(&mut rx, "s1", AgentStatus::Stopped).await;
+    ok(&f.core, list.clone()).await;
+    assert!(!f.wt.has(&done.worktree), "approved and ended: removed");
+    assert!(f.wt.has(&busy.worktree), "undecided changes stay");
+    // A removed worker cannot be resumed into a folder that is gone.
+    let resumed = call(
+        &f.core,
+        json!({"method": "review.comment", "params": {"id": "r1", "text": "more"}}),
+    )
+    .await;
+    assert_eq!(code(resumed), ErrorCode::Conflict);
+    // Once its changes are decided, the other one goes too.
+    ok(
+        &f.core,
+        json!({"method": "review.reject", "params": {"id": "r2"}}),
+    )
+    .await;
+    assert!(!f.wt.has(&busy.worktree));
+}

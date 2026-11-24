@@ -147,6 +147,7 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
         ReviewRequest::Approve { id, commit } => {
             let (item, conflicts) = approve(core, &id, commit).await?;
             prune(core, &item.project).await;
+            super::tasks::clean_up(core, &item.project).await;
             let what = if item.state == ReviewState::PartlyApproved {
                 "had its work approved by the person, except files the person had changed too: those were not copied and wait for the person"
             } else if conflicts.is_empty() {
@@ -160,6 +161,7 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
         ReviewRequest::Reject { id } => {
             let outcome = reject(core, &id).await?;
             prune(core, &outcome.0.project).await;
+            super::tasks::clean_up(core, &outcome.0.project).await;
             super::tasks::tell_coordinator(
                 core,
                 &outcome.0.session,
@@ -175,6 +177,7 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
                 ));
             }
             let entry = update(core, &id, |e| e.state = ReviewState::Approved)?;
+            super::tasks::clean_up(core, &entry.project).await;
             Ok(done((item(core, &entry).await?, Vec::new(), Vec::new())))
         }
         ReviewRequest::UndoReject { id } => Ok(done(undo_reject(core, &id).await?)),
@@ -204,6 +207,27 @@ pub(super) fn of_session(core: &Core, session: &SessionId) -> Option<Entry> {
         .rev()
         .find(|r| &r.session == session)
         .cloned()
+}
+
+/// Whether nothing of `session`'s work waits for the person any more: no
+/// item of it is partly approved, and its workspace has no change since
+/// its last decision. Unknown means no.
+pub(super) async fn settled(core: &Core, session: &SessionId) -> bool {
+    let (partial, latest) = {
+        let state = core.orchestration_state();
+        let state = state.lock();
+        let mine = || state.reviews.iter().filter(|r| &r.session == session);
+        let partial = mine().any(|r| r.state == ReviewState::PartlyApproved);
+        (partial, mine().next_back().cloned())
+    };
+    let Some(latest) = latest.filter(|_| !partial) else {
+        return false;
+    };
+    let ws = latest.workspace;
+    core.worktrees()
+        .changes(ws.dir, ws.base)
+        .await
+        .is_ok_and(|changes| changes.is_empty())
 }
 
 /// Changes `id`'s entry and tells clients.

@@ -47,6 +47,11 @@ impl MemoryWorktrees {
             .unwrap_or_default()
     }
 
+    /// Whether a working tree exists at `dir`.
+    pub fn has(&self, dir: impl Into<PathBuf>) -> bool {
+        lock(&self.dirs).contains_key(&dir.into())
+    }
+
     fn tree(&self, dir: &PathBuf) -> Result<Files> {
         lock(&self.dirs)
             .get(dir)
