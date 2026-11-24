@@ -4,6 +4,13 @@
 //! service, so nothing can address a file outside its project by `..`,
 //! absolute paths or drive prefixes. Services must additionally refuse to
 //! follow symlinks that point outside the root.
+//!
+//! On Windows a drive is refused in every segment: `PathBuf::push("C:a")`
+//! replaces the whole path with the drive-relative `C:a`, which resolves
+//! against the process's current directory, so `src/C:a` would leave the
+//! project once [`RelPath::under`] joins it. Such names cannot exist on
+//! Windows anyway. Elsewhere `c:x` is an ordinary name, kept so that a review
+//! with such a file can still be decided.
 
 use std::path::{Path, PathBuf};
 
@@ -21,8 +28,10 @@ impl RelPath {
     }
 
     /// Parses and normalizes a client-supplied path. `.` segments and empty
-    /// segments are dropped; `..`, absolute paths, backslashes, drive
-    /// prefixes and NUL bytes are rejected.
+    /// segments are dropped; `..`, absolute paths, backslashes, NUL bytes, a
+    /// drive (`C:`) at the start of any segment on Windows and any `:` in the
+    /// first segment (a scheme such as `file:`) are rejected. Other colons
+    /// are kept: they are valid in names on Linux and macOS.
     pub fn parse(raw: &str) -> Result<Self, ProtocolError> {
         let forbidden = |why: &str| {
             Err(ProtocolError::new(
@@ -44,6 +53,7 @@ impl RelPath {
                 s if s.contains(':') && parts.is_empty() => {
                     return forbidden("has a drive or scheme prefix");
                 }
+                s if cfg!(windows) && is_drive(s) => return forbidden("names a drive"),
                 s => parts.push(s),
             }
         }
@@ -75,6 +85,13 @@ impl RelPath {
             Self::parse(&format!("{}/{name}", self.0))
         }
     }
+}
+
+/// Whether Windows reads `segment` as starting with a drive: an ASCII letter
+/// and a colon (`C:`, `c:x`). Any other prefix needs a backslash, which
+/// [`RelPath::parse`] refuses.
+fn is_drive(segment: &str) -> bool {
+    matches!(segment.as_bytes(), [letter, b':', ..] if letter.is_ascii_alphabetic())
 }
 
 impl std::fmt::Display for RelPath {
@@ -115,7 +132,21 @@ mod tests {
 
     #[test]
     fn colon_is_fine_after_first_segment() {
-        assert!(RelPath::parse("notes/a:b.md").is_ok());
+        for raw in ["notes/ab:c.md", "notes/10:30", "notes/:x", "a/b.rs:x"] {
+            assert!(RelPath::parse(raw).is_ok(), "{raw:?}");
+        }
+    }
+
+    #[test]
+    fn a_drive_in_any_segment_is_refused_where_it_is_a_drive() {
+        for raw in ["src/C:a", "src/c:", "a/b/Z:/x"] {
+            let err = RelPath::parse(raw).err().map(|e| e.code);
+            let expected = cfg!(windows).then_some(ErrorCode::Forbidden);
+            assert_eq!(err, expected, "{raw:?}");
+        }
+        assert!(is_drive("C:a") && is_drive("z:") && !is_drive("ab:c") && !is_drive("1:x"));
+        let joined = RelPath::parse("a").and_then(|p| p.join("C:x"));
+        assert_eq!(joined.is_err(), cfg!(windows));
     }
 
     #[test]

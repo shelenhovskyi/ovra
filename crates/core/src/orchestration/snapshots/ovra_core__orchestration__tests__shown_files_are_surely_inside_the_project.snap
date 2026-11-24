@@ -6,7 +6,7 @@ a.rs -> a.rs
 ./src/a.rs -> src/a.rs
 src/~notes.md refused (Forbidden): path "src/~notes.md" may name a home folder or a variable
 src/a~b.rs -> src/a~b.rs
-src/C:a refused (Forbidden): path "src/C:a" may name a drive or a stream
+src/ab:c refused (Forbidden): path "src/ab:c" may name a drive or a stream
 a.rs:x refused (Forbidden): path "a.rs:x" has a drive or scheme prefix
 . refused (BadRequest): name a file
 ./ refused (BadRequest): name a file

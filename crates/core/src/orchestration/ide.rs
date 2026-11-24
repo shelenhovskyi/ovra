@@ -185,12 +185,12 @@ fn coordinator(caller: &ToolCaller) -> Result<()> {
 
 /// The project-relative file `raw` names for `open_in_ui`. Beyond what
 /// [`RelPath::parse`] refuses (absolute, UNC, rooted paths, a drive in the
-/// first segment, `..`), this also refuses:
+/// first segment, or in any segment on Windows, `..`), this also refuses:
 /// - a segment starting with `~`, `$` or `%`, which a shell or a person reads
 ///   as a home folder or a variable (stricter than the approval cards, which
 ///   look at the start of the path only);
-/// - a `:` in any segment: on Windows `src/C:a` is drive-relative once
-///   joined, and `a.rs:x` names a stream;
+/// - a `:` in any segment: on Windows `a.rs:x` names a stream and `src/C:a`
+///   a drive, and the path should mean the same file everywhere;
 /// - the project root itself, which is not a file.
 pub(super) fn shown_file(raw: &str) -> Result<String> {
     let path = RelPath::parse(raw)?;

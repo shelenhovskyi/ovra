@@ -846,7 +846,7 @@ fn shown_files_are_surely_inside_the_project() {
         "./src/a.rs",
         "src/~notes.md",
         "src/a~b.rs",
-        "src/C:a",
+        "src/ab:c",
         "a.rs:x",
         ".",
         "./",
