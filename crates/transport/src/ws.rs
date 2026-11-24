@@ -88,6 +88,8 @@ fn token_matches(given: Option<&str>, expected: &str) -> bool {
 async fn serve(socket: WebSocket, core: Core) {
     let (mut tx, mut rx) = socket.split();
     let mut events = core.subscribe();
+    // Holds the project this connection opens; closing the socket lets go.
+    let client = core.connect();
     if tx
         .send(Message::Text(event_frame(InfoEvent::Ready.into()).into()))
         .await
@@ -99,7 +101,7 @@ async fn serve(socket: WebSocket, core: Core) {
         tokio::select! {
             incoming = rx.next() => match incoming {
                 Some(Ok(Message::Text(text))) => {
-                    let reply = dispatch(&core, &text).await;
+                    let reply = dispatch(&client, &text).await;
                     if tx.send(Message::Text(reply.into())).await.is_err() {
                         break;
                     }
