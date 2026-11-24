@@ -68,7 +68,8 @@ export type ReviewRequest =
 
 export type ReviewResponse =
   | { type: "review.list"; data: ReviewItem[] }
-  | { type: "review.diff"; data: { path: string; patch: string } }
+  /** For a worker's item, `fingerprint` is the item's fingerprint the diff was read with. */
+  | { type: "review.diff"; data: { path: string; patch: string; fingerprint?: string | null } }
   /** After approve, reject or undo; `conflicts` are files left for the person, `restored` what a reject restored or an undo put back. */
   | { type: "review.done"; data: { item: ReviewItem; conflicts: string[]; restored: string[] } };
 

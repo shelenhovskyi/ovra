@@ -380,9 +380,14 @@ async fn approved_work_applies_unless_the_person_changed_the_file() {
     // Meanwhile the person edits b.txt in the main checkout.
     put(&repo.root, "b.txt", "mine\n");
 
+    // What the person reviewed; the worker writes on after it.
+    let reviewed = w.look(wt.clone()).await.unwrap_or_else(|e| panic!("{e:?}"));
+    put(&wt, "a.txt", "written after the review\n");
+    put(&wt, "old.txt", "back after the review\n");
+
     let paths = rels(&["a.txt", "b.txt", "sub/new.txt", "old.txt"]);
     let conflicts = w
-        .apply(wt.clone(), base.clone(), repo.root.clone(), paths)
+        .apply(reviewed, base.clone(), repo.root.clone(), paths)
         .await;
     assert_eq!(conflicts.ok(), Some(vec!["b.txt".to_owned()]));
     let root = &repo.root;
@@ -584,13 +589,14 @@ async fn apply_leaves_a_symlink_in_the_checkout_to_the_person() {
     std::os::unix::fs::symlink(&outside, root.join("link.txt")).unwrap_or_else(|e| panic!("{e}"));
     git(root, &["add", "link.txt"]);
     git(root, &["commit", "--quiet", "-m", "link"]);
-    let base = git(root, &["rev-parse", "HEAD"]);
-    let worker = repo.tmp.path().join("worker");
-    put(&worker, "link.txt", "agent\n");
-
     let w = GitWorktrees::new();
+    let (base, worker) = repo.worker(&w).await;
+    fs::remove_file(worker.join("link.txt")).unwrap_or_else(|e| panic!("{e}"));
+    put(&worker, "link.txt", "agent\n");
+    let tree = w.look(worker).await.unwrap_or_else(|e| panic!("{e:?}"));
+
     let conflicts = w
-        .apply(worker, base, root.clone(), rels(&["link.txt"]))
+        .apply(tree, base, root.clone(), rels(&["link.txt"]))
         .await
         .unwrap_or_else(|e| panic!("{e:?}"));
     assert_eq!(conflicts, ["link.txt"]);
@@ -608,8 +614,8 @@ async fn apply_leaves_a_symlink_in_the_checkout_to_the_person() {
 async fn apply_recreates_only_symlinks_that_stay_inside() {
     let repo = Repo::new(&[("a.txt", "a\n")]);
     let root = &repo.root;
-    let base = git(root, &["rev-parse", "HEAD"]);
-    let worker = repo.tmp.path().join("worker");
+    let w = GitWorktrees::new();
+    let (base, worker) = repo.worker(&w).await;
     fs::create_dir_all(worker.join("d")).unwrap_or_else(|e| panic!("{e}"));
     let link = |target: &str, at: &str| {
         std::os::unix::fs::symlink(target, worker.join(at)).unwrap_or_else(|e| panic!("{e}"));
@@ -620,9 +626,9 @@ async fn apply_recreates_only_symlinks_that_stay_inside() {
     link(".", "s");
     link("s/../secret", "bypass");
 
-    let w = GitWorktrees::new();
+    let tree = w.look(worker).await.unwrap_or_else(|e| panic!("{e:?}"));
     let paths = rels(&["d/up", "abs", "climb", "s", "bypass"]);
-    let conflicts = w.apply(worker, base, root.clone(), paths).await;
+    let conflicts = w.apply(tree, base, root.clone(), paths).await;
     let conflicts = conflicts.unwrap_or_else(|e| panic!("{e:?}"));
     assert_eq!(conflicts, ["abs", "bypass", "climb"]);
     let target = |at: &str| fs::read_link(root.join(at)).ok();
@@ -640,9 +646,15 @@ async fn taking_the_workers_version_can_be_undone() {
     put(&wt, "a.txt", "agent\n");
     fs::remove_file(wt.join("gone.txt")).unwrap_or_else(|e| panic!("{e}"));
     put(root, "a.txt", "mine\n");
+    let approved = w
+        .snapshot(wt.clone())
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    // Written after the approve: not what is taken.
+    put(&wt, "a.txt", "newer\n");
 
     let paths = rels(&["a.txt", "gone.txt"]);
-    let taken = w.take(wt.clone(), root.clone(), paths.clone()).await;
+    let taken = w.take(approved, root.clone(), paths.clone()).await;
     let taken = taken.unwrap_or_else(|e| panic!("{e:?}"));
     assert!(taken.skipped.is_empty(), "{:?}", taken.skipped);
     // `after` holds the worker's version: nothing changed since the take.
@@ -702,4 +714,76 @@ async fn ended_workers_lose_nothing_when_cleaned_up() {
             .await
             .is_ok()
     );
+}
+
+/// Only the reviewed files are written, the way the person's checkout
+/// writes files: attributes elsewhere in the worker's tree do not apply.
+#[tokio::test]
+async fn apply_writes_files_with_the_checkouts_rules_only() {
+    let repo = Repo::new(&[("a.txt", "a\n"), ("run.sh", "echo\n")]);
+    let root = &repo.root;
+    let w = GitWorktrees::new();
+    let (base, wt) = repo.worker(&w).await;
+    put(&wt, ".gitattributes", "*.txt eol=crlf\n");
+    put(&wt, "a.txt", "one\ntwo\n");
+    put(&wt, "run.sh", "echo hi\n");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let exec = fs::Permissions::from_mode(0o755);
+        fs::set_permissions(wt.join("run.sh"), exec).unwrap_or_else(|e| panic!("{e}"));
+    }
+    let tree = w.look(wt).await.unwrap_or_else(|e| panic!("{e:?}"));
+
+    let paths = rels(&["a.txt", "run.sh"]);
+    let conflicts = w.apply(tree, base, root.clone(), paths).await;
+    assert_eq!(conflicts.ok(), Some(Vec::new()));
+    let bytes = fs::read(root.join("a.txt")).unwrap_or_default();
+    assert_eq!(
+        bytes, b"one\ntwo\n",
+        "no CRLF from the unreviewed attributes"
+    );
+    assert!(!root.join(".gitattributes").exists());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = fs::metadata(root.join("run.sh")).map(|m| m.permissions().mode());
+        assert_eq!(mode.ok().map(|m| m & 0o111), Some(0o111));
+    }
+}
+
+/// A submodule in the worker's tree is not a file to copy; a checkout below
+/// its repository's top is refused rather than written in the wrong place.
+#[tokio::test]
+async fn apply_refuses_submodules_and_checkouts_below_the_top() {
+    let repo = Repo::new(&[("a.txt", "a\n"), ("p/b.txt", "b\n")]);
+    let root = &repo.root;
+    let w = GitWorktrees::new();
+    let base = git(root, &["rev-parse", "HEAD"]);
+    let listing = format!("160000 commit {base}\tsub\n");
+    let tree = Command::new(crate::git::program())
+        .args(["mktree"])
+        .current_dir(root)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            use std::io::Write as _;
+            if let Some(mut stdin) = child.stdin.take() {
+                stdin.write_all(listing.as_bytes())?;
+            }
+            child.wait_with_output()
+        })
+        .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_owned())
+        .unwrap_or_else(|e| panic!("{e}"));
+
+    let conflicts = w
+        .apply(tree.clone(), base.clone(), root.clone(), rels(&["sub"]))
+        .await;
+    assert_eq!(conflicts.ok(), Some(vec!["sub".to_owned()]));
+    assert!(!root.join("sub").exists());
+
+    let below = w.apply(tree, base, root.join("p"), rels(&["b.txt"])).await;
+    assert_eq!(below.err().map(|e| e.code), Some(ErrorCode::Conflict));
+    assert_eq!(read(root, "p/b.txt").as_deref(), Some("b\n"));
 }

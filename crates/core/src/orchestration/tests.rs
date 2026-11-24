@@ -416,10 +416,31 @@ async fn approving_a_worker_applies_its_files_to_the_main_checkout() {
         json!({"method": "review.diff", "params": {"id": "r1", "path": "a.rs"}}),
     )
     .await;
-    let Response::Review(ReviewResponse::Diff { patch, .. }) = diff else {
+    let Response::Review(ReviewResponse::Diff {
+        patch, fingerprint, ..
+    }) = diff
+    else {
         panic!("unexpected {diff:?}");
     };
     assert!(patch.contains("+two"));
+    // The diff says which version of the item it was read from.
+    assert!(fingerprint.is_some());
+    assert_eq!(fingerprint, items[0].fingerprint);
+    f.wt.put(&worker.worktree, "a.rs", "one\ntwo\nthree\n");
+    let newer = ok(
+        &f.core,
+        json!({"method": "review.diff", "params": {"id": "r1", "path": "a.rs"}}),
+    )
+    .await;
+    let Response::Review(ReviewResponse::Diff {
+        patch, fingerprint, ..
+    }) = newer
+    else {
+        panic!("unexpected {newer:?}");
+    };
+    assert!(patch.contains("+three"), "{patch}");
+    assert_ne!(fingerprint, items[0].fingerprint);
+    f.wt.put(&worker.worktree, "a.rs", "one\ntwo\n");
 
     let done = ok(&f.core, approval(&f.core, "r1", json!("Fix a")).await).await;
     let Response::Review(ReviewResponse::Done {

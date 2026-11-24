@@ -142,7 +142,15 @@ pub enum ReviewResponse {
     #[serde(rename = "review.list")]
     List(Vec<ReviewItem>),
     #[serde(rename = "review.diff")]
-    Diff { path: String, patch: String },
+    Diff {
+        path: String,
+        patch: String,
+        /// For a worker's item: the `ReviewItem::fingerprint` of the files
+        /// this diff was read from. If it differs from the item's, the item
+        /// changed since it was listed.
+        #[serde(default)]
+        fingerprint: Option<String>,
+    },
     /// After approve, reject or undo: the item, and files left for the person.
     #[serde(rename = "review.done")]
     Done {
