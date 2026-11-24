@@ -5,8 +5,10 @@ use tokio::sync::broadcast;
 
 use crate::Core;
 use crate::fakes::{EchoTerminals, MemoryProjects, ScriptedAgent, Step};
-use crate::protocol::agents::{AgentMessage, AgentStatus, AgentsEvent, AgentsResponse};
-use crate::protocol::permissions::{PermissionsEvent, PermissionsResponse};
+use crate::protocol::agents::{
+    AgentMessage, AgentStatus, AgentsEvent, AgentsResponse, SessionInfo, TurnUsage,
+};
+use crate::protocol::permissions::{PermissionAnswer, PermissionsEvent, PermissionsResponse};
 use crate::protocol::terminals::TerminalsEvent;
 use crate::protocol::{ErrorCode, Event, ProtocolError, Request, Response};
 
@@ -232,12 +234,7 @@ async fn an_ended_session_drops_its_permission_requests() {
     let core = core_with(ScriptedAgent::default());
     project(&core).await;
     ok(&core, start("x")).await;
-    let host = crate::agents::AgentHost::new(
-        crate::protocol::agents::SessionId("s1".into()),
-        crate::protocol::projects::ProjectId("p1".into()),
-        core.inner_sessions(),
-        core.sink(),
-    );
+    let host = host(&core);
     let mut rx = core.subscribe();
     let asking = tokio::spawn({
         let host = host.clone();
@@ -252,6 +249,194 @@ async fn an_ended_session_drops_its_permission_requests() {
         resolved |= matches!(event, Event::Permissions(PermissionsEvent::Resolved { .. }));
     }
     assert!(resolved, "the dropped request was not resolved");
+}
+
+/// A host for session s1 of p1, to report as a runtime would.
+fn host(core: &Core) -> crate::agents::AgentHost {
+    crate::agents::AgentHost::new(
+        crate::protocol::agents::SessionId("s1".into()),
+        crate::protocol::projects::ProjectId("p1".into()),
+        core.inner_sessions(),
+        core.sink(),
+    )
+}
+
+async fn sessions(core: &Core) -> Vec<SessionInfo> {
+    match ok(
+        core,
+        json!({"method": "agents.list", "params": {"project": "p1"}}),
+    )
+    .await
+    {
+        Response::Agents(AgentsResponse::List(list)) => list,
+        other => panic!("unexpected {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn stopping_a_waiting_session_denies_its_request() {
+    let core = core_with(ScriptedAgent::new(vec![vec![
+        Step::Use {
+            tool: "Bash",
+            input: json!({"command": "rm -rf build"}),
+        },
+        Step::Use {
+            tool: "Bash",
+            input: json!({"command": "make"}),
+        },
+    ]]));
+    project(&core).await;
+    let mut rx = core.subscribe();
+    ok(&core, start("clean")).await;
+    until(&mut rx, AgentStatus::WaitingForApproval).await;
+    let id = pending_id(&core).await;
+    let stop = json!({"method": "agents.stop", "params": {"session": "s1"}});
+    ok(&core, stop.clone()).await;
+    let send = json!({"method": "agents.send", "params": {"session": "s1", "text": "more"}});
+    assert_eq!(code(&core, send).await, ErrorCode::Conflict);
+    until(&mut rx, AgentStatus::Stopped).await;
+
+    let results: Vec<(String, bool)> = transcript(&core)
+        .await
+        .into_iter()
+        .filter_map(|m| match m {
+            AgentMessage::ToolResult {
+                output, is_error, ..
+            } => Some((output, is_error)),
+            _ => None,
+        })
+        .collect();
+    // The second tool was denied without asking anyone.
+    let stopped = ("the session was stopped".to_owned(), true);
+    assert_eq!(results, [stopped.clone(), stopped]);
+    match ok(&core, json!({"method": "permissions.pending"})).await {
+        Response::Permissions(PermissionsResponse::Pending(p)) => assert!(p.is_empty()),
+        other => panic!("unexpected {other:?}"),
+    }
+    let answer = json!({"method": "permissions.answer", "params": {"id": id, "decision": "allow"}});
+    assert_eq!(code(&core, answer).await, ErrorCode::NotFound);
+    // Stopping again does nothing.
+    ok(&core, stop).await;
+}
+
+#[tokio::test]
+async fn the_state_machine_ignores_reports_that_make_no_sense() {
+    let core = core_with(ScriptedAgent::default());
+    project(&core).await;
+    let mut rx = core.subscribe();
+    ok(&core, start("x")).await;
+    until(&mut rx, AgentStatus::Idle).await;
+    let host = host(&core);
+    let asking = tokio::spawn({
+        let host = host.clone();
+        async move { host.ask("Bash".into(), json!({}), None).await }
+    });
+    until(&mut rx, AgentStatus::WaitingForApproval).await;
+    // A request still waits: neither working nor idle shows.
+    host.status(AgentStatus::Working);
+    host.status(AgentStatus::Idle);
+    assert_eq!(
+        sessions(&core).await[0].status,
+        AgentStatus::WaitingForApproval
+    );
+    let id = pending_id(&core).await;
+    ok(
+        &core,
+        json!({"method": "permissions.answer", "params": {"id": id, "decision": "allow"}}),
+    )
+    .await;
+    let answer = asking.await.unwrap_or_else(|e| panic!("ask panicked: {e}"));
+    assert_eq!(answer, PermissionAnswer::allow());
+    assert_eq!(sessions(&core).await[0].status, AgentStatus::Working);
+
+    host.status(AgentStatus::Failed {
+        message: "crashed".into(),
+    });
+    host.status(AgentStatus::Idle);
+    host.status(AgentStatus::Stopped);
+    let late = host.ask("Bash".into(), json!({}), None).await;
+    assert_eq!(late.message.as_deref(), Some("the session ended"));
+
+    let mut seen = Vec::new();
+    while let Ok(event) = rx.try_recv() {
+        match event {
+            Event::Agents(AgentsEvent::Status { status, .. }) => seen.push(status),
+            Event::Permissions(PermissionsEvent::Requested(r)) => panic!("asked again: {r:?}"),
+            _ => {}
+        }
+    }
+    let failed = AgentStatus::Failed {
+        message: "crashed".into(),
+    };
+    assert_eq!(seen, [AgentStatus::Working, failed.clone()]);
+    assert_eq!(sessions(&core).await[0].status, failed);
+}
+
+#[tokio::test]
+async fn sessions_add_up_their_usage() {
+    let core = core_with(ScriptedAgent::default());
+    project(&core).await;
+    ok(&core, start("x")).await;
+    let host = host(&core);
+    for cost in [Some(1_500), None] {
+        host.message(AgentMessage::TurnEnd {
+            usage: TurnUsage {
+                input_tokens: 100,
+                output_tokens: 20,
+                cost_micro_usd: cost,
+            },
+        });
+    }
+    insta::assert_json_snapshot!(sessions(&core).await[0].usage, @r#"
+    {
+      "input_tokens": 200,
+      "output_tokens": 40,
+      "cost_micro_usd": 1500
+    }
+    "#);
+}
+
+#[tokio::test]
+async fn prompts_must_say_something_and_fit() {
+    let core = core_with(ScriptedAgent::default());
+    project(&core).await;
+    assert_eq!(code(&core, start(" \n ")).await, ErrorCode::BadRequest);
+    let long = "a".repeat(64 * 1024 + 1);
+    assert_eq!(code(&core, start(&long)).await, ErrorCode::BadRequest);
+    ok(&core, start("ok")).await;
+    let empty = json!({"method": "agents.send", "params": {"session": "s1", "text": ""}});
+    assert_eq!(code(&core, empty).await, ErrorCode::BadRequest);
+}
+
+#[tokio::test]
+async fn removing_a_project_stops_its_sessions() {
+    let core = core_with(ScriptedAgent::default());
+    project(&core).await;
+    let mut rx = core.subscribe();
+    ok(&core, start("x")).await;
+    until(&mut rx, AgentStatus::Idle).await;
+    ok(
+        &core,
+        json!({"method": "projects.remove", "params": {"id": "p1"}}),
+    )
+    .await;
+    until(&mut rx, AgentStatus::Stopped).await;
+}
+
+#[tokio::test]
+async fn old_ended_sessions_are_forgotten() {
+    // Without a runtime every start fails, so each session ends at once.
+    let core = Core::builder("test")
+        .projects(Arc::new(MemoryProjects::default()))
+        .build();
+    project(&core).await;
+    for _ in 0..25 {
+        assert_eq!(code(&core, start("x")).await, ErrorCode::Unavailable);
+    }
+    let ids: Vec<String> = sessions(&core).await.into_iter().map(|s| s.id.0).collect();
+    // Twenty kept when the last one started, plus the last one.
+    let kept: Vec<String> = (5..=25).map(|n| format!("s{n}")).collect();
+    assert_eq!(ids, kept);
 }
 
 #[tokio::test]

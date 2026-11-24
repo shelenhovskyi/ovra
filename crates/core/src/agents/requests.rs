@@ -3,12 +3,16 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use super::transcript::MAX_TEXT_BYTES;
 use super::{AgentHost, Sessions};
 use crate::protocol::agents::{
-    AgentMessage, AgentStatus, AgentsEvent, AgentsRequest, AgentsResponse, SessionInfo,
+    AgentMessage, AgentStatus, AgentsEvent, AgentsRequest, AgentsResponse, SessionId, SessionInfo,
     SessionMode, TurnUsage,
 };
-use crate::protocol::permissions::{PermissionsEvent, PermissionsRequest, PermissionsResponse};
+use crate::protocol::permissions::{
+    Decision, PermissionsEvent, PermissionsRequest, PermissionsResponse,
+};
+use crate::protocol::projects::ProjectId;
 use crate::protocol::{ErrorCode, OkResponse, ProtocolError, Response};
 use crate::services::{AgentRuntime, AgentSpec, EventSink, ProjectStore};
 
@@ -40,6 +44,7 @@ pub(crate) fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Response> 
             prompt,
         } => {
             let root = PathBuf::from(ctx.projects.get(&project)?.root);
+            check_text(&prompt)?;
             if mode == SessionMode::Isolated {
                 return Err(ProtocolError::new(
                     ErrorCode::Unavailable,
@@ -47,8 +52,7 @@ pub(crate) fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Response> 
                 ));
             }
             if sessions.any_running(|s| s.project == project && s.mode == SessionMode::Direct) {
-                return Err(ProtocolError::new(
-                    ErrorCode::Conflict,
+                return Err(conflict(
                     "another agent already works in this project's main checkout",
                 ));
             }
@@ -88,14 +92,18 @@ pub(crate) fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Response> 
                     return Err(err);
                 }
             }
-            let info = sessions.find(&id, |s| s.info().clone())?;
+            let info = sessions.find(&id, |s| s.info())?;
             Ok(Response::Agents(AgentsResponse::Session(info)))
         }
         AgentsRequest::Send { session, text } => {
-            let (process, project) =
-                sessions.find(&session, |s| (s.process(), s.info().project.clone()))?;
-            let process = process
-                .ok_or_else(|| ProtocolError::new(ErrorCode::Conflict, "the session has ended"))?;
+            check_text(&text)?;
+            let (process, project, stopping) =
+                sessions.find(&session, |s| (s.process(), s.info().project, s.stopping()))?;
+            let process = match process {
+                Some(process) if !stopping => process,
+                Some(_) => return Err(conflict("the session is stopping")),
+                None => return Err(conflict("the session has ended")),
+            };
             let host = AgentHost::new(session, project, sessions.clone(), ctx.sink.clone());
             host.message(AgentMessage::UserText { text: text.clone() });
             host.set_status(AgentStatus::Working);
@@ -103,20 +111,64 @@ pub(crate) fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Response> 
             Ok(OK)
         }
         AgentsRequest::Stop { session } => {
-            let (process, project) =
-                sessions.find(&session, |s| (s.process(), s.info().project.clone()))?;
-            match process {
-                Some(process) => process.stop(),
-                None => AgentHost::new(session, project, sessions.clone(), ctx.sink.clone())
-                    .status(AgentStatus::Stopped),
-            }
+            stop(ctx, session)?;
             Ok(OK)
         }
         AgentsRequest::Transcript { session } => {
-            let transcript = sessions.find(&session, |s| s.transcript().to_vec())?;
+            let transcript = sessions.find(&session, |s| s.transcript())?;
             Ok(Response::Agents(AgentsResponse::Transcript(transcript)))
         }
     }
+}
+
+/// Denies what the agent waits for and asks it to end; the runtime then
+/// reports `stopped`. Stopping an ended session does nothing.
+fn stop(ctx: &Ctx<'_>, session: SessionId) -> Result<()> {
+    let sessions = ctx.sessions;
+    let (process, project, denied) = sessions.find(&session, |s| {
+        let denied = if s.status().is_ended() {
+            Vec::new()
+        } else {
+            s.begin_stop()
+        };
+        (s.process(), s.info().project, denied)
+    })?;
+    let host = AgentHost::new(session, project, sessions.clone(), ctx.sink.clone());
+    host.resolved(denied, Decision::Deny);
+    match process {
+        Some(process) => process.stop(),
+        None => host.status(AgentStatus::Stopped),
+    }
+    Ok(())
+}
+
+/// Stops every session of a project that is being removed.
+pub(crate) fn stop_project(ctx: &Ctx<'_>, project: &ProjectId) {
+    for session in ctx.sessions.running(project) {
+        // A session that ended meanwhile is fine to skip.
+        let _ = stop(ctx, session);
+    }
+}
+
+/// Prompts and messages must say something and fit in the transcript.
+fn check_text(text: &str) -> Result<()> {
+    if text.trim().is_empty() {
+        return Err(ProtocolError::new(
+            ErrorCode::BadRequest,
+            "the message is empty",
+        ));
+    }
+    if text.len() > MAX_TEXT_BYTES {
+        return Err(ProtocolError::new(
+            ErrorCode::BadRequest,
+            format!("the message is longer than {} KiB", MAX_TEXT_BYTES / 1024),
+        ));
+    }
+    Ok(())
+}
+
+fn conflict(message: &str) -> ProtocolError {
+    ProtocolError::new(ErrorCode::Conflict, message)
 }
 
 pub(crate) fn permissions(ctx: &Ctx<'_>, request: PermissionsRequest) -> Result<Response> {

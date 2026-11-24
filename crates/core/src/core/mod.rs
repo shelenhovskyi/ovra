@@ -209,6 +209,7 @@ impl Core {
             }
             ProjectsRequest::Remove { id } => {
                 store.remove(&id)?;
+                agents::stop_project(&self.agents_ctx(), &id);
                 let mut active = self.active();
                 if active.as_ref() == Some(&id) {
                     self.inner.fs.unwatch(&id);
