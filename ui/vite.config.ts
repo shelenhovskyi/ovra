@@ -6,6 +6,9 @@ export default defineConfig({
   clearScreen: false,
   server: { port: 5173, strictPort: true },
   build: { target: "es2022" },
+  // Vitest runs in Node; without the browser condition Svelte resolves to its
+  // server build and component tests cannot call mount().
+  resolve: process.env.VITEST ? { conditions: ["browser"] } : undefined,
   test: {
     environment: "jsdom",
     // Hard per-test limit; budgets are in scripts/test-budgets.json.
