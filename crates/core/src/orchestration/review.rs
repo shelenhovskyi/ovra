@@ -553,12 +553,11 @@ async fn take(core: &Core, id: &ReviewId) -> Result<(ReviewItem, Vec<String>, Ve
             .collect();
         skipped.extend(done.skipped);
         if !written.is_empty() {
-            // What the take wrote, so an undo leaves alone what the person
-            // changed after it.
-            let after = worktrees.snapshot(root).await?;
+            // `after` is what the take wrote, so an undo leaves alone what
+            // the person changed after it.
             taken = Some(Taken {
                 before: done.undo,
-                after,
+                after: done.after,
                 paths: written.clone(),
             });
         }
