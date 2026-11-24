@@ -61,3 +61,7 @@ build-app:
 fmt:
     cargo fmt --all
     pnpm exec biome format --write .
+
+# UX review: run a persona script against headless mode (docs/ux-reviews/README.md).
+ux script *args: build-headless
+    node tests/e2e/ux/run.ts {{script}} {{args}}

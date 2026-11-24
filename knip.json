@@ -6,7 +6,7 @@
       "entry": ["src/lib/protocol/*.ts"]
     },
     "tests/e2e": {
-      "entry": ["specs/**/*.ts"]
+      "entry": ["specs/**/*.ts", "ux/run.ts"]
     },
     "tests/perf": {
       "entry": ["specs/**/*.ts"]
