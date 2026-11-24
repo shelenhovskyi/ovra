@@ -7,7 +7,7 @@ import { formatShortcut, isApple } from "../keys/shortcut";
 import type { SessionId } from "../lib/protocol";
 import { CoreError } from "../lib/transport";
 import { useOvra } from "../shell/context";
-import { agentSessions, sessionName } from "./sessions.svelte";
+import { agentSessions, sessionName, usageText } from "./sessions.svelte";
 import { isEnded, statusLabel } from "./status";
 import Transcript from "./Transcript.svelte";
 
@@ -172,6 +172,9 @@ const canReply = $derived(current !== null && current.status.state === "idle");
           {/if}
         </div>
         <p class="status" role="status">{statusLabel(current.status)}</p>
+        {#if current.usage.input_tokens + current.usage.output_tokens > 0}
+          <p class="status" data-testid="agent-usage">Total: {usageText(current.usage)}</p>
+        {/if}
         <Transcript messages={messages ?? []} />
         {#if !isEnded(current.status)}
           <form

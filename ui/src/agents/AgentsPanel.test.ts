@@ -75,6 +75,9 @@ describe("AgentsPanel", () => {
       "Turn ended: 10 tokens in, 5 out, $0.0012",
     ]);
     expect(panel()?.querySelector("[role=status]")?.textContent).toBe("Working");
+    expect(panel()?.querySelector("[data-testid=agent-usage]")?.textContent).toBe(
+      "Total: 10 tokens in, 5 out, $0.0012",
+    );
   });
 
   it("replies only when the agent waits, and stops", async () => {

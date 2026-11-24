@@ -3,7 +3,7 @@
 // notifications (`agentSessions(transport)`).
 
 import { SvelteMap } from "svelte/reactivity";
-import type { AgentMessage, CoreEvent, ProjectId, SessionId, SessionInfo } from "../lib/protocol";
+import type { AgentMessage, CoreEvent, ProjectId, SessionId, SessionInfo, TurnUsage } from "../lib/protocol";
 import type { Transport } from "../lib/transport";
 
 export class AgentSessions {
@@ -68,12 +68,23 @@ export class AgentSessions {
       }
       if (status.state === "starting") this.transcripts.set(session, []);
       // Its title comes with the list (or the reply to agents.start).
-      this.byId.set(session, { id: session, project, agent: "claude", mode: "direct", status, title: "" });
+      this.byId.set(session, {
+        id: session,
+        project,
+        agent: "claude",
+        mode: "direct",
+        status,
+        title: "",
+        usage: NO_USAGE,
+      });
       void this.load(project).catch(() => {});
     } else if (event.type === "agents.message") {
       const { session, message } = event.data;
       const transcript = this.transcripts.get(session);
       if (transcript) this.transcripts.set(session, [...transcript, message]);
+      const known = this.byId.get(session);
+      if (known && message.kind === "turn_end")
+        this.byId.set(session, { ...known, usage: add(known.usage, message.usage) });
     }
   }
 
@@ -81,6 +92,24 @@ export class AgentSessions {
     this.transcripts.clear();
     for (const project of this.loaded) void this.load(project).catch(() => {});
   }
+}
+
+const NO_USAGE: TurnUsage = { input_tokens: 0, output_tokens: 0, cost_micro_usd: null };
+
+function add(a: TurnUsage, b: TurnUsage): TurnUsage {
+  const cost =
+    a.cost_micro_usd === null && b.cost_micro_usd === null ? null : (a.cost_micro_usd ?? 0) + (b.cost_micro_usd ?? 0);
+  return {
+    input_tokens: a.input_tokens + b.input_tokens,
+    output_tokens: a.output_tokens + b.output_tokens,
+    cost_micro_usd: cost,
+  };
+}
+
+/** `12,345 tokens in, 678 out, $0.0123` */
+export function usageText(usage: TurnUsage): string {
+  const cost = usage.cost_micro_usd === null ? "" : `, $${(usage.cost_micro_usd / 1_000_000).toFixed(4)}`;
+  return `${usage.input_tokens.toLocaleString("en")} tokens in, ${usage.output_tokens.toLocaleString("en")} out${cost}`;
 }
 
 const instances = new WeakMap<Transport, AgentSessions>();

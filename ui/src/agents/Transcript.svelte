@@ -2,6 +2,7 @@
 // One session's messages. A log region, so screen readers hear new messages.
 import { describeTool } from "../approvals/describe";
 import type { AgentMessage } from "../lib/protocol";
+import { usageText } from "./sessions.svelte";
 
 let { messages }: { messages: AgentMessage[] } = $props();
 
@@ -11,12 +12,6 @@ let box = $state<HTMLElement>();
 function clip(text: string): string {
   if (text.length <= MAX_OUTPUT) return text;
   return `${text.slice(0, MAX_OUTPUT)}\n… ${text.length - MAX_OUTPUT} more characters`;
-}
-
-function usage(message: Extract<AgentMessage, { kind: "turn_end" }>): string {
-  const { input_tokens, output_tokens, cost_micro_usd } = message.usage;
-  const cost = cost_micro_usd === null ? "" : `, $${(cost_micro_usd / 1_000_000).toFixed(4)}`;
-  return `Turn ended: ${input_tokens} tokens in, ${output_tokens} out${cost}`;
 }
 
 // Follow new messages while the view is scrolled to the end.
@@ -48,7 +43,7 @@ $effect(() => {
         <span class="who">{sub}{message.is_error ? "Tool failed" : "Tool result"}</span>
         {#if message.output}<pre>{clip(message.output)}</pre>{/if}
       {:else if message.kind === "turn_end"}
-        <span class="who">{usage(message)}</span>
+        <span class="who">Turn ended: {usageText(message.usage)}</span>
       {:else if message.kind === "error"}
         <span class="who">Error</span>
         <p>{message.message}</p>

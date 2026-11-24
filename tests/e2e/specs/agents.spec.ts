@@ -62,7 +62,7 @@ test("start an agent and answer its requests from the keyboard", async ({ page }
   await expect(transcript).toContainText(/Claude\s*Done\./);
 });
 
-test("reply to an agent, allow with the mouse and stop it", async ({ page }) => {
+test("reply to an agent, allow with the mouse and stop it while it waits", async ({ page }) => {
   await openProject(page, "ovra-agents-reply-");
   await page.getByRole("textbox", { name: "Task for a new Claude session" }).fill("Tidy up");
   await page.getByRole("button", { name: "Start" }).click();
@@ -83,12 +83,10 @@ test("reply to an agent, allow with the mouse and stop it", async ({ page }) => 
   const status = approvals.getByRole("group", { name: "Run git status" });
   await expect(status).toBeVisible();
   await expect(page.getByRole("button", { name: /Tidy up.*Needs approval/ })).toBeVisible();
-  await arm(page);
-  await expect(status.getByRole("button", { name: "Allow" })).toHaveAttribute("aria-disabled", "false");
-  await status.getByRole("button", { name: "Allow" }).click();
-  await expect(session.getByRole("status")).toHaveText("Waiting for you");
 
+  // Stopping denies what the agent still waits for.
   await session.getByRole("button", { name: "Stop" }).click();
   await expect(session.getByRole("status")).toHaveText("Stopped");
+  await expect(status).toBeHidden();
   await expect(session.getByRole("textbox", { name: "Reply to Claude" })).toBeHidden();
 });
