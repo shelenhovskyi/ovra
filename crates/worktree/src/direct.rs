@@ -225,12 +225,17 @@ async fn ok(core: &Core, json: Value) -> Response {
 
 /// Not valid UTF-8, with NUL bytes and a CR LF: git treats it as binary.
 const PNG: &[u8] = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\xff\xfe";
-const PNG_EDITED: &[u8] = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x01";
+/// Longer than [`PNG`]: see the note on sizes below.
+const PNG_EDITED: &[u8] = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x01\x00\x02";
 
 fn row(path: &str, from: Option<&str>, by: ChangedBy) -> (String, Option<String>, ChangedBy) {
     (path.to_owned(), from.map(str::to_owned), by)
 }
 
+// Every version of a file in this test has a size of its own. It runs in
+// well under a second, so its rewrites can share file times, and a rewrite
+// of the same size and time then rests on git's racy-clean checks alone.
+// Those are git's to test; here a size change always tells git to look.
 #[tokio::test]
 async fn reject_keeps_the_persons_work_and_touches_no_git_state() {
     use ChangedBy::{Agent, Both, Outside};
@@ -256,7 +261,7 @@ async fn reject_keeps_the_persons_work_and_touches_no_git_state() {
     c.put("shared.txt", b"one\ntwo\nmine\n");
     c.write("shared.txt", b"one\ntwo\nmine\nagent\n").await;
     c.bash("make", |root| {
-        put(root, "plain.txt", b"agent\n");
+        put(root, "plain.txt", b"plain, rewritten by the agent\n");
         put(root, "logo.png", PNG_EDITED);
         put(root, "new.bin", PNG);
         // An ignored file is never in the diff, so never reverted.
