@@ -73,6 +73,7 @@ const status = $derived.by((): { text: string; ok: boolean } => {
     if (error) return { text: `Core unavailable: ${error}`, ok: false };
     return { text: "Connecting…", ok: true };
   }
+  if (connection === "refused") return { text: "Core unavailable: it no longer accepts this address", ok: false };
   if (wasOpen) return { text: "Connection to core lost, reconnecting…", ok: false };
   if (everClosed || error) return { text: `Core unavailable: ${error ?? "could not connect, retrying…"}`, ok: false };
   return { text: "Connecting…", ok: true };
@@ -105,6 +106,16 @@ const status = $derived.by((): { text: string; ok: boolean } => {
     <span data-testid="status" role="status" class:error={!status.ok}>{status.text}</span>
   </footer>
   <Notifications />
+  {#if connection === "refused"}
+    <section class="refused" role="alert" aria-labelledby="refused-title">
+      <h2 id="refused-title">Ovra core was restarted</h2>
+      <p>This page uses the address of an earlier run, and the new core does not accept it.</p>
+      <p>
+        Open the new address instead. The core prints it when it starts, on a line that begins with
+        <code>OVRA_URL=</code> (for example in the terminal running <code>just dev-headless</code>).
+      </p>
+    </section>
+  {/if}
   {#if workspace.paletteOpen}
     <Palette />
   {/if}
@@ -180,6 +191,24 @@ const status = $derived.by((): { text: string; ok: boolean } => {
     font-size: 12px;
     color: #9a9aa6;
     border-top: 1px solid #2a2a31;
+  }
+  .refused {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 0 max(16px, calc(50vw - 280px));
+    background: #16161a;
+  }
+  .refused h2 {
+    margin: 0 0 12px;
+    font-size: 18px;
+  }
+  .refused p {
+    margin: 0 0 8px;
+    line-height: 1.5;
   }
   .error {
     color: #ff6b6b;

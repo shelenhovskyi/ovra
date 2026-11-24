@@ -69,17 +69,22 @@ describe("connectSocket", () => {
   let sockets: FakeSocket[];
   let statuses: ConnectionStatus[];
   let router: FrameRouter;
+  let serverUp: boolean;
   const last = () => sockets[sockets.length - 1] as FakeSocket;
 
   beforeEach(() => {
     vi.useFakeTimers();
     sockets = [];
     statuses = [];
-    router = connectSocket(() => {
-      const socket = new FakeSocket();
-      sockets.push(socket);
-      return socket;
-    });
+    serverUp = false;
+    router = connectSocket(
+      () => {
+        const socket = new FakeSocket();
+        sockets.push(socket);
+        return socket;
+      },
+      async () => serverUp,
+    );
     router.onStatus((status) => statuses.push(status));
   });
 
@@ -114,24 +119,54 @@ describe("connectSocket", () => {
     await expect(queued).resolves.toEqual(INFO);
   });
 
-  it("backs off exponentially up to 10 s and resets after an open", () => {
+  it("backs off exponentially up to 10 s and resets after an open", async () => {
     const delays: number[] = [];
     for (let attempt = 0; attempt < 8; attempt++) {
       last().emit("close");
-      delays.push(nextDelay(sockets.length));
+      delays.push(await nextDelay(sockets.length));
     }
     expect(delays).toEqual([250, 500, 1000, 2000, 4000, 8000, 10_000, 10_000]);
 
     last().emit("open");
     last().emit("close");
-    expect(nextDelay(sockets.length)).toBe(250);
+    expect(await nextDelay(sockets.length)).toBe(250);
+  });
+
+  it("tells every listener to reload after a reconnect, not after the first open", async () => {
+    const events: string[] = [];
+    router.onEvent((event) => events.push(event.type));
+    last().emit("open");
+    expect(events).toEqual([]);
+    last().emit("close");
+    await nextDelay(sockets.length);
+    last().emit("open");
+    expect(events).toEqual(["info.resync"]);
+  });
+
+  it("stops retrying when the server is up but keeps refusing the socket", async () => {
+    serverUp = true;
+    last().emit("close");
+    await nextDelay(sockets.length);
+    last().emit("close");
+    await vi.waitFor(() => expect(statuses.at(-1)).toBe("refused"));
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(sockets).toHaveLength(2);
+    await expect(router.call({ method: "info.get" })).rejects.toThrow("connection to core closed");
+  });
+
+  it("keeps retrying while the server does not answer at all", async () => {
+    for (let attempt = 0; attempt < 4; attempt++) {
+      last().emit("close");
+      await nextDelay(sockets.length);
+    }
+    expect(statuses).not.toContain("refused");
   });
 
   /** Advances the clock until a new socket opens and returns how long that took. */
-  function nextDelay(count: number): number {
+  async function nextDelay(count: number): Promise<number> {
     let waited = 0;
     while (sockets.length === count) {
-      vi.advanceTimersByTime(50);
+      await vi.advanceTimersByTimeAsync(50);
       waited += 50;
     }
     return waited;

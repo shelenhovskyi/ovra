@@ -73,6 +73,22 @@ describe("Shell", () => {
     expect(target.querySelector("[role=status]")?.textContent).toBe("Core unavailable: could not connect, retrying…");
     unmount(app);
   });
+
+  it("explains a refused address instead of retrying", async () => {
+    const router = new FrameRouter(() => {}, "connecting");
+    const target = document.createElement("div");
+    const app = mount(Shell, { target, props: { transport: router } });
+    flushSync();
+    router.setStatus("refused");
+    await new Promise((resolve) => setTimeout(resolve));
+    flushSync();
+    expect(target.querySelector("[role=status]")?.textContent).toBe(
+      "Core unavailable: it no longer accepts this address",
+    );
+    expect(target.querySelector("[aria-labelledby=refused-title] h2")?.textContent).toBe("Ovra core was restarted");
+    expect(target.querySelector("[aria-labelledby=refused-title]")?.textContent).toContain("OVRA_URL=");
+    unmount(app);
+  });
 });
 
 const INFO = { type: "info", data: { name: "ovra", version: "0.0.0", mode: "test" } };

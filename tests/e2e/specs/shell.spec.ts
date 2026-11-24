@@ -23,4 +23,6 @@ test("a wrong token is refused", async ({ page }) => {
   url.searchParams.set("token", "wrong");
   await page.goto(url.href);
   await expect(page.getByTestId("status")).toHaveText(/^Core unavailable/);
+  // The server answers but refuses the token, as after a restart: say so and stop retrying.
+  await expect(page.getByRole("heading", { name: "Ovra core was restarted" })).toBeVisible();
 });
