@@ -72,6 +72,28 @@ owns one area (a crate, or one folder under `ui/src/`). To avoid conflicts:
   and regenerate with `cargo check` / `pnpm install`.
 - Rebase on `main` before pushing; re-run `just test` after a rebase that
   touched your area's dependencies.
+- Small changes outside your area are fine when your task needs them (a
+  missing method, a new protocol field, a config line): put them in their own
+  commit, rebase on `main`, push it first, then continue.
+
+## Acting without asking
+
+The owner should not have to confirm routine steps. Do these yourself:
+
+- Add a dependency named in the task plan, or any dependency under a
+  permissive license (MIT, Apache-2.0, BSD, ISC, Zlib, CC0, Unlicense,
+  MPL-2.0). `cargo deny check` enforces the license list.
+- Make the small cross-area changes described above.
+- Commit, rebase and push to `main`.
+
+Ask the owner only before:
+
+- adding a dependency under a copyleft license (GPL, LGPL, AGPL, SSPL, ...);
+- weakening security: CSP, Tauri capabilities, sandbox, netproxy, secrets,
+  extension permissions, headless-mode access checks;
+- deleting user data, rewriting history or force-pushing;
+- changing the architecture: a new ADR or deviating from one, a new crate
+  boundary, or a cross-crate, WIT or MCP API change other areas depend on.
 
 ## Rules
 
@@ -110,14 +132,12 @@ The suite must stay fast; slow tests are bugs.
 
 ## When to ask
 
-Work autonomously within approved specs and ADRs. Ask the user only before:
-
-- adding a dependency or changing a public API (crate API, WIT, MCP tool schemas);
-- writing a new ADR or deviating from an existing one;
-- touching security code (policies, sandbox, CSP, capabilities, extension permissions);
-- making a UX or architecture choice that is costly to reverse.
-  For anything else, pick the most reasonable option, record it under "Assumptions" in the commit message (or PR), and continue.
-  Batch questions into one message, give options and a recommendation, and keep working on independent parts.
+Work autonomously within approved specs and ADRs. What needs the owner is
+listed in "Acting without asking" above, plus UX choices that are costly to
+reverse. For anything else, pick the most reasonable option, record it under
+"Assumptions" in the commit message, and continue. Batch questions into one
+message, give options and a recommendation, and keep working on independent
+parts.
 
 Features larger than a day start with a short spec in `docs/specs/` that a
 human approves.

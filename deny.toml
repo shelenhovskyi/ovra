@@ -21,6 +21,9 @@ allow = [
   "MPL-2.0",
   "CDLA-Permissive-2.0",
   "BSL-1.0",
+  "CC0-1.0",
+  "Unlicense",
+  "0BSD",
 ]
 # notify (file watching, task 1.A) is public domain (CC0); allowed for it only.
 exceptions = [{ allow = ["CC0-1.0"], crate = "notify" }]
