@@ -25,6 +25,7 @@ test:
 build-headless:
     pnpm --filter @ovra/ui build
     cargo build -p ovra-daemon --features fake-agent
+    cargo build -p ovra-agent-runtime --features fake-claude --bin fake-claude
 
 # End-to-end UI tests against headless mode.
 e2e: build-headless

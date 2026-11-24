@@ -24,3 +24,7 @@ skills and plugins are left out. Do not edit them by hand; record again.
 - `interrupted.jsonl`: an allowed Bash command interrupted while it runs,
   then a reply in the same session.
 - `subagent.jsonl`: a Task subagent; its messages carry `parent_tool_use_id`.
+
+`src/bin/fake-claude.rs` (feature `fake-claude`, built by `just
+build-headless`) plays a fixture as a stand-in `claude` executable, so e2e
+tests (`tests/e2e/specs/claude-driver.spec.ts`) run the real driver.
