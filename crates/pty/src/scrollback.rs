@@ -10,6 +10,9 @@ pub(crate) const KEEP_BYTES: usize = 1024 * 1024;
 pub(crate) struct Scrollback {
     text: String,
     seq: u64,
+    /// Set once output was held back for a slow subscriber.
+    #[cfg(test)]
+    pub(crate) held_back: bool,
 }
 
 impl Scrollback {

@@ -3,34 +3,28 @@
 //! `ovra_core::fakes::EchoTerminals`.
 //!
 //! Each terminal runs the user's login shell (`$SHELL` on Unix, `%ComSpec%`
-//! on Windows) through `portable-pty`, which uses ConPTY on Windows. Two
-//! threads serve it: one reads output and emits `terminals.output`, the other
-//! waits for the shell to end, drops the pseudo-terminal and emits
-//! `terminals.exited` once the output is drained.
+//! on Windows) through `portable-pty`, which uses ConPTY on Windows. Three
+//! threads serve it: one waits for the shell to end and drops the
+//! pseudo-terminal, the others read and emit output (`output.rs`).
 
+mod output;
 mod scrollback;
 mod utf8;
 
 use std::collections::HashMap;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread;
-use std::time::Duration;
 
-use ovra_core::protocol::terminals::{TermSize, TerminalId, TerminalsEvent};
+use ovra_core::protocol::terminals::{TermSize, TerminalId};
 use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::{EventSink, Result, TerminalService};
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 
+use crate::output::Chunk;
 use crate::scrollback::Scrollback;
-use crate::utf8::Utf8Stream;
-
-/// How long `terminals.exited` waits for the last output after the shell
-/// ended. Output only lags when a background job still holds the terminal.
-const DRAIN_GRACE: Duration = Duration::from_millis(500);
 
 /// The real terminal service.
 #[derive(Debug, Default)]
@@ -180,13 +174,7 @@ impl TerminalService for Pty {
             },
         );
 
-        let (drained, wait_drained) = mpsc::channel();
-        let reader_id = id.clone();
-        let reader_sink = sink.clone();
-        thread::spawn(move || {
-            pump(reader, &reader_id, &reader_sink, &output);
-            let _ = drained.send(());
-        });
+        let exited = output::serve(reader, id.clone(), sink, output);
         let terminals = Arc::clone(&self.terminals);
         let waiter_id = id.clone();
         thread::spawn(move || {
@@ -196,12 +184,12 @@ impl TerminalService for Pty {
             // scrollback stays until the terminal is closed.
             let session = lock(&terminals).get_mut(&id).and_then(|t| t.session.take());
             drop(session);
-            let _ = wait_drained.recv_timeout(DRAIN_GRACE);
             let code = match status {
                 Ok(s) if s.signal().is_none() => i32::try_from(s.exit_code()).ok(),
                 _ => None,
             };
-            sink.emit(TerminalsEvent::Exited { id, code });
+            // The output side emits `terminals.exited` after the last output.
+            let _ = exited.send(Chunk::Exited(code));
         });
         Ok(id)
     }
@@ -241,26 +229,6 @@ impl TerminalService for Pty {
         let tail = lock(&output).tail();
         Ok(tail)
     }
-}
-
-/// Emits everything the shell writes until the terminal closes.
-fn pump(
-    mut reader: Box<dyn Read + Send>,
-    id: &TerminalId,
-    sink: &EventSink,
-    output: &Mutex<Scrollback>,
-) {
-    let mut stream = Utf8Stream::default();
-    let mut buf = [0u8; 16 * 1024];
-    let emit = |data: String| lock(output).emit(sink, id, data);
-    loop {
-        match reader.read(&mut buf) {
-            // Unix reports EIO once the shell and its children are gone.
-            Ok(0) | Err(_) => break,
-            Ok(n) => emit(stream.push(&buf[..n])),
-        }
-    }
-    emit(stream.finish());
 }
 
 #[cfg(test)]

@@ -205,3 +205,30 @@ async fn opens_through_the_core_in_the_project_root() {
     output_until(&mut rx, &id, &format!("<{}>", root.display())).await;
     assert_eq!(exit_code(&mut rx, &id).await, Some(5));
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_flood_reaches_a_subscriber_whole() {
+    const LINES: usize = 200_000;
+    let pty = Pty::with_program(&["/bin/sh", "-c", "yes | head -n 200000"]);
+    let core = Core::new("test");
+    let mut rx = core.subscribe();
+    let id = pty.open(here(), SIZE, core.sink()).expect("open");
+    let (mut text, mut last) = (String::new(), 0);
+    let code = loop {
+        // `next` fails the test if this subscriber fell behind.
+        match next(&mut rx, &id).await {
+            TerminalsEvent::Output { data, seq, .. } => {
+                assert_eq!(seq, last + 1);
+                last = seq;
+                text += &data;
+            }
+            TerminalsEvent::Exited { code, .. } => break code,
+        }
+    };
+    assert_eq!(code, Some(0));
+    assert_eq!(text.matches("y\r\n").count(), LINES);
+    let (kept, seq) = pty.scrollback(&id).expect("scrollback");
+    assert_eq!(seq, last);
+    assert!(text.ends_with(&kept));
+}
