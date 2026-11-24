@@ -54,6 +54,13 @@ const shared = $derived(item ? sharedFiles(item, inbox.items) : new Set<string>(
 const busy = $derived(item ? inbox.busy.includes(item.id) : false);
 const outcome = $derived(inbox.outcome && inbox.outcome.id === item?.id ? inbox.outcome : null);
 const diffKey = $derived(item && file ? `${item.id}\n${file.path}\n${inbox.changes}` : null);
+/**
+ * A worker's item is approved only with the current file's diff on screen,
+ * read from the same version of its files as the list (`fingerprint`).
+ */
+const diffShown = $derived(
+  !item?.fingerprint || (diff !== null && diff.key === diffKey && diff.patch !== null && diff.fingerprint !== null),
+);
 
 $effect(() => () => inbox.dispose());
 
@@ -234,8 +241,9 @@ async function approve(review: ReviewItem): Promise<void> {
   if (commit && !message) return;
   // The diff on screen must be of the files approve would land: if it was
   // read from another version of the worker's files, show both anew first.
-  const shown = diff?.key.startsWith(`${review.id}\n`) ? diff.fingerprint : null;
-  if (review.fingerprint && shown && shown !== review.fingerprint) {
+  if (review.fingerprint && !diffShown) return;
+  const shown = diff?.fingerprint ?? null;
+  if (review.fingerprint && shown !== review.fingerprint) {
     staleDiff = true;
     await inbox.recheck();
     return;
@@ -454,12 +462,23 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                       <p class="hint" id="inbox-commit-why">Write a commit message to approve and commit.</p>
                     {/if}
                   {/if}
+                  {#if !diffShown}
+                    <p class="hint" id="inbox-diff-why" data-testid="inbox-diff-why">
+                      {diff?.error
+                        ? "The diff of this file did not load, so approve waits: you approve only what you have seen."
+                        : "Approve waits until the diff of this file has loaded."}
+                    </p>
+                  {/if}
                   <div class="buttons">
                     <button
                       type="button"
                       class="approve"
-                      aria-disabled={busy || (commit && !commitMessage.trim())}
-                      aria-describedby={commit && !commitMessage.trim() ? "inbox-commit-why" : undefined}
+                      aria-disabled={busy || (commit && !commitMessage.trim()) || !diffShown}
+                      aria-describedby={commit && !commitMessage.trim()
+                        ? "inbox-commit-why"
+                        : diffShown
+                          ? undefined
+                          : "inbox-diff-why"}
                       onclick={() => {
                         if (!busy) void approve(item);
                       }}>{commit ? "Approve and commit" : "Approve"}</button

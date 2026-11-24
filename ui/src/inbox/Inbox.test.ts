@@ -142,6 +142,18 @@ describe("Inbox", () => {
     expect($("[data-testid=inbox-stale]")).toBeNull();
   });
 
+  it("does not approve a worker's files without their diff on screen", async () => {
+    const core = await setup([review("r1", { mode: "isolated", fingerprint: "f1" })]);
+    core.diffGone.set("README.md", "gone");
+    core.emit({ type: "review.changed", data: { project: "p1", id: "r1" } });
+    await open();
+    expect(button(/^Approve$/)?.getAttribute("aria-disabled")).toBe("true");
+    expect($("[data-testid=inbox-diff-why]")?.textContent).toContain("did not load");
+    button(/^Approve$/)?.click();
+    await settle();
+    expect(core.sent("review.approve")).toEqual([]);
+  });
+
   it("rejects after a confirmation that says what stays, and lists what was left", async () => {
     const core = await setup([review("r1", { files: [change("README.md", { by: "both" })] })]);
     core.conflicts = ["README.md"];
