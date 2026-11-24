@@ -4,7 +4,6 @@
 // and selection while they are not shown.
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
-import { registerCommand } from "../keys/commands";
 import { useOvra } from "../shell/context";
 import type { Buffer } from "./buffers.svelte";
 import { answerClose, tabs } from "./open-files.svelte";
@@ -72,8 +71,6 @@ function discard(path: string): void {
   tabs.closing = path;
   void answerClose(workspace, "discard");
 }
-
-$effect(() => registerCommand({ id: "editor.save", title: "Save file", keys: "Mod+S", run: () => save() }));
 </script>
 
 <div class="editor" data-panel="Editor">

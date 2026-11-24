@@ -86,3 +86,16 @@ test("unsavedText gives the viewer a draft or the buffer's unsaved text", async 
   vi.spyOn(buffer, "unsaved", "get").mockReturnValue("# edited");
   expect(unsavedText("p1", "clean.md")).toBe("# edited");
 });
+
+test("editor.save in view mode saves unsaved text and otherwise does nothing", async () => {
+  const { core, drafts, workspace, unregister } = setup();
+  core.put("a.txt", "disk");
+  workspace.openFile("a.txt");
+  await run("editor.save");
+  expect(core.writes).toEqual([]);
+  drafts.set("p1", "a.txt", { text: "draft", mtime: 101 });
+  await run("editor.save");
+  expect(core.writes).toEqual([{ path: "a.txt", text: "draft", expected: 101 }]);
+  expect(drafts.has("p1", "a.txt")).toBe(false);
+  unregister();
+});

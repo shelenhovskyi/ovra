@@ -144,6 +144,11 @@ test("the viewer shows unsaved text, and binary files explain why they cannot be
   await expect(main.getByTestId("unsaved-preview")).toHaveText("Showing unsaved changes from the editor.");
   await expect(main.getByText("Draft paragraph")).toBeVisible();
 
+  // Mod+S in view mode saves the unsaved text instead of the browser's "Save page".
+  await page.keyboard.press("ControlOrMeta+S");
+  await expect(main.getByTestId("unsaved-preview")).toBeHidden();
+  expect(readFileSync(join(dir, "readme.md"), "utf8")).toContain("Draft paragraph");
+
   await page.getByRole("treeitem", { name: /logo\.png/ }).click();
   await page.keyboard.press("ControlOrMeta+E");
   await expect(page.getByRole("alert").filter({ hasText: "logo.png" })).toHaveText(

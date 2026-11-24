@@ -33,6 +33,14 @@ export async function toggle(workspace: Target): Promise<void> {
   workspace.mode = "edit";
 }
 
+/** Saves the open file if it has unsaved text (loaded or as a draft); otherwise does nothing. */
+async function saveActive(workspace: Target): Promise<void> {
+  const path = workspace.openPath;
+  const buffers = tabs.current?.buffers;
+  if (!path || !buffers?.isDirty(path)) return;
+  await buffers.open(path).save();
+}
+
 /** Registers the editor and tab commands; returns a function that unregisters them. */
 export function registerEditorCommands(workspace: Target): () => void {
   const step = (offset: number) => () => {
@@ -46,6 +54,8 @@ export function registerEditorCommands(workspace: Target): () => void {
       keys: "Mod+E",
       run: () => toggle(workspace),
     }),
+    // Registered in every mode, so Mod+S never reaches the browser's "Save page".
+    registerCommand({ id: "editor.save", title: "Save file", keys: "Mod+S", run: () => saveActive(workspace) }),
     registerCommand({ id: "editor.next_tab", title: "Next tab", keys: "Ctrl+Tab", run: step(1) }),
     registerCommand({ id: "editor.previous_tab", title: "Previous tab", keys: "Ctrl+Shift+Tab", run: step(-1) }),
     registerCommand({
