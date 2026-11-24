@@ -155,10 +155,15 @@ impl Watch {
         };
         let (tx, rx) = mpsc::channel();
         let events = tx.clone();
-        let watcher = notify::recommended_watcher(move |e| {
+        let mut watcher = notify::recommended_watcher(move |e| {
             let _ = events.send(Msg::Fs(e));
         })
         .map_err(|e| internal(&e))?;
+        if ONE_RECURSIVE_WATCH {
+            watcher
+                .watch(&root, RecursiveMode::Recursive)
+                .map_err(|e| internal(&e))?;
+        }
         let dirs = Arc::new(Dirs {
             watcher: Mutex::new(watcher),
             watched: Mutex::new(HashSet::new()),
@@ -254,8 +259,14 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+/// FSEvents (macOS) restarts its event stream on every `watch` call and
+/// drops what happens meanwhile, so there one recursive watch covers the
+/// root and [`Dirs::add`] only records directories. Elsewhere each directory
+/// that is not ignored gets its own watch.
+const ONE_RECURSIVE_WATCH: bool = cfg!(target_os = "macos");
+
 /// The directories a project watches, shared by the watcher thread and
-/// listings.
+/// listings. Events count only for files directly in one of them.
 #[derive(Debug)]
 pub(crate) struct Dirs {
     watcher: Mutex<RecommendedWatcher>,
@@ -267,9 +278,10 @@ impl Dirs {
     pub(crate) fn add(&self, dir: &Path) {
         let mut watched = lock(&self.watched);
         if !watched.contains(dir)
-            && lock(&self.watcher)
-                .watch(dir, RecursiveMode::NonRecursive)
-                .is_ok()
+            && (ONE_RECURSIVE_WATCH
+                || lock(&self.watcher)
+                    .watch(dir, RecursiveMode::NonRecursive)
+                    .is_ok())
         {
             watched.insert(dir.to_path_buf());
         }
@@ -282,9 +294,9 @@ impl Dirs {
     /// Forgets a removed directory and everything below it.
     fn remove(&self, dir: &Path) {
         let mut watched = lock(&self.watched);
-        // inotify drops the watch of a deleted directory by itself, and
-        // removing it again only logs a warning.
-        if watched.remove(dir) && !cfg!(target_os = "linux") {
+        // inotify drops the watch of a deleted directory by itself (removing
+        // it again only logs a warning); macOS has no per-directory watch.
+        if watched.remove(dir) && cfg!(windows) {
             let _ = lock(&self.watcher).unwatch(dir);
         }
         watched.retain(|d| !d.starts_with(dir));
@@ -357,7 +369,11 @@ impl Worker {
                 continue;
             }
             for path in event.paths {
-                if let Some(rel) = self.relative(&path)
+                // Ignored directories are not watched, so their files do not
+                // count even where the OS reports them (macOS).
+                let watched = path.parent().is_some_and(|p| self.dirs.contains(p));
+                if watched
+                    && let Some(rel) = self.relative(&path)
                     && changed.insert(rel.clone())
                 {
                     self.update(path, rel, &mut set, &mut visible);
