@@ -1,43 +1,93 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { expect, test } from "@playwright/test";
+import { basename, join } from "node:path";
+import { expect, type Page, test } from "@playwright/test";
 
-test("open files become tabs that switch, show unsaved changes and close", async ({ page }) => {
+function project(files: Record<string, string>): string {
+  const dir = mkdtempSync(join(tmpdir(), "ovra-tabs-"));
+  for (const [name, text] of Object.entries(files)) writeFileSync(join(dir, name), text);
+  return dir;
+}
+
+async function open(page: Page, dir: string): Promise<void> {
   const url = process.env.OVRA_URL;
   if (!url) throw new Error("OVRA_URL is not set; globalSetup did not run");
-  const dir = mkdtempSync(join(tmpdir(), "ovra-tabs-"));
-  writeFileSync(join(dir, "a.txt"), "alpha\n");
-  writeFileSync(join(dir, "b.txt"), "beta\n");
-
   await page.goto(url);
   const projects = page.getByTestId("project-list");
   await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
   await projects.getByRole("button", { name: "Open", exact: true }).click();
+}
+
+test("tabs switch with the keyboard, keep undo and focus, and ask before closing unsaved text", async ({ page }) => {
+  const dir = project({ "a.txt": "alpha\n", "b.txt": "beta\n" });
+  await open(page, dir);
   await page.getByRole("treeitem", { name: /a\.txt/ }).click();
   await page.getByRole("treeitem", { name: /b\.txt/ }).click();
 
   const tabs = page.getByRole("tablist", { name: "Open files" });
-  const main = page.getByTestId("main");
+  const content = page.getByTestId("main").locator(".cm-content");
   await expect(tabs.getByRole("tab")).toHaveText(["a.txt", "b.txt"]);
-  await expect(tabs.getByRole("tab", { name: "b.txt" })).toHaveAttribute("aria-selected", "true");
 
+  // Ctrl+E puts the caret in the text right away.
   await tabs.getByRole("tab", { name: "a.txt" }).click();
   await page.keyboard.press("ControlOrMeta+E");
-  await main.locator(".cm-content").click();
+  await expect(content).toBeFocused();
   await page.keyboard.type("edited ");
-  await expect(tabs.getByRole("button", { name: "Close a.txt (unsaved changes)" })).toBeVisible();
+  await expect(tabs.getByRole("tab", { name: "a.txt, unsaved changes" })).toBeVisible();
 
-  // Next tab (Alt+] in a browser tab, Ctrl+Tab on the desktop) keeps the mode; the unsaved text survives the switch.
-  await page.keyboard.press("Alt+BracketRight");
-  await expect(tabs.getByRole("tab", { name: "b.txt" })).toHaveAttribute("aria-selected", "true");
-  await expect(main.locator(".cm-content")).toHaveText("beta");
-  await expect(tabs.getByRole("button", { name: "Close a.txt (unsaved changes)" })).toBeVisible();
-  await page.keyboard.press("Alt+BracketLeft");
-  await expect(main.locator(".cm-content")).toContainText("edited");
+  // Arrows move between tabs; the edits and their undo history stay.
+  await tabs.getByRole("tab", { name: /a\.txt/ }).focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(tabs.getByRole("tab", { name: "b.txt" })).toBeFocused();
+  await expect(content).toHaveText("beta");
+  await page.keyboard.press("Home");
+  await expect(content).toContainText("edited alpha");
+  await content.click();
+  await page.keyboard.press("ControlOrMeta+Z");
+  await expect(content).toHaveText("alpha");
+  await page.keyboard.press("ControlOrMeta+Shift+Z");
+  await expect(content).toContainText("edited");
 
-  await tabs.getByRole("button", { name: "Close b.txt" }).click();
-  await expect(tabs.getByRole("tab")).toHaveText(["a.txt"]);
-  await page.keyboard.press("Alt+W");
-  await expect(tabs).toBeHidden();
+  // Closing asks; Cancel keeps everything, Save writes and closes.
+  await tabs.getByRole("button", { name: "Close a.txt (unsaved changes)" }).click();
+  const question = page.getByRole("alertdialog", { name: "Save changes to a.txt before closing?" });
+  await expect(question.getByRole("button", { name: "Save", exact: true })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(question).toBeHidden();
+  await expect(tabs.getByRole("tab")).toHaveCount(2);
+
+  await tabs.getByRole("button", { name: "Close a.txt (unsaved changes)" }).click();
+  await question.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(tabs.getByRole("tab")).toHaveText(["b.txt"]);
+  expect(readFileSync(join(dir, "a.txt"), "utf8")).toBe("edited alpha\n");
+  await expect(page.getByTestId("editor-path")).toHaveText("b.txt");
+});
+
+test("unsaved text survives a reload and an outside change becomes a conflict", async ({ page }) => {
+  const dir = project({ "notes.txt": "first\n" });
+  await open(page, dir);
+  await page.getByRole("treeitem", { name: /notes\.txt/ }).click();
+  await page.keyboard.press("ControlOrMeta+E");
+  const content = page.getByTestId("main").locator(".cm-content");
+  await expect(content).toBeFocused();
+  await page.keyboard.type("draft ");
+  await expect(page.getByTestId("editor-dirty")).toBeVisible();
+
+  await page.reload();
+  await page
+    .getByTestId("project-list")
+    .getByRole("button", { name: basename(dir) })
+    .click();
+  const tabs = page.getByRole("tablist", { name: "Open files" });
+  await expect(tabs.getByRole("tab", { name: "notes.txt, unsaved changes" })).toBeVisible();
+  await page.keyboard.press("ControlOrMeta+E");
+  await expect(content).toContainText("draft first");
+
+  writeFileSync(join(dir, "notes.txt"), "written by an agent\n");
+  const alert = page.getByRole("alert");
+  await expect(alert).toContainText("notes.txt changed on disk while you have unsaved changes");
+  await expect(content).toContainText("draft first");
+  await alert.getByRole("button", { name: "Overwrite with my version" }).click();
+  await expect(alert).toBeHidden();
+  expect(readFileSync(join(dir, "notes.txt"), "utf8")).toBe("draft first\n");
 });
