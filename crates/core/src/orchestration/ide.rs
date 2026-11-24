@@ -214,6 +214,12 @@ fn coordinator(caller: &ToolCaller) -> Result<()> {
 ///   a drive, and the path should mean the same file everywhere;
 /// - the project root itself, which is not a file.
 pub(super) fn shown_file(raw: &str) -> Result<String> {
+    // Checked before parsing, so the answer is the same on every platform.
+    if raw.contains(':') {
+        return Err(forbidden(format!(
+            "path {raw:?} may name a drive or a stream"
+        )));
+    }
     let path = RelPath::parse(raw)?;
     if path.is_root() {
         return Err(ProtocolError::new(ErrorCode::BadRequest, "name a file"));
@@ -222,11 +228,6 @@ pub(super) fn shown_file(raw: &str) -> Result<String> {
     if segments().any(|s| s.starts_with(['~', '$', '%'])) {
         return Err(forbidden(format!(
             "path {raw:?} may name a home folder or a variable"
-        )));
-    }
-    if segments().any(|s| s.contains(':')) {
-        return Err(forbidden(format!(
-            "path {raw:?} may name a drive or a stream"
         )));
     }
     Ok(path.to_string())

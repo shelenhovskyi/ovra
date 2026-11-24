@@ -111,7 +111,7 @@ fn from_editor_var(value: &OsStr, file: &Path, line: Option<u32>) -> Option<Invo
 }
 
 /// `/usr/bin/code` or `C:\Tools\Code.exe` -> `code`, on any host.
-fn editor_name(program: &OsStr) -> String {
+pub(crate) fn editor_name(program: &OsStr) -> String {
     let program = program.to_string_lossy().to_lowercase();
     let base = program.rsplit(['/', '\\']).next().unwrap_or_default();
     base.strip_suffix(".exe").unwrap_or(base).to_owned()

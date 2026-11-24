@@ -15,8 +15,11 @@
 //! On Windows, names Windows cannot store or reads as something else are
 //! refused too: device names (`CON`, `nul.txt`, `COM1`), names ending in a
 //! dot or a space (Windows drops those, so `a.` is `a` and `.git.` is
-//! `.git`) and the characters `<>"|?*` and control characters. These are
-//! the rules Git for Windows applies to paths in a repository.
+//! `.git`), any `:` (`a.exe::$DATA` names a stream, `.git::$INDEX_ALLOCATION`
+//! the `.git` folder), 8.3 short names (`GIT~1` can be `.git`), and the
+//! characters `<>"|?*` and control characters below U+0020. Git for Windows
+//! refuses the same names, and is narrower only on short names, where it
+//! checks `git~N` alone.
 
 use std::path::{Path, PathBuf};
 
@@ -104,14 +107,15 @@ fn is_drive(segment: &str) -> bool {
     matches!(segment.as_bytes(), [letter, b':', ..] if letter.is_ascii_alphabetic())
 }
 
-/// Whether Windows stores `segment` under exactly that name: not a device
-/// name, not ending in a dot or a space, and no `<>"|?*` or control
-/// characters. `:` is handled by the callers (drives and streams).
+/// Whether Windows stores `segment` under exactly that name and nothing
+/// else: not a device name, not an 8.3 short name, not ending in a dot or a
+/// space, and no `:`, `<>"|?*` or control characters.
 fn is_win32_name(segment: &str) -> bool {
     if segment.ends_with(['.', ' '])
         || segment
             .chars()
-            .any(|c| c.is_control() || "<>\"|?*".contains(c))
+            .any(|c| c < '\u{20}' || "<>\"|?*:".contains(c))
+        || is_short_name(segment)
     {
         return false;
     }
@@ -146,6 +150,21 @@ fn is_win32_name(segment: &str) -> bool {
         "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
     );
     !(device || numbered("COM") || numbered("LPT"))
+}
+
+/// Whether `segment` has the shape of an 8.3 short name: one to six
+/// characters other than `~`, `~`, digits, then an extension of at most
+/// three characters (`GIT~1`, `SETUP~12.EXE`).
+fn is_short_name(segment: &str) -> bool {
+    let (name, ext) = segment.split_once('.').unwrap_or((segment, ""));
+    let Some((stem, number)) = name.split_once('~') else {
+        return false;
+    };
+    (1..=6).contains(&stem.chars().count())
+        && !number.is_empty()
+        && number.bytes().all(|b| b.is_ascii_digit())
+        && ext.chars().count() <= 3
+        && !ext.contains('.')
 }
 
 impl std::fmt::Display for RelPath {
@@ -226,6 +245,12 @@ mod tests {
             "a|b",
             "a\"b",
             "a\u{1}b",
+            "a:b",
+            "a.exe::$DATA",
+            ".git::$INDEX_ALLOCATION",
+            "GIT~1",
+            "setup~12.exe",
+            "a~1.c",
         ];
         for name in bad {
             assert!(!is_win32_name(name), "{name:?}");

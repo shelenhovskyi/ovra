@@ -16,7 +16,7 @@ use ovra_core::path::RelPath;
 use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::{Opener, Result};
 
-use editor::{Invocation, Platform, candidates, system_handler};
+use editor::{Invocation, Platform, candidates, editor_name, system_handler};
 
 /// The real opener.
 #[derive(Debug, Default)]
@@ -49,8 +49,9 @@ impl Opener for SystemOpener {
 /// The regular file `path` under `root` with symlinks resolved, refused when
 /// it resolves outside `root`. It is returned under `root` as given, so on
 /// Windows the editor gets `C:\p\a.rs`, not the verbatim `\\?\C:\p\a.rs`
-/// that `canonicalize` returns. Checked at the time of the call: hard links
-/// and folders renamed concurrently are not detected.
+/// that `canonicalize` returns. Checked at the time of the call: hard links,
+/// and a file or folder swapped for a link between this check and the
+/// handler opening it, are not detected.
 fn inside(root: &Path, path: &RelPath) -> Result<PathBuf> {
     let not_found = || ProtocolError::new(ErrorCode::NotFound, format!("no such file: {path}"));
     let real_root = std::fs::canonicalize(root).map_err(|_| not_found())?;
@@ -67,18 +68,29 @@ fn inside(root: &Path, path: &RelPath) -> Result<PathBuf> {
     Ok(root.join(rest))
 }
 
+/// Programs that hand a file to its default handler, wherever they come
+/// from (`EDITOR=xdg-open` too).
+const HANDLERS: &[&str] = &[
+    "open",
+    "xdg-open",
+    "gio",
+    "explorer",
+    "start",
+    "cmd",
+    "kde-open",
+    "gnome-open",
+];
+
 /// `plan` without the default handler when that would run `file` as a
 /// program; refused when no editor is left to open it.
 fn safe(mut plan: Vec<Invocation>, file: &Path, path: &RelPath) -> Result<Vec<Invocation>> {
     if launcher::may_run(file) {
-        let handler = system_handler(Platform::current(), file.as_os_str());
-        plan.retain(|invocation| *invocation != handler);
+        plan.retain(|i| !HANDLERS.contains(&editor_name(&i.program).as_str()));
         if plan.is_empty() {
             return Err(ProtocolError::new(
                 ErrorCode::Forbidden,
                 format!(
-                    "{path} could run as a program, so Ovra does not hand it to the default \
-                     app; set $VISUAL to an editor to open it there"
+                    "{path} could run as a program, so Ovra shows it here and does not hand it to another app"
                 ),
             ));
         }
@@ -179,6 +191,11 @@ mod tests {
                 Some(ErrorCode::Forbidden)
             );
             assert_eq!(inside(&root, &rel("src/alias.rs")).ok(), given);
+            // A link to a launcher is judged by the launcher's name.
+            write(&root.join("src/setup.exe"));
+            link(&root.join("src/setup.exe"), "src/notes.md");
+            let resolved = inside(&root, &rel("src/notes.md")).unwrap_or_else(|e| panic!("{e}"));
+            assert!(launcher::may_run(&resolved));
             // A root that is itself a link: both sides are resolved.
             link(&root, "../alias-root");
             let alias = tmp.path().join("alias-root");
@@ -201,6 +218,9 @@ mod tests {
         let handler = system_handler(Platform::current(), text.as_os_str());
         let kept = safe(vec![handler.clone()], text, &rel("notes.md"));
         assert_eq!(kept.ok(), Some(vec![handler]));
+        // `EDITOR=xdg-open` is a handler too.
+        let disguised = safe(vec![inv("/usr/bin/xdg-open"), inv("gio")], file, &path);
+        assert_eq!(disguised.err().map(|e| e.code), Some(ErrorCode::Forbidden));
     }
 
     #[test]
