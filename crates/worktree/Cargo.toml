@@ -11,6 +11,10 @@ publish = false
 ovra-core.workspace = true
 tokio = { workspace = true, features = ["rt"] }
 
+[target.'cfg(unix)'.dependencies]
+# `openat`/`unlinkat`: deleting under a folder an agent may swap for a link.
+rustix = { version = "1", features = ["fs"] }
+
 [dev-dependencies]
 ovra-core = { workspace = true, features = ["fakes"] }
 insta.workspace = true

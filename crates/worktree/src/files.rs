@@ -85,12 +85,40 @@ fn blobs(dir: &Path, base: &str, paths: &[RelPath]) -> Result<BTreeMap<String, S
         .collect())
 }
 
-fn remove_file(dir: &Path, path: &RelPath) -> Result<()> {
+/// Deletes the file or link at `path`; `false` if it was left because a
+/// folder on the way is not a real folder any more. On Unix each folder is
+/// opened without following links, so a folder an agent swaps for a link
+/// after [`on_disk`] looked never makes Ovra delete outside `dir`.
+#[cfg(unix)]
+fn remove_file(dir: &Path, path: &RelPath) -> Result<bool> {
+    use rustix::fs::{AtFlags, Mode, OFlags, open, openat, unlinkat};
+    use rustix::io::Errno;
+    let folder = OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC | OFlags::RDONLY;
+    let mut parts: Vec<&str> = path.as_str().split('/').collect();
+    let Some(name) = parts.pop() else {
+        return Ok(true);
+    };
+    let removed = open(dir, OFlags::DIRECTORY | OFlags::CLOEXEC, Mode::empty()).and_then(|top| {
+        let mut at = top;
+        for part in parts {
+            at = openat(&at, part, folder, Mode::empty())?;
+        }
+        unlinkat(&at, name, AtFlags::empty())
+    });
+    match removed {
+        Ok(()) | Err(Errno::NOENT) => Ok(true),
+        Err(Errno::LOOP | Errno::NOTDIR | Errno::ISDIR) => Ok(false),
+        Err(e) => Err(internal(format!("cannot delete {path}: {e}"))),
+    }
+}
+
+#[cfg(not(unix))]
+fn remove_file(dir: &Path, path: &RelPath) -> Result<bool> {
     match fs::remove_file(path.under(dir)) {
         Err(e) if e.kind() != ErrorKind::NotFound => {
             Err(internal(format!("cannot delete {path}: {e}")))
         }
-        _ => Ok(()),
+        _ => Ok(true),
     }
 }
 
@@ -109,6 +137,7 @@ pub(crate) fn restore(dir: &Path, base: &str, paths: &[RelPath]) -> Result<()> {
         if in_base.contains_key(path.as_str()) {
             checkout.push(path.as_str().as_bytes());
         } else if disk == OnDisk::File {
+            // Left for the next `changes` to show, as `Off` paths are.
             remove_file(dir, path)?;
         }
     }
@@ -270,7 +299,11 @@ fn copy_over(
         let folded = written.contains(&path.as_str().to_lowercase());
         match on_disk(into, path)? {
             OnDisk::Missing => {}
-            OnDisk::File if !folded && !is_symlink(into, path) => remove_file(into, path)?,
+            OnDisk::File if !folded && !is_symlink(into, path) => {
+                if !remove_file(into, path)? {
+                    conflicts.push(path.to_string());
+                }
+            }
             OnDisk::File | OnDisk::Off => conflicts.push(path.to_string()),
         }
     }
@@ -413,6 +446,27 @@ mod tests {
 
     fn rel(raw: &str) -> RelPath {
         RelPath::parse(raw).unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    #[test]
+    fn a_delete_never_follows_a_folder_swapped_for_a_link() {
+        let root = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+        let (dir, outside) = (root.path().join("work"), root.path().join("outside"));
+        for folder in [&dir.join("real"), &outside] {
+            fs::create_dir_all(folder).unwrap_or_else(|e| panic!("{e}"));
+        }
+        fs::write(outside.join("keep.txt"), "mine").unwrap_or_else(|e| panic!("{e}"));
+        fs::write(dir.join("real/gone.txt"), "x").unwrap_or_else(|e| panic!("{e}"));
+        std::os::unix::fs::symlink(&outside, dir.join("swapped")).unwrap_or_else(|e| panic!("{e}"));
+        let removed = remove_file(&dir, &rel("swapped/keep.txt"));
+        assert!(!removed.unwrap_or_else(|e| panic!("{}", e.message)));
+        assert!(outside.join("keep.txt").exists());
+        let removed = remove_file(&dir, &rel("real/gone.txt"));
+        assert!(removed.unwrap_or_else(|e| panic!("{}", e.message)));
+        assert!(!dir.join("real/gone.txt").exists());
+        // The link itself is a file to delete.
+        remove_file(&dir, &rel("swapped")).unwrap_or_else(|e| panic!("{}", e.message));
+        assert!(!dir.join("swapped").exists() && outside.join("keep.txt").exists());
     }
 
     #[test]
