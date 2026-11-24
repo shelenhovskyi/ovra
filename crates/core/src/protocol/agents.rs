@@ -206,6 +206,9 @@ pub enum ConfigKind {
     Plugins,
     /// Environment variables set for the agent and its tools.
     Env,
+    /// Whole tools, or anything a shell or interpreter can do, allowed
+    /// without asking: Ovra's approvals no longer see these calls.
+    BroadAllowRules,
     /// Tool uses allowed without asking.
     AllowRules,
     /// Other settings.

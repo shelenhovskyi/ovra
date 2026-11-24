@@ -20,6 +20,13 @@ expression: inspect(dir.path()).items
   },
   {
     "path": ".claude/settings.json",
+    "kind": "broad_allow_rules",
+    "entries": [
+      "Bash(*)"
+    ]
+  },
+  {
+    "path": ".claude/settings.json",
     "kind": "allow_rules",
     "entries": [
       "Bash(npm test)"

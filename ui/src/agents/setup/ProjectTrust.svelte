@@ -9,7 +9,7 @@ import { untrack } from "svelte";
 import type { ProjectConfigReview } from "../../lib/protocol";
 import { CoreError } from "../../lib/transport";
 import { useOvra } from "../../shell/context";
-import { changes, KIND_LABELS, runsCode } from "./texts";
+import { changes, KIND_LABELS, runsCode, weight } from "./texts";
 
 const { transport, workspace } = useOvra();
 
@@ -23,8 +23,13 @@ const changed = $derived(
   project?.trusted === true && review !== null && review.trusted?.fingerprint !== review.current.fingerprint,
 );
 const diff = $derived(changed && review?.trusted ? changes(review.trusted, review.current) : []);
-const items = $derived(
-  [...(review?.current.items ?? [])].sort((a, b) => Number(runsCode(b.kind)) - Number(runsCode(a.kind))),
+const items = $derived([...(review?.current.items ?? [])].sort((a, b) => weight(b.kind) - weight(a.kind)));
+// Rules that let Claude act without Ovra's approvals: new ones when the
+// settings changed, all of them otherwise.
+const broad = $derived(
+  changed
+    ? diff.filter((c) => c.kind === "broad_allow_rules").flatMap((c) => c.added)
+    : items.filter((item) => item.kind === "broad_allow_rules").flatMap((item) => item.entries),
 );
 const risky = $derived(
   changed ? diff.some((c) => runsCode(c.kind) && c.added.length > 0) : items.some((item) => runsCode(item.kind)),
@@ -129,6 +134,13 @@ function trust(trusted: boolean): Promise<void> {
       {/if}
       Changes apply to sessions started afterwards.
     </p>
+    {#if (changed || reviewing) && review && broad.length > 0}
+      <div class="broad" role="note" data-testid="broad-rules">
+        <strong>Ovra will stop asking before these.</strong>
+        The project allows {broad.join(", ")} without asking. {project.trusted && !changed ? "Now" : "Once you trust it"},
+        Claude runs such commands and edits right away; they do not reach your approvals.
+      </div>
+    {/if}
     {#if changed && review}
       <div class="review" data-testid="trust-review">
         {#if diff.length === 0}
@@ -313,6 +325,16 @@ function trust(trusted: boolean): Promise<void> {
   }
   .trust.changed {
     border-color: #ffd36b;
+  }
+  .broad {
+    padding: 4px 6px;
+    border: 1px solid #ff8f8f;
+    border-radius: 3px;
+    color: #e6e6e6;
+  }
+  .broad strong {
+    margin-left: 0;
+    color: #ff8f8f;
   }
   .added .sign {
     color: #8fd18f;

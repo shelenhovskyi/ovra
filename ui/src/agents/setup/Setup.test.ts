@@ -191,6 +191,29 @@ describe("ProjectTrust", () => {
     expect(trustCard()?.querySelector("h3")?.textContent).toBe("Project settings: trusted");
   });
 
+  it("warns at the top when the project allows whole tools without asking", async () => {
+    const core = new FakeAgentCore();
+    core.config = {
+      fingerprint: "f1",
+      items: [
+        { path: ".claude/settings.json", kind: "allow_rules", entries: ["Bash(npm test)"] },
+        { path: ".claude/settings.json", kind: "broad_allow_rules", entries: ["Bash(*)", "Edit"] },
+      ],
+    };
+    await show(core);
+    expect(target.querySelector("[data-testid=broad-rules]")).toBeNull();
+    button(trustCard(), "Review and trust…")?.click();
+    await settle();
+    const note = trustCard()?.querySelector("[data-testid=broad-rules]");
+    expect(note?.textContent).toContain("Ovra will stop asking before these.");
+    expect(note?.textContent).toContain("Bash(*), Edit");
+    expect(note?.compareDocumentPosition(trustCard()?.querySelector(".items") as Node)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    const kinds = [...(trustCard()?.querySelectorAll(".items > li") ?? [])].map((li) => li.getAttribute("data-kind"));
+    expect(kinds).toEqual(["broad_allow_rules", "allow_rules"]);
+  });
+
   it("rechecks when a session starts", async () => {
     const core = new FakeAgentCore();
     await show(core);

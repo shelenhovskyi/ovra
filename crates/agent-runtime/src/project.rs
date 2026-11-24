@@ -180,7 +180,9 @@ fn settings(path: &str, file: &Path, items: &mut Vec<ConfigItem>) {
                     continue;
                 };
                 let allow = permissions.get("allow").map(strings).unwrap_or_default();
-                push(items, path, ConfigKind::AllowRules, allow);
+                let (broad, narrow) = allow.into_iter().partition(|rule| broad(rule));
+                push(items, path, ConfigKind::BroadAllowRules, broad);
+                push(items, path, ConfigKind::AllowRules, narrow);
                 other.extend(
                     permissions
                         .iter()
@@ -205,6 +207,56 @@ fn settings(path: &str, file: &Path, items: &mut Vec<ConfigItem>) {
         .collect();
     push(items, path, ConfigKind::Plugins, plugins);
     push(items, path, ConfigKind::Settings, other);
+}
+
+/// Programs that run whatever they are given.
+const INTERPRETERS: [&str; 16] = [
+    "sh",
+    "bash",
+    "zsh",
+    "fish",
+    "pwsh",
+    "powershell",
+    "cmd",
+    "python",
+    "python3",
+    "node",
+    "npx",
+    "bun",
+    "deno",
+    "eval",
+    "env",
+    "sudo",
+];
+
+/// Whether an allow rule lets a whole tool through, or any command: a bare
+/// tool name (`Bash`, `Edit`, `mcp__server`), a spec of only wildcards
+/// (`Bash(*)`, `Write(**)`, `Edit(//**)`), or a shell command that starts an
+/// interpreter (`Bash(python:*)`, `Bash(sh -c *)`). Read-only tools are left
+/// out: allowing them asks nothing that changes the machine.
+fn broad(rule: &str) -> bool {
+    let (tool, spec) = match rule.split_once('(') {
+        Some((tool, rest)) => (tool.trim(), rest.strip_suffix(')').map(str::trim)),
+        None => (rule.trim(), None),
+    };
+    if matches!(tool, "Read" | "Glob" | "Grep" | "LS" | "TodoWrite") {
+        return false;
+    }
+    let Some(spec) = spec else { return true };
+    if spec
+        .chars()
+        .all(|c| matches!(c, '*' | '/' | '.' | '~' | ':' | ' '))
+    {
+        return true;
+    }
+    if tool != "Bash" && tool != "PowerShell" {
+        return false;
+    }
+    let program = spec
+        .split(|c: char| c == ':' || c.is_whitespace())
+        .next()
+        .unwrap_or_default();
+    INTERPRETERS.contains(&program.trim_end_matches('*'))
 }
 
 /// `Event (matcher): command` for every hook.
@@ -326,7 +378,7 @@ mod tests {
                 "Stop": [{"hooks": [{"type": "http", "url": "https://example.com/done"}]}]
             },
             "env": {"ANTHROPIC_BASE_URL": "https://proxy.example"},
-            "permissions": {"allow": ["Bash(npm test)"], "defaultMode": "acceptEdits"},
+            "permissions": {"allow": ["Bash(npm test)", "Bash(*)"], "defaultMode": "acceptEdits"},
             "apiKeyHelper": "./key.sh",
             "statusLine": {"type": "command", "command": "./status.sh"},
             "enabledPlugins": {"tools@market": true},
@@ -342,6 +394,36 @@ mod tests {
             (".claude/skills/empty/README.md", ""),
         ]);
         insta::assert_json_snapshot!(inspect(dir.path()).items);
+    }
+
+    #[test]
+    fn broad_allow_rules_are_told_apart() {
+        for rule in [
+            "Bash",
+            "Bash(*)",
+            "Bash(:*)",
+            "Edit",
+            "Write(**)",
+            "Edit(//**)",
+            "Bash(python:*)",
+            "Bash(sh -c *)",
+            "Bash(sudo *)",
+            "mcp__github",
+            "WebFetch",
+        ] {
+            assert!(broad(rule), "{rule}");
+        }
+        for rule in [
+            "Bash(npm test)",
+            "Bash(git status:*)",
+            "Edit(src/**)",
+            "WebFetch(domain:example.com)",
+            "Read",
+            "Read(**)",
+            "Grep",
+        ] {
+            assert!(!broad(rule), "{rule}");
+        }
     }
 
     #[test]

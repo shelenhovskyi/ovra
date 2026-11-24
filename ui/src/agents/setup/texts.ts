@@ -66,6 +66,7 @@ export const KIND_LABELS: Record<ConfigKind, string> = {
   helpers: "Helper commands",
   plugins: "Plugins, which can bring their own hooks and servers",
   env: "Environment variables",
+  broad_allow_rules: "Whole tools or any command allowed without asking you",
   allow_rules: "Tools allowed without asking you",
   settings: "Other settings",
   agents: "Custom subagents",
@@ -77,6 +78,12 @@ export const KIND_LABELS: Record<ConfigKind, string> = {
 /** Whether loading this kind runs commands on the user's computer. */
 export function runsCode(kind: ConfigKind): boolean {
   return kind === "hooks" || kind === "helpers" || kind === "plugins";
+}
+
+/** Display order: rules that skip approvals, then what runs code, then the rest. */
+export function weight(kind: ConfigKind): number {
+  if (kind === "broad_allow_rules") return 2;
+  return runsCode(kind) ? 1 : 0;
 }
 
 export type ConfigChange = { path: string; kind: ConfigKind; added: string[]; removed: string[] };
@@ -94,5 +101,5 @@ export function changes(before: ProjectAgentConfig, after: ProjectAgentConfig): 
     const removed = [...was].filter((entry) => !is.has(entry));
     if (added.length > 0 || removed.length > 0) result.push({ path: item.path, kind: item.kind, added, removed });
   }
-  return result.sort((a, b) => Number(runsCode(b.kind)) - Number(runsCode(a.kind)));
+  return result.sort((a, b) => weight(b.kind) - weight(a.kind));
 }

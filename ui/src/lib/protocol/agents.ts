@@ -88,12 +88,14 @@ export type ConfigItem = {
   entries: string[];
 };
 
-/** `hooks`, `helpers` and `plugins` run code on the user's machine. */
+/** `hooks`, `helpers` and `plugins` run code on the user's machine; `broad_allow_rules` skip Ovra's approvals. */
 export type ConfigKind =
   | "hooks"
   | "helpers"
   | "plugins"
   | "env"
+  /** Whole tools or any shell command allowed without asking: Ovra's approvals no longer see them. */
+  | "broad_allow_rules"
   | "allow_rules"
   | "settings"
   | "agents"
