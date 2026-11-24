@@ -205,6 +205,7 @@ fn run(
         agent,
         mode: launch.mode,
         cwd: PathBuf::from(launch.target.root),
+        tools: None,
         prompt,
         executable: launch.executable.map(PathBuf::from),
         trusted: launch.trusted,

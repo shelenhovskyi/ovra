@@ -16,6 +16,7 @@ use crate::protocol::agents::{
 };
 use crate::protocol::fs::{DirListing, FileContent, FileList};
 use crate::protocol::projects::{Project, ProjectId, ProjectState, ProjectStatePatch};
+use crate::protocol::review::ChangeKind;
 use crate::protocol::terminals::{TermSize, TerminalId};
 use crate::protocol::{ErrorCode, Event, ProtocolError};
 
@@ -113,6 +114,9 @@ pub struct AgentSpec {
     pub prompt: String,
     /// The executable the user chose for this agent, if any.
     pub executable: Option<PathBuf>,
+    /// Ovra's IDE tools for the session, offered as the in-process MCP
+    /// server `ovra` (`docs/specs/orchestration.md`); `None` for none.
+    pub tools: Option<ToolRole>,
     /// Whether the project's own agent configuration may load: the user
     /// trusts the project and it has not changed since. Otherwise only the
     /// user's own settings load.
@@ -182,6 +186,100 @@ pub trait SessionStore: Send + Sync + Debug {
     fn append(&self, session: &SessionId, message: &AgentMessage) -> Result<()>;
     /// Forgets a session and its transcript.
     fn remove(&self, session: &SessionId) -> Result<()>;
+}
+
+/// Which IDE tools a session gets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolRole {
+    Coordinator,
+    Worker,
+}
+
+/// Answers the MCP messages an agent sends to Ovra's IDE tools (implemented
+/// by `ovra-mcp-server`). Runtimes pass them through [`AgentHost::call_ide`].
+pub trait IdeTools: Send + Sync + Debug {
+    /// Answers one JSON-RPC message from `caller`; `None` for a notification.
+    /// `core` is the core the session runs in, for the requests a tool makes.
+    fn handle(
+        &self,
+        core: crate::Core,
+        caller: ToolCaller,
+        message: serde_json::Value,
+    ) -> BoxFuture<'_, Option<serde_json::Value>>;
+}
+
+/// The session behind an IDE tool call.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolCaller {
+    pub session: SessionId,
+    pub project: ProjectId,
+    pub role: ToolRole,
+}
+
+/// A worktree made for an isolated session.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorktreeInfo {
+    pub path: PathBuf,
+    pub branch: String,
+    /// The commit it started from.
+    pub base: String,
+}
+
+/// One changed file between a base commit and a working tree.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Delta {
+    pub path: String,
+    pub kind: ChangeKind,
+    /// The old path of a rename.
+    pub from: Option<String>,
+    pub additions: u32,
+    pub deletions: u32,
+}
+
+/// Git worktrees, snapshots and diffs for review (implemented by
+/// `ovra-worktree`; ADR 0005). Directories are absolute; paths are relative
+/// to them and already validated.
+pub trait Worktrees: Send + Sync + Debug {
+    /// Records the working tree of `dir`, uncommitted and untracked files
+    /// included (ignored files excluded), as a commit, without touching HEAD,
+    /// the index or the stash. Returns the commit id.
+    fn snapshot(&self, dir: PathBuf) -> BoxFuture<'_, Result<String>>;
+    /// Adds a worktree of the repository at `root` at `dir`, on a new
+    /// `branch` that starts at `base`.
+    fn create(
+        &self,
+        root: PathBuf,
+        dir: PathBuf,
+        branch: String,
+        base: String,
+    ) -> BoxFuture<'_, Result<WorktreeInfo>>;
+    /// Files that differ between `base` and the working tree of `dir`.
+    fn changes(&self, dir: PathBuf, base: String) -> BoxFuture<'_, Result<Vec<Delta>>>;
+    /// The unified diff of one file, `base` to the working tree.
+    fn patch(&self, dir: PathBuf, base: String, path: RelPath) -> BoxFuture<'_, Result<String>>;
+    /// Puts `paths` back as they are in `base` (deleting files `base` lacks).
+    fn restore(&self, dir: PathBuf, base: String, paths: Vec<RelPath>)
+    -> BoxFuture<'_, Result<()>>;
+    /// Copies `paths` from the working tree of `from` into `into`. A file in
+    /// `into` that no longer matches `base` is skipped and returned as a
+    /// conflict.
+    fn apply(
+        &self,
+        from: PathBuf,
+        base: String,
+        into: PathBuf,
+        paths: Vec<RelPath>,
+    ) -> BoxFuture<'_, Result<Vec<String>>>;
+    /// Commits exactly `paths` in `dir` with `message`; returns the commit id.
+    fn commit(
+        &self,
+        dir: PathBuf,
+        paths: Vec<RelPath>,
+        message: String,
+    ) -> BoxFuture<'_, Result<String>>;
+    /// Removes the worktree at `dir` from the repository at `root`. Its
+    /// branch is kept.
+    fn remove(&self, root: PathBuf, dir: PathBuf) -> BoxFuture<'_, Result<()>>;
 }
 
 /// Placeholder for services a front end has not wired in.
@@ -315,5 +413,62 @@ impl AgentRuntime for Unavailable {
     }
     fn project_config(&self, _: PathBuf) -> BoxFuture<'_, Result<ProjectAgentConfig>> {
         Box::pin(async move { self.err() })
+    }
+}
+
+impl Worktrees for Unavailable {
+    fn snapshot(&self, _: PathBuf) -> BoxFuture<'_, Result<String>> {
+        Box::pin(async move { self.err() })
+    }
+    fn create(
+        &self,
+        _: PathBuf,
+        _: PathBuf,
+        _: String,
+        _: String,
+    ) -> BoxFuture<'_, Result<WorktreeInfo>> {
+        Box::pin(async move { self.err() })
+    }
+    fn changes(&self, _: PathBuf, _: String) -> BoxFuture<'_, Result<Vec<Delta>>> {
+        Box::pin(async move { self.err() })
+    }
+    fn patch(&self, _: PathBuf, _: String, _: RelPath) -> BoxFuture<'_, Result<String>> {
+        Box::pin(async move { self.err() })
+    }
+    fn restore(&self, _: PathBuf, _: String, _: Vec<RelPath>) -> BoxFuture<'_, Result<()>> {
+        Box::pin(async move { self.err() })
+    }
+    fn apply(
+        &self,
+        _: PathBuf,
+        _: String,
+        _: PathBuf,
+        _: Vec<RelPath>,
+    ) -> BoxFuture<'_, Result<Vec<String>>> {
+        Box::pin(async move { self.err() })
+    }
+    fn commit(&self, _: PathBuf, _: Vec<RelPath>, _: String) -> BoxFuture<'_, Result<String>> {
+        Box::pin(async move { self.err() })
+    }
+    fn remove(&self, _: PathBuf, _: PathBuf) -> BoxFuture<'_, Result<()>> {
+        Box::pin(async move { self.err() })
+    }
+}
+
+impl IdeTools for Unavailable {
+    fn handle(
+        &self,
+        _: crate::Core,
+        _: ToolCaller,
+        message: serde_json::Value,
+    ) -> BoxFuture<'_, Option<serde_json::Value>> {
+        Box::pin(async move {
+            let id = message.get("id")?.clone();
+            Some(serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "error": {"code": -32601, "message": format!("{} is not available in this build", self.0)},
+            }))
+        })
     }
 }

@@ -9,8 +9,10 @@ pub mod agents;
 pub mod fs;
 pub mod info;
 pub mod open;
+pub mod orchestration;
 pub mod permissions;
 pub mod projects;
+pub mod review;
 pub mod terminals;
 
 use serde::{Deserialize, Serialize};
@@ -26,6 +28,8 @@ pub enum Request {
     Terminals(terminals::TerminalsRequest),
     Agents(agents::AgentsRequest),
     Permissions(permissions::PermissionsRequest),
+    Review(review::ReviewRequest),
+    Orchestration(orchestration::OrchestrationRequest),
 }
 
 /// The core's answer to a [`Request`]. Wire form: `{"type": "<domain>.<name>", "data": ...}`.
@@ -38,6 +42,8 @@ pub enum Response {
     Terminals(terminals::TerminalsResponse),
     Agents(agents::AgentsResponse),
     Permissions(permissions::PermissionsResponse),
+    Review(review::ReviewResponse),
+    Orchestration(orchestration::OrchestrationResponse),
     /// The request succeeded and has nothing to return.
     Ok(OkResponse),
 }
@@ -58,6 +64,8 @@ pub enum Event {
     Terminals(terminals::TerminalsEvent),
     Agents(agents::AgentsEvent),
     Permissions(permissions::PermissionsEvent),
+    Review(review::ReviewEvent),
+    Orchestration(orchestration::OrchestrationEvent),
 }
 
 /// An error returned instead of a [`Response`].
@@ -134,5 +142,17 @@ impl From<agents::AgentsEvent> for Event {
 impl From<permissions::PermissionsEvent> for Event {
     fn from(e: permissions::PermissionsEvent) -> Self {
         Self::Permissions(e)
+    }
+}
+
+impl From<review::ReviewEvent> for Event {
+    fn from(e: review::ReviewEvent) -> Self {
+        Self::Review(e)
+    }
+}
+
+impl From<orchestration::OrchestrationEvent> for Event {
+    fn from(e: orchestration::OrchestrationEvent) -> Self {
+        Self::Orchestration(e)
     }
 }

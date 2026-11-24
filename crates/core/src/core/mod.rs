@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use tokio::sync::broadcast;
 
 use crate::agents::{self, Sessions};
+use crate::orchestration;
 use crate::path::RelPath;
 use crate::protocol::fs::{FsRequest, FsResponse, MAX_FILES_PAGE};
 use crate::protocol::info::{CoreInfo, InfoEvent, InfoRequest, InfoResponse};
@@ -15,8 +16,8 @@ use crate::protocol::projects::{
 use crate::protocol::terminals::{TerminalsRequest, TerminalsResponse};
 use crate::protocol::{ErrorCode, Event, OkResponse, ProtocolError, Request, Response};
 use crate::services::{
-    AgentRuntime, EventSink, FsService, Opener, ProjectStore, SessionStore, TerminalService,
-    Unavailable,
+    AgentRuntime, EventSink, FsService, IdeTools, Opener, ProjectStore, SessionStore,
+    TerminalService, Unavailable, Worktrees,
 };
 
 const EVENT_CAPACITY: usize = 1024;
@@ -31,6 +32,8 @@ pub struct CoreBuilder {
     terminals: Arc<dyn TerminalService>,
     agents: Arc<dyn AgentRuntime>,
     sessions: Arc<dyn SessionStore>,
+    worktrees: Arc<dyn Worktrees>,
+    ide_tools: Arc<dyn IdeTools>,
 }
 
 impl CoreBuilder {
@@ -66,9 +69,19 @@ impl CoreBuilder {
         self
     }
 
+    pub fn worktrees(mut self, worktrees: Arc<dyn Worktrees>) -> Self {
+        self.worktrees = worktrees;
+        self
+    }
+
+    pub fn ide_tools(mut self, tools: Arc<dyn IdeTools>) -> Self {
+        self.ide_tools = tools;
+        self
+    }
+
     pub fn build(self) -> Core {
         let (events, _) = broadcast::channel(EVENT_CAPACITY);
-        Core {
+        let core = Core {
             inner: Arc::new(Inner {
                 mode: self.mode,
                 projects: self.projects,
@@ -77,11 +90,16 @@ impl CoreBuilder {
                 terminals: self.terminals,
                 agents: self.agents,
                 sessions: Arc::new(Sessions::new(self.sessions)),
+                worktrees: self.worktrees,
                 held: Mutex::new(None),
                 open: Mutex::new(BTreeMap::new()),
             }),
             events,
-        }
+        };
+        core.inner
+            .sessions
+            .link_ide(self.ide_tools, core.downgrade());
+        core
     }
 }
 
@@ -100,11 +118,33 @@ struct Inner {
     opener: Arc<dyn Opener>,
     terminals: Arc<dyn TerminalService>,
     agents: Arc<dyn AgentRuntime>,
+    #[expect(
+        dead_code,
+        reason = "read by review and orchestration (tasks 3.B, 3.F)"
+    )]
+    worktrees: Arc<dyn Worktrees>,
     sessions: Arc<Sessions>,
     /// The project held by requests sent through [`Core::handle`] directly.
     held: Mutex<Option<ProjectId>>,
     /// Open projects and how many clients hold each; each is watched.
     open: Mutex<BTreeMap<ProjectId, usize>>,
+}
+
+/// A [`Core`] that does not keep it alive; sessions hold one so their IDE
+/// tool calls can reach the core without a reference cycle.
+#[derive(Debug, Clone)]
+pub(crate) struct WeakCore {
+    inner: std::sync::Weak<Inner>,
+    events: broadcast::Sender<Event>,
+}
+
+impl WeakCore {
+    pub(crate) fn upgrade(&self) -> Option<Core> {
+        Some(Core {
+            inner: self.inner.upgrade()?,
+            events: self.events.clone(),
+        })
+    }
 }
 
 /// One connection's view of the core (a window or a browser tab). It holds
@@ -148,6 +188,8 @@ impl Core {
             terminals: Arc::new(Unavailable("terminals")),
             agents: Arc::new(Unavailable("agents")),
             sessions: Arc::new(Unavailable("keeping sessions")),
+            worktrees: Arc::new(Unavailable("worktrees")),
+            ide_tools: Arc::new(Unavailable("IDE tools")),
         }
     }
 
@@ -184,6 +226,13 @@ impl Core {
         self.sink().emit(event);
     }
 
+    pub(crate) fn downgrade(&self) -> WeakCore {
+        WeakCore {
+            inner: Arc::downgrade(&self.inner),
+            events: self.events.clone(),
+        }
+    }
+
     /// A client for one connection; see [`Client`].
     pub fn connect(&self) -> Client {
         Client {
@@ -215,6 +264,8 @@ impl Core {
             Request::Terminals(r) => self.terminals(r),
             Request::Agents(r) => agents::handle_agents(&self.agents_ctx(), r).await,
             Request::Permissions(r) => agents::handle_permissions(&self.agents_ctx(), r),
+            Request::Review(r) => orchestration::review(r),
+            Request::Orchestration(r) => orchestration::orchestration(r),
         }
     }
 

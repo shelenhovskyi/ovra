@@ -80,6 +80,24 @@ expression: samples
         "id": "t1"
       },
       "type": "terminals.exited"
+    },
+    {
+      "data": {
+        "id": "r1",
+        "project": "p1"
+      },
+      "type": "review.changed"
+    },
+    {
+      "data": {
+        "project": "p1",
+        "target": {
+          "kind": "file",
+          "line": 3,
+          "path": "a.rs"
+        }
+      },
+      "type": "orchestration.show"
     }
   ],
   "requests": [

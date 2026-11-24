@@ -1,0 +1,299 @@
+//! [`MemoryWorktrees`]: worktrees and commits as maps of file texts.
+
+use std::collections::BTreeMap;
+use std::path::PathBuf;
+use std::sync::Mutex;
+
+use super::{lock, not_found};
+use crate::path::RelPath;
+use crate::protocol::review::ChangeKind;
+use crate::protocol::{ErrorCode, ProtocolError};
+use crate::services::{BoxFuture, Delta, Result, WorktreeInfo, Worktrees};
+
+type Files = BTreeMap<String, String>;
+
+/// Working trees keyed by directory, and commits keyed `c1`, `c2`, ...
+/// Diffs count whole lines; there are no renames.
+#[derive(Debug, Default)]
+pub struct MemoryWorktrees {
+    dirs: Mutex<BTreeMap<PathBuf, Files>>,
+    commits: Mutex<Vec<Files>>,
+    /// `(dir, paths, message)` of every `commit` call.
+    pub committed: Mutex<Vec<(PathBuf, Vec<String>, String)>>,
+}
+
+impl MemoryWorktrees {
+    /// Writes a file in a working tree, creating the tree if needed.
+    pub fn put(&self, dir: impl Into<PathBuf>, path: &str, text: &str) {
+        lock(&self.dirs)
+            .entry(dir.into())
+            .or_default()
+            .insert(path.to_owned(), text.to_owned());
+    }
+
+    pub fn delete(&self, dir: impl Into<PathBuf>, path: &str) {
+        if let Some(files) = lock(&self.dirs).get_mut(&dir.into()) {
+            files.remove(path);
+        }
+    }
+
+    /// The files of a working tree; empty if there is none.
+    pub fn files(&self, dir: impl Into<PathBuf>) -> Files {
+        lock(&self.dirs)
+            .get(&dir.into())
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    fn tree(&self, dir: &PathBuf) -> Result<Files> {
+        lock(&self.dirs)
+            .get(dir)
+            .cloned()
+            .ok_or_else(|| not_found(format!("working tree {}", dir.display())))
+    }
+
+    fn commit_files(&self, id: &str) -> Result<Files> {
+        let index = id
+            .strip_prefix('c')
+            .and_then(|n| n.parse::<usize>().ok())
+            .and_then(|n| n.checked_sub(1));
+        index
+            .and_then(|i| lock(&self.commits).get(i).cloned())
+            .ok_or_else(|| not_found(format!("commit {id}")))
+    }
+
+    fn record(&self, files: Files) -> String {
+        let mut commits = lock(&self.commits);
+        commits.push(files);
+        format!("c{}", commits.len())
+    }
+}
+
+fn lines(text: Option<&String>) -> Vec<&str> {
+    text.map(|t| t.lines().collect()).unwrap_or_default()
+}
+
+fn delta(path: &str, old: Option<&String>, new: Option<&String>) -> Option<Delta> {
+    let kind = match (old, new) {
+        (None, Some(_)) => ChangeKind::Added,
+        (Some(_), None) => ChangeKind::Deleted,
+        (Some(a), Some(b)) if a != b => ChangeKind::Modified,
+        _ => return None,
+    };
+    let (old, new) = (lines(old), lines(new));
+    let count = |from: &[&str], other: &[&str]| {
+        u32::try_from(from.iter().filter(|l| !other.contains(l)).count()).unwrap_or(u32::MAX)
+    };
+    Some(Delta {
+        path: path.to_owned(),
+        kind,
+        from: None,
+        additions: count(&new, &old),
+        deletions: count(&old, &new),
+    })
+}
+
+impl Worktrees for MemoryWorktrees {
+    fn snapshot(&self, dir: PathBuf) -> BoxFuture<'_, Result<String>> {
+        Box::pin(async move {
+            let files = self.tree(&dir)?;
+            Ok(self.record(files))
+        })
+    }
+
+    fn create(
+        &self,
+        _root: PathBuf,
+        dir: PathBuf,
+        branch: String,
+        base: String,
+    ) -> BoxFuture<'_, Result<WorktreeInfo>> {
+        Box::pin(async move {
+            let files = self.commit_files(&base)?;
+            let mut dirs = lock(&self.dirs);
+            if dirs.contains_key(&dir) {
+                return Err(ProtocolError::new(
+                    ErrorCode::Conflict,
+                    format!("{} already exists", dir.display()),
+                ));
+            }
+            dirs.insert(dir.clone(), files);
+            Ok(WorktreeInfo {
+                path: dir,
+                branch,
+                base,
+            })
+        })
+    }
+
+    fn changes(&self, dir: PathBuf, base: String) -> BoxFuture<'_, Result<Vec<Delta>>> {
+        Box::pin(async move {
+            let (old, new) = (self.commit_files(&base)?, self.tree(&dir)?);
+            let mut paths: Vec<&String> = old.keys().chain(new.keys()).collect();
+            paths.sort();
+            paths.dedup();
+            Ok(paths
+                .into_iter()
+                .filter_map(|p| delta(p, old.get(p), new.get(p)))
+                .collect())
+        })
+    }
+
+    fn patch(&self, dir: PathBuf, base: String, path: RelPath) -> BoxFuture<'_, Result<String>> {
+        Box::pin(async move {
+            let (old, new) = (self.commit_files(&base)?, self.tree(&dir)?);
+            let key = path.as_str();
+            let mut patch = format!("--- a/{key}\n+++ b/{key}\n");
+            for line in lines(old.get(key)) {
+                patch.push_str(&format!("-{line}\n"));
+            }
+            for line in lines(new.get(key)) {
+                patch.push_str(&format!("+{line}\n"));
+            }
+            Ok(patch)
+        })
+    }
+
+    fn restore(
+        &self,
+        dir: PathBuf,
+        base: String,
+        paths: Vec<RelPath>,
+    ) -> BoxFuture<'_, Result<()>> {
+        Box::pin(async move {
+            let old = self.commit_files(&base)?;
+            let mut dirs = lock(&self.dirs);
+            let files = dirs
+                .get_mut(&dir)
+                .ok_or_else(|| not_found(format!("working tree {}", dir.display())))?;
+            for path in paths {
+                match old.get(path.as_str()) {
+                    Some(text) => files.insert(path.as_str().to_owned(), text.clone()),
+                    None => files.remove(path.as_str()),
+                };
+            }
+            Ok(())
+        })
+    }
+
+    fn apply(
+        &self,
+        from: PathBuf,
+        base: String,
+        into: PathBuf,
+        paths: Vec<RelPath>,
+    ) -> BoxFuture<'_, Result<Vec<String>>> {
+        Box::pin(async move {
+            let (old, source) = (self.commit_files(&base)?, self.tree(&from)?);
+            let mut dirs = lock(&self.dirs);
+            let target = dirs
+                .get_mut(&into)
+                .ok_or_else(|| not_found(format!("working tree {}", into.display())))?;
+            let mut conflicts = Vec::new();
+            for path in paths {
+                let key = path.as_str();
+                if target.get(key) != old.get(key) {
+                    conflicts.push(key.to_owned());
+                    continue;
+                }
+                match source.get(key) {
+                    Some(text) => target.insert(key.to_owned(), text.clone()),
+                    None => target.remove(key),
+                };
+            }
+            Ok(conflicts)
+        })
+    }
+
+    fn commit(
+        &self,
+        dir: PathBuf,
+        paths: Vec<RelPath>,
+        message: String,
+    ) -> BoxFuture<'_, Result<String>> {
+        Box::pin(async move {
+            let files = self.tree(&dir)?;
+            let paths = paths.iter().map(|p| p.as_str().to_owned()).collect();
+            lock(&self.committed).push((dir, paths, message));
+            Ok(self.record(files))
+        })
+    }
+
+    fn remove(&self, _root: PathBuf, dir: PathBuf) -> BoxFuture<'_, Result<()>> {
+        Box::pin(async move {
+            lock(&self.dirs)
+                .remove(&dir)
+                .map(|_| ())
+                .ok_or_else(|| not_found(format!("working tree {}", dir.display())))
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rel(p: &str) -> RelPath {
+        RelPath::parse(p).unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    #[tokio::test]
+    async fn a_worktree_diffs_restores_and_applies_against_its_base() {
+        let w = MemoryWorktrees::default();
+        w.put("/main", "a.rs", "one\ntwo\n");
+        w.put("/main", "b.rs", "keep\n");
+        let base = w.snapshot("/main".into()).await.unwrap_or_default();
+        let wt = w
+            .create(
+                "/main".into(),
+                "/wt".into(),
+                "ovra/t1/x".into(),
+                base.clone(),
+            )
+            .await
+            .map(|info| info.path);
+        assert_eq!(wt.ok(), Some(PathBuf::from("/wt")));
+
+        w.put("/wt", "a.rs", "one\n2\n");
+        w.put("/wt", "c.rs", "new\n");
+        w.delete("/wt", "b.rs");
+        let changes = w
+            .changes("/wt".into(), base.clone())
+            .await
+            .unwrap_or_default();
+        let summary: Vec<_> = changes
+            .iter()
+            .map(|d| (d.path.as_str(), d.kind, d.additions, d.deletions))
+            .collect();
+        assert_eq!(
+            summary,
+            [
+                ("a.rs", ChangeKind::Modified, 1, 1),
+                ("b.rs", ChangeKind::Deleted, 0, 1),
+                ("c.rs", ChangeKind::Added, 1, 0)
+            ]
+        );
+
+        // The person edits b.rs in the main checkout meanwhile: a conflict.
+        w.put("/main", "b.rs", "mine\n");
+        let paths = vec![rel("a.rs"), rel("b.rs"), rel("c.rs")];
+        let conflicts = w
+            .apply("/wt".into(), base.clone(), "/main".into(), paths)
+            .await
+            .unwrap_or_default();
+        assert_eq!(conflicts, ["b.rs"]);
+        assert_eq!(
+            w.files("/main").get("a.rs").map(String::as_str),
+            Some("one\n2\n")
+        );
+        assert_eq!(
+            w.files("/main").get("b.rs").map(String::as_str),
+            Some("mine\n")
+        );
+
+        let restored = w.restore("/wt".into(), base.clone(), vec![rel("a.rs"), rel("c.rs")]);
+        assert!(restored.await.is_ok());
+        assert_eq!(w.files("/wt").keys().collect::<Vec<_>>(), ["a.rs"]);
+        assert!(w.remove("/main".into(), "/wt".into()).await.is_ok());
+    }
+}

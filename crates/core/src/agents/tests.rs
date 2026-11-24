@@ -815,3 +815,75 @@ async fn a_session_without_the_agents_id_cannot_resume() {
         json!({"method": "agents.resume", "params": {"session": "s9", "prompt": "again"}});
     assert_eq!(code(&core, unknown).await, ErrorCode::NotFound);
 }
+
+/// Answers every request with who called and what.
+#[derive(Debug)]
+struct WhoTools;
+
+impl crate::services::IdeTools for WhoTools {
+    fn handle(
+        &self,
+        core: Core,
+        caller: crate::services::ToolCaller,
+        message: serde_json::Value,
+    ) -> crate::services::BoxFuture<'_, Option<serde_json::Value>> {
+        Box::pin(async move {
+            let id = message.get("id")?.clone();
+            let mode = match core
+                .handle(serde_json::from_value(json!({"method": "info.get"})).ok()?)
+                .await
+            {
+                Ok(Response::Info(crate::protocol::info::InfoResponse::Info(info))) => info.mode,
+                _ => String::new(),
+            };
+            Some(
+                json!({"id": id, "session": caller.session.0, "role": format!("{:?}", caller.role), "mode": mode}),
+            )
+        })
+    }
+}
+
+#[tokio::test]
+async fn ide_tool_calls_reach_the_tools_with_the_caller() {
+    let core = Core::builder("test")
+        .projects(Arc::new(MemoryProjects::default()))
+        .ide_tools(Arc::new(WhoTools))
+        .build();
+    let host = crate::agents::AgentHost::new(
+        crate::protocol::agents::SessionId("s7".into()),
+        crate::protocol::projects::ProjectId("p1".into()),
+        core.inner_sessions(),
+        core.sink(),
+    );
+    let role = crate::services::ToolRole::Worker;
+    let reply = host
+        .call_ide(
+            role,
+            json!({"jsonrpc": "2.0", "id": 3, "method": "tools/list"}),
+        )
+        .await;
+    assert_eq!(
+        reply,
+        Some(json!({"id": 3, "session": "s7", "role": "Worker", "mode": "test"}))
+    );
+    let notification = json!({"jsonrpc": "2.0", "method": "notifications/initialized"});
+    assert_eq!(host.call_ide(role, notification).await, None);
+    // Without wired tools, a request gets a JSON-RPC error instead of silence.
+    let bare = Core::new("test");
+    let host = crate::agents::AgentHost::new(
+        crate::protocol::agents::SessionId("s1".into()),
+        crate::protocol::projects::ProjectId("p1".into()),
+        bare.inner_sessions(),
+        bare.sink(),
+    );
+    let reply = host
+        .call_ide(
+            role,
+            json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}),
+        )
+        .await;
+    assert_eq!(
+        reply.and_then(|r| r["error"]["code"].as_i64()),
+        Some(-32601)
+    );
+}

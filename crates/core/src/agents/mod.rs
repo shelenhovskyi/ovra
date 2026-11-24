@@ -15,7 +15,9 @@ use crate::protocol::permissions::{
 };
 use crate::protocol::projects::ProjectId;
 use crate::protocol::{ErrorCode, ProtocolError};
-use crate::services::{EventSink, RunningAgent, SessionStore, StoredSession};
+use crate::services::{
+    EventSink, IdeTools, RunningAgent, SessionStore, StoredSession, ToolCaller, ToolRole,
+};
 
 pub(crate) use permissions::Permissions;
 pub(crate) use requests::{
@@ -52,6 +54,14 @@ pub(crate) struct Sessions {
     store: Arc<dyn SessionStore>,
     started: Mutex<u64>,
     pub(crate) permissions: Permissions,
+    ide: Mutex<Option<IdeLink>>,
+}
+
+/// Where sessions' IDE tool calls go; set once when the core is built.
+#[derive(Debug)]
+struct IdeLink {
+    tools: Arc<dyn IdeTools>,
+    core: crate::core::WeakCore,
 }
 
 impl Sessions {
@@ -86,7 +96,12 @@ impl Sessions {
             store,
             started: Mutex::new(started),
             permissions: Permissions::default(),
+            ide: Mutex::new(None),
         }
+    }
+
+    pub(crate) fn link_ide(&self, tools: Arc<dyn IdeTools>, core: crate::core::WeakCore) {
+        *lock(&self.ide) = Some(IdeLink { tools, core });
     }
 
     pub(crate) fn next_id(&self) -> SessionId {
@@ -270,6 +285,27 @@ pub struct AgentHost {
 }
 
 impl AgentHost {
+    /// Passes one MCP JSON-RPC message from the session to Ovra's IDE tools
+    /// and returns the reply (`None` for a notification). `role` is the
+    /// session's [`AgentSpec::tools`](crate::services::AgentSpec::tools).
+    pub async fn call_ide(
+        &self,
+        role: ToolRole,
+        message: serde_json::Value,
+    ) -> Option<serde_json::Value> {
+        let (tools, core) = {
+            let ide = lock(&self.sessions.ide);
+            let link = ide.as_ref()?;
+            (link.tools.clone(), link.core.upgrade()?)
+        };
+        let caller = ToolCaller {
+            session: self.session.clone(),
+            project: self.project.clone(),
+            role,
+        };
+        tools.handle(core, caller, message).await
+    }
+
     pub(crate) fn new(
         session: SessionId,
         project: ProjectId,

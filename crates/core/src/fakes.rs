@@ -6,6 +6,10 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+mod worktrees;
+
+pub use worktrees::MemoryWorktrees;
+
 use crate::path::RelPath;
 use crate::protocol::agents::{
     AgentMessage, AgentSettings, AgentStatus, ProjectAgentConfig, SessionId, TurnUsage,

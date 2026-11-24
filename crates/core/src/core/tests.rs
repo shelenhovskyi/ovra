@@ -9,10 +9,12 @@ use crate::protocol::agents::{
 };
 use crate::protocol::fs::{FileBody, FsEvent};
 use crate::protocol::info::InfoEvent;
+use crate::protocol::orchestration::{OrchestrationEvent, ShowTarget};
 use crate::protocol::permissions::{
     PermissionId, PermissionReason, PermissionRequest, PermissionsEvent,
 };
 use crate::protocol::projects::{Project, ProjectState};
+use crate::protocol::review::{ReviewEvent, ReviewId};
 use crate::protocol::terminals::{TerminalId, TerminalsEvent};
 
 struct Fixture {
@@ -354,6 +356,11 @@ fn wire_format_is_stable() {
                 }),
             })),
             Event::Terminals(TerminalsEvent::Exited { id: TerminalId("t1".into()), code: None }),
+            Event::Review(ReviewEvent::Changed { project: ProjectId("p1".into()), id: ReviewId("r1".into()) }),
+            Event::Orchestration(OrchestrationEvent::Show {
+                project: ProjectId("p1".into()),
+                target: ShowTarget::File { path: "a.rs".into(), line: Some(3) },
+            }),
         ],
     });
     insta::assert_json_snapshot!(samples);
@@ -393,6 +400,15 @@ fn every_request_round_trips() {
         serde_json::json!({"method": "permissions.pending"}),
         serde_json::json!({"method": "permissions.answer", "params": {"id": "perm1", "decision": "allow"}}),
         serde_json::json!({"method": "permissions.answer", "params": {"id": "perm1", "decision": "deny", "message": "no"}}),
+        serde_json::json!({"method": "review.list", "params": {"project": "p1"}}),
+        serde_json::json!({"method": "review.diff", "params": {"id": "r1", "path": "a.rs"}}),
+        serde_json::json!({"method": "review.approve", "params": {"id": "r1", "commit": "fix: a"}}),
+        serde_json::json!({"method": "review.approve", "params": {"id": "r1", "commit": null}}),
+        serde_json::json!({"method": "review.reject", "params": {"id": "r1"}}),
+        serde_json::json!({"method": "review.comment", "params": {"id": "r1", "text": "also b"}}),
+        serde_json::json!({"method": "orchestration.start", "params": {"project": "p1", "prompt": "x", "limits": {"max_workers": 2, "budget_micro_usd": null}}}),
+        serde_json::json!({"method": "orchestration.list", "params": {"project": "p1"}}),
+        serde_json::json!({"method": "orchestration.stop", "params": {"task": "task1"}}),
     ];
     for json in requests {
         let parsed: Request = req(json.clone());

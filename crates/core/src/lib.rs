@@ -10,6 +10,7 @@ mod agents;
 mod core;
 #[cfg(any(test, feature = "fakes"))]
 pub mod fakes;
+mod orchestration;
 pub mod path;
 pub mod protocol;
 pub mod services;
