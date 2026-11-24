@@ -3,8 +3,10 @@
 //! Contract: `ovra_core::services::ProjectStore`; the in-memory reference
 //! behaviour is `ovra_core::fakes::MemoryProjects`. The database is one file,
 //! `projects.sqlite3`, in the data directory the front end passes in. It
-//! also keeps agent sessions (`SessionStore`, see `sessions.rs`).
+//! also keeps agent sessions (`SessionStore`, see `sessions.rs`) and the
+//! audit log (`AuditLog`, see `audit.rs`), so only the user may read it.
 
+mod audit;
 mod sessions;
 
 use std::path::{Path, PathBuf};
@@ -63,6 +65,21 @@ const MIGRATIONS: &[&str] = &[
     // The project's policy (`docs/specs/security.md`) as JSON; none means
     // the empty policy, which asks about everything.
     "ALTER TABLE projects ADD COLUMN policy TEXT;",
+    // The audit log (`docs/specs/security.md`): append-only, so the
+    // triggers refuse edits and deletes, and no foreign key, so removing a
+    // project keeps its entries. AUTOINCREMENT never reuses a `seq`.
+    "CREATE TABLE audit (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        at_ms INTEGER NOT NULL,
+        project_id TEXT NOT NULL,
+        session_id TEXT,
+        event TEXT NOT NULL
+    ) STRICT;
+    CREATE INDEX audit_by_project ON audit (project_id, seq);
+    CREATE TRIGGER audit_no_update BEFORE UPDATE ON audit
+    BEGIN SELECT RAISE(ABORT, 'the audit log is append-only'); END;
+    CREATE TRIGGER audit_no_delete BEFORE DELETE ON audit
+    BEGIN SELECT RAISE(ABORT, 'the audit log is append-only'); END;",
 ];
 
 /// The `settings` key of [`AgentSettings`].
@@ -85,7 +102,9 @@ impl Store {
                 data_dir.display()
             ))
         })?;
-        let mut db = Connection::open(data_dir.join(DB_FILE)).map_err(db_error)?;
+        let file = data_dir.join(DB_FILE);
+        owner_only(&file)?;
+        let mut db = Connection::open(&file).map_err(db_error)?;
         db.pragma_update(None, "journal_mode", "WAL")
             .map_err(db_error)?;
         db.pragma_update(None, "foreign_keys", true)
@@ -99,6 +118,28 @@ impl Store {
     fn db(&self) -> MutexGuard<'_, Connection> {
         self.db.lock().unwrap_or_else(PoisonError::into_inner)
     }
+}
+
+/// Creates `file` readable and writable by the user alone (0600), or
+/// narrows an existing one to that. SQLite gives its `-wal` and `-shm`
+/// files the database file's mode.
+#[cfg(unix)]
+fn owner_only(file: &Path) -> Result<()> {
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    let failed = |e: std::io::Error| internal(format!("protecting {}: {e}", file.display()));
+    std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .mode(0o600)
+        .open(file)
+        .map_err(failed)?;
+    std::fs::set_permissions(file, std::fs::Permissions::from_mode(0o600)).map_err(failed)
+}
+
+/// Windows: the file inherits the ACL of the user's own data folder.
+#[cfg(not(unix))]
+fn owner_only(_: &Path) -> Result<()> {
+    Ok(())
 }
 
 fn migrate(db: &mut Connection) -> Result<()> {
