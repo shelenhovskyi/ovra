@@ -5,11 +5,13 @@
 //! repository of its own directory and the real index unless it asks for a
 //! [`TempIndex`].
 
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, MutexGuard, OnceLock, PoisonError};
 
 use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::Result;
@@ -33,6 +35,41 @@ pub(crate) fn internal(what: impl std::fmt::Display) -> ProtocolError {
     ProtocolError::new(ErrorCode::Internal, what.to_string())
 }
 
+/// The git to run. On Windows `git` on the PATH is usually a launcher that
+/// starts the real `git.exe` as a second process; with dozens of git calls
+/// per review, that doubles the cost, so the real one is used if it works.
+fn program() -> &'static OsStr {
+    static PROGRAM: OnceLock<PathBuf> = OnceLock::new();
+    PROGRAM
+        .get_or_init(|| {
+            let launcher = PathBuf::from("git");
+            if cfg!(windows) {
+                real_git().unwrap_or(launcher)
+            } else {
+                launcher
+            }
+        })
+        .as_os_str()
+}
+
+/// `<prefix>/bin/git.exe` next to its libraries, found from the exec path
+/// `<prefix>/libexec/git-core`, if it runs.
+fn real_git() -> Option<PathBuf> {
+    let ok = |program: &OsStr, arg: &str| {
+        Command::new(program)
+            .arg(arg)
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .output()
+            .ok()
+            .filter(|out| out.status.success())
+    };
+    let exec_path = ok(OsStr::new("git"), "--exec-path")?;
+    let exec_path = PathBuf::from(String::from_utf8_lossy(&exec_path.stdout).trim());
+    let real = exec_path.parent()?.parent()?.join("bin").join("git.exe");
+    ok(real.as_os_str(), "--version").map(|_| real)
+}
+
 /// One `git` invocation in a directory.
 #[derive(Debug)]
 pub(crate) struct Git {
@@ -45,7 +82,7 @@ impl Git {
     /// `git <subcommand>` in `dir`. Pathspecs are literal: file names with
     /// `*` or a leading `:` mean exactly that file.
     pub(crate) fn new(dir: &Path, subcommand: &str) -> Self {
-        let mut command = Command::new("git");
+        let mut command = Command::new(program());
         command
             .args(["--literal-pathspecs", "-c", "core.quotepath=off"])
             .arg(subcommand)
@@ -143,19 +180,82 @@ pub(crate) fn fields(out: &[u8]) -> impl Iterator<Item = String> + '_ {
 }
 
 /// The commit `rev` names in the repository of `dir`, or `NotFound`.
+/// Commits never change: one that was found once is not asked again.
+fn found() -> MutexGuard<'static, HashSet<(PathBuf, String)>> {
+    static FOUND: OnceLock<Mutex<HashSet<(PathBuf, String)>>> = OnceLock::new();
+    FOUND
+        .get_or_init(Mutex::default)
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+}
+
+/// `id` names a commit in the repository at `dir`, just written there.
+pub(crate) fn known_commit(dir: &Path, id: &str) {
+    found().insert((dir.to_path_buf(), id.to_owned()));
+}
+
 pub(crate) fn commit_id(dir: &Path, rev: &str) -> Result<String> {
-    Git::new(dir, "rev-parse")
+    let key = (dir.to_path_buf(), rev.to_owned());
+    if found().contains(&key) {
+        return Ok(rev.to_owned());
+    }
+    let id = Git::new(dir, "rev-parse")
         .args(["--verify", "--quiet", "--end-of-options"])
         .arg(format!("{rev}^{{commit}}"))
         .try_text()?
-        .ok_or_else(|| ProtocolError::new(ErrorCode::NotFound, format!("commit {rev} not found")))
+        .ok_or_else(|| {
+            ProtocolError::new(ErrorCode::NotFound, format!("commit {rev} not found"))
+        })?;
+    if id == rev {
+        found().insert(key);
+    }
+    Ok(id)
 }
 
 /// The commit HEAD points at; `None` before the first commit.
 pub(crate) fn head(dir: &Path) -> Result<Option<String>> {
+    if let Some(head) = head_from_files(&dirs(dir)?) {
+        return Ok(head);
+    }
     Git::new(dir, "rev-parse")
         .args(["--verify", "--quiet", "HEAD^{commit}"])
         .try_text()
+}
+
+/// HEAD read from the files git keeps it in, without starting git (a
+/// snapshot needs it each time); `None` when git has to say.
+fn head_from_files(dirs: &Dirs) -> Option<Option<String>> {
+    let is_id = |s: &str| {
+        matches!(s.len(), 40 | 64) && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+    };
+    if dirs.common.join("reftable").exists() {
+        return None;
+    }
+    let head = std::fs::read_to_string(dirs.git_dir.join("HEAD")).ok()?;
+    let head = head.trim();
+    let Some(name) = head.strip_prefix("ref: ") else {
+        return is_id(head).then(|| Some(head.to_owned()));
+    };
+    if !name.starts_with("refs/heads/") || name.split('/').any(|p| p.is_empty() || p == "..") {
+        return None;
+    }
+    match std::fs::read_to_string(dirs.common.join(name)) {
+        Ok(id) => return is_id(id.trim()).then(|| Some(id.trim().to_owned())),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(_) => return None,
+    }
+    let packed = match std::fs::read_to_string(dirs.common.join("packed-refs")) {
+        Ok(packed) => packed,
+        // A branch with no commit yet.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Some(None),
+        Err(_) => return None,
+    };
+    let id = packed
+        .lines()
+        .filter_map(|line| line.split_once(' '))
+        .find(|(id, line_name)| *line_name == name && is_id(id))
+        .map(|(id, _)| id.to_owned());
+    Some(id)
 }
 
 static NEXT_INDEX: AtomicU64 = AtomicU64::new(0);
@@ -170,7 +270,7 @@ pub(crate) struct TempIndex {
 impl TempIndex {
     /// An index that does not exist yet: git starts it empty.
     pub(crate) fn empty(dir: &Path) -> Result<Self> {
-        Ok(Self::at(&git_dir(dir)?.0))
+        Ok(Self::at(&dirs(dir)?.git_dir))
     }
 
     /// A copy of `source`, or an empty index if there is none. The copy
@@ -217,15 +317,59 @@ impl Drop for TempIndex {
     }
 }
 
-/// The git directory of the worktree at `dir` and its real index file.
-fn git_dir(dir: &Path) -> Result<(PathBuf, PathBuf)> {
-    let git_dir = PathBuf::from(
-        Git::new(dir, "rev-parse")
-            .arg("--absolute-git-dir")
-            .text()?,
-    );
-    let index = git_dir.join("index");
-    Ok((git_dir, index))
+/// Where a working tree's repository files are.
+#[derive(Debug, Clone)]
+pub(crate) struct Dirs {
+    /// The worktree's own git directory (index, HEAD, Ovra's cache).
+    pub(crate) git_dir: PathBuf,
+    /// The root of the working tree.
+    pub(crate) top: PathBuf,
+    /// The git directory all worktrees share (`info/exclude` is there).
+    pub(crate) common: PathBuf,
+    /// `dir` relative to `top`: `""` or ending in `/`.
+    pub(crate) prefix: String,
+}
+
+fn known() -> MutexGuard<'static, HashMap<PathBuf, Dirs>> {
+    static KNOWN: OnceLock<Mutex<HashMap<PathBuf, Dirs>>> = OnceLock::new();
+    KNOWN
+        .get_or_init(Mutex::default)
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+}
+
+/// The repository folders of `dir`, asked of git once per directory: every
+/// git process costs tens of milliseconds on Windows.
+pub(crate) fn dirs(dir: &Path) -> Result<Dirs> {
+    if let Some(dirs) = known().get(dir).filter(|d| d.git_dir.is_dir()) {
+        return Ok(dirs.clone());
+    }
+    let out = Git::new(dir, "rev-parse")
+        .args(["--absolute-git-dir", "--show-toplevel"])
+        .args([
+            "--path-format=absolute",
+            "--git-common-dir",
+            "--show-prefix",
+        ])
+        .text()?;
+    let mut lines = out.lines();
+    let (Some(git_dir), Some(top), Some(common)) = (lines.next(), lines.next(), lines.next())
+    else {
+        return Err(internal("git rev-parse printed too little"));
+    };
+    let dirs = Dirs {
+        git_dir: PathBuf::from(git_dir),
+        top: PathBuf::from(top),
+        common: PathBuf::from(common),
+        prefix: lines.next().unwrap_or_default().to_owned(),
+    };
+    known().insert(dir.to_path_buf(), dirs.clone());
+    Ok(dirs)
+}
+
+/// Forgets what [`dirs`] knows of `dir`, for a worktree that goes away.
+pub(crate) fn forget(dir: &Path) {
+    known().remove(dir);
 }
 
 /// Ovra's own index of the working tree, in the git directory of each
@@ -236,14 +380,29 @@ const CACHE: &str = "ovra-index";
 /// The tree of everything in the working tree of `dir`: tracked files as
 /// they are on disk, untracked files that are not ignored, deletions.
 pub(crate) fn working_tree(dir: &Path) -> Result<String> {
-    let (git_dir, real) = git_dir(dir)?;
+    let dirs = dirs(dir)?;
+    let (git_dir, real) = (&dirs.git_dir, dirs.git_dir.join("index"));
     let cache = git_dir.join(CACHE);
     // The first time, the real index has the stats of the tracked files.
-    let seed = if cache.exists() { &cache } else { &real };
-    let index = TempIndex::copy_of(&git_dir, seed)?;
+    let cached = std::fs::metadata(&cache).and_then(|m| m.modified()).ok();
+    let index = TempIndex::copy_of(git_dir, if cached.is_some() { &cache } else { &real })?;
     // Without a pathspec `add --all` covers the whole working tree.
-    Git::new(dir, "add").arg("--all").index(&index).run()?;
-    forget_ignored(dir, &index)?;
+    let added = Git::new(dir, "add")
+        .args(["--all", "--verbose"])
+        .index(&index)
+        .run()?;
+    // Files this index once added can only have become ignored if an
+    // ignore file changed since: one in the tree (`add` lists it) or
+    // `info/exclude`. A global excludes file is not watched.
+    let rules_changed = String::from_utf8_lossy(&added)
+        .lines()
+        .any(|line| line.contains(".gitignore"))
+        || std::fs::metadata(dirs.common.join("info").join("exclude"))
+            .and_then(|m| m.modified())
+            .is_ok_and(|exclude| cached.is_some_and(|cached| exclude >= cached));
+    if cached.is_some() && rules_changed {
+        forget_ignored(dir, &index)?;
+    }
     let tree = Git::new(dir, "write-tree").index(&index).text()?;
     index.keep_as(&cache);
     Ok(tree)
@@ -253,7 +412,7 @@ pub(crate) fn working_tree(dir: &Path) -> Result<String> {
 /// those, unless the real index tracks them.
 fn forget_ignored(dir: &Path, index: &TempIndex) -> Result<()> {
     // From the top: `ls-files` only lists the folder it runs in.
-    let top = toplevel(dir)?;
+    let top = dirs(dir)?.top;
     let ignored = |index: Option<&TempIndex>| -> Result<Vec<u8>> {
         let mut git =
             Git::new(&top, "ls-files").args(["-z", "--cached", "--ignored", "--exclude-standard"]);
@@ -281,11 +440,4 @@ fn forget_ignored(dir: &Path, index: &TempIndex) -> Result<()> {
             .run()?;
     }
     Ok(())
-}
-
-fn toplevel(dir: &Path) -> Result<PathBuf> {
-    Git::new(dir, "rev-parse")
-        .arg("--show-toplevel")
-        .text()
-        .map(PathBuf::from)
 }

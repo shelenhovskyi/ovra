@@ -15,6 +15,7 @@ mod git;
 #[cfg(test)]
 mod tests;
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -82,6 +83,7 @@ fn snapshot(dir: &Path, snapshot_ref: &Mutex<()>) -> Result<String> {
         .text()?;
     let _held = hold(snapshot_ref);
     log_snapshot(dir, &id)?;
+    git::known_commit(dir, &id);
     Ok(id)
 }
 
@@ -197,6 +199,7 @@ fn remove(root: &Path, dir: &Path) -> Result<()> {
             ));
         }
     }
+    git::forget(dir);
     // The session is over: its uncommitted files go, its branch stays. The
     // second `--force` removes the lock, also when the folder is gone.
     let removed = Git::new(root, "worktree")
@@ -268,6 +271,10 @@ impl Worktrees for GitWorktrees {
         blocking(move || diff::changes(&dir, &base))
     }
 
+    fn diff(&self, dir: PathBuf, from: String, to: String) -> BoxFuture<'_, Result<Vec<Delta>>> {
+        blocking(move || diff::diff(&dir, &from, &to))
+    }
+
     fn patch(
         &self,
         dir: PathBuf,
@@ -275,6 +282,15 @@ impl Worktrees for GitWorktrees {
         paths: Vec<RelPath>,
     ) -> BoxFuture<'_, Result<String>> {
         blocking(move || diff::patch(&dir, &base, &paths))
+    }
+
+    fn patches(
+        &self,
+        dir: PathBuf,
+        base: String,
+        paths: Vec<RelPath>,
+    ) -> BoxFuture<'_, Result<BTreeMap<String, String>>> {
+        blocking(move || diff::patches(&dir, &base, &paths))
     }
 
     fn restore(

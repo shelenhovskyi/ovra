@@ -151,6 +151,19 @@ impl Worktrees for MemoryWorktrees {
         })
     }
 
+    fn diff(&self, _dir: PathBuf, from: String, to: String) -> BoxFuture<'_, Result<Vec<Delta>>> {
+        Box::pin(async move {
+            let (old, new) = (self.commit_files(&from)?, self.commit_files(&to)?);
+            let mut paths: Vec<&String> = old.keys().chain(new.keys()).collect();
+            paths.sort();
+            paths.dedup();
+            Ok(paths
+                .into_iter()
+                .filter_map(|p| delta(p, old.get(p), new.get(p)))
+                .collect())
+        })
+    }
+
     fn patch(
         &self,
         dir: PathBuf,

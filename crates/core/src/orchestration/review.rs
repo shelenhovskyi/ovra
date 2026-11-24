@@ -834,21 +834,24 @@ async fn freeze(core: &Core, entry: &Entry, files: &[FileChange]) -> BTreeMap<St
         return diffs;
     }
     let ws = &entry.workspace;
+    let paths = files.iter().filter_map(|f| RelPath::parse(&f.path).ok());
+    let patches = core
+        .worktrees()
+        .patches(ws.dir.clone(), ws.base.clone(), paths.collect())
+        .await;
+    let Ok(patches) = patches else {
+        return diffs;
+    };
     let mut bytes = 0;
     for file in files {
-        let Ok(path) = RelPath::parse(&file.path) else {
+        let Some(patch) = patches.get(&file.path) else {
             continue;
         };
-        let patch = core
-            .worktrees()
-            .patch(ws.dir.clone(), ws.base.clone(), vec![path])
-            .await;
-        let Ok(patch) = patch else { continue };
         bytes += patch.len();
         if bytes > KEPT_DIFF_BYTES {
             return BTreeMap::new();
         }
-        diffs.insert(file.path.clone(), patch);
+        diffs.insert(file.path.clone(), patch.clone());
     }
     diffs
 }

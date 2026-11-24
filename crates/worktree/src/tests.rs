@@ -9,6 +9,7 @@ use std::process::Command;
 
 use ovra_core::path::RelPath;
 use ovra_core::protocol::ErrorCode;
+use ovra_core::protocol::review::ChangeKind;
 use ovra_core::services::Worktrees;
 use tempfile::TempDir;
 
@@ -196,6 +197,40 @@ async fn later_snapshots_see_every_change_since_the_last() {
     // A file ignored since the last snapshot is no longer in it.
     let files = git(root, &["ls-tree", "--name-only", &second]);
     assert_eq!(files, ".gitignore\na.txt\nnew.txt");
+
+    // Between the two snapshots, without reading the working tree.
+    let diff = w.diff(root.clone(), first, second).await;
+    let diff = diff.unwrap_or_else(|e| panic!("{e:?}"));
+    let summary: Vec<_> = diff
+        .iter()
+        .map(|d| (d.path.as_str(), d.kind, d.additions, d.deletions))
+        .collect();
+    assert_eq!(
+        summary,
+        [
+            (".gitignore", ChangeKind::Modified, 1, 0),
+            ("a.txt", ChangeKind::Modified, 1, 1),
+            ("build.out", ChangeKind::Deleted, 0, 1),
+            ("new.txt", ChangeKind::Modified, 1, 1),
+        ]
+    );
+}
+
+#[test]
+fn head_is_read_like_git_reads_it() {
+    let repo = Repo::new(&[]);
+    let root = &repo.root;
+    assert_eq!(crate::git::head(root).ok(), Some(None));
+    put(root, "a.txt", "a\n");
+    git(root, &["add", "--all"]);
+    git(root, &["commit", "--quiet", "-m", "one"]);
+    let head = || crate::git::head(root).ok().flatten();
+    let parsed = || git(root, &["rev-parse", "HEAD"]);
+    assert_eq!(head(), Some(parsed()));
+    git(root, &["pack-refs", "--all"]);
+    assert_eq!(head(), Some(parsed()));
+    git(root, &["checkout", "--quiet", "--detach"]);
+    assert_eq!(head(), Some(parsed()));
 }
 
 #[tokio::test]
@@ -264,9 +299,16 @@ async fn a_patch_shows_exactly_the_files_asked_for_with_their_renames() {
         ("a.rs", "fn a() {}\nfn b() {}\n"),
         ("old name.txt", &long),
         ("gone.txt", "gone\n"),
+        ("kind", "a file\n"),
+        ("same.txt", "same\n"),
     ]);
     let root = &repo.root;
     put(root, "a.rs", "fn a() {}\nfn c() {}\n");
+    #[cfg(unix)]
+    {
+        fs::remove_file(root.join("kind")).unwrap_or_else(|e| panic!("{e}"));
+        std::os::unix::fs::symlink("a.rs", root.join("kind")).unwrap_or_else(|e| panic!("{e}"));
+    }
     fs::rename(root.join("old name.txt"), root.join("new \u{e9}.txt"))
         .unwrap_or_else(|e| panic!("{e}"));
     fs::remove_file(root.join("gone.txt")).unwrap_or_else(|e| panic!("{e}"));
@@ -287,6 +329,18 @@ async fn a_patch_shows_exactly_the_files_asked_for_with_their_renames() {
     );
     assert!(patch.contains("deleted file mode"), "{patch}");
     assert_eq!(patch.matches("diff --git").count(), 2, "{patch}");
+
+    // All at once, each the same as on its own.
+    let all = ["a.rs", "new \u{e9}.txt", "gone.txt", "kind", "same.txt"];
+    let patches = w.patches(root.clone(), "HEAD".into(), rels(&all)).await;
+    let patches = patches.unwrap_or_else(|e| panic!("{e:?}"));
+    let mut each = std::collections::BTreeMap::new();
+    for path in all {
+        let patch = w.patch(root.clone(), "HEAD".into(), rels(&[path])).await;
+        each.insert(path.to_owned(), patch.unwrap_or_else(|e| panic!("{e:?}")));
+    }
+    assert_eq!(patches, each);
+    assert_eq!(patches.get("same.txt").map(String::as_str), Some(""));
 }
 
 #[tokio::test]

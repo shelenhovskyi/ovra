@@ -33,6 +33,26 @@ impl std::ops::Deref for Trees {
     }
 }
 
+impl Trees {
+    /// Turns the deletes and adds of the renames set up into renames.
+    fn renamed(&self, mut changes: Vec<Delta>) -> Vec<Delta> {
+        for (from, to) in lock(&self.renames).iter() {
+            let deleted = changes
+                .iter()
+                .position(|d| &d.path == from && d.kind == ChangeKind::Deleted);
+            let added = changes
+                .iter()
+                .position(|d| &d.path == to && d.kind == ChangeKind::Added);
+            if let (Some(deleted), Some(added)) = (deleted, added) {
+                changes[added].kind = ChangeKind::Renamed;
+                changes[added].from = Some(from.clone());
+                changes.remove(deleted);
+            }
+        }
+        changes
+    }
+}
+
 impl Worktrees for Trees {
     fn snapshot(&self, dir: PathBuf) -> BoxFuture<'_, Result<String>> {
         Box::pin(async move {
@@ -52,23 +72,7 @@ impl Worktrees for Trees {
         self.mem.create(root, dir, branch, base)
     }
     fn changes(&self, dir: PathBuf, base: String) -> BoxFuture<'_, Result<Vec<Delta>>> {
-        Box::pin(async move {
-            let mut changes = self.mem.changes(dir, base).await?;
-            for (from, to) in lock(&self.renames).iter() {
-                let deleted = changes
-                    .iter()
-                    .position(|d| &d.path == from && d.kind == ChangeKind::Deleted);
-                let added = changes
-                    .iter()
-                    .position(|d| &d.path == to && d.kind == ChangeKind::Added);
-                if let (Some(deleted), Some(added)) = (deleted, added) {
-                    changes[added].kind = ChangeKind::Renamed;
-                    changes[added].from = Some(from.clone());
-                    changes.remove(deleted);
-                }
-            }
-            Ok(changes)
-        })
+        Box::pin(async move { Ok(self.renamed(self.mem.changes(dir, base).await?)) })
     }
     fn patch(
         &self,
@@ -113,6 +117,9 @@ impl Worktrees for Trees {
     }
     fn prune_snapshots(&self, root: PathBuf, keep: Vec<String>) -> BoxFuture<'_, Result<()>> {
         self.mem.prune_snapshots(root, keep)
+    }
+    fn diff(&self, dir: PathBuf, from: String, to: String) -> BoxFuture<'_, Result<Vec<Delta>>> {
+        Box::pin(async move { Ok(self.renamed(self.mem.diff(dir, from, to).await?)) })
     }
     fn take(
         &self,

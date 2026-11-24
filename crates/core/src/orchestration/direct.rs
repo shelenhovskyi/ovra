@@ -694,11 +694,15 @@ impl Tracker {
         Ok(())
     }
 
-    /// Marks what changed since the last interval as changed outside.
-    async fn catch_up(&mut self, worktrees: &dyn Worktrees, dir: &Path) {
-        let changed = match &self.last {
-            Some(last) => worktrees.changes(dir.to_path_buf(), last.clone()).await,
-            None => Err(conflict("no snapshot to compare with")),
+    /// Marks what changed since the last interval as changed outside:
+    /// up to `now`, a snapshot of the working tree just taken, or else up
+    /// to the working tree itself.
+    async fn catch_up(&mut self, worktrees: &dyn Worktrees, dir: &Path, now: Option<&String>) {
+        let dir = dir.to_path_buf();
+        let changed = match (&self.last, now) {
+            (Some(last), Some(now)) => worktrees.diff(dir, last.clone(), now.clone()).await,
+            (Some(last), None) => worktrees.changes(dir, last.clone()).await,
+            (None, _) => Err(conflict("no snapshot to compare with")),
         };
         match changed {
             Ok(changed) => {
@@ -733,8 +737,8 @@ impl Tracker {
     /// `tool` runs now: opens an interval if none is open, and adds it.
     async fn run(&mut self, worktrees: &dyn Worktrees, dir: &Path, tool: &Tool) {
         if self.open.is_none() {
-            self.catch_up(worktrees, dir).await;
             let pre = worktrees.snapshot(dir.to_path_buf()).await.ok();
+            self.catch_up(worktrees, dir, pre.as_ref()).await;
             self.open = Some(Interval {
                 pre,
                 shell: false,
@@ -764,9 +768,11 @@ impl Tracker {
         // `post` first: a change slipping in after it shows up again in the
         // next comparison, as changed outside.
         let post = worktrees.snapshot(dir.to_path_buf()).await.ok();
-        let changed = match &open.pre {
-            Some(pre) => worktrees.changes(dir.to_path_buf(), pre.clone()).await.ok(),
-            None => None,
+        let dir = dir.to_path_buf();
+        let changed = match (&open.pre, &post) {
+            (Some(pre), Some(post)) => worktrees.diff(dir, pre.clone(), post.clone()).await.ok(),
+            (Some(pre), None) => worktrees.changes(dir, pre.clone()).await.ok(),
+            (None, _) => None,
         };
         let Some(changed) = changed else {
             // Nothing is known about the interval: it was all outside.
@@ -796,7 +802,7 @@ impl Tracker {
 
     async fn files(&mut self, worktrees: &dyn Worktrees, dir: &Path) -> Result<Vec<FileChange>> {
         if self.open.is_none() {
-            self.catch_up(worktrees, dir).await;
+            self.catch_up(worktrees, dir, None).await;
         }
         let changed = worktrees
             .changes(dir.to_path_buf(), self.baseline.clone())
