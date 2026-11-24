@@ -3265,6 +3265,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ovra-sandbox-linux"
+version = "0.1.0"
+dependencies = [
+ "ovra-core",
+]
+
+[[package]]
 name = "ovra-secrets"
 version = "0.1.0"
 dependencies = [

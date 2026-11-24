@@ -10,7 +10,8 @@
     "ovra-agent-runtime": ["ovra-core"],
     "ovra-worktree": ["ovra-core"],
     "ovra-mcp-server": ["ovra-core"],
-    "ovra-sandbox": ["ovra-core"],
+    "ovra-sandbox": ["ovra-core", "ovra-sandbox-linux"],
+    "ovra-sandbox-linux": ["ovra-core"],
     "ovra-secrets": ["ovra-core"],
     "ovra-daemon": [
       "ovra-core",
@@ -51,6 +52,7 @@
     "ovra-worktree": ["tauri", "wry", "axum", "hyper", "tokio-tungstenite"],
     "ovra-mcp-server": ["tauri", "wry", "axum", "hyper", "tokio-tungstenite"],
     "ovra-sandbox": ["tauri", "wry", "axum", "hyper", "tokio-tungstenite"],
-    "ovra-secrets": ["tauri", "wry", "axum", "hyper", "tokio-tungstenite"]
+    "ovra-secrets": ["tauri", "wry", "axum", "hyper", "tokio-tungstenite"],
+    "ovra-sandbox-linux": ["tauri", "wry", "axum", "hyper", "tokio-tungstenite"]
   }
 }

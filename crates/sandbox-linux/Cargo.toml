@@ -1,0 +1,14 @@
+[package]
+name = "ovra-sandbox-linux"
+description = "The agent sandbox on Linux: bubblewrap, with Landlock and seccomp applied by a helper inside it (implements ovra_core::services::Sandbox)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[target.'cfg(target_os = "linux")'.dependencies]
+ovra-core.workspace = true
+
+[lints]
+workspace = true
