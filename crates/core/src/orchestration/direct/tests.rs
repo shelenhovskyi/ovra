@@ -70,8 +70,13 @@ impl Worktrees for Trees {
             Ok(changes)
         })
     }
-    fn patch(&self, dir: PathBuf, base: String, path: RelPath) -> BoxFuture<'_, Result<String>> {
-        self.mem.patch(dir, base, path)
+    fn patch(
+        &self,
+        dir: PathBuf,
+        base: String,
+        paths: Vec<RelPath>,
+    ) -> BoxFuture<'_, Result<String>> {
+        self.mem.patch(dir, base, paths)
     }
     fn restore(
         &self,

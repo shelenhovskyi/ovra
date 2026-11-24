@@ -139,16 +139,24 @@ impl Worktrees for MemoryWorktrees {
         })
     }
 
-    fn patch(&self, dir: PathBuf, base: String, path: RelPath) -> BoxFuture<'_, Result<String>> {
+    fn patch(
+        &self,
+        dir: PathBuf,
+        base: String,
+        paths: Vec<RelPath>,
+    ) -> BoxFuture<'_, Result<String>> {
         Box::pin(async move {
             let (old, new) = (self.commit_files(&base)?, self.tree(&dir)?);
-            let key = path.as_str();
-            let mut patch = format!("--- a/{key}\n+++ b/{key}\n");
-            for line in lines(old.get(key)) {
-                patch.push_str(&format!("-{line}\n"));
-            }
-            for line in lines(new.get(key)) {
-                patch.push_str(&format!("+{line}\n"));
+            let mut patch = String::new();
+            for path in paths {
+                let key = path.as_str();
+                patch.push_str(&format!("--- a/{key}\n+++ b/{key}\n"));
+                for line in lines(old.get(key)) {
+                    patch.push_str(&format!("-{line}\n"));
+                }
+                for line in lines(new.get(key)) {
+                    patch.push_str(&format!("+{line}\n"));
+                }
             }
             Ok(patch)
         })

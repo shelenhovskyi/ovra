@@ -432,12 +432,9 @@ impl Direct {
         let mine = paths(&files, ChangedBy::Agent)?;
         let mut conflicts = names(&files, ChangedBy::Both);
         let snapshot = worktrees.snapshot(writer.dir.clone()).await?;
-        let mut diff = String::new();
-        for file in files.iter().filter(|f| f.by == ChangedBy::Agent) {
-            let path = RelPath::parse(&file.path)?;
-            let patch = worktrees.patch(writer.dir.clone(), t.baseline.clone(), path);
-            diff.push_str(&patch.await?);
-        }
+        let diff = worktrees
+            .patch(writer.dir.clone(), t.baseline.clone(), mine.clone())
+            .await?;
         if !mine.is_empty() {
             worktrees
                 .restore(writer.dir.clone(), t.baseline.clone(), mine.clone())

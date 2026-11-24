@@ -47,12 +47,10 @@ fn on_disk(dir: &Path, path: &RelPath) -> Result<OnDisk> {
 }
 
 /// Blob ids of the files among `paths` in commit `base`, keyed by path.
-/// Paths that are trees in `base` are left out.
+/// Paths that are trees in `base` are left out. The whole tree is listed and
+/// filtered here: hundreds of paths do not fit a Windows command line.
 fn blobs(dir: &Path, base: &str, paths: &[RelPath]) -> Result<BTreeMap<String, String>> {
-    let out = Git::new(dir, "ls-tree")
-        .args(["-r", "-z", base])
-        .paths(paths)
-        .run()?;
+    let out = Git::new(dir, "ls-tree").args(["-r", "-z", base]).run()?;
     let wanted: BTreeSet<&str> = paths.iter().map(RelPath::as_str).collect();
     let mut found = BTreeMap::new();
     for record in git::fields(&out) {
@@ -231,8 +229,13 @@ pub(crate) fn commit(dir: &Path, paths: &[RelPath], message: &str) -> Result<Str
     // The committed files are now staged as committed, like `git commit
     // <paths>` leaves them.
     Git::new(dir, "reset")
-        .args(["--quiet", &id])
-        .paths(paths)
+        .args([
+            "--quiet",
+            "--pathspec-from-file=-",
+            "--pathspec-file-nul",
+            &id,
+        ])
+        .input(list.join(&0))
         .run()?;
     Ok(id)
 }

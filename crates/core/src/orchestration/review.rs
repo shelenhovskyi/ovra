@@ -98,7 +98,7 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
             let ws = entry.workspace;
             let patch = core
                 .worktrees()
-                .patch(ws.dir, ws.base, path.clone())
+                .patch(ws.dir, ws.base, vec![path.clone()])
                 .await?;
             Ok(Response::Review(ReviewResponse::Diff {
                 path: path.to_string(),
@@ -328,14 +328,9 @@ async fn reject(core: &Core, id: &ReviewId) -> Result<(ReviewItem, Vec<String>, 
     let ws = entry.workspace.clone();
     let worktrees = core.worktrees();
     let files = files(core, &entry).await?;
-    let mut diff = String::new();
-    for path in rel_paths(&files)? {
-        diff.push_str(
-            &worktrees
-                .patch(ws.dir.clone(), ws.base.clone(), path)
-                .await?,
-        );
-    }
+    let diff = worktrees
+        .patch(ws.dir.clone(), ws.base.clone(), rel_paths(&files)?)
+        .await?;
     worktrees
         .restore(ws.dir, ws.base, rel_paths(&files)?)
         .await?;

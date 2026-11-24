@@ -266,8 +266,14 @@ pub trait Worktrees: Send + Sync + Debug {
     ) -> BoxFuture<'_, Result<WorktreeInfo>>;
     /// Files that differ between `base` and the working tree of `dir`.
     fn changes(&self, dir: PathBuf, base: String) -> BoxFuture<'_, Result<Vec<Delta>>>;
-    /// The unified diff of one file, `base` to the working tree.
-    fn patch(&self, dir: PathBuf, base: String, path: RelPath) -> BoxFuture<'_, Result<String>>;
+    /// The unified diff of `paths`, `base` to the working tree, in one
+    /// piece (one call however many files: reviews can be large).
+    fn patch(
+        &self,
+        dir: PathBuf,
+        base: String,
+        paths: Vec<RelPath>,
+    ) -> BoxFuture<'_, Result<String>>;
     /// Puts `paths` back as they are in `base` (deleting files `base` lacks).
     fn restore(&self, dir: PathBuf, base: String, paths: Vec<RelPath>)
     -> BoxFuture<'_, Result<()>>;
@@ -446,7 +452,7 @@ impl Worktrees for Unavailable {
     fn changes(&self, _: PathBuf, _: String) -> BoxFuture<'_, Result<Vec<Delta>>> {
         Box::pin(async move { self.err() })
     }
-    fn patch(&self, _: PathBuf, _: String, _: RelPath) -> BoxFuture<'_, Result<String>> {
+    fn patch(&self, _: PathBuf, _: String, _: Vec<RelPath>) -> BoxFuture<'_, Result<String>> {
         Box::pin(async move { self.err() })
     }
     fn restore(&self, _: PathBuf, _: String, _: Vec<RelPath>) -> BoxFuture<'_, Result<()>> {

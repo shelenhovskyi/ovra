@@ -159,9 +159,43 @@ async fn a_snapshot_records_the_working_tree_and_touches_nothing() {
     assert!(
         !left
             .iter()
-            .any(|n| n.to_string_lossy().starts_with("ovra-index")),
+            .any(|n| n.to_string_lossy().starts_with("ovra-index-")),
         "{left:?}"
     );
+}
+
+#[tokio::test]
+async fn later_snapshots_see_every_change_since_the_last() {
+    let repo = Repo::new(&[("a.txt", "one\n"), (".gitignore", "*.log\n")]);
+    let root = &repo.root;
+    let w = GitWorktrees::new();
+    put(root, "new.txt", "new\n");
+    put(root, "build.out", "generated\n");
+    let first = w.snapshot(root.clone()).await;
+    let first = first.unwrap_or_else(|e| panic!("{e:?}"));
+    assert!(root.join(".git/ovra-index").is_file());
+
+    // Within the same second, same sizes: git must look at the contents.
+    put(root, "a.txt", "two\n");
+    put(root, "new.txt", "NEW\n");
+    fs::remove_file(root.join("build.out")).unwrap_or_else(|e| panic!("{e}"));
+    put(root, "build.out", "kept out\n");
+    put(root, ".gitignore", "*.log\n*.out\n");
+    let second = w.snapshot(root.clone()).await;
+    let second = second.unwrap_or_else(|e| panic!("{e:?}"));
+
+    let show = |rev: &str, path: &str| git(root, &["show", &format!("{rev}:{path}")]);
+    assert_eq!(
+        (show(&first, "a.txt"), show(&first, "build.out")),
+        ("one".into(), "generated".into())
+    );
+    assert_eq!(
+        (show(&second, "a.txt"), show(&second, "new.txt")),
+        ("two".into(), "NEW".into())
+    );
+    // A file ignored since the last snapshot is no longer in it.
+    let files = git(root, &["ls-tree", "--name-only", &second]);
+    assert_eq!(files, ".gitignore\na.txt\nnew.txt");
 }
 
 #[tokio::test]
@@ -224,27 +258,35 @@ async fn a_worker_sees_its_changes_against_the_base() {
 }
 
 #[tokio::test]
-async fn a_patch_shows_one_file_and_finds_its_rename() {
+async fn a_patch_shows_exactly_the_files_asked_for_with_their_renames() {
     let long: String = (1..=20).map(|n| format!("line {n}\n")).collect();
-    let repo = Repo::new(&[("a.rs", "fn a() {}\nfn b() {}\n"), ("old name.txt", &long)]);
+    let repo = Repo::new(&[
+        ("a.rs", "fn a() {}\nfn b() {}\n"),
+        ("old name.txt", &long),
+        ("gone.txt", "gone\n"),
+    ]);
     let root = &repo.root;
     put(root, "a.rs", "fn a() {}\nfn c() {}\n");
     fs::rename(root.join("old name.txt"), root.join("new \u{e9}.txt"))
         .unwrap_or_else(|e| panic!("{e}"));
+    fs::remove_file(root.join("gone.txt")).unwrap_or_else(|e| panic!("{e}"));
+    put(root, "untouched.txt", "not asked for\n");
     let w = GitWorktrees::new();
 
-    let patch = w.patch(root.clone(), "HEAD".into(), rel("a.rs")).await;
+    let patch = w.patch(root.clone(), "HEAD".into(), rels(&["a.rs"])).await;
     let patch = patch.unwrap_or_else(|e| panic!("{e:?}"));
     assert!(patch.contains("-fn b() {}\n+fn c() {}\n"), "{patch}");
-    assert!(!patch.contains("name.txt"), "{patch}");
-    let patch = w
-        .patch(root.clone(), "HEAD".into(), rel("new \u{e9}.txt"))
-        .await;
+    assert_eq!(patch.matches("diff --git").count(), 1, "{patch}");
+
+    let paths = rels(&["new \u{e9}.txt", "gone.txt"]);
+    let patch = w.patch(root.clone(), "HEAD".into(), paths).await;
     let patch = patch.unwrap_or_else(|e| panic!("{e:?}"));
     assert!(
         patch.contains("rename from old name.txt\nrename to new \u{e9}.txt\n"),
         "{patch}"
     );
+    assert!(patch.contains("deleted file mode"), "{patch}");
+    assert_eq!(patch.matches("diff --git").count(), 2, "{patch}");
 }
 
 #[tokio::test]

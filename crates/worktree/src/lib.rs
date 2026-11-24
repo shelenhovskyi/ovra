@@ -126,8 +126,13 @@ impl Worktrees for GitWorktrees {
         blocking(move || diff::changes(&dir, &base))
     }
 
-    fn patch(&self, dir: PathBuf, base: String, path: RelPath) -> BoxFuture<'_, Result<String>> {
-        blocking(move || diff::patch(&dir, &base, &path))
+    fn patch(
+        &self,
+        dir: PathBuf,
+        base: String,
+        paths: Vec<RelPath>,
+    ) -> BoxFuture<'_, Result<String>> {
+        blocking(move || diff::patch(&dir, &base, &paths))
     }
 
     fn restore(

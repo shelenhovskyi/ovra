@@ -1,13 +1,14 @@
 //! `changes` and `patch`: a commit against the working tree, untracked files
 //! included, through a tree written from a temporary index.
 
+use std::collections::BTreeSet;
 use std::path::Path;
 
 use ovra_core::path::RelPath;
 use ovra_core::protocol::review::ChangeKind;
 use ovra_core::services::{Delta, Result};
 
-use crate::git::{self, Git, internal};
+use crate::git::{self, Git, TempIndex, internal};
 
 pub(crate) fn changes(dir: &Path, base: &str) -> Result<Vec<Delta>> {
     let base = git::commit_id(dir, base)?;
@@ -19,24 +20,59 @@ pub(crate) fn changes(dir: &Path, base: &str) -> Result<Vec<Delta>> {
     parse(&out)
 }
 
-pub(crate) fn patch(dir: &Path, base: &str, path: &RelPath) -> Result<String> {
+/// One diff for any number of files, in a fixed number of git calls: a tree
+/// that is `base` with just `paths` (and the old side of their renames)
+/// taken from the working tree, diffed against `base`. No path list ever
+/// goes on a command line, which Windows limits to 32k characters.
+pub(crate) fn patch(dir: &Path, base: &str, paths: &[RelPath]) -> Result<String> {
+    if paths.is_empty() {
+        return Ok(String::new());
+    }
     let base = git::commit_id(dir, base)?;
     let tree = git::working_tree(dir)?;
-    // Renames are only found among the paths given, so name the old one too.
-    let renamed = Git::new(dir, "diff-tree")
+    let raw = Git::new(dir, "diff-tree")
         .args(["-r", "-z", "-M", "--raw", "--relative"])
         .args([&base, &tree])
         .run()?;
-    let from = parse(&renamed)?
-        .into_iter()
-        .find(|d| d.path == path.as_str())
-        .and_then(|d| d.from);
+    let mut wanted: BTreeSet<String> = paths.iter().map(|p| p.as_str().to_owned()).collect();
+    for delta in parse(&raw)? {
+        if let Some(from) = delta.from.filter(|_| wanted.contains(&delta.path)) {
+            wanted.insert(from);
+        }
+    }
+    let prefix = Git::new(dir, "rev-parse").arg("--show-prefix").text()?;
+    let wanted: BTreeSet<String> = wanted.into_iter().map(|p| format!("{prefix}{p}")).collect();
+
+    // `<mode> <type> <id>\t<path>` of the wanted files in the working tree;
+    // the others are gone there and get a zero mode, which removes them.
+    let listing = Git::new(dir, "ls-tree")
+        .args(["-r", "-z", "--full-name", &tree])
+        .run()?;
+    let mut info = Vec::new();
+    let mut found = BTreeSet::new();
+    for record in git::fields(&listing) {
+        if let Some((_, path)) = record.split_once('\t').filter(|(_, p)| wanted.contains(*p)) {
+            found.insert(path.to_owned());
+            info.extend_from_slice(record.as_bytes());
+            info.push(0);
+        }
+    }
+    let zero = "0".repeat(tree.len());
+    for gone in wanted.difference(&found) {
+        info.extend_from_slice(format!("0 {zero}\t{gone}").as_bytes());
+        info.push(0);
+    }
+    let index = TempIndex::empty(dir)?;
+    Git::new(dir, "read-tree").arg(&base).index(&index).run()?;
+    Git::new(dir, "update-index")
+        .args(["-z", "--index-info"])
+        .index(&index)
+        .input(info)
+        .run()?;
+    let picked = Git::new(dir, "write-tree").index(&index).text()?;
     let out = Git::new(dir, "diff-tree")
         .args(["-p", "-M", "--relative"])
-        .args([&base, &tree])
-        .arg("--")
-        .args(from.as_deref())
-        .arg(path.as_str())
+        .args([&base, &picked])
         .run()?;
     Ok(String::from_utf8_lossy(&out).into_owned())
 }

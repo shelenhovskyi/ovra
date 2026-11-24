@@ -11,7 +11,6 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use ovra_core::path::RelPath;
 use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::Result;
 
@@ -73,11 +72,6 @@ impl Git {
     pub(crate) fn args<S: AsRef<OsStr>>(mut self, args: impl IntoIterator<Item = S>) -> Self {
         self.command.args(args);
         self
-    }
-
-    /// `-- path...`
-    pub(crate) fn paths<'a>(self, paths: impl IntoIterator<Item = &'a RelPath>) -> Self {
-        self.arg("--").args(paths.into_iter().map(RelPath::as_str))
     }
 
     pub(crate) fn env(mut self, key: &str, value: impl AsRef<OsStr>) -> Self {
@@ -179,16 +173,30 @@ impl TempIndex {
         Ok(Self::at(&git_dir(dir)?.0))
     }
 
-    /// A copy of the real index, so `git add` can reuse its file stats and
-    /// only hashes files that changed.
-    pub(crate) fn copy_of_real(dir: &Path) -> Result<Self> {
-        let (git_dir, real) = git_dir(dir)?;
-        let index = Self::at(&git_dir);
-        match std::fs::copy(&real, &index.path) {
-            Ok(_) => Ok(index),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(index),
-            Err(e) => Err(internal(format!("cannot copy the index: {e}"))),
-        }
+    /// A copy of `source`, or an empty index if there is none. The copy
+    /// keeps the source's modification time: git compares file times with
+    /// it to spot files changed in the same second the index was written.
+    fn copy_of(git_dir: &Path, source: &Path) -> Result<Self> {
+        let index = Self::at(git_dir);
+        let fail = |e: std::io::Error| internal(format!("cannot copy the index: {e}"));
+        let modified = match std::fs::metadata(source).and_then(|m| m.modified()) {
+            Ok(modified) => modified,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(index),
+            Err(e) => return Err(fail(e)),
+        };
+        std::fs::copy(source, &index.path).map_err(fail)?;
+        std::fs::File::options()
+            .write(true)
+            .open(&index.path)
+            .and_then(|f| f.set_modified(modified))
+            .map_err(fail)?;
+        Ok(index)
+    }
+
+    /// Keeps the file at `to` instead of deleting it.
+    fn keep_as(self, to: &Path) {
+        // Losing a race with another snapshot only loses a cache.
+        let _ = std::fs::rename(&self.path, to);
     }
 
     fn at(git_dir: &Path) -> Self {
@@ -220,11 +228,64 @@ fn git_dir(dir: &Path) -> Result<(PathBuf, PathBuf)> {
     Ok((git_dir, index))
 }
 
+/// Ovra's own index of the working tree, in the git directory of each
+/// worktree. Kept between snapshots so git's file stats cover untracked
+/// files too, and only files changed since are hashed again.
+const CACHE: &str = "ovra-index";
+
 /// The tree of everything in the working tree of `dir`: tracked files as
 /// they are on disk, untracked files that are not ignored, deletions.
 pub(crate) fn working_tree(dir: &Path) -> Result<String> {
-    let index = TempIndex::copy_of_real(dir)?;
+    let (git_dir, real) = git_dir(dir)?;
+    let cache = git_dir.join(CACHE);
+    // The first time, the real index has the stats of the tracked files.
+    let seed = if cache.exists() { &cache } else { &real };
+    let index = TempIndex::copy_of(&git_dir, seed)?;
     // Without a pathspec `add --all` covers the whole working tree.
     Git::new(dir, "add").arg("--all").index(&index).run()?;
-    Git::new(dir, "write-tree").index(&index).text()
+    forget_ignored(dir, &index)?;
+    let tree = Git::new(dir, "write-tree").index(&index).text()?;
+    index.keep_as(&cache);
+    Ok(tree)
+}
+
+/// `add --all` keeps files it once added even after they are ignored. Drops
+/// those, unless the real index tracks them.
+fn forget_ignored(dir: &Path, index: &TempIndex) -> Result<()> {
+    // From the top: `ls-files` only lists the folder it runs in.
+    let top = toplevel(dir)?;
+    let ignored = |index: Option<&TempIndex>| -> Result<Vec<u8>> {
+        let mut git =
+            Git::new(&top, "ls-files").args(["-z", "--cached", "--ignored", "--exclude-standard"]);
+        if let Some(index) = index {
+            git = git.index(index);
+        }
+        git.run()
+    };
+    let ours = ignored(Some(index))?;
+    if ours.is_empty() {
+        return Ok(());
+    }
+    let tracked = ignored(None)?;
+    let tracked: std::collections::BTreeSet<String> = fields(&tracked).collect();
+    let mut stale = Vec::new();
+    for path in fields(&ours).filter(|p| !tracked.contains(p)) {
+        stale.extend_from_slice(path.as_bytes());
+        stale.push(0);
+    }
+    if !stale.is_empty() {
+        Git::new(&top, "update-index")
+            .args(["-z", "--force-remove", "--stdin"])
+            .index(index)
+            .input(stale)
+            .run()?;
+    }
+    Ok(())
+}
+
+fn toplevel(dir: &Path) -> Result<PathBuf> {
+    Git::new(dir, "rev-parse")
+        .arg("--show-toplevel")
+        .text()
+        .map(PathBuf::from)
 }
