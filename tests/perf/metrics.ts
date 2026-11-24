@@ -13,7 +13,15 @@ export interface Target {
   source: "concept" | "budget";
   label: string;
 }
-export const TARGETS: Record<string, Target> = JSON.parse(readFileSync(join(HERE, "targets.json"), "utf8")).metrics;
+const config = JSON.parse(readFileSync(join(HERE, "targets.json"), "utf8"));
+/** CI runners are slower than a developer machine: time budgets (not concept targets) get more room there. */
+const CI_FACTOR: number = process.env.CI ? config.ci_budget_factor : 1;
+export const TARGETS: Record<string, Target> = Object.fromEntries(
+  Object.entries(config.metrics as Record<string, Target>).map(([name, t]) => [
+    name,
+    t.source === "budget" && name.endsWith("_ms") ? { ...t, max: t.max * CI_FACTOR } : t,
+  ]),
+);
 
 export interface Result {
   name: string;
