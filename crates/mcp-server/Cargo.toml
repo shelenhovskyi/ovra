@@ -1,0 +1,20 @@
+[package]
+name = "ovra-mcp-server"
+description = "Ovra's IDE tools for agents, as an MCP server (implements ovra_core::services::IdeTools)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+ovra-core.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
+ovra-core = { workspace = true, features = ["fakes"] }
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[lints]
+workspace = true

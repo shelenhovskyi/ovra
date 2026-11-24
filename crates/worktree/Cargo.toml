@@ -1,0 +1,18 @@
+[package]
+name = "ovra-worktree"
+description = "Git worktrees, working-tree snapshots and review diffs (implements ovra_core::services::Worktrees)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+ovra-core.workspace = true
+
+[dev-dependencies]
+ovra-core = { workspace = true, features = ["fakes"] }
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[lints]
+workspace = true

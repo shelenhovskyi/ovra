@@ -8,9 +8,11 @@ use std::sync::Arc;
 use ovra_agent_runtime::ClaudeCli;
 use ovra_core::{Client, Core};
 use ovra_fs_index::FsIndex;
+use ovra_mcp_server::IdeServer;
 use ovra_opener::SystemOpener;
 use ovra_pty::Pty;
 use ovra_store::Store;
+use ovra_worktree::GitWorktrees;
 use tauri::{Emitter, Manager};
 
 /// Carries one client frame to the core and returns the reply frame.
@@ -32,6 +34,8 @@ fn main() {
                 .sessions(store)
                 .fs(Arc::new(FsIndex::new()))
                 .opener(Arc::new(SystemOpener::new()))
+                .worktrees(Arc::new(GitWorktrees::new()))
+                .ide_tools(Arc::new(IdeServer::new()))
                 .terminals(Arc::new(Pty::new()))
                 .agents(Arc::new(ClaudeCli::new(None)))
                 .build();

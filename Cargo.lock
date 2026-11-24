@@ -2907,10 +2907,12 @@ dependencies = [
  "ovra-agent-runtime",
  "ovra-core",
  "ovra-fs-index",
+ "ovra-mcp-server",
  "ovra-opener",
  "ovra-pty",
  "ovra-store",
  "ovra-transport",
+ "ovra-worktree",
  "tauri",
  "tauri-build",
  "tauri-plugin-notification",
@@ -2936,10 +2938,12 @@ dependencies = [
  "ovra-agent-runtime",
  "ovra-core",
  "ovra-fs-index",
+ "ovra-mcp-server",
  "ovra-opener",
  "ovra-pty",
  "ovra-store",
  "ovra-transport",
+ "ovra-worktree",
  "rand 0.9.5",
  "serde_json",
  "tokio",
@@ -2957,6 +2961,16 @@ dependencies = [
  "notify",
  "ovra-core",
  "tempfile",
+ "tokio",
+]
+
+[[package]]
+name = "ovra-mcp-server"
+version = "0.1.0"
+dependencies = [
+ "insta",
+ "ovra-core",
+ "serde_json",
  "tokio",
 ]
 
@@ -3001,6 +3015,14 @@ dependencies = [
  "tokio",
  "tokio-tungstenite 0.27.0",
  "tracing",
+]
+
+[[package]]
+name = "ovra-worktree"
+version = "0.1.0"
+dependencies = [
+ "ovra-core",
+ "tokio",
 ]
 
 [[package]]

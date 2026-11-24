@@ -66,10 +66,18 @@ the project database). A session that ran when the core quit shows as
 stopped; `agents.resume` continues it with the agent's own conversation id
 (`claude --resume`).
 
+## Orchestration (phase 3)
+
+A coordinator session plans a task and starts workers, each an isolated
+session in its own git worktree, through Ovra's IDE tools: an MCP server
+(`crates/mcp-server`) that the `claude` process reaches in-process over its
+stream-json pipe. Tasks, limits and review items are core state
+(`crates/core/src/orchestration`); git work is behind `Worktrees`
+(`crates/worktree`). See `docs/specs/orchestration.md`.
+
 ## Planned crates
 
-Added only when a phase needs them: `pty`, `agent-runtime`, `acp-client`,
-`worktree`, `orchestrator`, `mcp-server`, `ext-host`, `sandbox` (+ `-linux`,
+Added only when a phase needs them: `acp-client`, `ext-host`, `sandbox` (+ `-linux`,
 `-macos`, `-windows`), `netproxy`, `secrets`. Platform code sits behind traits
 with fake implementations so everything except the platform crates builds and
 tests on Linux.

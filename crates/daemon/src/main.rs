@@ -13,10 +13,12 @@ use ovra_agent_runtime::ClaudeCli;
 use ovra_core::Core;
 use ovra_core::services::AgentRuntime;
 use ovra_fs_index::FsIndex;
+use ovra_mcp_server::IdeServer;
 use ovra_opener::SystemOpener;
 use ovra_pty::Pty;
 use ovra_store::Store;
 use ovra_transport::ws::{self, Access};
+use ovra_worktree::GitWorktrees;
 use rand::Rng;
 use tower_http::services::{ServeDir, ServeFile};
 
@@ -73,6 +75,8 @@ async fn main() -> anyhow::Result<()> {
         .sessions(store)
         .fs(Arc::new(FsIndex::new()))
         .opener(Arc::new(SystemOpener::new()))
+        .worktrees(Arc::new(GitWorktrees::new()))
+        .ide_tools(Arc::new(IdeServer::new()))
         .terminals(Arc::new(Pty::new()))
         .agents(agents(&args))
         .build();

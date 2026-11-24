@@ -26,7 +26,8 @@ Before every push: `just test && just e2e && just lint` must pass.
 ## Layout and boundaries
 
 - `crates/core` - protocol (`src/protocol/`, one module per domain), request
-  handling, agent sessions and permission requests (`src/agents/`), path
+  handling, agent sessions and permission requests (`src/agents/`),
+  orchestration and review state (`src/orchestration/`), path
   validation (`src/path.rs`) and the service traits (`src/services.rs`) with
   in-memory fakes (`src/fakes.rs`, `fakes` feature).
   No UI, no OS APIs, no Tauri, no axum.
@@ -37,6 +38,9 @@ Before every push: `just test && just e2e && just lint` must pass.
 - `crates/pty` - `TerminalService`: shells in pseudo-terminals.
 - `crates/agent-runtime` - `AgentRuntime`: Claude sessions through the
   user's installed `claude` CLI (ADR 0006).
+- `crates/worktree` - `Worktrees`: git worktrees, snapshots and review diffs.
+- `crates/mcp-server` - `IdeTools`: Ovra's MCP tools for agents
+  (`src/tools.json` changes need human review).
 - `crates/transport` - JSON frames and the WebSocket endpoint (`ws` feature).
 - `crates/daemon` - headless binary: wires services into the core, serves
   WebSocket + static UI.
