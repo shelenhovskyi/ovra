@@ -144,3 +144,19 @@ async fn flags_of_ended_searches_are_dropped() {
     let _ = start(&core, &project, query("d")).await;
     assert_eq!(core.searches().running().len(), 1);
 }
+
+#[tokio::test]
+async fn starting_a_fifth_search_cancels_the_oldest() {
+    let (core, fs, project) = fixture().await;
+    for pattern in ["a", "b", "c", "d", "e"] {
+        let _ = start(&core, &project, query(pattern)).await;
+    }
+    let flags = fs
+        .searches
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
+    let cancelled: Vec<bool> = flags.iter().map(|f| f.is_cancelled()).collect();
+    assert_eq!(cancelled, [true, false, false, false, false]);
+    assert_eq!(core.searches().running().len(), 4);
+}

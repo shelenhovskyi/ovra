@@ -21,7 +21,8 @@ export type SearchQuery = {
 
 export type SearchRequest =
   /**
-   * Searches the files `fs.list_files` lists, skipping binaries and symlinks.
+   * Searches the files `fs.list_files` lists, skipping binaries, symlinks and
+   * files over 16 MiB. At most four run at once; another cancels the oldest.
    * Answers at once; results follow as events. `bad_request` for an empty
    * pattern or an invalid regex or glob.
    */
@@ -47,7 +48,7 @@ export type FileMatches = { path: string; lines: LineMatch[] };
 
 export type SearchEvent =
   | { type: "search.results"; data: { id: SearchId; files: FileMatches[] } }
-  /** `truncated`: stopped at 10,000 lines (MAX_SEARCH_LINES in Rust); more files may match. */
+  /** `truncated`: stopped at 10,000 lines (MAX_SEARCH_LINES in Rust) and left matches or files out. */
   | {
       type: "search.done";
       data: { id: SearchId; files: number; lines: number; truncated: boolean; cancelled: boolean };

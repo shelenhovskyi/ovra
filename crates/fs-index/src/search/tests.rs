@@ -8,7 +8,7 @@ use ovra_core::protocol::search::{
 use ovra_core::protocol::{ErrorCode, Event};
 use ovra_core::services::{FsService, SearchCancel};
 
-use super::line_match;
+use super::{Plan, Run, line_match};
 use crate::FsIndex;
 
 fn put(root: &Path, path: &str, text: impl AsRef<[u8]>) {
@@ -242,4 +242,54 @@ fn long_lines_are_cut_around_the_first_match() {
             ranges: vec![[3, 4]]
         }
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlinked_folder_in_a_stale_file_list_is_not_followed() {
+    let tmp = tempfile::tempdir().expect("temp dir");
+    let outside = tempfile::tempdir().expect("temp dir");
+    put(outside.path(), "config", "hello\n");
+    let root = std::fs::canonicalize(tmp.path()).expect("canonical root");
+    put(&root, "a.txt", "hello\n");
+    std::os::unix::fs::symlink(outside.path(), root.join("docs")).expect("link");
+    let core = Core::new("test");
+    let mut rx = core.subscribe();
+    let run = Run {
+        id: SearchId(1),
+        plan: Plan::new(&query("hello")).expect("plan"),
+        root,
+        sink: core.sink(),
+        cancel: SearchCancel::default(),
+    };
+    // As if the list was made before `docs` became a link.
+    run.run(&["a.txt".to_owned(), "docs/config".to_owned()]);
+    let paths: Vec<String> = std::iter::from_fn(|| rx.try_recv().ok())
+        .filter_map(|event| match event {
+            Event::Search(SearchEvent::Results { files, .. }) => Some(files),
+            _ => None,
+        })
+        .flatten()
+        .map(|f| f.path)
+        .collect();
+    assert_eq!(paths, ["a.txt"]);
+}
+
+#[test]
+fn exactly_the_line_limit_is_not_truncated() {
+    let tmp = tempfile::tempdir().expect("temp dir");
+    put(
+        tmp.path(),
+        "many.txt",
+        "x\n".repeat(MAX_SEARCH_LINES as usize),
+    );
+    let outcome = search(tmp.path(), query("x"));
+    assert!(matches!(
+        outcome.done,
+        SearchEvent::Done {
+            truncated: false,
+            lines: MAX_SEARCH_LINES,
+            ..
+        }
+    ));
 }

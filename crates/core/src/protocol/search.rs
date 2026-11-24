@@ -40,7 +40,8 @@ pub struct SearchQuery {
 #[serde(tag = "method", content = "params")]
 pub enum SearchRequest {
     /// Searches the project's files that `fs.list_files` lists, skipping
-    /// binary files and symlinks. Answers `search.started` at once, or
+    /// binary files, symlinks and files over 16 MiB. At most four searches
+    /// run at once; another cancels the oldest. Answers `search.started` at once, or
     /// `bad_request` for an empty pattern or an invalid regex or glob.
     #[serde(rename = "search.start")]
     Start {
@@ -96,7 +97,8 @@ pub enum SearchEvent {
         files: Vec<FileMatches>,
     },
     /// The search ended. Counts cover what was reported. `truncated`: it
-    /// stopped at [`MAX_SEARCH_LINES`] lines and more files may match.
+    /// stopped at [`MAX_SEARCH_LINES`] lines and left matches out, or files
+    /// that may match unsearched.
     #[serde(rename = "search.done")]
     Done {
         id: SearchId,

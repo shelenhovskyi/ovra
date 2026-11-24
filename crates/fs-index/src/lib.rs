@@ -151,10 +151,13 @@ impl FsService for FsIndex {
         std::thread::Builder::new()
             .name("ovra-search".into())
             .spawn(move || {
-                let files: Vec<String> = match watched.as_deref().map(SharedFiles::lock) {
-                    Some(files) if files.version > 0 => files.paths.iter().cloned().collect(),
-                    _ => file_list::scan(&run.root).into_iter().collect(),
-                };
+                // Copied under the lock; a walk while indexing runs without it.
+                let cached = watched.as_deref().and_then(|files| {
+                    let files = files.lock();
+                    (files.version > 0).then(|| files.paths.iter().cloned().collect())
+                });
+                let files: Vec<String> =
+                    cached.unwrap_or_else(|| file_list::scan(&run.root).into_iter().collect());
                 run.run(&files);
             })
             .map(drop)

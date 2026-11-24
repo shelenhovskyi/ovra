@@ -12,6 +12,8 @@ use crate::services::SearchCancel;
 
 /// The longest pattern a search accepts, in bytes.
 const MAX_PATTERN: usize = 1000;
+/// Searches that may run at once; starting another cancels the oldest.
+const MAX_RUNNING: usize = 4;
 
 #[derive(Debug, Default)]
 pub(crate) struct Searches {
@@ -45,6 +47,11 @@ pub(crate) fn handle(core: &Core, request: SearchRequest) -> Result<Response, Pr
                 let mut running = searches.running();
                 // A flag nobody else holds belongs to a search that ended.
                 running.retain(|_, flag| !flag.is_alone());
+                while running.len() >= MAX_RUNNING {
+                    if let Some((_, oldest)) = running.pop_first() {
+                        oldest.cancel();
+                    }
+                }
                 running.insert(id, cancel.clone());
             }
             if let Err(e) = core

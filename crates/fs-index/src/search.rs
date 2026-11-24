@@ -29,6 +29,8 @@ const BATCH_LINES: usize = 200;
 /// ...or once its first file waited this long.
 const BATCH_WAIT: Duration = Duration::from_millis(50);
 const MAX_WORKERS: usize = 8;
+/// Larger files (logs, dumps, bundles) are skipped.
+const MAX_FILE_BYTES: u64 = 16 * 1024 * 1024;
 
 /// A checked query: what to match and which files to look in.
 #[derive(Debug)]
@@ -129,6 +131,12 @@ impl Run {
             drop(tx);
             self.collect(&rx, &full)
         });
+        // Stopped at the limit before every file was searched: more may match.
+        let unsearched = next.load(Ordering::Relaxed) < files.len();
+        let totals = Totals {
+            truncated: totals.truncated || (full.load(Ordering::Relaxed) && unsearched),
+            ..totals
+        };
         self.sink.emit(SearchEvent::Done {
             id: self.id,
             files: totals.files,
@@ -161,7 +169,12 @@ impl Run {
             if !self.plan.wants(path) {
                 continue;
             }
-            let lines = self.search_file(&mut searcher, &self.root.join(path), full);
+            // Joined part by part, so the path compares equal to its canonical
+            // form on Windows too.
+            let file: PathBuf = std::iter::once(self.root.as_os_str())
+                .chain(path.split('/').map(std::ffi::OsStr::new))
+                .collect();
+            let lines = self.search_file(&mut searcher, &file, full);
             if !lines.is_empty() {
                 let found = FileMatches {
                     path: path.clone(),
@@ -182,8 +195,19 @@ impl Run {
         file: &Path,
         full: &AtomicBool,
     ) -> Vec<LineMatch> {
-        // Symlinks could lead out of the project.
-        if !std::fs::symlink_metadata(file).is_ok_and(|m| m.is_file()) {
+        // Every part of the path must be what it says: a symlink (also a
+        // symlinked folder, possibly put there after the file list was
+        // made) could lead out of the project.
+        if !std::fs::canonicalize(file).is_ok_and(|real| real == file) {
+            return Vec::new();
+        }
+        let Ok(handle) = std::fs::File::open(file) else {
+            return Vec::new();
+        };
+        if !handle
+            .metadata()
+            .is_ok_and(|m| m.is_file() && m.len() <= MAX_FILE_BYTES)
+        {
             return Vec::new();
         }
         let mut lines = Lines {
@@ -192,7 +216,7 @@ impl Run {
             binary: false,
             stop: || self.stopped(full),
         };
-        let searched = searcher.search_path(&self.plan.matcher, file, &mut lines);
+        let searched = searcher.search_file(&self.plan.matcher, &handle, &mut lines);
         if searched.is_err() || lines.binary {
             return Vec::new();
         }
@@ -215,6 +239,7 @@ impl Run {
             match received {
                 Ok(mut found) => {
                     let room = limit - totals.lines as usize;
+                    totals.truncated |= found.lines.len() > room;
                     found.lines.truncate(room);
                     if found.lines.len() == room {
                         full.store(true, Ordering::Relaxed);
@@ -238,7 +263,6 @@ impl Run {
             batch_lines = 0;
             since = None;
         }
-        totals.truncated = totals.lines as usize >= limit;
         self.flush(&mut batch);
         totals
     }
@@ -293,7 +317,8 @@ impl<F: Fn() -> bool> Sink for Lines<'_, F> {
                 .unwrap_or(0);
             self.found.push(line_match(line, &text, &ranges));
         }
-        Ok(self.found.len() < MAX_SEARCH_LINES as usize && !(self.stop)())
+        // One line past the limit tells the collector that lines were left out.
+        Ok(self.found.len() <= MAX_SEARCH_LINES as usize && !(self.stop)())
     }
 
     fn binary_data(&mut self, _: &Searcher, _: u64) -> io::Result<bool> {
