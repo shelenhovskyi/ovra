@@ -69,8 +69,8 @@ export class TreeModel {
   /** Loaded directories whose listing may be out of date; reloaded when shown. */
   private readonly stale = new Set<string>();
   private readonly ignoredDirs = new Set<string>();
-  /** Directories whose rows the view shows; null means all of them. */
-  private view: Set<string> | null = null;
+  /** Paths of the rows on screen, and the folders those rows sit in; null means everything. */
+  private view: { rows: Set<string>; dirs: Set<string> } | null = null;
   private pumping: Promise<void> | null = null;
   /** Expanded directories before the "changed" filter opened more. */
   private expandedBeforeFilter: Set<string> | null = null;
@@ -80,10 +80,15 @@ export class TreeModel {
     private readonly onChange: () => void,
   ) {}
 
-  /** Loads the root listing, and the listings of `expanded` (restored from the last session). */
+  /**
+   * Loads the root listing and restores `expanded` (saved from the last
+   * session). Restored folders load only once their row is on screen, so a
+   * tree saved with hundreds of open folders costs one screenful of requests.
+   */
   async start(expanded: string[] = []): Promise<void> {
     for (const dir of expanded) if (dir !== "") this.expanded.add(dir);
-    await Promise.all([...this.expanded].map((d) => this.fetchFirst(d)));
+    await this.fetchFirst("");
+    await this.pump();
   }
 
   /** Expanded directories, outermost first, for saving the tree's shape. */
@@ -167,9 +172,9 @@ export class TreeModel {
     }
   }
 
-  /** The directories whose rows are on screen; listings outside it refresh when they scroll in. */
-  setView(dirs: Set<string> | null): Promise<void> {
-    this.view = dirs;
+  /** The paths of the rows on screen; listings and restored folders outside it load when they scroll in. */
+  setView(rows: Set<string> | null): Promise<void> {
+    this.view = rows && { rows, dirs: new Set([...rows].map(parentOf)) };
     return this.pump();
   }
 
@@ -205,7 +210,8 @@ export class TreeModel {
 
   /** Reloads stale listings that are shown, in batches with one rebuild each, until none are left. */
   private pump(): Promise<void> {
-    if (this.pumping) return this.pumping;
+    // A pass in flight may already have done its last check; run again after it.
+    if (this.pumping) return this.pumping.then(() => this.pump());
     const due = this.due();
     if (due.length === 0) return Promise.resolve();
     const run = async (batch: string[]): Promise<void> => {
@@ -221,8 +227,19 @@ export class TreeModel {
     return this.pumping;
   }
 
+  /** Stale listings with rows on screen, and expanded folders not loaded yet whose own row is on screen. */
   private due(): string[] {
-    return [...this.stale].filter((d) => this.isShown(d) && (!this.view || this.view.has(d)));
+    const view = this.view;
+    const stale = [...this.stale].filter((d) => this.isShown(d) && (!view || view.dirs.has(d)));
+    const unloaded = [...this.expanded].filter(
+      (d) =>
+        !this.dirs.has(d) &&
+        !this.loading.has(d) &&
+        this.dirs.has(parentOf(d)) &&
+        this.isShown(d) &&
+        (!view || view.rows.has(d)),
+    );
+    return [...stale, ...unloaded];
   }
 
   /** First load of a directory: shows the loading hint while it runs. */
@@ -286,7 +303,7 @@ export class TreeModel {
           renamedFrom: entry.renamed_from ?? null,
           ignored,
           expanded,
-          loading: expanded && this.loading.has(path),
+          loading: expanded && !this.dirs.has(path),
           posinset: i + 1,
           setsize: entries.length,
         });

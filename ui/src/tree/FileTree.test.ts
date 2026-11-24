@@ -20,8 +20,11 @@ afterEach(() => {
 
 /** Lets pending fake calls resolve and Svelte re-render. */
 async function settle(): Promise<void> {
-  flushSync();
-  await new Promise((resolve) => setTimeout(resolve));
+  // A few rounds: restored folders load level by level as their rows appear.
+  for (let i = 0; i < 3; i++) {
+    flushSync();
+    await new Promise((resolve) => setTimeout(resolve));
+  }
   flushSync();
 }
 
@@ -233,6 +236,18 @@ describe("FileTree", () => {
     core.emit({ type: "fs.changed", data: { project: "p1", paths: ["a000000", "a000001", "a000002"] } });
     await settle();
     expect(top).toBe(22 * 503);
+  });
+
+  it("reveals and selects the open file without taking focus", async () => {
+    const core = new FakeCore(dirsFromPaths(["a/b/c.ts", "z.md"]));
+    const target = document.body.appendChild(document.createElement("div"));
+    const app = mount(FileTree, {
+      target,
+      props: { transport: core, project: "p1", openPath: "a/b/c.ts", onopen: () => {} },
+    });
+    cleanup = () => unmount(app);
+    await settle();
+    expect(target.querySelector("[aria-selected=true]")?.getAttribute("data-path")).toBe("a/b/c.ts");
   });
 
   it("shows why the tree could not load", async () => {

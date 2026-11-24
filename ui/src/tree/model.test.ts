@@ -142,6 +142,23 @@ describe("TreeModel", () => {
   });
 });
 
+describe("TreeModel restore", () => {
+  it("loads restored folders only once their row is on screen", async () => {
+    const paths = Array.from({ length: 50 }, (_, i) => `pkg${i}/src/a.ts`);
+    const { core, model } = setup(paths);
+    await model.setView(new Set());
+    const saved = paths.flatMap((p) => [p.split("/")[0] as string, p.split("/").slice(0, 2).join("/")]);
+    await model.start(saved);
+    expect(core.listedPaths()).toEqual([""]);
+    await model.setView(new Set(["pkg0", "pkg1"])); // the first rows come on screen
+    expect(core.listedPaths().sort()).toEqual(["", "pkg0", "pkg1"]);
+    await model.setView(new Set(["pkg0", "pkg0/src"]));
+    expect(core.listedPaths()).toContain("pkg0/src");
+    expect(core.listedPaths()).not.toContain("pkg1/src");
+    expect(model.expandedDirs()).toHaveLength(100); // the saved shape is kept
+  });
+});
+
 describe("TreeModel refresh", () => {
   const tree = ["a/x.ts", "b/y.ts", "c/z.ts"];
 
@@ -149,18 +166,18 @@ describe("TreeModel refresh", () => {
     const { core, model } = setup(tree);
     await model.start(["a", "b", "c"]);
     model.collapse("c");
-    await model.setView(new Set(["", "a"]));
+    await model.setView(new Set(["a", "a/x.ts"])); // rows of "" and of a are on screen
     core.calls = [];
     await model.invalidateAll();
     expect(core.listedPaths().sort()).toEqual(["", "a"]);
     core.calls = [];
-    await model.setView(new Set(["b"])); // scrolled to b's children
+    await model.setView(new Set(["b/y.ts"])); // scrolled to b's children
     expect(core.listedPaths()).toEqual(["b"]);
     core.calls = [];
     await model.expand("c"); // collapsed while stale: shown from cache at once...
     expect(core.listedPaths()).toEqual([]);
     expect(model.rows.map((r) => r.path)).toContain("c/z.ts");
-    await model.setView(new Set(["c"])); // ...and reloaded once its rows are on screen
+    await model.setView(new Set(["c/z.ts"])); // ...and reloaded once its rows are on screen
     expect(core.listedPaths()).toEqual(["c"]);
   });
 

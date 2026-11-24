@@ -92,6 +92,7 @@ $effect(() => {
   void loadExpanded(transport, project).then((expanded) => {
     // Save only once restored, so the first rebuilds cannot overwrite the saved shape.
     void model.start(expanded).then(() => {
+      started = true;
       saver = new ExpandedSaver(transport, project, expanded);
       saver.update(model.expandedDirs());
     });
@@ -135,14 +136,22 @@ let shown = $derived.by(() => {
   return indexes;
 });
 
-// Only listings with rows on screen reload after fs events; the rest reload when scrolled to.
+// Only listings with rows on screen reload after fs events, and restored folders load
+// when their row comes on screen; the rest wait until scrolled to.
 $effect(() => {
-  const dirs = new Set<string>();
-  for (let i = range.start; i < range.end; i++) {
-    const row = rows[i];
-    if (row) dirs.add(parentOf(row.path));
-  }
-  void model.setView(dirs);
+  void model.setView(new Set(rows.slice(range.start, range.end).map((r) => r.path)));
+});
+
+// Show the open file in the tree (after a restore, a tab switch or the palette), without taking focus.
+let started = $state(false);
+$effect(() => {
+  const path = openPath;
+  if (!started || !path) return;
+  // While filtered to changed files, do not undo the filter just to show a file.
+  const shown = model.filter === "all" ? model.reveal(path) : Promise.resolve();
+  void shown.then(() => {
+    if (openPath === path) select(rows.findIndex((r) => r.path === path));
+  });
 });
 
 function rowId(index: number): string {
