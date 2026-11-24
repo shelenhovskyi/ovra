@@ -1,18 +1,33 @@
 <script lang="ts">
-// Placeholder. Task 1.D: virtualized tree with git status; calls fs.list_dir and workspace.openFile()
+// Sidebar: the start screen until a project is open, then its file tree.
 import { useOvra } from "../shell/context";
+import FileTree from "./FileTree.svelte";
+import ProjectList from "./ProjectList.svelte";
 
-const { workspace } = useOvra();
+const { transport, workspace } = useOvra();
 </script>
 
-<div class="placeholder" data-panel="File tree">
-  <p>File tree</p>
-  {#if workspace.openPath}<p class="path">{workspace.openPath}</p>{/if}
-</div>
+<h2 class="visually-hidden">File tree</h2>
+{#if workspace.project}
+  {#key workspace.project.id}
+    <FileTree
+      {transport}
+      project={workspace.project.id}
+      openPath={workspace.openPath}
+      onopen={(path) => workspace.openFile(path)}
+    />
+  {/key}
+{:else}
+  <ProjectList {transport} onopen={(project) => (workspace.project = project)} />
+{/if}
 
 <style>
-  .placeholder {
-    padding: 12px;
-    color: #6f6f7a;
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 </style>
