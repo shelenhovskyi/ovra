@@ -138,6 +138,9 @@ Ask the owner only before:
 - Small changes: aim for under ~400 changed lines per commit or PR; split larger work.
 - Conventional Commits. For now work lands directly on `main` without PRs;
   when PRs are used, their sections are Summary, Assumptions, Testing.
+- Add `Reviewed-by: shelenhovskyi <shelenhovskyi@users.noreply.github.com>`
+  to a commit only when the owner reviewed that diff and said so; never on
+  your own. `AI_POLICY.md` promises that this trailer means a human review.
 - Security code (policies, sandbox, CSP, Tauri capabilities, extension
   manifests, netproxy, secrets, WIT) needs a separate human review.
 
