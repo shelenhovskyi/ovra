@@ -253,9 +253,96 @@ describe("Approvals", () => {
     await settle();
     const scopes = cards().map((c) => c.querySelector("[data-testid=approval-scope]")?.textContent?.trim());
     expect(scopes).toEqual([
-      "Inside the project folder: README.md",
+      "Inside the project folder: README.md (/demo/README.md)",
       "⚠ Outside the project folder: /demo/../etc/passwd",
     ]);
+  });
+
+  it("judges paths from the agent's own folder and warns about an unknown project", async () => {
+    const core = await setup();
+    core.ask({ ...bash("perm1"), tool: "Read", cwd: "/demo/.wt/w1", input: { file_path: "/demo/src/a.rs" } });
+    core.ask({ id: "perm2", session: "s1", project: "p9", tool: "Read", input: { file_path: "/demo/a" }, title: null });
+    await settle();
+    const lines = (testid: string) =>
+      cards().map((c) => c.querySelector(`[data-testid=${testid}]`)?.textContent?.replace(/\s+/g, " ").trim());
+    // A worker's worktree is its folder: the main checkout is outside it.
+    expect(lines("approval-scope")).toEqual([
+      "⚠ Outside the agent's working folder: /demo/src/a.rs",
+      "⚠ Cannot tell whether this is inside a project: /demo/a",
+    ]);
+    expect(lines("approval-unknown-project")).toEqual([
+      undefined,
+      "⚠ Project unknown: Ovra cannot tell whether these paths are inside a project.",
+    ]);
+    expect(cards()[1]?.querySelector("[data-testid=approval-other-project]")).not.toBeNull();
+    // The core does not know p9: asking again for every card would flood it.
+    const asked = core.sent("projects.list").length;
+    core.ask({ id: "perm3", session: "s1", project: "p9", tool: "Read", input: { file_path: "/a" }, title: null });
+    await settle();
+    expect(core.sent("projects.list").length).toBe(asked);
+  });
+
+  it("answers Y and N only on the card itself, not from a button on it", async () => {
+    const core = await setup();
+    core.ask(bash("perm1"));
+    await settle(ARM_MS);
+    cards()[0]?.querySelector<HTMLButtonElement>("button:not(.allow)")?.focus();
+    press("KeyY");
+    press("KeyN");
+    await settle(ARM_MS);
+    expect(answers(core)).toEqual([]);
+  });
+
+  it("after an answer, focuses only a request that was already on screen", async () => {
+    const core = await setup();
+    const call = core.call.bind(core);
+    let deliver = () => {};
+    vi.spyOn(core, "call").mockImplementation(async (request) => {
+      if (request.method === "permissions.answer") await new Promise<void>((done) => (deliver = done));
+      return call(request);
+    });
+    core.ask(bash("perm1"));
+    await settle(ARM_MS);
+    cards()[0]?.focus();
+    press("KeyY");
+    await settle();
+    core.ask(bash("perm2", "rm -rf build"));
+    deliver();
+    await settle();
+    expect(answers(core)).toEqual([{ id: "perm1", decision: "allow" }]);
+    expect(document.activeElement?.id).toBe("approvals-heading");
+  });
+
+  it("waits again when the cards change order", async () => {
+    const core = await setup();
+    core.ask(bash("perm1"));
+    core.ask(bash("perm2"));
+    await settle(ARM_MS);
+    core.pending.reverse();
+    core.emit({ type: "info.resync", data: { skipped: 2 } });
+    await settle();
+    expect(cards().map((c) => c.dataset.request)).toEqual(["perm2", "perm1"]);
+    const allow = cards()[0]?.querySelector<HTMLButtonElement>("button.allow");
+    expect(allow?.getAttribute("aria-disabled")).toBe("true");
+    allow?.click();
+    await settle();
+    expect(answers(core)).toEqual([]);
+  });
+
+  it("says so when a notification's request was already answered", async () => {
+    const core = await setup();
+    core.ask(bash("perm1"));
+    await settle(ARM_MS);
+    const { approvalQueue } = await import("./queue.svelte");
+    approvalQueue(core).reveal("perm9");
+    await settle();
+    expect(document.activeElement?.id).toBe("approvals-heading");
+    expect(target.querySelector("[data-testid=approvals-notice]")?.textContent).toBe(
+      "That request was already answered.",
+    );
+    press("KeyY");
+    await settle();
+    expect(answers(core)).toEqual([]);
   });
 
   it("focuses the request a notification is about", async () => {

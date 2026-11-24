@@ -21,6 +21,8 @@ export interface SystemNotifications {
   /** Asks the person; must run from a click or key press. */
   request(): Promise<Permission>;
   show(title: string, body: string, tag: string, onClick: () => void): void;
+  /** Takes back the notification shown with this tag, if it is still there. */
+  close(tag: string): void;
   /** Whether Ovra is the window the person looks at. */
   inForeground(): boolean;
 }
@@ -62,8 +64,10 @@ export class Notifier {
     this.toasts = this.toasts.filter((t) => t.id !== id);
   }
 
+  /** Also takes back its system notification: what it was about is over. */
   dismissKey(key: string): void {
     for (const toast of this.toasts) if (toast.key === key) this.dismiss(toast.id);
+    this.system.close(key);
   }
 
   private clearTimer(id: number): void {
@@ -74,6 +78,7 @@ export class Notifier {
 
 function webNotifications(): SystemNotifications {
   const api = () => (typeof Notification === "undefined" ? undefined : Notification);
+  const open = new Map<string, Notification>();
   return {
     permission: () => api()?.permission ?? "unsupported",
     request: async () => {
@@ -87,11 +92,19 @@ function webNotifications(): SystemNotifications {
       const notification = api();
       if (!notification) return;
       const shown = new notification(title, { body, tag });
+      open.set(tag, shown);
+      shown.onclose = () => {
+        if (open.get(tag) === shown) open.delete(tag);
+      };
       shown.onclick = () => {
         window.focus();
         onClick();
         shown.close();
       };
+    },
+    close: (tag) => {
+      open.get(tag)?.close();
+      open.delete(tag);
     },
     inForeground: () => document.visibilityState === "visible" && document.hasFocus(),
   };

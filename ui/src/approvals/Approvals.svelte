@@ -6,7 +6,8 @@
 // Nothing is answered by accident:
 // - focus never moves here from elsewhere;
 // - a request is answerable only ARM_MS after it appeared, after the previous
-//   answer and after any request left the list (cards move then), and the
+//   answer and after any card moved (a request left the list or the list
+//   was reloaded in another order), and the
 //   buttons look disabled exactly as long as they are;
 // - one key press answers at most one request: auto-repeat is ignored and the
 //   next answer needs the key released first.
@@ -18,7 +19,7 @@ import type { Decision, PermissionId, PermissionRequest, Project, ProjectId } fr
 import { useOvra } from "../shell/context";
 import { describeTool } from "./describe";
 import { ARM_MS, approvalQueue } from "./queue.svelte";
-import { pathScopes } from "./scope";
+import { pathScopes, sameFolder } from "./scope";
 
 const { transport, workspace } = useOvra();
 const queue = approvalQueue(transport);
@@ -34,7 +35,11 @@ let note = $state("");
 let list = $state<HTMLElement>();
 let heading = $state<HTMLElement>();
 let returnTo: HTMLElement | null = null;
+/** Said to screen readers: what a jump to a request found. */
+let notice = $state("");
 const projects = new SvelteMap<ProjectId, Project>();
+/** Projects already asked for, so a project the core does not know is asked once. */
+const requested = new Set<ProjectId>();
 
 const armedAt = (id: string): number => Math.max(queue.arrived.get(id) ?? 0, quietFrom) + ARM_MS;
 /** The one test for both the look of the buttons and whether a press counts. */
@@ -53,12 +58,12 @@ $effect(() => {
   return () => clearTimeout(timer);
 });
 
-// A request that leaves the list moves the cards under the pointer.
-let shown = new Set<PermissionId>();
+// A card that moves (or leaves) puts another one under the pointer.
+let shown: PermissionId[] = [];
 $effect(() => {
-  const ids = new Set(queue.pending.map((r) => r.id));
+  const ids = queue.pending.map((r) => r.id);
   untrack(() => {
-    if ([...shown].some((id) => !ids.has(id))) quiet();
+    if (shown.some((id, i) => ids[i] !== id)) quiet();
   });
   shown = ids;
 });
@@ -80,11 +85,9 @@ $effect(() => {
 
 // Project names and folders for the cards.
 $effect(() => {
-  const missing = queue.pending.some((r) => {
-    const project = sessions.byId.get(r.session)?.project;
-    return project !== undefined && !projects.has(project);
-  });
-  if (!missing) return;
+  const missing = queue.pending.filter((r) => !projects.has(r.project) && !requested.has(r.project));
+  if (missing.length === 0) return;
+  for (const r of missing) requested.add(r.project);
   untrack(() => {
     transport
       .call({ method: "projects.list" })
@@ -102,7 +105,10 @@ $effect(() =>
 $effect(() => {
   queue.revealer = (id) => {
     remember();
-    (card(id) ?? cards()[0] ?? heading)?.focus();
+    const target = card(id);
+    // Never another request instead: a key press meant for this one would answer it.
+    notice = target ? "" : "That request was already answered.";
+    (target ?? heading)?.focus();
   };
   return () => {
     queue.revealer = null;
@@ -134,7 +140,11 @@ function leave(): void {
 
 async function answer(request: PermissionRequest, decision: Decision, message?: string): Promise<void> {
   if (!armed(request.id)) return;
-  const index = queue.pending.indexOf(request);
+  // Only a request already on screen may take the focus next: one that
+  // arrives while the answer is on its way was never seen.
+  const before = queue.pending.map((r) => r.id);
+  const index = before.indexOf(request.id);
+  notice = "";
   const focused = list?.contains(document.activeElement) ?? false;
   quiet();
   const sent = await queue.answer(request.id, decision, message);
@@ -145,11 +155,11 @@ async function answer(request: PermissionRequest, decision: Decision, message?: 
   }
   await tick();
   if (!focused) return;
-  const next = cards();
-  const target = next[Math.min(index, next.length - 1)];
-  // With nothing left, stay on the heading. A request that arrives later is
-  // never focused on its own: typing must not land on it.
-  (target ?? heading)?.focus();
+  const seen = [...before.slice(index + 1), ...before.slice(0, index).reverse()];
+  const next = seen.map(card).find((c) => c !== undefined);
+  // With nothing seen left, stay on the heading. A request that arrives later
+  // is never focused on its own: typing must not land on it.
+  (next ?? heading)?.focus();
 }
 
 /** Answers from a key press: at most one answer per press. */
@@ -184,13 +194,16 @@ function onKeydown(event: KeyboardEvent, request: PermissionRequest): void {
   if (event.ctrlKey || event.metaKey || event.altKey || event.isComposing) return;
   const all = cards();
   const at = all.findIndex((c) => c.dataset.request === request.id);
+  // Y and N answer only on the card itself, never from a control inside it.
+  const onCard = event.target === event.currentTarget;
   const handled = (() => {
     switch (event.code) {
       case "KeyY":
-        if (event.shiftKey) return false;
+        if (event.shiftKey || !onCard) return false;
         answerByKey(event, request, "allow");
         return true;
       case "KeyN":
+        if (!onCard) return false;
         if (event.shiftKey) {
           if (!event.repeat) void openDeny(request);
         } else answerByKey(event, request, "deny");
@@ -217,9 +230,12 @@ function repeats(title: string, request: PermissionRequest, action: string): boo
   return action.includes(title) || Object.values(record).some((v) => v === title);
 }
 
-function projectOf(request: PermissionRequest): Project | undefined {
-  const id = sessions.byId.get(request.session)?.project;
-  return id === undefined ? undefined : projects.get(id);
+/** The folder paths are judged against, and what to call it. */
+function folderOf(request: PermissionRequest, project: Project | undefined): { path: string | null; name: string } {
+  const path = request.cwd ?? project?.root ?? null;
+  if (path === null) return { path, name: "a project" };
+  const own = project !== undefined && sameFolder(path, project.root);
+  return { path, name: own ? "the project folder" : "the agent's working folder" };
 }
 </script>
 
@@ -239,6 +255,7 @@ function projectOf(request: PermissionRequest): Project | undefined {
   >
     Approvals{#if queue.pending.length > 0}{" "}<span class="count">({queue.pending.length} waiting)</span>{/if}
   </h2>
+  <p class="notice" aria-live="polite" data-testid="approvals-notice">{notice}</p>
   {#if queue.error}
     <p class="error" role="alert">{queue.error}</p>
   {/if}
@@ -252,7 +269,8 @@ function projectOf(request: PermissionRequest): Project | undefined {
       {@const summary = describeTool(request.tool, request.input)}
       {@const ready = armed(request.id)}
       {@const domId = `approval-${request.id}`}
-      {@const project = projectOf(request)}
+      {@const project = projects.get(request.project)}
+      {@const folder = folderOf(request, project)}
       <li>
         <!-- A focusable group is how the keys reach one request (Y, N, arrows). -->
         <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
@@ -270,12 +288,20 @@ function projectOf(request: PermissionRequest): Project | undefined {
             asks to use {request.tool}
           </p>
           <h3 id="{domId}-action">{summary.action}</h3>
-          {#if project && project.id !== workspace.project?.id}
+          {#if request.project !== workspace.project?.id}
             <p class="other" data-testid="approval-other-project">Not the project open in this window</p>
           {/if}
-          {#each project ? pathScopes(request.input, project.root) : [] as scope}
-            <p class="scope" class:outside={!scope.inside} data-testid="approval-scope">
-              {#if scope.inside}Inside the project folder: {scope.relative}{:else}⚠ Outside the project folder: {scope.path}{/if}
+          {#if !project}
+            <p class="scope outside" data-testid="approval-unknown-project">
+              ⚠ Project unknown: Ovra cannot tell whether these paths are inside a project.
+            </p>
+          {/if}
+          {#each pathScopes(request.input, folder.path) as scope}
+            <p class="scope" class:outside={scope.scope !== "inside"} data-testid="approval-scope">
+              {#if scope.scope === "inside"}Inside {folder.name}: {scope.relative}{#if scope.relative !== scope.path}{" "}<span
+                    class="raw">({scope.path})</span
+                  >{/if}{:else if scope.scope === "outside"}⚠ Outside {folder.name}: {scope.path}{:else}⚠ Cannot tell
+                whether this is inside {folder.name}: {scope.path}{/if}
             </p>
           {/each}
           {#if request.tool === "Bash"}
@@ -391,6 +417,14 @@ function projectOf(request: PermissionRequest): Project | undefined {
     font-size: 12px;
     font-weight: 600;
     color: #ffd36b;
+  }
+  .notice {
+    margin: 0;
+    font-size: 12px;
+    color: #ffd36b;
+  }
+  .raw {
+    color: #b4b4c0;
   }
   .scope.outside {
     font-weight: 600;

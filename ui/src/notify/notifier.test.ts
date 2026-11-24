@@ -5,13 +5,15 @@ import { INFO_MS, Notifier, type SystemNotifications } from "./notifier.svelte";
 
 function system(granted: boolean, foreground: boolean) {
   const shown: { title: string; body: string; click: () => void }[] = [];
+  const closed: string[] = [];
   const api: SystemNotifications = {
     permission: () => (granted ? "granted" : "default"),
     request: async () => "granted",
     show: (title, body, _tag, click) => shown.push({ title, body, click }),
+    close: (tag) => closed.push(tag),
     inForeground: () => foreground,
   };
-  return { api, shown };
+  return { api, shown, closed };
 }
 
 beforeEach(() => vi.useFakeTimers());
@@ -57,6 +59,8 @@ describe("watchAgents", () => {
     expect(review).toHaveBeenCalledExactlyOnceWith("perm1");
     core.emit({ type: "permissions.resolved", data: { id: "perm1", decision: "allow" } });
     expect(notifier.toasts).toEqual([]);
+    // Answered elsewhere: the system notification goes too, so its Review cannot be pressed late.
+    expect(back.closed.at(-1)).toBe("permission:perm1");
 
     core.status("s1", { state: "working" });
     core.status("s1", { state: "idle" });
