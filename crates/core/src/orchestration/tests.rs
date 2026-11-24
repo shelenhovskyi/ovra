@@ -1592,3 +1592,41 @@ async fn an_undone_replace_keeps_what_the_person_wrote_since() {
     .await;
     assert!(!f.wt.has(&worker.worktree));
 }
+
+#[tokio::test]
+async fn new_work_ends_the_undo_of_a_replace() {
+    let f = fx(say()).await;
+    let mut rx = f.core.subscribe();
+    start_task(&f.core, 3).await;
+    let boss = caller("s1", ToolRole::Coordinator);
+    let worker = f.core.spawn_agent(&boss, "w", "x").await;
+    let worker = worker.unwrap_or_else(|e| panic!("{e}"));
+    until(&mut rx, "s2", AgentStatus::Idle).await;
+    f.wt.put(&worker.worktree, "b.rs", "new\n");
+    f.wt.put(ROOT, "b.rs", "mine\n");
+    ok(
+        &f.core,
+        json!({"method": "review.approve", "params": {"id": "r1", "commit": null}}),
+    )
+    .await;
+    ok(
+        &f.core,
+        json!({"method": "review.take", "params": {"id": "r1"}}),
+    )
+    .await;
+    f.wt.put(&worker.worktree, "d.rs", "more\n");
+    let listed = reviews(&f.core).await;
+    assert_eq!(
+        listed
+            .iter()
+            .map(|r| (r.id.0.as_str(), r.can_undo_take))
+            .collect::<Vec<_>>(),
+        [("r2", false), ("r1", false)]
+    );
+    let late = call(
+        &f.core,
+        json!({"method": "review.undo_take", "params": {"id": "r1"}}),
+    )
+    .await;
+    assert_eq!(code(late), ErrorCode::Conflict);
+}

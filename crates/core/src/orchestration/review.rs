@@ -515,7 +515,7 @@ async fn take(core: &Core, id: &ReviewId) -> Result<(ReviewItem, Vec<String>, Ve
         ));
     }
     let waits = direct_touched(core, &entry.project).await;
-    let (waiting, wanted): (Vec<String>, Vec<String>) = entry
+    let (_waiting, wanted): (Vec<String>, Vec<String>) = entry
         .not_copied
         .iter()
         .cloned()
@@ -536,8 +536,8 @@ async fn take(core: &Core, id: &ReviewId) -> Result<(ReviewItem, Vec<String>, Ve
         .collect();
     let (changed, same): (Vec<String>, Vec<String>) =
         wanted.into_iter().partition(|p| since.contains(p));
+    // Files that wait stay listed as not copied; they are not "skipped".
     let mut skipped = changed;
-    skipped.extend(waiting);
     let mut written = Vec::new();
     let mut taken = None;
     if !same.is_empty() {
@@ -811,11 +811,19 @@ fn open_after(core: &Core, decided: &Entry) -> Entry {
         ..decided.clone()
     };
     // New work ends the undo of the decided item's last replace.
+    let mut ended_undo = false;
     if let Some(old) = state.reviews.iter_mut().find(|r| r.id == decided.id) {
-        old.taken = None;
+        ended_undo = old.taken.take().is_some();
     }
     state.reviews.push(entry.clone());
     orchestration.save(&state);
+    drop(state);
+    if ended_undo {
+        core.emit(ReviewEvent::Changed {
+            project: decided.project.clone(),
+            id: decided.id.clone(),
+        });
+    }
     entry
 }
 

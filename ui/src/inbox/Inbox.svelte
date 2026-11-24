@@ -301,7 +301,14 @@ function outcomeText(outcome: Outcome): string {
         : "";
     return `${put}${kept}`.trim() || "Nothing was replaced.";
   }
-  if (outcome.action === "untaken") return `Your versions are back: ${outcome.restored.join(", ")}.`;
+  if (outcome.action === "untaken") {
+    const back = outcome.restored.length > 0 ? `Your versions are back: ${outcome.restored.join(", ")}.` : "";
+    const left =
+      outcome.conflicts.length > 0
+        ? ` Not put back, because you changed them after the replace: ${outcome.conflicts.join(", ")}.`
+        : "";
+    return `${back}${left}`.trim() || "Nothing needed putting back.";
+  }
   if (outcome.action === "approved") {
     const what = outcome.conflicts.length > 0 && worker ? "Approved, not all copied." : "Approved.";
     const committed = outcome.commit ? ` Committed as “${outcome.commit}”.` : "";
@@ -478,7 +485,6 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                 <div class="actions" role="group" aria-label="Files that were not copied">
                   <p class="hint" data-testid="inbox-not-copied">{notCopiedHint(item)}</p>
                   <div class="buttons">
-                    {#if item.not_copied.some((p) => !item.files.some((f) => f.path === p && f.blocked))}
                     <button
                       type="button"
                       data-testid="inbox-take"
@@ -487,7 +493,6 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                         if (!busy) void take(item);
                       }}>Replace mine with the worker's version</button
                     >
-                    {/if}
                     <button
                       type="button"
                       data-testid="inbox-resolve"

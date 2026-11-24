@@ -187,14 +187,27 @@ describe("Inbox", () => {
       "Replaced with the worker's version: NOTES.md. Not replaced, because the worker changed them after you approved: a.rs.",
     );
     core.restored = ["NOTES.md"];
+    core.conflicts = [];
     $<HTMLButtonElement>("[data-testid=inbox-undo-take]")?.click();
     await settle();
     expect(core.sent("review.undo_take").map((c) => c.params)).toEqual([{ id: "r1" }]);
     expect($("[data-testid=inbox-outcome]")?.textContent?.trim()).toBe("Your versions are back: NOTES.md.");
+
     expect($("[data-testid=inbox-undo-take]")).toBeNull();
   });
 
-  it("keeps a full replace, and offers no replace when every file waits for the direct agent", async () => {
+  it("names the files an undo left because they changed after the replace", async () => {
+    const core = await setup([review("r1", { mode: "isolated", state: "approved", can_undo_take: true })]);
+    core.conflicts = ["README.md"];
+    await open();
+    $<HTMLButtonElement>("[data-testid=inbox-undo-take]")?.click();
+    await settle();
+    expect($("[data-testid=inbox-outcome]")?.textContent?.trim()).toBe(
+      "Not put back, because you changed them after the replace: README.md.",
+    );
+  });
+
+  it("keeps a full replace", async () => {
     const core = await setup([
       review("r1", {
         mode: "isolated",
@@ -216,10 +229,6 @@ describe("Inbox", () => {
     await settle();
     expect(core.sent("review.resolve").map((c) => c.params)).toEqual([{ id: "r1" }]);
     expect($("[data-testid=inbox-undo-take]")).toBeNull();
-    $<HTMLButtonElement>("[data-item=r2]")?.click();
-    await settle();
-    expect($("[data-testid=inbox-take]")).toBeNull();
-    expect($("[data-testid=inbox-resolve]")).not.toBeNull();
   });
 
   it("says a worker's reject discarded files from its own copy", async () => {

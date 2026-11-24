@@ -121,11 +121,11 @@ export class FakeReviewCore implements Transport {
       case "review.undo_take": {
         const item = this.find(request.params.id);
         item.not_copied = [...item.not_copied, ...this.restored].sort();
-        item.state = "partly_approved";
+        if (item.not_copied.length > 0) item.state = "partly_approved";
         item.can_undo_take = false;
         return {
           type: "review.done",
-          data: { item: structuredClone(item), conflicts: [], restored: [...this.restored] },
+          data: { item: structuredClone(item), conflicts: [...this.conflicts], restored: [...this.restored] },
         };
       }
       case "review.resolve": {
