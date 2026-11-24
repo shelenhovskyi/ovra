@@ -112,6 +112,9 @@ pub(crate) fn on_status(core: &Core, session: &SessionId, status: &AgentStatus) 
     if status.is_ended() && state.lock().holds.remove(session) {
         core.release(&project);
     }
+    if *status == AgentStatus::Stopped {
+        tasks::stop_workers_of(core, session);
+    }
     if !(status.is_ended() || *status == AgentStatus::Idle) {
         return;
     }

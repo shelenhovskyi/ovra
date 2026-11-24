@@ -89,6 +89,19 @@ async fn start(
             format!("max_workers must be between 1 and {MAX_WORKERS_CAP}"),
         ));
     }
+    // Workers need a snapshot of the checkout; find out now, not when the
+    // coordinator's first spawn fails out of sight.
+    let root = core.root(&project)?;
+    if let Err(err) = core.worktrees().snapshot(root).await {
+        return Err(ProtocolError::new(
+            ErrorCode::BadRequest,
+            format!(
+                "Start task needs a git repository, because every worker gets its own git worktree. \
+                 Use Start for a single session in this folder. ({})",
+                err.message
+            ),
+        ));
+    }
     let new = NewSession {
         project: project.clone(),
         agent: AgentKind::Claude,
@@ -129,6 +142,20 @@ fn find(core: &Core, task: &TaskId) -> Result<Entry> {
         .find(|t| &t.id == task)
         .cloned()
         .ok_or_else(|| not_found(format!("task {}", task.0)))
+}
+
+/// A stopped coordinator takes its workers with it: the person stopped the
+/// task. Their worktrees and reviews stay. A coordinator that failed leaves
+/// them running.
+pub(super) fn stop_workers_of(core: &Core, coordinator: &SessionId) {
+    let Ok(task) = of_coordinator(core, coordinator) else {
+        return;
+    };
+    let ctx = core.agents_ctx();
+    for worker in task.workers {
+        // Workers that already ended are fine to skip.
+        let _ = agents::stop(&ctx, worker.session);
+    }
 }
 
 /// The task `coordinator` coordinates.

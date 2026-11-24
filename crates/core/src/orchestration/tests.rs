@@ -882,3 +882,45 @@ fn shown_files_are_surely_inside_the_project() {
     assert!(shown_inside(&json!({ "path": 3 })).is_err());
     insta::assert_snapshot!(judged.join("\n"));
 }
+
+#[tokio::test]
+async fn stopping_the_coordinator_stops_its_workers() {
+    let f = fx(say()).await;
+    let mut rx = f.core.subscribe();
+    start_task(&f.core, 3).await;
+    let boss = caller("s1", ToolRole::Coordinator);
+    for name in ["a", "b"] {
+        let spawned = f.core.spawn_agent(&boss, name, "x").await;
+        assert!(spawned.is_ok(), "{spawned:?}");
+    }
+    ok(
+        &f.core,
+        json!({"method": "agents.stop", "params": {"session": "s1"}}),
+    )
+    .await;
+    until(&mut rx, "s2", AgentStatus::Stopped).await;
+    until(&mut rx, "s3", AgentStatus::Stopped).await;
+}
+
+#[tokio::test]
+async fn a_task_needs_a_repository_before_its_coordinator_starts() {
+    let f = fx(say()).await;
+    let other = crate::test_path!("/work/plain");
+    ok(
+        &f.core,
+        json!({"method": "projects.add", "params": {"root": other}}),
+    )
+    .await;
+    let start =
+        json!({"method": "orchestration.start", "params": {"project": "p2", "prompt": "x"}});
+    let err = call(&f.core, start).await.err();
+    assert_eq!(err.as_ref().map(|e| e.code), Some(ErrorCode::BadRequest));
+    assert!(err.is_some_and(|e| e.message.contains("Use Start for a single session")));
+    assert!(
+        f.agent
+            .started
+            .lock()
+            .map(|s| s.is_empty())
+            .unwrap_or(false)
+    );
+}
