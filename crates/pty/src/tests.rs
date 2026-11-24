@@ -227,9 +227,7 @@ async fn opens_through_the_core_in_the_project_root() {
 #[tokio::test]
 async fn a_flood_reaches_a_subscriber_whole() {
     const LINES: usize = 200_000;
-    // The flood runs inside a shell that stays open: on macOS CI, output
-    // still unread when the shell itself exits was lost (by the kernel, as
-    // keeping our copy of the terminal open did not help).
+    // A marker after the flood shows that everything before it arrived.
     let pty = shell();
     let core = Core::new("test");
     let mut rx = core.subscribe();
@@ -248,16 +246,10 @@ async fn a_flood_reaches_a_subscriber_whole() {
             exited => panic!("{exited:?}"),
         }
     }
-    let lines = text.matches("y\r\n").count();
-    // On a miss, show what else arrived: lost lines or changed ones.
-    let rest = text.replace("y\r\n", "");
-    let sample: String = rest.chars().take(400).collect();
-    assert_eq!(
-        lines,
-        LINES,
-        "{} bytes in {last} events; besides the lines: {sample:?}",
-        text.len()
-    );
+    // macOS's terminal driver sometimes writes "y\r\r\n" for a line (seen
+    // in CI on about 0.1% of the lines), so carriage returns are ignored.
+    let lines = text.replace('\r', "").matches("y\n").count();
+    assert_eq!(lines, LINES, "{} bytes in {last} events", text.len());
     let (kept, seq) = pty.scrollback(&id).expect("scrollback");
     assert_eq!(seq, last);
     assert!(text.ends_with(&kept));
