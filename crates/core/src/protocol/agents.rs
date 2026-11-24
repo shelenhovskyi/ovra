@@ -71,6 +71,10 @@ pub struct SessionInfo {
     /// started; `None` until then, or if it did not say.
     #[serde(default)]
     pub billing: Option<Billing>,
+    /// The sandbox the runtime ran it in; `None` while unknown and for a
+    /// session that ran without one.
+    #[serde(default)]
+    pub sandbox: Option<SandboxReport>,
 }
 
 /// Tokens and cost of one turn, as the agent reports them, or their sum.
@@ -156,6 +160,25 @@ pub struct AgentSetup {
     /// that key instead of a subscription.
     #[serde(default)]
     pub api_key_in_env: bool,
+}
+
+/// How the runtime actually ran a session (`AgentHost::sandboxed`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SandboxReport {
+    /// The sandbox's name, such as `bubblewrap`.
+    pub name: String,
+    pub network: SandboxNetwork,
+}
+
+/// What a sandboxed session can reach.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SandboxNetwork {
+    Blocked,
+    /// Only through the session's netproxy.
+    Proxy,
+    /// Not limited: the platform cannot.
+    Open,
 }
 
 /// Who pays for an agent's usage. Closed set: the UI explains each one.

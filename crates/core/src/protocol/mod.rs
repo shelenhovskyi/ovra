@@ -6,11 +6,13 @@
 //! below only combine them. Keep `ui/src/lib/protocol/` in sync.
 
 pub mod agents;
+pub mod audit;
 pub mod fs;
 pub mod info;
 pub mod open;
 pub mod orchestration;
 pub mod permissions;
+pub mod policy;
 pub mod projects;
 pub mod review;
 pub mod search;
@@ -32,6 +34,7 @@ pub enum Request {
     Review(review::ReviewRequest),
     Orchestration(orchestration::OrchestrationRequest),
     Search(search::SearchRequest),
+    Policy(policy::PolicyRequest),
 }
 
 /// The core's answer to a [`Request`]. Wire form: `{"type": "<domain>.<name>", "data": ...}`.
@@ -47,6 +50,7 @@ pub enum Response {
     Review(review::ReviewResponse),
     Orchestration(orchestration::OrchestrationResponse),
     Search(search::SearchResponse),
+    Policy(policy::PolicyResponse),
     /// The request succeeded and has nothing to return.
     Ok(OkResponse),
 }
@@ -70,6 +74,7 @@ pub enum Event {
     Review(review::ReviewEvent),
     Orchestration(orchestration::OrchestrationEvent),
     Search(search::SearchEvent),
+    Policy(policy::PolicyEvent),
 }
 
 /// An error returned instead of a [`Response`].
@@ -158,6 +163,12 @@ impl From<review::ReviewEvent> for Event {
 impl From<orchestration::OrchestrationEvent> for Event {
     fn from(e: orchestration::OrchestrationEvent) -> Self {
         Self::Orchestration(e)
+    }
+}
+
+impl From<policy::PolicyEvent> for Event {
+    fn from(e: policy::PolicyEvent) -> Self {
+        Self::Policy(e)
     }
 }
 

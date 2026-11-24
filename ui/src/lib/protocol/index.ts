@@ -6,17 +6,20 @@ import type { InfoEvent, InfoRequest, InfoResponse } from "./info";
 import type { OpenRequest } from "./open";
 import type { OrchestrationEvent, OrchestrationRequest, OrchestrationResponse } from "./orchestration";
 import type { PermissionsEvent, PermissionsRequest, PermissionsResponse } from "./permissions";
+import type { PolicyEvent, PolicyRequest, PolicyResponse } from "./policy";
 import type { ProjectsEvent, ProjectsRequest, ProjectsResponse } from "./projects";
 import type { ReviewEvent, ReviewRequest, ReviewResponse } from "./review";
 import type { SearchEvent, SearchRequest, SearchResponse } from "./search";
 import type { TerminalsEvent, TerminalsRequest, TerminalsResponse } from "./terminals";
 
 export type * from "./agents";
+export type * from "./audit";
 export type * from "./fs";
 export type * from "./info";
 export type * from "./open";
 export type * from "./orchestration";
 export type * from "./permissions";
+export type * from "./policy";
 export type * from "./projects";
 export type * from "./review";
 export type * from "./search";
@@ -32,7 +35,8 @@ export type Request =
   | PermissionsRequest
   | ReviewRequest
   | OrchestrationRequest
-  | SearchRequest;
+  | SearchRequest
+  | PolicyRequest;
 
 export type Response =
   | InfoResponse
@@ -44,6 +48,7 @@ export type Response =
   | ReviewResponse
   | OrchestrationResponse
   | SearchResponse
+  | PolicyResponse
   | { type: "ok" };
 
 export type CoreEvent =
@@ -55,7 +60,8 @@ export type CoreEvent =
   | PermissionsEvent
   | ReviewEvent
   | OrchestrationEvent
-  | SearchEvent;
+  | SearchEvent
+  | PolicyEvent;
 
 export type ErrorCode = "bad_request" | "not_found" | "conflict" | "forbidden" | "unavailable" | "internal";
 
@@ -140,4 +146,6 @@ type PhaseThreeResponseFor<R extends Request> = R extends { method: "review.list
           ? Extract<Response, { type: "orchestration.list" }>
           : R extends { method: "search.start" }
             ? Extract<Response, { type: "search.started" }>
-            : never;
+            : R extends { method: "policy.get" | "policy.set" }
+              ? Extract<Response, { type: "policy.policy" }>
+              : never;

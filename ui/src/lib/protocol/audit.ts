@@ -1,0 +1,34 @@
+// Mirrors crates/core/src/protocol/audit.rs: the audit log's schema.
+
+import type { SandboxReport, SessionId, SessionMode } from "./agents";
+import type { Policy } from "./policy";
+import type { ProjectId } from "./projects";
+import type { ReviewId } from "./review";
+
+export type AuditEntry = {
+  seq: number;
+  at_ms: number;
+  project: ProjectId;
+  session: SessionId | null;
+  event: AuditEvent;
+};
+
+export type AuditEvent =
+  | { kind: "session_started"; mode: SessionMode; trusted: boolean; sandbox: SandboxReport | null }
+  | { kind: "tool_decided"; tool: string; input: AuditInput; allowed: boolean; by: DecidedBy }
+  | { kind: "trust_changed"; trusted: boolean; fingerprint: string | null }
+  | { kind: "policy_changed"; policy: Policy }
+  | { kind: "review_decided"; review: ReviewId; action: ReviewAction }
+  | { kind: "network_refused"; host: string; reason: string }
+  | { kind: "secret_used"; name: string; host: string };
+
+/** Never file contents; other inputs redacted and cut to 4 KiB. */
+export type AuditInput = { kind: "file"; path: string; sha256: string | null } | { kind: "json"; text: string };
+
+export type DecidedBy =
+  | { kind: "person" }
+  | { kind: "policy"; rule: string }
+  | { kind: "role" }
+  | { kind: "session_ended" };
+
+export type ReviewAction = "approved" | "partly_approved" | "rejected" | "undone_reject" | "taken" | "undone_take";

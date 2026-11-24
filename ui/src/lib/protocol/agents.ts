@@ -31,7 +31,12 @@ export type SessionInfo = {
   resumable: boolean;
   /** Who pays for the session's usage, as the agent said when it started. */
   billing: Billing | null;
+  /** The sandbox the runtime ran it in; null while unknown or without one. */
+  sandbox: SandboxReport | null;
 };
+
+/** How the runtime actually ran a session. */
+export type SandboxReport = { name: string; network: "blocked" | "proxy" | "open" };
 
 export type TurnUsage = {
   input_tokens: number;
