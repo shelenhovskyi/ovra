@@ -198,8 +198,15 @@ mod tests {
         let old = TempDir::new().expect("temp dir");
         let file = old.path().join(crate::DB_FILE);
         std::fs::write(&file, "").expect("write");
-        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).expect("chmod");
-        drop(Store::open(old.path()).expect("open"));
+        let wal = old.path().join(format!("{}-wal", crate::DB_FILE));
+        for path in [&file, &wal] {
+            std::fs::write(path, "").expect("write");
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o644)).expect("chmod");
+        }
+        let store = Store::open(old.path()).expect("open");
         assert_eq!(mode(&old), 0o600);
+        let wal_mode = std::fs::metadata(&wal).map(|m| m.permissions().mode() & 0o777);
+        assert_eq!(wal_mode.ok(), Some(0o600));
+        drop(store);
     }
 }

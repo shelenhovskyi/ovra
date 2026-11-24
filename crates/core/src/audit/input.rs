@@ -41,21 +41,25 @@ const TOKEN_PREFIXES: [&str; 11] = [
 const MIN_TOKEN_TAIL: usize = 8;
 
 /// Header names whose value is cut out of any text, compared in lower case
-/// (`cookie:` also covers `Set-Cookie:`, `authorization:` also
-/// `Proxy-Authorization:`).
-const SECRET_HEADERS: [&str; 2] = ["authorization:", "cookie:"];
+/// (`cookie` also covers `Set-Cookie`, `authorization` also
+/// `Proxy-Authorization`), when a `:` or `=` follows them, also after a
+/// closing quote (`"Authorization": "..."`, `Authorization:"..."`).
+const SECRET_HEADERS: [&str; 2] = ["authorization", "cookie"];
 
-/// Field names (lower case) whose value is never kept, whatever it is.
-const SECRET_FIELDS: [&str; 9] = [
-    "cookie",
-    "set-cookie",
+/// Field names whose value is never kept, whatever it is: compared in
+/// lower case without `-` and `_`, by their end (`accessToken`,
+/// `x-api-key`, `client_secret`, ...).
+const SECRET_FIELD_ENDS: [&str; 10] = [
+    "authorization",
+    "token",
+    "secret",
     "password",
     "passwd",
-    "secret",
-    "token",
-    "api_key",
     "apikey",
-    "private_key",
+    "privatekey",
+    "accesskey",
+    "secretkey",
+    "credentials",
 ];
 
 pub(crate) fn input(tool: &str, input: &Value) -> AuditInput {
@@ -113,12 +117,14 @@ fn redact(value: &mut Value) {
 }
 
 fn secret_field(name: &str) -> bool {
-    let name = name.to_ascii_lowercase();
-    name.ends_with("authorization")
-        || name.ends_with("_token")
-        || name.ends_with("_secret")
-        || name.ends_with("_password")
-        || SECRET_FIELDS.contains(&name.as_str())
+    let name: String = name
+        .chars()
+        .filter(|c| *c != '-' && *c != '_')
+        .flat_map(char::to_lowercase)
+        .collect();
+    name == "cookie"
+        || name == "setcookie"
+        || SECRET_FIELD_ENDS.iter().any(|end| name.ends_with(end))
 }
 
 /// `text` without header values and token-like words.
@@ -126,34 +132,59 @@ pub(crate) fn redact_text(text: &str) -> String {
     redact_tokens(&redact_headers(text))
 }
 
-/// Cuts the value after each secret header name, up to the end of the line
-/// or a quote.
+/// Cuts the value after each secret header name: a quoted value up to its
+/// closing quote, any other up to the end of the line or a quote.
 fn redact_headers(text: &str) -> String {
     // ASCII lower-casing keeps every byte where it was.
     let lower = text.to_ascii_lowercase();
+    let bytes = text.as_bytes();
+    let blank = |i: &mut usize| {
+        while matches!(bytes.get(*i), Some(b' ' | b'\t')) {
+            *i += 1;
+        }
+    };
     let mut out = String::with_capacity(text.len());
     let mut copied = 0;
     let mut at = 0;
-    while let Some((start, name)) = SECRET_HEADERS
+    while let Some((start, len)) = SECRET_HEADERS
         .iter()
         .filter_map(|name| Some((lower[at..].find(name)? + at, name.len())))
         .min()
     {
-        let bytes = text.as_bytes();
-        let mut value = start + name;
-        while bytes.get(value) == Some(&b' ') {
-            value += 1;
+        let mut i = start + len;
+        if matches!(bytes.get(i), Some(b'"' | b'\'')) {
+            i += 1;
         }
-        let end = bytes[value..]
-            .iter()
-            .position(|b| matches!(b, b'"' | b'\'' | b'\r' | b'\n'))
-            .map_or(bytes.len(), |n| value + n);
+        blank(&mut i);
+        if !matches!(bytes.get(i), Some(b':' | b'=')) {
+            at = start + len;
+            continue;
+        }
+        i += 1;
+        blank(&mut i);
+        let (value, end) = match bytes.get(i) {
+            Some(&quote @ (b'"' | b'\'')) => {
+                let value = i + 1;
+                let end = bytes[value..]
+                    .iter()
+                    .position(|b| *b == quote)
+                    .map_or(bytes.len(), |n| value + n);
+                (value, end)
+            }
+            _ => {
+                let end = bytes[i..]
+                    .iter()
+                    .position(|b| matches!(b, b'"' | b'\'' | b'\r' | b'\n'))
+                    .map_or(bytes.len(), |n| i + n);
+                (i, end)
+            }
+        };
         if end > value {
             out.push_str(&text[copied..value]);
             out.push_str(REDACTED);
             copied = end;
         }
-        at = end.max(start + name);
+        at = end.max(start + len);
     }
     out.push_str(&text[copied..]);
     out
