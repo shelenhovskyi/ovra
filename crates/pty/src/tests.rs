@@ -1,9 +1,8 @@
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use ovra_core::Core;
 use ovra_core::protocol::terminals::{TermSize, TerminalId, TerminalsEvent};
-use ovra_core::protocol::{ErrorCode, Event, Request, Response};
+use ovra_core::protocol::{ErrorCode, Event};
 use ovra_core::services::TerminalService;
 use tokio::sync::broadcast::Receiver;
 
@@ -160,6 +159,10 @@ fn refuses_a_missing_folder_and_unknown_ids() {
 #[cfg(unix)]
 #[tokio::test]
 async fn opens_through_the_core_in_the_project_root() {
+    use std::sync::Arc;
+
+    use ovra_core::protocol::{Request, Response};
+
     let core = Core::builder("test")
         .projects(Arc::new(ovra_core::fakes::MemoryProjects::default()))
         .terminals(Arc::new(shell()))
