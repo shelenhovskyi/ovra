@@ -65,7 +65,18 @@ export type SetupState =
   | { state: "broken"; message: string };
 
 /** The project's own agent configuration, which loads only once the project is trusted. */
-export type ProjectAgentConfig = { items: ConfigItem[] };
+export type ProjectAgentConfig = {
+  /** Changes with anything that would load, even contents the items do not show. */
+  fingerprint: string;
+  items: ConfigItem[];
+};
+
+/**
+ * What would load now, next to what the user trusted (`null`: not trusted).
+ * Different fingerprints mean the settings changed, and they do not load
+ * until the user trusts them again.
+ */
+export type ProjectConfigReview = { current: ProjectAgentConfig; trusted: ProjectAgentConfig | null };
 
 export type ConfigItem = {
   /** Relative to the project root. */
@@ -105,7 +116,7 @@ export type AgentsRequest =
 
 export type AgentsResponse =
   | { type: "agents.setup"; data: AgentSetup }
-  | { type: "agents.project_config"; data: ProjectAgentConfig }
+  | { type: "agents.project_config"; data: ProjectConfigReview }
   | { type: "agents.list"; data: SessionInfo[] }
   | { type: "agents.session"; data: SessionInfo }
   | { type: "agents.transcript"; data: AgentMessage[] };

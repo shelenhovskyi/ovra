@@ -496,9 +496,19 @@ echo '{"type":"result","subtype":"success","usage":{"input_tokens":1,"output_tok
         )
         .await;
         end(&mut rx).await;
+        let review = call(
+            &core,
+            json!({"method": "agents.project_config", "params": {"project": "p1"}}),
+        )
+        .await;
+        let Response::Agents(AgentsResponse::ProjectConfig(review)) = review else {
+            panic!("unexpected {review:?}");
+        };
+        let fingerprint = review.current.fingerprint;
         call(
             &core,
-            json!({"method": "projects.trust", "params": {"id": "p1", "trusted": true}}),
+            json!({"method": "projects.trust", "params": {
+                "id": "p1", "trusted": true, "fingerprint": fingerprint}}),
         )
         .await;
         call(
@@ -554,4 +564,33 @@ echo '{"type":"result","subtype":"success","usage":{"input_tokens":1,"output_tok
             other => panic!("unexpected {other:?}"),
         }
     }
+}
+
+/// `claude` installed by npm on Windows is `claude.cmd`, which Rust runs
+/// through `cmd.exe` with its own quoting. The command line, JSON included,
+/// must get through it.
+#[cfg(windows)]
+#[tokio::test]
+async fn a_cmd_script_gets_the_whole_command_line() {
+    let dir = tempfile::TempDir::new().unwrap_or_else(|e| panic!("{e}"));
+    let script = dir.path().join("claude.cmd");
+    std::fs::write(&script, "@echo off\r\necho %*> \"%~dp0claude.args\"\r\n")
+        .unwrap_or_else(|e| panic!("{e}"));
+    let args = launch::args(&launch::Conversation::New("id".into()), false);
+    let status = tokio::process::Command::new(&script)
+        .args(&args)
+        .status()
+        .await
+        .unwrap_or_else(|e| panic!("std refused the arguments for a .cmd: {e}"));
+    assert!(status.success());
+    let line =
+        std::fs::read_to_string(dir.path().join("claude.args")).unwrap_or_else(|e| panic!("{e}"));
+    assert!(line.contains("--strict-mcp-config"), "{line}");
+    assert!(line.contains("mcpServers"), "{line}");
+    assert!(line.trim_end().ends_with("--session-id id"), "{line}");
+    assert_eq!(
+        line.matches('"').count() % 2,
+        0,
+        "unbalanced quotes: {line}"
+    );
 }

@@ -6,13 +6,13 @@ use std::sync::Arc;
 use super::transcript::MAX_TEXT_BYTES;
 use super::{AgentHost, Sessions};
 use crate::protocol::agents::{
-    AgentMessage, AgentStatus, AgentsEvent, AgentsRequest, AgentsResponse, SessionId, SessionInfo,
-    SessionMode, TurnUsage,
+    AgentMessage, AgentStatus, AgentsEvent, AgentsRequest, AgentsResponse, ProjectConfigReview,
+    SessionId, SessionInfo, SessionMode, TurnUsage,
 };
 use crate::protocol::permissions::{
     Decision, PermissionAnswer, PermissionsEvent, PermissionsRequest, PermissionsResponse,
 };
-use crate::protocol::projects::ProjectId;
+use crate::protocol::projects::{Project, ProjectId};
 use crate::protocol::{ErrorCode, OkResponse, ProtocolError, Response};
 use crate::services::{AgentRuntime, AgentSpec, EventSink, ProjectStore};
 
@@ -51,9 +51,8 @@ pub(crate) async fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Resp
             Ok(Response::Agents(AgentsResponse::Setup(setup)))
         }
         AgentsRequest::ProjectConfig { project } => {
-            let root = PathBuf::from(ctx.projects.get(&project)?.root);
-            let config = ctx.runtime.project_config(root).await?;
-            Ok(Response::Agents(AgentsResponse::ProjectConfig(config)))
+            let review = review(ctx, &project).await?;
+            Ok(Response::Agents(AgentsResponse::ProjectConfig(review)))
         }
         AgentsRequest::List { project } => {
             ctx.projects.get(&project)?;
@@ -70,6 +69,9 @@ pub(crate) async fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Resp
             let target = ctx.projects.get(&project)?;
             let executable = ctx.projects.agent_settings()?.claude_path;
             check_text(&prompt)?;
+            // Settings that changed since the user trusted them (or cannot
+            // be read) do not load until the user reviews them again.
+            let trusted = target.trusted && review(ctx, &project).await.is_ok_and(|r| r.applies());
             if mode == SessionMode::Isolated {
                 return Err(ProtocolError::new(
                     ErrorCode::Unavailable,
@@ -108,7 +110,7 @@ pub(crate) async fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Resp
                 cwd: PathBuf::from(target.root),
                 prompt,
                 executable: executable.map(PathBuf::from),
-                trusted: target.trusted,
+                trusted,
             };
             match ctx.runtime.start(spec, host.clone()) {
                 Ok(process) => sessions.find(&id, |s| s.set_process(Arc::from(process)))?,
@@ -163,6 +165,40 @@ pub(crate) async fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Resp
             Ok(Response::Agents(AgentsResponse::Transcript(transcript)))
         }
     }
+}
+
+/// What the project would load now, and what the user trusted.
+async fn review(ctx: &Ctx<'_>, project: &ProjectId) -> Result<ProjectConfigReview> {
+    let root = PathBuf::from(ctx.projects.get(project)?.root);
+    let current = ctx.runtime.project_config(root).await?;
+    let trusted = ctx.projects.trusted_config(project)?;
+    Ok(ProjectConfigReview { current, trusted })
+}
+
+/// `projects.trust`: trusting records exactly the configuration the user
+/// reviewed, identified by its fingerprint.
+pub(crate) async fn trust(
+    ctx: &Ctx<'_>,
+    project: &ProjectId,
+    trusted: bool,
+    fingerprint: Option<String>,
+) -> Result<Project> {
+    if !trusted {
+        return ctx.projects.set_trusted(project, None);
+    }
+    let Some(fingerprint) = fingerprint else {
+        return Err(ProtocolError::new(
+            ErrorCode::BadRequest,
+            "trusting a project needs the fingerprint of what was reviewed",
+        ));
+    };
+    let current = review(ctx, project).await?.current;
+    if current.fingerprint != fingerprint {
+        return Err(conflict(
+            "the project's settings changed while you reviewed them; review them again",
+        ));
+    }
+    ctx.projects.set_trusted(project, Some(current))
 }
 
 /// Denies what the agent waits for and asks it to end; the runtime then

@@ -17,7 +17,8 @@ pub struct Project {
     /// Unix time in milliseconds when the project was last opened.
     pub last_opened_ms: Option<u64>,
     /// Whether the user trusts the project's own agent configuration (its
-    /// `.claude/` settings, hooks, agents and skills) to load.
+    /// `.claude/` settings, hooks, agents and skills) to load. It loads only
+    /// while it is unchanged since the user trusted it.
     #[serde(default)]
     pub trusted: bool,
 }
@@ -93,8 +94,15 @@ pub enum ProjectsRequest {
     Open { id: ProjectId },
     /// Trusts or stops trusting the project's own agent configuration.
     /// Sessions started afterwards load it or not; running ones keep theirs.
+    /// Trusting needs the `fingerprint` of the configuration the user
+    /// reviewed (`agents.project_config`); `conflict` if it changed since.
     #[serde(rename = "projects.trust")]
-    Trust { id: ProjectId, trusted: bool },
+    Trust {
+        id: ProjectId,
+        trusted: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fingerprint: Option<String>,
+    },
     /// The saved state of a project; empty if none was saved.
     #[serde(rename = "projects.get_state")]
     GetState { id: ProjectId },

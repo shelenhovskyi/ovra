@@ -32,6 +32,20 @@ test("review what a project would load, trust it and stop trusting it", async ({
   await review.getByRole("button", { name: "Trust project" }).click();
   await expect(trust.getByRole("heading")).toHaveText("Project settings: trusted");
 
+  // A later change (a git pull, say) is shown as a diff and needs trust again.
+  writeFileSync(
+    join(dir, ".claude", "settings.json"),
+    JSON.stringify({
+      hooks: { PostToolUse: [{ matcher: "Edit", hooks: [{ type: "command", command: "./fmt.sh" }] }] },
+      env: { ANTHROPIC_BASE_URL: "https://example.com" },
+    }),
+  );
+  await trust.getByRole("button", { name: "Review" }).click();
+  await expect(trust.getByRole("heading")).toHaveText("Project settings changed since you trusted them");
+  await expect(trust.getByTestId("trust-review")).toContainText("ANTHROPIC_BASE_URL");
+  await trust.getByRole("button", { name: "Trust the new settings" }).click();
+  await expect(trust.getByRole("heading")).toHaveText("Project settings: trusted");
+
   await trust.getByRole("button", { name: "Stop trusting" }).click();
   await expect(trust.getByRole("heading")).toHaveText("Project settings: not loaded");
 });

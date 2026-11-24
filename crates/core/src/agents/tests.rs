@@ -5,10 +5,10 @@ use tokio::sync::broadcast;
 
 use crate::Core;
 use crate::fakes::{EchoTerminals, MemoryProjects, ScriptedAgent, Step};
-use crate::protocol::agents::SetupState;
 use crate::protocol::agents::{
     AgentMessage, AgentStatus, AgentsEvent, AgentsResponse, SessionInfo, TurnUsage,
 };
+use crate::protocol::agents::{ProjectAgentConfig, ProjectConfigReview, SetupState};
 use crate::protocol::permissions::{PermissionAnswer, PermissionsEvent, PermissionsResponse};
 use crate::protocol::projects::{Project, ProjectsEvent, ProjectsResponse};
 use crate::protocol::terminals::TerminalsEvent;
@@ -592,9 +592,56 @@ async fn setup_checks_the_saved_path_and_only_absolute_paths_are_saved() {
     assert_eq!(setup(&core).await.path, None);
 }
 
+fn config(fingerprint: &str) -> ProjectAgentConfig {
+    ProjectAgentConfig {
+        fingerprint: fingerprint.into(),
+        items: Vec::new(),
+    }
+}
+
+fn trust(fingerprint: Option<&str>) -> serde_json::Value {
+    json!({"method": "projects.trust", "params": {
+        "id": "p1", "trusted": fingerprint.is_some(), "fingerprint": fingerprint}})
+}
+
+async fn review(core: &Core) -> ProjectConfigReview {
+    match ok(
+        core,
+        json!({"method": "agents.project_config", "params": {"project": "p1"}}),
+    )
+    .await
+    {
+        Response::Agents(AgentsResponse::ProjectConfig(review)) => review,
+        other => panic!("unexpected {other:?}"),
+    }
+}
+
+/// Starts a session, waits until it is idle, stops it and returns whether
+/// it was started as trusted.
+async fn run_once(core: &Core, agent: &ScriptedAgent, rx: &mut broadcast::Receiver<Event>) -> bool {
+    ok(core, start("go")).await;
+    until(rx, AgentStatus::Idle).await;
+    let id = format!(
+        "s{}",
+        agent.started.lock().map(|s| s.len()).unwrap_or_default()
+    );
+    ok(
+        core,
+        json!({"method": "agents.stop", "params": {"session": id}}),
+    )
+    .await;
+    until(rx, AgentStatus::Stopped).await;
+    let started = agent.started.lock().map(|s| s.clone()).unwrap_or_default();
+    started.last().is_some_and(|s| s.trusted)
+}
+
 #[tokio::test]
 async fn sessions_get_the_chosen_executable_and_the_project_trust() {
     let agent = Arc::new(ScriptedAgent::new(vec![vec![]]));
+    *agent
+        .config
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = config("a");
     let core = Core::builder("test")
         .projects(Arc::new(MemoryProjects::default()))
         .agents(agent.clone())
@@ -606,19 +653,20 @@ async fn sessions_get_the_chosen_executable_and_the_project_trust() {
         json!({"method": "agents.set_path", "params": {"agent": "claude", "path": "/opt/claude"}}),
     )
     .await;
-    ok(&core, start("untrusted")).await;
-    until(&mut rx, AgentStatus::Idle).await;
-    ok(
-        &core,
-        json!({"method": "agents.stop", "params": {"session": "s1"}}),
-    )
-    .await;
-    until(&mut rx, AgentStatus::Stopped).await;
-    let trusted = ok(
-        &core,
-        json!({"method": "projects.trust", "params": {"id": "p1", "trusted": true}}),
-    )
-    .await;
+    assert!(!run_once(&core, &agent, &mut rx).await);
+    assert_eq!(review(&core).await.trusted, None);
+
+    // Trusting needs what was reviewed, and only that.
+    assert_eq!(
+        code(
+            &core,
+            json!({"method": "projects.trust", "params": {"id": "p1", "trusted": true}})
+        )
+        .await,
+        ErrorCode::BadRequest
+    );
+    assert_eq!(code(&core, trust(Some("old"))).await, ErrorCode::Conflict);
+    let trusted = ok(&core, trust(Some("a"))).await;
     assert!(matches!(
         trusted,
         Response::Projects(ProjectsResponse::Project(Project { trusted: true, .. }))
@@ -627,19 +675,30 @@ async fn sessions_get_the_chosen_executable_and_the_project_trust() {
         Core::next_event(&mut rx).await,
         Some(Event::Projects(ProjectsEvent::Changed { .. }))
     ));
-    ok(&core, start("trusted")).await;
-    until(&mut rx, AgentStatus::Idle).await;
+    assert!(review(&core).await.applies());
+    assert!(run_once(&core, &agent, &mut rx).await);
+
+    // Changed settings (a git pull) do not load until trusted again.
+    *agent
+        .config
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = config("b");
+    let changed = review(&core).await;
+    assert!(!changed.applies());
+    assert_eq!(changed.trusted, Some(config("a")));
+    assert!(!run_once(&core, &agent, &mut rx).await);
+    ok(&core, trust(Some("b"))).await;
+    assert!(run_once(&core, &agent, &mut rx).await);
+
+    ok(&core, trust(None)).await;
+    assert!(!run_once(&core, &agent, &mut rx).await);
     let started = agent.started.lock().map(|s| s.clone()).unwrap_or_default();
-    let seen: Vec<_> = started
-        .iter()
-        .map(|s| (s.trusted, s.executable.clone()))
-        .collect();
     let opt = Some(std::path::PathBuf::from("/opt/claude"));
-    assert_eq!(seen, [(false, opt.clone()), (true, opt)]);
+    assert!(started.iter().all(|s| s.executable == opt));
     assert_eq!(
         code(
             &core,
-            json!({"method": "projects.trust", "params": {"id": "p9", "trusted": true}})
+            json!({"method": "projects.trust", "params": {"id": "p9", "trusted": false}})
         )
         .await,
         ErrorCode::NotFound

@@ -134,15 +134,19 @@ expression: samples
     },
     {
       "data": {
-        "items": [
-          {
-            "entries": [
-              "PreToolUse: ./lint.sh"
-            ],
-            "kind": "hooks",
-            "path": ".claude/settings.json"
-          }
-        ]
+        "current": {
+          "fingerprint": "9f2c",
+          "items": [
+            {
+              "entries": [
+                "PreToolUse: ./lint.sh"
+              ],
+              "kind": "hooks",
+              "path": ".claude/settings.json"
+            }
+          ]
+        },
+        "trusted": null
       },
       "type": "agents.project_config"
     },

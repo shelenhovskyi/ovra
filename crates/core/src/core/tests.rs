@@ -5,7 +5,7 @@ use super::*;
 use crate::fakes::{MemoryFs, MemoryProjects, RecordingOpener};
 use crate::protocol::agents::{
     AgentMessage, AgentSetup, AgentStatus, AgentsEvent, AgentsResponse, ConfigItem, ConfigKind,
-    ProjectAgentConfig, SessionId, SetupState,
+    ProjectAgentConfig, ProjectConfigReview, SessionId, SetupState,
 };
 use crate::protocol::fs::{FileBody, FsEvent};
 use crate::protocol::info::InfoEvent;
@@ -301,12 +301,16 @@ fn wire_format_is_stable() {
                 version: Some("2.1.331".into()),
                 state: SetupState::Outdated { minimum: "2.1.331".into() },
             })),
-            Response::Agents(AgentsResponse::ProjectConfig(ProjectAgentConfig {
-                items: vec![ConfigItem {
-                    path: ".claude/settings.json".into(),
-                    kind: ConfigKind::Hooks,
-                    entries: vec!["PreToolUse: ./lint.sh".into()],
-                }],
+            Response::Agents(AgentsResponse::ProjectConfig(ProjectConfigReview {
+                current: ProjectAgentConfig {
+                    fingerprint: "9f2c".into(),
+                    items: vec![ConfigItem {
+                        path: ".claude/settings.json".into(),
+                        kind: ConfigKind::Hooks,
+                        entries: vec!["PreToolUse: ./lint.sh".into()],
+                    }],
+                },
+                trusted: None,
             })),
             Response::Projects(ProjectsResponse::State(ProjectState {
                 open_files: vec!["a.rs".into()],
@@ -380,7 +384,8 @@ fn every_request_round_trips() {
         serde_json::json!({"method": "agents.setup", "params": {"agent": "claude"}}),
         serde_json::json!({"method": "agents.set_path", "params": {"agent": "claude", "path": null}}),
         serde_json::json!({"method": "agents.project_config", "params": {"project": "p1"}}),
-        serde_json::json!({"method": "projects.trust", "params": {"id": "p1", "trusted": true}}),
+        serde_json::json!({"method": "projects.trust", "params": {"id": "p1", "trusted": true, "fingerprint": "9f2c"}}),
+        serde_json::json!({"method": "projects.trust", "params": {"id": "p1", "trusted": false}}),
         serde_json::json!({"method": "permissions.pending"}),
         serde_json::json!({"method": "permissions.answer", "params": {"id": "perm1", "decision": "allow"}}),
         serde_json::json!({"method": "permissions.answer", "params": {"id": "perm1", "decision": "deny", "message": "no"}}),

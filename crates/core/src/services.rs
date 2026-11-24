@@ -50,8 +50,11 @@ pub trait ProjectStore: Send + Sync + Debug {
     /// Writes the fields present in `patch` atomically, keeping the others.
     /// Paths are already validated.
     fn update_state(&self, id: &ProjectId, patch: ProjectStatePatch) -> Result<()>;
-    /// Records whether the user trusts the project and returns it.
-    fn set_trusted(&self, id: &ProjectId, trusted: bool) -> Result<Project>;
+    /// Records what the user trusted (`None`: stops trusting) and returns
+    /// the project.
+    fn set_trusted(&self, id: &ProjectId, trusted: Option<ProjectAgentConfig>) -> Result<Project>;
+    /// What the user trusted, if they trust the project.
+    fn trusted_config(&self, id: &ProjectId) -> Result<Option<ProjectAgentConfig>>;
     /// The agent settings, or the defaults if none were saved.
     fn agent_settings(&self) -> Result<AgentSettings>;
     fn set_agent_settings(&self, settings: AgentSettings) -> Result<()>;
@@ -109,9 +112,9 @@ pub struct AgentSpec {
     pub prompt: String,
     /// The executable the user chose for this agent, if any.
     pub executable: Option<PathBuf>,
-    /// Whether the project's own agent configuration may load (the user
-    /// trusts the project). Untrusted projects run with the user's own
-    /// settings only.
+    /// Whether the project's own agent configuration may load: the user
+    /// trusts the project and it has not changed since. Otherwise only the
+    /// user's own settings load.
     pub trusted: bool,
 }
 
@@ -190,7 +193,10 @@ impl ProjectStore for Unavailable {
     fn update_state(&self, _: &ProjectId, _: ProjectStatePatch) -> Result<()> {
         self.err()
     }
-    fn set_trusted(&self, _: &ProjectId, _: bool) -> Result<Project> {
+    fn set_trusted(&self, _: &ProjectId, _: Option<ProjectAgentConfig>) -> Result<Project> {
+        self.err()
+    }
+    fn trusted_config(&self, _: &ProjectId) -> Result<Option<ProjectAgentConfig>> {
         self.err()
     }
     fn agent_settings(&self) -> Result<AgentSettings> {

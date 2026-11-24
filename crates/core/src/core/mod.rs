@@ -147,7 +147,7 @@ impl Core {
                 version: env!("CARGO_PKG_VERSION").to_owned(),
                 mode: self.inner.mode.clone(),
             }))),
-            Request::Projects(r) => self.projects(r),
+            Request::Projects(r) => self.projects(r).await,
             Request::Fs(r) => self.fs(r).await.map(Response::Fs),
             Request::Open(r) => self.open(r).map(|()| Response::Ok(OkResponse::Ok)),
             Request::Terminals(r) => self.terminals(r),
@@ -191,7 +191,7 @@ impl Core {
             .unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn projects(&self, request: ProjectsRequest) -> Result<Response, ProtocolError> {
+    async fn projects(&self, request: ProjectsRequest) -> Result<Response, ProtocolError> {
         let store = &self.inner.projects;
         let response = match request {
             ProjectsRequest::List => store.list().map(ProjectsResponse::List),
@@ -235,8 +235,12 @@ impl Core {
                 self.emit_projects_changed();
                 Ok(ProjectsResponse::Project(project))
             }
-            ProjectsRequest::Trust { id, trusted } => {
-                let project = store.set_trusted(&id, trusted)?;
+            ProjectsRequest::Trust {
+                id,
+                trusted,
+                fingerprint,
+            } => {
+                let project = agents::trust(&self.agents_ctx(), &id, trusted, fingerprint).await?;
                 self.emit_projects_changed();
                 Ok(ProjectsResponse::Project(project))
             }

@@ -98,13 +98,20 @@ fn contract(store: &dyn ProjectStore, folders: &Folders) {
         })
     );
 
-    // Trust: off until set, kept by the list, revocable.
+    // Trust: off until set, kept with what was trusted, revocable.
     assert!(!a.trusted);
-    assert!(store.set_trusted(&a.id, true).expect("trust a").trusted);
+    assert_eq!(store.trusted_config(&a.id), Ok(None));
+    let reviewed = reviewed();
+    let trusted = store.set_trusted(&a.id, Some(reviewed.clone()));
+    assert!(trusted.expect("trust a").trusted);
     assert!(store.get(&a.id).expect("get a").trusted);
+    assert_eq!(store.trusted_config(&a.id), Ok(Some(reviewed.clone())));
     assert!(!store.get(&b.id).expect("get b").trusted);
-    assert!(!store.set_trusted(&a.id, false).expect("revoke a").trusted);
-    store.set_trusted(&a.id, true).expect("trust a again");
+    assert!(!store.set_trusted(&a.id, None).expect("revoke a").trusted);
+    assert_eq!(store.trusted_config(&a.id), Ok(None));
+    store
+        .set_trusted(&a.id, Some(reviewed))
+        .expect("trust a again");
 
     // Agent settings: defaults until saved.
     assert_eq!(store.agent_settings(), Ok(AgentSettings::default()));
@@ -129,7 +136,8 @@ fn contract(store: &dyn ProjectStore, folders: &Folders) {
         store.touch(&gone).map(drop),
         store.state(&gone).map(drop),
         store.update_state(&gone, ProjectStatePatch::default()),
-        store.set_trusted(&gone, true).map(drop),
+        store.set_trusted(&gone, None).map(drop),
+        store.trusted_config(&gone).map(drop),
         store.remove(&gone),
     ] {
         assert_eq!(result.map_err(|e| e.code), Err(ErrorCode::NotFound));
@@ -154,7 +162,7 @@ fn projects_and_order_survive_a_restart() {
         let store = Store::open(data.path()).expect("open");
         let a = store.add(&folders.path("a")).expect("add a");
         let b = store.add(&folders.path("b")).expect("add b");
-        store.set_trusted(&b.id, true).expect("trust b");
+        store.set_trusted(&b.id, Some(reviewed())).expect("trust b");
         store
             .set_agent_settings(AgentSettings {
                 claude_path: Some("/opt/claude".into()),
@@ -170,9 +178,22 @@ fn projects_and_order_survive_a_restart() {
     let store = Store::open(data.path()).expect("reopen");
     assert_eq!(store.state(&before[1].id), Ok(sample_state()));
     assert!(before[0].trusted);
+    assert_eq!(store.trusted_config(&before[0].id), Ok(Some(reviewed())));
     assert_eq!(store.list(), Ok(before));
     let path = store.agent_settings().expect("settings").claude_path;
     assert_eq!(path.as_deref(), Some("/opt/claude"));
+}
+
+fn reviewed() -> ProjectAgentConfig {
+    use ovra_core::protocol::agents::{ConfigItem, ConfigKind};
+    ProjectAgentConfig {
+        fingerprint: "f1".into(),
+        items: vec![ConfigItem {
+            path: ".claude/settings.json".into(),
+            kind: ConfigKind::Hooks,
+            entries: vec!["Stop: ./done.sh".into()],
+        }],
+    }
 }
 
 fn sample_state() -> ProjectState {
@@ -346,4 +367,25 @@ fn a_database_from_the_first_schema_is_upgraded() {
         .expect("save state");
     assert_eq!(store.state(&id), Ok(sample_state()));
     assert!(!store.get(&id).expect("get").trusted);
+}
+
+#[test]
+fn a_project_trusted_before_trust_kept_its_settings_counts_as_changed() {
+    let (data, folders) = (TempDir::new().expect("temp dir"), Folders::new());
+    let root = folders.path("a").to_string_lossy().into_owned();
+    {
+        let db = Connection::open(data.path().join(DB_FILE)).expect("create");
+        for sql in &MIGRATIONS[..3] {
+            db.execute_batch(sql).expect("old schema");
+        }
+        db.pragma_update(None, "user_version", 3).expect("version");
+        db.execute(
+            "INSERT INTO projects (id, name, root, added_ms, trusted) VALUES ('old', 'a', ?1, 1, 1)",
+            [&root],
+        )
+        .expect("insert");
+    }
+    let store = Store::open(data.path()).expect("upgrade");
+    let config = store.trusted_config(&ProjectId("old".into()));
+    assert_eq!(config, Ok(Some(ProjectAgentConfig::default())));
 }

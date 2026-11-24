@@ -155,7 +155,30 @@ pub struct AgentSettings {
 /// either way.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProjectAgentConfig {
+    /// Changes whenever anything that would load changes, including file
+    /// contents the items do not show (a skill's script, an env value).
+    pub fingerprint: String,
     pub items: Vec<ConfigItem>,
+}
+
+/// What a project would load now, next to what the user trusted.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectConfigReview {
+    pub current: ProjectAgentConfig,
+    /// What the user reviewed when they trusted the project; `None` if they
+    /// do not trust it. When its fingerprint differs from `current`'s,
+    /// sessions run without the project's configuration until the user
+    /// trusts it again.
+    pub trusted: Option<ProjectAgentConfig>,
+}
+
+impl ProjectConfigReview {
+    /// Trusted, and nothing changed since.
+    pub fn applies(&self) -> bool {
+        self.trusted
+            .as_ref()
+            .is_some_and(|t| t.fingerprint == self.current.fingerprint)
+    }
 }
 
 /// One kind of configuration found in one file or folder.
@@ -247,7 +270,7 @@ pub enum AgentsResponse {
     #[serde(rename = "agents.setup")]
     Setup(AgentSetup),
     #[serde(rename = "agents.project_config")]
-    ProjectConfig(ProjectAgentConfig),
+    ProjectConfig(ProjectConfigReview),
     #[serde(rename = "agents.list")]
     List(Vec<SessionInfo>),
     #[serde(rename = "agents.session")]

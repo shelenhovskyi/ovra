@@ -5,7 +5,7 @@ export type Project = {
   name: string;
   root: string;
   last_opened_ms: number | null;
-  /** Whether the user trusts the project's own agent configuration to load. */
+  /** Whether the user trusts the project's own agent configuration; it loads only while unchanged. */
   trusted: boolean;
 };
 
@@ -29,8 +29,11 @@ export type ProjectsRequest =
   | { method: "projects.add"; params: { root: string } }
   | { method: "projects.remove"; params: { id: ProjectId } }
   | { method: "projects.open"; params: { id: ProjectId } }
-  /** Sessions started afterwards load the project's agent configuration or not. */
-  | { method: "projects.trust"; params: { id: ProjectId; trusted: boolean } }
+  /**
+   * Sessions started afterwards load the project's agent configuration or not.
+   * Trusting needs the `fingerprint` of what the user reviewed; `conflict` if it changed.
+   */
+  | { method: "projects.trust"; params: { id: ProjectId; trusted: boolean; fingerprint?: string } }
   | { method: "projects.get_state"; params: { id: ProjectId } }
   | { method: "projects.set_state"; params: { id: ProjectId; state: ProjectStatePatch } };
 

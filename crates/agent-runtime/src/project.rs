@@ -8,6 +8,7 @@ use std::path::Path;
 
 use ovra_core::protocol::agents::{ConfigItem, ConfigKind, ProjectAgentConfig};
 use serde_json::{Map, Value};
+use sha2::{Digest, Sha256};
 
 const SETTINGS: [&str; 2] = [".claude/settings.json", ".claude/settings.local.json"];
 /// Settings that name a command Claude runs.
@@ -23,10 +24,22 @@ const HELPERS: [&str; 7] = [
 const PLUGINS: [&str; 2] = ["enabledPlugins", "extraKnownMarketplaces"];
 /// Bigger settings files are not shown, only reported.
 const MAX_SETTINGS_BYTES: u64 = 1 << 20;
+/// Files bigger than this are fingerprinted by size and time only.
+const MAX_HASHED_BYTES: u64 = 8 << 20;
+const MAX_HASHED_FILES: usize = 10_000;
+/// Folder depth walked under `.claude/skills` and the others.
+const MAX_DEPTH: usize = 8;
 /// Entries listed per item; the rest are counted.
 const MAX_ENTRIES: usize = 50;
 
 pub(crate) fn inspect(root: &Path) -> ProjectAgentConfig {
+    ProjectAgentConfig {
+        fingerprint: fingerprint(root),
+        items: items(root),
+    }
+}
+
+fn items(root: &Path) -> Vec<ConfigItem> {
     let mut items = Vec::new();
     for path in SETTINGS {
         let file = root.join(path);
@@ -51,7 +64,56 @@ pub(crate) fn inspect(root: &Path) -> ProjectAgentConfig {
         .map(|e| e.file_name().to_string_lossy().into_owned())
         .collect();
     push(&mut items, ".claude/skills", ConfigKind::Skills, skills);
-    ProjectAgentConfig { items }
+    items
+}
+
+/// SHA-256 over the path and bytes of every file that would load: the
+/// settings files and everything under the agent, command and skill
+/// folders (skills can carry scripts). Symlinked folders are not followed.
+fn fingerprint(root: &Path) -> String {
+    let mut files = Vec::new();
+    for path in SETTINGS {
+        files.push(path.to_owned());
+    }
+    for dir in ["agents", "commands", "skills"] {
+        let prefix = format!(".claude/{dir}");
+        walk(&root.join(&prefix), &prefix, 0, &mut files);
+    }
+    files.sort();
+    files.truncate(MAX_HASHED_FILES);
+    let mut hash = Sha256::new();
+    hash.update(b"ovra-project-config-v1\0");
+    for path in files {
+        let file = root.join(&path);
+        let Ok(meta) = file.metadata() else { continue };
+        hash.update(path.as_bytes());
+        hash.update(b"\0");
+        match (meta.len() <= MAX_HASHED_BYTES)
+            .then(|| std::fs::read(&file).ok())
+            .flatten()
+        {
+            Some(bytes) => hash.update(&bytes),
+            // Too big or unreadable: its size and time still change with it.
+            None => hash.update(format!("{}:{:?}", meta.len(), meta.modified().ok()).as_bytes()),
+        }
+        hash.update(b"\0");
+    }
+    hash.finalize().iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Every file under `dir` as `prefix/...`, without following symlinked folders.
+fn walk(dir: &Path, prefix: &str, depth: usize, files: &mut Vec<String>) {
+    if depth > MAX_DEPTH || files.len() > MAX_HASHED_FILES {
+        return;
+    }
+    for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+        let name = format!("{prefix}/{}", entry.file_name().to_string_lossy());
+        match entry.file_type() {
+            Ok(kind) if kind.is_dir() => walk(&entry.path(), &name, depth + 1, files),
+            Ok(_) => files.push(name),
+            Err(_) => {}
+        }
+    }
 }
 
 fn push(items: &mut Vec<ConfigItem>, path: &str, kind: ConfigKind, mut entries: Vec<String>) {
@@ -73,11 +135,13 @@ fn push(items: &mut Vec<ConfigItem>, path: &str, kind: ConfigKind, mut entries: 
 
 /// `.md` files under `dir`, as `sub/name` without the extension.
 fn markdown(dir: &Path, prefix: &str, names: &mut Vec<String>) {
+    if prefix.matches('/').count() > MAX_DEPTH {
+        return;
+    }
     for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
-        let path = entry.path();
-        if path.is_dir() {
-            markdown(&path, &format!("{prefix}{name}/"), names);
+        if entry.file_type().is_ok_and(|t| t.is_dir()) {
+            markdown(&entry.path(), &format!("{prefix}{name}/"), names);
         } else if let Some(stem) = name.strip_suffix(".md") {
             names.push(format!("{prefix}{stem}"));
         }
@@ -222,7 +286,35 @@ mod tests {
     #[test]
     fn a_project_without_claude_configuration_loads_nothing_extra() {
         let dir = project(&[("CLAUDE.md", "rules"), (".mcp.json", "{}")]);
-        assert_eq!(inspect(dir.path()), ProjectAgentConfig::default());
+        assert_eq!(inspect(dir.path()).items, []);
+    }
+
+    #[test]
+    fn the_fingerprint_follows_contents_the_items_do_not_show() {
+        let dir = project(&[
+            (".claude/settings.json", r#"{"env": {"A": "1"}}"#),
+            (".claude/skills/release/SKILL.md", ""),
+            (".claude/skills/release/run.sh", "echo one"),
+        ]);
+        let first = inspect(dir.path());
+        assert_eq!(first.fingerprint.len(), 64);
+        assert_eq!(inspect(dir.path()), first);
+        std::fs::write(dir.path().join(".claude/skills/release/run.sh"), "echo two")
+            .unwrap_or_else(|e| panic!("{e}"));
+        let script = inspect(dir.path());
+        assert_eq!(script.items, first.items);
+        assert_ne!(script.fingerprint, first.fingerprint);
+        std::fs::write(
+            dir.path().join(".claude/settings.json"),
+            r#"{"env": {"A": "2"}}"#,
+        )
+        .unwrap_or_else(|e| panic!("{e}"));
+        assert_ne!(inspect(dir.path()).fingerprint, script.fingerprint);
+        // CLAUDE.md loads either way, so it is not part of what is trusted.
+        std::fs::write(dir.path().join("CLAUDE.md"), "new rules").unwrap_or_else(|e| panic!("{e}"));
+        let unchanged = inspect(dir.path()).fingerprint;
+        std::fs::remove_file(dir.path().join("CLAUDE.md")).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(inspect(dir.path()).fingerprint, unchanged);
     }
 
     #[test]
@@ -249,7 +341,7 @@ mod tests {
             (".claude/skills/release/SKILL.md", ""),
             (".claude/skills/empty/README.md", ""),
         ]);
-        insta::assert_json_snapshot!(inspect(dir.path()));
+        insta::assert_json_snapshot!(inspect(dir.path()).items);
     }
 
     #[test]

@@ -17,7 +17,7 @@ use crate::services::{EventSink, RunningAgent};
 
 pub(crate) use permissions::Permissions;
 pub(crate) use requests::{
-    Ctx, agents as handle_agents, permissions as handle_permissions, stop_project,
+    Ctx, agents as handle_agents, permissions as handle_permissions, stop_project, trust,
 };
 use transcript::Transcript;
 

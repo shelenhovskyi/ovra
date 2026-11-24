@@ -10,6 +10,7 @@ publish = false
 [dependencies]
 ovra-core.workspace = true
 serde_json.workspace = true
+sha2 = "0.10"
 tokio = { workspace = true, features = ["io-util", "macros", "process", "rt", "sync", "time"] }
 uuid = { version = "1", features = ["v4"] }
 

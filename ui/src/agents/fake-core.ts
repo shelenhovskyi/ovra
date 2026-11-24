@@ -23,8 +23,10 @@ export class FakeAgentCore implements Transport {
   pending: PermissionRequest[] = [];
   /** What `agents.setup` answers; `agents.set_path` records the path in it. */
   setup: AgentSetup = { path: null, executable: "/usr/bin/claude", version: "2.1.331", state: { state: "ready" } };
-  /** What `agents.project_config` answers. */
-  config: ProjectAgentConfig = { items: [] };
+  /** What `agents.project_config` reports as current. */
+  config: ProjectAgentConfig = { fingerprint: "f0", items: [] };
+  /** What the user trusted, per project. */
+  trustedConfig = new Map<ProjectId, ProjectAgentConfig>();
   /** Makes the next call of this method fail with this error. */
   failNext = new Map<Request["method"], CoreError>();
   private listeners = new Set<(event: CoreEvent) => void>();
@@ -92,9 +94,16 @@ export class FakeAgentCore implements Transport {
         this.setup = { ...this.setup, path: request.params.path };
         return { type: "agents.setup", data: { ...this.setup } };
       case "agents.project_config":
-        return { type: "agents.project_config", data: this.config };
+        return {
+          type: "agents.project_config",
+          data: { current: this.config, trusted: this.trustedConfig.get(request.params.project) ?? null },
+        };
       case "projects.trust": {
-        const { id, trusted } = request.params;
+        const { id, trusted, fingerprint } = request.params;
+        if (trusted && fingerprint !== this.config.fingerprint)
+          throw new CoreError({ code: "conflict", message: "the project's settings changed; review them again" });
+        if (trusted) this.trustedConfig.set(id, this.config);
+        else this.trustedConfig.delete(id);
         return { type: "projects.project", data: { id, name: "demo", root: "/demo", last_opened_ms: null, trusted } };
       }
       case "open.url":

@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use ovra_core::protocol::agents::AgentSettings;
+use ovra_core::protocol::agents::{AgentSettings, ProjectAgentConfig};
 use ovra_core::protocol::projects::{Project, ProjectId, ProjectState, ProjectStatePatch};
 use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::{ProjectStore, Result};
@@ -39,6 +39,9 @@ const MIGRATIONS: &[&str] = &[
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL
     ) STRICT;",
+    // What the user reviewed when they trusted the project, as JSON. Rows
+    // trusted before this have none, so their settings count as changed.
+    "ALTER TABLE projects ADD COLUMN trusted_config TEXT;",
 ];
 
 /// The `settings` key of [`AgentSettings`].
@@ -187,16 +190,46 @@ impl ProjectStore for Store {
         Ok(())
     }
 
-    fn set_trusted(&self, id: &ProjectId, trusted: bool) -> Result<Project> {
+    fn set_trusted(&self, id: &ProjectId, trusted: Option<ProjectAgentConfig>) -> Result<Project> {
+        let config = trusted
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(|e| internal(e.to_string()))?;
         self.db()
             .query_row(
-                &format!("UPDATE projects SET trusted = ?2 WHERE id = ?1 RETURNING {COLUMNS}"),
-                params![id.0, trusted],
+                &format!(
+                    "UPDATE projects SET trusted = ?2, trusted_config = ?3 WHERE id = ?1
+                     RETURNING {COLUMNS}"
+                ),
+                params![id.0, trusted.is_some(), config],
                 project_from_row,
             )
             .optional()
             .map_err(db_error)?
             .ok_or_else(|| not_found(id))
+    }
+
+    fn trusted_config(&self, id: &ProjectId) -> Result<Option<ProjectAgentConfig>> {
+        let (trusted, config): (bool, Option<String>) = self
+            .db()
+            .query_row(
+                "SELECT trusted, trusted_config FROM projects WHERE id = ?1",
+                [&id.0],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .map_err(db_error)?
+            .ok_or_else(|| not_found(id))?;
+        if !trusted {
+            return Ok(None);
+        }
+        let Some(config) = config else {
+            return Ok(Some(ProjectAgentConfig::default()));
+        };
+        serde_json::from_str(&config)
+            .map(Some)
+            .map_err(|e| internal(format!("trusted settings of project {}: {e}", id.0)))
     }
 
     fn agent_settings(&self) -> Result<AgentSettings> {

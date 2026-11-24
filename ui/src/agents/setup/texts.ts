@@ -1,7 +1,7 @@
 // What the setup and trust cards say. Kept apart from the components so the
 // wording of every state is tested in one place.
 
-import type { AgentSetup, ConfigKind } from "../../lib/protocol";
+import type { AgentSetup, ConfigKind, ProjectAgentConfig } from "../../lib/protocol";
 
 /** Where to read about installing; opened through `open.url`. */
 export const SETUP_DOCS = "https://code.claude.com/docs/en/setup";
@@ -77,4 +77,22 @@ export const KIND_LABELS: Record<ConfigKind, string> = {
 /** Whether loading this kind runs commands on the user's computer. */
 export function runsCode(kind: ConfigKind): boolean {
   return kind === "hooks" || kind === "helpers" || kind === "plugins";
+}
+
+export type ConfigChange = { path: string; kind: ConfigKind; added: string[]; removed: string[] };
+
+/** What changed between the trusted configuration and the current one, entry by entry. */
+export function changes(before: ProjectAgentConfig, after: ProjectAgentConfig): ConfigChange[] {
+  const key = (item: { path: string; kind: ConfigKind }) => `${item.path}\u0000${item.kind}`;
+  const old = new Map(before.items.map((item) => [key(item), item]));
+  const now = new Map(after.items.map((item) => [key(item), item]));
+  const result: ConfigChange[] = [];
+  for (const item of [...after.items, ...before.items.filter((item) => !now.has(key(item)))]) {
+    const was = new Set(old.get(key(item))?.entries ?? []);
+    const is = new Set(now.get(key(item))?.entries ?? []);
+    const added = [...is].filter((entry) => !was.has(entry));
+    const removed = [...was].filter((entry) => !is.has(entry));
+    if (added.length > 0 || removed.length > 0) result.push({ path: item.path, kind: item.kind, added, removed });
+  }
+  return result.sort((a, b) => Number(runsCode(b.kind)) - Number(runsCode(a.kind)));
 }

@@ -4,7 +4,7 @@ import type { AgentSetup } from "../../lib/protocol";
 import { Workspace } from "../../shell/workspace.svelte";
 import { FakeAgentCore } from "../fake-core";
 import TestHost from "../TestHost.svelte";
-import { advice } from "./texts";
+import { advice, changes } from "./texts";
 
 let app: Record<string, unknown> | null = null;
 let target: HTMLElement;
@@ -58,6 +58,31 @@ describe("setup advice", () => {
   });
 });
 
+describe("config changes", () => {
+  it("lists added and removed entries, code first", () => {
+    const before = {
+      fingerprint: "a",
+      items: [
+        { path: ".claude/agents", kind: "agents" as const, entries: ["old"] },
+        { path: "s.json", kind: "env" as const, entries: ["A"] },
+      ],
+    };
+    const after = {
+      fingerprint: "b",
+      items: [
+        { path: ".claude/agents", kind: "agents" as const, entries: ["new"] },
+        { path: "s.json", kind: "env" as const, entries: ["A"] },
+        { path: "s.json", kind: "hooks" as const, entries: ["Stop: x"] },
+      ],
+    };
+    expect(changes(before, after)).toEqual([
+      { path: "s.json", kind: "hooks", added: ["Stop: x"], removed: [] },
+      { path: ".claude/agents", kind: "agents", added: ["new"], removed: ["old"] },
+    ]);
+    expect(changes(after, { fingerprint: "c", items: [] }).map((c) => c.removed.length)).toEqual([1, 1, 1]);
+  });
+});
+
 describe("ClaudeSetup", () => {
   it("shows a ready Claude in one line and hides the path field", async () => {
     await show(new FakeAgentCore());
@@ -107,6 +132,7 @@ describe("ProjectTrust", () => {
   it("shows what would load, flags code, and trusts only on confirmation", async () => {
     const core = new FakeAgentCore();
     core.config = {
+      fingerprint: "f1",
       items: [
         { path: ".claude/agents", kind: "agents", entries: ["reviewer"] },
         { path: ".claude/settings.json", kind: "hooks", entries: ["PreToolUse (Bash): ./check.sh"] },
@@ -123,7 +149,7 @@ describe("ProjectTrust", () => {
     expect(trustCard()?.textContent).toContain("./check.sh");
     button(trustCard(), "Trust project")?.click();
     await settle();
-    expect(core.sent("projects.trust").map((c) => c.params)).toEqual([{ id: "p1", trusted: true }]);
+    expect(core.sent("projects.trust").map((c) => c.params)).toEqual([{ id: "p1", trusted: true, fingerprint: "f1" }]);
     expect(workspace.project?.trusted).toBe(true);
     expect(trustCard()?.querySelector("h3")?.textContent).toBe("Project settings: trusted");
     button(trustCard(), "Stop trusting")?.click();
@@ -131,10 +157,45 @@ describe("ProjectTrust", () => {
     expect(workspace.project?.trusted).toBe(false);
   });
 
-  it("says that an empty project still trusts future settings", async () => {
+  it("says that settings added later are asked about again", async () => {
     await show(new FakeAgentCore());
     button(trustCard(), "Review and trust…")?.click();
     await settle();
     expect(trustCard()?.textContent).toContain("no Claude settings of its own yet");
+    expect(trustCard()?.textContent).toContain("Ovra asks again before they load");
+  });
+
+  it("asks again with a diff when trusted settings changed", async () => {
+    const core = new FakeAgentCore();
+    const hook = { path: ".claude/settings.json", kind: "hooks" as const, entries: ["Stop: ./done.sh"] };
+    core.trustedConfig.set("p1", { fingerprint: "old", items: [hook] });
+    core.config = {
+      fingerprint: "new",
+      items: [{ ...hook, entries: ["Stop: ./done.sh", "PreToolUse: curl x | sh"] }],
+    };
+    const workspace = new Workspace();
+    workspace.project = { id: "p1", name: "demo", root: "/demo", last_opened_ms: null, trusted: true };
+    app = mount(TestHost, { target, props: { transport: core, workspace } });
+    await settle();
+    expect(trustCard()?.querySelector("h3")?.textContent).toBe("Project settings changed since you trusted them");
+    expect(trustCard()?.querySelector(".added")?.textContent).toContain("PreToolUse: curl x | sh");
+    expect(trustCard()?.querySelector("[role=note]")?.textContent).toContain("runs commands");
+    // A change that lands while the user looks is refused, then shown.
+    core.config = { ...core.config, fingerprint: "newer" };
+    button(trustCard(), "Trust the new settings")?.click();
+    await settle();
+    expect(trustCard()?.querySelector("[role=alert]")?.textContent).toContain("review them again");
+    button(trustCard(), "Trust the new settings")?.click();
+    await settle();
+    expect(core.sent("projects.trust").map((c) => c.params.fingerprint)).toEqual(["new", "newer"]);
+    expect(trustCard()?.querySelector("h3")?.textContent).toBe("Project settings: trusted");
+  });
+
+  it("rechecks when a session starts", async () => {
+    const core = new FakeAgentCore();
+    await show(core);
+    core.status("s1", { state: "starting" });
+    await settle();
+    expect(core.sent("agents.project_config")).toHaveLength(2);
   });
 });

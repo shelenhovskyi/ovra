@@ -7,7 +7,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use crate::path::RelPath;
-use crate::protocol::agents::{AgentMessage, AgentSettings, AgentStatus, TurnUsage};
+use crate::protocol::agents::{
+    AgentMessage, AgentSettings, AgentStatus, ProjectAgentConfig, TurnUsage,
+};
 use crate::protocol::fs::{DirEntry, DirListing, EntryKind, FileBody, FileContent, FileList};
 use crate::protocol::permissions::Decision;
 use crate::protocol::projects::{Project, ProjectId, ProjectState, ProjectStatePatch};
@@ -32,6 +34,7 @@ pub struct MemoryProjects {
     state: Mutex<(Vec<Project>, u64)>,
     saved: Mutex<BTreeMap<ProjectId, ProjectState>>,
     settings: Mutex<AgentSettings>,
+    trusted: Mutex<BTreeMap<ProjectId, ProjectAgentConfig>>,
     /// Projects ever added, so ids are never reused.
     added: Mutex<u64>,
 }
@@ -70,6 +73,7 @@ impl ProjectStore for MemoryProjects {
             return Err(not_found(&id.0));
         }
         lock(&self.saved).remove(id);
+        lock(&self.trusted).remove(id);
         Ok(())
     }
 
@@ -106,15 +110,26 @@ impl ProjectStore for MemoryProjects {
         Ok(())
     }
 
-    fn set_trusted(&self, id: &ProjectId, trusted: bool) -> Result<Project> {
+    fn set_trusted(&self, id: &ProjectId, trusted: Option<ProjectAgentConfig>) -> Result<Project> {
         let mut state = lock(&self.state);
         let project = state
             .0
             .iter_mut()
             .find(|p| &p.id == id)
             .ok_or_else(|| not_found(&id.0))?;
-        project.trusted = trusted;
-        Ok(project.clone())
+        project.trusted = trusted.is_some();
+        let project = project.clone();
+        let mut configs = lock(&self.trusted);
+        match trusted {
+            Some(config) => configs.insert(id.clone(), config),
+            None => configs.remove(id),
+        };
+        Ok(project)
+    }
+
+    fn trusted_config(&self, id: &ProjectId) -> Result<Option<ProjectAgentConfig>> {
+        self.get(id)?;
+        Ok(lock(&self.trusted).get(id).cloned())
     }
 
     fn agent_settings(&self) -> Result<AgentSettings> {
@@ -381,13 +396,15 @@ pub struct ScriptedAgent {
     turns: Vec<Vec<Step>>,
     /// Every spec it was started with.
     pub started: Mutex<Vec<AgentSpec>>,
+    /// What `project_config` reports for every project.
+    pub config: Mutex<ProjectAgentConfig>,
 }
 
 impl ScriptedAgent {
     pub fn new(turns: Vec<Vec<Step>>) -> Self {
         Self {
             turns,
-            started: Mutex::default(),
+            ..Self::default()
         }
     }
 }
@@ -425,6 +442,10 @@ impl AgentRuntime for ScriptedAgent {
             host.status(AgentStatus::Stopped);
         });
         Ok(Box::new(process))
+    }
+
+    fn project_config(&self, _: PathBuf) -> BoxFuture<'_, Result<ProjectAgentConfig>> {
+        Box::pin(async move { Ok(lock(&self.config).clone()) })
     }
 }
 

@@ -3,35 +3,70 @@
 // user's own settings only; trusting it also loads the project's .claude/
 // settings, hooks, agents, commands and skills. Hooks and helpers run
 // commands, so the card shows everything that would load before asking.
+// Settings that changed since (a git pull, say) do not load until the user
+// reviews what changed and trusts them again.
 import { untrack } from "svelte";
-import type { ProjectAgentConfig } from "../../lib/protocol";
+import type { ProjectConfigReview } from "../../lib/protocol";
 import { CoreError } from "../../lib/transport";
 import { useOvra } from "../../shell/context";
-import { KIND_LABELS, runsCode } from "./texts";
+import { changes, KIND_LABELS, runsCode } from "./texts";
 
 const { transport, workspace } = useOvra();
 
-let config = $state<ProjectAgentConfig | null>(null);
+let review = $state<ProjectConfigReview | null>(null);
 let reviewing = $state(false);
 let busy = $state(false);
 let error = $state<string | null>(null);
 
 const project = $derived(workspace.project);
-const risky = $derived(config?.items.some((item) => runsCode(item.kind)) ?? false);
-const items = $derived([...(config?.items ?? [])].sort((a, b) => Number(runsCode(b.kind)) - Number(runsCode(a.kind))));
+const changed = $derived(
+  project?.trusted === true && review !== null && review.trusted?.fingerprint !== review.current.fingerprint,
+);
+const diff = $derived(changed && review?.trusted ? changes(review.trusted, review.current) : []);
+const items = $derived(
+  [...(review?.current.items ?? [])].sort((a, b) => Number(runsCode(b.kind)) - Number(runsCode(a.kind))),
+);
+const risky = $derived(
+  changed ? diff.some((c) => runsCode(c.kind) && c.added.length > 0) : items.some((item) => runsCode(item.kind)),
+);
+const heading = $derived(
+  !project?.trusted
+    ? "Project settings: not loaded"
+    : changed
+      ? "Project settings changed since you trusted them"
+      : "Project settings: trusted",
+);
 
 $effect(() => {
-  void project?.id;
+  const id = project?.id;
   untrack(() => {
     reviewing = false;
-    config = null;
+    review = null;
     error = null;
+    if (id) void load(id);
   });
 });
+
+// A session start is when changed settings matter: check again then.
+$effect(() =>
+  transport.onEvent((event) => {
+    if (event.type !== "agents.status" || event.data.status.state !== "starting") return;
+    if (event.data.project === project?.id) void load(event.data.project);
+  }),
+);
 
 function text(err: unknown): string {
   if (err instanceof CoreError) return err.error.message;
   return err instanceof Error ? err.message : String(err);
+}
+
+async function load(id: string): Promise<void> {
+  try {
+    const answer = await transport.call({ method: "agents.project_config", params: { project: id } });
+    if (workspace.project?.id === id) review = answer.data;
+  } catch (err) {
+    error = text(err);
+  }
 }
 
 async function run(action: () => Promise<void>): Promise<void> {
@@ -47,53 +82,100 @@ async function run(action: () => Promise<void>): Promise<void> {
   }
 }
 
-function review(): Promise<void> {
+function open(): Promise<void> {
   const id = project?.id;
   if (!id) return Promise.resolve();
   return run(async () => {
-    config = (await transport.call({ method: "agents.project_config", params: { project: id } })).data;
+    await load(id);
     reviewing = true;
   });
 }
 
 function trust(trusted: boolean): Promise<void> {
   const id = project?.id;
+  const fingerprint = review?.current.fingerprint;
   if (!id) return Promise.resolve();
   return run(async () => {
-    const updated = await transport.call({ method: "projects.trust", params: { id, trusted } });
-    if (workspace.project?.id === id) workspace.project = updated.data;
-    reviewing = false;
+    try {
+      const updated = await transport.call({
+        method: "projects.trust",
+        params: trusted ? { id, trusted, fingerprint } : { id, trusted },
+      });
+      if (workspace.project?.id === id) workspace.project = updated.data;
+      reviewing = false;
+    } finally {
+      // After a conflict this shows what changed meanwhile.
+      await load(id);
+    }
   });
 }
 </script>
 
 {#if project}
-  <section class="trust" aria-labelledby="trust-heading" data-testid="project-trust">
+  <section class="trust" class:changed aria-labelledby="trust-heading" data-testid="project-trust">
     <div class="row">
-      <h3 id="trust-heading">{project.trusted ? "Project settings: trusted" : "Project settings: not loaded"}</h3>
-      {#if !reviewing}
-        <button type="button" disabled={busy} onclick={review}>{project.trusted ? "Review" : "Review and trust…"}</button>
+      <h3 id="trust-heading">{heading}</h3>
+      {#if !reviewing && !changed}
+        <button type="button" disabled={busy} onclick={open}>{project.trusted ? "Review" : "Review and trust…"}</button>
       {/if}
     </div>
     <p class="detail">
-      {#if project.trusted}
+      {#if changed}
+        Sessions run without the project's .claude/ settings until you trust what changed.
+      {:else if project.trusted}
         Claude loads this project's .claude/ settings, hooks, agents, commands and skills.
       {:else}
         Claude reads the project's CLAUDE.md but not its .claude/ settings, hooks, agents, commands or skills.
       {/if}
       Changes apply to sessions started afterwards.
     </p>
-    {#if reviewing && config}
+    {#if changed && review}
+      <div class="review" data-testid="trust-review">
+        {#if diff.length === 0}
+          <p class="detail">
+            The summary is the same, but file contents changed (for example a hook script, a skill or an environment
+            value).
+          </p>
+        {:else}
+          {#if risky}
+            <p class="warning" role="note">Some of what was added runs commands on your computer.</p>
+          {/if}
+          <ul class="items">
+            {#each diff as change, n (n)}
+              <li data-kind={change.kind}>
+                <span class="kind">
+                  {KIND_LABELS[change.kind]}
+                  {#if runsCode(change.kind)}<strong>runs code</strong>{/if}
+                </span>
+                <span class="path">{change.path}</span>
+                <ul>
+                  {#each change.added as entry, m (m)}
+                    <li class="added"><span class="sign" aria-label="Added">+</span> <code>{entry}</code></li>
+                  {/each}
+                  {#each change.removed as entry, m (m)}
+                    <li class="removed"><span class="sign" aria-label="Removed">−</span> <code>{entry}</code></li>
+                  {/each}
+                </ul>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+        <div class="row actions">
+          <button type="button" disabled={busy} onclick={() => trust(false)}>Stop trusting</button>
+          <button type="button" class="primary" disabled={busy} onclick={() => trust(true)}>Trust the new settings</button>
+        </div>
+      </div>
+    {:else if reviewing && review}
       <div class="review" data-testid="trust-review">
         {#if items.length === 0}
           <p class="detail">
-            This project has no Claude settings of its own yet. If you trust it, settings added later (for example by a
-            git pull) load without asking again.
+            This project has no Claude settings of its own yet. If you trust it and settings appear later (for example
+            after a git pull), Ovra asks again before they load.
           </p>
         {:else}
           <p class="detail">
-            {project.trusted ? "Loaded" : "Trusting the project loads"} the following. Settings changed later (for example
-            by a git pull) load without asking again.
+            {project.trusted ? "Loaded" : "Trusting the project loads"} the following. If it changes later, Ovra asks again
+            before loading it.
           </p>
           {#if risky}
             <p class="warning" role="note">Some of it runs commands on your computer.</p>
@@ -228,5 +310,22 @@ function trust(trusted: boolean): Promise<void> {
   }
   .error {
     color: #ff8f8f;
+  }
+  .trust.changed {
+    border-color: #ffd36b;
+  }
+  .added .sign {
+    color: #8fd18f;
+  }
+  .removed .sign {
+    color: #ff8f8f;
+  }
+  .removed code {
+    text-decoration: line-through;
+  }
+  @media (forced-colors: active) {
+    .trust.changed {
+      border: 2px solid Highlight;
+    }
   }
 </style>
