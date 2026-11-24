@@ -34,7 +34,8 @@ impl Sessions {
             return Ok(ProfileNetwork::Open);
         };
         let allow = projects.allowlist(project)?;
-        let reporter = NetReporter::new(project.clone(), session.clone(), sink);
+        let core = lock(&self.ide).as_ref().map(|link| link.core.clone());
+        let reporter = NetReporter::new(project.clone(), session.clone(), sink).with_core(core);
         let address = net.start(session.clone(), allow.clone(), reporter).await?;
         // The allowlist may have changed while the proxy started, and the
         // session may have ended: a running session gets the stored list,

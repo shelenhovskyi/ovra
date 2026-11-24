@@ -234,10 +234,12 @@ async fn start(core: &Core) {
 async fn each_session_runs_behind_its_own_proxy_until_it_ends() {
     let net = fake_net();
     let agent = Arc::new(waits());
+    let audit = Arc::new(crate::fakes::MemoryAudit::default());
     let core = Core::builder("test")
         .projects(Arc::new(MemoryProjects::default()))
         .agents(agent.clone())
         .netproxy(net.clone())
+        .audit(audit.clone())
         .build();
     call(
         &core,
@@ -293,8 +295,27 @@ async fn each_session_runs_behind_its_own_proxy_until_it_ends() {
     reporter
         .unwrap_or_else(|| panic!("no reporter"))
         .refused("evil.example:443", "not in the allowlist");
+    let p1 = crate::protocol::projects::ProjectId("p1".into());
+    let logged = crate::services::AuditLog::list(audit.as_ref(), &p1, None, 100)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|e| {
+            matches!(
+                e.event,
+                crate::protocol::audit::AuditEvent::NetworkRefused { .. }
+            )
+        })
+        .count();
+    assert_eq!(logged, 1);
+    let refused = loop {
+        match rx.recv().await {
+            Ok(event @ Event::Netproxy(_)) => break Some(event),
+            Ok(_) => {}
+            Err(_) => break None,
+        }
+    };
     assert_eq!(
-        rx.recv().await.ok(),
+        refused,
         Some(Event::Netproxy(NetproxyEvent::Refused {
             project: crate::protocol::projects::ProjectId("p1".into()),
             session: s1.clone(),

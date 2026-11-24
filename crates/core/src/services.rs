@@ -274,6 +274,9 @@ pub struct NetReporter {
     project: ProjectId,
     session: SessionId,
     sink: EventSink,
+    /// Where refusals are written to the audit log; `None` in tests of
+    /// other crates.
+    core: Option<crate::core::WeakCore>,
 }
 
 impl NetReporter {
@@ -282,11 +285,29 @@ impl NetReporter {
             project,
             session,
             sink,
+            core: None,
         }
     }
 
-    /// The proxy refused a connection to `host` (`host:port`).
+    pub(crate) fn with_core(mut self, core: Option<crate::core::WeakCore>) -> Self {
+        self.core = core;
+        self
+    }
+
+    /// The proxy refused a connection to `host` (`host:port`): written to
+    /// the audit log as `NetworkRefused` and shown to every front end.
     pub fn refused(&self, host: &str, reason: &str) {
+        if let Some(core) = self.core.as_ref().and_then(|c| c.upgrade()) {
+            crate::audit::record(
+                &core,
+                &self.project,
+                Some(&self.session),
+                AuditEvent::NetworkRefused {
+                    host: host.to_owned(),
+                    reason: reason.to_owned(),
+                },
+            );
+        }
         self.sink.emit(NetproxyEvent::Refused {
             project: self.project.clone(),
             session: self.session.clone(),

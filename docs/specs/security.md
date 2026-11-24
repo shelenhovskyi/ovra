@@ -239,8 +239,8 @@ pub trait NetProxy: Send + Sync + Debug {
   - It allows ports 443 and 80, unless the allowlist entry names another
     port; an entry with a port allows only that port.
   - Every refusal goes to the core through `NetReporter`, which pushes
-    `netproxy.refused { project, session, host, reason }` to the UI. 4.E
-    writes it to the audit log as `NetworkRefused` in the same place.
+    `netproxy.refused { project, session, host, reason }` to the UI and
+    writes it to the audit log as `NetworkRefused`.
 - **Upstream proxy.** If the user's own proxy is set where Ovra runs
   (`https_proxy`, `HTTPS_PROXY`, `http_proxy`, `HTTP_PROXY`, as Claude Code
   reads them, with `NO_PROXY`), the netproxy chains to it, with the user
