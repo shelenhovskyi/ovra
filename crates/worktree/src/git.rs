@@ -85,6 +85,10 @@ impl Git {
         let mut command = Command::new(program());
         command
             .args(["--literal-pathspecs", "-c", "core.quotepath=off"])
+            // Never run a configured file monitor, and refuse `.git` paths
+            // in every spelling some disk treats as `.git`.
+            .args(["-c", "core.fsmonitor=false"])
+            .args(["-c", "core.protectNTFS=true", "-c", "core.protectHFS=true"])
             .arg(subcommand)
             .current_dir(dir)
             .env("GIT_TERMINAL_PROMPT", "0")

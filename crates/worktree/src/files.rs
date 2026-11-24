@@ -162,6 +162,10 @@ fn copy_over(
     let mut conflicts = Vec::new();
     let mut todo = Vec::new();
     for path in paths {
+        if !plain(path) {
+            conflicts.push(path.to_string());
+            continue;
+        }
         let here = on_disk(into, path)?;
         let source = match wanted.get(path.as_str()) {
             None => Some(Source::Missing),
@@ -192,7 +196,11 @@ fn copy_over(
             .arg("--stdin-paths")
             .input(list.join("\n") + "\n")
             .text()?;
-        out.lines().map(str::to_owned).collect()
+        let hashes: Vec<String> = out.lines().map(str::to_owned).collect();
+        if hashes.len() != present.len() {
+            return Err(internal("git hashed a different number of files"));
+        }
+        hashes
     };
     let current: BTreeMap<&str, &String> = present
         .iter()
@@ -231,11 +239,18 @@ fn copy_over(
         // `checkout-index` unlinks a file or symlink at the path instead of
         // writing through it, and applies the checkout's filters.
         let index = TempIndex::empty(into)?;
+        let count = checkout.len();
         Git::new(into, "update-index")
             .args(["-z", "--index-info"])
             .index(&index)
             .input(info)
             .run()?;
+        // `update-index` skips entries git refuses; `checkout-index` would
+        // then write the rest and fail. Nothing is written unless all are in.
+        let staged = Git::new(into, "ls-files").arg("-z").index(&index).run()?;
+        if staged.split(|b| *b == 0).filter(|p| !p.is_empty()).count() != count {
+            return Err(internal("git refused some of the files to write"));
+        }
         Git::new(into, "checkout-index")
             .args(["--force", "-z", "--stdin"])
             .index(&index)
@@ -243,12 +258,40 @@ fn copy_over(
             .run()?;
     }
     // Deleted only once the writes went through, so a failure leaves the
-    // checkout as it was as far as deletions go.
+    // checkout as it was as far as deletions go. Each path is looked at
+    // again right before: a folder on the way may have become a symlink.
+    // A deletion that names a written file on a case-insensitive disk
+    // would remove it again, so it is left to the person.
+    let written: BTreeSet<String> = checkout
+        .iter()
+        .map(|p| String::from_utf8_lossy(p).to_lowercase())
+        .collect();
     for path in deleted {
-        remove_file(into, path)?;
+        let folded = written.contains(&path.as_str().to_lowercase());
+        match on_disk(into, path)? {
+            OnDisk::Missing => {}
+            OnDisk::File if !folded && !is_symlink(into, path) => remove_file(into, path)?,
+            OnDisk::File | OnDisk::Off => conflicts.push(path.to_string()),
+        }
     }
     conflicts.sort();
     Ok(conflicts)
+}
+
+/// Whether `path` is safe to hand to git and to delete: no `.git` folder in
+/// any of the spellings git refuses on some disk (case, a trailing dot or
+/// space, the 8.3 name), no line breaks, no leading quote (`hash-object
+/// --stdin-paths` would unquote it) and no replacement character (a name
+/// that was not UTF-8 in the tree).
+fn plain(path: &RelPath) -> bool {
+    let text = path.as_str();
+    if text.contains(['\n', '\r', '\u{fffd}']) || text.starts_with('"') {
+        return false;
+    }
+    !text.split('/').any(|part| {
+        let part = part.trim_end_matches(['.', ' ']).to_ascii_lowercase();
+        part == ".git" || part == "git~1"
+    })
 }
 
 /// What [`copy_over`] puts at a path.
@@ -265,8 +308,7 @@ fn link(dir: &Path, path: &RelPath, id: &str) -> Result<Option<Source>> {
         return Ok(None);
     }
     let target = Git::new(dir, "cat-file").args(["blob", id]).run()?;
-    let target = String::from_utf8_lossy(&target);
-    Ok(link_stays(path, Path::new(target.as_ref())).then_some(Source::Written))
+    Ok(link_stays(path, &target).then_some(Source::Written))
 }
 
 /// Whether `path` under `dir` is a symlink itself (not followed).
@@ -278,8 +320,17 @@ fn is_symlink(dir: &Path, path: &RelPath) -> bool {
 /// judged lexically: relative, and its `..` only at the start, where they
 /// climb the real folders above the link (`apply` refuses symlinked
 /// folders). A `..` after a name could follow another link first
-/// (`s -> .`, then `l -> s/../x`), so it is refused.
-fn link_stays(path: &RelPath, target: &Path) -> bool {
+/// (`s -> .`, then `l -> s/../x`), so it is refused. `target` is the blob's
+/// raw bytes: git writes a link only up to a NUL, so a target with one, an
+/// empty one or one that is not UTF-8 is refused rather than judged.
+fn link_stays(path: &RelPath, target: &[u8]) -> bool {
+    let Ok(target) = std::str::from_utf8(target) else {
+        return false;
+    };
+    if target.is_empty() || target.contains('\0') {
+        return false;
+    }
+    let target = Path::new(target);
     let mut up = path.as_str().matches('/').count();
     let mut named = false;
     for component in target.components() {
@@ -374,9 +425,14 @@ mod tests {
             ("l", "s/../x", false),
             ("l", "s/s/s/../../../x", false),
             ("l", "/etc/passwd", false),
+            // Git would write these only up to the NUL: `..`, and `x`
+            // after climbing out.
+            ("l", "..\0x", false),
+            ("a/l", "x\0/../../..", false),
+            ("l", "", false),
         ] {
             assert_eq!(
-                link_stays(&rel(at), Path::new(target)),
+                link_stays(&rel(at), target.as_bytes()),
                 stays,
                 "{at} -> {target}"
             );

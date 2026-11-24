@@ -818,3 +818,89 @@ async fn a_version_changes_with_the_mode_and_a_links_target() {
     assert_ne!(before.get("link"), after.get("link"));
     assert!(after.get("link").is_some_and(|v| v.starts_with("120000 ")));
 }
+
+/// A symlink blob with a NUL: git would write only `..`. Real links cannot
+/// hold one, but a worker can forge its tree's blobs.
+#[cfg(unix)]
+#[tokio::test]
+async fn apply_refuses_a_link_target_git_would_cut_short() {
+    use std::io::Write;
+    let repo = Repo::new(&[("a.txt", "a\n")]);
+    let root = &repo.root;
+    let w = GitWorktrees::new();
+    let base = git(root, &["rev-parse", "HEAD"]);
+    let mut hash = Command::new(crate::git::program())
+        .args(["hash-object", "-w", "--stdin"])
+        .current_dir(root)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap_or_else(|e| panic!("{e}"));
+    if let Some(mut stdin) = hash.stdin.take() {
+        stdin.write_all(b"..\0x").unwrap_or_else(|e| panic!("{e}"));
+    }
+    let out = hash.wait_with_output().unwrap_or_else(|e| panic!("{e}"));
+    let blob = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+    let index = repo.tmp.path().join("forged-index");
+    let forge = |args: &[&str]| {
+        let out = Command::new(crate::git::program())
+            .args(args)
+            .current_dir(root)
+            .env("GIT_INDEX_FILE", &index)
+            .output()
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert!(out.status.success(), "{args:?}");
+        String::from_utf8_lossy(&out.stdout).trim().to_owned()
+    };
+    forge(&[
+        "update-index",
+        "--add",
+        "--cacheinfo",
+        &format!("120000,{blob},l"),
+    ]);
+    let tree = forge(&["write-tree"]);
+
+    let conflicts = w.apply(tree, base, root.clone(), rels(&["l"])).await;
+    assert_eq!(conflicts.unwrap_or_else(|e| panic!("{e:?}")), ["l"]);
+    assert!(fs::symlink_metadata(root.join("l")).is_err());
+}
+
+/// Paths git or the hash check would misread are left to the person, and
+/// a deletion never reaches into `.git`.
+#[tokio::test]
+async fn apply_leaves_git_folders_and_odd_names_alone() {
+    let repo = Repo::new(&[("readme.md", "old\n")]);
+    let root = &repo.root;
+    let w = GitWorktrees::new();
+    let (base, worker) = repo.worker(&w).await;
+    // Renamed in case only: on a case-insensitive disk the deletion of the
+    // old name would remove the file just written.
+    fs::remove_file(worker.join("readme.md")).unwrap_or_else(|e| panic!("{e}"));
+    put(&worker, "README.md", "new\n");
+    let tree = w.look(worker).await.unwrap_or_else(|e| panic!("{e:?}"));
+    let mut paths = vec![".git/config", "README.md", "readme.md"];
+    // Names `RelPath` already refuses on Windows.
+    if cfg!(unix) {
+        paths.extend(["\"quoted", "sub/Git~1/x"]);
+    }
+    let conflicts = w.apply(tree, base, root.clone(), rels(&paths)).await;
+    let conflicts = conflicts.unwrap_or_else(|e| panic!("{e:?}"));
+    let mut want = vec![".git/config", "readme.md"];
+    if cfg!(unix) {
+        want.insert(0, "\"quoted");
+        want.push("sub/Git~1/x");
+    }
+    // On a case-insensitive disk README.md is the person's readme.md, so it
+    // conflicts too; elsewhere it is written.
+    let written = !conflicts.iter().any(|c| c == "README.md");
+    let rest: Vec<&str> = conflicts
+        .iter()
+        .map(String::as_str)
+        .filter(|c| *c != "README.md")
+        .collect();
+    assert_eq!(rest, want);
+    assert!(root.join(".git").join("config").is_file());
+    if written {
+        assert_eq!(read(root, "README.md").as_deref(), Some("new\n"));
+    }
+}
