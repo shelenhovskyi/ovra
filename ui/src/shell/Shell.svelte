@@ -84,7 +84,7 @@ const status = $derived.by((): { text: string; ok: boolean } => {
   <aside data-testid="sidebar"><Tree /></aside>
   <main data-testid="main">
     <Tabs />
-    <div class="view">
+    <div class="view" id="ovra-tabpanel" role="tabpanel" aria-label={workspace.openPath ?? "No file open"}>
       {#if workspace.mode === "edit"}
         <Editor />
       {:else}
