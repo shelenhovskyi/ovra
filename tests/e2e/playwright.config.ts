@@ -5,7 +5,10 @@ import { defineConfig } from "@playwright/test";
 export default defineConfig({
   testDir: "./specs",
   globalSetup: "./daemon.ts",
-  fullyParallel: true,
+  // One worker: the tests share one daemon, and the core watches only the
+  // project opened last, so a test opening a project in parallel stops
+  // another test's fs.changed events (a flaky conflict test in tabs.spec).
+  workers: 1,
   // Hard limits; budgets are in scripts/test-budgets.json.
   timeout: 10_000,
   globalTimeout: 120_000,
