@@ -16,6 +16,8 @@ const FROM: Record<MessageFrom, string> = {
   ovra: "Ovra",
   unknown: "Sender not recorded",
 };
+/** How the claude CLI names Ovra's own tools. */
+const IDE_TOOL = "mcp__ovra__";
 const MAX_OUTPUT = 2000;
 const MAX_SPOKEN = 300;
 /** How the claude CLI tells the model that a person denied or interrupted a tool call. */
@@ -70,8 +72,19 @@ $effect(() => {
         <span class="who">{sub}Claude</span>
         <p>{message.text}</p>
       {:else if message.kind === "tool_use"}
-        <span class="who">{sub}Tool {message.name}</span>
-        <p>{describeTool(message.name, message.input).action}</p>
+        {@const summary = describeTool(message.name, message.input)}
+        {#if message.name.startsWith(IDE_TOOL)}
+          <!-- Ovra's own tools in words, with what was sent in full: a worker's
+               task and a coordinator's messages are what the person checks. -->
+          <span class="who">{sub}Ovra tool</span>
+          <p>{summary.action}</p>
+          {#each summary.details as detail}
+            <p class="sent" data-testid="tool-detail"><span class="label">{detail.label}</span> {detail.text}</p>
+          {/each}
+        {:else}
+          <span class="who">{sub}Tool {message.name}</span>
+          <p>{summary.action}</p>
+        {/if}
       {:else if message.kind === "tool_result"}
         {#if message.is_error && message.output.startsWith(REJECTED)}
           <span class="who">{sub}Not run: you denied it or interrupted the turn</span>
@@ -138,6 +151,14 @@ $effect(() => {
   }
   .turn_end .who {
     font-style: italic;
+  }
+  .sent {
+    padding-left: 8px;
+    border-left: 2px solid #4a4a57;
+  }
+  .sent .label {
+    font-size: 11px;
+    color: #b4b4c0;
   }
   p,
   pre {

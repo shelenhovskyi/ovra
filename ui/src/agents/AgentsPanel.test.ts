@@ -128,6 +128,12 @@ describe("AgentsPanel", () => {
       { kind: "user_text", text: "Ovra: worker w stopped.", from: "ovra" },
       { kind: "user_text", text: "Thanks", from: "person" },
       { kind: "user_text", text: "Saved long ago", from: "unknown" },
+      {
+        kind: "tool_use",
+        id: "t1",
+        name: "mcp__ovra__send_message",
+        input: { agent_id: "s2", text: "Also add tests.\nThen ask for review." },
+      },
     ]);
     await setup(core);
     expect(transcript()).toEqual([
@@ -135,6 +141,7 @@ describe("AgentsPanel", () => {
       "Ovra Ovra: worker w stopped.",
       "You Thanks",
       "Sender not recorded Saved long ago",
+      "Ovra tool Message worker s2 text Also add tests. Then ask for review.",
     ]);
   });
 
