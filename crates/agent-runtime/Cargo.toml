@@ -16,6 +16,7 @@ uuid = { version = "1", features = ["v4"] }
 [dev-dependencies]
 ovra-core = { workspace = true, features = ["fakes"] }
 insta.workspace = true
+tempfile = "3"
 tokio = { workspace = true, features = ["test-util"] }
 
 [lints]

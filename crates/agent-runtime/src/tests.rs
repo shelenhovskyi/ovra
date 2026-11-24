@@ -356,6 +356,7 @@ mod process {
             let path = self.0.join("claude");
             let script = format!(
                 "#!/bin/sh\nif [ \"$1\" = --version ]; then echo '{version}'; exit 0; fi\n\
+                 if [ \"$1\" = auth ]; then cat \"$0.auth\" 2>/dev/null; exit 0; fi\n\
                  pwd > \"$0.cwd\"; echo \"$@\" > \"$0.args\"\n{body}\n"
             );
             std::fs::write(&path, script).unwrap_or_else(|e| panic!("{e}"));
@@ -427,6 +428,91 @@ echo '{"type":"result","subtype":"success","usage":{"input_tokens":1,"output_tok
         assert!(!args.contains("--bare"));
         let cwd = PathBuf::from(dir.read("claude.cwd").trim());
         assert_eq!(cwd.canonicalize().ok(), dir.0.canonicalize().ok());
+    }
+
+    async fn setup(core: &Core) -> AgentSetup {
+        match call(
+            core,
+            json!({"method": "agents.setup", "params": {"agent": "claude"}}),
+        )
+        .await
+        {
+            Response::Agents(AgentsResponse::Setup(setup)) => setup,
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn setup_reports_the_version_and_the_sign_in_state() {
+        use ovra_core::protocol::agents::SetupState;
+        let dir = Dir::new("setup");
+        let claude = dir.claude("2.1.400 (Claude Code)", "exit 0");
+        let core = core_with(Arc::new(ClaudeCli::new(Some(claude.clone()))));
+        let ready = setup(&core).await;
+        assert_eq!(ready.state, SetupState::Ready);
+        assert_eq!(ready.version.as_deref(), Some("2.1.400"));
+        assert_eq!(
+            ready.executable,
+            Some(claude.to_string_lossy().into_owned())
+        );
+        std::fs::write(dir.0.join("claude.auth"), r#"{"loggedIn": false}"#)
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(setup(&core).await.state, SetupState::SignedOut);
+        let old = dir.claude("2.0.1", "exit 0");
+        let saved = call(
+            &core,
+            json!({"method": "agents.set_path", "params": {"agent": "claude", "path": old}}),
+        )
+        .await;
+        let Response::Agents(AgentsResponse::Setup(outdated)) = saved else {
+            panic!("unexpected {saved:?}");
+        };
+        assert_eq!(outdated.version.as_deref(), Some("2.0.1"));
+        assert!(matches!(outdated.state, SetupState::Outdated { .. }));
+        let gone = dir.0.join("gone");
+        call(
+            &core,
+            json!({"method": "agents.set_path", "params": {"agent": "claude", "path": gone}}),
+        )
+        .await;
+        assert_eq!(setup(&core).await.state, SetupState::NotFound);
+    }
+
+    #[tokio::test]
+    async fn a_trusted_project_loads_its_own_settings() {
+        let dir = Dir::new("trusted");
+        let claude = dir.claude("2.1.331", &format!("{ONE_TURN}\ncat > /dev/null"));
+        let core = core_with(Arc::new(ClaudeCli::new(Some(claude))));
+        let mut rx = core.subscribe();
+        start(&core, &dir.0.to_string_lossy(), "hi").await;
+        wait_idle(&mut rx).await;
+        assert!(
+            dir.read("claude.args")
+                .contains("--setting-sources user --strict")
+        );
+        call(
+            &core,
+            json!({"method": "agents.stop", "params": {"session": "s1"}}),
+        )
+        .await;
+        end(&mut rx).await;
+        call(
+            &core,
+            json!({"method": "projects.trust", "params": {"id": "p1", "trusted": true}}),
+        )
+        .await;
+        call(
+            &core,
+            json!({"method": "agents.start", "params": {
+                "project": "p1", "agent": "claude", "mode": "direct", "prompt": "again"}}),
+        )
+        .await;
+        wait_idle(&mut rx).await;
+        let args = dir.read("claude.args");
+        assert!(
+            args.contains("--setting-sources user,project,local --strict"),
+            "{args}"
+        );
     }
 
     #[tokio::test]

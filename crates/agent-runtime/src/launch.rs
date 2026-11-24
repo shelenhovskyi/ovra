@@ -1,86 +1,6 @@
-//! How `claude` is started: the version check and the command line.
+//! The command line `claude` is started with.
 
 use std::ffi::OsString;
-use std::path::Path;
-use std::time::Duration;
-
-use tokio::process::Command;
-
-/// Oldest version the protocol was checked against (the 2026-11-24 spike).
-const MIN_VERSION: Version = Version(2, 1, 331);
-/// First version that is not supported: a new major may change the
-/// undocumented control messages.
-const MAX_VERSION: Version = Version(3, 0, 0);
-/// `claude --version` normally answers in well under a second.
-const VERSION_TIMEOUT: Duration = Duration::from_secs(10);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct Version(u32, u32, u32);
-
-impl std::fmt::Display for Version {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}.{}.{}", self.0, self.1, self.2)
-    }
-}
-
-/// Reads `2.1.331` from output like `2.1.331 (Claude Code)`.
-fn parse_version(output: &str) -> Option<Version> {
-    let word = output.split_whitespace().next()?;
-    let mut parts = word.split('.').map(|p| p.parse::<u32>().ok());
-    let version = Version(parts.next()??, parts.next()??, parts.next()??);
-    parts.next().is_none().then_some(version)
-}
-
-/// Why a version cannot be used, as a message for the person.
-fn check(output: &str) -> Result<Version, String> {
-    let Some(version) = parse_version(output) else {
-        return Err(format!(
-            "could not read the version of claude from {:?}",
-            output.trim()
-        ));
-    };
-    if version < MIN_VERSION {
-        return Err(format!(
-            "Claude Code {version} is too old; Ovra needs {MIN_VERSION} or newer. \
-             Update it with `claude update`."
-        ));
-    }
-    if version >= MAX_VERSION {
-        return Err(format!(
-            "Claude Code {version} is newer than this version of Ovra supports \
-             (below {MAX_VERSION}). Update Ovra."
-        ));
-    }
-    Ok(version)
-}
-
-/// Runs `claude --version` and checks the result against the tested range.
-pub(crate) async fn check_version(executable: &Path) -> Result<Version, String> {
-    let run = Command::new(executable)
-        .arg("--version")
-        .kill_on_drop(true)
-        .output();
-    let output = match tokio::time::timeout(VERSION_TIMEOUT, run).await {
-        Err(_) => return Err(format!("{} --version did not answer", executable.display())),
-        Ok(Err(e)) if e.kind() == std::io::ErrorKind::NotFound => {
-            return Err(format!(
-                "{} was not found. Install Claude Code and sign in once by running \
-                 `claude` in a terminal.",
-                executable.display()
-            ));
-        }
-        Ok(Err(e)) => return Err(format!("could not run {}: {e}", executable.display())),
-        Ok(Ok(output)) => output,
-    };
-    if !output.status.success() {
-        return Err(format!(
-            "{} --version failed: {}",
-            executable.display(),
-            String::from_utf8_lossy(&output.stderr).trim()
-        ));
-    }
-    check(&String::from_utf8_lossy(&output.stdout))
-}
 
 /// Which Claude Code session the process works in.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -94,7 +14,7 @@ pub(crate) enum Conversation {
 /// The arguments for one session. Ovra never passes `--bare` (it ignores the
 /// subscription login) and never touches `CLAUDE_CONFIG_DIR` or credentials;
 /// the environment is inherited unchanged (ADR 0006).
-pub(crate) fn args(conversation: &Conversation) -> Vec<OsString> {
+pub(crate) fn args(conversation: &Conversation, trusted: bool) -> Vec<OsString> {
     let mut args: Vec<&str> = vec![
         "-p",
         "--input-format",
@@ -110,11 +30,14 @@ pub(crate) fn args(conversation: &Conversation) -> Vec<OsString> {
         "--permission-mode",
         "default",
         // `-p` skips the workspace trust dialog, so a cloned project's
-        // `.claude/` settings and hooks must not load. Projects cannot be
-        // trusted in Ovra yet; once they can, trusted ones get
-        // `user,project,local`.
+        // `.claude/` settings, hooks, agents and skills load only once the
+        // user trusts the project in Ovra.
         "--setting-sources",
-        "user",
+        if trusted {
+            "user,project,local"
+        } else {
+            "user"
+        },
         // Only the MCP servers Ovra passes: none yet.
         "--strict-mcp-config",
         "--mcp-config",
@@ -136,19 +59,8 @@ pub(crate) fn args(conversation: &Conversation) -> Vec<OsString> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn versions_in_the_tested_range_pass() {
-        assert_eq!(check("2.1.331 (Claude Code)\n"), Ok(Version(2, 1, 331)));
-        assert_eq!(check("2.7.0"), Ok(Version(2, 7, 0)));
-        assert!(check("2.1.330 (Claude Code)").is_err_and(|e| e.contains("too old")));
-        assert!(check("3.0.0").is_err_and(|e| e.contains("newer")));
-        assert!(check("claude 2.1").is_err_and(|e| e.contains("could not read")));
-        assert!(check("2.1.331.4").is_err());
-        assert!(check("").is_err());
-    }
-
-    fn line(conversation: &Conversation) -> String {
-        args(conversation)
+    fn line(conversation: &Conversation, trusted: bool) -> String {
+        args(conversation, trusted)
             .iter()
             .map(|a| a.to_string_lossy().into_owned())
             .collect::<Vec<_>>()
@@ -157,13 +69,23 @@ mod tests {
 
     #[test]
     fn the_command_line_keeps_the_safe_defaults() {
-        let new = line(&Conversation::New("0b8e…".into()));
+        let new = line(&Conversation::New("0b8e…".into()), false);
         insta::assert_snapshot!(new, @r#"-p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio --permission-mode default --setting-sources user --strict-mcp-config --mcp-config {"mcpServers":{}} --session-id 0b8e…"#);
-        let resume = line(&Conversation::Resume {
-            id: "abc".into(),
-            fork: true,
-        });
+        let resume = line(
+            &Conversation::Resume {
+                id: "abc".into(),
+                fork: true,
+            },
+            false,
+        );
         assert!(resume.ends_with("--setting-sources user --strict-mcp-config --mcp-config {\"mcpServers\":{}} --resume abc --fork-session"));
         assert!(!resume.contains("--bare"));
+    }
+
+    #[test]
+    fn only_a_trusted_project_loads_its_own_settings() {
+        let trusted = line(&Conversation::New("id".into()), true);
+        assert!(trusted.contains("--setting-sources user,project,local --strict-mcp-config"));
+        assert!(trusted.contains("--permission-prompt-tool stdio --permission-mode default"));
     }
 }

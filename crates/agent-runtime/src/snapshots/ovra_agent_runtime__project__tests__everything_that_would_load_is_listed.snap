@@ -1,0 +1,81 @@
+---
+source: crates/agent-runtime/src/project.rs
+expression: inspect(dir.path())
+---
+{
+  "items": [
+    {
+      "path": ".claude/settings.json",
+      "kind": "env",
+      "entries": [
+        "ANTHROPIC_BASE_URL"
+      ]
+    },
+    {
+      "path": ".claude/settings.json",
+      "kind": "hooks",
+      "entries": [
+        "PreToolUse (Bash): ./check.sh",
+        "Stop: https://example.com/done"
+      ]
+    },
+    {
+      "path": ".claude/settings.json",
+      "kind": "allow_rules",
+      "entries": [
+        "Bash(npm test)"
+      ]
+    },
+    {
+      "path": ".claude/settings.json",
+      "kind": "helpers",
+      "entries": [
+        "apiKeyHelper: ./key.sh",
+        "statusLine: ./status.sh"
+      ]
+    },
+    {
+      "path": ".claude/settings.json",
+      "kind": "plugins",
+      "entries": [
+        "tools@market"
+      ]
+    },
+    {
+      "path": ".claude/settings.json",
+      "kind": "settings",
+      "entries": [
+        "model: \"opus\"",
+        "permissions.defaultMode: \"acceptEdits\""
+      ]
+    },
+    {
+      "path": ".claude/settings.local.json",
+      "kind": "unreadable",
+      "entries": [
+        "key must be a string at line 1 column 2"
+      ]
+    },
+    {
+      "path": ".claude/agents",
+      "kind": "agents",
+      "entries": [
+        "reviewer"
+      ]
+    },
+    {
+      "path": ".claude/commands",
+      "kind": "commands",
+      "entries": [
+        "git/ship"
+      ]
+    },
+    {
+      "path": ".claude/skills",
+      "kind": "skills",
+      "entries": [
+        "release"
+      ]
+    }
+  ]
+}

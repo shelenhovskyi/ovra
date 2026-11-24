@@ -4,17 +4,19 @@
 //! Contract: `ovra_core::services::AgentRuntime`; fake:
 //! `ovra_core::fakes::ScriptedAgent`.
 
+mod detect;
 mod driver;
 mod launch;
 mod policy;
+mod project;
 mod wire;
 
 use std::path::PathBuf;
 use std::process::Stdio;
 
-use ovra_core::protocol::agents::AgentStatus;
+use ovra_core::protocol::agents::{AgentSetup, AgentStatus, ProjectAgentConfig};
 use ovra_core::protocol::{ErrorCode, ProtocolError};
-use ovra_core::services::{AgentHost, AgentRuntime, AgentSpec, Result, RunningAgent};
+use ovra_core::services::{AgentHost, AgentRuntime, AgentSpec, BoxFuture, Result, RunningAgent};
 use tokio::io::{AsyncReadExt, BufReader};
 use tokio::process::Command as Process;
 use tokio::sync::mpsc;
@@ -28,15 +30,13 @@ const STDERR_TAIL: usize = 2000;
 /// Starts Claude sessions with the user's `claude` executable.
 #[derive(Debug)]
 pub struct ClaudeCli {
-    /// `claude` (looked up on `PATH`) unless the user set a path.
-    executable: PathBuf,
+    /// Used when the user chose no path; `None` searches for `claude`.
+    executable: Option<PathBuf>,
 }
 
 impl ClaudeCli {
     pub fn new(executable: Option<PathBuf>) -> Self {
-        Self {
-            executable: executable.unwrap_or_else(|| PathBuf::from("claude")),
-        }
+        Self { executable }
     }
 
     /// Continues the Claude Code session `id` (its own session id, not
@@ -64,7 +64,7 @@ impl ClaudeCli {
             ));
         }
         let (commands, rx) = mpsc::unbounded_channel();
-        let executable = self.executable.clone();
+        let executable = spec.executable.clone().or_else(|| self.executable.clone());
         tokio::spawn(async move {
             let status = session(executable, spec, conversation, host.clone(), rx).await;
             host.status(status);
@@ -78,22 +78,39 @@ impl AgentRuntime for ClaudeCli {
         let id = uuid::Uuid::new_v4().to_string();
         self.launch(spec, host, Conversation::New(id))
     }
+
+    fn setup(&self, path: Option<PathBuf>) -> BoxFuture<'_, AgentSetup> {
+        let chosen = path.or_else(|| self.executable.clone());
+        Box::pin(async move { detect::setup(chosen, &detect::Env::current()).await })
+    }
+
+    fn project_config(&self, root: PathBuf) -> BoxFuture<'_, Result<ProjectAgentConfig>> {
+        Box::pin(async move {
+            tokio::task::spawn_blocking(move || project::inspect(&root))
+                .await
+                .map_err(|e| ProtocolError::new(ErrorCode::Internal, e.to_string()))
+        })
+    }
 }
 
 /// Runs one session from version check to exit; returns its final state.
 async fn session(
-    executable: PathBuf,
+    chosen: Option<PathBuf>,
     spec: AgentSpec,
     conversation: Conversation,
     host: AgentHost,
     commands: mpsc::UnboundedReceiver<Command>,
 ) -> AgentStatus {
     let failed = |message: String| AgentStatus::Failed { message };
-    if let Err(message) = launch::check_version(&executable).await {
-        return failed(message);
+    let executable = match detect::find(chosen.as_deref(), &detect::Env::current()) {
+        Ok(executable) => executable,
+        Err(problem) => return failed(problem.to_string()),
+    };
+    if let Err(problem) = detect::check_version(&executable).await {
+        return failed(problem.to_string());
     }
     let child = Process::new(&executable)
-        .args(launch::args(&conversation))
+        .args(launch::args(&conversation, spec.trusted))
         .current_dir(&spec.cwd)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

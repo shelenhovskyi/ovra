@@ -134,7 +134,40 @@ fn agents(args: &Args) -> Arc<dyn AgentRuntime> {
         Step::Say("Done."),
     ]];
     turns.extend(std::iter::repeat_with(reply).take(20));
-    Arc::new(ScriptedAgent::new(turns))
+    Arc::new(FakeAgent {
+        script: ScriptedAgent::new(turns),
+        claude: ClaudeCli::new(None),
+    })
+}
+
+/// Plays the script, is always set up, and reads project configuration
+/// like the real runtime so the trust flow can be tried.
+#[cfg(feature = "fake-agent")]
+#[derive(Debug)]
+struct FakeAgent {
+    script: ovra_core::fakes::ScriptedAgent,
+    claude: ClaudeCli,
+}
+
+#[cfg(feature = "fake-agent")]
+impl AgentRuntime for FakeAgent {
+    fn start(
+        &self,
+        spec: ovra_core::services::AgentSpec,
+        host: ovra_core::services::AgentHost,
+    ) -> ovra_core::services::Result<Box<dyn ovra_core::services::RunningAgent>> {
+        self.script.start(spec, host)
+    }
+
+    fn project_config(
+        &self,
+        root: PathBuf,
+    ) -> ovra_core::services::BoxFuture<
+        '_,
+        ovra_core::services::Result<ovra_core::protocol::agents::ProjectAgentConfig>,
+    > {
+        self.claude.project_config(root)
+    }
 }
 
 fn new_token() -> String {
