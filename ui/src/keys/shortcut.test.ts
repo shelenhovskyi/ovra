@@ -37,6 +37,13 @@ describe("shortcuts", () => {
     expect(matchesShortcut(press("F1", "F1"), f1)).toBe(true);
   });
 
+  it("matches shifted punctuation by its physical key", () => {
+    const shortcut = parseShortcut("Ctrl+Shift+`", false);
+    if (!shortcut) throw new Error("parse failed");
+    expect(matchesShortcut(press("~", "Backquote", { ctrl: true, shift: true }), shortcut)).toBe(true);
+    expect(matchesShortcut(press("~", "Backquote", { ctrl: true }), shortcut)).toBe(false);
+  });
+
   it("formats labels per keyboard", () => {
     expect(formatShortcut("Mod+Shift+P", true)).toBe("⇧⌘P");
     expect(formatShortcut("Mod+Shift+P", false)).toBe("Ctrl+Shift+P");
