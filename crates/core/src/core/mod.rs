@@ -15,6 +15,7 @@ use crate::protocol::projects::{
 };
 use crate::protocol::terminals::{TerminalsRequest, TerminalsResponse};
 use crate::protocol::{ErrorCode, Event, OkResponse, ProtocolError, Request, Response};
+use crate::search::{self, Searches};
 use crate::services::{
     AgentRuntime, EventSink, FsService, IdeTools, Opener, ProjectStore, SessionStore,
     TerminalService, Unavailable, Worktrees,
@@ -104,6 +105,7 @@ impl CoreBuilder {
                 orchestration: Orchestration::new(self.worktrees_dir, kept),
                 held: Mutex::new(None),
                 open: Mutex::new(BTreeMap::new()),
+                searches: Searches::default(),
             }),
             events,
         };
@@ -137,6 +139,7 @@ struct Inner {
     held: Mutex<Option<ProjectId>>,
     /// Open projects and how many clients hold each; each is watched.
     open: Mutex<BTreeMap<ProjectId, usize>>,
+    searches: Searches,
 }
 
 /// A [`Core`] that does not keep it alive; sessions hold one so their IDE
@@ -276,6 +279,7 @@ impl Core {
             Request::Permissions(r) => agents::handle_permissions(&self.agents_ctx(), r),
             Request::Review(r) => orchestration::review(self, r).await,
             Request::Orchestration(r) => orchestration::orchestration(self, r).await,
+            Request::Search(r) => search::handle(self, r),
         }
     }
 
@@ -294,6 +298,14 @@ impl Core {
 
     pub(crate) fn worktrees(&self) -> &dyn Worktrees {
         self.inner.worktrees.as_ref()
+    }
+
+    pub(crate) fn fs_service(&self) -> &dyn FsService {
+        self.inner.fs.as_ref()
+    }
+
+    pub(crate) fn searches(&self) -> &Searches {
+        &self.inner.searches
     }
 
     pub(crate) fn project_store(&self) -> &dyn ProjectStore {

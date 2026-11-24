@@ -13,6 +13,7 @@ pub mod fakes;
 mod orchestration;
 pub mod path;
 pub mod protocol;
+mod search;
 pub mod services;
 
 pub use crate::core::{Client, Core, CoreBuilder};

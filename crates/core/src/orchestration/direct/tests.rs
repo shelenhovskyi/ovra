@@ -895,6 +895,16 @@ mod through_the_core {
         ) -> crate::services::BoxFuture<'_, Result<crate::protocol::fs::FileList>> {
             no()
         }
+        fn search(
+            &self,
+            _: crate::protocol::search::SearchId,
+            _: PathBuf,
+            _: crate::protocol::search::SearchQuery,
+            _: crate::services::EventSink,
+            _: crate::services::SearchCancel,
+        ) -> Result<()> {
+            Err(conflict("not in this test"))
+        }
         fn write_file(
             &self,
             root: PathBuf,

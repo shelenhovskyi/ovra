@@ -5,6 +5,8 @@ use std::fmt::Debug;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use tokio::sync::broadcast;
 
@@ -17,6 +19,7 @@ use crate::protocol::agents::{
 use crate::protocol::fs::{DirListing, FileContent, FileList};
 use crate::protocol::projects::{Project, ProjectId, ProjectState, ProjectStatePatch};
 use crate::protocol::review::ChangeKind;
+use crate::protocol::search::{SearchId, SearchQuery};
 use crate::protocol::terminals::{TermSize, TerminalId};
 use crate::protocol::{ErrorCode, Event, ProtocolError};
 
@@ -85,9 +88,42 @@ pub trait FsService: Send + Sync + Debug {
         text: String,
         expected_mtime_ms: Option<u64>,
     ) -> BoxFuture<'_, Result<u64>>;
+    /// Starts searching the contents of the files `list_files` lists and
+    /// returns at once. Results go to `sink` as `search.results` events,
+    /// then one `search.done`. Fails with `bad_request`, emitting nothing,
+    /// for a query it cannot run (an invalid regex or glob). The pattern is
+    /// already checked to be non-empty.
+    fn search(
+        &self,
+        id: SearchId,
+        root: PathBuf,
+        query: SearchQuery,
+        sink: EventSink,
+        cancel: SearchCancel,
+    ) -> Result<()>;
     /// Starts emitting `fs.changed` / `fs.git_changed` for a project.
     fn watch(&self, project: ProjectId, root: PathBuf, sink: EventSink) -> Result<()>;
     fn unwatch(&self, project: &ProjectId);
+}
+
+/// Set by the core when a client cancels a search; the search stops soon
+/// after. Clones share the flag.
+#[derive(Debug, Clone, Default)]
+pub struct SearchCancel(Arc<AtomicBool>);
+
+impl SearchCancel {
+    pub fn cancel(&self) {
+        self.0.store(true, Ordering::Relaxed);
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.0.load(Ordering::Relaxed)
+    }
+
+    /// Whether no clone is left but this one: the search ended.
+    pub(crate) fn is_alone(&self) -> bool {
+        Arc::strong_count(&self.0) == 1
+    }
 }
 
 /// Hands files to other applications (implemented by `ovra-opener`).
@@ -366,6 +402,16 @@ impl FsService for Unavailable {
     }
     fn list_files(&self, _: PathBuf, _: u32, _: u32) -> BoxFuture<'_, Result<FileList>> {
         Box::pin(async move { self.err() })
+    }
+    fn search(
+        &self,
+        _: SearchId,
+        _: PathBuf,
+        _: SearchQuery,
+        _: EventSink,
+        _: SearchCancel,
+    ) -> Result<()> {
+        self.err()
     }
     fn write_file(
         &self,

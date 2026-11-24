@@ -8,6 +8,7 @@ import type { OrchestrationEvent, OrchestrationRequest, OrchestrationResponse } 
 import type { PermissionsEvent, PermissionsRequest, PermissionsResponse } from "./permissions";
 import type { ProjectsEvent, ProjectsRequest, ProjectsResponse } from "./projects";
 import type { ReviewEvent, ReviewRequest, ReviewResponse } from "./review";
+import type { SearchEvent, SearchRequest, SearchResponse } from "./search";
 import type { TerminalsEvent, TerminalsRequest, TerminalsResponse } from "./terminals";
 
 export type * from "./agents";
@@ -18,6 +19,7 @@ export type * from "./orchestration";
 export type * from "./permissions";
 export type * from "./projects";
 export type * from "./review";
+export type * from "./search";
 export type * from "./terminals";
 
 export type Request =
@@ -29,7 +31,8 @@ export type Request =
   | AgentsRequest
   | PermissionsRequest
   | ReviewRequest
-  | OrchestrationRequest;
+  | OrchestrationRequest
+  | SearchRequest;
 
 export type Response =
   | InfoResponse
@@ -40,6 +43,7 @@ export type Response =
   | PermissionsResponse
   | ReviewResponse
   | OrchestrationResponse
+  | SearchResponse
   | { type: "ok" };
 
 export type CoreEvent =
@@ -50,7 +54,8 @@ export type CoreEvent =
   | AgentsEvent
   | PermissionsEvent
   | ReviewEvent
-  | OrchestrationEvent;
+  | OrchestrationEvent
+  | SearchEvent;
 
 export type ErrorCode = "bad_request" | "not_found" | "conflict" | "forbidden" | "unavailable" | "internal";
 
@@ -108,7 +113,8 @@ export type ResponseFor<R extends Request> = R extends { method: "info.get" }
                                             | "agents.stop"
                                             | "permissions.answer"
                                             | "review.comment"
-                                            | "orchestration.stop";
+                                            | "orchestration.stop"
+                                            | "search.cancel";
                                         }
                                       ? { type: "ok" }
                                       : PhaseThreeResponseFor<R>;
@@ -124,4 +130,6 @@ type PhaseThreeResponseFor<R extends Request> = R extends { method: "review.list
         ? Extract<Response, { type: "orchestration.task" }>
         : R extends { method: "orchestration.list" }
           ? Extract<Response, { type: "orchestration.list" }>
-          : never;
+          : R extends { method: "search.start" }
+            ? Extract<Response, { type: "search.started" }>
+            : never;

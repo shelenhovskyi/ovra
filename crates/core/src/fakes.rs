@@ -31,11 +31,12 @@ use crate::protocol::agents::{
 use crate::protocol::fs::{DirEntry, DirListing, EntryKind, FileBody, FileContent, FileList};
 use crate::protocol::permissions::Decision;
 use crate::protocol::projects::{Project, ProjectId, ProjectState, ProjectStatePatch};
+use crate::protocol::search::{FileMatches, LineMatch, SearchEvent, SearchId, SearchQuery};
 use crate::protocol::terminals::{TermSize, TerminalId, TerminalsEvent};
 use crate::protocol::{ErrorCode, ProtocolError};
 use crate::services::{
     AgentHost, AgentRuntime, AgentSpec, BoxFuture, EventSink, FsService, Opener, ProjectStore,
-    Result, RunningAgent, SessionStore, StoredSession, TerminalService, ToolRole,
+    Result, RunningAgent, SearchCancel, SessionStore, StoredSession, TerminalService, ToolRole,
 };
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -168,6 +169,8 @@ pub struct MemoryFs {
     clock: Mutex<u64>,
     /// Projects currently watched, with the sink they emit to.
     pub watched: Mutex<Vec<(ProjectId, EventSink)>>,
+    /// The cancel flag of every search started, for tests that cancel.
+    pub searches: Mutex<Vec<SearchCancel>>,
 }
 
 impl MemoryFs {
@@ -298,6 +301,82 @@ impl FsService for MemoryFs {
             lock(&self.files).insert(key, (text, mtime));
             Ok(mtime)
         })
+    }
+
+    /// Literal text only (case-insensitive for ASCII); `include` and
+    /// `exclude` must be empty. Emits every result in one event, then
+    /// `search.done`, before it returns.
+    fn search(
+        &self,
+        id: SearchId,
+        root: PathBuf,
+        query: SearchQuery,
+        sink: EventSink,
+        cancel: SearchCancel,
+    ) -> Result<()> {
+        if query.regex || query.whole_word || !query.include.is_empty() || !query.exclude.is_empty()
+        {
+            return Err(ProtocolError::new(
+                ErrorCode::BadRequest,
+                "the fake file service searches for literal text only",
+            ));
+        }
+        let fold = |text: &str| {
+            if query.case_sensitive {
+                text.to_owned()
+            } else {
+                text.to_ascii_lowercase()
+            }
+        };
+        lock(&self.searches).push(cancel.clone());
+        let pattern = fold(&query.pattern);
+        let utf16 = |text: &str, byte: usize| u32::try_from(text[..byte].encode_utf16().count());
+        let mut files = Vec::new();
+        for ((r, path), (text, _)) in lock(&self.files).iter() {
+            if *r != root || cancel.is_cancelled() {
+                continue;
+            }
+            let mut lines = Vec::new();
+            for (n, line) in text.lines().enumerate() {
+                let folded = fold(line);
+                let ranges: Vec<[u32; 2]> = folded
+                    .match_indices(&pattern)
+                    .filter_map(|(at, m)| {
+                        Some([utf16(line, at).ok()?, utf16(line, at + m.len()).ok()?])
+                    })
+                    .collect();
+                if !ranges.is_empty() {
+                    lines.push(LineMatch {
+                        line: u32::try_from(n + 1).unwrap_or(u32::MAX),
+                        text: line.to_owned(),
+                        column: 0,
+                        ranges,
+                    });
+                }
+            }
+            if !lines.is_empty() {
+                files.push(FileMatches {
+                    path: path.clone(),
+                    lines,
+                });
+            }
+        }
+        let count = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
+        let (file_count, line_count) = (
+            count(files.len()),
+            count(files.iter().map(|f| f.lines.len()).sum()),
+        );
+        if !files.is_empty() {
+            sink.emit(SearchEvent::Results { id, files });
+        }
+        sink.emit(SearchEvent::Done {
+            id,
+            files: file_count,
+            lines: line_count,
+            truncated: false,
+            cancelled: cancel.is_cancelled(),
+        });
+        Ok(())
     }
 
     fn watch(&self, project: ProjectId, _root: PathBuf, sink: EventSink) -> Result<()> {

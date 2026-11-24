@@ -20,8 +20,9 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use ovra_core::path::RelPath;
 use ovra_core::protocol::fs::{DirListing, FileContent, FileList};
 use ovra_core::protocol::projects::ProjectId;
+use ovra_core::protocol::search::{SearchId, SearchQuery};
 use ovra_core::protocol::{ErrorCode, ProtocolError};
-use ovra_core::services::{BoxFuture, EventSink, FsService, Result};
+use ovra_core::services::{BoxFuture, EventSink, FsService, Result, SearchCancel};
 
 use crate::watch::{SharedFiles, Timing, Watch};
 
@@ -127,6 +128,21 @@ impl FsService for FsIndex {
         expected_mtime_ms: Option<u64>,
     ) -> BoxFuture<'_, Result<u64>> {
         blocking(move || files::write(&root, &path, &text, expected_mtime_ms))
+    }
+
+    fn search(
+        &self,
+        id: SearchId,
+        root: PathBuf,
+        query: SearchQuery,
+        sink: EventSink,
+        cancel: SearchCancel,
+    ) -> Result<()> {
+        let _ = (id, root, query, sink, cancel);
+        Err(ProtocolError::new(
+            ErrorCode::Unavailable,
+            "content search is not available yet",
+        ))
     }
 
     fn watch(&self, project: ProjectId, root: PathBuf, sink: EventSink) -> Result<()> {
