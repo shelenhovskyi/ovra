@@ -94,9 +94,19 @@ export class OpenFiles {
  * The open project's tabs, or null before its state is loaded, and the tab
  * waiting for a Save / Don't save / Cancel answer.
  */
-export const tabs = $state<{ current: OpenFiles | null; closing: string | null }>({ current: null, closing: null });
+export const tabs = $state<{ current: OpenFiles | null; closing: string | null; notice: string | null }>({
+  current: null,
+  closing: null,
+  notice: null,
+});
 
 type Target = Pick<Workspace, "openPath" | "mode" | "openFile">;
+
+/** Unsaved editor text for a file of the open project, or null. Reactive; for the viewer. */
+export function unsavedText(project: ProjectId, path: string): string | null {
+  const current = tabs.current;
+  return current?.project === project ? current.buffers.unsavedText(path) : null;
+}
 
 /** Closes a tab, first asking (via `tabs.closing`) if it has unsaved text. */
 export function requestClose(workspace: Target, path: string): void {
@@ -176,7 +186,10 @@ export function persistOpenFiles(transport: Transport, workspace: Workspace): ()
     $effect(() => {
       const path = workspace.openPath;
       const current = tabs.current;
-      untrack(() => current?.opened(path));
+      untrack(() => {
+        tabs.notice = null;
+        void current?.opened(path);
+      });
     });
   });
 }

@@ -38,6 +38,8 @@ export class Buffer {
   dirty = $state(false);
   /** The file changed on disk (or a save was refused) while there are unsaved edits. */
   conflict = $state(false);
+  /** The text while it differs from the file on disk; reactive, for the viewer. */
+  unsaved = $state<string | null>(null);
   /** The file is gone from disk; saving recreates it. */
   deleted = $state(false);
   readonly language: Language | null;
@@ -173,6 +175,7 @@ export class Buffer {
     // A draft made against another version of the file is a conflict, never a silent pick.
     this.conflict = draft !== null && draft.mtime !== file.mtime_ms;
     this.dirty = !this.state.doc.eq(this.saved);
+    this.unsaved = this.dirty ? this.state.doc.toString() : null;
     if (!this.dirty) this.options.drafts.remove(this.options.project, this.path);
     this.status = "ready";
   }
@@ -201,6 +204,7 @@ export class Buffer {
   private changed(): void {
     const doc = this.current?.doc;
     this.dirty = !!doc && !!this.saved && !doc.eq(this.saved);
+    this.unsaved = this.dirty && doc ? doc.toString() : null;
     if (this.draftTimer) clearTimeout(this.draftTimer);
     this.draftTimer = null;
     if (this.dirty) this.draftTimer = setTimeout(() => this.flushDraft(), DRAFT_DELAY_MS);
@@ -304,6 +308,15 @@ export class Buffers {
   isDirty(path: string): boolean {
     const buffer = this.buffers.get(path);
     return buffer ? buffer.dirty : this.options.drafts.has(this.options.project, path);
+  }
+
+  /** Unsaved text of `path`, loaded or only as a draft, or null. Reactive. */
+  unsavedText(path: string): string | null {
+    const buffer = this.buffers.get(path);
+    if (buffer) return buffer.unsaved;
+    return this.options.drafts.has(this.options.project, path)
+      ? (this.options.drafts.get(this.options.project, path)?.text ?? null)
+      : null;
   }
 
   /** Forgets `path`, including its unsaved text. */

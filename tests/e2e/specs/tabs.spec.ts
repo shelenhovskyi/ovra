@@ -91,3 +91,26 @@ test("unsaved text survives a reload and an outside change becomes a conflict", 
   await expect(alert).toBeHidden();
   expect(readFileSync(join(dir, "notes.txt"), "utf8")).toBe("draft first\n");
 });
+
+test("the viewer shows unsaved text, and binary files explain why they cannot be edited", async ({ page }) => {
+  const dir = project({ "readme.md": "# Saved title\n" });
+  writeFileSync(join(dir, "logo.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]));
+  await open(page, dir);
+  await page.getByRole("treeitem", { name: /readme\.md/ }).click();
+  await page.keyboard.press("ControlOrMeta+E");
+  const content = page.getByTestId("main").locator(".cm-content");
+  await expect(content).toBeFocused();
+  await page.keyboard.press("ControlOrMeta+End");
+  await page.keyboard.type("Draft paragraph");
+  await page.keyboard.press("ControlOrMeta+E");
+  const main = page.getByTestId("main");
+  await expect(main.getByTestId("unsaved-preview")).toHaveText("Showing unsaved changes from the editor.");
+  await expect(main.getByText("Draft paragraph")).toBeVisible();
+
+  await page.getByRole("treeitem", { name: /logo\.png/ }).click();
+  await page.keyboard.press("ControlOrMeta+E");
+  await expect(page.getByRole("alert").filter({ hasText: "logo.png" })).toHaveText(
+    "logo.png is a binary file and cannot be edited here.",
+  );
+  await expect(content).toBeHidden();
+});

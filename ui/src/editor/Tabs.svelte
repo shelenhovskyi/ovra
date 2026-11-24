@@ -114,6 +114,8 @@ function scrollToActive(): void {
   </div>
 {/if}
 
+{#if tabs.notice}<p class="notice" role="alert">{tabs.notice}</p>{/if}
+
 {#if tabs.closing}
   {@const closing = tabs.closing}
   <div
@@ -192,6 +194,12 @@ function scrollToActive(): void {
     .tab.active {
       border-bottom-color: Highlight;
     }
+  }
+  .notice {
+    margin: 0;
+    padding: 6px 12px;
+    background: #2a2a3a;
+    color: #e6e6e6;
   }
   .confirm {
     display: flex;
