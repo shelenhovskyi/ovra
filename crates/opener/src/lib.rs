@@ -69,16 +69,27 @@ fn inside(root: &Path, path: &RelPath) -> Result<PathBuf> {
 }
 
 /// Programs that hand a file to its default handler, wherever they come
-/// from (`EDITOR=xdg-open` too).
+/// from (`EDITOR=xdg-open` too). `EDITOR="open -a TextEdit"` is dropped with
+/// them for launchers: telling it apart is not worth the risk.
 const HANDLERS: &[&str] = &[
     "open",
     "xdg-open",
     "gio",
+    "gvfs-open",
+    "kde-open",
+    "kde-open5",
+    "gnome-open",
+    "exo-open",
+    "mimeopen",
+    "handlr",
+    "wslview",
+    "wsl-open",
     "explorer",
     "start",
     "cmd",
-    "kde-open",
-    "gnome-open",
+    "rundll32",
+    "powershell",
+    "pwsh",
 ];
 
 /// `plan` without the default handler when that would run `file` as a

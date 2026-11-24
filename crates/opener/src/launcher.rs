@@ -21,6 +21,9 @@ const LAUNCHERS: &[&str] = &[
     "vbe", "vb", "js", "jse", "wsf", "wsh", "wsc", "ws", "sct", "hta", "inf", "reg", "chm",
     "hlp", "gadget", "diagcab", "diagcfg", "diagpkg", "application", "appref-ms", "xbap", "jnlp",
     "jar", "vsto", "ppkg", "xll", "mde", "accde", "ade", "adp", "mcf", "job", "cer", "crt", "der",
+    "mdb", "mda", "mdt", "mdw", "mdz", "accdb", "cab", "grp", "ins", "isp", "its", "udl", "xnk",
+    "printerexport", "vsmacros", "vbp", "bas", "asx", "htc", "prf", "ops", "pcd", "fxp", "prg",
+    "cnt", "hpj", "vsw", "webpnp", "plg", "pst",
     // Windows shortcuts, shell links and files that reach out to a server.
     "lnk", "url", "website", "scf", "shb", "shs", "library-ms", "search-ms", "searchconnector-ms",
     "settingcontent-ms", "iqy", "slk", "rdp", "wsb", "theme", "themepack", "deskthemepack",

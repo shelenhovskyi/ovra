@@ -522,3 +522,32 @@ async fn apply_leaves_a_symlink_in_the_checkout_to_the_person() {
     let meta = fs::symlink_metadata(root.join("link.txt")).unwrap_or_else(|e| panic!("{e}"));
     assert!(meta.is_symlink());
 }
+
+/// A worker's symlink lands in the checkout only when it stays inside.
+#[cfg(unix)]
+#[tokio::test]
+async fn apply_recreates_only_symlinks_that_stay_inside() {
+    let repo = Repo::new(&[("a.txt", "a\n")]);
+    let root = &repo.root;
+    let base = git(root, &["rev-parse", "HEAD"]);
+    let worker = repo.tmp.path().join("worker");
+    fs::create_dir_all(worker.join("d")).unwrap_or_else(|e| panic!("{e}"));
+    let link = |target: &str, at: &str| {
+        std::os::unix::fs::symlink(target, worker.join(at)).unwrap_or_else(|e| panic!("{e}"));
+    };
+    link("../a.txt", "d/up");
+    link("/etc/passwd", "abs");
+    link("../../x", "climb");
+    link(".", "s");
+    link("s/../secret", "bypass");
+
+    let w = GitWorktrees::new();
+    let paths = rels(&["d/up", "abs", "climb", "s", "bypass"]);
+    let conflicts = w.apply(worker, base, root.clone(), paths).await;
+    let conflicts = conflicts.unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(conflicts, ["abs", "bypass", "climb"]);
+    let target = |at: &str| fs::read_link(root.join(at)).ok();
+    assert_eq!(target("d/up"), Some(PathBuf::from("../a.txt")));
+    assert_eq!(target("s"), Some(PathBuf::from(".")));
+    assert!(!root.join("abs").exists() && target("bypass").is_none());
+}

@@ -6,8 +6,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::io::ErrorKind;
-use std::path::{Component, Path};
+use std::io::{self, ErrorKind};
+use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use ovra_core::path::RelPath;
@@ -122,23 +122,23 @@ pub(crate) fn apply(
     let mut conflicts = Vec::new();
     let mut todo = Vec::new();
     for path in paths {
-        match (on_disk(into, path)?, on_disk(from, path)?) {
-            (OnDisk::Off, _) | (_, OnDisk::Off) => conflicts.push(path.to_string()),
+        let (here, there) = (on_disk(into, path)?, on_disk(from, path)?);
+        let source = match there {
+            OnDisk::Off => None,
+            OnDisk::Missing => Some(Source::Missing),
+            OnDisk::File => source(from, path),
+        };
+        match (here, source) {
+            (OnDisk::Off, _) | (_, None) => conflicts.push(path.to_string()),
             // A symlink in the checkout is left for a person: its hash would
             // be of what it points to, and copying would write through it.
             (OnDisk::File, _) if is_symlink(into, path) => conflicts.push(path.to_string()),
-            // Only Unix recreates a symlink, and only one that stays inside
-            // the checkout; elsewhere copying one would copy what it points to.
-            (_, OnDisk::File)
-                if is_symlink(from, path) && !(cfg!(unix) && link_stays(from, path)) =>
-            {
-                conflicts.push(path.to_string());
+            (here, Some(source)) => {
+                if here == OnDisk::File {
+                    present.push(path);
+                }
+                todo.push((path, here, source));
             }
-            (OnDisk::File, source) => {
-                present.push(path);
-                todo.push((path, source));
-            }
-            (OnDisk::Missing, source) => todo.push((path, source)),
         }
     }
     // Hashed the way `git add` would, so line-ending filters match.
@@ -157,26 +157,46 @@ pub(crate) fn apply(
         .map(|p| p.as_str())
         .zip(hashes.iter())
         .collect();
-    for (path, source) in todo {
+    for (path, here, source) in todo {
         let key = path.as_str();
-        // Looked at again just before writing: a folder on the way may have
-        // become a symlink since (an agent in direct mode works here too).
-        let now = on_disk(into, path)?;
+        // Looked at again just before writing: the path or a folder on the
+        // way may have changed since (an agent in direct mode works here
+        // too). What changes between this look and the write is not seen.
         if current.get(key).copied() != expected.get(key)
-            || now == OnDisk::Off
+            || on_disk(into, path)? != here
             || is_symlink(into, path)
         {
             conflicts.push(key.to_owned());
             continue;
         }
+        let to = path.under(into);
         match source {
-            OnDisk::File => copy(&path.under(from), &path.under(into))?,
-            OnDisk::Missing => remove_file(into, path)?,
-            OnDisk::Off => {}
+            Source::File => place(&to, |temp| copy_file(&path.under(from), temp))?,
+            Source::Link(target) => place(&to, |temp| make_link(&target, temp))?,
+            Source::Missing => remove_file(into, path)?,
         }
     }
     conflicts.sort();
     Ok(conflicts)
+}
+
+/// What [`apply`] puts at a path.
+enum Source {
+    File,
+    /// A symlink with this target, read once and checked by [`link_stays`].
+    Link(PathBuf),
+    Missing,
+}
+
+/// What the worker has at `path` (a file or a symlink); `None` for a symlink
+/// that cannot be recreated safely: on Windows any, since copying it would
+/// copy what it points to, and on Unix one that may leave the checkout.
+fn source(from: &Path, path: &RelPath) -> Option<Source> {
+    if !is_symlink(from, path) {
+        return Some(Source::File);
+    }
+    let target = fs::read_link(path.under(from)).ok()?;
+    (cfg!(unix) && link_stays(path, &target)).then_some(Source::Link(target))
 }
 
 /// Whether `path` under `dir` is a symlink itself (not followed).
@@ -184,23 +204,23 @@ fn is_symlink(dir: &Path, path: &RelPath) -> bool {
     fs::symlink_metadata(path.under(dir)).is_ok_and(|m| m.is_symlink())
 }
 
-/// Whether the symlink at `path` under `dir` points to a relative target that
-/// stays inside `dir`, judged lexically (`../x` from `a/link` is fine, from
-/// `link` it is not).
-fn link_stays(dir: &Path, path: &RelPath) -> bool {
-    let Ok(target) = fs::read_link(path.under(dir)) else {
-        return false;
-    };
-    let mut depth = path.as_str().matches('/').count();
+/// Whether a symlink at `path` with `target` stays inside the checkout,
+/// judged lexically: relative, and its `..` only at the start, where they
+/// climb the real folders above the link (`apply` refuses symlinked
+/// folders). A `..` after a name could follow another link first
+/// (`s -> .`, then `l -> s/../x`), so it is refused.
+fn link_stays(path: &RelPath, target: &Path) -> bool {
+    let mut up = path.as_str().matches('/').count();
+    let mut named = false;
     for component in target.components() {
         match component {
-            Component::Normal(_) => depth += 1,
+            Component::Normal(_) => named = true,
             Component::CurDir => {}
-            Component::ParentDir => match depth.checked_sub(1) {
-                Some(d) => depth = d,
+            Component::ParentDir if !named => match up.checked_sub(1) {
+                Some(n) => up = n,
                 None => return false,
             },
-            Component::RootDir | Component::Prefix(_) => return false,
+            Component::ParentDir | Component::RootDir | Component::Prefix(_) => return false,
         }
     }
     true
@@ -208,38 +228,76 @@ fn link_stays(dir: &Path, path: &RelPath) -> bool {
 
 static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
 
-/// Copies one file, or recreates a symlink, creating parent directories.
-/// The copy is written to a new temporary file next to `to` and renamed over
-/// it: a rename replaces a symlink at `to` instead of writing through it.
-/// [`apply`] refuses a symlink at `from` except on Unix, since copying one
-/// would copy whatever it points to.
-fn copy(from: &Path, to: &Path) -> Result<()> {
-    let fail = |e: std::io::Error| internal(format!("cannot copy to {}: {e}", to.display()));
+/// Puts what `write` creates at `to`, creating parent directories. `write`
+/// creates a new temporary file next to `to` (and removes it if it fails),
+/// which is then renamed over `to`: a rename replaces a symlink at `to`
+/// instead of writing through it. A temporary name already taken is never
+/// touched; the next one is tried.
+fn place(to: &Path, write: impl Fn(&Path) -> io::Result<()>) -> Result<()> {
+    let fail = |e: io::Error| internal(format!("cannot copy to {}: {e}", to.display()));
     let parent = to.parent().unwrap_or(Path::new("."));
     fs::create_dir_all(parent).map_err(fail)?;
-    let n = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
-    let temp = parent.join(format!(".ovra-copy-{}-{n}", std::process::id()));
-    let written = write_new(from, &temp).and_then(|()| fs::rename(&temp, to));
-    if written.is_err() {
-        let _ = fs::remove_file(&temp);
+    for _ in 0..16 {
+        let n = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
+        let temp = parent.join(format!(".ovra-copy-{}-{n}", std::process::id()));
+        match write(&temp) {
+            Err(e) if e.kind() == ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(fail(e)),
+            Ok(()) => {}
+        }
+        let renamed = fs::rename(&temp, to);
+        if renamed.is_err() {
+            let _ = fs::remove_file(&temp);
+        }
+        return renamed.map_err(fail);
     }
-    written.map_err(fail)
+    Err(fail(ErrorKind::AlreadyExists.into()))
 }
 
-/// Writes a copy of `from` (a file, or a symlink on Unix) at `temp`, which
-/// must not exist yet.
-fn write_new(from: &Path, temp: &Path) -> std::io::Result<()> {
-    #[cfg(unix)]
-    if fs::symlink_metadata(from)?.is_symlink() {
-        return std::os::unix::fs::symlink(fs::read_link(from)?, temp);
-    }
+/// Copies the regular file `from` to the new file `temp`. A symlink at
+/// `from`, even one swapped in after [`apply`] looked, is refused: the file
+/// opened must be the one `from` names without following links.
+fn copy_file(from: &Path, temp: &Path) -> io::Result<()> {
     let mut source = fs::File::open(from)?;
-    let mut copy = fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(temp)?;
-    std::io::copy(&mut source, &mut copy)?;
-    copy.set_permissions(source.metadata()?.permissions())
+    let meta = source.metadata()?;
+    if !meta.is_file() || !same_file(&meta, &fs::symlink_metadata(from)?) {
+        return Err(io::Error::other("the source changed while it was copied"));
+    }
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let mut copy = options.open(temp)?;
+    let copied =
+        io::copy(&mut source, &mut copy).and_then(|_| copy.set_permissions(meta.permissions()));
+    if copied.is_err() {
+        drop(copy);
+        let _ = fs::remove_file(temp);
+    }
+    copied
+}
+
+/// Whether `opened` (of a handle) and `named` (of the path, not followed)
+/// are the same file.
+#[cfg(unix)]
+fn same_file(opened: &fs::Metadata, named: &fs::Metadata) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    !named.is_symlink() && opened.dev() == named.dev() && opened.ino() == named.ino()
+}
+
+#[cfg(not(unix))]
+fn same_file(_: &fs::Metadata, named: &fs::Metadata) -> bool {
+    !named.is_symlink()
+}
+
+#[cfg(unix)]
+fn make_link(target: &Path, temp: &Path) -> io::Result<()> {
+    std::os::unix::fs::symlink(target, temp)
+}
+
+#[cfg(not(unix))]
+fn make_link(_: &Path, _: &Path) -> io::Result<()> {
+    Err(io::Error::other("symlinks are recreated on Unix only"))
 }
 
 pub(crate) fn commit(dir: &Path, paths: &[RelPath], message: &str) -> Result<String> {
@@ -311,43 +369,58 @@ mod tests {
     }
 
     #[test]
-    fn copy_replaces_a_symlink_at_the_target_instead_of_writing_through_it() {
+    fn place_replaces_a_symlink_at_the_target_and_skips_taken_names() {
         let tmp = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
-        let (from, to, outside) = (
-            tmp.path().join("from"),
-            tmp.path().join("to"),
-            tmp.path().join("outside"),
-        );
+        let dir = tmp.path();
+        let (from, to, outside) = (dir.join("from"), dir.join("to"), dir.join("outside"));
         fs::write(&from, "new\n").unwrap_or_else(|e| panic!("{e}"));
         fs::write(&outside, "outside\n").unwrap_or_else(|e| panic!("{e}"));
         std::os::unix::fs::symlink(&outside, &to).unwrap_or_else(|e| panic!("{e}"));
-        copy(&from, &to).unwrap_or_else(|e| panic!("{e:?}"));
+        // The next temporary name is taken: it is left alone.
+        let next = NEXT_TEMP.load(Ordering::Relaxed);
+        let taken = dir.join(format!(".ovra-copy-{}-{next}", std::process::id()));
+        fs::write(&taken, "planted\n").unwrap_or_else(|e| panic!("{e}"));
+
+        place(&to, |temp| copy_file(&from, temp)).unwrap_or_else(|e| panic!("{e:?}"));
         assert_eq!(
             fs::read_to_string(&outside).ok().as_deref(),
             Some("outside\n")
         );
         assert_eq!(fs::read_to_string(&to).ok().as_deref(), Some("new\n"));
-        let left: Vec<_> = fs::read_dir(tmp.path())
-            .map(|d| d.count())
-            .into_iter()
-            .collect();
-        assert_eq!(left, [3], "no temporary file is left");
+        assert_eq!(
+            fs::read_to_string(&taken).ok().as_deref(),
+            Some("planted\n")
+        );
+        let count = fs::read_dir(dir).map(Iterator::count).unwrap_or_default();
+        assert_eq!(count, 4, "no temporary file of ours is left");
     }
 
     #[test]
-    fn a_link_stays_inside_only_when_relative_and_not_climbing_out() {
+    fn copy_file_refuses_a_symlink_source() {
         let tmp = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
-        fs::create_dir_all(tmp.path().join("a/b")).unwrap_or_else(|e| panic!("{e}"));
+        let (link, temp) = (tmp.path().join("link"), tmp.path().join("temp"));
+        fs::write(tmp.path().join("real"), "x").unwrap_or_else(|e| panic!("{e}"));
+        std::os::unix::fs::symlink("real", &link).unwrap_or_else(|e| panic!("{e}"));
+        assert!(copy_file(&link, &temp).is_err());
+        assert!(!temp.exists());
+    }
+
+    #[test]
+    fn a_link_stays_inside_only_when_its_dots_lead() {
         for (at, target, stays) in [
-            ("a/b/l1", "../x", true),
-            ("a/b/l2", "../../x", true),
-            ("a/b/l3", "../../../x", false),
-            ("l4", "x/./y", true),
-            ("l5", "/etc/passwd", false),
+            ("a/b/l", "../x", true),
+            ("a/b/l", "../../x", true),
+            ("a/b/l", "../../../x", false),
+            ("l", "x/./y", true),
+            ("l", "s/../x", false),
+            ("l", "s/s/s/../../../x", false),
+            ("l", "/etc/passwd", false),
         ] {
-            std::os::unix::fs::symlink(target, tmp.path().join(at))
-                .unwrap_or_else(|e| panic!("{e}"));
-            assert_eq!(link_stays(tmp.path(), &rel(at)), stays, "{at} -> {target}");
+            assert_eq!(
+                link_stays(&rel(at), Path::new(target)),
+                stays,
+                "{at} -> {target}"
+            );
         }
     }
 }
