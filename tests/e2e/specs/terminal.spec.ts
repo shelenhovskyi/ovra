@@ -43,3 +43,47 @@ test("terminals open from the keyboard, run commands in tabs and hide without en
   await page.keyboard.type("exit\n");
   await expect(tabs.getByRole("tab", { name: /Terminal 2/ })).toHaveText("Terminal 2 (exited)");
 });
+
+test("a terminal redraws output it missed from the core's scrollback", async ({ page }) => {
+  const url = process.env.OVRA_URL;
+  if (!url) throw new Error("OVRA_URL is not set; globalSetup did not run");
+  const dir = mkdtempSync(join(tmpdir(), "ovra-terminal-"));
+
+  // Pass frames through, but lose terminal output while `dropping` (a client that fell behind).
+  let dropping = false;
+  let dropped = "";
+  await page.routeWebSocket(/\/ws/, (ws) => {
+    const server = ws.connectToServer();
+    server.onMessage((message) => {
+      if (dropping && String(message).includes('"terminals.output"')) {
+        dropped += String(message);
+        return;
+      }
+      ws.send(message);
+    });
+  });
+
+  await page.goto(url);
+  const projects = page.getByTestId("project-list");
+  await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
+  await projects.getByRole("button", { name: "Open", exact: true }).click();
+  await expect(page.getByRole("tree", { name: "Files" })).toBeVisible();
+
+  await page.keyboard.press("Control+Backquote");
+  const rows = page.getByRole("tabpanel", { name: "Terminal 1" }).locator(".xterm-rows");
+  await page.keyboard.type("echo ready-$((0+1))\n");
+  await expect(rows).toContainText("ready-1");
+
+  dropping = true;
+  await page.keyboard.type("echo lost-$((1+1))\n");
+  // Wait until the shell's answer was lost on the way (the typed line reads `lost-$((1+1))`).
+  await expect.poll(() => dropped).toContain("lost-2");
+  await expect(rows).not.toContainText("lost-2");
+  dropping = false;
+
+  // The next output skips seq, so the tab redraws and shows the lost lines once.
+  await page.keyboard.type("echo back-$((2+2))\n");
+  await expect(rows).toContainText("back-4");
+  await expect(rows).toContainText("lost-2");
+  await expect(rows.getByText("lost-2", { exact: false })).toHaveCount(1);
+});
