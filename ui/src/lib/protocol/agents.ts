@@ -25,6 +25,8 @@ export type SessionInfo = {
   status: AgentStatus;
   /** The first line of the first prompt. */
   title: string;
+  /** The sum of every finished turn's usage. */
+  usage: TurnUsage;
 };
 
 export type TurnUsage = {

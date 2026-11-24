@@ -5,7 +5,8 @@ use std::sync::Arc;
 
 use super::{AgentHost, Sessions};
 use crate::protocol::agents::{
-    AgentMessage, AgentStatus, AgentsEvent, AgentsRequest, AgentsResponse, SessionInfo, SessionMode,
+    AgentMessage, AgentStatus, AgentsEvent, AgentsRequest, AgentsResponse, SessionInfo,
+    SessionMode, TurnUsage,
 };
 use crate::protocol::permissions::{PermissionsEvent, PermissionsRequest, PermissionsResponse};
 use crate::protocol::{ErrorCode, OkResponse, ProtocolError, Response};
@@ -59,6 +60,7 @@ pub(crate) fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Response> 
                 mode,
                 status: AgentStatus::Starting,
                 title: title(&prompt),
+                usage: TurnUsage::default(),
             };
             sessions.insert(info.clone());
             ctx.sink.emit(AgentsEvent::Status {

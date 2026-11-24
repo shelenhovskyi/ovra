@@ -61,9 +61,11 @@ pub struct SessionInfo {
     pub status: AgentStatus,
     /// Short name for lists: the first line of the first prompt.
     pub title: String,
+    /// The sum of every finished turn's usage.
+    pub usage: TurnUsage,
 }
 
-/// Tokens and cost of one turn, as the agent reports them.
+/// Tokens and cost of one turn, as the agent reports them, or their sum.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TurnUsage {
     pub input_tokens: u64,
