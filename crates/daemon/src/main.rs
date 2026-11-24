@@ -72,7 +72,8 @@ async fn main() -> anyhow::Result<()> {
     let store = Arc::new(Store::open(&args.data_dir)?);
     let core = Core::builder("headless")
         .projects(store.clone())
-        .sessions(store)
+        .sessions(store.clone())
+        .audit(store)
         .fs(Arc::new(FsIndex::new()))
         .opener(Arc::new(SystemOpener::new()))
         .worktrees(Arc::new(GitWorktrees::new()))
