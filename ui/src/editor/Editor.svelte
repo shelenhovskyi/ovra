@@ -4,7 +4,9 @@
 // and selection while they are not shown.
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
+import { untrack } from "svelte";
 import { useOvra } from "../shell/context";
+import type { TextSpot } from "../shell/workspace.svelte";
 import type { Buffer } from "./buffers.svelte";
 import { answerClose, tabs } from "./open-files.svelte";
 
@@ -13,6 +15,8 @@ const { workspace } = useOvra();
 let host = $state<HTMLDivElement>();
 let view: EditorView | null = null;
 let buffer = $state<Buffer | null>(null);
+/** The buffer the view shows, once it is attached. */
+let shown = $state<Buffer | null>(null);
 /** Entering edit mode focuses the text; later tab switches keep focus in the tab strip. */
 let entering = true;
 
@@ -43,14 +47,38 @@ $effect(() => {
     if (entering) view.focus();
     else focusUnlessInTabs();
     entering = false;
+    shown = next;
   });
   return () => {
     live = false;
+    shown = null;
     next.detach();
     // Nothing typed before the next buffer arrives may land in this one.
     view?.setState(EditorState.create());
   };
 });
+
+// A search result (or anything else) asked for a spot in the shown file.
+$effect(() => {
+  const spot = workspace.reveal;
+  if (!spot || !view || shown?.path !== spot.path || shown.status !== "ready") return;
+  untrack(() => {
+    if (view) select(view, spot);
+    workspace.reveal = null;
+  });
+});
+
+/** Selects `spot`, clamped to the text, and scrolls it to the middle. */
+function select(target: EditorView, spot: TextSpot): void {
+  const doc = target.state.doc;
+  const line = doc.line(Math.min(Math.max(spot.line, 1), doc.lines));
+  const at = (offset: number) => Math.min(line.from + Math.max(offset, 0), line.to);
+  target.dispatch({
+    selection: { anchor: at(spot.from), head: at(spot.to) },
+    effects: EditorView.scrollIntoView(at(spot.from), { y: "center" }),
+  });
+  target.focus();
+}
 
 /** Focus goes to the text, except while the user moves through the tabs. */
 function focusUnlessInTabs(): void {
