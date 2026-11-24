@@ -5,6 +5,8 @@ export type Project = {
   name: string;
   root: string;
   last_opened_ms: number | null;
+  /** Whether the user trusts the project's own agent configuration to load. */
+  trusted: boolean;
 };
 
 /** What a project looked like when it was last left. Paths are relative to the root. */
@@ -27,6 +29,8 @@ export type ProjectsRequest =
   | { method: "projects.add"; params: { root: string } }
   | { method: "projects.remove"; params: { id: ProjectId } }
   | { method: "projects.open"; params: { id: ProjectId } }
+  /** Sessions started afterwards load the project's agent configuration or not. */
+  | { method: "projects.trust"; params: { id: ProjectId; trusted: boolean } }
   | { method: "projects.get_state"; params: { id: ProjectId } }
   | { method: "projects.set_state"; params: { id: ProjectId; state: ProjectStatePatch } };
 

@@ -34,7 +34,7 @@ async function setup() {
   const core = new FakeAgentCore();
   core.addSession("p1", "Fix the typo", { state: "working" });
   const workspace = new Workspace();
-  workspace.project = { id: "p1", name: "demo", root: "/demo", last_opened_ms: null };
+  workspace.project = { id: "p1", name: "demo", root: "/demo", last_opened_ms: null, trusted: false };
   app = mount(TestHost, { target, props: { transport: core, workspace } });
   core.status("s1", { state: "working" }); // the session becomes known, then its title
   await settle();

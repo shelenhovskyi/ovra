@@ -115,6 +115,7 @@ export class FakeCore implements Transport {
           name: root.split("/").pop() ?? root,
           root,
           last_opened_ms: null,
+          trusted: false,
         };
         this.projects.push(project);
         return { type: "projects.project", data: project };

@@ -10,7 +10,9 @@ use tokio::sync::broadcast;
 
 pub use crate::agents::AgentHost;
 use crate::path::RelPath;
-use crate::protocol::agents::{AgentKind, SessionId, SessionMode};
+use crate::protocol::agents::{
+    AgentKind, AgentSettings, AgentSetup, ProjectAgentConfig, SessionId, SessionMode, SetupState,
+};
 use crate::protocol::fs::{DirListing, FileContent, FileList};
 use crate::protocol::projects::{Project, ProjectId, ProjectState, ProjectStatePatch};
 use crate::protocol::terminals::{TermSize, TerminalId};
@@ -48,6 +50,11 @@ pub trait ProjectStore: Send + Sync + Debug {
     /// Writes the fields present in `patch` atomically, keeping the others.
     /// Paths are already validated.
     fn update_state(&self, id: &ProjectId, patch: ProjectStatePatch) -> Result<()>;
+    /// Records whether the user trusts the project and returns it.
+    fn set_trusted(&self, id: &ProjectId, trusted: bool) -> Result<Project>;
+    /// The agent settings, or the defaults if none were saved.
+    fn agent_settings(&self) -> Result<AgentSettings>;
+    fn set_agent_settings(&self, settings: AgentSettings) -> Result<()>;
 }
 
 /// File access, `.gitignore` handling, git status and watching
@@ -100,6 +107,12 @@ pub struct AgentSpec {
     /// Absolute path the agent works in: the project root in direct mode.
     pub cwd: PathBuf,
     pub prompt: String,
+    /// The executable the user chose for this agent, if any.
+    pub executable: Option<PathBuf>,
+    /// Whether the project's own agent configuration may load (the user
+    /// trusts the project). Untrusted projects run with the user's own
+    /// settings only.
+    pub trusted: bool,
 }
 
 /// Starts agent sessions (implemented by `ovra-agent-runtime`). One runtime
@@ -108,6 +121,23 @@ pub trait AgentRuntime: Send + Sync + Debug {
     /// Starts a session and returns at once; the agent then works in the
     /// background and reports through `host` until it ends.
     fn start(&self, spec: AgentSpec, host: AgentHost) -> Result<Box<dyn RunningAgent>>;
+    /// Checks that the agent can run here; `path` is the executable the user
+    /// chose. Runtimes that need nothing installed are always ready.
+    fn setup(&self, path: Option<PathBuf>) -> BoxFuture<'_, AgentSetup> {
+        Box::pin(async move {
+            AgentSetup {
+                path: path.map(|p| p.to_string_lossy().into_owned()),
+                executable: None,
+                version: None,
+                state: SetupState::Ready,
+            }
+        })
+    }
+    /// What the project at `root` would load once trusted. Runtimes without
+    /// per-project configuration find nothing.
+    fn project_config(&self, _root: PathBuf) -> BoxFuture<'_, Result<ProjectAgentConfig>> {
+        Box::pin(async { Ok(ProjectAgentConfig::default()) })
+    }
 }
 
 /// A started session, owned by the core.
@@ -158,6 +188,15 @@ impl ProjectStore for Unavailable {
         self.err()
     }
     fn update_state(&self, _: &ProjectId, _: ProjectStatePatch) -> Result<()> {
+        self.err()
+    }
+    fn set_trusted(&self, _: &ProjectId, _: bool) -> Result<Project> {
+        self.err()
+    }
+    fn agent_settings(&self) -> Result<AgentSettings> {
+        self.err()
+    }
+    fn set_agent_settings(&self, _: AgentSettings) -> Result<()> {
         self.err()
     }
 }
@@ -214,5 +253,20 @@ impl TerminalService for Unavailable {
 impl AgentRuntime for Unavailable {
     fn start(&self, _: AgentSpec, _: AgentHost) -> Result<Box<dyn RunningAgent>> {
         self.err()
+    }
+    fn setup(&self, path: Option<PathBuf>) -> BoxFuture<'_, AgentSetup> {
+        Box::pin(async move {
+            AgentSetup {
+                path: path.map(|p| p.to_string_lossy().into_owned()),
+                executable: None,
+                version: None,
+                state: SetupState::Broken {
+                    message: format!("{} is not available in this build", self.0),
+                },
+            }
+        })
+    }
+    fn project_config(&self, _: PathBuf) -> BoxFuture<'_, Result<ProjectAgentConfig>> {
+        Box::pin(async move { self.err() })
     }
 }

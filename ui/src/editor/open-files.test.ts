@@ -7,7 +7,7 @@ import { Drafts } from "./drafts.svelte";
 import { FakeCore, MemoryStorage } from "./fake-core";
 import { answerClose, OpenFiles, persistOpenFiles, requestClose, tabs } from "./open-files.svelte";
 
-const project: Project = { id: "p1", name: "p", root: "/p", last_opened_ms: null };
+const project: Project = { id: "p1", name: "p", root: "/p", last_opened_ms: null, trusted: false };
 
 afterEach(() => {
   tabs.current = null;

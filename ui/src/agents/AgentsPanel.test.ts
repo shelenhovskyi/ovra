@@ -26,7 +26,7 @@ async function settle() {
 
 async function setup(core = new FakeAgentCore()) {
   const workspace = new Workspace();
-  workspace.project = { id: "p1", name: "demo", root: "/demo", last_opened_ms: null };
+  workspace.project = { id: "p1", name: "demo", root: "/demo", last_opened_ms: null, trusted: false };
   app = mount(TestHost, { target, props: { transport: core, workspace } });
   await settle();
   return core;

@@ -116,7 +116,7 @@ describe("Palette", async () => {
           : Promise.reject(new Error(request.method))) as Transport["call"],
       onEvent: () => () => {},
     };
-    const project = { id: "files-1", name: "demo", root: "/demo", last_opened_ms: null };
+    const project = { id: "files-1", name: "demo", root: "/demo", last_opened_ms: null, trusted: false };
     const { workspace, target, input } = await open("files", core, project);
     expect(input.placeholder).toBe("Go to file in demo");
     type(input, "srcmain");
@@ -128,8 +128,8 @@ describe("Palette", async () => {
 
   it("switches to another project", async () => {
     const projects = [
-      { id: "a", name: "alpha", root: "/w/alpha", last_opened_ms: null },
-      { id: "b", name: "beta", root: "/w/beta", last_opened_ms: null },
+      { id: "a", name: "alpha", root: "/w/alpha", last_opened_ms: null, trusted: false },
+      { id: "b", name: "beta", root: "/w/beta", last_opened_ms: null, trusted: false },
     ];
     const core = new FakeCore(undefined, projects);
     const { workspace, target, input } = await open("projects", core, projects[0]);

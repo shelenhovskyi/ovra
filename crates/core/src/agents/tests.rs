@@ -5,10 +5,12 @@ use tokio::sync::broadcast;
 
 use crate::Core;
 use crate::fakes::{EchoTerminals, MemoryProjects, ScriptedAgent, Step};
+use crate::protocol::agents::SetupState;
 use crate::protocol::agents::{
     AgentMessage, AgentStatus, AgentsEvent, AgentsResponse, SessionInfo, TurnUsage,
 };
 use crate::protocol::permissions::{PermissionAnswer, PermissionsEvent, PermissionsResponse};
+use crate::protocol::projects::{Project, ProjectsEvent, ProjectsResponse};
 use crate::protocol::terminals::TerminalsEvent;
 use crate::protocol::{ErrorCode, Event, ProtocolError, Request, Response};
 
@@ -556,4 +558,90 @@ async fn terminals_open_in_the_project_root() {
     );
     let input = json!({"method": "terminals.input", "params": {"id": "t1", "data": "x"}});
     assert_eq!(code(&core, input).await, ErrorCode::NotFound);
+}
+
+#[tokio::test]
+async fn setup_checks_the_saved_path_and_only_absolute_paths_are_saved() {
+    let core = core_with(ScriptedAgent::default());
+    let setup = |core: &Core| {
+        let core = core.clone();
+        async move {
+            match ok(
+                &core,
+                json!({"method": "agents.setup", "params": {"agent": "claude"}}),
+            )
+            .await
+            {
+                Response::Agents(AgentsResponse::Setup(setup)) => setup,
+                other => panic!("unexpected {other:?}"),
+            }
+        }
+    };
+    assert_eq!(setup(&core).await.path, None);
+    let set = |path: serde_json::Value| json!({"method": "agents.set_path", "params": {"agent": "claude", "path": path}});
+    assert_eq!(
+        code(&core, set(json!("bin/claude"))).await,
+        ErrorCode::BadRequest
+    );
+    ok(&core, set(json!("/opt/claude"))).await;
+    let saved = setup(&core).await;
+    assert_eq!(saved.path.as_deref(), Some("/opt/claude"));
+    assert_eq!(saved.state, SetupState::Ready);
+    // An empty field clears the path.
+    ok(&core, set(json!("  "))).await;
+    assert_eq!(setup(&core).await.path, None);
+}
+
+#[tokio::test]
+async fn sessions_get_the_chosen_executable_and_the_project_trust() {
+    let agent = Arc::new(ScriptedAgent::new(vec![vec![]]));
+    let core = Core::builder("test")
+        .projects(Arc::new(MemoryProjects::default()))
+        .agents(agent.clone())
+        .build();
+    project(&core).await;
+    let mut rx = core.subscribe();
+    ok(
+        &core,
+        json!({"method": "agents.set_path", "params": {"agent": "claude", "path": "/opt/claude"}}),
+    )
+    .await;
+    ok(&core, start("untrusted")).await;
+    until(&mut rx, AgentStatus::Idle).await;
+    ok(
+        &core,
+        json!({"method": "agents.stop", "params": {"session": "s1"}}),
+    )
+    .await;
+    until(&mut rx, AgentStatus::Stopped).await;
+    let trusted = ok(
+        &core,
+        json!({"method": "projects.trust", "params": {"id": "p1", "trusted": true}}),
+    )
+    .await;
+    assert!(matches!(
+        trusted,
+        Response::Projects(ProjectsResponse::Project(Project { trusted: true, .. }))
+    ));
+    assert!(matches!(
+        Core::next_event(&mut rx).await,
+        Some(Event::Projects(ProjectsEvent::Changed { .. }))
+    ));
+    ok(&core, start("trusted")).await;
+    until(&mut rx, AgentStatus::Idle).await;
+    let started = agent.started.lock().map(|s| s.clone()).unwrap_or_default();
+    let seen: Vec<_> = started
+        .iter()
+        .map(|s| (s.trusted, s.executable.clone()))
+        .collect();
+    let opt = Some(std::path::PathBuf::from("/opt/claude"));
+    assert_eq!(seen, [(false, opt.clone()), (true, opt)]);
+    assert_eq!(
+        code(
+            &core,
+            json!({"method": "projects.trust", "params": {"id": "p9", "trusted": true}})
+        )
+        .await,
+        ErrorCode::NotFound
+    );
 }

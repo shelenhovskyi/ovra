@@ -98,8 +98,30 @@ fn contract(store: &dyn ProjectStore, folders: &Folders) {
         })
     );
 
+    // Trust: off until set, kept by the list, revocable.
+    assert!(!a.trusted);
+    assert!(store.set_trusted(&a.id, true).expect("trust a").trusted);
+    assert!(store.get(&a.id).expect("get a").trusted);
+    assert!(!store.get(&b.id).expect("get b").trusted);
+    assert!(!store.set_trusted(&a.id, false).expect("revoke a").trusted);
+    store.set_trusted(&a.id, true).expect("trust a again");
+
+    // Agent settings: defaults until saved.
+    assert_eq!(store.agent_settings(), Ok(AgentSettings::default()));
+    let settings = AgentSettings {
+        claude_path: Some("/opt/claude".into()),
+    };
+    store
+        .set_agent_settings(settings.clone())
+        .expect("save settings");
+    assert_eq!(store.agent_settings(), Ok(settings));
+
     store.remove(&a.id).expect("remove a");
     assert_eq!(names(&store.list().expect("list")), ["c", "b"]);
+    // A folder added again starts untrusted.
+    let again = store.add(&folders.path("a")).expect("add a again");
+    assert!(!again.trusted);
+    store.remove(&again.id).expect("remove a again");
 
     let gone = a.id;
     for result in [
@@ -107,6 +129,7 @@ fn contract(store: &dyn ProjectStore, folders: &Folders) {
         store.touch(&gone).map(drop),
         store.state(&gone).map(drop),
         store.update_state(&gone, ProjectStatePatch::default()),
+        store.set_trusted(&gone, true).map(drop),
         store.remove(&gone),
     ] {
         assert_eq!(result.map_err(|e| e.code), Err(ErrorCode::NotFound));
@@ -131,6 +154,12 @@ fn projects_and_order_survive_a_restart() {
         let store = Store::open(data.path()).expect("open");
         let a = store.add(&folders.path("a")).expect("add a");
         let b = store.add(&folders.path("b")).expect("add b");
+        store.set_trusted(&b.id, true).expect("trust b");
+        store
+            .set_agent_settings(AgentSettings {
+                claude_path: Some("/opt/claude".into()),
+            })
+            .expect("save settings");
         store.touch(&a.id).expect("touch a");
         store.touch(&b.id).expect("touch b");
         store
@@ -140,7 +169,10 @@ fn projects_and_order_survive_a_restart() {
     };
     let store = Store::open(data.path()).expect("reopen");
     assert_eq!(store.state(&before[1].id), Ok(sample_state()));
+    assert!(before[0].trusted);
     assert_eq!(store.list(), Ok(before));
+    let path = store.agent_settings().expect("settings").claude_path;
+    assert_eq!(path.as_deref(), Some("/opt/claude"));
 }
 
 fn sample_state() -> ProjectState {
@@ -313,4 +345,5 @@ fn a_database_from_the_first_schema_is_upgraded() {
         .update_state(&id, full(sample_state()))
         .expect("save state");
     assert_eq!(store.state(&id), Ok(sample_state()));
+    assert!(!store.get(&id).expect("get").trusted);
 }

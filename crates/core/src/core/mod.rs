@@ -151,7 +151,7 @@ impl Core {
             Request::Fs(r) => self.fs(r).await.map(Response::Fs),
             Request::Open(r) => self.open(r).map(|()| Response::Ok(OkResponse::Ok)),
             Request::Terminals(r) => self.terminals(r),
-            Request::Agents(r) => agents::handle_agents(&self.agents_ctx(), r),
+            Request::Agents(r) => agents::handle_agents(&self.agents_ctx(), r).await,
             Request::Permissions(r) => agents::handle_permissions(&self.agents_ctx(), r),
         }
     }
@@ -232,6 +232,11 @@ impl Core {
                     *active = Some(id);
                 }
                 drop(active);
+                self.emit_projects_changed();
+                Ok(ProjectsResponse::Project(project))
+            }
+            ProjectsRequest::Trust { id, trusted } => {
+                let project = store.set_trusted(&id, trusted)?;
                 self.emit_projects_changed();
                 Ok(ProjectsResponse::Project(project))
             }

@@ -67,7 +67,7 @@ vi.mock("@xterm/addon-fit", () => ({
   },
 }));
 
-const PROJECT: Project = { id: "p1", name: "demo", root: "/w/demo", last_opened_ms: null };
+const PROJECT: Project = { id: "p1", name: "demo", root: "/w/demo", last_opened_ms: null, trusted: false };
 const cleanups: (() => void)[] = [];
 afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup();

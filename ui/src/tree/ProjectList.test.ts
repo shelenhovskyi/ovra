@@ -19,9 +19,9 @@ async function settle(): Promise<void> {
 }
 
 const projects: Project[] = [
-  { id: "p1", name: "app", root: "/work/one/app", last_opened_ms: null },
-  { id: "p2", name: "app", root: "/work/two/app", last_opened_ms: null },
-  { id: "p3", name: "docs", root: "/work/docs", last_opened_ms: null },
+  { id: "p1", name: "app", root: "/work/one/app", last_opened_ms: null, trusted: false },
+  { id: "p2", name: "app", root: "/work/two/app", last_opened_ms: null, trusted: false },
+  { id: "p3", name: "docs", root: "/work/docs", last_opened_ms: null, trusted: false },
 ];
 
 /** Lists nothing and answers `projects.add` with the given error, or holds it until `release`. */
@@ -174,7 +174,7 @@ describe("ProjectList after a lost connection", () => {
     expect(target.querySelector("[role=alert]")?.textContent).toBe("connection to core closed");
     core.setStatus("closed");
     core.call = FakeCore.prototype.call.bind(core);
-    core.projects = [{ id: "p1", name: "app", root: "/work/app", last_opened_ms: null }];
+    core.projects = [{ id: "p1", name: "app", root: "/work/app", last_opened_ms: null, trusted: false }];
     core.setStatus("open");
     await settle();
     expect(target.textContent).toContain("/work/app");

@@ -3,7 +3,10 @@ use std::sync::Arc;
 
 use super::*;
 use crate::fakes::{MemoryFs, MemoryProjects, RecordingOpener};
-use crate::protocol::agents::{AgentMessage, AgentStatus, AgentsEvent, SessionId};
+use crate::protocol::agents::{
+    AgentMessage, AgentSetup, AgentStatus, AgentsEvent, AgentsResponse, ConfigItem, ConfigKind,
+    ProjectAgentConfig, SessionId, SetupState,
+};
 use crate::protocol::fs::{FileBody, FsEvent};
 use crate::protocol::info::InfoEvent;
 use crate::protocol::permissions::{PermissionId, PermissionRequest, PermissionsEvent};
@@ -292,6 +295,19 @@ fn wire_format_is_stable() {
         "responses": [
             Response::Ok(OkResponse::Ok),
             Response::Fs(FsResponse::Written { mtime_ms: 5 }),
+            Response::Agents(AgentsResponse::Setup(AgentSetup {
+                path: None,
+                executable: Some("/usr/local/bin/claude".into()),
+                version: Some("2.1.331".into()),
+                state: SetupState::Outdated { minimum: "2.1.331".into() },
+            })),
+            Response::Agents(AgentsResponse::ProjectConfig(ProjectAgentConfig {
+                items: vec![ConfigItem {
+                    path: ".claude/settings.json".into(),
+                    kind: ConfigKind::Hooks,
+                    entries: vec!["PreToolUse: ./lint.sh".into()],
+                }],
+            })),
             Response::Projects(ProjectsResponse::State(ProjectState {
                 open_files: vec!["a.rs".into()],
                 active_file: Some("a.rs".into()),
@@ -361,6 +377,10 @@ fn every_request_round_trips() {
         serde_json::json!({"method": "agents.send", "params": {"session": "s1", "text": "more"}}),
         serde_json::json!({"method": "agents.stop", "params": {"session": "s1"}}),
         serde_json::json!({"method": "agents.transcript", "params": {"session": "s1"}}),
+        serde_json::json!({"method": "agents.setup", "params": {"agent": "claude"}}),
+        serde_json::json!({"method": "agents.set_path", "params": {"agent": "claude", "path": null}}),
+        serde_json::json!({"method": "agents.project_config", "params": {"project": "p1"}}),
+        serde_json::json!({"method": "projects.trust", "params": {"id": "p1", "trusted": true}}),
         serde_json::json!({"method": "permissions.pending"}),
         serde_json::json!({"method": "permissions.answer", "params": {"id": "perm1", "decision": "allow"}}),
         serde_json::json!({"method": "permissions.answer", "params": {"id": "perm1", "decision": "deny", "message": "no"}}),

@@ -331,7 +331,9 @@ describe("FileTree", () => {
 
 describe("ProjectList", () => {
   it("lists projects and opens one", async () => {
-    const core = new FakeCore(undefined, [{ id: "p1", name: "ovra", root: "/src/ovra", last_opened_ms: null }]);
+    const core = new FakeCore(undefined, [
+      { id: "p1", name: "ovra", root: "/src/ovra", last_opened_ms: null, trusted: false },
+    ]);
     const opened: string[] = [];
     const target = document.body.appendChild(document.createElement("div"));
     const app = mount(ProjectList, { target, props: { transport: core, onopen: (p) => opened.push(p.id) } });

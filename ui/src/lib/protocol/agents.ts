@@ -45,7 +45,54 @@ export type AgentMessage =
   | { kind: "turn_end"; usage: TurnUsage }
   | { kind: "error"; message: string };
 
+/** Whether an agent can run on this machine. */
+export type AgentSetup = {
+  /** The executable the user chose; `null` searches the usual places. */
+  path: string | null;
+  /** The executable that was checked, if one was found. */
+  executable: string | null;
+  version: string | null;
+  state: SetupState;
+};
+
+/** Closed set: the UI explains each one. */
+export type SetupState =
+  | { state: "ready" }
+  | { state: "not_found" }
+  | { state: "outdated"; minimum: string }
+  | { state: "too_new"; below: string }
+  | { state: "signed_out" }
+  | { state: "broken"; message: string };
+
+/** The project's own agent configuration, which loads only once the project is trusted. */
+export type ProjectAgentConfig = { items: ConfigItem[] };
+
+export type ConfigItem = {
+  /** Relative to the project root. */
+  path: string;
+  kind: ConfigKind;
+  /** Hook commands, variable names, rules or names. */
+  entries: string[];
+};
+
+/** `hooks`, `helpers` and `plugins` run code on the user's machine. */
+export type ConfigKind =
+  | "hooks"
+  | "helpers"
+  | "plugins"
+  | "env"
+  | "allow_rules"
+  | "settings"
+  | "agents"
+  | "commands"
+  | "skills"
+  | "unreadable";
+
 export type AgentsRequest =
+  | { method: "agents.setup"; params: { agent: AgentKind } }
+  /** `path: null` clears the chosen executable. Answers `agents.setup`. */
+  | { method: "agents.set_path"; params: { agent: AgentKind; path: string | null } }
+  | { method: "agents.project_config"; params: { project: ProjectId } }
   | { method: "agents.list"; params: { project: ProjectId } }
   | {
       method: "agents.start";
@@ -57,6 +104,8 @@ export type AgentsRequest =
   | { method: "agents.transcript"; params: { session: SessionId } };
 
 export type AgentsResponse =
+  | { type: "agents.setup"; data: AgentSetup }
+  | { type: "agents.project_config"; data: ProjectAgentConfig }
   | { type: "agents.list"; data: SessionInfo[] }
   | { type: "agents.session"; data: SessionInfo }
   | { type: "agents.transcript"; data: AgentMessage[] };

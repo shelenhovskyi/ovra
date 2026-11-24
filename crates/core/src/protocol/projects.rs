@@ -16,6 +16,10 @@ pub struct Project {
     pub root: String,
     /// Unix time in milliseconds when the project was last opened.
     pub last_opened_ms: Option<u64>,
+    /// Whether the user trusts the project's own agent configuration (its
+    /// `.claude/` settings, hooks, agents and skills) to load.
+    #[serde(default)]
+    pub trusted: bool,
 }
 
 /// What a project looked like when it was last left, restored when it is
@@ -87,6 +91,10 @@ pub enum ProjectsRequest {
     /// Makes a project the active one and starts watching it.
     #[serde(rename = "projects.open")]
     Open { id: ProjectId },
+    /// Trusts or stops trusting the project's own agent configuration.
+    /// Sessions started afterwards load it or not; running ones keep theirs.
+    #[serde(rename = "projects.trust")]
+    Trust { id: ProjectId, trusted: bool },
     /// The saved state of a project; empty if none was saved.
     #[serde(rename = "projects.get_state")]
     GetState { id: ProjectId },

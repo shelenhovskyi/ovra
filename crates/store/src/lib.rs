@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use ovra_core::protocol::agents::AgentSettings;
 use ovra_core::protocol::projects::{Project, ProjectId, ProjectState, ProjectStatePatch};
 use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::{ProjectStore, Result};
@@ -31,9 +32,19 @@ const MIGRATIONS: &[&str] = &[
         project_id TEXT PRIMARY KEY REFERENCES projects (id) ON DELETE CASCADE,
         state TEXT NOT NULL
     ) STRICT;",
+    // Whether the user trusts the project's agent configuration, and
+    // app-wide settings as JSON per key.
+    "ALTER TABLE projects ADD COLUMN trusted INTEGER NOT NULL DEFAULT 0;
+    CREATE TABLE settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+    ) STRICT;",
 ];
 
-const COLUMNS: &str = "id, name, root, last_opened_ms";
+/// The `settings` key of [`AgentSettings`].
+const AGENT_SETTINGS: &str = "agents";
+
+const COLUMNS: &str = "id, name, root, last_opened_ms, trusted";
 
 /// The real project store, kept in `data_dir`.
 #[derive(Debug)]
@@ -175,6 +186,48 @@ impl ProjectStore for Store {
         .map_err(db_error)?;
         Ok(())
     }
+
+    fn set_trusted(&self, id: &ProjectId, trusted: bool) -> Result<Project> {
+        self.db()
+            .query_row(
+                &format!("UPDATE projects SET trusted = ?2 WHERE id = ?1 RETURNING {COLUMNS}"),
+                params![id.0, trusted],
+                project_from_row,
+            )
+            .optional()
+            .map_err(db_error)?
+            .ok_or_else(|| not_found(id))
+    }
+
+    fn agent_settings(&self) -> Result<AgentSettings> {
+        let json: Option<String> = self
+            .db()
+            .query_row(
+                "SELECT value FROM settings WHERE key = ?1",
+                [AGENT_SETTINGS],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(db_error)?;
+        json.map_or_else(
+            || Ok(AgentSettings::default()),
+            |json| {
+                serde_json::from_str(&json).map_err(|e| internal(format!("agent settings: {e}")))
+            },
+        )
+    }
+
+    fn set_agent_settings(&self, settings: AgentSettings) -> Result<()> {
+        let json = serde_json::to_string(&settings).map_err(|e| internal(e.to_string()))?;
+        self.db()
+            .execute(
+                "INSERT INTO settings (key, value) VALUES (?1, ?2)
+                 ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+                params![AGENT_SETTINGS, json],
+            )
+            .map_err(db_error)?;
+        Ok(())
+    }
 }
 
 /// The saved state, the default if none was saved, `not_found` without a project.
@@ -214,6 +267,7 @@ fn project_from_row(row: &Row<'_>) -> rusqlite::Result<Project> {
         name: row.get(1)?,
         root: row.get(2)?,
         last_opened_ms: row.get(3)?,
+        trusted: row.get(4)?,
     })
 }
 

@@ -50,7 +50,7 @@ export type ResponseFor<R extends Request> = R extends { method: "info.get" }
   ? Extract<Response, { type: "info" }>
   : R extends { method: "projects.list" | "projects.remove" }
     ? Extract<Response, { type: "projects.list" }>
-    : R extends { method: "projects.add" | "projects.open" }
+    : R extends { method: "projects.add" | "projects.open" | "projects.trust" }
       ? Extract<Response, { type: "projects.project" }>
       : R extends { method: "projects.get_state" }
         ? Extract<Response, { type: "projects.state" }>
@@ -74,17 +74,21 @@ export type ResponseFor<R extends Request> = R extends { method: "info.get" }
                           ? Extract<Response, { type: "agents.session" }>
                           : R extends { method: "agents.transcript" }
                             ? Extract<Response, { type: "agents.transcript" }>
-                            : R extends { method: "permissions.pending" }
-                              ? Extract<Response, { type: "permissions.pending" }>
-                              : R extends {
-                                    method:
-                                      | "terminals.input"
-                                      | "terminals.resize"
-                                      | "terminals.close"
-                                      | "agents.send"
-                                      | "agents.interrupt"
-                                      | "agents.stop"
-                                      | "permissions.answer";
-                                  }
-                                ? { type: "ok" }
-                                : never;
+                            : R extends { method: "agents.setup" | "agents.set_path" }
+                              ? Extract<Response, { type: "agents.setup" }>
+                              : R extends { method: "agents.project_config" }
+                                ? Extract<Response, { type: "agents.project_config" }>
+                                : R extends { method: "permissions.pending" }
+                                  ? Extract<Response, { type: "permissions.pending" }>
+                                  : R extends {
+                                        method:
+                                          | "terminals.input"
+                                          | "terminals.resize"
+                                          | "terminals.close"
+                                          | "agents.send"
+                                          | "agents.interrupt"
+                                          | "agents.stop"
+                                          | "permissions.answer";
+                                      }
+                                    ? { type: "ok" }
+                                    : never;

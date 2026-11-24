@@ -1,6 +1,6 @@
 //! Handling of `agents.*` and `permissions.*` requests.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use super::transcript::MAX_TEXT_BYTES;
@@ -28,9 +28,33 @@ pub(crate) struct Ctx<'a> {
 
 const OK: Response = Response::Ok(OkResponse::Ok);
 
-pub(crate) fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Response> {
+pub(crate) async fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Response> {
     let sessions = ctx.sessions;
     match request {
+        AgentsRequest::Setup { agent: _ } => {
+            let path = ctx.projects.agent_settings()?.claude_path;
+            let setup = ctx.runtime.setup(path.map(PathBuf::from)).await;
+            Ok(Response::Agents(AgentsResponse::Setup(setup)))
+        }
+        AgentsRequest::SetPath { agent: _, path } => {
+            let path = path.filter(|p| !p.trim().is_empty());
+            if path.as_deref().is_some_and(|p| !Path::new(p).is_absolute()) {
+                return Err(ProtocolError::new(
+                    ErrorCode::BadRequest,
+                    "the path must be absolute",
+                ));
+            }
+            let mut settings = ctx.projects.agent_settings()?;
+            settings.claude_path.clone_from(&path);
+            ctx.projects.set_agent_settings(settings)?;
+            let setup = ctx.runtime.setup(path.map(PathBuf::from)).await;
+            Ok(Response::Agents(AgentsResponse::Setup(setup)))
+        }
+        AgentsRequest::ProjectConfig { project } => {
+            let root = PathBuf::from(ctx.projects.get(&project)?.root);
+            let config = ctx.runtime.project_config(root).await?;
+            Ok(Response::Agents(AgentsResponse::ProjectConfig(config)))
+        }
         AgentsRequest::List { project } => {
             ctx.projects.get(&project)?;
             Ok(Response::Agents(AgentsResponse::List(
@@ -43,7 +67,8 @@ pub(crate) fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Response> 
             mode,
             prompt,
         } => {
-            let root = PathBuf::from(ctx.projects.get(&project)?.root);
+            let target = ctx.projects.get(&project)?;
+            let executable = ctx.projects.agent_settings()?.claude_path;
             check_text(&prompt)?;
             if mode == SessionMode::Isolated {
                 return Err(ProtocolError::new(
@@ -80,8 +105,10 @@ pub(crate) fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Response> 
                 session: id.clone(),
                 agent,
                 mode,
-                cwd: root,
+                cwd: PathBuf::from(target.root),
                 prompt,
+                executable: executable.map(PathBuf::from),
+                trusted: target.trusted,
             };
             match ctx.runtime.start(spec, host.clone()) {
                 Ok(process) => sessions.find(&id, |s| s.set_process(Arc::from(process)))?,

@@ -111,9 +111,110 @@ pub enum AgentMessage {
     },
 }
 
+/// Whether an agent can run on this machine, and what to do if not.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentSetup {
+    /// The executable the user chose; `None` searches the usual places.
+    pub path: Option<String>,
+    /// The executable that was checked, if one was found.
+    pub executable: Option<String>,
+    /// Its version, if it could be read.
+    pub version: Option<String>,
+    pub state: SetupState,
+}
+
+/// What stands between the user and a working agent. Closed set: the UI
+/// explains each one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum SetupState {
+    /// Found, supported and signed in.
+    Ready,
+    /// Not at the chosen path, on `PATH` or where installers put it.
+    NotFound,
+    /// Older than the tested range: the user should update it.
+    Outdated { minimum: String },
+    /// Newer than this build of Ovra supports: the user should update Ovra.
+    TooNew { below: String },
+    /// Installed but not signed in.
+    SignedOut,
+    /// Found but could not be checked.
+    Broken { message: String },
+}
+
+/// Agent settings the user chose, kept across restarts.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AgentSettings {
+    /// Absolute path of the `claude` executable; `None` searches for it.
+    pub claude_path: Option<String>,
+}
+
+/// The project's own agent configuration, which loads only once the user
+/// trusts the project. Agents read the project's instructions (`CLAUDE.md`)
+/// either way.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectAgentConfig {
+    pub items: Vec<ConfigItem>,
+}
+
+/// One kind of configuration found in one file or folder.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConfigItem {
+    /// Relative to the project root, `/`-separated.
+    pub path: String,
+    pub kind: ConfigKind,
+    /// The specific entries: hook commands, variable names, rules, names.
+    pub entries: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConfigKind {
+    /// Commands that run on agent events. Runs code.
+    Hooks,
+    /// Commands the agent runs to get keys or other values. Runs code.
+    Helpers,
+    /// Plugins and marketplaces, which can bring hooks and servers. Runs code.
+    Plugins,
+    /// Environment variables set for the agent and its tools.
+    Env,
+    /// Tool uses allowed without asking.
+    AllowRules,
+    /// Other settings.
+    Settings,
+    /// Custom subagents.
+    Agents,
+    /// Custom slash commands.
+    Commands,
+    /// Skills.
+    Skills,
+    /// A settings file that could not be read or parsed; it may still load.
+    Unreadable,
+}
+
+impl ConfigKind {
+    /// Whether loading this runs commands on the user's machine.
+    pub fn runs_code(self) -> bool {
+        matches!(self, Self::Hooks | Self::Helpers | Self::Plugins)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "method", content = "params")]
 pub enum AgentsRequest {
+    /// Checks that the agent is installed, supported and signed in.
+    #[serde(rename = "agents.setup")]
+    Setup { agent: AgentKind },
+    /// Sets (or with `null` clears) the executable's path, then checks it.
+    #[serde(rename = "agents.set_path")]
+    SetPath {
+        agent: AgentKind,
+        path: Option<String>,
+    },
+    /// What trusting the project would load.
+    #[serde(rename = "agents.project_config")]
+    ProjectConfig { project: ProjectId },
     /// Sessions of a project, oldest first.
     #[serde(rename = "agents.list")]
     List { project: ProjectId },
@@ -143,6 +244,10 @@ pub enum AgentsRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum AgentsResponse {
+    #[serde(rename = "agents.setup")]
+    Setup(AgentSetup),
+    #[serde(rename = "agents.project_config")]
+    ProjectConfig(ProjectAgentConfig),
     #[serde(rename = "agents.list")]
     List(Vec<SessionInfo>),
     #[serde(rename = "agents.session")]

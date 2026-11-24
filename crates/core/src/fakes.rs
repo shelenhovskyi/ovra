@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use crate::path::RelPath;
-use crate::protocol::agents::{AgentMessage, AgentStatus, TurnUsage};
+use crate::protocol::agents::{AgentMessage, AgentSettings, AgentStatus, TurnUsage};
 use crate::protocol::fs::{DirEntry, DirListing, EntryKind, FileBody, FileContent, FileList};
 use crate::protocol::permissions::Decision;
 use crate::protocol::projects::{Project, ProjectId, ProjectState, ProjectStatePatch};
@@ -31,6 +31,9 @@ fn not_found(what: impl std::fmt::Display) -> ProtocolError {
 pub struct MemoryProjects {
     state: Mutex<(Vec<Project>, u64)>,
     saved: Mutex<BTreeMap<ProjectId, ProjectState>>,
+    settings: Mutex<AgentSettings>,
+    /// Projects ever added, so ids are never reused.
+    added: Mutex<u64>,
 }
 
 impl ProjectStore for MemoryProjects {
@@ -46,11 +49,14 @@ impl ProjectStore for MemoryProjects {
         if let Some(existing) = state.0.iter().find(|p| p.root == root) {
             return Ok(existing.clone());
         }
+        let mut added = lock(&self.added);
+        *added += 1;
         let project = Project {
-            id: ProjectId(format!("p{}", state.0.len() + 1)),
+            id: ProjectId(format!("p{added}")),
             name: root.rsplit('/').next().unwrap_or(&root).to_owned(),
             root,
             last_opened_ms: None,
+            trusted: false,
         };
         state.0.push(project.clone());
         Ok(project)
@@ -97,6 +103,26 @@ impl ProjectStore for MemoryProjects {
     fn update_state(&self, id: &ProjectId, patch: ProjectStatePatch) -> Result<()> {
         self.get(id)?;
         patch.apply(lock(&self.saved).entry(id.clone()).or_default());
+        Ok(())
+    }
+
+    fn set_trusted(&self, id: &ProjectId, trusted: bool) -> Result<Project> {
+        let mut state = lock(&self.state);
+        let project = state
+            .0
+            .iter_mut()
+            .find(|p| &p.id == id)
+            .ok_or_else(|| not_found(&id.0))?;
+        project.trusted = trusted;
+        Ok(project.clone())
+    }
+
+    fn agent_settings(&self) -> Result<AgentSettings> {
+        Ok(lock(&self.settings).clone())
+    }
+
+    fn set_agent_settings(&self, settings: AgentSettings) -> Result<()> {
+        *lock(&self.settings) = settings;
         Ok(())
     }
 }

@@ -67,7 +67,7 @@ afterEach(() => {
 function show(files: Files, path: string | null, options: { failOpen?: boolean } = {}) {
   const core = fakeCore(files, options);
   const workspace = new Workspace();
-  workspace.project = { id: "p1", name: "demo", root: "/demo", last_opened_ms: null };
+  workspace.project = { id: "p1", name: "demo", root: "/demo", last_opened_ms: null, trusted: false };
   if (path) workspace.openFile(path);
   const target = document.createElement("div");
   document.body.replaceChildren(target);

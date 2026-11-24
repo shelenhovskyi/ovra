@@ -122,6 +122,32 @@ expression: samples
     },
     {
       "data": {
+        "executable": "/usr/local/bin/claude",
+        "path": null,
+        "state": {
+          "minimum": "2.1.331",
+          "state": "outdated"
+        },
+        "version": "2.1.331"
+      },
+      "type": "agents.setup"
+    },
+    {
+      "data": {
+        "items": [
+          {
+            "entries": [
+              "PreToolUse: ./lint.sh"
+            ],
+            "kind": "hooks",
+            "path": ".claude/settings.json"
+          }
+        ]
+      },
+      "type": "agents.project_config"
+    },
+    {
+      "data": {
         "active_file": "a.rs",
         "expanded_dirs": [
           "src"

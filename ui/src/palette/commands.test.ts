@@ -4,7 +4,7 @@ import type { Project } from "../lib/protocol";
 import { registerPaletteCommands } from "./commands";
 import { palette } from "./mode.svelte";
 
-const project: Project = { id: "p1", name: "demo", root: "/demo", last_opened_ms: null };
+const project: Project = { id: "p1", name: "demo", root: "/demo", last_opened_ms: null, trusted: false };
 const run = (id: string) =>
   listCommands()
     .find((c) => c.id === id)
