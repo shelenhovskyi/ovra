@@ -111,6 +111,25 @@ describe("AgentsPanel", () => {
     expect(target.querySelector("#agent-reply")).toBeNull();
   });
 
+  it("resumes an ended session that can be resumed", async () => {
+    const core = new FakeAgentCore();
+    core.addSession("p1", "Earlier task", { state: "working" });
+    core.transcripts.set("s1", [{ kind: "user_text", text: "Earlier task" }]);
+    await setup(core);
+    const info = core.sessions[0];
+    if (info) info.resumable = true;
+    core.status("s1", { state: "stopped" });
+    await settle();
+    type(target.querySelector("#agent-resume"), "Carry on");
+    modEnter();
+    await settle();
+    expect(core.sent("agents.resume").map((c) => c.params)).toEqual([{ session: "s1", prompt: "Carry on" }]);
+    expect(panel()?.querySelector("[role=status]")?.textContent).toBe("Starting");
+    expect(transcript()).toEqual(["You Earlier task", "You Carry on"]);
+    expect(target.querySelector("#agent-resume")).toBeNull();
+    expect(target.querySelector("#agent-reply")).not.toBeNull();
+  });
+
   it("shows why a session could not start", async () => {
     const core = new FakeAgentCore();
     const { CoreError } = await import("../lib/transport");

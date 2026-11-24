@@ -88,6 +88,14 @@ export class FakeAgentCore implements Transport {
       case "agents.stop":
       case "agents.interrupt":
         return { type: "ok" };
+      case "agents.resume": {
+        const info = this.sessions.find((s) => s.id === request.params.session);
+        if (!info) throw new CoreError({ code: "not_found", message: "no such session" });
+        info.resumable = false;
+        this.status(info.id, { state: "starting" });
+        this.message(info.id, { kind: "user_text", text: request.params.prompt });
+        return { type: "agents.session", data: { ...info } };
+      }
       case "agents.setup":
         return { type: "agents.setup", data: { ...this.setup } };
       case "agents.set_path":

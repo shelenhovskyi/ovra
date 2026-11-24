@@ -112,6 +112,16 @@ function send(): Promise<void> {
   });
 }
 
+function resume(): Promise<void> {
+  const id = current?.id;
+  const body = reply.trim();
+  if (!id || !body) return Promise.resolve();
+  return run(async () => {
+    await sessions.resume(id, body);
+    reply = "";
+  });
+}
+
 function interrupt(id: SessionId): Promise<void> {
   return run(() => sessions.interrupt(id));
 }
@@ -218,6 +228,26 @@ const canReply = $derived(current !== null && current.status.state === "idle");
             <div class="row">
               <span class="hint">{canReply ? `${modEnter} sends.` : "Claude is busy; reply when it waits for you."}</span>
               <button type="submit" disabled={busy || !canReply || !reply.trim()}>Send</button>
+            </div>
+          </form>
+        {:else if current.resumable}
+          <form
+            class="reply"
+            onsubmit={(event) => {
+              event.preventDefault();
+              void resume();
+            }}
+          >
+            <label for="agent-resume">Resume with a message</label>
+            <textarea
+              id="agent-resume"
+              rows="2"
+              bind:value={reply}
+              onkeydown={(event) => submitOnModEnter(event, resume)}
+            ></textarea>
+            <div class="row">
+              <span class="hint">Continues this session where it ended. {modEnter} resumes.</span>
+              <button type="submit" disabled={busy || !reply.trim()}>Resume</button>
             </div>
           </form>
         {/if}

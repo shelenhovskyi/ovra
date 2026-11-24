@@ -59,6 +59,12 @@ export class AgentSessions {
     await this.transport.call({ method: "agents.interrupt", params: { session } });
   }
 
+  /** Continues an ended session with a new prompt; it keeps its id and transcript. */
+  async resume(session: SessionId, prompt: string): Promise<void> {
+    const { data } = await this.transport.call({ method: "agents.resume", params: { session, prompt } });
+    this.byId.set(data.id, { ...data, status: this.byId.get(data.id)?.status ?? data.status });
+  }
+
   async stop(session: SessionId): Promise<void> {
     await this.transport.call({ method: "agents.stop", params: { session } });
   }
@@ -69,6 +75,8 @@ export class AgentSessions {
       const known = this.byId.get(session);
       if (known) {
         this.byId.set(session, { ...known, status });
+        // Whether it can be resumed comes only with the list.
+        if (status.state === "stopped" || status.state === "failed") void this.load(project).catch(() => {});
         return;
       }
       if (status.state === "starting") this.transcripts.set(session, []);
