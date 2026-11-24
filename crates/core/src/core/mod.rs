@@ -17,7 +17,7 @@ use crate::protocol::terminals::{TerminalsRequest, TerminalsResponse};
 use crate::protocol::{ErrorCode, Event, OkResponse, ProtocolError, Request, Response};
 use crate::search::{self, Searches};
 use crate::services::{
-    AgentRuntime, EventSink, FsService, IdeTools, Opener, ProjectStore, SessionStore,
+    AgentRuntime, AuditLog, EventSink, FsService, IdeTools, Opener, ProjectStore, SessionStore,
     TerminalService, Unavailable, Worktrees,
 };
 
@@ -36,6 +36,7 @@ pub struct CoreBuilder {
     worktrees: Arc<dyn Worktrees>,
     worktrees_dir: Option<PathBuf>,
     ide_tools: Arc<dyn IdeTools>,
+    audit: Arc<dyn AuditLog>,
 }
 
 impl CoreBuilder {
@@ -89,6 +90,13 @@ impl CoreBuilder {
         self
     }
 
+    /// Where the audit log is kept; without one nothing is recorded and
+    /// `audit.list` answers `unavailable`.
+    pub fn audit(mut self, log: Arc<dyn AuditLog>) -> Self {
+        self.audit = log;
+        self
+    }
+
     pub fn build(self) -> Core {
         let (events, _) = broadcast::channel(EVENT_CAPACITY);
         let kept = self.sessions.clone();
@@ -106,6 +114,7 @@ impl CoreBuilder {
                 held: Mutex::new(None),
                 open: Mutex::new(BTreeMap::new()),
                 searches: Searches::default(),
+                audit: self.audit,
             }),
             events,
         };
@@ -140,6 +149,7 @@ struct Inner {
     /// Open projects and how many clients hold each; each is watched.
     open: Mutex<BTreeMap<ProjectId, usize>>,
     searches: Searches,
+    audit: Arc<dyn AuditLog>,
 }
 
 /// A [`Core`] that does not keep it alive; sessions hold one so their IDE
@@ -203,6 +213,7 @@ impl Core {
             worktrees: Arc::new(Unavailable("worktrees")),
             worktrees_dir: None,
             ide_tools: Arc::new(Unavailable("IDE tools")),
+            audit: Arc::new(Unavailable("the audit log")),
         }
     }
 
@@ -281,6 +292,7 @@ impl Core {
             Request::Orchestration(r) => orchestration::orchestration(self, r).await,
             Request::Search(r) => search::handle(self, r),
             Request::Policy(r) => crate::policy::handle(self, r),
+            Request::Audit(r) => crate::audit::handle(self, r),
         }
     }
 
@@ -307,6 +319,10 @@ impl Core {
 
     pub(crate) fn searches(&self) -> &Searches {
         &self.inner.searches
+    }
+
+    pub(crate) fn audit_log(&self) -> &dyn AuditLog {
+        self.inner.audit.as_ref()
     }
 
     pub(crate) fn project_store(&self) -> &dyn ProjectStore {

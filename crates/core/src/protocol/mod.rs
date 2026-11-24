@@ -35,6 +35,7 @@ pub enum Request {
     Orchestration(orchestration::OrchestrationRequest),
     Search(search::SearchRequest),
     Policy(policy::PolicyRequest),
+    Audit(audit::AuditRequest),
 }
 
 /// The core's answer to a [`Request`]. Wire form: `{"type": "<domain>.<name>", "data": ...}`.
@@ -51,6 +52,7 @@ pub enum Response {
     Orchestration(orchestration::OrchestrationResponse),
     Search(search::SearchResponse),
     Policy(policy::PolicyResponse),
+    Audit(audit::AuditResponse),
     /// The request succeeded and has nothing to return.
     Ok(OkResponse),
 }
@@ -75,6 +77,7 @@ pub enum Event {
     Orchestration(orchestration::OrchestrationEvent),
     Search(search::SearchEvent),
     Policy(policy::PolicyEvent),
+    Audit(audit::AuditLogEvent),
 }
 
 /// An error returned instead of a [`Response`].
@@ -175,5 +178,11 @@ impl From<policy::PolicyEvent> for Event {
 impl From<search::SearchEvent> for Event {
     fn from(e: search::SearchEvent) -> Self {
         Self::Search(e)
+    }
+}
+
+impl From<audit::AuditLogEvent> for Event {
+    fn from(e: audit::AuditLogEvent) -> Self {
+        Self::Audit(e)
     }
 }

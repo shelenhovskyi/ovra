@@ -7,6 +7,7 @@
 //! implementations from other crates, tests plug in the fakes from [`fakes`].
 
 mod agents;
+mod audit;
 mod core;
 #[cfg(any(test, feature = "fakes"))]
 pub mod fakes;
