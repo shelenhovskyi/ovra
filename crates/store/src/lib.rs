@@ -12,6 +12,7 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use ovra_core::protocol::agents::{AgentSettings, ProjectAgentConfig};
+use ovra_core::protocol::policy::Policy;
 use ovra_core::protocol::projects::{Project, ProjectId, ProjectState, ProjectStatePatch};
 use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::{ProjectStore, Result};
@@ -59,6 +60,9 @@ const MIGRATIONS: &[&str] = &[
         message TEXT NOT NULL
     ) STRICT;
     CREATE INDEX agent_messages_by_session ON agent_messages (session_id, id);",
+    // The project's policy (`docs/specs/security.md`) as JSON; none means
+    // the empty policy, which asks about everything.
+    "ALTER TABLE projects ADD COLUMN policy TEXT;",
 ];
 
 /// The `settings` key of [`AgentSettings`].
@@ -247,6 +251,39 @@ impl ProjectStore for Store {
         serde_json::from_str(&config)
             .map(Some)
             .map_err(|e| internal(format!("trusted settings of project {}: {e}", id.0)))
+    }
+
+    fn policy(&self, id: &ProjectId) -> Result<Policy> {
+        let json: Option<String> = self
+            .db()
+            .query_row(
+                "SELECT policy FROM projects WHERE id = ?1",
+                [&id.0],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(db_error)?
+            .ok_or_else(|| not_found(id))?;
+        match json {
+            None => Ok(Policy::default()),
+            Some(json) => serde_json::from_str(&json)
+                .map_err(|e| internal(format!("policy of project {}: {e}", id.0))),
+        }
+    }
+
+    fn set_policy(&self, id: &ProjectId, policy: &Policy) -> Result<()> {
+        let json = serde_json::to_string(policy).map_err(|e| internal(e.to_string()))?;
+        let changed = self
+            .db()
+            .execute(
+                "UPDATE projects SET policy = ?2 WHERE id = ?1",
+                params![id.0, json],
+            )
+            .map_err(db_error)?;
+        if changed == 0 {
+            return Err(not_found(id));
+        }
+        Ok(())
     }
 
     fn agent_settings(&self) -> Result<AgentSettings> {

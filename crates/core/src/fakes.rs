@@ -30,6 +30,7 @@ use crate::protocol::agents::{
 };
 use crate::protocol::fs::{DirEntry, DirListing, EntryKind, FileBody, FileContent, FileList};
 use crate::protocol::permissions::Decision;
+use crate::protocol::policy::Policy;
 use crate::protocol::projects::{Project, ProjectId, ProjectState, ProjectStatePatch};
 use crate::protocol::search::{FileMatches, LineMatch, SearchEvent, SearchId, SearchQuery};
 use crate::protocol::terminals::{TermSize, TerminalId, TerminalsEvent};
@@ -54,6 +55,7 @@ pub struct MemoryProjects {
     saved: Mutex<BTreeMap<ProjectId, ProjectState>>,
     settings: Mutex<AgentSettings>,
     trusted: Mutex<BTreeMap<ProjectId, ProjectAgentConfig>>,
+    policies: Mutex<BTreeMap<ProjectId, Policy>>,
     /// Projects ever added, so ids are never reused.
     added: Mutex<u64>,
 }
@@ -157,6 +159,17 @@ impl ProjectStore for MemoryProjects {
 
     fn agent_settings(&self) -> Result<AgentSettings> {
         Ok(lock(&self.settings).clone())
+    }
+
+    fn policy(&self, id: &ProjectId) -> Result<Policy> {
+        self.get(id)?;
+        Ok(lock(&self.policies).get(id).cloned().unwrap_or_default())
+    }
+
+    fn set_policy(&self, id: &ProjectId, policy: &Policy) -> Result<()> {
+        self.get(id)?;
+        lock(&self.policies).insert(id.clone(), policy.clone());
+        Ok(())
     }
 
     fn set_agent_settings(&self, settings: AgentSettings) -> Result<()> {

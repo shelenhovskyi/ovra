@@ -389,3 +389,33 @@ fn a_project_trusted_before_trust_kept_its_settings_counts_as_changed() {
     let config = store.trusted_config(&ProjectId("old".into()));
     assert_eq!(config, Ok(Some(ProjectAgentConfig::default())));
 }
+
+#[test]
+fn a_projects_policy_is_kept_across_opens() {
+    use ovra_core::protocol::policy::{Policy, PolicyAction, PolicyRule};
+
+    let (data, folders) = (TempDir::new().expect("temp dir"), Folders::new());
+    let store = Store::open(data.path()).expect("open");
+    let a = store.add(&folders.path("a")).expect("add a");
+    assert_eq!(store.policy(&a.id), Ok(Policy::default()));
+    let policy = Policy {
+        rules: vec![PolicyRule {
+            tool: "Bash".into(),
+            pattern: Some("npm test".into()),
+            action: PolicyAction::Auto,
+        }],
+    };
+    store.set_policy(&a.id, &policy).expect("set");
+    drop(store);
+    let store = Store::open(data.path()).expect("reopen");
+    assert_eq!(store.policy(&a.id), Ok(policy.clone()));
+    let gone = ProjectId("p9".into());
+    assert_eq!(
+        store.policy(&gone).map_err(|e| e.code),
+        Err(ErrorCode::NotFound)
+    );
+    assert_eq!(
+        store.set_policy(&gone, &policy).map_err(|e| e.code),
+        Err(ErrorCode::NotFound)
+    );
+}

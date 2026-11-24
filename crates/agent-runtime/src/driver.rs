@@ -155,11 +155,11 @@ impl Driver {
                 let line = if callback_id == wire::POLICY_HOOK {
                     // The CLI waits for the hook, so the tool has not run yet:
                     // a direct session snapshots the tree first (ADR 0005).
-                    self.host.before_tool(&input).await;
-                    wire::success(
-                        &request_id,
-                        policy::pre_tool_use(&self.cwd, &input).to_hook_output(),
-                    )
+                    let verdict = match self.host.before_tool(&input).await {
+                        Some(reason) => policy::Verdict::Deny(reason),
+                        None => policy::pre_tool_use(&self.cwd, &input),
+                    };
+                    wire::success(&request_id, verdict.to_hook_output())
                 } else {
                     wire::error(&request_id, &format!("unknown hook {callback_id}"))
                 };

@@ -18,6 +18,7 @@ use crate::protocol::agents::{
     SessionMode, SetupState,
 };
 use crate::protocol::fs::{DirListing, FileContent, FileList};
+use crate::protocol::policy::Policy;
 use crate::protocol::projects::{Project, ProjectId, ProjectState, ProjectStatePatch};
 use crate::protocol::review::ChangeKind;
 use crate::protocol::search::{SearchId, SearchQuery};
@@ -71,6 +72,9 @@ pub trait ProjectStore: Send + Sync + Debug {
     /// The agent settings, or the defaults if none were saved.
     fn agent_settings(&self) -> Result<AgentSettings>;
     fn set_agent_settings(&self, settings: AgentSettings) -> Result<()>;
+    /// The project's policy (`docs/specs/security.md`); empty if none was set.
+    fn policy(&self, id: &ProjectId) -> Result<Policy>;
+    fn set_policy(&self, id: &ProjectId, policy: &Policy) -> Result<()>;
 }
 
 /// File access, `.gitignore` handling, git status and watching
@@ -450,6 +454,12 @@ impl ProjectStore for Unavailable {
         self.err()
     }
     fn set_agent_settings(&self, _: AgentSettings) -> Result<()> {
+        self.err()
+    }
+    fn policy(&self, _: &ProjectId) -> Result<Policy> {
+        self.err()
+    }
+    fn set_policy(&self, _: &ProjectId, _: &Policy) -> Result<()> {
         self.err()
     }
 }

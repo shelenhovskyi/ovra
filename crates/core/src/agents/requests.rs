@@ -155,6 +155,7 @@ pub(crate) async fn start(ctx: &Ctx<'_>, new: NewSession) -> Result<SessionInfo>
         usage: TurnUsage::default(),
         resumable: false,
         billing: None,
+        sandbox: None,
     });
     review_from(ctx, &id, &launch, base);
     let target = trusted_in(ctx, target, &launch.cwd).await;

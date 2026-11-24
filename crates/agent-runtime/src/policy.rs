@@ -1,7 +1,8 @@
 //! Rules a `PreToolUse` hook applies to every tool call. Hooks run even for
 //! calls the user's own settings allow without asking, so the rules here
 //! hold whatever those settings say. They only ever ask or deny; they never
-//! allow on their own.
+//! allow on their own. The core adds the project's deny rules
+//! ([`Verdict::Deny`]).
 
 use std::path::{Component, Path, PathBuf};
 
@@ -15,6 +16,8 @@ pub(crate) enum Verdict {
     /// The person must approve the call through Ovra, even if a setting
     /// allows it.
     Ask(&'static str),
+    /// The project's policy refuses the call, for this reason.
+    Deny(String),
 }
 
 impl Verdict {
@@ -25,6 +28,11 @@ impl Verdict {
             Self::Ask(reason) => json!({"hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "ask",
+                "permissionDecisionReason": reason,
+            }}),
+            Self::Deny(reason) => json!({"hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
                 "permissionDecisionReason": reason,
             }}),
         }
@@ -130,5 +138,18 @@ mod tests {
                 Some(&json!("ask"))
             );
         }
+    }
+
+    #[test]
+    fn a_policy_deny_tells_the_cli_to_deny_with_the_reason() {
+        let out = Verdict::Deny("no fetching".into()).to_hook_output();
+        assert_eq!(
+            out.pointer("/hookSpecificOutput/permissionDecision"),
+            Some(&json!("deny"))
+        );
+        assert_eq!(
+            out.pointer("/hookSpecificOutput/permissionDecisionReason"),
+            Some(&json!("no fetching"))
+        );
     }
 }

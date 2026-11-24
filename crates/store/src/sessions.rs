@@ -147,6 +147,7 @@ mod tests {
                 usage: TurnUsage::default(),
                 resumable: false,
                 billing: None,
+                sandbox: None,
             },
             agent_session: None,
         }

@@ -930,3 +930,66 @@ async fn a_session_says_who_pays_once_the_agent_tells() {
     }
     assert_eq!(told, 1, "the same answer again is no news");
 }
+
+#[tokio::test]
+async fn the_projects_policy_decides_before_the_person_is_asked() {
+    use crate::protocol::agents::{SandboxNetwork, SandboxReport};
+    use crate::protocol::permissions::Decision;
+
+    let core = core_with(ScriptedAgent::new(vec![vec![Step::Say("hi")]]));
+    project(&core).await;
+    ok(&core, start("x")).await;
+    ok(
+        &core,
+        json!({"method": "policy.set", "params": {"project": "p1", "policy": {"rules": [
+            {"tool": "WebFetch", "action": "deny"},
+            {"tool": "Bash", "match": "npm test", "action": "auto"}]}}}),
+    )
+    .await;
+    let host = host(&core);
+    let fetch = host
+        .ask("WebFetch".into(), json!({"url": "x"}), None, None)
+        .await;
+    assert_eq!(fetch.decision, Decision::Deny);
+    assert!(fetch.message.is_some_and(|m| m.contains("(WebFetch)")));
+    // The hook refuses it too, for calls the user's settings let through.
+    let hook = json!({"tool_use_id": "t1", "tool_name": "WebFetch", "tool_input": {"url": "x"}});
+    assert!(host.before_tool(&hook).await.is_some());
+    let bash = json!({"tool_use_id": "t2", "tool_name": "Bash", "tool_input": {"command": "ls"}});
+    assert_eq!(host.before_tool(&bash).await, None);
+
+    // Auto counts only once the runtime said it ran a sandbox.
+    let mut rx = core.subscribe();
+    let asking = tokio::spawn({
+        let host = host.clone();
+        async move {
+            host.ask("Bash".into(), json!({"command": "npm test"}), None, None)
+                .await
+        }
+    });
+    until(&mut rx, AgentStatus::WaitingForApproval).await;
+    host.status(AgentStatus::Stopped);
+    let unsandboxed = asking.await.unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(unsandboxed.message.as_deref(), Some("the session ended"));
+
+    ok(&core, start("y")).await;
+    let second = crate::agents::AgentHost::new(
+        crate::protocol::agents::SessionId("s2".into()),
+        crate::protocol::projects::ProjectId("p1".into()),
+        core.inner_sessions(),
+        core.sink(),
+    );
+    second.sandboxed(Some(SandboxReport {
+        name: "test".into(),
+        network: SandboxNetwork::Proxy,
+    }));
+    assert_eq!(
+        sessions(&core).await[1]
+            .sandbox
+            .as_ref()
+            .map(|s| s.name.as_str()),
+        Some("test")
+    );
+    let test = second.ask("Bash".into(), json!({"command": "npm test"}), None, None);
+    assert_eq!(test.await.decision, Decision::Allow);
+}

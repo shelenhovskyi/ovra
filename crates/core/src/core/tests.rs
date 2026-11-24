@@ -406,6 +406,10 @@ fn every_request_round_trips() {
         serde_json::json!({"method": "terminals.close", "params": {"id": "t1"}}),
         serde_json::json!({"method": "terminals.scrollback", "params": {"id": "t1"}}),
         serde_json::json!({"method": "agents.list", "params": {"project": "p1"}}),
+        serde_json::json!({"method": "policy.get", "params": {"project": "p1"}}),
+        serde_json::json!({"method": "policy.set", "params": {"project": "p1", "policy": {"rules": [
+            {"tool": "Bash", "match": "npm test", "action": "auto"},
+            {"tool": "WebFetch", "action": "deny"}]}}}),
         serde_json::json!({"method": "agents.start", "params": {"project": "p1", "agent": "claude", "mode": "direct", "prompt": "hi"}}),
         serde_json::json!({"method": "agents.send", "params": {"session": "s1", "text": "more"}}),
         serde_json::json!({"method": "agents.stop", "params": {"session": "s1"}}),

@@ -12,6 +12,7 @@ mod core;
 pub mod fakes;
 mod orchestration;
 pub mod path;
+mod policy;
 pub mod protocol;
 mod search;
 pub mod services;

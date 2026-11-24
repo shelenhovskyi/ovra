@@ -280,6 +280,7 @@ impl Core {
             Request::Review(r) => orchestration::review(self, r).await,
             Request::Orchestration(r) => orchestration::orchestration(self, r).await,
             Request::Search(r) => search::handle(self, r),
+            Request::Policy(r) => crate::policy::handle(self, r),
         }
     }
 

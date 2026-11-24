@@ -11,12 +11,14 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use crate::orchestration::direct::Direct;
+use crate::protocol::agents::SandboxReport;
 use crate::protocol::agents::{
     AgentMessage, AgentStatus, AgentsEvent, Billing, SessionId, SessionInfo, SessionMode,
 };
 use crate::protocol::permissions::{
     Decision, PermissionAnswer, PermissionId, PermissionReason, PermissionRequest, PermissionsEvent,
 };
+use crate::protocol::policy::PolicyAction;
 use crate::protocol::projects::ProjectId;
 use crate::protocol::{ErrorCode, ProtocolError};
 use crate::services::{
@@ -268,6 +270,12 @@ impl SessionView<'_> {
             self.save();
         }
     }
+    fn set_sandbox(&mut self, report: Option<SandboxReport>) {
+        if self.session.info.sandbox != report {
+            self.session.info.sandbox = report;
+            self.save();
+        }
+    }
     /// Records who pays; true if that changed.
     fn set_billing(&mut self, billing: Billing) -> bool {
         if self.session.info.billing.as_ref() == Some(&billing) {
@@ -390,23 +398,54 @@ impl AgentHost {
         }
     }
 
+    /// What the project's policy says about a call of this session, in its
+    /// folder and sandbox as the runtime reported them.
+    fn policy(&self, tool: &str, input: &serde_json::Value) -> Option<(PolicyAction, String)> {
+        let core = self.sessions.core()?;
+        let (cwd, sandbox) = self
+            .sessions
+            .find(&self.session, |s| {
+                (s.launch().map(|l| l.cwd), s.info().sandbox)
+            })
+            .ok()?;
+        let policy = core.project_store().policy(&self.project).ok()?;
+        crate::policy::decide(&policy, tool, input, &cwd?, sandbox.as_ref())
+    }
+
+    /// The runtime ran the session as `report` says (`None`: without a
+    /// sandbox). Runtimes report after every spawn; one that never does
+    /// counts as unsandboxed.
+    pub fn sandboxed(&self, report: Option<SandboxReport>) {
+        let _ = self.sessions.find(&self.session, |s| s.set_sandbox(report));
+    }
+
     /// The agent is about to run a tool: the input of a `PreToolUse` hook
     /// (`tool_use_id`, `tool_name`, `tool_input`). The runtime awaits this
     /// before the tool runs, so a direct session can snapshot the tree
     /// first (ADR 0005).
-    pub async fn before_tool(&self, hook_input: &serde_json::Value) {
+    ///
+    /// Returns why the project's policy refuses the call, if it does: the
+    /// hook also sees calls the user's own settings allow without asking,
+    /// which never reach [`Self::ask`].
+    pub async fn before_tool(&self, hook_input: &serde_json::Value) -> Option<String> {
         let field = |name: &str| hook_input.get(name).and_then(serde_json::Value::as_str);
         let (Some(id), Some(name)) = (field("tool_use_id"), field("tool_name")) else {
-            return;
+            return None;
         };
         let input = hook_input
             .get("tool_input")
             .cloned()
             .unwrap_or(serde_json::Value::Null);
+        if let Some((PolicyAction::Deny, rule)) = self.policy(name, &input) {
+            return Some(format!(
+                "The project's policy refuses this ({rule}). Ask the person if it is needed."
+            ));
+        }
         self.sessions
             .direct
             .tool_started(&self.session, id, name, &input)
             .await;
+        None
     }
 
     /// Finishes the bookkeeping for tool results reported with
@@ -482,6 +521,15 @@ impl AgentHost {
                 Some(core) => crate::orchestration::decide(&core, &self.session, name, &input),
                 None => PermissionAnswer::deny("Ovra is shutting down"),
             };
+        }
+        match self.policy(&tool, &input) {
+            Some((PolicyAction::Deny, rule)) => {
+                return PermissionAnswer::deny(format!(
+                    "The project's policy refuses this ({rule}). Ask the person if it is needed."
+                ));
+            }
+            Some((PolicyAction::Auto, _)) => return PermissionAnswer::allow(),
+            _ => {}
         }
         let tool_input = (tool.clone(), input.clone());
         let registered = self.sessions.find(&self.session, |s| {
