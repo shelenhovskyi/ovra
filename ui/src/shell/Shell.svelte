@@ -1,6 +1,7 @@
 <script lang="ts">
 import Editor from "../editor/Editor.svelte";
 import { persistOpenFiles } from "../editor/open-files.svelte";
+import Tabs from "../editor/Tabs.svelte";
 import Keybindings from "../keys/Keybindings.svelte";
 import type { CoreInfo } from "../lib/protocol";
 import type { Transport } from "../lib/transport";
@@ -41,11 +42,14 @@ $effect(() => {
   </header>
   <aside data-testid="sidebar"><Tree /></aside>
   <main data-testid="main">
-    {#if workspace.mode === "edit"}
-      <Editor />
-    {:else}
-      <Viewer />
-    {/if}
+    <Tabs />
+    <div class="view">
+      {#if workspace.mode === "edit"}
+        <Editor />
+      {:else}
+        <Viewer />
+      {/if}
+    </div>
   </main>
   <footer>
     {#if info}
@@ -105,7 +109,14 @@ $effect(() => {
   }
   main {
     grid-area: main;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
     overflow: hidden;
+  }
+  .view {
+    flex: 1;
+    min-height: 0;
   }
   footer {
     grid-area: footer;
