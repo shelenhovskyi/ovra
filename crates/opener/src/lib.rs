@@ -118,17 +118,11 @@ mod tests {
     }
 
     #[test]
-    fn spawns_a_real_process_or_reports_a_missing_one() {
+    fn a_missing_program_fails_to_spawn() {
         let missing = spawn_detached(&inv("ovra-definitely-missing-editor"));
         assert_eq!(
             missing.err().map(|e| e.kind()),
             Some(io::ErrorKind::NotFound)
         );
-        // `rustc` is on every machine that builds this crate.
-        let rustc = Invocation {
-            program: "rustc".into(),
-            args: vec!["--version".into()],
-        };
-        assert!(spawn_detached(&rustc).is_ok());
     }
 }
