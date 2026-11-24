@@ -61,15 +61,17 @@ core only builds profiles.
 
 **Profile.** The core builds it, because only the core knows the session:
 
-| Field       | Meaning                                                                                                                                                |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `work_dir`  | The session's folder: its worktree, or the project root in direct mode. Readable and writable, except `protected`.                                     |
-| `protected` | Paths under `work_dir`, and git folders of the session, that stay read-only (below).                                                                   |
-| `read`      | More folders the agent may read but not write. A worker's main repository git folder goes here: object store, refs, packed refs.                       |
-| `write`     | More folders the agent may write. A worker's own `<git dir>/worktrees/<name>` (its index and HEAD) goes here, except the protected files listed below. |
-| `network`   | `Blocked`, or `Proxy { address }` for the session's netproxy. `Open` exists only for platforms that cannot limit the network.                          |
+| Field      | Meaning                                                                                                                            |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `work_dir` | The session's folder: its worktree, or the project root in direct mode. Readable and writable, except the protected paths (below). |
+| `read`     | More folders the agent may read but not write. A worker's main repository git folder goes here: object store, refs, packed refs.   |
+| `write`    | More folders the agent may write.                                                                                                  |
+| `network`  | `Blocked`, or `Proxy { address }` for the session's netproxy. `Open` exists only for platforms that cannot limit the network.      |
 
-With the common object store read-only, a worker cannot commit. It does not
+The platform adds a worker's own `<git dir>/worktrees/<name>` (its index
+and HEAD) to `write`, except the protected files listed below; it finds that
+folder through the worktree's `.git` file. With the common object store
+read-only, a worker cannot commit. It does not
 need to, because Ovra applies its changes on approve.
 
 **What the platform adds.** Each platform crate documents what it adds:

@@ -2992,6 +2992,7 @@ dependencies = [
  "ovra-mcp-server",
  "ovra-opener",
  "ovra-pty",
+ "ovra-sandbox",
  "ovra-store",
  "ovra-transport",
  "ovra-worktree",
@@ -3024,6 +3025,7 @@ dependencies = [
  "ovra-mcp-server",
  "ovra-opener",
  "ovra-pty",
+ "ovra-sandbox",
  "ovra-store",
  "ovra-transport",
  "ovra-worktree",
@@ -3078,6 +3080,13 @@ dependencies = [
  "portable-pty",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "ovra-sandbox"
+version = "0.1.0"
+dependencies = [
+ "ovra-core",
 ]
 
 [[package]]

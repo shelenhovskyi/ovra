@@ -103,7 +103,7 @@ async fn main() -> anyhow::Result<()> {
 
 #[cfg(not(feature = "fake-agent"))]
 fn agents(_: &Args) -> Arc<dyn AgentRuntime> {
-    Arc::new(ClaudeCli::new(None))
+    Arc::new(ClaudeCli::new(None, ovra_sandbox::for_this_os()))
 }
 
 /// The fake agent asks to run a command and to edit a file, then waits for
@@ -113,7 +113,7 @@ fn agents(_: &Args) -> Arc<dyn AgentRuntime> {
 fn agents(args: &Args) -> Arc<dyn AgentRuntime> {
     use ovra_core::fakes::{ScriptedAgent, Step};
     if !args.fake_agent {
-        return Arc::new(ClaudeCli::new(None));
+        return Arc::new(ClaudeCli::new(None, ovra_sandbox::for_this_os()));
     }
     tracing::warn!("using the scripted fake agent");
     let reply = || {
@@ -171,7 +171,7 @@ fn agents(args: &Args) -> Arc<dyn AgentRuntime> {
         .writes_files(|path, text| std::fs::write(path, text));
     Arc::new(FakeAgent {
         script,
-        claude: ClaudeCli::new(None),
+        claude: ClaudeCli::new(None, ovra_sandbox::for_this_os()),
     })
 }
 

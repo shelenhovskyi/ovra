@@ -425,7 +425,10 @@ echo '{"type":"assistant","message":{"content":[{"type":"text","text":"hello fro
 echo '{"type":"result","subtype":"success","usage":{"input_tokens":1,"output_tokens":2}}'"#;
 
     async fn run(dir: &Dir, claude: &Path) -> (Core, broadcast::Receiver<Event>) {
-        let core = core_with(Arc::new(ClaudeCli::new(Some(claude.to_owned()))));
+        let core = core_with(Arc::new(ClaudeCli::new(
+            Some(claude.to_owned()),
+            unsandboxed(),
+        )));
         let rx = core.subscribe();
         start(&core, &dir.0.to_string_lossy(), "hi").await;
         (core, rx)
@@ -445,6 +448,7 @@ echo '{"type":"result","subtype":"success","usage":{"input_tokens":1,"output_tok
             text: "hello from sh".into(),
             parent: None
         }));
+        assert_eq!(sessions(&core).await[0].sandbox, None);
         call(
             &core,
             json!({"method": "agents.stop", "params": {"session": "s1"}}),
@@ -476,7 +480,10 @@ echo '{"type":"result","subtype":"success","usage":{"input_tokens":1,"output_tok
         use ovra_core::protocol::agents::SetupState;
         let dir = Dir::new("setup");
         let claude = dir.claude("2.1.400 (Claude Code)", "exit 0");
-        let core = core_with(Arc::new(ClaudeCli::new(Some(claude.clone()))));
+        let core = core_with(Arc::new(ClaudeCli::new(
+            Some(claude.clone()),
+            unsandboxed(),
+        )));
         let ready = setup(&core).await;
         assert_eq!(ready.state, SetupState::Ready);
         assert_eq!(ready.version.as_deref(), Some("2.1.400"));
@@ -511,7 +518,7 @@ echo '{"type":"result","subtype":"success","usage":{"input_tokens":1,"output_tok
     async fn a_trusted_project_loads_its_own_settings() {
         let dir = Dir::new("trusted");
         let claude = dir.claude("2.1.331", &format!("{ONE_TURN}\ncat > /dev/null"));
-        let core = core_with(Arc::new(ClaudeCli::new(Some(claude))));
+        let core = core_with(Arc::new(ClaudeCli::new(Some(claude), unsandboxed())));
         let mut rx = core.subscribe();
         start(&core, &dir.0.to_string_lossy(), "hi").await;
         wait_idle(&mut rx).await;
@@ -552,6 +559,75 @@ echo '{"type":"result","subtype":"success","usage":{"input_tokens":1,"output_tok
             args.contains("--setting-sources user,project,local --strict"),
             "{args}"
         );
+    }
+
+    fn unsandboxed() -> Arc<dyn ovra_core::services::Sandbox> {
+        Arc::new(ovra_core::fakes::FakeSandbox {
+            status: ovra_core::services::SandboxStatus::Unavailable {
+                reason: "none".into(),
+            },
+            fails: false,
+            wrapped: Default::default(),
+        })
+    }
+
+    async fn sessions(core: &Core) -> Vec<ovra_core::protocol::agents::SessionInfo> {
+        match call(
+            core,
+            json!({"method": "agents.list", "params": {"project": "p1"}}),
+        )
+        .await
+        {
+            Response::Agents(AgentsResponse::List(sessions)) => sessions,
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_sandboxed_session_runs_the_wrapped_line_and_reports_it() {
+        use ovra_core::fakes::FakeSandbox;
+        use ovra_core::protocol::agents::{SandboxNetwork, SandboxReport};
+        let dir = Dir::new("sandboxed");
+        let claude = dir.claude(
+            "2.1.331",
+            &format!("echo \"$OVRA_FAKE_SANDBOX\" > \"$0.sandbox\"\n{ONE_TURN}\ncat > /dev/null"),
+        );
+        let sandbox = Arc::new(FakeSandbox::available());
+        let core = core_with(Arc::new(ClaudeCli::new(Some(claude), sandbox.clone())));
+        let mut rx = core.subscribe();
+        start(&core, &dir.0.to_string_lossy(), "hi").await;
+        wait_idle(&mut rx).await;
+        assert_eq!(dir.read("claude.sandbox").trim(), "1");
+        let profiles = lock(&sandbox.wrapped).clone();
+        assert_eq!(profiles.len(), 1);
+        assert_eq!(profiles[0].work_dir, dir.0);
+        assert_eq!(
+            sessions(&core).await[0].sandbox,
+            Some(SandboxReport {
+                name: "fake".into(),
+                network: SandboxNetwork::Open
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn a_sandbox_that_cannot_wrap_fails_the_session_instead_of_running_it_bare() {
+        use ovra_core::fakes::FakeSandbox;
+        let dir = Dir::new("unwrappable");
+        let claude = dir.claude("2.1.331", &format!("{ONE_TURN}\ncat > /dev/null"));
+        let sandbox = FakeSandbox {
+            fails: true,
+            ..FakeSandbox::available()
+        };
+        let core = core_with(Arc::new(ClaudeCli::new(Some(claude), Arc::new(sandbox))));
+        let mut rx = core.subscribe();
+        start(&core, &dir.0.to_string_lossy(), "hi").await;
+        let AgentStatus::Failed { message } = end(&mut rx).await else {
+            panic!("the session did not fail");
+        };
+        assert!(message.contains("sandbox"), "{message}");
+        assert!(!dir.0.join("claude.args").exists());
+        assert_eq!(sessions(&core).await[0].sandbox, None);
     }
 
     #[tokio::test]

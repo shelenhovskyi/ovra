@@ -23,6 +23,7 @@ ovra-agent-runtime.workspace = true
 ovra-worktree.workspace = true
 ovra-mcp-server.workspace = true
 ovra-store.workspace = true
+ovra-sandbox.workspace = true
 ovra-transport.workspace = true
 tauri = { version = "2", features = [] }
 tauri-plugin-notification = "2"

@@ -75,9 +75,17 @@ stream-json pipe. Tasks, limits and review items are core state
 (`crates/core/src/orchestration`); git work is behind `Worktrees`
 (`crates/worktree`). See `docs/specs/orchestration.md`.
 
+## Security (phase 4)
+
+The agent runtime starts every `claude` process through a `Sandbox`, which
+wraps its command line in a platform sandbox; `crates/sandbox` holds what
+all platforms share and picks the one for this OS (none yet, so sessions
+run unsandboxed and say so). Project policies decide tool calls before the
+person is asked (`crates/core/src/policy.rs`). See `docs/specs/security.md`.
+
 ## Planned crates
 
-Added only when a phase needs them: `acp-client`, `ext-host`, `sandbox` (+ `-linux`,
-`-macos`, `-windows`), `netproxy`, `secrets`. Platform code sits behind traits
+Added only when a phase needs them: `acp-client`, `ext-host`, `sandbox-linux`,
+`-macos`, `-windows`, `netproxy`, `secrets`. Platform code sits behind traits
 with fake implementations so everything except the platform crates builds and
 tests on Linux.

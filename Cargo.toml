@@ -20,6 +20,7 @@ ovra-pty = { path = "crates/pty" }
 ovra-agent-runtime = { path = "crates/agent-runtime" }
 ovra-worktree = { path = "crates/worktree" }
 ovra-mcp-server = { path = "crates/mcp-server" }
+ovra-sandbox = { path = "crates/sandbox" }
 anyhow = "1"
 axum = { version = "0.8", features = ["ws"] }
 futures-util = "0.3"

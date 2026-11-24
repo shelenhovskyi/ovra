@@ -38,7 +38,7 @@ fn main() {
                 .worktrees_dir(data_dir.join("worktrees"))
                 .ide_tools(Arc::new(IdeServer::new()))
                 .terminals(Arc::new(Pty::new()))
-                .agents(Arc::new(ClaudeCli::new(None)))
+                .agents(Arc::new(ClaudeCli::new(None, ovra_sandbox::for_this_os())))
                 .build();
             let mut events = core.subscribe();
             // One window, one client.

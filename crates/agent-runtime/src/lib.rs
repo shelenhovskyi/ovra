@@ -13,10 +13,16 @@ mod wire;
 
 use std::path::PathBuf;
 use std::process::Stdio;
+use std::sync::Arc;
 
-use ovra_core::protocol::agents::{AgentSetup, AgentStatus, ProjectAgentConfig};
+use ovra_core::protocol::agents::{
+    AgentSetup, AgentStatus, ProjectAgentConfig, SandboxNetwork, SandboxReport,
+};
 use ovra_core::protocol::{ErrorCode, ProtocolError};
-use ovra_core::services::{AgentHost, AgentRuntime, AgentSpec, BoxFuture, Result, RunningAgent};
+use ovra_core::services::{
+    AgentHost, AgentRuntime, AgentSpec, BoxFuture, ProfileNetwork, Result, RunningAgent, Sandbox,
+    SandboxStatus,
+};
 use tokio::io::{AsyncReadExt, BufReader};
 use tokio::sync::mpsc;
 
@@ -31,11 +37,16 @@ const STDERR_TAIL: usize = 2000;
 pub struct ClaudeCli {
     /// Used when the user chose no path; `None` searches for `claude`.
     executable: Option<PathBuf>,
+    /// Wraps every session's process (`docs/specs/security.md`).
+    sandbox: Arc<dyn Sandbox>,
 }
 
 impl ClaudeCli {
-    pub fn new(executable: Option<PathBuf>) -> Self {
-        Self { executable }
+    pub fn new(executable: Option<PathBuf>, sandbox: Arc<dyn Sandbox>) -> Self {
+        Self {
+            executable,
+            sandbox,
+        }
     }
 
     /// Continues the Claude Code session `id` (its own session id, not
@@ -64,8 +75,9 @@ impl ClaudeCli {
         }
         let (commands, rx) = mpsc::unbounded_channel();
         let executable = spec.executable.clone().or_else(|| self.executable.clone());
+        let sandbox = self.sandbox.clone();
         tokio::spawn(async move {
-            let status = session(executable, spec, conversation, host.clone(), rx).await;
+            let status = session(executable, &*sandbox, spec, conversation, host.clone(), rx).await;
             host.status(status);
         });
         Ok(Box::new(ClaudeProcess(commands)))
@@ -98,6 +110,7 @@ impl AgentRuntime for ClaudeCli {
 /// Runs one session from version check to exit; returns its final state.
 async fn session(
     chosen: Option<PathBuf>,
+    sandbox: &dyn Sandbox,
     spec: AgentSpec,
     conversation: Conversation,
     host: AgentHost,
@@ -111,9 +124,30 @@ async fn session(
     if let Err(problem) = detect::check_version(&executable).await {
         return failed(problem.to_string());
     }
-    let child = launch::command(&executable)
-        .args(launch::args(&conversation, spec.trusted, spec.tools))
-        .current_dir(&spec.cwd)
+    let line = launch::line(
+        &executable,
+        launch::args(&conversation, spec.trusted, spec.tools),
+        &spec.cwd,
+    );
+    // An available sandbox that cannot wrap the session fails it: it never
+    // runs unsandboxed instead.
+    let line = match sandbox.status() {
+        SandboxStatus::Available { name } => match sandbox.wrap(&spec.sandbox, line) {
+            Ok(line) => {
+                host.sandboxed(Some(SandboxReport {
+                    name,
+                    network: network(&spec.sandbox.network),
+                }));
+                line
+            }
+            Err(e) => return failed(format!("the sandbox could not wrap claude: {}", e.message)),
+        },
+        SandboxStatus::Unavailable { .. } => {
+            host.sandboxed(None);
+            line
+        }
+    };
+    let child = launch::spawnable(&line)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -159,6 +193,14 @@ async fn session(
         (Ended::Closed { stopped: false }, Err(e)) => {
             failed(format!("claude did not exit cleanly: {e}"))
         }
+    }
+}
+
+fn network(network: &ProfileNetwork) -> SandboxNetwork {
+    match network {
+        ProfileNetwork::Blocked => SandboxNetwork::Blocked,
+        ProfileNetwork::Proxy { .. } => SandboxNetwork::Proxy,
+        ProfileNetwork::Open => SandboxNetwork::Open,
     }
 }
 

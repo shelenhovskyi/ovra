@@ -39,6 +39,8 @@ Before every push: `just test && just e2e && just lint` must pass.
 - `crates/agent-runtime` - `AgentRuntime`: Claude sessions through the
   user's installed `claude` CLI (ADR 0006).
 - `crates/worktree` - `Worktrees`: git worktrees, snapshots and review diffs.
+- `crates/sandbox` - `Sandbox`: the protected paths every platform shares and
+  the sandbox for this OS.
 - `crates/mcp-server` - `IdeTools`: Ovra's MCP tools for agents
   (`src/tools.json` changes need human review).
 - `crates/transport` - JSON frames and the WebSocket endpoint (`ws` feature).

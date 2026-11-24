@@ -37,7 +37,34 @@ pub(crate) fn command(executable: &Path) -> Command {
     command
 }
 
-use ovra_core::services::{AgentSpec, ToolRole};
+/// The session's command line before a sandbox wraps it: `args` for
+/// `executable` in `cwd`, minus [`NESTED_SESSION_VARS`].
+pub(crate) fn line(executable: &Path, args: Vec<OsString>, cwd: &Path) -> CommandLine {
+    CommandLine {
+        program: executable.to_path_buf(),
+        args,
+        env: NESTED_SESSION_VARS
+            .iter()
+            .map(|name| (OsString::from(name), None))
+            .collect(),
+        cwd: cwd.to_path_buf(),
+    }
+}
+
+/// The process a (possibly wrapped) command line starts.
+pub(crate) fn spawnable(line: &CommandLine) -> Command {
+    let mut command = Command::new(&line.program);
+    command.args(&line.args).current_dir(&line.cwd);
+    for (name, value) in &line.env {
+        match value {
+            Some(value) => command.env(name, value),
+            None => command.env_remove(name),
+        };
+    }
+    command
+}
+
+use ovra_core::services::{AgentSpec, CommandLine, ToolRole};
 
 /// Which Claude Code session the process works in.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -161,7 +188,27 @@ mod tests {
         );
     }
 
-    fn line(conversation: &Conversation, trusted: bool) -> String {
+    #[test]
+    fn a_wrapped_line_still_removes_the_nested_session_markers() {
+        let mut wrapped = line(Path::new("claude"), vec!["-p".into()], Path::new("/w"));
+        wrapped.program = "sandbox-run".into();
+        wrapped.args.insert(0, "claude".into());
+        wrapped
+            .env
+            .push(("HTTPS_PROXY".into(), Some("http://127.0.0.1:9".into())));
+        let command = spawnable(&wrapped);
+        let std = command.as_std();
+        assert_eq!(std.get_program(), "sandbox-run");
+        assert_eq!(std.get_args().collect::<Vec<_>>(), ["claude", "-p"]);
+        assert_eq!(std.get_current_dir(), Some(Path::new("/w")));
+        let envs: Vec<_> = std.get_envs().collect();
+        for name in NESTED_SESSION_VARS {
+            assert!(envs.contains(&(name.as_ref(), None)), "{name}");
+        }
+        assert!(envs.contains(&("HTTPS_PROXY".as_ref(), Some("http://127.0.0.1:9".as_ref()))));
+    }
+
+    fn line_text(conversation: &Conversation, trusted: bool) -> String {
         args(conversation, trusted, None)
             .iter()
             .map(|a| a.to_string_lossy().into_owned())
@@ -171,9 +218,9 @@ mod tests {
 
     #[test]
     fn the_command_line_keeps_the_safe_defaults() {
-        let new = line(&Conversation::New("0b8e…".into()), false);
+        let new = line_text(&Conversation::New("0b8e…".into()), false);
         insta::assert_snapshot!(new, @r#"-p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio --permission-mode default --setting-sources user --strict-mcp-config --mcp-config {"mcpServers":{}} --session-id 0b8e…"#);
-        let resume = line(
+        let resume = line_text(
             &Conversation::Resume {
                 id: "abc".into(),
                 fork: true,
@@ -221,7 +268,7 @@ mod tests {
 
     #[test]
     fn only_a_trusted_project_loads_its_own_settings() {
-        let trusted = line(&Conversation::New("id".into()), true);
+        let trusted = line_text(&Conversation::New("id".into()), true);
         assert!(trusted.contains("--setting-sources user,project,local --strict-mcp-config"));
         assert!(trusted.contains("--permission-prompt-tool stdio --permission-mode default"));
     }
@@ -238,6 +285,12 @@ mod tests {
             executable: None,
             trusted: false,
             resume: None,
+            sandbox: ovra_core::services::SandboxProfile {
+                work_dir: "/work".into(),
+                read: Vec::new(),
+                write: Vec::new(),
+                network: ovra_core::services::ProfileNetwork::Open,
+            },
         };
         let new = Conversation::for_spec(&spec);
         assert!(
