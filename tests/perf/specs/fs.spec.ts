@@ -44,19 +44,27 @@ test("git status and the initial walk", async () => {
   // Not watched yet, so every listing runs `git status` over the whole repository.
   await list("");
   report("fs.git_status_ms", await medianOf(3, () => list("")));
-  // Opening starts the watcher, which walks every directory that is not ignored.
+  // Opening starts the watcher and replies; the walk of every directory that
+  // is not ignored runs in the background and ends with fs.files_changed.
   // Opening the project that is already active is a no-op, so switch to a
   // tiny project in between: every timed open then starts a fresh watcher.
   const tinyRoot = mkdtempSync(join(tmpdir(), "ovra-perf-tiny-"));
   writeFileSync(join(tinyRoot, "a.txt"), "a\n");
   const tiny = (await client.call<{ id: string }>("projects.add", { root: tinyRoot })).id;
+  const indexed = (e: Event) => e.type === "fs.files_changed" && e.data?.project === project && e.data?.version === 1;
   const opens: number[] = [];
+  const indexing: number[] = [];
   for (let i = 0; i < 3; i++) {
     await client.call("projects.open", { id: tiny });
+    const done = client.nextEvent(indexed);
+    const started = performance.now();
     opens.push(await timed(() => client.call("projects.open", { id: project })));
+    await done;
+    indexing.push(performance.now() - started);
   }
   rmSync(tinyRoot, { recursive: true, force: true });
   report("fs.watch_start_ms", median(opens));
+  report("fs.index_ms", median(indexing));
 });
 
 test("listings of a watched project", async () => {
@@ -73,6 +81,10 @@ test("watcher latency", async () => {
   await client.call("projects.open", { id: project });
   await list("");
   const dir = "pkg03/mod04/part05";
+  // Like the tree: a directory is listed before changes in it are expected.
+  // Listing watches it at once, even while the background walk still runs.
+  await list(dir);
+  await list("docs");
 
   const created: number[] = [];
   for (let i = 0; i < 5; i++) {

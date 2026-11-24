@@ -23,7 +23,7 @@ use ovra_core::protocol::projects::ProjectId;
 use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::{BoxFuture, EventSink, FsService, Result};
 
-use crate::watch::{GitCache, Timing, Watch};
+use crate::watch::{SharedFiles, Timing, Watch};
 
 /// The real file service.
 #[derive(Debug, Default)]
@@ -53,12 +53,12 @@ impl FsIndex {
         self.watches.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// The watcher-maintained git status for `root`, if it is watched.
-    fn git_cache(&self, root: &PathBuf) -> Option<Arc<GitCache>> {
+    /// Something from the watch on `root`, if it is watched.
+    fn watched<T>(&self, root: &PathBuf, get: impl FnOnce(&Watch) -> T) -> Option<T> {
         self.watches()
             .values()
             .find(|w| &w.given_root == root)
-            .map(|w| Arc::clone(&w.git))
+            .map(get)
     }
 }
 
@@ -74,10 +74,19 @@ fn blocking<T: Send + 'static>(
 
 impl FsService for FsIndex {
     fn list_dir(&self, root: PathBuf, path: RelPath) -> BoxFuture<'_, Result<DirListing>> {
-        let cache = self.git_cache(&root);
+        let watched = self.watched(&root, |w| (Arc::clone(&w.git), Arc::clone(&w.dirs)));
         blocking(move || {
-            let status = match cache {
-                Some(cache) => cache.current(),
+            let status = match watched {
+                Some((cache, dirs)) => {
+                    // A listed directory is one the user looks at: watch it
+                    // now rather than when the background walk gets there.
+                    if let Ok((_, dir)) = resolve::existing(&root, &path)
+                        && dir.is_dir()
+                    {
+                        dirs.add(&dir);
+                    }
+                    cache.current()
+                }
                 None => git::Repo::discover(&resolve::root(&root)?).and_then(|r| r.status()),
             };
             listing::list(&root, &path, status.as_ref())
@@ -94,17 +103,13 @@ impl FsService for FsIndex {
         offset: u32,
         limit: u32,
     ) -> BoxFuture<'_, Result<FileList>> {
-        let watched = self
-            .watches()
-            .values()
-            .find(|w| w.given_root == root)
-            .map(|w| Arc::clone(&w.files));
-        blocking(move || match watched {
-            Some(files) => {
-                let files = files.lock();
+        let watched = self.watched(&root, |w| Arc::clone(&w.files));
+        blocking(move || match watched.as_deref().map(SharedFiles::lock) {
+            // Version 0: the watcher is still indexing.
+            Some(files) if files.version > 0 => {
                 Ok(file_list::page(&files.paths, offset, limit, files.version))
             }
-            None => {
+            _ => {
                 let files = file_list::scan(&resolve::root(&root)?);
                 Ok(file_list::page(&files, offset, limit, 0))
             }
