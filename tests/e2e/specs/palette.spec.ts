@@ -61,7 +61,9 @@ test("Mod+P goes to a file; the palette switches and closes projects", async ({ 
   await page.keyboard.type("switch project");
   await page.keyboard.press("Enter");
   await expect(page.getByRole("combobox", { name: "Switch to project" })).toBeFocused();
-  await page.keyboard.type(dir.split("/").pop() ?? "");
+  const name = dir.split("/").pop() ?? "";
+  await page.keyboard.type(name);
+  await expect(page.getByRole("option", { selected: true })).toContainText(name);
   await page.keyboard.press("Enter");
   await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();
 });
