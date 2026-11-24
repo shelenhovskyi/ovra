@@ -35,7 +35,7 @@ jobs:
           OVRA_GIT_TIMES: "1"
         run: |
           set +e
-          cargo nextest run -p ovra-worktree -E 'test(direct::reject_keeps)' --no-capture --test-threads 1 --slow-timeout 60s 2>&1 | grep -E "git-time|PASS|FAIL|SLOW" > times.txt || true
+          cargo nextest run -p ovra-worktree -E 'test(direct::reject_keeps)' --no-capture 2>&1 | grep -E "git-time|PASS|FAIL|SLOW" > times.txt || true
           grep -E "PASS|FAIL" times.txt
           awk '/git-time/ {n[$2]++; t[$2]+=$3; all+=$3; c++} END {for (k in n) printf "%-14s %3d calls %6d ms\n", k, n[k], t[k]; printf "total %d calls %d ms\n", c, all}' times.txt
       - name: Same with core.fsync=none
@@ -45,9 +45,9 @@ jobs:
           GIT_CONFIG_PARAMETERS: "'core.fsync'='none'"
         run: |
           set +e
-          cargo nextest run -p ovra-worktree -E 'test(direct::reject_keeps)' --no-capture --test-threads 1 --slow-timeout 60s 2>&1 | grep -E "git-time|PASS|FAIL" > times.txt || true
+          cargo nextest run -p ovra-worktree -E 'test(direct::reject_keeps)' --no-capture 2>&1 | grep -E "git-time|PASS|FAIL" > times.txt || true
           grep -E "PASS|FAIL" times.txt
           awk '/git-time/ {n[$2]++; t[$2]+=$3; all+=$3; c++} END {for (k in n) printf "%-14s %3d calls %6d ms\n", k, n[k], t[k]; printf "total %d calls %d ms\n", c, all}' times.txt
       - name: Whole crate in parallel
         shell: bash
-        run: cargo nextest run -p ovra-worktree --no-fail-fast --slow-timeout 60s 2>&1 | grep -E "PASS|FAIL|Summary" || true
+        run: cargo nextest run -p ovra-worktree --no-fail-fast 2>&1 | grep -E "PASS|FAIL|Summary" || true
