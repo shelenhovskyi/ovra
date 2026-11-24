@@ -14,7 +14,7 @@ const { transport, workspace } = useOvra();
       {transport}
       project={workspace.project.id}
       openPath={workspace.openPath}
-      onopen={(path) => workspace.openFile(path)}
+      onopen={(path) => workspace.openFile(path, workspace.mode)}
     />
   {/key}
 {:else}
