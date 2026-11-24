@@ -168,6 +168,11 @@ expression: samples
     },
     {
       "data": {
+        "api_key_in_env": true,
+        "billing": {
+          "kind": "cloud",
+          "provider": "bedrock"
+        },
         "executable": "/usr/local/bin/claude",
         "path": null,
         "state": {

@@ -25,7 +25,14 @@ export class FakeAgentCore implements Transport {
   /** What `projects.list` answers. */
   projects: Project[] = [{ id: "p1", name: "demo", root: "/demo", last_opened_ms: null, trusted: false }];
   /** What `agents.setup` answers; `agents.set_path` records the path in it. */
-  setup: AgentSetup = { path: null, executable: "/usr/bin/claude", version: "2.1.331", state: { state: "ready" } };
+  setup: AgentSetup = {
+    path: null,
+    executable: "/usr/bin/claude",
+    version: "2.1.331",
+    state: { state: "ready" },
+    billing: { kind: "subscription" },
+    api_key_in_env: false,
+  };
   /** What `agents.project_config` reports as current. */
   config: ProjectAgentConfig = { fingerprint: "f0", items: [] };
   /** What the user trusted, per project. */

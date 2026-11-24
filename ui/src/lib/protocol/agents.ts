@@ -55,7 +55,14 @@ export type AgentSetup = {
   executable: string | null;
   version: string | null;
   state: SetupState;
+  /** Where usage is billed, when the agent says. */
+  billing: Billing | null;
+  /** `ANTHROPIC_API_KEY` is set for agents: Claude Code bills that key instead of a subscription. */
+  api_key_in_env: boolean;
 };
+
+/** Who pays for an agent's usage. Closed set: the UI explains each one. */
+export type Billing = { kind: "subscription" } | { kind: "api_key" } | { kind: "cloud"; provider: string };
 
 /** Closed set: the UI explains each one. */
 export type SetupState =

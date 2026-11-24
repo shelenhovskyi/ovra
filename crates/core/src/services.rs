@@ -193,6 +193,8 @@ pub trait AgentRuntime: Send + Sync + Debug {
                 executable: None,
                 version: None,
                 state: SetupState::Ready,
+                billing: None,
+                api_key_in_env: false,
             }
         })
     }
@@ -494,6 +496,8 @@ impl AgentRuntime for Unavailable {
                 state: SetupState::Broken {
                     message: format!("{} is not available in this build", self.0),
                 },
+                billing: None,
+                api_key_in_env: false,
             }
         })
     }

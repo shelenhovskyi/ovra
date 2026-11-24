@@ -125,6 +125,25 @@ pub struct AgentSetup {
     /// Its version, if it could be read.
     pub version: Option<String>,
     pub state: SetupState,
+    /// Where usage is billed, when the agent says.
+    #[serde(default)]
+    pub billing: Option<Billing>,
+    /// `ANTHROPIC_API_KEY` is set for agents, which makes Claude Code bill
+    /// that key instead of a subscription.
+    #[serde(default)]
+    pub api_key_in_env: bool,
+}
+
+/// Who pays for an agent's usage. Closed set: the UI explains each one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Billing {
+    /// The user's Claude plan.
+    Subscription,
+    /// An Anthropic API key.
+    ApiKey,
+    /// A cloud provider's account, such as `bedrock` or `vertex`.
+    Cloud { provider: String },
 }
 
 /// What stands between the user and a working agent. Closed set: the UI

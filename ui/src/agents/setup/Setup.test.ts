@@ -40,7 +40,15 @@ const button = (root: HTMLElement | null, label: string) =>
   [...(root?.querySelectorAll("button") ?? [])].find((b) => b.textContent?.trim() === label);
 
 function setup(state: AgentSetup["state"], extra: Partial<AgentSetup> = {}): AgentSetup {
-  return { path: null, executable: "/usr/bin/claude", version: "2.1.331", state, ...extra };
+  return {
+    path: null,
+    executable: "/usr/bin/claude",
+    version: "2.1.331",
+    state,
+    billing: { kind: "subscription" },
+    api_key_in_env: false,
+    ...extra,
+  };
 }
 
 describe("setup advice", () => {

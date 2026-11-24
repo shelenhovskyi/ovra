@@ -4,8 +4,8 @@ use std::sync::Arc;
 use super::*;
 use crate::fakes::{MemoryFs, MemoryProjects, RecordingOpener};
 use crate::protocol::agents::{
-    AgentMessage, AgentSetup, AgentStatus, AgentsEvent, AgentsResponse, ConfigItem, ConfigKind,
-    ProjectAgentConfig, ProjectConfigReview, SessionId, SetupState,
+    AgentMessage, AgentSetup, AgentStatus, AgentsEvent, AgentsResponse, Billing, ConfigItem,
+    ConfigKind, ProjectAgentConfig, ProjectConfigReview, SessionId, SetupState,
 };
 use crate::protocol::fs::{FileBody, FsEvent};
 use crate::protocol::info::InfoEvent;
@@ -310,6 +310,8 @@ fn wire_format_is_stable() {
                 executable: Some("/usr/local/bin/claude".into()),
                 version: Some("2.1.331".into()),
                 state: SetupState::Outdated { minimum: "2.1.331".into() },
+                billing: Some(Billing::Cloud { provider: "bedrock".into() }),
+                api_key_in_env: true,
             })),
             Response::Agents(AgentsResponse::ProjectConfig(ProjectConfigReview {
                 current: ProjectAgentConfig {
