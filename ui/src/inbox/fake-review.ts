@@ -26,6 +26,7 @@ export const review = (id: string, extra: Partial<ReviewItem> = {}): ReviewItem 
   can_undo: false,
   not_copied: [],
   can_undo_take: false,
+  fingerprint: null,
   ...extra,
 });
 

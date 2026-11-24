@@ -39,13 +39,21 @@ export type ReviewItem = {
   not_copied: string[];
   /** The last `review.take` can be undone (`review.undo_take`). */
   can_undo_take: boolean;
+  /**
+   * An open worker item's files as listed here; `review.approve` sends it
+   * back and is refused if the worker's files changed since. Null otherwise.
+   */
+  fingerprint: string | null;
 };
 
 export type ReviewRequest =
   | { method: "review.list"; params: { project: ProjectId } }
   | { method: "review.diff"; params: { id: ReviewId; path: string } }
-  /** With `commit`, commits the agent's files with that message. */
-  | { method: "review.approve"; params: { id: ReviewId; commit: string | null } }
+  /**
+   * With `commit`, commits the agent's files with that message. A worker's
+   * item needs the `fingerprint` the person reviewed.
+   */
+  | { method: "review.approve"; params: { id: ReviewId; commit: string | null; fingerprint?: string | null } }
   | { method: "review.reject"; params: { id: ReviewId } }
   /** Puts back what the last reject reverted; files changed since come back as conflicts. */
   | { method: "review.undo_reject"; params: { id: ReviewId } }

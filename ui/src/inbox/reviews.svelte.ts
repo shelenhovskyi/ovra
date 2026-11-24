@@ -98,10 +98,16 @@ export class ReviewInbox {
     return data.patch;
   }
 
-  /** Keeps the changes; with `commit`, the core commits the agent's files with that message. */
+  /**
+   * Keeps the changes; with `commit`, the core commits the agent's files with
+   * that message. A worker's item goes with the fingerprint of the files shown
+   * here, so the core refuses if they changed since the person looked.
+   */
   approve(id: ReviewId, commit: string | null): Promise<boolean> {
+    const fingerprint = this.items.find((i) => i.id === id)?.fingerprint ?? null;
     return this.act(id, async () => {
-      const { data } = await this.transport.call({ method: "review.approve", params: { id, commit } });
+      const params = fingerprint ? { id, commit, fingerprint } : { id, commit };
+      const { data } = await this.transport.call({ method: "review.approve", params });
       this.settle("approved", data, commit);
     });
   }
@@ -162,6 +168,10 @@ export class ReviewInbox {
       return true;
     } catch (err) {
       this.error = message(err);
+      // A refusal often means the item moved on (a worker's files changed
+      // since the person looked): show it as it is now, diffs included.
+      this.changes++;
+      void this.reload();
       return false;
     } finally {
       this.busy = this.busy.filter((b) => b !== id);
