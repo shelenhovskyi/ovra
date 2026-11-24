@@ -1,126 +1,50 @@
-name: CI
-
-# Every push to main gets a complete run on all jobs; only PR runs cancel
-# each other.
+name: Diag (worktree timings on Windows)
 on:
-  pull_request:
-  push:
-    branches: [main]
   workflow_dispatch:
-
-concurrency:
-  group: ${{ github.event_name == 'pull_request' && format('ci-{0}', github.ref) || format('ci-{0}', github.run_id) }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
 permissions:
   contents: read
-
-env:
-  CARGO_TERM_COLOR: always
-  CARGO_INCREMENTAL: 0
-  RUSTFLAGS: -D warnings
-
 jobs:
-  checks:
-    name: Checks, tests, e2e (Linux)
-    runs-on: ubuntu-24.04
+  diag:
+    runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca
         with:
-          components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
-        with:
-          tool: just,cargo-nextest,cargo-deny,cargo-machete
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: 22
-          cache: pnpm
-      - name: System packages
-        run: |
-          sudo apt-get update -q
-          sudo apt-get install -y -q libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev ripgrep
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @ovra/ui build
-      - run: just lint
-      - run: just test
-      - run: pnpm --filter @ovra/e2e exec playwright install --with-deps chromium
-      - run: just e2e
-
-  perf:
-    name: Speed gate (100k-file repo)
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false
-      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
-        with:
-          tool: just
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @ovra/perf exec playwright install --with-deps chromium
-      - run: just perf
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        if: always()
-        with:
-          name: perf-results
-          path: tests/perf/test-results/
-          retention-days: 30
-
-  app:
-    name: Desktop app (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-24.04, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    # A hanging test must not hold a runner for hours.
-    timeout-minutes: 40
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false
-      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+          toolchain: stable
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
         with:
           tool: cargo-nextest
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: 22
-          cache: pnpm
-      - name: System packages (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update -q
-          sudo apt-get install -y -q libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev
-      - run: pnpm install --frozen-lockfile
-      - name: Build app (UI + Tauri, no installers)
-        run: pnpm exec tauri build --no-bundle
-      # nextest applies the per-test kill from .config/nextest.toml.
-      - name: Core tests
-        timeout-minutes: 15
+      - name: Spawn cost
         shell: bash
         run: |
-          cargo nextest run --workspace --exclude ovra-app --all-features --no-fail-fast --no-tests=pass
-          cargo test --workspace --exclude ovra-app --all-features --doc
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: ovra-${{ matrix.os }}
-          path: |
-            target/release/ovra
-            target/release/ovra.exe
-          if-no-files-found: error
-          retention-days: 7
+          which -a git; git --exec-path; git version
+          REAL="$(dirname "$(dirname "$(git --exec-path)")")/bin/git.exe"; ls -la "$REAL"
+          time (for i in $(seq 40); do git --version >/dev/null; done)
+          time (for i in $(seq 40); do "$REAL" --version >/dev/null; done)
+          git config --show-origin --list | grep -iE "fsync|fscache|preload|untracked|symlink|autocrlf" || true
+      - name: Build tests
+        run: cargo nextest run -p ovra-worktree --no-run
+      - name: Direct tests, one at a time
+        shell: bash
+        env:
+          OVRA_GIT_TIMES: "1"
+        run: |
+          cargo nextest run -p ovra-worktree -E 'test(direct::reject_keeps)' --no-capture -j 1 --slow-timeout 60s 2>&1 | grep -E "git-time|PASS|FAIL|SLOW" > times.txt || true
+          grep -E "PASS|FAIL" times.txt
+          awk '/git-time/ {n[$2]++; t[$2]+=$3; all+=$3; c++} END {for (k in n) printf "%-14s %3d calls %6d ms\n", k, n[k], t[k]; printf "total %d calls %d ms\n", c, all}' times.txt
+      - name: Same with core.fsync=none
+        shell: bash
+        env:
+          OVRA_GIT_TIMES: "1"
+          GIT_CONFIG_PARAMETERS: "'core.fsync'='none'"
+        run: |
+          cargo nextest run -p ovra-worktree -E 'test(direct::reject_keeps)' --no-capture -j 1 --slow-timeout 60s 2>&1 | grep -E "git-time|PASS|FAIL" > times.txt || true
+          grep -E "PASS|FAIL" times.txt
+          awk '/git-time/ {n[$2]++; t[$2]+=$3; all+=$3; c++} END {for (k in n) printf "%-14s %3d calls %6d ms\n", k, n[k], t[k]; printf "total %d calls %d ms\n", c, all}' times.txt
+      - name: Whole crate in parallel
+        shell: bash
+        run: cargo nextest run -p ovra-worktree --no-fail-fast --slow-timeout 60s 2>&1 | grep -E "PASS|FAIL|Summary" || true
