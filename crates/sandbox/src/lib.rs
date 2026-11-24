@@ -5,6 +5,7 @@
 //! Contract: `ovra_core::services::Sandbox`; fake:
 //! `ovra_core::fakes::FakeSandbox`.
 
+use std::path::Path;
 use std::sync::Arc;
 
 use ovra_core::services::{CommandLine, Result, Sandbox, SandboxProfile, SandboxStatus};
@@ -26,9 +27,11 @@ pub const PROTECTED_IN_WORK_DIR: [&str; 9] = [
 
 /// Paths under the repository's git folder that stay read-only. The folder
 /// `core.hooksPath` names is protected too; the platform reads it.
-pub const PROTECTED_IN_GIT_DIR: [&str; 6] = [
+/// `config.worktree` is read when `extensions.worktreeConfig` is on.
+pub const PROTECTED_IN_GIT_DIR: [&str; 7] = [
     "hooks",
     "config",
+    "config.worktree",
     "modules/*/hooks",
     "modules/*/config",
     "refs/ovra",
@@ -40,10 +43,34 @@ pub const PROTECTED_IN_GIT_DIR: [&str; 6] = [
 /// worktree's `.git` file is protected as well.
 pub const PROTECTED_IN_WORKTREE_GIT_DIR: [&str; 3] = ["commondir", "gitdir", "config.worktree"];
 
-/// The sandbox for this OS. No platform crate exists yet, so every session
-/// runs unsandboxed, as it did before phase 4, and says so.
-pub fn for_this_os() -> Arc<dyn Sandbox> {
-    Arc::new(Unsandboxed)
+/// The sandbox for this OS, hiding Ovra's `data_dir` from agents. Where no
+/// platform crate exists (macOS until 4.B, Windows until 5.A), sessions run
+/// unsandboxed, as they did before phase 4, and say so. On Linux the
+/// sandbox tries itself once here and reports why if it cannot work.
+pub fn for_this_os(data_dir: &Path) -> Arc<dyn Sandbox> {
+    #[cfg(target_os = "linux")]
+    {
+        let protected = ovra_sandbox_linux::Protected {
+            work_dir: &PROTECTED_IN_WORK_DIR,
+            worktree_git_dir: &PROTECTED_IN_WORKTREE_GIT_DIR,
+        };
+        match ovra_sandbox_linux::Setup::from_env(data_dir, protected) {
+            Some(setup) => Arc::new(ovra_sandbox_linux::Bubblewrap::detect(setup)),
+            None => Arc::new(Unsandboxed),
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = data_dir;
+        Arc::new(Unsandboxed)
+    }
+}
+
+/// Call first in `main`: if this process was started as the sandbox's
+/// helper inside a sandbox, does that job and never returns.
+pub fn helper_if_asked() {
+    #[cfg(target_os = "linux")]
+    ovra_sandbox_linux::helper_if_asked();
 }
 
 /// No sandbox: [`SandboxStatus::Unavailable`], and the line runs as it is.
@@ -69,8 +96,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn without_a_platform_sessions_run_unsandboxed_and_say_so() {
-        let sandbox = for_this_os();
+    fn unsandboxed_says_so_and_runs_the_line_as_it_is() {
+        let sandbox = Unsandboxed;
         assert!(matches!(
             sandbox.status(),
             SandboxStatus::Unavailable { .. }

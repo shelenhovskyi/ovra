@@ -79,10 +79,14 @@ need to, because Ovra applies its changes on approve.
 - **The agent's own state.**
   - `~/.claude.json` and `~/.claude` stay readable, because `claude` needs
     its login and settings.
-  - Writable: only the session data `claude` writes, such as `projects/`,
-    `todos/`, `shell-snapshots/` and `statsig/`, and
+  - Writable: only the session data `claude` writes, and
     `~/.claude/.credentials.json`, which `claude` rewrites when it refreshes
-    its login (part of the known limit below).
+    its login (part of the known limit below). The user's own sessions read
+    that data too (shell snapshots are sourced before each Bash call), so a
+    platform keeps it per session where it can: on Linux, `todos/`,
+    `shell-snapshots/`, `session-env/`, `ide/`, `statsig/` and the like are
+    empty private folders, and only this project's folder under
+    `projects/` (the transcripts a resume reads) is kept on disk.
   - Read-only: `settings*.json`, `CLAUDE.md`, `agents/`, `commands/`,
     `skills/`, `hooks/` and `plugins/`. An agent must not plant code that
     runs later outside the sandbox.
@@ -126,7 +130,10 @@ need to, because Ovra applies its changes on approve.
 
 - Git:
   - `.git/hooks`, `.git/config`, `.git/modules/*/hooks` and
-    `.git/modules/*/config`;
+    `.git/modules/*/config`. On Linux the whole `.git` folder of a direct
+    session is read-only, and every nested repository's: git also reads
+    `commondir`, `packed-refs` and new `modules/*` folders, and the agent
+    has nothing to commit (Ovra reviews its files);
   - the folder `core.hooksPath` names, for example `.husky/`;
   - `refs/ovra/` and its reflog;
   - for a worker, its worktree's `.git` file, plus `commondir`, `gitdir` and
@@ -138,7 +145,9 @@ need to, because Ovra applies its changes on approve.
   and `.envrc`.
 
 An agent that needs one of these changed says so in its summary, and the
-person makes the change.
+person makes the change. A protected path that is a link cannot be kept
+read-only (its name can be replaced), so on Linux the session does not
+start and says which link to replace.
 
 Not every platform can protect a path that does not exist yet, or make a
 subtree read-only. The backstop is outside the sandbox:

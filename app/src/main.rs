@@ -23,6 +23,8 @@ async fn ovra_call(client: tauri::State<'_, Client>, frame: String) -> Result<St
 }
 
 fn main() {
+    // Inside an agent's sandbox this process is the sandbox's helper.
+    ovra_sandbox::helper_if_asked();
     let result = tauri::Builder::default()
         // Provides window.Notification to the UI for system notifications.
         .plugin(tauri_plugin_notification::init())
@@ -41,7 +43,10 @@ fn main() {
                 .ide_tools(Arc::new(IdeServer::new()))
                 .terminals(Arc::new(Pty::new()))
                 .netproxy(Arc::new(ovra_netproxy::NetProxies::from_env()?))
-                .agents(Arc::new(ClaudeCli::new(None, ovra_sandbox::for_this_os())))
+                .agents(Arc::new(ClaudeCli::new(
+                    None,
+                    ovra_sandbox::for_this_os(&data_dir),
+                )))
                 .secrets(Arc::new(KeychainSecrets::new(&data_dir)))
                 .build();
             let mut events = core.subscribe();

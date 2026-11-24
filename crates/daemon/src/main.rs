@@ -41,8 +41,14 @@ struct Args {
     fake_agent: bool,
 }
 
+fn main() -> anyhow::Result<()> {
+    // Inside an agent's sandbox this process is the sandbox's helper.
+    ovra_sandbox::helper_if_asked();
+    serve()
+}
+
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn serve() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
@@ -106,8 +112,11 @@ async fn main() -> anyhow::Result<()> {
 }
 
 #[cfg(not(feature = "fake-agent"))]
-fn agents(_: &Args) -> Arc<dyn AgentRuntime> {
-    Arc::new(ClaudeCli::new(None, ovra_sandbox::for_this_os()))
+fn agents(args: &Args) -> Arc<dyn AgentRuntime> {
+    Arc::new(ClaudeCli::new(
+        None,
+        ovra_sandbox::for_this_os(&args.data_dir),
+    ))
 }
 
 /// The fake agent asks to run a command and to edit a file, then waits for
@@ -117,7 +126,10 @@ fn agents(_: &Args) -> Arc<dyn AgentRuntime> {
 fn agents(args: &Args) -> Arc<dyn AgentRuntime> {
     use ovra_core::fakes::{ScriptedAgent, Step};
     if !args.fake_agent {
-        return Arc::new(ClaudeCli::new(None, ovra_sandbox::for_this_os()));
+        return Arc::new(ClaudeCli::new(
+            None,
+            ovra_sandbox::for_this_os(&args.data_dir),
+        ));
     }
     tracing::warn!("using the scripted fake agent");
     let reply = || {
@@ -175,7 +187,7 @@ fn agents(args: &Args) -> Arc<dyn AgentRuntime> {
         .writes_files(|path, text| std::fs::write(path, text));
     Arc::new(FakeAgent {
         script,
-        claude: ClaudeCli::new(None, ovra_sandbox::for_this_os()),
+        claude: ClaudeCli::new(None, ovra_sandbox::for_this_os(&args.data_dir)),
     })
 }
 

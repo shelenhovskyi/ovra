@@ -43,6 +43,8 @@ Before every push: `just test && just e2e && just lint` must pass.
   allowlist, the sandbox's only way out.
 - `crates/sandbox` - `Sandbox`: the protected paths every platform shares and
   the sandbox for this OS.
+- `crates/sandbox-linux` - the Linux sandbox: bubblewrap, plus a helper (the
+  daemon or app itself, `helper_if_asked`) that applies Landlock and seccomp.
 - `crates/mcp-server` - `IdeTools`: Ovra's MCP tools for agents
   (`src/tools.json` changes need human review).
 - `crates/transport` - JSON frames and the WebSocket endpoint (`ws` feature).
