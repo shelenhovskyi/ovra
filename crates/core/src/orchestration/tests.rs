@@ -1342,3 +1342,35 @@ async fn a_restart_alone_does_not_end_a_task_or_remove_its_worktrees() {
     .await;
     assert!(wt.has(&worker.worktree));
 }
+
+#[tokio::test]
+async fn a_coordinator_that_exits_unasked_leaves_its_task_running() {
+    // Turn 1 is what a shutdown looks like: the process goes, nobody asked.
+    let f = fx(vec![vec![Step::Say("on it")], vec![Step::Fail("killed")]]).await;
+    let mut rx = f.core.subscribe();
+    start_task(&f.core, 3).await;
+    until(&mut rx, "s1", AgentStatus::Idle).await;
+    let boss = caller("s1", ToolRole::Coordinator);
+    let worker = f.core.spawn_agent(&boss, "w", "x").await;
+    let worker = worker.unwrap_or_else(|e| panic!("{e}"));
+    until(&mut rx, "s2", AgentStatus::Idle).await;
+    // The note that the worker stopped wakes the coordinator, which fails.
+    assert!(f.core.stop_agent(&boss, &worker.session).is_ok());
+    loop {
+        if let Some(Event::Agents(AgentsEvent::Status {
+            session,
+            status: AgentStatus::Failed { .. },
+            ..
+        })) = Core::next_event(&mut rx).await
+            && session.0 == "s1"
+        {
+            break;
+        }
+    }
+    ok(
+        &f.core,
+        json!({"method": "orchestration.list", "params": {"project": "p1"}}),
+    )
+    .await;
+    assert!(f.wt.has(&worker.worktree), "the task may be resumed");
+}

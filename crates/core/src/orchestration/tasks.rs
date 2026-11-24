@@ -36,7 +36,7 @@ pub(super) struct Entry {
     /// task ended.
     #[serde(default)]
     cleaned: Vec<SessionId>,
-    /// The coordinator ended while Ovra ran; only then are worktrees removed.
+    /// Someone stopped the coordinator; only then are worktrees removed.
     #[serde(default)]
     ended: bool,
 }
@@ -520,8 +520,8 @@ pub(crate) fn unless_cleaned<T>(
     Ok(restarted)
 }
 
-/// Keeps whether `coordinator`'s task has ended: the coordinator ended while
-/// Ovra ran (a restart alone does not end a task), or it runs again.
+/// Keeps whether `coordinator`'s task has ended: someone stopped the
+/// coordinator (not a crash, a shutdown or a restart), or it runs again.
 pub(super) fn set_ended(core: &Core, coordinator: &SessionId, ended: bool) {
     let state = core.orchestration_state();
     let mut guard = state.lock();

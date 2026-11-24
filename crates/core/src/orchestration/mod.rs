@@ -111,7 +111,13 @@ pub(crate) fn on_status(core: &Core, session: &SessionId, status: &AgentStatus) 
         }
         return;
     }
-    if status.is_ended() {
+    // Only a stop someone asked for ends a task: a process that exits on
+    // its own, or because Ovra itself shuts down, may be resumed.
+    let asked_to_stop = core
+        .sessions()
+        .find(session, |s| s.stopping())
+        .unwrap_or(false);
+    if status.is_ended() && asked_to_stop {
         tasks::set_ended(core, session, true);
     }
     if status.is_ended() && state.lock().holds.remove(session) {
