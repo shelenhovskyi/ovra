@@ -645,7 +645,11 @@ impl AgentHost {
                 let (tool, input) = &tool_input;
                 return self.decided(tool, input, answer, DecidedBy::SessionEnded);
             }
-            Err(_) => return PermissionAnswer::deny("the session ended"),
+            Err(_) => {
+                let (tool, input) = &tool_input;
+                let answer = PermissionAnswer::deny("the session ended");
+                return self.decided(tool, input, answer, DecidedBy::SessionEnded);
+            }
         };
         let mut waiting = Waiting {
             host: self,

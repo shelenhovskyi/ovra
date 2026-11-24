@@ -121,8 +121,8 @@ impl Store {
 }
 
 /// Creates `file` readable and writable by the user alone (0600), or
-/// narrows an existing one to that. SQLite gives its `-wal` and `-shm`
-/// files the database file's mode.
+/// narrows an existing one and its `-wal` and `-shm` files to that. SQLite
+/// gives new journal files the database file's mode.
 #[cfg(unix)]
 fn owner_only(file: &Path) -> Result<()> {
     use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
@@ -133,7 +133,18 @@ fn owner_only(file: &Path) -> Result<()> {
         .mode(0o600)
         .open(file)
         .map_err(failed)?;
-    std::fs::set_permissions(file, std::fs::Permissions::from_mode(0o600)).map_err(failed)
+    std::fs::set_permissions(file, std::fs::Permissions::from_mode(0o600)).map_err(failed)?;
+    // Journal files left by an earlier run keep the mode they were made with.
+    for suffix in ["-wal", "-shm"] {
+        let mut journal = file.as_os_str().to_owned();
+        journal.push(suffix);
+        let journal = Path::new(&journal);
+        if journal.exists() {
+            std::fs::set_permissions(journal, std::fs::Permissions::from_mode(0o600))
+                .map_err(failed)?;
+        }
+    }
+    Ok(())
 }
 
 /// Windows: the file inherits the ACL of the user's own data folder.

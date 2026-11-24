@@ -195,6 +195,28 @@ mod inputs {
             assert!(!kept.contains(gone), "{gone} in {kept}");
         }
         assert!(kept.contains(r#""accept":"json""#), "{kept}");
+        // Quoted names and values, as in code, httpie and JSON bodies.
+        for command in [
+            r#"python -c 'requests.get(u, headers={"Authorization": "Bearer abc123"})'"#,
+            r#"http GET u Authorization:"Bearer abc123""#,
+            r#"curl -H 'Cookie: "abc123"' u"#,
+            r#"curl -H "authorization = Basic abc123" u"#,
+        ] {
+            let kept = text("Bash", json!({ "command": command }));
+            assert!(!kept.contains("abc123"), "{kept}");
+            assert!(kept.contains(REDACTED), "{kept}");
+        }
+        // A word that only contains a name is left alone.
+        let kept = text("Bash", json!({"command": "rm -rf cookies: none"}));
+        assert!(kept.contains("cookies: none"), "{kept}");
+        let kept = text(
+            "Task",
+            json!({"accessToken": "a1", "x-api-key": "a2", "privateKey": "a3", "max_tokens": 5}),
+        );
+        for gone in ["a1", "a2", "a3"] {
+            assert!(!kept.contains(gone), "{gone} in {kept}");
+        }
+        assert!(kept.contains(r#""max_tokens":5"#), "{kept}");
     }
 
     #[test]
