@@ -8,6 +8,8 @@
 //! the real index and the stash only change in `commit`.
 
 mod diff;
+#[cfg(test)]
+mod direct;
 mod files;
 mod git;
 #[cfg(test)]
