@@ -179,8 +179,9 @@ const canReply = $derived(current !== null && current.status.state === "idle");
       ></textarea>
       <div class="row">
         <span class="hint" id="agent-prompt-hint"
-          >Works in the project folder. {modEnter} starts. Start task lets Claude split the work among up to 3 workers,
-          each in its own worktree, for you to review.</span
+          ><strong>Start</strong> ({modEnter}): one session works in the project folder.
+          <strong>Start task</strong>: Claude plans the work and hands it to up to 3 workers, each in its own copy of
+          the repository (a git worktree); their changes wait for you in Reviews.</span
         >
         <button type="button" disabled={busy || !prompt.trim()} onclick={() => void startTask()}>Start task</button>
         <button type="submit" disabled={busy || !prompt.trim()}>Start</button>
@@ -345,6 +346,8 @@ const canReply = $derived(current !== null && current.status.state === "idle");
     outline-offset: 1px;
   }
   .sessions {
+    /* In the panel's flex column an overflowing box would shrink to nothing. */
+    flex: none;
     list-style: none;
     margin: 0 0 8px;
     padding: 0 12px;

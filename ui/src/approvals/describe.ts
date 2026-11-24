@@ -36,6 +36,8 @@ export function describeTool(tool: string, input: unknown): ToolSummary {
       return text === undefined ? [] : [{ label: key.replace(/_/g, " "), text }];
     });
 
+  const ide = tool.startsWith("mcp__ovra__") ? describeIdeTool(tool.slice("mcp__ovra__".length), input) : null;
+  if (ide) return { action: ide, details: pick("task", "text", "summary", "path") };
   if (tool === "Bash" && command !== undefined) {
     return { action: `Run ${oneLine(command)}`, details: pick("command", "description") };
   }
@@ -69,4 +71,34 @@ export function describeTool(tool: string, input: unknown): ToolSummary {
     return { action: `Fetch ${oneLine(str(input, "url") ?? "")}`, details: pick("url", "prompt") };
   }
   return { action: `Use ${tool}`, details: [raw(input)] };
+}
+
+/** Ovra's own tools (`mcp__ovra__*`), which a task's coordinator and workers call. */
+function describeIdeTool(name: string, input: unknown): string | null {
+  const agent = str(input, "agent_id");
+  const worker = agent ? `worker ${agent}` : "a worker";
+  switch (name) {
+    case "spawn_agent": {
+      const task = str(input, "task");
+      return `Start worker ${str(input, "name") ?? ""}${task ? `: ${oneLine(task)}` : ""}`.replace(" :", ":");
+    }
+    case "list_agents":
+      return "List the task's workers";
+    case "read_output":
+      return `Read the output of ${worker}`;
+    case "send_message":
+      return `Message ${worker}`;
+    case "stop_agent":
+      return `Stop ${worker}`;
+    case "request_review": {
+      const summary = str(input, "summary");
+      return `Ask for review${agent ? ` of ${worker}` : ""}${summary ? `: ${oneLine(summary)}` : ""}`;
+    }
+    case "open_in_ui": {
+      const target = str(input, "path") ?? (agent ? worker : str(input, "review_id") ? "a review" : "something");
+      return `Show ${target} in Ovra`;
+    }
+    default:
+      return null;
+  }
 }
