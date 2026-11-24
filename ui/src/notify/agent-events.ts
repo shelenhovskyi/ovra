@@ -3,12 +3,12 @@
 
 import { agentSessions, sessionName } from "../agents/sessions.svelte";
 import { describeTool } from "../approvals/describe";
-import type { AgentStatus, SessionId } from "../lib/protocol";
+import type { AgentStatus, PermissionId, SessionId } from "../lib/protocol";
 import type { Transport } from "../lib/transport";
 import type { Notifier } from "./notifier.svelte";
 
-/** Listens until the returned function is called. `review` shows the pending approvals. */
-export function watchAgents(transport: Transport, notifier: Notifier, review: () => void): () => void {
+/** Listens until the returned function is called. `review` shows one pending request. */
+export function watchAgents(transport: Transport, notifier: Notifier, review: (id: PermissionId) => void): () => void {
   const sessions = agentSessions(transport);
   const last = new Map<SessionId, AgentStatus["state"]>();
   const name = (id: SessionId) => sessionName(sessions.byId.get(id), id);
@@ -22,7 +22,7 @@ export function watchAgents(transport: Transport, notifier: Notifier, review: ()
             key: `permission:${request.id}`,
             level: "attention",
             text: `${name(request.session)} needs approval: ${action}`,
-            action: { label: "Review", run: review },
+            action: { label: "Review", run: () => review(request.id) },
           },
           "Approval needed",
         );

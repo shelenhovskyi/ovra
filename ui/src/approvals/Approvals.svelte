@@ -2,50 +2,124 @@
 // Pending permission requests, oldest first. Keyboard: Alt+Shift+A (Mod+Shift+A
 // in the desktop app) jumps here; on a focused card Y allows, N denies,
 // Shift+N denies with a message, arrows move between cards, Escape goes back.
-// Focus never moves here from elsewhere and nothing is answered without a press.
-import { tick } from "svelte";
+//
+// Nothing is answered by accident:
+// - focus never moves here from elsewhere;
+// - a request is answerable only ARM_MS after it appeared, after the previous
+//   answer and after any request left the list (cards move then), and the
+//   buttons look disabled exactly as long as they are;
+// - one key press answers at most one request: auto-repeat is ignored and the
+//   next answer needs the key released first.
+import { tick, untrack } from "svelte";
+import { SvelteMap } from "svelte/reactivity";
 import { agentSessions, sessionName } from "../agents/sessions.svelte";
 import { registerCommand } from "../keys/commands";
-import type { Decision, PermissionRequest } from "../lib/protocol";
+import type { Decision, PermissionId, PermissionRequest, Project, ProjectId } from "../lib/protocol";
 import { useOvra } from "../shell/context";
 import { describeTool } from "./describe";
 import { ARM_MS, approvalQueue } from "./queue.svelte";
+import { pathScopes } from "./scope";
 
 const { transport } = useOvra();
 const queue = approvalQueue(transport);
 const sessions = agentSessions(transport);
 
 let now = $state(Date.now());
-/** Set on every answer: the next request waits ARM_MS from here too. */
-let lastAnswer = $state(0);
+/** The last answer or the last time a request left the list. */
+let quietFrom = $state(0);
+/** A key answered and has not been released yet. */
+let keyHeld = $state(false);
 let denying = $state<string | null>(null);
 let note = $state("");
 let list = $state<HTMLElement>();
 let heading = $state<HTMLElement>();
 let returnTo: HTMLElement | null = null;
+const projects = new SvelteMap<ProjectId, Project>();
 
-const armedAt = (id: string): number => Math.max(queue.arrived.get(id) ?? 0, lastAnswer) + ARM_MS;
-const armed = (id: string): boolean => now >= armedAt(id) && !queue.answering.has(id);
+const armedAt = (id: string): number => Math.max(queue.arrived.get(id) ?? 0, quietFrom) + ARM_MS;
+/** The one test for both the look of the buttons and whether a press counts. */
+const armed = (id: string): boolean => !keyHeld && now >= armedAt(id) && !queue.answering.has(id);
+
+function quiet(): void {
+  quietFrom = Date.now();
+  now = quietFrom;
+}
 
 // Re-render when the next request becomes answerable.
 $effect(() => {
   const waits = queue.pending.map((r) => armedAt(r.id)).filter((t) => t > now);
   if (waits.length === 0) return;
-  const timer = setTimeout(() => (now = Date.now()), Math.min(...waits) - now);
+  const timer = setTimeout(() => (now = Date.now()), Math.max(0, Math.min(...waits) - Date.now()));
   return () => clearTimeout(timer);
+});
+
+// A request that leaves the list moves the cards under the pointer.
+let shown = new Set<PermissionId>();
+$effect(() => {
+  const ids = new Set(queue.pending.map((r) => r.id));
+  untrack(() => {
+    if ([...shown].some((id) => !ids.has(id))) quiet();
+  });
+  shown = ids;
+});
+
+$effect(() => {
+  const release = () => (keyHeld = false);
+  window.addEventListener("keyup", release);
+  // A key released in another window sends no keyup here; held keys only repeat, which is ignored.
+  window.addEventListener("blur", release);
+  return () => {
+    window.removeEventListener("keyup", release);
+    window.removeEventListener("blur", release);
+  };
+});
+
+// Project names and folders for the cards.
+$effect(() => {
+  const missing = queue.pending.some((r) => {
+    const project = sessions.byId.get(r.session)?.project;
+    return project !== undefined && !projects.has(project);
+  });
+  if (!missing) return;
+  untrack(() => {
+    transport
+      .call({ method: "projects.list" })
+      .then(({ data }) => {
+        for (const project of data) projects.set(project.id, project);
+      })
+      .catch(() => {});
+  });
 });
 
 $effect(() =>
   registerCommand({ id: "approvals.focus", title: "Go to pending approvals", keys: "Mod+Shift+A", run: enter }),
 );
 
+$effect(() => {
+  queue.revealer = (id) => {
+    remember();
+    (card(id) ?? cards()[0] ?? heading)?.focus();
+  };
+  return () => {
+    queue.revealer = null;
+  };
+});
+
 function cards(): HTMLElement[] {
   return [...(list?.querySelectorAll<HTMLElement>("[data-request]") ?? [])];
 }
 
-function enter(): void {
+function card(id: PermissionId): HTMLElement | undefined {
+  return cards().find((c) => c.dataset.request === id);
+}
+
+function remember(): void {
   const active = document.activeElement;
   if (active instanceof HTMLElement && !list?.contains(active) && active !== heading) returnTo = active;
+}
+
+function enter(): void {
+  remember();
   (cards()[0] ?? heading)?.focus();
 }
 
@@ -55,11 +129,10 @@ function leave(): void {
 }
 
 async function answer(request: PermissionRequest, decision: Decision, message?: string): Promise<void> {
-  if (Date.now() < armedAt(request.id) || queue.answering.has(request.id)) return;
+  if (!armed(request.id)) return;
   const index = queue.pending.indexOf(request);
   const focused = list?.contains(document.activeElement) ?? false;
-  lastAnswer = Date.now();
-  now = lastAnswer;
+  quiet();
   const sent = await queue.answer(request.id, decision, message);
   if (!sent) return;
   if (denying === request.id) {
@@ -74,6 +147,14 @@ async function answer(request: PermissionRequest, decision: Decision, message?: 
   (target ?? heading)?.focus();
 }
 
+/** Answers from a key press: at most one answer per press. */
+function answerByKey(event: KeyboardEvent, request: PermissionRequest, decision: Decision, message?: string): void {
+  if (event.repeat || keyHeld || !armed(request.id)) return;
+  // `answer` checks `armed` before its first await, so mark the key after.
+  void answer(request, decision, message);
+  keyHeld = true;
+}
+
 // Someone waiting on the empty list gets the next request focused. Focus
 // never jumps here from elsewhere.
 $effect(() => {
@@ -85,7 +166,7 @@ async function openDeny(request: PermissionRequest): Promise<void> {
   denying = request.id;
   note = "";
   await tick();
-  list?.querySelector<HTMLTextAreaElement>(`[data-request="${request.id}"] textarea`)?.focus();
+  card(request.id)?.querySelector<HTMLTextAreaElement>("textarea")?.focus();
 }
 
 function onKeydown(event: KeyboardEvent, request: PermissionRequest): void {
@@ -93,25 +174,28 @@ function onKeydown(event: KeyboardEvent, request: PermissionRequest): void {
     if (event.code === "Escape") {
       event.preventDefault();
       denying = null;
-      list?.querySelector<HTMLElement>(`[data-request="${request.id}"]`)?.focus();
+      card(request.id)?.focus();
     } else if (event.code === "Enter" && (event.ctrlKey || event.metaKey)) {
       event.preventDefault();
-      void answer(request, "deny", note.trim() || undefined);
+      answerByKey(event, request, "deny", note.trim() || undefined);
     }
     return;
   }
+  // Buttons answer by click (Enter, Space); everything else is the card's.
+  if (event.target instanceof HTMLButtonElement && (event.code === "Enter" || event.code === "Space")) return;
   if (event.ctrlKey || event.metaKey || event.altKey || event.isComposing) return;
   const all = cards();
-  const at = all.findIndex((card) => card.dataset.request === request.id);
+  const at = all.findIndex((c) => c.dataset.request === request.id);
   const handled = (() => {
     switch (event.code) {
       case "KeyY":
         if (event.shiftKey) return false;
-        void answer(request, "allow");
+        answerByKey(event, request, "allow");
         return true;
       case "KeyN":
-        if (event.shiftKey) void openDeny(request);
-        else void answer(request, "deny");
+        if (event.shiftKey) {
+          if (!event.repeat) void openDeny(request);
+        } else answerByKey(event, request, "deny");
         return true;
       case "ArrowDown":
         all[Math.min(at + 1, all.length - 1)]?.focus();
@@ -127,6 +211,11 @@ function onKeydown(event: KeyboardEvent, request: PermissionRequest): void {
     }
   })();
   if (handled) event.preventDefault();
+}
+
+function projectOf(request: PermissionRequest): Project | undefined {
+  const id = sessions.byId.get(request.session)?.project;
+  return id === undefined ? undefined : projects.get(id);
 }
 </script>
 
@@ -155,6 +244,7 @@ function onKeydown(event: KeyboardEvent, request: PermissionRequest): void {
       {@const summary = describeTool(request.tool, request.input)}
       {@const ready = armed(request.id)}
       {@const domId = `approval-${request.id}`}
+      {@const project = projectOf(request)}
       <li>
         <!-- A focusable group is how the keys reach one request (Y, N, arrows). -->
         <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
@@ -168,9 +258,15 @@ function onKeydown(event: KeyboardEvent, request: PermissionRequest): void {
           onkeydown={(event) => onKeydown(event, request)}
         >
           <p class="session" id="{domId}-session">
-            {sessionName(sessions.byId.get(request.session), request.session)} asks to use {request.tool}
+            {sessionName(sessions.byId.get(request.session), request.session)} in {project?.name ?? "an unknown project"}
+            asks to use {request.tool}
           </p>
           <h3 id="{domId}-action">{summary.action}</h3>
+          {#each project ? pathScopes(request.input, project.root) : [] as scope}
+            <p class="scope" class:outside={!scope.inside} data-testid="approval-scope">
+              {scope.inside ? "Inside the project folder" : "⚠ Outside the project folder"}: {scope.path}
+            </p>
+          {/each}
           {#if request.reason}
             <p class="title" data-testid="approval-reason">
               Why it asks: {request.reason.text}{#if request.reason.kind}{" "}({request.reason.kind}){/if}
@@ -270,6 +366,15 @@ function onKeydown(event: KeyboardEvent, request: PermissionRequest): void {
   }
   .hint {
     margin-bottom: 6px;
+  }
+  .scope {
+    margin: 0 0 6px;
+    font-size: 12px;
+    overflow-wrap: anywhere;
+  }
+  .scope.outside {
+    font-weight: 600;
+    color: #ffb86b;
   }
   dl {
     margin: 0 0 8px;

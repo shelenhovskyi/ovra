@@ -21,6 +21,8 @@ export class ApprovalQueue {
   /** Requests with an answer on the way; they cannot be answered again. */
   readonly answering = new SvelteSet<PermissionId>();
   error = $state<string | null>(null);
+  /** Set by the approvals list: focuses one request (from a notification's Review). */
+  revealer: ((id: PermissionId) => void) | null = null;
 
   constructor(private readonly transport: Transport) {
     transport.onEvent((event) => this.apply(event));
@@ -43,6 +45,10 @@ export class ApprovalQueue {
     } catch (err) {
       this.error = `Could not load approvals: ${message(err)}`;
     }
+  }
+
+  reveal(id: PermissionId): void {
+    this.revealer?.(id);
   }
 
   /** Answers one request; `false` if it was not sent (already answering, or failed). */

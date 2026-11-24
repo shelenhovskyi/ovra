@@ -47,11 +47,22 @@ async function settle(ms = 0) {
   flushSync();
 }
 
-function press(code: string, init: KeyboardEventInit = {}) {
+/** Presses a key down without releasing it. */
+function hold(code: string, init: KeyboardEventInit = {}) {
   const key = code.startsWith("Key") ? code.slice(3).toLowerCase() : code;
   (document.activeElement ?? document.body).dispatchEvent(
     new KeyboardEvent("keydown", { code, key, bubbles: true, cancelable: true, ...init }),
   );
+}
+
+function release(code: string) {
+  window.dispatchEvent(new KeyboardEvent("keyup", { code, bubbles: true }));
+}
+
+/** A tap: down and up. */
+function press(code: string, init: KeyboardEventInit = {}) {
+  hold(code, init);
+  release(code);
 }
 
 const cards = () => [...target.querySelectorAll<HTMLElement>("[data-request]")];
@@ -66,7 +77,7 @@ describe("Approvals", () => {
     await settle();
     const card = cards()[0];
     expect(card?.querySelector("h3")?.textContent).toBe("Run ls -la");
-    expect(card?.textContent).toContain("Fix the typo asks to use Bash");
+    expect(card?.textContent?.replace(/\s+/g, " ")).toContain("Fix the typo in demo asks to use Bash");
     expect(card?.querySelector("[data-testid=approval-reason]")).toBeNull();
     core.ask({ ...bash("perm2"), reason: { text: "Path is outside allowed working directories", kind: "rule" } });
     await settle();
@@ -138,6 +149,93 @@ describe("Approvals", () => {
     expect(answers(core)).toEqual([{ id: "perm1", decision: "allow" }]);
     press("Escape");
     expect(document.activeElement).toBe(elsewhere);
+  });
+
+  it("answers one request per key press, however long the key is held", async () => {
+    const core = await setup();
+    core.ask(bash("perm1"));
+    core.ask(bash("perm2"));
+    core.ask(bash("perm3"));
+    await settle(ARM_MS);
+    cards()[0]?.focus();
+    hold("KeyY");
+    // 2.5 s of auto-repeat, as in the UX report.
+    for (let i = 0; i < 20; i++) {
+      await settle(125);
+      hold("KeyY", { repeat: true });
+    }
+    // Some systems repeat without the flag: still no keyup, still one answer.
+    hold("KeyY");
+    await settle(ARM_MS);
+    expect(answers(core)).toEqual([{ id: "perm1", decision: "allow" }]);
+    expect(cards()[0]?.querySelector("button.allow")?.getAttribute("aria-disabled")).toBe("true");
+    release("KeyY");
+    await settle(ARM_MS);
+    expect(cards()[0]?.querySelector("button.allow")?.getAttribute("aria-disabled")).toBe("false");
+    press("KeyY");
+    await settle();
+    expect(answers(core).map((a) => a.id)).toEqual(["perm1", "perm2"]);
+  });
+
+  it("does not let a click land on a card that just moved under the pointer", async () => {
+    const core = await setup();
+    core.ask(bash("perm1"));
+    core.ask(bash("perm2", "rm -rf build"));
+    await settle(ARM_MS);
+    // Another window answers the first one; the second moves up.
+    core.pending = core.pending.filter((r) => r.id !== "perm1");
+    core.emit({ type: "permissions.resolved", data: { id: "perm1", decision: "allow" } });
+    await settle();
+    const allow = cards()[0]?.querySelector<HTMLButtonElement>("button.allow");
+    expect(allow?.getAttribute("aria-disabled")).toBe("true");
+    allow?.click();
+    await settle();
+    expect(answers(core)).toEqual([]);
+    await settle(ARM_MS);
+    expect(allow?.getAttribute("aria-disabled")).toBe("false");
+    allow?.click();
+    await settle();
+    expect(answers(core)).toEqual([{ id: "perm2", decision: "allow" }]);
+  });
+
+  it("looks disabled exactly while it refuses, also long after the page opened", async () => {
+    const core = await setup();
+    await settle(10 * 60_000);
+    core.ask(bash("perm1"));
+    await settle();
+    const allow = () => cards()[0]?.querySelector<HTMLButtonElement>("button.allow");
+    expect(allow()?.getAttribute("aria-disabled")).toBe("true");
+    await settle(ARM_MS);
+    expect(allow()?.getAttribute("aria-disabled")).toBe("false");
+    allow()?.click();
+    await settle();
+    expect(answers(core)).toEqual([{ id: "perm1", decision: "allow" }]);
+  });
+
+  it("names the project and whether each path is inside it", async () => {
+    const core = await setup();
+    core.ask({
+      ...bash("perm1"),
+      tool: "Edit",
+      input: { file_path: "/demo/README.md", old_string: "a", new_string: "b" },
+    });
+    core.ask({ ...bash("perm2"), tool: "Read", input: { file_path: "/demo/../etc/passwd" } });
+    await settle();
+    const scopes = cards().map((c) => c.querySelector("[data-testid=approval-scope]")?.textContent?.trim());
+    expect(scopes).toEqual([
+      "Inside the project folder: /demo/README.md",
+      "⚠ Outside the project folder: /demo/../etc/passwd",
+    ]);
+  });
+
+  it("focuses the request a notification is about", async () => {
+    const core = await setup();
+    core.ask(bash("perm1"));
+    core.ask(bash("perm2"));
+    await settle();
+    const { approvalQueue } = await import("./queue.svelte");
+    approvalQueue(core).reveal("perm2");
+    expect(document.activeElement).toBe(cards()[1]);
   });
 
   it("denies with a message from Shift+N", async () => {

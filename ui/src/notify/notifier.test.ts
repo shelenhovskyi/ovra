@@ -54,7 +54,7 @@ describe("watchAgents", () => {
     core.ask({ id: "perm1", session: "s1", tool: "Bash", input: { command: "ls" }, title: null });
     expect(notifier.toasts.map((t) => [t.level, t.text])).toEqual([["attention", "Session s1 needs approval: Run ls"]]);
     back.shown[0]?.click();
-    expect(review).toHaveBeenCalledOnce();
+    expect(review).toHaveBeenCalledExactlyOnceWith("perm1");
     core.emit({ type: "permissions.resolved", data: { id: "perm1", decision: "allow" } });
     expect(notifier.toasts).toEqual([]);
 

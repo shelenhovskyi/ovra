@@ -7,6 +7,7 @@ import type {
   AgentStatus,
   CoreEvent,
   PermissionRequest,
+  Project,
   ProjectAgentConfig,
   ProjectId,
   Request,
@@ -21,6 +22,8 @@ export class FakeAgentCore implements Transport {
   sessions: SessionInfo[] = [];
   transcripts = new Map<SessionId, AgentMessage[]>();
   pending: PermissionRequest[] = [];
+  /** What `projects.list` answers. */
+  projects: Project[] = [{ id: "p1", name: "demo", root: "/demo", last_opened_ms: null, trusted: false }];
   /** What `agents.setup` answers; `agents.set_path` records the path in it. */
   setup: AgentSetup = { path: null, executable: "/usr/bin/claude", version: "2.1.331", state: { state: "ready" } };
   /** What `agents.project_config` reports as current. */
@@ -106,6 +109,8 @@ export class FakeAgentCore implements Transport {
           type: "agents.project_config",
           data: { current: this.config, trusted: this.trustedConfig.get(request.params.project) ?? null },
         };
+      case "projects.list":
+        return { type: "projects.list", data: [...this.projects] };
       case "projects.trust": {
         const { id, trusted, fingerprint } = request.params;
         if (trusted && fingerprint !== this.config.fingerprint)

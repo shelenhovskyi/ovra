@@ -2,8 +2,9 @@
 // Toasts for agent events, announced through live regions without taking
 // focus. Requests for approval and errors are announced at once, the rest
 // politely.
-import { listCommands, registerCommand } from "../keys/commands";
-import { runCommand } from "../keys/keybindings";
+import { approvalQueue } from "../approvals/queue.svelte";
+import { registerCommand } from "../keys/commands";
+import type { PermissionId } from "../lib/protocol";
 import { useOvra } from "../shell/context";
 import { watchAgents } from "./agent-events";
 import { Notifier, type SystemNotifications, type Toast } from "./notifier.svelte";
@@ -14,9 +15,9 @@ const { transport } = useOvra();
 // svelte-ignore state_referenced_locally
 const notifier = new Notifier(system);
 
-function review(): void {
-  const command = listCommands().find((c) => c.id === "approvals.focus");
-  if (command) void runCommand(command);
+/** Focuses the request the notification is about, not just the first one. */
+function review(id: PermissionId): void {
+  approvalQueue(transport).reveal(id);
 }
 
 $effect(() => watchAgents(transport, notifier, review));
