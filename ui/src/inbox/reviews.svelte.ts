@@ -1,0 +1,136 @@
+// Review items of the open project, kept current from `review.changed`
+// events. The core is the source of truth: nothing here approves, rejects or
+// merges on its own; every action is one call made for a person's press.
+
+import type { CoreEvent, ProjectId, ReviewId, ReviewItem } from "../lib/protocol";
+import { CoreError, type Transport } from "../lib/transport";
+
+/** What the last approve or reject left for the person. */
+export type Outcome = { id: ReviewId; state: ReviewItem["state"]; conflicts: string[] };
+
+export class ReviewInbox {
+  /** Items of `project`, newest first, as the core lists them. */
+  items = $state<ReviewItem[]>([]);
+  project = $state<ProjectId | null>(null);
+  loading = $state(false);
+  error = $state<string | null>(null);
+  /** Items with an action on the way; their buttons wait for the answer. */
+  busy = $state<ReviewId[]>([]);
+  outcome = $state<Outcome | null>(null);
+  /** Bumped whenever the core says an item changed, so open diffs reload. */
+  changes = $state(0);
+  private latest = 0;
+  private readonly off: (() => void)[];
+
+  constructor(private readonly transport: Transport) {
+    let wasOpen = false;
+    this.off = [
+      transport.onEvent((event) => this.apply(event)),
+      transport.onStatus?.((status) => {
+        if (status !== "open") return;
+        // Events may have been missed while disconnected.
+        if (wasOpen) void this.reload();
+        wasOpen = true;
+      }) ?? (() => {}),
+    ];
+  }
+
+  /** Stops following the core. */
+  dispose(): void {
+    for (const off of this.off) off();
+  }
+
+  get open(): ReviewItem[] {
+    return this.items.filter((item) => item.state === "open");
+  }
+
+  /** Shows `project`'s items; null clears the list. */
+  async show(project: ProjectId | null): Promise<void> {
+    if (project !== this.project) {
+      this.items = [];
+      this.outcome = null;
+    }
+    this.project = project;
+    await this.reload();
+  }
+
+  async reload(): Promise<void> {
+    const project = this.project;
+    const mine = ++this.latest;
+    if (!project) {
+      this.loading = false;
+      return;
+    }
+    this.loading = true;
+    try {
+      const { data } = await this.transport.call({ method: "review.list", params: { project } });
+      if (mine !== this.latest) return;
+      this.items = data;
+      this.error = null;
+    } catch (err) {
+      if (mine !== this.latest) return;
+      this.error = `Could not list reviews: ${message(err)}`;
+    } finally {
+      if (mine === this.latest) this.loading = false;
+    }
+  }
+
+  async diff(id: ReviewId, path: string): Promise<string> {
+    const { data } = await this.transport.call({ method: "review.diff", params: { id, path } });
+    return data.patch;
+  }
+
+  /** Keeps the changes; with `commit`, the core commits the agent's files with that message. */
+  approve(id: ReviewId, commit: string | null): Promise<boolean> {
+    return this.act(id, async () => {
+      const { data } = await this.transport.call({ method: "review.approve", params: { id, commit } });
+      this.settle(data.item, data.conflicts);
+    });
+  }
+
+  /** Restores the agent's files; files changed outside the agent stay and come back as conflicts. */
+  reject(id: ReviewId): Promise<boolean> {
+    return this.act(id, async () => {
+      const { data } = await this.transport.call({ method: "review.reject", params: { id } });
+      this.settle(data.item, data.conflicts);
+    });
+  }
+
+  /** The same session continues with `text`; the item stays open. */
+  comment(id: ReviewId, text: string): Promise<boolean> {
+    return this.act(id, async () => {
+      await this.transport.call({ method: "review.comment", params: { id, text } });
+    });
+  }
+
+  private async act(id: ReviewId, run: () => Promise<void>): Promise<boolean> {
+    if (this.busy.includes(id)) return false;
+    this.busy = [...this.busy, id];
+    try {
+      await run();
+      this.error = null;
+      return true;
+    } catch (err) {
+      this.error = message(err);
+      return false;
+    } finally {
+      this.busy = this.busy.filter((b) => b !== id);
+    }
+  }
+
+  private settle(item: ReviewItem, conflicts: string[]): void {
+    this.items = this.items.map((i) => (i.id === item.id ? item : i));
+    this.outcome = { id: item.id, state: item.state, conflicts };
+  }
+
+  private apply(event: CoreEvent): void {
+    if (event.type !== "review.changed" || event.data.project !== this.project) return;
+    this.changes++;
+    void this.reload();
+  }
+}
+
+function message(err: unknown): string {
+  if (err instanceof CoreError) return err.error.message;
+  return err instanceof Error ? err.message : String(err);
+}
