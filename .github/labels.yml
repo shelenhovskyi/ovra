@@ -1,0 +1,41 @@
+# Repository labels, synced by .github/workflows/labels.yml.
+# Labels not listed here are kept (skip-delete), so GitHub's defaults stay.
+- name: good first issue
+  color: "7057ff"
+  description: Small, well-scoped and a good way to start
+- name: help wanted
+  color: "008672"
+  description: Accepted and open for anyone to pick up
+- name: needs-triage
+  color: "fbca04"
+  description: Not yet looked at by a maintainer
+- name: needs-repro
+  color: "fef2c0"
+  description: Needs steps that reproduce the problem
+- name: needs-design
+  color: "d93f0b"
+  description: Design not settled; please do not send code yet
+- name: needs-decision
+  color: "d93f0b"
+  description: Waiting for a maintainer decision
+- name: ai-policy
+  color: "c5def5"
+  description: Does not follow AI_POLICY.md (disclosure or understanding missing)
+- name: security
+  color: "b60205"
+  description: Security hardening (report vulnerabilities privately)
+- name: area:core
+  color: "1d76db"
+  description: crates/core and the protocol
+- name: area:agents
+  color: "1d76db"
+  description: Agent runtime, sessions, approvals, orchestration
+- name: area:ui
+  color: "1d76db"
+  description: Svelte UI
+- name: area:app
+  color: "1d76db"
+  description: Tauri shell and packaging
+- name: area:docs
+  color: "1d76db"
+  description: Documentation and the site

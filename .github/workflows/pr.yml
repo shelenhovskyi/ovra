@@ -38,3 +38,28 @@ jobs:
           if [ "$total" -gt 400 ]; then
             echo "::warning::This PR changes $total lines; the guideline is about 400. Consider splitting it."
           fi
+
+  dco:
+    name: DCO sign-off
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Every commit has a Signed-off-by from its author
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          missing=0
+          for c in $(git rev-list --no-merges "$BASE..$HEAD"); do
+            author=$(git log -1 --format='%ae' "$c")
+            if ! git log -1 --format='%(trailers:key=Signed-off-by,valueonly)' "$c" | grep -qiF "<$author>"; then
+              echo "::error::$(git log -1 --format='%h %s' "$c"): missing 'Signed-off-by: ... <$author>'"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "Sign off with 'git commit -s' (amend: 'git rebase --signoff $BASE'). See CONTRIBUTING.md."
+            exit 1
+          fi

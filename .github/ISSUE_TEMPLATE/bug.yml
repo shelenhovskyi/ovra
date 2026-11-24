@@ -1,0 +1,57 @@
+name: Bug report
+description: Something in Ovra does not work as it should.
+labels: ["needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Security problems go to
+        [private reporting](https://github.com/shelenhovskyi/ovra/security/advisories/new) instead.
+        Please write the report yourself; see [AI_POLICY.md](https://github.com/shelenhovskyi/ovra/blob/main/AI_POLICY.md).
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open a project with ...
+        2. Press ...
+        3. See ...
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Where
+      options:
+        - Desktop app
+        - Headless mode (browser)
+        - Both
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS and version
+      placeholder: macOS 15.2, Windows 11, Ubuntu 24.04, ...
+    validations:
+      required: true
+  - type: input
+    id: commit
+    attributes:
+      label: Ovra commit
+      description: Output of `git rev-parse --short HEAD` in your checkout.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Terminal output of `just dev` or `just dev-headless`, browser console errors, screenshots.
+      render: text
