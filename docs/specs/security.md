@@ -234,7 +234,9 @@ rules for each project:
 ```
 
 - `tool` is a tool name. `match` is optional and tested against the call's
-  main argument.
+  main argument. Only `Bash` and the file tools below take a `match`;
+  `policy.set` refuses one on any other tool, because it could never
+  match.
 - For `Bash`, `match` is a command prefix, matched on word boundaries
   (`npm test` matches `npm test -- -u`, not `npm testx`).
   - A command that contains `;`, `&`, `|`, a backtick, `$(`, `>`, `<` or a
@@ -252,6 +254,10 @@ rules for each project:
     which is one more reason `auto` needs a sandbox.
   - On macOS and Windows the path is compared case-insensitively.
   - A path outside `work_dir` never matches an `auto` rule.
+  - A glob has no empty or `.` segments (`secrets/` is refused).
+  - A file `deny` rule is advisory too: `Grep`, `Glob` or `cat` in Bash
+    still reach the file. The boundary that holds is the sandbox's protected
+    and hidden paths.
 - `action` is `auto`, `ask` or `deny`.
 
 **How a call is decided.**
@@ -264,14 +270,19 @@ rules for each project:
     policy changed mid-session applies at once.
   - The hook matters because calls the user's own Claude settings already
     allow never reach `can_use_tool`.
+- An `ask` rule wins over an `auto` rule that also matches: the stricter
+  rule decides.
 - An `auto` rule applies only when the runtime reported a sandbox for the
   session (above) whose network is not `Open`. Ovra skips the question only
   when the sandbox would contain a mistake. Otherwise `auto` counts as
   `ask`.
 - Everything else asks the person, as now. That includes calls no rule
   matches.
+- If the policy cannot be read (a store error), the hook refuses every
+  call and `can_use_tool` asks: nothing is decided as `auto`.
 - Ovra's own IDE tools (`mcp__ovra__*`) keep their role rules from the
-  orchestration spec. A policy does not change them.
+  orchestration spec. A policy does not change them, and `policy.set`
+  refuses rules for them.
 - The CLI's own permission rules still apply inside `claude` before Ovra is
   asked. These are the user's settings, plus the project's
   `.claude/settings.json` when the project is trusted. Policies add a layer

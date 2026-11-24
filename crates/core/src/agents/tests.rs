@@ -992,4 +992,41 @@ async fn the_projects_policy_decides_before_the_person_is_asked() {
     );
     let test = second.ask("Bash".into(), json!({"command": "npm test"}), None, None);
     assert_eq!(test.await.decision, Decision::Allow);
+
+    // A policy Ovra cannot read never lets a call through on its own.
+    let lost = crate::agents::AgentHost::new(
+        crate::protocol::agents::SessionId("s2".into()),
+        crate::protocol::projects::ProjectId("p9".into()),
+        core.inner_sessions(),
+        core.sink(),
+    );
+    let hook = json!({"tool_use_id": "t3", "tool_name": "Read", "tool_input": {"file_path": "a"}});
+    assert!(
+        lost.before_tool(&hook)
+            .await
+            .is_some_and(|m| m.contains("could not read"))
+    );
+    let asking = tokio::spawn(async move {
+        lost.ask("Bash".into(), json!({"command": "npm test"}), None, None)
+            .await
+    });
+    until(&mut rx, AgentStatus::WaitingForApproval).await;
+
+    // A resumed process reports its own sandbox; the old report is gone,
+    // so auto asks again.
+    second.status(AgentStatus::Stopped);
+    assert!(asking.await.is_ok());
+    ok(
+        &core,
+        json!({"method": "agents.resume", "params": {"session": "s2", "prompt": "again"}}),
+    )
+    .await;
+    assert_eq!(sessions(&core).await[1].sandbox, None);
+    let asking = tokio::spawn(async move {
+        second
+            .ask("Bash".into(), json!({"command": "npm test"}), None, None)
+            .await
+    });
+    until(&mut rx, AgentStatus::WaitingForApproval).await;
+    asking.abort();
 }

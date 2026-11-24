@@ -335,6 +335,46 @@ async fn a_failed_initialize_fails_the_session() {
     );
 }
 
+/// The hook is the only place a call the user's settings already allow
+/// meets the project's policy.
+#[tokio::test]
+async fn the_hook_refuses_what_the_projects_policy_denies() {
+    let runtime = Arc::new(Replay {
+        steps: steps(&format!(
+            "{INIT}\n{}",
+            concat!(
+                r#"{"ovra":{"type":"user","message":{"role":"user","content":"hi"}}}"#,
+                "\n",
+                r#"{"core":{"method":"policy.set","params":{"project":"p1","policy":{"rules":[{"tool":"WebFetch","action":"deny"}]}}}}"#,
+                "\n",
+                r#"{"cli":{"type":"control_request","request_id":"h1","request":{"subtype":"hook_callback","callback_id":"ovra_policy","input":{"hook_event_name":"PreToolUse","tool_name":"WebFetch","tool_input":{"url":"https://example.com"},"tool_use_id":"toolu_01"}}}}"#,
+                "\n",
+                r#"{"ovra":{"response":{"request_id":"h1","response":{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"The project's policy refuses this (WebFetch). Ask the person if it is needed."}},"subtype":"success"},"type":"control_response"}}"#,
+                "\n",
+                r#"{"core":{"method":"agents.stop","params":{"session":"s1"}}}"#,
+                "\n",
+                r#"{"ovra":{"request":{"subtype":"interrupt"},"request_id":"interrupt1","type":"control_request"}}"#,
+                "\n",
+                r#"{"cli":{"type":"control_response","response":{"subtype":"success","request_id":"interrupt1","response":{"still_queued":[]}}}}"#,
+            )
+        )),
+        ..Replay::default()
+    });
+    let core = core_with(runtime.clone());
+    let _ = runtime.core.set(core.clone());
+    let mut rx = core.subscribe();
+    start(&core, ROOT, "hi").await;
+    let cli = lock(&runtime.cli).take();
+    match cli {
+        Some(cli) => cli
+            .await
+            .unwrap_or_else(|e| panic!("{e}"))
+            .unwrap_or_else(|e| panic!("{e}")),
+        None => panic!("the session did not start"),
+    }
+    assert_eq!(end(&mut rx).await, AgentStatus::Stopped);
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_process_that_ignores_a_stop_is_given_up_on() {
     let runtime = Arc::new(Replay {

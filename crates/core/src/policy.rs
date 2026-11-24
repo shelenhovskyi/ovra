@@ -15,13 +15,12 @@ use crate::protocol::policy::{
 use crate::protocol::{ErrorCode, ProtocolError, Response};
 
 /// Tools whose main argument is a file, and the input field naming it.
-const FILE_TOOLS: [(&str, &str); 6] = [
+const FILE_TOOLS: [(&str, &str); 5] = [
     ("Read", "file_path"),
     ("Edit", "file_path"),
     ("MultiEdit", "file_path"),
     ("Write", "file_path"),
     ("NotebookEdit", "notebook_path"),
-    ("NotebookRead", "notebook_path"),
 ];
 
 /// Shell syntax that runs more than the matched command: such a command
@@ -55,19 +54,32 @@ fn check(rule: &PolicyRule) -> Result<(), ProtocolError> {
     if rule.tool.trim().is_empty() || rule.tool.trim() != rule.tool {
         return bad("the tool name is empty or has spaces around it");
     }
+    if rule.tool.starts_with(crate::orchestration::IDE_TOOL_PREFIX) {
+        return bad("Ovra's own tools follow their role's rules, not policies");
+    }
     let Some(pattern) = &rule.pattern else {
         return Ok(());
     };
     if pattern.trim().is_empty() {
         return bad("the match is empty; leave it out to match every call");
     }
-    if file_field(&rule.tool).is_some()
-        && (pattern.starts_with('/')
-            || pattern.starts_with('\\')
-            || pattern.contains(':')
-            || pattern.split(['/', '\\']).any(|s| s == ".."))
+    if rule.tool == "Bash" {
+        return Ok(());
+    }
+    if file_field(&rule.tool).is_none() {
+        return bad("only Bash and file tools take a match; leave it out to match every call");
+    }
+    let segments: Vec<&str> = pattern.split(['/', '\\']).collect();
+    if pattern.starts_with('/')
+        || pattern.starts_with('\\')
+        || pattern.contains(':')
+        || segments
+            .iter()
+            .any(|s| *s == ".." || *s == "." || s.is_empty())
     {
-        return bad("a path glob is relative to the session's folder and stays inside it");
+        return bad(
+            "a path glob is relative to the session's folder, stays inside it and has no empty or `.` parts",
+        );
     }
     Ok(())
 }
@@ -100,6 +112,10 @@ pub(crate) fn decide(
     };
     if let Some(denied) = matching(PolicyAction::Deny) {
         return Some(denied);
+    }
+    // An ask rule wins over an auto rule: the stricter one decides.
+    if let Some(asked) = matching(PolicyAction::Ask) {
+        return Some(asked);
     }
     // Skipping the question is safe only where the sandbox contains a
     // mistake, and only if the runtime said it ran one.
@@ -173,28 +189,35 @@ fn inside(work_dir: &Path, path: &Path) -> Option<String> {
             other => clean.push(other),
         }
     }
-    let rel = clean.strip_prefix(work_dir).ok()?;
-    let parts: Vec<String> = rel
-        .components()
-        .map(|c| c.as_os_str().to_string_lossy().into_owned())
-        .collect();
+    // File names are case-insensitive on macOS and Windows: `/W/A` there is
+    // inside `/w`.
+    let name = |c: Component<'_>| fold(&c.as_os_str().to_string_lossy());
+    let mut parts = clean.components();
+    for base in work_dir.components() {
+        if parts.next().map(name) != Some(name(base)) {
+            return None;
+        }
+    }
+    let parts: Vec<String> = parts.map(name).collect();
     (!parts.is_empty()).then(|| parts.join("/"))
 }
 
 /// `*` within a segment, `?` one character, `**` any number of segments.
 /// Case-insensitive where file names are (macOS, Windows).
 fn glob(pattern: &str, path: &str) -> bool {
-    let fold = |s: &str| {
-        if cfg!(any(target_os = "macos", target_os = "windows")) {
-            s.to_lowercase()
-        } else {
-            s.to_owned()
-        }
-    };
     let (pattern, path) = (fold(pattern).replace('\\', "/"), fold(path));
     let pattern: Vec<&str> = pattern.split('/').filter(|s| !s.is_empty()).collect();
     let path: Vec<&str> = path.split('/').collect();
     segments(&pattern, &path)
+}
+
+/// A file name as the file system compares it.
+fn fold(name: &str) -> String {
+    if cfg!(any(target_os = "macos", target_os = "windows")) {
+        name.to_lowercase()
+    } else {
+        name.to_owned()
+    }
 }
 
 fn segments(pattern: &[&str], path: &[&str]) -> bool {

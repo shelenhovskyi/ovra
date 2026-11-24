@@ -140,7 +140,10 @@ async fn session(
                 }));
                 line
             }
-            Err(e) => return failed(format!("the sandbox could not wrap claude: {}", e.message)),
+            Err(e) => {
+                host.sandboxed(None);
+                return failed(format!("the sandbox could not wrap claude: {}", e.message));
+            }
         },
         SandboxStatus::Unavailable { .. } => {
             host.sandboxed(None);

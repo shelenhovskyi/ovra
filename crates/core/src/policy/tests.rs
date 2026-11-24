@@ -123,11 +123,62 @@ fn set_refuses_rules_that_cannot_mean_what_they_say() {
         rule("Edit", Some("/etc/**"), PolicyAction::Auto),
         rule("Edit", Some("../x"), PolicyAction::Auto),
         rule("Edit", Some("C:/x"), PolicyAction::Auto),
+        // These could never match.
+        rule("WebFetch", Some("evil.com"), PolicyAction::Deny),
+        rule("Grep", Some(".env"), PolicyAction::Deny),
+        rule("Edit", Some("secrets/"), PolicyAction::Deny),
+        rule("Edit", Some("./a.md"), PolicyAction::Deny),
+        rule("mcp__ovra__spawn_agent", None, PolicyAction::Deny),
     ];
     for r in bad {
         assert!(check(&r).is_err(), "{r:?}");
     }
     assert!(check(&rule("Edit", Some("src/**/*.rs"), PolicyAction::Deny)).is_ok());
+    assert!(check(&rule("WebFetch", None, PolicyAction::Deny)).is_ok());
+}
+
+#[test]
+fn an_ask_rule_wins_over_an_auto_rule() {
+    let policy = Policy {
+        rules: vec![
+            rule("Bash", Some("npm test"), PolicyAction::Auto),
+            rule("Bash", Some("npm test -- --update"), PolicyAction::Ask),
+        ],
+    };
+    let sandbox = SandboxReport {
+        name: "test".into(),
+        network: SandboxNetwork::Blocked,
+    };
+    let decided = |command: &str| {
+        decide(
+            &policy,
+            "Bash",
+            &json!({ "command": command }),
+            Path::new(WORK),
+            Some(&sandbox),
+        )
+        .map(|(action, _)| action)
+    };
+    assert_eq!(decided("npm test"), Some(PolicyAction::Auto));
+    assert_eq!(decided("npm test -- --update"), Some(PolicyAction::Ask));
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[test]
+fn a_deny_holds_when_the_folders_case_differs() {
+    let policy = Policy {
+        rules: vec![rule("Read", Some(".env"), PolicyAction::Deny)],
+    };
+    let upper = Path::new(WORK).join(".ENV");
+    let path = upper.to_string_lossy().to_uppercase();
+    let decided = decide(
+        &policy,
+        "Read",
+        &json!({ "file_path": path }),
+        Path::new(WORK),
+        None,
+    );
+    assert_eq!(decided.map(|(a, _)| a), Some(PolicyAction::Deny));
 }
 
 #[tokio::test]

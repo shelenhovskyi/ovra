@@ -289,6 +289,8 @@ impl SessionView<'_> {
     pub(crate) fn restart(&mut self) {
         self.session.info.status = AgentStatus::Starting;
         self.session.stopping = false;
+        // The new process reports its own sandbox; until it does, none.
+        self.session.info.sandbox = None;
         self.save();
     }
     /// Moves to `status` if the state machine allows it; `false` if not.
@@ -399,17 +401,29 @@ impl AgentHost {
     }
 
     /// What the project's policy says about a call of this session, in its
-    /// folder and sandbox as the runtime reported them.
-    fn policy(&self, tool: &str, input: &serde_json::Value) -> Option<(PolicyAction, String)> {
-        let core = self.sessions.core()?;
+    /// folder and sandbox as the runtime reported them. `Err` when the
+    /// policy or the session cannot be read: callers then never skip a
+    /// question, and the hook refuses.
+    fn policy(
+        &self,
+        tool: &str,
+        input: &serde_json::Value,
+    ) -> Result<Option<(PolicyAction, String)>, ()> {
+        let core = self.sessions.core().ok_or(())?;
         let (cwd, sandbox) = self
             .sessions
             .find(&self.session, |s| {
                 (s.launch().map(|l| l.cwd), s.info().sandbox)
             })
-            .ok()?;
-        let policy = core.project_store().policy(&self.project).ok()?;
-        crate::policy::decide(&policy, tool, input, &cwd?, sandbox.as_ref())
+            .map_err(|_| ())?;
+        let policy = core.project_store().policy(&self.project).map_err(|_| ())?;
+        Ok(crate::policy::decide(
+            &policy,
+            tool,
+            input,
+            &cwd.ok_or(())?,
+            sandbox.as_ref(),
+        ))
     }
 
     /// The runtime ran the session as `report` says (`None`: without a
@@ -436,10 +450,22 @@ impl AgentHost {
             .get("tool_input")
             .cloned()
             .unwrap_or(serde_json::Value::Null);
-        if let Some((PolicyAction::Deny, rule)) = self.policy(name, &input) {
-            return Some(format!(
-                "The project's policy refuses this ({rule}). Ask the person if it is needed."
-            ));
+        // Ovra's own tools follow their role rules (`Self::ask`).
+        if !name.starts_with(crate::orchestration::IDE_TOOL_PREFIX) {
+            match self.policy(name, &input) {
+                Ok(Some((PolicyAction::Deny, rule))) => {
+                    return Some(format!(
+                        "The project's policy refuses this ({rule}). Ask the person if it is needed."
+                    ));
+                }
+                Err(()) => {
+                    return Some(
+                        "Ovra could not read the project's policy, so it refuses tool calls."
+                            .to_owned(),
+                    );
+                }
+                Ok(_) => {}
+            }
         }
         self.sessions
             .direct
@@ -523,12 +549,19 @@ impl AgentHost {
             };
         }
         match self.policy(&tool, &input) {
-            Some((PolicyAction::Deny, rule)) => {
+            Ok(Some((PolicyAction::Deny, rule))) => {
+                // The hook may have seen the call first (a policy changed
+                // between the two).
+                self.sessions
+                    .direct
+                    .tool_answered(&self.session, &tool, &input, false)
+                    .await;
                 return PermissionAnswer::deny(format!(
                     "The project's policy refuses this ({rule}). Ask the person if it is needed."
                 ));
             }
-            Some((PolicyAction::Auto, _)) => return PermissionAnswer::allow(),
+            Ok(Some((PolicyAction::Auto, _))) => return PermissionAnswer::allow(),
+            // Unreadable policy: ask, never decide on its own.
             _ => {}
         }
         let tool_input = (tool.clone(), input.clone());
