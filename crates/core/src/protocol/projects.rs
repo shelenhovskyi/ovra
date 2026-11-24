@@ -128,7 +128,9 @@ pub enum ProjectsResponse {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum ProjectsEvent {
-    /// The list or the active project changed; clients should re-fetch.
+    /// The list or the set of open projects changed; clients should
+    /// re-fetch. `open` lists the projects some client has open (each
+    /// connection holds the project it opened last), sorted by id.
     #[serde(rename = "projects.changed")]
-    Changed { active: Option<ProjectId> },
+    Changed { open: Vec<ProjectId> },
 }

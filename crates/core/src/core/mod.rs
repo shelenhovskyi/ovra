@@ -254,8 +254,8 @@ impl Core {
     }
 
     fn emit_projects_changed(&self) {
-        let active = self.active().clone();
-        self.emit(ProjectsEvent::Changed { active });
+        let open = self.active().iter().cloned().collect();
+        self.emit(ProjectsEvent::Changed { open });
     }
 
     fn root(&self, project: &ProjectId) -> Result<PathBuf, ProtocolError> {
