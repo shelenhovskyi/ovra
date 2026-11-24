@@ -94,9 +94,20 @@ impl FsService for FsIndex {
         offset: u32,
         limit: u32,
     ) -> BoxFuture<'_, Result<FileList>> {
-        blocking(move || {
-            let files = file_list::scan(&resolve::root(&root)?);
-            Ok(file_list::page(&files, offset, limit, 0))
+        let watched = self
+            .watches()
+            .values()
+            .find(|w| w.given_root == root)
+            .map(|w| Arc::clone(&w.files));
+        blocking(move || match watched {
+            Some(files) => {
+                let files = files.lock();
+                Ok(file_list::page(&files.paths, offset, limit, files.version))
+            }
+            None => {
+                let files = file_list::scan(&resolve::root(&root)?);
+                Ok(file_list::page(&files, offset, limit, 0))
+            }
         })
     }
 

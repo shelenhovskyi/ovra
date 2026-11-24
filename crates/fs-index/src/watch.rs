@@ -5,20 +5,20 @@
 //! `HEAD`. File events are batched briefly; `git status` runs on its own
 //! thread, debounced and one at a time (see [`Timing`]).
 
-use std::collections::{BTreeSet, HashSet};
-use std::path::{Component, Path, PathBuf};
+use std::collections::{BTreeSet, HashMap, HashSet};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
-use ignore::WalkBuilder;
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher as _};
 use ovra_core::protocol::fs::FsEvent;
 use ovra_core::protocol::projects::ProjectId;
 use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::{EventSink, Result};
 
+use crate::file_list;
 use crate::files::TMP_SUFFIX;
 use crate::git::{Repo, Statuses};
 use crate::listing::visible_names;
@@ -99,6 +99,7 @@ pub(crate) struct Watch {
     /// The root as the core passed it, to match later requests.
     pub(crate) given_root: PathBuf,
     pub(crate) git: Arc<GitCache>,
+    pub(crate) files: Arc<SharedFiles>,
     tx: mpsc::Sender<Msg>,
     stopped: Arc<AtomicBool>,
 }
@@ -156,6 +157,7 @@ impl Watch {
             root,
             sink,
             git_tx,
+            files: Arc::new(SharedFiles::default()),
             watcher,
             dirs: HashSet::new(),
             stopped: Arc::clone(&stopped),
@@ -163,6 +165,7 @@ impl Watch {
         };
         let root = worker.root.clone();
         worker.watch_tree(&root);
+        worker.files.lock().version = 1;
         if let Some(repo) = &git.repo {
             // Best effort: without it, commits and checkouts surface on the
             // next worktree change.
@@ -170,6 +173,7 @@ impl Watch {
                 .watcher
                 .watch(&repo.git_dir, RecursiveMode::NonRecursive);
         }
+        let files = Arc::clone(&worker.files);
         std::thread::Builder::new()
             .name("ovra-fs-watch".to_owned())
             .spawn(move || worker.run(&rx))
@@ -177,6 +181,7 @@ impl Watch {
         Ok(Self {
             given_root,
             git,
+            files,
             tx,
             stopped,
         })
@@ -228,6 +233,7 @@ struct Worker {
     sink: EventSink,
     /// Asks for a git status refresh; `None` outside a repository.
     git_tx: Option<mpsc::Sender<()>>,
+    files: Arc<SharedFiles>,
     watcher: RecommendedWatcher,
     dirs: HashSet<PathBuf>,
     stopped: Arc<AtomicBool>,
@@ -235,15 +241,12 @@ struct Worker {
 }
 
 impl Worker {
-    /// Watches `dir` and every directory below it that is not ignored.
-    fn watch_tree(&mut self, dir: &Path) {
-        let walk = WalkBuilder::new(dir)
-            .hidden(false)
-            .require_git(false)
-            .follow_links(false)
-            .filter_entry(|e| e.file_name() != ".git")
-            .build();
-        for entry in walk.filter_map(std::result::Result::ok) {
+    /// Watches `dir` and every directory below it that is not ignored, and
+    /// adds the files found to the set. Returns the files that were new.
+    fn watch_tree(&mut self, dir: &Path) -> Vec<String> {
+        let mut added = Vec::new();
+        let mut files = self.files.lock();
+        for entry in file_list::walk(dir).filter_map(std::result::Result::ok) {
             if entry.file_type().is_some_and(|t| t.is_dir()) {
                 let path = entry.into_path();
                 if !self.dirs.contains(&path)
@@ -254,8 +257,13 @@ impl Worker {
                 {
                     self.dirs.insert(path);
                 }
+            } else if let Some(rel) = file_list::relative(&self.root, entry.path())
+                && files.paths.insert(rel.clone())
+            {
+                added.push(rel);
             }
         }
+        added
     }
 
     fn run(mut self, rx: &mpsc::Receiver<Msg>) {
@@ -279,14 +287,17 @@ impl Worker {
 
     fn process(&mut self, batch: Vec<notify::Result<notify::Event>>) {
         let mut changed = BTreeSet::new();
+        let mut set = SetChange::default();
+        let mut visible = HashMap::new();
         for event in batch.into_iter().filter_map(std::result::Result::ok) {
             if matches!(event.kind, EventKind::Access(_)) {
                 continue;
             }
             for path in event.paths {
-                if let Some(rel) = self.relative(&path) {
-                    changed.insert(rel);
-                    self.track_dir(path);
+                if let Some(rel) = self.relative(&path)
+                    && changed.insert(rel.clone())
+                {
+                    self.update(path, rel, &mut set, &mut visible);
                 }
             }
         }
@@ -294,6 +305,13 @@ impl Worker {
         if let Some(git) = &self.git_tx {
             let _ = git.send(());
         }
+        let version = if set.added.is_empty() && set.removed.is_empty() {
+            None
+        } else {
+            let mut files = self.files.lock();
+            files.version += 1;
+            Some(files.version)
+        };
         if self.stopped.load(Ordering::SeqCst) {
             return;
         }
@@ -311,46 +329,102 @@ impl Worker {
                 paths,
             });
         }
+        if let Some(version) = version {
+            self.sink.emit(FsEvent::FilesChanged {
+                project: self.project.clone(),
+                added: set.added.into_iter().collect(),
+                removed: set.removed.into_iter().collect(),
+                version,
+            });
+        }
     }
 
     /// The project-relative path of a changed file, or `None` for paths that
     /// clients never see (outside the root, inside `.git`, our temp files).
     fn relative(&self, path: &Path) -> Option<String> {
-        let rel = path.strip_prefix(&self.root).ok()?;
-        let mut parts = Vec::new();
-        for part in rel.components() {
-            let Component::Normal(part) = part else {
-                return None;
-            };
-            let part = part.to_str()?;
-            if part == ".git" {
-                return None;
-            }
-            parts.push(part);
-        }
-        let last = parts.last()?;
-        if last.ends_with(TMP_SUFFIX) {
-            return None;
-        }
-        Some(parts.join("/"))
+        let rel = file_list::relative(&self.root, path)?;
+        let hidden = rel.split('/').any(|p| p == ".git") || rel.ends_with(TMP_SUFFIX);
+        (!hidden).then_some(rel)
     }
 
-    /// Starts watching new directories that are not ignored and forgets
-    /// removed ones.
-    fn track_dir(&mut self, path: PathBuf) {
-        if path.is_dir() {
-            let visible = path
-                .parent()
-                .zip(path.file_name())
-                .is_some_and(|(parent, name)| {
-                    name.to_str()
-                        .is_some_and(|name| visible_names(parent).contains(name))
-                });
-            if visible && !self.dirs.contains(&path) {
-                self.watch_tree(&path);
+    /// Keeps the watched directories and the file set in step with one
+    /// changed path.
+    fn update(
+        &mut self,
+        path: PathBuf,
+        rel: String,
+        set: &mut SetChange,
+        visible: &mut HashMap<PathBuf, HashSet<String>>,
+    ) {
+        let Ok(meta) = std::fs::symlink_metadata(&path) else {
+            // Gone: forget it and, if it was a directory, all below it.
+            if self.dirs.remove(&path) {
+                let _ = self.watcher.unwatch(&path);
+                self.dirs.retain(|d| !d.starts_with(&path));
             }
-        } else if self.dirs.remove(&path) {
-            let _ = self.watcher.unwatch(&path);
+            let mut files = self.files.lock();
+            let below = format!("{rel}/");
+            let mut gone: Vec<String> = files
+                .paths
+                .range(below.clone()..)
+                .take_while(|p| p.starts_with(&below))
+                .cloned()
+                .collect();
+            gone.extend(files.paths.get(&rel).cloned());
+            for p in gone {
+                files.paths.remove(&p);
+                set.removed.insert(p.clone());
+                set.added.remove(&p);
+            }
+            return;
+        };
+        let (Some(parent), Some(name)) = (path.parent(), path.file_name().and_then(|n| n.to_str()))
+        else {
+            return;
+        };
+        // One ignore check per directory and batch, however many files changed.
+        let shown = self.dirs.contains(parent)
+            && visible
+                .entry(parent.to_path_buf())
+                .or_insert_with(|| visible_names(parent))
+                .contains(name);
+        if !shown {
+            return;
         }
+        if meta.is_dir() {
+            if !self.dirs.contains(&path) {
+                for added in self.watch_tree(&path) {
+                    set.removed.remove(&added);
+                    set.added.insert(added);
+                }
+            }
+        } else if self.files.lock().paths.insert(rel.clone()) {
+            set.removed.remove(&rel);
+            set.added.insert(rel);
+        }
+    }
+}
+
+/// Additions to and removals from the file set during one batch.
+#[derive(Debug, Default)]
+struct SetChange {
+    added: BTreeSet<String>,
+    removed: BTreeSet<String>,
+}
+
+/// The non-ignored files of a watched project, kept by the watcher.
+#[derive(Debug, Default)]
+pub(crate) struct FileSet {
+    pub(crate) paths: BTreeSet<String>,
+    pub(crate) version: u64,
+}
+
+/// A [`FileSet`] behind a lock.
+#[derive(Debug, Default)]
+pub(crate) struct SharedFiles(Mutex<FileSet>);
+
+impl SharedFiles {
+    pub(crate) fn lock(&self) -> MutexGuard<'_, FileSet> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }

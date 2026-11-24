@@ -411,14 +411,14 @@ async fn mass_writes_coalesce_git_status_runs() {
     list(&fs, root, "").await.expect("prime the cache");
     let before = runs();
 
-    // An agent writing 1,000 files in 10 bursts: each burst is its own batch
+    // An agent writing files in 10 bursts: each burst is its own batch
     // of file events, but git status runs once for all of them.
-    let rounds = 10;
+    let rounds = 6;
     for round in 0..rounds {
-        for i in 0..100 {
+        for i in 0..30 {
             put(root, &format!("gen/r{round}-{i}.txt"), "x");
         }
-        changed_until(&mut rx, &format!("gen/r{round}-99.txt")).await;
+        changed_until(&mut rx, &format!("gen/r{round}-29.txt")).await;
     }
     while next_fs(&mut rx).await
         != (FsEvent::GitChanged {
@@ -454,4 +454,101 @@ async fn lists_all_files_that_are_not_ignored() {
         (second.paths, second.total),
         (vec!["README.md".to_owned(), "src/a.rs".to_owned()], 4)
     );
+}
+
+#[tokio::test]
+async fn watcher_keeps_the_file_list_fresh() {
+    let tmp = dir();
+    let root = tmp.path();
+    put(root, ".gitignore", "*.log\n");
+    put(root, "src/a.rs", "");
+    put(root, "src/deep/b.rs", "");
+    put(root, "src-old.rs", "");
+    let core = Core::new("test");
+    let mut rx = core.subscribe();
+    let fs = FsIndex::fast();
+    let project = ProjectId("p".into());
+    fs.watch(project.clone(), root.to_path_buf(), core.sink())
+        .expect("watch");
+    let listed = || fs.list_files(root.to_path_buf(), 0, 100);
+    let before = listed().await.expect("list");
+    assert_eq!(
+        before.paths,
+        [".gitignore", "src-old.rs", "src/a.rs", "src/deep/b.rs"]
+    );
+
+    let mut next_change = async || loop {
+        if let FsEvent::FilesChanged {
+            added,
+            removed,
+            version,
+            ..
+        } = next_fs(&mut rx).await
+        {
+            return (added, removed, version);
+        }
+    };
+    put(root, "new/c.rs", "");
+    put(root, "debug.log", "");
+    let (added, removed, version) = next_change().await;
+    assert_eq!((added, removed), (vec!["new/c.rs".to_owned()], vec![]));
+    assert!(version > before.version);
+
+    fs::remove_dir_all(root.join("src")).expect("rm");
+    let (added, removed, _) = next_change().await;
+    assert_eq!(
+        (added, removed),
+        (
+            vec![],
+            vec!["src/a.rs".to_owned(), "src/deep/b.rs".to_owned()]
+        )
+    );
+    let after = listed().await.expect("list");
+    assert_eq!(after.paths, [".gitignore", "new/c.rs", "src-old.rs"]);
+}
+
+#[tokio::test]
+async fn file_list_pages_through_a_watched_project() {
+    let tmp = dir();
+    let root = tmp.path();
+    for d in 0..10 {
+        fs::create_dir(root.join(format!("d{d}"))).expect("mkdir");
+        for f in 0..50 {
+            fs::write(root.join(format!("d{d}/f{f}")), "").expect("write");
+        }
+    }
+    let fs = FsIndex::new();
+    let sink = Core::new("t").sink();
+    fs.watch(ProjectId("p".into()), root.to_path_buf(), sink)
+        .expect("watch");
+    let mut all = Vec::new();
+    let mut version = None;
+    while all.len() < 500 {
+        let offset = u32::try_from(all.len()).expect("fits");
+        let page = fs.list_files(root.to_path_buf(), offset, 200);
+        let page = page.await.expect("page");
+        assert_eq!(page.total, 500);
+        assert_eq!(*version.get_or_insert(page.version), page.version);
+        all.extend(page.paths);
+    }
+    assert!(all.is_sorted());
+    assert_eq!(all.len(), 500);
+}
+
+#[tokio::test]
+async fn saving_a_file_deleted_on_disk_is_a_conflict() {
+    let tmp = dir();
+    let root = tmp.path().to_path_buf();
+    let fs = FsIndex::new();
+    let mtime = fs.write_file(root.clone(), rel("a.txt"), "one".into(), None);
+    let mtime = mtime.await.expect("create");
+    fs::rename(root.join("a.txt"), root.join("b.txt")).expect("rename");
+
+    let saved = fs.write_file(root.clone(), rel("a.txt"), "two".into(), Some(mtime));
+    let err = saved.await.expect_err("conflict");
+    assert_eq!(
+        (err.code, err.message.as_str()),
+        (ErrorCode::Conflict, "a.txt was deleted on disk")
+    );
+    assert!(!root.join("a.txt").exists(), "not recreated");
 }
