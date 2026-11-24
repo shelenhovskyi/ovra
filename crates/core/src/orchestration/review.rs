@@ -361,11 +361,12 @@ async fn listed(core: &Core, entry: &Entry, at: Option<&String>) -> Result<Liste
     } else {
         direct_touched(core, &entry.project).await
     };
-    let fingerprint = (entry.mode == SessionMode::Isolated).then(|| fingerprint(&deltas, &touched));
+    let fingerprint =
+        (entry.mode == SessionMode::Isolated).then(|| fingerprint(&ws.base, &deltas, &touched));
     let files = deltas
         .into_iter()
         .map(|d| FileChange {
-            blocked: touched.contains(&d.path),
+            blocked: waits(&d, &touched),
             // Nobody but the worker writes its worktree. A direct session
             // no longer tracked (decided) vouches for nothing.
             by: if entry.mode == SessionMode::Direct {
@@ -383,19 +384,26 @@ async fn listed(core: &Core, entry: &Entry, at: Option<&String>) -> Result<Liste
     Ok((files, fingerprint, Some(tree)))
 }
 
-/// SHA-256 over each changed file's path, old path, kind, content version
-/// and whether it waits for the direct session: whatever differs in what the
-/// person would see, or in what approve would copy, changes it.
-fn fingerprint(deltas: &[Delta], waiting: &BTreeSet<String>) -> String {
+/// Whether a worker's change waits for the direct session: it touched the
+/// file, or the old path of a rename.
+fn waits(d: &Delta, touched: &BTreeSet<String>) -> bool {
+    std::iter::once(&d.path)
+        .chain(&d.from)
+        .any(|p| touched.contains(p))
+}
+
+/// SHA-256 over the base and each changed file's path, old path, kind,
+/// content version and whether it waits for the direct session: whatever
+/// differs in what the person would see, or in what approve would copy,
+/// changes it.
+fn fingerprint(base: &str, deltas: &[Delta], waiting: &BTreeSet<String>) -> String {
     let mut hash = Sha256::new();
     hash.update(b"ovra-review-v1\0");
+    hash.update(base.as_bytes());
+    hash.update(b"\0");
     for d in deltas {
         let from = d.from.as_deref().unwrap_or("");
-        let waits = if waiting.contains(&d.path) {
-            "waits"
-        } else {
-            ""
-        };
+        let waits = if waits(d, waiting) { "waits" } else { "" };
         for part in [
             d.path.as_str(),
             from,
@@ -436,7 +444,7 @@ async fn direct_touched(core: &Core, project: &ProjectId) -> BTreeSet<String> {
     for entry in open {
         for file in Box::pin(files(core, &entry)).await.unwrap_or_default() {
             if file.by != ChangedBy::Outside {
-                touched.insert(file.path);
+                touched.extend(std::iter::once(file.path).chain(file.from));
             }
         }
     }
@@ -557,12 +565,20 @@ async fn approve(
     {
         worktrees.commit(root, applied, message).await?;
     }
-    conflicts.extend(waiting.into_iter().map(|f| f.path));
+    // Both paths of a waiting rename: a later take then moves the file too.
+    conflicts.extend(
+        waiting
+            .into_iter()
+            .flat_map(|f| std::iter::once(f.path).chain(f.from)),
+    );
+    conflicts.sort();
+    conflicts.dedup();
     // What was not copied lives on only in the worktree, so its diff is
     // kept whatever its size: it is the person's way to the worker's version.
+    // A rename's diff is under its new path.
     let missing: Vec<RelPath> = conflicts
         .iter()
-        .filter(|p| !diffs.contains_key(*p))
+        .filter(|p| !diffs.contains_key(*p) && decided.iter().any(|f| &f.path == *p))
         .filter_map(|p| RelPath::parse(p).ok())
         .collect();
     if !missing.is_empty()
@@ -637,7 +653,7 @@ async fn take(core: &Core, id: &ReviewId) -> Result<(ReviewItem, Vec<String>, Ve
         .changes(ws.dir.clone(), ws.base.clone())
         .await?
         .into_iter()
-        .map(|d| d.path)
+        .flat_map(|d| std::iter::once(d.path).chain(d.from))
         .collect();
     let (changed, same): (Vec<String>, Vec<String>) =
         wanted.into_iter().partition(|p| since.contains(p));
@@ -1015,5 +1031,38 @@ async fn prune(core: &Core, project: &ProjectId) {
             .worktrees()
             .prune_snapshots(root, keep.into_iter().collect())
             .await;
+    }
+}
+
+#[cfg(test)]
+mod fingerprint_tests {
+    use super::*;
+
+    fn rename() -> Delta {
+        Delta {
+            path: "new.rs".into(),
+            kind: ChangeKind::Renamed,
+            from: Some("old.rs".into()),
+            additions: 0,
+            deletions: 0,
+            version: "100644 abc".into(),
+        }
+    }
+
+    #[test]
+    fn the_fingerprint_names_the_base_and_what_waits() {
+        let deltas = [rename()];
+        let none = BTreeSet::new();
+        let plain = fingerprint("base1", &deltas, &none);
+        // The same changes over another base are another review.
+        assert_ne!(plain, fingerprint("base2", &deltas, &none));
+        // A rename waits when either of its paths does.
+        let old = BTreeSet::from(["old.rs".to_owned()]);
+        let new = BTreeSet::from(["new.rs".to_owned()]);
+        assert_ne!(plain, fingerprint("base1", &deltas, &old));
+        assert_eq!(
+            fingerprint("base1", &deltas, &old),
+            fingerprint("base1", &deltas, &new)
+        );
     }
 }

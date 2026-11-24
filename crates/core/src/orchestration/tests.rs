@@ -14,7 +14,7 @@ use crate::protocol::permissions::PermissionsEvent;
 use crate::protocol::projects::ProjectId;
 use crate::protocol::review::{ChangeKind, ReviewItem, ReviewResponse, ReviewState};
 use crate::protocol::{ErrorCode, Event, ProtocolError, Request, Response};
-use crate::services::{ToolCaller, ToolRole};
+use crate::services::{AgentHost, AgentRuntime, AgentSpec, RunningAgent, ToolCaller, ToolRole};
 
 const ROOT: &str = crate::test_path!("/work/a");
 const WORKTREES: &str = crate::test_path!("/data/worktrees");
@@ -1698,4 +1698,170 @@ async fn approve_lands_only_the_files_the_person_reviewed() {
         f.wt.files(ROOT).get("a.rs").map(String::as_str),
         Some("swapped after the look\n")
     );
+}
+
+/// Plays scripts for the coordinator and its workers; a direct session
+/// does nothing by itself, and the test drives its tools through its host.
+#[derive(Debug)]
+struct WithDirect {
+    scripted: ScriptedAgent,
+    direct: std::sync::Mutex<Option<AgentHost>>,
+}
+
+#[derive(Debug)]
+struct Quiet;
+
+impl RunningAgent for Quiet {
+    fn send(&self, _: String) -> Result<(), ProtocolError> {
+        Ok(())
+    }
+    fn stop(&self) {}
+}
+
+impl AgentRuntime for WithDirect {
+    fn start(
+        &self,
+        spec: AgentSpec,
+        host: AgentHost,
+    ) -> Result<Box<dyn RunningAgent>, ProtocolError> {
+        if spec.mode != SessionMode::Direct {
+            return self.scripted.start(spec, host);
+        }
+        *self
+            .direct
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(host);
+        Ok(Box::new(Quiet))
+    }
+}
+
+struct DirectFx {
+    core: Core,
+    wt: Arc<MemoryWorktrees>,
+    runtime: Arc<WithDirect>,
+    worktree: String,
+}
+
+impl DirectFx {
+    /// A task with an idle worker, and a direct session in the main checkout.
+    async fn start() -> Self {
+        let runtime = Arc::new(WithDirect {
+            scripted: ScriptedAgent::new(say()),
+            direct: std::sync::Mutex::new(None),
+        });
+        let wt = Arc::new(MemoryWorktrees::default());
+        wt.put(ROOT, "a.rs", "one\n");
+        let core = Core::builder("test")
+            .projects(Arc::new(MemoryProjects::default()))
+            .agents(runtime.clone())
+            .worktrees(wt.clone())
+            .worktrees_dir(PathBuf::from(WORKTREES))
+            .build();
+        ok(
+            &core,
+            json!({"method": "projects.add", "params": {"root": ROOT}}),
+        )
+        .await;
+        let mut rx = core.subscribe();
+        start_task(&core, 3).await;
+        let boss = caller("s1", ToolRole::Coordinator);
+        let worker = core.spawn_agent(&boss, "w", "x").await;
+        let worker = worker.unwrap_or_else(|e| panic!("{e}"));
+        until(&mut rx, "s2", AgentStatus::Idle).await;
+        ok(
+            &core,
+            json!({"method": "agents.start", "params": {
+                "project": "p1", "agent": "claude", "mode": "direct", "prompt": "go"}}),
+        )
+        .await;
+        Self {
+            core,
+            wt,
+            runtime,
+            worktree: worker.worktree,
+        }
+    }
+
+    /// The direct agent writes `path` in the main checkout with its `Write` tool.
+    async fn direct_writes(&self, path: &str, text: &str) {
+        let host = self
+            .runtime
+            .direct
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+            .unwrap_or_else(|| panic!("no direct session"));
+        let input = json!({"file_path": PathBuf::from(ROOT).join(path), "content": text});
+        host.before_tool(&json!({"tool_use_id": path, "tool_name": "Write", "tool_input": input}))
+            .await;
+        self.wt.put(ROOT, path, text);
+        host.message(AgentMessage::ToolResult {
+            tool_use_id: path.to_owned(),
+            output: String::new(),
+            is_error: false,
+            parent: None,
+        });
+        host.tools_settled().await;
+    }
+
+    /// The worker's item.
+    async fn worker_item(&self) -> ReviewItem {
+        reviews(&self.core)
+            .await
+            .into_iter()
+            .find(|i| i.mode == SessionMode::Isolated)
+            .unwrap_or_else(|| panic!("no worker item"))
+    }
+}
+
+#[tokio::test]
+async fn approve_refuses_once_the_direct_session_starts_on_the_workers_file() {
+    let f = DirectFx::start().await;
+    f.wt.put(&f.worktree, "b.rs", "worker\n");
+    let seen = f.worker_item().await;
+    assert!(!seen.files[0].blocked);
+    let approve = json!({"method": "review.approve", "params": {
+        "id": seen.id.0, "commit": null, "fingerprint": seen.fingerprint}});
+
+    // The direct agent writes the same file: it now waits, and an approve
+    // sent for the list without the wait would copy it over the agent's.
+    f.direct_writes("b.rs", "direct\n").await;
+    assert_eq!(code(call(&f.core, approve).await), ErrorCode::Conflict);
+    let now = f.worker_item().await;
+    assert!(now.files[0].blocked);
+    assert_ne!(now.fingerprint, seen.fingerprint);
+    assert_eq!(
+        f.wt.files(ROOT).get("b.rs").map(String::as_str),
+        Some("direct\n")
+    );
+}
+
+#[tokio::test]
+async fn a_workers_rename_waits_when_the_direct_session_edits_its_old_path() {
+    let f = DirectFx::start().await;
+    f.wt.delete(&f.worktree, "a.rs");
+    f.wt.put(&f.worktree, "moved.rs", "one\n");
+    f.direct_writes("a.rs", "direct\n").await;
+    let item = f.worker_item().await;
+    assert_eq!(
+        item.files
+            .iter()
+            .map(|f| (f.path.as_str(), f.from.as_deref(), f.blocked))
+            .collect::<Vec<_>>(),
+        [("moved.rs", Some("a.rs"), true)]
+    );
+    let id = item.id.0.clone();
+    let done = ok(&f.core, approval(&f.core, &id, json!(null)).await).await;
+    let Response::Review(ReviewResponse::Done {
+        item, conflicts, ..
+    }) = done
+    else {
+        panic!("unexpected {done:?}");
+    };
+    // Both paths are left, so a later replace moves the file, not copies it.
+    assert_eq!(conflicts, ["a.rs", "moved.rs"]);
+    assert_eq!(item.not_copied, ["a.rs", "moved.rs"]);
+    let main = f.wt.files(ROOT);
+    assert_eq!(main.keys().collect::<Vec<_>>(), ["a.rs"]);
+    assert_eq!(main.get("a.rs").map(String::as_str), Some("direct\n"));
 }

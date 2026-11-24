@@ -787,3 +787,34 @@ async fn apply_refuses_submodules_and_checkouts_below_the_top() {
     assert_eq!(below.err().map(|e| e.code), Some(ErrorCode::Conflict));
     assert_eq!(read(root, "p/b.txt").as_deref(), Some("b\n"));
 }
+
+/// A review's fingerprint rests on `Delta.version`: a change of mode alone,
+/// or a symlink pointing elsewhere, must change it.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_version_changes_with_the_mode_and_a_links_target() {
+    use std::os::unix::fs::PermissionsExt;
+    let repo = Repo::new(&[("run.sh", "echo\n"), ("x", "x\n"), ("y", "y\n")]);
+    let root = &repo.root;
+    std::os::unix::fs::symlink("x", root.join("link")).unwrap_or_else(|e| panic!("{e}"));
+    let w = GitWorktrees::new();
+    let versions = |deltas: Vec<ovra_core::services::Delta>| {
+        let map: std::collections::BTreeMap<String, String> =
+            deltas.into_iter().map(|d| (d.path, d.version)).collect();
+        map
+    };
+    let before = w.changes(root.clone(), "HEAD".into()).await;
+    let before = versions(before.unwrap_or_else(|e| panic!("{e:?}")));
+
+    fs::set_permissions(root.join("run.sh"), fs::Permissions::from_mode(0o755))
+        .unwrap_or_else(|e| panic!("{e}"));
+    fs::remove_file(root.join("link")).unwrap_or_else(|e| panic!("{e}"));
+    std::os::unix::fs::symlink("y", root.join("link")).unwrap_or_else(|e| panic!("{e}"));
+    let after = w.changes(root.clone(), "HEAD".into()).await;
+    let after = versions(after.unwrap_or_else(|e| panic!("{e:?}")));
+
+    assert!(!before.contains_key("run.sh"), "{before:?}");
+    assert!(after.contains_key("run.sh"), "mode only: {after:?}");
+    assert_ne!(before.get("link"), after.get("link"));
+    assert!(after.get("link").is_some_and(|v| v.starts_with("120000 ")));
+}
