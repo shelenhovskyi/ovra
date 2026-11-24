@@ -20,7 +20,6 @@ expression: root.show(&line.unwrap())
 --tmpfs /mnt
 --tmpfs /media
 --tmpfs ROOT/home
---tmpfs ROOT/data
 --ro-bind ROOT/home/.claude
 --tmpfs ROOT/home/.claude/backups
 --tmpfs ROOT/home/.claude/cache

@@ -1,0 +1,35 @@
+---
+source: crates/sandbox-linux/tests/sandbox.rs
+assertion_line: 266
+expression: out
+---
+write the project: yes
+read the project: yes
+read ssh keys: no
+read cargo credentials: no
+read cargo config: yes
+read the data folder: no
+read claude settings: yes
+write claude settings: no
+write this project transcripts: yes
+write another project transcripts: no
+write a shell snapshot: yes
+read git config: yes
+read git credentials: no
+read docker credentials: no
+write a git hook: no
+write git config: no
+plant a git commondir: no
+stage a change: no
+make a repository in a submodule folder: no
+make a repository where a submodule folder is gone: no
+make a repository in a nested submodule folder: no
+write included git config: no
+make missing included git config: no
+write this project memory: no
+write project agent settings: no
+write a nested CLAUDE.md: no
+move the git folder away: no
+move a CLAUDE.md folder away: no
+write the private tmp: yes
+start a user namespace: no

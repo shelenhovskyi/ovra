@@ -190,13 +190,19 @@ impl Plan {
             plan.rw(real(write)?);
         }
         plan.rw(work_dir.clone());
-        let hidden: Vec<PathBuf> = setup.hidden.iter().filter_map(|h| real(h).ok()).collect();
+        let mut hidden: Vec<PathBuf> = setup.hidden.iter().filter_map(|h| real(h).ok()).collect();
+        hidden.sort_by_key(|h| h.components().count());
         let protected = protected_paths(setup, &work_dir, &home, &hidden)?;
         plan.protect(protected);
+        let before = plan.mounts.len();
         // Ovra's data folder inside a folder bound above (a project that
         // holds `.ovra-data`) is hidden again.
         for hidden in hidden {
-            if !work_dir.starts_with(&hidden) && plan.under_writable(&hidden).is_some() {
+            let covered = plan.mounts[before..]
+                .iter()
+                .any(|m| matches!(m, Mount::Tmpfs(t) if hidden.starts_with(t)));
+            if !work_dir.starts_with(&hidden) && plan.under_writable(&hidden).is_some() && !covered
+            {
                 plan.mounts.push(Mount::Tmpfs(hidden));
             }
         }
@@ -242,11 +248,16 @@ impl Plan {
             self.mounts.push(Mount::Ro(resolv));
         }
         self.mounts.push(Mount::Tmpfs(home.to_path_buf()));
-        for hidden in &setup.hidden {
-            if let Ok(hidden) = real(hidden)
-                && hidden.is_dir()
-                && !hidden.starts_with(home)
-            {
+        // Outer folders first; one inside a folder hidden already is hidden
+        // with it (hiding it again would be covered by the outer one).
+        let mut hidden: Vec<PathBuf> = setup.hidden.iter().filter_map(|h| real(h).ok()).collect();
+        hidden.sort_by_key(|h| h.components().count());
+        for hidden in hidden {
+            let covered = self
+                .mounts
+                .iter()
+                .any(|m| matches!(m, Mount::Tmpfs(t) if hidden.starts_with(t)));
+            if hidden.is_dir() && !covered {
                 self.mounts.push(Mount::Tmpfs(hidden));
             }
         }
@@ -592,11 +603,23 @@ fn protected_paths(
     }
     found.push(work_dir.join(".git"));
     walk(work_dir, &deep, hidden, &mut found)?;
+    let mut made = Vec::new();
     if let Some(hooks) = hooks_path(work_dir, home) {
-        found.push(hooks);
+        made.push((hooks, true));
     }
-    found.extend(config_files(work_dir, home));
-    found.extend(empty_submodules(work_dir));
+    made.extend(config_files(work_dir, home).into_iter().map(|f| (f, false)));
+    let mut repos = vec![work_dir.to_path_buf()];
+    repos.extend(
+        found
+            .iter()
+            .filter(|p| p.file_name().is_some_and(|n| n == ".git"))
+            .filter_map(|p| p.parent().map(Path::to_path_buf)),
+    );
+    repos.dedup();
+    made.extend(empty_submodules(repos).into_iter().map(|d| (d, true)));
+    for (path, folder) in made {
+        found.extend(made_inside(work_dir, &path, folder)?);
+    }
     let mut protected = Vec::new();
     for path in found {
         let Ok(meta) = fs::symlink_metadata(&path) else {
@@ -710,48 +733,103 @@ fn lexically_inside(path: &Path, dir: &Path) -> bool {
     normal.starts_with(dir) && normal != dir
 }
 
-/// Submodule folders (gitlinks in the index) that are not checked out.
-fn empty_submodules(work_dir: &Path) -> Vec<PathBuf> {
-    let text = git(work_dir, &["ls-files", "--stage", "-z"]).unwrap_or_default();
-    text.split('\0')
-        .filter_map(|record| record.strip_prefix("160000 "))
-        .filter_map(|record| record.split_once('\t').map(|(_, path)| work_dir.join(path)))
-        .filter(|dir| !dir.join(".git").exists())
-        .collect()
-}
-
-/// The folder `core.hooksPath` names, if set and inside `work_dir`; made
-/// if missing, so the agent cannot make it. Elsewhere it is read-only
-/// already.
-fn hooks_path(work_dir: &Path, home: &Path) -> Option<PathBuf> {
-    let text = git(work_dir, &["config", "--get", "core.hooksPath"])?;
-    let text = text.trim();
-    let path = match text.strip_prefix("~/") {
-        Some(rest) => home.join(rest),
-        None => work_dir.join(text),
-    };
-    let rest = path.strip_prefix(work_dir).ok()?;
-    if text.is_empty()
-        || rest.as_os_str().is_empty()
-        || !rest
-            .components()
-            .all(|c| matches!(c, std::path::Component::Normal(_)))
-    {
-        return None;
-    }
-    // Made only through real folders inside `work_dir`.
-    let mut at = work_dir.to_path_buf();
-    for part in rest.components() {
-        at.push(part);
-        match fs::symlink_metadata(&at) {
-            Ok(meta) if meta.is_dir() => {}
-            Ok(_) => return Some(at),
-            Err(_) => {
-                fs::create_dir(&at).ok()?;
+/// Submodule folders (gitlinks in the index) that are not checked out,
+/// looking inside every submodule that is: `git status` steps into those
+/// whether or not they are active, which `ls-files --recurse-submodules`
+/// does not follow. `repos` are where to start: the project and the
+/// repositories nested in it.
+fn empty_submodules(mut repos: Vec<PathBuf>) -> Vec<PathBuf> {
+    let mut empty = Vec::new();
+    while let Some(repo) = repos.pop() {
+        let text = git(&repo, &["ls-files", "--stage", "-z"]).unwrap_or_default();
+        for record in text.split('\0') {
+            let Some((_, path)) = record
+                .strip_prefix("160000 ")
+                .and_then(|r| r.split_once('\t'))
+            else {
+                continue;
+            };
+            let dir = repo.join(path);
+            // A link is not stepped through; it is refused later.
+            let is_dir = fs::symlink_metadata(&dir).is_ok_and(|m| m.is_dir());
+            if is_dir && fs::symlink_metadata(dir.join(".git")).is_ok() {
+                repos.push(dir);
+            } else {
+                empty.push(dir);
             }
         }
     }
-    Some(path)
+    empty
+}
+
+/// The folder `core.hooksPath` names, if set and inside `work_dir`.
+/// Elsewhere it is read-only already.
+fn hooks_path(work_dir: &Path, home: &Path) -> Option<PathBuf> {
+    let text = git(work_dir, &["config", "--get", "core.hooksPath"])?;
+    let text = text.trim();
+    if text.is_empty() {
+        return None;
+    }
+    Some(match text.strip_prefix("~/") {
+        Some(rest) => home.join(rest),
+        None => work_dir.join(text),
+    })
+}
+
+/// What git would read inside `work_dir` must exist before the session
+/// starts, or the agent could make it. This makes `path` (a folder, or an
+/// empty file) if it is missing, only through real folders inside
+/// `work_dir`, and returns what to bind: `path`, or the first part of it
+/// that is not a folder. `None` when `path` is not inside `work_dir`.
+fn made_inside(work_dir: &Path, path: &Path, folder: bool) -> Result<Option<PathBuf>> {
+    use std::os::unix::fs::OpenOptionsExt as _;
+    use std::path::Component;
+    let mut parts = Vec::new();
+    let Ok(rest) = path.strip_prefix(work_dir) else {
+        return Ok(None);
+    };
+    for part in rest.components() {
+        match part {
+            Component::Normal(name) => parts.push(name),
+            Component::CurDir => {}
+            Component::ParentDir => match parts.pop() {
+                Some(_) => {}
+                None => return Ok(None),
+            },
+            _ => return Ok(None),
+        }
+    }
+    if parts.is_empty() {
+        return Ok(None);
+    }
+    let refuse = |at: &Path, error: std::io::Error| {
+        invalid(format!(
+            "cannot make {} for the sandbox to keep read-only: {error}",
+            at.display()
+        ))
+    };
+    let mut at = work_dir.to_path_buf();
+    for (n, part) in parts.iter().enumerate() {
+        at.push(part);
+        let is_last = n + 1 == parts.len();
+        match fs::symlink_metadata(&at) {
+            Ok(meta) if meta.is_dir() && !is_last => {}
+            Ok(_) => return Ok(Some(at)),
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                return Err(refuse(&at, error));
+            }
+            Err(_) if is_last && !folder => {
+                fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .custom_flags(libc::O_NOFOLLOW)
+                    .open(&at)
+                    .map_err(|e| refuse(&at, e))?;
+            }
+            Err(_) => fs::create_dir(&at).map_err(|e| refuse(&at, e))?,
+        }
+    }
+    Ok(Some(at))
 }
 
 /// Adds every entry under `dir` named one of `names`, without following

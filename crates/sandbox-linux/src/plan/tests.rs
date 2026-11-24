@@ -300,3 +300,21 @@ fn path_entries_inside_the_project_and_nested_repositories() {
             .contains(&Mount::Ro(project.join("vendor/lib/.git")))
     );
 }
+
+#[test]
+fn hidden_folders_inside_each_other_are_hidden_once() {
+    let root = Root::new("hidden-nested");
+    let project = root.dir("project");
+    root.dir("data");
+    let mut setup = root.setup("/usr/bin");
+    // Ovra's data folder in the temporary folder, which is hidden too.
+    setup.hidden = vec![root.0.join("data"), root.0.clone(), PathBuf::from("/tmp")];
+    let plan = Plan::new(&setup, &profile(&project)).unwrap();
+    let line = plan.line(
+        Path::new("/usr/bin/bwrap"),
+        &setup.helper,
+        Landlock::Try,
+        line(Path::new("/bin/sh"), &project),
+    );
+    assert!(line.is_ok(), "{:?}", line.err());
+}

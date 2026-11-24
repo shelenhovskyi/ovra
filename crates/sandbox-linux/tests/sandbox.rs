@@ -179,8 +179,43 @@ fn a_direct_session_writes_its_project_and_nothing_else() {
         ],
     );
     fs::create_dir_all(project.join("sub")).unwrap();
+    // One whose folder is gone, and one inside a checked-out submodule.
+    git(
+        &project,
+        &[
+            "update-index",
+            "--add",
+            "--cacheinfo",
+            &format!("160000,{blob},deep/gone"),
+        ],
+    );
+    let module = project.join("module");
+    fs::create_dir_all(&module).unwrap();
+    git(&module, &["init", "-q"]);
+    git(
+        &module,
+        &[
+            "update-index",
+            "--add",
+            "--cacheinfo",
+            &format!("160000,{blob},inner"),
+        ],
+    );
+    git(
+        &project,
+        &[
+            "update-index",
+            "--add",
+            "--cacheinfo",
+            &format!("160000,{blob},module"),
+        ],
+    );
     root.file("project/team.gitconfig", "");
     git(&project, &["config", "include.path", "../team.gitconfig"]);
+    git(
+        &project,
+        &["config", "--add", "include.path", "../local.gitconfig"],
+    );
     let data = root.0.join("data");
     root.file("data/store.db", "projects");
     let path = format!("{}/.docker/bin:/usr/bin:/bin", home.display());
@@ -212,7 +247,10 @@ fn a_direct_session_writes_its_project_and_nothing_else() {
         plant a git commondir: echo evil > .git/commondir
         stage a change: git add README.md
         make a repository in a submodule folder: git init -q sub
+        make a repository where a submodule folder is gone: mkdir -p deep/gone/.git
+        make a repository in a nested submodule folder: git init -q module/inner
         write included git config: echo x >> team.gitconfig
+        make missing included git config: echo x >> local.gitconfig
         write this project memory: echo x > {home}/.claude/projects/{key}/memory/m.md
         write project agent settings: echo x >> .claude/settings.json
         write a nested CLAUDE.md: echo x >> src/CLAUDE.md

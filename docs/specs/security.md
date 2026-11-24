@@ -145,9 +145,11 @@ its changes on approve.
     session is read-only, and every nested repository's: git also reads
     `commondir`, `packed-refs` and new `modules/*` folders, and the agent
     has nothing to commit (Ovra reviews its files). Submodule folders that
-    are not checked out stay read-only too, so the agent cannot put a
-    repository there that git steps into, and so do config files inside
-    the project that git includes;
+    are not checked out stay read-only too, at any depth and also when
+    their folder is missing, so the agent cannot put a repository there
+    that git steps into; so do config files inside the project that git
+    includes. A missing folder or include is made empty first, so it can
+    be bound;
   - the folder `core.hooksPath` names, for example `.husky/`;
   - `refs/ovra/` and its reflog;
   - for a worker, its worktree's `.git` file, plus `commondir`, `gitdir` and
@@ -157,6 +159,19 @@ its changes on approve.
   `CLAUDE.local.md` and `AGENTS.md`.
 - Code that tools run on their own: `.vscode/`, `.idea/`, `.devcontainer/`
   and `.envrc`.
+
+Known gaps on Linux, left to the backstop below:
+
+- a git config value that names a file inside the project
+  (`core.fsmonitor = ./x`, `filter.*.clean`, `diff.*.textconv`,
+  `credential.helper`, `alias.* = !./...`): the file stays writable;
+- a submodule the user adds while a session runs;
+- a bind mount of the home folder outside `/mnt`, `/media`, `/sysroot` and
+  `/.snapshots` (for example `/srv`) stays readable.
+
+Ovra's own git calls (fs-index, worktree) should pass
+`--ignore-submodules=all` so a missed submodule cannot run a filter in
+them; that is a follow-up in those areas.
 
 An agent that needs one of these changed says so in its summary, and the
 person makes the change. A protected path that is a link cannot be kept
