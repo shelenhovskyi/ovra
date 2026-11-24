@@ -82,8 +82,8 @@ export function treeSitterHighlighting(doc: HighlightedDoc) {
         if (update.docChanged || update.viewportChanged) request();
       },
       destroy() {
+        // The document belongs to the buffer, which outlives this view.
         destroyed = true;
-        doc.close();
       },
     };
   });
