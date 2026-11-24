@@ -6,8 +6,10 @@ Read `docs/architecture.md` (one page) and `docs/glossary.md` before changing
 code, and the ADRs in `docs/adr/` that touch the area you change.
 
 Always write repository content in English, even when the user writes in
-another language. Only `locales/` may contain other languages; CI fails on
-Cyrillic anywhere else.
+another language. The UI is English only: no translations, locale files or
+i18n layer until the owner asks for one. CI fails on Cyrillic anywhere in the
+repository. Keyboard shortcuts must still work on non-Latin layouts (match on
+`KeyboardEvent.code`, not `key`); that is not localization.
 
 ## Commands
 
