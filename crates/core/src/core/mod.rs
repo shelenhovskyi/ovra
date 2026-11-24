@@ -90,6 +90,7 @@ impl CoreBuilder {
 
     pub fn build(self) -> Core {
         let (events, _) = broadcast::channel(EVENT_CAPACITY);
+        let kept = self.sessions.clone();
         let core = Core {
             inner: Arc::new(Inner {
                 mode: self.mode,
@@ -100,7 +101,7 @@ impl CoreBuilder {
                 agents: self.agents,
                 sessions: Arc::new(Sessions::new(self.sessions, self.worktrees.clone())),
                 worktrees: self.worktrees,
-                orchestration: Orchestration::new(self.worktrees_dir),
+                orchestration: Orchestration::new(self.worktrees_dir, kept),
                 held: Mutex::new(None),
                 open: Mutex::new(BTreeMap::new()),
             }),
@@ -109,6 +110,7 @@ impl CoreBuilder {
         core.inner
             .sessions
             .link_ide(self.ide_tools, core.downgrade());
+        orchestration::restore(&core);
         core
     }
 }

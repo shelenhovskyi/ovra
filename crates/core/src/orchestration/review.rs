@@ -18,7 +18,7 @@ use crate::protocol::{ErrorCode, OkResponse, ProtocolError, Response};
 /// Room left in a message for the words around a rejected diff.
 const WRAPPER_BYTES: usize = 256;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(super) struct Entry {
     pub(super) id: ReviewId,
     pub(super) project: ProjectId,
@@ -42,9 +42,11 @@ pub(crate) fn set_workspace(core: &Core, session: &SessionId, workspace: Workspa
     }) else {
         return;
     };
-    let mut state = core.orchestration_state().lock();
+    let orchestration = core.orchestration_state();
+    let mut state = orchestration.lock();
     if let Some(entry) = state.reviews.iter_mut().find(|r| &r.session == session) {
         entry.workspace = workspace;
+        orchestration.save(&state);
         return;
     }
     state.reviews_made += 1;
@@ -60,6 +62,7 @@ pub(crate) fn set_workspace(core: &Core, session: &SessionId, workspace: Workspa
         requested: false,
         rejected: None,
     });
+    orchestration.save(&state);
 }
 
 pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Response> {
@@ -140,14 +143,17 @@ pub(super) fn of_session(core: &Core, session: &SessionId) -> Option<Entry> {
 /// Changes `id`'s entry and tells clients.
 fn update(core: &Core, id: &ReviewId, f: impl FnOnce(&mut Entry)) -> Result<Entry> {
     let entry = {
-        let mut state = core.orchestration_state().lock();
+        let orchestration = core.orchestration_state();
+        let mut state = orchestration.lock();
         let entry = state
             .reviews
             .iter_mut()
             .find(|r| &r.id == id)
             .ok_or_else(|| not_found(format!("review {}", id.0)))?;
         f(entry);
-        entry.clone()
+        let entry = entry.clone();
+        orchestration.save(&state);
+        entry
     };
     core.emit(ReviewEvent::Changed {
         project: entry.project.clone(),
@@ -264,11 +270,14 @@ async fn approve(
         ));
     }
     if entry.mode == SessionMode::Direct {
-        let outcome = core
-            .sessions()
-            .direct
-            .approve(&entry.session, commit)
-            .await?;
+        let direct = &core.sessions().direct;
+        if commit.is_none() && direct.files(&entry.session).await.is_err() {
+            // Ovra no longer knows which files are the agent's (it
+            // restarted since): keeping the changes needs no such knowledge.
+            let entry = update(core, id, |e| e.state = ReviewState::Approved)?;
+            return Ok((item(core, &entry).await?, Vec::new()));
+        }
+        let outcome = direct.approve(&entry.session, commit).await?;
         let entry = update(core, id, |e| {
             e.state = ReviewState::Approved;
             if let Some(base) = outcome.base {

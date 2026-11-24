@@ -582,3 +582,147 @@ async fn ide_calls_reach_only_the_callers_own_workers() {
         }
     }
 }
+
+#[tokio::test]
+async fn tasks_and_open_reviews_survive_a_restart() {
+    let projects = Arc::new(MemoryProjects::default());
+    let kept = Arc::new(crate::fakes::MemorySessions::default());
+    let wt = Arc::new(MemoryWorktrees::default());
+    wt.put(ROOT, "a.rs", "one\n");
+    let build = |agent: &Arc<ScriptedAgent>| {
+        Core::builder("test")
+            .projects(projects.clone())
+            .sessions(kept.clone())
+            .agents(agent.clone())
+            .worktrees(wt.clone())
+            .worktrees_dir(PathBuf::from(WORKTREES))
+            .build()
+    };
+    let before = build(&Arc::new(ScriptedAgent::new(say())));
+    ok(
+        &before,
+        json!({"method": "projects.add", "params": {"root": ROOT}}),
+    )
+    .await;
+    let mut rx = before.subscribe();
+    start_task(&before, 3).await;
+    let boss = caller("s1", ToolRole::Coordinator);
+    let worker = before.spawn_agent(&boss, "w", "x").await;
+    let worker = worker.unwrap_or_else(|e| panic!("{e}"));
+    until(&mut rx, "s2", AgentStatus::Idle).await;
+    wt.put(&worker.worktree, "a.rs", "two\n");
+    let me = caller("s2", ToolRole::Worker);
+    assert!(
+        before
+            .request_review(&me, None, "changed a.rs")
+            .await
+            .is_ok()
+    );
+    drop(before);
+
+    let agent = Arc::new(ScriptedAgent::new(say()));
+    let after = build(&agent);
+    let mut rx = after.subscribe();
+    let items = reviews(&after).await;
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].summary.as_deref(), Some("changed a.rs"));
+    assert_eq!(items[0].files.len(), 1);
+    let tasks = ok(
+        &after,
+        json!({"method": "orchestration.list", "params": {"project": "p1"}}),
+    )
+    .await;
+    let Response::Orchestration(OrchestrationResponse::List(tasks)) = tasks else {
+        panic!("unexpected {tasks:?}");
+    };
+    assert_eq!(tasks[0].workers, std::slice::from_ref(&worker));
+
+    // The worker resumes in its worktree, with a worker's tools.
+    ok(
+        &after,
+        json!({"method": "review.comment", "params": {"id": "r1", "text": "also b"}}),
+    )
+    .await;
+    until(&mut rx, "s2", AgentStatus::Idle).await;
+    let resumed = agent.started.lock().map(|s| s[0].clone());
+    let resumed = resumed.unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(resumed.cwd, PathBuf::from(&worker.worktree));
+    assert_eq!(resumed.tools, Some(ToolRole::Worker));
+    ok(
+        &after,
+        json!({"method": "review.approve", "params": {"id": "r1", "commit": null}}),
+    )
+    .await;
+    assert_eq!(
+        wt.files(ROOT).get("a.rs").map(String::as_str),
+        Some("two\n")
+    );
+    assert_eq!(start_task(&after, 3).await.id.0, "t2", "ids go on");
+}
+
+#[tokio::test]
+async fn after_a_restart_a_direct_review_lists_its_files_and_can_be_kept() {
+    let projects = Arc::new(MemoryProjects::default());
+    let kept = Arc::new(crate::fakes::MemorySessions::default());
+    let wt = Arc::new(MemoryWorktrees::default());
+    wt.put(ROOT, "a.rs", "one\n");
+    let build = || {
+        Core::builder("test")
+            .projects(projects.clone())
+            .sessions(kept.clone())
+            .agents(Arc::new(ScriptedAgent::new(say())))
+            .worktrees(wt.clone())
+            .build()
+    };
+    let before = build();
+    ok(
+        &before,
+        json!({"method": "projects.add", "params": {"root": ROOT}}),
+    )
+    .await;
+    let mut rx = before.subscribe();
+    ok(
+        &before,
+        json!({"method": "agents.start", "params": {
+        "project": "p1", "agent": "claude", "mode": "direct", "prompt": "fix it"}}),
+    )
+    .await;
+    until(&mut rx, "s1", AgentStatus::Idle).await;
+    wt.put(ROOT, "a.rs", "two\n");
+    drop(before);
+
+    let after = build();
+    let items = reviews(&after).await;
+    let files: Vec<_> = items[0]
+        .files
+        .iter()
+        .map(|f| (f.path.as_str(), f.by))
+        .collect();
+    assert_eq!(
+        files,
+        [("a.rs", crate::protocol::review::ChangedBy::Outside)]
+    );
+    let reject = call(
+        &after,
+        json!({"method": "review.reject", "params": {"id": "r1"}}),
+    )
+    .await;
+    assert_eq!(
+        code(reject),
+        ErrorCode::Conflict,
+        "nothing is known to be the agent's"
+    );
+    let done = ok(
+        &after,
+        json!({"method": "review.approve", "params": {"id": "r1", "commit": null}}),
+    )
+    .await;
+    let Response::Review(ReviewResponse::Done { item, .. }) = done else {
+        panic!("unexpected {done:?}");
+    };
+    assert_eq!(item.state, ReviewState::Approved);
+    assert_eq!(
+        wt.files(ROOT).get("a.rs").map(String::as_str),
+        Some("two\n")
+    );
+}

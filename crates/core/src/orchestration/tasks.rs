@@ -18,7 +18,7 @@ use crate::services::ToolRole;
 /// `claude` process with its own worktree.
 const MAX_WORKERS_CAP: u32 = 16;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(super) struct Entry {
     pub(super) id: TaskId,
     pub(super) project: ProjectId,
@@ -26,6 +26,7 @@ pub(super) struct Entry {
     pub(super) workers: Vec<Worker>,
     pub(super) limits: TaskLimits,
     /// Names of workers being set up, which count against `max_workers`.
+    #[serde(skip)]
     starting: Vec<String>,
 }
 
@@ -98,7 +99,8 @@ async fn start(
     };
     let coordinator = agents::start(&core.agents_ctx(), new).await?.id;
     let entry = {
-        let mut state = core.orchestration_state().lock();
+        let orchestration = core.orchestration_state();
+        let mut state = orchestration.lock();
         state.tasks_made += 1;
         let entry = Entry {
             id: TaskId(format!("t{}", state.tasks_made)),
@@ -109,6 +111,7 @@ async fn start(
             starting: Vec::new(),
         };
         state.tasks.push(entry.clone());
+        orchestration.save(&state);
         entry
     };
     core.emit(OrchestrationEvent::Changed {
@@ -249,6 +252,7 @@ pub(super) async fn spawn(
             task.workers.push(worker.clone());
         }
     }
+    state.save(&guard);
     let (worker, workspace) = result?;
     drop(guard);
     review::set_workspace(core, &worker.session, workspace);

@@ -11,11 +11,12 @@ pub(crate) mod direct;
 mod ide;
 mod policy;
 mod review;
+mod saved;
 mod tasks;
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 pub use ide::{Output, WorkerState};
 pub(crate) use policy::{IDE_TOOL_PREFIX, decide};
@@ -25,13 +26,16 @@ use crate::protocol::agents::{AgentStatus, SessionId};
 use crate::protocol::orchestration::{OrchestrationEvent, OrchestrationRequest};
 use crate::protocol::review::{ReviewEvent, ReviewRequest};
 use crate::protocol::{ErrorCode, ProtocolError, Response};
+use crate::services::SessionStore;
+
+pub(crate) use saved::restore;
 
 type Result<T> = std::result::Result<T, ProtocolError>;
 
 /// What a session's review compares: the working tree of `dir` against the
 /// commit `base` (a worker's worktree and its start, or the main checkout
 /// and a direct session's baseline).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct Workspace {
     pub(crate) dir: PathBuf,
     pub(crate) base: String,
@@ -41,6 +45,8 @@ pub(crate) struct Workspace {
 pub(crate) struct Orchestration {
     state: Mutex<State>,
     worktrees_dir: Option<PathBuf>,
+    /// Keeps tasks and review items across restarts.
+    store: Arc<dyn SessionStore>,
 }
 
 #[derive(Debug, Default)]
@@ -54,11 +60,20 @@ struct State {
 }
 
 impl Orchestration {
-    pub(crate) fn new(worktrees_dir: Option<PathBuf>) -> Self {
+    /// The state as last saved in `store`; [`restore`] then checks it
+    /// against the sessions that are kept.
+    pub(crate) fn new(worktrees_dir: Option<PathBuf>, store: Arc<dyn SessionStore>) -> Self {
         Self {
-            state: Mutex::new(State::default()),
+            state: Mutex::new(saved::load(store.as_ref())),
             worktrees_dir,
+            store,
         }
+    }
+
+    /// Saves `state`; call it with the lock held, so saves keep their order.
+    /// A failed save only means the change is not kept.
+    fn save(&self, state: &State) {
+        saved::save(self.store.as_ref(), state);
     }
 
     fn lock(&self) -> MutexGuard<'_, State> {
