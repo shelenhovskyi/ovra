@@ -1,5 +1,6 @@
 <script lang="ts">
 import Editor from "../editor/Editor.svelte";
+import Keybindings from "../keys/Keybindings.svelte";
 import type { CoreInfo } from "../lib/protocol";
 import type { Transport } from "../lib/transport";
 import Palette from "../palette/Palette.svelte";
@@ -29,6 +30,7 @@ $effect(() => {
 });
 </script>
 
+<Keybindings />
 <div class="shell">
   <header>
     <h1>Ovra</h1>
