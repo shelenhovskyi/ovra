@@ -55,6 +55,23 @@ describe("ReviewInbox", () => {
     expect(core.sent("review.approve")[0]?.params).toEqual({ id: "r2", commit: "Fix the typo" });
   });
 
+  it("approves a worker's item with the fingerprint of the files it shows", async () => {
+    const { core, inbox } = await setup();
+    core.items.push(review("r4", { mode: "isolated", fingerprint: "f-seen" }));
+    await inbox.reload();
+    core.items[core.items.length - 1] = review("r4", { mode: "isolated", fingerprint: "f-newer" });
+    expect(await inbox.approve("r4", null)).toBe(true);
+    expect(core.sent("review.approve")[0]?.params).toEqual({ id: "r4", commit: null, fingerprint: "f-seen" });
+
+    // Refused because the files moved on: the list shows them as they are now.
+    core.items.push(review("r5", { mode: "isolated", fingerprint: "f-old" }));
+    await inbox.reload();
+    core.items[core.items.length - 1] = review("r5", { mode: "isolated", fingerprint: "f-now" });
+    core.failNext.set("review.approve", new CoreError({ code: "conflict", message: "review them again" }));
+    expect(await inbox.approve("r5", null)).toBe(false);
+    await vi.waitFor(() => expect(inbox.items.find((i) => i.id === "r5")?.fingerprint).toBe("f-now"));
+  });
+
   it("sends one action at a time per item and reports a failure", async () => {
     const { core, inbox } = await setup();
     const first = inbox.comment("r1", "Use a test");

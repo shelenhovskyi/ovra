@@ -104,6 +104,7 @@ fn delta(path: &str, old: Option<&String>, new: Option<&String>) -> Option<Delta
         (Some(a), Some(b)) if a != b => ChangeKind::Modified,
         _ => return None,
     };
+    let new_text = new;
     let (old, new) = (lines(old), lines(new));
     let count = |from: &[&str], other: &[&str]| {
         u32::try_from(from.iter().filter(|l| !other.contains(l)).count()).unwrap_or(u32::MAX)
@@ -114,6 +115,7 @@ fn delta(path: &str, old: Option<&String>, new: Option<&String>) -> Option<Delta
         from: None,
         additions: count(&new, &old),
         deletions: count(&old, &new),
+        version: new_text.cloned().unwrap_or_default(),
     })
 }
 

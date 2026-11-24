@@ -71,7 +71,11 @@ message; the item then shows the new diff.
   changed outside the agent are marked and never reverted.
 - Worker: approve applies its changes to the main checkout for files the
   direct session has not touched and optionally commits them; overlapping
-  files wait (ADR 0005). Merging branches stays with the person.
+  files wait (ADR 0005). Merging branches stays with the person. Approve
+  lands only what the person reviewed: an open worker item carries a
+  fingerprint of its files (paths and content versions), the inbox sends it
+  back with approve, and the core refuses while the worker is still working
+  or when its files changed since; the inbox then shows them as they are now.
 
 Which files are the agent's: paths in its `Write`, `Edit` and
 `NotebookEdit` calls, plus files that changed while one of its `Bash` calls

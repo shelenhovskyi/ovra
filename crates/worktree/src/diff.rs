@@ -172,8 +172,14 @@ fn records(
     let malformed = || internal("git diff-tree printed something unexpected");
     let mut deltas = Vec::new();
     while let Some(raw) = fields.next_if(|f| f.starts_with(':')) {
-        let status = raw.rsplit(' ').next().ok_or_else(malformed)?;
+        // `:<old mode> <new mode> <old blob> <new blob> <status>`
+        let parts: Vec<&str> = raw.split(' ').collect();
+        let status = parts.last().ok_or_else(malformed)?;
         let letter = status.chars().next().ok_or_else(malformed)?;
+        let version = match (letter, parts.get(1), parts.get(3)) {
+            ('D', ..) | (_, None, _) | (_, _, None) => String::new(),
+            (_, Some(mode), Some(blob)) => format!("{mode} {blob}"),
+        };
         let mut path = fields.next().ok_or_else(malformed)?;
         let (kind, from) = match letter {
             'A' => (ChangeKind::Added, None),
@@ -190,6 +196,7 @@ fn records(
             from,
             additions: 0,
             deletions: 0,
+            version,
         };
         deltas.push((letter, delta));
     }
@@ -226,16 +233,31 @@ mod tests {
             .iter()
             .map(|d| {
                 let from = d.from.as_deref();
-                (d.path.as_str(), d.kind, from, d.additions, d.deletions)
+                let version = d.version.as_str();
+                (
+                    d.path.as_str(),
+                    d.kind,
+                    from,
+                    d.additions,
+                    d.deletions,
+                    version,
+                )
             })
             .collect();
         assert_eq!(
             summary,
             [
-                ("a.rs", ChangeKind::Modified, None, 3, 1),
-                (":odd", ChangeKind::Added, None, 1, 0),
-                ("new", ChangeKind::Renamed, Some("old\tname"), 0, 0),
-                ("bin", ChangeKind::Deleted, None, 0, 0),
+                ("a.rs", ChangeKind::Modified, None, 3, 1, "100644 bbb"),
+                (":odd", ChangeKind::Added, None, 1, 0, "100644 ccc"),
+                (
+                    "new",
+                    ChangeKind::Renamed,
+                    Some("old\tname"),
+                    0,
+                    0,
+                    "100644 ddd"
+                ),
+                ("bin", ChangeKind::Deleted, None, 0, 0, ""),
             ]
         );
     }

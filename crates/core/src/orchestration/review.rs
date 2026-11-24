@@ -3,6 +3,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use sha2::{Digest, Sha256};
+
 use super::{Result, Workspace, conflict, not_found};
 use crate::Core;
 use crate::agents;
@@ -10,10 +12,11 @@ use crate::path::RelPath;
 use crate::protocol::agents::{AgentStatus, MessageFrom, SessionId, SessionMode};
 use crate::protocol::projects::ProjectId;
 use crate::protocol::review::{
-    ChangedBy, FileChange, ReviewEvent, ReviewId, ReviewItem, ReviewRequest, ReviewResponse,
-    ReviewState,
+    ChangeKind, ChangedBy, FileChange, ReviewEvent, ReviewId, ReviewItem, ReviewRequest,
+    ReviewResponse, ReviewState,
 };
 use crate::protocol::{ErrorCode, OkResponse, ProtocolError, Response};
+use crate::services::Delta;
 
 /// Room left in a message for the words around a rejected diff.
 const WRAPPER_BYTES: usize = 256;
@@ -158,8 +161,12 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
                 patch,
             }))
         }
-        ReviewRequest::Approve { id, commit } => {
-            let (item, conflicts) = approve(core, &id, commit).await?;
+        ReviewRequest::Approve {
+            id,
+            commit,
+            fingerprint,
+        } => {
+            let (item, conflicts) = approve(core, &id, commit, fingerprint).await?;
             prune(core, &item.project).await;
             super::tasks::clean_up(core, &item.project).await;
             let what = if item.state == ReviewState::PartlyApproved {
@@ -277,6 +284,14 @@ fn update(core: &Core, id: &ReviewId, f: impl FnOnce(&mut Entry)) -> Result<Entr
 }
 
 pub(super) async fn item(core: &Core, entry: &Entry) -> Result<ReviewItem> {
+    let (files, fingerprint) = if entry.state != ReviewState::Open {
+        (entry.decided.clone(), None)
+    } else if super::tasks::cleaned(core, &entry.session) {
+        // Removed only once nothing in it changed (`clean_up`).
+        (Vec::new(), None)
+    } else {
+        listed(core, entry).await?
+    };
     Ok(ReviewItem {
         id: entry.id.clone(),
         project: entry.project.clone(),
@@ -284,29 +299,29 @@ pub(super) async fn item(core: &Core, entry: &Entry) -> Result<ReviewItem> {
         mode: entry.mode,
         state: entry.state,
         summary: entry.summary.clone(),
-        files: if entry.state != ReviewState::Open {
-            entry.decided.clone()
-        } else if super::tasks::cleaned(core, &entry.session) {
-            // Removed only once nothing in it changed (`clean_up`).
-            Vec::new()
-        } else {
-            files(core, entry).await?
-        },
+        files,
         can_undo: entry.mode == SessionMode::Direct
             && entry.state == ReviewState::Rejected
             && core.sessions().direct.can_undo(&entry.session),
         not_copied: entry.not_copied.clone(),
         can_undo_take: entry.taken.is_some(),
+        fingerprint,
     })
 }
 
 /// The entry's changed files as they are now.
 async fn files(core: &Core, entry: &Entry) -> Result<Vec<FileChange>> {
+    Ok(listed(core, entry).await?.0)
+}
+
+/// The entry's changed files as they are now, with a worker's fingerprint
+/// of them (`ReviewItem::fingerprint`).
+async fn listed(core: &Core, entry: &Entry) -> Result<(Vec<FileChange>, Option<String>)> {
     let ws = &entry.workspace;
     if entry.mode == SessionMode::Direct
         && let Ok(files) = core.sessions().direct.files(&entry.session).await
     {
-        return Ok(files);
+        return Ok((files, None));
     }
     let deltas = core
         .worktrees()
@@ -319,7 +334,8 @@ async fn files(core: &Core, entry: &Entry) -> Result<Vec<FileChange>> {
     } else {
         direct_touched(core, &entry.project).await
     };
-    Ok(deltas
+    let fingerprint = (entry.mode == SessionMode::Isolated).then(|| fingerprint(&deltas, &touched));
+    let files = deltas
         .into_iter()
         .map(|d| FileChange {
             blocked: touched.contains(&d.path),
@@ -336,7 +352,44 @@ async fn files(core: &Core, entry: &Entry) -> Result<Vec<FileChange>> {
             additions: d.additions,
             deletions: d.deletions,
         })
-        .collect())
+        .collect();
+    Ok((files, fingerprint))
+}
+
+/// SHA-256 over each changed file's path, old path, kind, content version
+/// and whether it waits for the direct session: whatever differs in what the
+/// person would see, or in what approve would copy, changes it.
+fn fingerprint(deltas: &[Delta], waiting: &BTreeSet<String>) -> String {
+    let mut hash = Sha256::new();
+    hash.update(b"ovra-review-v1\0");
+    for d in deltas {
+        let from = d.from.as_deref().unwrap_or("");
+        let waits = if waiting.contains(&d.path) {
+            "waits"
+        } else {
+            ""
+        };
+        for part in [
+            d.path.as_str(),
+            from,
+            kind_name(d.kind),
+            d.version.as_str(),
+            waits,
+        ] {
+            hash.update(part.as_bytes());
+            hash.update(b"\0");
+        }
+    }
+    hash.finalize().iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn kind_name(kind: ChangeKind) -> &'static str {
+    match kind {
+        ChangeKind::Added => "added",
+        ChangeKind::Modified => "modified",
+        ChangeKind::Deleted => "deleted",
+        ChangeKind::Renamed => "renamed",
+    }
 }
 
 /// Files the direct session of `project` changed and nobody has approved or
@@ -383,6 +436,7 @@ async fn approve(
     core: &Core,
     id: &ReviewId,
     commit: Option<String>,
+    reviewed: Option<String>,
 ) -> Result<(ReviewItem, Vec<String>)> {
     let entry = find(core, id)?;
     check_open(&entry)?;
@@ -430,7 +484,23 @@ async fn approve(
     let root = core.root(&entry.project)?;
     let ws = entry.workspace.clone();
     let worktrees = core.worktrees();
-    let decided = files(core, &entry).await?;
+    let (decided, now) = listed(core, &entry).await?;
+    // Only what the person reviewed may land: the worktree is copied as
+    // it is now, so it must still be what the inbox showed them.
+    match reviewed {
+        None => {
+            return Err(ProtocolError::new(
+                ErrorCode::BadRequest,
+                "approving a worker's changes needs the fingerprint of the review you looked at",
+            ));
+        }
+        Some(reviewed) if now.as_ref() != Some(&reviewed) => {
+            return Err(conflict(
+                "the worker's files changed since you looked at them; review them again",
+            ));
+        }
+        Some(_) => {}
+    }
     let mut diffs = freeze(core, &entry, &decided).await;
     let (waiting, ready): (Vec<FileChange>, Vec<FileChange>) =
         decided.iter().cloned().partition(|f| f.blocked);
