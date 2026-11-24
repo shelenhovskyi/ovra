@@ -4,7 +4,8 @@ expression: out
 ---
 git status: yes
 stage a change: no
-write its own git folder: yes
+write its own git folder: no
+plant a submodule in its index: no
 write its commondir: no
 write config.worktree: no
 write its .git file: no

@@ -68,11 +68,12 @@ core only builds profiles.
 | `write`    | More folders the agent may write.                                                                                                  |
 | `network`  | `Blocked`, or `Proxy { address }` for the session's netproxy. `Open` exists only for platforms that cannot limit the network.      |
 
-The platform adds a worker's own `<git dir>/worktrees/<name>` (its index
-and HEAD) to `write`, except the protected files listed below; it finds that
-folder through the worktree's `.git` file. With the common object store
-read-only, a worker cannot commit. It does not
-need to, because Ovra applies its changes on approve.
+A worker's own `<git dir>/worktrees/<name>` (its index and HEAD) stays
+read-only with the rest of the main repository's git folder: with a
+writable index the agent could add a submodule whose filters Ovra's own,
+unsandboxed git would run. With the object store and index read-only, a
+worker cannot stage or commit. It does not need to, because Ovra applies
+its changes on approve.
 
 **What the platform adds.** Each platform crate documents what it adds:
 
@@ -86,7 +87,10 @@ need to, because Ovra applies its changes on approve.
     platform keeps it per session where it can: on Linux, `todos/`,
     `shell-snapshots/`, `session-env/`, `ide/`, `statsig/` and the like are
     empty private folders, and only this project's folder under
-    `projects/` (the transcripts a resume reads) is kept on disk.
+    `projects/` (the transcripts a resume reads) is kept on disk, without
+    its `memory/`, which later sessions load like a `CLAUDE.md`.
+    Transcripts a later resume reads can still be changed; that is a
+    known limit.
   - Read-only: `settings*.json`, `CLAUDE.md`, `agents/`, `commands/`,
     `skills/`, `hooks/` and `plugins/`. An agent must not plant code that
     runs later outside the sandbox.
@@ -103,7 +107,14 @@ need to, because Ovra applies its changes on approve.
   - Package caches the agent's builds need are writable, by default
     `~/.cargo/registry`, `~/.npm`, `~/.cache/pip` and `~/.cache/pnpm`. The
     platform crate lists them.
-- **Temporary files.** A private temporary folder is writable.
+    An agent can change what is cached there, and the user's next build
+    outside the sandbox runs it (an extracted crate's `build.rs`). That is a
+    known limit until caches get a private layer per session; 4.F records
+    it.
+- **Temporary files.** A private temporary folder is writable. On Linux
+  `/tmp`, `/var/tmp`, `/run`, Ovra's temporary folder (the netproxy's
+  sockets) and other routes to the same disks (`/mnt`, `/media`,
+  `/sysroot`, `/.snapshots`) are hidden.
 - **Deny by default.** Everything else in the home folder is hidden,
   including:
   - secret stores: `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.config/gh`,
@@ -133,7 +144,10 @@ need to, because Ovra applies its changes on approve.
     `.git/modules/*/config`. On Linux the whole `.git` folder of a direct
     session is read-only, and every nested repository's: git also reads
     `commondir`, `packed-refs` and new `modules/*` folders, and the agent
-    has nothing to commit (Ovra reviews its files);
+    has nothing to commit (Ovra reviews its files). Submodule folders that
+    are not checked out stay read-only too, so the agent cannot put a
+    repository there that git steps into, and so do config files inside
+    the project that git includes;
   - the folder `core.hooksPath` names, for example `.husky/`;
   - `refs/ovra/` and its reflog;
   - for a worker, its worktree's `.git` file, plus `commondir`, `gitdir` and

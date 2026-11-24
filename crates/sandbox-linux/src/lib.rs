@@ -81,7 +81,9 @@ impl Setup {
                 var("RUSTUP_HOME", ".rustup"),
                 var("NVM_DIR", ".nvm"),
             ],
-            hidden: vec![std::path::absolute(data_dir).ok()?],
+            // The temporary folder holds the netproxy's sockets of every
+            // session; `/tmp` is hidden anyway.
+            hidden: vec![std::path::absolute(data_dir).ok()?, std::env::temp_dir()],
             home,
             protected,
         })

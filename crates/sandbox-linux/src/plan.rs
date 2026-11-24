@@ -20,8 +20,6 @@ use crate::{HELPER_FLAG, Setup, invalid, os};
 pub struct Protected {
     /// Under `work_dir`; `**/name` is any depth.
     pub work_dir: &'static [&'static str],
-    /// Under a worker's own `<git dir>/worktrees/<name>`.
-    pub worktree_git_dir: &'static [&'static str],
 }
 
 /// Folders under `~/.claude` that `claude` writes during a session. Each
@@ -103,11 +101,14 @@ const NEVER_BOUND: [&str; 7] = [
     ".local/share/keyrings",
 ];
 
+/// Folders that may show the home folder or other disks by another path.
+const OTHER_ROUTES: [&str; 4] = ["/mnt", "/media", "/sysroot", "/.snapshots"];
+
 /// The port inside the sandbox where the helper bridges the netproxy.
 pub(crate) const PROXY_PORT: u16 = 3128;
 
 /// A walk for `**/` names stops after this many entries.
-const WALK_LIMIT: usize = 200_000;
+const WALK_LIMIT: usize = 500_000;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Mount {
@@ -188,13 +189,9 @@ impl Plan {
         for write in &profile.write {
             plan.rw(real(write)?);
         }
-        let worker = worker_git_dir(&work_dir, profile)?;
-        if let Some(git_dir) = &worker {
-            plan.rw(git_dir.clone());
-        }
         plan.rw(work_dir.clone());
         let hidden: Vec<PathBuf> = setup.hidden.iter().filter_map(|h| real(h).ok()).collect();
-        let protected = protected_paths(setup, &work_dir, worker.as_deref(), &home, &hidden)?;
+        let protected = protected_paths(setup, &work_dir, &home, &hidden)?;
         plan.protect(protected);
         // Ovra's data folder inside a folder bound above (a project that
         // holds `.ovra-data`) is hidden again.
@@ -230,7 +227,15 @@ impl Plan {
     /// the hidden folders become empty.
     fn hide(&mut self, setup: &Setup, home: &Path) {
         self.mounts.push(Mount::Tmpfs("/tmp".into()));
+        self.mounts.push(Mount::Tmpfs("/var/tmp".into()));
         self.mounts.push(Mount::Tmpfs("/run".into()));
+        // Other ways to the same files: other disks, snapshots, the
+        // system's own root on ostree.
+        for other in OTHER_ROUTES {
+            if Path::new(other).is_dir() && !home.starts_with(other) {
+                self.mounts.push(Mount::Tmpfs(other.into()));
+            }
+        }
         if let Ok(resolv) = fs::canonicalize("/etc/resolv.conf")
             && resolv.starts_with("/run")
         {
@@ -272,7 +277,16 @@ impl Plan {
                 && let Ok(transcripts) = real(&transcripts)
                 && transcripts.starts_with(&claude)
             {
-                self.rw(transcripts);
+                // Its memory loads into every later session there, the
+                // user's own too: read-only, like `CLAUDE.md`.
+                let memory = transcripts.join("memory");
+                self.rw(transcripts.clone());
+                if fs::create_dir_all(&memory).is_ok()
+                    && let Ok(memory) = real(&memory)
+                    && memory.starts_with(&transcripts)
+                {
+                    self.mounts.push(Mount::Ro(memory));
+                }
             }
             for file in CLAUDE_FILES {
                 let file = claude.join(file);
@@ -551,47 +565,20 @@ fn real(path: &Path) -> Result<PathBuf> {
     fs::canonicalize(path).map_err(|e| invalid(format!("{}: {e}", path.display())))
 }
 
-/// A worker's own `<git dir>/worktrees/<name>`, found through its
-/// worktree's `.git` file, if that folder is in a git folder the profile
-/// lets it read and points back at this worktree. Anything else is not
-/// trusted with write access.
-fn worker_git_dir(work_dir: &Path, profile: &SandboxProfile) -> Result<Option<PathBuf>> {
-    let dot_git = work_dir.join(".git");
-    if !fs::symlink_metadata(&dot_git).is_ok_and(|m| m.is_file()) {
-        return Ok(None);
-    }
-    let text = fs::read_to_string(&dot_git).unwrap_or_default();
-    let Some(target) = text.strip_prefix("gitdir:").map(str::trim) else {
-        return Ok(None);
-    };
-    let Ok(git_dir) = real(&work_dir.join(target)) else {
-        return Ok(None);
-    };
-    let mine = profile
-        .read
-        .iter()
-        .filter_map(|r| real(r).ok())
-        .any(|common| {
-            git_dir.parent() == Some(&common.join("worktrees"))
-                && fs::read_to_string(git_dir.join("gitdir"))
-                    .ok()
-                    .and_then(|back| real(Path::new(back.trim())).ok())
-                    == Some(dot_git.clone())
-        });
-    Ok(mine.then_some(git_dir))
-}
-
 /// Every protected path that exists. In a git folder under `work_dir` (a
 /// direct session's `.git`, a nested repository's) all of it: git reads
 /// `config`, `commondir` and hooks from many places in it, and the agent
-/// has nothing to commit. A worker gets its own `config.worktree` made
-/// empty, so it cannot make one. A protected path that is a link is
+/// has nothing to commit. A worker's own git folder stays read-only with
+/// the rest of the main repository's (`read`): with its index the agent
+/// could add a submodule whose filters Ovra's git would run. Submodule
+/// folders that are not checked out stay read-only, so the agent cannot
+/// make a repository there that git steps into; so do config files inside
+/// `work_dir` that git includes. A protected path that is a link is
 /// refused: the link's name is what claude and git look up, and it could
 /// be replaced; binding its target would not stop that.
 fn protected_paths(
     setup: &Setup,
     work_dir: &Path,
-    worker: Option<&Path>,
     home: &Path,
     hidden: &[PathBuf],
 ) -> Result<Vec<PathBuf>> {
@@ -604,19 +591,12 @@ fn protected_paths(
         }
     }
     found.push(work_dir.join(".git"));
-    walk(work_dir, &deep, hidden, &mut found);
-    if let Some(git_dir) = worker {
-        for name in setup.protected.worktree_git_dir {
-            let path = git_dir.join(name);
-            if *name == "config.worktree" && !path.exists() {
-                let _ = fs::File::create(&path);
-            }
-            found.push(path);
-        }
-    }
+    walk(work_dir, &deep, hidden, &mut found)?;
     if let Some(hooks) = hooks_path(work_dir, home) {
         found.push(hooks);
     }
+    found.extend(config_files(work_dir, home));
+    found.extend(empty_submodules(work_dir));
     let mut protected = Vec::new();
     for path in found {
         let Ok(meta) = fs::symlink_metadata(&path) else {
@@ -630,27 +610,121 @@ fn protected_paths(
         }
         protected.push(real(&path)?);
     }
+    // Sorted, a folder comes before what is in it, which it covers anyway.
     protected.sort();
-    protected.dedup();
-    Ok(protected)
+    let mut kept: Vec<PathBuf> = Vec::new();
+    for path in protected {
+        if !kept.iter().any(|k| path.starts_with(k)) {
+            kept.push(path);
+        }
+    }
+    Ok(kept)
+}
+
+/// What `git <args>` prints in `work_dir`, as the user's git sees it;
+/// `None` outside a repository or without git.
+fn git(work_dir: &Path, args: &[&str]) -> Option<String> {
+    let out = Command::new("git")
+        .args(args)
+        .current_dir(work_dir)
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_CONFIG")
+        .env_remove("GIT_CONFIG_GLOBAL")
+        .env_remove("GIT_WORK_TREE")
+        .env_remove("GIT_INDEX_FILE")
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    String::from_utf8(out.stdout).ok()
+}
+
+/// Config files git reads for `work_dir` that lie inside it: those that
+/// set something, and those an `include.path` or `includeIf.*.path` names
+/// (an empty one could be filled).
+fn config_files(work_dir: &Path, home: &Path) -> Vec<PathBuf> {
+    let listed = git(
+        work_dir,
+        &[
+            "config",
+            "--list",
+            "--show-origin",
+            "--includes",
+            "--name-only",
+            "-z",
+        ],
+    )
+    .unwrap_or_default();
+    let mut files: Vec<PathBuf> = listed
+        .split('\0')
+        .filter_map(|field| field.strip_prefix("file:"))
+        .map(|file| work_dir.join(file))
+        .collect();
+    let includes = git(
+        work_dir,
+        &[
+            "config",
+            "--show-origin",
+            "--includes",
+            "-z",
+            "--get-regexp",
+            r"^include(if\..*)?\.path$",
+        ],
+    )
+    .unwrap_or_default();
+    let fields: Vec<&str> = includes.split('\0').collect();
+    for pair in fields.chunks(2) {
+        let [origin, entry] = pair else { continue };
+        let (Some(origin), Some((_, target))) =
+            (origin.strip_prefix("file:"), entry.split_once('\n'))
+        else {
+            continue;
+        };
+        let target = match target.strip_prefix("~/") {
+            Some(rest) => home.join(rest),
+            None => work_dir
+                .join(origin)
+                .parent()
+                .map_or_else(PathBuf::new, |dir| dir.join(target)),
+        };
+        files.push(target);
+    }
+    files
+        .into_iter()
+        .filter(|file| lexically_inside(file, work_dir))
+        .collect()
+}
+
+/// Whether `path`, with `..` resolved by name, is inside `dir`.
+fn lexically_inside(path: &Path, dir: &Path) -> bool {
+    let mut normal = PathBuf::new();
+    for part in path.components() {
+        match part {
+            std::path::Component::ParentDir => {
+                normal.pop();
+            }
+            std::path::Component::CurDir => {}
+            other => normal.push(other),
+        }
+    }
+    normal.starts_with(dir) && normal != dir
+}
+
+/// Submodule folders (gitlinks in the index) that are not checked out.
+fn empty_submodules(work_dir: &Path) -> Vec<PathBuf> {
+    let text = git(work_dir, &["ls-files", "--stage", "-z"]).unwrap_or_default();
+    text.split('\0')
+        .filter_map(|record| record.strip_prefix("160000 "))
+        .filter_map(|record| record.split_once('\t').map(|(_, path)| work_dir.join(path)))
+        .filter(|dir| !dir.join(".git").exists())
+        .collect()
 }
 
 /// The folder `core.hooksPath` names, if set and inside `work_dir`; made
 /// if missing, so the agent cannot make it. Elsewhere it is read-only
 /// already.
 fn hooks_path(work_dir: &Path, home: &Path) -> Option<PathBuf> {
-    let out = Command::new("git")
-        .args(["config", "--get", "core.hooksPath"])
-        .current_dir(work_dir)
-        .env_remove("GIT_DIR")
-        .env_remove("GIT_CONFIG")
-        .env_remove("GIT_CONFIG_GLOBAL")
-        .env_remove("GIT_WORK_TREE")
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output()
-        .ok()?;
-    let text = String::from_utf8(out.stdout).ok()?;
+    let text = git(work_dir, &["config", "--get", "core.hooksPath"])?;
     let text = text.trim();
     let path = match text.strip_prefix("~/") {
         Some(rest) => home.join(rest),
@@ -681,11 +755,10 @@ fn hooks_path(work_dir: &Path, home: &Path) -> Option<PathBuf> {
 }
 
 /// Adds every entry under `dir` named one of `names`, without following
-/// links or entering `.git` or the hidden folders.
-fn walk(dir: &Path, names: &[&str], hidden: &[PathBuf], found: &mut Vec<PathBuf>) {
-    if names.is_empty() {
-        return;
-    }
+/// links or entering `.git` or the hidden folders. A folder too large to
+/// look through refuses the session: what the walk did not see would stay
+/// writable.
+fn walk(dir: &Path, names: &[&str], hidden: &[PathBuf], found: &mut Vec<PathBuf>) -> Result<()> {
     let mut stack = vec![dir.to_path_buf()];
     let mut seen = 0;
     while let Some(dir) = stack.pop() {
@@ -695,7 +768,10 @@ fn walk(dir: &Path, names: &[&str], hidden: &[PathBuf], found: &mut Vec<PathBuf>
         for entry in entries.flatten() {
             seen += 1;
             if seen > WALK_LIMIT {
-                return;
+                return Err(invalid(format!(
+                    "{} holds more than {WALK_LIMIT} files: the sandbox cannot check them for protected paths",
+                    dir.display()
+                )));
             }
             let name = entry.file_name();
             if names.iter().any(|n| name == **n) {
@@ -710,6 +786,7 @@ fn walk(dir: &Path, names: &[&str], hidden: &[PathBuf], found: &mut Vec<PathBuf>
             }
         }
     }
+    Ok(())
 }
 
 #[cfg(test)]

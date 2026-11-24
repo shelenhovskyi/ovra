@@ -6,7 +6,6 @@ use super::*;
 
 const PROTECTED: Protected = Protected {
     work_dir: &[".claude", "**/CLAUDE.md"],
-    worktree_git_dir: &["commondir", "gitdir", "config.worktree"],
 };
 
 struct Root(PathBuf);
@@ -144,7 +143,7 @@ fn a_direct_session_in_a_repository() {
 }
 
 #[test]
-fn a_worker_writes_its_own_git_folder_behind_a_proxy() {
+fn a_worker_reads_its_git_folder_behind_a_proxy() {
     let root = Root::new("worker");
     let common = root.dir("projects/app/.git");
     root.file("projects/app/.git/config");
@@ -176,7 +175,8 @@ fn a_worker_writes_its_own_git_folder_behind_a_proxy() {
         line(Path::new("/bin/sh"), &worktree),
     );
     insta::assert_snapshot!(root.show(&line.unwrap()));
-    assert!(own.join("config.worktree").is_file());
+    // Its git folder stays read-only with the rest of the repository's.
+    assert!(!own.join("config.worktree").exists());
 }
 
 #[test]

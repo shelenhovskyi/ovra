@@ -19,7 +19,6 @@ const HELPER: &str = env!("CARGO_BIN_EXE_ovra-sandbox-helper");
 
 const PROTECTED: Protected = Protected {
     work_dir: &[".claude", "**/CLAUDE.md", ".envrc"],
-    worktree_git_dir: &["commondir", "gitdir", "config.worktree"],
 };
 
 struct Dir(PathBuf);
@@ -168,6 +167,20 @@ fn a_direct_session_writes_its_project_and_nothing_else() {
     root.file("project/src/CLAUDE.md", "rules");
     root.file("project/README.md", "hello");
     git(&project, &["init", "-q"]);
+    // A submodule that is not checked out, and config included from the tree.
+    let blob = "0123456789012345678901234567890123456789";
+    git(
+        &project,
+        &[
+            "update-index",
+            "--add",
+            "--cacheinfo",
+            &format!("160000,{blob},sub"),
+        ],
+    );
+    fs::create_dir_all(project.join("sub")).unwrap();
+    root.file("project/team.gitconfig", "");
+    git(&project, &["config", "include.path", "../team.gitconfig"]);
     let data = root.0.join("data");
     root.file("data/store.db", "projects");
     let path = format!("{}/.docker/bin:/usr/bin:/bin", home.display());
@@ -198,6 +211,9 @@ fn a_direct_session_writes_its_project_and_nothing_else() {
         write git config: echo x >> .git/config
         plant a git commondir: echo evil > .git/commondir
         stage a change: git add README.md
+        make a repository in a submodule folder: git init -q sub
+        write included git config: echo x >> team.gitconfig
+        write this project memory: echo x > {home}/.claude/projects/{key}/memory/m.md
         write project agent settings: echo x >> .claude/settings.json
         write a nested CLAUDE.md: echo x >> src/CLAUDE.md
         move the git folder away: mv .git .git-old
@@ -247,7 +263,7 @@ fn a_protected_name_that_is_a_link_is_refused() {
 }
 
 #[test]
-fn a_worker_writes_its_own_git_folder_but_not_what_ovra_trusts() {
+fn a_worker_reads_its_git_folder_and_writes_only_its_files() {
     let root = Dir::new("worker");
     let home = root.0.join("home");
     fs::create_dir_all(&home).unwrap();
@@ -272,6 +288,7 @@ fn a_worker_writes_its_own_git_folder_but_not_what_ovra_trusts() {
         "git status: git status --short
         stage a change: echo b > a.txt && git add a.txt
         write its own git folder: echo x > {own}/scratch
+        plant a submodule in its index: git update-index --add --cacheinfo 160000,0123456789012345678901234567890123456789,sub
         write its commondir: echo x > {own}/commondir
         write config.worktree: echo x > {own}/config.worktree
         write its .git file: echo x >> .git

@@ -20,6 +20,9 @@ write a git hook: no
 write git config: no
 plant a git commondir: no
 stage a change: no
+make a repository in a submodule folder: no
+write included git config: no
+write this project memory: no
 write project agent settings: no
 write a nested CLAUDE.md: no
 move the git folder away: no

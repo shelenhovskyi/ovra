@@ -52,7 +52,6 @@ pub fn for_this_os(data_dir: &Path) -> Arc<dyn Sandbox> {
     {
         let protected = ovra_sandbox_linux::Protected {
             work_dir: &PROTECTED_IN_WORK_DIR,
-            worktree_git_dir: &PROTECTED_IN_WORKTREE_GIT_DIR,
         };
         match ovra_sandbox_linux::Setup::from_env(data_dir, protected) {
             Some(setup) => Arc::new(ovra_sandbox_linux::Bubblewrap::detect(setup)),

@@ -15,7 +15,10 @@ expression: root.show(&line.unwrap())
 --dev /dev
 --proc /proc
 --tmpfs /tmp
+--tmpfs /var/tmp
 --tmpfs /run
+--tmpfs /mnt
+--tmpfs /media
 --tmpfs ROOT/home
 --tmpfs ROOT/data
 --ro-bind ROOT/home/.claude
@@ -34,14 +37,11 @@ expression: root.show(&line.unwrap())
 --tmpfs ROOT/home/.claude/telemetry
 --tmpfs ROOT/home/.claude/todos
 --bind ROOT/home/.claude/projects/-ROOT-data-worktrees-app-t-w1
+--ro-bind ROOT/home/.claude/projects/-ROOT-data-worktrees-app-t-w1/memory
 --bind ROOT/home/.claude/history.jsonl
 --ro-bind ROOT/projects/app/.git
---bind ROOT/projects/app/.git/worktrees/w1
 --bind ROOT/data/worktrees/app/t/w1
 --ro-bind ROOT/data/worktrees/app/t/w1/.git
---ro-bind ROOT/projects/app/.git/worktrees/w1/commondir
---ro-bind ROOT/projects/app/.git/worktrees/w1/config.worktree
---ro-bind ROOT/projects/app/.git/worktrees/w1/gitdir
 --ro-bind ROOT/data/proxy/w1.sock
 --ro-bind ROOT/bin/ovra
 --ro-bind /usr/bin/dash
@@ -69,7 +69,6 @@ ROOT/bin/ovra
 --rw ROOT/home/.claude/todos
 --rw ROOT/home/.claude/projects/-ROOT-data-worktrees-app-t-w1
 --rw ROOT/home/.claude/history.jsonl
---rw ROOT/projects/app/.git/worktrees/w1
 --rw ROOT/data/worktrees/app/t/w1
 --bridge
 ROOT/data/proxy/w1.sock

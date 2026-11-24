@@ -14,7 +14,10 @@ expression: root.show(&line)
 --dev /dev
 --proc /proc
 --tmpfs /tmp
+--tmpfs /var/tmp
 --tmpfs /run
+--tmpfs /mnt
+--tmpfs /media
 --tmpfs ROOT/home
 --tmpfs ROOT/data
 --ro-bind ROOT/home/.claude
@@ -33,6 +36,7 @@ expression: root.show(&line)
 --tmpfs ROOT/home/.claude/telemetry
 --tmpfs ROOT/home/.claude/todos
 --bind ROOT/home/.claude/projects/-ROOT-projects-app
+--ro-bind ROOT/home/.claude/projects/-ROOT-projects-app/memory
 --bind ROOT/home/.claude/history.jsonl
 --bind ROOT/home/.claude.json
 --ro-bind ROOT/home/.cargo
