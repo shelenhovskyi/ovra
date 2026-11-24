@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use tokio::sync::broadcast;
 
 use crate::agents::{self, Sessions};
-use crate::orchestration;
+use crate::orchestration::{self, Orchestration};
 use crate::path::RelPath;
 use crate::protocol::fs::{FsRequest, FsResponse, MAX_FILES_PAGE};
 use crate::protocol::info::{CoreInfo, InfoEvent, InfoRequest, InfoResponse};
@@ -91,6 +91,7 @@ impl CoreBuilder {
                 agents: self.agents,
                 sessions: Arc::new(Sessions::new(self.sessions)),
                 worktrees: self.worktrees,
+                orchestration: Orchestration::default(),
                 held: Mutex::new(None),
                 open: Mutex::new(BTreeMap::new()),
             }),
@@ -123,6 +124,7 @@ struct Inner {
         reason = "read by review and orchestration (tasks 3.B, 3.F)"
     )]
     worktrees: Arc<dyn Worktrees>,
+    orchestration: Orchestration,
     sessions: Arc<Sessions>,
     /// The project held by requests sent through [`Core::handle`] directly.
     held: Mutex<Option<ProjectId>>,
@@ -274,6 +276,14 @@ impl Core {
         self.inner.sessions.clone()
     }
 
+    pub(crate) fn sessions(&self) -> &Arc<Sessions> {
+        &self.inner.sessions
+    }
+
+    pub(crate) fn orchestration_state(&self) -> &Orchestration {
+        &self.inner.orchestration
+    }
+
     fn agents_ctx(&self) -> agents::Ctx<'_> {
         agents::Ctx {
             sessions: &self.inner.sessions,
@@ -298,7 +308,7 @@ impl Core {
     }
 
     /// Takes a reference on a project, watching it if it was not open.
-    fn acquire(&self, id: &ProjectId, root: PathBuf) -> Result<(), ProtocolError> {
+    pub(crate) fn acquire(&self, id: &ProjectId, root: PathBuf) -> Result<(), ProtocolError> {
         let mut open = lock(&self.inner.open);
         if !open.contains_key(id) {
             self.inner.fs.watch(id.clone(), root, self.sink())?;
@@ -308,7 +318,7 @@ impl Core {
     }
 
     /// Drops a reference; the last one stops watching.
-    fn release(&self, id: &ProjectId) {
+    pub(crate) fn release(&self, id: &ProjectId) {
         let mut open = lock(&self.inner.open);
         if let Some(count) = open.get_mut(id) {
             *count -= 1;
@@ -385,7 +395,7 @@ impl Core {
         self.emit(ProjectsEvent::Changed { open });
     }
 
-    fn root(&self, project: &ProjectId) -> Result<PathBuf, ProtocolError> {
+    pub(crate) fn root(&self, project: &ProjectId) -> Result<PathBuf, ProtocolError> {
         Ok(PathBuf::from(self.inner.projects.get(project)?.root))
     }
 

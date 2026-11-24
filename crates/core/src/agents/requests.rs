@@ -4,17 +4,17 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use super::transcript::MAX_TEXT_BYTES;
-use super::{AgentHost, Sessions};
+use super::{AgentHost, Launch, Sessions};
 use crate::protocol::agents::{
-    AgentMessage, AgentStatus, AgentsEvent, AgentsRequest, AgentsResponse, ProjectConfigReview,
-    SessionId, SessionInfo, SessionMode, TurnUsage,
+    AgentKind, AgentMessage, AgentStatus, AgentsEvent, AgentsRequest, AgentsResponse,
+    ProjectConfigReview, SessionId, SessionInfo, SessionMode, TurnUsage,
 };
 use crate::protocol::permissions::{
     Decision, PermissionAnswer, PermissionsEvent, PermissionsRequest, PermissionsResponse,
 };
 use crate::protocol::projects::{Project, ProjectId};
 use crate::protocol::{ErrorCode, OkResponse, ProtocolError, Response};
-use crate::services::{AgentRuntime, AgentSpec, EventSink, ProjectStore};
+use crate::services::{AgentRuntime, AgentSpec, EventSink, ProjectStore, ToolRole};
 
 type Result<T> = std::result::Result<T, ProtocolError>;
 
@@ -66,40 +66,46 @@ pub(crate) async fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Resp
             mode,
             prompt,
         } => {
-            check_text(&prompt)?;
-            let launch = prepare(ctx, &project, mode).await?;
-            let id = sessions.next_id();
-            sessions.insert(SessionInfo {
-                id: id.clone(),
-                project: project.clone(),
+            if mode == SessionMode::Isolated {
+                return Err(ProtocolError::new(
+                    ErrorCode::Unavailable,
+                    "isolated sessions are started by a coordinator (orchestration.start)",
+                ));
+            }
+            let new = NewSession {
+                project,
                 agent,
                 mode,
-                status: AgentStatus::Starting,
-                title: title(&prompt),
-                usage: TurnUsage::default(),
-                resumable: false,
-            });
-            run(ctx, &id, project, launch, prompt, None)
+                prompt,
+                cwd: None,
+                tools: None,
+            };
+            let info = start(ctx, new).await?;
+            Ok(Response::Agents(AgentsResponse::Session(info)))
         }
         AgentsRequest::Resume { session, prompt } => {
             check_text(&prompt)?;
-            let (info, agent_session) =
-                sessions.find(&session, |s| (s.info(), s.agent_session()))?;
+            let (info, agent_session, launch) =
+                sessions.find(&session, |s| (s.info(), s.agent_session(), s.launch()))?;
             if !info.status.is_ended() {
                 return Err(conflict("the session is still running"));
             }
             let agent_session = agent_session
                 .ok_or_else(|| conflict("the agent did not report how to resume this session"))?;
-            let launch = prepare(ctx, &info.project, info.mode).await?;
+            if info.mode == SessionMode::Isolated && launch.is_none() {
+                return Err(conflict(
+                    "this worker's worktree is not known since Ovra restarted",
+                ));
+            }
+            let tools = launch.as_ref().and_then(|l| l.tools);
+            let target = prepare(ctx, &info.project, info.mode, tools).await?;
+            let launch = launch.unwrap_or(Launch {
+                cwd: PathBuf::from(&target.project.root),
+                tools: None,
+            });
             sessions.find(&session, |s| s.restart())?;
-            run(
-                ctx,
-                &session,
-                info.project,
-                launch,
-                prompt,
-                Some(agent_session),
-            )
+            let info = run(ctx, &session, target, launch, prompt, Some(agent_session))?;
+            Ok(Response::Agents(AgentsResponse::Session(info)))
         }
         AgentsRequest::Send { session, text } => {
             check_text(&text)?;
@@ -144,37 +150,69 @@ pub(crate) async fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Resp
     }
 }
 
-/// What starting a session in a project needs, once it may start there.
-struct Launch {
-    target: Project,
-    mode: SessionMode,
+/// A session to start.
+pub(crate) struct NewSession {
+    pub(crate) project: ProjectId,
+    pub(crate) agent: AgentKind,
+    pub(crate) mode: SessionMode,
+    pub(crate) prompt: String,
+    /// Where it works; `None` for the project root.
+    pub(crate) cwd: Option<PathBuf>,
+    pub(crate) tools: Option<ToolRole>,
+}
+
+/// Starts a session and returns it as it is now.
+pub(crate) async fn start(ctx: &Ctx<'_>, new: NewSession) -> Result<SessionInfo> {
+    check_text(&new.prompt)?;
+    let target = prepare(ctx, &new.project, new.mode, new.tools).await?;
+    let launch = Launch {
+        cwd: new
+            .cwd
+            .unwrap_or_else(|| PathBuf::from(&target.project.root)),
+        tools: new.tools,
+    };
+    let id = ctx.sessions.next_id();
+    ctx.sessions.insert(SessionInfo {
+        id: id.clone(),
+        project: new.project,
+        agent: new.agent,
+        mode: new.mode,
+        status: AgentStatus::Starting,
+        title: title(&new.prompt),
+        usage: TurnUsage::default(),
+        resumable: false,
+    });
+    run(ctx, &id, target, launch, new.prompt, None)
+}
+
+/// The project a session may start in, with what the runtime needs to know.
+struct Target {
+    project: Project,
     executable: Option<String>,
     trusted: bool,
 }
 
-async fn prepare(ctx: &Ctx<'_>, project: &ProjectId, mode: SessionMode) -> Result<Launch> {
+async fn prepare(
+    ctx: &Ctx<'_>,
+    project: &ProjectId,
+    mode: SessionMode,
+    tools: Option<ToolRole>,
+) -> Result<Target> {
     let target = ctx.projects.get(project)?;
     let executable = ctx.projects.agent_settings()?.claude_path;
     // Settings that changed since the user trusted them (or cannot be read)
     // do not load until the user reviews them again.
     let trusted = target.trusted && review(ctx, project).await.is_ok_and(|r| r.applies());
-    if mode == SessionMode::Isolated {
-        return Err(ProtocolError::new(
-            ErrorCode::Unavailable,
-            "isolated sessions need worktrees, which arrive in phase 3",
-        ));
-    }
-    if ctx
-        .sessions
-        .any_running(|s| &s.project == project && s.mode == SessionMode::Direct)
-    {
+    // A coordinator only reads the main checkout, so it does not take the
+    // direct writer's place (docs/specs/orchestration.md).
+    let writes_main = mode == SessionMode::Direct && tools != Some(ToolRole::Coordinator);
+    if writes_main && ctx.sessions.direct_writer(project) {
         return Err(conflict(
             "another agent already works in this project's main checkout",
         ));
     }
-    Ok(Launch {
-        target,
-        mode,
+    Ok(Target {
+        project: target,
         executable,
         trusted,
     })
@@ -184,31 +222,39 @@ async fn prepare(ctx: &Ctx<'_>, project: &ProjectId, mode: SessionMode) -> Resul
 fn run(
     ctx: &Ctx<'_>,
     id: &SessionId,
-    project: ProjectId,
+    target: Target,
     launch: Launch,
     prompt: String,
     resume: Option<String>,
-) -> Result<Response> {
+) -> Result<SessionInfo> {
     let sessions = ctx.sessions;
+    let project = target.project.id.clone();
+    sessions.find(id, |s| s.set_launch(launch.clone()))?;
     ctx.sink.emit(AgentsEvent::Status {
         session: id.clone(),
         project: project.clone(),
         status: AgentStatus::Starting,
     });
+    if let Some(core) = sessions.core() {
+        crate::orchestration::on_status(&core, id, &AgentStatus::Starting);
+    }
     let host = AgentHost::new(id.clone(), project, sessions.clone(), ctx.sink.clone());
     host.message(AgentMessage::UserText {
         text: prompt.clone(),
     });
-    let agent = sessions.find(id, |s| s.info().agent)?;
+    let (agent, mode) = sessions.find(id, |s| {
+        let info = s.info();
+        (info.agent, info.mode)
+    })?;
     let spec = AgentSpec {
         session: id.clone(),
         agent,
-        mode: launch.mode,
-        cwd: PathBuf::from(launch.target.root),
-        tools: None,
+        mode,
+        cwd: launch.cwd,
+        tools: launch.tools,
         prompt,
-        executable: launch.executable.map(PathBuf::from),
-        trusted: launch.trusted,
+        executable: target.executable.map(PathBuf::from),
+        trusted: target.trusted,
         resume,
     };
     match ctx.runtime.start(spec, host.clone()) {
@@ -220,8 +266,7 @@ fn run(
             return Err(err);
         }
     }
-    let info = sessions.find(id, |s| s.info())?;
-    Ok(Response::Agents(AgentsResponse::Session(info)))
+    sessions.find(id, |s| s.info())
 }
 
 /// What the project would load now, and what the user trusted.

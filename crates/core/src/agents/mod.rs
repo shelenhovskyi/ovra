@@ -7,9 +7,12 @@ mod requests;
 mod state;
 mod transcript;
 
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use crate::protocol::agents::{AgentMessage, AgentStatus, AgentsEvent, SessionId, SessionInfo};
+use crate::protocol::agents::{
+    AgentMessage, AgentStatus, AgentsEvent, SessionId, SessionInfo, SessionMode,
+};
 use crate::protocol::permissions::{
     Decision, PermissionAnswer, PermissionId, PermissionReason, PermissionsEvent,
 };
@@ -43,6 +46,16 @@ struct Session {
     stopping: bool,
     /// The agent's own id for the conversation, which `agents.resume` needs.
     agent_session: Option<String>,
+    /// How this run started it; `None` for a session loaded from the store.
+    launch: Option<Launch>,
+}
+
+/// Where a session works and which IDE tools it gets; kept to resume it the
+/// same way.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Launch {
+    pub(crate) cwd: PathBuf,
+    pub(crate) tools: Option<ToolRole>,
 }
 
 /// Every session kept, in start order: this run's and those loaded from the
@@ -84,6 +97,7 @@ impl Sessions {
                 process: None,
                 stopping: false,
                 agent_session: stored.agent_session,
+                launch: None,
             };
             if !session.info.status.is_ended() {
                 session.info.status = AgentStatus::Stopped;
@@ -104,6 +118,11 @@ impl Sessions {
         *lock(&self.ide) = Some(IdeLink { tools, core });
     }
 
+    /// The core these sessions belong to, while it exists.
+    pub(crate) fn core(&self) -> Option<crate::Core> {
+        lock(&self.ide).as_ref()?.core.upgrade()
+    }
+
     pub(crate) fn next_id(&self) -> SessionId {
         let mut started = lock(&self.started);
         *started += 1;
@@ -119,6 +138,7 @@ impl Sessions {
             process: None,
             stopping: false,
             agent_session: None,
+            launch: None,
         };
         let _ = self.store.save(&session.stored());
         list.push(session);
@@ -162,11 +182,15 @@ impl Sessions {
         }))
     }
 
-    /// Whether any session matching `f` has not ended.
-    pub(crate) fn any_running(&self, f: impl Fn(&SessionInfo) -> bool) -> bool {
-        lock(&self.list)
-            .iter()
-            .any(|s| !s.info.status.is_ended() && f(&s.info))
+    /// Whether a session that writes the main checkout of `project` runs:
+    /// a direct session other than a coordinator, which only reads.
+    pub(crate) fn direct_writer(&self, project: &ProjectId) -> bool {
+        lock(&self.list).iter().any(|s| {
+            !s.info.status.is_ended()
+                && &s.info.project == project
+                && s.info.mode == SessionMode::Direct
+                && s.launch.as_ref().and_then(|l| l.tools) != Some(ToolRole::Coordinator)
+        })
     }
 
     /// Sessions of `project` that have not ended.
@@ -225,6 +249,12 @@ impl SessionView<'_> {
     }
     pub(crate) fn agent_session(&self) -> Option<String> {
         self.session.agent_session.clone()
+    }
+    pub(crate) fn launch(&self) -> Option<Launch> {
+        self.session.launch.clone()
+    }
+    pub(crate) fn set_launch(&mut self, launch: Launch) {
+        self.session.launch = Some(launch);
     }
     fn set_agent_session(&mut self, id: String) {
         if self.session.agent_session.as_ref() != Some(&id) {
@@ -360,8 +390,11 @@ impl AgentHost {
             self.sink.emit(AgentsEvent::Status {
                 session: self.session.clone(),
                 project: self.project.clone(),
-                status,
+                status: status.clone(),
             });
+            if let Some(core) = self.sessions.core() {
+                crate::orchestration::on_status(&core, &self.session, &status);
+            }
         }
         changed == Ok(true)
     }
