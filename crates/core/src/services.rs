@@ -114,6 +114,13 @@ pub trait AgentRuntime: Send + Sync + Debug {
 pub trait RunningAgent: Send + Sync + Debug {
     /// Queues the next user message.
     fn send(&self, text: String) -> Result<()>;
+    /// Stops the current turn; the session then waits for the next message.
+    fn interrupt(&self) -> Result<()> {
+        Err(ProtocolError::new(
+            ErrorCode::Unavailable,
+            "this agent cannot be interrupted",
+        ))
+    }
     /// Ends the session. The runtime reports `stopped` through the host.
     fn stop(&self);
 }
