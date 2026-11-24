@@ -127,8 +127,9 @@ describe("TreeModel", () => {
     expect(model.error).toBe("unavailable: file access is not implemented yet");
   });
 
-  it("flattens 100k files in one directory quickly", async () => {
-    const big = flatDir(100_000);
+  // 20k rows already make quadratic work obvious; tests/perf times the 100k-file repo.
+  it("flattens 20k files in one directory in few updates", async () => {
+    const big = flatDir(20_000);
     const { model, changes } = setup(
       new Map([
         ["", [{ name: "big", kind: "dir", ignored: false, git: null }]],
@@ -137,8 +138,8 @@ describe("TreeModel", () => {
     );
     await model.start();
     await model.expand("big");
-    expect(model.rows).toHaveLength(100_001);
-    expect(model.rows[100_000]?.path).toBe("big/f099999");
+    expect(model.rows).toHaveLength(20_001);
+    expect(model.rows[20_000]?.path).toBe("big/f019999");
     expect(changes()).toBeLessThan(10);
   });
 });

@@ -78,17 +78,17 @@ describe("FileTree", () => {
     expect(t.row("z.md").getAttribute("aria-selected")).toBe("true");
   });
 
-  it("renders only a window of rows for 100k files", async () => {
-    const t = mountTree(new FakeCore(new Map([["", flatDir(100_000)]])));
+  it("renders only a window of rows for 20k files", async () => {
+    const t = mountTree(new FakeCore(new Map([["", flatDir(20_000)]])));
     await settle();
     expect(t.rows().length).toBeLessThan(60);
-    expect(t.rows()[0]?.getAttribute("aria-setsize")).toBe("100000");
+    expect(t.rows()[0]?.getAttribute("aria-setsize")).toBe("20000");
 
-    Object.defineProperty(t.tree(), "scrollTop", { value: 22 * 50_000, configurable: true });
+    Object.defineProperty(t.tree(), "scrollTop", { value: 22 * 10_000, configurable: true });
     t.tree().dispatchEvent(new Event("scroll"));
     flushSync();
     const shown = t.rows().map((r) => r.dataset.path);
-    expect(shown).toContain("f050000");
+    expect(shown).toContain("f010000");
     expect(shown.length).toBeLessThan(60);
   });
 
