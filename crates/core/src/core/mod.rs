@@ -7,6 +7,7 @@ use tokio::sync::broadcast;
 use crate::agents::{self, Sessions};
 use crate::orchestration::{self, Orchestration};
 use crate::path::RelPath;
+use crate::protocol::audit::AuditEvent;
 use crate::protocol::fs::{FsRequest, FsResponse, MAX_FILES_PAGE};
 use crate::protocol::info::{CoreInfo, InfoEvent, InfoRequest, InfoResponse};
 use crate::protocol::open::OpenRequest;
@@ -429,7 +430,14 @@ impl Core {
                 trusted,
                 fingerprint,
             } => {
+                let reviewed = fingerprint.clone().filter(|_| trusted);
                 let project = agents::trust(&self.agents_ctx(), &id, trusted, fingerprint).await?;
+                // Trusting stores exactly the fingerprint the person reviewed.
+                let event = AuditEvent::TrustChanged {
+                    trusted: project.trusted,
+                    fingerprint: reviewed.filter(|_| project.trusted),
+                };
+                crate::audit::record(self, &id, None, event);
                 self.emit_projects_changed();
                 Ok(ProjectsResponse::Project(project))
             }

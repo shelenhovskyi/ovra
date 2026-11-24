@@ -1,0 +1,113 @@
+---
+source: crates/core/src/audit/tests.rs
+expression: entries
+---
+[
+  {
+    "seq": 1,
+    "at_ms": 1,
+    "project": "p1",
+    "session": null,
+    "event": {
+      "kind": "policy_changed",
+      "policy": {
+        "rules": [
+          {
+            "tool": "WebFetch",
+            "action": "deny"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "seq": 2,
+    "at_ms": 2,
+    "project": "p1",
+    "session": null,
+    "event": {
+      "kind": "trust_changed",
+      "trusted": true,
+      "fingerprint": ""
+    }
+  },
+  {
+    "seq": 3,
+    "at_ms": 3,
+    "project": "p1",
+    "session": "s1",
+    "event": {
+      "kind": "session_started",
+      "mode": "direct",
+      "trusted": true,
+      "sandbox": null
+    }
+  },
+  {
+    "seq": 4,
+    "at_ms": 4,
+    "project": "p1",
+    "session": "s1",
+    "event": {
+      "kind": "tool_decided",
+      "tool": "Bash",
+      "input": {
+        "kind": "json",
+        "text": "{\"command\":\"echo [redacted]\"}"
+      },
+      "allowed": true,
+      "by": {
+        "kind": "person"
+      }
+    }
+  },
+  {
+    "seq": 5,
+    "at_ms": 5,
+    "project": "p1",
+    "session": "s1",
+    "event": {
+      "kind": "tool_decided",
+      "tool": "WebFetch",
+      "input": {
+        "kind": "json",
+        "text": "{\"url\":\"https://example.com\"}"
+      },
+      "allowed": false,
+      "by": {
+        "kind": "policy",
+        "rule": "WebFetch"
+      }
+    }
+  },
+  {
+    "seq": 6,
+    "at_ms": 6,
+    "project": "p1",
+    "session": "s1",
+    "event": {
+      "kind": "tool_decided",
+      "tool": "Write",
+      "input": {
+        "kind": "file",
+        "path": "a.txt",
+        "sha256": "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+      },
+      "allowed": false,
+      "by": {
+        "kind": "session_ended"
+      }
+    }
+  },
+  {
+    "seq": 7,
+    "at_ms": 7,
+    "project": "p1",
+    "session": null,
+    "event": {
+      "kind": "trust_changed",
+      "trusted": false,
+      "fingerprint": null
+    }
+  }
+]

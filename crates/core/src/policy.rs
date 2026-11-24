@@ -9,6 +9,7 @@ use serde_json::Value;
 
 use crate::Core;
 use crate::protocol::agents::{SandboxNetwork, SandboxReport};
+use crate::protocol::audit::AuditEvent;
 use crate::protocol::policy::{
     Policy, PolicyAction, PolicyEvent, PolicyRequest, PolicyResponse, PolicyRule,
 };
@@ -38,6 +39,10 @@ pub(crate) fn handle(core: &Core, request: PolicyRequest) -> Result<Response, Pr
                 check(rule)?;
             }
             store.set_policy(&project, &policy)?;
+            let event = AuditEvent::PolicyChanged {
+                policy: policy.clone(),
+            };
+            crate::audit::record(core, &project, None, event);
             core.emit(PolicyEvent::Changed { project });
             Ok(Response::Policy(PolicyResponse::Policy(policy)))
         }

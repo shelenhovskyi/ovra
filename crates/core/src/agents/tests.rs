@@ -936,7 +936,12 @@ async fn the_projects_policy_decides_before_the_person_is_asked() {
     use crate::protocol::agents::{SandboxNetwork, SandboxReport};
     use crate::protocol::permissions::Decision;
 
-    let core = core_with(ScriptedAgent::new(vec![vec![Step::Say("hi")]]));
+    let audit = Arc::new(crate::fakes::MemoryAudit::default());
+    let core = Core::builder("test")
+        .projects(Arc::new(MemoryProjects::default()))
+        .agents(Arc::new(ScriptedAgent::new(vec![vec![Step::Say("hi")]])))
+        .audit(audit.clone())
+        .build();
     project(&core).await;
     ok(&core, start("x")).await;
     ok(
@@ -1029,4 +1034,46 @@ async fn the_projects_policy_decides_before_the_person_is_asked() {
     });
     until(&mut rx, AgentStatus::WaitingForApproval).await;
     asking.abort();
+
+    // The audit log names the rule (or the unreadable policy) that decided.
+    use crate::protocol::audit::{AuditEvent, DecidedBy};
+    use crate::services::AuditLog;
+    let decided = |project: &str| {
+        let entries = audit.list(
+            &crate::protocol::projects::ProjectId(project.into()),
+            None,
+            100,
+        );
+        entries
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|e| match e.event {
+                AuditEvent::ToolDecided {
+                    tool, allowed, by, ..
+                } => Some((tool, allowed, by)),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    let rule = |rule: &str| DecidedBy::Policy { rule: rule.into() };
+    assert_eq!(
+        decided("p1"),
+        [
+            ("WebFetch".to_owned(), false, rule("WebFetch")),
+            ("WebFetch".to_owned(), false, rule("WebFetch")),
+            ("Bash".to_owned(), false, DecidedBy::SessionEnded),
+            ("Bash".to_owned(), true, rule("Bash(npm test)")),
+        ]
+    );
+    assert_eq!(
+        decided("p9"),
+        [
+            (
+                "Read".to_owned(),
+                false,
+                rule("the policy could not be read")
+            ),
+            ("Bash".to_owned(), false, DecidedBy::SessionEnded),
+        ]
+    );
 }
