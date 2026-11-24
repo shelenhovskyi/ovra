@@ -1,0 +1,14 @@
+{
+  "$comment": "Allowed dependency edges between workspace crates, and external crates each crate must never pull in (directly or transitively). Changing this file needs human review.",
+  "allowed": {
+    "ovra-core": [],
+    "ovra-transport": ["ovra-core"],
+    "ovra-daemon": ["ovra-core", "ovra-transport"],
+    "ovra-app": ["ovra-core", "ovra-transport"]
+  },
+  "banned": {
+    "ovra-core": ["tauri", "wry", "axum", "hyper", "tokio-tungstenite"],
+    "ovra-transport": ["tauri", "wry"],
+    "ovra-daemon": ["tauri", "wry"]
+  }
+}

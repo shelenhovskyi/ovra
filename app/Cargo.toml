@@ -1,0 +1,23 @@
+[package]
+name = "ovra-app"
+description = "Tauri 2 shell for Ovra. Only windows and IPC glue live here (ADR 0002)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+name = "ovra"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+ovra-core.workspace = true
+ovra-transport.workspace = true
+tauri = { version = "2", features = [] }
+
+[lints]
+workspace = true

@@ -1,0 +1,13 @@
+# Security-sensitive code needs a human review.
+/crates/sandbox*/   @shelenhovskyi
+/crates/netproxy/   @shelenhovskyi
+/crates/secrets/    @shelenhovskyi
+/crates/ext-host/   @shelenhovskyi
+**/*.wit            @shelenhovskyi
+/app/capabilities/  @shelenhovskyi
+/app/tauri.conf.json @shelenhovskyi
+/crates/transport/src/ws.rs @shelenhovskyi
+/scripts/crate-graph.json @shelenhovskyi
+/deny.toml          @shelenhovskyi
+/.claude/settings.json @shelenhovskyi
+/.github/           @shelenhovskyi

@@ -1,0 +1,12 @@
+---
+source: crates/core/src/core.rs
+expression: "serde_json::json!({ \"request\": Request::GetInfo, \"event\": Event::Ready, })"
+---
+{
+  "event": {
+    "type": "ready"
+  },
+  "request": {
+    "method": "get_info"
+  }
+}

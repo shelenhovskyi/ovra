@@ -1,0 +1,40 @@
+name: PR rules
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  commits:
+    name: Conventional Commits
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec commitlint --from ${{ github.event.pull_request.base.sha }} --to ${{ github.event.pull_request.head.sha }}
+
+  size:
+    name: PR size (warning above 400 changed lines)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check size
+        env:
+          ADDITIONS: ${{ github.event.pull_request.additions }}
+          DELETIONS: ${{ github.event.pull_request.deletions }}
+        run: |
+          total=$((ADDITIONS + DELETIONS))
+          echo "Changed lines: $total"
+          if [ "$total" -gt 400 ]; then
+            echo "::warning::This PR changes $total lines; the guideline is about 400. Consider splitting it."
+          fi

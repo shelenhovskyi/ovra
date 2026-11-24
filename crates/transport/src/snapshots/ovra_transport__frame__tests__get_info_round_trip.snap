@@ -1,0 +1,15 @@
+---
+source: crates/transport/src/frame.rs
+expression: value
+---
+{
+  "id": 7,
+  "result": {
+    "data": {
+      "mode": "test",
+      "name": "ovra",
+      "version": "[version]"
+    },
+    "type": "info"
+  }
+}

@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(just:*)",
+      "Bash(cargo check:*)",
+      "Bash(cargo test:*)",
+      "Bash(cargo nextest:*)",
+      "Bash(cargo clippy:*)",
+      "Bash(cargo fmt:*)",
+      "Bash(cargo build:*)",
+      "Bash(pnpm --filter:*)",
+      "Bash(pnpm exec biome:*)",
+      "Bash(git status)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git switch:*)",
+      "Bash(git worktree:*)",
+      "Edit"
+    ],
+    "ask": [
+      "Bash(cargo add:*)",
+      "Bash(cargo install:*)",
+      "Bash(npm install:*)",
+      "Bash(pnpm add:*)",
+      "Bash(pnpm install:*)",
+      "Bash(git push:*)",
+      "Edit(crates/sandbox*/**)",
+      "Edit(crates/netproxy/**)",
+      "Edit(crates/secrets/**)",
+      "Edit(crates/ext-host/**)",
+      "Edit(**/*.wit)",
+      "Edit(app/capabilities/**)",
+      "Edit(app/tauri.conf.json)",
+      "Edit(scripts/crate-graph.json)",
+      "Edit(deny.toml)",
+      "Edit(.claude/settings.json)",
+      "Edit(.github/**)"
+    ],
+    "deny": [
+      "Read(./.env*)",
+      "Read(./target/**)",
+      "Read(./**/node_modules/**)",
+      "Read(./ui/dist/**)",
+      "Read(./app/gen/**)",
+      "Read(./**/*.log)",
+      "Bash(rm -rf:*)",
+      "Bash(git push --force:*)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [{ "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/format.sh" }]
+      }
+    ]
+  }
+}

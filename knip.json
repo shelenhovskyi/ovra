@@ -1,0 +1,7 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "workspaces": {
+    "ui": { "project": ["src/**/*.{ts,svelte}"] },
+    "tests/e2e": { "entry": ["specs/**/*.ts"] }
+  }
+}

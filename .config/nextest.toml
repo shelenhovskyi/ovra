@@ -1,0 +1,8 @@
+# Test time limits (see "Test speed" in CLAUDE.md and scripts/test-budgets.json).
+[profile.default]
+# A test is reported as slow after 1 s and killed after 3 s.
+slow-timeout = { period = "1s", terminate-after = 3 }
+fail-fast = false
+
+[profile.default.junit]
+path = "junit.xml"

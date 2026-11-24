@@ -1,0 +1,15 @@
+pre-commit:
+  parallel: true
+  commands:
+    rustfmt:
+      glob: "*.rs"
+      run: cargo fmt --all -- --check
+    biome:
+      glob: "*.{ts,js,json,svelte,css}"
+      run: pnpm exec biome check --no-errors-on-unmatched {staged_files}
+    english:
+      run: scripts/check-english.sh
+commit-msg:
+  commands:
+    commitlint:
+      run: pnpm exec commitlint --edit {1}
