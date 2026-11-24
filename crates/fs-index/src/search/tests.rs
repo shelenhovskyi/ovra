@@ -8,7 +8,9 @@ use ovra_core::protocol::search::{
 use ovra_core::protocol::{ErrorCode, Event};
 use ovra_core::services::{FsService, SearchCancel};
 
-use super::{Plan, Run, line_match};
+use super::line_match;
+#[cfg(unix)]
+use super::{Plan, Run};
 use crate::FsIndex;
 
 fn put(root: &Path, path: &str, text: impl AsRef<[u8]>) {

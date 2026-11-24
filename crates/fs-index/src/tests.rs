@@ -597,11 +597,13 @@ async fn a_listed_directory_reports_changes_before_indexing_ends() {
 /// Changed paths and the latest `fs.watch_limited` count, gathered from
 /// events in whatever order they come.
 #[derive(Default)]
+#[cfg(not(target_os = "macos"))]
 struct Seen {
     paths: Vec<String>,
     unwatched: Option<u32>,
 }
 
+#[cfg(not(target_os = "macos"))]
 impl Seen {
     async fn until(&mut self, rx: &mut broadcast::Receiver<Event>, done: impl Fn(&Self) -> bool) {
         while !done(self) {
@@ -620,6 +622,7 @@ impl Seen {
 
 /// Acts out a full inotify limit: only `watch_limit` directories get a
 /// watch, and the rest are rescanned every few milliseconds.
+#[cfg(not(target_os = "macos"))]
 fn limited(watch_limit: usize) -> FsIndex {
     FsIndex {
         timing: Timing {
