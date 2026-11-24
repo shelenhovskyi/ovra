@@ -1,6 +1,7 @@
 packages:
   - ui
   - tests/e2e
+  - tests/perf
 onlyBuiltDependencies:
   - esbuild
   - lefthook

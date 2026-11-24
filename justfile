@@ -31,6 +31,13 @@ e2e: build-headless
     pnpm --filter @ovra/e2e test
     python3 scripts/check_test_budgets.py e2e
 
+# Phase 1 speed gate: release daemon against a generated 100k-file repository.
+# Separate from `just test` / `just e2e`; CI runs it in its own job.
+perf:
+    pnpm --filter @ovra/ui build
+    cargo build --release -p ovra-daemon
+    pnpm --filter @ovra/perf test
+
 # Everything CI lints.
 lint: check
     cargo clippy -p ovra-app --all-targets -- -D warnings

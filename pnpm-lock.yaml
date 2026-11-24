@@ -36,6 +36,15 @@ importers:
         specifier: ^22.20.5
         version: 22.20.5
 
+  tests/perf:
+    devDependencies:
+      '@playwright/test':
+        specifier: 1.63.0
+        version: 1.63.0
+      '@types/node':
+        specifier: ^22.20.5
+        version: 22.20.5
+
   ui:
     dependencies:
       '@codemirror/commands':
