@@ -2,16 +2,19 @@
 //
 //   just ux <script.ts> [--fixtures small,monorepo] [--seed small] [--out DIR]
 //
+//   --claude FIXTURE runs the real claude driver against fake-claude playing
+//   crates/agent-runtime/fixtures/FIXTURE.jsonl (default: the scripted fake agent).
 // The script's default export gets a `Session` (see below) and drives the app
 // like a person would. Console messages, page errors and every frame are
 // written to <out>/session.log; `shot(name)` saves <out>/<name>.png.
 // `--seed` adds fixtures to the project list before the page loads.
 
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { copyFileSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { delimiter, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { type Browser, type BrowserContext, chromium, type Page } from "@playwright/test";
-import startDaemon from "../daemon.ts";
+import startSharedDaemon, { binary, root, startDaemon } from "../daemon.ts";
 import { type FixtureName, makeFixtures } from "./fixtures.ts";
 
 export type Session = {
@@ -30,19 +33,21 @@ export type Session = {
   note: (line: string) => void;
 };
 
-type Args = { script: string; fixtures: FixtureName[]; seed: FixtureName[]; out: string };
+type Args = { script: string; fixtures: FixtureName[]; seed: FixtureName[]; claude: string; out: string };
 
 function parse(argv: string[]): Args {
-  const args: Args = { script: "", fixtures: ["small"], seed: [], out: "" };
+  const args: Args = { script: "", fixtures: ["small"], seed: [], claude: "", out: "" };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const next = (): string => argv[++i] ?? "";
     if (a === "--fixtures") args.fixtures = next().split(",").filter(Boolean) as FixtureName[];
     else if (a === "--seed") args.seed = next().split(",").filter(Boolean) as FixtureName[];
     else if (a === "--out") args.out = next();
+    else if (a === "--claude") args.claude = next();
     else if (a) args.script = a;
   }
-  if (!args.script) throw new Error("usage: just ux <script.ts> [--fixtures a,b] [--seed a] [--out DIR]");
+  if (!args.script)
+    throw new Error("usage: just ux <script.ts> [--fixtures a,b] [--seed a] [--claude FIXTURE] [--out DIR]");
   for (const s of args.seed) if (!args.fixtures.includes(s)) args.fixtures.push(s);
   args.out ||= resolve("target/ux", new Date().toISOString().replace(/[:.]/g, "-"));
   return args;
@@ -73,8 +78,24 @@ async function main(): Promise<void> {
     lines.push(`${new Date().toISOString()} ${line}`);
   };
 
-  const stop = await startDaemon();
-  const url = process.env.OVRA_URL ?? "";
+  let stop: () => void;
+  let url: string;
+  if (args.claude) {
+    // The real claude driver against fake-claude playing a recorded session.
+    const bin = mkdtempSync(join(tmpdir(), "ovra-ux-claude-"));
+    copyFileSync(binary("fake-claude"), join(bin, process.platform === "win32" ? "claude.exe" : "claude"));
+    const fixture = args.claude.endsWith(".jsonl")
+      ? resolve(args.claude)
+      : resolve(root, "crates/agent-runtime/fixtures", `${args.claude}.jsonl`);
+    ({ url, stop } = await startDaemon([], {
+      ...process.env,
+      PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+      OVRA_FAKE_CLAUDE_FIXTURE: fixture,
+    }));
+  } else {
+    stop = await startSharedDaemon();
+    url = process.env.OVRA_URL ?? "";
+  }
   const roots = makeFixtures(args.fixtures);
   note(`fixtures ${JSON.stringify(roots)}`);
   for (const name of args.seed) await addProject(url, roots[name] as string);

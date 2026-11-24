@@ -15,7 +15,8 @@ Reviewers never change feature code.
 
 One file each in `agents/personas/`: who they are, their goal, habits and what
 they check. Current set: `newcomer`, `keyboard-power-user`,
-`monorepo-maintainer`, `agent-orchestrator`, `accessibility-user`. Add one when
+`monorepo-maintainer`, `agent-orchestrator`, `accessibility-user`,
+`security-reviewer`. Add one when
 a new kind of user matters (for example a reviewer of agent diffs in phase 3).
 
 ## How a round runs
@@ -31,7 +32,10 @@ a new kind of user matters (for example a reviewer of agent diffs in phase 3).
    ```
 
    The script's default export receives a `Session` (`tests/e2e/ux/run.ts`):
-   `page`, `open()`, `shot(name)`, `note(line)` and `roots` (fixture folders). Screenshots and `session.log` (console, page errors, every frame)
+   `page`, `open()`, `shot(name)`, `note(line)` and `roots` (fixture folders).
+   The daemon runs the scripted fake agent; `--claude <fixture>` runs the real
+   Claude driver against `fake-claude` playing
+   `crates/agent-runtime/fixtures/<fixture>.jsonl` instead. Screenshots and `session.log` (console, page errors, every frame)
    land in `target/ux/<timestamp>/`. Scripts are scratch work and are not
    committed; the report quotes the steps.
 3. Each agent writes `docs/ux-reviews/<date>-<round>/<persona>.md` from the
@@ -83,4 +87,4 @@ Scope: <features>. Fixtures: <names>.
 - ...
 ```
 
-IDs are `<persona prefix>-<n>`: `NEW`, `KEY`, `MONO`, `ORCH`, `A11Y`.
+IDs are `<persona prefix>-<n>`: `NEW`, `KEY`, `MONO`, `ORCH`, `A11Y`, `SEC`.
