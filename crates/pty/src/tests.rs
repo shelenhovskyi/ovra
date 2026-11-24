@@ -248,7 +248,16 @@ async fn a_flood_reaches_a_subscriber_whole() {
             exited => panic!("{exited:?}"),
         }
     }
-    assert_eq!(text.matches("y\r\n").count(), LINES);
+    let lines = text.matches("y\r\n").count();
+    // On a miss, show what else arrived: lost lines or changed ones.
+    let rest = text.replace("y\r\n", "");
+    let sample: String = rest.chars().take(400).collect();
+    assert_eq!(
+        lines,
+        LINES,
+        "{} bytes in {last} events; besides the lines: {sample:?}",
+        text.len()
+    );
     let (kept, seq) = pty.scrollback(&id).expect("scrollback");
     assert_eq!(seq, last);
     assert!(text.ends_with(&kept));
