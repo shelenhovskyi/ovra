@@ -399,7 +399,8 @@ async fn watcher_reports_git_changes_and_stops_on_unwatch() {
             }
             FsEvent::Changed { project, .. }
             | FsEvent::GitChanged { project }
-            | FsEvent::FilesChanged { project, .. } => {
+            | FsEvent::FilesChanged { project, .. }
+            | FsEvent::WatchLimited { project, .. } => {
                 assert_ne!(project, p1, "event after unwatch");
             }
         }
@@ -591,4 +592,84 @@ async fn a_listed_directory_reports_changes_before_indexing_ends() {
     list(&fs, root, "src").await.expect("list");
     put(root, "src/a.rs", "changed");
     changed_until(&mut rx, "src/a.rs").await;
+}
+
+/// Waits for `fs.watch_limited` and returns its count.
+async fn unwatched(rx: &mut broadcast::Receiver<Event>) -> u32 {
+    loop {
+        if let FsEvent::WatchLimited { unwatched, .. } = next_fs(rx).await {
+            return unwatched;
+        }
+    }
+}
+
+/// Acts out a full inotify limit: only `watch_limit` directories get a
+/// watch, and the rest are rescanned every few milliseconds.
+fn limited(watch_limit: usize) -> FsIndex {
+    FsIndex {
+        timing: Timing {
+            poll: Duration::from_millis(20),
+            watch_limit,
+            ..Timing::default()
+        },
+        ..FsIndex::default()
+    }
+}
+
+// macOS has one recursive watch, so no per-directory limit.
+#[cfg(not(target_os = "macos"))]
+#[tokio::test]
+async fn directories_beyond_the_watch_limit_are_polled() {
+    let tmp = dir();
+    let root = tmp.path();
+    put(root, ".gitignore", "build/\n");
+    put(root, "a/one.txt", "");
+    put(root, "b/two.txt", "");
+    put(root, "c/three.txt", "");
+    put(root, "build/out.o", "");
+    let core = Core::new("test");
+    let mut rx = core.subscribe();
+    // The root and one more directory get a watch; two are polled.
+    let fs = limited(2);
+    let project = ProjectId("p".into());
+    fs.watch(project.clone(), root.to_path_buf(), core.sink())
+        .expect("watch");
+    ready(&mut rx, "p").await;
+    assert_eq!(unwatched(&mut rx).await, 2);
+
+    // Edits, new files and new directories in polled directories surface,
+    // and ignored ones still do not.
+    put(root, "c/three.txt", "edited");
+    put(root, "b/new.txt", "");
+    fs::create_dir(root.join("c/sub")).expect("mkdir");
+    put(root, "c/build/x.o", "");
+    let mut seen = Vec::new();
+    let wants = ["c/three.txt", "b/new.txt", "c/sub"];
+    while !wants.iter().all(|w| seen.iter().any(|p| p == w)) {
+        if let FsEvent::Changed { paths, .. } = next_fs(&mut rx).await {
+            seen.extend(paths);
+        }
+    }
+    assert_eq!(unwatched(&mut rx).await, 3, "c/sub is polled too");
+    put(root, "c/sub/deep.txt", "");
+    seen.extend(changed_until(&mut rx, "c/sub/deep.txt").await);
+    assert!(!seen.iter().any(|p| p.contains("build/")), "{seen:?}");
+    let files = fs
+        .list_files(root.to_path_buf(), 0, 100)
+        .await
+        .expect("list");
+    assert!(files.paths.contains(&"b/new.txt".to_owned()), "{files:?}");
+
+    // A polled directory that is removed is forgotten.
+    fs::remove_dir_all(root.join("c")).expect("rm");
+    changed_until(&mut rx, "c").await;
+    assert_eq!(unwatched(&mut rx).await, 1);
+
+    // Once the limit is raised, the rest gets a watch and clients hear so.
+    fs.watched(&root.to_path_buf(), |w| {
+        w.dirs
+            .watch_budget
+            .store(usize::MAX, std::sync::atomic::Ordering::SeqCst);
+    });
+    assert_eq!(unwatched(&mut rx).await, 0);
 }

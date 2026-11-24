@@ -4,13 +4,18 @@
 //! `node_modules/` cost nothing), plus the git directory for `index` and
 //! `HEAD`. File events are batched briefly; `git status` runs on its own
 //! thread, debounced and one at a time (see [`Timing`]).
+//!
+//! Once the OS runs out of watches (inotify's `max_user_watches`), further
+//! directories are rescanned every [`Timing::poll`] instead, and clients get
+//! `fs.watch_limited` with how many there are.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher as _};
 use ovra_core::protocol::fs::FsEvent;
@@ -35,6 +40,12 @@ pub(crate) struct Timing {
     /// ...or at the latest this long after the first change, so a long
     /// stream of writes (an agent at work) still refreshes the status.
     pub(crate) git_max_delay: Duration,
+    /// How often directories without a watch are rescanned.
+    pub(crate) poll: Duration,
+    /// Tests only: how many directories the OS lets us watch, to act out a
+    /// full inotify limit.
+    #[cfg(test)]
+    pub(crate) watch_limit: usize,
 }
 
 impl Default for Timing {
@@ -44,6 +55,9 @@ impl Default for Timing {
             max_delay: Duration::from_millis(200),
             git_quiet: Duration::from_millis(300),
             git_max_delay: Duration::from_secs(2),
+            poll: Duration::from_secs(2),
+            #[cfg(test)]
+            watch_limit: usize::MAX,
         }
     }
 }
@@ -167,6 +181,9 @@ impl Watch {
         let dirs = Arc::new(Dirs {
             watcher: Mutex::new(watcher),
             watched: Mutex::new(HashSet::new()),
+            polled: Mutex::new(HashMap::new()),
+            #[cfg(test)]
+            watch_budget: AtomicUsize::new(timing.watch_limit),
         });
         dirs.add(&root);
         if let Some(repo) = &git.repo {
@@ -184,6 +201,7 @@ impl Watch {
             walked: HashSet::new(),
             stopped: Arc::clone(&stopped),
             timing,
+            reported_unwatched: 0,
         };
         let files = Arc::clone(&worker.files);
         std::thread::Builder::new()
@@ -253,6 +271,8 @@ struct Worker {
     walked: HashSet<PathBuf>,
     stopped: Arc<AtomicBool>,
     timing: Timing,
+    /// The `unwatched` count clients last heard.
+    reported_unwatched: usize,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -271,24 +291,114 @@ const ONE_RECURSIVE_WATCH: bool = cfg!(target_os = "macos");
 pub(crate) struct Dirs {
     watcher: Mutex<RecommendedWatcher>,
     watched: Mutex<HashSet<PathBuf>>,
+    /// Watched directories the OS had no watch left for, with what they
+    /// held at the last scan. Locked after `watched` when both are needed.
+    polled: Mutex<HashMap<PathBuf, Snapshot>>,
+    /// Tests only: watches left before the simulated limit is reached.
+    #[cfg(test)]
+    pub(crate) watch_budget: AtomicUsize,
+}
+
+/// What a directory held at a scan: per entry, whether it is a directory,
+/// its size and modification time (`None` if it could not be read).
+type Snapshot = HashMap<OsString, Option<(bool, u64, Option<SystemTime>)>>;
+
+/// `None` if `dir` cannot be read (it is gone).
+fn snapshot(dir: &Path) -> Option<Snapshot> {
+    let entries = std::fs::read_dir(dir).ok()?;
+    Some(
+        entries
+            .filter_map(std::result::Result::ok)
+            .map(|e| {
+                // Like `symlink_metadata`: links are not followed.
+                let meta = e.metadata().ok();
+                let meta = meta.map(|m| (m.is_dir(), m.len(), m.modified().ok()));
+                (e.file_name(), meta)
+            })
+            .collect(),
+    )
 }
 
 impl Dirs {
-    /// Watches `dir` (not recursively) unless it already is.
+    /// Watches `dir` (not recursively) unless it already is. If the OS has
+    /// no watch left, `dir` is polled instead.
     pub(crate) fn add(&self, dir: &Path) {
         let mut watched = lock(&self.watched);
-        if !watched.contains(dir)
-            && (ONE_RECURSIVE_WATCH
-                || lock(&self.watcher)
-                    .watch(dir, RecursiveMode::NonRecursive)
-                    .is_ok())
-        {
-            watched.insert(dir.to_path_buf());
+        if watched.contains(dir) {
+            return;
         }
+        if !ONE_RECURSIVE_WATCH {
+            match self.watch_os(dir) {
+                Ok(()) => {}
+                Err(e) if matches!(e.kind, notify::ErrorKind::MaxFilesWatch) => {
+                    // Scanned before the caller reads it, as a watch would be
+                    // in place before.
+                    let Some(snapshot) = snapshot(dir) else {
+                        return;
+                    };
+                    lock(&self.polled).insert(dir.to_path_buf(), snapshot);
+                }
+                Err(_) => return,
+            }
+        }
+        watched.insert(dir.to_path_buf());
+    }
+
+    fn watch_os(&self, dir: &Path) -> notify::Result<()> {
+        #[cfg(test)]
+        if self
+            .watch_budget
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+            .is_err()
+        {
+            return Err(notify::Error::new(notify::ErrorKind::MaxFilesWatch));
+        }
+        lock(&self.watcher).watch(dir, RecursiveMode::NonRecursive)
     }
 
     fn contains(&self, dir: &Path) -> bool {
         lock(&self.watched).contains(dir)
+    }
+
+    /// How many directories are polled rather than watched.
+    fn unwatched(&self) -> usize {
+        lock(&self.polled).len()
+    }
+
+    /// Rescans the polled directories, first trying again to watch each (the
+    /// limit may have been raised, or watches freed). Returns the paths that
+    /// changed since the last scan, including directories that are gone.
+    fn rescan(&self) -> Vec<PathBuf> {
+        let dirs: Vec<PathBuf> = lock(&self.polled).keys().cloned().collect();
+        let mut changed = Vec::new();
+        for dir in dirs {
+            // Watch, then read, so nothing that happens between is missed.
+            let watching = self.watch_os(&dir).is_ok();
+            let fresh = snapshot(&dir);
+            let mut polled = lock(&self.polled);
+            let Some(old) = polled.get_mut(&dir) else {
+                continue; // removed meanwhile
+            };
+            let Some(fresh) = fresh else {
+                polled.remove(&dir);
+                changed.push(dir);
+                continue;
+            };
+            for (name, meta) in &fresh {
+                if old.get(name) != Some(meta) {
+                    changed.push(dir.join(name));
+                }
+            }
+            for name in old.keys().filter(|n| !fresh.contains_key(*n)) {
+                changed.push(dir.join(name));
+            }
+            if watching {
+                polled.remove(&dir);
+            } else {
+                *old = fresh;
+            }
+        }
+        changed
     }
 
     /// Forgets a removed directory and everything below it.
@@ -300,6 +410,7 @@ impl Dirs {
             let _ = lock(&self.watcher).unwatch(dir);
         }
         watched.retain(|d| !d.starts_with(dir));
+        lock(&self.polled).retain(|d, _| !d.starts_with(dir));
     }
 }
 
@@ -342,22 +453,69 @@ impl Worker {
                 version,
             });
         }
+        self.report_unwatched();
+        let mut polled_at = Instant::now();
         loop {
-            let Ok(Msg::Fs(first)) = rx.recv() else {
-                return;
-            };
-            let mut batch = vec![first];
-            let started = Instant::now();
-            loop {
-                let left = self.timing.max_delay.saturating_sub(started.elapsed());
-                match rx.recv_timeout(self.timing.quiet.min(left)) {
-                    Ok(Msg::Fs(e)) => batch.push(e),
-                    Ok(Msg::Stop) | Err(RecvTimeoutError::Disconnected) => return,
-                    Err(RecvTimeoutError::Timeout) => break,
-                }
+            // Wakes up for the next rescan even when nothing is polled yet:
+            // a listing may add a polled directory at any time.
+            let wait = self.timing.poll.saturating_sub(polled_at.elapsed());
+            match rx.recv_timeout(wait) {
+                Ok(Msg::Fs(first)) => self.collect(rx, first),
+                Ok(Msg::Stop) | Err(RecvTimeoutError::Disconnected) => return,
+                Err(RecvTimeoutError::Timeout) => {}
             }
-            self.process(batch);
+            if self.stopped.load(Ordering::SeqCst) {
+                return;
+            }
+            if polled_at.elapsed() >= self.timing.poll {
+                polled_at = Instant::now();
+                self.poll();
+            }
         }
+    }
+
+    /// Collects a batch of events starting with `first`, then processes it.
+    fn collect(&mut self, rx: &mpsc::Receiver<Msg>, first: notify::Result<notify::Event>) {
+        let mut batch = vec![first];
+        let started = Instant::now();
+        loop {
+            let left = self.timing.max_delay.saturating_sub(started.elapsed());
+            match rx.recv_timeout(self.timing.quiet.min(left)) {
+                Ok(Msg::Fs(e)) => batch.push(e),
+                // The caller sees the stop flag; a disconnect means the
+                // watch is gone too.
+                Ok(Msg::Stop) | Err(RecvTimeoutError::Disconnected) => return,
+                Err(RecvTimeoutError::Timeout) => break,
+            }
+        }
+        self.process(batch);
+    }
+
+    /// Rescans the directories without a watch, as if their changes had
+    /// been reported, and tells clients if their number changed.
+    fn poll(&mut self) {
+        if self.dirs.unwatched() > 0 {
+            let changed = self.dirs.rescan();
+            if !changed.is_empty() {
+                let event = changed
+                    .into_iter()
+                    .fold(notify::Event::new(EventKind::Any), notify::Event::add_path);
+                self.process(vec![Ok(event)]);
+            }
+        }
+        self.report_unwatched();
+    }
+
+    fn report_unwatched(&mut self) {
+        let unwatched = self.dirs.unwatched();
+        if unwatched == self.reported_unwatched || self.stopped.load(Ordering::SeqCst) {
+            return;
+        }
+        self.reported_unwatched = unwatched;
+        self.sink.emit(FsEvent::WatchLimited {
+            project: self.project.clone(),
+            unwatched: u32::try_from(unwatched).unwrap_or(u32::MAX),
+        });
     }
 
     fn process(&mut self, batch: Vec<notify::Result<notify::Event>>) {
