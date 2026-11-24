@@ -59,4 +59,9 @@ export type FsEvent =
   | {
       type: "fs.files_changed";
       data: { project: ProjectId; added: string[]; removed: string[]; version: number };
-    };
+    }
+  /**
+   * The OS limit on file watches was reached: `unwatched` folders are
+   * rescanned every few seconds instead of watched. `0`: all watched again.
+   */
+  | { type: "fs.watch_limited"; data: { project: ProjectId; unwatched: number } };

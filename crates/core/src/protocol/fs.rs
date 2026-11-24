@@ -151,4 +151,11 @@ pub enum FsEvent {
         removed: Vec<String>,
         version: u64,
     },
+    /// The OS limit on file watches (inotify's `max_user_watches` on Linux)
+    /// was reached: `unwatched` directories get no change notifications and
+    /// are rescanned every few seconds instead, so changes there arrive
+    /// late. Sent when the count changes; `0` means everything is watched
+    /// again.
+    #[serde(rename = "fs.watch_limited")]
+    WatchLimited { project: ProjectId, unwatched: u32 },
 }

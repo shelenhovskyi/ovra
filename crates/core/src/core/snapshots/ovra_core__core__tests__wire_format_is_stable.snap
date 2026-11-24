@@ -35,6 +35,13 @@ expression: samples
     {
       "data": {
         "project": "p1",
+        "unwatched": 12
+      },
+      "type": "fs.watch_limited"
+    },
+    {
+      "data": {
+        "project": "p1",
         "session": "s1",
         "status": {
           "message": "no model",

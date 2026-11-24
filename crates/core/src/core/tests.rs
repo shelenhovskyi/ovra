@@ -338,6 +338,10 @@ fn wire_format_is_stable() {
                 removed: vec!["a.rs".into()],
                 version: 7,
             }),
+            Event::Fs(FsEvent::WatchLimited {
+                project: ProjectId("p1".into()),
+                unwatched: 12,
+            }),
             Event::Agents(AgentsEvent::Status {
                 session: SessionId("s1".into()),
                 project: ProjectId("p1".into()),
