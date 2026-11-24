@@ -142,9 +142,14 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
         }
         ReviewRequest::Approve { id, commit } => {
             let (item, conflicts) = approve(core, &id, commit).await?;
+            prune(core, &item.project).await;
             Ok(done((item, conflicts, Vec::new())))
         }
-        ReviewRequest::Reject { id } => Ok(done(reject(core, &id).await?)),
+        ReviewRequest::Reject { id } => {
+            let outcome = reject(core, &id).await?;
+            prune(core, &outcome.0.project).await;
+            Ok(done(outcome))
+        }
         ReviewRequest::UndoReject { id } => Ok(done(undo_reject(core, &id).await?)),
         ReviewRequest::Comment { id, text } => {
             comment(core, &id, text).await?;
@@ -602,4 +607,37 @@ async fn freeze(core: &Core, entry: &Entry, files: &[FileChange]) -> BTreeMap<St
         diffs.insert(file.path.clone(), patch);
     }
     diffs
+}
+
+/// After a decision: tells the worktrees which snapshots of the project's
+/// repository its reviews still compare against, so the others can go.
+/// While direct mode still tracks a session of the project (its agent
+/// runs, its attribution is still known, or a reject can be undone), it
+/// needs snapshots of its own, and nothing is pruned.
+async fn prune(core: &Core, project: &ProjectId) {
+    let direct = &core.sessions().direct;
+    if direct.writer(project).is_some() {
+        return;
+    }
+    let entries: Vec<Entry> = core
+        .orchestration_state()
+        .lock()
+        .reviews
+        .iter()
+        .filter(|r| &r.project == project)
+        .cloned()
+        .collect();
+    for entry in entries.iter().filter(|e| e.mode == SessionMode::Direct) {
+        if direct.can_undo(&entry.session) || direct.files(&entry.session).await.is_ok() {
+            return;
+        }
+    }
+    let keep: BTreeSet<String> = entries.into_iter().map(|e| e.workspace.base).collect();
+    if let Ok(root) = core.root(project) {
+        // Failing to prune only keeps more than needed.
+        let _ = core
+            .worktrees()
+            .prune_snapshots(root, keep.into_iter().collect())
+            .await;
+    }
 }

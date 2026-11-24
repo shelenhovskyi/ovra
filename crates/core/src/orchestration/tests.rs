@@ -414,6 +414,11 @@ async fn approving_a_worker_applies_its_files_to_the_main_checkout() {
             "Fix a".to_owned()
         )]
     );
+    // Only the snapshot the item now compares against is still needed.
+    let pruned = f.wt.pruned.lock().map(|p| p.clone()).unwrap_or_default();
+    assert_eq!(pruned.len(), 1);
+    assert_eq!(pruned[0].0, PathBuf::from(ROOT));
+    assert_eq!(pruned[0].1.len(), 1);
     let twice = call(
         &f.core,
         json!({"method": "review.approve", "params": {"id": "r1", "commit": null}}),
@@ -769,4 +774,33 @@ async fn work_after_a_decision_opens_a_new_item_and_the_old_one_keeps_its_record
         2,
         "listing again opens nothing more"
     );
+}
+
+#[tokio::test]
+async fn snapshots_are_not_pruned_while_a_direct_session_runs() {
+    let f = fx(say()).await;
+    let mut rx = f.core.subscribe();
+    start_task(&f.core, 3).await;
+    let boss = caller("s1", ToolRole::Coordinator);
+    let worker = f.core.spawn_agent(&boss, "w", "x").await;
+    let worker = worker.unwrap_or_else(|e| panic!("{e}"));
+    ok(
+        &f.core,
+        json!({"method": "agents.start", "params": {
+        "project": "p1", "agent": "claude", "mode": "direct", "prompt": "fix it"}}),
+    )
+    .await;
+    until(&mut rx, "s3", AgentStatus::Idle).await;
+    f.wt.put(&worker.worktree, "a.rs", "two\n");
+    let id = reviews(&f.core)
+        .await
+        .into_iter()
+        .find(|i| i.session == worker.session);
+    let id = id.map(|i| i.id.0).unwrap_or_default();
+    ok(
+        &f.core,
+        json!({"method": "review.approve", "params": {"id": id, "commit": null}}),
+    )
+    .await;
+    assert!(f.wt.pruned.lock().map(|p| p.is_empty()).unwrap_or(false));
 }
