@@ -41,9 +41,16 @@ async function open(
   return { workspace, target, input };
 }
 
-function type(input: HTMLInputElement, text: string): void {
+/** Types and waits for the ranking of the new query. */
+async function type(input: HTMLInputElement, text: string): Promise<void> {
   input.value = text;
   input.dispatchEvent(new Event("input", { bubbles: true }));
+  flushSync();
+  await settle();
+}
+
+async function settle(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve));
   flushSync();
 }
 
@@ -64,11 +71,11 @@ describe("Palette", async () => {
     expect(document.activeElement).toBe(input);
     expect(titles(target)).toEqual(["Close editor", "Open file Ctrl+O"]);
 
-    type(input, "of");
+    await type(input, "of");
     expect(titles(target)).toEqual(["Open file Ctrl+O"]);
     expect([...target.querySelectorAll("mark")].map((m) => m.textContent)).toEqual(["O", "f"]);
 
-    type(input, "zzz");
+    await type(input, "zzz");
     expect(target.textContent).toContain("No matching commands");
   });
 
@@ -119,11 +126,63 @@ describe("Palette", async () => {
     const project = { id: "files-1", name: "demo", root: "/demo", last_opened_ms: null, trusted: false };
     const { workspace, target, input } = await open("files", core, project);
     expect(input.placeholder).toBe("Go to file in demo");
-    type(input, "srcmain");
+    await type(input, "srcmain");
     expect(titles(target)).toEqual(["src/main.rs"]);
     key(input, "Enter");
     expect([workspace.paletteOpen, palette.mode]).toEqual([false, "commands"]);
     await vi.waitFor(() => expect(workspace.openPath).toBe("src/main.rs"));
+  });
+
+  it("keeps editing and queues an Enter typed before the files load", async () => {
+    const paths = ["src/main.rs", ...Array.from({ length: 150 }, (_, i) => `docs/page-${i}.md`)];
+    let answer: (() => void) | undefined;
+    const core: Transport = {
+      call: (() =>
+        new Promise<unknown>((resolve) => {
+          answer = () => resolve({ type: "fs.files", data: { paths, total: paths.length, version: 1 } });
+        })) as Transport["call"],
+      onEvent: () => () => {},
+    };
+    const project = { id: "files-2", name: "demo", root: "/demo", last_opened_ms: null };
+    const workspace = new Workspace();
+    workspace.project = project;
+    workspace.openFile("README.md", "edit");
+    palette.mode = "files";
+    workspace.paletteOpen = true;
+    const target = document.createElement("div");
+    document.body.append(target);
+    const app = mount(PaletteHarness, { target, props: { ovra: { transport: core, workspace } } });
+    cleanups.push(() => {
+      unmount(app);
+      target.remove();
+    });
+    flushSync();
+    const input = target.querySelector("input") as HTMLInputElement;
+    expect(target.textContent).toContain("Loading");
+
+    input.value = "srcmain";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    key(input, "Enter");
+    expect(workspace.paletteOpen).toBe(true);
+    answer?.();
+    await vi.waitFor(() => expect(workspace.openPath).toBe("src/main.rs"));
+    expect([workspace.mode, workspace.paletteOpen]).toEqual(["edit", false]);
+  });
+
+  it("says how many matches are not shown", async () => {
+    const paths = Array.from({ length: 150 }, (_, i) => `docs/page-${i}.md`);
+    const core: Transport = {
+      call: (() =>
+        Promise.resolve({ type: "fs.files", data: { paths, total: paths.length, version: 1 } })) as Transport["call"],
+      onEvent: () => () => {},
+    };
+    const project = { id: "files-3", name: "demo", root: "/demo", last_opened_ms: null };
+    const { target, input } = await open("files", core, project);
+    await type(input, "page");
+    expect(target.textContent).toContain("Showing 100 of 150");
+    expect(target.querySelector("[role=status]")?.textContent).toBe("150 results");
+    await type(input, "page-149");
+    expect(target.querySelector("[role=status]")?.textContent).toBe("1 result");
   });
 
   it("switches to another project", async () => {
@@ -135,7 +194,7 @@ describe("Palette", async () => {
     const { workspace, target, input } = await open("projects", core, projects[0]);
     workspace.openPath = "a.md";
     expect(titles(target)).toEqual(["alpha /w/alpha", "beta /w/beta"]);
-    type(input, "be");
+    await type(input, "be");
     key(input, "Enter");
     await vi.waitFor(() => expect(workspace.project?.id).toBe("b"));
     expect(workspace.openPath).toBeNull();

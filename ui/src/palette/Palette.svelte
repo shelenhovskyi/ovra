@@ -6,8 +6,9 @@ import { tick } from "svelte";
 import { runCommand } from "../keys/keybindings";
 import { formatShortcut, inBrowserTab, isApple, liveKeys } from "../keys/shortcut";
 import { useOvra } from "../shell/context";
-import { type Ranked, rank, segments } from "./fuzzy";
+import { type Ranked, segments } from "./fuzzy";
 import { palette } from "./mode.svelte";
+import { createRanker, type Ranker } from "./ranker";
 import { type Entry, source } from "./sources";
 
 const { transport, workspace } = useOvra();
@@ -17,26 +18,68 @@ const apple = isApple();
 const browser = inBrowserTab();
 
 let entries = $state<Entry[] | null>(null);
+let ranker = $state<Ranker | null>(null);
 let failure = $state<string | null>(null);
 let query = $state("");
 let selected = $state(0);
 let input: HTMLInputElement | undefined = $state();
 let list: HTMLUListElement | undefined = $state();
-const items = $derived(entries ? rank(entries, (e) => e.label, query, from.limit) : []);
+/** Rows for `rankedQuery`; ranking may lag one keystroke behind `query`. */
+let items = $state<Ranked<Entry>[]>([]);
+let matches = $state(0);
+let rankedQuery = $state<string | null>(null);
+/** Enter pressed before the rows for the current query arrived: run the top row when they do. */
+let enterPending = false;
 const announcement = $derived(
-  failure ?? (entries === null ? "Loading" : items.length === 0 ? from.empty : `${items.length} results`),
+  failure ??
+    (rankedQuery === null
+      ? "Loading"
+      : matches === 0
+        ? from.empty
+        : `${matches} ${matches === 1 ? "result" : "results"}`),
 );
 
 $effect(() => {
   let live = true;
   Promise.resolve(from.entries()).then(
     (loaded) => {
-      if (live) entries = loaded;
+      if (!live) return;
+      entries = loaded;
+      ranker = createRanker(loaded.map((e) => e.label));
     },
     (error: unknown) => {
       if (live) failure = error instanceof Error ? error.message : String(error);
     },
   );
+  return () => {
+    live = false;
+  };
+});
+
+$effect(() => {
+  const current = ranker;
+  return () => current?.dispose();
+});
+
+$effect(() => {
+  const current = ranker;
+  const loaded = entries;
+  const wanted = query;
+  if (!current || !loaded) return;
+  let live = true;
+  void current.rank(wanted, from.limit).then((result) => {
+    if (!live) return;
+    items = result.rows.flatMap(({ index, positions }) => {
+      const item = loaded[index];
+      return item ? [{ item, positions }] : [];
+    });
+    matches = result.matches;
+    rankedQuery = wanted;
+    if (enterPending) {
+      enterPending = false;
+      run(items[selected]);
+    }
+  });
   return () => {
     live = false;
   };
@@ -77,7 +120,8 @@ function onkeydown(event: KeyboardEvent): void {
       if (count) selected = (selected - 1 + count) % count;
       break;
     case "Enter":
-      run(items[selected]);
+      if (rankedQuery === query) run(items[selected]);
+      else enterPending = failure === null;
       break;
     case "Escape":
       close();
@@ -132,9 +176,12 @@ function onfocusout(event: FocusEvent): void {
           {#if item.item.keys}<kbd>{formatShortcut(liveKeys(item.item.keys, browser), apple)}</kbd>{/if}
         </li>
       {:else}
-        <li class="empty" role="presentation">{failure ?? (entries === null ? "Loading…" : from.empty)}</li>
+        <li class="empty" role="presentation">{failure ?? (rankedQuery === null ? "Loading…" : from.empty)}</li>
       {/each}
     </ul>
+    {#if matches > items.length}
+      <p class="more">Showing {items.length} of {matches.toLocaleString("en")}. Type more to narrow down.</p>
+    {/if}
     <p class="visually-hidden" role="status">{query || failure ? announcement : ""}</p>
   </div>
 </div>
@@ -238,8 +285,15 @@ function onfocusout(event: FocusEvent): void {
       text-underline-offset: 2px;
     }
   }
+  .more {
+    margin: 0;
+    padding: 6px 12px;
+    border-top: 1px solid #2a2a31;
+    color: #9a9aa6;
+    font-size: 12px;
+  }
   .empty {
-    color: #6f6f7a;
+    color: #9a9aa6;
     cursor: default;
   }
 </style>

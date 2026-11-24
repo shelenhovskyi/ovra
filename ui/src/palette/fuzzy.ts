@@ -10,11 +10,13 @@ const RUN = 6;
 const GAP = 0.2;
 const NONE = Number.NEGATIVE_INFINITY;
 
+const SEPARATORS = " \t._-/:";
+
 function isWordStart(text: string, i: number): boolean {
   if (i === 0) return true;
   const prev = text[i - 1] ?? "";
   const cur = text[i] ?? "";
-  if (/[\s._\-/:]/.test(prev)) return true;
+  if (SEPARATORS.includes(prev)) return true;
   return prev === prev.toLowerCase() && cur !== cur.toLowerCase();
 }
 
@@ -79,21 +81,81 @@ export function fuzzyMatch(query: string, text: string): Match | null {
   return { score: best[last + end] as number, positions };
 }
 
+// Rolling rows reused by `fuzzyScore`, grown on demand.
+let rowA = new Float64Array(256);
+let rowB = new Float64Array(256);
+
+/**
+ * The score `fuzzyMatch` would give, or null, without recording positions or
+ * allocating: ranking calls this for every candidate and asks `fuzzyMatch`
+ * for positions only on the rows it shows. `q` is lower-case without spaces.
+ */
+function fuzzyScore(q: string, text: string): number | null {
+  const t = text.toLowerCase();
+  const m = t.length;
+  if (q.length > m || !isSubsequence(q, t)) return null;
+  if (rowA.length < m) {
+    rowA = new Float64Array(m * 2);
+    rowB = new Float64Array(m * 2);
+  }
+  let prev = rowA;
+  let row = rowB;
+  for (let j = 0; j < m; j++) prev[j] = t[j] === q[0] ? 1 + (isWordStart(text, j) ? WORD_START : 0) - j * GAP : NONE;
+  for (let i = 1; i < q.length; i++) {
+    let gapScore = NONE;
+    for (let j = 0; j < m; j++) {
+      if (j >= 2) {
+        gapScore -= GAP;
+        const candidate = (prev[j - 2] as number) - GAP;
+        if (candidate > gapScore) gapScore = candidate;
+      }
+      if (j < i || t[j] !== q[i]) {
+        row[j] = NONE;
+        continue;
+      }
+      const own = 1 + (isWordStart(text, j) ? WORD_START : 0);
+      const run = (prev[j - 1] as number) + RUN;
+      const best = Math.max(run, gapScore);
+      row[j] = best > NONE ? best + own : NONE;
+    }
+    const swap = prev;
+    prev = row;
+    row = swap;
+  }
+  let best = NONE;
+  for (let j = 0; j < m; j++) if ((prev[j] as number) > best) best = prev[j] as number;
+  return best > NONE ? best : null;
+}
+
 export type Ranked<T> = { item: T; positions: number[] };
+
+/** Ranks `items` by how well their text matches; `matches` counts every match, not only the rows returned. */
+export function rankAll<T>(
+  items: readonly T[],
+  text: (item: T) => string,
+  query: string,
+  limit = Infinity,
+): { rows: Ranked<T>[]; matches: number } {
+  if (query.trim() === "") {
+    return { rows: items.slice(0, limit).map((item) => ({ item, positions: [] })), matches: items.length };
+  }
+  const q = query.toLowerCase().replaceAll(" ", "");
+  const matched: { item: T; text: string; score: number }[] = [];
+  for (const item of items) {
+    const label = text(item);
+    const score = fuzzyScore(q, label);
+    if (score !== null) matched.push({ item, text: label, score });
+  }
+  matched.sort((a, b) => b.score - a.score || a.text.length - b.text.length || a.text.localeCompare(b.text));
+  const rows = matched
+    .slice(0, limit)
+    .map(({ item, text: label }) => ({ item, positions: fuzzyMatch(query, label)?.positions ?? [] }));
+  return { rows, matches: matched.length };
+}
 
 /** Items whose text matches `query`, best first, at most `limit`; all of them, in order, for an empty query. */
 export function rank<T>(items: readonly T[], text: (item: T) => string, query: string, limit = Infinity): Ranked<T>[] {
-  if (query.trim() === "") return items.slice(0, limit).map((item) => ({ item, positions: [] }));
-  const matched: (Ranked<T> & { score: number; text: string })[] = [];
-  for (const item of items) {
-    const label = text(item);
-    const match = fuzzyMatch(query, label);
-    if (match) matched.push({ item, text: label, ...match });
-  }
-  return matched
-    .sort((a, b) => b.score - a.score || a.text.length - b.text.length || a.text.localeCompare(b.text))
-    .slice(0, limit)
-    .map(({ item, positions }) => ({ item, positions }));
+  return rankAll(items, text, query, limit).rows;
 }
 
 /** Splits `text` into runs of matched and unmatched characters for highlighting. */

@@ -9,11 +9,20 @@ function daemonUrl(): string {
   return raw;
 }
 
+/** Waits for the start screen to load its projects: it may move focus when it does, which would close the palette. */
+async function ready(page: Page): Promise<void> {
+  await page.goto(daemonUrl());
+  await expect(page.getByTestId("status")).toHaveText(/^Connected/);
+  await page.waitForFunction(() => {
+    const list = document.querySelector("[data-testid=project-list]");
+    return list?.querySelector("ul") || list?.textContent?.includes("No projects yet");
+  });
+}
+
 const palette = (page: Page) => page.getByRole("dialog", { name: "Command palette" });
 
 test("the command palette opens on Mod+Shift+P, filters and closes", async ({ page }) => {
-  await page.goto(daemonUrl());
-  await expect(page.getByTestId("status")).toHaveText(/^Connected/);
+  await ready(page);
 
   await page.keyboard.press("ControlOrMeta+Shift+P");
   await expect(palette(page)).toBeVisible();
@@ -43,6 +52,9 @@ test("Alt+P goes to a file; the palette switches and closes projects", async ({ 
   mkdirSync(join(dir, "src/deep/inside"), { recursive: true });
   writeFileSync(join(dir, "src/deep/inside/target.md"), "# Target\n");
   writeFileSync(join(dir, "README.md"), "readme\n");
+  // Over 2,000 files, so the list is ranked in the Web Worker.
+  mkdirSync(join(dir, "gen"));
+  for (let i = 0; i < 2100; i++) writeFileSync(join(dir, "gen", `file-${i}.txt`), "");
 
   await page.goto(daemonUrl());
   const projects = page.getByTestId("project-list");
@@ -75,8 +87,7 @@ test("Alt+P goes to a file; the palette switches and closes projects", async ({ 
 
 test("forced colours keep the selected option visible", async ({ page }) => {
   await page.emulateMedia({ forcedColors: "active" });
-  await page.goto(daemonUrl());
-  await expect(page.getByTestId("status")).toHaveText(/^Connected/);
+  await ready(page);
   await page.keyboard.press("ControlOrMeta+Shift+P");
   const option = page.locator("[role=option][aria-selected=true]");
   await expect(option).toBeVisible();

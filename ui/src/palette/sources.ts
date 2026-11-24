@@ -58,7 +58,8 @@ export function source(mode: PaletteMode, transport: Transport, workspace: Targe
             ? (await projectFiles(transport, project.id)).map((path) => ({
                 id: path,
                 label: path,
-                run: () => workspace.openFile(path),
+                // Keep the mode: going to a file while editing keeps editing.
+                run: () => workspace.openFile(path, workspace.mode),
               }))
             : [],
       };
