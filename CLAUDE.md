@@ -31,7 +31,8 @@ Before every push: `just test && just e2e && just lint` must pass.
   in-memory fakes (`src/fakes.rs`, `fakes` feature).
   No UI, no OS APIs, no Tauri, no axum.
 - `crates/fs-index` - `FsService`: listings, `.gitignore`, git status, watching.
-- `crates/store` - `ProjectStore`: the project list, persisted.
+- `crates/store` - `ProjectStore` and `SessionStore`: the project list and
+  agent sessions, persisted.
 - `crates/opener` - `Opener`: hands files to other applications.
 - `crates/pty` - `TerminalService`: shells in pseudo-terminals.
 - `crates/agent-runtime` - `AgentRuntime`: Claude sessions through the

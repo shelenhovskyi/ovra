@@ -26,8 +26,10 @@ fn main() {
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
+            let store = Arc::new(Store::open(&data_dir)?);
             let core = Core::builder("tauri")
-                .projects(Arc::new(Store::open(&data_dir)?))
+                .projects(store.clone())
+                .sessions(store)
                 .fs(Arc::new(FsIndex::new()))
                 .opener(Arc::new(SystemOpener::new()))
                 .terminals(Arc::new(Pty::new()))

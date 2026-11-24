@@ -67,8 +67,10 @@ async fn main() -> anyhow::Result<()> {
     }
     let static_files = ServeDir::new(&args.ui_dir).fallback(ServeFile::new(index));
     std::fs::create_dir_all(&args.data_dir).context("creating the data directory")?;
+    let store = Arc::new(Store::open(&args.data_dir)?);
     let core = Core::builder("headless")
-        .projects(Arc::new(Store::open(&args.data_dir)?))
+        .projects(store.clone())
+        .sessions(store)
         .fs(Arc::new(FsIndex::new()))
         .opener(Arc::new(SystemOpener::new()))
         .terminals(Arc::new(Pty::new()))

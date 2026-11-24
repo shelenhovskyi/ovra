@@ -2,7 +2,10 @@
 //!
 //! Contract: `ovra_core::services::ProjectStore`; the in-memory reference
 //! behaviour is `ovra_core::fakes::MemoryProjects`. The database is one file,
-//! `projects.sqlite3`, in the data directory the front end passes in.
+//! `projects.sqlite3`, in the data directory the front end passes in. It
+//! also keeps agent sessions (`SessionStore`, see `sessions.rs`).
+
+mod sessions;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, PoisonError};
@@ -42,6 +45,20 @@ const MIGRATIONS: &[&str] = &[
     // What the user reviewed when they trusted the project, as JSON. Rows
     // trusted before this have none, so their settings count as changed.
     "ALTER TABLE projects ADD COLUMN trusted_config TEXT;",
+    // Agent sessions (`SessionInfo` as JSON) and their transcripts, one
+    // message per row in order.
+    "CREATE TABLE agent_sessions (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+        info TEXT NOT NULL,
+        agent_session TEXT
+    ) STRICT;
+    CREATE TABLE agent_messages (
+        id INTEGER PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES agent_sessions (id) ON DELETE CASCADE,
+        message TEXT NOT NULL
+    ) STRICT;
+    CREATE INDEX agent_messages_by_session ON agent_messages (session_id, id);",
 ];
 
 /// The `settings` key of [`AgentSettings`].

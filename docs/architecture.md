@@ -61,6 +61,11 @@ Sessions run either `isolated` (own git worktree) or `direct` (the main
 checkout, at most one per project; review is a diff against a baseline
 snapshot taken at session start). See ADR 0005.
 
+Sessions and their transcripts are kept across restarts (`SessionStore`, in
+the project database). A session that ran when the core quit shows as
+stopped; `agents.resume` continues it with the agent's own conversation id
+(`claude --resume`).
+
 ## Planned crates
 
 Added only when a phase needs them: `pty`, `agent-runtime`, `acp-client`,
