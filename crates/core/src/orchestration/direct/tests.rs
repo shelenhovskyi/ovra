@@ -97,12 +97,12 @@ impl Worktrees for Trees {
     }
     fn apply(
         &self,
-        from: PathBuf,
+        tree: String,
         base: String,
         into: PathBuf,
         paths: Vec<RelPath>,
     ) -> BoxFuture<'_, Result<Vec<String>>> {
-        self.mem.apply(from, base, into, paths)
+        self.mem.apply(tree, base, into, paths)
     }
     fn commit(
         &self,
@@ -135,11 +135,11 @@ impl Worktrees for Trees {
     }
     fn take(
         &self,
-        from: PathBuf,
+        tree: String,
         into: PathBuf,
         paths: Vec<RelPath>,
     ) -> BoxFuture<'_, Result<crate::services::Taken>> {
-        self.mem.take(from, into, paths)
+        self.mem.take(tree, into, paths)
     }
     fn delete_branch(
         &self,

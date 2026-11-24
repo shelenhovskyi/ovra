@@ -149,16 +149,32 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
                 return Ok(Response::Review(ReviewResponse::Diff {
                     path: path.to_string(),
                     patch,
+                    fingerprint: None,
                 }));
             }
-            let ws = entry.workspace;
-            let patch = core
-                .worktrees()
-                .patch(ws.dir, ws.base, vec![path.clone()])
-                .await?;
+            let ws = entry.workspace.clone();
+            let worktrees = core.worktrees();
+            if entry.mode == SessionMode::Direct {
+                let patch = worktrees.patch(ws.dir, ws.base, vec![path.clone()]).await?;
+                return Ok(Response::Review(ReviewResponse::Diff {
+                    path: path.to_string(),
+                    patch,
+                    fingerprint: None,
+                }));
+            }
+            // Read with the item's fingerprint, from the same tree: the
+            // inbox can tell a diff of newer files than it listed.
+            let (_, fingerprint, tree) = listed(core, &entry, None).await?;
+            let tree = tree.ok_or_else(|| conflict("the worker's files cannot be read"))?;
+            let patch = worktrees
+                .patches(ws.dir, ws.base, tree, vec![path.clone()])
+                .await?
+                .remove(path.as_str())
+                .unwrap_or_default();
             Ok(Response::Review(ReviewResponse::Diff {
                 path: path.to_string(),
                 patch,
+                fingerprint,
             }))
         }
         ReviewRequest::Approve {
@@ -290,7 +306,8 @@ pub(super) async fn item(core: &Core, entry: &Entry) -> Result<ReviewItem> {
         // Removed only once nothing in it changed (`clean_up`).
         (Vec::new(), None)
     } else {
-        listed(core, entry).await?
+        let (files, fingerprint, _) = listed(core, entry, None).await?;
+        (files, fingerprint)
     };
     Ok(ReviewItem {
         id: entry.id.clone(),
@@ -311,21 +328,31 @@ pub(super) async fn item(core: &Core, entry: &Entry) -> Result<ReviewItem> {
 
 /// The entry's changed files as they are now.
 async fn files(core: &Core, entry: &Entry) -> Result<Vec<FileChange>> {
-    Ok(listed(core, entry).await?.0)
+    Ok(listed(core, entry, None).await?.0)
 }
 
-/// The entry's changed files as they are now, with a worker's fingerprint
-/// of them (`ReviewItem::fingerprint`).
-async fn listed(core: &Core, entry: &Entry) -> Result<(Vec<FileChange>, Option<String>)> {
+/// What [`listed`] found: the files, a worker's fingerprint of them
+/// (`ReviewItem::fingerprint`), and the tree they were read from.
+type Listed = (Vec<FileChange>, Option<String>, Option<String>);
+
+/// The entry's changed files as they are in `at` (a snapshot of its
+/// workspace), or else as they are now.
+async fn listed(core: &Core, entry: &Entry, at: Option<&String>) -> Result<Listed> {
     let ws = &entry.workspace;
     if entry.mode == SessionMode::Direct
         && let Ok(files) = core.sessions().direct.files(&entry.session).await
     {
-        return Ok((files, None));
+        return Ok((files, None, None));
     }
-    let deltas = core
-        .worktrees()
-        .changes(ws.dir.clone(), ws.base.clone())
+    let worktrees = core.worktrees();
+    // One reading of the workspace, so the files, their fingerprint and
+    // whatever is copied or shown from `tree` are the same version.
+    let tree = match at {
+        Some(at) => at.clone(),
+        None => worktrees.look(ws.dir.clone()).await?,
+    };
+    let deltas = worktrees
+        .diff(ws.dir.clone(), ws.base.clone(), tree.clone())
         .await?;
     // Only a worker's files wait for the direct session. A direct item asking
     // this would recurse into itself through `direct_touched`.
@@ -353,7 +380,7 @@ async fn listed(core: &Core, entry: &Entry) -> Result<(Vec<FileChange>, Option<S
             deletions: d.deletions,
         })
         .collect();
-    Ok((files, fingerprint))
+    Ok((files, fingerprint, Some(tree)))
 }
 
 /// SHA-256 over each changed file's path, old path, kind, content version
@@ -440,9 +467,9 @@ async fn approve(
 ) -> Result<(ReviewItem, Vec<String>)> {
     let entry = find(core, id)?;
     check_open(&entry)?;
-    // What gets applied is the worktree as it is now, so it must be the
-    // work the person looked at: a session still at work could change it
-    // between their reading and this click.
+    // A session still at work would change the worktree while the person
+    // reads it: its review would go stale under them. What lands is the
+    // snapshot below either way.
     if busy(core, &entry.session) {
         return Err(conflict(
             "the agent is still working on these changes; approve once it is idle or stopped",
@@ -460,7 +487,7 @@ async fn approve(
             // Ovra no longer knows which files are the agent's (it
             // restarted since): keeping the changes needs no such knowledge.
             let decided = files(core, &entry).await?;
-            let diffs = freeze(core, &entry, &decided).await;
+            let diffs = freeze(core, &entry, &decided, None).await;
             let entry = update(core, id, |e| {
                 e.state = ReviewState::Approved;
                 e.decided = decided;
@@ -469,7 +496,7 @@ async fn approve(
             return Ok((item(core, &entry).await?, Vec::new()));
         }
         let decided = files(core, &entry).await?;
-        let diffs = freeze(core, &entry, &decided).await;
+        let diffs = freeze(core, &entry, &decided, None).await;
         let outcome = direct.approve(&entry.session, commit).await?;
         let entry = update(core, id, |e| {
             e.state = ReviewState::Approved;
@@ -484,9 +511,11 @@ async fn approve(
     let root = core.root(&entry.project)?;
     let ws = entry.workspace.clone();
     let worktrees = core.worktrees();
-    let (decided, now) = listed(core, &entry).await?;
-    // Only what the person reviewed may land: the worktree is copied as
-    // it is now, so it must still be what the inbox showed them.
+    // Only what the person reviewed may land: everything below reads and
+    // copies this one snapshot, which must be what the inbox showed them,
+    // whatever the worker writes meanwhile.
+    let snapshot = worktrees.snapshot(ws.dir.clone()).await?;
+    let (decided, now, _) = listed(core, &entry, Some(&snapshot)).await?;
     match reviewed {
         None => {
             return Err(ProtocolError::new(
@@ -501,12 +530,12 @@ async fn approve(
         }
         Some(_) => {}
     }
-    let mut diffs = freeze(core, &entry, &decided).await;
+    let mut diffs = freeze(core, &entry, &decided, Some(&snapshot)).await;
     let (waiting, ready): (Vec<FileChange>, Vec<FileChange>) =
         decided.iter().cloned().partition(|f| f.blocked);
     let mut conflicts = worktrees
         .apply(
-            ws.dir.clone(),
+            snapshot.clone(),
             ws.base.clone(),
             root.clone(),
             rel_paths(&ready)?,
@@ -524,23 +553,22 @@ async fn approve(
     conflicts.extend(waiting.into_iter().map(|f| f.path));
     // What was not copied lives on only in the worktree, so its diff is
     // kept whatever its size: it is the person's way to the worker's version.
-    for path in &conflicts {
-        if diffs.contains_key(path) {
-            continue;
-        }
-        let Ok(rel) = RelPath::parse(path) else {
-            continue;
-        };
-        if let Ok(patch) = worktrees
-            .patch(ws.dir.clone(), ws.base.clone(), vec![rel])
+    let missing: Vec<RelPath> = conflicts
+        .iter()
+        .filter(|p| !diffs.contains_key(*p))
+        .filter_map(|p| RelPath::parse(p).ok())
+        .collect();
+    if !missing.is_empty()
+        && let Ok(patches) = worktrees
+            .patches(ws.dir.clone(), ws.base.clone(), snapshot.clone(), missing)
             .await
-        {
-            diffs.insert(path.clone(), patch);
-        }
+    {
+        diffs.extend(patches);
     }
     // What the worker does from now on is a new review; files left for the
-    // person are in the outcome and the decided record.
-    let base = worktrees.snapshot(ws.dir).await?;
+    // person are in the outcome and the decided record. `take` copies them
+    // from this snapshot: the version the person approved.
+    let base = snapshot;
     let entry = update(core, id, |e| {
         // Approved only if everything the person read is now theirs.
         e.state = if conflicts.is_empty() {
@@ -616,7 +644,9 @@ async fn take(core: &Core, id: &ReviewId) -> Result<(ReviewItem, Vec<String>, Ve
             .iter()
             .map(|p| RelPath::parse(p))
             .collect::<Result<Vec<_>>>()?;
-        let done = worktrees.take(ws.dir, root.clone(), paths).await?;
+        // The base is the snapshot the person approved: its version, not
+        // whatever is on the worker's disk now.
+        let done = worktrees.take(ws.base.clone(), root.clone(), paths).await?;
         written = same
             .into_iter()
             .filter(|p| !done.skipped.contains(p))
@@ -693,7 +723,7 @@ async fn reject(core: &Core, id: &ReviewId) -> Result<(ReviewItem, Vec<String>, 
     let ws = entry.workspace.clone();
     let worktrees = core.worktrees();
     let files = files(core, &entry).await?;
-    let diffs = freeze(core, &entry, &files).await;
+    let diffs = freeze(core, &entry, &files, None).await;
     let diff = worktrees
         .patch(ws.dir.clone(), ws.base.clone(), rel_paths(&files)?)
         .await?;
@@ -717,7 +747,7 @@ async fn reject_direct(
     entry: &Entry,
 ) -> Result<(ReviewItem, Vec<String>, Vec<String>)> {
     let decided = files(core, entry).await?;
-    let diffs = freeze(core, entry, &decided).await;
+    let diffs = freeze(core, entry, &decided, None).await;
     let outcome = core.sessions().direct.reject(&entry.session).await?;
     let entry = update(core, &entry.id, |e| {
         e.state = ReviewState::Rejected;
@@ -896,9 +926,15 @@ fn open_after(core: &Core, decided: &Entry) -> Entry {
     entry
 }
 
-/// The diffs of `files` as they are now, to keep with the decision; none
-/// for a change too big to keep (its file list is kept either way).
-async fn freeze(core: &Core, entry: &Entry, files: &[FileChange]) -> BTreeMap<String, String> {
+/// The diffs of `files` as they are in `at` (a snapshot of the workspace)
+/// or else now, to keep with the decision; none for a change too big to
+/// keep (its file list is kept either way).
+async fn freeze(
+    core: &Core,
+    entry: &Entry,
+    files: &[FileChange],
+    at: Option<&String>,
+) -> BTreeMap<String, String> {
     let mut diffs = BTreeMap::new();
     if files.len() > KEPT_DIFF_FILES {
         return diffs;
@@ -906,7 +942,11 @@ async fn freeze(core: &Core, entry: &Entry, files: &[FileChange]) -> BTreeMap<St
     let ws = &entry.workspace;
     let paths = files.iter().filter_map(|f| RelPath::parse(&f.path).ok());
     let worktrees = core.worktrees();
-    let patches = match worktrees.look(ws.dir.clone()).await {
+    let now = match at {
+        Some(at) => Ok(at.clone()),
+        None => worktrees.look(ws.dir.clone()).await,
+    };
+    let patches = match now {
         Ok(now) => {
             let paths = paths.collect();
             worktrees

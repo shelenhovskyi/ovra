@@ -344,24 +344,25 @@ pub trait Worktrees: Send + Sync + Debug {
     /// Puts `paths` back as they are in `base` (deleting files `base` lacks).
     fn restore(&self, dir: PathBuf, base: String, paths: Vec<RelPath>)
     -> BoxFuture<'_, Result<()>>;
-    /// Copies `paths` from the working tree of `from` into `into`. A file in
-    /// `into` that no longer matches `base` is skipped and returned as a
-    /// conflict.
+    /// Writes `paths` as they are in `tree` (a snapshot or look of a
+    /// worktree of the same repository: what the person reviewed, not what
+    /// is on disk by now) into `into`. A file in `into` that no longer
+    /// matches `base` is skipped and returned as a conflict.
     fn apply(
         &self,
-        from: PathBuf,
+        tree: String,
         base: String,
         into: PathBuf,
         paths: Vec<RelPath>,
     ) -> BoxFuture<'_, Result<Vec<String>>>;
-    /// Copies `paths` from the working tree of `from` into `into` whatever
-    /// `into` holds now: the person chose the worker's version over theirs.
+    /// Writes `paths` as they are in `tree` (as for `apply`) into `into`
+    /// whatever `into` holds now: the person chose the worker's version.
     /// `into` is snapshotted first so this can be undone with `restore`.
     /// Paths that cannot be written safely (a folder, a symlink) are
     /// skipped.
     fn take(
         &self,
-        from: PathBuf,
+        tree: String,
         into: PathBuf,
         paths: Vec<RelPath>,
     ) -> BoxFuture<'_, Result<Taken>>;
@@ -583,7 +584,7 @@ impl Worktrees for Unavailable {
     }
     fn apply(
         &self,
-        _: PathBuf,
+        _: String,
         _: String,
         _: PathBuf,
         _: Vec<RelPath>,
@@ -614,7 +615,7 @@ impl Worktrees for Unavailable {
     ) -> BoxFuture<'_, Result<BTreeMap<String, String>>> {
         Box::pin(async move { self.err() })
     }
-    fn take(&self, _: PathBuf, _: PathBuf, _: Vec<RelPath>) -> BoxFuture<'_, Result<Taken>> {
+    fn take(&self, _: String, _: PathBuf, _: Vec<RelPath>) -> BoxFuture<'_, Result<Taken>> {
         Box::pin(async move { self.err() })
     }
     fn delete_branch(&self, _: PathBuf, _: String, _: String) -> BoxFuture<'_, Result<()>> {

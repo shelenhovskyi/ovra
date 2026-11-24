@@ -215,9 +215,9 @@ fn remove(root: &Path, dir: &Path) -> Result<()> {
     Ok(())
 }
 
-fn take(from: &Path, into: &Path, paths: &[RelPath], snapshot_ref: &Mutex<()>) -> Result<Taken> {
+fn take(tree: &str, into: &Path, paths: &[RelPath], snapshot_ref: &Mutex<()>) -> Result<Taken> {
     let undo = snapshot(into, snapshot_ref)?;
-    let skipped = files::take(from, into, paths)?;
+    let skipped = files::take(tree, into, paths)?;
     let after = snapshot(into, snapshot_ref)?;
     Ok(Taken {
         undo,
@@ -309,12 +309,12 @@ impl Worktrees for GitWorktrees {
 
     fn apply(
         &self,
-        from: PathBuf,
+        tree: String,
         base: String,
         into: PathBuf,
         paths: Vec<RelPath>,
     ) -> BoxFuture<'_, Result<Vec<String>>> {
-        blocking(move || files::apply(&from, &base, &into, &paths))
+        blocking(move || files::apply(&tree, &base, &into, &paths))
     }
 
     fn commit(
@@ -332,12 +332,12 @@ impl Worktrees for GitWorktrees {
 
     fn take(
         &self,
-        from: PathBuf,
+        tree: String,
         into: PathBuf,
         paths: Vec<RelPath>,
     ) -> BoxFuture<'_, Result<Taken>> {
         let snapshot_ref = Arc::clone(&self.snapshot_ref);
-        blocking(move || take(&from, &into, &paths, &snapshot_ref))
+        blocking(move || take(&tree, &into, &paths, &snapshot_ref))
     }
 
     fn delete_branch(

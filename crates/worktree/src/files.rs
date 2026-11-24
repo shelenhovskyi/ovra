@@ -6,9 +6,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::io::{self, ErrorKind};
-use std::path::{Component, Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::io::ErrorKind;
+use std::path::{Component, Path};
 
 use ovra_core::path::RelPath;
 use ovra_core::protocol::{ErrorCode, ProtocolError};
@@ -47,11 +46,18 @@ fn on_disk(dir: &Path, path: &RelPath) -> Result<OnDisk> {
     Ok(OnDisk::File)
 }
 
-/// Blob ids of the files among `paths` in commit `base`, keyed by path.
-/// Paths that are trees in `base` are left out. The whole tree is listed and
-/// filtered here: hundreds of paths do not fit a Windows command line.
-fn blobs(dir: &Path, base: &str, paths: &[RelPath]) -> Result<BTreeMap<String, String>> {
-    let out = Git::new(dir, "ls-tree").args(["-r", "-z", base]).run()?;
+/// `(mode, id)` of the entries among `paths` in the commit or tree `tree`,
+/// keyed by path; folders are left out, submodules are kept (mode 160000).
+/// The whole tree is listed and filtered here: hundreds of paths do not fit
+/// a Windows command line.
+fn entries(
+    dir: &Path,
+    tree: &str,
+    paths: &[RelPath],
+) -> Result<BTreeMap<String, (String, String)>> {
+    let out = Git::new(dir, "ls-tree")
+        .args(["-r", "-z", "--end-of-options", tree])
+        .run()?;
     let wanted: BTreeSet<&str> = paths.iter().map(RelPath::as_str).collect();
     let mut found = BTreeMap::new();
     for record in git::fields(&out) {
@@ -60,14 +66,23 @@ fn blobs(dir: &Path, base: &str, paths: &[RelPath]) -> Result<BTreeMap<String, S
             continue;
         };
         let mut meta = meta.split(' ');
-        let (Some(_mode), Some("blob"), Some(id)) = (meta.next(), meta.next(), meta.next()) else {
+        let (Some(mode), Some(_kind), Some(id)) = (meta.next(), meta.next(), meta.next()) else {
             continue;
         };
         if wanted.contains(path) {
-            found.insert(path.to_owned(), id.to_owned());
+            found.insert(path.to_owned(), (mode.to_owned(), id.to_owned()));
         }
     }
     Ok(found)
+}
+
+/// Blob ids of the files and symlinks among `paths` in commit `base`.
+fn blobs(dir: &Path, base: &str, paths: &[RelPath]) -> Result<BTreeMap<String, String>> {
+    Ok(entries(dir, base, paths)?
+        .into_iter()
+        .filter(|(_, (mode, _))| mode != "160000")
+        .map(|(path, (_, id))| (path, id))
+        .collect())
 }
 
 fn remove_file(dir: &Path, path: &RelPath) -> Result<()> {
@@ -110,45 +125,55 @@ pub(crate) fn restore(dir: &Path, base: &str, paths: &[RelPath]) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn apply(
-    from: &Path,
-    base: &str,
-    into: &Path,
-    paths: &[RelPath],
-) -> Result<Vec<String>> {
+/// Writes `paths` as they are in `tree` (a snapshot or look of a worker's
+/// worktree in the same repository) into `into`, unless the file in `into`
+/// no longer matches `base`: those are returned as conflicts.
+pub(crate) fn apply(tree: &str, base: &str, into: &Path, paths: &[RelPath]) -> Result<Vec<String>> {
     let base = git::commit_id(into, base)?;
-    copy_over(from, into, paths, Some(&blobs(into, &base, paths)?))
+    copy_over(tree, into, paths, Some(&blobs(into, &base, paths)?))
 }
 
-/// Copies `paths` from `from` into `into` whatever `into` holds; returns
-/// the paths it could not write safely.
-pub(crate) fn take(from: &Path, into: &Path, paths: &[RelPath]) -> Result<Vec<String>> {
-    copy_over(from, into, paths, None)
+/// Writes `paths` as they are in `tree` into `into` whatever `into` holds;
+/// returns the paths it could not write safely.
+pub(crate) fn take(tree: &str, into: &Path, paths: &[RelPath]) -> Result<Vec<String>> {
+    copy_over(tree, into, paths, None)
 }
 
-/// Copies `paths` from `from` into `into`. With `expected` (blob ids by
+/// Writes `paths` from `tree` into `into`: the versions someone reviewed,
+/// never what is on a worker's disk by then. With `expected` (blob ids by
 /// path; a missing entry means no file), a file of `into` that differs is
 /// skipped and returned as a conflict.
 fn copy_over(
-    from: &Path,
+    tree: &str,
     into: &Path,
     paths: &[RelPath],
     expected: Option<&BTreeMap<String, String>>,
 ) -> Result<Vec<String>> {
+    // Paths are relative to the top of a worktree; in a checkout below its
+    // repository's top they would name other files.
+    if !git::dirs(into)?.prefix.is_empty() {
+        return Err(ProtocolError::new(
+            ErrorCode::Conflict,
+            "copying a worker's files needs the project at the top of its repository",
+        ));
+    }
+    let wanted = entries(into, tree, paths)?;
     let mut present = Vec::new();
     let mut conflicts = Vec::new();
     let mut todo = Vec::new();
     for path in paths {
-        let (here, there) = (on_disk(into, path)?, on_disk(from, path)?);
-        let source = match there {
-            OnDisk::Off => None,
-            OnDisk::Missing => Some(Source::Missing),
-            OnDisk::File => source(from, path),
+        let here = on_disk(into, path)?;
+        let source = match wanted.get(path.as_str()) {
+            None => Some(Source::Missing),
+            Some((mode, _)) if mode == "100644" || mode == "100755" => Some(Source::Written),
+            Some((mode, id)) if mode == "120000" => link(into, path, id)?,
+            // A submodule: not a file to copy.
+            Some(_) => None,
         };
         match (here, source) {
             (OnDisk::Off, _) | (_, None) => conflicts.push(path.to_string()),
             // A symlink in the checkout is left for a person: its hash would
-            // be of what it points to, and copying would write through it.
+            // be of what it points to.
             (OnDisk::File, _) if is_symlink(into, path) => conflicts.push(path.to_string()),
             (here, Some(source)) => {
                 if here == OnDisk::File {
@@ -174,6 +199,10 @@ fn copy_over(
         .map(|p| p.as_str())
         .zip(hashes.iter())
         .collect();
+    // `<mode> <id>\t<path>` of what is written, and what is deleted.
+    let mut checkout = Vec::new();
+    let mut info = Vec::new();
+    let mut deleted = Vec::new();
     for (path, here, source) in todo {
         let key = path.as_str();
         // Looked at again just before writing: the path or a folder on the
@@ -184,34 +213,60 @@ fn copy_over(
             conflicts.push(key.to_owned());
             continue;
         }
-        let to = path.under(into);
-        match source {
-            Source::File => place(&to, |temp| copy_file(&path.under(from), temp))?,
-            Source::Link(target) => place(&to, |temp| make_link(&target, temp))?,
-            Source::Missing => remove_file(into, path)?,
+        match (source, wanted.get(key)) {
+            (Source::Written, Some((mode, id))) => {
+                checkout.push(key.as_bytes());
+                info.extend_from_slice(format!("{mode} {id}\t{key}").as_bytes());
+                info.push(0);
+            }
+            (Source::Written, None) => conflicts.push(key.to_owned()),
+            (Source::Missing, _) => deleted.push(path),
         }
+    }
+    if !checkout.is_empty() {
+        // An index of just the files written: git then reads attributes
+        // (line endings, filters) only from the checkout and from
+        // `.gitattributes` files that are themselves written, never from
+        // the rest of the worker's tree, which nobody reviewed.
+        // `checkout-index` unlinks a file or symlink at the path instead of
+        // writing through it, and applies the checkout's filters.
+        let index = TempIndex::empty(into)?;
+        Git::new(into, "update-index")
+            .args(["-z", "--index-info"])
+            .index(&index)
+            .input(info)
+            .run()?;
+        Git::new(into, "checkout-index")
+            .args(["--force", "-z", "--stdin"])
+            .index(&index)
+            .input(checkout.join(&0))
+            .run()?;
+    }
+    // Deleted only once the writes went through, so a failure leaves the
+    // checkout as it was as far as deletions go.
+    for path in deleted {
+        remove_file(into, path)?;
     }
     conflicts.sort();
     Ok(conflicts)
 }
 
-/// What [`apply`] puts at a path.
+/// What [`copy_over`] puts at a path.
 enum Source {
-    File,
-    /// A symlink with this target, read once and checked by [`link_stays`].
-    Link(PathBuf),
+    /// A file or a symlink, written from the tree.
+    Written,
     Missing,
 }
 
-/// What the worker has at `path` (a file or a symlink); `None` for a symlink
-/// that cannot be recreated safely: on Windows any, since copying it would
-/// copy what it points to, and on Unix one that may leave the checkout.
-fn source(from: &Path, path: &RelPath) -> Option<Source> {
-    if !is_symlink(from, path) {
-        return Some(Source::File);
+/// A symlink of the tree, if it can be recreated safely: on Windows none,
+/// since git would write it as a file, and on Unix one that stays inside.
+fn link(dir: &Path, path: &RelPath, id: &str) -> Result<Option<Source>> {
+    if !cfg!(unix) {
+        return Ok(None);
     }
-    let target = fs::read_link(path.under(from)).ok()?;
-    (cfg!(unix) && link_stays(path, &target)).then_some(Source::Link(target))
+    let target = Git::new(dir, "cat-file").args(["blob", id]).run()?;
+    let target = String::from_utf8_lossy(&target);
+    Ok(link_stays(path, Path::new(target.as_ref())).then_some(Source::Written))
 }
 
 /// Whether `path` under `dir` is a symlink itself (not followed).
@@ -239,80 +294,6 @@ fn link_stays(path: &RelPath, target: &Path) -> bool {
         }
     }
     true
-}
-
-static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
-
-/// Puts what `write` creates at `to`, creating parent directories. `write`
-/// creates a new temporary file next to `to` (and removes it if it fails),
-/// which is then renamed over `to`: a rename replaces a symlink at `to`
-/// instead of writing through it. A temporary name already taken is never
-/// touched; the next one is tried.
-fn place(to: &Path, write: impl Fn(&Path) -> io::Result<()>) -> Result<()> {
-    let fail = |e: io::Error| internal(format!("cannot copy to {}: {e}", to.display()));
-    let parent = to.parent().unwrap_or(Path::new("."));
-    fs::create_dir_all(parent).map_err(fail)?;
-    for _ in 0..16 {
-        let n = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
-        let temp = parent.join(format!(".ovra-copy-{}-{n}", std::process::id()));
-        match write(&temp) {
-            Err(e) if e.kind() == ErrorKind::AlreadyExists => continue,
-            Err(e) => return Err(fail(e)),
-            Ok(()) => {}
-        }
-        let renamed = fs::rename(&temp, to);
-        if renamed.is_err() {
-            let _ = fs::remove_file(&temp);
-        }
-        return renamed.map_err(fail);
-    }
-    Err(fail(ErrorKind::AlreadyExists.into()))
-}
-
-/// Copies the regular file `from` to the new file `temp`. A symlink at
-/// `from`, even one swapped in after [`apply`] looked, is refused: the file
-/// opened must be the one `from` names without following links.
-fn copy_file(from: &Path, temp: &Path) -> io::Result<()> {
-    let mut source = fs::File::open(from)?;
-    let meta = source.metadata()?;
-    if !meta.is_file() || !same_file(&meta, &fs::symlink_metadata(from)?) {
-        return Err(io::Error::other("the source changed while it was copied"));
-    }
-    let mut options = fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    let mut copy = options.open(temp)?;
-    let copied =
-        io::copy(&mut source, &mut copy).and_then(|_| copy.set_permissions(meta.permissions()));
-    if copied.is_err() {
-        drop(copy);
-        let _ = fs::remove_file(temp);
-    }
-    copied
-}
-
-/// Whether `opened` (of a handle) and `named` (of the path, not followed)
-/// are the same file.
-#[cfg(unix)]
-fn same_file(opened: &fs::Metadata, named: &fs::Metadata) -> bool {
-    use std::os::unix::fs::MetadataExt;
-    !named.is_symlink() && opened.dev() == named.dev() && opened.ino() == named.ino()
-}
-
-#[cfg(not(unix))]
-fn same_file(_: &fs::Metadata, named: &fs::Metadata) -> bool {
-    !named.is_symlink()
-}
-
-#[cfg(unix)]
-fn make_link(target: &Path, temp: &Path) -> io::Result<()> {
-    std::os::unix::fs::symlink(target, temp)
-}
-
-#[cfg(not(unix))]
-fn make_link(_: &Path, _: &Path) -> io::Result<()> {
-    Err(io::Error::other("symlinks are recreated on Unix only"))
 }
 
 pub(crate) fn commit(dir: &Path, paths: &[RelPath], message: &str) -> Result<String> {
@@ -381,43 +362,6 @@ mod tests {
 
     fn rel(raw: &str) -> RelPath {
         RelPath::parse(raw).unwrap_or_else(|e| panic!("{e}"))
-    }
-
-    #[test]
-    fn place_replaces_a_symlink_at_the_target_and_skips_taken_names() {
-        let tmp = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
-        let dir = tmp.path();
-        let (from, to, outside) = (dir.join("from"), dir.join("to"), dir.join("outside"));
-        fs::write(&from, "new\n").unwrap_or_else(|e| panic!("{e}"));
-        fs::write(&outside, "outside\n").unwrap_or_else(|e| panic!("{e}"));
-        std::os::unix::fs::symlink(&outside, &to).unwrap_or_else(|e| panic!("{e}"));
-        // The next temporary name is taken: it is left alone.
-        let next = NEXT_TEMP.load(Ordering::Relaxed);
-        let taken = dir.join(format!(".ovra-copy-{}-{next}", std::process::id()));
-        fs::write(&taken, "planted\n").unwrap_or_else(|e| panic!("{e}"));
-
-        place(&to, |temp| copy_file(&from, temp)).unwrap_or_else(|e| panic!("{e:?}"));
-        assert_eq!(
-            fs::read_to_string(&outside).ok().as_deref(),
-            Some("outside\n")
-        );
-        assert_eq!(fs::read_to_string(&to).ok().as_deref(), Some("new\n"));
-        assert_eq!(
-            fs::read_to_string(&taken).ok().as_deref(),
-            Some("planted\n")
-        );
-        let count = fs::read_dir(dir).map(Iterator::count).unwrap_or_default();
-        assert_eq!(count, 4, "no temporary file of ours is left");
-    }
-
-    #[test]
-    fn copy_file_refuses_a_symlink_source() {
-        let tmp = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
-        let (link, temp) = (tmp.path().join("link"), tmp.path().join("temp"));
-        fs::write(tmp.path().join("real"), "x").unwrap_or_else(|e| panic!("{e}"));
-        std::os::unix::fs::symlink("real", &link).unwrap_or_else(|e| panic!("{e}"));
-        assert!(copy_file(&link, &temp).is_err());
-        assert!(!temp.exists());
     }
 
     #[test]

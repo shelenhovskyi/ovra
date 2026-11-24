@@ -76,6 +76,10 @@ message; the item then shows the new diff.
   fingerprint of its files (paths and content versions), the inbox sends it
   back with approve, and the core refuses while the worker is still working
   or when its files changed since; the inbox then shows them as they are now.
+  Approve copies from one snapshot of the worktree, the one its fingerprint
+  check read, never from the worker's disk at click time; a later "replace
+  with the worker's version" copies from that same snapshot. Each diff the
+  inbox loads names the fingerprint it was read with.
 
 Which files are the agent's: paths in its `Write`, `Edit` and
 `NotebookEdit` calls, plus files that changed while one of its `Bash` calls

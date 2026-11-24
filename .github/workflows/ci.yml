@@ -21,6 +21,7 @@ jobs:
       - name: Spawn cost
         shell: bash
         run: |
+          set +e
           which -a git; git --exec-path; git version
           REAL="$(dirname "$(dirname "$(git --exec-path)")")/bin/git.exe"; ls -la "$REAL"
           time (for i in $(seq 40); do git --version >/dev/null; done)
@@ -33,7 +34,8 @@ jobs:
         env:
           OVRA_GIT_TIMES: "1"
         run: |
-          cargo nextest run -p ovra-worktree -E 'test(direct::reject_keeps)' --no-capture -j 1 --slow-timeout 60s 2>&1 | grep -E "git-time|PASS|FAIL|SLOW" > times.txt || true
+          set +e
+          cargo nextest run -p ovra-worktree -E 'test(direct::reject_keeps)' --no-capture --test-threads 1 --slow-timeout 60s 2>&1 | grep -E "git-time|PASS|FAIL|SLOW" > times.txt || true
           grep -E "PASS|FAIL" times.txt
           awk '/git-time/ {n[$2]++; t[$2]+=$3; all+=$3; c++} END {for (k in n) printf "%-14s %3d calls %6d ms\n", k, n[k], t[k]; printf "total %d calls %d ms\n", c, all}' times.txt
       - name: Same with core.fsync=none
@@ -42,7 +44,8 @@ jobs:
           OVRA_GIT_TIMES: "1"
           GIT_CONFIG_PARAMETERS: "'core.fsync'='none'"
         run: |
-          cargo nextest run -p ovra-worktree -E 'test(direct::reject_keeps)' --no-capture -j 1 --slow-timeout 60s 2>&1 | grep -E "git-time|PASS|FAIL" > times.txt || true
+          set +e
+          cargo nextest run -p ovra-worktree -E 'test(direct::reject_keeps)' --no-capture --test-threads 1 --slow-timeout 60s 2>&1 | grep -E "git-time|PASS|FAIL" > times.txt || true
           grep -E "PASS|FAIL" times.txt
           awk '/git-time/ {n[$2]++; t[$2]+=$3; all+=$3; c++} END {for (k in n) printf "%-14s %3d calls %6d ms\n", k, n[k], t[k]; printf "total %d calls %d ms\n", c, all}' times.txt
       - name: Whole crate in parallel

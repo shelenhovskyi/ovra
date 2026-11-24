@@ -247,13 +247,13 @@ impl Worktrees for MemoryWorktrees {
 
     fn apply(
         &self,
-        from: PathBuf,
+        tree: String,
         base: String,
         into: PathBuf,
         paths: Vec<RelPath>,
     ) -> BoxFuture<'_, Result<Vec<String>>> {
         Box::pin(async move {
-            let (old, source) = (self.commit_files(&base)?, self.tree(&from)?);
+            let (old, source) = (self.commit_files(&base)?, self.commit_files(&tree)?);
             let mut dirs = lock(&self.dirs);
             let target = dirs
                 .get_mut(&into)
@@ -290,12 +290,12 @@ impl Worktrees for MemoryWorktrees {
 
     fn take(
         &self,
-        from: PathBuf,
+        tree: String,
         into: PathBuf,
         paths: Vec<RelPath>,
     ) -> BoxFuture<'_, Result<Taken>> {
         Box::pin(async move {
-            let (before, source) = (self.tree(&into)?, self.tree(&from)?);
+            let (before, source) = (self.tree(&into)?, self.commit_files(&tree)?);
             let undo = self.record(before);
             let mut dirs = lock(&self.dirs);
             let target = dirs
@@ -400,8 +400,9 @@ mod tests {
         // The person edits b.rs in the main checkout meanwhile: a conflict.
         w.put("/main", "b.rs", "mine\n");
         let paths = vec![rel("a.rs"), rel("b.rs"), rel("c.rs")];
+        let tree = w.snapshot("/wt".into()).await.unwrap_or_default();
         let conflicts = w
-            .apply("/wt".into(), base.clone(), "/main".into(), paths)
+            .apply(tree, base.clone(), "/main".into(), paths)
             .await
             .unwrap_or_default();
         assert_eq!(conflicts, ["b.rs"]);
