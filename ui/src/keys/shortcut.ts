@@ -30,6 +30,7 @@ const BROWSER_SAFE: Record<string, string> = {
   "Ctrl+Shift+Tab": "Alt+[",
   "Mod+P": "Alt+P",
   "Mod+Shift+A": "Alt+Shift+A",
+  "Mod+Shift+R": "Alt+Shift+R",
 };
 
 /** The shortcut that is live where the UI runs: `keys` itself, or its browser-safe stand-in. */
