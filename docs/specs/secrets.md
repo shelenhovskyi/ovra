@@ -28,7 +28,9 @@ A secret belongs to one project. It has:
 - **Exact host.** No wildcards and no IP addresses. `api.github.com` does
   not cover `uploads.github.com`.
 - **Never `claude`'s own hosts.** Hosts under `anthropic.com`, `claude.ai`
-  and `claude.com`, and the Bedrock and Vertex AI endpoints, are refused,
+  and `claude.com`, and the Bedrock (any `bedrock*` label under
+  `amazonaws.com` or `amazonaws.com.cn`), Vertex AI and Azure AI Foundry
+  endpoints, are refused,
   so the proxy never decrypts `claude`'s traffic (ADR 0006). The netproxy
   also refuses to bind any host on its base allowlist.
 - **Refused headers.** `Host`, `Content-Length`, `Transfer-Encoding`,
@@ -37,7 +39,8 @@ A secret belongs to one project. It has:
   routed.
 - **One binding per host and header.** A second secret for the same host
   and header in the same project is refused (`conflict`).
-- **Value.** 1 to 16 KiB, no control characters (no CR, LF, NUL, tab or
+- **Value.** 1 to 16 KiB (Windows' Credential Manager holds at most 2560
+  bytes; a longer value is refused there with `bad_request`), no control characters (no CR, LF, NUL, tab or
   DEL), so it cannot split a header. The prefix follows the same rule.
   Header names are RFC 9110 tokens.
 - **A binding moves only with a new value.** No method changes a secret's
@@ -65,10 +68,14 @@ A secret belongs to one project. It has:
 - **Order.** `set` writes the new item, then the list, then deletes the
   old item. `remove` moves the item to a `pending_delete` list in
   `secrets.json` first, then deletes it from the keychain, then drops the
-  pending entry. Pending deletes are retried when Ovra starts and before
-  each write. A crash or a keychain error leaves at worst an item that the
+  pending entry. `set` names its new item as pending before writing it,
+  and takes it off once the list names it. Pending deletes are retried
+  after each change. A crash or a keychain error leaves at worst an item that the
   list still names, never a value sent to a host it was not set for, and
-  never an item nothing can find. `set` and `remove` hold one lock.
+  never an item nothing can find. `set` and `remove` hold one lock, and
+  the core holds its own lock across its checks, `set`, `remove` and
+  removing a project. One process (the daemon or the app) uses a data
+  folder at a time.
 - **Removing a project** removes its secrets too. Project ids are never
   reused (they are random), so the UI could never list them again; leaving
   them would strand tokens in the keychain.
@@ -99,7 +106,7 @@ pub trait Secrets: Send + Sync + Debug {
 }
 ```
 
-`SecretValue` prints as `<secret>` in `Debug`, so a logged request never
+`SecretValue` is wiped from memory when dropped and prints as `<secret>` in `Debug`, so a logged request never
 shows one, and its own `Deserialize` reports errors without quoting the
 input (the transport answers bad frames with the parser's message). Calls may block on the keychain, so the core runs them on a
 blocking thread.

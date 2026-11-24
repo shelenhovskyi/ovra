@@ -114,6 +114,7 @@ impl CoreBuilder {
                 open: Mutex::new(BTreeMap::new()),
                 searches: Searches::default(),
                 secrets: self.secrets,
+                changing_secrets: tokio::sync::Mutex::new(()),
             }),
             events,
         };
@@ -149,6 +150,9 @@ struct Inner {
     open: Mutex<BTreeMap<ProjectId, usize>>,
     searches: Searches,
     secrets: Arc<dyn Secrets>,
+    /// Held while secrets or the projects they belong to change, so a
+    /// check and the change it guards see the same state.
+    changing_secrets: tokio::sync::Mutex<()>,
 }
 
 /// A [`Core`] that does not keep it alive; sessions hold one so their IDE
@@ -324,6 +328,10 @@ impl Core {
         self.inner.secrets.clone()
     }
 
+    pub(crate) async fn changing_secrets(&self) -> tokio::sync::MutexGuard<'_, ()> {
+        self.inner.changing_secrets.lock().await
+    }
+
     pub(crate) fn project_store(&self) -> &dyn ProjectStore {
         self.inner.projects.as_ref()
     }
@@ -401,12 +409,14 @@ impl Core {
                 Ok(ProjectsResponse::Project(project))
             }
             ProjectsRequest::Remove { id } => {
+                let changing = self.changing_secrets().await;
                 store.get(&id)?;
                 // Its id is never reused, so its secrets could not be
                 // listed again: they go first, and a keychain error keeps
                 // the project.
                 crate::secrets::remove_project(self, &id).await?;
                 store.remove(&id)?;
+                drop(changing);
                 agents::stop_project(&self.agents_ctx(), &id);
                 // Clients still holding it let go of nothing when they close.
                 if lock(&self.inner.open).remove(&id).is_some() {

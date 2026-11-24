@@ -59,6 +59,13 @@ impl SecretValue {
     }
 }
 
+/// Wipes the memory it held when dropped.
+impl Drop for SecretValue {
+    fn drop(&mut self) {
+        zeroize::Zeroize::zeroize(&mut self.0);
+    }
+}
+
 impl std::fmt::Debug for SecretValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("<secret>")

@@ -54,8 +54,9 @@ pub(crate) async fn handle(
             secret,
             value,
         } => {
-            core.project_store().get(&project)?;
             check(&secret, &value)?;
+            let _changing = core.changing_secrets().await;
+            core.project_store().get(&project)?;
             let changed = project.clone();
             blocking(move || {
                 let taken = secrets.list(&project)?.into_iter().find(|other| {
@@ -79,6 +80,7 @@ pub(crate) async fn handle(
             Ok(Response::Ok(OkResponse::Ok))
         }
         SecretsRequest::Remove { project, name } => {
+            let _changing = core.changing_secrets().await;
             core.project_store().get(&project)?;
             let changed = project.clone();
             blocking(move || secrets.remove(&project, &name)).await?;
@@ -88,7 +90,8 @@ pub(crate) async fn handle(
     }
 }
 
-/// Removes the secrets of a project the person is removing.
+/// Removes the secrets of a project the person is removing; the caller
+/// holds [`Core::changing_secrets`].
 pub(crate) async fn remove_project(core: &Core, project: &ProjectId) -> Result<(), ProtocolError> {
     let secrets = core.secrets_store();
     let project = project.clone();
@@ -189,7 +192,8 @@ fn host_ok(host: &str) -> Result<(), &'static str> {
     let claude = CLAUDE_DOMAINS
         .iter()
         .any(|d| name == *d || name.ends_with(&format!(".{d}")));
-    let cloud_model = (name.starts_with("bedrock") && name.ends_with(".amazonaws.com"))
+    let aws = name.ends_with(".amazonaws.com") || name.ends_with(".amazonaws.com.cn");
+    let cloud_model = (aws && labels.iter().any(|l| l.starts_with("bedrock")))
         || name.ends_with("aiplatform.googleapis.com")
         || name.ends_with(".services.ai.azure.com");
     if claude || cloud_model {

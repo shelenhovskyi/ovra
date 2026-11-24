@@ -69,6 +69,8 @@ fn only_what_the_netproxy_can_send_safely_is_kept() {
         "claude.ai",
         "platform.claude.com",
         "bedrock-runtime.us-east-1.amazonaws.com",
+        "vpce-1.bedrock-runtime.us-east-1.vpce.amazonaws.com",
+        "bedrock-runtime.cn-north-1.amazonaws.com.cn",
         "us-central1-aiplatform.googleapis.com",
         "x.services.ai.azure.com",
     ] {
@@ -232,4 +234,71 @@ async fn without_a_keychain_setting_fails_and_listing_says_why() {
         listed.store,
         SecretStoreStatus::Unavailable { .. }
     ));
+}
+
+/// Fails to remove anything, as a locked keychain would.
+#[derive(Debug)]
+struct LockedKeychain;
+
+impl Secrets for LockedKeychain {
+    fn status(&self) -> SecretStoreStatus {
+        SecretStoreStatus::Unavailable {
+            reason: "locked".into(),
+        }
+    }
+    fn list(&self, _: &ProjectId) -> Result<Vec<SecretInfo>, crate::protocol::ProtocolError> {
+        Ok(Vec::new())
+    }
+    fn set(
+        &self,
+        _: &ProjectId,
+        _: SecretInfo,
+        _: SecretValue,
+    ) -> Result<(), crate::protocol::ProtocolError> {
+        Err(locked())
+    }
+    fn remove(&self, _: &ProjectId, _: &str) -> Result<(), crate::protocol::ProtocolError> {
+        Err(locked())
+    }
+    fn remove_project(&self, _: &ProjectId) -> Result<(), crate::protocol::ProtocolError> {
+        Err(locked())
+    }
+    fn value(&self, _: &ProjectId, _: &str) -> Result<SecretValue, crate::protocol::ProtocolError> {
+        Err(locked())
+    }
+}
+
+fn locked() -> crate::protocol::ProtocolError {
+    crate::protocol::ProtocolError::new(ErrorCode::Unavailable, "locked")
+}
+
+#[tokio::test]
+async fn a_project_whose_secrets_cannot_be_removed_stays() {
+    let core = Core::builder("test")
+        .projects(Arc::new(MemoryProjects::default()))
+        .secrets(Arc::new(LockedKeychain))
+        .build();
+    let req = |json: serde_json::Value| -> Request {
+        serde_json::from_value(json).unwrap_or_else(|e| panic!("{e}"))
+    };
+    let root = crate::test_path!("/w");
+    assert!(
+        core.handle(req(
+            json!({"method": "projects.add", "params": {"root": root}})
+        ))
+        .await
+        .is_ok()
+    );
+    let removed = core
+        .handle(req(
+            json!({"method": "projects.remove", "params": {"id": "p1"}}),
+        ))
+        .await;
+    assert_eq!(removed.err().map(|e| e.code), Some(ErrorCode::Unavailable));
+    let listed = core
+        .handle(req(
+            json!({"method": "secrets.list", "params": {"project": "p1"}}),
+        ))
+        .await;
+    assert!(listed.is_ok(), "the project is still there: {listed:?}");
 }

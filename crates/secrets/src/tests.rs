@@ -269,3 +269,39 @@ fn an_unreadable_list_is_left_alone() {
         Some("{not json")
     );
 }
+
+thread_local! {
+    static KEYCHAIN_UP: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+fn later_keychain() -> keyring_core::Result<Arc<keyring_core::CredentialStore>> {
+    if KEYCHAIN_UP.with(std::cell::Cell::get) {
+        mock_store()
+    } else {
+        Err(keyring_core::Error::NoDefaultStore)
+    }
+}
+
+#[test]
+fn a_keychain_that_starts_later_is_used_once_it_is_up() {
+    let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+    let secrets = KeychainSecrets::with_opener(dir.path(), later_keychain);
+    assert!(matches!(
+        secrets.status(),
+        SecretStoreStatus::Unavailable { .. }
+    ));
+    KEYCHAIN_UP.with(|up| up.set(true));
+    assert!(matches!(
+        secrets.status(),
+        SecretStoreStatus::Available { .. }
+    ));
+    assert!(
+        secrets
+            .set(
+                &p("p1"),
+                info("gh", "api.github.com"),
+                SecretValue::new("v")
+            )
+            .is_ok()
+    );
+}

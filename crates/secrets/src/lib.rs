@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use keyring_core::{CredentialStore, Entry};
 use ovra_core::protocol::projects::ProjectId;
@@ -25,10 +25,13 @@ type Opener = fn() -> keyring_core::Result<Arc<CredentialStore>>;
 
 /// [`Secrets`] over this OS's keychain. The keychain is opened on first
 /// use, so a machine without one starts fine and says why on `status`.
+/// One process uses a data folder at a time (the daemon or the app).
 pub struct KeychainSecrets {
     file: PathBuf,
     open: Opener,
-    store: OnceLock<std::result::Result<Arc<CredentialStore>, String>>,
+    /// Opened on first use; a failed open is tried again on the next call
+    /// (the Secret Service may start later).
+    store: Mutex<Option<Arc<CredentialStore>>>,
     /// Held across a whole `set` or `remove`.
     lock: Mutex<()>,
 }
@@ -71,20 +74,24 @@ impl KeychainSecrets {
         Self {
             file: data_dir.join(FILE),
             open,
-            store: OnceLock::new(),
+            store: Mutex::new(None),
             lock: Mutex::new(()),
         }
     }
 
-    fn store(&self) -> Result<&Arc<CredentialStore>> {
-        self.store
-            .get_or_init(|| (self.open)().map_err(|e| describe(&e)))
-            .as_ref()
-            .map_err(|reason| ProtocolError::new(ErrorCode::Unavailable, unreachable(reason)))
+    fn store(&self) -> Result<Arc<CredentialStore>> {
+        let mut store = lock(&self.store);
+        if let Some(open) = store.as_ref() {
+            return Ok(open.clone());
+        }
+        let open = (self.open)()
+            .map_err(|e| ProtocolError::new(ErrorCode::Unavailable, unreachable(&describe(&e))))?;
+        *store = Some(open.clone());
+        Ok(open)
     }
 
     fn entry(&self, account: &str) -> Result<Entry> {
-        Entry::new_in_store(self.store()?, SERVICE, account).map_err(|e| keychain_error(&e))
+        Entry::new_in_store(&self.store()?, SERVICE, account).map_err(|e| keychain_error(&e))
     }
 
     fn load(&self) -> Result<Option<Index>> {
@@ -125,15 +132,28 @@ impl KeychainSecrets {
         let bytes = serde_json::to_vec_pretty(index)
             .map_err(|e| ProtocolError::new(ErrorCode::Internal, e.to_string()))?;
         let tmp = self.file.with_extension("json.tmp");
+        // A leftover temporary file could have another mode: start afresh.
+        match std::fs::remove_file(&tmp) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(fail(e)),
+        }
         let mut options = std::fs::OpenOptions::new();
-        options.write(true).create(true).truncate(true);
+        options.write(true).create_new(true);
         #[cfg(unix)]
         std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
         let mut file = options.open(&tmp).map_err(fail)?;
         file.write_all(&bytes).map_err(fail)?;
         file.sync_all().map_err(fail)?;
         drop(file);
-        std::fs::rename(&tmp, &self.file).map_err(fail)
+        std::fs::rename(&tmp, &self.file).map_err(fail)?;
+        // The rename survives a crash once the folder is synced. The new
+        // list is in place already, so a failed sync is not a failed save.
+        #[cfg(unix)]
+        if let Some(dir) = self.file.parent() {
+            let _ = std::fs::File::open(dir).and_then(|d| d.sync_all());
+        }
+        Ok(())
     }
 
     /// Deletes the pending items it can; the rest stay pending.
@@ -196,9 +216,15 @@ impl Secrets for KeychainSecrets {
             generation: random_id(),
         };
         let new = account(&index.install, project, &stored);
-        self.entry(&new)?
+        // Named as pending first, so a crash after the keychain write
+        // leaves an item the next change deletes, never one nothing names.
+        let entry = self.entry(&new)?;
+        index.pending_delete.push(new.clone());
+        self.save(&index)?;
+        entry
             .set_password(value.expose())
             .map_err(|e| keychain_error(&e))?;
+        index.pending_delete.retain(|a| *a != new);
         let list = index.projects.entry(project.0.clone()).or_default();
         let old = list
             .iter()
@@ -210,10 +236,9 @@ impl Secrets for KeychainSecrets {
             index.pending_delete.push(old);
         }
         if let Err(e) = self.commit(&mut index) {
-            // Not listed, so never sent: take the new item back if we can.
-            if let Ok(entry) = self.entry(&new) {
-                let _ = entry.delete_credential();
-            }
+            // The saved list still names it as pending: take it back now
+            // if we can, or on the next change.
+            let _ = entry.delete_credential();
             return Err(e);
         }
         Ok(())
@@ -311,6 +336,11 @@ fn describe(e: &keyring_core::Error) -> String {
 
 fn keychain_error(e: &keyring_core::Error) -> ProtocolError {
     match e {
+        // Windows' Credential Manager holds at most 2560 bytes.
+        keyring_core::Error::TooLong(..) => ProtocolError::new(
+            ErrorCode::BadRequest,
+            format!("the {STORE_NAME} cannot hold it: {}", describe(e)),
+        ),
         keyring_core::Error::NoStorageAccess(_) => {
             ProtocolError::new(ErrorCode::Unavailable, unreachable(&describe(e)))
         }
