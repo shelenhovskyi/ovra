@@ -81,6 +81,7 @@ async fn main() -> anyhow::Result<()> {
         .worktrees_dir(args.data_dir.join("worktrees"))
         .ide_tools(Arc::new(IdeServer::new()))
         .terminals(Arc::new(Pty::new()))
+        .netproxy(Arc::new(ovra_netproxy::NetProxies::from_env()?))
         .agents(agents(&args))
         .secrets(Arc::new(KeychainSecrets::new(&args.data_dir)))
         .build();

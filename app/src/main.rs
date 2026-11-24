@@ -40,6 +40,7 @@ fn main() {
                 .worktrees_dir(data_dir.join("worktrees"))
                 .ide_tools(Arc::new(IdeServer::new()))
                 .terminals(Arc::new(Pty::new()))
+                .netproxy(Arc::new(ovra_netproxy::NetProxies::from_env()?))
                 .agents(Arc::new(ClaudeCli::new(None, ovra_sandbox::for_this_os())))
                 .secrets(Arc::new(KeychainSecrets::new(&data_dir)))
                 .build();

@@ -1,6 +1,6 @@
 # Agent security (phase 4)
 
-Status: task 4.0. Reviewed twice by an independent reviewer agent in place
+Status: task 4.0; the netproxy (4.C) is built as described below. Reviewed twice by an independent reviewer agent in place
 of the owner (owner's rule, 2026-11-24). The environment change below
 amends ADR 0006 and waits for the owner. Builds on ADR 0005 (direct mode), ADR 0006
 (Claude through the user's `claude` CLI) and `docs/specs/orchestration.md`.
@@ -169,40 +169,83 @@ the machine. The threat model in 4.F records this.
 
 ## Netproxy (4.C)
 
-`NetProxy` is a service trait:
+`NetProxy` is a service trait, implemented by `crates/netproxy`
+(`NetProxies`):
 
 ```rust
 pub trait NetProxy: Send + Sync + Debug {
+    /// What every session may reach: the hosts `claude` itself needs.
+    fn base(&self) -> Allowlist;
     /// Starts a proxy for one session; it lives until `stop`.
-    fn start(&self, session: SessionId, allow: Allowlist) -> BoxFuture<'_, Result<ProxyAddress>>;
+    fn start(&self, session: SessionId, allow: Allowlist, refusals: NetReporter) -> BoxFuture<'_, Result<String>>;
+    /// Replaces a running proxy's project allowlist.
+    fn update(&self, session: &SessionId, allow: Allowlist);
     fn stop(&self, session: &SessionId);
 }
 ```
 
-- **Address.** `ProxyAddress` is a Unix socket path on Linux and macOS,
-  because a sandbox without a network namespace has no loopback. On Windows
-  it is a 127.0.0.1 port. The platform's helper bridges the socket to a
-  local port inside the sandbox. `wrap` sets `HTTP_PROXY` and `HTTPS_PROXY`
-  to that port, clears `NO_PROXY`, and sets `NODE_USE_ENV_PROXY=1`.
-- **Allowlist.** The allowlist holds host names, each optionally with a port.
-  - The base list holds what `claude` itself needs: Anthropic's API and
-    login hosts, or the user's Bedrock, Vertex or Foundry endpoint.
-  - The project's own list adds to it. It is kept by `ProjectStore`, and
+- **Lifetime.** The core starts a session's proxy before the runtime, puts
+  its address in the profile as `Proxy { address }`, and stops it when the
+  session ends. A resume starts a new one. If the proxy cannot start, the
+  session fails; it never runs with an open network instead. Without a
+  netproxy wired in (tests, other front ends), the profile says `Open`.
+- **Address.** A Unix socket path on Linux and macOS, because a sandbox
+  without a network namespace has no loopback. The sockets are in a new
+  folder under the system's temporary folder that only the user can open.
+  On Windows it is a 127.0.0.1 port. The platform's helper bridges the
+  socket to a local port inside the sandbox. `wrap` sets `HTTP_PROXY` and
+  `HTTPS_PROXY` to that port, clears `NO_PROXY`, and sets
+  `NODE_USE_ENV_PROXY=1` (4.A, 4.B). Until a platform sandbox exists the
+  proxy runs but nothing uses it, and the session reports no sandbox.
+- **Requests.** `CONNECT host:port` for TLS, and plain `http://` requests
+  in absolute form. A plain request is passed on as one request with
+  `Connection: close`, its `Host` set from the URL and the `Proxy-*`
+  headers removed. Anything else is refused with 400.
+- **Allowlist.** Host names or IP addresses, each optionally with a port.
+  Names match exactly: no wildcards, so `github.com` does not allow
+  `api.github.com`.
+  - The base list holds what `claude` itself needs: `api.anthropic.com`,
+    `claude.ai` and `platform.claude.com` (API, sign-in, token refresh),
+    plus the user's Bedrock, Vertex or Foundry endpoint and
+    `ANTHROPIC_BASE_URL`, read from the environment Ovra runs in.
+    Telemetry hosts are left out: anyone with an account there can receive
+    data.
+  - An endpoint the user set in a `*_BASE_URL` variable may be on this
+    machine or the local network (a gateway). Only that exact host and
+    port may then reach a private address.
+  - The project's own list adds to the base. It is kept by `ProjectStore`.
     `netproxy.get_allowlist` and `netproxy.set_allowlist` read and change
-    it.
+    it. A change reaches running proxies at once, for new connections;
+    open tunnels stay.
+  - `set_allowlist` normalizes names (lowercase, no trailing dot) and
+    refuses wildcards, anything that is not a plain name or address, port
+    0, and addresses that are never reachable.
 - **Refusals.**
-  - The proxy resolves names itself. It refuses any address that is
-    loopback, link-local, private or the metadata service (169.254.169.254),
-    whatever the name. That keeps agents from reaching Ovra's own daemon or
-    the local network.
-  - It allows CONNECT only to ports 443 and 80, unless the allowlist names
-    another port.
-  - Every refusal is reported to the core and written to the audit log as
-    `NetworkRefused`.
-- **Upstream proxy.** If the user's own proxy is set where Ovra runs, the
-  netproxy chains to it.
-- **Limit.** Without TLS inspection, a broad domain such as `github.com` is
-  still a way to send data out. The UI warns about broad entries.
+  - The proxy resolves names itself. It refuses a host when any address it
+    resolves to is not public unicast: loopback, private, link-local (the
+    metadata service, 169.254.169.254), shared, documentation, multicast
+    and reserved ranges, IPv4-mapped and 6to4 forms of those, and IPv6
+    outside 2000::/3. That keeps agents from reaching Ovra's own daemon or
+    the local network. It connects to the addresses it checked.
+  - It allows ports 443 and 80, unless the allowlist entry names another
+    port; an entry with a port allows only that port.
+  - Every refusal goes to the core through `NetReporter`, which pushes
+    `netproxy.refused { project, session, host, reason }` to the UI. 4.E
+    writes it to the audit log as `NetworkRefused` in the same place.
+- **Upstream proxy.** If the user's own proxy is set where Ovra runs
+  (`https_proxy`, `HTTPS_PROXY`, `http_proxy`, `HTTP_PROXY`, as Claude Code
+  reads them, with `NO_PROXY`), the netproxy chains to it, with the user
+  and password from its URL. Only `http://` proxies are supported. A name
+  that does not resolve where Ovra runs is left to that proxy to resolve;
+  names that do resolve are still checked.
+- **Limits.**
+  - Without TLS inspection the proxy cannot see inside a tunnel, so a
+    broad host such as `github.com` is still a way to send data out, and a
+    host on a shared CDN address can be reached by name through another
+    allowed name on the same address (domain fronting). The
+    `netproxy.allowlist` answer lists such entries under `broad`, and the
+    UI warns about each.
+  - Each proxy serves at most 128 connections at once; more wait.
 
 ## Secrets (4.D)
 
