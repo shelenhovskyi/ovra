@@ -62,7 +62,10 @@ pub struct FileList {
     pub paths: Vec<String>,
     /// Number of files in the whole project.
     pub total: u32,
-    /// Changes at least whenever the set of files changes.
+    /// Changes at least whenever the set of files changes. `0` means the
+    /// project is still being indexed after `projects.open`: the list is a
+    /// fresh walk, and an `fs.files_changed` follows once indexing ends;
+    /// list again then.
     pub version: u64,
 }
 
