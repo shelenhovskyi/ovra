@@ -11,6 +11,7 @@ import type { CoreInfo } from "../lib/protocol";
 import type { ConnectionStatus, Transport } from "../lib/transport";
 import Notifications from "../notify/Notifications.svelte";
 import Palette from "../palette/Palette.svelte";
+import Search from "../search/Search.svelte";
 import Terminals from "../terminal/Terminals.svelte";
 import Tree from "../tree/Tree.svelte";
 import Viewer from "../viewers/Viewer.svelte";
@@ -88,7 +89,24 @@ const status = $derived.by((): { text: string; ok: boolean } => {
     <span class="project">{workspace.project?.name ?? "No project"}</span>
     <Inbox />
   </header>
-  <aside data-testid="sidebar"><Tree /></aside>
+  <aside data-testid="sidebar">
+    {#if workspace.project}
+      <div class="sidebar-tabs" role="group" aria-label="Sidebar view">
+        <button
+          type="button"
+          aria-pressed={workspace.sidebar === "files"}
+          onclick={() => (workspace.sidebar = "files")}>Files</button
+        >
+        <button
+          type="button"
+          aria-pressed={workspace.sidebar === "search"}
+          onclick={() => (workspace.sidebar = "search")}>Search</button
+        >
+      </div>
+    {/if}
+    <div class="sidebar-view" hidden={!!workspace.project && workspace.sidebar !== "files"}><Tree /></div>
+    <div class="sidebar-view" hidden={!workspace.project || workspace.sidebar !== "search"}><Search /></div>
+  </aside>
   <main data-testid="main">
     <Tabs />
     <div class="view" id="ovra-tabpanel" role="tabpanel" tabindex="-1" aria-label={workspace.openPath ?? "No file open"}>
@@ -169,9 +187,37 @@ const status = $derived.by((): { text: string; ok: boolean } => {
   }
   aside {
     grid-area: sidebar;
+    display: flex;
+    flex-direction: column;
     min-width: 0;
     overflow: hidden;
     border-right: 1px solid #2a2a31;
+  }
+  .sidebar-tabs {
+    display: flex;
+    flex: none;
+    border-bottom: 1px solid #2a2a31;
+  }
+  .sidebar-tabs button {
+    flex: 1;
+    padding: 4px 8px;
+    font: inherit;
+    color: #9a9aa6;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+  }
+  .sidebar-tabs button[aria-pressed="true"] {
+    color: #e6e6e6;
+    border-bottom-color: #4a6bb0;
+  }
+  .sidebar-view {
+    flex: 1;
+    min-height: 0;
+  }
+  .sidebar-view[hidden] {
+    display: none;
   }
   .agents {
     grid-area: agents;
