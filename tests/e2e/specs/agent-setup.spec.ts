@@ -31,6 +31,9 @@ test("review what a project would load, trust it and stop trusting it", async ({
   await expect(review.getByRole("note")).toContainText("runs commands on your computer");
   await review.getByRole("button", { name: "Trust project" }).click();
   await expect(trust.getByRole("heading")).toHaveText("Project settings: trusted");
+  // Trusting rereads the settings when it is done; change them only after
+  // that, or the reread already shows the change.
+  await expect(trust.getByRole("button", { name: "Review" })).toBeEnabled();
 
   // A later change (a git pull, say) is shown as a diff and needs trust again.
   writeFileSync(
