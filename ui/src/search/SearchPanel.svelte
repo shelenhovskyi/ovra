@@ -103,14 +103,25 @@ function onResultsKeydown(event: KeyboardEvent): void {
   buttons[next]?.focus();
 }
 
-/** The line's text cut into plain and matched parts. */
+/** Characters kept before the first match when a line is shortened for the narrow sidebar. */
+const LEAD = 12;
+
+/**
+ * The line's text cut into plain and matched parts. Indentation is dropped, and a
+ * line whose first match starts far in begins shortly before it, after "…".
+ */
 function parts(match: LineMatch): { text: string; hit: boolean }[] {
+  const first = match.ranges[0]?.[0] ?? 0;
+  const indent = match.text.length - match.text.trimStart().length;
+  const start = Math.min(first, first - indent > 2 * LEAD ? first - LEAD : indent);
   const out: { text: string; hit: boolean }[] = [];
-  let at = 0;
+  if (start > indent || match.column > 0) out.push({ text: "…", hit: false });
+  let at = start;
   for (const [from, to] of match.ranges) {
+    if (to <= at) continue;
     if (from > at) out.push({ text: match.text.slice(at, from), hit: false });
     out.push({ text: match.text.slice(Math.max(from, at), to), hit: true });
-    at = Math.max(at, to);
+    at = to;
   }
   if (at < match.text.length) out.push({ text: match.text.slice(at), hit: false });
   return out;
@@ -204,7 +215,7 @@ const folder = (path: string) => path.slice(0, Math.max(path.lastIndexOf("/"), 0
               >
                 <span class="num" aria-hidden="true">{match.line}</span>
                 <span class="text" aria-hidden="true"
-                  >{#if match.column > 0}…{/if}{#each parts(match) as part, i (i)}{#if part.hit}<mark>{part.text}</mark
+                  >{#each parts(match) as part, i (i)}{#if part.hit}<mark>{part.text}</mark
                       >{:else}{part.text}{/if}{/each}</span
                 >
               </button>

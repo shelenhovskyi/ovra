@@ -39,6 +39,11 @@ it("shows results grouped by file, highlights matches and opens the chosen one",
   const names = [...target.querySelectorAll(".file-name .name")].map((n) => n.textContent);
   expect(names).toEqual(["b.md", "a.rs"]);
   expect([...target.querySelectorAll("mark")].map((m) => m.textContent)).toEqual(["needle", "needle"]);
+  // A cut line starts with "…"; indentation is dropped.
+  expect([...target.querySelectorAll(".line .text")].map((t) => t.textContent)).toEqual([
+    "…a long needle",
+    "let needle = 1;",
+  ]);
 
   const buttons = [...target.querySelectorAll<HTMLButtonElement>("button[data-result]")];
   buttons[0]?.focus();
@@ -50,4 +55,12 @@ it("shows results grouped by file, highlights matches and opens the chosen one",
     ["src/a.rs", { line: 2, from: 4, to: 10 }],
     ["b.md", { line: 7, from: 127, to: 133 }],
   ]);
+
+  const matchCase = target.querySelector<HTMLButtonElement>("button[aria-label='Match case']");
+  matchCase?.click();
+  flushSync();
+  expect(matchCase?.getAttribute("aria-pressed")).toBe("true");
+  input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  const last = core.calls.at(-1);
+  expect(last?.method === "search.start" && last.params.query.case_sensitive).toBe(true);
 });

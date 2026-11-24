@@ -28,13 +28,7 @@ test("Mod+Shift+F searches the project's files and opens a result at its match",
   const search = page.getByTestId("search");
   await expect(search.getByRole("searchbox", { name: "Search text" })).toBeFocused();
   await page.keyboard.type("NEEDLE");
-  const summary = page.getByTestId("search-summary");
-  await expect(summary).toHaveText("1 matching line in 1 file.");
-
-  await search.getByRole("button", { name: "Match case" }).click();
-  await expect(summary).toHaveText("No results.");
-  await search.getByRole("button", { name: "Match case" }).click();
-  await expect(summary).toHaveText("1 matching line in 1 file.");
+  await expect(page.getByTestId("search-summary")).toHaveText("1 matching line in 1 file.");
 
   await search.getByRole("button", { name: /src\/main\.rs line 2/ }).click();
   await expect(page.getByRole("tab", { name: "main.rs" })).toHaveAttribute("aria-selected", "true");
