@@ -78,7 +78,10 @@ function webNotifications(): SystemNotifications {
     permission: () => api()?.permission ?? "unsupported",
     request: async () => {
       const notification = api();
-      return notification ? await notification.requestPermission() : "unsupported";
+      if (!notification) return "unsupported";
+      await notification.requestPermission();
+      // Read it back: the desktop app's stand-in may answer with other words.
+      return notification.permission;
     },
     show: (title, body, tag, onClick) => {
       const notification = api();
