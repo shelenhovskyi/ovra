@@ -2,7 +2,16 @@
 // in-memory listing per directory and `projects.*` from a list, and can push
 // events. Mirrors the core's ordering: dirs first, then by name.
 
-import type { CoreEvent, DirEntry, GitStatus, Project, ProjectState, Request, ResponseFor } from "../lib/protocol";
+import type {
+  CoreEvent,
+  DirEntry,
+  GitStatus,
+  Project,
+  ProjectId,
+  ProjectState,
+  Request,
+  ResponseFor,
+} from "../lib/protocol";
 import { CoreError, type Transport } from "../lib/transport";
 import { joinPath } from "./model";
 
@@ -98,15 +107,17 @@ export class FakeCore implements Transport {
         return { type: "projects.project", data: project };
       }
       case "projects.get_state":
-        return {
-          type: "projects.state",
-          data: this.states.get(request.params.id) ?? { open_files: [], active_file: null, expanded_dirs: [] },
-        };
+        return { type: "projects.state", data: this.state(request.params.id) };
       case "projects.set_state":
-        this.states.set(request.params.id, request.params.state);
+        // Like the core: only the fields present are written.
+        this.states.set(request.params.id, { ...this.state(request.params.id), ...request.params.state });
         return { type: "ok" };
       default:
         throw new CoreError({ code: "unavailable", message: `${request.method} is not faked` });
     }
+  }
+
+  private state(id: ProjectId): ProjectState {
+    return this.states.get(id) ?? { open_files: [], active_file: null, expanded_dirs: [] };
   }
 }
