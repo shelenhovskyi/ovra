@@ -11,6 +11,7 @@ mod files;
 mod git;
 mod listing;
 mod resolve;
+mod search;
 mod watch;
 
 use std::collections::HashMap;
@@ -138,11 +139,26 @@ impl FsService for FsIndex {
         sink: EventSink,
         cancel: SearchCancel,
     ) -> Result<()> {
-        let _ = (id, root, query, sink, cancel);
-        Err(ProtocolError::new(
-            ErrorCode::Unavailable,
-            "content search is not available yet",
-        ))
+        let plan = search::Plan::new(&query)?;
+        let watched = self.watched(&root, |w| Arc::clone(&w.files));
+        let run = search::Run {
+            id,
+            plan,
+            root: resolve::root(&root)?,
+            sink,
+            cancel,
+        };
+        std::thread::Builder::new()
+            .name("ovra-search".into())
+            .spawn(move || {
+                let files: Vec<String> = match watched.as_deref().map(SharedFiles::lock) {
+                    Some(files) if files.version > 0 => files.paths.iter().cloned().collect(),
+                    _ => file_list::scan(&run.root).into_iter().collect(),
+                };
+                run.run(&files);
+            })
+            .map(drop)
+            .map_err(|e| ProtocolError::new(ErrorCode::Internal, format!("cannot search: {e}")))
     }
 
     fn watch(&self, project: ProjectId, root: PathBuf, sink: EventSink) -> Result<()> {

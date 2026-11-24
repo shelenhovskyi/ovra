@@ -1,6 +1,6 @@
 [package]
 name = "ovra-fs-index"
-description = "File tree, .gitignore handling, git status and watching for project folders (implements ovra_core::services::FsService)."
+description = "File tree, .gitignore handling, git status, watching and content search for project folders (implements ovra_core::services::FsService)."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,6 +9,10 @@ publish = false
 
 [dependencies]
 ovra-core.workspace = true
+globset = "0.4"
+grep-matcher = "0.1"
+grep-regex = "0.1"
+grep-searcher = "0.1"
 ignore = "0.4"
 notify = "8"
 tokio = { workspace = true, features = ["rt"] }

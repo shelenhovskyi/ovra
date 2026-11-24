@@ -1,0 +1,42 @@
+---
+source: crates/fs-index/src/search/tests.rs
+expression: outcome.files
+---
+[
+  {
+    "path": "notes.md",
+    "lines": [
+      {
+        "line": 1,
+        "text": "say hello, héllo, 😀 hello",
+        "column": 0,
+        "ranges": [
+          [
+            4,
+            9
+          ],
+          [
+            21,
+            26
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "path": "src/main.rs",
+    "lines": [
+      {
+        "line": 2,
+        "text": "    println!(\"Hello\");",
+        "column": 0,
+        "ranges": [
+          [
+            14,
+            19
+          ]
+        ]
+      }
+    ]
+  }
+]
