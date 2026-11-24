@@ -250,7 +250,19 @@ async fn a_flood_reaches_a_subscriber_whole() {
     // in CI on about 0.1% of the lines), so carriage returns are ignored.
     let lines = text.replace('\r', "").matches("y\n").count();
     assert_eq!(lines, LINES, "{} bytes in {last} events", text.len());
+    // The shell's prompt may already follow the marker; the scrollback
+    // covers exactly the events up to its `seq`.
     let (kept, seq) = pty.scrollback(&id).expect("scrollback");
+    while last < seq {
+        match next(&mut rx, &id).await {
+            TerminalsEvent::Output { data, seq, .. } => {
+                assert_eq!(seq, last + 1);
+                last = seq;
+                text += &data;
+            }
+            exited => panic!("{exited:?}"),
+        }
+    }
     assert_eq!(seq, last);
     assert!(text.ends_with(&kept));
     pty.close(&id).expect("close");
