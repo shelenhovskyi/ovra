@@ -240,7 +240,7 @@ async fn an_ended_session_drops_its_permission_requests() {
     let mut rx = core.subscribe();
     let asking = tokio::spawn({
         let host = host.clone();
-        async move { host.ask("Bash".into(), json!({}), None).await }
+        async move { host.ask("Bash".into(), json!({}), None, None).await }
     });
     until(&mut rx, AgentStatus::WaitingForApproval).await;
     host.status(AgentStatus::Stopped);
@@ -377,7 +377,7 @@ async fn the_state_machine_ignores_reports_that_make_no_sense() {
     let host = host(&core);
     let asking = tokio::spawn({
         let host = host.clone();
-        async move { host.ask("Bash".into(), json!({}), None).await }
+        async move { host.ask("Bash".into(), json!({}), None, None).await }
     });
     until(&mut rx, AgentStatus::WaitingForApproval).await;
     // A request still waits: neither working nor idle shows.
@@ -402,7 +402,7 @@ async fn the_state_machine_ignores_reports_that_make_no_sense() {
     });
     host.status(AgentStatus::Idle);
     host.status(AgentStatus::Stopped);
-    let late = host.ask("Bash".into(), json!({}), None).await;
+    let late = host.ask("Bash".into(), json!({}), None, None).await;
     assert_eq!(late.message.as_deref(), Some("the session ended"));
 
     let mut seen = Vec::new();
@@ -430,7 +430,7 @@ async fn a_request_the_agent_cancels_is_withdrawn() {
     let host = host(&core);
     let asking = tokio::spawn({
         let host = host.clone();
-        async move { host.ask("Bash".into(), json!({}), None).await }
+        async move { host.ask("Bash".into(), json!({}), None, None).await }
     });
     until(&mut rx, AgentStatus::WaitingForApproval).await;
     asking.abort();

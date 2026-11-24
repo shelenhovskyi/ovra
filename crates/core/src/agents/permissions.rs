@@ -6,7 +6,9 @@ use tokio::sync::oneshot;
 
 use super::lock;
 use crate::protocol::agents::SessionId;
-use crate::protocol::permissions::{PermissionAnswer, PermissionId, PermissionRequest};
+use crate::protocol::permissions::{
+    PermissionAnswer, PermissionId, PermissionReason, PermissionRequest,
+};
 
 #[derive(Debug, Default)]
 pub(crate) struct Permissions {
@@ -28,6 +30,7 @@ impl Permissions {
         tool: String,
         input: serde_json::Value,
         title: Option<String>,
+        reason: Option<PermissionReason>,
     ) -> (PermissionRequest, oneshot::Receiver<PermissionAnswer>) {
         let mut state = lock(&self.state);
         state.asked += 1;
@@ -37,6 +40,7 @@ impl Permissions {
             tool,
             input,
             title,
+            reason,
         };
         let (tx, rx) = oneshot::channel();
         state.pending.push((request.clone(), tx));

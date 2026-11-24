@@ -19,6 +19,19 @@ pub struct PermissionRequest {
     pub input: serde_json::Value,
     /// A one-line description from the agent, if it gave one.
     pub title: Option<String>,
+    /// Why the agent's own rules ask a person, if it says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<PermissionReason>,
+}
+
+/// Why an agent asks rather than deciding itself.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PermissionReason {
+    /// For people, e.g. "This command requires approval".
+    pub text: String,
+    /// The agent's own category, e.g. `rule`, `hook` or `other`, if given.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

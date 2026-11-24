@@ -468,7 +468,7 @@ async fn play(host: &AgentHost, steps: Vec<Step>, interrupted: &AtomicBool) -> b
                     input: input.clone(),
                     parent: None,
                 });
-                let answer = host.ask(tool.to_owned(), input, None).await;
+                let answer = host.ask(tool.to_owned(), input, None, None).await;
                 let (output, is_error) = match answer.decision {
                     Decision::Allow => ("done".to_owned(), false),
                     Decision::Deny => (answer.message.unwrap_or_default(), true),

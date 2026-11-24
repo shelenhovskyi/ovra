@@ -10,7 +10,9 @@ mod transcript;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use crate::protocol::agents::{AgentMessage, AgentStatus, AgentsEvent, SessionId, SessionInfo};
-use crate::protocol::permissions::{Decision, PermissionAnswer, PermissionId, PermissionsEvent};
+use crate::protocol::permissions::{
+    Decision, PermissionAnswer, PermissionId, PermissionReason, PermissionsEvent,
+};
 use crate::protocol::projects::ProjectId;
 use crate::protocol::{ErrorCode, ProtocolError};
 use crate::services::{EventSink, RunningAgent};
@@ -259,6 +261,7 @@ impl AgentHost {
         tool: String,
         input: serde_json::Value,
         title: Option<String>,
+        reason: Option<PermissionReason>,
     ) -> PermissionAnswer {
         let registered = self.sessions.find(&self.session, |s| {
             if s.stopping() {
@@ -268,7 +271,7 @@ impl AgentHost {
                 return Err(PermissionAnswer::deny("the session ended"));
             }
             Ok(s.permissions
-                .register(self.session.clone(), tool, input, title))
+                .register(self.session.clone(), tool, input, title, reason))
         });
         let (request, answer) = match registered {
             Ok(Ok(registered)) => registered,

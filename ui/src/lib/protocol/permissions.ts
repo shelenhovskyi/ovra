@@ -9,6 +9,16 @@ export type PermissionRequest = {
   tool: string;
   input: unknown;
   title: string | null;
+  /** Why the agent's own rules ask a person, if it says. */
+  reason?: PermissionReason;
+};
+
+/** Why an agent asks rather than deciding itself. */
+export type PermissionReason = {
+  /** For people, e.g. "This command requires approval". */
+  text: string;
+  /** The agent's own category, e.g. `rule`, `hook` or `other`, if given. */
+  kind?: string;
 };
 
 export type Decision = "allow" | "deny";

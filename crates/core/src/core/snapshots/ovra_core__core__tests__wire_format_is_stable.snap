@@ -64,6 +64,10 @@ expression: samples
         "input": {
           "command": "ls"
         },
+        "reason": {
+          "kind": "other",
+          "text": "This command requires approval"
+        },
         "session": "s1",
         "title": "List files",
         "tool": "Bash"

@@ -182,7 +182,7 @@ impl Driver {
         self.asking.retain(|_, task| !task.is_finished());
         let id = request_id.clone();
         let task = tokio::spawn(async move {
-            let answer = host.ask(tool, input.clone(), title).await;
+            let answer = host.ask(tool, input.clone(), title, None).await;
             let response = match answer.decision {
                 Decision::Allow => wire::allow(input),
                 Decision::Deny => wire::deny(

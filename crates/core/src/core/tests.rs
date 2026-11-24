@@ -9,7 +9,9 @@ use crate::protocol::agents::{
 };
 use crate::protocol::fs::{FileBody, FsEvent};
 use crate::protocol::info::InfoEvent;
-use crate::protocol::permissions::{PermissionId, PermissionRequest, PermissionsEvent};
+use crate::protocol::permissions::{
+    PermissionId, PermissionReason, PermissionRequest, PermissionsEvent,
+};
 use crate::protocol::projects::{Project, ProjectState};
 use crate::protocol::terminals::{TerminalId, TerminalsEvent};
 
@@ -346,6 +348,10 @@ fn wire_format_is_stable() {
                 tool: "Bash".into(),
                 input: serde_json::json!({"command": "ls"}),
                 title: Some("List files".into()),
+                reason: Some(PermissionReason {
+                    text: "This command requires approval".into(),
+                    kind: Some("other".into()),
+                }),
             })),
             Event::Terminals(TerminalsEvent::Exited { id: TerminalId("t1".into()), code: None }),
         ],
