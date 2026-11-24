@@ -1,9 +1,8 @@
 // Remembers which files were open in a project and reopens the active one.
-// Project state is replaced as a whole and the tree stores its own fields in
-// it, so every write reads the current state first and changes only
-// `open_files` and `active_file`.
+// Writes are partial: only `open_files` and `active_file`, so fields of other
+// panels (the tree's expanded folders) stay as they are.
 
-import type { ProjectId } from "../lib/protocol";
+import type { ProjectId, ProjectStatePatch } from "../lib/protocol";
 import type { Transport } from "../lib/transport";
 import type { Workspace } from "../shell/workspace.svelte";
 
@@ -22,7 +21,10 @@ export class OpenFiles {
 
   /** Loads the stored state; resolves to the file that was active. */
   async restore(): Promise<string | null> {
-    const state = await this.read();
+    const { data: state } = await this.transport.call({
+      method: "projects.get_state",
+      params: { id: this.project },
+    });
     this.files = state.open_files;
     this.active = state.active_file;
     return state.active_file;
@@ -36,21 +38,13 @@ export class OpenFiles {
     const files = this.files;
     this.writes = this.writes
       .then(async () => {
-        const state = await this.read();
-        await this.transport.call({
-          method: "projects.set_state",
-          params: { id: this.project, state: { ...state, open_files: files, active_file: path } },
-        });
+        const state: ProjectStatePatch = { open_files: files, active_file: path };
+        await this.transport.call({ method: "projects.set_state", params: { id: this.project, state } });
       })
       .catch(() => {
         // Losing the list of open files is harmless; the next change writes it again.
       });
     return this.writes;
-  }
-
-  private async read() {
-    const { data } = await this.transport.call({ method: "projects.get_state", params: { id: this.project } });
-    return data;
   }
 }
 

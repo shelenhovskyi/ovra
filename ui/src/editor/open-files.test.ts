@@ -8,34 +8,39 @@ import { OpenFiles, persistOpenFiles } from "./open-files.svelte";
 function fakeCore(initial: ProjectState) {
   let state = initial;
   const calls: string[] = [];
+  const sent: unknown[] = [];
   const transport = {
     onEvent: () => () => {},
     call: async (request: Request) => {
       calls.push(request.method);
       if (request.method === "projects.get_state") return { type: "projects.state", data: state };
       if (request.method === "projects.set_state") {
-        state = request.params.state;
+        sent.push(request.params.state);
+        state = { ...state, ...request.params.state };
         return { type: "ok" };
       }
       throw new Error(`unexpected ${request.method}`);
     },
   } as unknown as Transport;
-  return { transport, calls, state: () => state };
+  return { transport, calls, sent, state: () => state };
 }
 
 const empty: ProjectState = { open_files: [], active_file: null, expanded_dirs: [] };
 const project: Project = { id: "p1", name: "p", root: "/p", last_opened_ms: null };
 
-test("keeps the tree's fields and moves a reopened file to the end", async () => {
+test("writes only its own fields and moves a reopened file to the end", async () => {
   const core = fakeCore({ open_files: ["a.rs", "b.rs"], active_file: "b.rs", expanded_dirs: ["src"] });
   const files = new OpenFiles(core.transport, "p1");
   expect(await files.restore()).toBe("b.rs");
 
-  // Another panel changes its field meanwhile; it must survive our write.
+  await files.opened("a.rs");
+  expect(core.sent.at(-1)).toEqual({ open_files: ["b.rs", "a.rs"], active_file: "a.rs" });
+  // Another panel changes its field meanwhile; it must survive our writes.
   await core.transport.call({
     method: "projects.set_state",
-    params: { id: "p1", state: { ...core.state(), expanded_dirs: ["src", "docs"] } },
+    params: { id: "p1", state: { expanded_dirs: ["src", "docs"] } },
   });
+  await files.opened("b.rs");
   await files.opened("a.rs");
   expect(core.state()).toEqual({ open_files: ["b.rs", "a.rs"], active_file: "a.rs", expanded_dirs: ["src", "docs"] });
 
