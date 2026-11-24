@@ -45,7 +45,7 @@ describe("SearchModel", () => {
     expect(model.lineCount).toBe(3);
     expect(model.status).toEqual({ kind: "searching" });
     core.done(1, { truncated: true });
-    expect(model.status).toEqual({ kind: "done", truncated: true });
+    expect(model.status).toEqual({ kind: "done", truncated: true, stopped: false });
   });
 
   it("keeps results that arrive before the core answers with the id", async () => {
@@ -103,8 +103,32 @@ describe("SearchModel", () => {
     core.results(1, file("a.txt", [1, "x", [[0, 1]]]));
     model.stop();
     expect(core.methods()).toEqual(["search.start", "search.cancel"]);
-    expect(model.status).toEqual({ kind: "done", truncated: false });
+    expect(model.status).toEqual({ kind: "done", truncated: false, stopped: true });
     expect(model.files).toHaveLength(1);
+  });
+
+  it("stopping before the core answers cancels the search once its id arrives", async () => {
+    const { core, model } = setup();
+    model.pattern = "x";
+    const running = model.run();
+    model.stop();
+    await running;
+    expect(core.methods()).toEqual(["search.start", "search.cancel"]);
+    core.results(1, file("a.txt", [1, "x", [[0, 1]]]));
+    expect(model.files).toEqual([]);
+    expect(model.status).toEqual({ kind: "done", truncated: false, stopped: true });
+  });
+
+  it("searches again after missing events, which may include the end", async () => {
+    const { core, model } = setup();
+    model.pattern = "x";
+    await model.run();
+    core.emit({ type: "info.resync", data: { skipped: 3 } });
+    for (let i = 0; i < 4; i++) await Promise.resolve();
+    expect(core.methods()).toEqual(["search.start", "search.cancel", "search.start"]);
+    core.done(2);
+    core.emit({ type: "info.resync", data: { skipped: 3 } });
+    expect(core.methods()).toHaveLength(3);
   });
 });
 

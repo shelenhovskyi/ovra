@@ -10,7 +10,8 @@ export const TYPING_DELAY_MS = 250;
 export type SearchStatus =
   | { kind: "idle" }
   | { kind: "searching" }
-  | { kind: "done"; truncated: boolean }
+  /** `stopped`: the person stopped it, so more may match. */
+  | { kind: "done"; truncated: boolean; stopped: boolean }
   | { kind: "error"; message: string };
 
 /** Comma-separated globs as typed, as a list. */
@@ -48,13 +49,22 @@ export class SearchModel {
   /** Events that arrived while a start was waiting for its id. */
   private early: CoreEvent[] | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
-  private readonly off: () => void;
+  private readonly offs: (() => void)[];
 
   constructor(
     private readonly transport: Transport,
     private readonly project: ProjectId,
   ) {
-    this.off = transport.onEvent((event) => this.onEvent(event));
+    // Missed events (a lagging connection or a reconnect) may include the
+    // search's end: search again rather than wait forever.
+    let wasOpen = true;
+    this.offs = [
+      transport.onEvent((event) => this.onEvent(event)),
+      transport.onStatus?.((status) => {
+        if (status === "open" && !wasOpen) this.retry();
+        wasOpen = status === "open";
+      }) ?? (() => {}),
+    ];
   }
 
   /** Searches again once typing pauses. */
@@ -102,9 +112,12 @@ export class SearchModel {
 
   /** Cancels the running search; results found so far stay. */
   stop(): void {
-    if (this.current !== null && this.status.kind === "searching") {
-      void this.cancel(this.current);
-      this.status = { kind: "done", truncated: false };
+    if (this.status.kind === "searching") {
+      if (this.current !== null) void this.cancel(this.current);
+      // A start still waiting for its id is cancelled when the id arrives.
+      this.runs++;
+      this.early = null;
+      this.status = { kind: "done", truncated: false, stopped: true };
     }
     this.current = null;
   }
@@ -113,7 +126,11 @@ export class SearchModel {
     if (this.timer !== null) clearTimeout(this.timer);
     this.stop();
     this.runs++;
-    this.off();
+    for (const off of this.offs) off();
+  }
+
+  private retry(): void {
+    if (this.status.kind === "searching") void this.run();
   }
 
   private query(): SearchQuery {
@@ -136,6 +153,10 @@ export class SearchModel {
   }
 
   private onEvent(event: CoreEvent): void {
+    if (event.type === "info.resync") {
+      this.retry();
+      return;
+    }
     if (event.type !== "search.results" && event.type !== "search.done") return;
     if (this.early) {
       this.early.push(event);
@@ -146,7 +167,7 @@ export class SearchModel {
       this.files = mergeFiles(this.files, event.data.files);
     } else {
       this.current = null;
-      if (!event.data.cancelled) this.status = { kind: "done", truncated: event.data.truncated };
+      if (!event.data.cancelled) this.status = { kind: "done", truncated: event.data.truncated, stopped: false };
     }
   }
 }

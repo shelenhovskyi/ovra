@@ -60,6 +60,7 @@ const summary = $derived.by(() => {
     case "searching":
       return model.files.length ? `Searching… ${found} so far` : "Searching…";
     case "done":
+      if (status.stopped) return model.files.length ? `Stopped: ${found} so far.` : "Stopped.";
       if (!model.files.length) return "No results.";
       return status.truncated ? `${found}. Stopped at the limit: narrow the search to see the rest.` : `${found}.`;
   }
