@@ -2,7 +2,9 @@ import { afterEach, expect, test } from "vitest";
 import { listCommands } from "../keys/commands";
 import type { Transport } from "../lib/transport";
 import { Workspace } from "../shell/workspace.svelte";
+import { Buffers } from "./buffers.svelte";
 import { registerEditorCommands } from "./commands";
+import { Drafts } from "./drafts.svelte";
 import { OpenFiles, tabs } from "./open-files.svelte";
 
 const transport = { call: async () => ({ type: "ok" }), onEvent: () => () => {} } as unknown as Transport;
@@ -34,7 +36,11 @@ test("editor.toggle switches the open file between viewing and editing", () => {
 test("tab commands switch, wrap around and close, keeping the mode", () => {
   const workspace = new Workspace();
   const unregister = registerEditorCommands(workspace);
-  const files = new OpenFiles(transport, "p1");
+  const files = new OpenFiles(
+    transport,
+    "p1",
+    new Buffers({ transport, project: "p1", drafts: new Drafts(null), highlighter: () => null }),
+  );
   tabs.current = files;
   for (const path of ["a", "b", "c"]) void files.opened(path);
   workspace.openFile("c", "edit");

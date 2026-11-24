@@ -2,7 +2,7 @@
 
 import { registerCommand } from "../keys/commands";
 import type { Workspace } from "../shell/workspace.svelte";
-import { show, tabs } from "./open-files.svelte";
+import { requestClose, show, tabs } from "./open-files.svelte";
 
 type Target = Pick<Workspace, "openPath" | "mode" | "openFile">;
 
@@ -28,8 +28,8 @@ export function registerEditorCommands(workspace: Target): () => void {
       title: "Close tab",
       keys: "Mod+W",
       run: () => {
-        const current = tabs.current;
-        if (current?.active) show(workspace, current.close(current.active));
+        const active = tabs.current?.active;
+        if (active) requestClose(workspace, active);
       },
     }),
   ];
