@@ -330,6 +330,28 @@ async fn approved_work_applies_unless_the_person_changed_the_file() {
 }
 
 #[tokio::test]
+async fn worktrees_are_locked_until_removed_even_when_their_folder_is_gone() {
+    let repo = Repo::new(&[("a.txt", "a\n")]);
+    let w = GitWorktrees::new();
+    let (_, wt) = repo.worker(&w).await;
+    let root = &repo.root;
+    let listed = git(root, &["worktree", "list", "--porcelain"]);
+    assert!(listed.contains("locked Ovra agent session"), "{listed}");
+    assert!(git_fails(
+        root,
+        &["worktree", "remove", "--force", &wt.to_string_lossy()]
+    ));
+
+    // The folder disappears (an unmounted disk, say): git keeps the worktree.
+    fs::remove_dir_all(&wt).unwrap_or_else(|e| panic!("{e}"));
+    git(root, &["worktree", "prune"]);
+    assert_eq!(git(root, &["worktree", "list"]).lines().count(), 2);
+
+    assert!(w.remove(root.clone(), wt).await.is_ok());
+    assert_eq!(git(root, &["worktree", "list"]).lines().count(), 1);
+}
+
+#[tokio::test]
 async fn restore_touches_only_the_files_named() {
     let repo = Repo::new(&[("d/f.txt", "f\n"), ("keep.txt", "keep\n")]);
     let root = &repo.root;

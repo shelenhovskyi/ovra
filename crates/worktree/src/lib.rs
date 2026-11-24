@@ -29,6 +29,9 @@ use crate::git::Git;
 /// base of a worktree while a session needs it; its reflog lists them all.
 const SNAPSHOT_REF: &str = "refs/ovra/snapshot";
 
+/// Why Ovra's worktrees are locked, as `git worktree list` shows it.
+const LOCK_REASON: &str = "Ovra agent session";
+
 /// Snapshots this young are kept by `prune_snapshots` whatever the core
 /// says: a worker's snapshot is taken before its review item exists.
 const KEEP_YOUNG: Duration = Duration::from_secs(10 * 60);
@@ -144,8 +147,19 @@ fn create(root: &Path, dir: &Path, branch: &str, base: &str) -> Result<WorktreeI
     if existing.is_some() {
         return conflict(format!("branch {branch} already exists"));
     }
+    // Locked for its whole life, so `git worktree prune` (also run by
+    // `git gc`) keeps it while its folder is out of reach, and a plain
+    // `git worktree remove` refuses it.
     Git::new(root, "worktree")
-        .args(["add", "--quiet", "-b", branch])
+        .args([
+            "add",
+            "--quiet",
+            "--lock",
+            "--reason",
+            LOCK_REASON,
+            "-b",
+            branch,
+        ])
         .arg(dir)
         .arg(&base)
         .run()?;
@@ -157,13 +171,16 @@ fn create(root: &Path, dir: &Path, branch: &str, base: &str) -> Result<WorktreeI
 }
 
 fn remove(root: &Path, dir: &Path) -> Result<()> {
+    // The session is over: its uncommitted files go, its branch stays. The
+    // second `--force` removes the lock, also when the folder is gone.
+    let removed = Git::new(root, "worktree")
+        .args(["remove", "--force", "--force"])
+        .arg(dir)
+        .run();
     if dir.exists() {
-        // The session is over: its uncommitted files go, its branch stays.
-        Git::new(root, "worktree")
-            .args(["remove", "--force"])
-            .arg(dir)
-            .run()?;
+        removed?;
     } else {
+        // Unknown to git as well, or just removed: drop what is left.
         Git::new(root, "worktree").arg("prune").run()?;
     }
     Ok(())
