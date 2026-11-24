@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use ovra_core::protocol::agents::{AgentMessage, AgentStatus};
 use ovra_core::protocol::permissions::{Decision, PermissionReason};
-use ovra_core::services::AgentHost;
+use ovra_core::services::{AgentHost, ToolRole};
 use serde_json::Value;
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::mpsc;
@@ -58,6 +58,8 @@ async fn write_lines(
 struct Driver {
     cwd: PathBuf,
     host: AgentHost,
+    /// The session's IDE tools role; `None` passes no `ovra` MCP server.
+    ide: Option<ToolRole>,
     out: Option<mpsc::UnboundedSender<Value>>,
     /// Messages held back until the CLI has answered `initialize`.
     queued: Option<Vec<String>>,
@@ -158,6 +160,11 @@ impl Driver {
                 };
                 self.write(line);
             }
+            Incoming::Mcp {
+                request_id,
+                server,
+                message,
+            } => self.mcp(request_id, &server, message),
             Incoming::UnknownControl {
                 request_id,
                 subtype,
@@ -184,6 +191,27 @@ impl Driver {
             Incoming::ControlResponse { .. } | Incoming::Ignored => {}
         }
         Ok(())
+    }
+
+    /// Passes a message for the `ovra` MCP server to the core's IDE tools.
+    /// A tool call can wait on the core (starting a worker), so it runs on
+    /// its own while the conversation goes on.
+    fn mcp(&mut self, request_id: String, server: &str, message: Value) {
+        let Some(role) = self.ide.filter(|_| server == wire::IDE_SERVER) else {
+            self.write(wire::error(
+                &request_id,
+                &format!("Ovra has no MCP server {server} for this session"),
+            ));
+            return;
+        };
+        let Some(out) = self.out.clone() else {
+            return;
+        };
+        let host = self.host.clone();
+        tokio::spawn(async move {
+            let reply = host.call_ide(role, message).await;
+            let _ = out.send(wire::success(&request_id, wire::mcp_response(reply)));
+        });
     }
 
     /// Asks the person through the core and answers the CLI when they do.
@@ -225,6 +253,7 @@ pub(crate) async fn run(
     stdin: impl AsyncWrite + Unpin + Send + 'static,
     cwd: PathBuf,
     host: AgentHost,
+    ide: Option<ToolRole>,
     prompt: String,
     mut commands: mpsc::UnboundedReceiver<Command>,
 ) -> Ended {
@@ -233,6 +262,7 @@ pub(crate) async fn run(
     let mut driver = Driver {
         cwd,
         host,
+        ide,
         out: Some(out),
         queued: Some(vec![prompt]),
         asking: HashMap::new(),

@@ -112,7 +112,7 @@ async fn session(
         return failed(problem.to_string());
     }
     let child = launch::command(&executable)
-        .args(launch::args(&conversation, spec.trusted))
+        .args(launch::args(&conversation, spec.trusted, spec.tools))
         .current_dir(&spec.cwd)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -138,6 +138,7 @@ async fn session(
         stdin,
         spec.cwd,
         host,
+        spec.tools,
         spec.prompt,
         commands,
     )

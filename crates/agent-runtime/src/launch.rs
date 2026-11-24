@@ -37,7 +37,7 @@ pub(crate) fn command(executable: &Path) -> Command {
     command
 }
 
-use ovra_core::services::AgentSpec;
+use ovra_core::services::{AgentSpec, ToolRole};
 
 /// Which Claude Code session the process works in.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,7 +68,15 @@ impl Conversation {
 /// The arguments for one session. Ovra never passes `--bare` (it ignores the
 /// subscription login) and never touches `CLAUDE_CONFIG_DIR` or credentials;
 /// the environment is inherited except for [`NESTED_SESSION_VARS`] (ADR 0006).
-pub(crate) fn args(conversation: &Conversation, trusted: bool) -> Vec<OsString> {
+/// `ide` passes Ovra's in-process `ovra` MCP server (its IDE tools), whose
+/// messages come back as `mcp_message` control requests. A coordinator only
+/// reads the project and directs workers: it gets no built-in tool that
+/// writes or runs anything (owner decision, 2026-11-24).
+pub(crate) fn args(
+    conversation: &Conversation,
+    trusted: bool,
+    ide: Option<ToolRole>,
+) -> Vec<OsString> {
     let mut args: Vec<&str> = vec![
         "-p",
         "--input-format",
@@ -92,11 +100,18 @@ pub(crate) fn args(conversation: &Conversation, trusted: bool) -> Vec<OsString> 
         } else {
             "user"
         },
-        // Only the MCP servers Ovra passes: none yet.
+        // Only the MCP servers Ovra passes.
         "--strict-mcp-config",
         "--mcp-config",
-        r#"{"mcpServers":{}}"#,
+        if ide.is_some() {
+            r#"{"mcpServers":{"ovra":{"type":"sdk","name":"ovra"}}}"#
+        } else {
+            r#"{"mcpServers":{}}"#
+        },
     ];
+    if ide == Some(ToolRole::Coordinator) {
+        args.extend(["--tools", "Read,Grep,Glob"]);
+    }
     match conversation {
         Conversation::New(id) => args.extend(["--session-id", id]),
         Conversation::Resume { id, fork } => {
@@ -135,7 +150,7 @@ mod tests {
     }
 
     fn line(conversation: &Conversation, trusted: bool) -> String {
-        args(conversation, trusted)
+        args(conversation, trusted, None)
             .iter()
             .map(|a| a.to_string_lossy().into_owned())
             .collect::<Vec<_>>()
@@ -155,6 +170,33 @@ mod tests {
         );
         assert!(resume.ends_with("--setting-sources user --strict-mcp-config --mcp-config {\"mcpServers\":{}} --resume abc --fork-session"));
         assert!(!resume.contains("--bare"));
+    }
+
+    #[test]
+    fn sessions_with_ide_tools_get_the_in_process_ovra_server() {
+        let after = |role, flag: &str| {
+            let args = args(&Conversation::New("id".into()), false, Some(role));
+            let args: Vec<_> = args
+                .iter()
+                .map(|a| a.to_string_lossy().into_owned())
+                .collect();
+            let at = args.iter().position(|a| a == flag)?;
+            args.get(at + 1).cloned()
+        };
+        let ovra = r#"{"mcpServers":{"ovra":{"type":"sdk","name":"ovra"}}}"#;
+        assert_eq!(
+            after(ToolRole::Worker, "--mcp-config").as_deref(),
+            Some(ovra)
+        );
+        assert_eq!(
+            after(ToolRole::Coordinator, "--mcp-config").as_deref(),
+            Some(ovra)
+        );
+        assert_eq!(after(ToolRole::Worker, "--tools"), None);
+        assert_eq!(
+            after(ToolRole::Coordinator, "--tools").as_deref(),
+            Some("Read,Grep,Glob")
+        );
     }
 
     #[test]

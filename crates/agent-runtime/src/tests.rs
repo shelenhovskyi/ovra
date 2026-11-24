@@ -13,6 +13,7 @@ use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 
 use super::*;
+use ovra_core::services::{BoxFuture, IdeTools, ToolCaller, ToolRole};
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(PoisonError::into_inner)
@@ -99,6 +100,8 @@ struct Replay {
     core: OnceLock<Core>,
     cli: Mutex<Option<JoinHandle<std::result::Result<(), String>>>>,
     ended: Arc<Mutex<Vec<Ended>>>,
+    /// The IDE tools role the session gets, whatever the core asked for.
+    ide: Option<ToolRole>,
 }
 
 impl AgentRuntime for Replay {
@@ -121,12 +124,14 @@ impl AgentRuntime for Replay {
         ));
         *lock(&self.cli) = Some(cli);
         let ended = self.ended.clone();
+        let ide = self.ide.or(spec.tools);
         tokio::spawn(async move {
             let end = driver::run(
                 BufReader::new(ovra_stdout),
                 ovra_stdin,
                 spec.cwd,
                 host.clone(),
+                ide,
                 spec.prompt,
                 rx,
             )
@@ -600,7 +605,7 @@ async fn a_cmd_script_gets_the_whole_command_line() {
     let script = dir.path().join("claude.cmd");
     std::fs::write(&script, "@echo off\r\necho %*> \"%~dp0claude.args\"\r\n")
         .unwrap_or_else(|e| panic!("{e}"));
-    let args = launch::args(&launch::Conversation::New("id".into()), false);
+    let args = launch::args(&launch::Conversation::New("id".into()), false, None);
     let status = tokio::process::Command::new(&script)
         .args(&args)
         .status()
@@ -617,4 +622,86 @@ async fn a_cmd_script_gets_the_whole_command_line() {
         0,
         "unbalanced quotes: {line}"
     );
+}
+
+/// IDE tools that answer every request with who called.
+#[derive(Debug)]
+struct WhoCalls;
+
+impl IdeTools for WhoCalls {
+    fn handle(
+        &self,
+        _core: Core,
+        caller: ToolCaller,
+        message: Value,
+    ) -> BoxFuture<'_, Option<Value>> {
+        Box::pin(async move {
+            let id = message.get("id")?.clone();
+            Some(json!({"jsonrpc": "2.0", "id": id, "result": {
+                "session": caller.session.0, "role": format!("{:?}", caller.role)}}))
+        })
+    }
+}
+
+#[tokio::test]
+async fn messages_for_the_ovra_mcp_server_reach_the_ide_tools() {
+    let mcp = |id: &str, server: &str, message: Value| {
+        json!({"cli": {"type": "control_request", "request_id": id,
+            "request": {"subtype": "mcp_message", "server_name": server, "message": message}}})
+    };
+    let answer = |id: &str, reply: Value| {
+        json!({"ovra": {"type": "control_response", "response": {
+            "subtype": "success", "request_id": id, "response": {"mcp_response": reply}}}})
+    };
+    let steps = vec![
+        json!({"ovra": wire::initialize()}),
+        json!({"cli": {"type": "control_response",
+            "response": {"subtype": "success", "request_id": "init", "response": {}}}}),
+        json!({"ovra": wire::user("go")}),
+        mcp(
+            "m1",
+            "ovra",
+            json!({"jsonrpc": "2.0", "id": 4, "method": "tools/list"}),
+        ),
+        answer(
+            "m1",
+            json!({"jsonrpc": "2.0", "id": 4,
+            "result": {"session": "s1", "role": "Worker"}}),
+        ),
+        mcp(
+            "m2",
+            "ovra",
+            json!({"jsonrpc": "2.0", "method": "notifications/initialized"}),
+        ),
+        answer("m2", json!({"jsonrpc": "2.0", "id": 0, "result": {}})),
+        mcp(
+            "m3",
+            "github",
+            json!({"jsonrpc": "2.0", "id": 5, "method": "tools/list"}),
+        ),
+        json!({"ovra": {"type": "control_response", "response": {"subtype": "error",
+            "request_id": "m3", "error": "Ovra has no MCP server github for this session"}}}),
+        json!({"core": {"method": "agents.stop", "params": {"session": "s1"}}}),
+        json!({"ovra": wire::interrupt("interrupt1")}),
+    ];
+    let runtime = Arc::new(Replay {
+        steps,
+        ide: Some(ToolRole::Worker),
+        ..Replay::default()
+    });
+    let core = Core::builder("test")
+        .projects(Arc::new(MemoryProjects::default()))
+        .agents(runtime.clone())
+        .ide_tools(Arc::new(WhoCalls))
+        .build();
+    let _ = runtime.core.set(core.clone());
+    start(&core, ROOT, "go").await;
+    let cli = lock(&runtime.cli).take();
+    match cli {
+        Some(cli) => cli
+            .await
+            .unwrap_or_else(|e| panic!("{e}"))
+            .unwrap_or_else(|e| panic!("{e}")),
+        None => panic!("the session did not start"),
+    }
 }

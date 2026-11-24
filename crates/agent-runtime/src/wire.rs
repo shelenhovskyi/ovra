@@ -10,6 +10,8 @@ use serde_json::{Value, json};
 pub(crate) const INIT_ID: &str = "init";
 /// Callback id of the `PreToolUse` hook registered at `initialize`.
 pub(crate) const POLICY_HOOK: &str = "ovra_policy";
+/// The name of Ovra's in-process MCP server in `--mcp-config`.
+pub(crate) const IDE_SERVER: &str = "ovra";
 
 /// What one stdout line means to the driver.
 #[derive(Debug, PartialEq)]
@@ -38,6 +40,12 @@ pub(crate) enum Incoming {
         request_id: String,
         callback_id: String,
         input: Value,
+    },
+    /// A JSON-RPC message for one of the in-process MCP servers Ovra passed.
+    Mcp {
+        request_id: String,
+        server: String,
+        message: Value,
     },
     /// A control request we do not handle; answered with an error.
     UnknownControl { request_id: String, subtype: String },
@@ -106,6 +114,11 @@ fn control_request(v: &Value) -> Incoming {
                 request_id,
                 subtype,
             },
+        },
+        "mcp_message" => Incoming::Mcp {
+            request_id,
+            server: str_field(request, "server_name").unwrap_or_default(),
+            message: request.get("message").cloned().unwrap_or(Value::Null),
         },
         "hook_callback" => Incoming::Hook {
             request_id,
@@ -240,6 +253,13 @@ pub(crate) fn success(request_id: &str, response: Value) -> Value {
 pub(crate) fn error(request_id: &str, message: &str) -> Value {
     json!({"type": "control_response", "response": {
         "subtype": "error", "request_id": request_id, "error": message}})
+}
+
+/// The answer to an `mcp_message`. A notification needs none, but the CLI
+/// waits for every control request, so it gets an empty result.
+pub(crate) fn mcp_response(reply: Option<Value>) -> Value {
+    let reply = reply.unwrap_or_else(|| json!({"jsonrpc": "2.0", "id": 0, "result": {}}));
+    json!({ "mcp_response": reply })
 }
 
 pub(crate) fn allow(input: Value) -> Value {

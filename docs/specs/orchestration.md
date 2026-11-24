@@ -24,8 +24,8 @@ clear message past either.
 
 ## IDE tools (MCP)
 
-Defined in `crates/mcp-server/src/tools.json` (needs human review before
-3.C). Who may call what:
+Defined in `crates/mcp-server/src/tools.json`, reviewed and approved by the
+owner on 2026-11-24; changes need a human review again. Who may call what:
 
 | Tool                                                                      | Coordinator               | Worker     |
 | ------------------------------------------------------------------------- | ------------------------- | ---------- |
