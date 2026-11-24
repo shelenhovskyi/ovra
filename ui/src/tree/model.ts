@@ -131,7 +131,7 @@ export class TreeModel {
 
   private rebuild(): void {
     const rows: Row[] = [];
-    const walk = (dir: string, depth: number): void => {
+    const walk = (dir: string, depth: number, ignoredDir: boolean): void => {
       for (const entry of this.dirs.get(dir) ?? []) {
         const path = joinPath(dir, entry.name);
         const isDir = entry.kind === "dir";
@@ -142,14 +142,14 @@ export class TreeModel {
           depth,
           kind: entry.kind,
           git: entry.git,
-          ignored: entry.ignored,
+          ignored: ignoredDir || entry.ignored,
           expanded,
           loading: expanded && this.loading.has(path),
         });
-        if (expanded) walk(path, depth + 1);
+        if (expanded) walk(path, depth + 1, ignoredDir || entry.ignored);
       }
     };
-    walk("", 0);
+    walk("", 0, false);
     this.rows = rows;
     this.onChange();
   }

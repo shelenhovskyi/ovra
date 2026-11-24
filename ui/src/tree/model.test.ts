@@ -57,6 +57,23 @@ describe("TreeModel", () => {
     ]);
   });
 
+  it("dims everything inside an ignored directory", async () => {
+    const dirs = dirsFromPaths(["dist/app.js", "src/a.ts"]);
+    // The core marks only the top ignored entry; its contents inherit the flag.
+    const dist = dirs.get("")?.find((e) => e.name === "dist");
+    if (dist) dist.ignored = true;
+    const { model } = setup(dirs);
+    await model.start();
+    await model.expand("dist");
+    await model.expand("src");
+    expect(model.rows.map((r) => [r.path, r.ignored])).toEqual([
+      ["dist", true],
+      ["dist/app.js", true],
+      ["src", false],
+      ["src/a.ts", false],
+    ]);
+  });
+
   it("reloads only the directories an fs.changed event touches", async () => {
     const { core, model, names } = setup(["src/a.ts", "docs/x.md"]);
     await model.start();
