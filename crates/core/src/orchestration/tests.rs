@@ -10,6 +10,7 @@ use crate::protocol::agents::{
     AgentMessage, AgentStatus, AgentsEvent, SessionId, SessionMode, TurnUsage,
 };
 use crate::protocol::orchestration::{OrchestrationEvent, OrchestrationResponse, ShowTarget, Task};
+use crate::protocol::permissions::PermissionsEvent;
 use crate::protocol::projects::ProjectId;
 use crate::protocol::review::{ChangeKind, ReviewItem, ReviewResponse, ReviewState};
 use crate::protocol::{ErrorCode, Event, ProtocolError, Request, Response};
@@ -243,6 +244,101 @@ async fn the_budget_stops_new_workers() {
         panic!("unexpected {tasks:?}");
     };
     assert_eq!(tasks[0].spent_micro_usd, 1_250_000);
+}
+
+#[tokio::test]
+async fn ovra_tools_are_decided_by_role_without_asking() {
+    let turns = vec![vec![
+        Step::Use {
+            tool: "mcp__ovra__spawn_agent",
+            input: json!({"name": "w", "task": "x"}),
+        },
+        Step::Use {
+            tool: "mcp__ovra__request_review",
+            input: json!({"summary": "done"}),
+        },
+        Step::Use {
+            tool: "mcp__ovra__request_review",
+            input: json!({"summary": "done", "agent_id": "s1"}),
+        },
+        Step::Use {
+            tool: "mcp__ovra__delete_everything",
+            input: json!({}),
+        },
+    ]];
+    let f = fx(turns).await;
+    let mut rx = f.core.subscribe();
+    start_task(&f.core, 1).await;
+    until(&mut rx, "s1", AgentStatus::Idle).await;
+    let boss = caller("s1", ToolRole::Coordinator);
+    assert!(f.core.spawn_agent(&boss, "w", "x").await.is_ok());
+    until(&mut rx, "s2", AgentStatus::Idle).await;
+    ok(
+        &f.core,
+        json!({"method": "agents.start", "params": {
+        "project": "p1", "agent": "claude", "mode": "direct", "prompt": "plain"}}),
+    )
+    .await;
+    until(&mut rx, "s3", AgentStatus::Idle).await;
+
+    let results = |messages: Vec<AgentMessage>| -> Vec<String> {
+        messages
+            .into_iter()
+            .filter_map(|m| match m {
+                AgentMessage::ToolResult {
+                    output, is_error, ..
+                } => Some(if is_error {
+                    output
+                } else {
+                    "allowed".to_owned()
+                }),
+                _ => None,
+            })
+            .collect()
+    };
+    // The coordinator's spawn ran before any worker; review needs a worker.
+    insta::assert_debug_snapshot!(
+        (
+            results(transcript(&f.core, "s1").await),
+            results(transcript(&f.core, "s2").await),
+            results(transcript(&f.core, "s3").await),
+        ),
+        @r#"
+    (
+        [
+            "allowed",
+            "allowed",
+            "allowed",
+            "Ovra has no tool named delete_everything",
+        ],
+        [
+            "only the task's coordinator may use spawn_agent",
+            "allowed",
+            "a worker may ask for a review of its own work only",
+            "Ovra has no tool named delete_everything",
+        ],
+        [
+            "this session has no Ovra tools",
+            "this session has no Ovra tools",
+            "this session has no Ovra tools",
+            "this session has no Ovra tools",
+        ],
+    )
+    "#
+    );
+    // At the limit, the coordinator's next spawn is denied with the reason.
+    let denied = crate::orchestration::decide(&f.core, &sid("s1"), "spawn_agent", &json!({}));
+    assert_eq!(
+        denied.message.as_deref(),
+        Some("the task already runs 1 workers, its limit; wait for one to finish or stop one")
+    );
+    // Nobody was asked.
+    while let Ok(event) = rx.try_recv() {
+        assert!(!matches!(
+            event,
+            Event::Permissions(PermissionsEvent::Requested(_))
+        ));
+    }
 }
 
 #[tokio::test]

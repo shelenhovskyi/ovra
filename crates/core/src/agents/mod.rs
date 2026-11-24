@@ -418,6 +418,13 @@ impl AgentHost {
         title: Option<String>,
         reason: Option<PermissionReason>,
     ) -> PermissionAnswer {
+        if let Some(name) = tool.strip_prefix(crate::orchestration::IDE_TOOL_PREFIX) {
+            // Ovra's own tools are decided by role and limits, never asked.
+            return match self.sessions.core() {
+                Some(core) => crate::orchestration::decide(&core, &self.session, name, &input),
+                None => PermissionAnswer::deny("Ovra is shutting down"),
+            };
+        }
         let registered = self.sessions.find(&self.session, |s| {
             if s.stopping() {
                 return Err(PermissionAnswer::deny("the session was stopped"));

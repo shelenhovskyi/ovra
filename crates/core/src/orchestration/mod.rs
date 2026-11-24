@@ -1,12 +1,14 @@
 //! Orchestration and review state (`docs/specs/orchestration.md`): tasks of
-//! a coordinator and its workers, their limits, review items, and the holds
-//! running sessions keep on their projects. Pure state: worktrees and agents are reached through services.
+//! a coordinator and its workers, their limits, review items, the holds
+//! running sessions keep on their projects, and the answers to Ovra's own
+//! tools. Pure state: worktrees and agents are reached through services.
 //!
 //! Lock order: this state's lock may be held while taking the sessions'
 //! lock, never the other way round; sessions call in here only without
 //! holding theirs.
 
 mod ide;
+mod policy;
 mod review;
 mod tasks;
 
@@ -15,6 +17,7 @@ use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 pub use ide::{Output, WorkerState};
+pub(crate) use policy::{IDE_TOOL_PREFIX, decide};
 
 use crate::Core;
 use crate::protocol::agents::{AgentStatus, SessionId};
