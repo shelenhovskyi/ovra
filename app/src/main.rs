@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use ovra_agent_runtime::ClaudeCli;
-use ovra_core::Core;
+use ovra_core::{Client, Core};
 use ovra_fs_index::FsIndex;
 use ovra_opener::SystemOpener;
 use ovra_pty::Pty;
@@ -15,8 +15,8 @@ use tauri::{Emitter, Manager};
 
 /// Carries one client frame to the core and returns the reply frame.
 #[tauri::command]
-async fn ovra_call(core: tauri::State<'_, Core>, frame: String) -> Result<String, ()> {
-    Ok(ovra_transport::dispatch(&core, &frame).await)
+async fn ovra_call(client: tauri::State<'_, Client>, frame: String) -> Result<String, ()> {
+    Ok(ovra_transport::dispatch(&client, &frame).await)
 }
 
 fn main() {
@@ -33,9 +33,10 @@ fn main() {
                 .terminals(Arc::new(Pty::new()))
                 .agents(Arc::new(ClaudeCli::new(None)))
                 .build();
-            app.manage(core);
+            let mut events = core.subscribe();
+            // One window, one client.
+            app.manage(core.connect());
             let handle = app.handle().clone();
-            let mut events = app.state::<Core>().subscribe();
             tauri::async_runtime::spawn(async move {
                 // A lagging window gets `info.resync` and keeps receiving.
                 while let Some(event) = Core::next_event(&mut events).await {

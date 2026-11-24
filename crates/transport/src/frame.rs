@@ -1,4 +1,4 @@
-use ovra_core::Core;
+use ovra_core::Client;
 #[cfg(test)]
 use ovra_core::protocol::info::InfoEvent;
 use ovra_core::protocol::{ErrorCode, Event, ProtocolError, Request, Response};
@@ -35,10 +35,11 @@ impl ServerFrame {
     }
 }
 
-/// Parses one client frame, runs it on the core and returns the reply frame.
-pub async fn dispatch(core: &Core, text: &str) -> String {
+/// Parses one client frame, runs it for the connection's client and returns
+/// the reply frame.
+pub async fn dispatch(client: &Client, text: &str) -> String {
     let frame = match serde_json::from_str::<ClientFrame>(text) {
-        Ok(frame) => match core.handle(frame.request).await {
+        Ok(frame) => match client.handle(frame.request).await {
             Ok(result) => ServerFrame::Result {
                 id: frame.id,
                 result,
@@ -72,16 +73,16 @@ mod tests {
 
     #[tokio::test]
     async fn get_info_round_trip() {
-        let core = Core::new("test");
-        let reply = dispatch(&core, r#"{"id":7,"method":"info.get"}"#).await;
+        let core = ovra_core::Core::new("test");
+        let reply = dispatch(&core.connect(), r#"{"id":7,"method":"info.get"}"#).await;
         let value: serde_json::Value = serde_json::from_str(&reply).unwrap_or_default();
         insta::assert_json_snapshot!(value, {".result.data.version" => "[version]"});
     }
 
     #[tokio::test]
     async fn unknown_method_is_bad_request_with_id() {
-        let core = Core::new("test");
-        let reply = dispatch(&core, r#"{"id":3,"method":"nope"}"#).await;
+        let core = ovra_core::Core::new("test");
+        let reply = dispatch(&core.connect(), r#"{"id":3,"method":"nope"}"#).await;
         let value: serde_json::Value = serde_json::from_str(&reply).unwrap_or_default();
         assert_eq!(value["id"], 3);
         assert_eq!(value["error"]["code"], "bad_request");
@@ -89,8 +90,8 @@ mod tests {
 
     #[tokio::test]
     async fn garbage_is_bad_request_without_id() {
-        let core = Core::new("test");
-        let reply = dispatch(&core, "not json").await;
+        let core = ovra_core::Core::new("test");
+        let reply = dispatch(&core.connect(), "not json").await;
         let value: serde_json::Value = serde_json::from_str(&reply).unwrap_or_default();
         assert!(value["id"].is_null());
         assert_eq!(value["error"]["code"], "bad_request");
@@ -98,8 +99,8 @@ mod tests {
 
     #[tokio::test]
     async fn service_errors_keep_the_request_id() {
-        let core = Core::new("test");
-        let reply = dispatch(&core, r#"{"id":4,"method":"projects.list"}"#).await;
+        let core = ovra_core::Core::new("test");
+        let reply = dispatch(&core.connect(), r#"{"id":4,"method":"projects.list"}"#).await;
         let value: serde_json::Value = serde_json::from_str(&reply).unwrap_or_default();
         assert_eq!(value["id"], 4);
         assert_eq!(value["error"]["code"], "unavailable");
