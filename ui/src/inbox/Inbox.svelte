@@ -21,7 +21,7 @@ import {
   rejectHint,
   STATE_LABEL,
 } from "./describe";
-import { type Outcome, ReviewInbox } from "./reviews.svelte";
+import { message as errorText, type Outcome, ReviewInbox } from "./reviews.svelte";
 
 const KEYS = "Mod+Shift+R";
 const { transport, workspace } = useOvra();
@@ -48,9 +48,7 @@ const item = $derived(inbox.items.find((i) => i.id === selectedId) ?? null);
 const file = $derived(item?.files.find((f) => f.path === selectedPath) ?? null);
 const busy = $derived(item ? inbox.busy.includes(item.id) : false);
 const outcome = $derived(inbox.outcome && inbox.outcome.id === item?.id ? inbox.outcome : null);
-const diffKey = $derived(
-  item && file && !inbox.decidedFiles.includes(item.id) ? `${item.id}\n${file.path}\n${inbox.changes}` : null,
-);
+const diffKey = $derived(item && file ? `${item.id}\n${file.path}\n${inbox.changes}` : null);
 
 $effect(() => () => inbox.dispose());
 
@@ -101,7 +99,7 @@ $effect(() => {
       if (live) diff = { key, patch, error: null };
     },
     (err: unknown) => {
-      if (live) diff = { key, patch: null, error: err instanceof Error ? err.message : String(err) };
+      if (live) diff = { key, patch: null, error: errorText(err) };
     },
   );
   return () => {
@@ -485,10 +483,6 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                 <div class="diff" data-testid="inbox-diff">
                   {#if !file}
                     <p class="empty">This review has no files.</p>
-                  {:else if inbox.decidedFiles.includes(item.id)}
-                    <p class="empty">
-                      Decided: these are the files it was decided with. Their diffs are no longer kept.
-                    </p>
                   {:else if diff?.error}
                     <p class="error" role="alert">Could not load the diff of {file.path}: {diff.error}</p>
                   {:else if diff?.patch === null || !diff}

@@ -84,15 +84,4 @@ describe("ReviewInbox", () => {
     await inbox.show("p1");
     expect(inbox.waiting.map((i) => i.id)).toEqual(["r1"]);
   });
-
-  it("keeps the files an item was decided with when the core stops listing them", async () => {
-    const { core, inbox } = await setup();
-    core.forgetDecidedFiles = true;
-    await inbox.approve("r1", null);
-    await inbox.reload();
-    expect(inbox.items[0]?.files.map((f) => f.path)).toEqual(["README.md"]);
-    expect(inbox.decidedFiles).toEqual(["r1"]);
-    await inbox.undoReject("r1");
-    expect(inbox.decidedFiles).toEqual([]);
-  });
 });

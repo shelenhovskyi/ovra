@@ -36,8 +36,8 @@ export class FakeReviewCore implements Transport {
   conflicts: string[] = [];
   /** What reject reports as restored and undo as put back. */
   restored: string[] = [];
-  /** Like the core: a decided item no longer lists its files. */
-  forgetDecidedFiles = false;
+  /** Paths whose diff the core no longer keeps (a decided item past the limits): `not_found` with this reason. */
+  diffGone = new Map<string, string>();
   /** Makes the next call of this method fail with this error. */
   failNext = new Map<Request["method"], CoreError>();
   private listeners = new Set<(event: CoreEvent) => void>();
@@ -81,6 +81,10 @@ export class FakeReviewCore implements Transport {
         };
       case "review.diff":
         this.find(request.params.id);
+        {
+          const gone = this.diffGone.get(request.params.path);
+          if (gone) throw new CoreError({ code: "not_found", message: gone });
+        }
         return { type: "review.diff", data: { path: request.params.path, patch: patchFor(request.params.path) } };
       case "review.approve":
       case "review.reject":
@@ -93,7 +97,6 @@ export class FakeReviewCore implements Transport {
         } as const;
         item.state = state[request.method];
         item.can_undo = request.method === "review.reject";
-        if (this.forgetDecidedFiles && item.state !== "open") item.files = [];
         const restored = request.method === "review.approve" ? [] : [...this.restored];
         return { type: "review.done", data: { item: structuredClone(item), conflicts: [...this.conflicts], restored } };
       }

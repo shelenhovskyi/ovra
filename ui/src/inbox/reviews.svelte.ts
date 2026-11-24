@@ -2,7 +2,7 @@
 // events. The core is the source of truth: nothing here approves, rejects or
 // merges on its own; every action is one call made for a person's press.
 
-import type { CoreEvent, FileChange, ProjectId, ReviewId, ReviewItem } from "../lib/protocol";
+import type { CoreEvent, ProjectId, ReviewId, ReviewItem } from "../lib/protocol";
 import { CoreError, type Transport } from "../lib/transport";
 
 /** What the last approve, reject or undo did, and what it left for the person. */
@@ -27,10 +27,6 @@ export class ReviewInbox {
   outcome = $state<Outcome | null>(null);
   /** Bumped whenever the core says an item changed, so open diffs reload. */
   changes = $state(0);
-  /** Decided items whose files the core no longer lists: the files they were decided with. */
-  private kept: Record<ReviewId, FileChange[]> = {};
-  /** Items shown with the files they were decided with (their diffs are gone). */
-  decidedFiles = $state<ReviewId[]>([]);
   private latest = 0;
   private inFlight = false;
   private again = false;
@@ -68,7 +64,6 @@ export class ReviewInbox {
     if (project !== this.project) {
       this.items = [];
       this.outcome = null;
-      this.kept = {};
     }
     this.project = project;
     await this.reload();
@@ -85,7 +80,7 @@ export class ReviewInbox {
     try {
       const { data } = await this.transport.call({ method: "review.list", params: { project } });
       if (mine !== this.latest) return;
-      this.setItems(data);
+      this.items = data;
       this.error = null;
     } catch (err) {
       if (mine !== this.latest) return;
@@ -164,26 +159,12 @@ export class ReviewInbox {
     }
   }
 
-  private setItems(items: ReviewItem[]): void {
-    const decided: ReviewId[] = [];
-    this.items = items.map((item) => {
-      const files = this.kept[item.id];
-      if (item.state === "open" || item.files.length > 0 || !files) return item;
-      decided.push(item.id);
-      return { ...item, files };
-    });
-    this.decidedFiles = decided;
-  }
-
   private settle(
     action: Outcome["action"],
     { item, conflicts, restored }: { item: ReviewItem; conflicts: string[]; restored: string[] },
     commit: string | null = null,
   ): void {
-    const before = this.items.find((i) => i.id === item.id)?.files ?? [];
-    if (item.state === "open") delete this.kept[item.id];
-    else if (before.length > 0) this.kept[item.id] = $state.snapshot(before);
-    this.setItems(this.items.map((i) => (i.id === item.id ? item : i)));
+    this.items = this.items.map((i) => (i.id === item.id ? item : i));
     this.outcome = { id: item.id, action, conflicts, restored, commit };
   }
 
@@ -204,7 +185,7 @@ export class ReviewInbox {
   }
 }
 
-function message(err: unknown): string {
+export function message(err: unknown): string {
   if (err instanceof CoreError) return err.error.message;
   return err instanceof Error ? err.message : String(err);
 }

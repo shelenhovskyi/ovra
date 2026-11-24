@@ -205,17 +205,21 @@ describe("Inbox", () => {
     expect(document.activeElement?.id).toBe("inbox-title");
   });
 
-  it("keeps the shortcuts of the panels behind it from acting, and shows what a decided item had", async () => {
+  it("keeps the shortcuts of the panels behind it from acting, and shows a decided item's diffs", async () => {
     const core = await setup([review("r1", { files: [change("README.md"), change("src/a.ts")] })]);
-    core.forgetDecidedFiles = true;
+    core.diffGone.set("src/a.ts", "the diff of a decided review is kept for at most 50 files");
     await open();
     press("KeyP", { altKey: true });
     await settle();
     expect(workspace.paletteOpen).toBe(false);
     button(/^Approve$/)?.click();
     await settle();
-    expect($("[data-item=r1]")?.textContent).toContain("2 files");
-    expect($("[data-file='src/a.ts']")).not.toBeNull();
-    expect($("[data-testid=inbox-diff]")?.textContent).toContain("Their diffs are no longer kept.");
+    expect($("[data-item=r1]")?.textContent).toContain("Approved");
+    expect($("[data-testid=inbox-diff]")?.textContent).toContain("the readme");
+    $("[data-file='src/a.ts']")?.click();
+    await settle();
+    expect($("[data-testid=inbox-diff] [role=alert]")?.textContent).toBe(
+      "Could not load the diff of src/a.ts: the diff of a decided review is kept for at most 50 files",
+    );
   });
 });
