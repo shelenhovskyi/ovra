@@ -484,8 +484,11 @@ impl Core {
                 path,
                 line,
             } => {
-                let file = RelPath::parse(&path)?.under(&self.root(&project)?);
-                self.inner.opener.open_in_editor(&file, line)
+                let (root, path) = (self.root(&project)?, RelPath::parse(&path)?);
+                if path.is_root() {
+                    return Err(ProtocolError::new(ErrorCode::BadRequest, "name a file"));
+                }
+                self.inner.opener.open_in_editor(&root, &path, line)
             }
             OpenRequest::Url { url } => {
                 check_web_url(&url)?;

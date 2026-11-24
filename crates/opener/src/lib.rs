@@ -7,9 +7,10 @@
 mod editor;
 
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use ovra_core::path::RelPath;
 use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::{Opener, Result};
 
@@ -26,14 +27,14 @@ impl SystemOpener {
 }
 
 impl Opener for SystemOpener {
-    fn open_in_editor(&self, file: &Path, line: Option<u32>) -> Result<()> {
-        if !file.is_file() {
-            return Err(ProtocolError::new(
-                ErrorCode::NotFound,
-                format!("no such file: {}", file.display()),
-            ));
-        }
-        let plan = candidates(|var| std::env::var_os(var), Platform::current(), file, line);
+    fn open_in_editor(&self, root: &Path, path: &RelPath, line: Option<u32>) -> Result<()> {
+        let file = inside(root, path)?;
+        let plan = candidates(
+            |var| std::env::var_os(var),
+            Platform::current(),
+            &file,
+            line,
+        );
         launch_first(&plan, spawn_detached)
     }
 
@@ -41,6 +42,27 @@ impl Opener for SystemOpener {
         let handler = system_handler(Platform::current(), url.as_ref());
         launch_first(&[handler], spawn_detached)
     }
+}
+
+/// The regular file `path` under `root` with symlinks resolved, refused when
+/// it resolves outside `root`. It is returned under `root` as given, so on
+/// Windows the editor gets `C:\p\a.rs`, not the verbatim `\\?\C:\p\a.rs`
+/// that `canonicalize` returns. Checked at the time of the call: hard links
+/// and folders renamed concurrently are not detected.
+fn inside(root: &Path, path: &RelPath) -> Result<PathBuf> {
+    let not_found = || ProtocolError::new(ErrorCode::NotFound, format!("no such file: {path}"));
+    let real_root = std::fs::canonicalize(root).map_err(|_| not_found())?;
+    let file = std::fs::canonicalize(path.under(root)).map_err(|_| not_found())?;
+    let Ok(rest) = file.strip_prefix(&real_root) else {
+        return Err(ProtocolError::new(
+            ErrorCode::Forbidden,
+            format!("{path} points outside the project"),
+        ));
+    };
+    if !file.is_file() {
+        return Err(not_found());
+    }
+    Ok(root.join(rest))
 }
 
 /// Starts the first invocation that spawns. A missing or broken editor in
@@ -88,10 +110,60 @@ mod tests {
         }
     }
 
+    fn rel(raw: &str) -> RelPath {
+        RelPath::parse(raw).unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    fn code(r: Result<PathBuf>) -> Option<ErrorCode> {
+        r.err().map(|e| e.code)
+    }
+
     #[test]
     fn missing_file_is_not_found() {
-        let r = SystemOpener::new().open_in_editor(Path::new("/no/such/ovra-file"), None);
+        let r = SystemOpener::new().open_in_editor(Path::new("/no/such"), &rel("ovra-file"), None);
         assert_eq!(r.err().map(|e| e.code), Some(ErrorCode::NotFound));
+    }
+
+    #[test]
+    fn opens_only_regular_files_that_resolve_inside_the_root() {
+        let tmp = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+        let (root, outside) = (tmp.path().join("p"), tmp.path().join("secret.txt"));
+        let write = |p: &Path| std::fs::write(p, "x").unwrap_or_else(|e| panic!("{e}"));
+        std::fs::create_dir_all(root.join("src")).unwrap_or_else(|e| panic!("{e}"));
+        write(&root.join("src/a.rs"));
+        write(&outside);
+
+        let given = Some(root.join("src").join("a.rs"));
+        assert_eq!(inside(&root, &rel("src/a.rs")).ok(), given);
+        assert_eq!(code(inside(&root, &rel("src"))), Some(ErrorCode::NotFound));
+        assert_eq!(
+            code(inside(&root, &rel("src/b.rs"))),
+            Some(ErrorCode::NotFound)
+        );
+
+        #[cfg(unix)]
+        {
+            let link = |to: &Path, at: &str| {
+                std::os::unix::fs::symlink(to, root.join(at)).unwrap_or_else(|e| panic!("{e}"))
+            };
+            link(&outside, "src/leak.txt");
+            link(tmp.path(), "up");
+            link(&root.join("src/a.rs"), "src/alias.rs");
+            assert_eq!(
+                code(inside(&root, &rel("src/leak.txt"))),
+                Some(ErrorCode::Forbidden)
+            );
+            assert_eq!(
+                code(inside(&root, &rel("up/secret.txt"))),
+                Some(ErrorCode::Forbidden)
+            );
+            assert_eq!(inside(&root, &rel("src/alias.rs")).ok(), given);
+            // A root that is itself a link: both sides are resolved.
+            link(&root, "../alias-root");
+            let alias = tmp.path().join("alias-root");
+            let shown = Some(alias.join("src").join("a.rs"));
+            assert_eq!(inside(&alias, &rel("src/a.rs")).ok(), shown);
+        }
     }
 
     #[test]

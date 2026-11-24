@@ -214,7 +214,7 @@ async fn write_conflicts_when_file_changed() {
 }
 
 #[tokio::test]
-async fn open_external_passes_absolute_path() {
+async fn open_external_passes_the_root_and_the_path() {
     let f = fixture();
     let p = add(&f.core, crate::test_path!("/w")).await;
     let r = f
@@ -522,4 +522,27 @@ async fn each_client_keeps_its_project_watched_until_it_lets_go() {
     // Switching projects lets go of the previous one.
     open(&one, &b.id).await.expect("switch");
     assert_eq!(f.fs.watched_ids(), vec![b.id]);
+}
+
+#[tokio::test]
+async fn open_external_refuses_escapes_and_the_root() {
+    let f = fixture();
+    let p = add(&f.core, crate::test_path!("/w")).await;
+    for (path, code) in [
+        ("a/../../x", ErrorCode::Forbidden),
+        ("C:/x", ErrorCode::Forbidden),
+        ("/etc/passwd", ErrorCode::Forbidden),
+        ("./", ErrorCode::BadRequest),
+    ] {
+        let r = f
+            .core
+            .handle(Request::Open(OpenRequest::External {
+                project: p.id.clone(),
+                path: path.into(),
+                line: None,
+            }))
+            .await;
+        assert_eq!(r.err().map(|e| e.code), Some(code), "{path:?}");
+    }
+    assert_eq!(f.opener.opened.lock().map(|o| o.len()).ok(), Some(0));
 }

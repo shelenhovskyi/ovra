@@ -12,6 +12,7 @@ ovra-core.workspace = true
 
 [dev-dependencies]
 ovra-core = { workspace = true, features = ["fakes"] }
+tempfile = "3"
 
 [lints]
 workspace = true

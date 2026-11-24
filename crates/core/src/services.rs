@@ -128,8 +128,13 @@ impl SearchCancel {
 
 /// Hands files to other applications (implemented by `ovra-opener`).
 pub trait Opener: Send + Sync + Debug {
-    /// Opens `file` in the user's external editor, at `line` when supported.
-    fn open_in_editor(&self, file: &Path, line: Option<u32>) -> Result<()>;
+    /// Opens the file `path` under `root` in the user's external editor, at
+    /// `line` when supported. Symlinks are resolved first, and a file that
+    /// resolves outside `root` is refused (`Forbidden`), so a symlink in a
+    /// project cannot hand an outside file to the editor. This does not
+    /// stop the system's default handler from running a program that is
+    /// inside the project.
+    fn open_in_editor(&self, root: &Path, path: &RelPath, line: Option<u32>) -> Result<()>;
     /// Opens a web page in the system browser. The core passes only
     /// `http://` and `https://` URLs.
     fn open_url(&self, url: &str) -> Result<()>;
@@ -429,7 +434,7 @@ impl FsService for Unavailable {
 }
 
 impl Opener for Unavailable {
-    fn open_in_editor(&self, _: &Path, _: Option<u32>) -> Result<()> {
+    fn open_in_editor(&self, _: &Path, _: &RelPath, _: Option<u32>) -> Result<()> {
         self.err()
     }
     fn open_url(&self, _: &str) -> Result<()> {
