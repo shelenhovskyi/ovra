@@ -641,6 +641,15 @@ impl SessionStore for Unavailable {
     }
 }
 
+impl AuditLog for Unavailable {
+    fn append(&self, _: &ProjectId, _: Option<&SessionId>, _: AuditEvent) -> Result<AuditEntry> {
+        self.err()
+    }
+    fn list(&self, _: &ProjectId, _: Option<u64>, _: usize) -> Result<Vec<AuditEntry>> {
+        self.err()
+    }
+}
+
 impl AgentRuntime for Unavailable {
     fn start(&self, _: AgentSpec, _: AgentHost) -> Result<Box<dyn RunningAgent>> {
         self.err()

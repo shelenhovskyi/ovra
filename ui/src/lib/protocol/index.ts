@@ -1,6 +1,7 @@
 // Mirrors crates/core/src/protocol/. One file per domain, like the Rust side.
 
 import type { AgentsEvent, AgentsRequest, AgentsResponse } from "./agents";
+import type { AuditLogEvent, AuditRequest, AuditResponse } from "./audit";
 import type { FsEvent, FsRequest, FsResponse } from "./fs";
 import type { InfoEvent, InfoRequest, InfoResponse } from "./info";
 import type { OpenRequest } from "./open";
@@ -39,7 +40,8 @@ export type Request =
   | OrchestrationRequest
   | SearchRequest
   | PolicyRequest
-  | SecretsRequest;
+  | SecretsRequest
+  | AuditRequest;
 
 export type Response =
   | InfoResponse
@@ -53,6 +55,7 @@ export type Response =
   | SearchResponse
   | PolicyResponse
   | SecretsResponse
+  | AuditResponse
   | { type: "ok" };
 
 export type CoreEvent =
@@ -66,7 +69,8 @@ export type CoreEvent =
   | OrchestrationEvent
   | SearchEvent
   | PolicyEvent
-  | SecretsEvent;
+  | SecretsEvent
+  | AuditLogEvent;
 
 export type ErrorCode = "bad_request" | "not_found" | "conflict" | "forbidden" | "unavailable" | "internal";
 
@@ -157,4 +161,6 @@ type PhaseThreeResponseFor<R extends Request> = R extends { method: "review.list
                 ? Extract<Response, { type: "secrets.list" }>
                 : R extends { method: "secrets.set" | "secrets.remove" }
                   ? { type: "ok" }
-                  : never;
+                  : R extends { method: "audit.list" }
+                    ? Extract<Response, { type: "audit.entries" }>
+                    : never;

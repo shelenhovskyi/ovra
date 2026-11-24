@@ -1,4 +1,4 @@
-// Mirrors crates/core/src/protocol/audit.rs: the audit log's schema.
+// Mirrors crates/core/src/protocol/audit.rs: the audit log's schema and `audit.*`.
 
 import type { SandboxReport, SessionId, SessionMode } from "./agents";
 import type { Policy } from "./policy";
@@ -32,3 +32,13 @@ export type DecidedBy =
   | { kind: "session_ended" };
 
 export type ReviewAction = "approved" | "partly_approved" | "rejected" | "undone_reject" | "taken" | "undone_take";
+
+export type AuditRequest = {
+  method: "audit.list";
+  /** Entries with a `seq` above `after`, oldest first; `limit` at most 500 (the default). */
+  params: { project: ProjectId; after?: number | null; limit?: number | null };
+};
+
+export type AuditResponse = { type: "audit.entries"; data: AuditEntry[] };
+
+export type AuditLogEvent = { type: "audit.appended"; data: AuditEntry };

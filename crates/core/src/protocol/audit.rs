@@ -1,5 +1,5 @@
-//! The audit log's schema (`docs/specs/security.md`). Entries are only ever
-//! appended; `audit.list` and the viewer come with task 4.E.
+//! `audit.*`: the audit log's schema (`docs/specs/security.md`). Entries
+//! are only ever appended; no method edits or deletes one.
 
 use serde::{Deserialize, Serialize};
 
@@ -94,4 +94,39 @@ pub enum ReviewAction {
     UndoneReject,
     Taken,
     UndoneTake,
+}
+
+/// The most entries one `audit.list` returns.
+pub const MAX_AUDIT_PAGE: usize = 500;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "method", content = "params")]
+pub enum AuditRequest {
+    /// Up to `limit` (at most [`MAX_AUDIT_PAGE`]) of the project's entries
+    /// with a `seq` above `after`, oldest first. Answers `audit.entries`.
+    #[serde(rename = "audit.list")]
+    List {
+        project: ProjectId,
+        #[serde(default)]
+        after: Option<u64>,
+        #[serde(default)]
+        limit: Option<usize>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", content = "data")]
+pub enum AuditResponse {
+    #[serde(rename = "audit.entries")]
+    Entries(Vec<AuditEntry>),
+}
+
+/// Pushed events of the `audit` domain (named so, because [`AuditEvent`]
+/// is what an entry records).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", content = "data")]
+pub enum AuditLogEvent {
+    /// An entry was added, for live viewers.
+    #[serde(rename = "audit.appended")]
+    Appended(AuditEntry),
 }

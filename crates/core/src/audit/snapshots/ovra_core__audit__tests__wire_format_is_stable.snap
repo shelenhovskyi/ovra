@@ -1,0 +1,58 @@
+---
+source: crates/core/src/audit/tests.rs
+expression: "serde_json::json!({\n    \"request\":\n    Request::Audit(AuditRequest::List\n    { project: project(\"p1\"), after: Some(6), limit: Some(100) }), \"response\":\n    Response::Audit(AuditResponse::Entries(vec![entry.clone()])), \"event\":\n    Event::from(AuditLogEvent::Appended(entry)),\n})"
+---
+{
+  "event": {
+    "data": {
+      "at_ms": 1700000000000,
+      "event": {
+        "allowed": true,
+        "by": {
+          "kind": "person"
+        },
+        "input": {
+          "kind": "json",
+          "text": "{\"command\":\"ls\"}"
+        },
+        "kind": "tool_decided",
+        "tool": "Bash"
+      },
+      "project": "p1",
+      "seq": 7,
+      "session": "s1"
+    },
+    "type": "audit.appended"
+  },
+  "request": {
+    "method": "audit.list",
+    "params": {
+      "after": 6,
+      "limit": 100,
+      "project": "p1"
+    }
+  },
+  "response": {
+    "data": [
+      {
+        "at_ms": 1700000000000,
+        "event": {
+          "allowed": true,
+          "by": {
+            "kind": "person"
+          },
+          "input": {
+            "kind": "json",
+            "text": "{\"command\":\"ls\"}"
+          },
+          "kind": "tool_decided",
+          "tool": "Bash"
+        },
+        "project": "p1",
+        "seq": 7,
+        "session": "s1"
+      }
+    ],
+    "type": "audit.entries"
+  }
+}

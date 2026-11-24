@@ -17,8 +17,8 @@ use crate::protocol::terminals::{TerminalsRequest, TerminalsResponse};
 use crate::protocol::{ErrorCode, Event, OkResponse, ProtocolError, Request, Response};
 use crate::search::{self, Searches};
 use crate::services::{
-    AgentRuntime, EventSink, FsService, IdeTools, Opener, ProjectStore, Secrets, SessionStore,
-    TerminalService, Unavailable, Worktrees,
+    AgentRuntime, AuditLog, EventSink, FsService, IdeTools, Opener, ProjectStore, Secrets,
+    SessionStore, TerminalService, Unavailable, Worktrees,
 };
 
 const EVENT_CAPACITY: usize = 1024;
@@ -37,6 +37,7 @@ pub struct CoreBuilder {
     worktrees_dir: Option<PathBuf>,
     ide_tools: Arc<dyn IdeTools>,
     secrets: Arc<dyn Secrets>,
+    audit: Arc<dyn AuditLog>,
 }
 
 impl CoreBuilder {
@@ -96,6 +97,13 @@ impl CoreBuilder {
         self
     }
 
+    /// Where the audit log is kept; without one nothing is recorded and
+    /// `audit.list` answers `unavailable`.
+    pub fn audit(mut self, log: Arc<dyn AuditLog>) -> Self {
+        self.audit = log;
+        self
+    }
+
     pub fn build(self) -> Core {
         let (events, _) = broadcast::channel(EVENT_CAPACITY);
         let kept = self.sessions.clone();
@@ -115,6 +123,7 @@ impl CoreBuilder {
                 searches: Searches::default(),
                 secrets: self.secrets,
                 changing_secrets: tokio::sync::Mutex::new(()),
+                audit: self.audit,
             }),
             events,
         };
@@ -153,6 +162,7 @@ struct Inner {
     /// Held while secrets or the projects they belong to change, so a
     /// check and the change it guards see the same state.
     changing_secrets: tokio::sync::Mutex<()>,
+    audit: Arc<dyn AuditLog>,
 }
 
 /// A [`Core`] that does not keep it alive; sessions hold one so their IDE
@@ -217,6 +227,7 @@ impl Core {
             worktrees_dir: None,
             ide_tools: Arc::new(Unavailable("IDE tools")),
             secrets: Arc::new(Unavailable("keeping secrets")),
+            audit: Arc::new(Unavailable("the audit log")),
         }
     }
 
@@ -296,6 +307,7 @@ impl Core {
             Request::Search(r) => search::handle(self, r),
             Request::Policy(r) => crate::policy::handle(self, r),
             Request::Secrets(r) => crate::secrets::handle(self, r).await,
+            Request::Audit(r) => crate::audit::handle(self, r),
         }
     }
 
@@ -330,6 +342,10 @@ impl Core {
 
     pub(crate) async fn changing_secrets(&self) -> tokio::sync::MutexGuard<'_, ()> {
         self.inner.changing_secrets.lock().await
+    }
+
+    pub(crate) fn audit_log(&self) -> &dyn AuditLog {
+        self.inner.audit.as_ref()
     }
 
     pub(crate) fn project_store(&self) -> &dyn ProjectStore {
