@@ -5,6 +5,7 @@ import Approvals from "../approvals/Approvals.svelte";
 import Editor from "../editor/Editor.svelte";
 import { persistOpenFiles } from "../editor/open-files.svelte";
 import Tabs from "../editor/Tabs.svelte";
+import Inbox from "../inbox/Inbox.svelte";
 import Keybindings from "../keys/Keybindings.svelte";
 import type { CoreInfo } from "../lib/protocol";
 import type { ConnectionStatus, Transport } from "../lib/transport";
@@ -85,6 +86,7 @@ const status = $derived.by((): { text: string; ok: boolean } => {
   <header>
     <h1>Ovra</h1>
     <span class="project">{workspace.project?.name ?? "No project"}</span>
+    <Inbox />
   </header>
   <aside data-testid="sidebar"><Tree /></aside>
   <main data-testid="main">
