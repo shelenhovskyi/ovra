@@ -76,21 +76,32 @@ How direct mode tells them apart (`crates/core/src/orchestration/direct.rs`):
 - What changed in an interval is the agent's if a `Bash` call ran in it,
   or if a file tool named the file. Between intervals, and at every review,
   anything that differs from the last snapshot changed outside the agent.
+- A `Bash` window is not proof: a file the person saved through Ovra
+  (`fs.write_file`) while the interval was open counts as changed by both,
+  even if the command touched it too.
 - An agent file that also changed outside, before or after the agent wrote
   it, shows as changed by both. Reject never reverts it and lists it as a
   conflict; approve does not commit it. A rename counts as both when either
   of its paths is someone else's.
 - Reject takes a snapshot before reverting (kept by `refs/ovra/snapshot`'s
   reflog), checks the diff again afterwards and reports anything not
-  restored as a conflict.
+  restored as a conflict. `review.done` lists what it `restored`; the inbox
+  says plainly when that is nothing.
+- `review.undo_reject` puts the reverted files back from that snapshot
+  (`ReviewItem.can_undo` says when it is possible). A file changed since
+  the reject stays and is listed as a conflict. The item is open again and
+  an ended session gets its attribution back. A comment that continues the
+  session drops the undo.
 - Anything unknown leans towards keeping files: a failed snapshot makes the
   agent's earlier files count as both, a session that ends during a tool
   drops that interval, and ignored files are never in the diff. A person's
-  edit during a running `Bash` call is the agent's, as above.
+  edit made with another editor during a running `Bash` call is still the
+  agent's (nothing tells them apart); undo is the way back.
 - One direct session per project runs at a time. Ended ones stay until
   approved or rejected, and to an earlier session a later one's changes are
   changed outside it. Attribution lives in memory: after a restart the
-  item's files all count as changed outside. Without a baseline (not a git
+  item's files all count as changed outside, and reject refuses with a
+  message saying nothing was restored. Without a baseline (not a git
   repository) a direct session runs but has nothing to review.
 
 ## Project holds
