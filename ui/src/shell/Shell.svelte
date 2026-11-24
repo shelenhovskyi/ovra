@@ -1,5 +1,6 @@
 <script lang="ts">
 import Editor from "../editor/Editor.svelte";
+import { persistOpenFiles } from "../editor/open-files.svelte";
 import Keybindings from "../keys/Keybindings.svelte";
 import type { CoreInfo } from "../lib/protocol";
 import type { Transport } from "../lib/transport";
@@ -17,6 +18,8 @@ provideOvra({ transport, workspace });
 
 let info = $state<CoreInfo | null>(null);
 let error = $state<string | null>(null);
+
+$effect(() => persistOpenFiles(transport, workspace));
 
 $effect(() => {
   transport
