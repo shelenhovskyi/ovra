@@ -27,7 +27,7 @@ test("expand, scroll and memory with 5,000 rows", async ({ page }) => {
   await row("flat").click();
   await row("flat/item0000.txt").waitFor();
   report("tree.expand_flat_ms", performance.now() - started);
-  await expect(row("flat")).toHaveAttribute("aria-setsize", /^50\d\d$/);
+  await expect(row("flat/item0000.txt")).toHaveAttribute("aria-setsize", "5000");
 
   report("tree.dom_rows", await tree.getByRole("treeitem").count());
 
