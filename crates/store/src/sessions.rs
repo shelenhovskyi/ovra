@@ -6,7 +6,11 @@
 
 use ovra_core::protocol::agents::{AgentMessage, SessionId, SessionInfo};
 use ovra_core::services::{Result, SessionStore, StoredSession};
-use rusqlite::params;
+use rusqlite::{OptionalExtension, params};
+
+/// The `settings` key of the orchestration state. The core drops what
+/// belongs to removed projects and forgotten sessions when it loads it.
+const ORCHESTRATION: &str = "orchestration";
 
 use crate::{Store, db_error, internal};
 
@@ -95,6 +99,28 @@ impl SessionStore for Store {
             .map_err(db_error)?;
         Ok(())
     }
+
+    fn load_orchestration(&self) -> Result<Option<String>> {
+        self.db()
+            .query_row(
+                "SELECT value FROM settings WHERE key = ?1",
+                [ORCHESTRATION],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(db_error)
+    }
+
+    fn save_orchestration(&self, json: &str) -> Result<()> {
+        self.db()
+            .execute(
+                "INSERT INTO settings (key, value) VALUES (?1, ?2)
+                 ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+                params![ORCHESTRATION, json],
+            )
+            .map_err(db_error)?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -157,6 +183,12 @@ mod tests {
             .map(|(s, _)| s.info.id.0)
             .collect();
         assert_eq!(ids, ["s1"]);
+
+        assert_eq!(store.load_orchestration().expect("load"), None);
+        store.save_orchestration("{\"a\":1}").expect("save");
+        store.save_orchestration("{\"a\":2}").expect("replace");
+        let kept = store.load_orchestration().expect("load");
+        assert_eq!(kept.as_deref(), Some("{\"a\":2}"));
     }
 
     #[test]
@@ -177,6 +209,7 @@ mod tests {
 
         let store = Store::open(&data).expect("reopen");
         assert_eq!(store.load(10).expect("load").len(), 1);
+        assert!(store.load_orchestration().expect("load").is_some());
         // A project's sessions go with it.
         ProjectStore::remove(&store, &project).expect("remove project");
         assert!(store.load(10).expect("load").is_empty());

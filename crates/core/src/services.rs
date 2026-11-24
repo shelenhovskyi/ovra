@@ -197,6 +197,11 @@ pub trait SessionStore: Send + Sync + Debug {
     fn append(&self, session: &SessionId, message: &AgentMessage) -> Result<()>;
     /// Forgets a session and its transcript.
     fn remove(&self, session: &SessionId) -> Result<()>;
+    /// The orchestration state (tasks and review items) as the core last
+    /// saved it, a JSON document the store keeps as is; `None` if none.
+    fn load_orchestration(&self) -> Result<Option<String>>;
+    /// Replaces the saved orchestration state.
+    fn save_orchestration(&self, json: &str) -> Result<()>;
 }
 
 /// Which IDE tools a session gets.
@@ -411,6 +416,12 @@ impl SessionStore for Unavailable {
         Ok(())
     }
     fn remove(&self, _: &SessionId) -> Result<()> {
+        Ok(())
+    }
+    fn load_orchestration(&self) -> Result<Option<String>> {
+        Ok(None)
+    }
+    fn save_orchestration(&self, _: &str) -> Result<()> {
         Ok(())
     }
 }

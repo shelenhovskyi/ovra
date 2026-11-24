@@ -402,6 +402,7 @@ impl TerminalService for EchoTerminals {
 #[derive(Debug, Default)]
 pub struct MemorySessions {
     sessions: Mutex<Vec<(StoredSession, Vec<AgentMessage>)>>,
+    orchestration: Mutex<Option<String>>,
 }
 
 impl SessionStore for MemorySessions {
@@ -439,6 +440,15 @@ impl SessionStore for MemorySessions {
 
     fn remove(&self, session: &SessionId) -> Result<()> {
         lock(&self.sessions).retain(|(s, _)| &s.info.id != session);
+        Ok(())
+    }
+
+    fn load_orchestration(&self) -> Result<Option<String>> {
+        Ok(lock(&self.orchestration).clone())
+    }
+
+    fn save_orchestration(&self, json: &str) -> Result<()> {
+        *lock(&self.orchestration) = Some(json.to_owned());
         Ok(())
     }
 }
