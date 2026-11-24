@@ -296,6 +296,21 @@ async fn changed_until(rx: &mut broadcast::Receiver<Event>, want: &str) -> Vec<S
     seen
 }
 
+/// Waits until the watcher of `project` finished its initial walk.
+async fn ready(rx: &mut broadcast::Receiver<Event>, project: &str) {
+    loop {
+        if let FsEvent::FilesChanged {
+            project: p,
+            version: 1,
+            ..
+        } = next_fs(rx).await
+            && p.0 == project
+        {
+            return;
+        }
+    }
+}
+
 #[tokio::test]
 async fn watcher_reports_changes_in_new_dirs_and_skips_ignored() {
     let tmp = dir();
@@ -308,6 +323,7 @@ async fn watcher_reports_changes_in_new_dirs_and_skips_ignored() {
     let fs = FsIndex::new();
     fs.watch(ProjectId("p".into()), root.to_path_buf(), core.sink())
         .expect("watch");
+    ready(&mut rx, "p").await;
 
     put(root, "build/later.o", "");
     put(root, "src/a.rs", "changed");
@@ -345,6 +361,7 @@ async fn watcher_reports_git_changes_and_stops_on_unwatch() {
     let p1 = ProjectId("p1".into());
     fs.watch(p1.clone(), root.to_path_buf(), core.sink())
         .expect("watch");
+    ready(&mut rx, "p1").await;
     // Prime the watcher's cache so the change below is a change.
     list(&fs, root, "").await.expect("list");
 
@@ -371,6 +388,7 @@ async fn watcher_reports_git_changes_and_stops_on_unwatch() {
         core.sink(),
     )
     .expect("watch");
+    ready(&mut rx, "p2").await;
     put(root, "a.txt", "three");
     put(other.path(), "b.txt", "b");
     loop {
@@ -389,47 +407,47 @@ async fn watcher_reports_git_changes_and_stops_on_unwatch() {
 }
 
 #[tokio::test]
-async fn mass_writes_coalesce_git_status_runs() {
+async fn git_refresher_folds_a_burst_of_changes_into_one_status_run() {
     let tmp = dir();
     let root = tmp.path();
     git(root, &["init", "-q"]);
-    put(root, "gen/keep.txt", "");
+    put(root, "a.txt", "one");
     git(root, &["add", "."]);
     git(root, &["commit", "-qm", "init"]);
+    let cache = Arc::new(watch::GitCache::new(git::Repo::discover(
+        &resolve::root(root).expect("root"),
+    )));
+    cache.current();
     let core = Core::new("test");
     let mut rx = core.subscribe();
-    let fs = FsIndex::fast();
     let project = ProjectId("p".into());
-    fs.watch(project.clone(), root.to_path_buf(), core.sink())
-        .expect("watch");
-    let runs = || {
-        fs.git_cache(&root.to_path_buf())
-            .expect("watched")
-            .runs
-            .load(std::sync::atomic::Ordering::Relaxed)
+    let timing = watch::Timing {
+        git_quiet: Duration::from_millis(50),
+        ..Default::default()
     };
-    list(&fs, root, "").await.expect("prime the cache");
-    let before = runs();
+    let stopped = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let refresh = watch::spawn_git_refresher(
+        project.clone(),
+        core.sink(),
+        Arc::clone(&cache),
+        stopped,
+        timing,
+    )
+    .expect("spawn");
 
-    // An agent writing files in 10 bursts: each burst is its own batch
-    // of file events, but git status runs once for all of them.
-    let rounds = 6;
-    for round in 0..rounds {
-        for i in 0..30 {
-            put(root, &format!("gen/r{round}-{i}.txt"), "x");
-        }
-        changed_until(&mut rx, &format!("gen/r{round}-29.txt")).await;
+    // An agent writing many files: every batch of file events asks for a
+    // refresh, faster than the quiet period.
+    put(root, "a.txt", "two");
+    for _ in 0..50 {
+        refresh.send(()).expect("send");
     }
     while next_fs(&mut rx).await
         != (FsEvent::GitChanged {
             project: project.clone(),
         })
     {}
-    let runs = runs() - before;
-    assert!(
-        runs <= 2,
-        "git status ran {runs} times for {rounds} batches"
-    );
+    // One run to prime the cache, one for the whole burst.
+    assert_eq!(cache.runs.load(std::sync::atomic::Ordering::Relaxed), 2);
 }
 
 #[tokio::test]
@@ -470,6 +488,7 @@ async fn watcher_keeps_the_file_list_fresh() {
     let project = ProjectId("p".into());
     fs.watch(project.clone(), root.to_path_buf(), core.sink())
         .expect("watch");
+    ready(&mut rx, "p").await;
     let listed = || fs.list_files(root.to_path_buf(), 0, 100);
     let before = listed().await.expect("list");
     assert_eq!(
@@ -518,9 +537,11 @@ async fn file_list_pages_through_a_watched_project() {
         }
     }
     let fs = FsIndex::new();
-    let sink = Core::new("t").sink();
-    fs.watch(ProjectId("p".into()), root.to_path_buf(), sink)
+    let core = Core::new("t");
+    let mut rx = core.subscribe();
+    fs.watch(ProjectId("p".into()), root.to_path_buf(), core.sink())
         .expect("watch");
+    ready(&mut rx, "p").await;
     let mut all = Vec::new();
     let mut version = None;
     while all.len() < 500 {
@@ -551,4 +572,23 @@ async fn saving_a_file_deleted_on_disk_is_a_conflict() {
         (ErrorCode::Conflict, "a.txt was deleted on disk")
     );
     assert!(!root.join("a.txt").exists(), "not recreated");
+}
+
+#[tokio::test]
+async fn a_listed_directory_reports_changes_before_indexing_ends() {
+    let tmp = dir();
+    let root = tmp.path();
+    for d in 0..20 {
+        put(root, &format!("bulk{d}/f.txt"), "");
+    }
+    put(root, "src/a.rs", "");
+    let core = Core::new("test");
+    let mut rx = core.subscribe();
+    let fs = FsIndex::new();
+    fs.watch(ProjectId("p".into()), root.to_path_buf(), core.sink())
+        .expect("watch");
+    // No waiting for the walk: listing `src` watches it right away.
+    list(&fs, root, "src").await.expect("list");
+    put(root, "src/a.rs", "changed");
+    changed_until(&mut rx, "src/a.rs").await;
 }

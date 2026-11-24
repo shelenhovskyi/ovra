@@ -62,6 +62,14 @@ pub(crate) struct GitCache {
 }
 
 impl GitCache {
+    pub(crate) fn new(repo: Option<Repo>) -> Self {
+        Self {
+            repo,
+            status: Mutex::new(None),
+            runs: AtomicUsize::new(0),
+        }
+    }
+
     fn lock(&self) -> MutexGuard<'_, Option<Statuses>> {
         self.status.lock().unwrap_or_else(PoisonError::into_inner)
     }
@@ -100,6 +108,7 @@ pub(crate) struct Watch {
     pub(crate) given_root: PathBuf,
     pub(crate) git: Arc<GitCache>,
     pub(crate) files: Arc<SharedFiles>,
+    pub(crate) dirs: Arc<Dirs>,
     tx: mpsc::Sender<Msg>,
     stopped: Arc<AtomicBool>,
 }
@@ -121,8 +130,10 @@ fn internal(err: &notify::Error) -> ProtocolError {
 }
 
 impl Watch {
-    /// Sets up the watches before returning, so changes made right after
-    /// this call are reported.
+    /// Watches the root and the git directory, then returns; the rest of
+    /// the tree is walked and watched on the watcher thread. A directory
+    /// is watched before it is read, so nothing that changes during the
+    /// walk is missed. [`Dirs::add`] lets listings jump the queue.
     pub(crate) fn start(
         project: ProjectId,
         given_root: PathBuf,
@@ -130,11 +141,7 @@ impl Watch {
         timing: Timing,
     ) -> Result<Self> {
         let root = crate::resolve::root(&given_root)?;
-        let git = Arc::new(GitCache {
-            repo: Repo::discover(&root),
-            status: Mutex::new(None),
-            runs: AtomicUsize::new(0),
-        });
+        let git = Arc::new(GitCache::new(Repo::discover(&root)));
         let stopped = Arc::new(AtomicBool::new(false));
         let git_tx = match git.repo {
             Some(_) => Some(spawn_git_refresher(
@@ -152,27 +159,27 @@ impl Watch {
             let _ = events.send(Msg::Fs(e));
         })
         .map_err(|e| internal(&e))?;
-        let mut worker = Worker {
+        let dirs = Arc::new(Dirs {
+            watcher: Mutex::new(watcher),
+            watched: Mutex::new(HashSet::new()),
+        });
+        dirs.add(&root);
+        if let Some(repo) = &git.repo {
+            // Best effort: without it, commits and checkouts surface on the
+            // next worktree change.
+            let _ = lock(&dirs.watcher).watch(&repo.git_dir, RecursiveMode::NonRecursive);
+        }
+        let worker = Worker {
             project,
             root,
             sink,
             git_tx,
             files: Arc::new(SharedFiles::default()),
-            watcher,
-            dirs: HashSet::new(),
+            dirs: Arc::clone(&dirs),
+            walked: HashSet::new(),
             stopped: Arc::clone(&stopped),
             timing,
         };
-        let root = worker.root.clone();
-        worker.watch_tree(&root);
-        worker.files.lock().version = 1;
-        if let Some(repo) = &git.repo {
-            // Best effort: without it, commits and checkouts surface on the
-            // next worktree change.
-            let _ = worker
-                .watcher
-                .watch(&repo.git_dir, RecursiveMode::NonRecursive);
-        }
         let files = Arc::clone(&worker.files);
         std::thread::Builder::new()
             .name("ovra-fs-watch".to_owned())
@@ -182,6 +189,7 @@ impl Watch {
             given_root,
             git,
             files,
+            dirs,
             tx,
             stopped,
         })
@@ -194,7 +202,7 @@ fn thread_error(err: &std::io::Error) -> ProtocolError {
 
 /// Runs `git status` on its own thread so file events never wait for git.
 /// Signals that arrive while it waits or runs fold into one refresh.
-fn spawn_git_refresher(
+pub(crate) fn spawn_git_refresher(
     project: ProjectId,
     sink: EventSink,
     git: Arc<GitCache>,
@@ -234,10 +242,53 @@ struct Worker {
     /// Asks for a git status refresh; `None` outside a repository.
     git_tx: Option<mpsc::Sender<()>>,
     files: Arc<SharedFiles>,
-    watcher: RecommendedWatcher,
-    dirs: HashSet<PathBuf>,
+    dirs: Arc<Dirs>,
+    /// Directories whose files are in the set (watching alone may come
+    /// earlier, from a listing).
+    walked: HashSet<PathBuf>,
     stopped: Arc<AtomicBool>,
     timing: Timing,
+}
+
+fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// The directories a project watches, shared by the watcher thread and
+/// listings.
+#[derive(Debug)]
+pub(crate) struct Dirs {
+    watcher: Mutex<RecommendedWatcher>,
+    watched: Mutex<HashSet<PathBuf>>,
+}
+
+impl Dirs {
+    /// Watches `dir` (not recursively) unless it already is.
+    pub(crate) fn add(&self, dir: &Path) {
+        let mut watched = lock(&self.watched);
+        if !watched.contains(dir)
+            && lock(&self.watcher)
+                .watch(dir, RecursiveMode::NonRecursive)
+                .is_ok()
+        {
+            watched.insert(dir.to_path_buf());
+        }
+    }
+
+    fn contains(&self, dir: &Path) -> bool {
+        lock(&self.watched).contains(dir)
+    }
+
+    /// Forgets a removed directory and everything below it.
+    fn remove(&self, dir: &Path) {
+        let mut watched = lock(&self.watched);
+        // inotify drops the watch of a deleted directory by itself, and
+        // removing it again only logs a warning.
+        if watched.remove(dir) && !cfg!(target_os = "linux") {
+            let _ = lock(&self.watcher).unwatch(dir);
+        }
+        watched.retain(|d| !d.starts_with(dir));
+    }
 }
 
 impl Worker {
@@ -245,20 +296,15 @@ impl Worker {
     /// adds the files found to the set. Returns the files that were new.
     fn watch_tree(&mut self, dir: &Path) -> Vec<String> {
         let mut added = Vec::new();
-        let mut files = self.files.lock();
         for entry in file_list::walk(dir).filter_map(std::result::Result::ok) {
             if entry.file_type().is_some_and(|t| t.is_dir()) {
+                // The walk reads a directory only after yielding it, so the
+                // watch is in place before its entries are read.
                 let path = entry.into_path();
-                if !self.dirs.contains(&path)
-                    && self
-                        .watcher
-                        .watch(&path, RecursiveMode::NonRecursive)
-                        .is_ok()
-                {
-                    self.dirs.insert(path);
-                }
+                self.dirs.add(&path);
+                self.walked.insert(path);
             } else if let Some(rel) = file_list::relative(&self.root, entry.path())
-                && files.paths.insert(rel.clone())
+                && self.files.lock().paths.insert(rel.clone())
             {
                 added.push(rel);
             }
@@ -267,6 +313,23 @@ impl Worker {
     }
 
     fn run(mut self, rx: &mpsc::Receiver<Msg>) {
+        let root = self.root.clone();
+        self.watch_tree(&root);
+        let version = {
+            let mut files = self.files.lock();
+            files.version = 1;
+            files.version
+        };
+        // Tells clients that listed files while indexing (version 0) to
+        // list again; events queued during the walk follow.
+        if !self.stopped.load(Ordering::SeqCst) {
+            self.sink.emit(FsEvent::FilesChanged {
+                project: self.project.clone(),
+                added: Vec::new(),
+                removed: Vec::new(),
+                version,
+            });
+        }
         loop {
             let Ok(Msg::Fs(first)) = rx.recv() else {
                 return;
@@ -358,10 +421,8 @@ impl Worker {
     ) {
         let Ok(meta) = std::fs::symlink_metadata(&path) else {
             // Gone: forget it and, if it was a directory, all below it.
-            if self.dirs.remove(&path) {
-                let _ = self.watcher.unwatch(&path);
-                self.dirs.retain(|d| !d.starts_with(&path));
-            }
+            self.dirs.remove(&path);
+            self.walked.retain(|d| !d.starts_with(&path));
             let mut files = self.files.lock();
             let below = format!("{rel}/");
             let mut gone: Vec<String> = files
@@ -392,7 +453,7 @@ impl Worker {
             return;
         }
         if meta.is_dir() {
-            if !self.dirs.contains(&path) {
+            if !self.walked.contains(&path) {
                 for added in self.watch_tree(&path) {
                     set.removed.remove(&added);
                     set.added.insert(added);
