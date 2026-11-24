@@ -15,6 +15,10 @@ pub struct ReviewId(pub String);
 pub enum ReviewState {
     Open,
     Approved,
+    /// Approved, but some of a worker's files were not copied into the
+    /// project folder (`ReviewItem::not_copied`): they wait for the person
+    /// until `review.resolve`.
+    PartlyApproved,
     Rejected,
 }
 
@@ -65,6 +69,12 @@ pub struct ReviewItem {
     /// A direct session's last reject can be undone (`review.undo_reject`).
     #[serde(default)]
     pub can_undo: bool,
+    /// A worker's files that approve did not copy: the person's version
+    /// changed since the worker started, or the direct agent's changes to
+    /// them wait. The worker's version stays in its worktree and in
+    /// `review.diff`.
+    #[serde(default)]
+    pub not_copied: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -92,6 +102,11 @@ pub enum ReviewRequest {
     /// listed as conflicts. The item is open again.
     #[serde(rename = "review.undo_reject")]
     UndoReject { id: ReviewId },
+    /// The person is done with the files a partly approved item did not
+    /// copy (copied them by hand or kept their own): the item becomes
+    /// approved and keeps the list. Answers `review.done`.
+    #[serde(rename = "review.resolve")]
+    Resolve { id: ReviewId },
     /// Sends the comment to the same session, which continues. An open item
     /// stays open; a decided one stays decided, and the session's next
     /// changes open a new item. Answers `ok`.

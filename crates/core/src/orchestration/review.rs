@@ -43,6 +43,9 @@ pub(super) struct Entry {
     /// The diffs of `decided`'s files, by path, if they were small enough.
     #[serde(default)]
     decided_diffs: BTreeMap<String, String>,
+    /// A worker's files approve did not copy.
+    #[serde(default)]
+    not_copied: Vec<String>,
 }
 
 /// Records what `session`'s review compares, creating its item. Direct
@@ -78,6 +81,7 @@ pub(crate) fn set_workspace(core: &Core, session: &SessionId, workspace: Workspa
         summary: None,
         requested: false,
         rejected: None,
+        not_copied: Vec::new(),
         decided: Vec::new(),
         decided_diffs: BTreeMap::new(),
     });
@@ -143,10 +147,12 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
         ReviewRequest::Approve { id, commit } => {
             let (item, conflicts) = approve(core, &id, commit).await?;
             prune(core, &item.project).await;
-            let what = if conflicts.is_empty() {
+            let what = if item.state == ReviewState::PartlyApproved {
+                "had its work approved by the person, except files the person had changed too: those were not copied and wait for the person"
+            } else if conflicts.is_empty() {
                 "had its work approved by the person"
             } else {
-                "had its work approved by the person, except files that conflict with the checkout"
+                "had its work approved by the person; files they had changed too keep their version"
             };
             super::tasks::tell_coordinator(core, &item.session, what);
             Ok(done((item, conflicts, Vec::new())))
@@ -160,6 +166,16 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
                 "had its work rejected by the person; its changes were discarded",
             );
             Ok(done(outcome))
+        }
+        ReviewRequest::Resolve { id } => {
+            let entry = find(core, &id)?;
+            if entry.state != ReviewState::PartlyApproved {
+                return Err(conflict(
+                    "only a partly approved review waits to be resolved",
+                ));
+            }
+            let entry = update(core, &id, |e| e.state = ReviewState::Approved)?;
+            Ok(done((item(core, &entry).await?, Vec::new(), Vec::new())))
         }
         ReviewRequest::UndoReject { id } => Ok(done(undo_reject(core, &id).await?)),
         ReviewRequest::Comment { id, text } => {
@@ -228,6 +244,7 @@ pub(super) async fn item(core: &Core, entry: &Entry) -> Result<ReviewItem> {
         can_undo: entry.mode == SessionMode::Direct
             && entry.state == ReviewState::Rejected
             && core.sessions().direct.can_undo(&entry.session),
+        not_copied: entry.not_copied.clone(),
     })
 }
 
@@ -298,7 +315,7 @@ fn check_open(entry: &Entry) -> Result<()> {
     match entry.state {
         ReviewState::Open => Ok(()),
         _ => Err(conflict(
-            "the review is already decided; comment to reopen it",
+            "the review is already decided; a comment continues the agent, and its next changes open a new item",
         )),
     }
 }
@@ -393,7 +410,13 @@ async fn approve(
     // person are in the outcome and the decided record.
     let base = worktrees.snapshot(ws.dir).await?;
     let entry = update(core, id, |e| {
-        e.state = ReviewState::Approved;
+        // Approved only if everything the person read is now theirs.
+        e.state = if conflicts.is_empty() {
+            ReviewState::Approved
+        } else {
+            ReviewState::PartlyApproved
+        };
+        e.not_copied.clone_from(&conflicts);
         e.workspace.base = base;
         e.decided = decided;
         e.decided_diffs = diffs;
@@ -590,6 +613,7 @@ fn open_after(core: &Core, decided: &Entry) -> Entry {
         summary: None,
         requested: false,
         rejected: None,
+        not_copied: Vec::new(),
         decided: Vec::new(),
         decided_diffs: BTreeMap::new(),
         ..decided.clone()

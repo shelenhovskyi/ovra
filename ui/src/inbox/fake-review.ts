@@ -24,6 +24,7 @@ export const review = (id: string, extra: Partial<ReviewItem> = {}): ReviewItem 
   summary: null,
   files: [change("README.md")],
   can_undo: false,
+  not_copied: [],
   ...extra,
 });
 
@@ -96,9 +97,19 @@ export class FakeReviewCore implements Transport {
           "review.undo_reject": "open",
         } as const;
         item.state = state[request.method];
+        // Like the core: a worker's approve that left files is partial.
+        if (request.method === "review.approve" && item.mode === "isolated" && this.conflicts.length > 0) {
+          item.state = "partly_approved";
+          item.not_copied = [...this.conflicts];
+        }
         item.can_undo = request.method === "review.reject";
         const restored = request.method === "review.approve" ? [] : [...this.restored];
         return { type: "review.done", data: { item: structuredClone(item), conflicts: [...this.conflicts], restored } };
+      }
+      case "review.resolve": {
+        const item = this.find(request.params.id);
+        item.state = "approved";
+        return { type: "review.done", data: { item: structuredClone(item), conflicts: [], restored: [] } };
       }
       case "review.comment":
         this.find(request.params.id);

@@ -18,6 +18,16 @@ describe("ReviewInbox", () => {
     expect(inbox.open.map((i) => i.id)).toEqual(["r1"]);
   });
 
+  it("counts a partly approved item as waiting until it is resolved", async () => {
+    const { core, inbox } = await setup();
+    core.items.push(review("r4", { state: "partly_approved", not_copied: ["README.md"] }));
+    await inbox.reload();
+    expect(inbox.waiting.map((i) => i.id)).toEqual(["r1", "r4"]);
+    expect(await inbox.resolve("r4")).toBe(true);
+    expect(inbox.waiting.map((i) => i.id)).toEqual(["r1"]);
+    expect(inbox.outcome?.action).toBe("resolved");
+  });
+
   it("re-fetches when an item of its project changes, and bumps `changes`", async () => {
     const { core, inbox } = await setup();
     core.emit({ type: "review.changed", data: { project: "p2", id: "r3" } });

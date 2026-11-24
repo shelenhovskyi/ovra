@@ -18,6 +18,7 @@ import {
   fileMarkers,
   fileSummary,
   itemSummary,
+  notCopiedHint,
   rejectHint,
   STATE_LABEL,
   sharedFiles,
@@ -249,6 +250,13 @@ async function undoReject(review: ReviewItem): Promise<void> {
   }
 }
 
+async function resolve(review: ReviewItem): Promise<void> {
+  if ((await inbox.resolve(review.id)) && inbox.outcome) {
+    announcement = outcomeText(inbox.outcome);
+    await refocus();
+  }
+}
+
 async function sendComment(review: ReviewItem): Promise<void> {
   const text = comment.trim();
   if (!text) return;
@@ -260,9 +268,21 @@ async function sendComment(review: ReviewItem): Promise<void> {
 
 /** Says what actually happened: a reject that restored nothing says so and why. */
 function outcomeText(outcome: Outcome): string {
-  const left = outcome.conflicts.length === 0 ? "" : ` Left for you: ${outcome.conflicts.join(", ")}.`;
-  if (outcome.action === "approved")
-    return outcome.commit ? `Approved and committed as “${outcome.commit}”.${left}` : `Approved.${left}`;
+  const of = inbox.items.find((i) => i.id === outcome.id);
+  const worker = of?.mode === "isolated";
+  const files = outcome.conflicts.join(", ");
+  const left =
+    outcome.conflicts.length === 0
+      ? ""
+      : worker && outcome.action === "approved"
+        ? ` Not copied, because your version changed: ${files}.`
+        : ` Kept as you changed them: ${files}.`;
+  if (outcome.action === "resolved") return "Marked done. Your versions of the files that were not copied stay.";
+  if (outcome.action === "approved") {
+    const what = outcome.conflicts.length > 0 && worker ? "Approved, not all copied." : "Approved.";
+    const committed = outcome.commit ? ` Committed as “${outcome.commit}”.` : "";
+    return `${what}${committed}${left}`;
+  }
   if (outcome.action === "undone") {
     const back =
       outcome.restored.length === 0 ? " Nothing needed putting back." : ` Put back: ${outcome.restored.join(", ")}.`;
@@ -271,6 +291,7 @@ function outcomeText(outcome: Outcome): string {
   if (outcome.restored.length === 0) {
     return `Rejected, but nothing was restored: no file here is known to be the agent's alone, so all of them stay as they are.${left}`;
   }
+  if (worker) return `Rejected. Discarded from the worker's copy: ${outcome.restored.join(", ")}.${left}`;
   return `Rejected. Restored: ${outcome.restored.join(", ")}.${left}`;
 }
 
@@ -429,6 +450,22 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                 </div>
               {/if}
 
+              {#if item.state === "partly_approved"}
+                <div class="actions" role="group" aria-label="Files that were not copied">
+                  <p class="hint" data-testid="inbox-not-copied">{notCopiedHint(item)}</p>
+                  <div class="buttons">
+                    <button
+                      type="button"
+                      data-testid="inbox-resolve"
+                      aria-disabled={busy}
+                      onclick={() => {
+                        if (!busy) void resolve(item);
+                      }}>Mark done</button
+                    >
+                  </div>
+                </div>
+              {/if}
+
               {#if item.state === "rejected" && item.can_undo}
                 <div class="actions" role="group" aria-label="Undo the reject">
                   <p class="hint">Puts back the files the reject restored. Files changed since stay as they are.</p>
@@ -468,7 +505,11 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
               <div class="files-and-diff">
                 <ul class="files" aria-label="Changed files">
                   {#each item.files as changed (changed.path)}
-                    {@const markers = fileMarkers(changed, shared.has(changed.path))}
+                    {@const markers = fileMarkers(
+                      changed,
+                      shared.has(changed.path),
+                      item.not_copied.includes(changed.path),
+                    )}
                     <li>
                       <button
                         type="button"
@@ -638,6 +679,9 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
   }
   .state.approved {
     color: #7fd18b;
+  }
+  .state.partly_approved {
+    color: #ffd36b;
   }
   .state.rejected {
     color: #ff8a8a;

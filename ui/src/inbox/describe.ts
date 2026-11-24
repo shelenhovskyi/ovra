@@ -5,6 +5,7 @@ import type { ChangeKind, FileChange, ReviewItem, ReviewState } from "../lib/pro
 export const STATE_LABEL: Record<ReviewState, string> = {
   open: "Waiting for review",
   approved: "Approved",
+  partly_approved: "Approved, not all copied",
   rejected: "Rejected",
 };
 
@@ -16,8 +17,9 @@ const KIND_LABEL: Record<ChangeKind, string> = {
 };
 
 /** Markers shown next to a file; each one also reads out to screen readers. */
-export function fileMarkers(file: FileChange, shared = false): string[] {
+export function fileMarkers(file: FileChange, shared = false, notCopied = false): string[] {
   const markers: string[] = [];
+  if (notCopied) markers.push("Not copied: your version changed");
   if (file.by === "outside") markers.push("Changed outside the agent");
   if (file.by === "both") markers.push("Also changed outside the agent");
   if (file.blocked) markers.push("Waits for the direct agent");
@@ -59,21 +61,28 @@ export function itemSummary(item: ReviewItem, shared = 0): string {
   if (outside > 0) parts.push(`${outside} changed outside the agent`);
   if (blocked > 0) parts.push(`${blocked} waiting for the direct agent`);
   if (shared > 0) parts.push(`${shared} also in another open review`);
+  if (item.not_copied.length > 0) parts.push(`${item.not_copied.length} not copied`);
   return parts.join(", ");
 }
 
-/** What approve does for this kind of session (ADR 0005); merging branches is never automatic. */
+/** What approve does for this kind of session (ADR 0005), in plain words. */
 export function approveHint(item: ReviewItem): string {
-  if (item.mode === "direct") return "Approve keeps the changes in your checkout.";
-  const blocked = item.files.some((f) => f.blocked);
-  return blocked
-    ? "Approve copies the worker's changes into your checkout, except files that wait for the direct agent. Merging its branch stays with you."
-    : "Approve copies the worker's changes into your checkout. Merging its branch stays with you.";
+  if (item.mode === "direct") return "Approve keeps the changes in your project folder.";
+  const copies = item.files.some((f) => f.blocked)
+    ? "Approve copies the worker's changes into your project folder, except files that wait for the direct agent."
+    : "Approve copies the worker's changes into your project folder.";
+  return `${copies} A file you changed yourself since the worker started is not copied; you will see which.`;
+}
+
+/** What a partly approved item left, and what the person can do about it. */
+export function notCopiedHint(item: ReviewItem): string {
+  return `Not copied into your project folder, because your version changed since the worker started: ${item.not_copied.join(", ")}. The worker's version is in the diff below. Copy what you want by hand, then mark this done.`;
 }
 
 /** What reject does; files changed outside the agent are never restored. */
 export function rejectHint(item: ReviewItem): string {
-  if (item.mode === "isolated") return "Reject discards the worker's changes. Your checkout is not touched.";
+  if (item.mode === "isolated")
+    return "Reject discards the worker's changes from its own copy of the project. Your project folder is not touched.";
   return item.files.some((f) => f.by !== "agent")
     ? "Reject restores the agent's files from the start of the session. Changes made outside the agent stay as they are and are listed for you."
     : "Reject restores the agent's files from the start of the session.";

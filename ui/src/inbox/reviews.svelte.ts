@@ -8,7 +8,7 @@ import { CoreError, type Transport } from "../lib/transport";
 /** What the last approve, reject or undo did, and what it left for the person. */
 export type Outcome = {
   id: ReviewId;
-  action: "approved" | "rejected" | "undone";
+  action: "approved" | "rejected" | "undone" | "resolved";
   conflicts: string[];
   /** Files a reject restored, or an undo put back. */
   restored: string[];
@@ -54,9 +54,12 @@ export class ReviewInbox {
     return this.items.filter((item) => item.state === "open");
   }
 
-  /** Open items with at least one of the agent's files: what waits for the person. */
+  /** Open items with at least one of the agent's files, and partly approved ones: what waits for the person. */
   get waiting(): ReviewItem[] {
-    return this.open.filter((item) => item.files.some((f) => f.by !== "outside"));
+    return this.items.filter(
+      (item) =>
+        item.state === "partly_approved" || (item.state === "open" && item.files.some((f) => f.by !== "outside")),
+    );
   }
 
   /** Shows `project`'s items; null clears the list. */
@@ -119,7 +122,15 @@ export class ReviewInbox {
     });
   }
 
-  /** The same session continues with `text`; the item stays open. */
+  /** The person is done with the files a partly approved item did not copy. */
+  resolve(id: ReviewId): Promise<boolean> {
+    return this.act(id, async () => {
+      const { data } = await this.transport.call({ method: "review.resolve", params: { id } });
+      this.settle("resolved", data);
+    });
+  }
+
+  /** The same session continues with `text`; a decided item stays decided. */
   comment(id: ReviewId, text: string): Promise<boolean> {
     return this.act(id, async () => {
       await this.transport.call({ method: "review.comment", params: { id, text } });

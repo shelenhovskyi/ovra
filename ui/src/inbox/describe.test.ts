@@ -5,6 +5,7 @@ import {
   fileMarkers,
   fileSummary,
   itemSummary,
+  notCopiedHint,
   rejectHint,
   sharedFiles,
 } from "./describe";
@@ -31,8 +32,18 @@ describe("inbox wording", () => {
     });
     expect(itemSummary(worker)).toBe("3 files, 1 changed outside the agent, 1 waiting for the direct agent");
     expect(approveHint(worker)).toContain("except files that wait for the direct agent");
-    expect(approveHint(worker)).toContain("Merging its branch stays with you.");
-    expect(rejectHint(worker)).toBe("Reject discards the worker's changes. Your checkout is not touched.");
+    expect(approveHint(worker)).toContain("A file you changed yourself since the worker started is not copied");
+    expect(approveHint(review("r4"))).toBe("Approve keeps the changes in your project folder.");
+    expect(rejectHint(worker)).toBe(
+      "Reject discards the worker's changes from its own copy of the project. Your project folder is not touched.",
+    );
+    // No git words in what the person reads before deciding.
+    for (const text of [approveHint(worker), approveHint(review("r4")), rejectHint(worker)]) {
+      expect(text).not.toMatch(/checkout|branch|merg/i);
+    }
+    const partial = review("r5", { mode: "isolated", state: "partly_approved", not_copied: ["NOTES.md"] });
+    expect(itemSummary(partial)).toBe("1 file, 1 not copied");
+    expect(notCopiedHint(partial)).toContain("your version changed since the worker started: NOTES.md");
     expect(rejectHint(review("r2", { files: [change("a", { by: "both" })] }))).toContain(
       "Changes made outside the agent stay as they are",
     );

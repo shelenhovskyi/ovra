@@ -84,7 +84,7 @@ describe("Inbox", () => {
     expect(document.activeElement?.getAttribute("data-item")).toBe("r2");
     expect($("[data-testid=inbox-item] h3")?.textContent).toBe("Worker: Session s2");
     expect($("[data-file='src/a.ts']")?.textContent).toContain("Waits for the direct agent");
-    expect($("[data-testid=inbox-item]")?.textContent).toContain("Merging its branch stays with you.");
+    expect($("[data-testid=inbox-item]")?.textContent).toContain("into your project folder");
 
     press("Escape");
     await settle();
@@ -115,7 +115,7 @@ describe("Inbox", () => {
     button(/^Approve and commit$/)?.click();
     await settle();
     expect(core.sent("review.approve").map((c) => c.params)).toEqual([{ id: "r1", commit: "Fix the typo" }]);
-    expect($("[data-testid=inbox-outcome]")?.textContent?.trim()).toBe("Approved and committed as “Fix the typo”.");
+    expect($("[data-testid=inbox-outcome]")?.textContent?.trim()).toBe("Approved. Committed as “Fix the typo”.");
     expect(button(/^Approve/)).toBeUndefined();
     expect(document.activeElement?.id).toBe("inbox-item-title");
   });
@@ -142,7 +142,42 @@ describe("Inbox", () => {
     await settle();
     expect(core.sent("review.reject")).toHaveLength(1);
     expect($("[data-testid=inbox-outcome]")?.textContent?.trim()).toBe(
-      "Rejected. Restored: src/a.rs. Left for you: README.md.",
+      "Rejected. Restored: src/a.rs. Kept as you changed them: README.md.",
+    );
+  });
+
+  it("says which of a worker's files were not copied, keeps the item waiting, and marks it done", async () => {
+    const core = await setup([review("r1", { mode: "isolated", files: [change("NOTES.md"), change("a.rs")] })]);
+    core.conflicts = ["NOTES.md"];
+    await open();
+    button(/^Approve$/)?.click();
+    await settle();
+    expect($("[data-testid=inbox-outcome]")?.textContent?.trim()).toBe(
+      "Approved, not all copied. Not copied, because your version changed: NOTES.md.",
+    );
+    expect($("[data-item=r1]")?.textContent).toContain("Approved, not all copied");
+    expect($("[data-item=r1]")?.textContent).toContain("1 not copied");
+    expect($("[data-file='NOTES.md']")?.textContent).toContain("Not copied: your version changed");
+    expect($("[data-testid=inbox-not-copied]")?.textContent).toContain("The worker's version is in the diff below.");
+    $<HTMLButtonElement>("[data-testid=inbox-resolve]")?.click();
+    await settle();
+    expect(core.sent("review.resolve").map((c) => c.params)).toEqual([{ id: "r1" }]);
+    expect($("[data-testid=inbox-outcome]")?.textContent?.trim()).toBe(
+      "Marked done. Your versions of the files that were not copied stay.",
+    );
+    expect($("[data-testid=inbox-resolve]")).toBeNull();
+  });
+
+  it("says a worker's reject discarded files from its own copy", async () => {
+    const core = await setup([review("r1", { mode: "isolated", files: [change("NOTES.md")] })]);
+    core.restored = ["NOTES.md"];
+    await open();
+    button(/^Reject…$/)?.click();
+    await settle();
+    button(/^Reject the changes$/)?.click();
+    await settle();
+    expect($("[data-testid=inbox-outcome]")?.textContent?.trim()).toBe(
+      "Rejected. Discarded from the worker's copy: NOTES.md.",
     );
   });
 

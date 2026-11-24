@@ -3,7 +3,8 @@ import type { ProjectId } from "./projects";
 
 export type ReviewId = string;
 
-export type ReviewState = "open" | "approved" | "rejected";
+/** `partly_approved`: approved, but some of a worker's files were not copied (`not_copied`); they wait for `review.resolve`. */
+export type ReviewState = "open" | "approved" | "partly_approved" | "rejected";
 
 export type ChangeKind = "added" | "modified" | "deleted" | "renamed";
 
@@ -34,6 +35,8 @@ export type ReviewItem = {
   files: FileChange[];
   /** A direct session's last reject can be undone (`review.undo_reject`). */
   can_undo: boolean;
+  /** A worker's files approve did not copy; the worker's version stays in its diff. */
+  not_copied: string[];
 };
 
 export type ReviewRequest =
@@ -44,6 +47,8 @@ export type ReviewRequest =
   | { method: "review.reject"; params: { id: ReviewId } }
   /** Puts back what the last reject reverted; files changed since come back as conflicts. */
   | { method: "review.undo_reject"; params: { id: ReviewId } }
+  /** The person is done with what a partly approved item did not copy: it becomes approved. */
+  | { method: "review.resolve"; params: { id: ReviewId } }
   /** The same session continues with the comment; a decided item stays decided. */
   | { method: "review.comment"; params: { id: ReviewId; text: string } };
 

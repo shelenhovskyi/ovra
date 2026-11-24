@@ -422,10 +422,14 @@ async fn approving_a_worker_applies_its_files_to_the_main_checkout() {
     else {
         panic!("unexpected {done:?}");
     };
-    // The person's own b.rs is left alone.
+    // The person's own b.rs is left alone, and the item says so.
     assert_eq!(
-        (item.state, conflicts),
-        (ReviewState::Approved, vec!["b.rs".to_owned()])
+        (item.state, conflicts, item.not_copied.clone()),
+        (
+            ReviewState::PartlyApproved,
+            vec!["b.rs".to_owned()],
+            vec!["b.rs".to_owned()]
+        )
     );
     assert_eq!(
         f.wt.files(ROOT).get("a.rs").map(String::as_str),
@@ -455,6 +459,35 @@ async fn approving_a_worker_applies_its_files_to_the_main_checkout() {
     )
     .await;
     assert_eq!(code(twice), ErrorCode::Conflict);
+    // The worker's version of what was not copied stays readable.
+    let diff = ok(
+        &f.core,
+        json!({"method": "review.diff", "params": {"id": "r1", "path": "b.rs"}}),
+    )
+    .await;
+    let Response::Review(ReviewResponse::Diff { patch, .. }) = diff else {
+        panic!("unexpected {diff:?}");
+    };
+    assert!(patch.contains("+new"));
+    // Once the person is done with it, the item is approved and keeps the list.
+    let done = ok(
+        &f.core,
+        json!({"method": "review.resolve", "params": {"id": "r1"}}),
+    )
+    .await;
+    let Response::Review(ReviewResponse::Done { item, .. }) = done else {
+        panic!("unexpected {done:?}");
+    };
+    assert_eq!(
+        (item.state, item.not_copied),
+        (ReviewState::Approved, vec!["b.rs".to_owned()])
+    );
+    let again = call(
+        &f.core,
+        json!({"method": "review.resolve", "params": {"id": "r1"}}),
+    )
+    .await;
+    assert_eq!(code(again), ErrorCode::Conflict);
 }
 
 #[tokio::test]
