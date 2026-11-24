@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Downloads the speed gate results (`perf-results` artifacts) of recent CI runs
-# on main into <out>/<run id>/ for the site's Speed page. Needs `gh` with a
-# token that can read Actions artifacts (GH_TOKEN). A failed download only
-# drops that run: the site still builds.
+# on main of this repository (never forks) into <out>/<run id>/ for the site's
+# Speed page. Needs `gh` with a token that can read Actions artifacts (GH_TOKEN).
+# A failed download only drops that run: the site still builds.
 # Usage: fetch-perf-results.sh <out> [count]
 set -uo pipefail
 out=${1:?usage: fetch-perf-results.sh <out> [count]}
@@ -11,7 +11,8 @@ repo=${GITHUB_REPOSITORY:-shelenhovskyi/ovra}
 mkdir -p "$out"
 
 if ! list=$(gh api "repos/$repo/actions/artifacts?name=perf-results&per_page=100" \
-  --jq "[.artifacts[] | select(.expired | not) | select(.workflow_run.head_branch == \"main\")][:$count][]
+  --jq "[.artifacts[] | select(.expired | not) | select(.workflow_run.head_branch == \"main\")
+        | select(.workflow_run.head_repository_id == .workflow_run.repository_id)][:$count][]
         | [.id, .workflow_run.id, .workflow_run.head_sha, .created_at] | @tsv"); then
   echo "warning: cannot list perf-results artifacts; the Speed page will show targets only" >&2
   exit 0
