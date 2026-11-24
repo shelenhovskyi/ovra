@@ -1,6 +1,7 @@
 // fs-index through the core: git status, the watcher's walk, listings and
 // change events on the 100k-file repository.
-import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "@playwright/test";
 import { Client, type Daemon, type Event, median, memoryMb, REPO, startDaemon, timed } from "../daemon";
@@ -44,7 +45,18 @@ test("git status and the initial walk", async () => {
   await list("");
   report("fs.git_status_ms", await medianOf(3, () => list("")));
   // Opening starts the watcher, which walks every directory that is not ignored.
-  report("fs.watch_start_ms", await medianOf(3, () => client.call("projects.open", { id: project })));
+  // Opening the project that is already active is a no-op, so switch to a
+  // tiny project in between: every timed open then starts a fresh watcher.
+  const tinyRoot = mkdtempSync(join(tmpdir(), "ovra-perf-tiny-"));
+  writeFileSync(join(tinyRoot, "a.txt"), "a\n");
+  const tiny = (await client.call<{ id: string }>("projects.add", { root: tinyRoot })).id;
+  const opens: number[] = [];
+  for (let i = 0; i < 3; i++) {
+    await client.call("projects.open", { id: tiny });
+    opens.push(await timed(() => client.call("projects.open", { id: project })));
+  }
+  rmSync(tinyRoot, { recursive: true, force: true });
+  report("fs.watch_start_ms", median(opens));
 });
 
 test("listings of a watched project", async () => {

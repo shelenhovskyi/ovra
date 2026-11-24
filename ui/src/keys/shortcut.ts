@@ -29,6 +29,7 @@ const BROWSER_SAFE: Record<string, string> = {
   "Ctrl+Tab": "Alt+]",
   "Ctrl+Shift+Tab": "Alt+[",
   "Mod+P": "Alt+P",
+  "Mod+Shift+A": "Alt+Shift+A",
 };
 
 /** The shortcut that is live where the UI runs: `keys` itself, or its browser-safe stand-in. */
@@ -83,9 +84,14 @@ type KeyEventLike = Pick<KeyboardEvent, "key" | "code" | "ctrlKey" | "metaKey" |
 /**
  * The pressed key, lower-case. Letters and digits fall back to the physical
  * key when the layout produces something else (non-Latin layouts, Alt on macOS),
- * so `Mod+P` works whatever the input language.
+ * so `Mod+P` works whatever the input language. Punctuation with Shift is
+ * matched by its physical key.
  */
 function pressedKey(event: KeyEventLike): string {
+  // Shift turns punctuation into another character (` into ~); shortcuts name
+  // the unshifted key, as in `Ctrl+Shift+``.
+  const shifted = event.shiftKey ? PUNCTUATION[event.code] : undefined;
+  if (shifted) return shifted;
   const key = event.key.toLowerCase();
   if (key.length === 1 && key >= " " && key <= "~") return key;
   if (key.length !== 1) return key;

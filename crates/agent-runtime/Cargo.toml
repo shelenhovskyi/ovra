@@ -9,11 +9,14 @@ publish = false
 
 [dependencies]
 ovra-core.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["io-util", "macros", "process", "rt", "sync", "time"] }
+uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
 ovra-core = { workspace = true, features = ["fakes"] }
-serde_json.workspace = true
-tokio = { workspace = true, features = ["macros", "rt"] }
+insta.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
 
 [lints]
 workspace = true

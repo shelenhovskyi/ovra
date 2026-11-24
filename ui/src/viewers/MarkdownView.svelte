@@ -62,7 +62,7 @@ async function openWeb(url: string) {
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
-<article class="markdown" data-testid="markdown-view" bind:this={root} {onclick}>
+<article class="markdown" data-testid="markdown-view" aria-label="Preview of {path.slice(path.lastIndexOf('/') + 1)}" bind:this={root} {onclick}>
   <!-- Safe: renderMarkdown escapes raw HTML and drops unsafe URLs. -->
   {@html html}
 </article>

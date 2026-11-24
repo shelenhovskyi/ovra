@@ -3,7 +3,8 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use crate::path::RelPath;
 use crate::protocol::agents::{AgentMessage, AgentStatus, TurnUsage};
@@ -347,7 +348,8 @@ pub enum Step {
 }
 
 /// An agent that plays a script: turn 0 on start, turn N on the N-th
-/// message. After the last turn it waits idle. Needs a Tokio runtime.
+/// message. After the last turn it waits idle. An interrupt skips the rest of
+/// the turn. Needs a Tokio runtime.
 #[derive(Debug, Default)]
 pub struct ScriptedAgent {
     turns: Vec<Vec<Step>>,
@@ -369,13 +371,19 @@ impl AgentRuntime for ScriptedAgent {
         lock(&self.started).push(spec);
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Option<String>>();
         let turns = self.turns.clone();
+        let interrupted = Arc::new(AtomicBool::new(false));
+        let process = ScriptedProcess {
+            tx,
+            interrupted: interrupted.clone(),
+        };
         tokio::spawn(async move {
             let mut turns = turns.into_iter();
             let mut next = turns.next();
             loop {
                 if let Some(steps) = next.take() {
                     host.status(AgentStatus::Working);
-                    if !play(&host, steps).await {
+                    interrupted.store(false, Ordering::SeqCst);
+                    if !play(&host, steps, &interrupted).await {
                         return;
                     }
                 }
@@ -390,13 +398,16 @@ impl AgentRuntime for ScriptedAgent {
             }
             host.status(AgentStatus::Stopped);
         });
-        Ok(Box::new(ScriptedProcess(tx)))
+        Ok(Box::new(process))
     }
 }
 
 /// Plays one turn; `false` if the session failed.
-async fn play(host: &AgentHost, steps: Vec<Step>) -> bool {
+async fn play(host: &AgentHost, steps: Vec<Step>, interrupted: &AtomicBool) -> bool {
     for (n, step) in steps.into_iter().enumerate() {
+        if interrupted.load(Ordering::SeqCst) {
+            break;
+        }
         match step {
             Step::Say(text) => host.message(AgentMessage::AssistantText {
                 text: text.to_owned(),
@@ -434,16 +445,24 @@ async fn play(host: &AgentHost, steps: Vec<Step>) -> bool {
 }
 
 #[derive(Debug)]
-struct ScriptedProcess(tokio::sync::mpsc::UnboundedSender<Option<String>>);
+struct ScriptedProcess {
+    tx: tokio::sync::mpsc::UnboundedSender<Option<String>>,
+    interrupted: Arc<AtomicBool>,
+}
 
 impl RunningAgent for ScriptedProcess {
     fn send(&self, text: String) -> Result<()> {
-        self.0
+        self.tx
             .send(Some(text))
             .map_err(|_| ProtocolError::new(ErrorCode::Conflict, "the session has ended"))
     }
 
+    fn interrupt(&self) -> Result<()> {
+        self.interrupted.store(true, Ordering::SeqCst);
+        Ok(())
+    }
+
     fn stop(&self) {
-        let _ = self.0.send(None);
+        let _ = self.tx.send(None);
     }
 }

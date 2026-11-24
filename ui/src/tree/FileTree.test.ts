@@ -1,5 +1,6 @@
 import { flushSync, mount, unmount } from "svelte";
 import { afterEach, describe, expect, it } from "vitest";
+import { listCommands } from "../keys/commands";
 import FileTree from "./FileTree.svelte";
 import { dirsFromPaths, FakeCore, flatDir } from "./fake-core";
 import ProjectList from "./ProjectList.svelte";
@@ -248,6 +249,74 @@ describe("FileTree", () => {
     cleanup = () => unmount(app);
     await settle();
     expect(target.querySelector("[aria-selected=true]")?.getAttribute("data-path")).toBe("a/b/c.ts");
+  });
+
+  it("marks a folder that could not load when the core is disconnected", async () => {
+    const core = new FakeCore(dirsFromPaths(["src/a.ts"]));
+    const t = mountTree(core);
+    await settle();
+    let calls = 0;
+    core.call = (() => {
+      calls++;
+      return calls > 20 ? new Promise(() => {}) : Promise.reject(new Error("connection to core closed"));
+    }) as typeof core.call;
+    t.key("ArrowDown");
+    t.key("ArrowRight");
+    await settle();
+    expect(calls).toBe(1);
+    const src = t.row("src");
+    expect(src.getAttribute("aria-expanded")).toBe("true");
+    expect(document.getElementById(src.getAttribute("aria-describedby") ?? "")?.textContent).toBe(
+      "could not load, collapse and expand to retry",
+    );
+  });
+
+  it("re-reads the tree after the connection comes back", async () => {
+    const core = new FakeCore(dirsFromPaths(["a.ts"]));
+    const t = mountTree(core);
+    await settle();
+    core.setStatus("closed");
+    core.dirs = dirsFromPaths(["a.ts", "made-offline.ts"]);
+    core.setStatus("open");
+    await settle();
+    expect(t.rows().map((r) => r.dataset.path)).toEqual(["a.ts", "made-offline.ts"]);
+  });
+
+  it("selects a regenerated file again when it comes back", async () => {
+    const core = new FakeCore(dirsFromPaths(["gen/b.rs", "src/util.rs"]));
+    const t = mountTree(core);
+    await settle();
+    t.row("gen").click();
+    await settle();
+    t.key("ArrowDown");
+    expect(t.row("gen/b.rs").getAttribute("aria-selected")).toBe("true");
+    core.dirs = dirsFromPaths(["src/util.rs"]);
+    core.emit({ type: "fs.changed", data: { project: "p1", paths: ["gen"] } });
+    await settle();
+    core.dirs = dirsFromPaths(["gen/b.rs", "src/util.rs"]);
+    core.emit({ type: "fs.changed", data: { project: "p1", paths: ["gen"] } });
+    await settle();
+    expect(t.row("gen/b.rs").getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("goes to the next and previous changed file", async () => {
+    const t = mountTree(
+      new FakeCore(dirsFromPaths(["a.ts", "b.ts", "c.ts", "d.ts"], { "b.ts": "modified", "d.ts": "added" })),
+    );
+    await settle();
+    const run = (id: string) =>
+      listCommands()
+        .find((c) => c.id === id)
+        ?.run();
+    await run("tree.next_change");
+    flushSync();
+    expect(t.row("b.ts").getAttribute("aria-selected")).toBe("true");
+    await run("tree.next_change");
+    flushSync();
+    expect(t.row("d.ts").getAttribute("aria-selected")).toBe("true");
+    await run("tree.previous_change");
+    flushSync();
+    expect(t.row("b.ts").getAttribute("aria-selected")).toBe("true");
   });
 
   it("shows why the tree could not load", async () => {

@@ -12,7 +12,9 @@ export async function loadView(transport: Transport, project: ProjectId, path: s
     return { view: viewFor(file.data.path, file.data.body), size: file.data.size };
   } catch (err) {
     if (err instanceof CoreError && err.code === "not_found") return { error: `${path} no longer exists.` };
-    return { error: err instanceof Error ? err.message : String(err) };
+    if (err instanceof CoreError) return { error: `Could not read ${path}: ${err.error.message}` };
+    // Anything else comes from the transport: the core is not reachable.
+    return { error: `Not connected to Ovra's core, so ${path} cannot be read right now.` };
   }
 }
 

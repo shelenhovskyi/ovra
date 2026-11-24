@@ -1,12 +1,16 @@
 <script lang="ts">
 import { untrack } from "svelte";
+import AgentsPanel from "../agents/AgentsPanel.svelte";
+import Approvals from "../approvals/Approvals.svelte";
 import Editor from "../editor/Editor.svelte";
 import { persistOpenFiles } from "../editor/open-files.svelte";
 import Tabs from "../editor/Tabs.svelte";
 import Keybindings from "../keys/Keybindings.svelte";
 import type { CoreInfo } from "../lib/protocol";
 import type { ConnectionStatus, Transport } from "../lib/transport";
+import Notifications from "../notify/Notifications.svelte";
 import Palette from "../palette/Palette.svelte";
+import Terminals from "../terminal/Terminals.svelte";
 import Tree from "../tree/Tree.svelte";
 import Viewer from "../viewers/Viewer.svelte";
 import { provideOvra } from "./context";
@@ -84,17 +88,23 @@ const status = $derived.by((): { text: string; ok: boolean } => {
   <aside data-testid="sidebar"><Tree /></aside>
   <main data-testid="main">
     <Tabs />
-    <div class="view">
+    <div class="view" id="ovra-tabpanel" role="tabpanel" aria-label={workspace.openPath ?? "No file open"}>
       {#if workspace.mode === "edit"}
         <Editor />
       {:else}
         <Viewer />
       {/if}
     </div>
+    <Terminals />
   </main>
+  <aside class="agents" data-testid="agents" aria-label="Agents and approvals">
+    <Approvals />
+    <AgentsPanel />
+  </aside>
   <footer>
     <span data-testid="status" role="status" class:error={!status.ok}>{status.text}</span>
   </footer>
+  <Notifications />
   {#if workspace.paletteOpen}
     <Palette />
   {/if}
@@ -115,12 +125,12 @@ const status = $derived.by((): { text: string; ok: boolean } => {
   .shell {
     display: grid;
     height: 100%;
-    grid-template-columns: 260px 1fr;
+    grid-template-columns: 260px 1fr 340px;
     grid-template-rows: 36px 1fr 24px;
     grid-template-areas:
-      "header header"
-      "sidebar main"
-      "footer footer";
+      "header header header"
+      "sidebar main agents"
+      "footer footer footer";
   }
   header {
     grid-area: header;
@@ -141,6 +151,15 @@ const status = $derived.by((): { text: string; ok: boolean } => {
     grid-area: sidebar;
     overflow: hidden;
     border-right: 1px solid #2a2a31;
+  }
+  .agents {
+    grid-area: agents;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+    border-right: none;
+    border-left: 1px solid #2a2a31;
   }
   main {
     grid-area: main;

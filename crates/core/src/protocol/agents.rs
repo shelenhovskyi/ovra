@@ -61,9 +61,11 @@ pub struct SessionInfo {
     pub status: AgentStatus,
     /// Short name for lists: the first line of the first prompt.
     pub title: String,
+    /// The sum of every finished turn's usage.
+    pub usage: TurnUsage,
 }
 
-/// Tokens and cost of one turn, as the agent reports them.
+/// Tokens and cost of one turn, as the agent reports them, or their sum.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TurnUsage {
     pub input_tokens: u64,
@@ -126,6 +128,10 @@ pub enum AgentsRequest {
     /// Sends the next message. Answers `ok`.
     #[serde(rename = "agents.send")]
     Send { session: SessionId, text: String },
+    /// Ends the current turn; the session then waits for the next message.
+    /// Pending permission requests are denied. Answers `ok`.
+    #[serde(rename = "agents.interrupt")]
+    Interrupt { session: SessionId },
     /// Stops the session. Answers `ok`.
     #[serde(rename = "agents.stop")]
     Stop { session: SessionId },

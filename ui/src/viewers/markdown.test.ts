@@ -5,7 +5,7 @@ describe("renderMarkdown", () => {
   it("renders GFM", () => {
     const html = renderMarkdown("# Title\n\n- [x] done\n\n| a |\n| - |\n| 1 |\n\n~~old~~ https://example.com");
     expect(html).toContain('<h1 id="title">Title</h1>');
-    expect(html).toContain('<input type="checkbox" disabled="" checked="">');
+    expect(html).toContain('<input type="checkbox" disabled="" checked="" aria-label="done">');
     expect(html).toContain("<td>1</td>");
     expect(html).toContain("<del>old</del>");
     expect(html).toContain('<a href="https://example.com">https://example.com</a>');

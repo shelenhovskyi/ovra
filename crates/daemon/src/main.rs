@@ -11,6 +11,7 @@ use anyhow::Context;
 use clap::Parser;
 use ovra_agent_runtime::ClaudeCli;
 use ovra_core::Core;
+use ovra_core::services::AgentRuntime;
 use ovra_fs_index::FsIndex;
 use ovra_opener::SystemOpener;
 use ovra_pty::Pty;
@@ -31,6 +32,10 @@ struct Args {
     /// Where the project list and other state are kept.
     #[arg(long, default_value = ".ovra-data")]
     data_dir: PathBuf,
+    /// Runs a scripted fake agent instead of the user's `claude` (tests and UX reviews).
+    #[cfg(feature = "fake-agent")]
+    #[arg(long)]
+    fake_agent: bool,
 }
 
 #[tokio::main]
@@ -67,7 +72,7 @@ async fn main() -> anyhow::Result<()> {
         .fs(Arc::new(FsIndex::new()))
         .opener(Arc::new(SystemOpener::new()))
         .terminals(Arc::new(Pty::new()))
-        .agents(Arc::new(ClaudeCli::new(None)))
+        .agents(agents(&args))
         .build();
     let app = ws::router(
         core,
@@ -87,6 +92,49 @@ async fn main() -> anyhow::Result<()> {
         })
         .await?;
     Ok(())
+}
+
+#[cfg(not(feature = "fake-agent"))]
+fn agents(_: &Args) -> Arc<dyn AgentRuntime> {
+    Arc::new(ClaudeCli::new(None))
+}
+
+/// The fake agent asks to run a command and to edit a file, then waits for
+/// replies; every reply gets one more command to approve.
+#[cfg(feature = "fake-agent")]
+fn agents(args: &Args) -> Arc<dyn AgentRuntime> {
+    use ovra_core::fakes::{ScriptedAgent, Step};
+    if !args.fake_agent {
+        return Arc::new(ClaudeCli::new(None));
+    }
+    tracing::warn!("using the scripted fake agent");
+    let reply = || {
+        vec![
+            Step::Say("Checking the status."),
+            Step::Use {
+                tool: "Bash",
+                input: serde_json::json!({ "command": "git status", "description": "Show status" }),
+            },
+        ]
+    };
+    let mut turns = vec![vec![
+        Step::Say("I will list the files, then fix the typo in README.md."),
+        Step::Use {
+            tool: "Bash",
+            input: serde_json::json!({ "command": "ls -la", "description": "List files" }),
+        },
+        Step::Use {
+            tool: "Edit",
+            input: serde_json::json!({
+                "file_path": "README.md",
+                "old_string": "teh",
+                "new_string": "the",
+            }),
+        },
+        Step::Say("Done."),
+    ]];
+    turns.extend(std::iter::repeat_with(reply).take(20));
+    Arc::new(ScriptedAgent::new(turns))
 }
 
 fn new_token() -> String {

@@ -12,7 +12,7 @@ import type {
   Request,
   ResponseFor,
 } from "../lib/protocol";
-import { CoreError, type Transport } from "../lib/transport";
+import { type ConnectionStatus, CoreError, type Transport } from "../lib/transport";
 import { joinPath } from "./model";
 
 export type Dirs = Map<string, DirEntry[]>;
@@ -71,6 +71,19 @@ export class FakeCore implements Transport {
   onEvent(listener: (event: CoreEvent) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  private statusListeners = new Set<(status: ConnectionStatus) => void>();
+
+  onStatus(listener: (status: ConnectionStatus) => void): () => void {
+    this.statusListeners.add(listener);
+    listener("open");
+    return () => this.statusListeners.delete(listener);
+  }
+
+  /** Simulates the connection dropping and coming back. */
+  setStatus(status: ConnectionStatus): void {
+    for (const listener of this.statusListeners) listener(status);
   }
 
   emit(event: CoreEvent): void {

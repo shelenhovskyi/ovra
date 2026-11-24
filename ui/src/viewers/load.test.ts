@@ -40,7 +40,13 @@ describe("loadView", () => {
     const broken = fakeTransport(() => {
       throw new CoreError({ code: "unavailable", message: "no fs" });
     });
-    await expect(loadView(broken, "p1", "a.md")).resolves.toEqual({ error: "unavailable: no fs" });
+    await expect(loadView(broken, "p1", "a.md")).resolves.toEqual({ error: "Could not read a.md: no fs" });
+    const offline = fakeTransport(() => {
+      throw new Error("connection to core closed");
+    });
+    await expect(loadView(offline, "p1", "a.md")).resolves.toEqual({
+      error: "Not connected to Ovra's core, so a.md cannot be read right now.",
+    });
   });
 });
 

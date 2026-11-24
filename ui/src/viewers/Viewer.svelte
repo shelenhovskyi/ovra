@@ -1,5 +1,6 @@
 <script lang="ts">
 // Shows workspace.openPath in view mode: markdown, images, diffs, plain text.
+import { unsavedText } from "../editor/open-files.svelte";
 import { useOvra } from "../shell/context";
 import ImageView from "./ImageView.svelte";
 import Lines from "./Lines.svelte";
@@ -10,6 +11,16 @@ import PatchView from "./PatchView.svelte";
 const { transport, workspace } = useOvra();
 
 let loaded = $state<Loaded | null>(null);
+// Unsaved editor text wins over the file on disk, so the preview matches what will be saved.
+let unsaved = $derived(
+  workspace.project && workspace.openPath ? unsavedText(workspace.project.id, workspace.openPath) : null,
+);
+let shown = $derived.by(() => {
+  if (!loaded || !("view" in loaded)) return loaded;
+  const { view } = loaded;
+  const textual = view.kind === "markdown" || view.kind === "patch" || view.kind === "text";
+  return unsaved !== null && textual ? { ...loaded, view: { ...view, text: unsaved } } : loaded;
+});
 let notice = $state("");
 let root = $state<HTMLElement | null>(null);
 let content = $state<HTMLElement | null>(null);
@@ -71,46 +82,51 @@ async function openExternal() {
     if (event.relatedTarget instanceof Node && !root?.contains(event.relatedTarget)) hadFocus = false;
   }}
 >
-  {#if !workspace.openPath}
+  {#if !workspace.project}
+    <p class="note">Open a project to see its files here.</p>
+  {:else if !workspace.openPath}
     <p class="note">Open a file from the tree on the left.</p>
   {:else}
     <div class="bar">
       <span class="path" title={workspace.openPath}>{workspace.openPath}</span>
-      {#if !loaded || !("view" in loaded) || (loaded.view.kind !== "binary" && loaded.view.kind !== "too_large")}
-        <button type="button" onclick={openExternal}>Open in default app</button>
+      {#if loaded && "view" in loaded && loaded.view.kind !== "binary" && loaded.view.kind !== "too_large"}
+        <button type="button" class="quiet" onclick={openExternal}>Open in default app</button>
       {/if}
     </div>
     <p class="notice" role="status">{notice}</p>
     <div class="content" bind:this={content} tabindex="-1">
-      {#if !loaded}
+      {#if unsaved !== null}
+        <p class="note unsaved" data-testid="unsaved-preview">Showing unsaved changes from the editor.</p>
+      {/if}
+      {#if !shown}
         <p class="note">Loading {workspace.openPath}…</p>
-      {:else if "error" in loaded}
-        <p class="note error">{loaded.error}</p>
-      {:else if loaded.view.kind === "markdown"}
+      {:else if "error" in shown}
+        <p class="note error">{shown.error}</p>
+      {:else if shown.view.kind === "markdown"}
         <MarkdownView
-          text={loaded.view.text}
+          text={shown.view.text}
           path={workspace.openPath}
           open={(path) => workspace.openFile(path)}
           notify={(message) => (notice = message)}
         />
-      {:else if loaded.view.kind === "image"}
-        <ImageView src={loaded.view.src} path={workspace.openPath} />
-      {:else if loaded.view.kind === "patch"}
-        <PatchView text={loaded.view.text} />
-      {:else if loaded.view.kind === "text"}
-        <Lines items={loaded.view.text.split(/\r?\n/)} label="File text" testid="text-view">
+      {:else if shown.view.kind === "image"}
+        <ImageView src={shown.view.src} path={workspace.openPath} />
+      {:else if shown.view.kind === "patch"}
+        <PatchView text={shown.view.text} />
+      {:else if shown.view.kind === "text"}
+        <Lines items={shown.view.text.split(/\r?\n/)} label="File text" testid="text-view">
           {#snippet row(line)}
             <div class="text-line">{line}</div>
           {/snippet}
         </Lines>
-      {:else if loaded.view.kind === "binary"}
+      {:else if shown.view.kind === "binary"}
         <p class="note">
-          This is a binary file ({loaded.view.mime}, {formatSize(loaded.size)}) and cannot be shown here.
+          This is a binary file ({shown.view.mime}, {formatSize(shown.size)}) and cannot be shown here.
           <button type="button" onclick={openExternal}>Open in default app</button>
         </p>
       {:else}
         <p class="note">
-          This file is {formatSize(loaded.size)}, too large to show here.
+          This file is {formatSize(shown.size)}, too large to show here.
           <button type="button" onclick={openExternal}>Open in default app</button>
         </p>
       {/if}
@@ -147,6 +163,18 @@ async function openExternal() {
   }
   .notice:empty {
     display: none;
+  }
+  .quiet {
+    background: none;
+    color: #b4b4c0;
+    border: 1px solid #3a3a44;
+    border-radius: 3px;
+    padding: 1px 8px;
+    font: inherit;
+    cursor: pointer;
+  }
+  .quiet:hover {
+    color: #e6e6e6;
   }
   .content {
     flex: 1;

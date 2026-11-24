@@ -11,6 +11,11 @@ publish = false
 name = "ovra-daemon"
 path = "src/main.rs"
 
+[features]
+# `--fake-agent`: a scripted agent instead of the user's `claude`, for e2e
+# tests and UX reviews. Off in release builds.
+fake-agent = ["ovra-core/fakes", "dep:serde_json"]
+
 [dependencies]
 ovra-core.workspace = true
 ovra-fs-index.workspace = true
@@ -23,6 +28,7 @@ anyhow.workspace = true
 axum.workspace = true
 clap.workspace = true
 rand.workspace = true
+serde_json = { workspace = true, optional = true }
 tokio.workspace = true
 tower-http.workspace = true
 tracing.workspace = true

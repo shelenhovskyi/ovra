@@ -18,3 +18,7 @@ just dev                 # desktop app (needs a display)
 ```
 
 See `docs/architecture.md` and `CLAUDE.md`.
+
+## License
+
+Apache License 2.0: see [LICENSE](LICENSE) and [NOTICE](NOTICE).

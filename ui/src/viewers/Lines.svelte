@@ -1,6 +1,8 @@
 <script lang="ts" generics="T">
-// A scrollable list of fixed-height rows. Long lists render only the rows on
-// screen (see lines.ts); rows must not wrap.
+// A scrollable table of fixed-height rows. Long lists render only the rows on
+// screen (see lines.ts); rows must not wrap. Every rendered row carries its
+// position (aria-rowindex of aria-rowcount), and keyboard scrolling announces
+// which lines are on screen, so screen readers know how much there is.
 import type { Snippet } from "svelte";
 import { visibleRange } from "./lines";
 
@@ -10,14 +12,26 @@ let {
   label,
   rowHeight = 18,
   testid,
-}: { items: readonly T[]; row: Snippet<[T, number]>; label: string; rowHeight?: number; testid?: string } = $props();
+  onkeydown,
+}: {
+  items: readonly T[];
+  row: Snippet<[T, number]>;
+  label: string;
+  rowHeight?: number;
+  testid?: string;
+  onkeydown?: (event: KeyboardEvent) => void;
+} = $props();
 
 let viewport = $state<HTMLElement | null>(null);
 let scrollTop = $state(0);
 let height = $state(0);
+let status = $state("");
+let announceScroll = false;
 
 const range = $derived(visibleRange(items.length, scrollTop, height, rowHeight));
 const shown = $derived(items.slice(range.start, range.end));
+
+const SCROLL_KEYS = new Set(["PageUp", "PageDown", "Home", "End", "ArrowUp", "ArrowDown"]);
 
 /** Scrolls so that row `index` is at the top. */
 export function scrollToIndex(index: number): void {
@@ -25,42 +39,74 @@ export function scrollToIndex(index: number): void {
   viewport.scrollTop = index * rowHeight;
   scrollTop = viewport.scrollTop;
 }
+
+/** Moves keyboard focus to the list. */
+export function focus(): void {
+  viewport?.focus();
+}
+
+/** Says `message` through the list's polite live region. */
+export function announce(message: string): void {
+  status = message;
+}
+
+function onscroll() {
+  if (!viewport) return;
+  scrollTop = viewport.scrollTop;
+  if (!announceScroll) return;
+  announceScroll = false;
+  const first = Math.min(items.length, Math.floor(scrollTop / rowHeight) + 1);
+  const last = Math.min(items.length, Math.ceil((scrollTop + height) / rowHeight));
+  status = `Lines ${first}–${Math.max(first, last)} of ${items.length}`;
+}
 </script>
 
-<!-- A focusable scroll region, so the keyboard can scroll it. -->
-<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-<div
-  class="lines"
-  role="region"
-  aria-label={label}
-  tabindex="0"
-  data-testid={testid}
-  bind:this={viewport}
-  bind:clientHeight={height}
-  onscroll={() => {
-    if (viewport) scrollTop = viewport.scrollTop;
-  }}
->
+<div class="lines">
+  <!-- A focusable scroll region, so the keyboard can scroll it. -->
+  <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
   <div
-    class="sizer"
-    style:height="{items.length * rowHeight}px"
-    style:padding-top="{range.start * rowHeight}px"
-    style:--row="{rowHeight}px"
+    class="viewport"
+    role="table"
+    aria-label={label}
+    aria-rowcount={items.length}
+    tabindex="0"
+    data-testid={testid}
+    bind:this={viewport}
+    bind:clientHeight={height}
+    {onscroll}
+    onkeydown={(event) => {
+      if (SCROLL_KEYS.has(event.key)) announceScroll = true;
+      onkeydown?.(event);
+    }}
   >
-    {#each shown as item, i (range.start + i)}
-      {@render row(item, range.start + i)}
-    {/each}
+    <div
+      class="sizer"
+      style:height="{items.length * rowHeight}px"
+      style:padding-top="{range.start * rowHeight}px"
+      style:--row="{rowHeight}px"
+    >
+      {#each shown as item, i (range.start + i)}
+        <div class="row" role="row" aria-rowindex={range.start + i + 1}>
+          <div role="cell">{@render row(item, range.start + i)}</div>
+        </div>
+      {/each}
+    </div>
   </div>
+  <p class="visually-hidden" role="status">{status}</p>
 </div>
 
 <style>
   .lines {
     height: 100%;
+    min-height: 0;
+  }
+  .viewport {
+    height: 100%;
     overflow: auto;
     font-family: ui-monospace, monospace;
     font-size: 12px;
   }
-  .lines:focus-visible {
+  .viewport:focus-visible {
     outline: 2px solid #7aa2f7;
     outline-offset: -2px;
   }
@@ -69,10 +115,19 @@ export function scrollToIndex(index: number): void {
     min-width: 100%;
     width: max-content;
   }
-  .sizer > :global(*) {
+  .row {
     height: var(--row);
     line-height: var(--row);
     white-space: pre;
     overflow: hidden;
+  }
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 </style>

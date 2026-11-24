@@ -18,6 +18,8 @@ export type Row = {
   expanded: boolean;
   /** An expanded directory whose first listing is still loading. */
   loading: boolean;
+  /** An expanded directory whose listing could not be loaded; retried on expand or the next refresh. */
+  failed: boolean;
   /** Position among its siblings (from 1) and their count, for `aria-posinset` / `aria-setsize`. */
   posinset: number;
   setsize: number;
@@ -66,6 +68,14 @@ export class TreeModel {
   private readonly dirs = new Map<string, DirEntry[]>();
   private expanded = new Set<string>([""]);
   private readonly loading = new Set<string>();
+  /**
+   * Folders whose last load failed (for example with the core disconnected).
+   * They are skipped by refresh passes until the next invalidate, so a
+   * failing load cannot be retried in a tight loop.
+   */
+  private readonly failed = new Set<string>();
+  /** Restored folders not loaded yet; dropped if their parent's listing no longer has them. */
+  private readonly restoring = new Set<string>();
   /** Loaded directories whose listing may be out of date; reloaded when shown. */
   private readonly stale = new Set<string>();
   private readonly ignoredDirs = new Set<string>();
@@ -86,7 +96,11 @@ export class TreeModel {
    * tree saved with hundreds of open folders costs one screenful of requests.
    */
   async start(expanded: string[] = []): Promise<void> {
-    for (const dir of expanded) if (dir !== "") this.expanded.add(dir);
+    for (const dir of expanded) {
+      if (dir === "") continue;
+      this.expanded.add(dir);
+      this.restoring.add(dir);
+    }
     await this.fetchFirst("");
     await this.pump();
   }
@@ -105,8 +119,10 @@ export class TreeModel {
   }
 
   async expand(path: string): Promise<void> {
-    if (this.expanded.has(path)) return;
+    // Restored folders are expanded but load lazily; expanding one loads it now (Reveal needs that).
+    if (this.expanded.has(path) && (this.dirs.has(path) || this.loading.has(path))) return;
     this.expanded.add(path);
+    this.failed.delete(path); // expanding again is an explicit retry
     this.rebuild();
     if (!this.dirs.has(path)) await this.fetchFirst(path);
     else await this.pump();
@@ -185,6 +201,7 @@ export class TreeModel {
    */
   invalidatePaths(paths: string[]): Promise<void> {
     for (const path of paths) {
+      for (const dir of [...this.failed]) if (isInside(dir, path) || dir === parentOf(path)) this.failed.delete(dir);
       if (this.dirs.has(parentOf(path))) this.stale.add(parentOf(path));
       for (const dir of this.dirs.keys()) if (isInside(dir, path)) this.stale.add(dir);
     }
@@ -193,6 +210,7 @@ export class TreeModel {
 
   /** An `fs.git_changed` event: every loaded listing carries git status, so all may be out of date. */
   invalidateAll(): Promise<void> {
+    this.failed.clear();
     for (const dir of this.dirs.keys()) this.stale.add(dir);
     return this.pump();
   }
@@ -235,11 +253,29 @@ export class TreeModel {
       (d) =>
         !this.dirs.has(d) &&
         !this.loading.has(d) &&
-        this.dirs.has(parentOf(d)) &&
+        !this.failed.has(d) &&
+        this.listed(d) &&
         this.isShown(d) &&
         (!view || view.rows.has(d)),
     );
     return [...stale, ...unloaded];
+  }
+
+  /** Saved folders under `dir` that no longer exist are dropped with everything saved under them. */
+  private dropMissingRestored(dir: string, entries: DirEntry[]): void {
+    this.restoring.delete(dir);
+    const names = new Set(entries.map((e) => e.name));
+    for (const path of [...this.restoring]) {
+      if (parentOf(path) !== dir || names.has(path.slice(path.lastIndexOf("/") + 1))) continue;
+      for (const key of [...this.restoring]) if (isInside(key, path)) this.restoring.delete(key);
+      for (const key of [...this.expanded]) if (isInside(key, path)) this.expanded.delete(key);
+    }
+  }
+
+  /** Whether `path` is an entry of its parent's loaded listing. */
+  private listed(path: string): boolean {
+    const name = path.slice(path.lastIndexOf("/") + 1);
+    return this.dirs.get(parentOf(path))?.some((e) => e.name === name) ?? false;
   }
 
   /** First load of a directory: shows the loading hint while it runs. */
@@ -253,15 +289,20 @@ export class TreeModel {
   }
 
   private async fetch(dir: string): Promise<void> {
+    const wasListed = this.dirs.has(dir);
     try {
       const entries = sortEntries(await this.load(dir));
       this.forgetMissingChildren(dir, entries);
       this.dirs.set(dir, entries);
+      this.failed.delete(dir);
+      this.dropMissingRestored(dir, entries);
       this.error = null;
     } catch (err) {
+      this.failed.add(dir);
       // A CoreError carries the core's message without its `code:` prefix.
       const core = err as { code?: string; error?: { message: string } };
-      if (core.code === "not_found" && dir !== "") this.forget(dir);
+      // A folder that was listed before keeps its expanded state, in case it comes back.
+      if (core.code === "not_found" && dir !== "") this.forget(dir, wasListed);
       else this.error = core.error?.message ?? (err instanceof Error ? err.message : String(err));
     }
   }
@@ -272,14 +313,20 @@ export class TreeModel {
     if (!old) return;
     const present = new Set(entries.filter((e) => e.kind === "dir").map((e) => e.name));
     for (const entry of old) {
-      if (entry.kind === "dir" && !present.has(entry.name)) this.forget(joinPath(dir, entry.name));
+      if (entry.kind === "dir" && !present.has(entry.name)) this.forget(joinPath(dir, entry.name), true);
     }
   }
 
-  private forget(dir: string): void {
+  /**
+   * Drops what is known about `dir` and everything under it. A folder that
+   * vanished from a live listing keeps its expanded state (`keepExpanded`), so
+   * one that a build deletes and writes again comes back open.
+   */
+  private forget(dir: string, keepExpanded = false): void {
     for (const key of [...this.dirs.keys()]) if (isInside(key, dir)) this.dirs.delete(key);
-    for (const key of [...this.expanded]) if (isInside(key, dir)) this.expanded.delete(key);
+    if (!keepExpanded) for (const key of [...this.expanded]) if (isInside(key, dir)) this.expanded.delete(key);
     for (const key of [...this.stale]) if (isInside(key, dir)) this.stale.delete(key);
+    for (const key of [...this.failed]) if (isInside(key, dir)) this.failed.delete(key);
   }
 
   private rebuild(): void {
@@ -303,7 +350,8 @@ export class TreeModel {
           renamedFrom: entry.renamed_from ?? null,
           ignored,
           expanded,
-          loading: expanded && !this.dirs.has(path),
+          loading: expanded && !this.dirs.has(path) && !this.failed.has(path),
+          failed: expanded && this.failed.has(path) && !this.dirs.has(path),
           posinset: i + 1,
           setsize: entries.length,
         });

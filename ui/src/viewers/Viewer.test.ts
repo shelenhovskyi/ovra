@@ -77,10 +77,13 @@ function show(files: Files, path: string | null, options: { failOpen?: boolean }
 
 describe("Viewer", () => {
   it("asks for a file when none is open", async () => {
-    const { target, reads } = show({}, null);
+    const { target, reads, workspace } = show({}, null);
     await settle();
     expect(target.textContent).toContain("Open a file from the tree on the left.");
     expect(reads).toEqual([]);
+    workspace.project = null;
+    flushSync();
+    expect(target.textContent).toContain("Open a project to see its files here.");
   });
 
   it("shows plain text escaped", async () => {
@@ -94,10 +97,20 @@ describe("Viewer", () => {
   it("shows images and reports missing files", async () => {
     const { target, workspace } = show({ "a.png": { kind: "binary", mime: "image/png", base64: "AAA=" } }, "a.png");
     await settle();
-    expect(target.querySelector("img")?.getAttribute("src")).toBe("data:image/png;base64,AAA=");
+    const img = target.querySelector("img");
+    expect(img?.getAttribute("src")).toBe("data:image/png;base64,AAA=");
+    if (img) {
+      Object.defineProperty(img, "naturalWidth", { value: 2 });
+      Object.defineProperty(img, "naturalHeight", { value: 1 });
+      img.dispatchEvent(new Event("load"));
+    }
+    flushSync();
+    expect(img?.style.width).toBe("64px");
+    expect(target.querySelector("figcaption")?.textContent).toBe("a.png, 2 × 1 pixels, shown 32× larger");
     workspace.openFile("x.patch");
     await settle();
     expect(target.textContent).toContain("x.patch no longer exists.");
+    expect(target.textContent).not.toContain("Open in default app");
   });
 
   it("renders a patch with a summary, line numbers and spoken change labels", async () => {
@@ -126,6 +139,55 @@ describe("Viewer", () => {
     [...target.querySelectorAll("button")].find((b) => b.textContent === "Expand all")?.click();
     flushSync();
     expect(target.querySelectorAll(".line")).toHaveLength(3);
+  });
+
+  it("gives every rendered row its position out of the whole file", async () => {
+    const lines = Array.from({ length: 30_000 }, (_, i) => `line ${i}`);
+    const { target } = show({ "big.txt": { kind: "text", text: lines.join("\n") } }, "big.txt");
+    await settle();
+    const table = target.querySelector("[data-testid=text-view]");
+    expect(table?.getAttribute("role")).toBe("table");
+    expect(table?.getAttribute("aria-rowcount")).toBe("30000");
+    const rows = [...target.querySelectorAll("[role=row]")];
+    expect(rows[0]?.getAttribute("aria-rowindex")).toBe("1");
+    expect(rows[0]?.querySelector("[role=cell]")?.textContent).toBe("line 0");
+  });
+
+  it("walks through changes with n and p and announces each one", async () => {
+    const text = [
+      "--- a/a.txt",
+      "+++ b/a.txt",
+      "@@ -1,2 +1,2 @@",
+      " keep",
+      "-old",
+      "+new",
+      "--- a/b.txt",
+      "+++ b/b.txt",
+      "@@ -4 +4 @@",
+      "-x",
+      "+y",
+    ].join("\n");
+    const { target } = show({ "two.diff": { kind: "text", text } }, "two.diff");
+    await settle();
+    const region = target.querySelector<HTMLElement>("[data-testid=patch-view]");
+    const status = () => target.querySelector(".lines [role=status]")?.textContent;
+    const press = (code: string) => {
+      region?.dispatchEvent(new KeyboardEvent("keydown", { code, bubbles: true }));
+      flushSync();
+    };
+    press("KeyN");
+    expect(status()).toBe("Change 1 of 2 in a.txt: removed line 2: old");
+    expect(document.activeElement).toBe(region);
+    expect(target.querySelector(".current")?.textContent).toContain("old");
+    press("KeyN");
+    expect(status()).toBe("Change 2 of 2 in b.txt: removed line 4: x");
+    press("KeyN");
+    expect(status()).toBe("No more changes.");
+    press("KeyP");
+    expect(status()).toBe("Change 1 of 2 in a.txt: removed line 2: old");
+    [...target.querySelectorAll("button")].find((b) => b.textContent === "Next change")?.click();
+    flushSync();
+    expect(status()).toBe("Change 2 of 2 in b.txt: removed line 4: x");
   });
 
   it("keeps a huge patch and a huge text file to a window of rows", async () => {

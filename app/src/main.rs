@@ -21,6 +21,8 @@ async fn ovra_call(core: tauri::State<'_, Core>, frame: String) -> Result<String
 
 fn main() {
     let result = tauri::Builder::default()
+        // Provides window.Notification to the UI for system notifications.
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;

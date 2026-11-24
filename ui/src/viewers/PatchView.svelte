@@ -1,6 +1,6 @@
 <script lang="ts">
 import Lines from "./Lines.svelte";
-import { fileName, fileStats, parsePatch, patchRows } from "./patch";
+import { changeStarts, fileName, fileStats, parsePatch, patchRows } from "./patch";
 
 let { text }: { text: string } = $props();
 
@@ -16,18 +16,55 @@ let collapsed = $state(new Set<number>());
 const rows = $derived(patchRows(files, collapsed));
 const rawLines = $derived(text.split(/\r?\n/));
 
+const changes = $derived(changeStarts(rows));
+/** Index into `changes` of the change last moved to, or -1. */
+let current = $state(-1);
+
 let list = $state<ReturnType<typeof Lines> | null>(null);
 
 function toggle(file: number) {
   const next = new Set(collapsed);
   if (!next.delete(file)) next.add(file);
   collapsed = next;
+  current = -1;
 }
 
 function jump(file: number) {
   if (collapsed.has(file)) toggle(file);
   const index = rows.findIndex((row) => row.kind === "file" && row.file === file);
   list?.scrollToIndex(index);
+  const after = changes.findIndex((start) => start > index);
+  current = (after < 0 ? changes.length : after) - 1;
+}
+
+/** Moves to the next (`step` 1) or previous (-1) change, scrolls it into view and announces it. */
+function move(step: 1 | -1) {
+  const next = current + step;
+  if (changes.length === 0) return list?.announce("This patch has no changed lines.");
+  if (next < 0 || next >= changes.length) return list?.announce(step > 0 ? "No more changes." : "No earlier changes.");
+  current = next;
+  const index = changes[next] ?? 0;
+  list?.scrollToIndex(Math.max(0, index - 3));
+  list?.focus();
+  const row = rows[index];
+  let header = index;
+  while (header > 0 && rows[header]?.kind !== "file") header--;
+  const owner = rows[header];
+  const patched = owner?.kind === "file" ? files[owner.file] : undefined;
+  const where = patched && files.length > 1 ? ` in ${fileName(patched)}` : "";
+  if (row?.kind === "added" || row?.kind === "removed")
+    list?.announce(
+      `Change ${next + 1} of ${changes.length}${where}: ${LABEL[row.kind]} line ${row.kind === "added" ? row.new : row.old}: ${row.text}`,
+    );
+}
+
+function onkeydown(event: KeyboardEvent) {
+  if (event.ctrlKey || event.metaKey || event.altKey) return;
+  // Match physical keys, so this also works on non-Latin layouts.
+  if (event.code === "KeyN" || event.code === "KeyP") {
+    event.preventDefault();
+    move(event.code === "KeyN" ? 1 : -1);
+  }
 }
 
 const LABEL = { context: "unchanged", added: "added", removed: "removed" } as const;
@@ -61,9 +98,11 @@ const SIGN = { context: " ", added: "+", removed: "-" } as const;
         <button type="button" onclick={() => (collapsed = new Set(files.map((_, f) => f)))}>Collapse all</button>
         <button type="button" onclick={() => (collapsed = new Set())}>Expand all</button>
       {/if}
+      <button type="button" aria-keyshortcuts="P" onclick={() => move(-1)}>Previous change</button>
+      <button type="button" aria-keyshortcuts="N" onclick={() => move(1)}>Next change</button>
     </div>
-    <Lines bind:this={list} items={rows} label="Changes" testid="patch-view">
-      {#snippet row(item)}
+    <Lines bind:this={list} items={rows} label="Changes" testid="patch-view" {onkeydown}>
+      {#snippet row(item, index)}
         {#if item.kind === "file"}
           {@const file = files[item.file]}
           <div class="file">
@@ -87,7 +126,7 @@ const SIGN = { context: " ", added: "+", removed: "-" } as const;
         {:else if item.kind === "note"}
           <div class="note">{item.text}</div>
         {:else}
-          <div class="line {item.kind}">
+          <div class="line {item.kind}" class:current={changes[current] === index}>
             <span class="no">{"old" in item ? item.old : ""}</span>
             <span class="no">{"new" in item ? item.new : ""}</span>
             <span class="sign" aria-hidden="true">{SIGN[item.kind]}</span>
@@ -172,6 +211,10 @@ const SIGN = { context: " ", added: "+", removed: "-" } as const;
   .removed {
     background: #3a1a1e;
     border-left-color: #c24a55;
+  }
+  .current {
+    outline: 1px solid #7aa2f7;
+    outline-offset: -1px;
   }
   .badge {
     padding: 0 4px;

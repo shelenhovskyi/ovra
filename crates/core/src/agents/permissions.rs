@@ -16,8 +16,10 @@ pub(crate) struct Permissions {
 #[derive(Debug, Default)]
 struct State {
     asked: u64,
-    pending: Vec<(PermissionRequest, oneshot::Sender<PermissionAnswer>)>,
+    pending: Vec<Pending>,
 }
+
+type Pending = (PermissionRequest, oneshot::Sender<PermissionAnswer>);
 
 impl Permissions {
     pub(crate) fn register(
@@ -69,13 +71,44 @@ impl Permissions {
         true
     }
 
+    /// Removes a request nobody waits for any more. `false` if it was not pending.
+    pub(crate) fn withdraw(&self, id: &PermissionId) -> bool {
+        let mut state = lock(&self.state);
+        let before = state.pending.len();
+        state.pending.retain(|(r, _)| &r.id != id);
+        state.pending.len() != before
+    }
+
+    /// Answers every request of a session with `answer`.
+    pub(crate) fn deny_session(
+        &self,
+        session: &SessionId,
+        answer: &PermissionAnswer,
+    ) -> Vec<PermissionId> {
+        let requests = self.drop_requests(session);
+        requests
+            .into_iter()
+            .map(|(request, tx)| {
+                let _ = tx.send(answer.clone());
+                request.id
+            })
+            .collect()
+    }
+
     /// Forgets every request of a session; their waiters see a closed channel.
     pub(crate) fn drop_session(&self, session: &SessionId) -> Vec<PermissionId> {
+        self.drop_requests(session)
+            .into_iter()
+            .map(|(request, _)| request.id)
+            .collect()
+    }
+
+    fn drop_requests(&self, session: &SessionId) -> Vec<Pending> {
         let mut state = lock(&self.state);
         let (dropped, kept) = std::mem::take(&mut state.pending)
             .into_iter()
             .partition::<Vec<_>, _>(|(r, _)| &r.session == session);
         state.pending = kept;
-        dropped.into_iter().map(|(r, _)| r.id).collect()
+        dropped
     }
 }

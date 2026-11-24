@@ -46,6 +46,8 @@ let scrollTop = $state(0);
 let height = $state(0);
 let viewport: HTMLDivElement | undefined = $state();
 let typed = { text: "", at: 0 };
+/** A selected path whose row went away, and the row the selection moved to; restored if it comes back. */
+let lost: { path: string; movedTo: string | null } | null = null;
 
 // svelte-ignore state_referenced_locally
 const model = new TreeModel(
@@ -59,7 +61,14 @@ function update(next: Row[]): void {
   const prev = rows;
   const anchorIndex = Math.floor(scrollTop / ROW_HEIGHT);
   const anchor = scrollTop > 0 ? prev[anchorIndex]?.path : undefined;
-  if (selected !== null && !next.some((r) => r.path === selected)) selected = fallback(prev, next, selected);
+  if (lost && selected === lost.movedTo && next.some((r) => r.path === lost?.path)) {
+    selected = lost.path; // a regenerated file or folder came back: select it again
+    lost = null;
+  } else if (selected !== null && !next.some((r) => r.path === selected)) {
+    const movedTo = fallback(prev, next, selected);
+    lost = { path: selected, movedTo };
+    selected = movedTo;
+  }
   rows = next;
   error = model.error;
   rootLoading = model.isLoading("");
@@ -104,6 +113,15 @@ $effect(() => {
     // Events may have been dropped while this client lagged behind.
     if (event.type === "info.resync") void model.invalidateAll();
   });
+  // After a reconnect nothing tells us what changed during the outage: re-read what is shown.
+  let wasClosed = false;
+  const offStatus = transport.onStatus?.((status) => {
+    if (status === "closed") wasClosed = true;
+    else if (status === "open" && wasClosed) {
+      wasClosed = false;
+      void model.invalidateAll();
+    }
+  });
   // The core does not watch ignored folders; re-list the shown ones when the window comes back.
   const onfocus = () => void model.invalidateIgnored();
   // Closing or reloading the window does not unmount the tree; save then too.
@@ -115,9 +133,16 @@ $effect(() => {
     registerCommand({ id: "tree.collapse_all", title: "Collapse all folders", run: collapseAll }),
     registerCommand({ id: "tree.reveal", title: "Reveal open file in the tree", run: reveal }),
     registerCommand({ id: "tree.changed_only", title: "Show changed files only (toggle)", run: toggleChanged }),
+    registerCommand({ id: "tree.next_change", title: "Go to next changed file in the tree", run: () => nextChange(1) }),
+    registerCommand({
+      id: "tree.previous_change",
+      title: "Go to previous changed file in the tree",
+      run: () => nextChange(-1),
+    }),
   ];
   return () => {
     off();
+    offStatus?.();
     for (const unregister of commands) unregister();
     window.removeEventListener("focus", onfocus);
     window.removeEventListener("pagehide", flush);
@@ -164,11 +189,13 @@ function describe(row: Row): string {
   if (row.renamedFrom) parts.push(`from ${row.renamedFrom}`);
   if (row.ignored) parts.push("ignored");
   if (row.loading) parts.push("loading");
+  if (row.failed) parts.push("could not load, collapse and expand to retry");
   return parts.join(", ");
 }
 
 function activate(row: Row): void {
   selected = row.path;
+  lost = null;
   viewport?.focus(); // a click focuses the row itself; focus belongs on the tree
   if (row.kind === "dir") void model.toggle(row.path);
   // A deleted file is listed so the change is visible, but there is nothing on disk to open.
@@ -179,6 +206,7 @@ function select(index: number, center = false): void {
   const row = rows[index];
   if (!row) return;
   selected = row.path;
+  lost = null;
   if (!viewport) return;
   const top = index * ROW_HEIGHT;
   const view = viewport.clientHeight;
@@ -186,6 +214,20 @@ function select(index: number, center = false): void {
   else if (top < viewport.scrollTop) viewport.scrollTop = top;
   else if (top + ROW_HEIGHT > viewport.scrollTop + view) viewport.scrollTop = top + ROW_HEIGHT - view;
   scrollTop = viewport.scrollTop;
+}
+
+/** Selects the next (or previous) changed file among the loaded rows, wrapping around. */
+function nextChange(step: 1 | -1): void {
+  const n = rows.length;
+  for (let k = 1; k <= n; k++) {
+    const i = (((activeIndex + step * k) % n) + n) % n;
+    const row = rows[i];
+    if (row?.git && row.kind !== "dir") {
+      select(i, true);
+      viewport?.focus();
+      return;
+    }
+  }
 }
 
 function collapseAll(): void {
@@ -326,6 +368,7 @@ function onkeydown(e: KeyboardEvent): void {
             <span class="twisty" aria-hidden="true">{row.kind === "dir" ? (row.expanded ? "▾" : "▸") : ""}</span>
             <span class="name git-{row.git ?? 'clean'}">{row.name}</span>
             {#if row.loading}<span class="hint" aria-hidden="true">…</span>{/if}
+            {#if row.failed}<span class="failed" aria-hidden="true">!</span>{/if}
             {#if describe(row)}<span id="{rowId(index)}-d" class="visually-hidden">{describe(row)}</span>{/if}
             {#if row.git}
               <span class="badge git-{row.git}" aria-hidden="true">{row.kind === "dir" ? "•" : GIT_LETTER[row.git]}</span>
@@ -437,8 +480,13 @@ function onkeydown(e: KeyboardEvent): void {
     margin: 0;
     padding: 12px;
   }
-  .error {
+  .error,
+  .failed {
     color: #ff6b6b;
+  }
+  .failed {
+    flex: none;
+    font-weight: 600;
   }
   .git-modified {
     color: #e2c08d;
