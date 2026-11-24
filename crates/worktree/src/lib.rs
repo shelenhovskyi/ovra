@@ -166,4 +166,9 @@ impl Worktrees for GitWorktrees {
     fn remove(&self, root: PathBuf, dir: PathBuf) -> BoxFuture<'_, Result<()>> {
         blocking(move || remove(&root, &dir))
     }
+
+    /// Keeps every snapshot for now (task 3.A prunes the snapshot reflog).
+    fn prune_snapshots(&self, _root: PathBuf, _keep: Vec<String>) -> BoxFuture<'_, Result<()>> {
+        Box::pin(async { Ok(()) })
+    }
 }

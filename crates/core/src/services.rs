@@ -302,6 +302,10 @@ pub trait Worktrees: Send + Sync + Debug {
     /// Removes the worktree at `dir` from the repository at `root`. Its
     /// branch is kept.
     fn remove(&self, root: PathBuf, dir: PathBuf) -> BoxFuture<'_, Result<()>>;
+    /// Lets go of every snapshot of the repository at `root` (its main
+    /// checkout and its worktrees) except those in `keep`, so that git can
+    /// collect them. The core calls it when reviews no longer need them.
+    fn prune_snapshots(&self, root: PathBuf, keep: Vec<String>) -> BoxFuture<'_, Result<()>>;
 }
 
 /// Placeholder for services a front end has not wired in.
@@ -482,6 +486,9 @@ impl Worktrees for Unavailable {
         Box::pin(async move { self.err() })
     }
     fn remove(&self, _: PathBuf, _: PathBuf) -> BoxFuture<'_, Result<()>> {
+        Box::pin(async move { self.err() })
+    }
+    fn prune_snapshots(&self, _: PathBuf, _: Vec<String>) -> BoxFuture<'_, Result<()>> {
         Box::pin(async move { self.err() })
     }
 }

@@ -20,6 +20,8 @@ pub struct MemoryWorktrees {
     commits: Mutex<Vec<Files>>,
     /// `(dir, paths, message)` of every `commit` call.
     pub committed: Mutex<Vec<(PathBuf, Vec<String>, String)>>,
+    /// `(root, keep)` of every `prune_snapshots` call; commits stay.
+    pub pruned: Mutex<Vec<(PathBuf, Vec<String>)>>,
 }
 
 impl MemoryWorktrees {
@@ -224,6 +226,13 @@ impl Worktrees for MemoryWorktrees {
             let paths = paths.iter().map(|p| p.as_str().to_owned()).collect();
             lock(&self.committed).push((dir, paths, message));
             Ok(self.record(files))
+        })
+    }
+
+    fn prune_snapshots(&self, root: PathBuf, keep: Vec<String>) -> BoxFuture<'_, Result<()>> {
+        Box::pin(async move {
+            lock(&self.pruned).push((root, keep));
+            Ok(())
         })
     }
 
