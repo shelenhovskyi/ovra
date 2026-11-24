@@ -1,0 +1,37 @@
+---
+source: crates/agent-runtime/src/tests.rs
+expression: transcript
+---
+[
+  {
+    "kind": "user_text",
+    "text": "Use the Write tool to create the file ../notes.txt (next to this project folder, not inside it) containing the word hi. If the write is denied, do not retry; just say so."
+  },
+  {
+    "kind": "tool_use",
+    "id": "toolu_01",
+    "name": "Write",
+    "input": {
+      "content": "hi\n",
+      "file_path": "/notes.txt"
+    }
+  },
+  {
+    "kind": "tool_result",
+    "tool_use_id": "toolu_01",
+    "output": "Keep files inside the project.",
+    "is_error": true
+  },
+  {
+    "kind": "assistant_text",
+    "text": "The write to `../notes.txt` was denied. The tool returned \"Keep files inside the project,\" so I did not retry. The file was not created."
+  },
+  {
+    "kind": "turn_end",
+    "usage": {
+      "input_tokens": 42442,
+      "output_tokens": 212,
+      "cost_micro_usd": 2031
+    }
+  }
+]

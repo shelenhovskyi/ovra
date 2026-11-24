@@ -9,7 +9,18 @@ line is one step:
 - `{"core": {...}}`: a request to the core, as the UI would send it.
 
 After the last step the CLI expects stdin to close with nothing more on it.
+The session starts with the text of Ovra's first user line.
 
-The current files were written by hand from the protocol observed on Claude
-Code 2.1.331 (`docs/specs/claude-cli-protocol.md`). Task 2.H replaces them
-with recordings of real sessions; keep the step format.
+The files are real sessions of Claude Code 2.1.331, recorded by the live
+suite (`just agents-live record`, `tests/agents/README.md`) and scrubbed by
+`tests/agents/fixtures.ts`: the project is `/w`, its parent `/`, ids and
+times are placeholders, and plan usage and the machine's own commands,
+skills and plugins are left out. Do not edit them by hand; record again.
+
+- `edit_allowed.jsonl`: an allowed Edit, a reply, an allowed Bash command, stop.
+- `denied_outside_folder.jsonl`: a Write outside the project that the
+  project's settings allow; Ovra's `PreToolUse` hook answers `ask`, the CLI
+  sends `can_use_tool`, and the person denies it with a message.
+- `interrupted.jsonl`: an allowed Bash command interrupted while it runs,
+  then a reply in the same session.
+- `subagent.jsonl`: a Task subagent; its messages carry `parent_tool_use_id`.

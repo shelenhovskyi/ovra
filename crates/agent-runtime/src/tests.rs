@@ -57,7 +57,6 @@ async fn fake_cli(
     stdin: DuplexStream,
     core: Core,
     mut events: broadcast::Receiver<Event>,
-    process: ClaudeProcess,
 ) -> std::result::Result<(), String> {
     let mut stdin = BufReader::new(stdin).lines();
     for (n, step) in steps.into_iter().enumerate() {
@@ -80,8 +79,6 @@ async fn fake_cli(
             wait_for(&mut events, expected).await.map_err(fail)?;
         } else if let Some(request) = step.get("core") {
             call(&core, request.clone()).await;
-        } else if step.get("interrupt").is_some() {
-            process.interrupt().map_err(|e| fail(e.message))?;
         } else if step.get("hang").is_some() {
             return std::future::pending().await;
         } else {
@@ -121,7 +118,6 @@ impl AgentRuntime for Replay {
             cli_stdin,
             core,
             events,
-            ClaudeProcess(commands.clone()),
         ));
         *lock(&self.cli) = Some(cli);
         let ended = self.ended.clone();
@@ -203,16 +199,30 @@ async fn transcript(core: &Core) -> Vec<AgentMessage> {
     }
 }
 
+/// The prompt a recorded session starts with: Ovra's first user line.
+fn prompt(steps: &[Value]) -> String {
+    steps
+        .iter()
+        .filter_map(|step| step.get("ovra"))
+        .find(|line| line["type"] == "user")
+        .and_then(|line| line.pointer("/message/content"))
+        .and_then(Value::as_str)
+        .unwrap_or_else(|| panic!("the fixture sends no prompt"))
+        .to_owned()
+}
+
 /// Replays a fixture to its end and returns the session's transcript.
-async fn replay(fixture: &str, prompt: &str) -> (Vec<AgentMessage>, Vec<Ended>) {
+async fn replay(fixture: &str) -> (Vec<AgentMessage>, Vec<Ended>) {
+    let steps = steps(fixture);
+    let prompt = prompt(&steps);
     let runtime = Arc::new(Replay {
-        steps: steps(fixture),
+        steps,
         ..Replay::default()
     });
     let core = core_with(runtime.clone());
     let _ = runtime.core.set(core.clone());
     let mut rx = core.subscribe();
-    start(&core, ROOT, prompt).await;
+    start(&core, ROOT, &prompt).await;
     let cli = lock(&runtime.cli).take();
     match cli {
         Some(cli) => cli
@@ -226,63 +236,77 @@ async fn replay(fixture: &str, prompt: &str) -> (Vec<AgentMessage>, Vec<Ended>) 
     (transcript(&core).await, ended)
 }
 
+// Sessions recorded from the real CLI by the live suite (tests/agents).
+
+const EDIT_ALLOWED: &str = include_str!("../fixtures/edit_allowed.jsonl");
+const DENIED_OUTSIDE_FOLDER: &str = include_str!("../fixtures/denied_outside_folder.jsonl");
+const INTERRUPTED: &str = include_str!("../fixtures/interrupted.jsonl");
+const SUBAGENT: &str = include_str!("../fixtures/subagent.jsonl");
+
+#[test]
+fn recorded_sessions_hold_no_local_paths_or_keys() {
+    for fixture in [EDIT_ALLOWED, DENIED_OUTSIDE_FOLDER, INTERRUPTED, SUBAGENT] {
+        for leak in ["/root/", "/Users/", "/tmp/", "/private/", "sk-ant-"] {
+            let found = fixture.lines().find(|line| line.contains(leak));
+            assert!(found.is_none(), "{leak} in {found:?}");
+        }
+    }
+}
+
 #[tokio::test]
-async fn an_allowed_edit_over_two_turns() {
-    let (transcript, ended) = replay(
-        include_str!("../fixtures/edit_allowed.jsonl"),
-        "Fix the typo in README.md",
-    )
-    .await;
+async fn an_allowed_edit_and_an_allowed_command_over_two_turns() {
+    let (transcript, ended) = replay(EDIT_ALLOWED).await;
     assert_eq!(ended, [Ended::Closed { stopped: true }]);
     insta::assert_json_snapshot!(transcript);
 }
 
 #[tokio::test]
-async fn a_denied_write_a_subagent_and_a_failed_turn() {
-    let (transcript, ended) = replay(
-        include_str!("../fixtures/denied_and_subagent.jsonl"),
-        "Save notes next to the project",
-    )
-    .await;
+async fn a_write_outside_the_folder_is_asked_about_and_denied_with_a_message() {
+    let steps = steps(DENIED_OUTSIDE_FOLDER);
+    let hook_asks = steps.iter().filter_map(|s| s.get("ovra")).any(|line| {
+        line.pointer("/response/response/hookSpecificOutput/permissionDecision")
+            == Some(&json!("ask"))
+    });
+    assert!(hook_asks, "the policy hook did not ask");
+    let (transcript, ended) = replay(DENIED_OUTSIDE_FOLDER).await;
     assert_eq!(ended, [Ended::Closed { stopped: true }]);
+    insta::assert_json_snapshot!(transcript);
+}
+
+#[tokio::test]
+async fn an_interrupt_ends_the_turn_and_keeps_the_session() {
+    let (transcript, ended) = replay(INTERRUPTED).await;
+    assert_eq!(ended, [Ended::Closed { stopped: true }]);
+    let turns = transcript
+        .iter()
+        .filter(|m| matches!(m, AgentMessage::TurnEnd { .. }))
+        .count();
+    assert_eq!(turns, 2);
+    insta::assert_json_snapshot!(transcript);
+}
+
+#[tokio::test]
+async fn a_subagents_messages_name_their_parent() {
+    let (transcript, ended) = replay(SUBAGENT).await;
+    assert_eq!(ended, [Ended::Closed { stopped: true }]);
+    let parented = transcript.iter().any(|m| {
+        matches!(
+            m,
+            AgentMessage::ToolUse {
+                parent: Some(_),
+                ..
+            } | AgentMessage::ToolResult {
+                parent: Some(_),
+                ..
+            }
+        )
+    });
+    assert!(parented, "no message names its parent");
     insta::assert_json_snapshot!(transcript);
 }
 
 const INIT: &str = r#"{"ovra":{"type":"control_request","request_id":"init","request":{"subtype":"initialize","hooks":{"PreToolUse":[{"matcher":null,"hookCallbackIds":["ovra_policy"]}]}}}}
 {"cli":{"type":"control_response","response":{"subtype":"success","request_id":"init","response":{}}}}"#;
-
-#[tokio::test]
-async fn an_interrupt_ends_the_turn_and_keeps_the_session() {
-    let script = format!(
-        "{INIT}\n{}",
-        r#"{"ovra":{"type":"user","message":{"role":"user","content":"hi"}}}
-{"cli":{"type":"system","subtype":"init","session_id":"x"}}
-{"interrupt":true}
-{"ovra":{"type":"control_request","request_id":"interrupt1","request":{"subtype":"interrupt"}}}
-{"cli":{"type":"control_response","response":{"subtype":"success","request_id":"interrupt1","response":{}}}}
-{"cli":{"type":"result","subtype":"error_during_execution","is_error":true,"usage":{}}}
-{"wait":{"type":"agents.status","data":{"status":{"state":"idle"}}}}
-{"core":{"method":"agents.send","params":{"session":"s1","text":"go on"}}}
-{"ovra":{"type":"user","message":{"role":"user","content":"go on"}}}
-{"core":{"method":"agents.stop","params":{"session":"s1"}}}
-{"ovra":{"type":"control_request","request_id":"interrupt2","request":{"subtype":"interrupt"}}}"#
-    );
-    let (transcript, _) = replay(&script, "hi").await;
-    assert_eq!(
-        transcript[1..],
-        [
-            AgentMessage::Error {
-                message: "The turn failed.".into()
-            },
-            AgentMessage::TurnEnd {
-                usage: Default::default()
-            },
-            AgentMessage::UserText {
-                text: "go on".into()
-            },
-        ]
-    );
-}
 
 #[tokio::test]
 async fn a_failed_initialize_fails_the_session() {

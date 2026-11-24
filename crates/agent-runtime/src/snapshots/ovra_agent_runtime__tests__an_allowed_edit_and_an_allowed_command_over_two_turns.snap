@@ -1,0 +1,84 @@
+---
+source: crates/agent-runtime/src/tests.rs
+expression: transcript
+---
+[
+  {
+    "kind": "user_text",
+    "text": "Fix the typo in README.md with the Edit tool. Do not run commands and do not change anything else."
+  },
+  {
+    "kind": "tool_use",
+    "id": "toolu_01",
+    "name": "Read",
+    "input": {
+      "file_path": "/w/README.md"
+    }
+  },
+  {
+    "kind": "tool_result",
+    "tool_use_id": "toolu_01",
+    "output": "1\t# Demo\n2\t\n3\tThis is teh demo.\n4\t",
+    "is_error": false
+  },
+  {
+    "kind": "tool_use",
+    "id": "toolu_02",
+    "name": "Edit",
+    "input": {
+      "file_path": "/w/README.md",
+      "new_string": "This is the demo.",
+      "old_string": "This is teh demo.",
+      "replace_all": false
+    }
+  },
+  {
+    "kind": "tool_result",
+    "tool_use_id": "toolu_02",
+    "output": "The file /w/README.md has been updated successfully. (file state is current in your context — no need to Read it back)",
+    "is_error": false
+  },
+  {
+    "kind": "assistant_text",
+    "text": "I fixed the typo in `README.md` line 3: \"teh\" is now \"the\". I used the Edit tool only and changed nothing else. I read the file with the Read tool first to find the typo, which is not a shell command."
+  },
+  {
+    "kind": "turn_end",
+    "usage": {
+      "input_tokens": 64044,
+      "output_tokens": 372,
+      "cost_micro_usd": 2379
+    }
+  },
+  {
+    "kind": "user_text",
+    "text": "Now run `echo ok > done.txt` with the Bash tool once, then say done."
+  },
+  {
+    "kind": "tool_use",
+    "id": "toolu_03",
+    "name": "Bash",
+    "input": {
+      "command": "echo ok > done.txt",
+      "description": "Write \"ok\" into done.txt in the current directory"
+    }
+  },
+  {
+    "kind": "tool_result",
+    "tool_use_id": "toolu_03",
+    "output": "(Bash completed with no output)",
+    "is_error": false
+  },
+  {
+    "kind": "assistant_text",
+    "text": "Done."
+  },
+  {
+    "kind": "turn_end",
+    "usage": {
+      "input_tokens": 43506,
+      "output_tokens": 96,
+      "cost_micro_usd": 532
+    }
+  }
+]

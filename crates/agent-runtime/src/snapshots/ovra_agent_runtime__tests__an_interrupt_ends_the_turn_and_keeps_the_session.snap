@@ -1,0 +1,54 @@
+---
+source: crates/agent-runtime/src/tests.rs
+expression: transcript
+---
+[
+  {
+    "kind": "user_text",
+    "text": "Run the shell command `ping -c 120 127.0.0.1` with the Bash tool in the foreground (not in the background), then tell me its last line."
+  },
+  {
+    "kind": "tool_use",
+    "id": "toolu_01",
+    "name": "Bash",
+    "input": {
+      "command": "ping -c 120 127.0.0.1",
+      "description": "Ping localhost 120 times in foreground",
+      "timeout": 600000
+    }
+  },
+  {
+    "kind": "tool_result",
+    "tool_use_id": "toolu_01",
+    "output": "The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). STOP what you are doing and wait for the user to tell you how to proceed. Correction to the text above: this call was stopped while running, not refused before it ran. It may have run in part or in full, and its changes may have been written. No permission prompt was involved. Work it started elsewhere (a remote command, a background process) may still be running, so check before starting the same work again. The instruction to stop and wait still stands.",
+    "is_error": true
+  },
+  {
+    "kind": "error",
+    "message": "The turn failed."
+  },
+  {
+    "kind": "turn_end",
+    "usage": {
+      "input_tokens": 21149,
+      "output_tokens": 118,
+      "cost_micro_usd": 1744
+    }
+  },
+  {
+    "kind": "user_text",
+    "text": "Never mind. Reply with just the word: ready"
+  },
+  {
+    "kind": "assistant_text",
+    "text": "ready"
+  },
+  {
+    "kind": "turn_end",
+    "usage": {
+      "input_tokens": 21511,
+      "output_tokens": 4,
+      "cost_micro_usd": 286
+    }
+  }
+]
