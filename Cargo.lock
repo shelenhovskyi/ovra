@@ -3021,7 +3021,9 @@ dependencies = [
 name = "ovra-worktree"
 version = "0.1.0"
 dependencies = [
+ "insta",
  "ovra-core",
+ "tempfile",
  "tokio",
 ]
 
