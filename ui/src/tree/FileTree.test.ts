@@ -250,6 +250,26 @@ describe("FileTree", () => {
     expect(target.querySelector("[aria-selected=true]")?.getAttribute("data-path")).toBe("a/b/c.ts");
   });
 
+  it("marks a folder that could not load when the core is disconnected", async () => {
+    const core = new FakeCore(dirsFromPaths(["src/a.ts"]));
+    const t = mountTree(core);
+    await settle();
+    let calls = 0;
+    core.call = (() => {
+      calls++;
+      return calls > 20 ? new Promise(() => {}) : Promise.reject(new Error("connection to core closed"));
+    }) as typeof core.call;
+    t.key("ArrowDown");
+    t.key("ArrowRight");
+    await settle();
+    expect(calls).toBe(1);
+    const src = t.row("src");
+    expect(src.getAttribute("aria-expanded")).toBe("true");
+    expect(document.getElementById(src.getAttribute("aria-describedby") ?? "")?.textContent).toBe(
+      "could not load, collapse and expand to retry",
+    );
+  });
+
   it("shows why the tree could not load", async () => {
     const core = new FakeCore(new Map());
     const target = document.body.appendChild(document.createElement("div"));

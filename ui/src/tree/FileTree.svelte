@@ -164,6 +164,7 @@ function describe(row: Row): string {
   if (row.renamedFrom) parts.push(`from ${row.renamedFrom}`);
   if (row.ignored) parts.push("ignored");
   if (row.loading) parts.push("loading");
+  if (row.failed) parts.push("could not load, collapse and expand to retry");
   return parts.join(", ");
 }
 
@@ -326,6 +327,7 @@ function onkeydown(e: KeyboardEvent): void {
             <span class="twisty" aria-hidden="true">{row.kind === "dir" ? (row.expanded ? "▾" : "▸") : ""}</span>
             <span class="name git-{row.git ?? 'clean'}">{row.name}</span>
             {#if row.loading}<span class="hint" aria-hidden="true">…</span>{/if}
+            {#if row.failed}<span class="failed" aria-hidden="true">!</span>{/if}
             {#if describe(row)}<span id="{rowId(index)}-d" class="visually-hidden">{describe(row)}</span>{/if}
             {#if row.git}
               <span class="badge git-{row.git}" aria-hidden="true">{row.kind === "dir" ? "•" : GIT_LETTER[row.git]}</span>
@@ -437,8 +439,13 @@ function onkeydown(e: KeyboardEvent): void {
     margin: 0;
     padding: 12px;
   }
-  .error {
+  .error,
+  .failed {
     color: #ff6b6b;
+  }
+  .failed {
+    flex: none;
+    font-weight: 600;
   }
   .git-modified {
     color: #e2c08d;

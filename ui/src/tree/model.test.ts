@@ -159,6 +159,49 @@ describe("TreeModel restore", () => {
   });
 });
 
+describe("TreeModel with the core disconnected", () => {
+  it("does not retry a failed folder in a loop, and retries after expand or resync", async () => {
+    const { core, model } = setup(["src/a.ts"]);
+    await model.start();
+    let down = true;
+    const call = core.call.bind(core);
+    core.call = ((request) =>
+      down ? Promise.reject(new Error("connection to core closed")) : call(request)) as typeof core.call;
+    let listed = 0;
+    const counting = core.call;
+    core.call = ((request) => {
+      listed++;
+      // Park a runaway retry loop instead of spinning, so a regression fails instead of hanging the run.
+      return listed > 20 ? new Promise(() => {}) : counting(request);
+    }) as typeof core.call;
+
+    await model.expand("src");
+    await model.setView(null);
+    await model.invalidatePaths([]);
+    expect(listed).toBe(1);
+    expect(model.rows[0]).toMatchObject({ path: "src", expanded: true, loading: false, failed: true });
+    expect(model.error).toBe("connection to core closed");
+
+    down = false;
+    await model.invalidateAll(); // what a resync after reconnecting does
+    expect(model.rows.map((r) => r.path)).toEqual(["src", "src/a.ts"]);
+    expect(model.rows[0]?.failed).toBe(false);
+  });
+
+  it("retries a failed folder when it is expanded again", async () => {
+    const { core, model } = setup(["src/a.ts"]);
+    await model.start();
+    const call = core.call.bind(core);
+    let down = true;
+    core.call = ((request) => (down ? Promise.reject(new Error("closed")) : call(request))) as typeof core.call;
+    await model.expand("src");
+    down = false;
+    model.collapse("src");
+    await model.expand("src");
+    expect(model.rows.map((r) => r.path)).toEqual(["src", "src/a.ts"]);
+  });
+});
+
 describe("TreeModel refresh", () => {
   const tree = ["a/x.ts", "b/y.ts", "c/z.ts"];
 

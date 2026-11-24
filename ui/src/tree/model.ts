@@ -18,6 +18,8 @@ export type Row = {
   expanded: boolean;
   /** An expanded directory whose first listing is still loading. */
   loading: boolean;
+  /** An expanded directory whose listing could not be loaded; retried on expand or the next refresh. */
+  failed: boolean;
   /** Position among its siblings (from 1) and their count, for `aria-posinset` / `aria-setsize`. */
   posinset: number;
   setsize: number;
@@ -66,6 +68,12 @@ export class TreeModel {
   private readonly dirs = new Map<string, DirEntry[]>();
   private expanded = new Set<string>([""]);
   private readonly loading = new Set<string>();
+  /**
+   * Folders whose last load failed (for example with the core disconnected).
+   * They are skipped by refresh passes until the next invalidate, so a
+   * failing load cannot be retried in a tight loop.
+   */
+  private readonly failed = new Set<string>();
   /** Loaded directories whose listing may be out of date; reloaded when shown. */
   private readonly stale = new Set<string>();
   private readonly ignoredDirs = new Set<string>();
@@ -107,6 +115,7 @@ export class TreeModel {
   async expand(path: string): Promise<void> {
     if (this.expanded.has(path)) return;
     this.expanded.add(path);
+    this.failed.delete(path); // expanding again is an explicit retry
     this.rebuild();
     if (!this.dirs.has(path)) await this.fetchFirst(path);
     else await this.pump();
@@ -185,6 +194,7 @@ export class TreeModel {
    */
   invalidatePaths(paths: string[]): Promise<void> {
     for (const path of paths) {
+      for (const dir of [...this.failed]) if (isInside(dir, path) || dir === parentOf(path)) this.failed.delete(dir);
       if (this.dirs.has(parentOf(path))) this.stale.add(parentOf(path));
       for (const dir of this.dirs.keys()) if (isInside(dir, path)) this.stale.add(dir);
     }
@@ -193,6 +203,7 @@ export class TreeModel {
 
   /** An `fs.git_changed` event: every loaded listing carries git status, so all may be out of date. */
   invalidateAll(): Promise<void> {
+    this.failed.clear();
     for (const dir of this.dirs.keys()) this.stale.add(dir);
     return this.pump();
   }
@@ -235,6 +246,7 @@ export class TreeModel {
       (d) =>
         !this.dirs.has(d) &&
         !this.loading.has(d) &&
+        !this.failed.has(d) &&
         this.dirs.has(parentOf(d)) &&
         this.isShown(d) &&
         (!view || view.rows.has(d)),
@@ -257,8 +269,10 @@ export class TreeModel {
       const entries = sortEntries(await this.load(dir));
       this.forgetMissingChildren(dir, entries);
       this.dirs.set(dir, entries);
+      this.failed.delete(dir);
       this.error = null;
     } catch (err) {
+      this.failed.add(dir);
       // A CoreError carries the core's message without its `code:` prefix.
       const core = err as { code?: string; error?: { message: string } };
       if (core.code === "not_found" && dir !== "") this.forget(dir);
@@ -280,6 +294,7 @@ export class TreeModel {
     for (const key of [...this.dirs.keys()]) if (isInside(key, dir)) this.dirs.delete(key);
     for (const key of [...this.expanded]) if (isInside(key, dir)) this.expanded.delete(key);
     for (const key of [...this.stale]) if (isInside(key, dir)) this.stale.delete(key);
+    for (const key of [...this.failed]) if (isInside(key, dir)) this.failed.delete(key);
   }
 
   private rebuild(): void {
@@ -303,7 +318,8 @@ export class TreeModel {
           renamedFrom: entry.renamed_from ?? null,
           ignored,
           expanded,
-          loading: expanded && !this.dirs.has(path),
+          loading: expanded && !this.dirs.has(path) && !this.failed.has(path),
+          failed: expanded && this.failed.has(path) && !this.dirs.has(path),
           posinset: i + 1,
           setsize: entries.length,
         });
