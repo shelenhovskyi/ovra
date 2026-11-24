@@ -67,6 +67,32 @@ Which files are the agent's: paths in its `Write`, `Edit` and
 `NotebookEdit` calls, plus files that changed while one of its `Bash` calls
 ran. Everything else in the diff is "changed outside the agent".
 
+How direct mode tells them apart (`crates/core/src/orchestration/direct.rs`):
+
+- Snapshots split the session into intervals. The `PreToolUse` hook, which
+  the CLI waits for, opens one before a file-changing tool runs; the tool's
+  result closes it once no such tool runs. A tool waiting for the person's
+  approval does not count as running.
+- What changed in an interval is the agent's if a `Bash` call ran in it,
+  or if a file tool named the file. Between intervals, and at every review,
+  anything that differs from the last snapshot changed outside the agent.
+- An agent file that also changed outside, before or after the agent wrote
+  it, shows as changed by both. Reject never reverts it and lists it as a
+  conflict; approve does not commit it. A rename counts as both when either
+  of its paths is someone else's.
+- Reject takes a snapshot before reverting (kept by `refs/ovra/snapshot`'s
+  reflog), checks the diff again afterwards and reports anything not
+  restored as a conflict.
+- Anything unknown leans towards keeping files: a failed snapshot makes the
+  agent's earlier files count as both, a session that ends during a tool
+  drops that interval, and ignored files are never in the diff. A person's
+  edit during a running `Bash` call is the agent's, as above.
+- One direct session per project runs at a time. Ended ones stay until
+  approved or rejected, and to an earlier session a later one's changes are
+  changed outside it. Attribution lives in memory: after a restart the
+  item's files all count as changed outside. Without a baseline (not a git
+  repository) a direct session runs but has nothing to review.
+
 ## Project holds
 
 The core counts holders per project and watches a project while it has any
