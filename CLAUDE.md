@@ -109,6 +109,21 @@ Ask the owner only before:
 - changing the architecture: a new ADR or deviating from one, a new crate
   boundary, or a cross-crate, WIT or MCP API change other areas depend on.
 
+## Claude CLI rules (ADR 0006)
+
+- Never bundle, download or install `claude`; the user installs it and signs
+  in through Claude Code's own flow. No Claude sign-in UI in Ovra.
+- Never read, copy or pass on OAuth tokens or credentials
+  (`~/.claude/.credentials.json`, the keychain, `CLAUDE_CODE_OAUTH_TOKEN`),
+  never call Anthropic's API with them, never imitate Claude Code's headers.
+  Run the binary unmodified: no `--bare`, no `CLAUDE_CONFIG_DIR` changes.
+- Show where usage is billed and warn when `ANTHROPIC_API_KEY` is set.
+- Cap parallel agents (3 by default); agents start only from a person's action.
+- "Claude Code" is never part of a product, feature or panel name; plain
+  facts like "Install Claude Code" are fine. No Claude or Anthropic logos.
+- Keep the interactive-terminal fallback possible behind `AgentRuntime`, in
+  case `claude -p` stops using subscription limits.
+
 ## Rules
 
 - Keep `ui/src/lib/protocol/` in sync with `crates/core/src/protocol/`;

@@ -72,7 +72,21 @@ the CLI directly, without the SDK:
     `PreToolUse` hook enforces the policies that must also hold in modes
     that skip prompts.
   - A budget (`--max-budget-usd`) per task when the user sets one.
-- Branding: Ovra says "Claude" or "Powered by Claude", never "Claude Code".
+- Ovra never bundles, downloads or installs `claude`; the user installs it.
+  Sign-in happens only in Claude Code's own flow (`claude` or
+  `claude auth login` in a terminal); Ovra has no Claude sign-in of its own
+  and never reads OAuth tokens (`~/.claude/.credentials.json`, the keychain,
+  `CLAUDE_CODE_OAUTH_TOKEN`), calls Anthropic's API with them or imitates
+  Claude Code's headers.
+- Billing is visible: onboarding and each session show where usage is billed
+  (subscription, API key or cloud provider, from `apiKeySource` in
+  `system/init`), with a warning when `ANTHROPIC_API_KEY` is set, because it
+  silently wins over the subscription. Parallel agents are capped (3 by
+  default, configurable), and agents start only from a person's action.
+- Branding: features and menus say "Claude", "Claude Agent" or "Powered by
+  Claude"; "Claude Code" never appears in a product, feature or panel name,
+  only as a plain factual description ("Install Claude Code", "Ovra runs
+  Claude Code installed on your computer"). No Claude or Anthropic logos.
 - `AgentRuntime` in the core stays the only seam. The Agent SDK sidecar of
   ADR 0004 (API key or cloud provider) can be added behind it later, for
   example after Anthropic approves subscription use or for team plans.
@@ -91,8 +105,17 @@ the CLI directly, without the SDK:
   contract tests on recorded sessions (fixtures from task 2.H), and a
   fallback through the documented `--permission-prompt-tool` MCP route
   (`mcp__ovra__approve`).
-- The terms do not expressly cover a third-party app launching the user's
-  own CLI. Before a public release, ask Anthropic to confirm.
+- Anthropic's terms allow an end user to sign in to the unmodified binary
+  with their own subscription, including inside another product
+  (`/mnt/project-files/ovra/research/claude-cli-usage-policy.md`, 2026-11-24).
+  Optionally ask Anthropic to confirm before a public release, and check the
+  legal page, the Agent SDK overview and support article 15036540 for every
+  release.
+- Pricing risk: Anthropic announced (13 May 2026) and paused (15 June 2026)
+  a separate credit for `claude -p`. If it returns, `-p` sessions stop using
+  subscription limits. Fallback, kept ready behind `AgentRuntime`: the
+  interactive `claude` in an Ovra terminal (PTY), with fewer structured
+  events.
 - No Node packaging on three OSes; phase 2 gets shorter.
 - Sandboxing (phase 4) wraps the `claude` process.
 - `claude-agent-acp` is built on the SDK, so the same auth limits apply to
