@@ -217,7 +217,7 @@ function onPaneKeydown(event: KeyboardEvent): void {
     {:else if !project}
       <p class="muted">Open a project to use the agent browser.</p>
     {:else if !session}
-      <p class="muted">Start an agent session first: each session has its own browser.</p>
+      <p class="muted">Each agent session gets its own browser. Give Claude a task to start one; its pages show here.</p>
     {:else}
       <form
         class="address"
@@ -285,7 +285,7 @@ function onPaneKeydown(event: KeyboardEvent): void {
   }
   h2 {
     margin: 0;
-    font-size: 13px;
+    font-size: 14px;
   }
   .close {
     margin-left: auto;

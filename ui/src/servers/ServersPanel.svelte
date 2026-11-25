@@ -501,6 +501,9 @@ function onDialogKeydown(event: KeyboardEvent): void {
     overflow: auto;
     padding: 8px 12px 12px;
   }
+  .intro {
+    margin: 0 0 8px;
+  }
   .muted {
     color: #b4b4c0;
     font-size: 12px;

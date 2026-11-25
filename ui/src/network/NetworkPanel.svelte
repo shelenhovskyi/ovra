@@ -496,7 +496,7 @@ function onDialogKeydown(event: KeyboardEvent): void {
     font-size: 12px;
   }
   .note {
-    margin: 6px 12px;
+    margin: 8px 12px;
   }
   .error {
     color: #ff8f8f;
