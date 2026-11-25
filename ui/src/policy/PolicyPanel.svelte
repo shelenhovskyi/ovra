@@ -9,7 +9,18 @@ import { registerCommand } from "../keys/commands";
 import type { PolicyAction, PolicyRule } from "../lib/protocol";
 import { useOvra } from "../shell/context";
 import { ChangedElsewhere, ProjectPolicy, reason } from "./policy.svelte";
-import { ACTIONS, byPrecedence, caveats, formRule, KNOWN_TOOLS, matchHint, ruleText, toolWarning } from "./rules";
+import {
+  ACTIONS,
+  byPrecedence,
+  caveats,
+  formProblem,
+  formRule,
+  KNOWN_TOOLS,
+  matchHint,
+  ruleText,
+  takesMatch,
+  toolNote,
+} from "./rules";
 
 /** Whether to show the header button; the shell opens this from its "More" menu instead. */
 let { trigger = true }: { trigger?: boolean } = $props();
@@ -19,6 +30,7 @@ const policy = new ProjectPolicy(transport);
 let opened = $state(false);
 let dialog = $state<HTMLElement>();
 let toolField = $state<HTMLInputElement>();
+let matchField = $state<HTMLInputElement>();
 let openButton = $state<HTMLButtonElement>();
 let returnTo: HTMLElement | null = null;
 
@@ -28,8 +40,8 @@ let action = $state<PolicyAction>("ask");
 /** The rule being edited: its place in the list and what it said then. */
 let editing = $state<{ index: number; rule: PolicyRule } | null>(null);
 let formError = $state<string | null>(null);
-/** The core refused the rule in the form, or it names no tool. */
-let invalid = $state(false);
+/** The field the error is about: the core refused the rule, or the form knows it would. */
+let invalid = $state<"tool" | "match" | null>(null);
 let busy = $state(false);
 /**
  * The browser may show the Tool field's suggestions or the Action options:
@@ -39,11 +51,16 @@ let listOpen = false;
 
 const rows = $derived(byPrecedence(policy.rules ?? []));
 const preview = $derived(formRule(tool, match, action));
-const warning = $derived(toolWarning(tool));
+const warning = $derived(toolNote(tool));
 const toolHelp = $derived(
-  [invalid && formError ? "policy-error" : null, warning ? "policy-tool-warning" : null].filter(Boolean).join(" ") ||
-    undefined,
+  [invalid === "tool" && formError ? "policy-error" : null, warning ? "policy-tool-warning" : null]
+    .filter(Boolean)
+    .join(" ") || undefined,
 );
+/** Turning the focused field off would drop focus out of the dialog. */
+let matchFocused = $state(false);
+/** A tool without a match: the field is off, unless it still holds text to clear. */
+const matchOff = $derived(tool.trim() !== "" && !takesMatch(tool) && match.trim() === "" && !matchFocused);
 
 $effect(() => () => policy.dispose());
 $effect(() => registerCommand({ id: "policy.toggle", title: "Project policies", run: toggle }));
@@ -76,7 +93,7 @@ function clearForm(): void {
   action = "ask";
   editing = null;
   formError = null;
-  invalid = false;
+  invalid = null;
   listOpen = false;
 }
 
@@ -118,21 +135,31 @@ async function save(rules: PolicyRule[], from: PolicyRule[]): Promise<"kept" | "
     formError = null;
     return "kept";
   } catch (err) {
-    formError = reason(err);
+    formError = plain(reason(err), rules);
     return err instanceof ChangedElsewhere ? "not saved" : "refused";
   } finally {
     busy = false;
   }
 }
 
+/** The core's refusal without the `Tool(match): ` it starts with, as a sentence. */
+function plain(text: string, rules: PolicyRule[]): string {
+  const rule = rules.find((r) => text.startsWith(`${ruleText(r)}: `));
+  const rest = rule ? text.slice(ruleText(rule).length + 2) : text;
+  return `${rest.charAt(0).toUpperCase()}${rest.slice(1)}`;
+}
+
 async function submit(event: SubmitEvent): Promise<void> {
   event.preventDefault();
   const current = policy.rules;
   if (!current) return;
-  if (preview.tool === "") {
-    formError = "Name the tool, such as Bash or WebFetch.";
-    invalid = true;
-    toolField?.focus();
+  const problem = formProblem(preview);
+  if (problem) {
+    // Never sent: the core would refuse it, and one message is enough.
+    formError = problem.text;
+    invalid = problem.field;
+    await tick();
+    (invalid === "match" ? matchField : toolField)?.focus();
     return;
   }
   const target = editing;
@@ -140,7 +167,7 @@ async function submit(event: SubmitEvent): Promise<void> {
     // The rule changed elsewhere while it was in the form; what was typed
     // stays, as a new rule, so nothing is overwritten and nothing is lost.
     editing = null;
-    invalid = false;
+    invalid = null;
     formError =
       "The rule you were editing changed elsewhere. What you typed is kept as a new rule: check the list, then add it.";
     toolField?.focus();
@@ -148,7 +175,7 @@ async function submit(event: SubmitEvent): Promise<void> {
   }
   const next = target ? current.map((rule, i) => (i === target.index ? preview : rule)) : [...current, preview];
   const saved = await save(next, current);
-  invalid = saved === "refused";
+  invalid = saved === "refused" ? "tool" : null;
   if (saved === "kept") {
     clearForm();
     toolField?.focus();
@@ -161,7 +188,7 @@ async function edit(index: number, rule: PolicyRule): Promise<void> {
   match = rule.match ?? "";
   action = rule.action;
   formError = null;
-  invalid = false;
+  invalid = null;
   await tick();
   toolField?.focus();
 }
@@ -217,9 +244,9 @@ function onDialogKeydown(event: KeyboardEvent): void {
   }
   if (event.code !== "Tab") return;
   // Keep Tab inside the dialog (aria-modal), also from the heading.
-  const focusable = [...(dialog?.querySelectorAll<HTMLElement>("button, input, select, [tabindex]") ?? [])].filter(
-    (el) => el.tabIndex >= 0 && !el.matches(":disabled"),
-  );
+  const focusable = [
+    ...(dialog?.querySelectorAll<HTMLElement>("button, input, select, summary, [tabindex]") ?? []),
+  ].filter((el) => el.tabIndex >= 0 && !el.matches(":disabled"));
   const first = focusable[0];
   const last = focusable[focusable.length - 1];
   if (!first || !last) return;
@@ -269,12 +296,18 @@ function onDialogKeydown(event: KeyboardEvent): void {
         <p class="muted note">Open a project to see its policies.</p>
       {:else}
         <div class="body">
-          <p class="muted">
-            These rules decide whether an agent may use a tool: refuse it (deny), ask you first (ask), or allow it
-            without asking (auto). Deny rules are checked first, then ask, then auto.
-            Your own Claude settings are checked too; deny and ask rules override them; auto never skips more than they
-            allow.
+          <p class="muted intro" data-testid="policy-intro">
+            Rules decide what agents in this project may do without you: Deny refuses a tool, Ask asks you first, Auto
+            allows it without asking. Anything no rule covers is asked about.
           </p>
+          <details class="muted">
+            <summary>How rules combine</summary>
+            <p>
+              Deny rules are checked first, then Ask, then Auto: the first that matches decides. Auto works only for an
+              agent in the sandbox with limited network access. Your own Claude settings still apply: Deny and Ask here
+              override them, and Auto never allows a call they refuse.
+            </p>
+          </details>
           {#if policy.error}
             <p class="error" role="alert">Could not read the project's policy: {policy.error}</p>
             <button type="button" data-testid="policy-retry" onclick={() => void policy.reload()}>
@@ -317,10 +350,10 @@ function onDialogKeydown(event: KeyboardEvent): void {
                   bind:this={toolField}
                   bind:value={tool}
                   list="policy-tools"
-                  placeholder="Bash"
+                  placeholder="Choose or type a tool"
                   autocomplete="off"
                   spellcheck="false"
-                  aria-invalid={invalid ? "true" : undefined}
+                  aria-invalid={invalid === "tool" ? "true" : undefined}
                   aria-describedby={toolHelp}
                   oninput={onToolInput}
                   onkeydown={onListKeydown}
@@ -337,11 +370,16 @@ function onDialogKeydown(event: KeyboardEvent): void {
               <label>
                 Match (optional)
                 <input
+                  bind:this={matchField}
                   bind:value={match}
-                  placeholder="npm test or docs/**"
+                  placeholder={matchOff ? "Covers every call" : "For example npm test or docs/**"}
+                  disabled={matchOff}
                   autocomplete="off"
                   spellcheck="false"
-                  aria-describedby="policy-match-hint"
+                  aria-invalid={invalid === "match" ? "true" : undefined}
+                  aria-describedby={invalid === "match" && formError ? "policy-error" : "policy-match-hint"}
+                  onfocus={() => (matchFocused = true)}
+                  onblur={() => (matchFocused = false)}
                   data-testid="policy-match"
                 />
               </label>
@@ -369,7 +407,9 @@ function onDialogKeydown(event: KeyboardEvent): void {
           {#if warning}
             <p class="warning" id="policy-tool-warning" data-testid="policy-tool-warning">{warning}</p>
           {/if}
-          <p class="muted" id="policy-match-hint">{matchHint(tool)}</p>
+          {#if !(invalid === "match" && formError)}
+            <p class="muted" id="policy-match-hint">{matchHint(tool)}</p>
+          {/if}
           {#if formError}
             <p class="error" role="alert" data-testid="policy-error">{formError}</p>
           {/if}
@@ -393,9 +433,21 @@ function onDialogKeydown(event: KeyboardEvent): void {
   button {
     cursor: pointer;
   }
+  input::placeholder {
+    color: #9a9aa8;
+    font-style: italic;
+  }
+  input:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+  details p {
+    margin: 4px 0 0;
+  }
   button:focus-visible,
   input:focus-visible,
   select:focus-visible,
+  summary:focus-visible,
   h2:focus-visible {
     outline: 2px solid #7aa2ff;
     outline-offset: 1px;

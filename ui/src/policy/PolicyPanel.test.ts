@@ -115,26 +115,48 @@ describe("PolicyPanel", () => {
     expect(core.calls.filter((c) => c.method === "policy.set")).toHaveLength(3);
   });
 
-  it("shows the core's refusal inline and keeps the form", async () => {
+  it("says once, without asking the core, that a tool takes no match", async () => {
     const core = await setup();
-    core.refuse.set("Grep", "Grep(src/**): only Bash and file tools take a match; leave it out to match every call");
     $<HTMLButtonElement>("[data-testid=open-policy]")?.click();
     await settle();
-    type("[data-testid=policy-tool]", "Grep");
+    type("[data-testid=policy-tool]", "WebFetch");
+    flushSync();
+    const matchField = $<HTMLInputElement>("[data-testid=policy-match]");
+    expect(matchField?.disabled).toBe(true);
+    expect($("#policy-match-hint")?.textContent).toBe("WebFetch takes no match: the rule covers every call.");
+    type("[data-testid=policy-tool]", "");
+    flushSync();
     type("[data-testid=policy-match]", "src/**");
+    type("[data-testid=policy-tool]", "Grep");
     await submit();
-    expect($("[data-testid=policy-error]")?.textContent).toBe(
-      "Grep(src/**): only Bash and file tools take a match; leave it out to match every call",
+    expect(core.calls.filter((c) => c.method === "policy.set")).toHaveLength(0);
+    expect(target.querySelectorAll("[role=alert]")).toHaveLength(1);
+    expect($("[data-testid=policy-error]")?.textContent).toMatch(
+      /^Grep takes no match: a rule for it covers every call/,
     );
-    expect($<HTMLInputElement>("[data-testid=policy-match]")?.value).toBe("src/**");
-    expect(rules()).toHaveLength(2);
+    expect($("#policy-match-hint")).toBeNull();
+    expect(document.activeElement).toBe(matchField);
+    expect(matchField?.getAttribute("aria-invalid")).toBe("true");
+    expect(matchField?.getAttribute("aria-describedby")).toBe("policy-error");
+  });
+
+  it("fixes a tool name's case and shows the core's refusal in plain words", async () => {
+    const core = await setup();
+    core.refuse.set("Bash", "Bash(rm -rf): the match is empty; leave it out to match every call");
+    $<HTMLButtonElement>("[data-testid=open-policy]")?.click();
+    await settle();
+    type("[data-testid=policy-tool]", "bash");
+    flushSync();
+    expect($("#policy-tool-warning")?.textContent).toBe("Saved as Bash: tool names are case-sensitive.");
+    type("[data-testid=policy-match]", "rm -rf");
+    await submit();
+    expect($("[data-testid=policy-error]")?.textContent).toBe("The match is empty; leave it out to match every call");
     const toolField = $<HTMLInputElement>("[data-testid=policy-tool]");
     expect(toolField?.getAttribute("aria-invalid")).toBe("true");
-    expect(toolField?.getAttribute("aria-describedby")).toBe("policy-error");
-    type("[data-testid=policy-tool]", "grep");
-    flushSync();
     expect(toolField?.getAttribute("aria-describedby")).toBe("policy-error policy-tool-warning");
-    expect($("#policy-tool-warning")?.textContent).toMatch(/grep never matches Grep/);
+    core.refuse.clear();
+    await submit();
+    expect(core.rules.get("p1")?.[2]).toEqual({ tool: "Bash", match: "rm -rf", action: "ask" });
   });
 
   it("keeps an edit whose rule changed elsewhere as a new rule instead of overwriting", async () => {
@@ -233,12 +255,15 @@ describe("PolicyPanel", () => {
     await settle();
     expect($("[data-testid=policy-empty]")?.textContent).toBe("Loading…");
     expect($<HTMLInputElement>("[data-testid=policy-tool]")?.matches(":disabled")).toBe(true);
+    const focused: (string | undefined)[] = [];
     for (const shiftKey of [false, false, true]) {
       $("[data-testid=policy]")?.dispatchEvent(
         new KeyboardEvent("keydown", { code: "Tab", key: "Tab", shiftKey, bubbles: true, cancelable: true }),
       );
-      expect(document.activeElement?.textContent?.trim()).toBe("Close");
+      focused.push(document.activeElement?.textContent?.trim());
     }
+    // Only Close and the "How rules combine" disclosure: the disabled form is skipped.
+    expect(focused).toEqual(["Close", "Close", "How rules combine"]);
     core.release();
   });
 

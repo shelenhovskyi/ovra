@@ -19,12 +19,60 @@ export function ruleText(rule: PolicyRule): string {
   return rule.match === undefined ? rule.tool : `${rule.tool}(${rule.match})`;
 }
 
+/** The tool a form names: a known tool typed in another case is that tool. */
+export function toolName(tool: string): string {
+  const name = tool.trim();
+  return KNOWN_TOOLS.find((t) => t.toLowerCase() === name.toLowerCase()) ?? name;
+}
+
+/** Whether rules for `tool` may have a match; the core refuses one for any other tool. */
+export function takesMatch(tool: string): boolean {
+  const name = toolName(tool);
+  return name === "Bash" || FILE_TOOLS.includes(name);
+}
+
 /** What `match` means for `tool`, for the field's description. */
 export function matchHint(tool: string): string {
-  if (tool.trim() === "Bash") return "A command prefix, matched on whole words: npm test also matches npm test -- -u.";
-  if (FILE_TOOLS.includes(tool.trim()))
-    return "A glob on the path inside the folder the agent works in, such as docs/**.";
-  return "Only Bash and the file tools take a match. Leave it empty to match every call.";
+  const name = toolName(tool);
+  if (name === "Bash") return "A command prefix, matched on whole words: npm test also matches npm test -- -u.";
+  if (FILE_TOOLS.includes(name)) return "A glob on the path inside the folder the agent works in, such as docs/**.";
+  if (name !== "") return `${name} takes no match: the rule covers every call.`;
+  return `Only Bash and the file tools (${FILE_TOOLS.join(", ")}) take a match.`;
+}
+
+/** Ovra's own tools, which policies cannot change (the core refuses them). */
+const IDE_TOOL_PREFIX = "mcp__ovra__";
+
+export type FormProblem = { field: "tool" | "match"; text: string };
+
+/**
+ * Why the core would refuse the rule a form describes, in plain words, and
+ * the field to fix, or null. Mirrors the core's check
+ * (`crates/core/src/policy.rs`), so the form never sends a rule the core is
+ * known to refuse.
+ */
+export function formProblem(rule: PolicyRule): FormProblem | null {
+  const tool = (text: string): FormProblem => ({ field: "tool", text });
+  const match = (text: string): FormProblem => ({ field: "match", text });
+  if (rule.tool === "") return tool("Choose a tool first.");
+  if (rule.tool.startsWith(IDE_TOOL_PREFIX))
+    return tool("Ovra's own tools follow their role's rules; a policy cannot change them.");
+  if (rule.match === undefined || rule.tool === "Bash") return null;
+  if (!takesMatch(rule.tool))
+    return match(
+      `${rule.tool} takes no match: a rule for it covers every call. Clear Match, or choose Bash or a file tool.`,
+    );
+  const parts = rule.match.split(/[/\\]/);
+  if (/^[/\\]/.test(rule.match) || rule.match.includes(":") || parts.some((p) => p === "" || p === "." || p === ".."))
+    return match("Write the path inside the agent's folder, such as docs/**: no leading /, no . or .. parts, no :.");
+  return null;
+}
+
+/** What the form says about the tool typed: a name fixed for her, or one that may never match. */
+export function toolNote(tool: string): string | null {
+  const name = toolName(tool);
+  if (name !== tool.trim()) return `Saved as ${name}: tool names are case-sensitive.`;
+  return toolWarning(name);
 }
 
 /** Why a tool name may never match, or null: names are matched exactly. */
@@ -87,8 +135,9 @@ export function byPrecedence(rules: PolicyRule[]): { rule: PolicyRule; index: nu
     .sort((a, b) => PRECEDENCE.indexOf(a.rule.action) - PRECEDENCE.indexOf(b.rule.action) || a.index - b.index);
 }
 
-/** The rule a form describes: names trimmed, an empty match left out. */
+/** The rule a form describes: names trimmed, a known tool in its own case, an empty match left out. */
 export function formRule(tool: string, match: string, action: PolicyAction): PolicyRule {
   const pattern = match.trim();
-  return pattern === "" ? { tool: tool.trim(), action } : { tool: tool.trim(), match: pattern, action };
+  const name = toolName(tool);
+  return pattern === "" ? { tool: name, action } : { tool: name, match: pattern, action };
 }

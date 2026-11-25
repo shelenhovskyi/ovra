@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { byPrecedence, caveats, formRule, matchHint, ruleText, toolWarning } from "./rules";
+import { byPrecedence, caveats, formProblem, formRule, matchHint, ruleText, toolNote, toolWarning } from "./rules";
 
 describe("policy rules", () => {
   it("reads like the core writes them", () => {
@@ -57,7 +57,30 @@ describe("policy rules", () => {
   it("explains the match for the tool being typed", () => {
     expect(matchHint("Bash")).toMatch(/command prefix/);
     expect(matchHint("Edit")).toMatch(/glob/);
-    expect(matchHint("WebFetch")).toMatch(/Only Bash and the file tools/);
+    expect(matchHint("webfetch")).toBe("WebFetch takes no match: the rule covers every call.");
+    expect(matchHint("")).toMatch(/^Only Bash and the file tools \(Read, Edit, MultiEdit, Write, NotebookEdit\)/);
+  });
+
+  it("refuses in the form what the core would refuse, naming the field to fix", () => {
+    const problem = (tool: string, match: string) => formProblem(formRule(tool, match, "deny"));
+    expect(problem("", "")).toEqual({ field: "tool", text: "Choose a tool first." });
+    expect(problem("mcp__ovra__spawn_agent", "")?.field).toBe("tool");
+    expect(problem("WebFetch", "github.com")).toMatchObject({
+      field: "match",
+      text: expect.stringMatching(/^WebFetch takes no match/),
+    });
+    expect(problem("mcp__github__create_issue", "x")?.field).toBe("match");
+    for (const path of ["/etc/**", "../up", "a//b", "./a", "c:/x"]) expect(problem("Read", path)?.field).toBe("match");
+    expect(problem("bash", "rm -rf")).toBeNull();
+    expect(problem("Edit", "docs/**")).toBeNull();
+    expect(problem("WebFetch", "")).toBeNull();
+  });
+
+  it("fixes a known tool's case for her and says so", () => {
+    expect(formRule("bash", "", "ask").tool).toBe("Bash");
+    expect(toolNote("bash")).toBe("Saved as Bash: tool names are case-sensitive.");
+    expect(toolNote("Shell")).toMatch(/does not know a tool named Shell/);
+    expect(toolNote("Bash")).toBeNull();
   });
 
   it("warns about tool names that may never match, more strongly for a wrong case", () => {
