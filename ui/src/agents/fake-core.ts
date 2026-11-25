@@ -117,6 +117,7 @@ export class FakeAgentCore implements Transport {
       case "agents.start": {
         const { project, prompt } = request.params;
         const info = this.addSession(project, prompt.split("\n")[0] ?? "");
+        info.account = request.params.account ?? null;
         this.status(info.id, { state: "starting" });
         this.message(info.id, { kind: "user_text", text: prompt, from: "person" });
         return { type: "agents.session", data: { ...info } };

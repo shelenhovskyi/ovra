@@ -217,19 +217,6 @@ describe("accounts in the agents panel", () => {
     expect(target.querySelector("[data-testid=agent-account-blocked]")).toBeNull();
   });
 
-  it("names the account that pays for a session", async () => {
-    const core = new FakeAgentCore();
-    core.accounts = [...core.accounts, work()];
-    const info = core.addSession("p1", "fix", { state: "idle" });
-    Object.assign(info, { account: "account-1", billing: { kind: "api_key" } });
-    await show(core);
-    target.querySelector<HTMLButtonElement>(".sessions .row-button")?.click();
-    flushSync();
-    expect(target.querySelector("[data-testid=agent-billing]")?.textContent?.trim()).toBe(
-      "Work · API key, at API prices",
-    );
-  });
-
   it("says once that a session's account signed out, and starts it again with a signed-in one", async () => {
     const core = new FakeAgentCore();
     const [own] = core.accounts;
@@ -265,5 +252,11 @@ describe("accounts in the agents panel", () => {
     expect(localStorage.getItem("ovra.agents.closed.p1")).toBe(JSON.stringify(["s1"]));
     expect(target.querySelector("[data-testid=agent-session] h3")?.textContent).toBe("Fix it");
     expect(target.querySelector("[data-testid=agent-signed-out]")).toBeNull();
+    // It names the account that pays for it.
+    core.emit({ type: "agents.billing", data: { session: "s2", billing: { kind: "api_key" } } });
+    await settle();
+    expect(target.querySelector("[data-testid=agent-billing]")?.textContent?.trim()).toBe(
+      "Work · API key, at API prices",
+    );
   });
 });
