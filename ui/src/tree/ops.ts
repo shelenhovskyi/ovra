@@ -59,7 +59,7 @@ export function movedPath(path: string, from: string, to: string): string | null
 }
 
 /** Whether `path` is `dir` or lies inside it. */
-export function isWithin(path: string, dir: string): boolean {
+function isWithin(path: string, dir: string): boolean {
   return path === dir || path.startsWith(`${dir}/`);
 }
 

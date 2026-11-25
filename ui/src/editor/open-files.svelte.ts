@@ -10,6 +10,7 @@ import { tick, untrack } from "svelte";
 import type { ProjectId, ProjectStatePatch } from "../lib/protocol";
 import type { Transport } from "../lib/transport";
 import type { MainMode, Workspace } from "../shell/workspace.svelte";
+import { movedPath } from "../tree/ops";
 import { Buffers } from "./buffers.svelte";
 import { drafts } from "./drafts.svelte";
 import { highlighter } from "./highlight/highlighter";
@@ -18,12 +19,6 @@ import { modeMemory } from "./mode-memory";
 
 /** Beyond this many tabs, the leftmost inactive unpinned tab without unsaved text is closed. */
 const MAX_OPEN_FILES = 20;
-
-/** Where `path` is once `from` moved to `to`, or null if it is not `from` or inside it. */
-function movedPath(path: string, from: string, to: string): string | null {
-  if (path === from) return to;
-  return path.startsWith(`${from}/`) ? to + path.slice(from.length) : null;
-}
 
 export class OpenFiles {
   /** Tab order; the pinned tabs come first. */
