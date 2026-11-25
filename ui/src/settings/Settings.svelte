@@ -166,6 +166,7 @@ function onListKeydown(event: KeyboardEvent): void {
         {:else if pane.id === "claude"}
           <ClaudePane />
           <AgentLimitField />
+          <AgentLimitField research />
           <ResourcesField />
         {:else if pane.id === "rules"}
           <PolicyPanel />

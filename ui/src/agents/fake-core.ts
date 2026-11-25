@@ -59,6 +59,8 @@ export class FakeAgentCore implements Transport {
   trustedConfig = new Map<ProjectId, ProjectAgentConfig>();
   /** What `agents.capacity` answers. */
   capacity: AgentCapacity = { working: 0, limit: 3, queued: 0, research_working: 0, research_limit: 2 };
+  /** Files `fs.create` made and `fs.write_file` wrote, by path. */
+  files = new Map<string, string>();
   /** `git.status` answers that the project is not a git repository. */
   noRepo = false;
   /** Makes the next call of this method fail with this error. */
@@ -120,6 +122,7 @@ export class FakeAgentCore implements Transport {
         const { project, prompt } = request.params;
         const info = this.addSession(project, prompt.split("\n")[0] ?? "");
         info.account = request.params.account ?? null;
+        info.mode = request.params.mode;
         this.status(info.id, { state: "starting" });
         this.message(info.id, { kind: "user_text", text: prompt, from: "person" });
         return { type: "agents.session", data: { ...info } };
@@ -197,6 +200,14 @@ export class FakeAgentCore implements Transport {
       }
       case "open.url":
         return { type: "ok" };
+      case "fs.create":
+        if (this.files.has(request.params.path))
+          throw new CoreError({ code: "conflict", message: `${request.params.path} exists` });
+        this.files.set(request.params.path, "");
+        return { type: "ok" };
+      case "fs.write_file":
+        this.files.set(request.params.path, request.params.text);
+        return { type: "fs.written", data: { mtime_ms: 1 } };
       case "git.status":
         if (this.noRepo) return { type: "git.no_repo" };
         return {

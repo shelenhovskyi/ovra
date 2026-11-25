@@ -112,6 +112,7 @@ describe("AgentsPanel", () => {
     expect(options).toEqual([
       ["One agent, hereWorks in this folder. Asks before risky steps.", "true"],
       ["Plan and splitUp to 3 agents, each on its own copy. You review before anything is merged.", "false"],
+      ["ResearchReads the project and searches the web. Changes nothing.", "false"],
     ]);
     expect(document.activeElement?.getAttribute("aria-checked")).toBe("true");
     // Arrow keys move in the menu; the pick closes it.

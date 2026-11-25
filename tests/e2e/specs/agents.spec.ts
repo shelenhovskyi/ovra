@@ -447,3 +447,21 @@ test("always allow adds a rule, and the next identical request is allowed by it"
   await expect(rule).toContainText(/Bash\(npm test\)\s*exactly\s*Auto\s*From an approval/);
   await expect(rule.getByRole("button", { name: "Remove Bash(npm test) exactly auto" })).toBeVisible();
 });
+
+test("a research agent changes nothing and its report is saved as a doc", async ({ page }) => {
+  const dir = await openGitProject(page, "ovra-agents-research-");
+  await page.getByTestId("agent-mode").click();
+  await page.getByRole("menuitemradio", { name: /^Research/ }).click();
+  await page.getByRole("textbox", { name: "Give Claude a task" }).fill("How does the readme read?");
+  await page.getByRole("button", { name: "Start", exact: true }).click();
+  // The fake agent asks to run `ls -la` and edit README.md: research refuses
+  // both without asking, so nothing waits for an answer.
+  const save = page.getByRole("button", { name: "Save as doc" });
+  await expect(save).toBeVisible();
+  await save.click();
+  const day = new Date().toISOString().slice(0, 10);
+  const path = `docs/research/${day}-how-does-the-readme-read.md`;
+  await expect(page.getByTestId("agent-report")).toContainText(`Saved as ${path}`);
+  expect(readIfThere(join(dir, path))).toContain("# How does the readme read?");
+  expect(readFileSync(join(dir, "README.md"), "utf8")).toBe("teh readme\n");
+});

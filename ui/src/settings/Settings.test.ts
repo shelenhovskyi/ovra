@@ -272,3 +272,47 @@ it("turns the agents' resource usage on and off, off at first", async () => {
   await settle();
   expect(agentPrefs.showResources).toBe(true);
 });
+
+it("sets how many research agents work at once, apart from the other agents", async () => {
+  const sent: number[] = [];
+  let limit = { limit: 2, default: 2, min: 0, max: 5 };
+  const core: Transport = {
+    call: ((request: Request) => {
+      if (request.method === "agents.limit")
+        return Promise.resolve({ type: "agents.limit", data: { limit: 3, default: 3, min: 1, max: 8 } });
+      if (request.method === "agents.research_limit")
+        return Promise.resolve({ type: "agents.research_limit", data: limit });
+      if (request.method === "agents.set_research_limit") {
+        sent.push(request.params.limit);
+        limit = { ...limit, limit: request.params.limit };
+        return Promise.resolve({ type: "agents.research_limit", data: limit });
+      }
+      return transport.call(request);
+    }) as Transport["call"],
+    onEvent: () => () => {},
+  };
+  const target = document.createElement("div");
+  document.body.append(target);
+  const app = mount(TestHost, { target, props: { transport: core, workspace: new Workspace() } });
+  cleanup.push(registerSettingsCommands(), () => {
+    unmount(app);
+    target.remove();
+  });
+  await listCommands()
+    .find((c) => c.id === "settings.claude")
+    ?.run();
+  await settle();
+  const box = () => target.querySelector("[data-testid=research-limit]");
+  const field = () => box()?.querySelector<HTMLInputElement>("input");
+  expect(box()?.textContent).toContain("Research agents at once");
+  expect(box()?.textContent).toContain("0 turns research off");
+  expect(field()?.value).toBe("2");
+  expect(target.querySelector<HTMLInputElement>("[data-testid=agent-limit] input")?.value).toBe("3");
+  const input = field();
+  if (!input) throw new Error("no field");
+  input.value = "0";
+  input.dispatchEvent(new Event("change", { bubbles: true }));
+  await settle();
+  expect(sent).toEqual([0]);
+  expect(field()?.value).toBe("0");
+});

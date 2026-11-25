@@ -324,12 +324,17 @@ export class AgentSessions {
     this.transcripts.set(session, data);
   }
 
-  /** `account`: a Claude account's id; null uses the project's. */
-  async start(project: ProjectId, prompt: string, account: string | null = null): Promise<SessionInfo> {
+  /** `account`: a Claude account's id; null uses the project's. `research` only reads and searches (ADR 0011). */
+  async start(
+    project: ProjectId,
+    prompt: string,
+    account: string | null = null,
+    mode: "direct" | "research" = "direct",
+  ): Promise<SessionInfo> {
     // Messages may arrive before the reply: collect them from the start.
     const { data } = await this.transport.call({
       method: "agents.start",
-      params: { project, agent: "claude", mode: "direct", prompt, account },
+      params: { project, agent: "claude", mode, prompt, account },
     });
     const known = this.byId.get(data.id);
     // agents.sandbox may also have come before the reply: keep what it said.
@@ -375,7 +380,7 @@ export class AgentSessions {
       // A worker that asked for review stops counting, and counts again once it is decided.
       if (this.loaded.has(event.data.project))
         void Promise.all([this.loadReviews(event.data.project), this.loadCapacity(event.data.project)]);
-    } else if (event.type === "agents.limit_changed") {
+    } else if (event.type === "agents.limit_changed" || event.type === "agents.research_limit_changed") {
       // "2 of 3 working" names the limit.
       for (const project of this.loaded) void this.loadCapacity(project);
     } else if (event.type === "resources.sample") {

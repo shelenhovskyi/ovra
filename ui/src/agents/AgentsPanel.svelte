@@ -44,6 +44,7 @@ import { billedShort, paidText } from "./setup/texts";
 import { isBusy, isEnded } from "./status";
 import { inFolder } from "./steps";
 import Transcript from "./Transcript.svelte";
+import { REPORT_DIR, reportFile, reportOf, reportPath, taskPrompt } from "./report";
 import { rememberedMode, rememberMode, type TaskMode } from "./task-mode";
 
 const { transport, workspace } = useOvra();
@@ -60,6 +61,7 @@ const MODES: { id: TaskMode; label: string; more: string }[] = [
     label: "Plan and split",
     more: "Up to 3 agents, each on its own copy. You review before anything is merged.",
   },
+  { id: "research", label: "Research", more: "Reads the project and searches the web. Changes nothing." },
 ];
 
 /** The session whose transcript is open; null shows the list. */
@@ -109,7 +111,9 @@ const modeSandbox = $derived(unsandboxed ? "" : sandboxWord);
 const modeHint = $derived(
   mode === "here"
     ? `Works in this folder${modeSandbox}. Asks before risky steps.`
-    : `Up to 3 agents on their own copies${modeSandbox}. You review first.`,
+    : mode === "research"
+      ? `Reads this folder and searches the web${modeSandbox}. Changes nothing.`
+      : `Up to 3 agents on their own copies${modeSandbox}. You review first.`,
 );
 /** The mode menu is open. */
 let modeMenu = $state(false);
@@ -141,6 +145,10 @@ const fallback = $derived.by((): AccountState | undefined => {
 const blocked = $derived(accounts.signedOut(account ?? accounts.projectAccount));
 /** Every place is taken: One agent, here would be refused (Plan and split queues its workers). */
 const atCap = $derived(mode === "here" && capacity !== undefined && capacity.working >= capacity.limit);
+/** Research has places of its own (ADR 0011); all taken, or none in Settings. */
+const researchFull = $derived(
+  mode === "research" && capacity !== undefined && capacity.research_working >= capacity.research_limit,
+);
 /** Why Start cannot work right now, said before the press instead of after it. */
 const startBlock = $derived(
   blocked
@@ -149,7 +157,11 @@ const startBlock = $derived(
       ? "Plan and split needs git"
       : atCap
         ? `All ${capacity?.limit} agents are busy`
-        : null,
+        : researchFull
+          ? capacity?.research_limit === 0
+            ? "Research is off in Settings"
+            : `All ${capacity?.research_limit} research agents are busy`
+          : null,
 );
 const usable = $derived(accounts.signedIn);
 /** Who pays for the next task, in two or three words; it opens Claude's setup. */
@@ -231,6 +243,63 @@ const changed = $derived(
     ? sessions.changes(current.id)
     : [],
 );
+/** An idle research session's answer, for Save as doc and Turn into task. */
+const report = $derived(
+  current && current.mode === "research" && !isBusy(current.status) ? reportOf(messages) : null,
+);
+/** Where the open session's report was saved, while that report is the one shown. */
+let savedReport = $state<{ session: SessionId; report: string; path: string } | null>(null);
+const saved = $derived(
+  savedReport && current && savedReport.session === current.id && savedReport.report === report
+    ? savedReport.path
+    : null,
+);
+/** The question the report answers: the person's first message. */
+const question = $derived.by(() => {
+  const first = messages?.find((m) => m.kind === "user_text" && m.from === "person");
+  return first?.kind === "user_text" ? first.text : (current?.title ?? "Research");
+});
+
+/** Save as doc: a new file under docs/research/, written by the person's press, then opened. */
+function saveReport(): Promise<void> {
+  const id = current?.id;
+  const text = report;
+  const at = project?.id;
+  if (!id || !text || !at) return Promise.resolve();
+  return run(async () => {
+    const now = new Date();
+    for (let n = 1; n <= 20; n++) {
+      const path = reportPath(question, now, n);
+      try {
+        await transport.call({ method: "fs.create", params: { project: at, path } });
+      } catch (err) {
+        if (err instanceof CoreError && err.error.code === "conflict") continue;
+        throw err;
+      }
+      await transport.call({
+        method: "fs.write_file",
+        params: { project: at, path, text: reportFile(question, text), expected_mtime_ms: null },
+      });
+      savedReport = { session: id, report: text, path };
+      workspace.openFile(path, "edit");
+      return;
+    }
+    throw new Error(`every name for this report in ${REPORT_DIR} is taken`);
+  });
+}
+
+/** Turn into task: the form switches to Plan and split with the findings quoted; the person says what to do and starts it. */
+async function toTask(): Promise<void> {
+  if (!report) return;
+  prompt = taskPrompt(question, report);
+  mode = "split";
+  if (project) rememberMode(project.id, "split");
+  selected = null;
+  await tick();
+  promptField?.focus();
+  promptField?.setSelectionRange(prompt.length, prompt.length);
+}
+
 /** A task's workers, or a worker itself, whose changes wait in Reviews. */
 const waiting = $derived.by(() => {
   const kind = current ? sessions.roles.get(current.id)?.kind : undefined;
@@ -516,7 +585,10 @@ async function begin(body: string, how: TaskMode, use: string | null): Promise<S
   // A task's coordinator and workers use the project's account: make it
   // the picked one before the task starts.
   if (use && use !== accounts.projectAccount) await accounts.setProject(id, use);
-  const started = how === "here" ? (await sessions.start(id, body, use)).id : await sessions.startTask(id, body);
+  const started =
+    how === "split"
+      ? await sessions.startTask(id, body)
+      : (await sessions.start(id, body, use, how === "research" ? "research" : "direct")).id;
   selected = started;
   await tick();
   replyField?.focus();
@@ -546,7 +618,8 @@ async function start(): Promise<void> {
 function retry(old: SessionInfo, use: AccountState): Promise<void> {
   const first = sessions.transcripts.get(old.id)?.find((m) => m.kind === "user_text" && m.from === "person");
   const body = first?.kind === "user_text" ? first.text : old.title;
-  const how: TaskMode = sessions.roles.get(old.id)?.kind === "coordinator" ? "split" : "here";
+  const how: TaskMode =
+    sessions.roles.get(old.id)?.kind === "coordinator" ? "split" : old.mode === "research" ? "research" : "here";
   return run(async () => {
     await begin(body, how, use.account.id);
     await sessions.close(old.id);
@@ -746,7 +819,9 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
           ? `${needYou} ${needYou === 1 ? "needs" : "need"} you`
           : `${capacity.working} of ${capacity.limit}`}{capacity.queued > 0 ? ` · ${capacity.queued} queued` : ""}{planning
           ? ` · ${planning} planning`
-          : ""}{pressure ? ` · ${pressureNote(pressure)}` : ""}
+          : ""}{capacity.research_working > 0 ? ` · ${capacity.research_working} researching` : ""}{pressure
+            ? ` · ${pressureNote(pressure)}`
+            : ""}
       </span>
       <span class="slots" aria-hidden="true">
         {#each { length: capacity.limit } as _, n (n)}<i class:on={n < capacity.working}></i>{/each}
@@ -890,6 +965,25 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
               <button type="button" class="quiet" onclick={() => current && openReviews([current.id])}>Review</button>
             </div>
           </section>
+        {:else if report}
+          <!-- A research session changes nothing: its answer is the outcome. -->
+          <div class="card outcome" data-testid="agent-report">
+            <span class="line">{saved ? `Saved as ${saved}` : "Research changes no files."}</span>
+            <div class="row">
+              {#if saved}
+                <button type="button" class="quiet" onclick={() => saved && workspace.openFile(saved, "edit")}
+                  >Open</button
+                >
+              {:else}
+                <button type="button" class="quiet" data-testid="report-save" onclick={() => void saveReport()}
+                  >Save as doc</button
+                >
+              {/if}
+              <button type="button" class="quiet" data-testid="report-task" onclick={() => void toTask()}
+                >Turn into task</button
+              >
+            </div>
+          </div>
         {:else if waiting > 0}
           <div class="card outcome waits" data-testid="agent-reviews">
             <span>{waiting === 1 ? "1 change waits" : `${waiting} changes wait`} for your review.</span>

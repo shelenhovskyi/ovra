@@ -104,7 +104,11 @@ export function describe(entry: AuditEntry): Described {
   const event = entry.event;
   switch (event.kind) {
     case "session_started": {
-      const where = event.mode === "direct" ? "In the project folder" : "In its own copy of the project";
+      const where = {
+        direct: "In the project folder",
+        research: "Reading the project folder, changing nothing",
+        isolated: "In its own copy of the project",
+      }[event.mode];
       const settings = event.trusted ? "with the project's agent settings" : "without the project's agent settings";
       const sandbox = event.sandbox ? `sandbox ${event.sandbox.name}, network ${event.sandbox.network}` : "no sandbox";
       return {
