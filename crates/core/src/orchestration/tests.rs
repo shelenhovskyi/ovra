@@ -1092,7 +1092,7 @@ async fn a_task_needs_a_repository_before_its_coordinator_starts() {
         json!({"method": "orchestration.start", "params": {"project": "p2", "prompt": "x"}});
     let err = call(&f.core, start).await.err();
     assert_eq!(err.as_ref().map(|e| e.code), Some(ErrorCode::BadRequest));
-    assert!(err.is_some_and(|e| e.message.contains("Use Start for a single session")));
+    assert!(err.is_some_and(|e| e.message.contains("One agent, here")));
     assert!(
         f.agent
             .started

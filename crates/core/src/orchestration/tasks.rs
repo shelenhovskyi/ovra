@@ -118,8 +118,8 @@ async fn start(
         return Err(ProtocolError::new(
             ErrorCode::BadRequest,
             format!(
-                "Start task needs a git repository, because every worker gets its own git worktree. \
-                 Use Start for a single session in this folder. ({})",
+                "Plan and split needs a git repository, because every agent works on its own copy \
+                 of the project. Choose \"One agent, here\" to work in this folder. ({})",
                 err.message
             ),
         ));

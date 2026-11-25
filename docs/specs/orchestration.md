@@ -28,8 +28,8 @@ The runtime appends a role prompt to Claude Code's system prompt
 (`--append-system-prompt`): `agents/roles/coordinator.md` for a coordinator,
 `agents/roles/worker.md` for a worker. A coordinator also gets
 `--tools Read,Grep,Glob`: it reads the project and directs workers, but
-cannot write files or run commands. In the UI, "Start task" in the agents
-panel starts a coordinator (`orchestration.start`); "Start" starts a single
+cannot write files or run commands. In the UI, "Plan and split" + Start in the agents
+panel starts a coordinator (`orchestration.start`); "One agent, here" starts a single
 direct session.
 
 ## IDE tools (MCP)
