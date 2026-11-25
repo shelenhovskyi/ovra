@@ -37,6 +37,9 @@ pub(crate) struct Pods {
     dir: PathBuf,
     pub(crate) program: PathBuf,
     state: Arc<Mutex<State>>,
+    /// Whether pod-init can confine servers here (`confine`), once asked.
+    #[cfg(target_os = "linux")]
+    layer: std::sync::OnceLock<bool>,
 }
 
 #[derive(Default)]
@@ -126,11 +129,17 @@ impl Pods {
             dir: std::path::absolute(&dir).unwrap_or(dir),
             program: std::env::current_exe().unwrap_or_default(),
             state: Arc::default(),
+            #[cfg(target_os = "linux")]
+            layer: std::sync::OnceLock::new(),
         }
     }
 
     pub(crate) fn status(&self) -> SandboxStatus {
-        self.sandbox.status()
+        #[cfg(target_os = "linux")]
+        let layer = *self.layer.get_or_init(crate::confine::available);
+        #[cfg(not(target_os = "linux"))]
+        let layer = false;
+        with_layer(self.sandbox.status(), layer)
     }
 
     pub(crate) fn start(
@@ -186,6 +195,9 @@ impl Pods {
 
     /// A new pod for `spec.work_dir`, its pod-init started.
     fn open(&self, runtime: &Handle, spec: &PodSpec) -> Result<Pod> {
+        if !crate::socket_paths_fit(&self.dir) {
+            return Err(internal(crate::too_long(&self.dir).to_string()));
+        }
         let dir = new_folder(&self.dir)?;
         let opened = Sockets::open(&dir)
             .map_err(|e| internal(format!("opening {}: {e}", dir.display())))
@@ -278,6 +290,19 @@ impl Drop for Pods {
             let _ = std::fs::remove_dir_all(&pod.dir);
         }
     }
+}
+
+/// What servers may do when pod-init cannot confine them (`confine`).
+const NO_LAYER: &str = "servers may make, remove or rename entries in their pod's folder";
+
+/// `status` with [`NO_LAYER`] among its gaps unless the layer holds.
+fn with_layer(mut status: SandboxStatus, layer: bool) -> SandboxStatus {
+    if let SandboxStatus::Available { gaps, .. } = &mut status
+        && !layer
+    {
+        gaps.push(NO_LAYER.into());
+    }
+    status
 }
 
 /// Sends `sig` to the process group of the running spawn that `pick`
@@ -561,6 +586,23 @@ mod tests {
                 sig: Sig::Term
             })
         );
+    }
+
+    #[test]
+    fn a_pod_without_the_layer_reports_it_as_a_gap() {
+        let available = SandboxStatus::Available {
+            name: "bubblewrap".into(),
+            gaps: vec!["other".into()],
+        };
+        assert_eq!(with_layer(available.clone(), true), available);
+        let SandboxStatus::Available { gaps, .. } = with_layer(available, false) else {
+            panic!("still available");
+        };
+        assert_eq!(gaps, ["other", NO_LAYER]);
+        let none = SandboxStatus::Unavailable {
+            reason: "no".into(),
+        };
+        assert_eq!(with_layer(none.clone(), false), none);
     }
 
     #[test]

@@ -70,8 +70,14 @@ fn setup() -> Setup {
     setup_with(Identity(true))
 }
 
+/// The pods' folder where `servers_dir` puts it without a runtime folder,
+/// off the paths servers write.
 fn setup_with(sandbox: Identity) -> Setup {
-    let data = tempfile::tempdir().expect("data dir");
+    setup_in(sandbox, Path::new("/var/tmp"))
+}
+
+fn setup_in(sandbox: Identity, pods: &Path) -> Setup {
+    let data = tempfile::tempdir_in(pods).expect("data dir");
     let work = tempfile::tempdir().expect("work dir");
     let servers = PodServers::new(Arc::new(sandbox), data.path().into())
         .program(env!("CARGO_BIN_EXE_ovra-pod").into());
@@ -103,6 +109,15 @@ impl Setup {
 
     fn start(&self, id: &str, script: &str, port: u16, ready: Option<ServerReady>) -> Result<()> {
         let server = DevServerSpec {
+            port,
+            ready,
+            ..self.spec(id, script)
+        };
+        self.servers.start(&self.pod(), server, self.sink.clone())
+    }
+
+    fn spec(&self, id: &str, script: &str) -> DevServerSpec {
+        DevServerSpec {
             id: ServerId(id.into()),
             generation: 1,
             line: CommandLine {
@@ -111,10 +126,9 @@ impl Setup {
                 env: vec![("GREETING".into(), Some("hi".into()))],
                 cwd: self.work.path().into(),
             },
-            port,
-            ready,
-        };
-        self.servers.start(&self.pod(), server, self.sink.clone())
+            port: free_port(),
+            ready: None,
+        }
     }
 
     /// Reports up to and including `last`.
@@ -329,7 +343,9 @@ async fn a_server_cannot_make_remove_or_rename_entries_in_its_pod_folder() {
         try 'make a folder' \"mkdir $pod/d\"
         try 'rename its socket' \"mv $pod/{port}.sock $pod/y\"
         try 'remove its socket' \"rm $pod/{port}.sock\"
-        try 'write its work dir' ': > made'",
+        try 'write its work dir' ': > made'
+        try 'make a temp file' ': > \"$TMPDIR/t$$\" && rm \"$TMPDIR/t$$\"'
+        try 'make a file in /tmp' ': > /tmp/ovra-pods-$$ && rm /tmp/ovra-pods-$$'",
         data = s.data.path().display(),
     );
     s.start("srv", &script, port, None).expect("start");
@@ -347,7 +363,56 @@ async fn a_server_cannot_make_remove_or_rename_entries_in_its_pod_folder() {
             "srv out rename its socket: no",
             "srv out remove its socket: no",
             "srv out write its work dir: yes",
+            "srv out make a temp file: yes",
+            "srv out make a file in /tmp: yes",
             "srv #1 Exited { code: Some(0) }",
         ]
     );
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn a_pod_in_the_temp_folder_gives_its_servers_a_temp_folder_of_their_own() {
+    let mut s = setup_in(Identity(true), &std::env::temp_dir());
+    let script = "case \"$TMPDIR\" in */ovra-pod-tmp-*) echo own;; *) echo shared;; esac
+        echo \"$TMPDIR\"; : > \"$TMPDIR/x\" && echo wrote";
+    s.start("srv", script, free_port(), None).expect("start");
+    let seen = s.until("srv #1 Exited { code: Some(0) }").await;
+    let own = seen[1].strip_prefix("srv out ").map(PathBuf::from);
+    assert_eq!(
+        (seen[0].as_str(), &seen[2..]),
+        (
+            "srv out own",
+            &["srv out wrote", "srv #1 Exited { code: Some(0) }"].map(String::from)[..]
+        )
+    );
+    // Pod-init removes it once its last server ended.
+    let own = own.expect("its TMPDIR");
+    while own.exists() {
+        tokio::task::yield_now().await;
+    }
+}
+
+#[test]
+fn the_pods_folder_is_private_and_off_the_temp_folder() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let dir = ovra_servers::servers_dir().expect("servers dir");
+    assert!(!dir.starts_with(std::env::temp_dir()) && !dir.starts_with("/tmp"));
+    assert!(dir.as_os_str().len() + "/0123456789abcdef/control.sock".len() < 100);
+    let mode = std::fs::metadata(&dir).expect("made").permissions().mode();
+    std::fs::remove_dir(&dir).expect("empty");
+    assert_eq!(mode & 0o777, 0o700);
+}
+
+#[tokio::test]
+async fn a_pods_folder_too_long_for_its_sockets_is_refused() {
+    let s = setup();
+    let long = s.data.path().join("a".repeat(80));
+    std::fs::create_dir(&long).expect("long folder");
+    let servers = PodServers::new(Arc::new(Identity(true)), long.clone())
+        .program(env!("CARGO_BIN_EXE_ovra-pod").into());
+    let started = servers.start(&s.pod(), s.spec("srv", "exit 0"), s.sink.clone());
+    let error = started.expect_err("too long");
+    assert!(error.message.contains("too long"), "{}", error.message);
+    assert_eq!(entries(&long), Vec::<PathBuf>::new());
 }

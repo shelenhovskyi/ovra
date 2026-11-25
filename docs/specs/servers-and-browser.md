@@ -79,7 +79,15 @@ The person defines servers in `.ovra/servers.json` in the project:
   `<pod dir>/<port>.sock` and connects each connection to
   `127.0.0.1:<port>` inside the pod. `<pod dir>` is a private folder Ovra
   makes per pod, like the netproxy's socket folders, and is in the
-  profile's `write`. Nothing in the pod listens on the host. On Linux the
+  profile's `write`. The pods' folders sit in `ovra-srv-<random>` (0700)
+  under `$XDG_RUNTIME_DIR` when it is in `/run` and short enough, else
+  under `/var/tmp`: both are empty in the sandbox and no path servers
+  write, since servers may make no entry in any folder on the way to
+  their pod's (Linux: a Landlock layer pod-init puts on each server).
+  Every socket path must stay under 100 bytes, or the pod does not start.
+  If the servers' `TMPDIR` holds the pod's folder anyway, pod-init gives
+  them a new `TMPDIR` of their own. Without Landlock that layer is
+  missing, and the pods' status names it as a gap. Nothing in the pod listens on the host. On Linux the
   sandbox's part is what every session gets (its own PID and network
   namespaces, `--die-with-parent`; Landlock and seccomp allow TCP listeners
   inside the network namespace and Unix sockets in writable folders),

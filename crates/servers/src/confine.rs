@@ -8,8 +8,8 @@
 //! folder except the pod's: below each entry of each folder above it but
 //! the one on the way down. That leaves one gap: entries right in those
 //! folders above can be neither made nor removed by servers either, so
-//! the pod's folder should sit where servers do not write (Ovra's data
-//! folder, hidden in the sandbox).
+//! the pods' folder sits where servers do not write ([`crate::servers_dir`]),
+//! and pod-init gives servers a `TMPDIR` of their own when theirs holds it.
 
 use std::ffi::CStr;
 use std::io;
@@ -38,6 +38,16 @@ pub(crate) fn spawn(pod: &Path, command: &mut Command) -> io::Result<Child> {
             .join()
             .unwrap_or_else(|_| Err(io::Error::other("the server's spawner failed")))
     })
+}
+
+/// Whether this kernel enforces the whole layer; without it a server may
+/// make, remove and rename entries in its pod's folder (a reported gap).
+pub(crate) fn available() -> bool {
+    Ruleset::default()
+        .set_compatibility(CompatLevel::HardRequirement)
+        .handle_access(rights())
+        .and_then(Ruleset::create)
+        .is_ok()
 }
 
 /// Making, removing and renaming entries: what the layer handles.

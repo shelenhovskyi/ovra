@@ -16,9 +16,9 @@ test = false
 
 [dependencies]
 ovra-core.workspace = true
+rand.workspace = true
 
 [target.'cfg(unix)'.dependencies]
-rand.workspace = true
 rustix = { version = "1", features = ["fs", "process"] }
 serde.workspace = true
 serde_json.workspace = true

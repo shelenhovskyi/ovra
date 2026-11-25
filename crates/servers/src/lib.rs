@@ -8,7 +8,7 @@
 //! through `<pod dir>/<port>.sock`, never through a host port. Without a
 //! sandbox (or a Unix system) nothing runs.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -37,6 +37,52 @@ mod sockets;
 pub fn pod_init_if_asked() {
     #[cfg(unix)]
     init::pod_init_if_asked();
+}
+
+/// The longest socket path a pod may have: Unix socket paths end at about
+/// 100 bytes (108 on Linux, 104 on macOS, with the final zero).
+const MAX_SOCKET_PATH: usize = 99;
+
+/// The longest name of a pod's folder and a socket in it: `/<16 hex>/control.sock`.
+const POD_SOCKET_TAIL: usize = 1 + 16 + 1 + "control.sock".len();
+
+/// Makes a new folder only this user can open, for the pods' folders, in a
+/// place servers never need to write: `$XDG_RUNTIME_DIR` when it is in
+/// `/run` and short enough, else `/var/tmp`. The Linux sandbox hides both
+/// (`/run` and `/var/tmp` are empty there). Not the temporary folder:
+/// servers could then make nothing right in it, since they may not make
+/// entries in any folder above their pod's (`confine`). Fails, naming the
+/// limit, if a pod's socket path there would not fit.
+pub fn servers_dir() -> std::io::Result<PathBuf> {
+    let runtime = std::env::var_os("XDG_RUNTIME_DIR")
+        .map(PathBuf::from)
+        .filter(|dir| dir.is_absolute() && dir.starts_with("/run") && dir.is_dir());
+    let name = format!("ovra-srv-{:016x}", rand::random::<u64>());
+    let dir = runtime
+        .map(|base| base.join(&name))
+        .filter(|dir| socket_paths_fit(dir))
+        .unwrap_or_else(|| Path::new("/var/tmp").join(&name));
+    if !socket_paths_fit(&dir) {
+        return Err(too_long(&dir));
+    }
+    let mut builder = std::fs::DirBuilder::new();
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    builder.create(&dir)?;
+    Ok(dir)
+}
+
+/// Whether every socket of a pod in `dir` has a path short enough.
+fn socket_paths_fit(dir: &Path) -> bool {
+    dir.as_os_str().len() + POD_SOCKET_TAIL <= MAX_SOCKET_PATH
+}
+
+fn too_long(dir: &Path) -> std::io::Error {
+    std::io::Error::other(format!(
+        "{} is too long for the pods' sockets: their paths must stay under {} bytes",
+        dir.display(),
+        MAX_SOCKET_PATH + 1
+    ))
 }
 
 /// The real dev servers.

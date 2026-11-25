@@ -62,6 +62,9 @@ struct Server {
 #[derive(Clone)]
 struct Pod {
     dir: Arc<Path>,
+    /// The servers' `TMPDIR`, when the one they would get holds the pod's
+    /// folder ([`own_tmp`]).
+    tmp: Option<Arc<Path>>,
     servers: Arc<Mutex<BTreeMap<String, Server>>>,
     events: UnboundedSender<Event>,
 }
@@ -86,6 +89,7 @@ async fn serve(dir: PathBuf) -> std::io::Result<()> {
         }
     });
     let pod = Pod {
+        tmp: own_tmp(&dir)?.map(Into::into),
         dir: dir.into(),
         servers: Arc::default(),
         events,
@@ -109,7 +113,35 @@ async fn serve(dir: PathBuf) -> std::io::Result<()> {
     for (_, server) in std::mem::take(&mut *lock(&pod.servers)) {
         let _ = kill_process_group(server.group, Signal::KILL);
     }
+    if let Some(tmp) = &pod.tmp {
+        let _ = std::fs::remove_dir_all(tmp);
+    }
     Ok(())
+}
+
+/// A new folder for the servers' temporary files when the one they would
+/// get (`TMPDIR`, else `/tmp`) holds the pod's folder: they may make no
+/// entry in a folder on the way to it (`confine`), but below the others.
+/// `None` when they can use their own.
+fn own_tmp(dir: &Path) -> std::io::Result<Option<PathBuf>> {
+    if !cfg!(target_os = "linux") {
+        return Ok(None);
+    }
+    let tmp = std::env::var_os("TMPDIR")
+        .map(PathBuf::from)
+        .filter(|t| t.is_absolute())
+        .unwrap_or_else(|| "/tmp".into());
+    let (Ok(tmp), pod) = (std::fs::canonicalize(&tmp), std::fs::canonicalize(dir)?) else {
+        return Ok(None);
+    };
+    if !pod.starts_with(&tmp) {
+        return Ok(None);
+    }
+    let own = tmp.join(format!("ovra-pod-tmp-{:016x}", rand::random::<u64>()));
+    let mut builder = std::fs::DirBuilder::new();
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    builder.create(&own)?;
+    Ok(Some(own))
 }
 
 impl Pod {
@@ -160,6 +192,9 @@ impl Pod {
             .stdout(writer)
             .stderr(stderr)
             .process_group(0);
+        if let Some(tmp) = &self.tmp {
+            command.env("TMPDIR", &**tmp);
+        }
         for (name, value) in &spawn.env {
             match value {
                 Some(value) => command.env(name, value),
