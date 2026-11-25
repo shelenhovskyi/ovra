@@ -25,12 +25,13 @@ pub(crate) use policy::{IDE_TOOL_PREFIX, decide};
 use crate::Core;
 use crate::protocol::agents::{AgentStatus, SessionId};
 use crate::protocol::orchestration::{OrchestrationEvent, OrchestrationRequest};
+use crate::protocol::projects::ProjectId;
 use crate::protocol::review::{ReviewEvent, ReviewRequest};
 use crate::protocol::{ErrorCode, ProtocolError, Response};
 use crate::services::SessionStore;
 
 pub(crate) use saved::restore;
-pub(crate) use slots::capacity;
+pub(crate) use slots::{Reservation, capacity, reserve};
 pub(crate) use tasks::unless_cleaned;
 
 type Result<T> = std::result::Result<T, ProtocolError>;
@@ -64,6 +65,9 @@ struct State {
     reviews_made: u64,
     /// Sessions that hold their project open while they run.
     holds: BTreeSet<SessionId>,
+    /// Places a person's starts took while their sessions are set up
+    /// ([`slots::reserve`]); not saved.
+    reserved: BTreeMap<ProjectId, usize>,
 }
 
 impl Orchestration {

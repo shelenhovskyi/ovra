@@ -1,7 +1,8 @@
 //! One cap for the whole project (CLAUDE.md, ADR 0006 rules): at most
 //! [`MAX_WORKING`] agents work at once, whichever task they belong to. A
 //! worker beyond it waits `queued` and starts when a place frees; a person's
-//! start beyond it is refused.
+//! start beyond it is refused. Both are checked and their place taken under
+//! the one lock, so starts at the same moment never pass the cap together.
 
 use super::{State, tasks};
 use crate::Core;
@@ -45,12 +46,54 @@ pub(super) fn count(core: &Core, state: &State, project: &ProjectId) -> (usize, 
             _ => working += 1,
         }
     }
+    working += state.reserved.get(project).copied().unwrap_or(0);
     for task in state.tasks.iter().filter(|t| &t.project == project) {
         let (wait, work) = task.starting();
         working += work;
         queued += wait;
     }
     (working, queued)
+}
+
+/// A place a person's start took while its session is set up; it lets go
+/// when dropped, by then the session counts itself (or it failed).
+#[derive(Debug)]
+pub(crate) struct Reservation {
+    core: Core,
+    project: ProjectId,
+}
+
+/// Takes a place in `project` for a person's start, or says how many
+/// agents work there if none is free.
+pub(crate) fn reserve(core: &Core, project: &ProjectId) -> Result<Reservation, usize> {
+    let state = core.orchestration_state();
+    let mut guard = state.lock();
+    let working = count(core, &guard, project).0;
+    if working >= MAX_WORKING {
+        return Err(working);
+    }
+    *guard.reserved.entry(project.clone()).or_default() += 1;
+    Ok(Reservation {
+        core: core.clone(),
+        project: project.clone(),
+    })
+}
+
+impl Drop for Reservation {
+    fn drop(&mut self) {
+        {
+            let state = self.core.orchestration_state();
+            let mut guard = state.lock();
+            if let Some(n) = guard.reserved.get_mut(&self.project) {
+                *n = n.saturating_sub(1);
+                if *n == 0 {
+                    guard.reserved.remove(&self.project);
+                }
+            }
+        }
+        // A start that failed frees its place for a waiting worker.
+        start_queued(&self.core, &self.project);
+    }
 }
 
 /// Starts queued workers of `project`, oldest first, while there is room.

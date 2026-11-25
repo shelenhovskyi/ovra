@@ -3,6 +3,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use super::{lock, not_found};
 use crate::path::RelPath;
@@ -29,6 +30,9 @@ pub struct MemoryWorktrees {
     pub refuse_remove: Mutex<Option<String>>,
     /// What `git_files` reports, by directory; empty by default.
     pub git_files: Mutex<BTreeMap<PathBuf, GitFiles>>,
+    /// When set, `snapshot` lets other tasks run first, as a real one that
+    /// waits for git does.
+    pub slow_snapshot: AtomicBool,
 }
 
 impl MemoryWorktrees {
@@ -154,6 +158,9 @@ fn delta(path: &str, old: Option<&String>, new: Option<&String>) -> Option<Delta
 impl Worktrees for MemoryWorktrees {
     fn snapshot(&self, dir: PathBuf) -> BoxFuture<'_, Result<String>> {
         Box::pin(async move {
+            if self.slow_snapshot.load(Ordering::Relaxed) {
+                tokio::task::yield_now().await;
+            }
             let files = self.tree(&dir)?;
             Ok(self.record(files))
         })

@@ -2573,3 +2573,34 @@ async fn a_persons_idle_session_holds_no_place_and_takes_replies_at_the_cap() {
         "session": direct.id.0, "text": "and the other typo"}});
     ok(&f.core, reply).await;
 }
+
+#[tokio::test]
+async fn a_persons_start_and_a_workers_at_once_never_make_a_fourth_agent() {
+    let f = fx(say()).await;
+    start_task(&f.core, 3).await;
+    let boss = caller("s1", ToolRole::Coordinator);
+    for name in ["one", "two"] {
+        assert!(f.core.spawn_agent(&boss, name, "x").await.is_ok());
+    }
+    // A start that fails after taking a place gives it back.
+    let unknown = json!({"method": "agents.start", "params": {
+        "project": "p1", "agent": "claude", "mode": "direct", "prompt": "fix it",
+        "account": "nobody"}});
+    assert!(call(&f.core, unknown).await.is_err());
+    assert_eq!(capacity(&f.core).await.working, 2);
+    // The person's start is checked first, the worker's while the
+    // person's is still being set up.
+    f.wt.slow_snapshot
+        .store(true, std::sync::atomic::Ordering::Relaxed);
+    let direct = json!({"method": "agents.start", "params": {
+        "project": "p1", "agent": "claude", "mode": "direct", "prompt": "fix it"}});
+    let (direct, worker) = tokio::join!(
+        call(&f.core, direct),
+        f.core.spawn_agent(&boss, "three", "x")
+    );
+    assert!(direct.is_ok());
+    let worker = worker.unwrap_or_else(|e| panic!("{e}")).session;
+    assert_eq!(status(&f.core, &worker), AgentStatus::Queued);
+    let c = capacity(&f.core).await;
+    assert_eq!((c.working, c.queued), (3, 1));
+}
