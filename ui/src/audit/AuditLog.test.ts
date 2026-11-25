@@ -79,4 +79,22 @@ describe("AuditLog", () => {
     await settle();
     expect(target.querySelector("[data-testid=audit-empty]")?.textContent?.trim()).toBe("No entries match.");
   });
+
+  it("opens a long log on its newest page and loads older ones on request", async () => {
+    const core = await setup();
+    // Refused: the first and the last; only they render, which keeps this fast.
+    core.entries = Array.from({ length: 501 }, (_, i) => entry(i + 1, bash(i !== 0 && i !== 500)));
+    target.querySelector<HTMLButtonElement>("[data-testid=open-audit]")?.click();
+    flushSync();
+    target.querySelector<HTMLInputElement>("[data-testid=audit-refused]")?.click();
+    await settle();
+    const seqs = () => [...target.querySelectorAll("[data-testid=audit-entry] time")].map((el) => el.textContent);
+    expect(titles()).toEqual(["Refused Bash"]);
+    const older = () => target.querySelector<HTMLButtonElement>("[data-testid=audit-older]");
+    older()?.click();
+    await settle();
+    expect(titles()).toEqual(["Refused Bash", "Refused Bash"]);
+    expect(new Set(seqs()).size).toBe(2);
+    expect(older()).toBeNull();
+  });
 });

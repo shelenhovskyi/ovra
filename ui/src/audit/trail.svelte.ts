@@ -1,24 +1,30 @@
 // The open project's audit log, kept current from `audit.appended`. The log is
 // read-only: nothing here edits or removes an entry, and the core offers no
 // way to.
+//
+// It opens on the newest page and reads older pages only when asked
+// (`loadOlder`), so a long log never has to be read whole.
 
 import type { AuditEntry, CoreEvent, ProjectId } from "../lib/protocol";
 import type { Transport } from "../lib/transport";
 
-/** Entries kept in memory; older ones are dropped from view, never from the log. */
+/** Entries new ones may grow the view to before the oldest are dropped from view, never from the log. */
 export const MAX_SHOWN = 2000;
 /** What one `audit.list` returns at most (the core's page size). */
-const PAGE = 500;
+export const PAGE = 500;
 
 export class AuditTrail {
-  /** Oldest first, by `seq`, at most `MAX_SHOWN`. */
+  /** Oldest first, by `seq`. */
   entries = $state<AuditEntry[]>([]);
   project = $state<ProjectId | null>(null);
   loading = $state(false);
+  loadingOlder = $state(false);
   error = $state<string | null>(null);
-  /** Older entries exist that are not shown. */
-  cut = $state(false);
+  /** The log may hold entries older than the oldest shown. */
+  older = $state(false);
   private latest = 0;
+  /** Counts project changes, so a page read for another project is dropped. */
+  private generation = 0;
   private readonly off: (() => void)[];
 
   constructor(private readonly transport: Transport) {
@@ -41,14 +47,19 @@ export class AuditTrail {
   /** Shows `project`'s log; null clears it. */
   async show(project: ProjectId | null): Promise<void> {
     if (project !== this.project) {
+      this.generation++;
       this.entries = [];
-      this.cut = false;
+      this.older = false;
+      this.loadingOlder = false;
     }
     this.project = project;
     await this.reload();
   }
 
-  /** Reads the whole log of the project again, page by page. */
+  /**
+   * Reads the newest page, or, when entries are shown, every entry after the
+   * newest of them, so nothing between is missed.
+   */
   async reload(): Promise<void> {
     const project = this.project;
     const mine = ++this.latest;
@@ -58,26 +69,32 @@ export class AuditTrail {
     }
     this.loading = true;
     try {
-      const all: AuditEntry[] = [];
-      let trimmed = false;
-      let after: number | null = null;
-      for (;;) {
-        const page = await this.transport.call({ method: "audit.list", params: { project, after, limit: PAGE } });
-        const data: AuditEntry[] = page.data;
+      const newest = this.entries[this.entries.length - 1];
+      let read: AuditEntry[];
+      let older = this.older;
+      if (!newest) {
+        const page = await this.transport.call({
+          method: "audit.list",
+          params: { project, order: "newest_first", limit: PAGE },
+        });
         if (mine !== this.latest) return;
-        all.push(...data);
-        // Only the newest are kept while paging through a long log.
-        if (all.length > MAX_SHOWN) {
-          all.splice(0, all.length - MAX_SHOWN);
-          trimmed = true;
+        read = [...page.data].reverse();
+        older = page.data.length === PAGE;
+      } else {
+        read = [];
+        let after = newest.seq;
+        for (;;) {
+          const page = await this.transport.call({ method: "audit.list", params: { project, after, limit: PAGE } });
+          const data: AuditEntry[] = page.data;
+          if (mine !== this.latest) return;
+          read.push(...data);
+          const last: AuditEntry | undefined = data[data.length - 1];
+          if (data.length < PAGE || !last) break;
+          after = last.seq;
         }
-        const last: AuditEntry | undefined = data[data.length - 1];
-        if (data.length < PAGE || !last) break;
-        after = last.seq;
       }
-      // Entries shown live while the pages loaded are newer or already in `all`.
-      this.cut = trimmed;
-      this.keep(merge(all, this.entries));
+      this.older = older;
+      this.keep(merge(this.entries, read));
       this.error = null;
     } catch (err) {
       if (mine !== this.latest) return;
@@ -87,16 +104,45 @@ export class AuditTrail {
     }
   }
 
+  /** Adds the page of entries just before the oldest shown. */
+  async loadOlder(): Promise<void> {
+    const project = this.project;
+    const oldest = this.entries[0];
+    if (!project || !oldest || !this.older || this.loadingOlder) return;
+    const generation = this.generation;
+    this.loadingOlder = true;
+    try {
+      const page = await this.transport.call({
+        method: "audit.list",
+        params: { project, before: oldest.seq, order: "newest_first", limit: PAGE },
+      });
+      if (generation !== this.generation) return;
+      this.older = page.data.length === PAGE;
+      // Asked for, so never trimmed away.
+      this.entries = merge(page.data, this.entries);
+      this.error = null;
+    } catch (err) {
+      if (generation !== this.generation) return;
+      this.error = err instanceof Error ? err.message : String(err);
+    } finally {
+      if (generation === this.generation) this.loadingOlder = false;
+    }
+  }
+
   private apply(event: CoreEvent): void {
     if (event.type !== "audit.appended" || event.data.project !== this.project) return;
     this.keep(merge(this.entries, [event.data]));
   }
 
-  /** Shows the newest `MAX_SHOWN` of `entries`; dropping any marks the view as cut. */
+  /**
+   * Shows `entries`, growing to `MAX_SHOWN` (or what older pages made it);
+   * past that the oldest leave the view and can be loaded again.
+   */
   private keep(entries: AuditEntry[]): void {
-    if (entries.length > MAX_SHOWN) {
-      this.cut = true;
-      this.entries = entries.slice(entries.length - MAX_SHOWN);
+    const room = Math.max(MAX_SHOWN, this.entries.length);
+    if (entries.length > room) {
+      this.older = true;
+      this.entries = entries.slice(entries.length - room);
     } else {
       this.entries = entries;
     }

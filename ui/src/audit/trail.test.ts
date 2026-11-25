@@ -1,41 +1,94 @@
 import { describe, expect, it } from "vitest";
+import type { Request } from "../lib/protocol";
 import { bash, entry, FakeAuditCore } from "./fake-audit";
-import { AuditTrail, MAX_SHOWN } from "./trail.svelte";
+import { AuditTrail, MAX_SHOWN, PAGE } from "./trail.svelte";
 
 const seqs = (trail: AuditTrail) => trail.entries.map((e) => e.seq);
+const params = (calls: Request[]) => calls.map((c) => (c.method === "audit.list" ? c.params : null));
+const log = (length: number) => Array.from({ length }, (_, i) => entry(i + 1, bash(true)));
 
 describe("AuditTrail", () => {
-  it("reads every page of the project's log and follows new entries", async () => {
+  it("opens on the newest page and follows new entries", async () => {
     const core = new FakeAuditCore();
-    core.entries = Array.from({ length: 501 }, (_, i) => entry(i + 1, bash(true)));
+    core.entries = log(PAGE + 1);
     core.entries.push(entry(600, bash(true), { project: "p2" }));
     const trail = new AuditTrail(core);
     await trail.show("p1");
-    expect(trail.entries).toHaveLength(501);
-    expect(core.calls.map((c) => (c.method === "audit.list" ? c.params.after : null))).toEqual([null, 500]);
+    expect(trail.entries).toHaveLength(PAGE);
+    expect(trail.entries[0]?.seq).toBe(2);
+    expect(trail.older).toBe(true);
+    expect(params(core.calls)).toEqual([{ project: "p1", order: "newest_first", limit: PAGE }]);
 
     core.append(entry(700, bash(false)));
     core.append(entry(701, bash(false), { project: "p2" }));
     // The same entry twice (a page and the live event) shows once.
     core.append(entry(700, bash(false)));
     expect(seqs(trail).slice(-2)).toEqual([501, 700]);
-    expect(trail.entries).toHaveLength(502);
-    expect(trail.cut).toBe(false);
+    expect(trail.entries).toHaveLength(PAGE + 1);
     trail.dispose();
   });
 
-  it("keeps the newest entries of a long log and says so", async () => {
+  it("a short log needs one page and has nothing older", async () => {
     const core = new FakeAuditCore();
-    core.entries = Array.from({ length: MAX_SHOWN + 10 }, (_, i) => entry(i + 1, bash(true)));
+    core.entries = log(3);
     const trail = new AuditTrail(core);
     await trail.show("p1");
+    expect(seqs(trail)).toEqual([1, 2, 3]);
+    expect(trail.older).toBe(false);
+    await trail.loadOlder();
+    expect(core.calls).toHaveLength(1);
+  });
+
+  it("loads older pages back to the start of the log", async () => {
+    const core = new FakeAuditCore();
+    core.entries = log(2 * PAGE + 1);
+    const trail = new AuditTrail(core);
+    await trail.show("p1");
+    await trail.loadOlder();
+    expect(trail.entries).toHaveLength(2 * PAGE);
+    expect(trail.older).toBe(true);
+    await trail.loadOlder();
+    expect(trail.entries).toHaveLength(2 * PAGE + 1);
+    expect(trail.entries[0]?.seq).toBe(1);
+    expect(trail.older).toBe(false);
+    expect(params(core.calls).slice(1)).toEqual([
+      { project: "p1", before: PAGE + 2, order: "newest_first", limit: PAGE },
+      { project: "p1", before: 2, order: "newest_first", limit: PAGE },
+    ]);
+  });
+
+  it("catches up after the newest shown entry when it reloads", async () => {
+    const core = new FakeAuditCore();
+    core.entries = log(3);
+    const trail = new AuditTrail(core);
+    await trail.show("p1");
+    // Appended while disconnected: no live events.
+    core.entries.push(...Array.from({ length: PAGE + 2 }, (_, i) => entry(i + 4, bash(true))));
+    await trail.reload();
+    expect(trail.entries).toHaveLength(PAGE + 5);
+    expect(params(core.calls).slice(1)).toEqual([
+      { project: "p1", after: 3, limit: PAGE },
+      { project: "p1", after: PAGE + 3, limit: PAGE },
+    ]);
+  });
+
+  it("drops the oldest from view past the cap, and can load them again", async () => {
+    const core = new FakeAuditCore();
+    core.entries = log(3);
+    const trail = new AuditTrail(core);
+    await trail.show("p1");
+    core.entries.push(...Array.from({ length: MAX_SHOWN - 2 }, (_, i) => entry(i + 4, bash(true))));
+    await trail.reload();
     expect(trail.entries).toHaveLength(MAX_SHOWN);
-    expect(trail.entries[0]?.seq).toBe(11);
-    expect(trail.cut).toBe(true);
+    expect(trail.entries[0]?.seq).toBe(2);
+    expect(trail.older).toBe(true);
+    await trail.loadOlder();
+    expect(trail.entries[0]?.seq).toBe(1);
+    expect(trail.entries).toHaveLength(MAX_SHOWN + 1);
     // Another project starts over.
     await trail.show("p2");
     expect(trail.entries).toEqual([]);
-    expect(trail.cut).toBe(false);
+    expect(trail.older).toBe(false);
   });
 
   it("says when the log cannot be read", async () => {

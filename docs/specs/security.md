@@ -555,6 +555,9 @@ pub enum AuditOrder { OldestFirst, NewestFirst } // OldestFirst by default
   returns the first `limit` entries (at most 500) with a `seq` between
   `after` and `before`, in `order`. Plus an `audit.appended` event for
   live viewers.
+- **Viewer.** It opens on the newest page (`newest_first`) and reads the
+  page before the oldest shown (`before`) when the person asks for older
+  entries, so a long log is never read whole.
 - **No edits.** The log is only appended to. No method deletes or edits an
   entry, and removing a project keeps its entries.
 - **4.0 versus 4.E.** 4.0 defines the trait and the schema, with an
