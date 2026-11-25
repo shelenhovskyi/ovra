@@ -16,6 +16,7 @@ const GROUPS: { title: string; match: (id: string) => boolean }[] = [
   { title: "Overview", match: (id) => !id.includes("/") && id !== "adr" && id !== "specs" && id !== "ux-reviews" },
   { title: "Decisions (ADRs)", match: (id) => id === "adr" || id.startsWith("adr/") },
   { title: "Specs", match: (id) => id === "specs" || id.startsWith("specs/") },
+  { title: "Design", match: (id) => id === "design" || id.startsWith("design/") },
   { title: "UX reviews", match: (id) => id === "ux-reviews" || id.startsWith("ux-reviews/") },
 ];
 

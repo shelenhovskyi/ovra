@@ -4,6 +4,9 @@ Status: the owner chose this direction on 2026-11-25 from five mockups. The
 reference mockup and its renders are kept outside the repository; this page is
 what the code follows.
 
+The design guide in `docs/design/` refines this style (tokens, components,
+where features live); where the two differ, the guide wins.
+
 ## Why
 
 The owner's first real use: the UI looked primitive and overloaded with small
