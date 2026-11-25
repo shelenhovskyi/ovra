@@ -96,7 +96,13 @@ test("closing a tab with unsaved text asks first: cancel, don't save, save", asy
   expect([tabs.closing, files.files]).toEqual([null, ["b.txt"]]);
 
   requestClose(workspace, "b.txt");
-  await answerClose(workspace, "save");
+  const saving = answerClose(workspace, "save");
+  // The question stays until the file is written; a second answer meanwhile does nothing.
+  expect([tabs.closing, tabs.saving]).toEqual(["b.txt", true]);
+  await answerClose(workspace, "discard");
+  expect(files.files).toEqual(["b.txt"]);
+  await saving;
+  expect([tabs.closing, tabs.saving]).toEqual([null, false]);
   expect(core.writes.at(-1)).toEqual({ path: "b.txt", text: "two", expected: 102 });
   expect(files.files).toEqual([]);
   expect(workspace.openPath).toBeNull();

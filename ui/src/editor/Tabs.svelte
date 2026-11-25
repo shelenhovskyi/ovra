@@ -141,7 +141,7 @@ $effect(() => {
 // Saved some other way (Ctrl+S) while the question is open: nothing left to ask.
 $effect(() => {
   const path = tabs.closing;
-  if (path && tabs.current && !tabs.current.buffers.isDirty(path)) void answer("discard");
+  if (path && !tabs.saving && tabs.current && !tabs.current.buffers.isDirty(path)) void answer("discard");
 });
 
 function ondialogkeydown(event: KeyboardEvent): void {
@@ -256,9 +256,11 @@ function scrollToActive(): void {
   >
     <p id="ovra-close-question">Save changes to {closing} before closing?</p>
     <div class="answers">
-      <button type="button" onclick={() => answer("save")}>Save</button>
-      <button type="button" onclick={() => answer("discard")}>Don't save</button>
-      <button type="button" onclick={() => answer("cancel")}>Cancel</button>
+      <button type="button" disabled={tabs.saving} onclick={() => answer("save")}
+        >{tabs.saving ? "Saving…" : "Save"}</button
+      >
+      <button type="button" disabled={tabs.saving} onclick={() => answer("discard")}>Don't save</button>
+      <button type="button" disabled={tabs.saving} onclick={() => answer("cancel")}>Cancel</button>
     </div>
   </dialog>
 {/if}

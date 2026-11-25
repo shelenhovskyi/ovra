@@ -109,12 +109,19 @@ export class OpenFiles {
 }
 
 /**
- * The open project's tabs, or null before its state is loaded, and the tab
- * waiting for a Save / Don't save / Cancel answer.
+ * The open project's tabs, or null before its state is loaded, the tab
+ * waiting for a Save / Don't save / Cancel answer, and whether its Save is
+ * still writing (the question stays until it is done).
  */
-export const tabs = $state<{ current: OpenFiles | null; closing: string | null; notice: string | null }>({
+export const tabs = $state<{
+  current: OpenFiles | null;
+  closing: string | null;
+  saving: boolean;
+  notice: string | null;
+}>({
   current: null,
   closing: null,
+  saving: false,
   notice: null,
 });
 
@@ -141,16 +148,27 @@ export function requestClose(workspace: Target, path: string): void {
 export async function answerClose(workspace: Target, answer: "save" | "discard" | "cancel"): Promise<void> {
   const current = tabs.current;
   const path = tabs.closing;
-  tabs.closing = null;
-  if (!current || !path || answer === "cancel") return;
-  if (answer === "save") {
-    const saved = await current.buffers.open(path).save();
+  if (tabs.saving) return;
+  if (answer === "save" && current && path) {
+    // The question stays up, with its buttons off, until the file is written.
+    tabs.saving = true;
+    let saved = false;
+    try {
+      saved = await current.buffers.open(path).save();
+    } finally {
+      tabs.saving = false;
+      tabs.closing = null;
+    }
     if (!saved) {
       // Show why it failed (conflict or error) instead of closing.
       show(workspace, path, "edit");
       return;
     }
+    closeTab(workspace, current, path);
+    return;
   }
+  tabs.closing = null;
+  if (!current || !path || answer === "cancel") return;
   closeTab(workspace, current, path);
 }
 
