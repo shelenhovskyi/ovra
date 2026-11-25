@@ -215,11 +215,11 @@ const grid = $derived.by(() => {
       : left === "side"
         ? "side side side agents-handle agents"
         : "agents agents-handle side side side";
-    return `--tracks: 0 ${tracks}; --row: "rail ${row}";`;
+    return `--tracks: 0 ${tracks}; --shell-row: "rail ${row}";`;
   }
   return layout.left === "side"
-    ? `--tracks: 52px ${tracks}; --row: "rail ${row}";`
-    : `--tracks: ${tracks} 52px; --row: "${row} rail";`;
+    ? `--tracks: 52px ${tracks}; --shell-row: "rail ${row}";`
+    : `--tracks: ${tracks} 52px; --shell-row: "${row} rail";`;
 });
 
 const PANELS: Panel[] = ["side", "agents"];
@@ -408,7 +408,7 @@ async function showApprovals(): Promise<void> {
     grid-template-rows: 36px minmax(0, 1fr) 28px;
     grid-template-areas:
       "title title title title title title"
-      var(--row)
+      var(--shell-row)
       "footer footer footer footer footer footer";
   }
   .title-area {
