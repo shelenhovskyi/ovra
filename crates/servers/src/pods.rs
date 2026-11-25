@@ -406,12 +406,31 @@ async fn run(
         return "the pod has no output".into();
     };
     let mut stdout = BufReader::new(stdout);
+    // Requests wait until it listens. A kill, or no more requests, ends a
+    // pod that never does, so it cannot hold its work dir.
+    let mut early = Vec::new();
+    // `read_until` keeps what it read when the other branch wins; what
+    // comes before it listens is bounded.
+    let mut line = Vec::new();
+    let mut head = (&mut stdout).take(64 * 1024);
     loop {
-        let mut line = String::new();
-        match (&mut stdout).take(4096).read_line(&mut line).await {
-            Ok(1..) if line.trim_end() == LISTENING => break,
-            Ok(1..) => {}
-            _ => return "the pod did not start".into(),
+        tokio::select! {
+            read = head.read_until(b'\n', &mut line) => match read {
+                Ok(1..) if line.ends_with(b"\n") => {
+                    if line.trim_ascii_end() == LISTENING.as_bytes() {
+                        break;
+                    }
+                    line.clear();
+                }
+                _ => return "the pod did not start".into(),
+            },
+            request = requests.recv() => match request {
+                None => return "the pod was stopped".into(),
+                Some(Request::Signal { sig: Sig::Kill, .. }) => {
+                    return "the pod was stopped before it started".into();
+                }
+                Some(request) => early.push(request),
+            },
         }
     }
     let control = match sockets.control(child.id()).await {
@@ -419,6 +438,11 @@ async fn run(
         Err(e) => return format!("the pod's control socket: {e}"),
     };
     let (mut read, mut write) = control.into_split();
+    for request in early {
+        if write.write_all(&encode(&request)).await.is_err() {
+            return "the pod ended".into();
+        }
+    }
     let mut lines = Lines::default();
     let mut buf = vec![0; 16 * 1024];
     loop {
