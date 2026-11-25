@@ -21,7 +21,7 @@ export const changed = (path: string, extra: Partial<StatusFile> = {}): StatusFi
   ...extra,
 });
 
-export const commitInfo = (id: string, summary: string): CommitInfo => ({ id, author: "Ada", time: 0, summary });
+const commitInfo = (id: string, summary: string): CommitInfo => ({ id, author: "Ada", time: 0, summary });
 
 export const repo = (extra: Partial<RepoStatus> = {}): RepoStatus => ({
   branch: "main",

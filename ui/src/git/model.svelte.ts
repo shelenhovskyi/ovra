@@ -22,7 +22,7 @@ export type GitError = { scope: GitErrorScope; message: string; output?: string 
 export type Discarded = { undo: string; paths: string[] };
 
 /** Commits shown under "Recent commits". */
-export const LOG_LIMIT = 20;
+const LOG_LIMIT = 20;
 
 export const CHANGE_LETTER: Record<GitChange, string> = {
   added: "A",
