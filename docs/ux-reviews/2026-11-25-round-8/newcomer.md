@@ -15,18 +15,18 @@ New: 0 blocker, 2 major, 7 minor, 3 polish.
 
 Re-check of the Quiet round (`2026-11-25-quiet/newcomer.md`):
 
-| ID     | State             | Note                                                                                                                                                                           |
-| ------ | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| NEW-1  | **partly fixed**  | The header is one line ("Agents 1 of 3 ▬▬▬ +"). The approval card is still cut by the Agents section, at 1024x700 too (see NEW-17).                                              |
-| NEW-2  | **partly fixed**  | The × asks first: "Close this task and its 3 workers? Their changes stay in Reviews." The × has its own column and no longer covers the Review pill. I did not re-check what happens to the workers' statuses after closing. |
-| NEW-3  | **fixed**         | "Open a project", one line on what Ovra does, Recent with initials, Claude status in a second column, no rail.                                                                  |
-| NEW-4  | **partly fixed**  | The inbox groups items under the task and opens on the first one (lint). Still 440 words, the title still reads "lint (task: Add notes for the project)", and "Also changed in another open review" is on every file. |
-| NEW-5  | **fixed**         | No trust card for a project without settings of its own. The empty-prompt Start reads as disabled, with the tooltip "Type a task first" (5.42:1).                            |
-| NEW-6  | **open**          | "Change" on a ready Claude still opens a filled "Check again", "How to fix" and a path field with a cut placeholder (`newcomer-41-claude-change.png`).                        |
-| NEW-7  | **mostly fixed**  | The cards are grouped under "Task: Add notes for the project · demo-app" with one "No sandbox" chip. There is one toast with a count, and none while a card is in sight. 284 words instead of 367. |
-| NEW-10 | **open**          | A Done task still shows Stop next to Close (`newcomer-24-after-allow-1.png`, `newcomer-36-task-open.png`).                                                                   |
-| NEW-13 | **fixed**         | "Search or run Ctrl+K" searches files and commands; the placeholder is "Search files, or type > for commands".                                                                 |
-| NEW-14 | **partly fixed**  | The error replaces the hint, and "Folder not found: /no/such/folder" and "That is not a folder…" are clear. `~/demo-app` still gets "Use the full path…".                     |
+| ID     | State            | Note                                                                                                                                                                                                                         |
+| ------ | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| NEW-1  | **partly fixed** | The header is one line ("Agents 1 of 3 ▬▬▬ +"). The approval card is still cut by the Agents section, at 1024x700 too (see NEW-17).                                                                                          |
+| NEW-2  | **partly fixed** | The × asks first: "Close this task and its 3 workers? Their changes stay in Reviews." The × has its own column and no longer covers the Review pill. I did not re-check what happens to the workers' statuses after closing. |
+| NEW-3  | **fixed**        | "Open a project", one line on what Ovra does, Recent with initials, Claude status in a second column, no rail.                                                                                                               |
+| NEW-4  | **partly fixed** | The inbox groups items under the task and opens on the first one (lint). Still 440 words, the title still reads "lint (task: Add notes for the project)", and "Also changed in another open review" is on every file.        |
+| NEW-5  | **fixed**        | No trust card for a project without settings of its own. The empty-prompt Start reads as disabled, with the tooltip "Type a task first" (5.42:1).                                                                            |
+| NEW-6  | **open**         | "Change" on a ready Claude still opens a filled "Check again", "How to fix" and a path field with a cut placeholder (`newcomer-41-claude-change.png`).                                                                       |
+| NEW-7  | **mostly fixed** | The cards are grouped under "Task: Add notes for the project · demo-app" with one "No sandbox" chip. There is one toast with a count, and none while a card is in sight. 284 words instead of 367.                           |
+| NEW-10 | **open**         | A Done task still shows Stop next to Close (`newcomer-24-after-allow-1.png`, `newcomer-36-task-open.png`).                                                                                                                   |
+| NEW-13 | **fixed**        | "Search or run Ctrl+K" searches files and commands; the placeholder is "Search files, or type > for commands".                                                                                                               |
+| NEW-14 | **partly fixed** | The error replaces the hint, and "Folder not found: /no/such/folder" and "That is not a folder…" are clear. `~/demo-app` still gets "Use the full path…".                                                                    |
 
 ## Findings
 
