@@ -200,9 +200,11 @@ pub(super) fn tell_coordinator(core: &Core, worker: &SessionId, what: &str) {
     if ended {
         return;
     }
+    // The first line is for the person reading the transcript too; the
+    // rest, the coordinator's tool hints, the UI folds away.
     let text = format!(
-        "Ovra: worker {name} (agent_id {}) {what}. Check with list_agents or read_output, \
-         then go on with the task.",
+        "Ovra: Worker {name} {what}.\nFor the coordinator: its agent_id is {}. Check with \
+         list_agents or read_output, then go on with the task.",
         worker.0
     );
     // A coordinator that is stopping or gone simply misses the note.

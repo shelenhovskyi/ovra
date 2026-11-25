@@ -1139,8 +1139,12 @@ async fn the_coordinator_hears_when_a_worker_asks_for_review_or_stops() {
         })
         .collect();
     assert_eq!(notes.len(), 2, "{notes:?}");
-    assert!(notes[0].starts_with("Ovra: worker w (agent_id s2) asked for review."));
-    assert!(notes[1].starts_with("Ovra: worker w (agent_id s2) stopped."));
+    assert!(notes[0].starts_with("Ovra: Worker w asked for review.\n"));
+    assert!(notes[1].starts_with("Ovra: Worker w stopped.\n"));
+    assert!(
+        notes.iter().all(|n| n.contains("its agent_id is s2")),
+        "the coordinator still learns which worker: {notes:?}"
+    );
     assert!(
         notes.iter().all(|n| !n.contains("done")),
         "the worker's own words stay out"
