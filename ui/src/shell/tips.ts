@@ -4,7 +4,7 @@
 // showed, the group is warm: the next ones show at once while the pointer
 // moves along, until it has been away from the group for a second.
 
-export const TIP_DELAY_MS = 600;
+const TIP_DELAY_MS = 600;
 const COOL_MS = 1000;
 
 export function hush(event: PointerEvent): void {
