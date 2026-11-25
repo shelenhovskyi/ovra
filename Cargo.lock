@@ -3571,7 +3571,12 @@ dependencies = [
 name = "ovra-servers"
 version = "0.1.0"
 dependencies = [
+ "insta",
  "ovra-core",
+ "rustix",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

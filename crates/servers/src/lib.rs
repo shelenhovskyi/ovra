@@ -2,7 +2,8 @@
 //! (`docs/specs/servers-and-browser.md`, ADR 0008).
 //! Contract: `ovra_core::services::DevServers`.
 //!
-//! A stub for now: every server answers `unavailable` until task S.A.
+//! Pod mode ([`pod_init_if_asked`]) is built; until `PodServers` drives
+//! pods, every server answers `unavailable`.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -14,7 +15,20 @@ use ovra_core::services::{
     BoxFuture, DevServerSpec, DevServers, PodConn, PodSpec, Result, SandboxStatus, ServerSink,
 };
 
+#[cfg(unix)]
+mod control;
+#[cfg(unix)]
+mod init;
+
 const NOT_YET: &str = "managed servers are not built yet";
+
+/// If this process was started as a server pod, runs it and never
+/// returns. Otherwise returns at once. Call it first in `main`, before any
+/// threads start, like `ovra_sandbox::helper_if_asked`.
+pub fn pod_init_if_asked() {
+    #[cfg(unix)]
+    init::pod_init_if_asked();
+}
 
 /// The real dev servers.
 #[derive(Debug, Default)]
