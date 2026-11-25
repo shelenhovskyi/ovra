@@ -3388,6 +3388,7 @@ dependencies = [
  "ovra-agent-runtime",
  "ovra-core",
  "ovra-fs-index",
+ "ovra-lsp",
  "ovra-mcp-server",
  "ovra-netproxy",
  "ovra-opener",
@@ -3424,6 +3425,7 @@ dependencies = [
  "ovra-agent-runtime",
  "ovra-core",
  "ovra-fs-index",
+ "ovra-lsp",
  "ovra-mcp-server",
  "ovra-netproxy",
  "ovra-opener",
@@ -3454,6 +3456,14 @@ dependencies = [
  "notify",
  "ovra-core",
  "tempfile",
+ "tokio",
+]
+
+[[package]]
+name = "ovra-lsp"
+version = "0.1.0"
+dependencies = [
+ "ovra-core",
  "tokio",
 ]
 
@@ -3593,6 +3603,7 @@ dependencies = [
  "ovra-core",
  "rustix",
  "serde_json",
+ "sha2 0.10.9",
  "tempfile",
  "tokio",
 ]

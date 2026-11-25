@@ -46,7 +46,18 @@ export type ReviewItem = {
    * back and is refused if the worker's files changed since. Null otherwise.
    */
   fingerprint: string | null;
+  /**
+   * Files of the repository's git folder or hooks folder (hooks, config)
+   * that changed since the session started. No diff shows them, and
+   * approve and reject never touch them: the person checks them.
+   */
+  git_changes: GitFileChange[];
+  /** Hooks and config could not be compared: `git_changes` may be incomplete. */
+  git_unchecked: boolean;
 };
+
+/** A changed file of the git folder or hooks folder, such as `.git/hooks/pre-commit`. */
+export type GitFileChange = { path: string; kind: ChangeKind };
 
 export type ReviewRequest =
   | { method: "review.list"; params: { project: ProjectId } }

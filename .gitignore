@@ -9,3 +9,4 @@ playwright-report/
 .DS_Store
 .claude/settings.local.json
 .ovra-data/
+.claude/worktrees/

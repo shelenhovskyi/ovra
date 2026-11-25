@@ -18,8 +18,8 @@ use crate::protocol::terminals::{TerminalsRequest, TerminalsResponse};
 use crate::protocol::{ErrorCode, Event, OkResponse, ProtocolError, Request, Response};
 use crate::search::{self, Searches};
 use crate::services::{
-    AgentRuntime, AuditLog, EventSink, FsService, GitService, IdeTools, NetProxy, Opener,
-    ProjectStore, Secrets, SessionStore, TerminalService, Unavailable, Worktrees,
+    AgentRuntime, AuditLog, EventSink, FsService, GitService, IdeTools, LanguageServers, NetProxy,
+    Opener, ProjectStore, Secrets, SessionStore, TerminalService, Unavailable, Worktrees,
 };
 
 const EVENT_CAPACITY: usize = 1024;
@@ -41,6 +41,7 @@ pub struct CoreBuilder {
     secrets: Arc<dyn Secrets>,
     audit: Arc<dyn AuditLog>,
     netproxy: Option<Arc<dyn NetProxy>>,
+    lsp: Arc<dyn LanguageServers>,
 }
 
 impl CoreBuilder {
@@ -119,6 +120,12 @@ impl CoreBuilder {
         self
     }
 
+    /// Language servers for trusted projects (ADR 0007).
+    pub fn lsp(mut self, servers: Arc<dyn LanguageServers>) -> Self {
+        self.lsp = servers;
+        self
+    }
+
     pub fn build(self) -> Core {
         let (events, _) = broadcast::channel(EVENT_CAPACITY);
         let kept = self.sessions.clone();
@@ -144,6 +151,8 @@ impl CoreBuilder {
                 secrets: self.secrets,
                 changing_secrets: tokio::sync::Mutex::new(()),
                 audit: self.audit,
+                lsp: self.lsp,
+                lsp_servers: crate::lsp::Servers::default(),
             }),
             events,
         };
@@ -184,6 +193,8 @@ struct Inner {
     /// check and the change it guards see the same state.
     changing_secrets: tokio::sync::Mutex<()>,
     audit: Arc<dyn AuditLog>,
+    lsp: Arc<dyn LanguageServers>,
+    lsp_servers: crate::lsp::Servers,
 }
 
 /// A [`Core`] that does not keep it alive; sessions hold one so their IDE
@@ -195,6 +206,15 @@ pub(crate) struct WeakCore {
 }
 
 impl WeakCore {
+    /// One that never upgrades, for a test host.
+    #[cfg(any(test, feature = "fakes"))]
+    pub(crate) fn dangling(events: broadcast::Sender<Event>) -> Self {
+        Self {
+            inner: std::sync::Weak::new(),
+            events,
+        }
+    }
+
     pub(crate) fn upgrade(&self) -> Option<Core> {
         Some(Core {
             inner: self.inner.upgrade()?,
@@ -251,6 +271,7 @@ impl Core {
             secrets: Arc::new(Unavailable("keeping secrets")),
             audit: Arc::new(Unavailable("the audit log")),
             netproxy: None,
+            lsp: Arc::new(Unavailable("language servers")),
         }
     }
 
@@ -333,6 +354,7 @@ impl Core {
             Request::Audit(r) => crate::audit::handle(self, r),
             Request::Netproxy(r) => crate::netproxy::handle(self, r),
             Request::Git(r) => crate::git::handle(self, r).await,
+            Request::Lsp(r) => crate::lsp::handle(self, r).await,
         }
     }
 
@@ -375,6 +397,14 @@ impl Core {
 
     pub(crate) fn audit_log(&self) -> &dyn AuditLog {
         self.inner.audit.as_ref()
+    }
+
+    pub(crate) fn language_servers(&self) -> &dyn LanguageServers {
+        self.inner.lsp.as_ref()
+    }
+
+    pub(crate) fn lsp_servers(&self) -> &crate::lsp::Servers {
+        &self.inner.lsp_servers
     }
 
     pub(crate) fn project_store(&self) -> &dyn ProjectStore {
@@ -464,6 +494,7 @@ impl Core {
                 store.remove(&id)?;
                 drop(changing);
                 agents::stop_project(&self.agents_ctx(), &id);
+                crate::lsp::stop_project(self, &id);
                 // Clients still holding it let go of nothing when they close.
                 if lock(&self.inner.open).remove(&id).is_some() {
                     self.inner.fs.unwatch(&id);
@@ -491,6 +522,9 @@ impl Core {
             } => {
                 let reviewed = fingerprint.clone().filter(|_| trusted);
                 let project = agents::trust(&self.agents_ctx(), &id, trusted, fingerprint).await?;
+                if !project.trusted {
+                    crate::lsp::stop_project(self, &id);
+                }
                 // Trusting stores exactly the fingerprint the person reviewed.
                 let event = AuditEvent::TrustChanged {
                     trusted: project.trusted,

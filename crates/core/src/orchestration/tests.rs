@@ -1949,3 +1949,149 @@ async fn a_workers_rename_waits_when_the_direct_session_edits_its_old_path() {
     assert_eq!(main.keys().collect::<Vec<_>>(), ["a.rs"]);
     assert_eq!(main.get("a.rs").map(String::as_str), Some("direct\n"));
 }
+
+fn git_files(hooks_in_tree: Option<&str>, files: &[(&str, &str)]) -> crate::services::GitFiles {
+    crate::services::GitFiles {
+        hooks_in_tree: hooks_in_tree.map(str::to_owned),
+        files: files
+            .iter()
+            .map(|(p, v)| ((*p).to_owned(), (*v).to_owned()))
+            .collect(),
+    }
+}
+
+#[tokio::test]
+async fn a_worker_item_lists_hooks_and_config_changed_since_it_started() {
+    let f = fx(say()).await;
+    let mut rx = f.core.subscribe();
+    start_task(&f.core, 3).await;
+    let boss = caller("s1", ToolRole::Coordinator);
+    let worker = f.core.spawn_agent(&boss, "w", "x").await;
+    let worker = worker.unwrap_or_else(|e| panic!("{e}"));
+    until(&mut rx, "s2", AgentStatus::Idle).await;
+    assert!(reviews(&f.core).await.is_empty(), "nothing changed yet");
+
+    // The worker plants a hook in the shared git folder and points git at a
+    // hooks folder in the tree: the project's own git files show it.
+    f.wt.git_files
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .insert(
+            PathBuf::from(ROOT),
+            git_files(
+                Some("tools/hooks"),
+                &[
+                    (".git/config", "file 2"),
+                    (".git/hooks/pre-commit", "exec 1"),
+                ],
+            ),
+        );
+    let hooks_only = reviews(&f.core).await;
+    assert_eq!(hooks_only.len(), 1, "a planted hook alone shows the item");
+    assert!(hooks_only[0].files.is_empty());
+    f.wt.put(&worker.worktree, "tools/hooks/pre-push", "sh\n");
+    f.wt.put(&worker.worktree, "src/lib.rs", "code\n");
+    let items = reviews(&f.core).await;
+    let changes: Vec<_> = items[0]
+        .git_changes
+        .iter()
+        .map(|c| (c.path.as_str(), c.kind))
+        .collect();
+    assert_eq!(
+        changes,
+        [
+            (".git/config", ChangeKind::Added),
+            (".git/hooks/pre-commit", ChangeKind::Added),
+        ]
+    );
+    let marked: Vec<_> = items[0]
+        .files
+        .iter()
+        .map(|f| (f.path.as_str(), f.protected))
+        .collect();
+    assert_eq!(
+        marked,
+        [("src/lib.rs", false), ("tools/hooks/pre-push", true)]
+    );
+
+    // Decided, the item keeps what had changed then; later changes are not
+    // pinned on it.
+    let id = items[0].id.0.clone();
+    ok(&f.core, approval(&f.core, &id, json!(null)).await).await;
+    f.wt.git_files
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .insert(
+            PathBuf::from(ROOT),
+            git_files(None, &[(".git/hooks/post-merge", "exec 1")]),
+        );
+    let decided = reviews(&f.core).await;
+    let decided = decided.iter().find(|i| i.id.0 == id);
+    let decided = decided.unwrap_or_else(|| panic!("no item {id}"));
+    assert_eq!(decided.state, ReviewState::Approved);
+    assert_eq!(decided.git_changes.len(), 2);
+    assert!(!decided.git_unchecked);
+}
+
+#[tokio::test]
+async fn a_direct_item_lists_config_the_agent_changed() {
+    let runtime = Arc::new(WithDirect {
+        scripted: ScriptedAgent::new(say()),
+        direct: std::sync::Mutex::new(None),
+    });
+    let wt = Arc::new(MemoryWorktrees::default());
+    wt.put(ROOT, "a.rs", "one\n");
+    let seen = git_files(
+        None,
+        &[(".git/config", "file 1"), (".git/info/exclude", "file 1")],
+    );
+    wt.git_files
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .insert(PathBuf::from(ROOT), seen);
+    let core = Core::builder("test")
+        .projects(Arc::new(MemoryProjects::default()))
+        .agents(runtime)
+        .worktrees(wt.clone())
+        .build();
+    ok(
+        &core,
+        json!({"method": "projects.add", "params": {"root": ROOT}}),
+    )
+    .await;
+    ok(
+        &core,
+        json!({"method": "agents.start", "params": {
+            "project": "p1", "agent": "claude", "mode": "direct", "prompt": "go"}}),
+    )
+    .await;
+    // Changed config and a removed exclude file: neither is in any diff.
+    wt.git_files
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .insert(
+            PathBuf::from(ROOT),
+            git_files(None, &[(".git/config", "file 2")]),
+        );
+    wt.put(ROOT, "a.rs", "two\n");
+    let items = reviews(&core).await;
+    let changes: Vec<_> = items[0]
+        .git_changes
+        .iter()
+        .map(|c| (c.path.as_str(), c.kind))
+        .collect();
+    assert_eq!(
+        changes,
+        [
+            (".git/config", ChangeKind::Modified),
+            (".git/info/exclude", ChangeKind::Deleted),
+        ]
+    );
+}
+
+#[test]
+fn a_workspace_saved_before_git_records_reads_as_unchecked() {
+    let old: super::Workspace = serde_json::from_value(json!({"dir": ROOT, "base": "c1"}))
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(old.git, None);
+}

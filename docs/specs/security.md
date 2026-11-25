@@ -209,9 +209,25 @@ subtree read-only. The backstop is outside the sandbox:
 
 - the review marks any change to a protected path, and approve never
   applies one without saying so (4.A adds this to the inbox). The marks
-  cover the `work_dir` list, in any case. Not marked yet, a follow-up:
-  the folder `core.hooksPath` names, nested `.git` folders and config
-  files inside the project that git includes;
+  cover the `work_dir` list, in any case, and also, though the sandbox
+  does not keep them read-only, `.envrc` and `.claude/` in any folder,
+  `.husky/`, `.gitattributes` in any folder, `.gitmodules`, `.lfsconfig`,
+  other agents' `.zed/`, `.cursor/`, `.gemini/` and `GEMINI.md`, and the
+  folder `core.hooksPath` names when it is inside the working tree;
+- what no diff shows: a review item also lists what changed, by anyone,
+  since its session started (`ReviewItem.git_changes`, SEC-5): every
+  config file git reads for the project (its own, `config.worktree`,
+  includes, the user's and the system's), `info/attributes`,
+  `info/exclude`, submodules' config and hooks, and the hook files
+  (`core.hooksPath`, or `.git/hooks`; a link counts with what it points
+  to; git's own hook names always, other files up to a cap, then their
+  count). They are read from the project, never through a worker's `.git`
+  file. Approve and reject never touch them; a decided item keeps the
+  list it was decided with, and an item with only such changes still
+  shows. When the record or the reading failed, `git_unchecked` says so.
+  Not covered yet: sessions without a review item (a coordinator, a
+  direct session without a baseline), the files `core.attributesFile`
+  and `core.excludesFile` name, and nested `.git` folders;
 - a change to agent configuration drops the project's trust (fingerprint,
   task 2.F).
 

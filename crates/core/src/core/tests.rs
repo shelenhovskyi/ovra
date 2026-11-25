@@ -390,6 +390,7 @@ fn a_protected_file_change_round_trips() {
         "id": "r1", "project": "p1", "session": "s1", "mode": "isolated", "state": "open",
         "summary": null, "can_undo": false, "not_copied": [], "can_undo_take": false,
         "fingerprint": "f1",
+        "git_changes": [{"path": ".git/hooks/pre-commit", "kind": "added"}], "git_unchecked": false,
         "files": [{"path": ".claude/settings.json", "kind": "modified", "from": null,
             "by": "agent", "additions": 1, "deletions": 0, "blocked": false, "protected": true}]}]});
     let parsed: ReviewResponse = serde_json::from_value(json.clone()).expect("review.list");

@@ -13,6 +13,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::broadcast;
 
 pub use crate::agents::AgentHost;
+pub use crate::lsp::ServerHost;
 use crate::path::RelPath;
 use crate::protocol::agents::{
     AgentKind, AgentMessage, AgentSettings, AgentSetup, ProjectAgentConfig, SessionId, SessionInfo,
@@ -23,6 +24,7 @@ use crate::protocol::fs::{DirListing, FileContent, FileList};
 use crate::protocol::git::{
     Blame, BranchInfo, CommitInfo, Committed, FileDiff, GitFileText, GitRev, Hunk, RepoStatus,
 };
+use crate::protocol::lsp::KnownServer;
 use crate::protocol::netproxy::{Allowlist, NetproxyEvent};
 use crate::protocol::policy::Policy;
 use crate::protocol::projects::{Project, ProjectId, ProjectState, ProjectStatePatch};
@@ -250,6 +252,78 @@ pub trait Sandbox: Send + Sync + Debug {
     fn status(&self) -> SandboxStatus;
     /// The command line that runs `line` inside `profile`. Starts nothing.
     fn wrap(&self, profile: &SandboxProfile, line: CommandLine) -> Result<CommandLine>;
+    /// The command line that runs a language server's `line` inside
+    /// `profile` (ADR 0007). Starts nothing. A sandbox that cannot do this
+    /// yet answers `unavailable`, and the server does not start.
+    fn wrap_server(&self, profile: &ServerProfile, line: CommandLine) -> Result<CommandLine> {
+        let _ = (profile, line);
+        Err(ProtocolError::new(
+            ErrorCode::Unavailable,
+            "this sandbox cannot run language servers yet",
+        ))
+    }
+}
+
+/// What one language server may touch (ADR 0007, `docs/specs/lsp.md`).
+/// Unlike an agent, a server never writes the project. The platform adds
+/// what it adds for agents except the agent's own state: the system,
+/// toolchains, the user's package caches (read-only), temporary files.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServerProfile {
+    /// The project root: readable, never writable.
+    pub project: PathBuf,
+    /// The server's own folder for caches and build output, writable.
+    pub cache_dir: PathBuf,
+    /// More folders it may read.
+    pub read: Vec<PathBuf>,
+    pub network: ProfileNetwork,
+}
+
+/// What the core asks a [`LanguageServers`] service to start.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServerSpec {
+    /// The project, so the service keeps caches per project.
+    pub project: ProjectId,
+    /// The project root, absolute: the server's working folder.
+    pub root: PathBuf,
+    /// The editor's language id (`rust`, `typescript`, ...).
+    pub language: String,
+}
+
+/// A server that started.
+#[derive(Debug)]
+pub struct StartedServer {
+    pub process: Box<dyn RunningServer>,
+    /// The server's name, such as `rust-analyzer`.
+    pub name: String,
+    /// The sandbox it runs in; `None` when it runs unsandboxed.
+    pub sandbox: Option<String>,
+}
+
+/// Language servers found on the machine and run through the sandbox
+/// (ADR 0007; implemented by `ovra-lsp`). Trust, URIs and the requests a
+/// server makes are the core's job; this is the process.
+pub trait LanguageServers: Send + Sync + Debug {
+    /// The servers Ovra knows, one per language, and where each was found.
+    fn known(&self) -> BoxFuture<'_, Vec<KnownServer>>;
+    /// The sandbox servers run in; `None` when they run unsandboxed.
+    fn sandbox(&self) -> Option<String>;
+    /// Starts the server for `spec.language` in the project root, through
+    /// the sandbox. `not_found` when no server is known or installed for
+    /// the language; an error when the sandbox is available but cannot
+    /// wrap the server. Each message the server writes goes to
+    /// [`ServerHost::message`] in order, held back while
+    /// [`ServerHost::busy`]; [`ServerHost::exited`] comes once, last.
+    fn start(&self, spec: ServerSpec, host: ServerHost) -> BoxFuture<'_, Result<StartedServer>>;
+}
+
+/// One running language server.
+pub trait RunningServer: Send + Sync + Debug {
+    /// Writes one message to the server.
+    fn send(&self, message: serde_json::Value) -> Result<()>;
+    /// Kills the server if it still runs; [`ServerHost::exited`] follows.
+    /// The core asks it to shut down politely first.
+    fn stop(&self);
 }
 
 /// Per-session HTTP proxies that are a sandbox's only way out
@@ -593,6 +667,12 @@ pub trait Worktrees: Send + Sync + Debug {
     /// The working tree of `dir` as it is now, for `diff` and `patches`
     /// right away. Unlike a snapshot it is not kept: `git gc` may drop it.
     fn look(&self, dir: PathBuf) -> BoxFuture<'_, Result<String>>;
+    /// The files of `dir`'s repository that run code or change what git
+    /// does and that no review diff shows: its config, `info/attributes`
+    /// and `info/exclude`, and the hooks folder (`core.hooksPath`, or
+    /// `.git/hooks`). Compared at review time with what they were when the
+    /// session started (SEC-5).
+    fn git_files(&self, dir: PathBuf) -> BoxFuture<'_, Result<GitFiles>>;
     /// Files that differ between two commits (snapshots) or looks of the
     /// repository at `dir`; the working tree is not read.
     fn diff(&self, dir: PathBuf, from: String, to: String) -> BoxFuture<'_, Result<Vec<Delta>>>;
@@ -663,6 +743,19 @@ pub trait Worktrees: Send + Sync + Debug {
         branch: String,
         base: String,
     ) -> BoxFuture<'_, Result<()>>;
+}
+
+/// What [`Worktrees::git_files`] found.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GitFiles {
+    /// The hooks folder relative to the top of the working tree, when
+    /// `core.hooksPath` points inside it (`.husky`): its files are in the
+    /// diff and marked protected.
+    pub hooks_in_tree: Option<String>,
+    /// A version of each file (its content, mode or link target), by the
+    /// name the review shows: `.git/config`, `.git/hooks/pre-commit`, or
+    /// the path itself for a hooks folder outside the repository.
+    pub files: BTreeMap<String, String>,
 }
 
 /// What [`Worktrees::take`] did.
@@ -984,6 +1077,9 @@ impl Worktrees for Unavailable {
     fn look(&self, _: PathBuf) -> BoxFuture<'_, Result<String>> {
         Box::pin(async move { self.err() })
     }
+    fn git_files(&self, _: PathBuf) -> BoxFuture<'_, Result<GitFiles>> {
+        Box::pin(async move { self.err() })
+    }
     fn diff(&self, _: PathBuf, _: String, _: String) -> BoxFuture<'_, Result<Vec<Delta>>> {
         Box::pin(async move { self.err() })
     }
@@ -1042,5 +1138,17 @@ impl IdeTools for Unavailable {
                 "error": {"code": -32601, "message": format!("{} is not available in this build", self.0)},
             }))
         })
+    }
+}
+
+impl LanguageServers for Unavailable {
+    fn known(&self) -> BoxFuture<'_, Vec<KnownServer>> {
+        Box::pin(async { Vec::new() })
+    }
+    fn sandbox(&self) -> Option<String> {
+        None
+    }
+    fn start(&self, _: ServerSpec, _: ServerHost) -> BoxFuture<'_, Result<StartedServer>> {
+        Box::pin(async move { self.err() })
     }
 }

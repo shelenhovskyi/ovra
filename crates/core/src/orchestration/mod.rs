@@ -14,7 +14,7 @@ mod review;
 mod saved;
 mod tasks;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
@@ -40,6 +40,10 @@ type Result<T> = std::result::Result<T, ProtocolError>;
 pub(crate) struct Workspace {
     pub(crate) dir: PathBuf,
     pub(crate) base: String,
+    /// `Worktrees::git_files` of `dir` when the session started, to show
+    /// what changed in hooks and config (SEC-5); `None` if unknown.
+    #[serde(default)]
+    pub(crate) git: Option<BTreeMap<String, String>>,
 }
 
 #[derive(Debug)]

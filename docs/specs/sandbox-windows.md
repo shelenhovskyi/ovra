@@ -14,21 +14,21 @@ write inside and outside a granted folder, run git, Git Bash, cmd and
 PowerShell, and attack a protected folder (write, delete, rename, change
 its ACL, take ownership).
 
-| Probe                                  | AppContainer | Other local user + firewall rule | Restricted token, same user |
-| -------------------------------------- | ------------ | -------------------------------- | --------------------------- |
-| Internet (TCP to 1.1.1.1)              | blocked      | blocked                          | open                        |
-| DNS                                    | blocked      | open (system resolver)           | open                        |
-| A 127.0.0.1 port of another process    | blocked      | open                             | open                        |
-| Loopback inside the sandbox            | works        | works                            | works                       |
-| AF_UNIX socket in a granted folder     | works        | works                            | works                       |
-| Read a secret in the user's home       | denied       | denied                           | denied                      |
-| Read a granted folder in the home      | works        | (not tried)                      | works                       |
-| Open `NUL`                             | **denied**   | works                            | works                       |
-| git                                    | **fails**    | works                            | works                       |
-| Git Bash (MSYS)                        | **fails**    | works                            | **fails** (see below)       |
-| Deny ACE on a protected folder         | **ignored**  | (not tried)                      | holds                       |
-| Change the ACL of a file from inside   | denied       | (not tried)                      | denied                      |
-| Open the parent process                | (not tried)  | (not tried)                      | denied                      |
+| Probe                                | AppContainer | Other local user + firewall rule | Restricted token, same user |
+| ------------------------------------ | ------------ | -------------------------------- | --------------------------- |
+| Internet (TCP to 1.1.1.1)            | blocked      | blocked                          | open                        |
+| DNS                                  | blocked      | open (system resolver)           | open                        |
+| A 127.0.0.1 port of another process  | blocked      | open                             | open                        |
+| Loopback inside the sandbox          | works        | works                            | works                       |
+| AF_UNIX socket in a granted folder   | works        | works                            | works                       |
+| Read a secret in the user's home     | denied       | denied                           | denied                      |
+| Read a granted folder in the home    | works        | (not tried)                      | works                       |
+| Open `NUL`                           | **denied**   | works                            | works                       |
+| git                                  | **fails**    | works                            | works                       |
+| Git Bash (MSYS)                      | **fails**    | works                            | **fails** (see below)       |
+| Deny ACE on a protected folder       | **ignored**  | (not tried)                      | holds                       |
+| Change the ACL of a file from inside | denied       | (not tried)                      | denied                      |
+| Open the parent process              | (not tried)  | (not tried)                      | denied                      |
 
 What this means:
 
@@ -100,16 +100,16 @@ starts at once, and files the person creates later inherit them. Applying
 ACEs never follows junctions or links (the spike's `icacls /T` followed a
 junction to `C:\Users`).
 
-| What                                                 | Right                          |
-| ---------------------------------------------------- | ------------------------------ |
-| `work_dir`, `write` folders, the session's temp      | modify (no delete-child)       |
-| `read` folders                                       | read                           |
-| `claude`'s own folder, toolchains on `PATH`          | read and execute               |
-| `~/.claude.json`, `.credentials.json`, history       | modify (the known limit)       |
-| `~/.claude` and this project's transcript folder     | read; the transcripts modify   |
-| `~/.gitconfig`, `~/.config/git/{config,ignore,attributes}` | read                     |
-| The project's package caches in Ovra's data folder   | modify                         |
-| Protected paths (the shared list)                    | deny write, delete, ACL, owner |
+| What                                                       | Right                          |
+| ---------------------------------------------------------- | ------------------------------ |
+| `work_dir`, `write` folders, the session's temp            | modify (no delete-child)       |
+| `read` folders                                             | read                           |
+| `claude`'s own folder, toolchains on `PATH`                | read and execute               |
+| `~/.claude.json`, `.credentials.json`, history             | modify (the known limit)       |
+| `~/.claude` and this project's transcript folder           | read; the transcripts modify   |
+| `~/.gitconfig`, `~/.config/git/{config,ignore,attributes}` | read                           |
+| The project's package caches in Ovra's data folder         | modify                         |
+| Protected paths (the shared list)                          | deny write, delete, ACL, owner |
 
 Everything else in the home folder stays unreadable, because it belongs to
 the person only. System folders stay readable, as for every user.

@@ -164,7 +164,7 @@ pub(crate) async fn start(ctx: &Ctx<'_>, new: NewSession) -> Result<SessionInfo>
         billing: None,
         sandbox: None,
     });
-    review_from(ctx, &id, &launch, base);
+    review_from(ctx, &id, &launch, base).await;
     let target = trusted_in(ctx, target, &launch.cwd).await;
     run(ctx, &id, target, launch, vec![(new.prompt, new.from)], None).await
 }
@@ -225,9 +225,9 @@ async fn baseline(
 }
 
 /// Gives a direct session with a baseline its review item.
-fn review_from(ctx: &Ctx<'_>, id: &SessionId, launch: &Launch, base: Option<String>) {
+async fn review_from(ctx: &Ctx<'_>, id: &SessionId, launch: &Launch, base: Option<String>) {
     if let (Some(base), Some(core)) = (base, ctx.sessions.core()) {
-        crate::orchestration::direct::review_from(&core, id, launch.cwd.clone(), base);
+        crate::orchestration::direct::review_from(&core, id, launch.cwd.clone(), base).await;
     }
 }
 
@@ -268,7 +268,7 @@ pub(crate) async fn resume(ctx: &Ctx<'_>, session: SessionId, parts: Parts) -> R
         tools: None,
     });
     let base = baseline(ctx, &info.project, &session, info.mode, &launch).await?;
-    review_from(ctx, &session, &launch, base);
+    review_from(ctx, &session, &launch, base).await;
     let restart = || sessions.find(&session, |s| s.restart());
     match sessions.core() {
         // Checked together with the restart, so a worktree being removed

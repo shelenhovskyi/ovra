@@ -8,7 +8,9 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use ovra_core::services::{CommandLine, Result, Sandbox, SandboxProfile, SandboxStatus};
+use ovra_core::services::{
+    CommandLine, Result, Sandbox, SandboxProfile, SandboxStatus, ServerProfile,
+};
 
 /// Paths under a session's `work_dir` that stay read-only. The list lives in
 /// the core, which the review marks changes to them with.
@@ -84,6 +86,10 @@ impl Sandbox for Unsandboxed {
     fn wrap(&self, _profile: &SandboxProfile, line: CommandLine) -> Result<CommandLine> {
         Ok(line)
     }
+
+    fn wrap_server(&self, _profile: &ServerProfile, line: CommandLine) -> Result<CommandLine> {
+        Ok(line)
+    }
 }
 
 #[cfg(test)]
@@ -112,7 +118,14 @@ mod tests {
             network: ProfileNetwork::Open,
         };
         let wrapped = sandbox.wrap(&profile, line.clone());
-        assert_eq!(wrapped.ok(), Some(line));
+        assert_eq!(wrapped.ok(), Some(line.clone()));
+        let server = ServerProfile {
+            project: "/w".into(),
+            cache_dir: "/c".into(),
+            read: Vec::new(),
+            network: ProfileNetwork::Blocked,
+        };
+        assert_eq!(sandbox.wrap_server(&server, line.clone()).ok(), Some(line));
     }
 
     #[test]

@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 mod git;
+mod lsp;
 mod worktrees;
 
 /// An absolute path for tests on every OS, as a `&'static str`: the Unix
@@ -24,6 +25,7 @@ macro_rules! test_path {
 }
 
 pub use git::MemoryGit;
+pub use lsp::{FakeLanguageServers, FakeServer, HostRecord};
 pub use worktrees::MemoryWorktrees;
 
 use crate::path::RelPath;
@@ -43,8 +45,8 @@ use crate::protocol::{ErrorCode, ProtocolError};
 use crate::services::{
     AgentHost, AgentRuntime, AgentSpec, AuditLog, BoxFuture, CommandLine, EventSink, FsService,
     NetProxy, NetReporter, NetStarted, Opener, ProjectStore, Result, RunningAgent, Sandbox,
-    SandboxProfile, SandboxStatus, SearchCancel, Secrets, SessionStore, StoredSession,
-    TerminalService, ToolRole,
+    SandboxProfile, SandboxStatus, SearchCancel, Secrets, ServerProfile, SessionStore,
+    StoredSession, TerminalService, ToolRole,
 };
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -432,6 +434,8 @@ pub struct FakeSandbox {
     pub status: SandboxStatus,
     pub fails: bool,
     pub wrapped: Mutex<Vec<SandboxProfile>>,
+    /// The profile of each language server it wrapped.
+    pub servers: Mutex<Vec<ServerProfile>>,
 }
 
 impl FakeSandbox {
@@ -442,6 +446,7 @@ impl FakeSandbox {
             },
             fails: false,
             wrapped: Mutex::default(),
+            servers: Mutex::default(),
         }
     }
 }
@@ -453,6 +458,19 @@ impl Sandbox for FakeSandbox {
 
     fn wrap(&self, profile: &SandboxProfile, mut line: CommandLine) -> Result<CommandLine> {
         lock(&self.wrapped).push(profile.clone());
+        if self.fails {
+            return Err(ProtocolError::new(
+                ErrorCode::Unavailable,
+                "the fake sandbox fails",
+            ));
+        }
+        line.env
+            .push(("OVRA_FAKE_SANDBOX".into(), Some("1".into())));
+        Ok(line)
+    }
+
+    fn wrap_server(&self, profile: &ServerProfile, mut line: CommandLine) -> Result<CommandLine> {
+        lock(&self.servers).push(profile.clone());
         if self.fails {
             return Err(ProtocolError::new(
                 ErrorCode::Unavailable,

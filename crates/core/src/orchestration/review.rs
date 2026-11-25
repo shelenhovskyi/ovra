@@ -14,8 +14,8 @@ use crate::protocol::agents::{AgentStatus, MessageFrom, SessionId, SessionMode};
 use crate::protocol::audit::{AuditEvent, ReviewAction};
 use crate::protocol::projects::ProjectId;
 use crate::protocol::review::{
-    ChangeKind, ChangedBy, FileChange, ReviewEvent, ReviewId, ReviewItem, ReviewRequest,
-    ReviewResponse, ReviewState,
+    ChangeKind, ChangedBy, FileChange, GitFileChange, ReviewEvent, ReviewId, ReviewItem,
+    ReviewRequest, ReviewResponse, ReviewState,
 };
 use crate::protocol::{ErrorCode, OkResponse, ProtocolError, Response};
 use crate::services::Delta;
@@ -54,6 +54,21 @@ pub(super) struct Entry {
     /// The last `review.take`, while it can be undone.
     #[serde(default)]
     taken: Option<Taken>,
+    /// Hooks and config as they had changed when the person decided, kept
+    /// with `decided`.
+    #[serde(default)]
+    decided_git: Option<GitSeen>,
+}
+
+/// What changed in the repository's hooks and config since a session
+/// started ([`git_seen`]).
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+struct GitSeen {
+    changes: Vec<GitFileChange>,
+    /// They could not be compared: the record or the reading failed.
+    unchecked: bool,
+    /// The hooks folder, relative to the project, if it is inside it.
+    hooks_in_tree: Option<String>,
 }
 
 /// What a `review.take` did to the main checkout.
@@ -83,7 +98,10 @@ pub(crate) fn set_workspace(core: &Core, session: &SessionId, workspace: Workspa
         .rev()
         .find(|r| &r.session == session)
     {
-        entry.workspace = workspace;
+        // A resumed session keeps what its hooks and config were when it
+        // first started: what it changed since still shows.
+        let git = entry.workspace.git.take().or(workspace.git);
+        entry.workspace = Workspace { git, ..workspace };
         orchestration.save(&state);
         return;
     }
@@ -103,6 +121,7 @@ pub(crate) fn set_workspace(core: &Core, session: &SessionId, workspace: Workspa
         taken: None,
         decided: Vec::new(),
         decided_diffs: BTreeMap::new(),
+        decided_git: None,
     });
     orchestration.save(&state);
 }
@@ -141,7 +160,8 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
             for entry in entries {
                 let item = item(core, &entry).await?;
                 let shown = entry.requested || entry.state != ReviewState::Open;
-                if shown || !item.files.is_empty() {
+                // A planted hook alone is a change to show.
+                if shown || !item.files.is_empty() || !item.git_changes.is_empty() {
                     items.push(item);
                 }
             }
@@ -327,7 +347,7 @@ fn update(core: &Core, id: &ReviewId, f: impl FnOnce(&mut Entry)) -> Result<Entr
 }
 
 pub(super) async fn item(core: &Core, entry: &Entry) -> Result<ReviewItem> {
-    let (files, fingerprint) = if entry.state != ReviewState::Open {
+    let (mut files, fingerprint) = if entry.state != ReviewState::Open {
         (entry.decided.clone(), None)
     } else if super::tasks::cleaned(core, &entry.session) {
         // Removed only once nothing in it changed (`clean_up`).
@@ -336,6 +356,16 @@ pub(super) async fn item(core: &Core, entry: &Entry) -> Result<ReviewItem> {
         let (files, fingerprint, _) = listed(core, entry, None).await?;
         (files, fingerprint)
     };
+    let git = match &entry.decided_git {
+        Some(git) if entry.state != ReviewState::Open => git.clone(),
+        _ => git_seen(core, entry).await,
+    };
+    if let Some(hooks) = &git.hooks_in_tree {
+        for file in &mut files {
+            let paths = std::iter::once(&file.path).chain(&file.from);
+            file.protected |= paths.into_iter().any(|p| inside(p, hooks));
+        }
+    }
     Ok(ReviewItem {
         id: entry.id.clone(),
         project: entry.project.clone(),
@@ -350,7 +380,64 @@ pub(super) async fn item(core: &Core, entry: &Entry) -> Result<ReviewItem> {
         not_copied: entry.not_copied.clone(),
         can_undo_take: entry.taken.is_some(),
         fingerprint,
+        git_changes: git.changes,
+        git_unchecked: git.unchecked,
     })
+}
+
+/// What changed in the project's hooks and config since the session
+/// started. Read from the project, never through a worker's worktree,
+/// whose `.git` file the worker could point elsewhere; hooks and config
+/// are shared anyway.
+async fn git_seen(core: &Core, entry: &Entry) -> GitSeen {
+    let unchecked = GitSeen {
+        unchecked: true,
+        ..GitSeen::default()
+    };
+    let Some(seen) = &entry.workspace.git else {
+        return unchecked;
+    };
+    let Ok(root) = core.root(&entry.project) else {
+        return unchecked;
+    };
+    let Ok(now) = core.worktrees().git_files(root).await else {
+        return unchecked;
+    };
+    let mut changes: Vec<GitFileChange> = now
+        .files
+        .iter()
+        .filter_map(|(path, version)| {
+            let kind = match seen.get(path) {
+                None => ChangeKind::Added,
+                Some(was) if was != version => ChangeKind::Modified,
+                Some(_) => return None,
+            };
+            Some(GitFileChange {
+                path: path.clone(),
+                kind,
+            })
+        })
+        .collect();
+    changes.extend(
+        seen.keys()
+            .filter(|p| !now.files.contains_key(*p))
+            .map(|path| GitFileChange {
+                path: path.clone(),
+                kind: ChangeKind::Deleted,
+            }),
+    );
+    changes.sort_by(|a, b| a.path.cmp(&b.path));
+    GitSeen {
+        changes,
+        unchecked: false,
+        hooks_in_tree: now.hooks_in_tree,
+    }
+}
+
+/// Whether `path` is `folder` or inside it, ignoring case.
+fn inside(path: &str, folder: &str) -> bool {
+    let (path, folder) = (path.to_lowercase(), folder.to_lowercase());
+    path == folder || path.starts_with(&format!("{folder}/"))
 }
 
 /// The entry's changed files as they are now.
@@ -532,8 +619,10 @@ async fn approve(
             // restarted since): keeping the changes needs no such knowledge.
             let decided = files(core, &entry).await?;
             let diffs = freeze(core, &entry, &decided, None).await;
+            let git = git_seen(core, &entry).await;
             let entry = update(core, id, |e| {
                 e.state = ReviewState::Approved;
+                e.decided_git = Some(git);
                 e.decided = decided;
                 e.decided_diffs = diffs;
             })?;
@@ -541,8 +630,10 @@ async fn approve(
         }
         let outcome = direct.approve(&entry.session, commit).await?;
         let diffs = freeze(core, &entry, &outcome.files, outcome.seen.as_ref()).await;
+        let git = git_seen(core, &entry).await;
         let entry = update(core, id, |e| {
             e.state = ReviewState::Approved;
+            e.decided_git = Some(git);
             e.decided = outcome.files;
             e.decided_diffs = diffs;
             if let Some(base) = outcome.base {
@@ -620,7 +711,9 @@ async fn approve(
     // person are in the outcome and the decided record. `take` copies them
     // from this snapshot: the version the person approved.
     let base = snapshot;
+    let git = git_seen(core, &entry).await;
     let entry = update(core, id, |e| {
+        e.decided_git = Some(git);
         // Approved only if everything the person read is now theirs.
         e.state = if conflicts.is_empty() {
             ReviewState::Approved
@@ -782,8 +875,10 @@ async fn reject(core: &Core, id: &ReviewId) -> Result<(ReviewItem, Vec<String>, 
         .restore(ws.dir, ws.base, rel_paths(&files)?)
         .await?;
     let restored = files.iter().map(|f| f.path.clone()).collect();
+    let git = git_seen(core, &entry).await;
     let entry = update(core, id, |e| {
         e.state = ReviewState::Rejected;
+        e.decided_git = Some(git);
         e.rejected = Some(diff);
         e.decided = files;
         e.decided_diffs = diffs;
@@ -800,8 +895,10 @@ async fn reject_direct(
     let outcome = core.sessions().direct.reject(&entry.session).await?;
     // From the snapshot taken just before the revert.
     let diffs = freeze(core, entry, &outcome.files, outcome.seen.as_ref()).await;
+    let git = git_seen(core, entry).await;
     let entry = update(core, &entry.id, |e| {
         e.state = ReviewState::Rejected;
+        e.decided_git = Some(git);
         e.decided = outcome.files;
         e.decided_diffs = diffs;
         e.rejected = Some(outcome.diff);
@@ -826,6 +923,7 @@ async fn undo_reject(core: &Core, id: &ReviewId) -> Result<(ReviewItem, Vec<Stri
     let outcome = core.sessions().direct.undo_reject(&entry.session).await?;
     let entry = update(core, id, |e| {
         e.state = ReviewState::Open;
+        e.decided_git = None;
         e.rejected = None;
         e.decided = Vec::new();
         e.decided_diffs = BTreeMap::new();
@@ -958,6 +1056,7 @@ fn open_after(core: &Core, decided: &Entry) -> Entry {
         taken: None,
         decided: Vec::new(),
         decided_diffs: BTreeMap::new(),
+        decided_git: None,
         ..decided.clone()
     };
     // New work ends the undo of the decided item's last replace.

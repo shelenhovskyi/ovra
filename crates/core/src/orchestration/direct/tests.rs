@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 use super::*;
 use crate::fakes::MemoryWorktrees;
 use crate::protocol::review::ChangeKind;
-use crate::services::{BoxFuture, WorktreeInfo};
+use crate::services::{BoxFuture, GitFiles, WorktreeInfo};
 
 const DIR: &str = crate::test_path!("/p");
 
@@ -118,6 +118,9 @@ impl Worktrees for Trees {
     }
     fn prune_snapshots(&self, root: PathBuf, keep: Vec<String>) -> BoxFuture<'_, Result<()>> {
         self.mem.prune_snapshots(root, keep)
+    }
+    fn git_files(&self, dir: PathBuf) -> BoxFuture<'_, Result<GitFiles>> {
+        self.mem.git_files(dir)
     }
     fn look(&self, dir: PathBuf) -> BoxFuture<'_, Result<String>> {
         Box::pin(async move {
