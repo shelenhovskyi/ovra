@@ -16,7 +16,7 @@ export type FileFacts = {
   lineEnding: "LF" | "CRLF";
 };
 
-/** What the editor inserts when nothing in the text says otherwise (CodeMirror's indent unit). */
+/** What the viewer shows when nothing in the text says otherwise; the editor passes its own preference. */
 const DEFAULT_INDENT = "Spaces: 2";
 /** Enough indented lines to tell; a large file is not read to the end. */
 const SAMPLE_LINES = 2000;
@@ -59,7 +59,7 @@ export function lineEndingOf(text: string): "LF" | "CRLF" {
  * The indentation the text uses: "Tab" when most indented lines start with a
  * tab, else "Spaces: N" for the most common step between indented lines.
  */
-export function detectIndent(lines: Iterable<string>): string {
+export function detectIndent(lines: Iterable<string>, fallback = DEFAULT_INDENT): string {
   let tabs = 0;
   let spaced = 0;
   let previous = 0;
@@ -88,5 +88,5 @@ export function detectIndent(lines: Iterable<string>): string {
   for (const [step, n] of steps) {
     if (n > count || (n === count && step < best)) [best, count] = [step, n];
   }
-  return best > 0 ? `Spaces: ${best}` : DEFAULT_INDENT;
+  return best > 0 ? `Spaces: ${best}` : fallback;
 }

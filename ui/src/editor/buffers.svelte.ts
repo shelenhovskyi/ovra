@@ -5,7 +5,15 @@
 // a conflict instead of replacing them, and unsaved text is mirrored to
 // drafts so it survives a reload.
 
-import { defaultKeymap, history, historyKeymap, indentWithTab, toggleBlockComment } from "@codemirror/commands";
+import {
+  defaultKeymap,
+  history,
+  historyKeymap,
+  indentLess,
+  indentMore,
+  insertNewlineAndIndent,
+  toggleBlockComment,
+} from "@codemirror/commands";
 import { findPrevious, gotoLine, highlightSelectionMatches, searchKeymap } from "@codemirror/search";
 import {
   Compartment,
@@ -25,6 +33,7 @@ import { GitFile } from "./git/file";
 import type { HighlightClient, HighlightedDoc } from "./highlight/client";
 import { treeSitterHighlighting } from "./highlight/extension";
 import type { LanguageSource } from "./highlight/protocol";
+import { dedentLines, indentation, indentLines, indentTab, newlineKeepIndent } from "./indent";
 import { commentTokens, type Language, languageFor, languageSource } from "./languages";
 import { editorPrefs } from "./prefs.svelte";
 import { lineEndingOf } from "./status.svelte";
@@ -35,11 +44,19 @@ import { theme } from "./theme";
  * would take a global shortcut keep only their Mac key: block comment
  * (Alt+Shift+A goes to approvals in a browser tab) and find previous on
  * Mod-Shift-g (Ctrl+Shift+G shows Git; Shift-F3 still finds previous).
+ * Indenting and Enter follow the tab size preferences (`./indent`).
  */
 export function editorKeymap(save: () => void): KeyBinding[] {
   const macOnly = (binding: KeyBinding): KeyBinding => ({ ...binding, key: undefined, shift: undefined });
+  const ownIndent = new Map<KeyBinding["run"], KeyBinding["run"]>([
+    [indentMore, indentLines],
+    [indentLess, dedentLines],
+    [insertNewlineAndIndent, newlineKeepIndent],
+  ]);
   const ownKey = (binding: KeyBinding): KeyBinding[] => {
     if (binding.run === toggleBlockComment) return [macOnly(binding)];
+    const indent = binding.run && ownIndent.get(binding.run);
+    if (indent) return [{ ...binding, run: indent }];
     if (binding.key !== "Mod-g") return [binding];
     return [
       { ...binding, shift: undefined },
@@ -57,7 +74,7 @@ export function editorKeymap(save: () => void): KeyBinding[] {
     },
     // Go to line on every platform, as in VS Code (CodeMirror's Mod-g finds the next match).
     { key: "Ctrl-g", run: gotoLine, preventDefault: true },
-    indentWithTab,
+    { key: "Tab", run: indentTab, shift: dedentLines },
     ...defaultKeymap.flatMap(ownKey),
     ...historyKeymap,
     ...searchKeymap.flatMap(ownKey),
@@ -132,8 +149,8 @@ export class Buffer {
   private serverExtension: Extension = [];
   /** The text box's name, which says the path. */
   private readonly label = new Compartment();
-  /** Line wrapping, as `editorPrefs.wordWrap` says. */
-  private readonly wrap = new Compartment();
+  /** Line wrapping, tab size and indent style, as `editorPrefs` says. */
+  private readonly prefs = new Compartment();
 
   constructor(
     private readonly options: Options,
@@ -186,9 +203,9 @@ export class Buffer {
     else this.state = state.update(...specs).state;
   }
 
-  /** Follows the editor preferences (word wrap) as they are now. */
+  /** Follows the editor preferences (word wrap, tab size) as they are now. */
   applyPrefs(): void {
-    const effects = this.wrap.reconfigure(wrapExtension());
+    const effects = this.prefs.reconfigure(prefsExtension());
     if (this.view) this.view.dispatch({ effects });
     else if (this.state) this.state = this.state.update({ effects }).state;
   }
@@ -405,7 +422,7 @@ export class Buffer {
       }),
       // Named, so a screen reader says which file the text box edits.
       this.label.of(this.labelExtension()),
-      this.wrap.of(wrapExtension()),
+      this.prefs.of(prefsExtension()),
       commentData(this.language),
       theme,
       this.highlight ? treeSitterHighlighting(this.highlight) : [],
@@ -536,8 +553,11 @@ function commentData(language: Language | null): Extension {
   return tokens ? EditorState.languageData.of(() => [{ commentTokens: tokens }]) : [];
 }
 
-function wrapExtension(): Extension {
-  return editorPrefs.wordWrap ? EditorView.lineWrapping : [];
+function prefsExtension(): Extension {
+  return [
+    editorPrefs.wordWrap ? EditorView.lineWrapping : [],
+    indentation(editorPrefs.tabSize, editorPrefs.insertSpaces),
+  ];
 }
 
 function message(err: unknown): string {

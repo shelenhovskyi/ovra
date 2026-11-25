@@ -91,8 +91,11 @@ describe("Buffer", () => {
     a.applyPrefs();
     expect([wrapped(), a.text, undoDepth(view.state)]).toEqual([true, "hello!", 1]);
     editorPrefs.wordWrap = false;
+    editorPrefs.tabSize = 2;
     a.applyPrefs();
-    expect(wrapped()).toBe(false);
+    expect([wrapped(), view.state.tabSize]).toEqual([false, 2]);
+    editorPrefs.tabSize = 4;
+    a.applyPrefs();
   });
 
   test("undo history and unsaved text survive switching to another tab and back", async () => {

@@ -5,9 +5,9 @@
 // preferences last until the window closes.
 //
 // Who reads what: `fontSize` sizes the editor's and the read-only viewer's
-// file text; `wordWrap` wraps long lines in the editor. `tabSize` and
-// `autoSave` are only stored here so far, for the Settings pane and auto
-// save to build on.
+// file text; `wordWrap`, `tabSize` and `insertSpaces` shape editing
+// (buffers.svelte.ts, indent.ts); `autoSave` drives autosave.svelte.ts.
+// Settings > Editor changes them.
 
 const KEY = "ovra.editor.prefs";
 
@@ -24,7 +24,7 @@ const TAB_SIZE = { min: 1, max: 16, default: 4 } as const;
 
 type Store = Pick<Storage, "getItem" | "setItem">;
 
-type Stored = { fontSize: number; wordWrap: boolean; tabSize: number; autoSave: AutoSave };
+type Stored = { fontSize: number; wordWrap: boolean; tabSize: number; insertSpaces: boolean; autoSave: AutoSave };
 
 const clamp = (value: number, limits: { min: number; max: number }) =>
   Math.min(limits.max, Math.max(limits.min, value));
@@ -33,6 +33,7 @@ export class EditorPrefs {
   #fontSize = $state<number>(FONT_SIZE.default);
   #wordWrap = $state(false);
   #tabSize = $state<number>(TAB_SIZE.default);
+  #insertSpaces = $state(true);
   #autoSave = $state<AutoSave>("off");
 
   constructor(private readonly storage: Store | null) {
@@ -42,6 +43,7 @@ export class EditorPrefs {
       if (typeof stored.fontSize === "number") this.#fontSize = clamp(stored.fontSize, FONT_SIZE);
       if (typeof stored.wordWrap === "boolean") this.#wordWrap = stored.wordWrap;
       if (typeof stored.tabSize === "number") this.#tabSize = clamp(Math.round(stored.tabSize), TAB_SIZE);
+      if (typeof stored.insertSpaces === "boolean") this.#insertSpaces = stored.insertSpaces;
       if (AUTO_SAVE.includes(stored.autoSave as AutoSave)) this.#autoSave = stored.autoSave as AutoSave;
     } catch {
       // Unreadable or unavailable: the defaults.
@@ -77,6 +79,15 @@ export class EditorPrefs {
     this.save();
   }
 
+  /** Whether indenting inserts spaces (the default) or tab characters. */
+  get insertSpaces(): boolean {
+    return this.#insertSpaces;
+  }
+  set insertSpaces(value: boolean) {
+    this.#insertSpaces = value;
+    this.save();
+  }
+
   /** When files save on their own; `off` by default. */
   get autoSave(): AutoSave {
     return this.#autoSave;
@@ -97,6 +108,7 @@ export class EditorPrefs {
       fontSize: this.#fontSize,
       wordWrap: this.#wordWrap,
       tabSize: this.#tabSize,
+      insertSpaces: this.#insertSpaces,
       autoSave: this.#autoSave,
     };
     try {

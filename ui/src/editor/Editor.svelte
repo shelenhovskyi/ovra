@@ -102,11 +102,13 @@ $effect(() => {
 const facts = {};
 let shownView: EditorView | null = null;
 let indent = "";
+/** What Tab inserts, for a text with no indentation to go by. */
+const ownIndent = () => (editorPrefs.insertSpaces ? `Spaces: ${editorPrefs.tabSize}` : "Tab");
 /** Untracked: an effect that dispatches (word wrap, a reveal) must not come to depend on it. */
 function publish(target: EditorView, docChanged: boolean): void {
   untrack(() => {
     const state = target.state;
-    if (docChanged) indent = detectIndent(state.doc.iterLines());
+    if (docChanged) indent = detectIndent(state.doc.iterLines(), ownIndent());
     const next: FileFacts = {
       cursor: cursorOf(state),
       language: shown?.heavy ? "Plain text (large file)" : (shown?.language?.name ?? "Plain text"),
@@ -118,9 +120,9 @@ function publish(target: EditorView, docChanged: boolean): void {
   });
 }
 
-// The shown buffer follows word wrap; a new text size needs a fresh measure.
+// The shown buffer follows wrap and indent prefs; a new text size needs a fresh measure.
 $effect(() => {
-  // Reads editorPrefs.wordWrap, so a toggle runs this again.
+  // Reads editorPrefs (wrap, tab size, spaces), so a change runs this again.
   shown?.applyPrefs();
 });
 $effect(() => {
