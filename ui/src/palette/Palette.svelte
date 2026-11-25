@@ -110,14 +110,31 @@ function run(item: Ranked<Entry> | undefined): void {
   void tick().then(() => runCommand({ id, title: label, run }));
 }
 
+/** Rows PageUp and PageDown move by. */
+const PAGE = 10;
+
+/** Ctrl+N/Ctrl+J and Ctrl+P/Ctrl+K move like the arrows (Emacs, fzf), on any layout. */
+const CTRL_MOVES: Record<string, string> = { KeyN: "ArrowDown", KeyJ: "ArrowDown", KeyP: "ArrowUp", KeyK: "ArrowUp" };
+
+function movement(event: KeyboardEvent): string {
+  const ctrlOnly = event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey;
+  return (ctrlOnly && CTRL_MOVES[event.code]) || event.key;
+}
+
 function onkeydown(event: KeyboardEvent): void {
   const count = items.length;
-  switch (event.key) {
+  switch (movement(event)) {
     case "ArrowDown":
       if (count) selected = (selected + 1) % count;
       break;
     case "ArrowUp":
       if (count) selected = (selected - 1 + count) % count;
+      break;
+    case "PageDown":
+      if (count) selected = Math.min(selected + PAGE, count - 1);
+      break;
+    case "PageUp":
+      if (count) selected = Math.max(selected - PAGE, 0);
       break;
     case "Enter":
       if (rankedQuery === query) run(items[selected]);
