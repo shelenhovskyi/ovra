@@ -20,7 +20,21 @@ export const theme = EditorView.theme(
     ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--text)" },
     // Line numbers keep 4.5:1 (--text-2), the active one at full strength.
     ".cm-gutters": { backgroundColor: "var(--s2)", color: "var(--text-2)", border: "none" },
-    ".cm-lineNumbers .cm-gutterElement": { padding: "0 12px 0 16px" },
+    // The fold gutter after the numbers takes the rest of their old right padding.
+    ".cm-lineNumbers .cm-gutterElement": { padding: "0 4px 0 16px" },
+    ".cm-foldGutter .cm-gutterElement": { padding: "0 6px 0 2px", cursor: "pointer" },
+    // Quiet: a fold chevron shows while the pointer is on the gutter; a folded line keeps its own.
+    ".cm-foldGutter .cm-fold-open": { opacity: "0" },
+    ".cm-gutters:hover .cm-fold-open": { opacity: "1" },
+    ".cm-foldGutter .cm-gutterElement:hover": { color: "var(--text)" },
+    ".cm-foldPlaceholder": {
+      margin: "0 2px",
+      padding: "0 4px",
+      border: "none",
+      borderRadius: "var(--radius-sm)",
+      backgroundColor: "var(--s3)",
+      color: "var(--text-2)",
+    },
     ".cm-activeLine": { backgroundColor: tint(7) },
     ".cm-activeLineGutter": { backgroundColor: tint(7), color: "var(--text)" },
     "&.cm-focused .cm-selectionBackground, .cm-selectionBackground": { backgroundColor: tint(26) },

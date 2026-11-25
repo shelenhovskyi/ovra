@@ -3,6 +3,7 @@
 import { registerCommand } from "../keys/commands";
 import { showList } from "../palette/mode.svelte";
 import type { Workspace } from "../shell/workspace.svelte";
+import { foldCommands } from "./folding";
 import { editorReady, goToChange, readBlame, showChangeAtCursor, toggleBlame } from "./git/extension";
 import type { LspAction } from "./lsp/actions";
 import { modeMemory } from "./mode-memory";
@@ -116,6 +117,13 @@ const SEARCH_ACTIONS: [SearchAction, string, string][] = [
   ["find", "Find in file", "Mod+F"],
   ["replace", "Replace in file", "Mod+Alt+F"],
   ["go_to_line", "Go to line…", "Ctrl+G"],
+];
+
+const FOLD_ACTIONS: [keyof typeof foldCommands, string][] = [
+  ["fold", "Fold at cursor"],
+  ["unfold", "Unfold at cursor"],
+  ["fold_all", "Fold all"],
+  ["unfold_all", "Unfold all"],
 ];
 
 /** Registers the editor and tab commands; returns a function that unregisters them. */
@@ -286,6 +294,18 @@ export function registerEditorCommands(workspace: Target): () => void {
       keywords: ["outline"],
       run: inEditor(workspace, () => goToSymbol(workspace)),
     }),
+    // Fold and unfold have their keys in the editor (folding.ts); fold all has none.
+    ...FOLD_ACTIONS.map(([action, title]) =>
+      registerCommand({
+        id: `editor.${action}`,
+        title,
+        keywords: ["collapse", "expand"],
+        run: inEditor(workspace, () => {
+          const view = shownView();
+          if (view) foldCommands[action](view);
+        }),
+      }),
+    ),
     ...SEARCH_ACTIONS.map(([action, title, keys]) =>
       registerCommand({ id: `editor.${action}`, title, keys, run: inEditor(workspace, () => runSearch(action)) }),
     ),

@@ -1,7 +1,9 @@
 // Indentation as the editor preferences say: Tab, Shift+Tab, Mod+] / Mod+[
-// and Enter. CodeMirror's own commands take the indent unit from
-// `@codemirror/language`, which Ovra does not use (highlighting is
-// tree-sitter), so these read `EditorState.tabSize` and `insertSpaces` here.
+// and Enter. CodeMirror's own commands take the indent unit and the
+// indentation of a new line from a language's syntax tree, which Ovra does
+// not have (highlighting is tree-sitter; `@codemirror/language` is there for
+// folding only), so these read `EditorState.tabSize` and `insertSpaces` here
+// and keep a line's indentation as it is written.
 
 import { countColumn, EditorSelection, EditorState, type Extension, Facet, type StateCommand } from "@codemirror/state";
 

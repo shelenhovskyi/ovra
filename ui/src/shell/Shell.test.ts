@@ -152,6 +152,8 @@ describe("Shell", () => {
         "Diffs: P Previous change",
         "Editor: Mod+/ Comment or uncomment lines",
         "Editor: Shift+F8 Go to previous problem",
+        "Editor: Ctrl+Shift+[ Fold at cursor",
+        "Editor: Ctrl+Shift+] Unfold at cursor",
         "Files: Enter Open the file, or keep its tab when it is shown",
         "Files: F2 Rename",
         "Files: Delete Move to the trash",

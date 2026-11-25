@@ -93,7 +93,7 @@ remembered View or Edit per file type). This list only adds the menu.
 | Auto save (after delay / on focus change)                                    | yes     | yes | yes       | yes    | no                          | P1                     |
 | Font size zoom (Mod+= / Mod+-)                                               | yes     | yes | yes       | yes    | yes                         | done                   |
 | Comment line (Mod+/)                                                         | yes     | yes | yes       | yes    | yes                         | done                   |
-| Code folding                                                                 | yes     | yes | yes       | yes    | no                          | P1                     |
+| Code folding                                                                 | yes     | yes | yes       | yes    | yes (indentation, headings) | done                   |
 | Change language mode of a file                                               | yes     | yes | yes       | yes    | no                          | P2                     |
 | Indentation and line-ending switch                                           | yes     | yes | yes       | yes    | no                          | P2                     |
 | Minimap                                                                      | yes     | yes | no        | yes    | no                          | P2                     |

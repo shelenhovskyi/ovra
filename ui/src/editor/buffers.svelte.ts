@@ -37,6 +37,7 @@ import type { FileContent, ProjectId } from "../lib/protocol";
 import { CoreError, type Transport } from "../lib/transport";
 import type { AutoSaver } from "./autosave";
 import type { Drafts } from "./drafts.svelte";
+import { folding, foldKeys } from "./folding";
 import { gitExtension } from "./git/extension";
 import { GitFile } from "./git/file";
 import type { HighlightClient, HighlightedDoc } from "./highlight/client";
@@ -84,6 +85,7 @@ export function editorKeymap(save: () => void): KeyBinding[] {
     // Go to line on every platform, as in VS Code (CodeMirror's Mod-g finds the next match).
     { key: "Ctrl-g", run: gotoLine, preventDefault: true },
     { key: "Tab", run: indentTab, shift: dedentLines },
+    ...foldKeys,
     ...defaultKeymap.flatMap(ownKey),
     ...historyKeymap,
     ...searchKeymap.flatMap(ownKey),
@@ -476,6 +478,7 @@ export class Buffer {
     const viaBuffer = (command: typeof undo) => () => !!this.view && command(this.view);
     return [
       lineNumbers(),
+      folding(/\.(md|markdown)$/i.test(this.path)),
       mirror
         ? Prec.high(
             keymap.of([

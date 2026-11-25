@@ -1,11 +1,16 @@
 <script lang="ts" module>
 import { registerContextKeys } from "../keys/context-keys";
+import { isApple as apple } from "../keys/shortcut";
 
 // This panel's own keys, for Settings > Keyboard; the panel handles them itself.
+// Folding takes Ctrl+Shift off macOS, where Ctrl+Alt is AltGr (editor/folding.ts).
+const fold = apple() ? "Mod+Alt" : "Ctrl+Shift";
 registerContextKeys(
   [
     { keys: "Mod+/", title: "Comment or uncomment lines" },
     { keys: "Shift+F8", title: "Go to previous problem" },
+    { keys: `${fold}+[`, title: "Fold at cursor" },
+    { keys: `${fold}+]`, title: "Unfold at cursor" },
   ].map((key) => ({ ...key, where: "Editor" })),
 );
 </script>
