@@ -43,6 +43,9 @@ let latest = 0;
 let shownAt = $state(Date.now());
 let now = $state(Date.now());
 const armed = $derived(now >= shownAt + TRUST_ARM_MS);
+const EARLY = "Ready in a moment — read the card first.";
+/** A press came before the buttons were ready. */
+let early = $state(false);
 
 const project = $derived(workspace.project);
 const changed = $derived(
@@ -120,6 +123,7 @@ $effect(() =>
 function rearm(): void {
   shownAt = Date.now();
   now = shownAt;
+  early = false;
 }
 
 // Whatever changes what the card shows (or where it puts the buttons) arms them again.
@@ -134,9 +138,13 @@ $effect(() => {
   return () => clearTimeout(timer);
 });
 
-/** Trusts on a deliberate press only: not before the card is armed, not from a held key. */
+/**
+ * Trusts on a deliberate press only: not before the card is armed (an
+ * early press says why instead), not from a held key.
+ */
 function trustPress(): void {
   if (armed) void trust(true);
+  else early = true;
 }
 
 function noRepeat(event: KeyboardEvent): void {
@@ -232,12 +240,14 @@ function trust(trusted: boolean): Promise<void> {
             class="link primary"
             disabled={busy}
             aria-disabled={!armed}
-            title={armed ? undefined : "Read the card first"}
+            title={armed ? undefined : EARLY}
             onkeydown={noRepeat}
             onclick={trustPress}>Trust project</button
           >
         {/if}
       </div>
+      <!-- Says why an early press did nothing; goes once the buttons are ready. -->
+      <p class="wait" aria-live="polite" data-testid="trust-wait">{early && !armed ? EARLY : ""}</p>
       {#if !project.trusted}
         <p data-testid="trust-language-servers">
           Trusting it starts language servers, which run the project's code{sandbox
@@ -285,7 +295,7 @@ function trust(trusted: boolean): Promise<void> {
               class="primary"
               disabled={busy}
               aria-disabled={!armed}
-              title={armed ? undefined : "Read the card first"}
+              title={armed ? undefined : EARLY}
               onkeydown={noRepeat}
               onclick={trustPress}>Trust the new settings</button
             >
@@ -295,13 +305,15 @@ function trust(trusted: boolean): Promise<void> {
               class="primary"
               disabled={busy}
               aria-disabled={!armed}
-              title={armed ? undefined : "Read the card first"}
+              title={armed ? undefined : EARLY}
               onkeydown={noRepeat}
               onclick={trustPress}>Trust project</button
             >
           {/if}
         </span>
       </div>
+      <!-- Says why an early press did nothing; goes once the buttons are ready. -->
+      <p class="wait" aria-live="polite" data-testid="trust-wait">{early && !armed ? EARLY : ""}</p>
       {#if details}
         <div id="trust-details" class="details" data-testid="trust-details">
           <p class="detail" data-testid="trust-language-servers">
@@ -409,6 +421,11 @@ function trust(trusted: boolean): Promise<void> {
   button[aria-disabled="true"] {
     opacity: 0.55;
     cursor: default;
+  }
+  .wait {
+    margin: 0;
+    font-size: 12px;
+    color: #ffd36b;
   }
   strong {
     margin-left: 4px;

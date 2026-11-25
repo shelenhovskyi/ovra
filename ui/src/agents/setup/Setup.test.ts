@@ -417,7 +417,11 @@ describe("ProjectTrust", () => {
     trustButton?.click();
     await settle();
     expect(core.sent("projects.trust")).toEqual([]);
+    // ... and says why, until the button is ready.
+    const wait = () => trustCard()?.querySelector("[data-testid=trust-wait]")?.textContent;
+    expect(wait()).toBe("Ready in a moment — read the card first.");
     await armed();
+    expect(wait()).toBe("");
     expect(trustButton?.getAttribute("aria-disabled")).toBe("false");
     trustButton?.click();
     await settle();
