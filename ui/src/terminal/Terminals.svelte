@@ -7,6 +7,7 @@ import { tick } from "svelte";
 import { registerCommand } from "../keys/commands";
 import { formatShortcut, inBrowserTab, isApple, liveKeys } from "../keys/shortcut";
 import { useOvra } from "../shell/context";
+import Icon from "../shell/Icon.svelte";
 import { loadScreenReader, saveScreenReader } from "./prefs";
 import { exitNotice, LOST_NOTICE, type TerminalSession, TerminalSessions } from "./sessions.svelte";
 import TerminalView from "./TerminalView.svelte";
@@ -199,8 +200,8 @@ $effect(() => {
             tabindex="-1"
             aria-label="Close {session.title}"
             title="Close {session.title} (Delete)"
-            onclick={() => close(session, "tab")}
-          ></button>
+            onclick={() => close(session, "tab")}><Icon name="close" small /></button
+          >
         </div>
       {/each}
     </div>
@@ -304,7 +305,7 @@ $effect(() => {
   .bar {
     display: flex;
     align-items: stretch;
-    padding: 4px 8px 0 10px;
+    padding: 4px 8px 4px 10px;
     background: var(--s2);
   }
   .tabs {
@@ -314,12 +315,12 @@ $effect(() => {
     overflow-x: auto;
     scrollbar-width: thin;
   }
-  /* Like the editor's tabs: no boxes, the selected one has --text and an accent underline. */
+  /* Like the editor's tabs: tone, not lines; the selected one is a --s3 pill. */
   .tab {
     display: flex;
     align-items: center;
     flex-shrink: 0;
-    border-bottom: 2px solid transparent;
+    border-radius: var(--radius-sm);
     color: var(--text-2);
   }
   .tab:hover {
@@ -328,7 +329,7 @@ $effect(() => {
   .tab.selected {
     color: var(--text);
     font-weight: 500;
-    border-bottom-color: var(--accent);
+    background: var(--s3);
   }
   button {
     font: inherit;
@@ -367,12 +368,10 @@ $effect(() => {
   .close:focus-visible {
     opacity: 1;
   }
-  .close::before {
-    content: "×";
-    font-size: 16px;
-    line-height: 1;
+  .close:hover {
+    background: var(--s4);
+    color: var(--text);
   }
-  .close:hover,
   .actions button:hover:not(:disabled) {
     background: var(--s3);
     color: var(--text);
@@ -465,7 +464,6 @@ $effect(() => {
       outline-offset: -2px;
     }
     .tab.selected {
-      border-bottom-color: Highlight;
       forced-color-adjust: none;
       background: Highlight;
       color: HighlightText;

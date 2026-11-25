@@ -13,6 +13,8 @@ export const ICONS = {
   swap: '<path d="M4 9h15l-3.5-3.5M20 15H5l3.5 3.5"/>',
   collapse: '<rect x="3.5" y="5" width="17" height="14" rx="2"/><path d="M9.5 5v14M15.5 10l-2 2 2 2"/>',
   chevron: '<path d="m6 9 6 6 6-6"/>',
+  close: '<path d="m7 7 10 10M17 7 7 17"/>',
+  dot: '<circle cx="12" cy="12" r="3.5" fill="currentColor"/>',
 } as const;
 
 export type IconName = keyof typeof ICONS;

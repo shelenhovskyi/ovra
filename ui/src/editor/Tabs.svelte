@@ -8,6 +8,7 @@
 // A git diff shown in the main area is the last tab, selected while it shows.
 import { tick } from "svelte";
 import { useOvra } from "../shell/context";
+import Icon from "../shell/Icon.svelte";
 import { tabLabels } from "./labels";
 import { answerClose, requestClose, show, tabs } from "./open-files.svelte";
 
@@ -209,7 +210,9 @@ function scrollToActive(): void {
           tabindex="-1"
           aria-label={dirty ? `Close ${label(path)} (unsaved changes)` : `Close ${label(path)}`}
           onclick={() => close(path)}
-        ></button>
+          ><span class="x"><Icon name="close" small /></span>{#if dirty}<span class="dot"><Icon name="dot" small /></span
+            >{/if}</button
+        >
       </div>
     {/each}
     {#if diff}
@@ -233,8 +236,8 @@ function scrollToActive(): void {
           class="close"
           tabindex="-1"
           aria-label={`Close ${diffName} (${side})`}
-          onclick={closeDiff}
-        ></button>
+          onclick={closeDiff}><span class="x"><Icon name="close" small /></span></button
+        >
       </div>
     {/if}
   </div>
@@ -271,7 +274,7 @@ function scrollToActive(): void {
     flex-shrink: 0;
     gap: 2px;
     overflow-x: auto;
-    padding: 6px 10px 0;
+    padding: 6px 10px;
     background: var(--s2);
     scrollbar-width: thin;
     --fade-start: 0px;
@@ -293,13 +296,12 @@ function scrollToActive(): void {
   .more-end {
     --fade-end: 32px;
   }
-  /* No boxes: the active tab is told by its text and a slim accent underline. */
+  /* Tone, not lines: the active tab is a --s3 pill. */
   .tab {
     display: flex;
     align-items: center;
     flex-shrink: 0;
-    border-bottom: 2px solid transparent;
-    border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+    border-radius: var(--radius-sm);
     color: var(--text-2);
   }
   .tab:hover {
@@ -308,7 +310,7 @@ function scrollToActive(): void {
   .tab.active {
     color: var(--text);
     font-weight: 500;
-    border-bottom-color: var(--accent);
+    background: var(--s3);
   }
   button {
     font: inherit;
@@ -357,28 +359,28 @@ function scrollToActive(): void {
   .close.dirty {
     opacity: 1;
   }
-  .close::before {
-    content: "×";
-    font-size: 16px;
-    line-height: 1;
+  .close > span {
+    display: grid;
   }
-  .close.dirty::before {
-    content: "●";
-    font-size: 10px;
+  /* Unsaved: an accent dot, which turns into the close icon on hover. */
+  .dot {
     color: var(--accent);
   }
-  .close:hover {
-    background: var(--s3);
-    color: var(--text);
+  .close.dirty .x,
+  .close.dirty:hover .dot {
+    display: none;
   }
-  .close.dirty:hover::before {
-    content: "×";
-    font-size: 16px;
-    color: inherit;
+  .close.dirty:hover .x {
+    display: grid;
+  }
+  .close:hover {
+    background: var(--s4);
+    color: var(--text);
   }
   @media (forced-colors: active) {
     .tab.active {
-      border-bottom-color: Highlight;
+      outline: 2px solid Highlight;
+      outline-offset: -2px;
     }
     .close {
       opacity: 1;
