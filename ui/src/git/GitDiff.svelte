@@ -268,13 +268,8 @@ const range = (hunk: Hunk) =>
       <span class="path">{target.path}</span>
       <span class="side">{target.staged ? "Staged changes" : "Unstaged changes"}</span>
     </h2>
-    <div class="buttons">
-      <button type="button" onclick={() => (workspace.gitDiff = { ...target, staged: !target.staged })}
-        >{target.staged ? "Show unstaged changes" : "Show staged changes"}</button
-      >
-      <button type="button" onclick={openFile}>Open file</button>
-      <button type="button" onclick={close}>Close diff</button>
-    </div>
+    <!-- One action: the tab closes the diff, and each side opens from its list in the panel. -->
+    <button type="button" onclick={openFile}>Open file</button>
   </header>
   <p class="visually-hidden" role="status">{announcement}</p>
   {#if model?.error?.scope === "diff"}
@@ -376,11 +371,6 @@ const range = (hunk: Hunk) =>
     font-weight: 400;
     color: var(--text-2);
   }
-  .buttons {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-  }
   button {
     min-height: var(--control-h-sm);
     padding: 2px 10px;
@@ -390,7 +380,21 @@ const range = (hunk: Hunk) =>
     background: transparent;
     border: 1px solid transparent;
     border-radius: var(--radius-sm);
-    cursor: pointer;
+    cursor: default;
+  }
+  /* Stage hunk on demand: on the pointed-at hunk, or while it has focus. */
+  .hunk-head [data-hunk-action] {
+    opacity: 0;
+  }
+  .hunk:hover [data-hunk-action],
+  [data-hunk-action]:focus-visible,
+  [data-hunk-action]:focus {
+    opacity: 1;
+  }
+  @media (hover: none), (forced-colors: active) {
+    .hunk-head [data-hunk-action] {
+      opacity: 1;
+    }
   }
   button:hover {
     color: var(--text);

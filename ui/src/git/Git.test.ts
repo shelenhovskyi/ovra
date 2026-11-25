@@ -403,9 +403,11 @@ it("shows a diff with hunk staging and reloads it on fs.git_changed", async () =
   // Switched to the staged side: Escape still goes back to the row it was opened from.
   click("[data-testid=git-changes] [data-path='a.ts']");
   await settle();
-  [...target.querySelectorAll<HTMLElement>("[data-testid=git-diff] button")]
-    .find((b) => b.textContent === "Show staged changes")
-    ?.click();
+  // The diff bar keeps one action; the tab closes it.
+  expect([...target.querySelectorAll("[data-testid=git-diff] header button")].map((b) => b.textContent)).toEqual([
+    "Open file",
+  ]);
+  workspace.gitDiff = { project: "p1", path: "a.ts", staged: true };
   await settle();
   expect(workspace.gitDiff).toEqual({ project: "p1", path: "a.ts", staged: true });
   press("Escape");
