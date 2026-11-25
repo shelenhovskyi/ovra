@@ -28,7 +28,7 @@ function toolName(tool: string): string {
 /** Whether rules for `tool` may have a match; the core refuses one for any other tool. */
 export function takesMatch(tool: string): boolean {
   const name = toolName(tool);
-  return name === "Bash" || FILE_TOOLS.includes(name);
+  return name === "Bash" || name === "WebFetch" || FILE_TOOLS.includes(name);
 }
 
 /** What `match` means for `tool`, for the field's description. */
@@ -36,8 +36,9 @@ export function matchHint(tool: string): string {
   const name = toolName(tool);
   if (name === "Bash") return "A command prefix, matched on whole words: npm test also matches npm test -- -u.";
   if (FILE_TOOLS.includes(name)) return "A glob on the path inside the folder the agent works in, such as docs/**.";
+  if (name === "WebFetch") return "One host, such as docs.rs: subdomains do not match.";
   if (name !== "") return `${name} takes no match: the rule covers every call.`;
-  return `Only Bash and the file tools (${FILE_TOOLS.join(", ")}) take a match.`;
+  return `Only Bash, WebFetch and the file tools (${FILE_TOOLS.join(", ")}) take a match.`;
 }
 
 /** Ovra's own tools, which policies cannot change (the core refuses them). */
@@ -58,9 +59,14 @@ export function formProblem(rule: PolicyRule): FormProblem | null {
   if (rule.tool.startsWith(IDE_TOOL_PREFIX))
     return tool("Ovra's own tools follow their role's rules; a policy cannot change them.");
   if (rule.match === undefined || rule.tool === "Bash") return null;
+  // The core takes a host as the netproxy writes it; this catches the usual slips only.
+  if (rule.tool === "WebFetch")
+    return /^[a-z0-9-]+(\.[a-z0-9-]+)*$/.test(rule.match)
+      ? null
+      : match("Write one host in lower case, such as docs.rs: no scheme, path or wildcard.");
   if (!takesMatch(rule.tool))
     return match(
-      `${rule.tool} takes no match: a rule for it covers every call. Clear Match, or choose Bash or a file tool.`,
+      `${rule.tool} takes no match: a rule for it covers every call. Clear Match, or choose Bash, WebFetch or a file tool.`,
     );
   const parts = rule.match.split(/[/\\]/);
   if (/^[/\\]/.test(rule.match) || rule.match.includes(":") || parts.some((p) => p === "" || p === "." || p === ".."))

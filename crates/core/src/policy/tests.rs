@@ -125,8 +125,10 @@ fn set_refuses_rules_that_cannot_mean_what_they_say() {
         rule("Edit", Some("/etc/**"), PolicyAction::Auto),
         rule("Edit", Some("../x"), PolicyAction::Auto),
         rule("Edit", Some("C:/x"), PolicyAction::Auto),
+        rule("WebFetch", Some("*.evil.com"), PolicyAction::Deny),
+        rule("WebFetch", Some("Evil.com"), PolicyAction::Deny),
+        rule("WebFetch", Some("https://evil.com"), PolicyAction::Deny),
         // These could never match.
-        rule("WebFetch", Some("evil.com"), PolicyAction::Deny),
         rule("Grep", Some(".env"), PolicyAction::Deny),
         rule("Edit", Some("secrets/"), PolicyAction::Deny),
         rule("Edit", Some("./a.md"), PolicyAction::Deny),
@@ -137,6 +139,38 @@ fn set_refuses_rules_that_cannot_mean_what_they_say() {
     }
     assert!(check(&rule("Edit", Some("src/**/*.rs"), PolicyAction::Deny)).is_ok());
     assert!(check(&rule("WebFetch", None, PolicyAction::Deny)).is_ok());
+    assert!(check(&rule("WebFetch", Some("docs.rs"), PolicyAction::Auto)).is_ok());
+}
+
+#[test]
+fn webfetch_matches_the_urls_host_exactly() {
+    let policy = Policy {
+        rules: vec![rule("WebFetch", Some("docs.rs"), PolicyAction::Auto)],
+    };
+    let proxy = sandboxed(SandboxNetwork::Proxy);
+    let decided = |url: &str| {
+        let input = json!({ "url": url, "prompt": "x" });
+        decide(&policy, "WebFetch", &input, Path::new(WORK), Some(&proxy)).is_some()
+    };
+    for url in [
+        "https://docs.rs/serde",
+        "HTTPS://Docs.RS:443/serde?x#y",
+        "http://docs.rs",
+    ] {
+        assert!(decided(url), "{url}");
+    }
+    for url in [
+        "https://docs.rs.evil.com/",
+        "https://evil.com/docs.rs",
+        "https://api.docs.rs/",
+        "https://docs.rs@evil.com/",
+        "https://evil.com\\@docs.rs/",
+        "ftp://docs.rs/",
+        "docs.rs",
+        "https://docs.rs:x/",
+    ] {
+        assert!(!decided(url), "{url}");
+    }
 }
 
 #[test]

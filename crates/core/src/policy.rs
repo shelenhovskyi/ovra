@@ -92,8 +92,16 @@ fn check(rule: &PolicyRule) -> Result<(), ProtocolError> {
     if rule.tool == "Bash" {
         return Ok(());
     }
+    if rule.tool == "WebFetch" {
+        return match crate::netproxy::parse_host(pattern) {
+            Ok(host) if host == *pattern => Ok(()),
+            _ => bad("a WebFetch match is one host in lower case, such as docs.rs"),
+        };
+    }
     if file_field(&rule.tool).is_none() {
-        return bad("only Bash and file tools take a match; leave it out to match every call");
+        return bad(
+            "only Bash, WebFetch and file tools take a match; leave it out to match every call",
+        );
     }
     let segments: Vec<&str> = pattern.split(['/', '\\']).collect();
     if pattern.starts_with('/')
@@ -169,6 +177,10 @@ fn matches(rule: &PolicyRule, input: &Value, work_dir: &Path, action: PolicyActi
                 .any(|part| starts_with_words(part, pattern))
         };
     }
+    if rule.tool == "WebFetch" {
+        let url = input.get("url").and_then(Value::as_str);
+        return url.and_then(url_host).is_some_and(|host| host == *pattern);
+    }
     let Some(field) = file_field(&rule.tool) else {
         return false;
     };
@@ -186,6 +198,30 @@ fn file_field(tool: &str) -> Option<&'static str> {
         .iter()
         .find(|(name, _)| *name == tool)
         .map(|(_, field)| *field)
+}
+
+/// The host an `http` or `https` URL names, as the netproxy writes hosts;
+/// `None` for anything else, or a URL with user info, which readers may
+/// take for the host.
+fn url_host(url: &str) -> Option<String> {
+    let (scheme, rest) = url.trim().split_once("://")?;
+    if !["http", "https"]
+        .iter()
+        .any(|s| scheme.eq_ignore_ascii_case(s))
+    {
+        return None;
+    }
+    let authority = rest.split(['/', '?', '#']).next()?;
+    if authority.contains(['@', '\\']) {
+        return None;
+    }
+    let host = match authority.rsplit_once(':') {
+        Some((host, port)) if !port.contains(']') => {
+            port.bytes().all(|b| b.is_ascii_digit()).then_some(host)?
+        }
+        _ => authority,
+    };
+    crate::netproxy::parse_host(host).ok()
 }
 
 /// Whether `command` starts with the words of `prefix`, on a word boundary.

@@ -482,9 +482,9 @@ rules for each project:
 ```
 
 - `tool` is a tool name. `match` is optional and tested against the call's
-  main argument. Only `Bash` and the file tools below take a `match`;
-  `policy.set` refuses one on any other tool, because it could never
-  match.
+  main argument. Only `Bash`, `WebFetch` and the file tools below take a
+  `match`; `policy.set` refuses one on any other tool, because it could
+  never match.
 - For `Bash`, `match` is a command prefix, matched on word boundaries
   (`npm test` matches `npm test -- -u`, not `npm testx`).
   - A command that contains `;`, `&`, `|`, a backtick, `$(`, `>`, `<` or a
@@ -510,6 +510,11 @@ rules for each project:
     and hidden paths.
   - A file `ask` rule is advisory the same way: Bash commands like `cat`
     still reach the file without a question. The UI says so beside it.
+- For `WebFetch`, `match` is one host, written as the netproxy allowlist
+  writes it (lower case, no scheme, port or wildcard). It matches a call
+  whose `http` or `https` URL names exactly that host; subdomains do not
+  match, and a URL with user info (`a@b`) or a backslash before its path
+  never matches. The netproxy still decides whether the host is reachable.
 - `action` is `auto`, `ask` or `deny`.
 
 **How a call is decided.**

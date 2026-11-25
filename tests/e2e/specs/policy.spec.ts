@@ -23,14 +23,14 @@ test("a project's rules are added in Settings, refused inline and kept", async (
   await expect(dialog.getByTestId("policy-empty")).toHaveText(/No rules yet/);
 
   // A tool that never takes a match turns Match off, and a match typed before is refused once.
-  await dialog.getByLabel("Tool", { exact: true }).fill("WebFetch");
+  await dialog.getByLabel("Tool", { exact: true }).fill("WebSearch");
   await expect(dialog.getByLabel("Match (optional)")).toBeDisabled();
   await dialog.getByLabel("Tool", { exact: true }).fill("");
   await dialog.getByLabel("Match (optional)").fill("example.com");
-  await dialog.getByLabel("Tool", { exact: true }).fill("WebFetch");
+  await dialog.getByLabel("Tool", { exact: true }).fill("WebSearch");
   await dialog.getByRole("combobox", { name: "Action" }).selectOption("deny");
   await dialog.getByRole("button", { name: "Add rule" }).click();
-  await expect(dialog.getByRole("alert")).toHaveText(/^WebFetch takes no match/);
+  await expect(dialog.getByRole("alert")).toHaveText(/^WebSearch takes no match/);
 
   await dialog.getByLabel("Tool", { exact: true }).fill("Bash");
   await dialog.getByLabel("Match (optional)").fill("git push");

@@ -57,18 +57,24 @@ describe("policy rules", () => {
   it("explains the match for the tool being typed", () => {
     expect(matchHint("Bash")).toMatch(/command prefix/);
     expect(matchHint("Edit")).toMatch(/glob/);
-    expect(matchHint("webfetch")).toBe("WebFetch takes no match: the rule covers every call.");
-    expect(matchHint("")).toMatch(/^Only Bash and the file tools \(Read, Edit, MultiEdit, Write, NotebookEdit\)/);
+    expect(matchHint("webfetch")).toMatch(/^One host/);
+    expect(matchHint("Grep")).toBe("Grep takes no match: the rule covers every call.");
+    expect(matchHint("")).toMatch(
+      /^Only Bash, WebFetch and the file tools \(Read, Edit, MultiEdit, Write, NotebookEdit\)/,
+    );
   });
 
   it("refuses in the form what the core would refuse, naming the field to fix", () => {
     const problem = (tool: string, match: string) => formProblem(formRule(tool, match, "deny"));
     expect(problem("", "")).toEqual({ field: "tool", text: "Choose a tool first." });
     expect(problem("mcp__ovra__spawn_agent", "")?.field).toBe("tool");
-    expect(problem("WebFetch", "github.com")).toMatchObject({
+    expect(problem("WebSearch", "github.com")).toMatchObject({
       field: "match",
-      text: expect.stringMatching(/^WebFetch takes no match/),
+      text: expect.stringMatching(/^WebSearch takes no match/),
     });
+    expect(problem("WebFetch", "docs.rs")).toBeNull();
+    for (const host of ["https://docs.rs", "*.docs.rs", "Docs.rs", "docs.rs/x"])
+      expect(problem("WebFetch", host)?.field).toBe("match");
     expect(problem("mcp__github__create_issue", "x")?.field).toBe("match");
     for (const path of ["/etc/**", "../up", "a//b", "./a", "c:/x"]) expect(problem("Read", path)?.field).toBe("match");
     expect(problem("bash", "rm -rf")).toBeNull();

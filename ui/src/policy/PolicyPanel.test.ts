@@ -100,11 +100,11 @@ describe("PolicyPanel", () => {
 
   it("says once, without asking the core, that a tool takes no match", async () => {
     const core = await setup();
-    type("[data-testid=policy-tool]", "WebFetch");
+    type("[data-testid=policy-tool]", "WebSearch");
     flushSync();
     const matchField = $<HTMLInputElement>("[data-testid=policy-match]");
     expect(matchField?.disabled).toBe(true);
-    expect($("#policy-match-hint")?.textContent).toBe("WebFetch takes no match: the rule covers every call.");
+    expect($("#policy-match-hint")?.textContent).toBe("WebSearch takes no match: the rule covers every call.");
     type("[data-testid=policy-tool]", "");
     flushSync();
     type("[data-testid=policy-match]", "src/**");
