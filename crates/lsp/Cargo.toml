@@ -9,10 +9,12 @@ publish = false
 
 [dependencies]
 ovra-core.workspace = true
+tokio = { workspace = true, features = ["rt"] }
 
 [dev-dependencies]
 ovra-core = { workspace = true, features = ["fakes"] }
-tokio = { workspace = true, features = ["macros", "rt"] }
+tempfile = "3"
+tokio = { workspace = true, features = ["test-util"] }
 
 [lints]
 workspace = true

@@ -91,9 +91,10 @@ async fn serve() -> anyhow::Result<()> {
         .ide_tools(Arc::new(IdeServer::new()))
         .terminals(Arc::new(Pty::new()))
         .netproxy(Arc::new(ovra_netproxy::NetProxies::from_env(secrets)?))
-        .lsp(Arc::new(ovra_lsp::Servers::new(ovra_sandbox::for_this_os(
-            &args.data_dir,
-        ))))
+        .lsp(Arc::new(ovra_lsp::Servers::new(
+            ovra_sandbox::for_this_os(&args.data_dir),
+            args.data_dir.join("lsp"),
+        )))
         .agents(agents(&args))
         .build();
     let app = ws::router(
