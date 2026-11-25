@@ -1,3 +1,5 @@
+#![cfg_attr(not(unix), allow(unused_imports))]
+
 use std::collections::BTreeMap;
 use std::io;
 use std::net::{IpAddr, SocketAddr};
