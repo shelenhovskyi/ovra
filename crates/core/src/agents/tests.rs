@@ -1459,3 +1459,24 @@ async fn streamed_text_is_shown_but_never_kept() {
     until(&mut rx, AgentStatus::Idle).await;
     assert_eq!(said(&transcript(&core).await), 1);
 }
+
+#[tokio::test]
+async fn going_back_routes_to_the_session_and_is_not_available_yet() {
+    let core = core_with(ScriptedAgent::new(vec![vec![Step::Say("hi")]]));
+    project(&core).await;
+    ok(&core, start("x")).await;
+    let info = &sessions(&core).await[0];
+    assert_eq!((info.undone_from, info.can_undo_go_back), (None, false));
+    for (method, params) in [
+        ("agents.checkpoints", json!({"session": "s1"})),
+        ("agents.go_back", json!({"session": "s1", "turn": 1})),
+        ("agents.undo_go_back", json!({"session": "s1"})),
+    ] {
+        let asked = json!({"method": method, "params": params});
+        assert_eq!(code(&core, asked).await, ErrorCode::Unavailable, "{method}");
+        let mut params = params;
+        params["session"] = json!("s9");
+        let unknown = json!({"method": method, "params": params});
+        assert_eq!(code(&core, unknown).await, ErrorCode::NotFound, "{method}");
+    }
+}

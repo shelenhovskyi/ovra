@@ -187,6 +187,16 @@ pub(crate) async fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Resp
             let capacity = crate::orchestration::capacity(&core, &project);
             Ok(Response::Agents(AgentsResponse::Capacity(capacity)))
         }
+        AgentsRequest::Checkpoints { session }
+        | AgentsRequest::GoBack { session, .. }
+        | AgentsRequest::UndoGoBack { session } => {
+            // Checkpoints come with CP.A (`docs/specs/checkpoints.md`).
+            sessions.find(&session, |_| ())?;
+            Err(ProtocolError::new(
+                ErrorCode::Unavailable,
+                "going back to an earlier turn is not available yet",
+            ))
+        }
     }
 }
 
@@ -252,6 +262,8 @@ pub(crate) async fn start(ctx: &Ctx<'_>, new: NewSession) -> Result<SessionInfo>
         sandbox: None,
         sandbox_reported: false,
         account: target.account.id.clone(),
+        undone_from: None,
+        can_undo_go_back: false,
     };
     // With its folder and role from the start, so that it counts in its
     // role, and its first message if it waits.

@@ -92,6 +92,30 @@ pub struct SessionInfo {
     /// the default account, and for sessions saved before accounts existed.
     #[serde(default)]
     pub account: Option<String>,
+    /// A direct session's files were set back to before this turn (from 1,
+    /// as in [`Checkpoint::turn`]): the transcript marks it and the turns
+    /// after it as undone. `None` when nothing was gone back.
+    #[serde(default)]
+    pub undone_from: Option<u32>,
+    /// `agents.undo_go_back` can put back what the last go-back restored:
+    /// no turn started since.
+    #[serde(default)]
+    pub can_undo_go_back: bool,
+}
+
+/// A turn of a direct session whose files can be set back to how they
+/// were before it (`docs/specs/checkpoints.md`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Checkpoint {
+    /// The turn's number in the session, from 1.
+    pub turn: u32,
+    /// When the turn's message was sent, in milliseconds since the Unix
+    /// epoch.
+    pub at_ms: u64,
+    /// The first line of the turn's message.
+    pub message: String,
+    /// How many files differ between before and after the turn.
+    pub files_changed: u32,
 }
 
 /// How many agents of a project work at once, of how many it may run.
@@ -490,6 +514,19 @@ pub enum AgentsRequest {
     /// How many of the project's agents work, of how many may.
     #[serde(rename = "agents.capacity")]
     Capacity { project: ProjectId },
+    /// The turns of a direct session that can be gone back to, newest first.
+    #[serde(rename = "agents.checkpoints")]
+    Checkpoints { session: SessionId },
+    /// Sets the agent's changes since before `turn` back; files changed
+    /// outside the agent since stay and are listed as conflicts. Refused
+    /// (`conflict`) while a turn runs, `not_found` for a dropped turn.
+    /// Answers `agents.went_back`.
+    #[serde(rename = "agents.go_back")]
+    GoBack { session: SessionId, turn: u32 },
+    /// Puts back what the last go-back restored, until the next turn
+    /// starts. Answers `agents.undid_go_back`.
+    #[serde(rename = "agents.undo_go_back")]
+    UndoGoBack { session: SessionId },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -509,6 +546,24 @@ pub enum AgentsResponse {
     Transcript(Vec<AgentMessage>),
     #[serde(rename = "agents.capacity")]
     Capacity(AgentCapacity),
+    #[serde(rename = "agents.checkpoints")]
+    Checkpoints(Vec<Checkpoint>),
+    #[serde(rename = "agents.went_back")]
+    WentBack {
+        /// Files set back, relative to the work dir.
+        restored: Vec<String>,
+        /// Files left as they are: changed outside the agent since.
+        conflicts: Vec<String>,
+        /// `agents.undo_go_back` can undo it.
+        can_undo: bool,
+    },
+    #[serde(rename = "agents.undid_go_back")]
+    UndidGoBack {
+        /// Files put back as they were before the go-back.
+        restored: Vec<String>,
+        /// Files left as they are: changed since the go-back.
+        conflicts: Vec<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

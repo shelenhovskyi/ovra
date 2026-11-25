@@ -50,6 +50,21 @@ export type SessionInfo = {
   sandbox_reported: boolean;
   /** The Claude account it runs with (`ClaudeAccount.id`); null for the default account. */
   account: string | null;
+  /** Files were set back to before this turn (from 1): it and later turns show as undone (absent from older cores). */
+  undone_from?: number | null;
+  /** `agents.undo_go_back` can put back what the last go-back restored (absent from older cores). */
+  can_undo_go_back?: boolean;
+};
+
+/** A direct session's turn whose files can be set back to before it. */
+export type Checkpoint = {
+  /** From 1. */
+  turn: number;
+  /** When its message was sent, ms since the Unix epoch. */
+  at_ms: number;
+  /** The first line of its message. */
+  message: string;
+  files_changed: number;
 };
 
 /** How the runtime actually ran a session. */
@@ -194,7 +209,13 @@ export type AgentsRequest =
   | { method: "agents.interrupt"; params: { session: SessionId } }
   | { method: "agents.stop"; params: { session: SessionId } }
   | { method: "agents.transcript"; params: { session: SessionId } }
-  | { method: "agents.capacity"; params: { project: ProjectId } };
+  | { method: "agents.capacity"; params: { project: ProjectId } }
+  /** Newest first. */
+  | { method: "agents.checkpoints"; params: { session: SessionId } }
+  /** Refused (`conflict`) while a turn runs; `not_found` for a dropped turn. */
+  | { method: "agents.go_back"; params: { session: SessionId; turn: number } }
+  /** Until the next turn starts. */
+  | { method: "agents.undo_go_back"; params: { session: SessionId } };
 
 export type AgentsResponse =
   | { type: "agents.setup"; data: AgentSetup }
@@ -203,7 +224,20 @@ export type AgentsResponse =
   | { type: "agents.list"; data: SessionInfo[] }
   | { type: "agents.session"; data: SessionInfo }
   | { type: "agents.transcript"; data: AgentMessage[] }
-  | { type: "agents.capacity"; data: AgentCapacity };
+  | { type: "agents.capacity"; data: AgentCapacity }
+  | { type: "agents.checkpoints"; data: Checkpoint[] }
+  | { type: "agents.went_back"; data: { restored: string[]; conflicts: string[]; can_undo: boolean } }
+  | { type: "agents.undid_go_back"; data: { restored: string[]; conflicts: string[] } };
+
+/** The methods of going back to an earlier turn (`docs/specs/checkpoints.md`). */
+export type CheckpointMethod = "agents.checkpoints" | "agents.go_back" | "agents.undo_go_back";
+
+/** The response a checkpoint method resolves to. */
+export type CheckpointResponseFor<M extends CheckpointMethod> = M extends "agents.checkpoints"
+  ? Extract<AgentsResponse, { type: "agents.checkpoints" }>
+  : M extends "agents.go_back"
+    ? Extract<AgentsResponse, { type: "agents.went_back" }>
+    : Extract<AgentsResponse, { type: "agents.undid_go_back" }>;
 
 export type AgentsEvent =
   | { type: "agents.message"; data: { session: SessionId; message: AgentMessage } }

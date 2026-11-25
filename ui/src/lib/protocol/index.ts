@@ -1,6 +1,6 @@
 // Mirrors crates/core/src/protocol/. One file per domain, like the Rust side.
 
-import type { AgentsEvent, AgentsRequest, AgentsResponse } from "./agents";
+import type { AgentsEvent, AgentsRequest, AgentsResponse, CheckpointMethod, CheckpointResponseFor } from "./agents";
 import type { AuditLogEvent, AuditRequest, AuditResponse } from "./audit";
 import type { BrowserEvent, BrowserRequest, BrowserResponse, BrowserResponseFor } from "./browser";
 import type { FsEvent, FsRequest, FsResponse } from "./fs";
@@ -224,4 +224,6 @@ type PhaseThreeResponseFor<R extends Request> = R extends { method: "review.list
                                 ? ServersResponseFor<R["method"]>
                                 : R extends BrowserRequest
                                   ? BrowserResponseFor<R["method"]>
-                                  : never;
+                                  : R extends { method: CheckpointMethod }
+                                    ? CheckpointResponseFor<R["method"]>
+                                    : never;

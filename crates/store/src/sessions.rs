@@ -150,6 +150,8 @@ mod tests {
                 sandbox: None,
                 sandbox_reported: false,
                 account: None,
+                undone_from: None,
+                can_undo_go_back: false,
             },
             agent_session: None,
         }
