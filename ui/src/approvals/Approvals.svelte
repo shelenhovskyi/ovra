@@ -49,6 +49,8 @@ let section = $state<HTMLElement>();
 let returnTo: HTMLElement | null = null;
 /** The list is hidden; the heading still counts what waits. */
 let collapsed = $state(false);
+/** Every request has its card, not only the oldest; until nothing waits. */
+let showAll = $state(false);
 /** Requests after the first whose details the person opened. */
 const opened = new SvelteSet<PermissionId>();
 /** Said to screen readers: what a jump to a request found. */
@@ -187,6 +189,7 @@ $effect(() => {
   queue.revealer = async (id) => {
     remember();
     if (collapsed) await show();
+    if (!card(id) && visible.some((r) => r.id === id)) await showMore();
     const target = card(id);
     // Never another request instead: a key press meant for this one would answer it.
     const behind = queue.pending.some((r) => r.id === id);
@@ -238,6 +241,17 @@ async function show(): Promise<void> {
   collapsed = false;
   await tick();
 }
+
+/** Cards appear under the first one, where the pointer may be: answers wait again. */
+async function showMore(): Promise<void> {
+  showAll = true;
+  quiet();
+  await tick();
+}
+
+$effect(() => {
+  if (queue.pending.length === 0) showAll = false;
+});
 
 /** Only the first request shows its details at once, so a few requests leave room for the agents. */
 function isOpen(id: PermissionId): boolean {
@@ -396,7 +410,8 @@ function onKeydown(event: KeyboardEvent, request: PermissionRequest): void {
         } else answerByKey(event, request, "deny");
         return true;
       case "ArrowDown":
-        all[Math.min(at + 1, all.length - 1)]?.focus();
+        if (at === all.length - 1 && more > 0) void showMore().then(() => cards()[at + 1]?.focus());
+        else all[Math.min(at + 1, all.length - 1)]?.focus();
         return true;
       case "ArrowUp":
         all[Math.max(at - 1, 0)]?.focus();
@@ -456,7 +471,7 @@ function sandboxFact(session: SessionId): string | null {
 
 const PROVIDERS: Record<string, string> = { bedrock: "Bedrock", vertex: "Vertex AI", foundry: "Foundry" };
 
-/** Who pays for what is allowed, in a few words; an API key is a warning. */
+/** Who pays for what is allowed, in a word or two ("Billed to …" is its tooltip); an API key is a warning. */
 function billedTo(session: SessionId): { text: string; key: boolean } | null {
   const info = sessions.byId.get(session);
   const billing = info?.billing;
@@ -468,7 +483,7 @@ function billedTo(session: SessionId): { text: string; key: boolean } | null {
         ? "API key"
         : (PROVIDERS[billing.provider] ?? (billing.provider || "cloud account"));
   const account = accounts.list.length > 1 ? ` (${accounts.name(info.account)})` : "";
-  return { text: `Billed to ${payer}${account}`, key: billing.kind === "api_key" };
+  return { text: `${payer}${account}`, key: billing.kind === "api_key" };
 }
 
 /** The task a request belongs to: a worker's coordinator, else its own session. */
@@ -504,13 +519,28 @@ const groups = $derived.by((): Group[] => {
   }
   return out;
 });
-/** The requests on screen, in screen order. */
+/** The requests with a card, in screen order. */
 const visible = $derived(groups.flatMap((g) => g.stacks.flatMap((s) => s.slice(0, 1))));
+/** Only the oldest card is shown until the person asks for the rest: the agents keep their room. */
+const onScreen = $derived.by((): Group[] => {
+  const [lead] = groups;
+  const stack = lead?.stacks[0];
+  if (showAll || !lead || !stack || visible.length <= 1) return groups;
+  return [{ key: lead.key, requests: stack, stacks: [stack] }];
+});
+/** Requests behind the "more" line. */
+const more = $derived(queue.pending.length - onScreen.reduce((n, g) => n + g.requests.length, 0));
 
 /** Who asks for a group: the task, or the session itself. */
 function groupName(first: PermissionRequest): string {
   const lead = taskOf(first.session);
   return sessions.byId.has(lead) ? sessions.name(lead) : sessions.name(first.session);
+}
+
+/** The group's head: the task, and its project when that is not this window's. */
+function who(first: PermissionRequest, project: Project | undefined): string {
+  const name = groupName(first);
+  return first.project === workspace.project?.id ? name : `${name} · ${project?.name ?? "unknown project"}`;
 }
 
 /** Facts every request of a group shares, said once: sandbox warnings and who pays. */
@@ -589,7 +619,7 @@ function verbAndObject(tool: string, action: string): { verb: string; object: st
   <p class="sr-only" id="approvals-keys">Y allows, N denies, Shift+N denies with a message.</p>
   <ul bind:this={list} id="approvals-list" hidden={collapsed}>
     {#if !collapsed}
-    {#each groups as group (group.key)}
+    {#each onScreen as group (group.key)}
       {@const first = group.requests[0] as PermissionRequest}
       {@const project = projects.get(first.project)}
       {@const facts = shared(group.requests)}
@@ -597,8 +627,9 @@ function verbAndObject(tool: string, action: string): { verb: string; object: st
       <li class="group">
         <!-- Who asks and what is shared, said once for the task: Allow needs it in sight too. -->
         <div class="who" id={headId} {@attach watchAll(headSeen, group.requests.map((r) => r.id))}>
-          <p class="session">
-            <span class="dot" aria-hidden="true"></span>{groupName(first)} · {project?.name ?? "unknown project"}
+          <!-- One line: the task's name gives way (all of it in the tooltip), the facts do not. -->
+          <p class="session" title={who(first, project)}>
+            <span class="dot" aria-hidden="true"></span><span class="name">{who(first, project)}</span>
           </p>
           <p class="chips">
             {#each facts.warnings as warning (warning)}
@@ -612,7 +643,9 @@ function verbAndObject(tool: string, action: string): { verb: string; object: st
             {/if}
             {#if facts.sandboxed}<span class="fact">Sandboxed</span>{/if}
             {#each facts.billed as billed (billed.text)}
-              <span class="fact" class:key={billed.key} data-testid="approval-billing">{billed.text}</span>
+              <span class="fact" class:key={billed.key} data-testid="approval-billing" title="Billed to {billed.text}"
+                >{billed.text}</span
+              >
             {/each}
           </p>
         </div>
@@ -712,6 +745,8 @@ function verbAndObject(tool: string, action: string): { verb: string; object: st
               {#if agentNote}<p>Agent's note: {agentNote}</p>{/if}
             </details>
           {/if}
+          <!-- The answers stay in sight: a tall request scrolls under them, as under who asks. -->
+          <div class="foot">
           <div class="actions">
             <!-- Deny first, Allow once trailing: the macOS order. Return never allows. -->
             <button
@@ -744,6 +779,7 @@ function verbAndObject(tool: string, action: string): { verb: string; object: st
               >{said?.id === request.id && (said.text !== EARLY || !ready) ? said.text : ""}</span
             >
           </div>
+          </div>
           {#if denying === request.id}
             <form
               onsubmit={(event) => {
@@ -767,6 +803,22 @@ function verbAndObject(tool: string, action: string): { verb: string; object: st
         </ul>
       </li>
     {/each}
+    {#if more > 0}
+      <!-- The rest wait their turn on one line; nothing behind it can be answered unseen. -->
+      <li>
+        <button
+          type="button"
+          class="quiet more-line"
+          data-testid="approvals-more"
+          onclick={async () => {
+            // The button goes away: focus moves on to the first card it showed.
+            const before = cards().length;
+            await showMore();
+            cards()[before]?.focus();
+          }}>{more} more {more === 1 ? "request" : "requests"}</button
+        >
+      </li>
+    {/if}
     {/if}
   </ul>
   </div>
@@ -889,16 +941,27 @@ function verbAndObject(tool: string, action: string): { verb: string; object: st
     position: sticky;
     top: 0;
     z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
     padding-bottom: 2px;
     background: var(--s1);
   }
   .session {
+    flex: 1 1 0;
+    min-width: 4em;
     display: flex;
     align-items: center;
     gap: 8px;
     margin: 0;
     color: var(--text-2);
     font-size: 13px;
+  }
+  .name {
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
   }
   .dot {
     flex: none;
@@ -930,12 +993,16 @@ function verbAndObject(tool: string, action: string): { verb: string; object: st
   }
 
   /* Risk chips: what reaches past the sandbox or the project. */
+  /* Never cut: in a narrow column they wrap beside the name. */
   .chips {
+    flex: 0 1 auto;
+    min-width: 0;
     display: flex;
     flex-wrap: wrap;
+    justify-content: flex-end;
     align-items: center;
     gap: 4px 8px;
-    margin: 4px 0 0;
+    margin: 0;
     font-size: 13px;
     color: var(--text-2);
   }
@@ -1094,6 +1161,14 @@ function verbAndObject(tool: string, action: string): { verb: string; object: st
   .extra p {
     margin: 4px 0 0;
   }
+  .foot {
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
+    margin-inline: -4px;
+    padding: 0 4px 2px;
+    background: var(--s2);
+  }
   .actions {
     display: flex;
     flex-wrap: wrap;
@@ -1198,6 +1273,10 @@ function verbAndObject(tool: string, action: string): { verb: string; object: st
   }
   .more {
     margin-top: 6px;
+  }
+  .more-line {
+    margin-left: -6px;
+    font-size: 13px;
   }
   button[aria-disabled="true"] {
     opacity: 0.55;

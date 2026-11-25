@@ -147,7 +147,7 @@ test("in a short window, the shortcut shows the whole request and the title coun
   await expect(page.getByTestId("toast")).toHaveCount(0);
   await page.keyboard.press("Alt+Shift+A");
   await expect(run).toBeFocused();
-  await expect(run.locator("dl")).toBeInViewport({ ratio: 1 });
+  await expect(run.locator("[data-details]")).toBeInViewport({ ratio: 1 });
   // Who asks and the sandbox warning stay in sight above it (SEC-2).
   await expect(approvals.locator(".session")).toBeInViewport({ ratio: 1 });
   await expect(approvals.getByTestId("approval-unsandboxed")).toBeInViewport({ ratio: 1 });
@@ -163,6 +163,39 @@ test("in a short window, the shortcut shows the whole request and the title coun
   await page.keyboard.press("n");
   await expect(approvals).toContainText("Nothing waits for your approval.");
   await expect(page).toHaveTitle("Ovra");
+});
+
+test("at 1024x700 the request's answers are in sight and not covered", async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 700 });
+  await openProject(page, "ovra-agents-small-");
+  await page.getByRole("textbox", { name: "Give Claude a task" }).fill("Fix the typo");
+  await page.keyboard.press("ControlOrMeta+Enter");
+  const approvals = page.getByTestId("approvals");
+  const run = approvals.getByRole("group", { name: "Run ls -la" });
+  await expect(run).toBeVisible();
+  // The command once, in mono; nothing repeats it.
+  await expect(run).toContainText("List files");
+  await expect(run).not.toContainText(/\bcommand\b|\bdescription\b/);
+  // The group head is one line.
+  expect((await approvals.locator(".who").boundingBox())?.height).toBeLessThan(28);
+  for (const name of ["Deny", "Allow once", "Deny with a message…"]) {
+    const button = run.getByRole("button", { name, exact: name === "Deny" });
+    await expect(button).toBeInViewport({ ratio: 1 });
+    // Nothing is drawn over it: a click lands on the button.
+    const box = await button.boundingBox();
+    const hit = await page.evaluate(
+      ([x, y]) => document.elementFromPoint(x ?? 0, y ?? 0)?.closest("button")?.textContent ?? "",
+      [(box?.x ?? 0) + (box?.width ?? 0) / 2, (box?.y ?? 0) + (box?.height ?? 0) / 2],
+    );
+    expect(hit).toContain(name.replace("…", ""));
+  }
+  await arm(page);
+  await run.getByRole("button", { name: "Deny", exact: true }).click();
+  const edit = approvals.getByRole("group", { name: "Edit README.md" });
+  await expect(edit).toBeVisible();
+  await arm(page);
+  await edit.getByRole("button", { name: "Deny", exact: true }).click();
+  await expect(approvals).toContainText("Nothing waits for your approval.");
 });
 
 test("reply to an agent, allow with the mouse and stop it while it waits", async ({ page }) => {
@@ -237,8 +270,11 @@ test("a task's coordinator splits the work among three workers whose diffs wait 
   await page.getByRole("menuitemradio", { name: /^Plan and split/ }).click();
   await page.getByRole("button", { name: "Start", exact: true }).click();
 
-  // Each worker asks to write its notes; the person allows all three.
+  // Each worker asks to write its notes; the person allows all three. One
+  // card at a time, the others wait on one line.
   const approvals = page.getByTestId("approvals");
+  await expect(approvals.getByTestId("approvals-more")).toHaveText("2 more requests");
+  await expect(approvals.locator("[data-request]")).toHaveCount(1);
   for (let allowed = 0; allowed < 3; allowed++) {
     const card = approvals.getByRole("group", { name: "Write NOTES.md" }).first();
     await expect(card).toBeVisible();

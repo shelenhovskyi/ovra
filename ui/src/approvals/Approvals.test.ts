@@ -95,6 +95,13 @@ async function settle(ms = 0) {
   flushSync();
 }
 
+/** Shows every card, not only the oldest. */
+async function showRest() {
+  await settle();
+  target.querySelector<HTMLButtonElement>("[data-testid=approvals-more]")?.click();
+  await settle();
+}
+
 /** Presses a key down without releasing it. */
 function hold(code: string, init: KeyboardEventInit = {}) {
   const key = code.startsWith("Key") ? code.slice(3).toLowerCase() : code;
@@ -137,7 +144,8 @@ describe("Approvals", () => {
     });
     core.ask(bash("perm1"));
     await settle();
-    expect(words(heads()[0]?.querySelector(".session") ?? undefined)).toBe("Worker docs · demo");
+    // The window's own project goes without saying.
+    expect(words(heads()[0]?.querySelector(".session") ?? undefined)).toBe("Worker docs");
     expect(words(cards()[0]?.querySelector(".worker") ?? undefined)).toBe("docs");
     expect(cards()[0]?.querySelector("[data-testid=approval-worker-copy]")?.textContent).toBe(
       "Own copy, branch ovra/t1/docs",
@@ -192,13 +200,15 @@ describe("Approvals", () => {
     const card = cards()[0];
     expect(words(card?.querySelector("h3") ?? undefined)).toBe("Run ls -la");
     expect(card?.querySelector("h3 code")?.textContent).toBe("ls -la");
-    expect(words(heads()[0])).toContain("Fix the typo · demo");
+    expect(words(heads()[0])).toContain("Fix the typo");
     expect(card?.querySelector("[data-testid=approval-reason]")).toBeNull();
     core.ask({
       ...bash("perm2", "pwd"),
       reason: { text: "Path is outside allowed working directories", kind: "rule" },
     });
     await settle();
+    await showRest();
+    elsewhere?.focus();
     expect(cards()[1]?.querySelector("[data-testid=approval-reason]")?.textContent?.trim()).toBe(
       "Path is outside allowed working directories",
     );
@@ -300,6 +310,7 @@ describe("Approvals", () => {
     core.ask(bash("perm1"));
     core.ask({ ...bash("perm2"), session: "s2", project: "p2", cwd: "/other" });
     await settle();
+    await showRest();
     const other = heads().map((c) => c.querySelector("[data-testid=approval-other-project]") !== null);
     expect(other).toEqual([false, true]);
     expect(words(heads()[1])).toContain("Elsewhere task · other");
@@ -375,7 +386,7 @@ describe("Approvals", () => {
     });
     core.ask({ ...bash("perm2"), tool: "Read", input: { file_path: "/demo/../etc/passwd" } });
     core.ask({ ...bash("perm3"), tool: "Grep", input: { pattern: "TODO", path: "/demo/src" } });
-    await settle();
+    await showRest();
     for (const c of cards()) expand(c);
     const scopes = cards().map((c) => words(c.querySelector("[data-testid=approval-scope]") ?? undefined));
     // The title names the file once, by its path in the project; other paths are named on their line.
@@ -400,6 +411,7 @@ describe("Approvals", () => {
     core.ask({ ...bash("perm1"), tool: "Read", cwd: "/demo/.wt/w1", input: { file_path: "/demo/src/a.rs" } });
     core.ask({ id: "perm2", session: "s1", project: "p9", tool: "Read", input: { file_path: "/demo/a" }, title: null });
     await settle();
+    await showRest();
     const lines = (testid: string) =>
       cards().map((c) => c.querySelector(`[data-testid=${testid}]`)?.textContent?.replace(/\s+/g, " ").trim());
     // A worker's worktree is its folder: the main checkout is outside it.
@@ -471,6 +483,7 @@ describe("Approvals", () => {
     const core = await setup();
     core.ask(bash("perm1"));
     core.ask(bash("perm2", "pwd"));
+    await showRest();
     await settle(ARM_MS);
     core.pending.reverse();
     core.emit({ type: "info.resync", data: { skipped: 2 } });
@@ -502,20 +515,52 @@ describe("Approvals", () => {
   it("shows only the first request's details and never allows one unseen", async () => {
     const core = await setup();
     core.ask(bash("perm1"));
-    core.ask(bash("perm2", "rm -rf build"));
+    core.ask(bash("perm2", "pwd"));
+    core.ask(bash("perm3", "rm -rf build"));
+    // The rest open from the "more" line, which puts focus (and so the details) on the first of them.
+    await showRest();
     await settle(ARM_MS);
-    expect(cards().map((c) => c.querySelector("[data-details]") !== null)).toEqual([true, false]);
-    const allow = cards()[1]?.querySelector<HTMLButtonElement>("button.allow");
+    expect(cards().map((c) => c.querySelector("[data-details]") !== null)).toEqual([true, true, false]);
+    const allow = cards()[2]?.querySelector<HTMLButtonElement>("button.allow");
     allow?.click();
     await settle();
     // The first press shows what it would allow; the cards below moved, so it waits again.
     expect(answers(core)).toEqual([]);
-    expect(cards()[1]?.querySelector("[data-details]")?.textContent?.trim()).toBe("About rm -rf build");
+    expect(cards()[2]?.querySelector("[data-details]")?.textContent?.trim()).toBe("About rm -rf build");
     expect(allow?.getAttribute("aria-disabled")).toBe("true");
     await settle(ARM_MS);
     allow?.click();
     await settle();
-    expect(answers(core)).toEqual([{ id: "perm2", decision: "allow" }]);
+    expect(answers(core)).toEqual([{ id: "perm3", decision: "allow" }]);
+  });
+
+  it("shows the oldest request whole and the rest on one line that opens them", async () => {
+    const core = await setup();
+    core.ask(bash("perm1"));
+    core.ask(bash("perm2", "pwd"));
+    core.ask(bash("perm3", "id"));
+    await settle(ARM_MS);
+    const more = () => target.querySelector<HTMLButtonElement>("[data-testid=approvals-more]");
+    expect(cards().map((c) => c.dataset.request)).toEqual(["perm1"]);
+    expect(more()?.textContent).toBe("2 more requests");
+    // The heading still counts all of them.
+    expect(target.querySelector("#approvals-heading")?.textContent).toContain("(3 waiting)");
+    cards()[0]?.focus();
+    press("KeyY");
+    await settle();
+    // The next one takes the first place, and waits to be read.
+    expect(cards().map((c) => c.dataset.request)).toEqual(["perm2"]);
+    expect(document.activeElement).toBe(cards()[0]);
+    expect(more()?.textContent).toBe("1 more request");
+    await settle(ARM_MS);
+    // Down from the last card shows the rest; what appeared waits again.
+    press("ArrowDown");
+    await settle();
+    expect(more()).toBeNull();
+    expect(document.activeElement).toBe(cards()[1]);
+    press("KeyY");
+    await settle();
+    expect(answers(core)).toEqual([{ id: "perm1", decision: "allow" }]);
   });
 
   it("can be hidden, and opens again for the shortcut", async () => {
@@ -540,7 +585,9 @@ describe("Approvals", () => {
     core.ask(bash("perm2", "pwd"));
     await settle();
     const { approvalQueue } = await import("./queue.svelte");
+    // It waits behind the "more" line: its card comes up for it.
     approvalQueue(core).reveal("perm2");
+    await settle();
     expect(document.activeElement).toBe(cards()[1]);
     // Its notification steps aside while the card has focus.
     expect(approvalQueue(core).focused).toBe("perm2");
