@@ -23,6 +23,15 @@ let terminalNote = $state("");
 
 const status = $derived(model.state.kind === "ready" ? model.state.status : null);
 const lists = $derived(fileLists(status?.files ?? []));
+/** A repository with no commits and nothing changed: nothing to stage, commit or list yet. */
+const fresh = $derived(
+  !!status &&
+    !status.head &&
+    status.files.length === 0 &&
+    !status.operation &&
+    status.truncated === 0 &&
+    !model.discarded,
+);
 
 const OPERATION: Record<GitOperation, string> = {
   merge: "A merge is in progress.",
@@ -85,6 +94,9 @@ function ago(seconds: number, now = Date.now() / 1000): string {
   {:else if model.state.kind === "error"}
     <p class="error" role="alert" data-testid="git-error">{model.state.message}</p>
     <button type="button" onclick={() => model.refresh()}>Try again</button>
+  {:else if status && fresh}
+    <Branches {model} {status} />
+    <p class="hint" data-testid="git-fresh">No changes yet. Edit a file or give Claude a task; changes show up here.</p>
   {:else if status}
     <Branches {model} {status} />
     {#if status.operation}

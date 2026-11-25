@@ -131,7 +131,14 @@ it("says when the project is not a repository", async () => {
   expect(text("[data-testid=git-remote-hint]")).toBe(
     "Push and pull run in your terminal: open one, then type git push or git pull.",
   );
+  // With no commits and no changes there is nothing to commit or list: one line.
   core.status = repo({ head: null });
+  core.emit({ type: "fs.git_changed", data: { project: "p1" } });
+  await settle();
+  expect(text("[data-testid=git-fresh]")).toMatch(/^No changes yet\./);
+  expect($("[data-testid=git-commit]")).toBeNull();
+  expect($("[data-testid=git-changes]")).toBeNull();
+  core.status = repo({ head: null, files: [changed("a.ts", { unstaged: "untracked" })] });
   core.emit({ type: "fs.git_changed", data: { project: "p1" } });
   await settle();
   expect(text("#git-commit-why")).toBe("Stage changes to commit them.");
@@ -142,6 +149,15 @@ it("discards only after a confirmation and offers Undo until the next discard", 
   const core = new FakeGitCore();
   core.status = repo({ files: [changed("new.md", { unstaged: "untracked" }), changed("b.ts")] });
   await setup(core);
+  // Drawn icons, with Discard last, away from Stage.
+  const row = $("[data-testid=git-changes] [data-path='new.md']")?.parentElement;
+  const actions = [...(row?.querySelectorAll<HTMLButtonElement>("button.icon") ?? [])];
+  expect(actions.map((b) => b.getAttribute("aria-label"))).toEqual([
+    "Open new.md",
+    "Stage new.md",
+    "Discard changes to new.md…",
+  ]);
+  expect(actions.every((b) => b.querySelector("svg") && b.textContent?.trim() === "")).toBe(true);
 
   click("[aria-label='Discard changes to new.md…']");
   await settle();

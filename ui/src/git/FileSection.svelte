@@ -124,8 +124,21 @@ function onrowkeydown(event: KeyboardEvent, file: StatusFile, i: number): void {
   }
 }
 
+// Row icons: one drawn set, 16 px, in the text colour.
+const OPEN = "M9 2.5h4.5V7M13.5 2.5 7.5 8.5M11.5 9.5v4h-9v-9h4";
+const PLUS = "M8 3v10M3 8h10";
+const MINUS = "M3 8h10";
+const CHECK = "M3 8.5 6.5 12 13 4.5";
+const DISCARD = "M3.5 6.5h6.5a3 3 0 0 1 0 6H7M3.5 6.5 6 4M3.5 6.5 6 9";
+
 const all = $derived(files.flatMap((f) => (kind === "staged" && f.from ? [f.path, f.from] : [f.path])));
 </script>
+
+{#snippet icon(path: string)}
+  <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
+    <path d={path} fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+  </svg>
+{/snippet}
 
 <section class="files" aria-labelledby={`git-${kind}-title`} data-testid={`git-${kind}`}>
   <div class="head">
@@ -180,19 +193,7 @@ const all = $derived(files.flatMap((f) => (kind === "staged" && f.from ? [f.path
               tabindex="-1"
               title="Open file (O)"
               aria-label={`Open ${file.path}`}
-              onclick={() => onopen(file.path)}>↗</button
-            >
-          {/if}
-          {#if kind === "changes"}
-            <button
-              type="button"
-              class="icon"
-              tabindex="-1"
-              title="Discard changes… (Delete)"
-              aria-label={`Discard changes to ${file.path}…`}
-              aria-expanded={confirming === file.path}
-              aria-disabled={model.busy}
-              onclick={() => askDiscard(file.path)}>↺</button
+              onclick={() => onopen(file.path)}>{@render icon(OPEN)}</button
             >
           {/if}
           {#if kind === "staged"}
@@ -203,7 +204,7 @@ const all = $derived(files.flatMap((f) => (kind === "staged" && f.from ? [f.path
               title="Unstage (U)"
               aria-label={`Unstage ${file.path}`}
               aria-disabled={model.busy}
-              onclick={() => unstage(file, i)}>−</button
+              onclick={() => unstage(file, i)}>{@render icon(MINUS)}</button
             >
           {:else}
             <button
@@ -213,7 +214,20 @@ const all = $derived(files.flatMap((f) => (kind === "staged" && f.from ? [f.path
               title={kind === "conflicts" ? "Mark resolved (S)" : "Stage (S)"}
               aria-label={kind === "conflicts" ? `Mark ${file.path} resolved (stage)` : `Stage ${file.path}`}
               aria-disabled={model.busy}
-              onclick={() => stage(file, i)}>+</button
+              onclick={() => stage(file, i)}>{@render icon(kind === "conflicts" ? CHECK : PLUS)}</button
+            >
+          {/if}
+          {#if kind === "changes"}
+            <!-- Last and set apart: one slip from Stage must not reach it. -->
+            <button
+              type="button"
+              class="icon discard"
+              tabindex="-1"
+              title="Discard changes… (Delete)"
+              aria-label={`Discard changes to ${file.path}…`}
+              aria-expanded={confirming === file.path}
+              aria-disabled={model.busy}
+              onclick={() => askDiscard(file.path)}>{@render icon(DISCARD)}</button
             >
           {/if}
         </div>
@@ -370,7 +384,18 @@ const all = $derived(files.flatMap((f) => (kind === "staged" && f.from ? [f.path
     width: 24px;
     height: 24px;
     padding: 0;
-    font-family: ui-monospace, monospace;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  /* Apart from Stage, and in the warning colour once pointed at. */
+  .discard {
+    margin-left: 6px;
+  }
+  .discard:hover,
+  .discard:focus-visible {
+    color: #ff8a8a;
+    background: #3a1f22;
   }
   .confirm {
     margin: 2px 0 4px 12px;
