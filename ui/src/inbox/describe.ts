@@ -83,22 +83,24 @@ export function fileMarkers(
 }
 
 /**
- * Files a worker changed in `item` that a worker of another open item
- * changed too: keeping one of them first decides what the other copies
- * into. Empty unless `item` is open, and without the files whose version
- * another item already kept: that decision is made.
+ * Files changed in `item` that a worker of another open item changed too.
+ * Between workers' items, keeping one first decides what the other copies
+ * into, so a file whose version another item already kept is left out:
+ * that decision is made. A direct agent's files are in place already, but a
+ * worker's version of one still waits for it (`blocked`), so the direct
+ * agent's item marks every file a worker changed too. Empty unless `item`
+ * is open.
  */
 export function sharedFiles(item: ReviewItem, items: readonly ReviewItem[]): Set<string> {
   const shared = new Set<string>();
-  // Only copying decides between versions: a worker's item against another
-  // worker's. A direct agent's files are already in place, and a worker's
-  // file the direct agent changed too waits for it (`blocked`) and says so.
-  if (item.state !== "open" || item.mode !== "isolated") return shared;
-  const kept = keptFirst(item, items);
+  if (item.state !== "open") return shared;
+  const direct = item.mode !== "isolated";
+  const kept = direct ? new Map<string, ReviewItem>() : keptFirst(item, items);
   const others = new Set<string>();
   for (const other of items) {
     if (other.id === item.id || other.state !== "open" || other.mode !== "isolated") continue;
-    for (const f of other.files) if (f.by !== "outside" && !f.blocked) others.add(f.path);
+    // A worker's file that waits for the direct agent says so itself.
+    for (const f of other.files) if (f.by !== "outside" && (direct || !f.blocked)) others.add(f.path);
   }
   for (const f of item.files)
     if (f.by !== "outside" && !f.blocked && others.has(f.path) && !kept.has(f.path)) shared.add(f.path);
@@ -144,6 +146,8 @@ export function sharedHint(
   items: readonly ReviewItem[],
   nameOf: (i: ReviewItem) => string,
 ): string | null {
+  // The hint is about which version is copied: a direct agent's item copies nothing.
+  if (item.mode !== "isolated") return null;
   const shared = sharedFiles(item, items);
   if (shared.size === 0) return null;
   const others = items.filter(
