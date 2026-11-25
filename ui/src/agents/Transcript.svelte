@@ -7,8 +7,20 @@ import { describeTool, isIdeTool } from "../approvals/describe";
 import type { AgentMessage, Billing, MessageFrom } from "../lib/protocol";
 import { usageText } from "./sessions.svelte";
 
-/** `billing`: who pays for the session, which says what its cost means. */
-let { messages, billing = null }: { messages: AgentMessage[]; billing?: Billing | null } = $props();
+/**
+ * `billing`: who pays for the session, which says what its cost means.
+ * `workerName`: a task's worker by its session id, so tool lines name
+ * workers as the person knows them instead of by id.
+ */
+let {
+  messages,
+  billing = null,
+  workerName = () => undefined,
+}: {
+  messages: AgentMessage[];
+  billing?: Billing | null;
+  workerName?: (session: string) => string | undefined;
+} = $props();
 
 /** Who wrote what an agent was sent: never "You" for text the person did not write. */
 const FROM: Record<MessageFrom, string> = {
@@ -27,6 +39,57 @@ function clip(text: string): string {
   if (text.length <= MAX_OUTPUT) return text;
   return `${text.slice(0, MAX_OUTPUT)}\n… ${text.length - MAX_OUTPUT} more characters`;
 }
+
+/** What a tool does, in a word or two, above its summary; unknown tools by name. */
+function toolKind(tool: string): string {
+  if (isIdeTool(tool)) return "Task step";
+  switch (tool) {
+    case "Bash":
+      return "Command";
+    case "Edit":
+    case "MultiEdit":
+    case "NotebookEdit":
+    case "Write":
+      return "File change";
+    case "Read":
+      return "Read a file";
+    case "Glob":
+    case "Grep":
+      return "Search";
+    case "WebFetch":
+    case "WebSearch":
+      return "Web";
+    case "Agent":
+    case "Task":
+      return "Helper agent";
+    default:
+      return `Tool ${tool}`;
+  }
+}
+
+/** A tool call in words, with a worker's id replaced by its name. */
+function describe(tool: string, input: unknown) {
+  const fields = typeof input === "object" && input !== null ? (input as Record<string, unknown>) : null;
+  const name = typeof fields?.agent_id === "string" ? workerName(fields.agent_id) : undefined;
+  return describeTool(tool, name ? { ...fields, agent_id: name } : input);
+}
+
+/**
+ * Ovra's note to an agent: its first line is for the person, the rest
+ * (ids, tool hints, a diff) for the agent, shown folded.
+ */
+function note(text: string): { line: string; rest: string } {
+  const plain = text.startsWith("Ovra: ") ? text.slice("Ovra: ".length) : text;
+  const end = plain.indexOf("\n");
+  return end < 0 ? { line: plain, rest: "" } : { line: plain.slice(0, end), rest: plain.slice(end + 1).trim() };
+}
+
+const capital = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+
+/** Without usage (a fake agent, say) a turn's end line would say nothing. */
+const shown = $derived(
+  messages.filter((m) => m.kind !== "turn_end" || m.usage.input_tokens + m.usage.output_tokens > 0),
+);
 
 function lines(text: string): string {
   const n = text.split("\n").length;
@@ -61,28 +124,35 @@ $effect(() => {
 <!-- Focusable so arrow keys and Page Up/Down scroll it. -->
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 <ol class="transcript" aria-label="Transcript" tabindex="0" bind:this={box} data-testid="transcript">
-  {#each messages as message, i (i)}
+  {#each shown as message, i (i)}
     {@const sub = "parent" in message && message.parent ? "Subagent " : ""}
     <li class={message.kind} class:sub={sub !== ""}>
-      {#if message.kind === "user_text"}
+      {#if message.kind === "user_text" && message.from === "ovra"}
+        {@const { line, rest } = note(message.text)}
+        <span class="who">{FROM.ovra}</span>
+        <p>{line}</p>
+        {#if rest}
+          <details>
+            <summary class="who">What Claude was told</summary>
+            <pre>{clip(rest)}</pre>
+          </details>
+        {/if}
+      {:else if message.kind === "user_text"}
         <span class="who">{FROM[message.from]}</span>
         <p>{message.text}</p>
       {:else if message.kind === "assistant_text"}
         <span class="who">{sub}Claude</span>
         <p>{message.text}</p>
       {:else if message.kind === "tool_use"}
-        {@const summary = describeTool(message.name, message.input)}
+        {@const summary = describe(message.name, message.input)}
+        <span class="who" title={message.name}>{sub}{toolKind(message.name)}</span>
+        <p>{summary.action}</p>
         {#if isIdeTool(message.name)}
-          <!-- Ovra's own tools in words, with what was sent in full: a worker's
-               task and a coordinator's messages are what the person checks. -->
-          <span class="who">{sub}Ovra tool</span>
-          <p>{summary.action}</p>
+          <!-- What was sent in full: a worker's task and a coordinator's
+               messages are what the person checks. -->
           {#each summary.details as detail}
-            <p class="sent" data-testid="tool-detail"><span class="label">{detail.label}</span> {detail.text}</p>
+            <p class="sent" data-testid="tool-detail"><span class="label">{capital(detail.label)}:</span> {detail.text}</p>
           {/each}
-        {:else}
-          <span class="who">{sub}Tool {message.name}</span>
-          <p>{summary.action}</p>
         {/if}
       {:else if message.kind === "tool_result"}
         {#if message.is_error && message.output.startsWith(REJECTED)}
@@ -145,6 +215,7 @@ $effect(() => {
     color: #b4b4c0;
   }
   .tool_result summary,
+  .user_text summary,
   .error .who {
     font-weight: 600;
   }

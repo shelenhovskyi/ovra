@@ -119,6 +119,11 @@ $effect(() => {
   };
 });
 
+function workerName(id: SessionId): string | undefined {
+  const role = sessions.roles.get(id);
+  return role?.kind === "worker" ? role.name : undefined;
+}
+
 function text(err: unknown): string {
   if (err instanceof CoreError) return err.error.message;
   return err instanceof Error ? err.message : String(err);
@@ -316,7 +321,7 @@ const canReply = $derived(current !== null && current.status.state === "idle");
         {#if gaps}
           <p class="status" data-testid="agent-sandbox-gaps">{gaps}</p>
         {/if}
-        <Transcript messages={messages ?? []} billing={current.billing} />
+        <Transcript messages={messages ?? []} billing={current.billing} {workerName} />
         {#if !isEnded(current.status)}
           <form
             class="reply"

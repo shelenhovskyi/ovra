@@ -62,6 +62,16 @@ const panel = () => target.querySelector<HTMLElement>("[data-testid=agents-panel
 const transcript = () =>
   [...target.querySelectorAll("[data-testid=transcript] li")].map((li) => li.textContent?.replace(/\s+/g, " ").trim());
 
+/** Shows the session whose row title is `title`. */
+function selectRow(title: string) {
+  const row = [...target.querySelectorAll<HTMLButtonElement>(".sessions button")].find(
+    (b) => b.querySelector(".title")?.textContent === title,
+  );
+  if (!row) throw new Error(`no row ${title}`);
+  row.click();
+  flushSync();
+}
+
 describe("AgentsPanel", () => {
   it("offers one Start button and two plainly worded ways to work, one agent here by default", async () => {
     await setup();
@@ -169,7 +179,7 @@ describe("AgentsPanel", () => {
     expect(transcript()).toEqual([
       "You Fix the typo in README.md",
       "Claude Looking.",
-      "Tool Bash Run ls",
+      "Command Run ls",
       "Subagent Tool output (1 line) README.md",
       "Turn ended: 10 tokens in, 5 out, $0.0012",
     ]);
@@ -268,7 +278,12 @@ describe("AgentsPanel", () => {
     const info = core.addSession("p1", "Earlier task", { state: "idle" });
     info.billing = { kind: "subscription" };
     info.usage = { input_tokens: 64044, output_tokens: 372, cost_micro_usd: 2400 };
-    core.transcripts.set("s1", [{ kind: "turn_end", usage: info.usage }]);
+    // A turn without usage has nothing to say: no "0 tokens" line.
+    const none = { input_tokens: 0, output_tokens: 0, cost_micro_usd: null };
+    core.transcripts.set("s1", [
+      { kind: "turn_end", usage: none },
+      { kind: "turn_end", usage: info.usage },
+    ]);
     await setup(core);
     const estimate = "64,044 tokens in, 372 out, about $0.0024 at API prices (your plan's limits, not this amount)";
     expect(panel()?.querySelector("[data-testid=agent-usage]")?.textContent).toBe(`Total: ${estimate}`);
@@ -278,9 +293,22 @@ describe("AgentsPanel", () => {
   it("names who wrote each message an agent was sent", async () => {
     const core = new FakeAgentCore();
     core.addSession("p1", "Write the notes", { state: "idle" });
+    core.addSession("p1", "Write the docs notes.", { state: "idle" });
+    core.tasks.push({
+      id: "t1",
+      project: "p1",
+      coordinator: "s1",
+      workers: [{ session: "s2", name: "docs", branch: "ovra/t1/docs", worktree: "/wt/docs", kept: null }],
+      limits: { max_workers: 3, budget_micro_usd: null },
+      spent_micro_usd: 0,
+    });
     core.transcripts.set("s1", [
       { kind: "user_text", text: "Write the notes", from: "coordinator" },
-      { kind: "user_text", text: "Ovra: worker w stopped.", from: "ovra" },
+      {
+        kind: "user_text",
+        text: "Ovra: Worker docs stopped.\nFor the coordinator: its agent_id is s2. Check with list_agents.",
+        from: "ovra",
+      },
       { kind: "user_text", text: "Thanks", from: "person" },
       { kind: "user_text", text: "Saved long ago", from: "unknown" },
       {
@@ -298,15 +326,19 @@ describe("AgentsPanel", () => {
       },
     ]);
     await setup(core);
+    selectRow("Task: Write the notes");
+    await settle();
+    // Plain lines for the person; ids and tool names only behind a fold.
     expect(transcript()).toEqual([
       "Coordinator Write the notes",
-      "Ovra Ovra: worker w stopped.",
+      "Ovra Worker docs stopped. What Claude was told For the coordinator: its agent_id is s2. Check with list_agents.",
       "You Thanks",
       "Sender not recorded Saved long ago",
-      "Ovra tool Message worker s2 text Also add tests. Then ask for review.",
-      "Ovra tool Start worker docs: Write the notes. task Write the notes.",
-      "Ovra tool Message a worker text x",
+      "Task step Message worker docs Text: Also add tests. Then ask for review.",
+      "Task step Start worker docs: Write the notes. Task: Write the notes.",
+      "Task step Message a worker Text: x",
     ]);
+    expect(target.querySelector("[data-testid=transcript] li.user_text details")?.hasAttribute("open")).toBe(false);
   });
 
   it("replies only when the agent waits, and stops", async () => {
