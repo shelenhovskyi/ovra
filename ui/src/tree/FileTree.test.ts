@@ -201,11 +201,12 @@ describe("FileTree", () => {
   });
 
   it("collapses all, filters to changed files and reveals the open file from the toolbar", async () => {
+    let revealed = 0;
     const core = new FakeCore(dirsFromPaths(["a/b/c.ts", "a/d.ts"], { a: "modified", "a/d.ts": "modified" }));
     const target = document.body.appendChild(document.createElement("div"));
     const app = mount(FileTree, {
       target,
-      props: { transport: core, project: "p1", openPath: "a/b/c.ts", onopen: () => {} },
+      props: { transport: core, project: "p1", openPath: "a/b/c.ts", onopen: () => {}, onreveal: () => revealed++ },
     });
     cleanup = () => unmount(app);
     await settle();
@@ -214,6 +215,8 @@ describe("FileTree", () => {
     const paths = () => [...target.querySelectorAll<HTMLElement>("[role=treeitem]")].map((r) => r.dataset.path);
     button("Reveal").click();
     await settle();
+    // The sidebar is asked to show the tree first, also from the Git or Search view.
+    expect(revealed).toBe(1);
     expect(paths()).toEqual(["a", "a/b", "a/b/c.ts", "a/d.ts"]);
     expect(target.querySelector("[aria-selected=true]")?.getAttribute("data-path")).toBe("a/b/c.ts");
     button("Changed only").click();

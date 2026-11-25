@@ -16,11 +16,14 @@ let {
   project,
   openPath = null,
   onopen,
+  onreveal,
 }: {
   transport: Transport;
   project: ProjectId;
   openPath?: string | null;
   onopen: (path: string) => void;
+  /** Before a reveal: make the tree visible (the sidebar may show another view). */
+  onreveal?: () => void;
 } = $props();
 
 const ROW_HEIGHT = 22;
@@ -242,6 +245,7 @@ function collapseAll(): void {
 async function reveal(): Promise<void> {
   if (!openPath) return;
   const path = openPath;
+  onreveal?.();
   await model.reveal(path);
   select(
     rows.findIndex((r) => r.path === path),

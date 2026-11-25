@@ -15,6 +15,7 @@ const { transport, workspace } = useOvra();
       project={workspace.project.id}
       openPath={workspace.openPath}
       onopen={(path) => workspace.openFile(path, workspace.mode)}
+      onreveal={() => (workspace.sidebar = "files")}
     />
   {/key}
 {:else}
