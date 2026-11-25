@@ -13,6 +13,7 @@ mod direct;
 mod files;
 mod git;
 mod gitfiles;
+mod include;
 mod pick;
 mod repo;
 #[cfg(test)]
@@ -410,8 +411,8 @@ impl Worktrees for GitWorktrees {
         blocking(move || pick::pick(&root, &base, &start, &reviewed, &message, author.as_ref()))
     }
 
-    fn include(&self, _: PathBuf, _: PathBuf) -> BoxFuture<'_, Result<Included>> {
-        not_yet("copying .worktreeinclude files")
+    fn include(&self, root: PathBuf, dir: PathBuf) -> BoxFuture<'_, Result<Included>> {
+        blocking(move || include::include(&root, &dir))
     }
 
     fn usage(&self, _: PathBuf, _: Duration) -> BoxFuture<'_, Result<DiskUsage>> {
