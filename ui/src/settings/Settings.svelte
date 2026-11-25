@@ -18,6 +18,7 @@ import AgentLimitField from "./AgentLimitField.svelte";
 import ClaudePane from "./ClaudePane.svelte";
 import EditorPane from "./EditorPane.svelte";
 import { type PaneId, panesFor, settings } from "./panes.svelte";
+import ResourcesField from "./ResourcesField.svelte";
 import TrustPane from "./TrustPane.svelte";
 
 const { transport, workspace } = useOvra();
@@ -165,6 +166,7 @@ function onListKeydown(event: KeyboardEvent): void {
         {:else if pane.id === "claude"}
           <ClaudePane />
           <AgentLimitField />
+          <ResourcesField />
         {:else if pane.id === "rules"}
           <PolicyPanel />
         {:else if pane.id === "network"}

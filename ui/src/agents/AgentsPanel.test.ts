@@ -7,6 +7,7 @@ import type { FileChange, Pick, ReviewItem } from "../lib/protocol";
 import { closeContextMenu, contextMenu } from "../menu/context-menu.svelte";
 import { Workspace } from "../shell/workspace.svelte";
 import { FakeAgentCore } from "./fake-core";
+import { agentPrefs } from "./prefs.svelte";
 import TestHost from "./TestHost.svelte";
 
 let app: Record<string, unknown> | null = null;
@@ -309,6 +310,11 @@ describe("AgentsPanel", () => {
     await settle();
     const row = (title: string) =>
       [...target.querySelectorAll(".sessions .row-button")].find((b) => b.textContent?.includes(title));
+    // Hidden until the person asks for it in Settings; why a worker waits shows either way.
+    expect(row("docs")?.querySelector("[data-testid=agent-resources]")).toBeNull();
+    expect(row("tests")?.querySelector(".state")?.textContent).toBe("Waiting: low memory");
+    agentPrefs.showResources = true;
+    await settle();
     const taken = row("docs")?.querySelector("[data-testid=agent-resources]");
     expect(taken?.textContent).toBe("1.2 GB · 35% CPU · 2.4 GB on disk");
     expect(taken?.getAttribute("title")?.split("\n")).toEqual([
@@ -337,6 +343,7 @@ describe("AgentsPanel", () => {
     expect(row("tests")?.querySelector(".state")?.textContent).toBe("Waiting for a free agent");
     expect(row("docs")?.querySelector("[data-testid=agent-resources]")).toBeNull();
     expect(count()).toBe("1 of 3 · 1 queued · 1 planning");
+    agentPrefs.showResources = false;
   });
 
   it("names a task's workers and lists them under their coordinator", async () => {

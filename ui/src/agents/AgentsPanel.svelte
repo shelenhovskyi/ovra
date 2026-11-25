@@ -30,6 +30,7 @@ import { menuTarget } from "../shell/menu";
 import { signedOutError } from "./errors";
 import FirstSteps from "./FirstSteps.svelte";
 import { hints } from "./hints.svelte";
+import { agentPrefs } from "./prefs.svelte";
 import { pressureNote, resourcesLine, resourcesTip } from "./resources";
 import { listWarning, sandboxGaps, sandboxLine, sandboxState } from "./sandbox";
 import { agentSessions, openReviews, usageText } from "./sessions.svelte";
@@ -985,7 +986,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
             {@const action = chip(session)}
             {@const parts = role?.kind === "coordinator" ? progress(session.id) : null}
             {@const now = session.status.state === "working" ? step(session.id) : null}
-            {@const taken = sessions.resources.get(session.id)}
+            {@const taken = agentPrefs.showResources ? sessions.resources.get(session.id) : undefined}
             {@const disk = role?.kind === "worker" ? role.disk : null}
             <li class:worker={role?.kind === "worker"}>
               <!-- One Tab stop for the list (arrows move, Delete closes, Shift+F10 opens its menu). -->
@@ -1009,7 +1010,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
                         session.id,
                       )}{/if}</span>
                   {#if taken && resourcesLine(taken)}
-                    <!-- Quiet: what it takes of the computer; the split on hover. -->
+                    <!-- Only when asked for (Settings): what it takes of the computer; the split on hover. -->
                     <span class="taken" data-testid="agent-resources" title={resourcesTip(taken, disk)}
                       >{resourcesLine(taken, disk)}</span
                     >

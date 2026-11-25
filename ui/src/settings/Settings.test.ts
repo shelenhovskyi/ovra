@@ -1,5 +1,6 @@
 import { flushSync, mount, unmount } from "svelte";
 import { afterEach, expect, it } from "vitest";
+import { agentPrefs } from "../agents/prefs.svelte";
 import { listCommands, registerCommand } from "../keys/commands";
 import { registerContextKeys } from "../keys/context-keys";
 import type { ConfigItem, CoreEvent, ProjectConfigReview, Request, Response } from "../lib/protocol";
@@ -250,4 +251,24 @@ it("sets how many agents work at once and shows what the core kept", async () =>
   expect(sent).toEqual([5, 12]);
   expect(field()?.value).toBe("5");
   expect(target.querySelector("[data-testid=agent-limit] [role=alert]")?.textContent).toContain("from 1 to 8");
+});
+
+it("turns the agents' resource usage on and off, off at first", async () => {
+  const target = document.createElement("div");
+  document.body.append(target);
+  const app = mount(TestHost, { target, props: { transport, workspace: new Workspace() } });
+  cleanup.push(registerSettingsCommands(), () => {
+    unmount(app);
+    target.remove();
+    agentPrefs.showResources = false;
+  });
+  await listCommands()
+    .find((c) => c.id === "settings.claude")
+    ?.run();
+  await settle();
+  const toggle = target.querySelector<HTMLInputElement>("[data-testid=show-resources]");
+  expect(toggle?.checked).toBe(false);
+  toggle?.click();
+  await settle();
+  expect(agentPrefs.showResources).toBe(true);
 });
