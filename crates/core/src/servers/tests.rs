@@ -475,6 +475,64 @@ async fn a_session_started_after_its_server_was_ready_gets_the_grant() {
     insta::assert_json_snapshot!(server_audit(&f));
 }
 
+/// Stops `session` and waits until it shows as stopped.
+async fn stop_session(f: &Fx, session: &str) {
+    let mut rx = f.core.subscribe();
+    let stop = json!({"method": "agents.stop", "params": {"session": session}});
+    ok(&f.core, stop).await;
+    loop {
+        match Core::next_event(&mut rx).await {
+            Some(Event::Agents(AgentsEvent::Status {
+                session: s,
+                status: AgentStatus::Stopped,
+                ..
+            })) if s.0 == session => return,
+            Some(_) => {}
+            None => panic!("core closed"),
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_late_end_of_an_earlier_run_leaves_the_resumed_runs_grants() {
+    let f = fx().await;
+    let web = person_starts(&f, "web").await;
+    f.dev.report(&web.id, ServerStatus::Ready);
+    ok(&f.core, direct_session()).await;
+    let s1 = SessionId("s1".into());
+    let first = f.core.sessions().find(&s1, |s| s.run());
+    stop_session(&f, "s1").await;
+    let resume = json!({"method": "agents.resume", "params": {"session": "s1", "prompt": "again"}});
+    ok(&f.core, resume).await;
+    assert_eq!(grants(&f)["s1"], [(5173, 1)]);
+    // The first run's end arrives only now.
+    crate::servers::session_ended(&f.core, &s1, first.unwrap_or_else(|e| panic!("{e}")));
+    assert!(f.core.dev_servers().lock().granted.contains_key(&s1));
+    let stop = json!({"method": "servers.stop", "params": {"id": web.id.0}});
+    ok(&f.core, stop).await;
+    assert!(grants(&f).is_empty(), "the resumed run's netproxy lost it");
+}
+
+#[tokio::test]
+async fn a_dial_reaches_only_the_generation_it_was_granted_for() {
+    let f = fx().await;
+    let web = person_starts(&f, "web").await;
+    f.dev.report(&web.id, ServerStatus::Ready);
+    let dial = super::grants::dial(&f.core, &web.id, 1, Path::new(ROOT), 5173);
+    f.dev.serve(ROOT, 5173, Box::new(tokio::io::duplex(64).0));
+    assert!(dial().await.is_ok());
+    let restart = json!({"method": "servers.restart", "params": {"id": web.id.0}});
+    ok(&f.core, restart).await;
+    f.dev.report(&web.id, ServerStatus::Ready);
+    f.dev.serve(ROOT, 5173, Box::new(tokio::io::duplex(64).0));
+    assert_eq!(
+        dial().await.err().map(|e| e.code),
+        Some(ErrorCode::NotFound)
+    );
+    let current = super::grants::dial(&f.core, &web.id, 2, Path::new(ROOT), 5173);
+    assert!(current().await.is_ok());
+}
+
 #[tokio::test]
 async fn a_bad_port_in_servers_json_forwards_nothing_and_the_session_still_runs() {
     let f = fx().await;

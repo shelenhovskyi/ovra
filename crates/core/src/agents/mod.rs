@@ -653,9 +653,11 @@ impl AgentHost {
             if changed && status.is_ended() {
                 self.sessions.net_stop(&self.session);
             }
-            changed
+            (changed, s.run())
         });
-        if changed == Ok(true) {
+        // The run that ended: a resume may have started the next one since.
+        let (changed, run) = changed.unwrap_or((false, 0));
+        if changed {
             self.sink.emit(AgentsEvent::Status {
                 session: self.session.clone(),
                 project: self.project.clone(),
@@ -664,12 +666,12 @@ impl AgentHost {
             if let Some(core) = self.sessions.core() {
                 crate::orchestration::on_status(&core, &self.session, &status);
                 if status.is_ended() {
-                    crate::servers::session_ended(&core, &self.session);
+                    crate::servers::session_ended(&core, &self.session, run);
                     crate::browser::session_ended(&core, &self.session);
                 }
             }
         }
-        changed == Ok(true)
+        changed
     }
 
     pub(crate) fn resolved(&self, ids: Vec<PermissionId>, decision: Decision) {

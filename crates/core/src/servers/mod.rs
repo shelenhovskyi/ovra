@@ -64,8 +64,8 @@ struct State {
     made: u64,
     pods: BTreeMap<PathBuf, pods::Pod>,
     pods_made: u64,
-    /// What each session's netproxy was granted last.
-    granted: BTreeMap<SessionId, Vec<grants::Granted>>,
+    /// What each session's netproxy was granted last, by run.
+    granted: BTreeMap<SessionId, grants::Given>,
 }
 
 /// The main checkout or a worker's worktree: one pod each.
