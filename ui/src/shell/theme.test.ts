@@ -1,7 +1,7 @@
 // Contrast of the theme tokens that carry text (WCAG 2 ratios), so a colour
 // change cannot quietly drop below the spec's 4.5:1 (docs/specs/quiet-style.md).
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 // Read from disk: Vitest does not load CSS, not even with `?raw`.
 const css = readFileSync(`${import.meta.dirname}/theme.css`, "utf8");
@@ -15,6 +15,10 @@ function tokens(block: string): Record<string, string> {
 const lightAt = css.indexOf("@media (prefers-color-scheme: light)");
 const dark = tokens(css.slice(0, lightAt));
 const light = { ...dark, ...tokens(css.slice(lightAt, css.indexOf("\n:root {", lightAt))) };
+/** The tokens a media block sets, after `start`. */
+const block = (start: string) => tokens(css.slice(css.indexOf(start), css.indexOf("}\n}", css.indexOf(start))));
+const contrastDark = { ...dark, ...block("@media (prefers-contrast: more) {") };
+const contrastLight = { ...light, ...block("@media (prefers-contrast: more) and (prefers-color-scheme: light)") };
 
 function parse(value: string | undefined): Rgba {
   if (value?.startsWith("#")) return [1, 3, 5].map((i) => parseInt(value.slice(i, i + 2), 16)).concat(1) as Rgba;
@@ -41,11 +45,14 @@ const TEXT = ["text", "text-2", "accent", "warn", "ok", "danger"];
 
 // Surface steps: light needs wider ones than dark to read as separate areas.
 describe.each([
-  ["dark", dark, 1.04],
-  ["light", light, 1.08],
-] as const)("%s theme", (_, theme, step) => {
+  ["dark", dark, 1.04, contrastDark],
+  ["light", light, 1.08, contrastLight],
+] as const)("%s theme", (_, theme, step, more) => {
   const c = (name: string) => parse(theme[name]);
   const low: string[] = [];
+  beforeEach(() => {
+    low.length = 0;
+  });
   const check = (what: string, value: number, min: number) => {
     if (value < min) low.push(`${what} ${value.toFixed(2)} < ${min}`);
   };
@@ -58,6 +65,25 @@ describe.each([
     check("accent-ink on accent", ratio(c("accent-ink"), c("accent")), 4.5);
     for (const s of ["s1", "s2"]) check(`com on ${s}`, ratio(c("com"), c(s)), 4.5);
     for (const s of ["s0", "s1", "s2"]) check(`text-3 on ${s}`, ratio(c("text-3"), c(s)), 3);
+    expect(low).toEqual([]);
+  });
+
+  it("keeps text readable on selections and menus", () => {
+    for (const text of ["text", "text-2"]) {
+      check(`${text} on sel`, ratio(c(text), c("sel")), 4.5);
+      for (const s of ["s0", "s1", "s2"]) {
+        check(`${text} on sel-focus/${s}`, ratio(c(text), over(c("sel-focus"), c(s))), 4.5);
+        check(`${text} on menu/${s}`, ratio(c(text), over(c("menu"), c(s))), 4.5);
+      }
+    }
+    for (const s of ["s1", "s2"])
+      check(`text on selection/${s}`, ratio(c("text"), over(c("selection-text"), c(s))), 4.5);
+    expect(low).toEqual([]);
+  });
+
+  it("raises secondary text in increased contrast", () => {
+    for (const text of ["text-2", "text-3"])
+      for (const s of SURFACES) check(`${text} on ${s}`, ratio(parse(more[text]), c(s)), text === "text-2" ? 7 : 4.5);
     expect(low).toEqual([]);
   });
 
