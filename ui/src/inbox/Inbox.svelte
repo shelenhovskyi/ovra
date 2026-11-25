@@ -4,10 +4,10 @@
 // tab) opens it on the project's review items, grouped by task, with the
 // chosen one's files and, beside them, that file's diff. Mounted while
 // closed too, so it keeps the choice, the drafts and agents' asks.
-// Approve, reject and comment are always a person's press; nothing here
-// approves or merges on its own. Keys: arrows move in a list, N / P move
+// Keep, discard and comment are always a person's press; nothing here
+// keeps or merges on its own. Keys: arrows move in a list, N / P move
 // between changes in the diff, Mod+Enter sends a comment, Escape closes
-// (after leaving the reject step or the comment field).
+// (after leaving the discard step or the comment field).
 import { tick, untrack } from "svelte";
 import { agentSessions } from "../agents/sessions.svelte";
 import { registerCommand } from "../keys/commands";
@@ -162,11 +162,11 @@ $effect(() =>
   registerContextKeys([
     { keys: "Up/Down", title: "Previous or next item or file", where: "Reviews" },
     { keys: "Mod+Enter", title: "Send the comment", where: "Reviews" },
-    { keys: "Escape", title: "Leave the comment or the reject step", where: "Reviews" },
+    { keys: "Escape", title: "Leave the comment or the discard step", where: "Reviews" },
   ]),
 );
 
-// Closed by its frame (the close button, Escape): the reject step is over.
+// Closed by its frame (the close button, Escape): the discard step is over.
 $effect(() => {
   if (!opened) untrack(() => (confirmingReject = false));
 });
@@ -344,7 +344,7 @@ async function cancelReject(): Promise<void> {
   dialog?.querySelector<HTMLElement>("[data-start-reject]")?.focus();
 }
 
-/** Escape in the reject step leaves the step; the next one closes the view. */
+/** Escape in the discard step leaves the step; the next one closes the view. */
 function onViewKeydown(event: KeyboardEvent): void {
   if (event.code !== "Escape" || event.defaultPrevented || !confirmingReject) return;
   event.preventDefault();
@@ -493,13 +493,13 @@ function outcomeText(outcome: Outcome): string {
   if (outcome.action === "undone") {
     const back =
       outcome.restored.length === 0 ? " Nothing needed putting back." : ` Put back: ${outcome.restored.join(", ")}.`;
-    return `Reject undone.${back}${left}`;
+    return `Discard undone.${back}${left}`;
   }
   if (outcome.restored.length === 0) {
-    return `Rejected, but nothing was restored: no file here was changed only by the agent's file tools, so all of them stay as they are.${left}`;
+    return `Discarded, but nothing was restored: no file here was changed only by the agent's file tools, so all of them stay as they are.${left}`;
   }
-  if (worker) return `Rejected. Discarded from the worker's copy: ${outcome.restored.join(", ")}.${left}`;
-  return `Rejected. Restored: ${outcome.restored.join(", ")}.${left}`;
+  if (worker) return `Discarded. Removed from the worker's copy: ${outcome.restored.join(", ")}.${left}`;
+  return `Discarded. Restored: ${outcome.restored.join(", ")}.${left}`;
 }
 
 function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
@@ -689,7 +689,7 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                           await tick();
                           // Start on the safe choice, so a second Enter does not reject.
                           dialog?.querySelector<HTMLElement>("[data-cancel-reject]")?.focus();
-                        }}>Reject…</button
+                        }}>Discard…</button
                       >
                     {/if}
                   </div>
@@ -704,7 +704,7 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                           aria-disabled={busy}
                           onclick={() => {
                             if (!busy) void reject(item);
-                          }}>Reject the changes</button
+                          }}>Discard the changes</button
                         >
                         <button type="button" data-cancel-reject onclick={cancelReject}>Cancel</button>
                       </div>
@@ -771,8 +771,8 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
               {/if}
 
               {#if item.state === "rejected" && item.can_undo}
-                <div class="actions" role="group" aria-label="Undo the reject">
-                  <p class="hint">Puts back the files the reject restored. Files changed since stay as they are.</p>
+                <div class="actions" role="group" aria-label="Undo the discard">
+                  <p class="hint">Puts back the files the discard restored. Files changed since stay as they are.</p>
                   <div class="buttons">
                     <button
                       type="button"
@@ -780,7 +780,7 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                       aria-disabled={busy}
                       onclick={() => {
                         if (!busy) void undoReject(item);
-                      }}>Undo reject</button
+                      }}>Undo discard</button
                     >
                   </div>
                 </div>

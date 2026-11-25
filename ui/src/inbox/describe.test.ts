@@ -59,7 +59,7 @@ describe("inbox wording", () => {
     expect(reason("notes.md", "CLAUDE.md")).toBe("instructions every agent reads");
   });
 
-  it("marks protected files first and says a worker's approve leaves them out", () => {
+  it("marks protected files first and says a worker's Keep changes leaves them out", () => {
     const item = review("r1", {
       mode: "isolated",
       files: [
@@ -85,13 +85,13 @@ describe("inbox wording", () => {
     );
   });
 
-  it("says which of a direct session's protected files Reject restores and which it leaves", () => {
+  it("says which of a direct session's protected files Discard restores and which it leaves", () => {
     const mine = review("r1", {
       mode: "direct",
       files: [change("CLAUDE.md", { protected: true }), change("src/a.ts")],
     });
     expect(protectedHint(mine)).toBe(
-      "These can run code or change agent rules, and are already in your project folder: CLAUDE.md (instructions every agent reads). Keep changes leaves them; Reject restores them.",
+      "These can run code or change agent rules, and are already in your project folder: CLAUDE.md (instructions every agent reads). Keep changes leaves them; Discard restores them.",
     );
     const mixed = review("r2", {
       mode: "direct",
@@ -102,11 +102,11 @@ describe("inbox wording", () => {
       ],
     });
     expect(protectedHint(mixed)).toBe(
-      "These can run code or change agent rules, and are already in your project folder: .mcp.json (tools the agent can start), .envrc (runs commands when you enter the folder with direnv), .claude/settings.json (the agent's settings and permissions). Keep changes leaves them. Reject restores .mcp.json: the agent changed it with its own file tools. Reject leaves .envrc, .claude/settings.json as they are: changed outside the agent's file tools (by you, another program or the agent's commands).",
+      "These can run code or change agent rules, and are already in your project folder: .mcp.json (tools the agent can start), .envrc (runs commands when you enter the folder with direnv), .claude/settings.json (the agent's settings and permissions). Keep changes leaves them. Discard restores .mcp.json: the agent changed it with its own file tools. Discard leaves .envrc, .claude/settings.json as they are: changed outside the agent's file tools (by you, another program or the agent's commands).",
     );
     // The person's own edit is never called the agent's.
     const theirs = review("r3", { mode: "direct", files: [change(".envrc", { protected: true, by: "outside" })] });
-    expect(protectedHint(theirs)).not.toMatch(/Reject restores/);
+    expect(protectedHint(theirs)).not.toMatch(/Discard restores/);
   });
 
   it("warns about git hooks and config that no diff shows and nothing undoes", () => {
@@ -121,7 +121,7 @@ describe("inbox wording", () => {
     expect(itemSummary(item)).toBe("No changed files");
     const warning = gitWarning(item) ?? "";
     expect(warning).toContain(".git/hooks/pre-commit (added), /home/me/.gitconfig (modified)");
-    expect(warning).toContain("Keep changes and Reject leave them as they are");
+    expect(warning).toContain("Keep changes and Discard leave them as they are");
     expect(warning).toContain("check each one yourself");
     expect(warning).not.toContain("could not check");
 
@@ -148,7 +148,7 @@ describe("inbox wording", () => {
     expect([shortTitle(review("r1"), "Fix it"), taskOf(review("r1"), "a · b")]).toEqual(["Fix it", null]);
   });
 
-  it("sums up an item and says what approve and reject do", () => {
+  it("sums up an item and says what Keep changes and Discard do", () => {
     const worker = review("r1", {
       mode: "isolated",
       files: [change("a"), change("b", { blocked: true }), change("c", { by: "outside" })],
@@ -162,7 +162,7 @@ describe("inbox wording", () => {
     expect(approveHint(review("r4"))).toBe("Keep changes leaves them in your project folder.");
     expect(approveDetail(review("r4"))).toBeNull();
     expect(rejectHint(worker)).toBe(
-      "Reject discards the worker's changes from its own copy of the project. Your project folder is not touched.",
+      "Discard removes the worker's changes from its own copy of the project. Your project folder is not touched.",
     );
     // No git words in what the person reads before deciding.
     for (const text of [approveHint(worker), approveHint(review("r4")), rejectHint(worker)]) {
@@ -197,7 +197,7 @@ describe("inbox wording", () => {
       "Not copied: left out as protected, or your version changed",
     ]);
     expect(rejectHint(review("r2", { files: [change("a", { by: "both" })] }))).toBe(
-      "Reject restores only the files the agent changed with its own file tools, as they were at the start of the session. Files changed any other way (by you, another program or the agent's commands) stay as they are and are listed for you.",
+      "Discard restores only the files the agent changed with its own file tools, as they were at the start of the session. Files changed any other way (by you, another program or the agent's commands) stay as they are and are listed for you.",
     );
     expect(defaultCommitMessage(worker)).toBe("Fix the typo");
     expect(defaultCommitMessage(review("r3"))).toBe("");

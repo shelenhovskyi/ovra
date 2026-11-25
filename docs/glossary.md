@@ -10,7 +10,11 @@
 - **Direct mode** - one agent works in the project's main checkout; its
   changes are reviewed as a diff against a baseline snapshot (ADR 0005).
 - **Isolated mode** - an agent works in its own git worktree.
-- **Inbox** - the review queue where a person approves or rejects diffs.
+- **Inbox** - the review queue (Reviews in the UI) where a person keeps or
+  discards diffs.
+- **Keep / Discard** - what a person does with a review item. The UI never
+  says Approve or Reject for reviews; the protocol still names them
+  `review.approve` and `review.reject`.
 - **Service** - an OS-facing capability behind a trait in `ovra-core`
   (`FsService`, `ProjectStore`, `Opener`), implemented in its own crate.
 - **claude CLI** - the user's installed Claude Code; v1 runs each Claude

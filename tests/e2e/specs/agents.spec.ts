@@ -354,8 +354,8 @@ test("a direct session's protected files and git hooks need a look before approv
   const item = inbox.getByTestId("inbox-item");
   await expect(item.getByTestId("inbox-git")).toContainText("pre-commit (added)");
   await expect(item.getByTestId("inbox-git")).toContainText("leave them as they are");
-  await expect(item.getByTestId("inbox-protected")).toContainText("Reject leaves .envrc, .mcp.json as they are");
-  await expect(item.getByTestId("inbox-protected")).not.toContainText("Reject restores");
+  await expect(item.getByTestId("inbox-protected")).toContainText("Discard leaves .envrc, .mcp.json as they are");
+  await expect(item.getByTestId("inbox-protected")).not.toContainText("Discard restores");
 
   // It opens on the first protected file; Keep changes waits for the other one.
   const approve = item.getByRole("button", { name: "Keep changes", exact: true });

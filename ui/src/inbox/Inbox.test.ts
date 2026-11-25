@@ -122,7 +122,7 @@ describe("Inbox", () => {
     );
     expect($("[data-item=r1]")?.classList.contains("flagged")).toBe(true);
     expect($("[data-testid=inbox-protected]")?.textContent).toContain(
-      "Reject leaves .envrc as it is: changed outside the agent's file tools",
+      "Discard leaves .envrc as it is: changed outside the agent's file tools",
     );
     expect($("[data-testid=inbox-protected-why]")?.textContent).toContain("each of these: .envrc.");
     expect(button(/^Keep changes$/)?.getAttribute("aria-disabled")).toBe("true");
@@ -164,7 +164,7 @@ describe("Inbox", () => {
     ]);
   });
 
-  it("shows an item with only changed git hooks and config, and warns before Approve", async () => {
+  it("shows an item with only changed git hooks and config, and warns before Keep changes", async () => {
     await setup([
       review("r1", { files: [], git_changes: [{ path: ".git/hooks/pre-commit", kind: "added" }] }),
       review("r2", {
@@ -409,12 +409,12 @@ describe("Inbox", () => {
     expect(core.sent("review.approve")).toEqual([]);
   });
 
-  it("rejects after a confirmation that says what stays, and lists what was left", async () => {
+  it("discards after a confirmation that says what stays, and lists what was left", async () => {
     const core = await setup([review("r1", { files: [change("README.md", { by: "both" })] })]);
     core.conflicts = ["README.md"];
     core.restored = ["src/a.rs"];
     await open();
-    button(/^Reject…$/)?.click();
+    button(/^Discard…$/)?.click();
     await settle();
     expect(core.sent("review.reject")).toEqual([]);
     // The step starts on the safe choice; Escape leaves the step, not the inbox.
@@ -426,23 +426,23 @@ describe("Inbox", () => {
     await settle();
     expect($("[data-testid=inbox]")).not.toBeNull();
     expect($("#inbox-reject-hint")).toBeNull();
-    expect(document.activeElement?.textContent).toBe("Reject…");
+    expect(document.activeElement?.textContent).toBe("Discard…");
     // Closing Reviews by its frame ends the step too: it is not waiting, armed, when the view comes back.
-    button(/^Reject…$/)?.click();
+    button(/^Discard…$/)?.click();
     await settle();
     mainView.close(false);
     await settle();
     expect($("[data-testid=inbox]")).toBeNull();
     await open();
     expect($("#inbox-reject-hint")).toBeNull();
-    expect(button(/^Reject the changes$/)).toBeUndefined();
-    button(/^Reject…$/)?.click();
+    expect(button(/^Discard the changes$/)).toBeUndefined();
+    button(/^Discard…$/)?.click();
     await settle();
-    button(/^Reject the changes$/)?.click();
+    button(/^Discard the changes$/)?.click();
     await settle();
     expect(core.sent("review.reject")).toHaveLength(1);
     expect($("[data-testid=inbox-outcome]")?.textContent?.trim()).toBe(
-      "Rejected. Restored: src/a.rs. Kept as you changed them: README.md.",
+      "Discarded. Restored: src/a.rs. Kept as you changed them: README.md.",
     );
   });
 
@@ -529,37 +529,37 @@ describe("Inbox", () => {
     expect($("[data-testid=inbox-undo-take]")).toBeNull();
   });
 
-  it("says a worker's reject discarded files from its own copy", async () => {
+  it("says a worker's discard removed files from its own copy", async () => {
     const core = await setup([review("r1", { mode: "isolated", files: [change("NOTES.md")] })]);
     core.restored = ["NOTES.md"];
     await open();
-    button(/^Reject…$/)?.click();
+    button(/^Discard…$/)?.click();
     await settle();
-    button(/^Reject the changes$/)?.click();
+    button(/^Discard the changes$/)?.click();
     await settle();
     expect($("[data-testid=inbox-outcome]")?.textContent?.trim()).toBe(
-      "Rejected. Discarded from the worker's copy: NOTES.md.",
+      "Discarded. Removed from the worker's copy: NOTES.md.",
     );
   });
 
-  it("says when a reject restored nothing, and undoes a reject", async () => {
+  it("says when a discard restored nothing, and undoes a discard", async () => {
     const core = await setup([review("r1", { files: [change("README.md", { by: "outside" })] })]);
     await open();
-    button(/^Reject…$/)?.click();
+    button(/^Discard…$/)?.click();
     await settle();
-    button(/^Reject the changes$/)?.click();
+    button(/^Discard the changes$/)?.click();
     await settle();
     expect($("[data-testid=inbox-outcome]")?.textContent?.trim()).toBe(
-      "Rejected, but nothing was restored: no file here was changed only by the agent's file tools, so all of them stay as they are.",
+      "Discarded, but nothing was restored: no file here was changed only by the agent's file tools, so all of them stay as they are.",
     );
     // The pressed button is gone; focus lands on the undo instead of the page.
-    expect(document.activeElement?.textContent).toBe("Undo reject");
+    expect(document.activeElement?.textContent).toBe("Undo discard");
     core.restored = ["src/a.rs"];
-    button(/^Undo reject$/)?.click();
+    button(/^Undo discard$/)?.click();
     await settle();
     expect(core.sent("review.undo_reject").map((c) => c.params)).toEqual([{ id: "r1" }]);
-    expect($("[data-testid=inbox-outcome]")?.textContent?.trim()).toBe("Reject undone. Put back: src/a.rs.");
-    expect(button(/^Undo reject$/)).toBeUndefined();
+    expect($("[data-testid=inbox-outcome]")?.textContent?.trim()).toBe("Discard undone. Put back: src/a.rs.");
+    expect(button(/^Undo discard$/)).toBeUndefined();
     expect(document.activeElement?.id).toBe("inbox-item-title");
   });
 
@@ -691,5 +691,47 @@ describe("Inbox", () => {
     expect($("[data-testid=inbox-diff] [role=alert]")?.textContent).toBe(
       "Could not load the diff of src/a.ts: the diff of a decided review is kept for at most 50 files",
     );
+  });
+
+  it("says Keep and Discard, never Approve or Reject", async () => {
+    await setup([
+      review("r1", {
+        files: [
+          change("README.md"),
+          change(".mcp.json", { protected: true }),
+          change(".envrc", { protected: true, by: "outside" }),
+        ],
+        git_changes: [{ path: ".git/hooks/pre-commit", kind: "added" }],
+      }),
+      review("r2", {
+        mode: "isolated",
+        files: [change("a.rs", { blocked: true }), change(".envrc", { protected: true })],
+      }),
+      review("r3", { mode: "isolated", state: "partly_approved", not_copied: ["NOTES.md"] }),
+    ]);
+    // Everything a person reads or hears: text, and the names and hints of controls.
+    const words = () =>
+      [
+        target.textContent,
+        ...[...target.querySelectorAll("[aria-label], [title], [placeholder]")].flatMap((e) =>
+          ["aria-label", "title", "placeholder"].map((a) => e.getAttribute(a) ?? ""),
+        ),
+      ].join("\n");
+    const said: string[] = [];
+    await open();
+    for (const id of ["r1", "r2", "r3"]) {
+      $<HTMLButtonElement>(`[data-item=${id}]`)?.click();
+      await settle();
+      said.push(words());
+      if (!button(/^Discard…$/)) continue;
+      button(/^Discard…$/)?.click();
+      await settle();
+      said.push(words());
+      button(/^Discard the changes$/)?.click();
+      await settle();
+      said.push(words());
+    }
+    expect(said.join("\n")).toContain("Undo discard");
+    expect(said.join("\n")).not.toMatch(/\b(approv|reject)/i);
   });
 });

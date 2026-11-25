@@ -6,7 +6,7 @@ export const STATE_LABEL: Record<ReviewState, string> = {
   open: "Waiting for review",
   approved: "Kept",
   partly_approved: "Kept, not all copied",
-  rejected: "Rejected",
+  rejected: "Discarded",
 };
 
 const KIND_LABEL: Record<ChangeKind, string> = {
@@ -231,7 +231,7 @@ export function gitWarning(item: ReviewItem): string | null {
   if (item.git_changes.length > 0) {
     const listed = item.git_changes.map((c) => `${c.path} (${KIND_LABEL[c.kind]})`).join(", ");
     parts.push(
-      `Git hooks or config changed: ${listed}. They can make git run programs. Keep changes and Reject leave them as they are: check each one yourself before you use git here.`,
+      `Git hooks or config changed: ${listed}. They can make git run programs. Keep changes and Discard leave them as they are: check each one yourself before you use git here.`,
     );
   }
   if (item.git_unchecked) parts.push("Ovra could not check git hooks and config for this item: look at them yourself.");
@@ -283,10 +283,10 @@ export function fileName(f: FileChange): string {
 const names = (files: FileChange[]) => files.map(fileName).join(", ");
 
 /**
- * Said beside Approve before it is pressed when the item changes protected
- * paths: each file with what it does, and what Approve and Reject do to it.
+ * Said beside Keep changes before it is pressed when the item changes protected
+ * paths: each file with what it does, and what Keep changes and Discard do to it.
  * A worker's are left out unless the person includes them; a direct
- * session's are already in the project folder, and Reject restores only
+ * session's are already in the project folder, and Discard restores only
  * those the agent changed with its own file tools. Null when it has none.
  */
 export function protectedHint(item: ReviewItem): string | null {
@@ -297,14 +297,14 @@ export function protectedHint(item: ReviewItem): string | null {
     const mine = files.filter((f) => f.by === "agent");
     const other = files.filter((f) => f.by !== "agent");
     const parts = [`These can run code or change agent rules, and are already in your project folder: ${described}.`];
-    if (other.length === 0) return [...parts, "Keep changes leaves them; Reject restores them."].join(" ");
+    if (other.length === 0) return [...parts, "Keep changes leaves them; Discard restores them."].join(" ");
     parts.push("Keep changes leaves them.");
     if (mine.length > 0)
       parts.push(
-        `Reject restores ${names(mine)}: the agent changed ${mine.length === 1 ? "it" : "them"} with its own file tools.`,
+        `Discard restores ${names(mine)}: the agent changed ${mine.length === 1 ? "it" : "them"} with its own file tools.`,
       );
     parts.push(
-      `Reject leaves ${names(other)} as ${other.length === 1 ? "it is" : "they are"}: changed outside the agent's file tools (by you, another program or the agent's commands).`,
+      `Discard leaves ${names(other)} as ${other.length === 1 ? "it is" : "they are"}: changed outside the agent's file tools (by you, another program or the agent's commands).`,
     );
     return parts.join(" ");
   }
@@ -343,9 +343,9 @@ export function notCopiedHint(item: ReviewItem, keptFrom: ReadonlyMap<string, st
 /** What reject does: only what the agent's own file tools changed is restored. */
 export function rejectHint(item: ReviewItem): string {
   if (item.mode === "isolated")
-    return "Reject discards the worker's changes from its own copy of the project. Your project folder is not touched.";
+    return "Discard removes the worker's changes from its own copy of the project. Your project folder is not touched.";
   const restores =
-    "Reject restores only the files the agent changed with its own file tools, as they were at the start of the session.";
+    "Discard restores only the files the agent changed with its own file tools, as they were at the start of the session.";
   return item.files.some((f) => f.by !== "agent")
     ? `${restores} Files changed any other way (by you, another program or the agent's commands) stay as they are and are listed for you.`
     : restores;

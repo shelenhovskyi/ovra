@@ -72,13 +72,15 @@ Taken as the reasonable default (reversible; see each page):
   servers become a tab in the bottom dock.
 - Approval buttons follow macOS order: Deny, then Allow on the trailing
   side. Y and N answer; Return does not approve. Esc leaves it waiting.
+- Reviews says "Keep changes" and "Discard…" (confirmed by "Discard the
+  changes"), never Approve or Reject (owner, 2026-11-25). The protocol keeps
+  `review.approve` and `review.reject`.
 
 Open for the owner:
 
 - "Always allow `npm test` here" on an approval would write a policy rule.
   That loosens security, so it waits for the owner and a human security
   review.
-- Wording "Keep changes / Discard" instead of "Approve / Reject" in Reviews.
 - Window translucency (Tauri `windowEffects`) for the title bar and rail.
 - Streaming replies need a CLI flag and a new protocol event; that lands as
   its own small task first.

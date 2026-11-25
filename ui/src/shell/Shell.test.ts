@@ -164,7 +164,7 @@ describe("Shell", () => {
         "Git: Mod+Enter Commit",
         "Reviews: Up/Down Previous or next item or file",
         "Reviews: Mod+Enter Send the comment",
-        "Reviews: Escape Leave the comment or the reject step",
+        "Reviews: Escape Leave the comment or the discard step",
         "Search or run: Up/Down Previous or next result",
         "Search or run: Ctrl+N Next result (also Ctrl+J)",
         "Search or run: Ctrl+P Previous result (also Ctrl+K)",
