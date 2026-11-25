@@ -10,6 +10,7 @@ use crate::protocol::servers::{ServerId, ServerStatus};
 use crate::protocol::{ErrorCode, ProtocolError};
 use crate::services::{
     BoxFuture, DevServerSpec, DevServers, PodConn, PodSpec, Result, SandboxStatus, ServerSink,
+    SetupEnd, SetupSink, SetupStep,
 };
 
 /// Records each start and stop. A stop reports `Exited { code: None }`, as
@@ -23,6 +24,11 @@ pub struct FakeDevServers {
     pub running: Mutex<BTreeMap<ServerId, FakeDevServer>>,
     /// Every `stop` call, in order.
     pub stopped: Mutex<Vec<(ServerId, Duration)>>,
+    /// Every `setup` call: the pod and its steps.
+    pub setups: Mutex<Vec<(PodSpec, Vec<SetupStep>)>>,
+    /// How the next `setup` ends; `None` is [`SetupEnd::Done`]. Each step
+    /// up to the one it names is reported as started.
+    pub setup_end: Mutex<Option<SetupEnd>>,
     queued: Mutex<BTreeMap<(PathBuf, u16), Vec<PodConn>>>,
 }
 
@@ -40,6 +46,7 @@ impl std::fmt::Debug for FakeDevServers {
             .field("fails", &self.fails)
             .field("running", &self.running)
             .field("stopped", &self.stopped)
+            .field("setups", &self.setups)
             .field("queued", &lock(&self.queued).len())
             .finish()
     }
@@ -137,6 +144,24 @@ impl DevServers for FakeDevServers {
             conn.ok_or_else(|| not_found(format!("a server on port {port}")))
         })
     }
+
+    fn setup(
+        &self,
+        pod: &PodSpec,
+        steps: Vec<SetupStep>,
+        sink: Arc<dyn SetupSink>,
+    ) -> BoxFuture<'_, Result<SetupEnd>> {
+        let end = lock(&self.setup_end).take().unwrap_or(SetupEnd::Done);
+        let last = match end {
+            SetupEnd::Done => steps.len(),
+            SetupEnd::Failed { step, .. } | SetupEnd::TimedOut { step } => step + 1,
+        };
+        for index in 0..last.min(steps.len()) {
+            sink.step(index);
+        }
+        lock(&self.setups).push((pod.clone(), steps));
+        Box::pin(async move { Ok(end) })
+    }
 }
 
 #[cfg(test)]
@@ -219,6 +244,44 @@ mod tests {
                 (3, "Exited { code: None }".to_owned()),
             ]
         );
+    }
+
+    #[derive(Debug, Default)]
+    struct Steps(Mutex<Vec<usize>>);
+
+    impl SetupSink for Steps {
+        fn step(&self, index: usize) {
+            lock(&self.0).push(index);
+        }
+        fn output(&self, _: usize, _: Vec<String>) {}
+    }
+
+    #[tokio::test]
+    async fn setup_reports_the_steps_up_to_the_one_that_failed() {
+        let servers = FakeDevServers::default();
+        let step = SetupStep {
+            line: spec("x", 1).line,
+            timeout: Duration::from_secs(600),
+        };
+        let steps = vec![step.clone(), step.clone(), step];
+        let sink = Arc::new(Steps::default());
+        let done = servers
+            .setup(&pod("/wt"), steps.clone(), sink.clone())
+            .await;
+        assert_eq!(done.ok(), Some(SetupEnd::Done));
+        assert_eq!(*lock(&sink.0), [0, 1, 2]);
+
+        let failed = SetupEnd::Failed {
+            step: 1,
+            code: Some(1),
+            reason: None,
+        };
+        *lock(&servers.setup_end) = Some(failed.clone());
+        let sink = Arc::new(Steps::default());
+        let end = servers.setup(&pod("/wt"), steps, sink.clone()).await;
+        assert_eq!(end.ok(), Some(failed));
+        assert_eq!(*lock(&sink.0), [0, 1]);
+        assert_eq!(lock(&servers.setups).len(), 2);
     }
 
     #[tokio::test]

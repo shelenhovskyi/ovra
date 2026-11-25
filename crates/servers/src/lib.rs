@@ -15,7 +15,7 @@ use std::time::Duration;
 use ovra_core::protocol::servers::ServerId;
 use ovra_core::services::{
     BoxFuture, DevServerSpec, DevServers, PodConn, PodSpec, Result, Sandbox, SandboxStatus,
-    ServerSink,
+    ServerSink, SetupEnd, SetupSink, SetupStep,
 };
 
 #[cfg(target_os = "linux")]
@@ -146,6 +146,20 @@ impl DevServers for PodServers {
     fn connect(&self, work_dir: PathBuf, port: u16) -> BoxFuture<'_, Result<PodConn>> {
         Box::pin(self.pods.connect(work_dir, port))
     }
+
+    fn setup(
+        &self,
+        _: &PodSpec,
+        _: Vec<SetupStep>,
+        _: Arc<dyn SetupSink>,
+    ) -> BoxFuture<'_, Result<SetupEnd>> {
+        Box::pin(async {
+            Err(ovra_core::protocol::ProtocolError::new(
+                ovra_core::protocol::ErrorCode::Unavailable,
+                "worktree setup steps are not available in this build",
+            ))
+        })
+    }
 }
 
 #[cfg(not(unix))]
@@ -166,6 +180,15 @@ impl DevServers for PodServers {
     fn stop(&self, _: &ServerId, _: Duration) {}
 
     fn connect(&self, _: PathBuf, _: u16) -> BoxFuture<'_, Result<PodConn>> {
+        Box::pin(async { Err(unavailable()) })
+    }
+
+    fn setup(
+        &self,
+        _: &PodSpec,
+        _: Vec<SetupStep>,
+        _: Arc<dyn SetupSink>,
+    ) -> BoxFuture<'_, Result<SetupEnd>> {
         Box::pin(async { Err(unavailable()) })
     }
 }

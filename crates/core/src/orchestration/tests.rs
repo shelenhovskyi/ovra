@@ -1339,7 +1339,8 @@ async fn a_worker_that_could_not_start_is_listed_with_its_task_and_why() {
 
     // Once it starts after all, it is no longer listed as failed.
     let removed =
-        crate::services::Worktrees::remove(&*f.wt, PathBuf::from(ROOT), dir.clone()).await;
+        crate::services::Worktrees::remove(&*f.wt, PathBuf::from(ROOT), dir.clone(), Vec::new())
+            .await;
     assert!(removed.is_ok());
     assert!(f.core.spawn_agent(&boss, "docs", "x").await.is_ok());
     let Response::Orchestration(OrchestrationResponse::List(tasks)) = ok(&f.core, list).await

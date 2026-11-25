@@ -4,14 +4,16 @@
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::Mutex;
+use std::time::Duration;
 
 use serde_json::{Value, json};
 
 use super::*;
 use crate::fakes::MemoryWorktrees;
 use crate::orchestration::review::Guard;
+use crate::protocol::orchestration::DiskUsage;
 use crate::protocol::review::ChangeKind;
-use crate::services::{BoxFuture, GitFiles, WorktreeInfo};
+use crate::services::{BoxFuture, GitFiles, Included, IncludedFile, WorktreeInfo};
 
 const DIR: &str = crate::test_path!("/p");
 
@@ -114,8 +116,25 @@ impl Worktrees for Trees {
     ) -> BoxFuture<'_, Result<String>> {
         self.mem.commit(dir, paths, message)
     }
-    fn remove(&self, root: PathBuf, dir: PathBuf) -> BoxFuture<'_, Result<()>> {
-        self.mem.remove(root, dir)
+    fn remove(
+        &self,
+        root: PathBuf,
+        dir: PathBuf,
+        included: Vec<IncludedFile>,
+    ) -> BoxFuture<'_, Result<()>> {
+        self.mem.remove(root, dir, included)
+    }
+    fn include(&self, root: PathBuf, dir: PathBuf) -> BoxFuture<'_, Result<Included>> {
+        self.mem.include(root, dir)
+    }
+    fn usage(&self, dir: PathBuf, budget: Duration) -> BoxFuture<'_, Result<DiskUsage>> {
+        self.mem.usage(dir, budget)
+    }
+    fn lock(&self, root: PathBuf, dir: PathBuf, reason: String) -> BoxFuture<'_, Result<()>> {
+        self.mem.lock(root, dir, reason)
+    }
+    fn unlock(&self, root: PathBuf, dir: PathBuf) -> BoxFuture<'_, Result<()>> {
+        self.mem.unlock(root, dir)
     }
     fn prune_snapshots(&self, root: PathBuf, keep: Vec<String>) -> BoxFuture<'_, Result<()>> {
         self.mem.prune_snapshots(root, keep)

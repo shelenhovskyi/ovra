@@ -40,6 +40,38 @@ pub struct Worker {
     /// git ignores, such as `.env`, that only exist there).
     #[serde(default)]
     pub kept: Option<String>,
+    /// Its worktree's setup while it runs, and after it failed; `None`
+    /// without setup steps and once they succeeded.
+    #[serde(default)]
+    pub setup: Option<SetupProgress>,
+    /// Its worktree's size on disk; `None` until it was counted.
+    #[serde(default)]
+    pub disk: Option<DiskUsage>,
+}
+
+/// Where a worktree's setup steps (`.ovra/worktree.json`) are.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetupProgress {
+    /// The step that runs, or that failed, from 0.
+    pub step: u32,
+    /// How many steps there are.
+    pub steps: u32,
+    /// That step's program and arguments, joined with spaces, for people.
+    pub command: String,
+    /// The last lines of its output (at most 50), without line endings.
+    pub log: Vec<String>,
+    /// Why it failed or timed out, in words for people; `None` while it runs.
+    pub failed: Option<String>,
+}
+
+/// The size of a folder on disk, counted by `Worktrees::usage`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DiskUsage {
+    pub bytes: u64,
+    /// `true`: every file was counted, and since cloned blocks count in full
+    /// the size is an upper bound ("up to"). `false`: counting stopped at its
+    /// time limit, so the size is a lower bound ("more than").
+    pub complete: bool,
 }
 
 /// A worker the coordinator asked for that could not start.
@@ -114,4 +146,40 @@ pub enum OrchestrationEvent {
         project: ProjectId,
         target: ShowTarget,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_worker_saved_before_setup_and_disk_reads_without_them() {
+        let old = serde_json::json!({
+            "session": "s2", "name": "w", "branch": "ovra/t1/w", "worktree": "/wt", "kept": null,
+        });
+        let worker: Worker = serde_json::from_value(old).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!((worker.setup, worker.disk), (None, None));
+        let setup = SetupProgress {
+            step: 1,
+            steps: 2,
+            command: "pnpm install".into(),
+            log: vec!["ERR_PNPM".into()],
+            failed: Some("exited with code 1".into()),
+        };
+        let disk = DiskUsage {
+            bytes: 4096,
+            complete: false,
+        };
+        let worker = Worker {
+            setup: Some(setup),
+            disk: Some(disk),
+            ..worker
+        };
+        let json = serde_json::to_value(&worker).unwrap_or_default();
+        assert_eq!(json["setup"]["failed"], "exited with code 1");
+        assert_eq!(
+            json["disk"],
+            serde_json::json!({"bytes": 4096, "complete": false})
+        );
+    }
 }

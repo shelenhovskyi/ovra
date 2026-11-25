@@ -20,6 +20,30 @@ export type Worker = {
   worktree: string;
   /** Why its worktree stays although its task ended (for example ignored files such as `.env`). */
   kept: string | null;
+  /** Its worktree's setup while it runs and after it failed; null without setup or once it succeeded (absent from older cores). */
+  setup?: SetupProgress | null;
+  /** Its worktree's size on disk; null until counted (absent from older cores). */
+  disk?: DiskUsage | null;
+};
+
+/** Where a worktree's setup steps (`.ovra/worktree.json`) are. */
+export type SetupProgress = {
+  /** The step that runs, or that failed, from 0. */
+  step: number;
+  steps: number;
+  /** That step's program and arguments, for people. */
+  command: string;
+  /** The last lines of its output (at most 50). */
+  log: string[];
+  /** Why it failed or timed out; null while it runs. */
+  failed: string | null;
+};
+
+/** A folder's size on disk. */
+export type DiskUsage = {
+  bytes: number;
+  /** true: all counted, an upper bound ("up to"); false: counting stopped early ("more than"). */
+  complete: boolean;
 };
 
 /** A worker the coordinator asked for that could not start. */

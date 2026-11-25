@@ -23,8 +23,11 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use ovra_core::path::RelPath;
+use ovra_core::protocol::orchestration::DiskUsage;
 use ovra_core::protocol::{ErrorCode, ProtocolError};
-use ovra_core::services::{BoxFuture, Delta, GitFiles, Result, Taken, WorktreeInfo, Worktrees};
+use ovra_core::services::{
+    BoxFuture, Delta, GitFiles, Included, IncludedFile, Result, Taken, WorktreeInfo, Worktrees,
+};
 
 use crate::git::Git;
 pub use crate::repo::GitRepo;
@@ -52,6 +55,15 @@ impl GitWorktrees {
     pub fn new() -> Self {
         Self::default()
     }
+}
+
+/// A part of the contract this crate does not implement yet.
+fn not_yet<T: Send + 'static>(what: &str) -> BoxFuture<'static, Result<T>> {
+    let err = ProtocolError::new(
+        ErrorCode::Unavailable,
+        format!("{what} is not available in this build"),
+    );
+    Box::pin(async move { Err(err) })
 }
 
 fn hold(lock: &Mutex<()>) -> MutexGuard<'_, ()> {
@@ -333,8 +345,30 @@ impl Worktrees for GitWorktrees {
         blocking(move || files::commit(&dir, &paths, &message))
     }
 
-    fn remove(&self, root: PathBuf, dir: PathBuf) -> BoxFuture<'_, Result<()>> {
+    fn remove(
+        &self,
+        root: PathBuf,
+        dir: PathBuf,
+        // Not yet: every ignored file outside ignored folders blocks (WS.A).
+        _included: Vec<IncludedFile>,
+    ) -> BoxFuture<'_, Result<()>> {
         blocking(move || remove(&root, &dir))
+    }
+
+    fn include(&self, _: PathBuf, _: PathBuf) -> BoxFuture<'_, Result<Included>> {
+        not_yet("copying .worktreeinclude files")
+    }
+
+    fn usage(&self, _: PathBuf, _: Duration) -> BoxFuture<'_, Result<DiskUsage>> {
+        not_yet("counting a worktree's size")
+    }
+
+    fn lock(&self, _: PathBuf, _: PathBuf, _: String) -> BoxFuture<'_, Result<()>> {
+        not_yet("locking a worktree")
+    }
+
+    fn unlock(&self, _: PathBuf, _: PathBuf) -> BoxFuture<'_, Result<()>> {
+        not_yet("unlocking a worktree")
     }
 
     fn take(

@@ -4,12 +4,16 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use super::{lock, not_found};
 use crate::path::RelPath;
+use crate::protocol::orchestration::DiskUsage;
 use crate::protocol::review::ChangeKind;
 use crate::protocol::{ErrorCode, ProtocolError};
-use crate::services::{BoxFuture, Delta, GitFiles, Result, Taken, WorktreeInfo, Worktrees};
+use crate::services::{
+    BoxFuture, Delta, GitFiles, Included, IncludedFile, Result, Taken, WorktreeInfo, Worktrees,
+};
 
 type Files = BTreeMap<String, String>;
 
@@ -28,6 +32,13 @@ pub struct MemoryWorktrees {
     /// When set, `remove` refuses with this reason, as the real one does
     /// for a worktree that holds ignored files.
     pub refuse_remove: Mutex<Option<String>>,
+    /// `(dir, included)` of every `remove` call that removed a tree.
+    pub removed: Mutex<Vec<(PathBuf, Vec<IncludedFile>)>>,
+    /// What `include` reports. Each copied path the main checkout has is
+    /// copied into the worktree with its text.
+    pub to_include: Mutex<Included>,
+    /// Locked worktrees and their reasons.
+    pub locked: Mutex<BTreeMap<PathBuf, String>>,
     /// What `git_files` reports, by directory; empty by default.
     pub git_files: Mutex<BTreeMap<PathBuf, GitFiles>>,
     /// When set, `snapshot` lets other tasks run first, as a real one that
@@ -372,7 +383,12 @@ impl Worktrees for MemoryWorktrees {
         })
     }
 
-    fn remove(&self, _root: PathBuf, dir: PathBuf) -> BoxFuture<'_, Result<()>> {
+    fn remove(
+        &self,
+        _root: PathBuf,
+        dir: PathBuf,
+        included: Vec<IncludedFile>,
+    ) -> BoxFuture<'_, Result<()>> {
         Box::pin(async move {
             if let Some(reason) = lock(&self.refuse_remove).clone() {
                 return Err(crate::protocol::ProtocolError::new(
@@ -382,8 +398,52 @@ impl Worktrees for MemoryWorktrees {
             }
             lock(&self.dirs)
                 .remove(&dir)
-                .map(|_| ())
-                .ok_or_else(|| not_found(format!("working tree {}", dir.display())))
+                .ok_or_else(|| not_found(format!("working tree {}", dir.display())))?;
+            lock(&self.locked).remove(&dir);
+            lock(&self.removed).push((dir, included));
+            Ok(())
+        })
+    }
+
+    fn include(&self, root: PathBuf, dir: PathBuf) -> BoxFuture<'_, Result<Included>> {
+        Box::pin(async move {
+            let included = lock(&self.to_include).clone();
+            let main = self.tree(&root)?;
+            let mut dirs = lock(&self.dirs);
+            let tree = dirs
+                .get_mut(&dir)
+                .ok_or_else(|| not_found(format!("working tree {}", dir.display())))?;
+            for file in &included.copied {
+                if let Some(text) = main.get(&file.path) {
+                    tree.insert(file.path.clone(), text.clone());
+                }
+            }
+            Ok(included)
+        })
+    }
+
+    fn usage(&self, dir: PathBuf, _budget: Duration) -> BoxFuture<'_, Result<DiskUsage>> {
+        Box::pin(async move {
+            let bytes = self.tree(&dir)?.values().map(|t| t.len() as u64).sum();
+            Ok(DiskUsage {
+                bytes,
+                complete: true,
+            })
+        })
+    }
+
+    fn lock(&self, _root: PathBuf, dir: PathBuf, reason: String) -> BoxFuture<'_, Result<()>> {
+        Box::pin(async move {
+            self.tree(&dir)?;
+            lock(&self.locked).insert(dir, reason);
+            Ok(())
+        })
+    }
+
+    fn unlock(&self, _root: PathBuf, dir: PathBuf) -> BoxFuture<'_, Result<()>> {
+        Box::pin(async move {
+            lock(&self.locked).remove(&dir);
+            Ok(())
         })
     }
 }
@@ -454,6 +514,39 @@ mod tests {
         let restored = w.restore("/wt".into(), base.clone(), vec![rel("a.rs"), rel("c.rs")]);
         assert!(restored.await.is_ok());
         assert_eq!(w.files("/wt").keys().collect::<Vec<_>>(), ["a.rs"]);
-        assert!(w.remove("/main".into(), "/wt".into()).await.is_ok());
+        assert!(
+            w.remove("/main".into(), "/wt".into(), Vec::new())
+                .await
+                .is_ok()
+        );
+    }
+
+    #[tokio::test]
+    async fn include_copies_the_listed_files_and_a_lock_lasts_until_removal() {
+        let w = MemoryWorktrees::default();
+        w.put("/main", ".env", "KEY=1\n");
+        w.put("/wt", "a.rs", "x\n");
+        let env = IncludedFile {
+            path: ".env".into(),
+            bytes: 6,
+            hash: "h".into(),
+        };
+        lock(&w.to_include).copied.push(env.clone());
+        let included = w.include("/main".into(), "/wt".into()).await;
+        assert_eq!(included.map(|i| i.copied).ok(), Some(vec![env.clone()]));
+        assert_eq!(
+            w.files("/wt").get(".env").map(String::as_str),
+            Some("KEY=1\n")
+        );
+        let usage = w.usage("/wt".into(), Duration::from_secs(2)).await;
+        assert_eq!(usage.map(|u| (u.bytes, u.complete)).ok(), Some((8, true)));
+
+        let reason = "Ovra: t1/x".to_owned();
+        assert!(w.lock("/main".into(), "/wt".into(), reason).await.is_ok());
+        assert!(lock(&w.locked).contains_key(&PathBuf::from("/wt")));
+        let removed = w.remove("/main".into(), "/wt".into(), vec![env]).await;
+        assert!(removed.is_ok());
+        assert!(lock(&w.locked).is_empty());
+        assert_eq!(lock(&w.removed).len(), 1);
     }
 }

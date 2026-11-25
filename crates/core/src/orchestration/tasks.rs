@@ -517,7 +517,7 @@ async fn create_worker(
         Ok(session) => session.id,
         Err(err) => {
             // Nothing ran in it; a worktree left behind would only confuse.
-            let _ = worktrees.remove(root, info.path).await;
+            let _ = worktrees.remove(root, info.path, Vec::new()).await;
             return Err(err);
         }
     };
@@ -527,6 +527,8 @@ async fn create_worker(
         branch: info.branch,
         worktree: info.path.to_string_lossy().into_owned(),
         kept: None,
+        setup: None,
+        disk: None,
     };
     let workspace = Workspace {
         dir: info.path,
@@ -572,7 +574,7 @@ pub(super) async fn clean_up(core: &Core, project: &ProjectId) {
         let worktrees = core.worktrees();
         let (removed, kept) = match review::settled(core, &worker.session).await {
             None => (false, None),
-            Some(base) => match worktrees.remove(root.clone(), dir).await {
+            Some(base) => match worktrees.remove(root.clone(), dir, Vec::new()).await {
                 Ok(()) => {
                     // Its start is a snapshot and its decisions are kept as
                     // snapshots; a branch with more than that stays.

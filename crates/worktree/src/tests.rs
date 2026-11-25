@@ -539,11 +539,11 @@ async fn approved_work_applies_unless_the_person_changed_the_file() {
     // Deleting a file leaves its folder.
     assert!(wt.join("sub").is_dir());
 
-    assert!(w.remove(root.clone(), wt.clone()).await.is_ok());
+    assert!(w.remove(root.clone(), wt.clone(), Vec::new()).await.is_ok());
     assert!(!wt.exists());
     git(root, &["rev-parse", "--verify", "--quiet", BRANCH]);
     // A worktree that is already gone is pruned.
-    assert!(w.remove(root.clone(), wt).await.is_ok());
+    assert!(w.remove(root.clone(), wt, Vec::new()).await.is_ok());
 }
 
 #[tokio::test]
@@ -564,7 +564,7 @@ async fn worktrees_are_locked_until_removed_even_when_their_folder_is_gone() {
     git(root, &["worktree", "prune"]);
     assert_eq!(git(root, &["worktree", "list"]).lines().count(), 2);
 
-    assert!(w.remove(root.clone(), wt).await.is_ok());
+    assert!(w.remove(root.clone(), wt, Vec::new()).await.is_ok());
     assert_eq!(git(root, &["worktree", "list"]).lines().count(), 1);
 }
 
@@ -810,13 +810,13 @@ async fn ended_workers_lose_nothing_when_cleaned_up() {
     put(&wt, "target/debug/out.bin", "build output\n");
     put(&wt, "secrets.env", "TOKEN=1\n");
 
-    let refused = w.remove(root.clone(), wt.clone()).await;
+    let refused = w.remove(root.clone(), wt.clone(), Vec::new()).await;
     let err = refused.err();
     assert_eq!(err.as_ref().map(|e| e.code), Some(ErrorCode::Conflict));
     assert!(format!("{err:?}").contains("secrets.env"), "{err:?}");
     assert!(wt.join("secrets.env").exists());
     fs::remove_file(wt.join("secrets.env")).unwrap_or_else(|e| panic!("{e}"));
-    let removed = w.remove(root.clone(), wt.clone()).await;
+    let removed = w.remove(root.clone(), wt.clone(), Vec::new()).await;
     assert!(removed.is_ok(), "{removed:?}");
 
     // A branch with only its base goes; one the worker committed on stays.

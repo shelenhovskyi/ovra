@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::broadcast;
 
@@ -29,6 +30,7 @@ use crate::protocol::git::{
 };
 use crate::protocol::lsp::KnownServer;
 use crate::protocol::netproxy::{Allowlist, NetproxyEvent};
+use crate::protocol::orchestration::DiskUsage;
 use crate::protocol::policy::Policy;
 use crate::protocol::projects::{Project, ProjectId, ProjectState, ProjectStatePatch};
 use crate::protocol::review::ChangeKind;
@@ -611,6 +613,43 @@ pub trait ServerSink: Send + Sync + Debug {
     fn status(&self, id: &ServerId, generation: u64, status: ServerStatus);
 }
 
+/// One step of a work dir's setup (`.ovra/worktree.json`,
+/// `docs/specs/worktree-setup.md`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SetupStep {
+    /// Built by the core: the program and its arguments without a shell,
+    /// in the work dir, with `OVRA_WORKTREE_ROOT`, `OVRA_MAIN_ROOT` and
+    /// `OVRA_PORT` set.
+    pub line: CommandLine,
+    pub timeout: Duration,
+}
+
+/// How [`DevServers::setup`] reports while its steps run.
+pub trait SetupSink: Send + Sync + Debug {
+    /// Step `index` (from 0) starts.
+    fn step(&self, index: usize);
+    /// New lines of that step's output: stdout and stderr merged, without
+    /// line endings.
+    fn output(&self, index: usize, lines: Vec<String>);
+}
+
+/// How [`DevServers::setup`] ended. After a failed step the rest do not run.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SetupEnd {
+    Done,
+    /// Step `step` exited with `code` (`None`: ended by a signal), or could
+    /// not start (`reason`).
+    Failed {
+        step: usize,
+        code: Option<i32>,
+        reason: Option<String>,
+    },
+    /// Step `step` ran longer than its timeout and was killed.
+    TimedOut {
+        step: usize,
+    },
+}
+
 /// A connection to a port in a pod, both ways.
 pub trait PodStream: AsyncRead + AsyncWrite + Unpin + Send {}
 
@@ -633,6 +672,15 @@ pub trait DevServers: Send + Sync + Debug {
     /// A connection to `port` in the pod of `work_dir`, for the netproxy
     /// and the person's forward. Never to a host port.
     fn connect(&self, work_dir: PathBuf, port: u16) -> BoxFuture<'_, Result<PodConn>>;
+    /// Runs `steps` once, in order, in the pod of `pod.work_dir` (making it
+    /// if needed), each killed with its process group after its timeout. Reports through `sink`; dropping
+    /// the future kills the running step.
+    fn setup(
+        &self,
+        pod: &PodSpec,
+        steps: Vec<SetupStep>,
+        sink: Arc<dyn SetupSink>,
+    ) -> BoxFuture<'_, Result<SetupEnd>>;
 }
 
 /// How a session's browser reports to the core.
@@ -1020,8 +1068,30 @@ pub trait Worktrees: Send + Sync + Debug {
     /// Removes the worktree at `dir` from the repository at `root`. Its
     /// branch is kept. Refused (`Conflict`, naming them) while it holds
     /// ignored files outside ignored folders, such as a `.env`: those are
-    /// in no snapshot and would be lost.
-    fn remove(&self, root: PathBuf, dir: PathBuf) -> BoxFuture<'_, Result<()>>;
+    /// in no snapshot and would be lost. Files in `included` (from
+    /// [`Worktrees::include`]) do not count while they still have the size
+    /// and hash they were copied with: the original is in the main checkout.
+    fn remove(
+        &self,
+        root: PathBuf,
+        dir: PathBuf,
+        included: Vec<IncludedFile>,
+    ) -> BoxFuture<'_, Result<()>>;
+    /// Copies the ignored files and folders that `root`'s `.worktreeinclude`
+    /// lists from the main checkout at `root` into the new worktree at
+    /// `dir` (`docs/specs/worktree-setup.md`): never through a symlink,
+    /// never under `.git`, never outside `dir`; folders only as
+    /// copy-on-write clones, plain copies up to a total cap. Nothing to do
+    /// without the file.
+    fn include(&self, root: PathBuf, dir: PathBuf) -> BoxFuture<'_, Result<Included>>;
+    /// The size of `dir` on disk, walking for at most `budget`.
+    fn usage(&self, dir: PathBuf, budget: Duration) -> BoxFuture<'_, Result<DiskUsage>>;
+    /// `git worktree lock` of the worktree at `dir` in the repository at
+    /// `root`, so the person's `git worktree prune` or `remove` leaves it.
+    /// Locking a locked worktree again is fine.
+    fn lock(&self, root: PathBuf, dir: PathBuf, reason: String) -> BoxFuture<'_, Result<()>>;
+    /// Undoes [`Worktrees::lock`]; an unlocked worktree is fine.
+    fn unlock(&self, root: PathBuf, dir: PathBuf) -> BoxFuture<'_, Result<()>>;
     /// Lets go of every snapshot of the repository at `root` (its main
     /// checkout and its worktrees) except those in `keep`, so that git can
     /// collect them. The core calls it when reviews no longer need them.
@@ -1048,6 +1118,34 @@ pub struct GitFiles {
     /// name the review shows: `.git/config`, `.git/hooks/pre-commit`, or
     /// the path itself for a hooks folder outside the repository.
     pub files: BTreeMap<String, String>,
+}
+
+/// One file [`Worktrees::include`] copied, as it was copied.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IncludedFile {
+    /// Relative to the worktree, `/`-separated.
+    pub path: String,
+    pub bytes: u64,
+    /// Names the content (a hash): equal hashes mean equal content.
+    pub hash: String,
+}
+
+/// What [`Worktrees::include`] did.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Included {
+    /// Files copied or cloned, inside copied folders too.
+    pub copied: Vec<IncludedFile>,
+    /// Lines and paths left out, each with why, for the setup log.
+    pub skipped: Vec<SkippedInclude>,
+}
+
+/// A path [`Worktrees::include`] did not copy.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SkippedInclude {
+    pub path: String,
+    /// In words for people: "a symlink", "a folder, and this volume cannot
+    /// clone", "over the 256 MiB for plain copies".
+    pub reason: String,
 }
 
 /// What [`Worktrees::take`] did.
@@ -1389,8 +1487,20 @@ impl Worktrees for Unavailable {
     fn commit(&self, _: PathBuf, _: Vec<RelPath>, _: String) -> BoxFuture<'_, Result<String>> {
         Box::pin(async move { self.err() })
     }
-    fn remove(&self, _: PathBuf, _: PathBuf) -> BoxFuture<'_, Result<()>> {
+    fn remove(&self, _: PathBuf, _: PathBuf, _: Vec<IncludedFile>) -> BoxFuture<'_, Result<()>> {
         Box::pin(async move { self.err() })
+    }
+    fn include(&self, _: PathBuf, _: PathBuf) -> BoxFuture<'_, Result<Included>> {
+        self.later()
+    }
+    fn usage(&self, _: PathBuf, _: Duration) -> BoxFuture<'_, Result<DiskUsage>> {
+        self.later()
+    }
+    fn lock(&self, _: PathBuf, _: PathBuf, _: String) -> BoxFuture<'_, Result<()>> {
+        self.later()
+    }
+    fn unlock(&self, _: PathBuf, _: PathBuf) -> BoxFuture<'_, Result<()>> {
+        self.later()
     }
     fn prune_snapshots(&self, _: PathBuf, _: Vec<String>) -> BoxFuture<'_, Result<()>> {
         Box::pin(async move { self.err() })
@@ -1485,6 +1595,14 @@ impl DevServers for Unavailable {
     }
     fn stop(&self, _: &ServerId, _: Duration) {}
     fn connect(&self, _: PathBuf, _: u16) -> BoxFuture<'_, Result<PodConn>> {
+        self.later()
+    }
+    fn setup(
+        &self,
+        _: &PodSpec,
+        _: Vec<SetupStep>,
+        _: Arc<dyn SetupSink>,
+    ) -> BoxFuture<'_, Result<SetupEnd>> {
         self.later()
     }
 }

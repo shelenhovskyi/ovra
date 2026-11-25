@@ -460,6 +460,18 @@ impl ovra_core::services::DevServers for PresetServers {
     {
         self.0.connect(work_dir, port)
     }
+
+    fn setup(
+        &self,
+        pod: &ovra_core::services::PodSpec,
+        steps: Vec<ovra_core::services::SetupStep>,
+        sink: Arc<dyn ovra_core::services::SetupSink>,
+    ) -> ovra_core::services::BoxFuture<
+        '_,
+        ovra_core::services::Result<ovra_core::services::SetupEnd>,
+    > {
+        self.0.setup(pod, steps, sink)
+    }
 }
 
 fn new_token() -> String {
