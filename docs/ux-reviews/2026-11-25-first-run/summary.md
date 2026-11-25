@@ -9,6 +9,7 @@ problems appear with several tasks at once.
 ## Iteration 3, by owning area
 
 **Trust card and setup (`ui/src/agents/setup`)**
+
 - SEC-1 major: the "Review and trust" command focuses the Trust button; one
   more Enter trusts. Focus the heading instead; trust buttons get the
   approvals' arming delay and ignore key repeat.
@@ -20,6 +21,7 @@ problems appear with several tasks at once.
   command in the changed warning, warnings not by colour alone.
 
 **Approvals and notices (`ui/src/approvals`, `ui/src/notify`)**
+
 - SEC-2 major: at narrow sizes the request scrolls fully into view and the
   area keeps a minimum height while something waits.
 - ORCH-1 major: toasts above dialogs; the approvals command works while the
@@ -29,6 +31,7 @@ problems appear with several tasks at once.
 - NEW-8: an early click on Allow says it is not ready yet, not silence.
 
 **Agents panel and task text (`ui/src/agents`, `crates/core/src/orchestration`)**
+
 - NEW-1 major: after a task in the project folder, list the files it changed
   with links to their diffs.
 - NEW-2 major: one consistent end state; a split task's end says how many
@@ -40,6 +43,7 @@ problems appear with several tasks at once.
   trust cards (which collapse to one line).
 
 **Header and shell (`ui/src/shell`, `ui/src/tree`)**
+
 - NEW-3/NEW-4 major: the project name opens a project switcher with "Open
   a folder…"; the open project survives a reload.
 - ORCH minor: the More menu shows each item's shortcut and the palette's
@@ -48,9 +52,11 @@ problems appear with several tasks at once.
   "keep these changes?").
 
 **Owner decision**
+
 - ORCH-3 major: two split tasks ran 8 agents at once; the limit of 3 is per
   task. Asked the owner whether it is one limit for all tasks.
 
 **Other threads**
+
 - SEC-4 (account picker shows billing and sign-in state) goes to the Claude
   accounts thread.

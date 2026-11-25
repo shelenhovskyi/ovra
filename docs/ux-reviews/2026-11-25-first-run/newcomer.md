@@ -130,16 +130,16 @@ pre-plan state, but the end of the first task still loses her.
 
 ## Heuristic scores (Nielsen, 0-4)
 
-| # | Heuristic | Score | Key issue |
-|---|-----------|-------|-----------|
-| 1 | Visibility of system status | 2 | The end of a task is unclear: "Waiting for you" vs "finished" (NEW-1, NEW-2) |
-| 2 | Match with the real world | 2 | `agent_id`, "Tool Bash", "Turn ended: 0 tokens", "Session s1" (NEW-4, NEW-5) |
-| 3 | User control and freedom | 2 | No mouse path back to the project list or to a second folder (NEW-3) |
-| 4 | Consistency and standards | 2 | Approvals / Allow / Approve / Reviews (NEW-9); toast vs row status |
-| 5 | Error prevention | 3 | Approval delay and path checks work, but the delay is invisible (NEW-8) |
-| 6 | Recognition rather than recall | 2 | Switching projects only through palette commands she has to remember |
-| 7 | Flexibility and efficiency | 3 | Shortcuts shown next to actions; Alt+P differs from VS Code |
-| 8 | Aesthetic and minimalist design | 3 | Calm first screen; the trust card above the task form is still noisy |
-| 9 | Error recognition and recovery | 3 | Good path and setup messages; reload loses context (NEW-4) |
-| 10 | Help and documentation | 2 | Good inline hints, but no hint about where results go in "here" mode |
-| **Total** | | **24/40** | **Acceptable** |
+| #         | Heuristic                       | Score     | Key issue                                                                    |
+| --------- | ------------------------------- | --------- | ---------------------------------------------------------------------------- |
+| 1         | Visibility of system status     | 2         | The end of a task is unclear: "Waiting for you" vs "finished" (NEW-1, NEW-2) |
+| 2         | Match with the real world       | 2         | `agent_id`, "Tool Bash", "Turn ended: 0 tokens", "Session s1" (NEW-4, NEW-5) |
+| 3         | User control and freedom        | 2         | No mouse path back to the project list or to a second folder (NEW-3)         |
+| 4         | Consistency and standards       | 2         | Approvals / Allow / Approve / Reviews (NEW-9); toast vs row status           |
+| 5         | Error prevention                | 3         | Approval delay and path checks work, but the delay is invisible (NEW-8)      |
+| 6         | Recognition rather than recall  | 2         | Switching projects only through palette commands she has to remember         |
+| 7         | Flexibility and efficiency      | 3         | Shortcuts shown next to actions; Alt+P differs from VS Code                  |
+| 8         | Aesthetic and minimalist design | 3         | Calm first screen; the trust card above the task form is still noisy         |
+| 9         | Error recognition and recovery  | 3         | Good path and setup messages; reload loses context (NEW-4)                   |
+| 10        | Help and documentation          | 2         | Good inline hints, but no hint about where results go in "here" mode         |
+| **Total** |                                 | **24/40** | **Acceptable**                                                               |
