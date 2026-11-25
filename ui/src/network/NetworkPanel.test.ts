@@ -181,6 +181,24 @@ describe("NetworkPanel", () => {
     expect($("[data-testid=unsandboxed]")?.textContent).toContain("Could not check");
   });
 
+  it("lists what the sandbox of the project's live sessions does not cover, each once", async () => {
+    const core = new FakeAccessCore();
+    core.sessions = [session("s1", { name: "bubblewrap", network: "proxy", gaps: [] })];
+    await open(core);
+    expect($("[data-testid=sandbox-gaps]")).toBeNull();
+    unmount(app ?? {});
+    app = null;
+    const windows = { name: "Windows sandbox user", network: "proxy" as const };
+    core.sessions = [
+      session("s1", { ...windows, gaps: ["DNS lookups", "loopback services"] }),
+      session("s2", { ...windows, gaps: ["DNS lookups", "Windows file sharing"] }),
+    ];
+    await open(core);
+    expect($("[data-testid=sandbox-gaps]")?.textContent).toBe(
+      "Not covered: DNS lookups, loopback services, Windows file sharing.",
+    );
+  });
+
   it("keeps Tab inside the dialog, from the heading and past a disabled form", async () => {
     const core = new FakeAccessCore();
     core.store = { state: "unavailable", reason: "no keychain" };

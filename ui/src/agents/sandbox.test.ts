@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SessionInfo } from "../lib/protocol";
-import { sandboxBadge, sandboxLine, sandboxState } from "./sandbox";
+import { sandboxBadge, sandboxGaps, sandboxLine, sandboxState } from "./sandbox";
 
 const info = (extra: Partial<SessionInfo>): SessionInfo => ({
   id: "s1",
@@ -38,5 +38,14 @@ describe("sandbox words", () => {
     const open = sandboxState(info({ sandbox: { name: "x", network: "open", gaps: [] }, sandbox_reported: true }));
     expect(sandboxLine(open, false)).toEqual({ text: "Runs in a sandbox (x), network not limited.", warning: true });
     expect(sandboxBadge(open)).toEqual({ text: "Sandboxed, open network", warning: true });
+  });
+
+  it("lists what the sandbox does not cover, and nothing without gaps or a sandbox", () => {
+    const gaps = ["DNS lookups", "loopback services", "Windows file sharing"];
+    const boxed = sandboxState(info({ sandbox: { name: "x", network: "proxy", gaps }, sandbox_reported: true }));
+    expect(sandboxGaps(boxed)).toBe("Not covered: DNS lookups, loopback services, Windows file sharing.");
+    const tight = sandboxState(info({ sandbox: { name: "x", network: "proxy", gaps: [] }, sandbox_reported: true }));
+    expect(sandboxGaps(tight)).toBeNull();
+    expect(sandboxGaps({ kind: "none" })).toBeNull();
   });
 });

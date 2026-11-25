@@ -111,6 +111,27 @@ describe("Approvals", () => {
     expect(warning()).toBeNull();
   });
 
+  it("says briefly on the card that the sandbox has gaps, with the list on request", async () => {
+    const core = await setup();
+    core.ask(bash("perm1"));
+    await settle();
+    const gaps = () => cards()[0]?.querySelector<HTMLDetailsElement>("[data-testid=approval-sandbox-gaps]");
+    core.sandboxed("s1", { name: "bubblewrap", network: "proxy", gaps: [] });
+    await settle();
+    expect(gaps()).toBeNull();
+    core.sandboxed("s1", {
+      name: "Windows sandbox user",
+      network: "proxy",
+      gaps: ["DNS lookups", "loopback services"],
+    });
+    await settle();
+    expect(gaps()?.querySelector("summary")?.textContent).toBe("Sandbox has gaps");
+    expect(gaps()?.open).toBe(false);
+    expect(gaps()?.querySelector("p")?.textContent).toBe("Not covered: DNS lookups, loopback services.");
+    // Gaps alone are no reason for the stronger warning.
+    expect(cards()[0]?.querySelector("[data-testid=approval-unsandboxed]")).toBeNull();
+  });
+
   it("shows what the agent asks for without taking focus", async () => {
     const core = await setup();
     const elsewhere = target.querySelector<HTMLElement>("[data-testid=elsewhere]");

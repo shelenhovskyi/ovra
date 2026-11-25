@@ -44,6 +44,13 @@ export function sandboxLine(state: SandboxState, ended: boolean): { text: string
   }
 }
 
+/** What the session's sandbox does not cover, for the line under the
+ * sandbox line; null when it reports no gaps or there is no sandbox. */
+export function sandboxGaps(state: SandboxState): string | null {
+  if (state.kind !== "sandboxed" || state.report.gaps.length === 0) return null;
+  return `Not covered: ${state.report.gaps.join(", ")}.`;
+}
+
 /** A word or two for the session list, where there is no room for a sentence. */
 export function sandboxBadge(state: SandboxState): { text: string; warning: boolean } | null {
   if (state.kind === "none") return { text: "No sandbox", warning: true };

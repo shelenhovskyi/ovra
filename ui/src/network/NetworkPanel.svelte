@@ -38,6 +38,19 @@ const storeReady = $derived(access.store?.state === "available");
 const exposed = $derived(workspace.project ? sessions.inProject(workspace.project.id).filter(unprotected) : []);
 // Without a sandbox a session can also read the keychain like any program the person runs.
 const bare = $derived(exposed.filter((s) => s.sandbox === null).length);
+// What the sandbox of the project's live sessions does not cover, each once.
+const gaps = $derived(
+  workspace.project
+    ? [
+        ...new Set(
+          sessions
+            .inProject(workspace.project.id)
+            .filter(live)
+            .flatMap((s) => s.sandbox?.gaps ?? []),
+        ),
+      ]
+    : [],
+);
 let sessionsError = $state(false);
 const unreachable = $derived(
   new Set(access.allowlist ? access.secrets.filter((s) => !reaches([...base, ...own], s.host)).map((s) => s.name) : []),
@@ -62,8 +75,12 @@ $effect(() => {
   });
 });
 
+function live(session: SessionInfo): boolean {
+  return session.status.state !== "stopped" && session.status.state !== "failed";
+}
+
 function unprotected(session: SessionInfo): boolean {
-  if (session.status.state === "stopped" || session.status.state === "failed") return false;
+  if (!live(session)) return false;
   return session.sandbox === null || session.sandbox.network === "open";
 }
 
@@ -251,6 +268,9 @@ function onDialogKeydown(event: KeyboardEvent): void {
               Sandboxed agents reach only these hosts, through Ovra's proxy. Everything else is refused and shows in the
               audit log.
             </p>
+            {#if gaps.length > 0}
+              <p class="warn" data-testid="sandbox-gaps">Not covered: {gaps.join(", ")}.</p>
+            {/if}
             {#if own.length === 0 && !access.error}
               <p class="muted" data-testid="hosts-empty">
                 {access.loading && !access.allowlist ? "Loading…" : "No hosts added for this project."}

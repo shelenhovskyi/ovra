@@ -13,7 +13,7 @@
 //   next answer needs the key released first.
 import { tick, untrack } from "svelte";
 import { SvelteMap, SvelteSet } from "svelte/reactivity";
-import { sandboxState } from "../agents/sandbox";
+import { sandboxGaps, sandboxState } from "../agents/sandbox";
 import { agentSessions } from "../agents/sessions.svelte";
 import { registerCommand } from "../keys/commands";
 import type { Decision, PermissionId, PermissionRequest, Project, ProjectId, SessionId } from "../lib/protocol";
@@ -279,6 +279,12 @@ function sandboxWarning(session: SessionId): string | null {
   return null;
 }
 
+/** What the session's sandbox does not cover; null without gaps. */
+function gapsOf(session: SessionId): string | null {
+  const info = sessions.byId.get(session);
+  return info ? sandboxGaps(sandboxState(info)) : null;
+}
+
 /** A worker acts on its own copy of the project, not on the project itself. */
 function workerCopy(session: SessionId): string {
   const role = sessions.roles.get(session);
@@ -330,6 +336,7 @@ function workerCopy(session: SessionId): string {
       {@const project = projects.get(request.project)}
       {@const folder = folderOf(request, project)}
       {@const sandboxNote = sandboxWarning(request.session)}
+      {@const gaps = gapsOf(request.session)}
       <li>
         <!-- A focusable group is how the keys reach one request (Y, N, arrows). -->
         <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
@@ -352,6 +359,13 @@ function workerCopy(session: SessionId): string {
           {/if}
           {#if sandboxNote}
             <p class="other" data-testid="approval-unsandboxed">{sandboxNote}</p>
+          {/if}
+          {#if gaps}
+            <!-- Short on the card; the list opens on request. -->
+            <details class="gaps" data-testid="approval-sandbox-gaps">
+              <summary>Sandbox has gaps</summary>
+              <p>{gaps}</p>
+            </details>
           {/if}
           <h3 id="{domId}-action">{summary.action}</h3>
           {#if request.project !== workspace.project?.id}
@@ -505,6 +519,18 @@ function workerCopy(session: SessionId): string {
     margin: 0 0 6px;
     font-size: 12px;
     overflow-wrap: anywhere;
+  }
+  .gaps {
+    margin: 0 0 6px;
+    font-size: 12px;
+    color: #ffd36b;
+  }
+  .gaps summary {
+    cursor: pointer;
+    font-weight: 600;
+  }
+  .gaps p {
+    margin: 2px 0 0;
   }
   .other {
     margin: 0 0 6px;

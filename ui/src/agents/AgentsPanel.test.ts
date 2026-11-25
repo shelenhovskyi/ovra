@@ -157,6 +157,17 @@ describe("AgentsPanel", () => {
     );
     expect(line()?.classList.contains("unsandboxed")).toBe(false);
     expect(badges()).toEqual(["Sandboxed"]);
+    const gaps = () => panel()?.querySelector("[data-testid=agent-sandbox-gaps]")?.textContent;
+    expect(gaps()).toBeUndefined();
+    core.sandboxed("s2", {
+      name: "Windows sandbox user",
+      network: "proxy",
+      gaps: ["DNS lookups", "loopback services"],
+    });
+    await settle();
+    expect(gaps()).toBe("Not covered: DNS lookups, loopback services.");
+    core.sandboxed("s2", { name: "bubblewrap, Landlock, seccomp", network: "proxy", gaps: [] });
+    await settle();
     core.status("s2", { state: "stopped" });
     await settle();
     expect(line()?.textContent).toBe(
