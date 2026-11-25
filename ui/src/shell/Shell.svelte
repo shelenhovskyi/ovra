@@ -11,6 +11,7 @@ import Inbox from "../inbox/Inbox.svelte";
 import Keybindings from "../keys/Keybindings.svelte";
 import type { CoreInfo } from "../lib/protocol";
 import type { ConnectionStatus, Transport } from "../lib/transport";
+import LanguageServers from "../lsp/LanguageServers.svelte";
 import NetworkPanel from "../network/NetworkPanel.svelte";
 import Notifications from "../notify/Notifications.svelte";
 import Palette from "../palette/Palette.svelte";
@@ -135,6 +136,7 @@ const status = $derived.by((): { text: string; ok: boolean } => {
   </aside>
   <footer>
     <span data-testid="status" role="status" class:error={!status.ok}>{status.text}</span>
+    <LanguageServers />
   </footer>
   <Notifications />
   {#if connection === "refused"}
