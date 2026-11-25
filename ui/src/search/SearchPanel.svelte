@@ -7,6 +7,7 @@ import { highlightLines, type Segment, sliceSegments } from "../editor/highlight
 import { languageFor } from "../editor/languages";
 import type { FileMatches, LineMatch, ProjectId } from "../lib/protocol";
 import type { Transport } from "../lib/transport";
+import EmptyState from "../shell/EmptyState.svelte";
 import Icon from "../shell/Icon.svelte";
 import type { TextSpot } from "../shell/workspace.svelte";
 import { SearchModel } from "./model.svelte";
@@ -74,6 +75,16 @@ const summary = $derived.by(() => {
 function changed(): void {
   shownLines = PAGE;
   model.schedule();
+}
+
+/** Whether any option narrows the search, so "no results" can offer to clear them. */
+const narrowed = $derived(model.caseSensitive || model.wholeWord || model.regex || !!model.include || !!model.exclude);
+const nothingFound = $derived(model.status.kind === "done" && !model.status.stopped && model.files.length === 0);
+
+function clearOptions(): void {
+  model.caseSensitive = model.wholeWord = model.regex = false;
+  model.include = model.exclude = "";
+  changed();
 }
 
 function toggle(option: "caseSensitive" | "wholeWord" | "regex"): void {
@@ -240,6 +251,15 @@ const folder = (path: string) => path.slice(0, Math.max(path.lastIndexOf("/"), 0
     </label>
   {/if}
   <p class="summary" class:error={model.status.kind === "error"} role="status" data-testid="search-summary">{summary}</p>
+  {#if model.status.kind === "idle"}
+    <EmptyState headline="Search in files" line="Searches every file except ignored ones." />
+  {:else if nothingFound}
+    <EmptyState
+      headline={`No results for "${model.pattern}"`}
+      line={narrowed ? "Check the spelling, or clear the options." : "Check the spelling."}
+      actions={narrowed ? [{ label: "Clear options", run: clearOptions }] : []}
+    />
+  {/if}
   {#if visible.length > 0}
     <p class="keys" id="search-keys">Down arrow: results. Escape: back.</p>
   {/if}

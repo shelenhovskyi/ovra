@@ -21,6 +21,8 @@ it("shows results grouped by file, highlights matches and opens the chosen one",
   });
   const input = target.querySelector<HTMLInputElement>("input[type=search]");
   if (!input) throw new Error("no search input");
+  // Before a search, the panel says what it searches.
+  expect(target.querySelector("section h2")?.textContent).toBe("Search in files");
   input.value = "needle";
   input.dispatchEvent(new Event("input", { bubbles: true }));
   input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
@@ -36,6 +38,7 @@ it("shows results grouped by file, highlights matches and opens the chosen one",
 
   const summary = target.querySelector("[data-testid=search-summary]")?.textContent;
   expect(summary).toBe("2 matching lines in 2 files.");
+  expect(target.querySelector("section h2")).toBeNull();
   const names = [...target.querySelectorAll(".file-name .name")].map((n) => n.textContent);
   expect(names).toEqual(["b.md", "a.rs"]);
   expect([...target.querySelectorAll("mark")].map((m) => m.textContent)).toEqual(["needle", "needle"]);

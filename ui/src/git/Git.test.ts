@@ -120,7 +120,7 @@ it("says when the project is not a repository", async () => {
   const core = new FakeGitCore();
   core.status = null;
   await setup(core);
-  expect(text("[data-testid=git-no-repo]")).toBe("This folder is not a git repository.");
+  expect(text("[data-testid=git-no-repo] h2")).toBe("Not a git repository");
   expect(target.textContent).toContain("git init");
 
   // Then a repository on a detached HEAD, then one with no commits: plain words, no amend.
@@ -133,7 +133,7 @@ it("says when the project is not a repository", async () => {
   core.status = repo({ head: null });
   core.emit({ type: "fs.git_changed", data: { project: "p1" } });
   await settle();
-  expect(text("[data-testid=git-fresh]")).toMatch(/^No changes yet\./);
+  expect(text("[data-testid=git-fresh] h2")).toBe("No changes");
   expect($("[data-testid=git-commit]")).toBeNull();
   expect($("[data-testid=git-changes]")).toBeNull();
   core.status = repo({ head: null, files: [changed("a.ts", { unstaged: "untracked" })] });

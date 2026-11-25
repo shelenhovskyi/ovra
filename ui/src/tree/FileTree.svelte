@@ -4,10 +4,11 @@
 // tree and `aria-activedescendant` names the active row, which is always
 // rendered. Folders load lazily; fs events mark listings stale and only the
 // ones on screen reload.
-import { registerCommand } from "../keys/commands";
+import { listCommands, registerCommand } from "../keys/commands";
 import type { GitStatus, ProjectId } from "../lib/protocol";
 import type { Transport } from "../lib/transport";
 import { isMenuKey, openContextMenu } from "../menu/context-menu.svelte";
+import EmptyState from "../shell/EmptyState.svelte";
 import Icon from "../shell/Icon.svelte";
 import type { MainMode } from "../shell/workspace.svelte";
 import { FileActions } from "./actions.svelte";
@@ -393,6 +394,12 @@ function toggleChanged(): void {
   void model.setFilter(model.filter === "changed" ? "all" : "changed");
 }
 
+function newTask(): void {
+  void listCommands()
+    .find((c) => c.id === "agents.new_session")
+    ?.run();
+}
+
 function onfocus(): void {
   if (current === null && rows.length > 0) selected = rows[0]?.path ?? null;
 }
@@ -494,6 +501,21 @@ function onkeydown(e: KeyboardEvent): void {
     />
   {/if}
   {#if actions.notice}<p class="note error" role="alert">{actions.notice}</p>{/if}
+  <!-- Outside the tree, whose children are its rows. -->
+  {#if !error && !rootLoading && rows.length === 0}
+    {#if filter === "changed"}
+      <EmptyState
+        headline="No changed files"
+        actions={[{ label: "Show all files", run: () => void model.setFilter("all") }]}
+      />
+    {:else}
+      <EmptyState
+        headline="This folder is empty"
+        line="Ask Claude to set up a project here, or add files."
+        actions={[{ label: "Give Claude a task", run: newTask }]}
+      />
+    {/if}
+  {/if}
   <div
     class="viewport"
     role="tree"
@@ -516,10 +538,8 @@ function onkeydown(e: KeyboardEvent): void {
   >
     {#if error}
       <p class="note error" role="alert">{error}</p>
-    {:else if rows.length === 0}
-      <p class="note">
-        {rootLoading ? "Loading…" : filter === "changed" ? "No changed files" : "Empty project"}
-      </p>
+    {:else if rows.length === 0 && rootLoading}
+      <p class="note">Loading files…</p>
     {/if}
     <div class="spacer" style:height="{rows.length * ROW_HEIGHT}px">
       {#each shown as index (rows[index]?.path ?? index)}

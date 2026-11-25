@@ -83,7 +83,9 @@ describe("Viewer", () => {
   it("asks for a file when none is open", async () => {
     const { target, reads, workspace } = show({}, null);
     await settle();
-    expect(target.textContent).toContain("Open a file from the tree on the left.");
+    // The project's name heads the empty main area.
+    expect(target.querySelector("[data-testid=start] h2")?.textContent).toBe("demo");
+    expect(target.textContent).toContain("Open a file, or give Claude a task.");
     expect(reads).toEqual([]);
     workspace.project = null;
     flushSync();
@@ -107,11 +109,7 @@ describe("Viewer", () => {
       await settle();
       const buttons = [...target.querySelectorAll<HTMLButtonElement>("[data-testid=start] button")];
       // No terminal command is registered here, so that action is left out.
-      expect(buttons.map((b) => b.querySelector(".label")?.textContent)).toEqual([
-        "Give Claude a task",
-        "Find a file",
-        "Search in files",
-      ]);
+      expect(buttons.map((b) => b.querySelector(".label")?.textContent)).toEqual(["New task", "Find a file", "Search"]);
       expect(buttons[1]?.querySelector("kbd")?.textContent).toBe(formatShortcut(liveKeys("Mod+P", true), isApple()));
       expect(buttons[0]?.querySelector("kbd")).toBeNull();
       for (const button of buttons) button.click();

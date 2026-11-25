@@ -6,6 +6,7 @@ import { tick } from "svelte";
 import { listCommands } from "../keys/commands";
 import type { GitOperation, ProjectId } from "../lib/protocol";
 import { useOvra } from "../shell/context";
+import EmptyState from "../shell/EmptyState.svelte";
 import Icon from "../shell/Icon.svelte";
 import Branches from "./Branches.svelte";
 import CommitBox from "./CommitBox.svelte";
@@ -88,16 +89,21 @@ function ago(seconds: number, now = Date.now() / 1000): string {
   {#if model.state.kind === "loading"}
     <p class="hint">Loading git status…</p>
   {:else if model.state.kind === "no_repo"}
-    <p data-testid="git-no-repo">This folder is not a git repository.</p>
-    <p class="hint">Run <code>git init</code> in a terminal to start one.</p>
-    <button type="button" onclick={openTerminal}>Open terminal</button>
-    <button type="button" onclick={() => model.refresh()}>Check again</button>
+    <EmptyState
+      testid="git-no-repo"
+      headline="Not a git repository"
+      line="Git keeps a history, so you can review and undo changes. Run git init in a terminal to start one."
+      actions={[
+        { label: "Open terminal", run: openTerminal },
+        { label: "Check again", run: () => void model.refresh() },
+      ]}
+    />
   {:else if model.state.kind === "error"}
     <p class="error" role="alert" data-testid="git-error">{model.state.message}</p>
     <button type="button" onclick={() => model.refresh()}>Try again</button>
   {:else if status && fresh}
     <Branches {model} {status} />
-    <p class="hint" data-testid="git-fresh">No changes yet.</p>
+    <EmptyState testid="git-fresh" headline="No changes" line="Changes you or Claude make appear here." />
   {:else if status}
     <Branches {model} {status} />
     {#if status.operation}
@@ -297,9 +303,6 @@ function ago(seconds: number, now = Date.now() / 1000): string {
   .meta {
     font-size: 13px;
     color: var(--text-2);
-  }
-  code {
-    font-family: var(--mono);
   }
   .visually-hidden {
     position: absolute;

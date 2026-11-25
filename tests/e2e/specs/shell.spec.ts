@@ -37,7 +37,8 @@ test("with no file open, the main area offers the next steps", async ({ page }) 
   await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();
 
   const start = page.getByTestId("start");
-  await expect(start).toContainText("Open a file from the tree on the left");
+  await expect(start.getByRole("heading")).toHaveText(basename(dir));
+  await expect(start).toContainText("Open a file, or give Claude a task.");
   // A control without styles of its own takes the arrow and does not select as text; scrollbars are thin.
   const look = await page.evaluate(() => {
     const probe = document.body.appendChild(document.createElement("button"));
@@ -52,7 +53,7 @@ test("with no file open, the main area offers the next steps", async ({ page }) 
   await expect(page.getByRole("dialog", { name: "Command palette" })).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(start.getByRole("button", { name: /Find a file/ })).toContainText(shortcutLabel("Alt+P"));
-  await start.getByRole("button", { name: /Search in files/ }).click();
+  await start.getByRole("button", { name: /^Search/ }).click();
   await expect(page.getByRole("button", { name: "Search", pressed: true })).toBeVisible();
 });
 
