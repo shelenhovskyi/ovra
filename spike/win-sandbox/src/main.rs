@@ -107,6 +107,15 @@ fn probe(a: &[String]) {
                 }
             }),
     );
+    if let Some(pid) = a.get(5).and_then(|s| s.strip_prefix("pid=")) {
+        line("open_parent_process", restricted::open_process(pid.parse().unwrap()));
+        line("read_granted_home", std::fs::read_to_string(Path::new(&a[6]).join("cfg.txt")).map_err(|e| e.to_string()));
+        line("write_granted_home", std::fs::write(Path::new(&a[6]).join("w.txt"), "x").map(|_| "written".into()).map_err(|e| e.to_string()));
+        line("write_home_root", std::fs::write(home.join("planted.txt"), "x").map(|_| "written".into()).map_err(|e| e.to_string()));
+        line("write_c_root", std::fs::write(r"C:\planted.txt", "x").map(|_| "written".into()).map_err(|e| e.to_string()));
+        line("write_programdata", std::fs::write(r"C:\ProgramData\planted.txt", "x").map(|_| "written".into()).map_err(|e| e.to_string()));
+        line("write_windows_temp", std::fs::write(r"C:\Windows\Temp\planted.txt", "x").map(|_| "written".into()).map_err(|e| e.to_string()));
+    }
     if a.get(5).map(String::as_str) != Some("base") {
         probe2(&granted);
     }
@@ -221,8 +230,18 @@ fn host() {
     let out = Command::new(&exe).args(probe_args(&granted)).arg("base").output().unwrap();
     print!("{}", String::from_utf8_lossy(&out.stdout));
 
-    println!("=== AppContainer, no capabilities ===");
-    appcontainer::run(&exe, &probe_args(&granted), &granted);
+    let home_granted = home.join("granted-home");
+    let _ = std::fs::create_dir_all(&home_granted);
+    std::fs::write(home_granted.join("cfg.txt"), "home-cfg").unwrap();
+    for with_logon in [false, true] {
+        println!("=== restricted token, logon SID {with_logon} ===");
+        let _ = std::fs::remove_dir_all(granted.join("prot"));
+        let _ = std::fs::remove_dir_all(granted.join("repo"));
+        let mut a = probe_args(&granted);
+        a.push(format!("pid={}", std::process::id()));
+        a.push(home_granted.display().to_string());
+        restricted::run(&exe, &a, &granted, &home_granted, with_logon);
+    }
 
     // Keep listeners up for the separate-user step, run by the workflow.
     if std::env::var("SPIKE_HOLD").is_ok() {
@@ -416,6 +435,117 @@ mod appcontainer {
                 Ok(s) => print!("{s}"),
                 Err(e) => println!("no output: {e}"),
             }
+        }
+    }
+}
+
+mod restricted {
+    use std::os::windows::ffi::OsStrExt;
+    use std::path::Path;
+    use std::process::Command;
+    use windows_sys::Win32::Foundation::*;
+    use windows_sys::Win32::Security::Authorization::*;
+    use windows_sys::Win32::Security::*;
+    use windows_sys::Win32::System::Threading::*;
+
+    pub const SYNTH: &str = "S-1-5-21-1111111111-2222222222-3333333333-4444";
+
+    fn wide(s: &str) -> Vec<u16> {
+        std::ffi::OsStr::new(s).encode_wide().chain([0]).collect()
+    }
+
+    pub fn open_process(pid: u32) -> Result<String, String> {
+        unsafe {
+            let h = OpenProcess(PROCESS_ALL_ACCESS, 0, pid);
+            if h.is_null() {
+                let h2 = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+                return Err(format!(
+                    "all access {}, query-limited {}",
+                    GetLastError(),
+                    if h2.is_null() { "denied" } else { "ok" }
+                ));
+            }
+            Ok("PROCESS_ALL_ACCESS on the parent".into())
+        }
+    }
+
+    fn sid(s: &str) -> PSID {
+        let mut p: PSID = std::ptr::null_mut();
+        unsafe { ConvertStringSidToSidW(wide(s).as_ptr(), &mut p) };
+        assert!(!p.is_null(), "sid {s}");
+        p
+    }
+
+    fn icacls(path: &Path, args: &[&str]) {
+        let o = Command::new("icacls").arg(path).args(args).output().unwrap();
+        println!("icacls {} {:?}: {}{}", path.display(), args, String::from_utf8_lossy(&o.stdout).trim(), String::from_utf8_lossy(&o.stderr).trim());
+    }
+
+    pub fn run(exe: &Path, args: &[String], granted: &Path, home_granted: &Path, with_logon: bool) {
+        icacls(granted, &["/grant", &format!("*{SYNTH}:(OI)(CI)M")]);
+        icacls(home_granted, &["/grant", &format!("*{SYNTH}:(OI)(CI)RX")]);
+        let prot = granted.join("prot");
+        std::fs::create_dir_all(&prot).unwrap();
+        std::fs::write(prot.join("file.txt"), "protected").unwrap();
+        icacls(&prot, &["/deny", &format!("*{SYNTH}:(OI)(CI)(W,D,DC,WDAC,WO)")]);
+        unsafe {
+            let mut tok: HANDLE = std::ptr::null_mut();
+            OpenProcessToken(GetCurrentProcess(), TOKEN_ALL_ACCESS, &mut tok);
+            let mut sids = vec![sid("S-1-1-0"), sid("S-1-5-32-545"), sid(SYNTH)];
+            if with_logon {
+                let mut len = 0u32;
+                GetTokenInformation(tok, TokenGroups, std::ptr::null_mut(), 0, &mut len);
+                let mut buf = vec![0u8; len as usize];
+                GetTokenInformation(tok, TokenGroups, buf.as_mut_ptr() as _, len, &mut len);
+                let groups = &*(buf.as_ptr() as *const TOKEN_GROUPS);
+                let all = std::slice::from_raw_parts(groups.Groups.as_ptr(), groups.GroupCount as usize);
+                for g in all {
+                    if g.Attributes & 0xC000_0000 == 0xC000_0000 {
+                        sids.push(g.Sid);
+                    }
+                }
+                std::mem::forget(buf);
+            }
+            let entries: Vec<SID_AND_ATTRIBUTES> = sids.iter().map(|s| SID_AND_ATTRIBUTES { Sid: *s, Attributes: 0 }).collect();
+            let mut rt: HANDLE = std::ptr::null_mut();
+            let ok = CreateRestrictedToken(tok, DISABLE_MAX_PRIVILEGE, 0, std::ptr::null(), 0, std::ptr::null(), entries.len() as u32, entries.as_ptr(), &mut rt);
+            println!("CreateRestrictedToken ok={ok} err={}", GetLastError());
+            // Default DACL: the sandbox's own objects open for the synthetic SID.
+            let sddl = wide(&format!("D:(A;;GA;;;{SYNTH})(A;;GA;;;SY)(A;;GA;;;OW)"));
+            let mut sd: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
+            ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.as_ptr(), 1, &mut sd, std::ptr::null_mut());
+            let mut present = 0;
+            let mut dacl: *mut ACL = std::ptr::null_mut();
+            let mut defaulted = 0;
+            GetSecurityDescriptorDacl(sd, &mut present, &mut dacl, &mut defaulted);
+            let dd = TOKEN_DEFAULT_DACL { DefaultDacl: dacl };
+            let ok2 = SetTokenInformation(rt, TokenDefaultDacl, &dd as *const _ as _, size_of::<TOKEN_DEFAULT_DACL>() as u32);
+            println!("SetTokenInformation(DefaultDacl) ok={ok2}");
+            let out = granted.join("rt-out.txt");
+            let _ = std::fs::remove_file(&out);
+            let mut cmd = format!("cmd.exe /c \"\"{}\"", exe.display());
+            for a in args {
+                cmd.push_str(&format!(" \"{a}\""));
+            }
+            cmd.push_str(&format!(" > \"{}\" 2>&1\"", out.display()));
+            let mut cmdw = wide(&cmd);
+            let mut si: STARTUPINFOW = std::mem::zeroed();
+            si.cb = size_of::<STARTUPINFOW>() as u32;
+            let mut pi: PROCESS_INFORMATION = std::mem::zeroed();
+            let ok = CreateProcessAsUserW(rt, std::ptr::null(), cmdw.as_mut_ptr(), std::ptr::null(), std::ptr::null(), 0, 0, std::ptr::null(), wide(&granted.display().to_string()).as_ptr(), &si, &mut pi);
+            if ok == 0 {
+                println!("CreateProcessAsUserW failed {}", GetLastError());
+                return;
+            }
+            let w = WaitForSingleObject(pi.hProcess, 60_000);
+            let mut code = 0u32;
+            GetExitCodeProcess(pi.hProcess, &mut code);
+            println!("wait {w} exit {code:#x}");
+            match std::fs::read_to_string(&out) {
+                Ok(s) => print!("{s}"),
+                Err(e) => println!("no output: {e}"),
+            }
+            icacls(&prot, &[]);
         }
     }
 }
