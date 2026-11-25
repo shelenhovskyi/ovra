@@ -84,22 +84,23 @@ const PUNCTUATION: Record<string, string> = {
 type KeyEventLike = Pick<KeyboardEvent, "key" | "code" | "ctrlKey" | "metaKey" | "altKey" | "shiftKey">;
 
 /**
- * The pressed key, lower-case. Letters and digits fall back to the physical
- * key when the layout produces something else (non-Latin layouts, Alt on macOS),
- * so `Mod+P` works whatever the input language. Punctuation with Shift is
- * matched by its physical key.
+ * The pressed key, lower-case. Latin letters come from the layout, so `Mod+Z`
+ * follows the key labelled Z. Punctuation always comes from the physical key:
+ * layouts put other characters there (an apostrophe on the Ukrainian Backquote
+ * key, Shift's `~`, Option's quote marks), and shortcuts name the US key.
+ * Other characters fall back to the physical letter or digit, so `Mod+P`
+ * works whatever the input language.
  */
 function pressedKey(event: KeyEventLike): string {
-  // Shift turns punctuation into another character (` into ~); shortcuts name
-  // the unshifted key, as in `Ctrl+Shift+``.
-  const shifted = event.shiftKey ? PUNCTUATION[event.code] : undefined;
-  if (shifted) return shifted;
   const key = event.key.toLowerCase();
-  if (key.length === 1 && key >= " " && key <= "~") return key;
   if (key.length !== 1) return key;
+  if (key >= "a" && key <= "z") return key;
+  const punctuation = PUNCTUATION[event.code];
+  if (punctuation) return punctuation;
+  if (key >= " " && key <= "~") return key;
   const physical = /^(?:Key([A-Z])|Digit(\d))$/.exec(event.code);
   if (physical) return (physical[1] ?? physical[2] ?? "").toLowerCase();
-  return PUNCTUATION[event.code] ?? key;
+  return key;
 }
 
 export function matchesShortcut(event: KeyEventLike, shortcut: Shortcut): boolean {
