@@ -31,6 +31,7 @@ struct Fx {
     dev: Arc<FakeDevServers>,
     net: Arc<FakeNetProxy>,
     fs: Arc<MemoryFs>,
+    wt: Arc<MemoryWorktrees>,
     audit: Arc<MemoryAudit>,
     agent: Arc<ScriptedAgent>,
 }
@@ -51,7 +52,7 @@ async fn fx() -> Fx {
         .projects(Arc::new(MemoryProjects::default()))
         .fs(fs.clone())
         .agents(agent.clone())
-        .worktrees(wt)
+        .worktrees(wt.clone())
         .worktrees_dir(PathBuf::from(WORKTREES))
         .netproxy(net.clone())
         .dev_servers(dev.clone())
@@ -67,6 +68,7 @@ async fn fx() -> Fx {
         dev,
         net,
         fs,
+        wt,
         audit,
         agent,
     }
@@ -586,6 +588,32 @@ async fn a_worktree_counts_as_stopped_only_once_its_pod_ended() {
     };
     let (stopped, ()) = tokio::join!(waiting, release);
     assert!(stopped);
+}
+
+#[tokio::test]
+async fn an_ended_tasks_worktree_goes_only_after_its_pod_ended_without_making_anyone_wait() {
+    let f = fx().await;
+    let dir = coordinator_and_worker(&f).await;
+    let web = starts_in(&f, "web", Some("s2")).await;
+    f.dev.report(
+        &web.unwrap_or_else(|e| panic!("{e}")).id,
+        ServerStatus::Ready,
+    );
+    f.dev.hold_pod(dir.clone());
+    let stop = json!({"method": "orchestration.stop", "params": {"task": "t1"}});
+    ok(&f.core, stop).await;
+    stop_session(&f, "s2").await;
+    let list = json!({"method": "orchestration.list", "params": {"project": "p1"}});
+    // Answered at once, with the worktree kept while its pod runs.
+    tokio::time::timeout(std::time::Duration::from_secs(1), ok(&f.core, list.clone()))
+        .await
+        .unwrap_or_else(|_| panic!("the list waited for the pod"));
+    assert!(f.wt.has(&dir));
+    f.dev.release_pod(&dir);
+    // Its clean-up runs again by itself once the pod ended.
+    while f.wt.has(&dir) {
+        tokio::task::yield_now().await;
+    }
 }
 
 #[tokio::test]
