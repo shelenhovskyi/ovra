@@ -1,7 +1,7 @@
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import { expect, test } from "../test";
+import { expect, shortcutLabel, test } from "../test";
 
 function daemonUrl(): URL {
   const raw = process.env.OVRA_URL;
@@ -37,7 +37,7 @@ test("with no file open, the main area offers the next steps", async ({ page }) 
   await start.getByRole("button", { name: /Find a file/ }).click();
   await expect(page.getByRole("dialog", { name: "Command palette" })).toBeVisible();
   await page.keyboard.press("Escape");
-  await expect(start.getByRole("button", { name: /Find a file/ })).toContainText("Alt+P");
+  await expect(start.getByRole("button", { name: /Find a file/ })).toContainText(shortcutLabel("Alt+P"));
   await start.getByRole("button", { name: /Search in files/ }).click();
   await expect(page.getByRole("button", { name: "Search", pressed: true })).toBeVisible();
 });

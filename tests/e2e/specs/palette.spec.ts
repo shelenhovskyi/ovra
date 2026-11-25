@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
-import { expect, test } from "../test";
+import { expect, shortcutLabel, test } from "../test";
 
 function daemonUrl(): string {
   const raw = process.env.OVRA_URL;
@@ -31,7 +31,7 @@ test("the command palette opens on Mod+Shift+P, filters and closes", async ({ pa
 
   // The palette shows the shortcut that works here: browser-safe ones in a browser tab.
   await page.keyboard.type("go to file");
-  await expect(page.getByRole("option", { selected: true })).toContainText("Alt+P");
+  await expect(page.getByRole("option", { selected: true })).toContainText(shortcutLabel("Alt+P"));
   await page.getByRole("combobox").fill("");
   await page.keyboard.type("swpro");
   await expect(page.getByRole("option", { name: /Switch project/ })).toHaveAttribute("aria-selected", "true");
