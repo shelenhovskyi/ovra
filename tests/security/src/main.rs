@@ -4,6 +4,8 @@
 
 use std::process::ExitCode;
 
+// Without Unix sockets every arm returns, so the rest is unreachable.
+#[cfg_attr(not(unix), allow(unreachable_code, unused_variables))]
 fn main() -> ExitCode {
     ovra_sandbox::helper_if_asked();
     let args: Vec<String> = std::env::args().skip(1).collect();
