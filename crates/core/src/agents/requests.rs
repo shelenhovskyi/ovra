@@ -213,9 +213,10 @@ pub(crate) async fn start(ctx: &Ctx<'_>, new: NewSession) -> Result<SessionInfo>
     check_text(&new.prompt)?;
     // Workers wait for a place instead (`crate::orchestration`), and
     // coordinators do not take one.
-    if new.tools.is_none() {
-        check_room(ctx, &new.project)?;
-    }
+    let place = match new.tools {
+        None => check_room(ctx, &new.project)?,
+        Some(_) => None,
+    };
     let target = prepare(
         ctx,
         &new.project,
@@ -255,6 +256,7 @@ pub(crate) async fn start(ctx: &Ctx<'_>, new: NewSession) -> Result<SessionInfo>
     // With its folder and role from the start, so that it counts in its
     // role, and its first message if it waits.
     ctx.sessions.insert(info, launch.clone(), queued);
+    drop(place);
     if new.queued {
         // Told before anything can start it.
         ctx.sink.emit(AgentsEvent::Status {
@@ -312,21 +314,24 @@ pub(crate) async fn start_queued(
     run(ctx, &id, target, launch, parts, None).await
 }
 
-/// Refuses a person's start while the project has as many agents working
-/// as it may.
-fn check_room(ctx: &Ctx<'_>, project: &ProjectId) -> Result<()> {
+/// Takes a place for a person's start, or refuses it while the project has
+/// as many agents working as it may. Hold the place until the session is
+/// in the list with its status, where it counts itself.
+fn check_room(
+    ctx: &Ctx<'_>,
+    project: &ProjectId,
+) -> Result<Option<crate::orchestration::Reservation>> {
     let Some(core) = ctx.sessions.core() else {
-        return Ok(());
+        return Ok(None);
     };
-    let capacity = crate::orchestration::capacity(&core, project);
-    if capacity.working < capacity.limit {
-        return Ok(());
-    }
-    Err(conflict(&format!(
-        "{} agents are already working in this project, the most at once. \
-         Start this when one of them finishes, or stop one.",
-        capacity.working
-    )))
+    crate::orchestration::reserve(&core, project)
+        .map(Some)
+        .map_err(|working| {
+            conflict(&format!(
+                "{working} agents are already working in this project, the most at once. \
+                 Start this when one of them finishes, or stop one."
+            ))
+        })
 }
 
 /// The project a session may start in, with what the runtime needs to know.
@@ -425,9 +430,10 @@ pub(crate) async fn resume(ctx: &Ctx<'_>, session: SessionId, parts: Parts) -> R
         ));
     }
     let tools = launch.as_ref().and_then(|l| l.tools);
-    if tools != Some(ToolRole::Coordinator) {
-        check_room(ctx, &info.project)?;
-    }
+    let place = match tools {
+        Some(ToolRole::Coordinator) => None,
+        _ => check_room(ctx, &info.project)?,
+    };
     // Its conversation lives in its account's folder: no other account
     // can continue it.
     let account = info.account.as_deref().unwrap_or(DEFAULT_ACCOUNT);
@@ -455,6 +461,8 @@ pub(crate) async fn resume(ctx: &Ctx<'_>, session: SessionId, parts: Parts) -> R
         Some(core) => crate::orchestration::unless_cleaned(&core, &session, restart)??,
         None => restart()?,
     }
+    // Restarted: it counts itself now.
+    drop(place);
     let target = trusted_in(ctx, target, &launch.cwd).await;
     run(ctx, &session, target, launch, parts, Some(agent_session)).await
 }
