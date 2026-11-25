@@ -282,6 +282,7 @@ impl NetProxy for NetProxies {
                 }),
                 reporter: refusals,
                 bound,
+                grants: tokio::sync::watch::Sender::new(Arc::default()),
             });
             let task = tokio::spawn(accept(
                 listener,
@@ -315,8 +316,13 @@ impl NetProxy for NetProxies {
         }
     }
 
-    fn grant(&self, _session: &SessionId, _grants: Vec<LoopbackGrant>) {
-        // The loopback rule (task S.C) is not built yet: nothing is granted.
+    fn grant(&self, session: &SessionId, grants: Vec<LoopbackGrant>) {
+        if let Some(running) = lock(&self.running).get(session) {
+            running
+                .net
+                .grants
+                .send_replace(Arc::new(serve::grants(grants)));
+        }
     }
 
     fn stop(&self, session: &SessionId) {

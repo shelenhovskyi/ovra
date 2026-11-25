@@ -1,0 +1,30 @@
+---
+source: crates/netproxy/src/serve/loopback/tests.rs
+expression: "seen.join(\"\\n\")"
+---
+CONNECT localhost:5173 HTTP/1.1 | Host: localhost:5173 => HTTP/1.1 403 Forbidden localhost:5173: connect to loopback
+CONNECT 127.0.0.1:5173 HTTP/1.1 => HTTP/1.1 403 Forbidden 127.0.0.1:5173: connect to loopback
+OVRA-LOCAL 5173 | CONNECT localhost:5173 HTTP/1.1 => HTTP/1.1 403 Forbidden localhost:5173: connect to loopback
+GET http://127.0.0.1:7777/ HTTP/1.1 | Host: 127.0.0.1:7777 => HTTP/1.1 403 Forbidden 127.0.0.1:7777: no grant
+GET http://localhost/ HTTP/1.1 | Host: localhost => HTTP/1.1 403 Forbidden localhost:80: no grant
+OVRA-LOCAL 7777 | GET / HTTP/1.1 | Host: localhost:7777 => HTTP/1.1 403 Forbidden localhost:7777: no grant
+GET http://localhost:5173/ HTTP/1.1 => HTTP/1.1 403 Forbidden localhost:5173: bad host
+GET http://localhost:5173/ HTTP/1.1 | Host: evil.example => HTTP/1.1 403 Forbidden localhost:5173: bad host
+GET http://localhost:5173/ HTTP/1.1 | Host: localhost:8000 => HTTP/1.1 403 Forbidden localhost:5173: bad host
+GET http://localhost:5173/ HTTP/1.1 | Host: [::1]:5173 => HTTP/1.1 403 Forbidden localhost:5173: bad host
+GET http://localhost:5173/ HTTP/1.1 | Host: localhost:5173 | Host: evil.example => HTTP/1.1 403 Forbidden localhost:5173: bad host
+OVRA-LOCAL 5173 | GET / HTTP/1.1 | Host: rebind.example:5173 => HTTP/1.1 403 Forbidden localhost:5173: bad host
+GET http://localhost:5173/ HTTP/1.1 | Host: localhost:5173 | Origin: null => HTTP/1.1 403 Forbidden localhost:5173: bad origin
+GET http://localhost:5173/ HTTP/1.1 | Host: localhost:5173 | Origin: http://evil.example => HTTP/1.1 403 Forbidden localhost:5173: bad origin
+GET http://localhost:5173/ HTTP/1.1 | Host: localhost:5173 | Origin: http://localhost:7777 => HTTP/1.1 403 Forbidden localhost:5173: bad origin
+GET http://localhost:5173/ HTTP/1.1 | Host: localhost:5173 | Origin: https://localhost:5173 => HTTP/1.1 403 Forbidden localhost:5173: bad origin
+GET http://localhost:5173/ HTTP/1.1 | Host: localhost:5173 | Origin: http://localhost:5173/ => HTTP/1.1 403 Forbidden localhost:5173: bad origin
+GET http://localhost:5173/ HTTP/1.1 | Host: localhost:5173 | Origin: http://localhost:5173 | Origin: null => HTTP/1.1 403 Forbidden localhost:5173: bad origin
+GET http://[::1]:5173/ HTTP/1.1 | Host: [::1]:5173 => HTTP/1.1 403 Forbidden [::1]:5173: the host resolves to a loopback, private or link-local address
+GET http://0.0.0.0:5173/ HTTP/1.1 | Host: 0.0.0.0:5173 => HTTP/1.1 403 Forbidden 0.0.0.0:5173: the host resolves to a loopback, private or link-local address
+GET http://foo.localhost:5173/ HTTP/1.1 | Host: foo.localhost:5173 => HTTP/1.1 403 Forbidden foo.localhost:5173: the host resolves to a loopback, private or link-local address
+GET http://127.0.0.2:5173/ HTTP/1.1 | Host: 127.0.0.2:5173 => HTTP/1.1 403 Forbidden 127.0.0.2:5173: the host resolves to a loopback, private or link-local address
+GET http://localhost.:5173/ HTTP/1.1 | Host: localhost.:5173 => HTTP/1.1 403 Forbidden localhost:5173: the host resolves to a loopback, private or link-local address
+CONNECT [::1]:5173 HTTP/1.1 => HTTP/1.1 403 Forbidden [::1]:5173: the host resolves to a loopback, private or link-local address
+OVRA-LOCAL x | GET / HTTP/1.1 | Host: localhost:5173 => HTTP/1.1 400 Bad Request 
+OVRA-LOCAL 5173 | GET http://localhost:5173/ HTTP/1.1 | Host: localhost:5173 => HTTP/1.1 400 Bad Request

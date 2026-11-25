@@ -136,6 +136,11 @@ A session's netproxy lets a connection reach a server when all hold:
    `http://localhost:P` or `http://127.0.0.1:P` for a granted `P`;
    `Origin: null` is refused.
 
+"Exactly" is literal: `localhost` in any case or `127.0.0.1`, a decimal
+port or none (80), nothing else (`localhost.:P` stays refused). An
+endpoint the user configured where Ovra runs (`ANTHROPIC_BASE_URL` on
+`localhost`, the base list) keeps its own path; a grant never widens it.
+
 **The forwarder.** Clients that skip the proxy for loopback (Chromium,
 some HTTP libraries) connect to `localhost:P` directly. In the agent's
 sandbox the helper listens on `127.0.0.1:P` for each port in the work
