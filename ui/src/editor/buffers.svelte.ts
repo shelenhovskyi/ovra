@@ -47,7 +47,7 @@ import type { LanguageSource } from "./highlight/protocol";
 import { dedentLines, indentation, indentLines, indentTab, newlineKeepIndent } from "./indent";
 import { commentTokens, type Language, languageFor, languageSource } from "./languages";
 import { editorPrefs } from "./prefs.svelte";
-import { runSearch } from "./search";
+import { goToLine, runSearch, searchPhrases } from "./search";
 import { lineEndingOf } from "./status.svelte";
 import { theme } from "./theme";
 
@@ -65,19 +65,21 @@ export function exactKey(keys: string, run: (view: EditorView) => boolean): KeyB
  * would take a global shortcut keep only their Mac key: block comment
  * (Alt+Shift+A goes to approvals in a browser tab) and find previous on
  * Mod-Shift-g (Ctrl+Shift+G shows Git; Shift-F3 still finds previous).
- * Indenting and Enter follow the tab size preferences (`./indent`).
+ * Indenting and Enter follow the tab size preferences (`./indent`); go to
+ * line names its field (`./search`).
  */
 export function editorKeymap(save: () => void): KeyBinding[] {
   const macOnly = (binding: KeyBinding): KeyBinding => ({ ...binding, key: undefined, shift: undefined });
-  const ownIndent = new Map<KeyBinding["run"], KeyBinding["run"]>([
+  const ownRun = new Map<KeyBinding["run"], KeyBinding["run"]>([
     [indentMore, indentLines],
     [indentLess, dedentLines],
     [insertNewlineAndIndent, newlineKeepIndent],
+    [gotoLine, goToLine],
   ]);
   const ownKey = (binding: KeyBinding): KeyBinding[] => {
     if (binding.run === toggleBlockComment) return [macOnly(binding)];
-    const indent = binding.run && ownIndent.get(binding.run);
-    if (indent) return [{ ...binding, run: indent }];
+    const run = binding.run && ownRun.get(binding.run);
+    if (run) return [{ ...binding, run }];
     if (binding.key !== "Mod-g") return [binding];
     return [
       { ...binding, shift: undefined },
@@ -97,7 +99,7 @@ export function editorKeymap(save: () => void): KeyBinding[] {
       return true;
     }),
     // Go to line on every platform, as in VS Code (CodeMirror's Mod-g finds the next match).
-    { key: "Ctrl-g", run: gotoLine, preventDefault: true },
+    { key: "Ctrl-g", run: goToLine, preventDefault: true },
     { key: "Tab", run: indentTab, shift: dedentLines },
     ...foldKeys,
     ...defaultKeymap.flatMap(ownKey),
@@ -516,6 +518,7 @@ export class Buffer {
       this.prefs.of(prefsExtension()),
       commentData(this.language),
       theme,
+      searchPhrases,
       this.highlight ? treeSitterHighlighting(this.highlight, { edits: !mirror }) : [],
       // Language features live in the buffer's own view.
       mirror ? [] : this.server.of(this.serverExtension),
