@@ -14,15 +14,26 @@ let {
   sessions,
   visible,
   screenReader,
+  hint,
   onterminal,
+  onleave,
 }: {
   session: TerminalSession;
   sessions: TerminalSessions;
   visible: boolean;
   screenReader: boolean;
+  /** Id of the text that says how to leave the terminal. */
+  hint: string;
+  /** Shift+Tab: the panel moves focus out of the terminal. */
+  onleave: () => void;
   /** Hands the xterm instance to the panel, which focuses it. */
   onterminal: (terminal: Terminal | null) => void;
 } = $props();
+
+/** Shift+Tab is the documented way out of the terminal (WCAG 2.1.2); the shell rarely needs it. */
+function leaves(event: KeyboardEvent): boolean {
+  return event.key === "Tab" && event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey;
+}
 
 const FALLBACK_SIZE = { cols: 80, rows: 24 };
 
@@ -60,8 +71,17 @@ $effect(() =>
     fit = new FitAddon();
     t.loadAddon(fit);
     t.open(host);
-    // Returning false leaves the key to the window, where the command runs.
-    t.attachCustomKeyEventHandler((event) => !(event.type === "keydown" && isCommandKey(event, apple, browser)));
+    t.attachCustomKeyEventHandler((event) => {
+      if (event.type !== "keydown") return true;
+      if (leaves(event)) {
+        event.preventDefault();
+        onleave();
+        return false;
+      }
+      // Returning false leaves the key to the window, where the command runs.
+      return !isCommandKey(event, apple, browser);
+    });
+    t.textarea?.setAttribute("aria-describedby", hint);
     const subs = [
       t.onData((data) => sessions.input(session, data)),
       t.onResize(({ cols, rows }) => sessions.resize(session, { cols, rows })),

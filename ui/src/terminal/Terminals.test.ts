@@ -54,6 +54,9 @@ vi.mock("@xterm/xterm", () => ({
     reset() {
       this.record.written = "";
     }
+    get textarea() {
+      return this.record.textarea;
+    }
     focus() {
       this.record.textarea.focus();
     }
@@ -160,7 +163,9 @@ describe("Terminals", () => {
     flushSync();
     expect(tabs()[0]?.textContent?.trim()).toBe("Terminal 1 (exited)");
     expect(xterms[0]?.written).toContain("Process exited with code 2.");
-    expect(panel.querySelector("[role=status]")?.textContent).toBe("Terminal 1: Process exited with code 2.");
+    expect(panel.querySelector(".ended [role=status]")?.textContent?.trim()).toBe(
+      "Terminal 1: Process exited with code 2.",
+    );
 
     await run("terminal.close");
     expect(panel.hidden).toBe(true);
@@ -207,5 +212,44 @@ describe("Terminals", () => {
     const key = (init: KeyboardEventInit) => new KeyboardEvent("keydown", init);
     expect(handler(key({ key: "`", code: "Backquote", ctrlKey: true }))).toBe(false);
     expect(handler(key({ key: "c", code: "KeyC", ctrlKey: true }))).toBe(true);
+  });
+
+  it("leaves the terminal on Shift+Tab and says so", async () => {
+    const { panel, tabs } = setup();
+    await run("terminal.toggle");
+    const xterm = xterms[0];
+    if (!xterm) throw new Error("no xterm");
+    const hint = panel.querySelector(`#${xterm.textarea.getAttribute("aria-describedby")}`);
+    expect(hint?.textContent).toBe("Shift+Tab leaves the terminal. Ctrl+` hides the panel.");
+    const event = new KeyboardEvent("keydown", { key: "Tab", code: "Tab", shiftKey: true, cancelable: true });
+    expect(xterm.keyHandler(event)).toBe(false);
+    expect(event.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(tabs()[0]);
+  });
+
+  it("keeps screen reader mode across panels and confirms the change", async () => {
+    localStorage.clear();
+    const first = setup();
+    const toggle = () => first.panel.querySelector<HTMLButtonElement>(".reader");
+    toggle()?.click();
+    flushSync();
+    expect(toggle()?.getAttribute("aria-pressed")).toBe("true");
+    expect(first.panel.textContent).toContain("Screen reader mode on");
+    for (const cleanup of cleanups.splice(0)) cleanup();
+    expect(setup().panel.querySelector(".reader")?.getAttribute("aria-pressed")).toBe("true");
+    localStorage.clear();
+  });
+
+  it("restarts an ended shell in the same tab", async () => {
+    const { core, panel, tabs } = setup();
+    await run("terminal.toggle");
+    core.exit("t1", 0);
+    flushSync();
+    panel.querySelector<HTMLButtonElement>(".ended button")?.click();
+    await settle();
+    expect(tabs().map((t) => t.textContent?.trim())).toEqual(["Terminal 1"]);
+    expect([...core.open.keys()]).toEqual(["t2"]);
+    expect(panel.querySelector(".ended")).toBeNull();
+    expect(document.activeElement).toBe(xterms[1]?.textarea);
   });
 });
