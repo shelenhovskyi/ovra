@@ -545,9 +545,19 @@ pub enum ReviewAction { Approved, PartlyApproved, Rejected, UndoneReject, Taken,
   token.
 - The core reads a project's values once and keeps them in memory until
   its secrets change (`secrets.set`, `secrets.remove`, removing the
-  project). A read that takes longer than 5 s counts as unreadable.
-- Decisions are queued when they are made and recorded in that order by a
-  task of their own, so an agent that stops waiting loses no entry.
+  project). A project has at most one read in flight, and every decision
+  of the project waits on it until one deadline, 5 s after the read began:
+  a hung keychain costs 5 s once per read, not once per decision.
+- A read that fails, or is not done by its deadline, counts as
+  unreadable: the decisions waiting on it are recorded as above. A late
+  answer still fills the cache; until it comes, later decisions do not
+  wait. After a failed read the keychain is not asked again for 10 s.
+  A change to the project's secrets drops what is known, including a
+  failure or a hung read, so the next decision reads them again.
+- Decisions are queued when they are made and recorded by a task of their
+  own, so an agent that stops waiting loses no entry. Each project's
+  entries keep the order its decisions were made in; projects do not wait
+  for each other.
 
 **Service:**
 
