@@ -1,3 +1,15 @@
+<script lang="ts" module>
+import { registerContextKeys } from "../keys/context-keys";
+
+// This panel's own keys, for Settings > Keyboard; the panel handles them itself.
+registerContextKeys(
+  [
+    { keys: "Enter", title: "Start the task, or send the reply" },
+    { keys: "Shift+Enter", title: "New line" },
+  ].map((key) => ({ ...key, where: "Agents" })),
+);
+</script>
+
 <script lang="ts">
 // Agent sessions of the open project: a compact list of tasks with a start
 // box under it; a row opens its transcript, where the person replies, stops

@@ -1,3 +1,18 @@
+<script lang="ts" module>
+import { registerContextKeys } from "../keys/context-keys";
+
+// This panel's own keys, for Settings > Keyboard; the panel handles them itself.
+registerContextKeys(
+  [
+    { keys: "Y", title: "Allow once" },
+    { keys: "N", title: "Deny" },
+    { keys: "Shift+N", title: "Deny and tell Claude why" },
+    { keys: "Up/Down", title: "Previous or next request" },
+    { keys: "Escape", title: "Leave the request waiting" },
+  ].map((key) => ({ ...key, where: "Approvals" })),
+);
+</script>
+
 <script lang="ts">
 // Pending permission requests, oldest first. Keyboard: Alt+Shift+A (Mod+Shift+A
 // in the desktop app) jumps here; on a focused card Y allows, N denies,

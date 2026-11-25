@@ -1,3 +1,17 @@
+<script lang="ts" module>
+import { registerContextKeys } from "../keys/context-keys";
+import { trashKeys } from "./ops";
+
+// This panel's own keys, for Settings > Keyboard; the panel handles them itself.
+registerContextKeys(
+  [
+    { keys: "F2", title: "Rename" },
+    { keys: trashKeys(), title: "Move to the trash" },
+    { keys: "Shift+F10", title: "Open the row's menu (also the Menu key)" },
+  ].map((key) => ({ ...key, where: "Files" })),
+);
+</script>
+
 <script lang="ts">
 // Virtualized file tree: only the rows in view (plus a few) are in the DOM,
 // so a project with 100k files scrolls like one with ten. Focus stays on the

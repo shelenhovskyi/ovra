@@ -1,3 +1,12 @@
+<script lang="ts" module>
+import { registerContextKeys } from "../keys/context-keys";
+
+// This panel's own keys, for Settings > Keyboard; the panel handles them itself.
+registerContextKeys(
+  [{ keys: "Alt+Shift+P", title: "Pick an element on the page" }].map((key) => ({ ...key, where: "Agent browser" })),
+);
+</script>
+
 <script lang="ts">
 // One page of a session's browser: its screencast on a canvas, scaled to fit
 // and asked for only while the canvas can be seen; the person's mouse and keys

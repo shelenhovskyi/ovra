@@ -1,3 +1,20 @@
+<script lang="ts" module>
+import { registerContextKeys } from "../keys/context-keys";
+
+// This panel's own keys, for Settings > Keyboard; the panel handles them itself.
+registerContextKeys(
+  [
+    { keys: "S", title: "Stage" },
+    { keys: "U", title: "Unstage" },
+    { keys: "O", title: "Open the file" },
+    { keys: "Enter", title: "Show the diff" },
+    { keys: "Delete", title: "Discard changes…" },
+    { keys: "Shift+F10", title: "Open the row's menu (also the Menu key)" },
+    { keys: "Mod+Enter", title: "Commit" },
+  ].map((key) => ({ ...key, where: "Git" })),
+);
+</script>
+
 <script lang="ts">
 // Sidebar git view for the open project, and its palette commands: show
 // the panel, set up git, stage all, commit, new branch, switch branch.

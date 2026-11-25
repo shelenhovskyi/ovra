@@ -1,3 +1,12 @@
+<script lang="ts" module>
+import { registerContextKeys } from "../keys/context-keys";
+
+// This panel's own keys, for Settings > Keyboard; the panel handles them itself.
+registerContextKeys(
+  [{ keys: "Shift+F8", title: "Go to previous problem" }].map((key) => ({ ...key, where: "Editor" })),
+);
+</script>
+
 <script lang="ts">
 // The editor for workspace.openPath (main area in "edit" mode). One view
 // shows the active tab's buffer; buffers keep their own text, undo history

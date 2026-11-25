@@ -1,3 +1,16 @@
+<script lang="ts" module>
+import { registerContextKeys } from "../keys/context-keys";
+
+// This panel's own keys, for Settings > Keyboard; the panel handles them itself.
+registerContextKeys(
+  [
+    { keys: "Shift+F10", title: "Open the tab's menu (also the Menu key)" },
+    { keys: "Left/Right", title: "Previous or next tab" },
+    { keys: "Delete", title: "Close the tab" },
+  ].map((key) => ({ ...key, where: "Tabs" })),
+);
+</script>
+
 <script lang="ts">
 // Tabs for the open files of the project, above the main area. One Tab stop
 // for the strip; arrows, Home and End move between tabs, Delete closes one.

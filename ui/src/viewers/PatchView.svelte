@@ -1,3 +1,15 @@
+<script lang="ts" module>
+import { registerContextKeys } from "../keys/context-keys";
+
+// This panel's own keys, for Settings > Keyboard; the panel handles them itself.
+registerContextKeys(
+  [
+    { keys: "N", title: "Next change" },
+    { keys: "P", title: "Previous change" },
+  ].map((key) => ({ ...key, where: "Diffs" })),
+);
+</script>
+
 <script lang="ts">
 import Code from "../editor/highlight/Code.svelte";
 import { highlightLines, type Segment } from "../editor/highlight/static";

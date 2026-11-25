@@ -37,7 +37,6 @@ import Terminals from "../terminal/Terminals.svelte";
 import Tree from "../tree/Tree.svelte";
 import Viewer from "../viewers/Viewer.svelte";
 import { provideOvra } from "./context";
-import { PANEL_KEYS, SHELL_KEYS } from "./context-keys";
 import Icon from "./Icon.svelte";
 import { rememberProject, restoreProject } from "./last-project";
 import { Layout, type Panel } from "./layout.svelte";
@@ -178,8 +177,8 @@ $effect(() => {
       keys: "Alt+Mod+L",
       run: () => mainView.toggle("audit"),
     }),
-    registerContextKeys(SHELL_KEYS),
-    registerContextKeys(PANEL_KEYS),
+    // The keys of its main-area views; each panel declares its own.
+    registerContextKeys([{ keys: "Escape", title: "Close Settings, Reviews or the Audit log", where: "Views" }]),
   ];
   return () => {
     for (const unregister of off) unregister();
