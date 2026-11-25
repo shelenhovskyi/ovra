@@ -2,7 +2,8 @@
 // The icon rail beside the rail's panel: what that panel shows (Files,
 // Search, Git), and Terminal and Settings at the bottom. Pressing the shown view
 // again folds the panel; another view unfolds it. Settings opens in the main
-// area and closes again on a second press. The shell moves the rail
+// area and closes again on a second press. While a view (Settings, Reviews,
+// the Audit log) covers the files, Files, Search and Git close it. The shell moves the rail
 // to the right edge when the panel goes there, and hides it on the start
 // screen. Reviews and More are in the title bar.
 import { listCommands } from "../keys/commands";
@@ -24,8 +25,20 @@ const VIEWS: { id: SidebarView; name: string; icon: IconName }[] = [
   { id: "git", name: "Git", icon: "branch" },
 ];
 
+/** The panel the rail shows as chosen: none while a view covers the main area, only the gear for Settings. */
+function chosen(view: SidebarView): boolean {
+  return mainView.current === null && workspace.sidebar === view && !layout.side.collapsed;
+}
+
 function choose(view: SidebarView): void {
-  const shown = workspace.sidebar === view && !layout.side.collapsed;
+  if (mainView.current !== null) {
+    // Back from a view: the files come back with this panel beside them, never folded by the same press.
+    mainView.close(false);
+    workspace.sidebar = view;
+    layout.setCollapsed("side", false);
+    return;
+  }
+  const shown = chosen(view);
   workspace.sidebar = view;
   layout.setCollapsed("side", shown);
 }
@@ -47,7 +60,7 @@ function run(id: string): void {
         class="rail-button tip"
         data-tip={view.name}
         aria-label={view.name}
-        aria-pressed={workspace.sidebar === view.id && !layout.side.collapsed}
+        aria-pressed={chosen(view.id)}
         onclick={() => choose(view.id)}><Icon name={view.icon} /></button
       >
     {/each}

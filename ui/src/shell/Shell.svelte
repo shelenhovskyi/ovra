@@ -39,7 +39,7 @@ import { provideOvra } from "./context";
 import Icon from "./Icon.svelte";
 import { rememberProject, restoreProject } from "./last-project";
 import { Layout, type Panel } from "./layout.svelte";
-import { mainView } from "./main-view.svelte";
+import { mainView, VIEW_TITLES } from "./main-view.svelte";
 import Rail from "./Rail.svelte";
 import Splitter from "./Splitter.svelte";
 import TitleBar from "./TitleBar.svelte";
@@ -254,6 +254,11 @@ async function toggle(panel: Panel): Promise<void> {
   back?.focus();
 }
 
+/** A press on a file's tab while a view covers the files: back to that file, even the one already open. */
+function backToFiles(event: MouseEvent): void {
+  if (mainView.current && event.target instanceof Element && event.target.closest("[role=tab]")) mainView.close(false);
+}
+
 /** Bumped to ask again whether Claude is ready: the person may have fixed it in a terminal meanwhile. */
 let claudeCheck = $state(0);
 
@@ -316,9 +321,28 @@ async function showApprovals(): Promise<void> {
     {/if}
   {/each}
   <main data-testid="main" hidden={!workspace.project && !mainView.current}>
-    <!-- A view (Settings, Audit log, Reviews) takes the files' place; they stay mounted under it. -->
+    <!-- The open files' tabs stay in sight under a view (Settings, Audit log,
+         Reviews), which shows as one more tab: a file's tab brings it back. -->
+    <div class="tab-row" class:covered={!!mainView.current}>
+      <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+      <div class="tab-strip" onclickcapture={backToFiles}><Tabs /></div>
+      {#if mainView.current}
+        {@const title = VIEW_TITLES[mainView.current]}
+        <div class="view-tab" data-testid="view-tab">
+          <span class="view-name">{title}</span>
+          <button
+            type="button"
+            class="view-close"
+            aria-label={`Close ${title}`}
+            title="Close (Escape)"
+            aria-keyshortcuts="Escape"
+            onclick={() => mainView.close()}><Icon name="close" small /></button
+          >
+        </div>
+      {/if}
+    </div>
+    <!-- A view takes the files' place; they stay mounted under it. -->
     <div class="files" hidden={!!mainView.current}>
-    <Tabs />
     <!-- The selected tab: a git diff (a tab of its own) or the open file, which stays mounted under the diff. -->
     <div
       class="view"
@@ -601,6 +625,56 @@ async function showApprovals(): Promise<void> {
     min-width: 0;
     overflow: clip;
     background: var(--s2);
+  }
+  .tab-row {
+    display: flex;
+    flex: none;
+    align-items: flex-end;
+    min-width: 0;
+    background: var(--s1);
+  }
+  .tab-strip {
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+  /* Under a view, the open file's tab is no longer the selected one: the view's is. */
+  .covered :global(.tabs .tab.active) {
+    font-weight: 400;
+    color: var(--text-2);
+    background: none;
+  }
+  .view-tab {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 2px;
+    height: 32px;
+    margin: 4px 8px 0;
+    padding: 0 2px 0 12px;
+    font-weight: 500;
+    background: var(--s2);
+    border-radius: var(--r-md) var(--r-md) 0 0;
+    user-select: none;
+  }
+  /* After the file tabs, the same gap as between them. */
+  .tab-strip:has(:global(.tabs)) + .view-tab {
+    margin-left: -6px;
+  }
+  .view-close {
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    color: var(--text-2);
+    background: none;
+    border: 0;
+    border-radius: var(--r-sm);
+    cursor: default;
+  }
+  .view-close:hover {
+    color: var(--text);
+    background: var(--s3);
   }
   .files {
     display: flex;

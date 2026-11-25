@@ -106,6 +106,57 @@ describe("Shell", () => {
     localStorage.clear();
   });
 
+  it("keeps the tab row under a view, shows the view as a tab, and lets the rail's panels close it", async () => {
+    globalThis.ResizeObserver ??= class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    };
+    localStorage.setItem("ovra.project", "p1");
+    const demo = { id: "p1", name: "demo-app", root: "/work/demo-app", last_opened_ms: null, trusted: false };
+    const transport = fakeTransport();
+    const base = transport.call;
+    transport.call = ((request: Request) =>
+      request.method === "projects.open"
+        ? Promise.resolve({ type: "projects.project", data: demo })
+        : base(request)) as Transport["call"];
+    const target = document.body.appendChild(document.createElement("div"));
+    const app = mount(Shell, { target, props: { transport } });
+    flushSync();
+    await new Promise((resolve) => setImmediate(resolve));
+    flushSync();
+    const rail = (name: string) =>
+      target.querySelector<HTMLButtonElement>(`nav[aria-label=Views] [aria-label=${name}]`);
+    const viewTab = () => target.querySelector("[data-testid=view-tab]");
+    expect(rail("Files")?.getAttribute("aria-pressed")).toBe("true");
+
+    rail("Settings")?.click();
+    flushSync();
+    expect(viewTab()?.textContent?.trim()).toBe("Settings");
+    expect(target.querySelector(".tab-row")?.closest("[hidden]")).toBeNull();
+    // One chosen icon at a time: the gear, not Files.
+    expect(rail("Files")?.getAttribute("aria-pressed")).toBe("false");
+    expect(rail("Settings")?.getAttribute("aria-pressed")).toBe("true");
+
+    // Files brings the files back with the tree beside them, without folding it.
+    rail("Files")?.click();
+    flushSync();
+    expect(target.querySelector("[data-testid=settings]")).toBeNull();
+    expect(viewTab()).toBeNull();
+    expect(rail("Files")?.getAttribute("aria-pressed")).toBe("true");
+    expect(target.querySelector("[data-testid=sidebar] > .body")?.hasAttribute("hidden")).toBe(false);
+
+    // The view's tab closes it too.
+    rail("Settings")?.click();
+    flushSync();
+    viewTab()?.querySelector<HTMLButtonElement>("button[aria-label='Close Settings']")?.click();
+    flushSync();
+    expect(target.querySelector("[data-testid=settings]")).toBeNull();
+    unmount(app);
+    target.remove();
+    localStorage.clear();
+  });
+
   it("folds Agents while a request waits, and says so in the title bar until a new one comes", async () => {
     const request = { id: "r1", session: "s1", project: "p1", tool: "Bash", input: {}, title: null };
     const listeners: ((event: unknown) => void)[] = [];

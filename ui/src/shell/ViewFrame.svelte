@@ -1,10 +1,10 @@
 <script lang="ts">
 // The frame of a main-area view (main-view.svelte.ts): its title, what the
-// view puts beside it, a close button, and the view's content, which scrolls
-// on its own. The title takes focus when the view opens; Escape closes it,
-// unless something inside used the key first.
+// view puts beside it, and the view's content, which scrolls on its own.
+// The view's tab above it (in the shell) has the close button. The title
+// takes focus when the view opens; Escape closes it, unless something
+// inside used the key first.
 import type { Snippet } from "svelte";
-import Icon from "./Icon.svelte";
 import { type MainViewName, mainView, VIEW_TITLES } from "./main-view.svelte";
 
 let { name, testid, tools, children }: { name: MainViewName; testid?: string; tools?: Snippet; children: Snippet } =
@@ -29,9 +29,6 @@ function onkeydown(event: KeyboardEvent): void {
   <header>
     <h2 id={`${id}-title`} tabindex="-1" {@attach focusTitle}>{VIEW_TITLES[name]}</h2>
     {@render tools?.()}
-    <button type="button" class="close" title="Close (Escape)" aria-keyshortcuts="Escape" onclick={() => mainView.close()}
-      ><Icon name="close" /><span class="sr-only">Close {VIEW_TITLES[name]}</span></button
-    >
   </header>
   <div class="content">{@render children()}</div>
 </section>
@@ -58,36 +55,11 @@ function onkeydown(event: KeyboardEvent): void {
     font: var(--t-title2);
     letter-spacing: -0.02em;
   }
-  .close {
-    display: grid;
-    place-items: center;
-    width: var(--ctl);
-    height: var(--ctl);
-    margin-left: auto;
-    padding: 0;
-    color: var(--text-2);
-    background: transparent;
-    border: 0;
-    border-radius: var(--r-md);
-    cursor: default;
-  }
-  .close:hover {
-    color: var(--text);
-    background: var(--s3);
-  }
   .content {
     display: flex;
     flex: 1;
     flex-direction: column;
     min-height: 0;
     overflow: auto;
-  }
-  .sr-only {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
   }
 </style>
