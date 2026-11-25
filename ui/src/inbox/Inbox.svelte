@@ -69,8 +69,9 @@ const busy = $derived(item ? inbox.busy.includes(item.id) : false);
 const outcome = $derived(inbox.outcome && inbox.outcome.id === item?.id ? inbox.outcome : null);
 const diffKey = $derived(item && file ? `${item.id}\n${file.path}\n${inbox.changes}` : null);
 /**
- * A worker's item is approved only with the current file's diff on screen,
- * read from the same version of its files as the list (`fingerprint`).
+ * A worker's item, and a direct one with protected files, is approved only
+ * with the current file's diff on screen, read from the same version of its
+ * files as the list (`fingerprint`).
  */
 const diffShown = $derived(
   !item?.fingerprint || (diff !== null && diff.key === diffKey && diff.patch !== null && diff.fingerprint !== null),
@@ -178,8 +179,9 @@ $effect(() => {
 });
 
 /**
- * Which version of a file was seen: a worker's files by the fingerprint of
- * all of them, any file by its change, so a later change needs a new look.
+ * Which version of a file was seen: by the item's fingerprint (a worker's
+ * files, a direct item's protected files) and the file's change, so a
+ * later change needs a new look.
  */
 function seenKey(review: ReviewItem, f: FileChange): string {
   return [review.id, review.fingerprint ?? "", f.path, f.from ?? "", f.kind, f.additions, f.deletions].join("\n");

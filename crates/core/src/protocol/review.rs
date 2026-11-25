@@ -87,7 +87,10 @@ pub struct ReviewItem {
     pub can_undo_take: bool,
     /// An open worker item's files as listed here (paths and contents);
     /// `review.approve` sends it back and is refused if the worker's files
-    /// changed since. `None` for direct and decided items.
+    /// changed since. For an open direct item with protected files: those
+    /// files (paths and contents), which an approve that includes them
+    /// sends back, refused if they changed or others appeared. `None` for
+    /// other direct items and decided ones.
     #[serde(default)]
     pub fingerprint: Option<String>,
     /// Files of the repository's git folder or hooks folder, and other
@@ -127,7 +130,7 @@ pub enum ReviewRequest {
         id: ReviewId,
         commit: Option<String>,
         /// The `ReviewItem::fingerprint` the person reviewed; a worker's
-        /// item needs it.
+        /// item needs it, and so does a direct item's `include_protected`.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         fingerprint: Option<String>,
         /// The person chose to apply the item's protected files too.
@@ -184,9 +187,10 @@ pub enum ReviewResponse {
     Diff {
         path: String,
         patch: String,
-        /// For a worker's item: the `ReviewItem::fingerprint` of the files
-        /// this diff was read from. If it differs from the item's, the item
-        /// changed since it was listed.
+        /// For a worker's item, and a direct item with protected files: the
+        /// `ReviewItem::fingerprint` of the files this diff was read from.
+        /// If it differs from the item's, the item changed since it was
+        /// listed.
         #[serde(default)]
         fingerprint: Option<String>,
     },

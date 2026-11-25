@@ -43,7 +43,9 @@ export type ReviewItem = {
   can_undo_take: boolean;
   /**
    * An open worker item's files as listed here; `review.approve` sends it
-   * back and is refused if the worker's files changed since. Null otherwise.
+   * back and is refused if the worker's files changed since. For an open
+   * direct item with protected files: those files, which an approve that
+   * includes them sends back. Null otherwise.
    */
   fingerprint: string | null;
   /**
@@ -64,7 +66,8 @@ export type ReviewRequest =
   | { method: "review.diff"; params: { id: ReviewId; path: string } }
   /**
    * With `commit`, commits the agent's files with that message. A worker's
-   * item needs the `fingerprint` the person reviewed. Without
+   * item, and a direct item's `include_protected`, need the `fingerprint`
+   * the person reviewed. Without
    * `include_protected`, a worker's protected files are not copied (they
    * wait in `not_copied`) and a direct item with protected files is refused.
    */
@@ -90,7 +93,7 @@ export type ReviewRequest =
 
 export type ReviewResponse =
   | { type: "review.list"; data: ReviewItem[] }
-  /** For a worker's item, `fingerprint` is the item's fingerprint the diff was read with. */
+  /** For a worker's item, and a direct one with protected files, the item's fingerprint the diff was read with. */
   | { type: "review.diff"; data: { path: string; patch: string; fingerprint?: string | null } }
   /** After approve, reject or undo; `conflicts` are files left for the person, `restored` what a reject restored or an undo put back. */
   | { type: "review.done"; data: { item: ReviewItem; conflicts: string[]; restored: string[] } };

@@ -139,6 +139,27 @@ describe("Inbox", () => {
     ]);
   });
 
+  it("counts a direct item's protected file as seen only in the version the list shows", async () => {
+    const core = await setup([review("r1", { fingerprint: "d2", files: [change("CLAUDE.md", { protected: true })] })]);
+    // The diff on screen was read before the file changed again.
+    core.diffFingerprint = "d1";
+    core.emit({ type: "review.changed", data: { project: "p1", id: "r1" } });
+    await open();
+    expect($("[data-testid=inbox-protected-why]")?.textContent).toContain("CLAUDE.md");
+    button(/^Approve$/)?.click();
+    await settle();
+    expect(core.sent("review.approve")).toEqual([]);
+    core.diffFingerprint = null;
+    core.emit({ type: "review.changed", data: { project: "p1", id: "r1" } });
+    await settle();
+    expect($("[data-testid=inbox-protected-why]")).toBeNull();
+    button(/^Approve$/)?.click();
+    await settle();
+    expect(core.sent("review.approve").map((c) => c.params)).toEqual([
+      { id: "r1", commit: null, fingerprint: "d2", include_protected: true },
+    ]);
+  });
+
   it("shows an item with only changed git hooks and config, and warns before Approve", async () => {
     await setup([
       review("r1", { files: [], git_changes: [{ path: ".git/hooks/pre-commit", kind: "added" }] }),

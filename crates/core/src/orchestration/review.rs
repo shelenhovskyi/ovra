@@ -186,6 +186,21 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
             let ws = entry.workspace.clone();
             let worktrees = core.worktrees();
             if entry.mode == SessionMode::Direct {
+                // With protected files, read from the tree the item's
+                // fingerprint names: the inbox can tell a newer diff.
+                let (item, tree) = current(core, &entry).await?;
+                if let (Some(fingerprint), Some(tree)) = (item.fingerprint, tree) {
+                    let patch = worktrees
+                        .patches(ws.dir, ws.base, tree, vec![path.clone()])
+                        .await?
+                        .remove(path.as_str())
+                        .unwrap_or_default();
+                    return Ok(Response::Review(ReviewResponse::Diff {
+                        path: path.to_string(),
+                        patch,
+                        fingerprint: Some(fingerprint),
+                    }));
+                }
                 let patch = worktrees.patch(ws.dir, ws.base, vec![path.clone()]).await?;
                 return Ok(Response::Review(ReviewResponse::Diff {
                     path: path.to_string(),
@@ -356,14 +371,19 @@ fn update(core: &Core, id: &ReviewId, f: impl FnOnce(&mut Entry)) -> Result<Entr
 }
 
 pub(super) async fn item(core: &Core, entry: &Entry) -> Result<ReviewItem> {
-    let (mut files, fingerprint) = if entry.state != ReviewState::Open {
-        (entry.decided.clone(), None)
+    Ok(current(core, entry).await?.0)
+}
+
+/// The entry's item, and for an open item the tree its files were read
+/// from.
+async fn current(core: &Core, entry: &Entry) -> Result<(ReviewItem, Option<String>)> {
+    let (mut files, mut fingerprint, tree) = if entry.state != ReviewState::Open {
+        (entry.decided.clone(), None, None)
     } else if super::tasks::cleaned(core, &entry.session) {
         // Removed only once nothing in it changed (`clean_up`).
-        (Vec::new(), None)
+        (Vec::new(), None, None)
     } else {
-        let (files, fingerprint, _) = listed(core, entry, None).await?;
-        (files, fingerprint)
+        listed(core, entry, None).await?
     };
     let git = match &entry.decided_git {
         Some(git) if entry.state != ReviewState::Open => git.clone(),
@@ -375,7 +395,12 @@ pub(super) async fn item(core: &Core, entry: &Entry) -> Result<ReviewItem> {
             file.protected |= paths.into_iter().any(|p| inside(p, hooks));
         }
     }
-    Ok(ReviewItem {
+    if entry.mode == SessionMode::Direct
+        && let Some(tree) = &tree
+    {
+        fingerprint = protected_fingerprint(core, entry, &files, tree).await;
+    }
+    let item = ReviewItem {
         id: entry.id.clone(),
         project: entry.project.clone(),
         session: entry.session.clone(),
@@ -391,7 +416,43 @@ pub(super) async fn item(core: &Core, entry: &Entry) -> Result<ReviewItem> {
         fingerprint,
         git_changes: git.changes,
         git_unchecked: git.unchecked,
-    })
+    };
+    Ok((item, tree))
+}
+
+/// A direct item's protected files as read from `tree`: SHA-256 over each
+/// one's path, old path, kind and content version. `None` without
+/// protected files, or when their versions cannot be read.
+async fn protected_fingerprint(
+    core: &Core,
+    entry: &Entry,
+    files: &[FileChange],
+    tree: &str,
+) -> Option<String> {
+    let guarded: Vec<&FileChange> = files.iter().filter(|f| f.protected).collect();
+    if guarded.is_empty() {
+        return None;
+    }
+    let ws = &entry.workspace;
+    let deltas = core
+        .worktrees()
+        .diff(ws.dir.clone(), ws.base.clone(), tree.to_owned())
+        .await
+        .ok()?;
+    let mut hash = Sha256::new();
+    hash.update(b"ovra-review-direct-v1\0");
+    for f in guarded {
+        let version = deltas
+            .iter()
+            .find(|d| d.path == f.path)
+            .map_or("", |d| d.version.as_str());
+        let from = f.from.as_deref().unwrap_or("");
+        for part in [f.path.as_str(), from, kind_name(f.kind), version] {
+            hash.update(part.as_bytes());
+            hash.update(b"\0");
+        }
+    }
+    Some(hash.finalize().iter().map(|b| format!("{b:02x}")).collect())
 }
 
 /// What changed in the project's hooks and config since the session
@@ -463,9 +524,9 @@ type Listed = (Vec<FileChange>, Option<String>, Option<String>);
 async fn listed(core: &Core, entry: &Entry, at: Option<&String>) -> Result<Listed> {
     let ws = &entry.workspace;
     if entry.mode == SessionMode::Direct
-        && let Ok(files) = core.sessions().direct.files(&entry.session).await
+        && let Ok((files, tree)) = core.sessions().direct.files_at(&entry.session).await
     {
-        return Ok((files, None, None));
+        return Ok((files, None, tree));
     }
     let worktrees = core.worktrees();
     // One reading of the workspace, so the files, their fingerprint and
@@ -636,6 +697,18 @@ async fn approve(
         ));
     }
     if entry.mode == SessionMode::Direct {
+        // Protected files are already on disk: they are kept only as the
+        // person saw them, and only by their choice.
+        let now = item(core, &entry).await?;
+        if !include_protected {
+            super::direct::protected_refused(&now.files)?;
+        } else if now.files.iter().any(|f| f.protected)
+            && (now.fingerprint.is_none() || now.fingerprint != reviewed)
+        {
+            return Err(conflict(
+                "the protected files changed since you looked at them; review them again",
+            ));
+        }
         let direct = &core.sessions().direct;
         if commit.is_none() && direct.files(&entry.session).await.is_err() {
             // Ovra no longer knows which files are the agent's (it

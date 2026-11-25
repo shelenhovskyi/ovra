@@ -385,12 +385,22 @@ impl Direct {
     /// The session's changes since its baseline, each marked with who made
     /// it.
     pub(crate) async fn files(&self, session: &SessionId) -> Result<Vec<FileChange>> {
+        Ok(self.files_at(session).await?.0)
+    }
+
+    /// [`Self::files`], and the look of the folder they were read from, if
+    /// it could be taken.
+    pub(crate) async fn files_at(
+        &self,
+        session: &SessionId,
+    ) -> Result<(Vec<FileChange>, Option<String>)> {
         let worktrees = &*self.worktrees;
         let (_, writer) = self.held(session)?;
         let mut tracker = writer.lock(worktrees).await;
         let t = tracker.as_mut().ok_or_else(not_direct)?;
         let now = worktrees.look(writer.dir.clone()).await.ok();
-        t.files(worktrees, &writer.dir, now.as_ref()).await
+        let files = t.files(worktrees, &writer.dir, now.as_ref()).await?;
+        Ok((files, now))
     }
 
     /// Keeps the changes. With `commit`, commits the
