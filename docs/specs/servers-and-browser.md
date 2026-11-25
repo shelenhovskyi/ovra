@@ -230,7 +230,11 @@ ports a helper exposes or forwards).
 | `server_restart` | `id`, `wait_ms?`                           | the new status                                                                |
 | `server_logs`    | `id`, `since?`, `limit?` (<= 500), `grep?` | lines, `next`                                                                 |
 
-Every role gets them, for its own work dir only. Logs are the server's
+Every role gets them, for its own work dir only, also the read-only
+coordinator: the servers any role starts are the ones the person
+defined, and they run commands that write the work dir (a dev server's
+build output, a watcher's cache) in their pod, as the person's own start
+would. Logs are the server's
 output, which project code writes: the tool answer wraps them as data
 (below).
 
