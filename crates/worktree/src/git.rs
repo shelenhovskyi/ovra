@@ -83,6 +83,9 @@ impl Git {
     /// `*` or a leading `:` mean exactly that file.
     pub(crate) fn new(dir: &Path, subcommand: &str) -> Self {
         let mut command = Command::new(program());
+        if let Some(path) = ovra_core::child_path::login() {
+            command.env("PATH", path);
+        }
         command
             .args(["--literal-pathspecs", "-c", "core.quotepath=off"])
             // Never run a configured file monitor, and refuse `.git` paths
@@ -477,4 +480,23 @@ fn forget_ignored(dir: &Path, index: &TempIndex) -> Result<()> {
             .run()?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn git_and_the_filters_it_runs_get_the_login_shells_path() {
+        // Each test runs in its own process (nextest), so this stays here.
+        // `git-lfs` from Homebrew is found only on the login shell's PATH.
+        ovra_core::child_path::set_login("/opt/homebrew/bin:/usr/bin".into());
+        let git = Git::new(Path::new("."), "status");
+        let path = git
+            .command
+            .get_envs()
+            .find(|(name, _)| *name == "PATH")
+            .and_then(|(_, value)| value);
+        assert_eq!(path, Some(OsStr::new("/opt/homebrew/bin:/usr/bin")));
+    }
 }

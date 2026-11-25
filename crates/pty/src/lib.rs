@@ -77,7 +77,11 @@ impl Pty {
             cmd.env("PS1", "$ ");
             return cmd;
         }
-        CommandBuilder::new_default_prog()
+        let mut cmd = CommandBuilder::new_default_prog();
+        if let Some(path) = ovra_core::child_path::login() {
+            cmd.env("PATH", path);
+        }
+        cmd
     }
 
     fn terminals(&self) -> MutexGuard<'_, HashMap<TerminalId, Terminal>> {

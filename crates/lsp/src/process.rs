@@ -62,7 +62,8 @@ impl Drop for Process {
 pub(crate) fn spawn(line: &CommandLine, name: &str, host: ServerHost) -> Result<Process> {
     let mut command = Command::new(&line.program);
     command.args(&line.args).current_dir(&line.cwd);
-    for (key, value) in &line.env {
+    // The login shell's `PATH`, then the line's: a sandbox's own wins.
+    for (key, value) in ovra_core::child_path::env(&line.env) {
         match value {
             Some(value) => command.env(key, value),
             None => command.env_remove(key),

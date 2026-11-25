@@ -53,7 +53,7 @@ impl LanguageServers for Servers {
     fn known(&self) -> BoxFuture<'_, Vec<KnownServer>> {
         Box::pin(async move {
             let defs = self.defs.clone();
-            let path = std::env::var_os("PATH");
+            let path = ovra_core::child_path::or_inherited(std::env::var_os("PATH"));
             tokio::task::spawn_blocking(move || known::known(&defs, path.as_deref()))
                 .await
                 .unwrap_or_default()
@@ -69,7 +69,7 @@ impl LanguageServers for Servers {
 
     fn start(&self, spec: ServerSpec, host: ServerHost) -> BoxFuture<'_, Result<StartedServer>> {
         Box::pin(async move {
-            let path = std::env::var_os("PATH");
+            let path = ovra_core::child_path::or_inherited(std::env::var_os("PATH"));
             let (def, program) = known::installed(&self.defs, &spec.language, path.as_deref())
                 .ok_or_else(|| {
                     ProtocolError::new(

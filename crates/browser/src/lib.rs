@@ -56,7 +56,7 @@ impl ChromiumBrowser {
     /// `chromium-browser`, `google-chrome` and `google-chrome-stable` on
     /// `PATH`, run in `sandbox`. Never downloads one.
     pub fn new(sandbox: Arc<dyn Sandbox>, chromium: Option<PathBuf>) -> Self {
-        let path = std::env::var_os("PATH");
+        let path = ovra_core::child_path::or_inherited(std::env::var_os("PATH"));
         let found = launch::find(chromium.as_deref(), path.as_deref());
         let unavailable = |reason: String| SandboxStatus::Unavailable { reason };
         let status = match (&found, sandbox.status()) {

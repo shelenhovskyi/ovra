@@ -141,7 +141,11 @@ fn launch_first(
 
 /// Starts the program without waiting for it; a background thread reaps it.
 fn spawn_detached(invocation: &Invocation) -> io::Result<()> {
-    let mut child = Command::new(&invocation.program)
+    let mut command = Command::new(&invocation.program);
+    if let Some(path) = ovra_core::child_path::login() {
+        command.env("PATH", path);
+    }
+    let mut child = command
         .args(&invocation.args)
         .stdin(Stdio::null())
         .stdout(Stdio::null())

@@ -12,6 +12,16 @@ use ovra_core::services::{
     CommandLine, Result, Sandbox, SandboxProfile, SandboxStatus, ServerProfile,
 };
 
+#[cfg(unix)]
+mod login_path;
+
+#[cfg(unix)]
+pub use login_path::use_login_path;
+
+/// On Windows an app gets the user's `PATH` however it starts.
+#[cfg(not(unix))]
+pub fn use_login_path() {}
+
 /// Paths under a session's `work_dir` that stay read-only. The list lives in
 /// the core, which the review marks changes to them with.
 pub use ovra_core::protected::PROTECTED_IN_WORK_DIR;

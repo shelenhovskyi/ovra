@@ -35,6 +35,9 @@ pub(crate) const CONFIG_DIR_VAR: &str = "CLAUDE_CONFIG_DIR";
 /// [`NESTED_SESSION_VARS`], in the account's folder `config_dir` if given.
 pub(crate) fn command(executable: &Path, config_dir: Option<&Path>) -> Command {
     let mut command = Command::new(executable);
+    if let Some(path) = ovra_core::child_path::login() {
+        command.env("PATH", path);
+    }
     for name in NESTED_SESSION_VARS {
         command.env_remove(name);
     }
@@ -72,7 +75,8 @@ pub(crate) fn line(
 pub(crate) fn spawnable(line: &CommandLine) -> Command {
     let mut command = Command::new(&line.program);
     command.args(&line.args).current_dir(&line.cwd);
-    for (name, value) in &line.env {
+    // The login shell's `PATH`, then the line's: a sandbox's own wins.
+    for (name, value) in ovra_core::child_path::env(&line.env) {
         match value {
             Some(value) => command.env(name, value),
             None => command.env_remove(name),
@@ -184,6 +188,29 @@ pub(crate) fn args(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn claude_gets_the_login_shells_path_before_a_sandboxs_own() {
+        // Each test runs in its own process (nextest), so this stays here.
+        ovra_core::child_path::set_login("/opt/homebrew/bin:/usr/bin".into());
+        let path = |command: &Command| {
+            command
+                .as_std()
+                .get_envs()
+                .filter(|(name, _)| *name == "PATH")
+                .map(|(_, value)| value.map(std::ffi::OsStr::to_owned))
+                .collect::<Vec<_>>()
+        };
+        let login = Some(OsString::from("/opt/homebrew/bin:/usr/bin"));
+        assert_eq!(
+            path(&command(Path::new("claude"), None)),
+            std::slice::from_ref(&login)
+        );
+        let mut line = line(Path::new("claude"), Vec::new(), Path::new("/"), None);
+        assert_eq!(path(&spawnable(&line)), [login]);
+        line.env.push(("PATH".into(), Some("/usr/bin".into())));
+        assert_eq!(path(&spawnable(&line)), [Some("/usr/bin".into())]);
+    }
 
     #[test]
     fn nested_session_markers_are_removed_and_configuration_is_kept() {

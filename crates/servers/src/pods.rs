@@ -236,7 +236,8 @@ impl Pods {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .kill_on_drop(true);
-        for (name, value) in &line.env {
+        // The login shell's `PATH`, then the line's: a sandbox's own wins.
+        for (name, value) in ovra_core::child_path::env(&line.env) {
             match value {
                 Some(value) => command.env(name, value),
                 None => command.env_remove(name),

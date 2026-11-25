@@ -127,7 +127,7 @@ impl Env {
         let var = |name| std::env::var_os(name).filter(|v| !v.is_empty());
         let windows = cfg!(windows);
         Self {
-            path: var("PATH"),
+            path: ovra_core::child_path::or_inherited(var("PATH")).filter(|v| !v.is_empty()),
             home: var(if windows { "USERPROFILE" } else { "HOME" }).map(PathBuf::from),
             app_data: var("APPDATA").map(PathBuf::from),
             windows_ext: windows.then(|| var("PATHEXT").unwrap_or_else(|| ".EXE;.CMD".into())),

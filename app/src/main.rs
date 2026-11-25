@@ -75,6 +75,8 @@ fn main() {
     ovra_sandbox::helper_if_asked();
     // As a server pod, this process is the pod's init.
     ovra_servers::pod_init_if_asked();
+    // Started from the Finder or a launcher, the app lacks the user's PATH.
+    ovra_sandbox::use_login_path();
     let result = tauri::Builder::default()
         // Provides window.Notification to the UI for system notifications.
         .plugin(tauri_plugin_notification::init())
