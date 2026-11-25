@@ -35,7 +35,7 @@ const MODES: { id: Mode; label: string; hint: string }[] = [
   {
     id: "split",
     label: "Plan and split",
-    hint: "Claude plans the work and gives parts to up to 3 agents, each on its own copy of the project. You review their changes before anything is merged.",
+    hint: "Claude plans the work and gives parts to up to 3 agents, each on its own copy of the project. At most 3 agents work at once in a project; others wait for a free one. You review their changes before anything is merged.",
   },
 ];
 
@@ -76,6 +76,12 @@ const changed = $derived(
 const waiting = $derived(
   current && sessions.roles.get(current.id)?.kind === "coordinator" ? sessions.waitingInTask(current.id) : 0,
 );
+/** "2 of 3 agents working, 1 waiting". */
+const capacity = $derived.by(() => {
+  const c = project ? sessions.capacity.get(project.id) : undefined;
+  if (!c) return null;
+  return `${c.working} of ${c.limit} agents working${c.queued > 0 ? `, ${c.queued} waiting` : ""}`;
+});
 
 $effect(() => {
   const id = project?.id;
@@ -247,7 +253,12 @@ const canReply = $derived(current !== null && current.status.state === "idle");
        come first, the setup cards (one line each once done) and a short form
        follow. They stay mounted, so their state survives the first task. -->
   {#if project && working}
-    <h3 id="sessions-heading">Tasks</h3>
+    <div class="tasks-head">
+      <h3 id="sessions-heading">Tasks</h3>
+      {#if capacity}
+        <span class="capacity" data-testid="agents-capacity">{capacity}</span>
+      {/if}
+    </div>
     <ul class="sessions" aria-labelledby="sessions-heading">
       {#each list as session (session.id)}
         {@const role = sessions.roles.get(session.id)}
@@ -450,6 +461,17 @@ const canReply = $derived(current !== null && current.status.state === "idle");
   h3 {
     margin: 0 12px 6px;
     font-size: 13px;
+  }
+  .tasks-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    margin-right: 12px;
+  }
+  .capacity {
+    font-size: 12px;
+    color: #b4b4c0;
   }
   .detail h3 {
     margin: 0;

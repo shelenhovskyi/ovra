@@ -5,6 +5,7 @@
 import { SvelteMap } from "svelte/reactivity";
 import { listCommands } from "../keys/commands";
 import type {
+  AgentCapacity,
   AgentMessage,
   Billing,
   CoreEvent,
@@ -41,7 +42,11 @@ export class AgentSessions {
   readonly transcripts = new SvelteMap<SessionId, AgentMessage[]>();
   /** Each session's newest review item: what its agent changed, kept or not. */
   readonly reviews = new SvelteMap<SessionId, ReviewItem>();
+  /** How many of each loaded project's agents work, of how many may. */
+  readonly capacity = new SvelteMap<ProjectId, AgentCapacity>();
   private readonly loaded = new Set<ProjectId>();
+  /** The latest `agents.capacity` call per project: older replies are stale. */
+  private readonly asked = new Map<ProjectId, number>();
 
   constructor(private readonly transport: Transport) {
     transport.onEvent((event) => this.apply(event));
@@ -63,7 +68,7 @@ export class AgentSessions {
     const { data } = await this.transport.call({ method: "agents.list", params: { project } });
     this.loaded.add(project);
     for (const info of data) this.byId.set(info.id, info);
-    await Promise.all([this.loadTasks(project), this.loadReviews(project)]);
+    await Promise.all([this.loadTasks(project), this.loadReviews(project), this.loadCapacity(project)]);
   }
 
   /** Each session's newest review item. Front ends without reviews have none. */
@@ -91,6 +96,18 @@ export class AgentSessions {
       const item = this.reviews.get(session);
       return role.kind === "worker" && role.coordinator === coordinator && item !== undefined && waits(item);
     }).length;
+  }
+
+  /** Front ends without a count show none. */
+  private async loadCapacity(project: ProjectId): Promise<void> {
+    const call = (this.asked.get(project) ?? 0) + 1;
+    this.asked.set(project, call);
+    try {
+      const { data } = await this.transport.call({ method: "agents.capacity", params: { project } });
+      if (this.asked.get(project) === call) this.capacity.set(project, data);
+    } catch {
+      // No count to show.
+    }
   }
 
   /** Who coordinates and who works in the project's tasks. Front ends without tasks have none. */
@@ -228,6 +245,8 @@ export class AgentSessions {
       if (this.loaded.has(event.data.project)) void this.loadReviews(event.data.project);
     } else if (event.type === "agents.status") {
       const { session, project, status } = event.data;
+      // Any change of state may change how many work.
+      if (this.loaded.has(project)) void this.loadCapacity(project);
       const known = this.byId.get(session);
       // A turn ended: what it changed is in the session's review item now.
       if (known && status.state === "idle") void this.loadReviews(project);

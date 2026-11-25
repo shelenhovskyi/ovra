@@ -4,6 +4,7 @@
 import type {
   AccountState,
   AccountsOverview,
+  AgentCapacity,
   AgentMessage,
   AgentSetup,
   AgentStatus,
@@ -56,6 +57,8 @@ export class FakeAgentCore implements Transport {
   config: ProjectAgentConfig = { fingerprint: "f0", items: [] };
   /** What the user trusted, per project. */
   trustedConfig = new Map<ProjectId, ProjectAgentConfig>();
+  /** What `agents.capacity` answers. */
+  capacity: AgentCapacity = { working: 0, limit: 3, queued: 0 };
   /** Makes the next call of this method fail with this error. */
   failNext = new Map<Request["method"], CoreError>();
   private listeners = new Set<(event: CoreEvent) => void>();
@@ -137,6 +140,8 @@ export class FakeAgentCore implements Transport {
         return { type: "orchestration.list", data: this.tasks.filter((t) => t.project === request.params.project) };
       case "agents.transcript":
         return { type: "agents.transcript", data: this.transcripts.get(request.params.session) ?? [] };
+      case "agents.capacity":
+        return { type: "agents.capacity", data: { ...this.capacity } };
       case "agents.send":
       case "browser.attach":
       case "agents.stop":

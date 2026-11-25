@@ -97,6 +97,7 @@ describe("AgentsPanel", () => {
       ["Plan and split", true],
     ]);
     expect(hint()).toContain("up to 3 agents, each on its own copy of the project");
+    expect(hint()).toContain("At most 3 agents work at once in a project");
     expect(panel()?.querySelector("[data-testid=agents-empty]")?.textContent?.trim()).toBe(
       "Give Claude a task. It asks before risky steps.",
     );
@@ -148,6 +149,11 @@ describe("AgentsPanel", () => {
       kept: null,
     });
     core.emit({ type: "orchestration.changed", data: { project: "p1", task: "t1" } });
+    core.capacity = { working: 3, limit: 3, queued: 1 };
+    core.status(docs.id, { state: "queued" });
+    await settle();
+    expect(target.querySelector("[data-testid=agents-capacity]")?.textContent).toBe("3 of 3 agents working, 1 waiting");
+    expect(target.querySelectorAll(".sessions .state")[1]?.textContent).toBe("Waiting for a free agent");
     core.status(docs.id, { state: "working" });
     await settle();
     const rows = [...target.querySelectorAll(".sessions button")];
@@ -182,9 +188,9 @@ describe("AgentsPanel", () => {
     await settle();
     // With a task to watch: the tasks come first (in reading order too),
     // then the setup cards, then a shorter form.
-    const setupCard = target.querySelector("[data-testid=agents-panel] > :not(h2, h3, ul, p)");
+    const setupCard = target.querySelector("[data-testid=agents-panel] > :not(h2, h3, ul, p, .tasks-head)");
     const order = (a: Element | null, b: Element | null) => a?.compareDocumentPosition(b as Node);
-    expect(order(target.querySelector("#sessions-heading"), setupCard)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(order(target.querySelector(".tasks-head"), setupCard)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(order(setupCard, form())).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(shape()).toEqual([true, "2"]);
     expect(core.sent("agents.start").map((c) => c.params)).toEqual([
