@@ -2,7 +2,8 @@
 //! tests run the real driver without the real CLI. Built only with the
 //! `fake-claude` feature; never shipped.
 //!
-//! `OVRA_FAKE_CLAUDE_FIXTURE` names the fixture. `--version` and
+//! `OVRA_FAKE_CLAUDE_FIXTURE` names the fixture, or a folder of them: a
+//! session plays the one Ovra's lines match (its prompt, in practice). `--version` and
 //! `auth status` answer like Claude Code 2.1.331; anything else plays the
 //! fixture: `cli` lines go to stdout, each `ovra` line must be the next line
 //! on stdin, `wait`/`core`/`interrupt` steps are the test's part and skipped.
@@ -41,28 +42,45 @@ fn main() -> ExitCode {
 fn play() -> Result<(), String> {
     let fixture = std::env::var_os("OVRA_FAKE_CLAUDE_FIXTURE")
         .ok_or("OVRA_FAKE_CLAUDE_FIXTURE is not set")?;
-    let text = std::fs::read_to_string(&fixture).map_err(|e| format!("{fixture:?}: {e}"))?;
+    let mut fixtures = fixtures(Path::new(&fixture))?;
     let cwd = std::env::current_dir().map_err(|e| e.to_string())?;
-    // A fixture recorded with text deltas plays its own.
-    let streamed = text.contains(r#""type":"stream_event""#);
     let mut stdin = std::io::stdin().lock().lines();
     let mut stdout = std::io::stdout().lock();
-    for (n, line) in text.lines().filter(|l| !l.trim().is_empty()).enumerate() {
-        let step: Value = serde_json::from_str(line).map_err(|e| format!("step {}: {e}", n + 1))?;
+    for n in 0.. {
+        // The fixtures that match so far take the same step, until Ovra's
+        // lines tell them apart.
+        let steps: Vec<&Value> = fixtures.iter().filter_map(|f| f.steps.get(n)).collect();
+        let Some(&step) = steps.first() else { break };
+        if steps.len() < fixtures.len() || steps.iter().any(|s| kind(s) != kind(step)) {
+            return Err(format!(
+                "step {}: the fixtures differ before Ovra's lines tell them apart",
+                n + 1
+            ));
+        }
         if let Some(line) = step.get("cli") {
+            if steps.iter().any(|s| s.get("cli") != Some(line)) {
+                return Err(format!(
+                    "step {}: the fixtures differ before Ovra's lines tell them apart",
+                    n + 1
+                ));
+            }
+            let streamed = fixtures.iter().all(|f| f.streamed);
             for delta in deltas(line).into_iter().filter(|_| !streamed) {
                 writeln!(stdout, "{delta}").map_err(|e| e.to_string())?;
             }
             writeln!(stdout, "{}", localize(line.clone(), &cwd)).map_err(|e| e.to_string())?;
             stdout.flush().map_err(|e| e.to_string())?;
-        } else if let Some(expected) = step.get("ovra") {
+        } else if step.get("ovra").is_some() {
             let line = stdin
                 .next()
                 .ok_or_else(|| format!("step {}: stdin closed", n + 1))?
                 .map_err(|e| e.to_string())?;
             let actual: Value = serde_json::from_str(&line).map_err(|e| e.to_string())?;
-            let expected = localize(expected.clone(), &cwd);
-            if actual != expected {
+            let expected = |f: &Fixture| f.steps[n].get("ovra").map(|v| localize(v.clone(), &cwd));
+            let first = expected(&fixtures[0]);
+            fixtures.retain(|f| expected(f).as_ref() == Some(&actual));
+            if fixtures.is_empty() {
+                let expected = first.unwrap_or_default();
                 return Err(format!(
                     "step {}: Ovra wrote {actual}, expected {expected}",
                     n + 1
@@ -78,6 +96,57 @@ fn play() -> Result<(), String> {
             line.map_err(|e| e.to_string())?
         )),
     }
+}
+
+/// A recorded session's steps.
+struct Fixture {
+    steps: Vec<Value>,
+    /// Recorded with text deltas: it plays its own.
+    streamed: bool,
+}
+
+/// The fixture at `path`, or every `.jsonl` fixture in the folder `path`.
+fn fixtures(path: &Path) -> Result<Vec<Fixture>, String> {
+    let files = if path.is_dir() {
+        let mut files: Vec<_> = std::fs::read_dir(path)
+            .map_err(|e| format!("{path:?}: {e}"))?
+            .filter_map(|entry| entry.ok().map(|e| e.path()))
+            .filter(|file| file.extension().is_some_and(|ext| ext == "jsonl"))
+            .collect();
+        files.sort();
+        files
+    } else {
+        vec![path.to_path_buf()]
+    };
+    let fixtures = files
+        .iter()
+        .map(|file| {
+            let text = std::fs::read_to_string(file).map_err(|e| format!("{file:?}: {e}"))?;
+            let steps = text
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .enumerate()
+                .map(|(n, line)| {
+                    serde_json::from_str(line).map_err(|e| format!("{file:?} step {}: {e}", n + 1))
+                })
+                // `wait`, `core` and `interrupt` steps are the test's part.
+                .filter(|step| step.as_ref().map_or(true, |s| kind(s).is_some()))
+                .collect::<Result<Vec<Value>, String>>()?;
+            Ok(Fixture {
+                streamed: text.contains(r#""type":"stream_event""#),
+                steps,
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    if fixtures.is_empty() {
+        return Err(format!("{path:?} holds no fixture"));
+    }
+    Ok(fixtures)
+}
+
+/// `cli` or `ovra`: the steps this stand-in plays.
+fn kind(step: &Value) -> Option<&'static str> {
+    ["cli", "ovra"].into_iter().find(|k| step.get(k).is_some())
 }
 
 /// The `stream_event` text deltas `--include-partial-messages` writes before

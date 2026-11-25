@@ -27,7 +27,11 @@ skills and plugins are left out. Do not edit them by hand; record again.
 
 `src/bin/fake-claude.rs` (feature `fake-claude`, built by `just
 build-headless`) plays a fixture as a stand-in `claude` executable, so e2e
-tests (`tests/e2e/specs/claude-driver.spec.ts`) run the real driver. The
+tests (`tests/e2e/specs/claude-driver.spec.ts`) run the real driver on the
+same files as the contract tests. `OVRA_FAKE_CLAUDE_FIXTURE` names one
+fixture or this folder; from a folder each session plays the fixture whose
+lines Ovra writes, which its prompt decides. The `wait` and `core` steps are
+the e2e test's part (an approval, Interrupt, a reply). The
 fixtures were recorded without `--include-partial-messages`, so it writes a
 `stream_event` text delta per word before each `assistant` text of a
 fixture that has none of its own.

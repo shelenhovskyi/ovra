@@ -5,9 +5,10 @@ import type { Page } from "@playwright/test";
 import { binary, root, startDaemon } from "../daemon";
 import { expect, test } from "../test";
 
-// The real claude driver against `fake-claude`, which plays a recorded
-// session (crates/agent-runtime/fixtures/edit_allowed.jsonl). This file has
-// its own daemon: the shared one runs the scripted fake agent instead.
+// The real claude driver against `fake-claude`, which plays the recorded
+// session (crates/agent-runtime/fixtures) whose prompt each test sends: the
+// contract tests replay the same files. This file has its own daemon: the
+// shared one runs the scripted fake agent instead.
 test.describe.configure({ mode: "serial" });
 
 let daemon: { url: string; stop: () => void } | undefined;
@@ -19,7 +20,7 @@ test.beforeAll(async () => {
   daemon = await startDaemon([], {
     ...process.env,
     PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
-    OVRA_FAKE_CLAUDE_FIXTURE: resolve(root, "crates/agent-runtime/fixtures/edit_allowed.jsonl"),
+    OVRA_FAKE_CLAUDE_FIXTURE: resolve(root, "crates/agent-runtime/fixtures"),
   });
 });
 
@@ -33,7 +34,8 @@ async function allow(page: Page, name: RegExp): Promise<void> {
   await card.getByRole("button", { name: "Allow" }).click();
 }
 
-test("a recorded Claude session runs through the real driver", async ({ page }) => {
+/** Opens a new project with a README and starts Claude on `prompt`. */
+async function start(page: Page, prompt: string): Promise<void> {
   if (!daemon) throw new Error("the daemon did not start");
   const dir = mkdtempSync(join(tmpdir(), "ovra-driver-"));
   writeFileSync(join(dir, "README.md"), "# Demo\n\nThis is teh demo.\n");
@@ -43,12 +45,25 @@ test("a recorded Claude session runs through the real driver", async ({ page }) 
   await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
   await projects.getByRole("button", { name: "Open", exact: true }).click();
   await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();
-
   // The recording's prompts, word for word: fake-claude checks every line.
-  await page
-    .getByRole("textbox", { name: "Give Claude a task" })
-    .fill("Fix the typo in README.md with the Edit tool. Do not run commands and do not change anything else.");
+  await page.getByRole("textbox", { name: "Give Claude a task" }).fill(prompt);
   await page.getByRole("button", { name: "Start", exact: true }).click();
+}
+
+/** Stops the session; a mismatch with the recording would have made fake-claude exit 2: Failed. */
+async function stop(page: Page): Promise<void> {
+  const session = page.getByTestId("agent-session");
+  await page.keyboard.press("ControlOrMeta+Shift+P");
+  await page.getByRole("combobox", { name: "Type a command" }).fill("Stop the agent");
+  await page.keyboard.press("Enter");
+  await expect(session.getByRole("status")).toHaveText("Stopped");
+}
+
+test("a recorded Claude session runs through the real driver", async ({ page }) => {
+  await start(
+    page,
+    "Fix the typo in README.md with the Edit tool. Do not run commands and do not change anything else.",
+  );
   await allow(page, /^Edit .*README\.md$/);
 
   const transcript = page.getByTestId("transcript");
@@ -66,9 +81,26 @@ test("a recorded Claude session runs through the real driver", async ({ page }) 
 
   // A Done session shows no Stop button; the palette still stops it.
   await expect(session.getByRole("button", { name: "Stop" })).toHaveCount(0);
-  await page.keyboard.press("ControlOrMeta+Shift+P");
-  await page.getByRole("combobox", { name: "Type a command" }).fill("Stop the agent");
-  await page.keyboard.press("Enter");
-  // A mismatch with the recording would make fake-claude exit 2: Failed.
-  await expect(session.getByRole("status")).toHaveText("Stopped");
+  await stop(page);
+});
+
+test("an interrupted turn says the person stopped it, and the session goes on", async ({ page }) => {
+  await start(
+    page,
+    "Run the shell command `ping -c 120 127.0.0.1` with the Bash tool in the foreground (not in the background), then tell me its last line.",
+  );
+  await allow(page, /^Run ping -c 120 127\.0\.0\.1$/);
+  const session = page.getByTestId("agent-session");
+  await session.getByRole("button", { name: "Interrupt" }).click();
+
+  const transcript = page.getByTestId("transcript");
+  await expect(transcript).toContainText("You interrupted this turn.");
+  await expect(transcript.locator("li.error")).toHaveCount(0);
+  await expect(transcript.getByRole("button", { name: "Retry" })).toHaveCount(0);
+  await expect(session.getByRole("status")).toHaveText("Done");
+
+  await session.getByRole("textbox", { name: "Reply to Claude" }).fill("Never mind. Reply with just the word: ready");
+  await session.getByRole("button", { name: "Send" }).click();
+  await expect(transcript).toContainText(/Claude\s*ready/);
+  await stop(page);
 });
