@@ -48,12 +48,17 @@ export function protectedReason(file: FileChange): string {
   return reasonFor(file.path) ?? (file.from ? reasonFor(file.from) : null) ?? "can run code or change agent rules";
 }
 
-/** Markers shown next to a file; each one also reads out to screen readers. */
+/**
+ * Markers shown next to a file; each one also reads out to screen readers.
+ * `keptFirst` names the worker whose version of this file of an open item
+ * was already kept.
+ */
 export function fileMarkers(
   file: FileChange,
   shared = false,
   notCopied: ReviewState | null = null,
   keptFrom: string | null = null,
+  keptFirst: string | null = null,
 ): string[] {
   const markers: string[] = [];
   if (file.protected) markers.push(PROTECTED_MARKER);
@@ -72,25 +77,51 @@ export function fileMarkers(
   if (file.by === "outside") markers.push("Not changed by the agent's file tools");
   if (file.by === "both") markers.push("Also changed outside the agent's file tools");
   if (file.blocked && !notCopied) markers.push("Waits for the direct agent");
-  if (shared) markers.push("Also changed in another open review");
+  if (keptFirst) markers.push(`${keptFirst}'s version is already kept`);
+  else if (shared) markers.push("Also changed in another open review");
   return markers;
 }
 
 /**
  * Files an agent changed in `item` that an agent of another open item
  * changed too: approving one of them first decides what the other merges
- * into. Empty unless `item` is open.
+ * into. Empty unless `item` is open, and without the files whose version
+ * another item already kept: that decision is made.
  */
 export function sharedFiles(item: ReviewItem, items: readonly ReviewItem[]): Set<string> {
   const shared = new Set<string>();
   if (item.state !== "open") return shared;
+  const kept = keptFirst(item, items);
   const others = new Set<string>();
   for (const other of items) {
     if (other.id === item.id || other.state !== "open") continue;
     for (const f of other.files) if (f.by !== "outside") others.add(f.path);
   }
-  for (const f of item.files) if (f.by !== "outside" && others.has(f.path)) shared.add(f.path);
+  for (const f of item.files) if (f.by !== "outside" && others.has(f.path) && !kept.has(f.path)) shared.add(f.path);
   return shared;
+}
+
+/**
+ * For each file of an open worker's item whose version another worker's
+ * item already copied into the project: that item. Keeping this one copies
+ * the file only if it is the same.
+ */
+export function keptFirst(item: ReviewItem, items: readonly ReviewItem[]): Map<string, ReviewItem> {
+  const kept = new Map<string, ReviewItem>();
+  if (item.state !== "open" || item.mode !== "isolated") return kept;
+  for (const f of item.files) {
+    if (f.by === "outside") continue;
+    const other = items.find(
+      (o) =>
+        o.id !== item.id &&
+        o.mode === "isolated" &&
+        (o.state === "approved" || o.state === "partly_approved") &&
+        !o.not_copied.includes(f.path) &&
+        o.files.some((g) => g.path === f.path && g.by !== "outside"),
+    );
+    if (other) kept.set(f.path, other);
+  }
+  return kept;
 }
 
 /** A worker's own name, without its task: `docs` of `docs · Fix login`. */
@@ -148,8 +179,12 @@ export function fileSummary(file: FileChange): string {
   return `${what}, +${file.additions} −${file.deletions}`;
 }
 
-/** One line for the item list: how many files, and what needs attention. Protected files get their own tag. */
-export function itemSummary(item: ReviewItem, shared = 0): string {
+/**
+ * One line for the item list: how many files, and what needs attention.
+ * Protected files get their own tag; files shared with other reviews are
+ * marked once, on the file.
+ */
+export function itemSummary(item: ReviewItem): string {
   if (item.files.length === 0 && item.git_changes.length > 0) return "No changed files";
   const files = item.files.length === 1 ? "1 file" : `${item.files.length} files`;
   const outside = item.files.filter((f) => f.by !== "agent").length;
@@ -159,7 +194,6 @@ export function itemSummary(item: ReviewItem, shared = 0): string {
     return [...parts, "none by the agent's file tools"].join(", ");
   if (outside > 0) parts.push(`${outside} changed outside the agent's file tools`);
   if (blocked > 0) parts.push(`${blocked} waiting for the direct agent`);
-  if (shared > 0) parts.push(`${shared} also in another open review`);
   if (item.not_copied.length > 0)
     parts.push(`${item.not_copied.length} not copied${item.state === "approved" ? ", marked done" : ""}`);
   return parts.join(", ");
@@ -207,13 +241,30 @@ export function itemTitle(item: ReviewItem, name: string): string {
   return `Direct agent: ${name}`;
 }
 
-/** What approve does for this kind of session (ADR 0005), in plain words. */
+/** A list title: the worker's own name (its task heads the group), or the direct agent's. */
+export function shortTitle(item: ReviewItem, name: string): string {
+  return item.mode === "isolated" ? workerName(name) : name;
+}
+
+/** The task a worker's item belongs to (`Fix login` of `docs · Fix login`), or null. */
+export function taskOf(item: ReviewItem, name: string): string | null {
+  const at = name.indexOf(" · ");
+  return item.mode === "isolated" && at > 0 ? name.slice(at + 3) : null;
+}
+
+/** What approve does for this kind of session (ADR 0005), in one line. */
 export function approveHint(item: ReviewItem): string {
   if (item.mode === "direct") return "Keep changes leaves them in your project folder.";
-  const copies = item.files.some((f) => f.blocked)
+  return item.files.some((f) => f.blocked)
     ? "Keep changes copies the worker's changes into your project folder, except files that wait for the direct agent."
     : "Keep changes copies the worker's changes into your project folder.";
-  return `${copies} A file you changed yourself since the worker started is not copied; you will see which.`;
+}
+
+/** The rest of what approve does, for the item's Details; null for a direct agent's. */
+export function approveDetail(item: ReviewItem): string | null {
+  return item.mode === "direct"
+    ? null
+    : "A file you changed yourself since the worker started is not copied; you will see which.";
 }
 
 /** A file's path, with where a rename came from. */

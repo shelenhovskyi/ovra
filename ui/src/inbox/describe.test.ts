@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  approveDetail,
   approveHint,
   defaultCommitMessage,
   fileMarkers,
@@ -8,12 +9,16 @@ import {
   gitWarning,
   itemSummary,
   itemTitle,
+  keptFirst,
   notCopiedHint,
   protectedHint,
   protectedReason,
   protectedTag,
   rejectHint,
   sharedFiles,
+  sharedHint,
+  shortTitle,
+  taskOf,
 } from "./describe";
 import { change, review } from "./fake-review";
 
@@ -137,6 +142,10 @@ describe("inbox wording", () => {
     expect(itemTitle(review("r1", { mode: "isolated" }), "Session s2")).toBe("Worker: Session s2");
     expect(itemTitle(review("r1", { mode: "isolated" }), "lint · Add notes · v2")).toBe("lint (task: Add notes · v2)");
     expect(itemTitle(review("r1"), "Fix the typo")).toBe("Direct agent: Fix the typo");
+    // The list says the worker's name under its task, once.
+    const lint = review("r1", { mode: "isolated" });
+    expect([shortTitle(lint, "lint · Add notes"), taskOf(lint, "lint · Add notes")]).toEqual(["lint", "Add notes"]);
+    expect([shortTitle(review("r1"), "Fix it"), taskOf(review("r1"), "a · b")]).toEqual(["Fix it", null]);
   });
 
   it("sums up an item and says what approve and reject do", () => {
@@ -149,8 +158,9 @@ describe("inbox wording", () => {
       "3 files, 1 changed outside the agent's file tools, 1 waiting for the direct agent",
     );
     expect(approveHint(worker)).toContain("except files that wait for the direct agent");
-    expect(approveHint(worker)).toContain("A file you changed yourself since the worker started is not copied");
+    expect(approveDetail(worker)).toContain("A file you changed yourself since the worker started is not copied");
     expect(approveHint(review("r4"))).toBe("Keep changes leaves them in your project folder.");
+    expect(approveDetail(review("r4"))).toBeNull();
     expect(rejectHint(worker)).toBe(
       "Reject discards the worker's changes from its own copy of the project. Your project folder is not touched.",
     );
@@ -202,6 +212,23 @@ describe("inbox wording", () => {
     expect([...sharedFiles(b, items)]).toEqual(["x"]);
     expect([...sharedFiles(done, items)]).toEqual([]);
     expect(fileMarkers(change("x"), true)).toEqual(["Also changed in another open review"]);
-    expect(itemSummary(a, 1)).toBe("3 files, 1 changed outside the agent's file tools, 1 also in another open review");
+    expect(sharedHint(a, items, (o) => `${o.id} · task`)).toBe(
+      "b also changed x. Only the version you keep first is copied; a later one that differs is left for you to choose, and one that is the same counts as copied.",
+    );
+    expect(itemSummary(a)).toBe("3 files, 1 changed outside the agent's file tools");
+  });
+
+  it("says once a worker's version of a shared file is kept, instead of the shared marker", () => {
+    const docs = review("docs", { mode: "isolated", files: [change("NOTES.md")] });
+    const lint = review("lint", { mode: "isolated", files: [change("NOTES.md")] });
+    const tests = review("tests", { mode: "isolated", files: [change("NOTES.md")] });
+    expect([...sharedFiles(lint, [docs, lint, tests])]).toEqual(["NOTES.md"]);
+    const kept = { ...docs, state: "approved" as const };
+    const items = [kept, lint, tests];
+    expect([...sharedFiles(lint, items)]).toEqual([]);
+    expect(keptFirst(lint, items).get("NOTES.md")?.id).toBe("docs");
+    expect(fileMarkers(change("NOTES.md"), false, null, null, "docs")).toEqual(["docs's version is already kept"]);
+    // Not copied by docs: nothing was kept first.
+    expect(keptFirst(lint, [{ ...kept, not_copied: ["NOTES.md"] }, lint]).size).toBe(0);
   });
 });

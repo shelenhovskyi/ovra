@@ -561,7 +561,7 @@ describe("Inbox", () => {
     expect($("[data-testid=inbox]")).toBeNull();
   });
 
-  it("names the other workers of a shared file, and the one kept first", async () => {
+  it("names the worker whose version of a shared file was kept first", async () => {
     const notes = () => [change("NOTES.md")];
     await setup([
       review("r3", { session: "s3", mode: "isolated", fingerprint: "f3", files: notes() }),
@@ -576,9 +576,11 @@ describe("Inbox", () => {
       review("r0", { session: "s0", mode: "isolated", state: "approved", files: notes() }),
     ]);
     await open();
-    expect($("[data-testid=inbox-shared]")?.textContent).toBe(
-      "Session s2 also changed NOTES.md. Only the version you keep first is copied; a later one that differs is left for you to choose, and one that is the same counts as copied.",
-    );
+    // s0's version is kept: that is said on the file, once, instead of "also changed in another open review".
+    expect($("[data-testid=inbox-shared]")).toBeNull();
+    expect(
+      [...document.querySelectorAll("[data-file='NOTES.md'] [data-testid=file-marker]")].map((m) => m.textContent),
+    ).toEqual(["Session s0's version is already kept"]);
     $<HTMLButtonElement>("[data-item=r1]")?.click();
     await settle();
     expect($("[data-testid=inbox-not-copied]")?.textContent).toContain(
@@ -608,6 +610,16 @@ describe("Inbox", () => {
     await settle();
     expect($("[data-item][aria-current='true']")?.getAttribute("data-item")).toBe("r2");
     expect($("[data-testid=inbox] [role=status]")?.textContent).toContain("An agent asks you to look at");
+  });
+
+  it("opens on the newest of the items several agents ask to show", async () => {
+    const core = await setup([review("r1"), review("r2", { files: [change("b.md")] })]);
+    for (const id of ["r1", "r2"]) {
+      core.emit({ type: "orchestration.show", data: { project: "p1", target: { kind: "review", id } } });
+      await settle();
+    }
+    await open();
+    expect(document.activeElement?.getAttribute("data-item")).toBe("r1");
   });
 
   it("opens on the first waiting item of the sessions a Review press names", async () => {

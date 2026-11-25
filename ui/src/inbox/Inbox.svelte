@@ -16,6 +16,7 @@ import { useOvra } from "../shell/context";
 import Icon from "../shell/Icon.svelte";
 import PatchView from "../viewers/PatchView.svelte";
 import {
+  approveDetail,
   approveHint,
   defaultCommitMessage,
   fileMarkers,
@@ -26,6 +27,7 @@ import {
   itemSummary,
   itemTitle,
   keptElsewhere,
+  keptFirst,
   notCopiedHint,
   PROTECTED_MARKER,
   protectedHint,
@@ -35,6 +37,8 @@ import {
   STATE_LABEL,
   sharedFiles,
   sharedHint,
+  shortTitle,
+  taskOf,
   workerName,
 } from "./describe";
 import { handleOpenFor } from "./open";
@@ -62,6 +66,8 @@ let announcement = $state("");
 let staleDiff = $state(false);
 /** An agent asked for a review since the inbox was last open. */
 let asked = $state(false);
+/** The items agents asked to show since the inbox was last open. */
+let askedFor: ReviewId[] = [];
 /** Protected files whose diff was on screen since the inbox opened, by `seenKey`. */
 let seen = $state<string[]>([]);
 /** The person ticked "Also apply protected files" for a worker's item, at `includedFor`. */
@@ -84,9 +90,26 @@ const keptFrom = $derived(
     ]),
   ),
 );
+/** Files of the open item whose version another worker's item already copied, with that worker's name. */
+const keptBefore = $derived(
+  new Map(
+    [...(item ? keptFirst(item, inbox.items) : [])].map(([path, o]) => [path, workerName(sessions.name(o.session))]),
+  ),
+);
 const protectedText = $derived(item ? protectedHint(item) : null);
 const gitText = $derived(item ? gitWarning(item) : null);
 const busy = $derived(item ? inbox.busy.includes(item.id) : false);
+/** The list, newest first as the core sends it, a task's workers under the task's name once. */
+const groups = $derived.by(() => {
+  const out: { task: string | null; items: ReviewItem[] }[] = [];
+  for (const review of inbox.items) {
+    const task = taskOf(review, sessions.name(review.session));
+    const last = out.at(-1);
+    if (last && task !== null && last.task === task) last.items.push(review);
+    else out.push({ task, items: [review] });
+  }
+  return out;
+});
 const outcome = $derived(inbox.outcome && inbox.outcome.id === item?.id ? inbox.outcome : null);
 const diffKey = $derived(item && file ? `${item.id}\n${file.path}\n${inbox.changes}` : null);
 /**
@@ -149,6 +172,7 @@ $effect(() =>
     void inbox.reload().then(() => {
       if (!opened) {
         select(id);
+        askedFor.push(id);
         asked = true;
       } else if (id !== selectedId) {
         const wanted = inbox.items.find((i) => i.id === id);
@@ -234,11 +258,17 @@ function select(id: ReviewId | null): void {
   comment = (id !== null && drafts.get(id)) || "";
 }
 
-async function show(): Promise<void> {
+/** Opens the inbox; `keep` keeps the item chosen for it. */
+async function show(keep = false): Promise<void> {
   const active = document.activeElement;
   returnTo = active instanceof HTMLElement ? active : null;
   opened = true;
+  // Unless a Review press chose the item: the newest that waits, of those agents asked to show if any.
+  const newest = asked ? inbox.waiting.find((i) => askedFor.includes(i.id)) : inbox.waiting[0];
+  if (newest && !keep) select(newest.id);
   asked = false;
+  askedFor = [];
+
   // Seen means seen in this sitting, not some earlier one.
   seen = [];
   includeProtected = false;
@@ -257,7 +287,7 @@ async function showFor(wanted: SessionId[]): Promise<void> {
   await inbox.reload();
   const found = wanted.map((s) => inbox.waiting.find((i) => i.session === s)).find((i) => i !== undefined);
   if (found) select(found.id);
-  if (!opened) await show();
+  if (!opened) await show(true);
 }
 
 function close(): void {
@@ -524,6 +554,7 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
     <div
       class="inbox"
+      class:full={!!workspace.project && inbox.items.length > 0}
       role="dialog"
       aria-modal="true"
       aria-labelledby="inbox-title"
@@ -573,22 +604,26 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
         <div class="body">
           <nav aria-label="Review items">
             <ul>
-              {#each inbox.items as review (review.id)}
+              {#each groups as group (group.items[0]?.id)}
+                {#if group.task}<li class="group" title={group.task}>{group.task}</li>{/if}
+                {#each group.items as review (review.id)}
                 <li>
                   <button
                     type="button"
                     class="entry"
                     class:flagged={protectedTag(review) !== null || gitTag(review) !== null}
                     data-item={review.id}
+                    title={sessionLabel(review)}
                     aria-current={review.id === selectedId}
                     tabindex={review.id === selectedId ? 0 : -1}
                     onclick={() => select(review.id)}
                     onkeydown={(e) =>
                       moveIn(e, "[data-item]", (el) => select(el.dataset.item ?? null))}
                   >
-                    <span class="name">{sessionLabel(review)}</span>
-                    <span class="state {review.state}">{STATE_LABEL[review.state]}</span>
-                    <span class="meta">{itemSummary(review, sharedFiles(review, inbox.items).size)}</span>
+                    <span class="name">{shortTitle(review, sessions.name(review.session))}</span>
+                    <span class="meta"
+                      ><span class="state {review.state}">{STATE_LABEL[review.state]}</span> · {itemSummary(review)}</span
+                    >
                     {#if protectedTag(review)}
                       <span class="marker protected" data-testid="item-protected">{protectedTag(review)}</span>
                     {/if}
@@ -597,6 +632,7 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                     {/if}
                   </button>
                 </li>
+                {/each}
               {/each}
             </ul>
           </nav>
@@ -625,8 +661,14 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                   {#if protectedText}
                     <p class="protected" id="inbox-protected" data-testid="inbox-protected">{protectedText}</p>
                   {/if}
-                  {#if sharedText}
-                    <p class="hint" id="inbox-shared" data-testid="inbox-shared">{sharedText}</p>
+                  {#if approveDetail(item) || sharedText}
+                    <details class="more">
+                      <summary><Icon name="chevron-right" small />Details</summary>
+                      {#if approveDetail(item)}<p class="hint">{approveDetail(item)}</p>{/if}
+                      {#if sharedText}
+                        <p class="hint" id="inbox-shared" data-testid="inbox-shared">{sharedText}</p>
+                      {/if}
+                    </details>
                   {/if}
                   {#if directWaits}
                     <p class="hint" id="inbox-protected-why" data-testid="inbox-protected-why">
@@ -826,6 +868,7 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                       shared.has(changed.path),
                       item.not_copied.includes(changed.path) ? item.state : null,
                       keptFrom.get(changed.path) ?? null,
+                      keptBefore.get(changed.path) ?? null,
                     )}
                     <li>
                       <button
@@ -913,11 +956,15 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
     inset: 0;
     z-index: 90;
     display: flex;
+    align-items: center;
+    justify-content: center;
     padding: 32px;
     background: var(--scrim);
   }
+  /* Sized to what it says; the whole window only for a list with its diffs. */
   .inbox {
-    flex: 1;
+    width: min(560px, 100%);
+    max-height: 100%;
     display: flex;
     flex-direction: column;
     min-width: 0;
@@ -926,6 +973,10 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
     background: var(--s1);
     border-radius: 14px;
     box-shadow: var(--card-shadow);
+  }
+  .inbox.full {
+    align-self: stretch;
+    width: 100%;
   }
   header {
     display: flex;
@@ -1016,7 +1067,41 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
     outline-offset: -2px;
   }
   /* Items with protected files or git changes stand out in the list. */
+  /* One line each: the full title is the entry's tooltip. */
+  .entry .name,
+  .entry .meta,
+  .group {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .group {
+    padding: 10px 10px 2px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-2);
+  }
+  .more summary {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    width: fit-content;
+    font-size: 13px;
+    color: var(--text-2);
+    list-style: none;
+    cursor: pointer;
+  }
+  .more summary::-webkit-details-marker {
+    display: none;
+  }
+  .more[open] summary :global(svg) {
+    transform: rotate(90deg);
+  }
+  .more p {
+    margin: 6px 0 0;
+  }
   .entry.flagged .name::before {
+
     content: "";
     display: inline-block;
     width: 7px;
