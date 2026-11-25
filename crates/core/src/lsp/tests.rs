@@ -390,6 +390,37 @@ async fn taking_trust_back_stops_the_projects_servers() {
 }
 
 #[test]
+fn server_uris_that_could_leave_the_project_never_reach_the_client_as_files() {
+    let root = Path::new(ROOT);
+    let file = |path: &str| format!("{}/{path}", uris::file_uri(root));
+    for path in ["../../etc/x", "src/./a.rs", "a//b.rs", "a\\b.rs"] {
+        let mut message = json!({"uri": file(path)});
+        uris::to_client(&mut message, root);
+        assert_eq!(message["uri"], file(path), "{path}");
+    }
+    for (sent, seen) in [
+        ("ovra:///src/a%20b.rs", "ovra:///src/a%20b.rs"),
+        ("ovra:///", "ovra:///"),
+        ("ovra:///src/", "ovra:///src/"),
+        ("ovra:///../etc/passwd", uris::INVALID),
+        ("ovra:///src/%2E%2E/%2E%2E/x", uris::INVALID),
+        ("ovra:///a%2F..%2F..%2Fx", uris::INVALID),
+        ("ovra:///a%5Cb", uris::INVALID),
+        ("ovra:///./a", uris::INVALID),
+        ("ovra:////etc/passwd", uris::INVALID),
+        ("ovra:///a?x=1", uris::INVALID),
+        ("ovra:///%ZZ", uris::INVALID),
+        ("ovra://host/a", uris::INVALID),
+        ("OVRA:///a", uris::INVALID),
+    ] {
+        let mut message = json!({"uri": sent, "changes": {sent: []}});
+        uris::to_client(&mut message, root);
+        assert_eq!(message["uri"], seen, "{sent}");
+        assert!(message["changes"].get(seen).is_some(), "{sent}");
+    }
+}
+
+#[test]
 fn uris_round_trip_on_this_os() {
     let root = Path::new(ROOT);
     let file = uris::file_uri(&root.join("src").join("a b#c.rs"));

@@ -79,8 +79,12 @@ The filter rewrites URIs only where LSP puts them, never in document text:
 Client to server: an `ovra:` URI becomes `file://<root>/<path>` after
 `RelPath::parse`; a `file:` URI anywhere in those keys is refused.
 Server to client: a `file:` URI under the root becomes `ovra:///<path>`; one
-outside it (a standard library, a dependency) passes unchanged, and the UI
-shows such a location as text it cannot open.
+outside it (a standard library, a dependency), or one with a `.`, `..` or
+empty segment or a segment holding `\`, passes unchanged, and the UI shows
+such a location as text it cannot open. An `ovra:` URI the server writes
+passes only if it is one the UI could have written (segments that decode to
+a `RelPath` with no `.`, `..`, `/` or `\`, no query or fragment); any other
+becomes `about:invalid`.
 
 ## Requests from the server
 
