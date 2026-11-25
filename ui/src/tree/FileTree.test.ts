@@ -161,11 +161,14 @@ describe("FileTree", () => {
     expect(description(t.row("dist"))).toBe("ignored");
   });
 
-  it("shows deleted files struck through and unopenable, and where a renamed file came from", async () => {
+  it("shows deleted files only when changed, struck through and unopenable, and where a renamed file came from", async () => {
     const dirs = dirsFromPaths(["gone.ts", "new.ts"], { "gone.ts": "deleted", "new.ts": "renamed" });
     const renamed = dirs.get("")?.find((e) => e.name === "new.ts");
     if (renamed) renamed.renamed_from = "old/name.ts";
     const t = mountTree(new FakeCore(dirs));
+    await settle();
+    expect(document.querySelector('[data-path="gone.ts"]')).toBeNull();
+    document.querySelector<HTMLButtonElement>('[aria-label="Changed only"]')?.click();
     await settle();
     const description = (el: HTMLElement) =>
       document.getElementById(el.getAttribute("aria-describedby") ?? "")?.textContent ?? null;

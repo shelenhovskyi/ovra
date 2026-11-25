@@ -93,6 +93,8 @@ export class TreeModel {
   private expandedBeforeFilter: Set<string> | null = null;
   /** A new file or folder being named, shown as the first row of its folder. */
   private draft: { dir: string; kind: EntryKind } | null = null;
+  /** Paths the person trashed, renamed or moved away; a deleted folder git still lists there is hidden. */
+  private readonly gone = new Set<string>();
 
   constructor(
     private readonly load: LoadDir,
@@ -164,11 +166,30 @@ export class TreeModel {
   /** `from` was renamed or moved to `to`: folders open in it stay open at the new path. */
   moved(from: string, to: string): void {
     if (from === "") return;
+    this.gone.add(from);
     for (const key of [...this.expanded]) {
       if (!isInside(key, from)) continue;
       this.expanded.delete(key);
       this.expanded.add(to + key.slice(from.length));
     }
+  }
+
+  /** The person trashed `paths`: git may still list them as deleted, but the tree does not. */
+  removed(paths: string[]): void {
+    for (const path of paths) this.gone.add(path);
+  }
+
+  /**
+   * Whether a listed entry is left out of the full tree. As in other
+   * editors, a tracked file deleted from disk shows only under "changed"
+   * (and in Git); so does a deleted folder the person removed or whose
+   * loaded listing holds nothing else. A folder that exists and only holds
+   * a deleted file carries the same status, so an unloaded one stays.
+   */
+  private hidden(path: string, entry: DirEntry): boolean {
+    if (entry.git !== "deleted" || this.filter === "changed") return false;
+    if (entry.kind !== "dir" || this.gone.has(path)) return true;
+    return this.dirs.get(path)?.every((e) => this.hidden(joinPath(path, e.name), e)) ?? false;
   }
 
   collapseAll(): void {
@@ -372,7 +393,9 @@ export class TreeModel {
     const changedOnly = this.filter === "changed";
     this.ignoredDirs.clear();
     const walk = (dir: string, depth: number, ignoredDir: boolean): void => {
-      const entries = (this.dirs.get(dir) ?? []).filter((e) => !changedOnly || e.git);
+      const entries = (this.dirs.get(dir) ?? []).filter(
+        (e) => (!changedOnly || e.git) && !this.hidden(joinPath(dir, e.name), e),
+      );
       const draft = this.draft?.dir === dir ? this.draft : null;
       const setsize = entries.length + (draft ? 1 : 0);
       if (draft) {

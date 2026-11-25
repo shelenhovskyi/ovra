@@ -127,6 +127,27 @@ describe("TreeModel", () => {
     expect(model.error).toBe("unavailable: file access is not implemented yet");
   });
 
+  it("leaves deleted tracked files out of the full tree, but not out of the changed view", async () => {
+    const git = {
+      "old.md": "deleted",
+      gone: "deleted",
+      "gone/x.ts": "deleted",
+      src: "deleted",
+      trashed: "deleted",
+    } as const;
+    const { model, names } = setup(["gone/x.ts", "trashed/y.ts", "src/a.ts", "old.md", "new.md"], git);
+    await model.start();
+    // An unloaded folder with that status may hold files that exist: it stays.
+    expect(names()).toEqual(["gone", "src", "trashed", "new.md"]);
+    await model.expand("gone"); // holds only deleted files
+    await model.expand("src");
+    model.removed(["trashed"]); // the person trashed it
+    model.collapse("src");
+    expect(names()).toEqual(["src", "new.md"]);
+    await model.setFilter("changed");
+    expect(names()).toEqual(["gone/", "  x.ts", "src/", "trashed/", "old.md"]);
+  });
+
   // 20k rows already make quadratic work obvious; tests/perf times the 100k-file repo.
   it("flattens 20k files in one directory in few updates", async () => {
     const big = flatDir(20_000);

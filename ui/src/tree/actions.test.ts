@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { FileActions } from "./actions.svelte";
 import { dirsFromPaths, FakeCore } from "./fake-core";
 import { TreeModel } from "./model";
@@ -17,6 +17,7 @@ async function setup(paths: string[]) {
     trashed: [] as string[],
   };
   const copied: string[] = [];
+  const unsaved: string[] = [];
   const actions = new FileActions({
     transport: core,
     project: "p1",
@@ -29,12 +30,13 @@ async function setup(paths: string[]) {
     open: (path) => log.opened.push(path),
     moved: (from, to) => log.moved.push(`${from} -> ${to}`),
     trashed: (paths) => log.trashed.push(...paths),
+    unsaved: (paths) => unsaved.filter((f) => paths.some((p) => f === p || f.startsWith(`${p}/`))),
     copy: async (text) => {
       copied.push(text);
     },
   });
   const paths_ = () => model.rows.map((r) => r.path);
-  return { core, model, actions, log, copied, paths: paths_ };
+  return { core, model, actions, log, copied, unsaved, paths: paths_ };
 }
 
 describe("FileActions", () => {
@@ -213,6 +215,56 @@ describe("FileActions", () => {
     t.actions.askTrash(["b.ts"]);
     await t.actions.confirmTrash();
     expect(t.actions.info).toBe("Moved to Trash. Restore it from the Trash.");
+  });
+
+  it("stops undo at a trash instead of reaching past it, and says what each step did", async () => {
+    const t = await setup(["src/lib.rs", "changes.patch"]);
+    await t.model.expand("src");
+    await t.actions.duplicate("src/lib.rs");
+    t.actions.cancel();
+    t.actions.askTrash(["changes.patch"]);
+    await t.actions.confirmTrash();
+    await t.actions.undo();
+    await t.actions.undo();
+    expect(t.actions.info).toBe("Can't undo Move to Trash. Restore it from the Trash.");
+    expect(t.paths()).toContain("src/lib copy.rs");
+    expect(t.core.calls.filter((c) => c.method === "fs.trash")).toHaveLength(1);
+
+    t.actions.startRename("src/lib.rs");
+    await t.actions.commit("a.rs");
+    await t.actions.undo();
+    expect(t.actions.info).toBe("Undid rename of lib.rs");
+    await t.actions.redo();
+    expect(t.actions.info).toBe("Redid rename of lib.rs");
+    await t.actions.move(["src/a.rs", "src/lib copy.rs"], "");
+    await t.actions.undo();
+    expect(t.actions.info).toBe("Undid move of 2 items");
+  });
+
+  it("says what a trash takes along, and clears its note after 5 s or on the next action", async () => {
+    vi.useFakeTimers();
+    try {
+      const t = await setup(["ui/a.ts", "ui/b.ts", "c.ts"]);
+      t.actions.askTrash(["ui"]);
+      expect(t.actions.question).toBe("Move “ui” to Trash?"); // not loaded: no count
+      await t.model.expand("ui");
+      t.unsaved.push("ui/b.ts");
+      t.actions.askTrash(["ui"]);
+      expect(t.actions.question).toBe("Move “ui” and the 2 items in it to Trash?");
+      expect(t.actions.warning).toBe("“b.ts” has unsaved changes.");
+      await t.actions.confirmTrash();
+      expect(t.actions.info).toBe("Moved to Trash. Restore it from the Trash.");
+      vi.advanceTimersByTime(5000);
+      expect(t.actions.info).toBeNull();
+
+      t.actions.askTrash(["c.ts"]);
+      expect(t.actions.warning).toBeNull();
+      await t.actions.confirmTrash();
+      t.actions.startRename("c.ts");
+      expect(t.actions.info).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("copies absolute and relative paths and reveals through the core", async () => {

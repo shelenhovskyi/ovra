@@ -39,7 +39,7 @@ import { HoverExpander } from "./hover-expand";
 import { rootMenu, rowMenu, selectionMenu } from "./menu";
 import { ancestorsOf, type Filter, parentOf, type Row, TreeModel, typeaheadMatch, visibleRange } from "./model";
 import NameInput from "./NameInput.svelte";
-import { keyAction, moveTarget, stemRange, trashQuestion } from "./ops";
+import { keyAction, moveTarget, stemRange } from "./ops";
 import { ExpandedSaver, loadExpanded } from "./persist";
 import { clickKind, rangeOf, toggled, topLevel } from "./selection";
 import TrashConfirm from "./TrashConfirm.svelte";
@@ -611,7 +611,7 @@ function onkeydown(e: KeyboardEvent): void {
   <WatchLimitNotice {unwatched} />
   {#if actions.confirming !== null}
     <TrashConfirm
-      question={trashQuestion(actions.confirming)}
+      question={actions.question}
       onconfirm={() => void actions.confirmTrash()}
       oncancel={() => actions.cancelTrash()}
     />
