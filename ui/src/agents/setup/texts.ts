@@ -55,6 +55,13 @@ export function paidShort(setup: AgentSetup): string | null {
   return `billed to ${PROVIDERS[billing.provider] ?? (billing.provider || "your cloud provider")}`;
 }
 
+/** Who pays, in two or three words, for a session's line. */
+export function billedShort(billing: Billing): string {
+  if (billing.kind === "subscription") return "Claude plan";
+  if (billing.kind === "api_key") return "API key, at API prices";
+  return PROVIDERS[billing.provider] ?? (billing.provider || "Cloud provider");
+}
+
 /** `ANTHROPIC_API_KEY` is set and no cloud provider takes precedence over it. */
 function keyBills(setup: AgentSetup): boolean {
   return setup.api_key_in_env && setup.billing?.kind !== "cloud";

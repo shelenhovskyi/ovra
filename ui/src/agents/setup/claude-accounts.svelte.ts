@@ -25,6 +25,32 @@ export class ClaudeAccounts {
     return this.overview?.project_account ?? DEFAULT_ACCOUNT;
   }
 
+  /**
+   * The account a new session should start with: the project's, unless it
+   * is known to be signed out and another one is signed in.
+   */
+  get preferred(): string {
+    const own = this.projectAccount;
+    if (!this.signedOut(own)) return own;
+    return this.signedIn?.account.id ?? own;
+  }
+
+  /** The first account that is signed in and ready. */
+  get signedIn(): AccountState | undefined {
+    return this.list.find((s) => s.setup.state.state === "ready");
+  }
+
+  /** Whether `id` (null: the default account) is known to be signed out. */
+  signedOut(id: string | null): boolean {
+    return this.state(id)?.setup.state.state === "signed_out";
+  }
+
+  /** The account by id; null is the default account. */
+  state(id: string | null): AccountState | undefined {
+    const wanted = id ?? DEFAULT_ACCOUNT;
+    return this.list.find((s) => s.account.id === wanted);
+  }
+
   /** Checks every account; `project`'s account comes with it. */
   async load(project: ProjectId | null = this.project): Promise<void> {
     const { data } = await this.transport.call({ method: "agents.accounts", params: { project } });

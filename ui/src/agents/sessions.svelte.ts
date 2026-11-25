@@ -2,7 +2,7 @@
 // instance per transport, shared by the agents panel, approvals and
 // notifications (`agentSessions(transport)`).
 
-import { SvelteMap } from "svelte/reactivity";
+import { SvelteMap, SvelteSet } from "svelte/reactivity";
 import { openInboxFor } from "../inbox/open";
 import { listCommands } from "../keys/commands";
 import type {
@@ -19,7 +19,8 @@ import type {
   TurnUsage,
 } from "../lib/protocol";
 import type { Transport } from "../lib/transport";
-import { isBusy, statusLabel } from "./status";
+import { failedLabel } from "./errors";
+import { isBusy, isEnded, statusLabel } from "./status";
 
 /** A session's part in a task, if it has one. */
 export type SessionRole =
@@ -45,6 +46,11 @@ export class AgentSessions {
   readonly reviews = new SvelteMap<SessionId, ReviewItem>();
   /** How many of each loaded project's agents work, of how many may. */
   readonly capacity = new SvelteMap<ProjectId, AgentCapacity>();
+  /**
+   * Sessions the person closed: hidden from the list, remembered in this
+   * browser per project. The core keeps them (it has no way to forget one).
+   */
+  readonly closed = new SvelteSet<SessionId>();
   private readonly loaded = new Set<ProjectId>();
   /** The latest `agents.capacity` call per project: older replies are stale. */
   private readonly asked = new Map<ProjectId, number>();
@@ -68,6 +74,7 @@ export class AgentSessions {
   async load(project: ProjectId): Promise<void> {
     const { data } = await this.transport.call({ method: "agents.list", params: { project } });
     this.loaded.add(project);
+    for (const id of readClosed(project)) this.closed.add(id);
     for (const info of data) this.byId.set(info.id, info);
     await Promise.all([this.loadTasks(project), this.loadReviews(project), this.loadCapacity(project)]);
   }
@@ -181,7 +188,32 @@ export class AgentSessions {
       if (workers.some(isBusy)) return "Workers are on it";
       if (workers.some((s) => s?.state === "queued")) return "Workers are waiting for a free agent";
     }
-    return statusLabel(info.status);
+    return failedLabel(info.status, this.transcripts.get(id)) ?? statusLabel(info.status);
+  }
+
+  /** `grouped` without the sessions the person closed. */
+  shown(project: ProjectId): SessionInfo[] {
+    return this.grouped(project).filter((s) => !this.closed.has(s.id));
+  }
+
+  /** Hides a session that is done; one that still waits for replies is stopped first. */
+  async close(id: SessionId): Promise<void> {
+    const info = this.byId.get(id);
+    if (!info || isBusy(info.status)) return;
+    if (!isEnded(info.status)) await this.stop(id);
+    this.closed.add(id);
+    this.saveClosed(info.project);
+  }
+
+  private saveClosed(project: ProjectId): void {
+    const ids = this.inProject(project)
+      .map((s) => s.id)
+      .filter((id) => this.closed.has(id));
+    try {
+      localStorage.setItem(closedKey(project), JSON.stringify(ids));
+    } catch {
+      // Storage may be full or blocked: closed for this window only.
+    }
   }
 
   /** Sessions of `project` with each task's workers right after their coordinator. */
@@ -262,6 +294,8 @@ export class AgentSessions {
       const known = this.byId.get(session);
       // A turn ended: what it changed is in the session's review item now.
       if (known && status.state === "idle") void this.loadReviews(project);
+      // A closed session that works again (resumed elsewhere) shows again.
+      if (known && isBusy(status) && this.closed.delete(session)) this.saveClosed(project);
       if (known) {
         // A restart clears the sandbox report without an event of its own.
         const fresh = status.state === "starting" ? { sandbox: null, sandbox_reported: false } : {};
@@ -363,6 +397,19 @@ export function agentSessions(transport: Transport): AgentSessions {
     instances.set(transport, sessions);
   }
   return sessions;
+}
+
+function closedKey(project: ProjectId): string {
+  return `ovra.agents.closed.${project}`;
+}
+
+function readClosed(project: ProjectId): SessionId[] {
+  try {
+    const ids: unknown = JSON.parse(localStorage.getItem(closedKey(project)) ?? "[]");
+    return Array.isArray(ids) ? ids.filter((id): id is SessionId => typeof id === "string") : [];
+  } catch {
+    return [];
+  }
 }
 
 /** A session's name for people: its title, or its id while the title is unknown. */
