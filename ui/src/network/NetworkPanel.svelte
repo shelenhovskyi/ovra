@@ -341,10 +341,19 @@ function onDialogKeydown(event: KeyboardEvent): void {
               narrowest scope you can.
             </p>
             {#if access.store?.state === "unavailable"}
-              <p class="warn" data-testid="store-unavailable">
-                Secrets cannot be stored: {access.store.reason}. Ovra keeps them only in the system keychain, never in a
-                file.
-              </p>
+              <div class="warn" role="note" data-testid="store-unavailable">
+                <p>
+                  Secrets can't be saved: the system keychain is not running or cannot be reached. Start it, then check
+                  again. Ovra never keeps secrets in a file.
+                </p>
+                <button type="button" data-testid="store-retry" onclick={() => void access.reload()}>
+                  {access.loading ? "Checking…" : "Check again"}
+                </button>
+                <details>
+                  <summary>Details</summary>
+                  <code data-testid="store-reason">{access.store.reason}</code>
+                </details>
+              </div>
             {:else if access.store?.state === "available"}
               <p class="muted" data-testid="store-available">Values are kept in {access.store.name}.</p>
             {/if}
@@ -389,7 +398,12 @@ function onDialogKeydown(event: KeyboardEvent): void {
                     data-testid="secret-value"
                   /></label
                 >
-                <button type="submit">Save secret</button>
+                <button type="submit" aria-describedby={storeReady ? undefined : "secret-off"}>Save secret</button>
+                {#if !storeReady}
+                  <span class="muted off" id="secret-off" data-testid="secret-off">
+                    {access.store ? "Saving needs the system keychain." : "Checking the keychain…"}
+                  </span>
+                {/if}
               </fieldset>
             </form>
             <p class="muted" id="secret-value-note">
@@ -418,9 +432,10 @@ function onDialogKeydown(event: KeyboardEvent): void {
   button {
     cursor: pointer;
   }
-  button:disabled {
-    cursor: default;
-    opacity: 0.6;
+  button:disabled,
+  input:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
   }
   button:focus-visible,
   input:focus-visible,
@@ -525,6 +540,18 @@ function onDialogKeydown(event: KeyboardEvent): void {
   }
   .token {
     -webkit-text-security: disc;
+  }
+  div.warn p {
+    margin: 0 0 6px;
+  }
+  div.warn code {
+    display: block;
+    margin-top: 4px;
+    color: #c8c8d2;
+    overflow-wrap: anywhere;
+  }
+  .off {
+    align-self: center;
   }
   details {
     margin-top: 6px;
