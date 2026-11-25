@@ -3,9 +3,11 @@
 
 Usage: check_test_budgets.py SUITE [SUITE...]   (suites: rust, ui, e2e)
 Budgets live in scripts/test-budgets.json. Always prints the slowest tests so
-growth is visible before it becomes a failure. The ui suite is measured in CPU
-time per test (`meta.cpuMs`, written by ui/src/test-setup.ts), so load from
-other work on the machine does not fail it; the others in wall time.
+growth is visible before it becomes a failure. The rust and ui suites are
+measured in CPU time per test, so load from other work on the machine does not
+fail them: rust from target/nextest/default/cpu/<run>.tsv (written by
+scripts/test-cpu.sh, a nextest wrapper script), ui from `meta.cpuMs` (written
+by ui/src/test-setup.ts). The e2e suite is measured in wall time.
 """
 
 import json
@@ -18,10 +20,34 @@ BUDGETS = json.loads((ROOT / "scripts" / "test-budgets.json").read_text())
 
 
 def rust(report):
+    run = ET.parse(report).getroot()
+    cpu_dir = report.parent / "cpu"
+    cpu_file = cpu_dir / f"{run.get('uuid')}.tsv"
+    wall_only = sys.platform == "win32"  # the wrapper is a bash script
+    if wall_only:
+        CLOCKS["rust"] = "wall time"
+    cpu = {}  # nextest retries are off: one line per test
+    if cpu_file.exists():
+        for line in cpu_file.read_text().splitlines():
+            binary, test, ms = line.split("\t")
+            cpu[(binary, test)] = float(ms)
+    # Runs before this one are not needed again.
+    for old in cpu_dir.glob("*.tsv"):
+        if old != cpu_file:
+            old.unlink()
     tests = []
-    for case in ET.parse(report).getroot().iter("testcase"):
-        name = f"{case.get('classname')}::{case.get('name')}"
-        tests.append((name, float(case.get("time", 0)) * 1000))
+    for case in run.iter("testcase"):
+        key = (case.get("classname"), case.get("name"))
+        name = "::".join(key)
+        if key in cpu:
+            tests.append((name, cpu[key]))
+        elif case.find("skipped") is not None:
+            tests.append((name, 0))
+        elif not wall_only and case.find("failure") is None and case.find("error") is None:
+            sys.exit(f"test-budget[rust]: {name} has no CPU time; is the wrapper in .config/nextest.toml loaded?")
+        else:
+            # A test killed for taking too long never got its CPU time written.
+            tests.append((name, float(case.get("time", 0)) * 1000))
     return tests
 
 
@@ -55,7 +81,7 @@ def e2e(report):
 
 
 PARSERS = {"rust": rust, "ui": ui, "e2e": e2e}
-CLOCKS = {"ui": "CPU time"}
+CLOCKS = {"rust": "CPU time", "ui": "CPU time"}
 
 
 def check(suite):

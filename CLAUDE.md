@@ -165,8 +165,10 @@ Ask the owner only before:
 The suite must stay fast; slow tests are bugs.
 
 - Budgets per suite and per test are in `scripts/test-budgets.json` (run time,
-  compilation excluded). `just test` and `just e2e` fail when one is exceeded
-  and always print the five slowest tests. Raising a budget needs a human.
+  compilation excluded; Rust and UI count CPU time, so other agents' load on
+  the machine does not fail them; e2e counts wall time). `just test` and
+  `just e2e` fail when one is exceeded and always print the five slowest
+  tests. Raising a budget needs a human.
 - Hard limits: Rust tests are killed after 3 s (`.config/nextest.toml`),
   Vitest after 1 s, Playwright after 10 s.
 - No `sleep` or fixed waits: use fake clocks (`tokio::time::pause`,
