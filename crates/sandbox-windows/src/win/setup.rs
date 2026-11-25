@@ -30,13 +30,12 @@ use windows_sys::Win32::UI::Shell::{SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW, 
 
 use super::token::Handle;
 use super::wide;
+use crate::PASSWORD_FILE;
 
 /// The sandbox user's name.
 pub(crate) const USER: &str = "OvraSandbox";
 /// The firewall rule's display name.
 const RULE: &str = "Ovra sandbox: no network";
-/// Where the person keeps the sandbox user's password, DPAPI-protected.
-const PASSWORD_FILE: &str = "sandbox-user";
 /// The elevated stage's flag.
 pub(crate) const ADMIN_FLAG: &str = "--ovra-sandbox-setup-admin";
 /// Where Windows hides accounts from the sign-in screen.
