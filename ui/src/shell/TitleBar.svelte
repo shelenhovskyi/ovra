@@ -6,7 +6,8 @@
 // (`data-chrome="overlay"` on the root, set by the app): the traffic lights
 // sit on its left and its empty space drags the window.
 import BrowserButton from "../browser/BrowserButton.svelte";
-import Inbox from "../inbox/Inbox.svelte";
+import InboxButton from "../inbox/InboxButton.svelte";
+import type { ReviewInbox } from "../inbox/reviews.svelte";
 import { listCommands } from "../keys/commands";
 import { formatShortcut, inBrowserTab, isApple, liveKeys } from "../keys/shortcut";
 import { useOvra } from "./context";
@@ -22,8 +23,11 @@ let {
   waiting,
   toggle,
   showApprovals,
+  inbox,
 }: {
   layout: Layout;
+  /** The shell's review inbox: the Reviews button counts what waits. */
+  inbox: ReviewInbox;
   /** Whether each side panel is on screen. */
   shown: Record<Panel, boolean>;
   /** Requests that wait for a person while Agents is hidden. */
@@ -152,8 +156,7 @@ function tip(panel: Panel): string {
         onclick={showApprovals}>{waiting} waiting</button
       >
     {/if}
-    <!-- Mounted with or without a project: its shortcut and dialog work everywhere. -->
-    <span class="reviews" hidden={!workspace.project}><Inbox /></span>
+    {#if workspace.project}<InboxButton {inbox} />{/if}
     {#if workspace.project}{@render panelToggle("agents")}{/if}
     <MoreMenu />
   </div>
@@ -205,9 +208,6 @@ function tip(panel: Panel): string {
   }
   .trail {
     justify-content: flex-end;
-  }
-  .reviews[hidden] {
-    display: none;
   }
   /* Title-bar items, Reviews' and More's included (they carry the rail's class):
      borderless 28 px squares. */

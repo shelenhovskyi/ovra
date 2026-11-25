@@ -203,14 +203,20 @@ describe("inbox wording", () => {
     expect(defaultCommitMessage(review("r3"))).toBe("");
   });
 
-  it("finds the files that agents of other open reviews changed too", () => {
-    const a = review("a", { files: [change("x"), change("y"), change("z", { by: "outside" })] });
-    const b = review("b", { files: [change("x", { by: "both" }), change("z")] });
-    const done = review("c", { state: "approved", files: [change("y")] });
-    const items = [a, b, done];
+  it("finds the files that workers of other open reviews changed too, only where keeping one decides", () => {
+    const isolated = "isolated" as const;
+    const a = review("a", { mode: isolated, files: [change("x"), change("y"), change("z", { by: "outside" })] });
+    const b = review("b", { mode: isolated, files: [change("x", { by: "both" }), change("z")] });
+    const done = review("c", { mode: isolated, state: "approved", files: [change("y")] });
+    // A direct agent's files are in place already; a worker's file it changed too waits for it instead.
+    const direct = review("d", { files: [change("y"), change("w")] });
+    const waits = review("e", { mode: isolated, files: [change("w", { blocked: true })] });
+    const items = [a, b, done, direct, waits];
     expect([...sharedFiles(a, items)]).toEqual(["x"]);
     expect([...sharedFiles(b, items)]).toEqual(["x"]);
     expect([...sharedFiles(done, items)]).toEqual([]);
+    expect([...sharedFiles(direct, items)]).toEqual([]);
+    expect([...sharedFiles(waits, items)]).toEqual([]);
     expect(fileMarkers(change("x"), true)).toEqual(["Also changed in another open review"]);
     expect(sharedHint(a, items, (o) => `${o.id} · task`)).toBe(
       "b also changed x. Only the version you keep first is copied; a later one that differs is left for you to choose, and one that is the same counts as copied.",

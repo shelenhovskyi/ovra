@@ -16,6 +16,8 @@ import { persistOpenFiles } from "../editor/open-files.svelte";
 import Tabs from "../editor/Tabs.svelte";
 import Git from "../git/Git.svelte";
 import GitDiff from "../git/GitDiff.svelte";
+import Inbox from "../inbox/Inbox.svelte";
+import { ReviewInbox } from "../inbox/reviews.svelte";
 import { listCommands, registerCommand } from "../keys/commands";
 import Keybindings from "../keys/Keybindings.svelte";
 import type { CoreInfo } from "../lib/protocol";
@@ -53,6 +55,9 @@ const layout = new Layout();
 const sessions = agentSessions(transport);
 // svelte-ignore state_referenced_locally
 const approvals = approvalQueue(transport);
+// svelte-ignore state_referenced_locally
+const reviews = new ReviewInbox(transport);
+$effect(() => () => reviews.dispose());
 
 const VIEWS: Record<SidebarView, { name: string }> = {
   files: { name: "Files" },
@@ -275,7 +280,7 @@ async function showApprovals(): Promise<void> {
   class:viewing={!workspace.project && !!mainView.current}
   class:solo class:rail-right={layout.swapped} style={grid}>
   <div class="title-area">
-    <TitleBar {layout} shown={{ side: !folded.side, agents: !folded.agents }} {waiting} {toggle} {showApprovals} />
+    <TitleBar {layout} shown={{ side: !folded.side, agents: !folded.agents }} {waiting} {toggle} {showApprovals} inbox={reviews} />
   </div>
   <div class="rail-area"><Rail {layout} /></div>
   <aside class="panel side" data-testid="sidebar" aria-label={workspace.project ? view.name : "Projects"}>
@@ -336,6 +341,8 @@ async function showApprovals(): Promise<void> {
     </div>
     </div>
     {#if mainView.current === "settings"}<Settings />{:else if mainView.current === "audit"}<AuditLog />{/if}
+    <!-- Reviews stays mounted while closed: it keeps the choice and drafts, and agents' asks. -->
+    <Inbox inbox={reviews} />
     <BrowserPane />
     <!-- The bottom dock: terminals and, next to them, the dev servers that run. -->
     <div class="dock">

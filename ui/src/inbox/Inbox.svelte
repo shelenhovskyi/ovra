@@ -1,19 +1,23 @@
 <script lang="ts">
-// The review inbox: agents' changes waiting for a person. A rail button
-// (and Mod+Shift+R, Alt+Shift+R in a browser tab) opens a dialog with the
-// project's review items, the files of the chosen one and that file's diff.
+// Reviews, a main-area view: agents' changes waiting for a person. The
+// title bar's Reviews button (and Mod+Shift+R, Alt+Shift+R in a browser
+// tab) opens it on the project's review items, grouped by task, with the
+// chosen one's files and, beside them, that file's diff. Mounted while
+// closed too, so it keeps the choice, the drafts and agents' asks.
 // Approve, reject and comment are always a person's press; nothing here
 // approves or merges on its own. Keys: arrows move in a list, N / P move
-// between changes in the diff, Mod+Enter sends a comment, Escape closes.
+// between changes in the diff, Mod+Enter sends a comment, Escape closes
+// (after leaving the reject step or the comment field).
 import { tick, untrack } from "svelte";
 import { agentSessions } from "../agents/sessions.svelte";
-import { approvalQueue } from "../approvals/queue.svelte";
-import { listCommands, registerCommand } from "../keys/commands";
-import { runCommand } from "../keys/keybindings";
-import { formatShortcut, inBrowserTab, isApple, liveKeys, matchesShortcut, parseShortcut } from "../keys/shortcut";
+import { registerCommand } from "../keys/commands";
+import { formatShortcut, isApple } from "../keys/shortcut";
 import type { FileChange, ReviewId, ReviewItem, SessionId } from "../lib/protocol";
 import { useOvra } from "../shell/context";
+import EmptyState from "../shell/EmptyState.svelte";
 import Icon from "../shell/Icon.svelte";
+import { mainView } from "../shell/main-view.svelte";
+import ViewFrame from "../shell/ViewFrame.svelte";
 import PatchView from "../viewers/PatchView.svelte";
 import {
   approveDetail,
@@ -41,17 +45,17 @@ import {
   taskOf,
   workerName,
 } from "./describe";
+import { REVIEWS_KEYS } from "./keys";
 import { handleOpenFor } from "./open";
-import { message as errorText, type Outcome, ReviewInbox } from "./reviews.svelte";
+import { message as errorText, type Outcome, type ReviewInbox } from "./reviews.svelte";
 
-const KEYS = "Mod+Shift+R";
+/** The shell's inbox, shared with the title bar's Reviews button. */
+let { inbox }: { inbox: ReviewInbox } = $props();
 const { transport, workspace } = useOvra();
-const inbox = new ReviewInbox(transport);
 const sessions = agentSessions(transport);
-const shortcut = formatShortcut(liveKeys(KEYS, inBrowserTab()), isApple());
 const modEnter = formatShortcut("Mod+Enter", isApple());
 
-let opened = $state(false);
+const opened = $derived(mainView.current === "reviews");
 let selectedId = $state<ReviewId | null>(null);
 let selectedPath = $state<string | null>(null);
 let diff = $state<{ key: string; patch: string | null; fingerprint: string | null; error: string | null } | null>(null);
@@ -64,8 +68,6 @@ const drafts = new Map<ReviewId, string>();
 let announcement = $state("");
 /** Approve was stopped because the diff shown was older than the item. */
 let staleDiff = $state(false);
-/** An agent asked for a review since the inbox was last open. */
-let asked = $state(false);
 /** The items agents asked to show since the inbox was last open. */
 let askedFor: ReviewId[] = [];
 /** Protected files whose diff was on screen since the inbox opened, by `seenKey`. */
@@ -75,7 +77,6 @@ let includeProtected = $state(false);
 /** The item's fingerprint when the person ticked: the version they included. */
 let includedFor = $state<string | null>(null);
 let dialog = $state<HTMLElement>();
-let returnTo: HTMLElement | null = null;
 
 const item = $derived(inbox.items.find((i) => i.id === selectedId) ?? null);
 const file = $derived(item?.files.find((f) => f.path === selectedPath) ?? null);
@@ -148,20 +149,25 @@ const approveWhy = $derived(
     .join(" ") || undefined,
 );
 
-$effect(() => () => inbox.dispose());
-
 $effect(() => {
   const project = workspace.project?.id ?? null;
   untrack(() => void inbox.show(project));
 });
 
-$effect(() => registerCommand({ id: "inbox.toggle", title: "Review inbox", keys: KEYS, run: toggle }));
+$effect(() =>
+  registerCommand({ id: "inbox.toggle", title: "Reviews", keys: REVIEWS_KEYS, keywords: ["inbox"], run: toggle }),
+);
+
+// Closed by its frame (the close button, Escape): the reject step is over.
+$effect(() => {
+  if (!opened) untrack(() => (confirmingReject = false));
+});
 
 // A person's Review press for a session or task opens on its waiting item.
 $effect(() => handleOpenFor((wanted) => void showFor(wanted)));
 
 // An agent asked to show a review (`open_in_ui`): choose it and say so on the
-// button, but never open the dialog or move focus on an agent's behalf. While
+// button, but never open the view or move focus on an agent's behalf. While
 // the person reviews, the choice stays theirs: an agent switching the item
 // under a focused Approve could get the wrong work approved.
 $effect(() =>
@@ -173,7 +179,7 @@ $effect(() =>
       if (!opened) {
         select(id);
         askedFor.push(id);
-        asked = true;
+        inbox.asked = true;
       } else if (id !== selectedId) {
         const wanted = inbox.items.find((i) => i.id === id);
         if (wanted) announcement = `An agent asks you to look at ${sessionLabel(wanted)}. It is in the list.`;
@@ -260,13 +266,11 @@ function select(id: ReviewId | null): void {
 
 /** Opens the inbox; `keep` keeps the item chosen for it. */
 async function show(keep = false): Promise<void> {
-  const active = document.activeElement;
-  returnTo = active instanceof HTMLElement ? active : null;
-  opened = true;
+  mainView.show("reviews");
   // Unless a Review press chose the item: the newest that waits, of those agents asked to show if any.
-  const newest = asked ? inbox.waiting.find((i) => askedFor.includes(i.id)) : inbox.waiting[0];
+  const newest = inbox.asked ? inbox.waiting.find((i) => askedFor.includes(i.id)) : inbox.waiting[0];
   if (newest && !keep) select(newest.id);
-  asked = false;
+  inbox.asked = false;
   askedFor = [];
 
   // Seen means seen in this sitting, not some earlier one.
@@ -291,10 +295,8 @@ async function showFor(wanted: SessionId[]): Promise<void> {
 }
 
 function close(): void {
-  opened = false;
   confirmingReject = false;
-  if (returnTo?.isConnected) returnTo.focus();
-  returnTo = null;
+  mainView.close();
 }
 
 function toggle(): void {
@@ -331,55 +333,11 @@ async function cancelReject(): Promise<void> {
   dialog?.querySelector<HTMLElement>("[data-start-reject]")?.focus();
 }
 
-const toggleKeys = parseShortcut(liveKeys(KEYS, inBrowserTab()), isApple());
-
-// A request that waits must not hide behind the dialog: the inbox says so,
-// and the approvals shortcut steps out of it to the request.
-const approvals = approvalQueue(transport);
-const approvalsCommand = () => listCommands().find((c) => c.id === "approvals.focus");
-const approvalsKeys = (): string | undefined => {
-  const keys = approvalsCommand()?.keys;
-  return keys ? liveKeys(keys, inBrowserTab()) : undefined;
-};
-
-function goToApprovals(): void {
-  const command = approvalsCommand();
-  close();
-  if (command) void runCommand(command);
-}
-
-function onDialogKeydown(event: KeyboardEvent): void {
-  const keys = approvalsKeys();
-  const toApprovals = keys ? parseShortcut(keys, isApple()) : null;
-  if (toApprovals && matchesShortcut(event, toApprovals)) {
-    // Close first; the shortcut then goes on to the approvals.
-    close();
-    return;
-  }
-  // Shortcuts of the panels behind the modal must not act; only the inbox's own toggle gets through.
-  if (!(toggleKeys && matchesShortcut(event, toggleKeys))) event.stopPropagation();
-  if (event.code === "Escape" && !event.defaultPrevented) {
-    event.preventDefault();
-    // Escape in the reject step leaves the step, not the inbox.
-    if (confirmingReject) void cancelReject();
-    else close();
-    return;
-  }
-  if (event.code !== "Tab") return;
-  // Keep Tab inside the dialog (aria-modal).
-  const focusable = [
-    ...(dialog?.querySelectorAll<HTMLElement>("button, input, textarea, select, [tabindex]") ?? []),
-  ].filter((el) => el.tabIndex >= 0);
-  const first = focusable[0];
-  const last = focusable[focusable.length - 1];
-  if (!first || !last) return;
-  if (event.shiftKey && document.activeElement === first) {
-    event.preventDefault();
-    last.focus();
-  } else if (!event.shiftKey && document.activeElement === last) {
-    event.preventDefault();
-    first.focus();
-  }
+/** Escape in the reject step leaves the step; the next one closes the view. */
+function onViewKeydown(event: KeyboardEvent): void {
+  if (event.code !== "Escape" || event.defaultPrevented || !confirmingReject) return;
+  event.preventDefault();
+  void cancelReject();
 }
 
 /**
@@ -523,69 +481,18 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
     void sendComment(review);
   } else if (event.code === "Escape" && comment) {
     // The first Escape leaves the field for the item's heading and keeps
-    // the draft; the next one closes the inbox.
+    // the draft; the next one closes the view.
     event.preventDefault();
     dialog?.querySelector<HTMLElement>("#inbox-item-title")?.focus();
   }
 }
 </script>
 
-<!-- Styled by the rail it sits in (`rail-button`, `tip`). -->
-<button
-  type="button"
-  class="rail-button tip open-inbox"
-  class:asked
-  data-testid="inbox-button"
-  data-tip={`Reviews ${shortcut}`}
-  aria-label={inbox.waiting.length > 0 ? `Reviews, ${inbox.waiting.length} waiting` : "Reviews"}
-  aria-keyshortcuts={liveKeys(KEYS, inBrowserTab()).replace("Mod", isApple() ? "Meta" : "Control")}
-  aria-haspopup="dialog"
-  onclick={toggle}
->
-  <Icon name="review" />
-  {#if inbox.waiting.length > 0}<span class="rail-badge" aria-hidden="true">{inbox.waiting.length}</span>{/if}
-</button>
-<span class="visually-hidden" aria-live="polite" data-testid="inbox-asked"
-  >{asked ? `An agent asks you to review its changes. Open the review inbox with ${shortcut}.` : ""}</span
->
-
 {#if opened}
-  <div class="backdrop">
-    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-    <div
-      class="inbox"
-      class:full={!!workspace.project && inbox.items.length > 0}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="inbox-title"
-      tabindex="-1"
-      data-testid="inbox"
-      bind:this={dialog}
-      onkeydown={onDialogKeydown}
-    >
-      <header>
-        <h2 id="inbox-title" tabindex="-1">Review inbox</h2>
-        <span class="project">{workspace.project?.name ?? "No project"}</span>
-        <button
-          type="button"
-          class="close"
-          aria-label="Close"
-          aria-keyshortcuts="Escape"
-          title="Close (Escape)"
-          onclick={close}><Icon name="close" /></button
-        >
-      </header>
-      <div aria-live="polite" data-testid="inbox-approvals">
-        {#if approvals.pending.length > 0}
-          {@const keys = approvalsKeys()}
-          <p class="approvals-waiting">
-            {approvals.pending.length === 1 ? "1 approval waiting" : `${approvals.pending.length} approvals waiting`}
-            <button type="button" onclick={goToApprovals}
-              >Go to approvals{#if keys}{" "}({formatShortcut(keys, isApple())}){/if}</button
-            >
-          </p>
-        {/if}
-      </div>
+  <ViewFrame name="reviews" testid="inbox">
+    {#snippet tools()}<span class="project">{workspace.project?.name ?? "No project"}</span>{/snippet}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="inbox" bind:this={dialog} onkeydown={onViewKeydown}>
       {#if inbox.error}
         <p class="error" role="alert">{inbox.error}</p>
       {/if}
@@ -599,7 +506,15 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
       {#if !workspace.project}
         <p class="empty">Open a project to review its agents' changes.</p>
       {:else if inbox.items.length === 0}
-        <p class="empty">{inbox.loading ? "Loading reviews…" : "No agent changes wait for review."}</p>
+        {#if inbox.loading}
+          <p class="empty">Loading reviews…</p>
+        {:else}
+          <EmptyState
+            centred
+            headline="Nothing to review"
+            line="Changes from Plan and split wait here until you keep or discard them."
+          />
+        {/if}
       {:else}
         <div class="body">
           <nav aria-label="Review items">
@@ -639,8 +554,9 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
 
           {#if item}
             <section class="detail" aria-labelledby="inbox-item-title" data-testid="inbox-item">
+              <div class="decide">
               <div class="item-head">
-                <h3 id="inbox-item-title" tabindex="-1">{sessionLabel(item)}</h3>
+                <h3 id="inbox-item-title" tabindex="-1">{shortTitle(item, sessions.name(item.session))}</h3>
                 <span class="state {item.state}">{STATE_LABEL[item.state]}</span>
                 {#if item.summary}
                   <p class="summary">Agent's summary: {item.summary}</p>
@@ -860,7 +776,6 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                 </form>
               {/if}
 
-              <div class="files-and-diff">
                 <ul class="files" aria-label="Changed files">
                   {#each item.files as changed (changed.path)}
                     {@const markers = fileMarkers(
@@ -897,6 +812,7 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                     </li>
                   {/each}
                 </ul>
+              </div>
                 <div class="diff" data-testid="inbox-diff">
                   {#if !file}
                     <p class="empty">
@@ -914,13 +830,12 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                     <PatchView text={diff.patch} />
                   {/if}
                 </div>
-              </div>
             </section>
           {/if}
         </div>
       {/if}
     </div>
-  </div>
+  </ViewFrame>
 {/if}
 
 <style>
@@ -940,65 +855,19 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
   button:hover {
     background: var(--s4);
   }
-  /* The rail's button: quiet until an agent asks. */
-  .open-inbox.asked {
-    color: var(--text);
-    background: var(--warn-soft);
-  }
   button[aria-disabled="true"],
   input[aria-disabled="true"] {
     opacity: 0.55;
     cursor: default;
   }
 
-  .backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 90;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 32px;
-    background: var(--scrim);
-  }
-  /* Sized to what it says; the whole window only for a list with its diffs. */
+  /* Wide enough: the list, the decision with the files, and the diff beside them. */
   .inbox {
-    width: min(560px, 100%);
-    max-height: 100%;
     display: flex;
+    flex: 1;
     flex-direction: column;
-    min-width: 0;
     min-height: 0;
-    overflow: hidden;
-    background: var(--s1);
-    border-radius: 14px;
-    box-shadow: var(--card-shadow);
-  }
-  .inbox.full {
-    align-self: stretch;
-    width: 100%;
-  }
-  header {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 12px 12px 8px 20px;
-  }
-  .close {
-    margin-left: auto;
-    padding: 4px;
-    color: var(--text-2);
-    background: transparent;
-  }
-  .close:hover {
-    color: var(--text);
-    background: var(--s3);
-  }
-
-  h2 {
-    margin: 0;
-    font-size: 16px;
-    font-weight: 600;
+    container-type: inline-size;
   }
   h3 {
     margin: 0;
@@ -1018,13 +887,6 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
     padding: 12px 20px;
     margin: 0;
   }
-  .approvals-waiting {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin: 0 20px 8px;
-    color: var(--warn);
-  }
   .error {
     color: var(--danger);
     margin: 4px 20px;
@@ -1032,7 +894,7 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
   .body {
     flex: 1;
     display: grid;
-    grid-template-columns: 260px 1fr;
+    grid-template-columns: 220px minmax(0, 1fr);
     min-height: 0;
   }
   nav {
@@ -1135,12 +997,17 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
     border-radius: var(--radius-sm);
   }
   .detail {
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
     min-width: 0;
     min-height: 0;
-    background: var(--s2);
-    border-top-left-radius: 12px;
+  }
+  .decide {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    padding-bottom: 12px;
+    overflow: auto;
   }
   .item-head,
   .actions,
@@ -1215,15 +1082,8 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
     border: 0;
     border-radius: var(--radius);
   }
-  .files-and-diff {
-    flex: 1;
-    display: grid;
-    grid-template-columns: 240px 1fr;
-    min-height: 0;
-    margin-top: 12px;
-  }
   .files {
-    overflow: auto;
+    margin-top: 12px;
   }
   .diff {
     min-width: 0;
@@ -1240,25 +1100,29 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
     clip-path: inset(50%);
     white-space: nowrap;
   }
-  /* Narrow windows and 200% zoom: stack the lists over the diff so it keeps the width. */
-  @media (max-width: 900px) {
-    .backdrop {
-      padding: 0;
-    }
-    .body,
-    .files-and-diff {
-      grid-template-columns: 1fr;
-      grid-template-rows: auto 1fr;
-    }
-    nav,
-    .files {
-      max-height: 25vh;
-    }
+  /* A narrow main area: the diff goes under the decision, which keeps the width. */
+  @container (max-width: 860px) {
     .detail {
+      display: flex;
+      flex-direction: column;
       overflow: auto;
     }
+    .decide {
+      flex: none;
+      overflow: visible;
+    }
     .diff {
-      min-height: 60vh;
+      flex: none;
+      height: 60vh;
+    }
+  }
+  @container (max-width: 560px) {
+    .body {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-rows: auto minmax(0, 1fr);
+    }
+    nav {
+      max-height: 25vh;
     }
   }
   .marker.protected,
@@ -1280,9 +1144,6 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
     border-radius: var(--radius);
   }
   @media (forced-colors: active) {
-    .inbox {
-      border: 1px solid CanvasText;
-    }
     .entry[aria-current="true"] {
       outline: 2px solid Highlight;
     }

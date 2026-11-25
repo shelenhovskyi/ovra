@@ -27,6 +27,8 @@ export class ReviewInbox {
   outcome = $state<Outcome | null>(null);
   /** Bumped whenever the core says an item changed, so open diffs reload. */
   changes = $state(0);
+  /** An agent asked to show a review since Reviews was last open; the title bar's button says so. */
+  asked = $state(false);
   private latest = 0;
   private inFlight = false;
   private again = false;

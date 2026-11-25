@@ -305,7 +305,7 @@ test("a task's coordinator splits the work among three workers whose diffs wait 
   await expect(approvals).toContainText("Nothing waits for your approval.");
 
   await page.keyboard.press("Alt+Shift+R");
-  const inbox = page.getByRole("dialog", { name: "Review inbox" });
+  const inbox = page.getByTestId("inbox");
   const items = inbox.getByRole("navigation", { name: "Review items" }).getByRole("button");
   await expect(items).toHaveCount(3);
   for (const index of [0, 1, 2]) {
@@ -338,7 +338,7 @@ test("a direct session's protected files and git hooks need a look before approv
   writeFileSync(join(dir, ".git/hooks/pre-commit"), "#!/bin/sh\n");
 
   await page.keyboard.press("Alt+Shift+R");
-  const inbox = page.getByRole("dialog", { name: "Review inbox" });
+  const inbox = page.getByTestId("inbox");
   const entry = inbox.getByRole("navigation", { name: "Review items" }).getByRole("button");
   await expect(entry).toHaveCount(1);
   await expect(entry.getByTestId("item-protected")).toHaveText("2 files can run code or change agent rules");

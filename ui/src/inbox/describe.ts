@@ -83,21 +83,25 @@ export function fileMarkers(
 }
 
 /**
- * Files an agent changed in `item` that an agent of another open item
- * changed too: approving one of them first decides what the other merges
+ * Files a worker changed in `item` that a worker of another open item
+ * changed too: keeping one of them first decides what the other copies
  * into. Empty unless `item` is open, and without the files whose version
  * another item already kept: that decision is made.
  */
 export function sharedFiles(item: ReviewItem, items: readonly ReviewItem[]): Set<string> {
   const shared = new Set<string>();
-  if (item.state !== "open") return shared;
+  // Only copying decides between versions: a worker's item against another
+  // worker's. A direct agent's files are already in place, and a worker's
+  // file the direct agent changed too waits for it (`blocked`) and says so.
+  if (item.state !== "open" || item.mode !== "isolated") return shared;
   const kept = keptFirst(item, items);
   const others = new Set<string>();
   for (const other of items) {
-    if (other.id === item.id || other.state !== "open") continue;
-    for (const f of other.files) if (f.by !== "outside") others.add(f.path);
+    if (other.id === item.id || other.state !== "open" || other.mode !== "isolated") continue;
+    for (const f of other.files) if (f.by !== "outside" && !f.blocked) others.add(f.path);
   }
-  for (const f of item.files) if (f.by !== "outside" && others.has(f.path) && !kept.has(f.path)) shared.add(f.path);
+  for (const f of item.files)
+    if (f.by !== "outside" && !f.blocked && others.has(f.path) && !kept.has(f.path)) shared.add(f.path);
   return shared;
 }
 

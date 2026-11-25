@@ -1,6 +1,7 @@
 import { flushSync, mount, unmount } from "svelte";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { registerCommand } from "../keys/commands";
+import { mainView } from "../shell/main-view.svelte";
 import { Workspace } from "../shell/workspace.svelte";
 import { change, FakeReviewCore, review } from "./fake-review";
 import { openInboxFor } from "./open";
@@ -23,6 +24,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  mainView.close(false);
   if (app) unmount(app);
   app = null;
   target.remove();
@@ -74,7 +76,7 @@ describe("Inbox", () => {
     ]);
     expect($("[data-testid=inbox-button]")?.getAttribute("aria-label")).toBe("Reviews, 2 waiting");
     await open();
-    expect($("[role=dialog]")?.getAttribute("aria-modal")).toBe("true");
+    expect($("[data-testid=inbox-button]")?.getAttribute("aria-pressed")).toBe("true");
     expect(document.activeElement?.getAttribute("data-item")).toBe("r1");
     expect($("[data-item=r1]")?.classList.contains("flagged")).toBe(false);
     expect($("[data-testid=inbox-diff]")?.textContent).toContain("the readme");
@@ -85,7 +87,8 @@ describe("Inbox", () => {
     press("ArrowDown");
     await settle();
     expect(document.activeElement?.getAttribute("data-item")).toBe("r2");
-    expect($("[data-testid=inbox-item] h3")?.textContent).toBe("Worker: Session s2");
+    // Short titles: the worker's own name; its task heads the group in the list.
+    expect($("[data-testid=inbox-item] h3")?.textContent).toBe("Session s2");
     expect($("[data-file='src/a.ts']")?.textContent).toContain("Waits for the direct agent");
     expect($("[data-testid=inbox-item]")?.textContent).toContain("into your project folder");
 
@@ -633,17 +636,14 @@ describe("Inbox", () => {
   it("says when nothing waits", async () => {
     await setup([]);
     await open();
-    expect($("[data-testid=inbox]")?.textContent).toContain("No agent changes wait for review.");
-    expect(document.activeElement?.id).toBe("inbox-title");
+    expect($("[data-testid=inbox]")?.textContent).toContain("Nothing to review");
+    expect(document.activeElement?.textContent).toBe("Reviews");
   });
 
-  it("keeps the shortcuts of the panels behind it from acting, and shows a decided item's diffs", async () => {
+  it("shows a decided item's diffs", async () => {
     const core = await setup([review("r1", { files: [change("README.md"), change("src/a.ts")] })]);
     core.diffGone.set("src/a.ts", "the diff of a decided review is kept for at most 50 files");
     await open();
-    press("KeyP", { altKey: true });
-    await settle();
-    expect(workspace.paletteOpen).toBe(false);
     button(/^Keep changes$/)?.click();
     await settle();
     expect($("[data-item=r1]")?.textContent).toContain("Kept");
@@ -653,39 +653,5 @@ describe("Inbox", () => {
     expect($("[data-testid=inbox-diff] [role=alert]")?.textContent).toBe(
       "Could not load the diff of src/a.ts: the diff of a decided review is kept for at most 50 files",
     );
-  });
-
-  it("says when approvals wait, and the approvals shortcut or button steps out to them", async () => {
-    let ran = 0;
-    const unregister = registerCommand({
-      id: "approvals.focus",
-      title: "Go to pending approvals",
-      keys: "Mod+Shift+A",
-      run: () => {
-        ran++;
-      },
-    });
-    try {
-      const core = await setup();
-      await open();
-      const line = () => $("[data-testid=inbox-approvals]")?.textContent?.replace(/\s+/g, " ").trim();
-      expect(line()).toBe("");
-      const request = { session: "s1", project: "p1", tool: "Bash", input: { command: "ls" }, title: null };
-      core.emit({ type: "permissions.requested", data: { id: "perm1", ...request } });
-      core.emit({ type: "permissions.requested", data: { id: "perm2", ...request } });
-      await settle();
-      expect(line()).toBe("2 approvals waiting Go to approvals (Alt+Shift+A)");
-      press("KeyA", { altKey: true, shiftKey: true });
-      await settle();
-      expect($("[data-testid=inbox]")).toBeNull();
-      expect(ran).toBe(1);
-      await open();
-      button(/Go to approvals/)?.click();
-      await settle();
-      expect($("[data-testid=inbox]")).toBeNull();
-      expect(ran).toBe(2);
-    } finally {
-      unregister();
-    }
   });
 });
