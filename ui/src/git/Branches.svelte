@@ -237,18 +237,18 @@ function onfilterkeydown(event: KeyboardEvent): void {
   }
   button {
     font: inherit;
-    color: #e6e6e6;
+    color: var(--text);
     background: transparent;
     border: 1px solid transparent;
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
     cursor: pointer;
   }
   button:hover {
-    background: #24242c;
+    background: var(--s3);
   }
   button:focus-visible,
   input:focus-visible {
-    outline: 2px solid #4a6bb0;
+    outline: 2px solid var(--accent);
     outline-offset: -2px;
   }
   button[aria-disabled="true"] {
@@ -261,7 +261,7 @@ function onfilterkeydown(event: KeyboardEvent): void {
     gap: 4px;
     width: 100%;
     min-width: 0;
-    padding: 2px 4px;
+    padding: 4px 6px;
     text-align: left;
   }
   .current {
@@ -276,9 +276,9 @@ function onfilterkeydown(event: KeyboardEvent): void {
   .upstream {
     display: flex;
     gap: 6px;
-    margin: 0 4px;
-    font-size: 12px;
-    color: #9a9aa6;
+    margin: 0 6px;
+    font-size: 13px;
+    color: var(--text-2);
     min-width: 0;
   }
   .upstream .name {
@@ -291,10 +291,9 @@ function onfilterkeydown(event: KeyboardEvent): void {
     flex: none;
   }
   .menu {
-    padding: 4px;
-    background: #1e1e24;
-    border: 1px solid #3a3a44;
-    border-radius: 3px;
+    padding: 6px;
+    background: var(--s2);
+    border-radius: var(--radius);
   }
   ul {
     max-height: 14em;
@@ -305,7 +304,7 @@ function onfilterkeydown(event: KeyboardEvent): void {
   }
   .tag {
     flex: none;
-    color: #9a9aa6;
+    color: var(--text-2);
   }
   .filter {
     margin-bottom: 2px;
@@ -313,19 +312,19 @@ function onfilterkeydown(event: KeyboardEvent): void {
   label {
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    font-size: 12px;
-    color: #9a9aa6;
+    gap: 4px;
+    font-size: 13px;
+    color: var(--text-2);
   }
   input {
     box-sizing: border-box;
     width: 100%;
-    padding: 2px 4px;
+    padding: 4px 8px;
     font: inherit;
-    color: #e6e6e6;
-    background: #16161a;
-    border: 1px solid #3a3a44;
-    border-radius: 3px;
+    color: var(--text);
+    background: var(--s3);
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
   }
   .buttons {
     display: flex;
@@ -335,9 +334,9 @@ function onfilterkeydown(event: KeyboardEvent): void {
   }
   .buttons button,
   .new {
-    padding: 1px 8px;
-    border-color: #3a3a44;
-    background: #24242c;
+    padding: 2px 10px;
+    color: var(--text-2);
+    background: var(--s3);
   }
   .new {
     margin-top: 4px;
@@ -345,12 +344,12 @@ function onfilterkeydown(event: KeyboardEvent): void {
   .hint,
   .error {
     margin: 4px 0 0;
-    font-size: 12px;
-    color: #9a9aa6;
+    font-size: 13px;
+    color: var(--text-2);
     overflow-wrap: anywhere;
   }
   .error {
-    color: #ff6b6b;
+    color: var(--danger);
   }
   .hint:empty {
     margin: 0;

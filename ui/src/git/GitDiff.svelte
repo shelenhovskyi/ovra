@@ -261,7 +261,7 @@ const range = (hunk: Hunk) =>
   {:else if shown.error}
     <p class="error" role="alert">The diff did not load: {shown.error}</p>
   {:else if shown.data?.binary}
-    <p class="hint">Binary file: there is no text diff to show.</p>
+    <p class="hint">Binary file: no text diff.</p>
   {:else if hunks.length === 0}
     <p class="hint" data-testid="git-diff-empty">{emptyText}</p>
   {:else}
@@ -269,7 +269,7 @@ const range = (hunk: Hunk) =>
       <p class="hint" data-testid="git-diff-no-hunks">{noHunks}</p>
     {/if}
     {#if shown.data?.truncated}
-      <p class="hint">Only the first 20,000 lines of this diff are shown.</p>
+      <p class="hint">Showing the first 20,000 lines.</p>
     {/if}
     <div class="hunks">
       {#each visible as hunk, i (i)}
@@ -303,7 +303,7 @@ const range = (hunk: Hunk) =>
       {/each}
       {#if hiddenLines > 0}
         <button type="button" class="more" onclick={() => (shownLines += PAGE)}
-          >Show more ({hiddenLines.toLocaleString("en-US")} lines hidden)</button
+          >Show {hiddenLines.toLocaleString("en-US")} more lines</button
         >
       {/if}
     </div>
@@ -317,14 +317,14 @@ const range = (hunk: Hunk) =>
     height: 100%;
     min-height: 0;
     box-sizing: border-box;
+    background: var(--s2);
   }
   header {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 6px 12px;
-    padding: 6px 12px;
-    border-bottom: 1px solid #2a2a31;
+    padding: 10px 16px;
   }
   h2 {
     display: flex;
@@ -333,8 +333,8 @@ const range = (hunk: Hunk) =>
     flex: 1;
     min-width: 0;
     margin: 0;
-    font-size: 13px;
-    font-weight: normal;
+    font-size: 14px;
+    font-weight: 500;
   }
   .path {
     min-width: 0;
@@ -344,8 +344,9 @@ const range = (hunk: Hunk) =>
   }
   .side {
     flex: none;
-    font-size: 12px;
-    color: #9a9aa6;
+    font-size: 13px;
+    font-weight: 400;
+    color: var(--text-2);
   }
   .buttons {
     display: flex;
@@ -353,18 +354,22 @@ const range = (hunk: Hunk) =>
     gap: 4px;
   }
   button {
-    padding: 2px 8px;
+    padding: 2px 10px;
     font: inherit;
-    font-size: 12px;
-    color: #e6e6e6;
-    background: #24242c;
-    border: 1px solid #3a3a44;
-    border-radius: 3px;
+    font-size: 13px;
+    color: var(--text-2);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
     cursor: pointer;
+  }
+  button:hover {
+    color: var(--text);
+    background: var(--s3);
   }
   button:focus-visible,
   h2:focus-visible {
-    outline: 2px solid #4a6bb0;
+    outline: 2px solid var(--accent);
     outline-offset: 1px;
   }
   button[aria-disabled="true"] {
@@ -373,11 +378,12 @@ const range = (hunk: Hunk) =>
   }
   .hint,
   .error {
-    margin: 8px 12px;
-    color: #9a9aa6;
+    margin: 8px 16px;
+    font-size: 13px;
+    color: var(--text-2);
   }
   .error {
-    color: #ff6b6b;
+    color: var(--danger);
   }
   .hunks {
     flex: 1;
@@ -391,8 +397,8 @@ const range = (hunk: Hunk) =>
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 4px 12px;
-    background: #1c2230;
+    padding: 4px 16px;
+    background: var(--s3);
   }
   .hunk-head h3 {
     display: flex;
@@ -401,20 +407,21 @@ const range = (hunk: Hunk) =>
     min-width: 0;
     margin: 0;
     overflow: hidden;
-    font-size: 12px;
-    font-weight: normal;
+    font-size: 13px;
+    font-weight: 500;
     white-space: nowrap;
-    color: #9fb3d9;
+    color: var(--text-2);
   }
   .hunk-head code {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
-    color: #9a9aa6;
+    color: var(--text-2);
   }
   .lines {
-    font-family: ui-monospace, monospace;
-    font-size: 12px;
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.6;
   }
   .line {
     display: flex;
@@ -426,22 +433,22 @@ const range = (hunk: Hunk) =>
     padding-right: 6px;
     text-align: right;
     /* 6.5:1 on the background, about 5.4:1 on a removed line. */
-    color: #9a9aa6;
+    color: var(--text-2);
   }
   .text {
     padding-left: 4px;
   }
   .added {
-    background: #1d3324;
+    background: var(--ok-soft);
   }
   .removed {
-    background: #3a1f22;
+    background: color-mix(in srgb, var(--danger) 14%, transparent);
   }
   .note {
-    color: #9a9aa6;
+    color: var(--text-2);
   }
   .more {
-    margin: 8px 12px;
+    margin: 8px 16px;
   }
   .visually-hidden {
     position: absolute;

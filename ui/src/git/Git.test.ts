@@ -128,9 +128,7 @@ it("says when the project is not a repository", async () => {
   core.emit({ type: "fs.git_changed", data: { project: "p1" } });
   await settle();
   expect(text("[data-testid=git-branch]")).toBe("Branch: No branch, at commit abc1234 (detached HEAD) ▾");
-  expect(text("[data-testid=git-remote-hint]")).toBe(
-    "Push and pull run in your terminal: open one, then type git push or git pull.",
-  );
+  expect(text("[data-testid=git-remote-hint]")).toBe("Push and pull: git push, git pull in a terminal.");
   // With no commits and no changes there is nothing to commit or list: one line.
   core.status = repo({ head: null });
   core.emit({ type: "fs.git_changed", data: { project: "p1" } });
@@ -142,7 +140,7 @@ it("says when the project is not a repository", async () => {
   core.emit({ type: "fs.git_changed", data: { project: "p1" } });
   await settle();
   expect(text("#git-commit-why")).toBe("Stage changes to commit them.");
-  expect(text("[data-testid=git-staged] .empty")).toMatch(/index\) go into the next commit/);
+  expect(text("[data-testid=git-staged] .empty")).toBe("Nothing staged.");
 });
 
 it("discards only after a confirmation and offers Undo until the next discard", async () => {
@@ -229,7 +227,7 @@ it("commits with Mod+Enter, says why it waits and shows a hook's output", async 
   $<HTMLInputElement>("input[type=checkbox]")?.click();
   await settle();
   expect(box.value).toBe("");
-  expect(text(".commit .hint")).toMatch(/empty to keep/);
+  expect(text(".commit .hint")).toMatch(/empty message keeps/);
   // Mod+Enter commits from anywhere in the box, here the checkbox.
   $<HTMLInputElement>("input[type=checkbox]")?.focus();
   press("Enter", { ctrlKey: true });

@@ -65,8 +65,7 @@ function onkeydown(event: KeyboardEvent): void {
     </label>
     {#if amend}
       <p class="hint">
-        Replaces the last commit with what is staged. Leave the message empty to keep the last commit's message, or
-        write a new one to replace all of it.
+        Replaces the last commit with what is staged. An empty message keeps the old one.
       </p>
     {/if}
   {/if}
@@ -115,78 +114,76 @@ function onkeydown(event: KeyboardEvent): void {
   .message {
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    font-size: 12px;
-    color: #9a9aa6;
+    gap: 4px;
+    font-size: 13px;
+    color: var(--text-2);
   }
   textarea {
     width: 100%;
     box-sizing: border-box;
     min-height: 3.5em;
-    padding: 4px 6px;
+    padding: 8px 10px;
     font: inherit;
-    color: #e6e6e6;
-    background: #1e1e24;
-    border: 1px solid #3a3a44;
-    border-radius: 3px;
+    color: var(--text);
+    background: var(--s3);
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
     resize: vertical;
-  }
-  textarea::placeholder {
-    /* 4.7:1 on the field. */
-    color: #8a8a96;
   }
   textarea:focus-visible,
   input:focus-visible,
   button:focus-visible,
   summary:focus-visible {
-    outline: 2px solid #4a6bb0;
+    outline: 2px solid var(--accent);
     outline-offset: 1px;
   }
   .check {
     display: flex;
     gap: 4px;
     align-items: center;
-    font-size: 12px;
+    font-size: 13px;
   }
   .primary {
-    padding: 3px 8px;
+    padding: 5px 12px;
     font: inherit;
-    color: #e6e6e6;
-    background: #2f3d5c;
-    border: 1px solid #4a6bb0;
-    border-radius: 3px;
+    font-weight: 500;
+    color: var(--accent-ink);
+    background: var(--accent);
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
     cursor: pointer;
   }
   .primary[aria-disabled="true"] {
-    opacity: 0.6;
+    opacity: 0.5;
     cursor: default;
   }
   .hint,
   .ok,
   .error p {
     margin: 0;
-    font-size: 12px;
-    color: #9a9aa6;
+    font-size: 13px;
+    color: var(--text-2);
     overflow-wrap: anywhere;
   }
   .ok {
-    color: #8fd19e;
+    color: var(--ok);
   }
   .error p {
-    color: #ff6b6b;
+    color: var(--danger);
   }
   pre {
     max-height: 12em;
     margin: 2px 0 0;
-    padding: 4px;
+    padding: 6px 8px;
     overflow: auto;
-    font-size: 11px;
+    font-size: 12px;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
-    background: #1e1e24;
-    border-radius: 3px;
+    background: var(--s3);
+    border-radius: var(--radius-sm);
   }
   details {
-    font-size: 12px;
+    font-size: 13px;
+    color: var(--text-2);
   }
 </style>

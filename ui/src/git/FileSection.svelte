@@ -155,7 +155,7 @@ const all = $derived(files.flatMap((f) => (kind === "staged" && f.from ? [f.path
   </div>
   {#if files.length === 0}
     <p class="empty">{kind === "staged"
-        ? "Nothing is staged. Staged changes (git calls this the index) go into the next commit."
+        ? "Nothing staged."
         : "No changes."}</p>
   {/if}
   <ul
@@ -245,9 +245,9 @@ const all = $derived(files.flatMap((f) => (kind === "staged" && f.from ? [f.path
             }}
           >
             <p id={`git-discard-${i}`}>
-              Discard your changes to {name(file.path)}? {what === "untracked"
+              Discard changes to {name(file.path)}? {what === "untracked"
                 ? "The file is deleted."
-                : "It goes back to its staged or committed version."} You can undo this until the next discard.
+                : "It goes back to its staged or committed version."} Undo stays until the next discard.
             </p>
             <div class="buttons">
               <button
@@ -278,7 +278,7 @@ const all = $derived(files.flatMap((f) => (kind === "staged" && f.from ? [f.path
     display: flex;
     align-items: center;
     gap: 4px;
-    margin-top: 6px;
+    margin-top: 8px;
   }
   h3 {
     flex: 1;
@@ -287,13 +287,12 @@ const all = $derived(files.flatMap((f) => (kind === "staged" && f.from ? [f.path
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 11px;
+    font-size: 13px;
     font-weight: 600;
-    text-transform: uppercase;
-    color: #9a9aa6;
+    color: var(--text-2);
   }
   .count {
-    font-weight: normal;
+    font-weight: 400;
   }
   ul {
     margin: 0;
@@ -312,21 +311,30 @@ const all = $derived(files.flatMap((f) => (kind === "staged" && f.from ? [f.path
   }
   button {
     font: inherit;
-    color: #c8c8d0;
+    color: var(--text-2);
     background: transparent;
     border: 1px solid transparent;
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
     cursor: pointer;
   }
   button:hover,
   .name[aria-current="true"] {
-    background: #24242c;
+    color: var(--text);
+    background: var(--s3);
   }
   .name[aria-current="true"] {
-    border-left-color: #4a6bb0;
+    font-weight: 500;
+  }
+  /* Row actions stay muted until the row is pointed at or focused. */
+  .row .icon {
+    opacity: 0.55;
+  }
+  .row:hover .icon,
+  .row:focus-within .icon {
+    opacity: 1;
   }
   button:focus-visible {
-    outline: 2px solid #4a6bb0;
+    outline: 2px solid var(--accent);
     outline-offset: -2px;
   }
   button[aria-disabled="true"] {
@@ -335,9 +343,8 @@ const all = $derived(files.flatMap((f) => (kind === "staged" && f.from ? [f.path
   }
   .head button {
     flex: none;
-    padding: 0 4px;
-    font-size: 11px;
-    border-color: #3a3a44;
+    padding: 0 8px;
+    font-size: 13px;
   }
   .name {
     display: flex;
@@ -345,25 +352,25 @@ const all = $derived(files.flatMap((f) => (kind === "staged" && f.from ? [f.path
     align-items: baseline;
     flex: 1;
     min-width: 0;
-    padding: 3px 2px;
+    padding: 4px 6px;
     text-align: left;
     white-space: nowrap;
   }
   .letter {
     flex: none;
     width: 1.2ch;
-    font-family: ui-monospace, monospace;
-    font-size: 11px;
+    font-family: var(--mono);
+    font-size: 12px;
     font-weight: 600;
-    color: #d8b25a;
+    color: var(--warn);
   }
   .letter.added,
   .letter.untracked {
-    color: #8fd19e;
+    color: var(--ok);
   }
   .letter.deleted,
   .letter.conflicted {
-    color: #ff8a8a;
+    color: var(--danger);
   }
   .file {
     flex: none;
@@ -376,8 +383,8 @@ const all = $derived(files.flatMap((f) => (kind === "staged" && f.from ? [f.path
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
-    font-size: 11px;
-    color: #8a8a96;
+    font-size: 13px;
+    color: var(--text-2);
   }
   .icon {
     flex: none;
@@ -394,17 +401,18 @@ const all = $derived(files.flatMap((f) => (kind === "staged" && f.from ? [f.path
   }
   .discard:hover,
   .discard:focus-visible {
-    color: #ff8a8a;
-    background: #3a1f22;
+    color: var(--danger);
+    background: color-mix(in srgb, var(--danger) 14%, transparent);
   }
   .confirm {
-    margin: 2px 0 4px 12px;
-    padding: 4px 6px;
-    border-left: 2px solid #b05a4a;
+    margin: 2px 0 6px;
+    padding: 8px 10px;
+    border-radius: var(--radius);
+    background: color-mix(in srgb, var(--danger) 10%, transparent);
   }
   .confirm p {
-    margin: 0 0 4px;
-    font-size: 12px;
+    margin: 0 0 6px;
+    font-size: 13px;
     overflow-wrap: anywhere;
   }
   .buttons {
@@ -413,22 +421,23 @@ const all = $derived(files.flatMap((f) => (kind === "staged" && f.from ? [f.path
     gap: 4px;
   }
   .buttons button {
-    padding: 1px 8px;
-    border-color: #3a3a44;
-    background: #24242c;
+    padding: 2px 10px;
+    color: var(--text);
+    background: var(--s3);
   }
   .buttons .danger {
-    border-color: #b05a4a;
+    color: var(--s1);
+    background: var(--danger);
   }
   .keys {
-    margin: 2px 2px 0;
-    font-size: 11px;
-    color: #9a9aa6;
+    margin: 4px 4px 0;
+    font-size: 13px;
+    color: var(--text-2);
   }
   .empty {
-    margin: 2px 0;
-    font-size: 12px;
-    color: #8a8a96;
+    margin: 2px 6px;
+    font-size: 13px;
+    color: var(--text-2);
   }
   .visually-hidden {
     position: absolute;

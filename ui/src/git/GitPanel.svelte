@@ -88,7 +88,7 @@ function ago(seconds: number, now = Date.now() / 1000): string {
     <p class="hint">Loading git status…</p>
   {:else if model.state.kind === "no_repo"}
     <p data-testid="git-no-repo">This folder is not a git repository.</p>
-    <p class="hint">To start one, run <code>git init</code> in a terminal, then check again.</p>
+    <p class="hint">Run <code>git init</code> in a terminal to start one.</p>
     <button type="button" onclick={openTerminal}>Open terminal</button>
     <button type="button" onclick={() => model.refresh()}>Check again</button>
   {:else if model.state.kind === "error"}
@@ -96,12 +96,12 @@ function ago(seconds: number, now = Date.now() / 1000): string {
     <button type="button" onclick={() => model.refresh()}>Try again</button>
   {:else if status && fresh}
     <Branches {model} {status} />
-    <p class="hint" data-testid="git-fresh">No changes yet. Edit a file or give Claude a task; changes show up here.</p>
+    <p class="hint" data-testid="git-fresh">No changes yet.</p>
   {:else if status}
     <Branches {model} {status} />
     {#if status.operation}
       <p class="operation" data-testid="git-operation">
-        {OPERATION[status.operation]} Resolve the conflicts, stage the files and commit to finish it, or abort it in a terminal.
+        {OPERATION[status.operation]} Resolve, stage and commit to finish.
       </p>
     {/if}
     <CommitBox {model} {status} />
@@ -153,7 +153,7 @@ function ago(seconds: number, now = Date.now() / 1000): string {
     {/if}
     <div class="remote">
       <p class="hint" data-testid="git-remote-hint">
-        Push and pull run in your terminal: open one, then type <code>git push</code> or <code>git pull</code>.
+        Push and pull: <code>git push</code>, <code>git pull</code> in a terminal.
       </p>
       <button type="button" onclick={openTerminal}>Open terminal</button>
     </div>
@@ -189,10 +189,11 @@ function ago(seconds: number, now = Date.now() / 1000): string {
   .git {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 8px;
     height: 100%;
     min-height: 0;
-    padding: 8px;
+    padding: 12px 10px;
+    background: var(--s1);
     box-sizing: border-box;
     overflow-x: hidden;
     overflow-y: auto;
@@ -202,32 +203,36 @@ function ago(seconds: number, now = Date.now() / 1000): string {
     overflow-wrap: anywhere;
   }
   .hint {
-    font-size: 12px;
-    color: #9a9aa6;
+    font-size: 13px;
+    color: var(--text-2);
   }
   .error {
-    font-size: 12px;
-    color: #ff6b6b;
+    font-size: 13px;
+    color: var(--danger);
   }
   .operation {
-    padding: 4px 6px;
-    font-size: 12px;
-    background: #3a2f17;
-    border-radius: 3px;
+    padding: 8px 10px;
+    font-size: 13px;
+    background: var(--warn-soft);
+    border-radius: var(--radius);
   }
   button {
     align-self: flex-start;
-    padding: 1px 8px;
+    padding: 2px 10px;
     font: inherit;
-    font-size: 12px;
-    color: #e6e6e6;
-    background: #24242c;
-    border: 1px solid #3a3a44;
-    border-radius: 3px;
+    font-size: 13px;
+    color: var(--text-2);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
     cursor: pointer;
   }
+  button:hover {
+    color: var(--text);
+    background: var(--s3);
+  }
   button:focus-visible {
-    outline: 2px solid #4a6bb0;
+    outline: 2px solid var(--accent);
     outline-offset: 1px;
   }
   button[aria-disabled="true"] {
@@ -239,10 +244,10 @@ function ago(seconds: number, now = Date.now() / 1000): string {
     flex-wrap: wrap;
     gap: 4px;
     align-items: center;
-    padding: 4px 6px;
-    font-size: 12px;
-    background: #24242c;
-    border-radius: 3px;
+    padding: 6px 10px;
+    font-size: 13px;
+    background: var(--s3);
+    border-radius: var(--radius);
   }
   .undo p {
     flex: 1 1 8em;
@@ -256,11 +261,10 @@ function ago(seconds: number, now = Date.now() / 1000): string {
     margin-top: 6px;
   }
   .log .toggle {
-    padding: 1px 2px;
-    font-size: 11px;
+    padding: 2px 4px;
+    font-size: 13px;
     font-weight: 600;
-    text-transform: uppercase;
-    color: #9a9aa6;
+    color: var(--text-2);
     background: transparent;
     border-color: transparent;
   }
@@ -273,7 +277,7 @@ function ago(seconds: number, now = Date.now() / 1000): string {
     display: flex;
     flex-direction: column;
     min-width: 0;
-    padding: 2px 2px 2px 8px;
+    padding: 3px 4px 3px 10px;
   }
   .summary,
   .meta {
@@ -282,11 +286,11 @@ function ago(seconds: number, now = Date.now() / 1000): string {
     white-space: nowrap;
   }
   .meta {
-    font-size: 11px;
-    color: #8a8a96;
+    font-size: 13px;
+    color: var(--text-2);
   }
   code {
-    font-family: ui-monospace, monospace;
+    font-family: var(--mono);
   }
   .visually-hidden {
     position: absolute;
