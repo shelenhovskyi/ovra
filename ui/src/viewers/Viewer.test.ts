@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { CoreEvent, FileBody, Request } from "../lib/protocol";
 import { CoreError, type Transport } from "../lib/transport";
 import { Workspace } from "../shell/workspace.svelte";
+import { RENDER_ALL_BELOW } from "./lines";
 import TestHost from "./TestHost.svelte";
 
 // jsdom has no ResizeObserver, which `bind:clientHeight` uses; a 0 px viewport still renders the overscan rows.
@@ -55,7 +56,7 @@ function fakeCore(files: Files, options: { failOpen?: boolean | Error } = {}) {
 
 async function settle() {
   flushSync();
-  await new Promise((resolve) => setTimeout(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
   flushSync();
 }
 
@@ -192,19 +193,21 @@ describe("Viewer", () => {
   });
 
   it("keeps a huge patch and a huge text file to a window of rows", async () => {
-    const lines = Array.from({ length: 30_000 }, (_, i) => `+line ${i}`);
+    // Past the render-all limit, lists are windowed; twice the limit is huge enough to show that.
+    const count = 2 * RENDER_ALL_BELOW;
+    const lines = Array.from({ length: count }, (_, i) => `+line ${i}`);
     const { target, workspace } = show(
       {
         "big.diff": {
           kind: "text",
-          text: ["--- /dev/null", "+++ b/big.txt", "@@ -0,0 +1,30000 @@", ...lines].join("\n"),
+          text: ["--- /dev/null", "+++ b/big.txt", `@@ -0,0 +1,${count} @@`, ...lines].join("\n"),
         },
         "big.txt": { kind: "text", text: lines.join("\n") },
       },
       "big.diff",
     );
     await settle();
-    expect(target.querySelector("[data-testid=patch-summary]")?.textContent).toContain("+30000");
+    expect(target.querySelector("[data-testid=patch-summary]")?.textContent).toContain(`+${count}`);
     expect(target.querySelectorAll(".line").length).toBeLessThan(100);
     workspace.openFile("big.txt");
     await settle();
