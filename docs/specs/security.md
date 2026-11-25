@@ -205,7 +205,10 @@ Not every platform can protect a path that does not exist yet, or make a
 subtree read-only. The backstop is outside the sandbox:
 
 - the review marks any change to a protected path, and approve never
-  applies one without saying so (4.A adds this to the inbox);
+  applies one without saying so (4.A adds this to the inbox). The marks
+  cover the `work_dir` list, in any case. Not marked yet, a follow-up:
+  the folder `core.hooksPath` names, nested `.git` folders and config
+  files inside the project that git includes;
 - a change to agent configuration drops the project's trust (fingerprint,
   task 2.F).
 
