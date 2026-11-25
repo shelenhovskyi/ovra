@@ -18,7 +18,7 @@ import Icon from "./Icon.svelte";
 import type { Layout, Panel } from "./layout.svelte";
 import MoreMenu from "./MoreMenu.svelte";
 import ProjectSwitcher from "./ProjectSwitcher.svelte";
-import { hush } from "./tips";
+import { hush, warmTips } from "./tips";
 
 let {
   layout,
@@ -116,7 +116,7 @@ function tip(panel: Panel): string {
 
 <!-- The press only hides a tooltip; the buttons inside do the work. -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<header class="title" data-tauri-drag-region onpointerdown={hush}>
+<header class="title" data-tauri-drag-region onpointerdown={hush} {@attach warmTips}>
   <div class="lead" data-tauri-drag-region>
     <h1 class="mark" class:visually-hidden={!!workspace.project}>
       <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -295,6 +295,9 @@ function tip(panel: Panel): string {
   .title :global(.tip:hover::after) {
     opacity: 1;
     transition-delay: 0.6s;
+  }
+  .title:global([data-warm]) :global(.tip:hover::after) {
+    transition-delay: 0s;
   }
   .title :global(.tip:focus-visible::after) {
     opacity: 1;

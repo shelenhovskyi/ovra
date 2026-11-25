@@ -9,7 +9,7 @@ import { useOvra } from "./context";
 import Icon from "./Icon.svelte";
 import type { IconName } from "./icons";
 import type { Layout } from "./layout.svelte";
-import { hush } from "./tips";
+import { hush, warmTips } from "./tips";
 import type { SidebarView } from "./workspace.svelte";
 
 let { layout }: { layout: Layout } = $props();
@@ -37,7 +37,7 @@ function run(id: string): void {
 
 <!-- The press only hides a tooltip; the buttons inside do the work. -->
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-<nav class="rail" aria-label="Views" onpointerdown={hush}>
+<nav class="rail" aria-label="Views" onpointerdown={hush} {@attach warmTips}>
   {#if workspace.project}
     {#each VIEWS as view (view.id)}
       <button
@@ -115,6 +115,10 @@ function run(id: string): void {
   .rail :global(.tip:hover::after) {
     opacity: 1;
     transition-delay: 0.6s;
+  }
+  /* Warm: another tooltip was just shown, so this one shows at once. */
+  .rail:global([data-warm]) :global(.tip:hover::after) {
+    transition-delay: 0s;
   }
   .rail :global(.tip:focus-visible::after) {
     opacity: 1;
