@@ -219,6 +219,48 @@ async fn later_snapshots_see_every_change_since_the_last() {
     );
 }
 
+/// Git never looks inside a submodule an agent may have changed, nor
+/// recurses into one: that would run the submodule's config.
+#[test]
+fn git_stays_out_of_submodules() {
+    let repo = Repo::new(&[]);
+    let root = &repo.root;
+    let sub = root.join("sub");
+    put(&sub, "x.txt", "x\n");
+    git(&sub, &["init", "--quiet"]);
+    git(&sub, &["add", "--all"]);
+    git(
+        &sub,
+        &[
+            "-c",
+            "user.name=T",
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "--quiet",
+            "-m",
+            "sub",
+        ],
+    );
+    git(root, &["add", "sub"]);
+    git(root, &["commit", "--quiet", "-m", "start"]);
+    put(&sub, "x.txt", "changed\n");
+    assert_eq!(git(root, &["status", "--porcelain"]), "M sub");
+
+    let status = crate::git::Git::new(root, "status")
+        .arg("--porcelain")
+        .text();
+    assert_eq!(status.ok().as_deref(), Some(""));
+    let args = format!("{:?}", crate::git::Git::new(root, "reset"));
+    assert!(args.contains(r#""-c" "submodule.recurse=false""#), "{args}");
+    assert!(
+        args.contains(r#""-c" "diff.ignoreSubmodules=all""#),
+        "{args}"
+    );
+}
+
 #[test]
 fn head_is_read_like_git_reads_it() {
     let repo = Repo::new(&[]);

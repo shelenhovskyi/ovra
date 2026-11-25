@@ -90,6 +90,40 @@ async fn lists_with_gitignore_and_git_status() {
     insta::assert_json_snapshot!("old", list(&fs, root, "old").await.expect("old"));
 }
 
+/// Git never looks inside a submodule an agent may have changed: running
+/// status there would run that repository's config.
+#[tokio::test]
+async fn a_changed_submodule_has_no_status() {
+    let tmp = dir();
+    let root = tmp.path();
+    let sub = root.join("sub");
+    put(&sub, "x.txt", "x\n");
+    git(&sub, &["init", "-q"]);
+    git(&sub, &["add", "."]);
+    git(&sub, &["commit", "-qm", "sub"]);
+    put(root, "a.txt", "a\n");
+    git(root, &["init", "-q"]);
+    git(root, &["add", "a.txt", "sub"]);
+    git(root, &["commit", "-qm", "init"]);
+    put(&sub, "x.txt", "changed\n");
+    put(root, "a.txt", "changed\n");
+
+    let listing = list(&FsIndex::new(), root, "").await.expect("root");
+    let git: Vec<_> = listing
+        .entries
+        .iter()
+        .map(|e| (e.name.as_str(), e.git))
+        .collect();
+    assert_eq!(
+        git,
+        [
+            (".git", None),
+            ("sub", None),
+            ("a.txt", Some(ovra_core::protocol::fs::GitStatus::Modified))
+        ]
+    );
+}
+
 #[tokio::test]
 async fn gitignore_applies_outside_git_and_project_may_be_a_repo_subfolder() {
     let tmp = dir();

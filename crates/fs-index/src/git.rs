@@ -19,9 +19,19 @@ pub(crate) struct Repo {
     pub(crate) git_dir: PathBuf,
 }
 
+/// Keeps git out of submodules: an agent may have changed one, and looking
+/// inside runs that repository's config.
+const NO_SUBMODULES: &[&str] = &[
+    "-c",
+    "diff.ignoreSubmodules=all",
+    "-c",
+    "submodule.recurse=false",
+];
+
 fn git(dir: &Path, args: &[&str]) -> Option<Vec<u8>> {
     let out = Command::new("git")
         .arg("--no-optional-locks")
+        .args(NO_SUBMODULES)
         .args(args)
         .current_dir(dir)
         .stdin(Stdio::null())
@@ -55,6 +65,7 @@ impl Repo {
                 "--porcelain=v2",
                 "-z",
                 "--untracked-files=normal",
+                "--ignore-submodules=all",
                 "--",
                 ".",
             ],

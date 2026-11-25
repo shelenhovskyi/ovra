@@ -89,12 +89,22 @@ impl Git {
             // in every spelling some disk treats as `.git`.
             .args(["-c", "core.fsmonitor=false"])
             .args(["-c", "core.protectNTFS=true", "-c", "core.protectHFS=true"])
+            // Never look into or recurse into a submodule: an agent may have
+            // changed one, and git would run that repository's config.
+            .args(["-c", "diff.ignoreSubmodules=all"])
+            .args(["-c", "submodule.recurse=false"])
             .arg(subcommand)
             .current_dir(dir)
             .env("GIT_TERMINAL_PROMPT", "0")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        // `status` asks each submodule for its own status unless told not
+        // to. `diff-tree` compares trees only and keeps showing a changed
+        // submodule commit, so a review still sees it.
+        if subcommand == "status" {
+            command.arg("--ignore-submodules=all");
+        }
         for var in INHERITED {
             command.env_remove(var);
         }
