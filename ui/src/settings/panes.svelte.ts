@@ -2,7 +2,7 @@
 // the open project's first, then Ovra's own. Settings reopens on the pane it
 // showed last.
 
-export type PaneId = "rules" | "network" | "keyboard" | "notifications" | "accessibility" | "about";
+export type PaneId = "rules" | "network" | "servers" | "keyboard" | "notifications" | "accessibility" | "about";
 
 export type Pane = {
   id: PaneId;
@@ -29,6 +29,13 @@ export const PANES: Pane[] = [
     line: "What sandboxed agents may reach, and tokens they use without seeing them.",
     group: "project",
     keywords: ["proxy", "token", "hosts", "secrets"],
+  },
+  {
+    id: "servers",
+    title: "Servers",
+    line: "Dev servers run in the sandbox, where agents can open your app.",
+    group: "project",
+    keywords: ["dev servers", "ports"],
   },
   {
     id: "notifications",

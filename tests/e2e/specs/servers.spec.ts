@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "../test";
 
-test("the servers dialog opens with its shortcut and says what it can run", async ({ page }) => {
+test("the servers tab of the dock opens with its shortcut and says what runs", async ({ page }) => {
   const url = process.env.OVRA_URL;
   if (!url) throw new Error("OVRA_URL is not set; globalSetup did not run");
   const dir = mkdtempSync(join(tmpdir(), "ovra-servers-"));
@@ -20,12 +20,12 @@ test("the servers dialog opens with its shortcut and says what it can run", asyn
   await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();
 
   await page.keyboard.press("ControlOrMeta+Alt+KeyS");
-  const dialog = page.getByRole("dialog", { name: "Servers" });
-  await expect(dialog.getByRole("heading", { name: "Servers" })).toBeFocused();
-  // Without servers in the core (or without the Linux sandbox) the dialog says why.
-  await expect(dialog.getByTestId("server-def").or(dialog.getByTestId("servers-unavailable"))).toBeVisible();
+  const dock = page.getByTestId("servers");
+  await expect(dock.getByRole("heading", { name: "Servers", exact: true })).toBeFocused();
+  // Nothing runs yet (or there is no Linux sandbox): the tab says so.
+  await expect(dock.getByText("No servers running").or(dock.getByTestId("servers-unavailable"))).toBeVisible();
   await page.keyboard.press("Escape");
-  await expect(dialog).toBeHidden();
+  await expect(dock).toBeHidden();
 });
 
 test("a defined server starts, gets ready, shows its output and stops", async ({ page }) => {
@@ -45,11 +45,13 @@ test("a defined server starts, gets ready, shows its output and stops", async ({
   await projects.getByRole("button", { name: "Open", exact: true }).click();
   await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();
 
+  // Defined and started in Settings > Servers; it runs in the dock's Servers tab.
   await page.keyboard.press("ControlOrMeta+K");
-  await page.keyboard.type(">servers");
-  await page.getByRole("option", { name: /Show servers/ }).click();
-  const dialog = page.getByRole("dialog", { name: "Servers" });
-  await dialog.getByRole("button", { name: "Start web", exact: true }).click();
+  await page.keyboard.type(">dev servers");
+  await page.getByRole("option", { name: /Settings\s*Servers/ }).click();
+  const settings = page.getByRole("region", { name: "Settings" });
+  await settings.getByRole("button", { name: "Start web", exact: true }).click();
+  const dialog = page.getByTestId("servers");
   const server = dialog.getByTestId("server");
   await expect(server.getByTestId("server-status")).toHaveText("ready");
   await expect(server).toContainText("port 5173");
@@ -59,5 +61,5 @@ test("a defined server starts, gets ready, shows its output and stops", async ({
 
   await dialog.getByRole("button", { name: "Stop web" }).click();
   await expect(server.getByTestId("server-status")).toHaveText(/exited/);
-  await expect(dialog.getByRole("button", { name: "Start web", exact: true })).toBeEnabled();
+  await expect(settings.getByRole("button", { name: "Start web", exact: true })).toBeVisible();
 });

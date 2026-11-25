@@ -1,36 +1,24 @@
 <script lang="ts">
-// Dev servers: a header button (and the "Servers" command) opens a dialog
-// with the servers defined in `.ovra/servers.json` of the open project's main
-// checkout or of a worker's worktree, the ones that run there, and their
-// output. Escape and the toggle shortcut close it wherever focus is.
+// Dev server definitions, the Servers pane of Settings: the servers defined
+// in `.ovra/servers.json` of the open project's main checkout or of a
+// worker's worktree, a form that adds one, and Start. What runs, and its
+// output, is in the Servers tab of the bottom dock (ServersDock).
 import { tick, untrack } from "svelte";
 import { agentSessions } from "../agents/sessions.svelte";
-import { registerCommand } from "../keys/commands";
-import { inBrowserTab, isApple, liveKeys, matchesShortcut, parseShortcut } from "../keys/shortcut";
-import type { DevServerId as ServerId, DevServerInfo as ServerInfo, SessionId, StartedBy } from "../lib/protocol";
+import type { SessionId } from "../lib/protocol";
 import { useOvra } from "../shell/context";
-import Icon from "../shell/Icon.svelte";
+import EmptyState from "../shell/EmptyState.svelte";
+import { mainView } from "../shell/main-view.svelte";
 import { addServer, CONFIG, checkForm, createConfig, type ServerForm } from "./config";
-import LogView from "./LogView.svelte";
-import { message, ProjectServers, running, statusText } from "./servers.svelte";
+import { serversDock } from "./dock.svelte";
+import { message, ProjectServers, running } from "./servers.svelte";
 
-/** Whether to show the header button; the shell opens this from its "More" menu instead. */
-let { trigger = true }: { trigger?: boolean } = $props();
 const { transport, workspace } = useOvra();
 const servers = new ProjectServers(transport);
 const sessions = agentSessions(transport);
 
-let opened = $state(false);
 let workDir = $state<SessionId | null>(null);
-let logsOf = $state(new Set<string>());
-let dialog = $state<HTMLElement>();
-let returnTo: HTMLElement | null = null;
-
-const TOGGLE_KEYS = "Mod+Alt+S";
-type Action = "Stop" | "Restart";
-/** The row whose buttons keep focus after an action on it, the buttons it prefers, and the stand-in used while those are off. */
-let keep: { row: ServerId; prefer: Action[] } | null = null;
-let standIn: HTMLElement | null = null;
+let pane = $state<HTMLElement>();
 
 const project = $derived(workspace.project?.id ?? null);
 const workers = $derived(
@@ -60,6 +48,25 @@ let formError = $state<{ field: keyof ServerForm; error: string } | null>(null);
 let adding = $state(false);
 let copied = $state(false);
 
+$effect(() => () => servers.dispose());
+
+// Read the servers, and again for another project or work dir.
+$effect(() => {
+  const shown = { project, workDir };
+  untrack(() => {
+    void servers.show(shown.project, shown.workDir);
+    if (shown.project) sessions.load(shown.project).catch(() => {});
+  });
+});
+
+// Another project has other workers.
+$effect(() => {
+  void project;
+  untrack(() => {
+    workDir = null;
+  });
+});
+
 async function add(event: SubmitEvent): Promise<void> {
   event.preventDefault();
   const at = project;
@@ -68,7 +75,7 @@ async function add(event: SubmitEvent): Promise<void> {
   if ("error" in checked) {
     formError = checked;
     await tick();
-    dialog?.querySelector<HTMLElement>(`[data-field=${checked.field}]`)?.focus();
+    pane?.querySelector<HTMLElement>(`[data-field=${checked.field}]`)?.focus();
     return;
   }
   adding = true;
@@ -79,7 +86,7 @@ async function add(event: SubmitEvent): Promise<void> {
     await servers.reload();
     await tick();
     // The form is gone with the empty state: go on to the new server's Start.
-    dialog?.querySelector<HTMLElement>(`[aria-label="Start ${checked.def.name}"]`)?.focus();
+    pane?.querySelector<HTMLElement>(`[aria-label="Start ${checked.def.name}"]`)?.focus();
   } catch (err) {
     formError = { field: "name", error: `Could not add the server: ${message(err)}` };
   } finally {
@@ -97,7 +104,7 @@ async function openConfig(): Promise<void> {
     formError = { field: "name", error: `Could not create ${CONFIG}: ${message(err)}` };
     return;
   }
-  close();
+  mainView.close(false);
   workspace.openFile(CONFIG, "edit");
 }
 
@@ -110,391 +117,129 @@ async function copyExample(): Promise<void> {
   }
 }
 
-$effect(() => () => servers.dispose());
-$effect(() =>
-  registerCommand({
-    id: "servers.toggle",
-    title: "Show servers",
-    keys: TOGGLE_KEYS,
-    category: "View",
-    keywords: ["dev servers"],
-    run: toggle,
-  }),
-);
-
-// While open, Escape and the toggle chord close the dialog even when focus fell out of it, and
-// no other key reaches the panels behind it.
-$effect(() => {
-  if (!opened) return;
-  const chord = parseShortcut(liveKeys(TOGGLE_KEYS, inBrowserTab()), isApple());
-  const onKeydown = (event: KeyboardEvent) => {
-    if (event.isComposing) return;
-    const inside = event.target instanceof Node && !!dialog?.contains(event.target);
-    if ((chord && matchesShortcut(event, chord)) || (event.code === "Escape" && !inside)) {
-      event.preventDefault();
-      event.stopPropagation();
-      close();
-      return;
-    }
-    if (inside) return;
-    event.stopPropagation();
-    if (event.code === "Tab") {
-      event.preventDefault();
-      heading()?.focus();
-    }
-  };
-  window.addEventListener("keydown", onKeydown, true);
-  return () => window.removeEventListener("keydown", onKeydown, true);
-});
-
-// A status change can disable the focused button: focus moves on to the row's next one.
-$effect(() => {
-  void list;
-  if (opened) void tick().then(placeFocus);
-});
-
-function heading(): HTMLElement | null {
-  return dialog?.querySelector<HTMLElement>("h2") ?? null;
+/** Shows this work dir's servers in the dock, where they run. */
+function showRunning(): void {
+  serversDock.workDir = workDir;
+  serversDock.shown = true;
 }
 
-/** Moves focus off a disabled or vanished button to the kept row's preferred enabled one, else its Output. */
-function placeFocus(): void {
-  if (!keep || !dialog) return;
-  const active = document.activeElement;
-  const lost =
-    !(active instanceof HTMLElement) || !dialog.contains(active) || active.matches(":disabled") || active === standIn;
-  if (!lost) return;
-  const buttons = [...dialog.querySelectorAll<HTMLButtonElement>(`[data-server="${keep.row}"] .actions button`)];
-  const enabled = (name: string) => buttons.find((b) => b.textContent?.trim() === name && !b.disabled);
-  const best = keep.prefer.map(enabled).find((b) => b !== undefined);
-  const target = best ?? enabled("Output") ?? heading();
-  target?.focus();
-  standIn = best ? null : target;
-}
-
-async function act(row: ServerId | null, prefer: Action[], action: () => Promise<ServerInfo | null>) {
-  if (row) keep = { row, prefer };
-  const started = await action();
-  if (started) keep = { row: started.id, prefer };
-  await tick();
-  placeFocus();
-}
-
-// Read the servers when the dialog opens, and again for another project or work dir.
-$effect(() => {
-  const shown = { project, workDir };
-  if (!opened) return;
-  untrack(() => {
-    void servers.show(shown.project, shown.workDir);
-    if (shown.project) sessions.load(shown.project).catch(() => {});
-  });
-});
-
-// Another project has other workers.
-$effect(() => {
-  void project;
-  untrack(() => {
-    workDir = null;
-    logsOf = new Set();
-  });
-});
-
-async function show(): Promise<void> {
-  const active = document.activeElement;
-  returnTo = active instanceof HTMLElement ? active : null;
-  opened = true;
-  await tick();
-  heading()?.focus();
-}
-
-function close(): void {
-  opened = false;
-  keep = null;
-  standIn = null;
-  if (returnTo?.isConnected) returnTo.focus();
-  returnTo = null;
-}
-
-function toggle(): void {
-  if (opened) close();
-  else void show();
-}
-
-function toggleLogs(id: string): void {
-  const next = new Set(logsOf);
-  if (!next.delete(id)) next.add(id);
-  logsOf = next;
-}
-
-function who(by: StartedBy): string {
-  return by.kind === "person" ? "you" : sessions.name(by.session);
-}
-
-function where(server: ServerInfo): string {
-  return server.work_dir === null ? "project folder" : sessions.name(server.work_dir);
-}
-
-function onDialogKeydown(event: KeyboardEvent): void {
-  // Shortcuts of the panels behind the modal must not act.
-  event.stopPropagation();
-  if (event.code === "Escape") {
-    event.preventDefault();
-    close();
-    return;
-  }
-  if (event.code !== "Tab") return;
-  // Keep Tab inside the dialog (aria-modal).
-  const focusable = [
-    ...(dialog?.querySelectorAll<HTMLElement>("button, input, select, summary, [tabindex]") ?? []),
-  ].filter((el) => el.tabIndex >= 0 && !el.matches(":disabled"));
-  const first = focusable[0];
-  const last = focusable[focusable.length - 1];
-  if (!first || !last) return;
-  const at = focusable.indexOf(document.activeElement as HTMLElement);
-  if (at < 0 || (event.shiftKey && at === 0) || (!event.shiftKey && at === focusable.length - 1)) {
-    event.preventDefault();
-    (event.shiftKey ? last : first).focus();
-  }
+async function start(name: string): Promise<void> {
+  if (!(await servers.start(name))) return;
+  serversDock.started++;
+  showRunning();
 }
 </script>
 
-{#if trigger}
-  <button type="button" class="open-servers" data-testid="open-servers" aria-haspopup="dialog" onclick={() => void show()}>
-    Servers
-  </button>
-{/if}
-
-{#if opened}
-  <div class="backdrop" role="presentation" onmousedown={(event) => event.target === event.currentTarget && event.preventDefault()}>
-    <div
-      class="servers"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="servers-title"
-      tabindex="-1"
-      data-testid="servers"
-      bind:this={dialog}
-      onkeydown={onDialogKeydown}
-    >
-      <header>
-        <h2 id="servers-title" tabindex="-1">Servers</h2>
-        <span class="muted">{workspace.project?.name ?? "No project"}</span>
-        {#if project && (workers.length > 0 || workDir !== null)}
-          <!-- Only a choice once a worker has its own copy of the project. -->
-          <label>
-            Runs in
-            <select bind:value={workDir} data-testid="servers-work-dir">
-              <option value={null}>Project folder</option>
-              {#each workers as worker (worker.id)}
-                <option value={worker.id}>{worker.name}</option>
-              {/each}
-            </select>
-          </label>
-        {/if}
-        <button type="button" class="close" aria-keyshortcuts="Escape" title="Close (Escape)" onclick={close}
-          ><Icon name="close" /><span class="sr-only"
-            >Close</span
-          ></button
-        >
-      </header>
-      <div class="body">
-        {#if list?.definitions.length !== 0}
-          <!-- The empty state says it in its own words. -->
-          <p class="muted intro">Dev servers, run in the sandbox where agents can reach them.</p>
-        {/if}
-        {#if !project}
-          <p class="muted">Open a project to run its dev servers.</p>
-        {:else if servers.unavailable}
-          <p class="warn" role="note" data-testid="servers-unavailable">
-            Servers cannot run here: they need the Linux sandbox. ({servers.unavailable})
+<div class="servers" data-testid="servers-settings" bind:this={pane}>
+  {#if project && (workers.length > 0 || workDir !== null)}
+    <!-- Only a choice once a worker has its own copy of the project. -->
+    <label class="where">
+      Defined in
+      <select bind:value={workDir} data-testid="servers-work-dir">
+        <option value={null}>Project folder</option>
+        {#each workers as worker (worker.id)}
+          <option value={worker.id}>{worker.name}</option>
+        {/each}
+      </select>
+    </label>
+  {/if}
+  {#if servers.unavailable}
+    <p class="warn" role="note" data-testid="servers-unavailable">
+      Servers cannot run here: they need the Linux sandbox. ({servers.unavailable})
+    </p>
+  {:else if project}
+    {#if servers.error}
+      <p class="error" role="alert">{servers.error}</p>
+    {/if}
+    {#if list?.error}
+      <p class="error" role="alert" data-testid="servers-file-error">
+        Could not read <code>.ovra/servers.json</code>: {list.error}
+      </p>
+      {#if workDir === null}
+        <button type="button" onclick={() => void openConfig()}>Open it in the editor</button>
+      {/if}
+    {/if}
+    {#if !list}
+      <p class="muted">Loading…</p>
+    {:else if list.definitions.length === 0 && !list.error}
+      <div class="empty" data-testid="servers-empty">
+        <EmptyState headline="No dev servers" line="Add the command that starts your app, so agents can open it." />
+        {#if workDir === null}
+          <form class="add" onsubmit={add} aria-label="Add a server" data-testid="servers-add">
+            {#each FIELDS as input (input.field)}
+              <label>
+                {input.label}
+                <input
+                  bind:value={form[input.field]}
+                  data-field={input.field}
+                  placeholder={`For example ${input.hint}`}
+                  inputmode={input.field === "port" ? "numeric" : undefined}
+                  autocomplete="off"
+                  spellcheck="false"
+                  aria-invalid={formError?.field === input.field ? "true" : undefined}
+                  aria-describedby={formError?.field === input.field ? "servers-add-error" : "servers-add-note"}
+                />
+              </label>
+            {/each}
+            <button type="submit" class="primary" aria-busy={adding}>{adding ? "Adding…" : "Add server"}</button>
+          </form>
+          <p class="muted" id="servers-add-note">
+            Runs as typed, without a shell, in the sandbox; it should listen on <code>PORT</code>. Saved to
+            <code>{CONFIG}</code>, which only you can change.
           </p>
+          {#if formError}
+            <p class="error" role="alert" id="servers-add-error" data-testid="servers-add-error">{formError.error}</p>
+          {/if}
         {:else}
-          {#if servers.error}
-            <p class="error" role="alert">{servers.error}</p>
-          {/if}
-          {#if list?.error}
-            <p class="error" role="alert" data-testid="servers-file-error">
-              Could not read <code>.ovra/servers.json</code>: {list.error}
-            </p>
-            {#if workDir === null}
-              <button type="button" onclick={() => void openConfig()}>Open it in the editor</button>
-            {/if}
-          {/if}
-          {#if !list}
-            <p class="muted">Loading…</p>
-          {:else if list.definitions.length === 0 && !list.error}
-            <div class="empty" data-testid="servers-empty">
-              <p><strong>No dev servers yet.</strong> Add one so agents can open your app.</p>
-              {#if workDir === null}
-                <form class="add" onsubmit={add} aria-label="Add a server" data-testid="servers-add">
-                  {#each FIELDS as input (input.field)}
-                    <label>
-                      {input.label}
-                      <input
-                        bind:value={form[input.field]}
-                        data-field={input.field}
-                        placeholder={`For example ${input.hint}`}
-                        inputmode={input.field === "port" ? "numeric" : undefined}
-                        autocomplete="off"
-                        spellcheck="false"
-                        aria-invalid={formError?.field === input.field ? "true" : undefined}
-                        aria-describedby={formError?.field === input.field ? "servers-add-error" : "servers-add-note"}
-                      />
-                    </label>
-                  {/each}
-                  <button type="submit" class="primary" aria-busy={adding}>{adding ? "Adding…" : "Add server"}</button>
-                </form>
-                <p class="muted" id="servers-add-note">
-                  Runs as typed, without a shell, in the sandbox; it should listen on <code>PORT</code>. Saved to
-                  <code>{CONFIG}</code>, which only you can change.
-                </p>
-                {#if formError}
-                  <p class="error" role="alert" id="servers-add-error" data-testid="servers-add-error">{formError.error}</p>
-                {/if}
-              {:else}
-                <p class="muted">This worker's servers come from <code>{CONFIG}</code> in its own copy of the project.</p>
-              {/if}
-              <details>
-                <summary>Write the file by hand</summary>
-                <pre>{example}</pre>
-                <p class="actions-row">
-                  <button type="button" onclick={() => void copyExample()}>{copied ? "Copied" : "Copy example"}</button>
-                  {#if workDir === null}
-                    <button type="button" onclick={() => void openConfig()}>Open in the editor</button>
-                  {/if}
-                </p>
-              </details>
-            </div>
-          {:else}
-            <ul aria-label="Defined servers">
-              {#each list.definitions as def (def.name)}
-                {@const latest = servers.latestOf(def.name)}
-                <li data-testid="server-def">
-                  <strong>{def.name}</strong>
-                  <code class="muted">{def.command.join(" ")}</code>
-                  <span class="muted">port {def.port}</span>
-                  <button
-                    type="button"
-                    disabled={!!latest && running(latest.status)}
-                    aria-label={`Start ${def.name}`}
-                    onclick={() => void act(null, ["Stop", "Restart"], () => servers.start(def.name))}>Start</button
-                  >
-                </li>
-              {/each}
-            </ul>
-            {#if workDir === null}
-              <button type="button" class="link" onclick={() => void openConfig()}>Edit {CONFIG}</button>
-            {/if}
-          {/if}
-          {#if list && list.servers.length > 0}
-            <h3>Started</h3>
-            <ul aria-label="Started servers">
-              {#each [...list.servers].reverse() as server (server.id)}
-                <li class="server" data-testid="server" data-server={server.id}>
-                  <div class="row">
-                    <strong>{server.name}</strong>
-                    <span class={`badge ${server.status.state}`} data-testid="server-status">
-                      {statusText(server.status)}
-                    </span>
-                    <span class="muted">port {server.port}</span>
-                    <span class="muted">in {where(server)}</span>
-                    <span class="muted">started by {who(server.started_by)}</span>
-                    <span class="muted">run {server.generation}</span>
-                    <span class="actions">
-                      <button
-                        type="button"
-                        aria-expanded={logsOf.has(server.id)}
-                        onclick={() => toggleLogs(server.id)}>Output</button
-                      >
-                      <button
-                        type="button"
-                        aria-label={`Restart ${server.name}`}
-                        disabled={server.status.state === "stopping"}
-                        onclick={() => void act(server.id, ["Restart", "Stop"], () => servers.restart(server.id))}
-                        >Restart</button
-                      >
-                      <button
-                        type="button"
-                        aria-label={`Stop ${server.name}`}
-                        disabled={!running(server.status) || server.status.state === "stopping"}
-                        onclick={() => void act(server.id, ["Restart"], () => servers.stop(server.id))}>Stop</button
-                      >
-                    </span>
-                  </div>
-                  {#if logsOf.has(server.id)}
-                    <LogView id={server.id} name={server.name} />
-                  {/if}
-                </li>
-              {/each}
-            </ul>
-          {/if}
+          <p class="muted">This worker's servers come from <code>{CONFIG}</code> in its own copy of the project.</p>
         {/if}
+        <details>
+          <summary>Write the file by hand</summary>
+          <pre>{example}</pre>
+          <p class="actions-row">
+            <button type="button" onclick={() => void copyExample()}>{copied ? "Copied" : "Copy example"}</button>
+            {#if workDir === null}
+              <button type="button" onclick={() => void openConfig()}>Open in the editor</button>
+            {/if}
+          </p>
+        </details>
       </div>
-    </div>
-  </div>
-{/if}
+    {:else}
+      <ul aria-label="Defined servers">
+        {#each list.definitions as def (def.name)}
+          {@const latest = servers.latestOf(def.name)}
+          {@const runs = !!latest && running(latest.status)}
+          <li data-testid="server-def">
+            <strong>{def.name}</strong>
+            <code class="muted">{def.command.join(" ")}</code>
+            <span class="muted">port {def.port}</span>
+            <!-- One button: while the server runs, it shows it in the dock instead of starting another. -->
+            <button
+              type="button"
+              aria-label={`${runs ? "Show" : "Start"} ${def.name}`}
+              onclick={() => (runs ? showRunning() : void start(def.name))}>{runs ? "Show" : "Start"}</button
+            >
+          </li>
+        {/each}
+      </ul>
+      {#if workDir === null}
+        <button type="button" class="link" onclick={() => void openConfig()}>Edit {CONFIG}</button>
+      {/if}
+    {/if}
+  {/if}
+</div>
 
 <style>
-  /* The More menu's dialogs share this frame: a raised card over the scrim. */
-  .backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 90;
-    display: flex;
-    justify-content: center;
-    align-items: flex-start;
-    padding: 48px 24px 24px;
-    background: var(--scrim);
-  }
-  .servers {
-    flex: 1;
-    max-width: 760px;
-    max-height: 100%;
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-    min-height: 0;
-    background: var(--s2);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--card-shadow);
-  }
-  header {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 16px 14px 4px 22px;
-  }
-  h2 {
-    margin: 0;
-    font-size: 17px;
-    font-weight: 600;
-  }
-  .close {
-    margin-left: auto;
-    padding: 4px;
-    color: var(--text-2);
-    background: transparent;
-  }
-  .sr-only {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
-  }
-  .body {
-    flex: 1;
-    overflow: auto;
-    padding: 4px 22px 22px;
-  }
   .muted,
   label {
     color: var(--text-2);
-    font-size: 13px;
+    font: var(--t-small);
   }
-  .note {
-    margin: 4px 22px 8px;
+  .where {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
   }
   button,
   input,
@@ -504,71 +249,41 @@ function onDialogKeydown(event: KeyboardEvent): void {
     color: var(--text);
     background: var(--s3);
     border: 0;
-    border-radius: var(--radius);
+    border-radius: var(--r-md);
   }
   button {
     font-weight: 500;
-    cursor: pointer;
+    cursor: default;
   }
   button:hover {
-    color: var(--text);
     background: var(--s4);
   }
   button.primary {
     color: var(--accent-ink);
     background: var(--accent);
   }
-  button:disabled,
-  input:disabled {
-    cursor: not-allowed;
-    opacity: 0.55;
-  }
-  summary {
-    cursor: pointer;
-  }
   .error {
     color: var(--danger);
     margin: 6px 0;
   }
-  @media (forced-colors: active) {
-    .servers {
-      border: 1px solid CanvasText;
-    }
-    button,
-    input,
-    select {
-      border: 1px solid ButtonText;
-    }
-  }
-  header {
-    flex-wrap: wrap;
-  }
-  h3 {
-    margin: 16px 0 4px;
-    font-size: 14px;
-    font-weight: 600;
-  }
-  .intro {
-    margin: 0 0 8px;
-  }
   .warn {
-    padding: 8px 12px;
-    border-radius: var(--radius);
     color: var(--warn);
-    background: var(--warn-soft);
+  }
+  .empty > :global(.empty) {
+    padding: 0 0 8px;
   }
   pre {
     padding: 10px 12px;
-    font-size: 13px;
+    font: 13px / 18px var(--mono);
     background: var(--s1);
-    border-radius: var(--radius);
+    border-radius: var(--r-md);
     overflow: auto;
   }
   ul {
     list-style: none;
     display: grid;
     gap: 4px;
-    margin: 8px 0;
+    margin: 0 0 8px;
     padding: 0;
   }
   li {
@@ -577,53 +292,11 @@ function onDialogKeydown(event: KeyboardEvent): void {
     align-items: center;
     gap: 8px;
     padding: 6px 10px;
-    border-radius: var(--radius);
+    border-radius: var(--r-md);
     background: var(--s1);
   }
-  li > button:last-child,
-  .actions {
+  li > button:last-child {
     margin-left: auto;
-  }
-  .server {
-    display: block;
-  }
-  .row {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 8px;
-  }
-  .actions {
-    display: flex;
-    gap: 4px;
-  }
-  .actions button {
-    padding: 2px 8px;
-    color: var(--text-2);
-    background: transparent;
-  }
-  .actions button:hover {
-    color: var(--text);
-    background: var(--s3);
-  }
-  .badge {
-    padding: 1px 8px;
-    font-size: 12px;
-    font-weight: 500;
-    border-radius: var(--radius-sm);
-    background: var(--s3);
-  }
-  .ready {
-    color: var(--ok);
-    background: var(--ok-soft);
-  }
-  .starting,
-  .stopping {
-    color: var(--warn);
-    background: var(--warn-soft);
-  }
-  .failed {
-    color: var(--danger);
   }
   .add {
     display: flex;
@@ -645,11 +318,12 @@ function onDialogKeydown(event: KeyboardEvent): void {
   }
   details {
     margin-top: 10px;
-    font-size: 13px;
+    font: var(--t-small);
     color: var(--text-2);
   }
   summary {
     width: fit-content;
+    cursor: default;
   }
   .actions-row {
     display: flex;
@@ -661,5 +335,12 @@ function onDialogKeydown(event: KeyboardEvent): void {
     color: var(--accent);
     background: none;
     text-decoration: underline;
+  }
+  @media (forced-colors: active) {
+    button,
+    input,
+    select {
+      border: 1px solid ButtonText;
+    }
   }
 </style>

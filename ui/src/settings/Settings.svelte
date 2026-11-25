@@ -9,6 +9,7 @@ import { formatShortcut, inBrowserTab, isApple, liveKeys } from "../keys/shortcu
 import type { CoreInfo } from "../lib/protocol";
 import NetworkPanel from "../network/NetworkPanel.svelte";
 import PolicyPanel from "../policy/PolicyPanel.svelte";
+import ServersPanel from "../servers/ServersPanel.svelte";
 import { useOvra } from "../shell/context";
 import ViewFrame from "../shell/ViewFrame.svelte";
 import { loadScreenReader } from "../terminal/prefs";
@@ -111,6 +112,8 @@ function onListKeydown(event: KeyboardEvent): void {
           <PolicyPanel />
         {:else if pane.id === "network"}
           <NetworkPanel />
+        {:else if pane.id === "servers"}
+          <ServersPanel />
         {:else if pane.id === "notifications"}
           <p class="field">
             <span>System notifications</span>

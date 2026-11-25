@@ -26,6 +26,8 @@ import ContextMenu from "../menu/ContextMenu.svelte";
 import Notifications from "../notify/Notifications.svelte";
 import Palette from "../palette/Palette.svelte";
 import Search from "../search/Search.svelte";
+import { serversDock } from "../servers/dock.svelte";
+import ServersDock from "../servers/ServersDock.svelte";
 import { registerSettingsCommands } from "../settings/commands";
 import Settings from "../settings/Settings.svelte";
 import Terminals from "../terminal/Terminals.svelte";
@@ -335,7 +337,11 @@ async function showApprovals(): Promise<void> {
     </div>
     {#if mainView.current === "settings"}<Settings />{:else if mainView.current === "audit"}<AuditLog />{/if}
     <BrowserPane />
-    <Terminals />
+    <!-- The bottom dock: terminals and, next to them, the dev servers that run. -->
+    <div class="dock">
+      <Terminals />
+      <ServersDock />
+    </div>
   </main>
   <aside class="panel agents" data-testid="agents" aria-label="Agents and approvals">
     {#if folded.agents}
@@ -377,7 +383,14 @@ async function showApprovals(): Promise<void> {
       class:quiet={status.ok}
       title={info ? `${info.name} ${info.version} (${info.mode})` : undefined}>{status.text}</span
     >
-    <span class="footer-end"><LanguageServers /></span>
+    <span class="footer-end">
+      {#if serversDock.running > 0 && !serversDock.shown}
+        <button type="button" class="running" onclick={() => (serversDock.shown = true)}
+          >{serversDock.running === 1 ? "1 server running" : `${serversDock.running} servers running`}</button
+        >
+      {/if}
+      <LanguageServers />
+    </span>
   </footer>
   <Notifications />
   <ContextMenu />
@@ -612,6 +625,44 @@ async function showApprovals(): Promise<void> {
     /* No clip: the language server list opens upwards from here. */
     font-size: 13px;
     color: var(--text-2);
+  }
+  /* Terminals and servers share the dock side by side; it takes no room while both are hidden. */
+  .dock {
+    display: flex;
+    flex: 0 0 40%;
+    gap: 2px;
+    min-height: 120px;
+    background: var(--s1);
+  }
+  .dock:not(:has(> :not([hidden]))) {
+    display: none;
+  }
+  .dock > :global(section) {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+  .running {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 6px;
+    font: inherit;
+    color: var(--text-2);
+    background: none;
+    border: 0;
+    border-radius: var(--r-sm);
+    cursor: default;
+  }
+  .running:hover {
+    color: var(--text);
+    background: var(--s3);
+  }
+  .running::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--ok);
   }
   .status {
     display: inline-flex;
