@@ -1,5 +1,6 @@
 import { flushSync, mount, unmount } from "svelte";
 import { afterEach, beforeEach, expect, it } from "vitest";
+import { registerCommand } from "../keys/commands";
 import type { Hunk } from "../lib/protocol";
 import { CoreError } from "../lib/transport";
 import { Workspace } from "../shell/workspace.svelte";
@@ -50,6 +51,14 @@ function click(selector: string): void {
   if (!element) throw new Error(`nothing matches ${selector}`);
   element.click();
 }
+/** The path of the focused file row, if a row has focus. */
+const focusedRow = () => (document.activeElement as HTMLElement | null)?.dataset.path;
+function press(code: string, init: KeyboardEventInit = {}): void {
+  const key = { ArrowDown: "ArrowDown", End: "End", Escape: "Escape" }[code] ?? code.replace("Key", "").toLowerCase();
+  (document.activeElement ?? document.body).dispatchEvent(
+    new KeyboardEvent("keydown", { code, key, bubbles: true, cancelable: true, ...init }),
+  );
+}
 
 it("shows the branch and the lists, stages and unstages files and opens them", async () => {
   const core = new FakeGitCore();
@@ -79,13 +88,13 @@ it("shows the branch and the lists, stages and unstages files and opens them", a
   expect(names("staged")).toHaveLength(2);
   expect(text("[data-testid=git-announce]")).toBe("Staged src/b.ts.");
   // Focus moved to the row now in the pressed button's place.
-  expect(document.activeElement?.getAttribute("aria-label")).toBe("Stage new.md");
+  expect(focusedRow()).toBe("new.md");
 
   click("[data-testid=git-staged] .head button");
   await settle();
   expect(names("staged")).toEqual([]);
 
-  click("[data-testid=git-changes] .name");
+  click("[aria-label='Open src/a.ts']");
   expect(workspace.openPath).toBe("src/a.ts");
 });
 
@@ -109,7 +118,7 @@ it("discards only after a confirmation and offers Undo until the next discard", 
   document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true }));
   await settle();
   expect($(".confirm")).toBeNull();
-  expect(document.activeElement?.getAttribute("aria-label")).toBe("Discard changes to new.md…");
+  expect(focusedRow()).toBe("new.md");
   expect(core.methods()).not.toContain("git.discard");
 
   click("[aria-label='Discard changes to new.md…']");
@@ -126,7 +135,7 @@ it("discards only after a confirmation and offers Undo until the next discard", 
   });
   expect(names("changes")).toHaveLength(2);
   expect($("[data-testid=git-undo-discard]")).toBeNull();
-  expect(document.activeElement?.getAttribute("aria-label")).toBe("Discard changes to new.md…");
+  expect(focusedRow()).toBe("new.md");
 });
 
 it("commits with Mod+Enter, says why it waits and shows a hook's output", async () => {
@@ -212,7 +221,7 @@ it("shows a diff with hunk staging and reloads it on fs.git_changed", async () =
   });
   await setup(core);
 
-  click("[aria-label='Show diff of a.ts']");
+  click("[data-testid=git-changes] [data-path='a.ts']");
   await settle();
   expect(workspace.gitDiff).toEqual({ project: "p1", path: "a.ts", staged: false });
   expect(document.activeElement?.id).toBe("git-diff-title");
@@ -235,8 +244,52 @@ it("shows a diff with hunk staging and reloads it on fs.git_changed", async () =
   await settle();
   expect(diffs()).toBe(before + 1);
 
-  click("[aria-label='Show diff of new.md']");
+  click("[data-testid=git-changes] [data-path='new.md']");
   await settle();
   expect($("[data-hunk-action]")).toBeNull();
   expect(text("[data-testid=git-diff-no-hunks]")).toMatch(/untracked/);
+  // The diff is the selected tab, and its row says it is shown.
+  expect(text("[role=tab][aria-selected=true]")).toBe("new.md diff");
+  expect($("[data-path='new.md']")?.getAttribute("aria-current")).toBe("true");
+  press("Escape");
+  await settle();
+  expect(workspace.gitDiff).toBeNull();
+  expect($("[data-diff-tab]")).toBeNull();
+  expect(focusedRow()).toBe("new.md");
+});
+
+it("is one Tab stop per list, with keys for row actions and the close-tab key for the diff", async () => {
+  const off = registerCommand({ id: "editor.close_tab", title: "Close tab", keys: "Mod+W", run: () => {} });
+  const core = new FakeGitCore();
+  core.status = repo({
+    files: [changed("a.ts"), changed("b.ts"), changed("c.ts", { staged: "modified", unstaged: null })],
+  });
+  await setup(core);
+  const stops = [...target.querySelectorAll<HTMLElement>("[data-row]")].filter((r) => r.tabIndex === 0);
+  expect(stops.map((r) => r.dataset.path)).toEqual(["c.ts", "a.ts"]);
+  expect($("#git-changes-keys")?.textContent).toContain("S: stage.");
+
+  $("[data-testid=git-changes] [data-path='a.ts']")?.focus();
+  press("End");
+  expect(focusedRow()).toBe("b.ts");
+  press("KeyS");
+  await settle();
+  expect(core.calls.find((c) => c.method === "git.stage")?.params).toEqual({ project: "p1", paths: ["b.ts"] });
+  expect(focusedRow()).toBe("a.ts");
+  // Discard only asks; Escape goes back to the row.
+  press("Delete");
+  await settle();
+  expect(document.activeElement?.textContent).toBe("Cancel");
+  press("Escape");
+  await settle();
+  expect(focusedRow()).toBe("a.ts");
+  expect(core.methods()).not.toContain("git.discard");
+
+  click("[data-testid=git-changes] [data-path='a.ts']");
+  await settle();
+  press("KeyW", { altKey: true });
+  await settle();
+  expect(workspace.gitDiff).toBeNull();
+  expect(focusedRow()).toBe("a.ts");
+  off();
 });

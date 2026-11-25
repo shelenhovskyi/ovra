@@ -262,7 +262,8 @@ export class GitModel {
     return this.act(
       "diff",
       () => this.call({ method: "git.stage_hunk", params: { project: this.project, path, hunk, unstage } }),
-      unstage ? "Hunk unstaged." : "Hunk staged.",
+      // The diff view announces it.
+      null,
       (err) =>
         err instanceof CoreError && err.code === "conflict"
           ? { message: "The file changed since this diff was shown. The diff is up to date again; try once more." }

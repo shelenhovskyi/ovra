@@ -3,10 +3,17 @@
 // staged (HEAD to index), with "Stage hunk" or "Unstage hunk" on each hunk of
 // a modified file. It reloads when the panel's model sees a change, so the
 // panel's calls, this view's calls and `fs.git_changed` all keep it current.
+// It is the selected tab while it shows: Escape and the close-tab shortcut
+// close it, next / previous tab go to the file tabs, and closing puts focus
+// back on the panel row it was opened from.
 import { tick } from "svelte";
+import { focusMain, show, tabs } from "../editor/open-files.svelte";
+import { listCommands } from "../keys/commands";
+import { inBrowserTab, isApple, liveKeys, matchesShortcut, parseShortcut } from "../keys/shortcut";
 import type { FileDiff, Hunk } from "../lib/protocol";
 import { useOvra } from "../shell/context";
 import type { GitDiffTarget } from "../shell/workspace.svelte";
+import { focusRow } from "./focus";
 import { gitModel, message } from "./model.svelte";
 
 let { target }: { target: GitDiffTarget } = $props();
@@ -95,14 +102,69 @@ async function stageHunk(hunk: Hunk, index: number): Promise<void> {
   if (!model || model.busy) return;
   refocus = index;
   const ok = await model.stageHunk(target.path, hunk, target.staged);
-  announcement = ok ? (target.staged ? "Hunk unstaged." : "Hunk staged.") : (model.error?.message ?? "");
+  // Said once, here: the panel stays quiet about hunks, and a failure is in the alert below.
+  announcement = ok ? (target.staged ? "Hunk unstaged." : "Hunk staged.") : "";
 }
 
-async function close(): Promise<void> {
+/** Closes the diff; focus goes back to the panel row (see the effect below). */
+function close(): void {
   workspace.gitDiff = null;
-  await tick();
-  document.querySelector<HTMLElement>("#ovra-tabpanel")?.focus();
 }
+
+/** Opens the file; focus moves into the main area, which shows it. */
+function openFile(): void {
+  document.getElementById("ovra-tabpanel")?.focus();
+  workspace.openFile(target.path);
+  void focusMain();
+}
+
+// The diff last shown, for the focus to return to its row once it closes.
+let shownTarget: GitDiffTarget | null = null;
+$effect.pre(() => {
+  shownTarget = target;
+});
+$effect(() => () => {
+  const closed = shownTarget;
+  void tick().then(() => {
+    const active = document.activeElement;
+    if (!closed || (active && active !== document.body && active.isConnected)) return;
+    if (!focusRow(closed.path, closed.staged)) void focusMain();
+  });
+});
+
+/** Which tab command `event` is, by the shortcuts the editor registered. */
+function tabCommand(event: KeyboardEvent): string | undefined {
+  const ids = ["editor.close_tab", "editor.next_tab", "editor.previous_tab"];
+  return listCommands().find((command) => {
+    if (!command.keys || !ids.includes(command.id)) return false;
+    const shortcut = parseShortcut(liveKeys(command.keys, inBrowserTab()), isApple());
+    return shortcut !== null && matchesShortcut(event, shortcut);
+  })?.id;
+}
+
+// Before the window's shortcuts: while the diff is the selected tab, tab keys act on it, not on the file under it.
+$effect(() => {
+  const onkeydown = (event: KeyboardEvent): void => {
+    if (event.defaultPrevented || event.isComposing) return;
+    const active = document.activeElement;
+    const inDiff = !!active && (view?.contains(active) || active.matches("[data-diff-tab]"));
+    const command = event.code === "Escape" && inDiff ? "editor.close_tab" : tabCommand(event);
+    if (!command) return;
+    event.preventDefault();
+    if (command === "editor.close_tab") {
+      close();
+      return;
+    }
+    // The diff is the last tab: next is the first file, previous the last one.
+    const files = tabs.current?.files ?? [];
+    const next = command === "editor.next_tab" ? files[0] : files.at(-1);
+    if (!next) return;
+    document.querySelector<HTMLElement>(`[role="tab"][data-path="${CSS.escape(next)}"]`)?.focus();
+    show(workspace, next);
+  };
+  document.addEventListener("keydown", onkeydown);
+  return () => document.removeEventListener("keydown", onkeydown);
+});
 
 /** Old and new line numbers of each line of `hunk`. */
 function numbered(hunk: Hunk): { text: string; kind: string; old: number | null; new: number | null }[] {
@@ -133,7 +195,7 @@ const range = (hunk: Hunk) =>
       <button type="button" onclick={() => (workspace.gitDiff = { ...target, staged: !target.staged })}
         >{target.staged ? "Show unstaged changes" : "Show staged changes"}</button
       >
-      <button type="button" onclick={() => workspace.openFile(target.path)}>Open file</button>
+      <button type="button" onclick={openFile}>Open file</button>
       <button type="button" onclick={close}>Close diff</button>
     </div>
   </header>
