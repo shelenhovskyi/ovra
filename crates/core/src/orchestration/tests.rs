@@ -2694,3 +2694,33 @@ async fn a_persons_start_and_a_workers_at_once_never_make_a_fourth_agent() {
     let c = capacity(&f.core).await;
     assert_eq!((c.working, c.queued), (3, 1));
 }
+
+#[tokio::test]
+async fn a_worker_spawned_while_its_task_stops_is_stopped_too() {
+    let f = fx(say()).await;
+    let mut rx = f.core.subscribe();
+    start_task(&f.core, 3).await;
+    let boss = caller("s1", ToolRole::Coordinator);
+    // The worker's set up waits for git; the person stops the task meanwhile.
+    f.wt.slow_snapshot
+        .store(true, std::sync::atomic::Ordering::Relaxed);
+    let stop = async {
+        tokio::task::yield_now().await;
+        ok(
+            &f.core,
+            json!({"method": "orchestration.stop", "params": {"task": "t1"}}),
+        )
+        .await
+    };
+    let (spawned, _) = tokio::join!(f.core.spawn_agent(&boss, "late", "x"), stop);
+    let worker = spawned.unwrap_or_else(|e| panic!("{e}")).session;
+    let stopping = f
+        .core
+        .sessions()
+        .find(&worker, |s| s.stopping() || s.status().is_ended());
+    assert_eq!(stopping.ok(), Some(true));
+    until(&mut rx, &worker.0, AgentStatus::Stopped).await;
+    // Once stopping, the coordinator starts no more.
+    let refused = f.core.spawn_agent(&boss, "later", "x").await;
+    assert_eq!(code(refused), ErrorCode::Conflict);
+}

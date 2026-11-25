@@ -249,6 +249,14 @@ pub(super) fn stop_workers_of(core: &Core, coordinator: &SessionId) {
     }
 }
 
+/// Whether `coordinator` was asked to stop or has ended. An unknown one is
+/// refused later, as no task's coordinator.
+fn stopped(core: &Core, coordinator: &SessionId) -> bool {
+    core.sessions()
+        .find(coordinator, |s| s.stopping() || s.status().is_ended())
+        .unwrap_or(false)
+}
+
 /// The task `coordinator` coordinates.
 pub(super) fn of_coordinator(core: &Core, coordinator: &SessionId) -> Result<Entry> {
     core.orchestration_state()
@@ -374,6 +382,9 @@ pub(super) async fn spawn(
         ));
     }
     agents::check_text(&prompt)?;
+    if stopped(core, coordinator) {
+        return Err(conflict("the task is stopping, so it starts no workers"));
+    }
     let state = core.orchestration_state();
     let Some(worktrees_dir) = state.worktrees_dir.clone() else {
         return Err(ProtocolError::new(
@@ -436,6 +447,11 @@ pub(super) async fn spawn(
     }
     let (worker, workspace) = result?;
     review::set_workspace(core, &worker.session, workspace);
+    // The person stopped the task while this worker was set up: it must not
+    // work on without its coordinator ([`stop_workers_of`] missed it).
+    if stopped(core, coordinator) {
+        let _ = agents::stop(&core.agents_ctx(), worker.session.clone());
+    }
     core.emit(OrchestrationEvent::Changed {
         project: entry.project.clone(),
         task: entry.id.clone(),
