@@ -299,11 +299,16 @@ impl SessionView<'_> {
             self.save();
         }
     }
-    fn set_sandbox(&mut self, report: Option<SandboxReport>) {
-        if self.session.info.sandbox != report {
-            self.session.info.sandbox = report;
-            self.save();
+    /// Records how the current process runs; true if that changed.
+    fn set_sandbox(&mut self, report: Option<SandboxReport>) -> bool {
+        let info = &mut self.session.info;
+        if info.sandbox_reported && info.sandbox == report {
+            return false;
         }
+        info.sandbox = report;
+        info.sandbox_reported = true;
+        self.save();
+        true
     }
     /// Records who pays; true if that changed.
     fn set_billing(&mut self, billing: Billing) -> bool {
@@ -324,6 +329,7 @@ impl SessionView<'_> {
         self.session.stopping = false;
         // The new process reports its own sandbox; until it does, none.
         self.session.info.sandbox = None;
+        self.session.info.sandbox_reported = false;
         self.save();
     }
     /// Moves to `status` if the state machine allows it; `false` if not.
@@ -468,14 +474,21 @@ impl AgentHost {
     /// records as the session's start.
     pub fn sandboxed(&self, report: Option<SandboxReport>) {
         let started = self.sessions.find(&self.session, |s| {
-            s.set_sandbox(report.clone());
-            AuditEvent::SessionStarted {
+            let changed = s.set_sandbox(report.clone());
+            let event = AuditEvent::SessionStarted {
                 mode: s.session.info.mode,
                 trusted: s.session.trusted,
-                sandbox: report,
-            }
+                sandbox: report.clone(),
+            };
+            (changed, event)
         });
-        if let Ok(event) = started {
+        if let Ok((changed, event)) = started {
+            if changed {
+                self.sink.emit(AgentsEvent::Sandbox {
+                    session: self.session.clone(),
+                    sandbox: report,
+                });
+            }
             self.audit(event);
         }
     }

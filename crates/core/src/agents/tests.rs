@@ -932,6 +932,42 @@ async fn a_session_says_who_pays_once_the_agent_tells() {
 }
 
 #[tokio::test]
+async fn a_session_says_how_it_is_sandboxed_once_the_runtime_tells() {
+    use crate::protocol::agents::{SandboxNetwork, SandboxReport};
+    let core = core_with(ScriptedAgent::new(vec![vec![Step::Say("hi")]]));
+    project(&core).await;
+    let mut rx = core.subscribe();
+    ok(&core, start("x")).await;
+    let reported = |rx: &mut broadcast::Receiver<Event>| {
+        let mut told = Vec::new();
+        while let Ok(event) = rx.try_recv() {
+            if let Event::Agents(AgentsEvent::Sandbox { sandbox, .. }) = event {
+                told.push(sandbox);
+            }
+        }
+        told
+    };
+    // The scripted agent reports "no sandbox" when it spawns.
+    assert_eq!(reported(&mut rx), vec![None]);
+    let info = &sessions(&core).await[0];
+    assert!(info.sandbox_reported);
+    assert_eq!(info.sandbox, None);
+
+    let boxed = SandboxReport {
+        name: "test".into(),
+        network: SandboxNetwork::Proxy,
+    };
+    host(&core).sandboxed(Some(boxed.clone()));
+    host(&core).sandboxed(Some(boxed.clone()));
+    assert_eq!(
+        reported(&mut rx),
+        vec![Some(boxed.clone())],
+        "the same report again is no news"
+    );
+    assert_eq!(sessions(&core).await[0].sandbox, Some(boxed));
+}
+
+#[tokio::test]
 async fn the_projects_policy_decides_before_the_person_is_asked() {
     use crate::protocol::agents::{SandboxNetwork, SandboxReport};
     use crate::protocol::permissions::Decision;
@@ -1027,6 +1063,10 @@ async fn the_projects_policy_decides_before_the_person_is_asked() {
     )
     .await;
     assert_eq!(sessions(&core).await[1].sandbox, None);
+    assert!(
+        sessions(&core).await[1].sandbox_reported,
+        "the scripted agent's new process said: no sandbox"
+    );
     let asking = tokio::spawn(async move {
         second
             .ask("Bash".into(), json!({"command": "npm test"}), None, None)
