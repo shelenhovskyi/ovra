@@ -18,6 +18,7 @@ import ProjectTrust from "./setup/ProjectTrust.svelte";
 import { paidText } from "./setup/texts";
 import { isBusy, isEnded } from "./status";
 import Transcript from "./Transcript.svelte";
+import { rememberedMode, rememberMode, type TaskMode } from "./task-mode";
 
 const { transport, workspace } = useOvra();
 const sessions = agentSessions(transport);
@@ -25,8 +26,7 @@ const picks = browserPicks(transport);
 const accounts = claudeAccounts(transport);
 const modEnter = formatShortcut("Mod+Enter", isApple());
 
-type Mode = "here" | "split";
-const MODES: { id: Mode; label: string; hint: string }[] = [
+const MODES: { id: TaskMode; label: string; hint: string }[] = [
   {
     id: "here",
     label: "One agent, here",
@@ -49,8 +49,8 @@ let error = $state<string | null>(null);
 let startError = $state<{ text: string; setup: boolean } | null>(null);
 /** Started from the form and not yet past starting: its failure is a start error. */
 let launched = $state<SessionId | null>(null);
-/** How the next task runs; the last choice stays for this window. */
-let mode = $state<Mode>("here");
+/** How the next task runs; the last choice is kept per project. */
+let mode = $state<TaskMode>("here");
 let promptField = $state<HTMLTextAreaElement>();
 /** The account the picker shows; null while there is only one. */
 let account = $state<string | null>(null);
@@ -88,6 +88,7 @@ $effect(() => {
   if (!id) return;
   untrack(() => {
     selected = null;
+    mode = rememberedMode(id);
     error = null;
     startError = null;
     launched = null;
@@ -308,7 +309,14 @@ const canReply = $derived(current !== null && current.status.state === "idle");
         <legend class="visually-hidden">How Claude works on it</legend>
         {#each MODES as option (option.id)}
           <label class="mode">
-            <input type="radio" name="agent-mode" value={option.id} bind:group={mode} aria-describedby="agent-mode-hint" />
+            <input
+              type="radio"
+              name="agent-mode"
+              value={option.id}
+              bind:group={mode}
+              aria-describedby="agent-mode-hint"
+              onchange={() => project && rememberMode(project.id, option.id)}
+            />
             {option.label}
           </label>
         {/each}
