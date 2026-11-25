@@ -386,12 +386,16 @@ describe("AgentsPanel", () => {
     expect(billed?.classList.contains("warn")).toBe(true);
   });
 
-  it("says whether a session runs in a sandbox, in the detail and the list", async () => {
+  it("says whether a session runs in a sandbox, in one short line, once per screen", async () => {
     const core = new FakeAgentCore();
     core.addSession("p1", "Earlier task", { state: "stopped" });
     await setup(core);
     const line = () => panel()?.querySelector("[data-testid=agent-sandbox]");
+    const more = () => panel()?.querySelector("[data-testid=agent-sandbox-more]")?.textContent;
+    const gaps = () => panel()?.querySelector("[data-testid=agent-sandbox-gaps]")?.textContent;
     const once = () => target.querySelector("[data-testid=agents-no-sandbox]")?.textContent;
+    const hint = () => target.querySelector("#agent-mode-hint")?.textContent;
+    const said = () => (panel()?.textContent?.match(/No sandbox/g) ?? []).length;
     // Saved before Ovra recorded the report: nothing to say.
     selectRow("Earlier task");
     expect(line()).toBeNull();
@@ -402,19 +406,23 @@ describe("AgentsPanel", () => {
     expect(line()?.textContent).toBe("Sandbox: starting…");
     core.sandboxed("s2", null);
     await settle();
-    expect(line()?.textContent).toBe("No sandbox: the agent can read and change anything your user can.");
-    expect(line()?.classList.contains("warn")).toBe(true);
+    expect(line()?.textContent?.trim()).toBe("No sandbox: Claude can change anything you can");
+    // A security fact, set apart from "Needs approval" yellow.
+    expect(line()?.classList.contains("security")).toBe(true);
+    expect(line()?.classList.contains("warn")).toBe(false);
+    expect(said()).toBe(1);
     back();
-    // Said once under the header, not on every row.
-    expect(once()).toBe("No sandbox: agents can reach anything you can");
+    // In the same words under the header, not on every row nor again in the mode hint.
+    expect(once()?.trim()).toBe("No sandbox: Claude can change anything you can");
+    expect(hint()).toBe("Works in this folder. Asks before risky steps.");
+    expect(said()).toBe(1);
     selectRow("Fix the typo");
     core.sandboxed("s2", { name: "bubblewrap, Landlock, seccomp", network: "proxy", gaps: [] });
     await settle();
-    expect(line()?.textContent).toBe(
-      "Runs in a sandbox (bubblewrap, Landlock, seccomp), network only through Ovra's proxy.",
-    );
-    expect(line()?.classList.contains("warn")).toBe(false);
-    const gaps = () => panel()?.querySelector("[data-testid=agent-sandbox-gaps]")?.textContent;
+    expect(line()?.textContent?.trim()).toBe("Sandboxed");
+    expect(line()?.classList.contains("security")).toBe(false);
+    // The whole sentence and the gaps are a click away, never gone.
+    expect(more()).toBe("Runs in a sandbox (bubblewrap, Landlock, seccomp), network only through Ovra's proxy.");
     expect(gaps()).toBeUndefined();
     core.sandboxed("s2", {
       name: "fake sandbox",
@@ -422,15 +430,12 @@ describe("AgentsPanel", () => {
       gaps: ["DNS lookups", "loopback services"],
     });
     await settle();
+    expect(line()?.textContent?.trim()).toBe("Sandboxed · gaps");
     expect(gaps()).toBe("Not covered: DNS lookups, loopback services.");
     core.status("s2", { state: "stopped" });
     await settle();
     expect(gaps()).toBe("Did not cover: DNS lookups, loopback services.");
-    core.sandboxed("s2", { name: "bubblewrap, Landlock, seccomp", network: "proxy", gaps: [] });
-    await settle();
-    expect(line()?.textContent).toBe(
-      "Ran in a sandbox (bubblewrap, Landlock, seccomp), network only through Ovra's proxy.",
-    );
+    expect(more()).toBe("Ran in a sandbox (fake sandbox), network only through Ovra's proxy.");
   });
 
   it("forgets the sandbox report when a session starts again", async () => {
@@ -438,10 +443,10 @@ describe("AgentsPanel", () => {
     core.addSession("p1", "Earlier task", { state: "idle" });
     await setup(core);
     selectRow("Earlier task");
-    const line = () => panel()?.querySelector("[data-testid=agent-sandbox]")?.textContent;
+    const line = () => panel()?.querySelector("[data-testid=agent-sandbox]")?.textContent?.trim();
     core.sandboxed("s1", null);
     await settle();
-    expect(line()).toBe("No sandbox: the agent can read and change anything your user can.");
+    expect(line()).toBe("No sandbox: Claude can change anything you can");
     // A restart clears the report in the core and sends only a status.
     core.status("s1", { state: "starting" });
     await settle();
@@ -460,9 +465,19 @@ describe("AgentsPanel", () => {
     type(target.querySelector("#agent-prompt"), "Fix the typo");
     modEnter();
     await settle();
-    expect(panel()?.querySelector("[data-testid=agent-sandbox]")?.textContent).toBe(
+    expect(panel()?.querySelector("[data-testid=agent-sandbox-more]")?.textContent).toBe(
       "Runs in a sandbox (bwrap), network only through Ovra's proxy.",
     );
+  });
+
+  it("keeps the session's title to one line, whole on hover", async () => {
+    const core = new FakeAgentCore();
+    core.addSession("p1", "Fix the typo in README.md with the Edit tool and then run the tests", { state: "idle" });
+    await setup(core);
+    selectRow("Fix the typo in README.md with the Edit tool and then run the tests");
+    const title = panel()?.querySelector("[data-testid=agent-session] h3");
+    expect(title?.getAttribute("title")).toBe("Fix the typo in README.md with the Edit tool and then run the tests");
+    expect(title?.classList.contains("clamp")).toBe(true);
   });
 
   it("marks the cost as an API price estimate on a Claude plan", async () => {

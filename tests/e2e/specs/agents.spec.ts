@@ -59,9 +59,7 @@ test("start an agent and answer its requests from the keyboard", async ({ page }
   const run = approvals.getByRole("group", { name: "Run ls -la" });
   await expect(run).toBeVisible();
   // The fake agent runs without a sandbox, and the session and card say so.
-  await expect(page.getByTestId("agent-sandbox")).toHaveText(
-    "No sandbox: the agent can read and change anything your user can.",
-  );
+  await expect(page.getByTestId("agent-sandbox")).toHaveText("No sandbox: Claude can change anything you can");
   await expect(approvals.getByTestId("approval-unsandboxed")).toBeVisible();
   // The card is in sight, so no toast repeats it.
   await expect(page.getByTestId("toast")).toHaveCount(0);

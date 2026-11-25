@@ -85,10 +85,12 @@ const sandboxWord = $derived.by(() => {
   if (!known) return "";
   return known.sandbox ? ", in a sandbox" : ", without a sandbox";
 });
+/** The line under the header says "No sandbox" already: the hint does not say it again. */
+const modeSandbox = $derived(unsandboxed ? "" : sandboxWord);
 const modeHint = $derived(
   mode === "here"
-    ? `Works in this folder${sandboxWord}. Asks before risky steps.`
-    : `Up to 3 agents on their own copies${sandboxWord}. You review first.`,
+    ? `Works in this folder${modeSandbox}. Asks before risky steps.`
+    : `Up to 3 agents on their own copies${modeSandbox}. You review first.`,
 );
 /** The mode menu is open. */
 let modeMenu = $state(false);
@@ -591,7 +593,9 @@ const canReply = $derived(current !== null && current.status.state === "idle");
     </span>
   </header>
   {#if unsandboxed && !current}
-    <p class="no-sandbox" role="note" data-testid="agents-no-sandbox">{unsandboxed}</p>
+    <p class="no-sandbox security" role="note" data-testid="agents-no-sandbox">
+      <Icon name="shield-alert" small />{unsandboxed}
+    </p>
   {/if}
   {#if approvals.pending.length > 0 && !hints.has("answered")}
     <!-- Said once, before the first answer; outside the approvals, which keep their room. -->
@@ -628,7 +632,7 @@ const canReply = $derived(current !== null && current.status.state === "idle");
       <!-- What the session is, and what waits: it gives way (and scrolls) before the transcript does. -->
       <div class="info">
         <div class="facts">
-          <h3>{sessions.name(current.id)}</h3>
+          <h3 class="clamp" title={sessions.name(current.id)}>{sessions.name(current.id)}</h3>
           <p class="status" role="status" data-state={tone(current)}>{sessions.status(current.id)}</p>
           {#if current.billing}
             <!-- An API key bills at API prices, often not what a plan user expects. -->
@@ -637,14 +641,16 @@ const canReply = $derived(current !== null && current.status.state === "idle");
             </p>
           {/if}
           {#if sandbox}
-            <p class="line" class:warn={sandbox.warning} data-testid="agent-sandbox">{sandbox.text}</p>
+            <!-- One line; what the sandbox covers, and what not, is under Details. -->
+            <p class="line" class:security={sandbox.warning} data-testid="agent-sandbox">
+              {#if sandbox.warning}<Icon name="shield-alert" small />{/if}{sandbox.text}
+            </p>
           {/if}
-          {#if gaps}
-            <p class="line" data-testid="agent-sandbox-gaps">{gaps}</p>
-          {/if}
-          {#if current.usage.input_tokens + current.usage.output_tokens > 0 || current.billing}
+          {#if current.usage.input_tokens + current.usage.output_tokens > 0 || current.billing || sandbox?.more}
             <details class="more">
               <summary>Details</summary>
+              {#if sandbox?.more}<p data-testid="agent-sandbox-more">{sandbox.more}</p>{/if}
+              {#if gaps}<p data-testid="agent-sandbox-gaps">{gaps}</p>{/if}
               {#if current.billing}<p>{paidText(current.billing)}</p>{/if}
               {#if current.usage.input_tokens + current.usage.output_tokens > 0}
                 <p data-testid="agent-usage">Total: {usageText(current.usage, current.billing)}</p>
@@ -1256,7 +1262,15 @@ const canReply = $derived(current !== null && current.status.state === "idle");
     flex: none;
     padding: 0 16px 6px;
     font-size: 13px;
-    color: var(--warn);
+  }
+  /* A security fact: full-strength text with a shield, apart from the
+     yellow of "Needs approval". */
+  .security {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text);
+    font-weight: 500;
   }
   .progress {
     display: flex;
@@ -1358,6 +1372,12 @@ const canReply = $derived(current !== null && current.status.state === "idle");
     font-size: 14px;
     font-weight: 600;
     overflow-wrap: anywhere;
+  }
+  /* The title is the task's first line: one line here, whole on hover. */
+  h3.clamp {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .status[data-state="failed"] {
     color: var(--danger);

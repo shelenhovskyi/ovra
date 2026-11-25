@@ -24,21 +24,36 @@ const NETWORK: Record<SandboxReport["network"], string> = {
   open: "network not limited",
 };
 
-/** One line for the session detail, in the past tense once it `ended`;
- * `warning` lines use the warning style. */
-export function sandboxLine(state: SandboxState, ended: boolean): { text: string; warning: boolean } | null {
+/** The one wording for a session without a sandbox, in the list and the session alike. */
+export const NO_SANDBOX = "No sandbox: Claude can change anything you can";
+
+/** What a sandbox lets through, after "Sandboxed · " on the short line. */
+const NETWORK_SHORT: Record<SandboxReport["network"], string> = {
+  proxy: "",
+  blocked: "no network",
+  open: "network not limited",
+};
+
+/**
+ * One short line for the session detail, and the whole sentence (`more`,
+ * in the past tense once it `ended`) for its Details; `warning` lines are
+ * security facts that stand out.
+ */
+export function sandboxLine(
+  state: SandboxState,
+  ended: boolean,
+): { text: string; warning: boolean; more: string | null } | null {
   switch (state.kind) {
     case "sandboxed": {
-      const { name, network } = state.report;
-      const verb = ended ? "Ran" : "Runs";
-      return { text: `${verb} in a sandbox (${name}), ${NETWORK[network]}.`, warning: network === "open" };
+      const { name, network, gaps } = state.report;
+      const text = ["Sandboxed", gaps.length > 0 ? "gaps" : "", NETWORK_SHORT[network]].filter(Boolean).join(" · ");
+      const more = `${ended ? "Ran" : "Runs"} in a sandbox (${name}), ${NETWORK[network]}.`;
+      return { text, warning: network === "open", more };
     }
     case "none":
-      return ended
-        ? { text: "Ran without a sandbox: the agent could read and change anything your user can.", warning: true }
-        : { text: "No sandbox: the agent can read and change anything your user can.", warning: true };
+      return { text: NO_SANDBOX, warning: true, more: null };
     case "pending":
-      return { text: "Sandbox: starting…", warning: false };
+      return { text: "Sandbox: starting…", warning: false, more: null };
     case "unknown":
       return null;
   }
@@ -58,7 +73,7 @@ export function sandboxGaps(state: SandboxState, ended: boolean): string | null 
  */
 export function listWarning(sessions: SessionInfo[]): string | null {
   const states = sessions.filter((s) => !isEnded(s.status)).map(sandboxState);
-  if (states.some((s) => s.kind === "none")) return "No sandbox: agents can reach anything you can";
+  if (states.some((s) => s.kind === "none")) return NO_SANDBOX;
   if (states.some((s) => s.kind === "sandboxed" && s.report.network === "open"))
     return "Sandboxed, network not limited";
   return null;
