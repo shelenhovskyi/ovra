@@ -1,31 +1,66 @@
 <script lang="ts">
 // Project policies: a header button (and the "Project policies" command) opens
 // a dialog with the rules that decide the open project's tool calls before
-// the person is asked, in the order the core checks them. Escape closes.
+// the person is asked. Every add, edit or removal saves the whole list with
+// `policy.set`; the core checks each rule. Escape closes.
 import { tick, untrack } from "svelte";
 import { registerCommand } from "../keys/commands";
+import type { PolicyAction, PolicyRule } from "../lib/protocol";
 import { useOvra } from "../shell/context";
-import { ProjectPolicy } from "./policy.svelte";
-import { ACTIONS, byPrecedence, caveats, ruleText } from "./rules";
+import { ProjectPolicy, reason } from "./policy.svelte";
+import { ACTIONS, byPrecedence, caveats, formRule, KNOWN_TOOLS, matchHint, ruleText } from "./rules";
 
 const { transport, workspace } = useOvra();
 const policy = new ProjectPolicy(transport);
 
 let opened = $state(false);
 let dialog = $state<HTMLElement>();
+let toolField = $state<HTMLInputElement>();
 let returnTo: HTMLElement | null = null;
 
+let tool = $state("");
+let match = $state("");
+let action = $state<PolicyAction>("ask");
+/** The rule being edited: its place in the list and what it said then. */
+let editing = $state<{ index: number; rule: PolicyRule } | null>(null);
+let formError = $state<string | null>(null);
+let busy = $state(false);
+
 const rows = $derived(byPrecedence(policy.rules ?? []));
+const preview = $derived(formRule(tool, match, action));
 
 $effect(() => () => policy.dispose());
 $effect(() => registerCommand({ id: "policy.toggle", title: "Project policies", run: toggle }));
 
 // Read the policy when the dialog opens, and again for another project.
+// What was typed is cleared only for another project, not when the same
+// project's details are refreshed.
+let shownFor: string | null = null;
 $effect(() => {
   const project = workspace.project?.id ?? null;
-  if (!opened) return;
-  untrack(() => void policy.show(project));
+  if (!opened) {
+    shownFor = null;
+    return;
+  }
+  if (project === shownFor) return;
+  shownFor = project;
+  untrack(() => {
+    clearForm();
+    void policy.show(project);
+  });
 });
+
+function same(a: PolicyRule | undefined, b: PolicyRule): boolean {
+  return a !== undefined && a.tool === b.tool && a.match === b.match && a.action === b.action;
+}
+
+function clearForm(): void {
+  tool = "";
+  match = "";
+  action = "ask";
+  editing = null;
+  formError = null;
+}
 
 async function show(): Promise<void> {
   const active = document.activeElement;
@@ -37,6 +72,7 @@ async function show(): Promise<void> {
 
 function close(): void {
   opened = false;
+  clearForm();
   if (returnTo?.isConnected) returnTo.focus();
   returnTo = null;
 }
@@ -44,6 +80,72 @@ function close(): void {
 function toggle(): void {
   if (opened) close();
   else void show();
+}
+
+async function save(rules: PolicyRule[]): Promise<boolean> {
+  // Buttons stay enabled while a call runs, so focus is never lost to the page.
+  if (busy) return false;
+  busy = true;
+  try {
+    await policy.save(rules);
+    formError = null;
+    return true;
+  } catch (err) {
+    formError = reason(err);
+    return false;
+  } finally {
+    busy = false;
+  }
+}
+
+async function submit(event: SubmitEvent): Promise<void> {
+  event.preventDefault();
+  const current = policy.rules;
+  if (!current) return;
+  if (preview.tool === "") {
+    formError = "Name the tool, such as Bash or WebFetch.";
+    toolField?.focus();
+    return;
+  }
+  const target = editing;
+  if (target && !same(current[target.index], target.rule)) {
+    // The rule changed elsewhere while it was in the form.
+    clearForm();
+    formError = "The policy changed while you edited this rule. Check the list and try again.";
+    return;
+  }
+  const next = target ? current.map((rule, i) => (i === target.index ? preview : rule)) : [...current, preview];
+  if (await save(next)) {
+    clearForm();
+    toolField?.focus();
+  }
+}
+
+async function edit(index: number, rule: PolicyRule): Promise<void> {
+  editing = { index, rule };
+  tool = rule.tool;
+  match = rule.match ?? "";
+  action = rule.action;
+  formError = null;
+  await tick();
+  toolField?.focus();
+}
+
+function cancel(): void {
+  clearForm();
+  toolField?.focus();
+}
+
+async function remove(index: number): Promise<void> {
+  const current = policy.rules;
+  if (!current) return;
+  if (await save(current.filter((_, i) => i !== index))) {
+    // Places in the list moved, so an edit in progress starts over.
+    if (editing) clearForm();
+    await tick();
+    // The removed row's button is gone; keep focus inside the dialog.
+    if (!dialog?.contains(document.activeElement)) toolField?.focus();
+  }
 }
 
 function onDialogKeydown(event: KeyboardEvent): void {
@@ -56,7 +158,7 @@ function onDialogKeydown(event: KeyboardEvent): void {
   }
   if (event.code !== "Tab") return;
   // Keep Tab inside the dialog (aria-modal), also from the heading.
-  const focusable = [...(dialog?.querySelectorAll<HTMLElement>("button, [tabindex]") ?? [])].filter(
+  const focusable = [...(dialog?.querySelectorAll<HTMLElement>("button, input, select, [tabindex]") ?? [])].filter(
     (el) => el.tabIndex >= 0 && !el.matches(":disabled"),
   );
   const first = focusable[0];
@@ -121,6 +223,8 @@ function onDialogKeydown(event: KeyboardEvent): void {
                   <div class="line">
                     <code>{ruleText(rule)}</code>
                     <span class="action">{ACTIONS[rule.action]}</span>
+                    <button type="button" aria-label={`Edit ${ruleText(rule)} ${rule.action}`} onclick={() => void edit(index, rule)}>Edit</button>
+                    <button type="button" aria-label={`Remove ${ruleText(rule)} ${rule.action}`} onclick={() => void remove(index)}>Remove</button>
                   </div>
                   {#if notes.length > 0}
                     <ul class="notes" id={`policy-notes-${index}`} data-testid="policy-caveat">
@@ -133,6 +237,55 @@ function onDialogKeydown(event: KeyboardEvent): void {
               {/each}
             </ol>
           {/if}
+          <form onsubmit={submit} aria-label={editing ? "Edit rule" : "Add a rule"}>
+            <!-- The core replaces the whole list, so changes wait until it is known. -->
+            <fieldset disabled={policy.rules === null}>
+              <label>
+                Tool
+                <input
+                  bind:this={toolField}
+                  bind:value={tool}
+                  list="policy-tools"
+                  placeholder="Bash"
+                  autocomplete="off"
+                  spellcheck="false"
+                  data-testid="policy-tool"
+                />
+              </label>
+              <datalist id="policy-tools">
+                {#each KNOWN_TOOLS as name (name)}
+                  <option value={name}></option>
+                {/each}
+              </datalist>
+              <label>
+                Match (optional)
+                <input
+                  bind:value={match}
+                  placeholder="npm test or docs/**"
+                  autocomplete="off"
+                  spellcheck="false"
+                  aria-describedby="policy-match-hint"
+                  data-testid="policy-match"
+                />
+              </label>
+              <label>
+                Action
+                <select bind:value={action} data-testid="policy-action">
+                  <option value="deny">Deny</option>
+                  <option value="ask">Ask</option>
+                  <option value="auto">Auto</option>
+                </select>
+              </label>
+              <button type="submit">{editing ? "Save rule" : "Add rule"}</button>
+              {#if editing}
+                <button type="button" onclick={cancel}>Cancel</button>
+              {/if}
+            </fieldset>
+          </form>
+          <p class="muted" id="policy-match-hint">{matchHint(tool)}</p>
+          {#if formError}
+            <p class="error" role="alert" data-testid="policy-error">{formError}</p>
+          {/if}
         </div>
       {/if}
     </div>
@@ -140,16 +293,22 @@ function onDialogKeydown(event: KeyboardEvent): void {
 {/if}
 
 <style>
-  button {
+  button,
+  input,
+  select {
     font: inherit;
     padding: 2px 10px;
     color: #e6e6e6;
     background: #2a2a33;
     border: 1px solid #4a4a57;
     border-radius: 3px;
+  }
+  button {
     cursor: pointer;
   }
   button:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
   h2:focus-visible {
     outline: 2px solid #7aa2ff;
     outline-offset: 1px;
@@ -229,10 +388,30 @@ function onDialogKeydown(event: KeyboardEvent): void {
   .action {
     color: #c8c8d2;
   }
-.notes {
+  .line button:first-of-type {
+    margin-left: auto;
+  }
+  .notes {
     margin: 4px 0 0;
     padding-left: 16px;
     color: #ffd36b;
     font-size: 12px;
+  }
+  form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: 8px;
+    margin: 10px 0 4px;
+  }
+  fieldset {
+    display: contents;
+  }
+  label {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 12px;
+    color: #c8c8d2;
   }
 </style>

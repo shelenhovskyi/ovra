@@ -6,6 +6,9 @@ import type { PolicyAction, PolicyRule } from "../lib/protocol";
 /** Tools whose `match` is a glob on the path relative to the session's folder. */
 const FILE_TOOLS = ["Read", "Edit", "MultiEdit", "Write", "NotebookEdit"];
 
+/** Tool names offered while typing; any other name is allowed too. */
+export const KNOWN_TOOLS = ["Bash", ...FILE_TOOLS, "Grep", "Glob", "WebFetch", "WebSearch"];
+
 /** The order in which the core looks at rules: the first action that matches decides. */
 const PRECEDENCE: PolicyAction[] = ["deny", "ask", "auto"];
 
