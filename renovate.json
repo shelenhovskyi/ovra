@@ -1,12 +1,56 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended", ":semanticCommits", "helpers:pinGitHubActionDigests"],
+  "extends": [
+    "config:recommended",
+    ":semanticCommits",
+    "helpers:pinGitHubActionDigests"
+  ],
   "rangeStrategy": "pin",
+  "timezone": "Europe/Kyiv",
+  "schedule": [
+    "before 9am on monday"
+  ],
+  "prConcurrentLimit": 3,
+  "prHourlyLimit": 2,
+  "reviewers": [],
+  "assignees": [],
   "packageRules": [
     {
-      "matchUpdateTypes": ["minor", "patch"],
+      "description": "One weekly PR for every non-major update outside CI.",
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "digest",
+        "pin",
+        "pinDigest"
+      ],
+      "matchManagers": [
+        "!github-actions"
+      ],
       "groupName": "non-major dependencies",
-      "schedule": ["before 6am on monday"]
+      "groupSlug": "non-major"
+    },
+    {
+      "description": "CI actions and runners in their own weekly PR: workflows are code-owned and get a human review.",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "digest",
+        "pin",
+        "pinDigest"
+      ],
+      "groupName": "github actions",
+      "groupSlug": "github-actions"
+    },
+    {
+      "description": "Majors open no PR until ticked in the Dependency Dashboard issue.",
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "dependencyDashboardApproval": true
     }
   ]
 }
