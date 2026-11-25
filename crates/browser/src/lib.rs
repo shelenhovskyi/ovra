@@ -19,6 +19,7 @@ mod cdp;
 mod input;
 mod launch;
 mod logs;
+mod page;
 mod pick;
 mod snapshot;
 
