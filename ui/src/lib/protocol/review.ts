@@ -1,10 +1,14 @@
 import type { SessionId, SessionMode } from "./agents";
+import type { PullRequest } from "./pr";
 import type { ProjectId } from "./projects";
 
 export type ReviewId = string;
 
-/** `partly_approved`: approved, but some of a worker's files were not copied (`not_copied`); they wait for `review.resolve`. */
-export type ReviewState = "open" | "approved" | "partly_approved" | "rejected";
+/**
+ * `partly_approved`: approved, but some of a worker's files were not copied (`not_copied`); they wait for `review.resolve`.
+ * `published`: a worker's changes were pushed as a pull request (`pull_request`); keep and discard stay available.
+ */
+export type ReviewState = "open" | "approved" | "partly_approved" | "rejected" | "published";
 
 export type ChangeKind = "added" | "modified" | "deleted" | "renamed";
 
@@ -56,6 +60,8 @@ export type ReviewItem = {
   git_changes: GitFileChange[];
   /** Hooks and config could not be compared: `git_changes` may be incomplete. */
   git_unchecked: boolean;
+  /** The pull request a worker's item was published as; absent without one. */
+  pull_request?: PullRequest;
 };
 
 /** A changed file of the git folder or hooks folder, such as `.git/hooks/pre-commit`. */

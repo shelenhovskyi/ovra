@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::agents::{SessionId, SessionMode};
+use super::pr::PullRequest;
 use super::projects::ProjectId;
 
 /// One review item per session that changed files.
@@ -20,6 +21,10 @@ pub enum ReviewState {
     /// until `review.resolve`.
     PartlyApproved,
     Rejected,
+    /// A worker's changes were pushed as a pull request
+    /// (`ReviewItem::pull_request`, `docs/specs/pr-flow.md`); keep and
+    /// discard stay available.
+    Published,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -104,6 +109,9 @@ pub struct ReviewItem {
     /// incomplete, and the person should look.
     #[serde(default)]
     pub git_unchecked: bool,
+    /// The pull request a worker's item was published as (`pr.create`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pull_request: Option<Box<PullRequest>>,
 }
 
 /// A changed file of the git folder or hooks folder, by the name

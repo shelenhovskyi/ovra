@@ -17,6 +17,7 @@ pub mod open;
 pub mod orchestration;
 pub mod permissions;
 pub mod policy;
+pub mod pr;
 pub mod projects;
 pub mod review;
 pub mod search;
@@ -48,6 +49,7 @@ pub enum Request {
     Lsp(lsp::LspRequest),
     Servers(servers::ServersRequest),
     Browser(browser::BrowserRequest),
+    Pr(pr::PrRequest),
 }
 
 /// The core's answer to a [`Request`]. Wire form: `{"type": "<domain>.<name>", "data": ...}`.
@@ -71,6 +73,7 @@ pub enum Response {
     Lsp(lsp::LspResponse),
     Servers(servers::ServersResponse),
     Browser(browser::BrowserResponse),
+    Pr(pr::PrResponse),
     /// The request succeeded and has nothing to return.
     Ok(OkResponse),
 }
@@ -101,6 +104,7 @@ pub enum Event {
     Lsp(lsp::LspEvent),
     Servers(servers::ServersEvent),
     Browser(browser::BrowserEvent),
+    Pr(pr::PrEvent),
 }
 
 /// An error returned instead of a [`Response`].
@@ -237,5 +241,11 @@ impl From<servers::ServersEvent> for Event {
 impl From<browser::BrowserEvent> for Event {
     fn from(e: browser::BrowserEvent) -> Self {
         Self::Browser(e)
+    }
+}
+
+impl From<pr::PrEvent> for Event {
+    fn from(e: pr::PrEvent) -> Self {
+        Self::Pr(e)
     }
 }

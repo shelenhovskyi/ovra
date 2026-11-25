@@ -414,6 +414,7 @@ async fn current(core: &Core, entry: &Entry) -> Result<(ReviewItem, Option<Strin
         fingerprint,
         git_changes: git.changes,
         git_unchecked: git.unchecked,
+        pull_request: None,
     };
     Ok((item, tree))
 }

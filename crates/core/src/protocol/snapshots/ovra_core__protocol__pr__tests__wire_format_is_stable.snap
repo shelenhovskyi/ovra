@@ -1,0 +1,85 @@
+---
+source: crates/core/src/protocol/pr.rs
+expression: "serde_json::json!({\n    \"requests\":\n    [Request::Pr(PrRequest::Status\n    { project: ProjectId(\"p1\".into()), remote: None }),\n    Request::Pr(PrRequest::Create\n    { id: id(), draft, fingerprint: Some(\"f1\".into()) }),\n    Request::Pr(PrRequest::SendLog { id: id(), run: 9 }),], \"responses\":\n    [Response::Pr(PrResponse::Status(GhStatus\n    {\n        installed: true, version: Some(\"2.60.0\".into()), host:\n        Some(\"github.com\".into()), login: Some(\"octo\".into()), signed_in:\n        true,\n    })),\n    Response::Pr(PrResponse::PullRequest(PullRequest\n    {\n        number: 7, url: status.url.clone(), remote: \"origin\".into(), base:\n        \"main\".into(), branch: \"ovra/t1/fix\".into(), pushed: \"abc\".into(),\n        status: Some(status),\n    })),], \"events\":\n    [Event::from(PrEvent::Changed\n    { project: ProjectId(\"p1\".into()), id: id() })],\n})"
+---
+{
+  "events": [
+    {
+      "data": {
+        "id": "r1",
+        "project": "p1"
+      },
+      "type": "pr.changed"
+    }
+  ],
+  "requests": [
+    {
+      "method": "pr.status",
+      "params": {
+        "project": "p1",
+        "remote": null
+      }
+    },
+    {
+      "method": "pr.create",
+      "params": {
+        "draft": {
+          "base": "main",
+          "body": "Why.",
+          "branch": "ovra/t1/fix",
+          "draft": true,
+          "remote": "origin",
+          "title": "Fix the login"
+        },
+        "fingerprint": "f1",
+        "id": "r1"
+      }
+    },
+    {
+      "method": "pr.send_log",
+      "params": {
+        "id": "r1",
+        "run": 9
+      }
+    }
+  ],
+  "responses": [
+    {
+      "data": {
+        "host": "github.com",
+        "installed": true,
+        "login": "octo",
+        "signed_in": true,
+        "version": "2.60.0"
+      },
+      "type": "pr.status"
+    },
+    {
+      "data": {
+        "base": "main",
+        "branch": "ovra/t1/fix",
+        "number": 7,
+        "pushed": "abc",
+        "remote": "origin",
+        "status": {
+          "checks": [
+            {
+              "name": "test",
+              "run": 9,
+              "state": "failed",
+              "url": "https://github.com/o/r/actions/runs/9"
+            }
+          ],
+          "draft": true,
+          "head": "abc",
+          "merge_state": "BLOCKED",
+          "review_decision": null,
+          "state": "open",
+          "url": "https://github.com/o/r/pull/7"
+        },
+        "url": "https://github.com/o/r/pull/7"
+      },
+      "type": "pr.pull_request"
+    }
+  ]
+}

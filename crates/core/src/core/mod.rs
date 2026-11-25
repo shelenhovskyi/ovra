@@ -388,6 +388,10 @@ impl Core {
             Request::Lsp(r) => crate::lsp::handle(self, r).await,
             Request::Servers(r) => crate::servers::handle(self, r).await,
             Request::Browser(r) => crate::browser::handle(self, r).await,
+            Request::Pr(_) => Err(ProtocolError::new(
+                ErrorCode::Unavailable,
+                "pull requests are not available yet",
+            )),
         }
     }
 

@@ -12,6 +12,7 @@ import type { OpenRequest } from "./open";
 import type { OrchestrationEvent, OrchestrationRequest, OrchestrationResponse } from "./orchestration";
 import type { PermissionsEvent, PermissionsRequest, PermissionsResponse } from "./permissions";
 import type { PolicyEvent, PolicyRequest, PolicyResponse } from "./policy";
+import type { PrEvent, PrRequest, PrResponse, PrResponseFor } from "./pr";
 import type { ProjectsEvent, ProjectsRequest, ProjectsResponse } from "./projects";
 import type { ReviewEvent, ReviewRequest, ReviewResponse } from "./review";
 import type { SearchEvent, SearchRequest, SearchResponse } from "./search";
@@ -37,6 +38,7 @@ export type * from "./open";
 export type * from "./orchestration";
 export type * from "./permissions";
 export type * from "./policy";
+export type * from "./pr";
 export type * from "./projects";
 export type * from "./review";
 export type * from "./search";
@@ -63,7 +65,8 @@ export type Request =
   | GitRequest
   | LspRequest
   | ServersRequest
-  | BrowserRequest;
+  | BrowserRequest
+  | PrRequest;
 
 export type Response =
   | InfoResponse
@@ -83,6 +86,7 @@ export type Response =
   | LspResponse
   | ServersResponse
   | BrowserResponse
+  | PrResponse
   | { type: "ok" };
 
 export type CoreEvent =
@@ -101,7 +105,8 @@ export type CoreEvent =
   | NetproxyEvent
   | LspEvent
   | ServersEvent
-  | BrowserEvent;
+  | BrowserEvent
+  | PrEvent;
 
 export type ErrorCode = "bad_request" | "not_found" | "conflict" | "forbidden" | "unavailable" | "internal";
 
@@ -226,4 +231,6 @@ type PhaseThreeResponseFor<R extends Request> = R extends { method: "review.list
                                   ? BrowserResponseFor<R["method"]>
                                   : R extends { method: CheckpointMethod }
                                     ? CheckpointResponseFor<R["method"]>
-                                    : never;
+                                    : R extends PrRequest
+                                      ? PrResponseFor<R["method"]>
+                                      : never;

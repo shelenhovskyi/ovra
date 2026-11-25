@@ -7,6 +7,7 @@ export const STATE_LABEL: Record<ReviewState, string> = {
   approved: "Kept",
   partly_approved: "Kept, not all copied",
   rejected: "Discarded",
+  published: "Pull request opened",
 };
 
 const KIND_LABEL: Record<ChangeKind, string> = {
