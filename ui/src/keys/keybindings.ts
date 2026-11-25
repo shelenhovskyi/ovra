@@ -23,15 +23,31 @@ export async function runCommand(command: Command): Promise<void> {
   }
 }
 
+/** How long after a shortcut its menu bar item counts as the same press: the window may report both. */
+const ECHO_MS = 500;
+/** The command whose shortcut was pressed last, whether it ran here or a focused widget handled the keys. */
+let pressed: { id: string; at: number } | undefined;
+
+/** Runs the command picked in the menu bar, unless it is the echo of the shortcut just pressed. */
+export function runMenuCommand(id: string): void {
+  const echo = pressed?.id === id && Date.now() - pressed.at < ECHO_MS;
+  pressed = undefined;
+  if (echo) return;
+  const command = listCommands().find((c) => c.id === id);
+  if (command) void runCommand(command);
+}
+
 /**
  * Listens for shortcuts on `target`; returns a function that stops listening.
  * In a browser tab, shortcuts the browser keeps are replaced (see `liveKeys`).
  */
 export function installKeybindings(target: Window, apple = isApple(), browser = inBrowserTab()): () => void {
   const onKeydown = (event: KeyboardEvent): void => {
-    if (event.defaultPrevented || event.isComposing) return;
+    if (event.isComposing) return;
     const command = findCommand(event, listCommands(), apple, browser);
     if (!command) return;
+    pressed = { id: command.id, at: Date.now() };
+    if (event.defaultPrevented) return;
     event.preventDefault();
     void runCommand(command);
   };

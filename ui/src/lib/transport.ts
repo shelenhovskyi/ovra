@@ -32,6 +32,8 @@ export interface Transport {
   pickFolder?(): Promise<string | null>;
   /** Paths of what the person drops onto the window. Absent where a page cannot see dropped paths. */
   onDrop?(listener: (paths: string[]) => void): () => void;
+  /** Ids of the commands the person picks in the window's menu bar. Absent where there is none. */
+  onMenu?(listener: (command: string) => void): () => void;
 }
 
 /** Sends a serialized frame; replies and events arrive via `deliver`. */
@@ -115,8 +117,12 @@ function inTauri(): boolean {
 
 export function connectTauri(): Transport {
   let router: FrameRouter;
+  const menuListeners = new Set<(command: string) => void>();
   const ready = Promise.all([import("@tauri-apps/api/core"), import("@tauri-apps/api/event")]).then(([core, event]) => {
     void event.listen<string>("ovra://frame", (e) => router.deliver(e.payload));
+    void event.listen<string>("ovra://menu", (e) => {
+      for (const listener of menuListeners) listener(e.payload);
+    });
     return core.invoke;
   });
   router = new FrameRouter((frame) => {
@@ -139,6 +145,10 @@ export function connectTauri(): Transport {
     onDrop: (listener: (paths: string[]) => void) => {
       dropListeners.add(listener);
       return () => dropListeners.delete(listener);
+    },
+    onMenu: (listener: (command: string) => void) => {
+      menuListeners.add(listener);
+      return () => menuListeners.delete(listener);
     },
   });
 }

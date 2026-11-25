@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { registerCommand } from "./commands";
-import { installKeybindings } from "./keybindings";
+import { installKeybindings, runMenuCommand } from "./keybindings";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {
@@ -98,5 +98,42 @@ describe("keybindings", () => {
     cleanups.push(installKeybindings(window, false, false));
     keydown({ key: "w", code: "KeyW", ctrlKey: true });
     expect(run).toHaveBeenCalledTimes(2);
+  });
+
+  it("runs a command picked in the menu bar once, even when the window also reports its shortcut", () => {
+    vi.useFakeTimers();
+    cleanups.push(() => vi.useRealTimers());
+    const run = vi.fn();
+    cleanups.push(registerCommand({ id: "t.files", title: "Files", keys: "Mod+Shift+E", run }));
+    cleanups.push(installKeybindings(window, true, false));
+
+    runMenuCommand("t.files");
+    expect(run).toHaveBeenCalledTimes(1);
+    // The shortcut runs it; the menu item's accelerator for the same press does not.
+    keydown({ key: "E", code: "KeyE", metaKey: true, shiftKey: true });
+    runMenuCommand("t.files");
+    expect(run).toHaveBeenCalledTimes(2);
+    // A pick a moment later is the person's own.
+    vi.advanceTimersByTime(600);
+    keydown({ key: "E", code: "KeyE", metaKey: true, shiftKey: true });
+    vi.advanceTimersByTime(600);
+    runMenuCommand("t.files");
+    expect(run).toHaveBeenCalledTimes(4);
+    runMenuCommand("t.missing");
+  });
+
+  it("does not run a menu echo of keys a focused widget handled", () => {
+    const run = vi.fn();
+    cleanups.push(registerCommand({ id: "t.find", title: "Find", keys: "Mod+F", run }));
+    cleanups.push(installKeybindings(window, true, false));
+    const widget = document.createElement("div");
+    document.body.append(widget);
+    cleanups.push(() => widget.remove());
+    widget.addEventListener("keydown", (event) => event.preventDefault());
+    widget.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "f", code: "KeyF", metaKey: true, bubbles: true, cancelable: true }),
+    );
+    runMenuCommand("t.find");
+    expect(run).not.toHaveBeenCalled();
   });
 });
