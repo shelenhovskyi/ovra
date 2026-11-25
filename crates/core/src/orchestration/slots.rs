@@ -3,7 +3,7 @@
 //! worker beyond it waits `queued` and starts when a place frees; a person's
 //! start beyond it is refused. Both are checked and their place taken under
 //! the one lock, so starts at the same moment never pass the cap together.
-//! Research sessions (ADR 0011) have a cap of their own, from the user's
+//! Research sessions (ADR 0013) have a cap of their own, from the user's
 //! settings, and never count against the other.
 
 use super::{State, tasks};
@@ -100,7 +100,7 @@ pub(crate) fn capacity(core: &Core, project: &ProjectId) -> AgentCapacity {
     }
 }
 
-/// Research sessions (ADR 0011) that may work at once in one project,
+/// Research sessions (ADR 0013) that may work at once in one project,
 /// unless the person chose another number, from 0 (none) to
 /// [`MAX_RESEARCH_LIMIT`]. They read and search only, so they get places
 /// of their own, but each still uses the person's plan.

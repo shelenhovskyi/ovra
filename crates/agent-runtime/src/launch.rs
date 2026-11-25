@@ -125,7 +125,7 @@ const COORDINATOR_PROMPT: &str = include_str!("../../../agents/roles/coordinator
 const WORKER_PROMPT: &str = include_str!("../../../agents/roles/worker.md");
 const RESEARCH_PROMPT: &str = include_str!("../../../agents/roles/research.md");
 
-/// The built-in tools of a research session (ADR 0011): it reads and
+/// The built-in tools of a research session (ADR 0013): it reads and
 /// searches, nothing else. The core refuses any other tool too.
 const RESEARCH_TOOLS: &str = "Read,Grep,Glob,WebSearch";
 

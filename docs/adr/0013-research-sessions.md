@@ -1,4 +1,4 @@
-# 0011. Research sessions: read-only agents with their own cap
+# 0013. Research sessions: read-only agents with their own cap
 
 - Status: accepted (owner, 2026-11-25)
 - Date: 2026-11-25

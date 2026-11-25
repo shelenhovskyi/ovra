@@ -324,7 +324,7 @@ export class AgentSessions {
     this.transcripts.set(session, data);
   }
 
-  /** `account`: a Claude account's id; null uses the project's. `research` only reads and searches (ADR 0011). */
+  /** `account`: a Claude account's id; null uses the project's. `research` only reads and searches (ADR 0013). */
   async start(
     project: ProjectId,
     prompt: string,

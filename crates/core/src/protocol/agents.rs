@@ -26,7 +26,7 @@ pub enum SessionMode {
     /// In its own git worktree (phase 3).
     Isolated,
     /// Reads the main checkout and searches the web, changes nothing; has
-    /// its own cap (ADR 0011).
+    /// its own cap (ADR 0013).
     Research,
 }
 
@@ -133,7 +133,7 @@ pub struct AgentCapacity {
     pub limit: u32,
     /// Workers waiting for a free place (`queued`).
     pub queued: u32,
-    /// Research sessions that work now (ADR 0011): counted apart from
+    /// Research sessions that work now (ADR 0013): counted apart from
     /// `working`, against `research_limit`.
     #[serde(default)]
     pub research_working: u32,
@@ -300,7 +300,7 @@ pub struct AgentSettings {
     /// ([`AgentLimit`]); `None` is the default.
     pub max_working: Option<u32>,
     /// How many research sessions may work at once in one project (ADR
-    /// 0011); `None` is the default.
+    /// 0013); `None` is the default.
     pub research_limit: Option<u32>,
 }
 
@@ -548,7 +548,7 @@ pub enum AgentsRequest {
     #[serde(rename = "agents.set_limit")]
     SetLimit { limit: u32 },
     /// How many research sessions may work at once in each project
-    /// (ADR 0011), apart from the agents of `agents.limit`.
+    /// (ADR 0013), apart from the agents of `agents.limit`.
     #[serde(rename = "agents.research_limit")]
     ResearchLimit,
     /// Sets it; refused (`bad_request`) outside [`AgentLimit`]'s range.

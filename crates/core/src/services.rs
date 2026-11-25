@@ -247,7 +247,7 @@ pub struct SandboxProfile {
     /// The session's folder, readable and writable.
     pub work_dir: PathBuf,
     /// `work_dir` is readable only, and the sandbox makes nothing in it (a
-    /// research session, ADR 0011).
+    /// research session, ADR 0013).
     pub work_dir_read_only: bool,
     /// More folders it may read but not write.
     pub read: Vec<PathBuf>,

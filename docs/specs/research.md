@@ -2,7 +2,7 @@
 
 Status: approved by the owner on 2026-11-25 (project chat), including the
 network choice: Claude's own web search only, no page fetching through the
-netproxy. Decision record: ADR 0011.
+netproxy. Decision record: ADR 0013.
 
 ## Problem
 

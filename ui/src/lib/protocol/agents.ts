@@ -6,7 +6,7 @@ export type SessionId = string;
 export type AgentKind = "claude";
 
 /** ADR 0005: `direct` works in the main checkout, `isolated` in a worktree (phase 3). */
-/** `research` reads the main checkout and searches the web, changes nothing; own cap (ADR 0011). */
+/** `research` reads the main checkout and searches the web, changes nothing; own cap (ADR 0013). */
 export type SessionMode = "direct" | "isolated" | "research";
 
 /** Closed set: the UI shows exactly these states. */
@@ -218,7 +218,7 @@ export type AgentsRequest =
   /** Refused (`bad_request`) outside `min`..`max`; queued workers start if it rose. */
   | { method: "agents.set_limit"; params: { limit: number } }
   | { method: "agents.research_limit" }
-  /** Refused (`bad_request`) outside `min`..`max` (ADR 0011). */
+  /** Refused (`bad_request`) outside `min`..`max` (ADR 0013). */
   | { method: "agents.set_research_limit"; params: { limit: number } }
   /** Newest first. */
   | { method: "agents.checkpoints"; params: { session: SessionId } }

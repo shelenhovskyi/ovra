@@ -286,7 +286,7 @@ describe("AgentsPanel", () => {
       { session: later.id, name: "tests", branch: "ovra/t1/tests", worktree: "/wt/tests", kept: null },
     );
     core.emit({ type: "orchestration.changed", data: { project: "p1", task: "t1" } });
-    core.capacity = { working: 1, limit: 3, queued: 1 };
+    core.capacity = { working: 1, limit: 3, queued: 1, research_working: 0, research_limit: 2 };
     core.status(docs.id, { state: "working" });
     core.status(later.id, { state: "queued" });
     await settle();

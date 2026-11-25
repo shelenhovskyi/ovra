@@ -353,7 +353,7 @@ pub(crate) async fn start_queued(
 
 /// Takes a place for a person's start, or refuses it while the project has
 /// as many agents working as it may: research sessions against their own
-/// cap (ADR 0011). Hold the place until the session is in the list with its
+/// cap (ADR 0013). Hold the place until the session is in the list with its
 /// status, where it counts itself.
 fn check_room(
     ctx: &Ctx<'_>,

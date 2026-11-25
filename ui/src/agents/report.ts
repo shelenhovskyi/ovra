@@ -1,4 +1,4 @@
-// A research session's answer (ADR 0011): the report the person can save
+// A research session's answer (ADR 0013): the report the person can save
 // under docs/research/ or hand to a task. The UI writes the file through
 // `fs.*`, never the agent.
 

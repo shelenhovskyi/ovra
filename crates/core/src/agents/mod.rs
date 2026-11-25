@@ -853,7 +853,7 @@ impl AgentHost {
                     .await;
             }
             // A research session's web search runs on Anthropic's side and
-            // touches nothing here (ADR 0011).
+            // touches nothing here (ADR 0013).
             Ok(None) if tool == WEB_SEARCH && self.is_research() => {
                 return self
                     .decided(&tool, &input, PermissionAnswer::allow(), DecidedBy::Role)
@@ -936,7 +936,7 @@ impl AgentHost {
     }
 }
 
-/// The only tools a research session may use (ADR 0011); the runtime offers
+/// The only tools a research session may use (ADR 0013); the runtime offers
 /// no others, and the core refuses any other one it is asked about.
 pub(crate) const RESEARCH_TOOLS: [&str; 4] = ["Read", "Grep", "Glob", WEB_SEARCH];
 const WEB_SEARCH: &str = "WebSearch";

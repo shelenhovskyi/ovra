@@ -145,7 +145,7 @@ const fallback = $derived.by((): AccountState | undefined => {
 const blocked = $derived(accounts.signedOut(account ?? accounts.projectAccount));
 /** Every place is taken: One agent, here would be refused (Plan and split queues its workers). */
 const atCap = $derived(mode === "here" && capacity !== undefined && capacity.working >= capacity.limit);
-/** Research has places of its own (ADR 0011); all taken, or none in Settings. */
+/** Research has places of its own (ADR 0013); all taken, or none in Settings. */
 const researchFull = $derived(
   mode === "research" && capacity !== undefined && capacity.research_working >= capacity.research_limit,
 );
