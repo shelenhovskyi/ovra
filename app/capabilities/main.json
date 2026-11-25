@@ -4,6 +4,8 @@
   "description": "Main window. Keep this list minimal: every entry is reviewed by a human (CODEOWNERS).",
   "windows": ["main"],
   "permissions": [
+    "allow-ovra-call",
+    "allow-ovra-pick-folder",
     "core:event:allow-listen",
     "core:event:allow-unlisten",
     "notification:allow-is-permission-granted",

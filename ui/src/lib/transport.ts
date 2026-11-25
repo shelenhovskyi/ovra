@@ -24,6 +24,14 @@ export interface Transport {
   onEvent(listener: (event: CoreEvent) => void): () => void;
   /** Reports the current status at once, then every change. Absent means always open. */
   onStatus?(listener: (status: ConnectionStatus) => void): () => void;
+  /**
+   * Asks the person for a folder with the system's dialog and resolves to its
+   * path, or null when they cancel. Absent where there is no such dialog
+   * (headless mode in a browser).
+   */
+  pickFolder?(): Promise<string | null>;
+  /** Paths of what the person drops onto the window. Absent where a page cannot see dropped paths. */
+  onDrop?(listener: (paths: string[]) => void): () => void;
 }
 
 /** Sends a serialized frame; replies and events arrive via `deliver`. */
@@ -105,7 +113,7 @@ function inTauri(): boolean {
   return "__TAURI_INTERNALS__" in window;
 }
 
-function connectTauri(): Transport {
+export function connectTauri(): Transport {
   let router: FrameRouter;
   const ready = Promise.all([import("@tauri-apps/api/core"), import("@tauri-apps/api/event")]).then(([core, event]) => {
     void event.listen<string>("ovra://frame", (e) => router.deliver(e.payload));
@@ -117,7 +125,22 @@ function connectTauri(): Transport {
       .then((reply) => router.deliver(reply))
       .catch((err: unknown) => router.failAll(err instanceof Error ? err : new Error(String(err))));
   });
-  return router;
+  const dropListeners = new Set<(paths: string[]) => void>();
+  import("@tauri-apps/api/webview")
+    .then(({ getCurrentWebview }) =>
+      getCurrentWebview().onDragDropEvent((e) => {
+        if (e.payload.type !== "drop") return;
+        for (const listener of dropListeners) listener(e.payload.paths);
+      }),
+    )
+    .catch((err: unknown) => console.error("dropping folders onto the window is unavailable", err));
+  return Object.assign(router, {
+    pickFolder: () => ready.then((invoke) => invoke<string | null>("ovra_pick_folder")),
+    onDrop: (listener: (paths: string[]) => void) => {
+      dropListeners.add(listener);
+      return () => dropListeners.delete(listener);
+    },
+  });
 }
 
 /** The part of `WebSocket` the transport uses, so tests can pass a fake. */

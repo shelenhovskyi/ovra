@@ -31,6 +31,7 @@ ovra-browser.workspace = true
 ovra-servers.workspace = true
 ovra-transport.workspace = true
 tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
 tauri-plugin-notification = "2"
 
 [lints]

@@ -18,11 +18,34 @@ use ovra_servers::PodServers;
 use ovra_store::Store;
 use ovra_worktree::{GitRepo, GitWorktrees};
 use tauri::{Emitter, Manager};
+use tauri_plugin_dialog::DialogExt;
 
 /// Carries one client frame to the core and returns the reply frame.
 #[tauri::command]
 async fn ovra_call(client: tauri::State<'_, Client>, frame: String) -> Result<String, ()> {
     Ok(ovra_transport::dispatch(&client, &frame).await)
+}
+
+/// Shows the system's folder dialog over `window` and returns the chosen
+/// folder, or `None` when the person cancels. The UI hands the path to
+/// `projects.add`, which validates it like a typed one. Called from Rust, so
+/// the window gets no dialog permission of its own.
+#[tauri::command]
+async fn ovra_pick_folder(window: tauri::WebviewWindow) -> Result<Option<String>, String> {
+    let dialog = window.dialog().file().set_parent(&window);
+    let picked = tauri::async_runtime::spawn_blocking(move || dialog.blocking_pick_folder())
+        .await
+        .map_err(|err| format!("The folder dialog failed: {err}"))?;
+    let Some(picked) = picked else {
+        return Ok(None);
+    };
+    let path = picked
+        .into_path()
+        .map_err(|_| "That folder is not on this computer.".to_owned())?;
+    path.into_os_string()
+        .into_string()
+        .map(Some)
+        .map_err(|_| "Ovra cannot open folders whose path is not valid Unicode yet.".to_owned())
 }
 
 /// The pods' folder (`ovra_servers::servers_dir`), removed when the app
@@ -37,6 +60,8 @@ fn main() {
     let result = tauri::Builder::default()
         // Provides window.Notification to the UI for system notifications.
         .plugin(tauri_plugin_notification::init())
+        // Folder dialogs, opened from Rust only (`ovra_pick_folder`).
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
@@ -86,7 +111,7 @@ fn main() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![ovra_call])
+        .invoke_handler(tauri::generate_handler![ovra_call, ovra_pick_folder])
         .build(tauri::generate_context!());
     match result {
         Ok(app) => app.run(|app, event| {

@@ -40,6 +40,13 @@ Both transports carry identical JSON frames (`crates/transport/src/lib.rs`):
 The UI's `FrameRouter` (`ui/src/lib/transport.ts`) matches replies to calls and
 fans out events; only the wire under it differs.
 
+Things only a desktop window has stay outside the core and the frames: the
+system's folder dialog (`ovra_pick_folder`) and dropped paths. They are
+optional `Transport` members (`pickFolder`, `onDrop`) that headless mode
+lacks, and a path from them goes to `projects.add` like a typed one. Every
+window command is listed in `app/build.rs` and needs its own entry in
+`app/capabilities/`.
+
 ## Headless mode
 
 `ovra-daemon` binds to 127.0.0.1 only, generates a token per launch, prints
