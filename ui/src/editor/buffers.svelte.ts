@@ -33,6 +33,7 @@ import {
 } from "@codemirror/state";
 import { drawSelection, EditorView, highlightActiveLine, type KeyBinding, keymap, lineNumbers } from "@codemirror/view";
 import { SvelteMap } from "svelte/reactivity";
+import { isApple, matchesShortcut, parseShortcut } from "../keys/shortcut";
 import type { FileContent, ProjectId } from "../lib/protocol";
 import { CoreError, type Transport } from "../lib/transport";
 import type { AutoSaver } from "./autosave";
@@ -50,7 +51,16 @@ import { lineEndingOf } from "./status.svelte";
 import { theme } from "./theme";
 
 /**
- * The keys of every editor; `save` runs on Mod-s. CodeMirror's bindings that
+ * A binding for exactly `keys` (as in `Command.keys`), matched like the
+ * global shortcuts: no extra modifier, physical key on non-Latin layouts.
+ */
+export function exactKey(keys: string, run: (view: EditorView) => boolean): KeyBinding {
+  const shortcut = parseShortcut(keys, isApple());
+  return { any: (view, event) => shortcut !== null && matchesShortcut(event, shortcut) && run(view) };
+}
+
+/**
+ * The keys of every editor; `save` runs on Mod+S. CodeMirror's bindings that
  * would take a global shortcut keep only their Mac key: block comment
  * (Alt+Shift+A goes to approvals in a browser tab) and find previous on
  * Mod-Shift-g (Ctrl+Shift+G shows Git; Shift-F3 still finds previous).
@@ -74,14 +84,12 @@ export function editorKeymap(save: () => void): KeyBinding[] {
     ];
   };
   return [
-    {
-      key: "Mod-s",
-      preventDefault: true,
-      run: () => {
-        save();
-        return true;
-      },
-    },
+    // Exactly Mod+S: CodeMirror's `Mod-s` also matches with Shift held, and
+    // would take Save all (Mod+Shift+S) from the global shortcuts.
+    exactKey("Mod+S", () => {
+      save();
+      return true;
+    }),
     // Go to line on every platform, as in VS Code (CodeMirror's Mod-g finds the next match).
     { key: "Ctrl-g", run: gotoLine, preventDefault: true },
     { key: "Tab", run: indentTab, shift: dedentLines },
