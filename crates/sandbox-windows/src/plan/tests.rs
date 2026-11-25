@@ -123,6 +123,8 @@ fn a_direct_session_behind_a_proxy() {
         work_dir: work.clone(),
         read: Vec::new(),
         write: Vec::new(),
+        expose: Vec::new(),
+        forward: Vec::new(),
         network: ProfileNetwork::Proxy {
             address: "127.0.0.1:49152".into(),
             ca_bundle: Some(bundle),
@@ -147,6 +149,8 @@ fn a_worker_reads_its_git_folder() {
         work_dir: work.clone(),
         read: vec![main_git],
         write: Vec::new(),
+        expose: Vec::new(),
+        forward: Vec::new(),
         network: ProfileNetwork::Blocked,
     };
     let plan = Plan::new(&setup, &profile, &claude).unwrap();
@@ -165,6 +169,8 @@ fn folders_holding_the_home_folder_or_ovras_data_are_refused() {
             work_dir: work.clone(),
             read: Vec::new(),
             write: Vec::new(),
+            expose: Vec::new(),
+            forward: Vec::new(),
             network: ProfileNetwork::Blocked,
         };
         assert!(
@@ -188,6 +194,8 @@ fn a_protected_path_that_is_a_link_refuses_the_session() {
         work_dir: work,
         read: Vec::new(),
         write: Vec::new(),
+        expose: Vec::new(),
+        forward: Vec::new(),
         network: ProfileNetwork::Blocked,
     };
     let error = Plan::new(&setup, &profile, &claude).unwrap_err();
@@ -204,6 +212,8 @@ fn variable_names_match_without_case() {
         work_dir: work.clone(),
         read: Vec::new(),
         write: Vec::new(),
+        expose: Vec::new(),
+        forward: Vec::new(),
         network: ProfileNetwork::Blocked,
     };
     let plan = Plan::new(&setup, &profile, &claude).unwrap();
@@ -251,6 +261,8 @@ fn a_helper_installed_in_the_home_folder_can_be_started() {
         work_dir: work,
         read: Vec::new(),
         write: Vec::new(),
+        expose: Vec::new(),
+        forward: Vec::new(),
         network: ProfileNetwork::Blocked,
     };
     let plan = Plan::new(&setup, &profile, &claude).unwrap();
@@ -269,6 +281,8 @@ fn secret_folders_stay_hidden_whatever_the_case_of_their_name() {
         work_dir: work,
         read: Vec::new(),
         write: Vec::new(),
+        expose: Vec::new(),
+        forward: Vec::new(),
         network: ProfileNetwork::Blocked,
     };
     let plan = Plan::new(&setup, &profile, &claude).unwrap();
@@ -278,7 +292,29 @@ fn secret_folders_stay_hidden_whatever_the_case_of_their_name() {
         work_dir: home_claude,
         read: Vec::new(),
         write: Vec::new(),
+        expose: Vec::new(),
+        forward: Vec::new(),
         network: ProfileNetwork::Blocked,
     };
     assert!(Plan::new(&setup, &profile, &claude).is_err());
+}
+
+#[test]
+fn server_pods_are_refused_and_forwards_left_out() {
+    let root = Root::new("pods");
+    let work = root.dir("projects/app");
+    let claude = root.file("sys/bin/claude.exe");
+    let setup = root.setup(&["sys/bin"]);
+    let mut profile = SandboxProfile {
+        work_dir: work,
+        read: Vec::new(),
+        write: Vec::new(),
+        expose: Vec::new(),
+        forward: vec![5173],
+        network: ProfileNetwork::Blocked,
+    };
+    assert!(Plan::new(&setup, &profile, &claude).is_ok());
+    profile.expose = vec![5173];
+    let err = Plan::new(&setup, &profile, &claude).unwrap_err();
+    assert!(err.to_string().contains("server pods"), "{err}");
 }

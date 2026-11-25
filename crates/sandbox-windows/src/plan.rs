@@ -200,6 +200,12 @@ impl Plan {
         if !work_dir.is_dir() {
             return Err(invalid(format!("{} is not a folder", work_dir.display())));
         }
+        // Server pods (ADR 0008) have no Windows bridge yet. A pod is
+        // refused; an agent's `forward` is left out, which only takes away
+        // reach (it cannot get to its work dir's servers).
+        if !profile.expose.is_empty() {
+            return Err(invalid("the Windows sandbox cannot run server pods yet"));
+        }
         let mut plan = Self {
             grants: Vec::new(),
             denied: Vec::new(),
