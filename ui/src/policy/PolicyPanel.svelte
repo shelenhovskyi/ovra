@@ -1,14 +1,12 @@
 <script lang="ts">
-// Project policies: a header button (and the "Project policies" command) opens
-// a dialog with the rules that decide the open project's tool calls before
-// the person is asked. Every add, edit or removal saves the whole list with
-// `policy.set`; the core checks each rule. Escape closes, unless it closes an
-// open list of suggestions or options first.
+// Project policies, the Rules pane of Settings: the rules that decide the
+// open project's tool calls before the person is asked. Every add, edit or
+// removal saves the whole list with `policy.set`; the core checks each rule.
+// Escape that closes an open list of suggestions or options stays here; the
+// next one closes Settings.
 import { tick, untrack } from "svelte";
-import { registerCommand } from "../keys/commands";
 import type { PolicyAction, PolicyRule } from "../lib/protocol";
 import { useOvra } from "../shell/context";
-import Icon from "../shell/Icon.svelte";
 import { ChangedElsewhere, ProjectPolicy, reason } from "./policy.svelte";
 import {
   ACTIONS,
@@ -23,17 +21,12 @@ import {
   toolNote,
 } from "./rules";
 
-/** Whether to show the header button; the shell opens this from its "More" menu instead. */
-let { trigger = true }: { trigger?: boolean } = $props();
 const { transport, workspace } = useOvra();
 const policy = new ProjectPolicy(transport);
 
-let opened = $state(false);
-let dialog = $state<HTMLElement>();
+let pane = $state<HTMLElement>();
 let toolField = $state<HTMLInputElement>();
 let matchField = $state<HTMLInputElement>();
-let openButton = $state<HTMLButtonElement>();
-let returnTo: HTMLElement | null = null;
 
 let tool = $state("");
 let match = $state("");
@@ -46,7 +39,7 @@ let invalid = $state<"tool" | "match" | null>(null);
 let busy = $state(false);
 /**
  * The browser may show the Tool field's suggestions or the Action options:
- * Escape then closes those, not the dialog. A guess, since pages cannot ask.
+ * Escape then closes those, not Settings. A guess, since pages cannot ask.
  */
 let listOpen = false;
 
@@ -58,32 +51,19 @@ const toolHelp = $derived(
     .filter(Boolean)
     .join(" ") || undefined,
 );
-/** Turning the focused field off would drop focus out of the dialog. */
+/** Turning the focused field off would drop focus out of the pane. */
 let matchFocused = $state(false);
 /** A tool without a match: the field is off, unless it still holds text to clear. */
 const matchOff = $derived(tool.trim() !== "" && !takesMatch(tool) && match.trim() === "" && !matchFocused);
 
 $effect(() => () => policy.dispose());
-$effect(() =>
-  registerCommand({
-    id: "policy.toggle",
-    title: "Project policies",
-    category: "Settings",
-    keywords: ["rules", "permissions"],
-    run: toggle,
-  }),
-);
 
-// Read the policy when the dialog opens, and again for another project.
-// What was typed is cleared only for another project, not when the same
-// project's details are refreshed.
-let shownFor: string | null = null;
+// Read the policy, and again for another project. What was typed is
+// cleared only for another project, not when the same project's details
+// are refreshed.
+let shownFor: string | null | undefined;
 $effect(() => {
   const project = workspace.project?.id ?? null;
-  if (!opened) {
-    shownFor = null;
-    return;
-  }
   if (project === shownFor) return;
   shownFor = project;
   untrack(() => {
@@ -104,29 +84,6 @@ function clearForm(): void {
   formError = null;
   invalid = null;
   listOpen = false;
-}
-
-async function show(): Promise<void> {
-  const active = document.activeElement;
-  returnTo = active instanceof HTMLElement ? active : null;
-  opened = true;
-  await tick();
-  dialog?.querySelector<HTMLElement>("h2")?.focus();
-}
-
-function close(): void {
-  opened = false;
-  clearForm();
-  // Drops what was read, and any read still on its way.
-  void policy.show(null);
-  const back = returnTo?.isConnected && returnTo !== document.body ? returnTo : openButton;
-  back?.focus();
-  returnTo = null;
-}
-
-function toggle(): void {
-  if (opened) close();
-  else void show();
 }
 
 /**
@@ -218,8 +175,8 @@ async function remove(index: number): Promise<void> {
     if (at?.index === index) editing = null;
     else if (at && at.index > index) editing = { ...at, index: at.index - 1 };
     await tick();
-    // The removed row's button is gone; keep focus inside the dialog.
-    if (!dialog?.contains(document.activeElement)) toolField?.focus();
+    // The removed row's button is gone; keep focus inside the pane.
+    if (!pane?.contains(document.activeElement)) toolField?.focus();
   }
 }
 
@@ -238,263 +195,140 @@ function onListKeydown(event: KeyboardEvent): void {
   if (opens) listOpen = true;
 }
 
-function onDialogKeydown(event: KeyboardEvent): void {
-  // Shortcuts of the panels behind the modal must not act.
+/** Escape closes the browser's open list first, and goes no further: Settings stays open. */
+function onPaneKeydown(event: KeyboardEvent): void {
+  if (event.code !== "Escape" || !listOpen) return;
+  listOpen = false;
   event.stopPropagation();
-  if (event.code === "Escape") {
-    if (listOpen) {
-      // The browser closes its list; the dialog stays.
-      listOpen = false;
-      return;
-    }
-    event.preventDefault();
-    close();
-    return;
-  }
-  if (event.code !== "Tab") return;
-  // Keep Tab inside the dialog (aria-modal), also from the heading.
-  const focusable = [
-    ...(dialog?.querySelectorAll<HTMLElement>("button, input, select, summary, [tabindex]") ?? []),
-  ].filter((el) => el.tabIndex >= 0 && !el.matches(":disabled"));
-  const first = focusable[0];
-  const last = focusable[focusable.length - 1];
-  if (!first || !last) return;
-  const at = focusable.indexOf(document.activeElement as HTMLElement);
-  if (at < 0) {
-    event.preventDefault();
-    (event.shiftKey ? last : first).focus();
-  } else if (event.shiftKey && at === 0) {
-    event.preventDefault();
-    last.focus();
-  } else if (!event.shiftKey && at === focusable.length - 1) {
-    event.preventDefault();
-    first.focus();
-  }
 }
 </script>
 
-{#if trigger}
-  <button
-    type="button"
-    class="open-policy"
-    data-testid="open-policy"
-    bind:this={openButton} aria-haspopup="dialog" onclick={() => void show()}>
-    Policies
-  </button>
-{/if}
-
-{#if opened}
-  <!-- A click beside the dialog must not take focus out of it. -->
-  <div class="backdrop" role="presentation" onmousedown={(event) => event.target === event.currentTarget && event.preventDefault()}>
-    <div
-      class="policy"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="policy-title"
-      tabindex="-1"
-      data-testid="policy"
-      bind:this={dialog}
-      onkeydown={onDialogKeydown}
-    >
-      <header>
-        <h2 id="policy-title" tabindex="-1">Project policies</h2>
-        <span class="muted">{workspace.project?.name ?? "No project"}</span>
-        <button type="button" class="close" aria-keyshortcuts="Escape" title="Close (Escape)" onclick={close}
-          ><Icon name="close" /><span class="sr-only"
-            >Close</span
-          ></button
-        >
-      </header>
-      {#if !workspace.project}
-        <p class="muted note">Open a project to see its policies.</p>
-      {:else}
-        <div class="body">
-          <p class="muted intro" data-testid="policy-intro">
-            What agents may do without you: Deny refuses, Ask asks you first, Auto allows. Anything else is asked.
-          </p>
-          <details class="muted">
-            <summary>How rules combine</summary>
-            <p>
-              Deny rules are checked first, then Ask, then Auto: the first that matches decides. Auto works only for an
-              agent in the sandbox with limited network access. Your own Claude settings still apply: Deny and Ask here
-              override them, and Auto never allows a call they refuse.
-            </p>
-          </details>
-          {#if policy.error}
-            <p class="error" role="alert">Could not read the project's policy: {policy.error}</p>
-            <button type="button" data-testid="policy-retry" onclick={() => void policy.reload()}>
-              {policy.loading ? "Loading…" : "Try again"}
-            </button>
-          {/if}
-          {#if rows.length === 0 && !policy.error}
-            <p class="muted" data-testid="policy-empty">
-              {policy.rules === null ? "Loading…" : "No rules yet: what your Claude settings do not allow is asked about."}
-            </p>
-          {:else if rows.length > 0}
-            <ol aria-label="Rules, in the order they are checked">
-              {#each rows as { rule, index } (index)}
-                {@const notes = caveats(rule)}
-                {@const about = notes.length ? `policy-notes-${index}` : undefined}
-                <li data-testid="policy-rule" class={rule.action}>
-                  <div class="line">
-                    <code>{ruleText(rule)}</code>
-                    <span class="action">{ACTIONS[rule.action]}</span>
-                    <button type="button" aria-label={`Edit ${ruleText(rule)} ${rule.action}`} aria-describedby={about} onclick={() => void edit(index, rule)}>Edit</button>
-                    <button type="button" aria-label={`Remove ${ruleText(rule)} ${rule.action}`} aria-describedby={about} onclick={() => void remove(index)}>Remove</button>
-                  </div>
-                  {#if notes.length > 0}
-                    <ul class="notes" id={`policy-notes-${index}`} data-testid="policy-caveat">
-                      {#each notes as note (note)}
-                        <li>{note}</li>
-                      {/each}
-                    </ul>
-                  {/if}
-                </li>
-              {/each}
-            </ol>
-          {/if}
-          <form onsubmit={submit} aria-label={editing ? "Edit rule" : "Add a rule"}>
-            <!-- The core replaces the whole list, so changes wait until it is known. -->
-            <fieldset disabled={policy.rules === null}>
-              <label>
-                Tool
-                <input
-                  bind:this={toolField}
-                  bind:value={tool}
-                  list="policy-tools"
-                  placeholder="Choose or type a tool"
-                  autocomplete="off"
-                  spellcheck="false"
-                  aria-invalid={invalid === "tool" ? "true" : undefined}
-                  aria-describedby={toolHelp}
-                  oninput={onToolInput}
-                  onkeydown={onListKeydown}
-                  onblur={() => (listOpen = false)}
-                  onchange={() => (listOpen = false)}
-                  data-testid="policy-tool"
-                />
-              </label>
-              <datalist id="policy-tools">
-                {#each KNOWN_TOOLS as name (name)}
-                  <option value={name}></option>
-                {/each}
-              </datalist>
-              <label>
-                Match (optional)
-                <input
-                  bind:this={matchField}
-                  bind:value={match}
-                  placeholder={matchOff ? "Covers every call" : "For example npm test or docs/**"}
-                  disabled={matchOff}
-                  autocomplete="off"
-                  spellcheck="false"
-                  aria-invalid={invalid === "match" ? "true" : undefined}
-                  aria-describedby={invalid === "match" && formError ? "policy-error" : "policy-match-hint"}
-                  onfocus={() => (matchFocused = true)}
-                  onblur={() => (matchFocused = false)}
-                  data-testid="policy-match"
-                />
-              </label>
-              <label>
-                Action
-                <select
-                  bind:value={action}
-                  onpointerdown={() => (listOpen = !listOpen)}
-                  onkeydown={onListKeydown}
-                  onblur={() => (listOpen = false)}
-                  onchange={() => (listOpen = false)}
-                  data-testid="policy-action"
-                >
-                  <option value="deny">Deny</option>
-                  <option value="ask">Ask</option>
-                  <option value="auto">Auto</option>
-                </select>
-              </label>
-              <button type="submit" class="primary">{editing ? "Save rule" : "Add rule"}</button>
-              {#if editing}
-                <button type="button" onclick={cancel}>Cancel</button>
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="policy" data-testid="policy" bind:this={pane} onkeydown={onPaneKeydown}>
+  {#if workspace.project}
+    <div class="body">
+      <details class="muted">
+        <summary>How rules combine</summary>
+        <p>
+          Deny rules are checked first, then Ask, then Auto: the first that matches decides. Auto works only for an
+          agent in the sandbox with limited network access. Your own Claude settings still apply: Deny and Ask here
+          override them, and Auto never allows a call they refuse.
+        </p>
+      </details>
+      {#if policy.error}
+        <p class="error" role="alert">Could not read the project's policy: {policy.error}</p>
+        <button type="button" data-testid="policy-retry" onclick={() => void policy.reload()}>
+          {policy.loading ? "Loading…" : "Try again"}
+        </button>
+      {/if}
+      {#if rows.length === 0 && !policy.error}
+        <p class="muted" data-testid="policy-empty">
+          {policy.rules === null ? "Loading…" : "No rules yet: what your Claude settings do not allow is asked about."}
+        </p>
+      {:else if rows.length > 0}
+        <ol aria-label="Rules, in the order they are checked">
+          {#each rows as { rule, index } (index)}
+            {@const notes = caveats(rule)}
+            {@const about = notes.length ? `policy-notes-${index}` : undefined}
+            <li data-testid="policy-rule" class={rule.action}>
+              <div class="line">
+                <code>{ruleText(rule)}</code>
+                <span class="action">{ACTIONS[rule.action]}</span>
+                <button type="button" aria-label={`Edit ${ruleText(rule)} ${rule.action}`} aria-describedby={about} onclick={() => void edit(index, rule)}>Edit</button>
+                <button type="button" aria-label={`Remove ${ruleText(rule)} ${rule.action}`} aria-describedby={about} onclick={() => void remove(index)}>Remove</button>
+              </div>
+              {#if notes.length > 0}
+                <ul class="notes" id={`policy-notes-${index}`} data-testid="policy-caveat">
+                  {#each notes as note (note)}
+                    <li>{note}</li>
+                  {/each}
+                </ul>
               {/if}
-            </fieldset>
-          </form>
-          {#if warning}
-            <p class="warning" id="policy-tool-warning" data-testid="policy-tool-warning">{warning}</p>
+            </li>
+          {/each}
+        </ol>
+      {/if}
+      <form onsubmit={submit} aria-label={editing ? "Edit rule" : "Add a rule"}>
+        <!-- The core replaces the whole list, so changes wait until it is known. -->
+        <fieldset disabled={policy.rules === null}>
+          <label>
+            Tool
+            <input
+              bind:this={toolField}
+              bind:value={tool}
+              list="policy-tools"
+              placeholder="Choose or type a tool"
+              autocomplete="off"
+              spellcheck="false"
+              aria-invalid={invalid === "tool" ? "true" : undefined}
+              aria-describedby={toolHelp}
+              oninput={onToolInput}
+              onkeydown={onListKeydown}
+              onblur={() => (listOpen = false)}
+              onchange={() => (listOpen = false)}
+              data-testid="policy-tool"
+            />
+          </label>
+          <datalist id="policy-tools">
+            {#each KNOWN_TOOLS as name (name)}
+              <option value={name}></option>
+            {/each}
+          </datalist>
+          <label>
+            Match (optional)
+            <input
+              bind:this={matchField}
+              bind:value={match}
+              placeholder={matchOff ? "Covers every call" : "For example npm test or docs/**"}
+              disabled={matchOff}
+              autocomplete="off"
+              spellcheck="false"
+              aria-invalid={invalid === "match" ? "true" : undefined}
+              aria-describedby={invalid === "match" && formError ? "policy-error" : "policy-match-hint"}
+              onfocus={() => (matchFocused = true)}
+              onblur={() => (matchFocused = false)}
+              data-testid="policy-match"
+            />
+          </label>
+          <label>
+            Action
+            <select
+              bind:value={action}
+              onpointerdown={() => (listOpen = !listOpen)}
+              onkeydown={onListKeydown}
+              onblur={() => (listOpen = false)}
+              onchange={() => (listOpen = false)}
+              data-testid="policy-action"
+            >
+              <option value="deny">Deny</option>
+              <option value="ask">Ask</option>
+              <option value="auto">Auto</option>
+            </select>
+          </label>
+          <button type="submit" class="primary">{editing ? "Save rule" : "Add rule"}</button>
+          {#if editing}
+            <button type="button" onclick={cancel}>Cancel</button>
           {/if}
-          {#if !(invalid === "match" && formError)}
-            <p class="muted" id="policy-match-hint">{matchHint(tool)}</p>
-          {/if}
-          {#if formError}
-            <p class="error" role="alert" data-testid="policy-error">{formError}</p>
-          {/if}
-        </div>
+        </fieldset>
+      </form>
+      {#if warning}
+        <p class="warning" id="policy-tool-warning" data-testid="policy-tool-warning">{warning}</p>
+      {/if}
+      {#if !(invalid === "match" && formError)}
+        <p class="muted" id="policy-match-hint">{matchHint(tool)}</p>
+      {/if}
+      {#if formError}
+        <p class="error" role="alert" data-testid="policy-error">{formError}</p>
       {/if}
     </div>
-  </div>
-{/if}
+  {/if}
+</div>
 
 <style>
-  /* The More menu's dialogs share this frame: a raised card over the scrim. */
-  .backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 90;
-    display: flex;
-    justify-content: center;
-    align-items: flex-start;
-    padding: 48px 24px 24px;
-    background: var(--scrim);
-  }
-  .policy {
-    flex: 1;
-    max-width: 760px;
-    max-height: 100%;
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-    min-height: 0;
-    background: var(--s2);
-    border-radius: 14px;
-    box-shadow: var(--card-shadow);
-  }
-  header {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 16px 14px 4px 22px;
-  }
-  h2 {
-    margin: 0;
-    font-size: 17px;
-    font-weight: 600;
-  }
-  .close {
-    margin-left: auto;
-    padding: 4px;
-    color: var(--text-2);
-    background: transparent;
-  }
-  .sr-only {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
-  }
-  .body {
-    flex: 1;
-    overflow: auto;
-    padding: 4px 22px 22px;
-  }
-  .intro {
-    margin: 0 0 8px;
-  }
   .muted,
   label {
     color: var(--text-2);
     font-size: 13px;
-  }
-  .note {
-    margin: 4px 22px 22px;
   }
   button,
   input,
@@ -600,9 +434,6 @@ function onDialogKeydown(event: KeyboardEvent): void {
     gap: 4px;
   }
   @media (forced-colors: active) {
-    .policy {
-      border: 1px solid CanvasText;
-    }
     button,
     input,
     select {

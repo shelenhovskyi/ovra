@@ -2,7 +2,7 @@
 // the open project's first, then Ovra's own. Settings reopens on the pane it
 // showed last.
 
-export type PaneId = "keyboard" | "notifications" | "accessibility" | "about";
+export type PaneId = "rules" | "keyboard" | "notifications" | "accessibility" | "about";
 
 export type Pane = {
   id: PaneId;
@@ -16,6 +16,13 @@ export type Pane = {
 };
 
 export const PANES: Pane[] = [
+  {
+    id: "rules",
+    title: "Rules",
+    line: "What agents may do without you: Deny refuses, Ask asks you first, Auto allows. Anything else is asked.",
+    group: "project",
+    keywords: ["policies", "permissions"],
+  },
   {
     id: "notifications",
     title: "Notifications",

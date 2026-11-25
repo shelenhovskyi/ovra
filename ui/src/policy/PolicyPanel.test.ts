@@ -1,6 +1,5 @@
 import { flushSync, mount, unmount } from "svelte";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { listCommands } from "../keys/commands";
 import { Workspace } from "../shell/workspace.svelte";
 import { FakePolicyCore } from "./fake-policy";
 import TestHost from "./TestHost.svelte";
@@ -58,15 +57,8 @@ async function submit() {
 }
 
 describe("PolicyPanel", () => {
-  it("opens from its command on the rules, deny first, with their caveats, and returns focus on Escape", async () => {
+  it("shows the rules, deny first, with their caveats", async () => {
     await setup();
-    const open = $<HTMLButtonElement>("[data-testid=open-policy]");
-    open?.focus();
-    await listCommands()
-      .find((c) => c.id === "policy.toggle")
-      ?.run();
-    await settle();
-    expect(document.activeElement?.id).toBe("policy-title");
     expect(rules()).toEqual([
       expect.stringMatching(/^WebFetch\s+Deny/),
       expect.stringMatching(/^Bash\(npm test\)\s+Auto/),
@@ -77,19 +69,10 @@ describe("PolicyPanel", () => {
       /only to an agent in the sandbox with limited network access\. Otherwise the call is decided as if this rule were not there/,
     );
     expect(notes).toMatch(/npm test also runs .*the agent can edit those/);
-
-    $("[data-testid=policy]")?.dispatchEvent(
-      new KeyboardEvent("keydown", { code: "Escape", key: "Escape", bubbles: true }),
-    );
-    await settle();
-    expect($("[data-testid=policy]")).toBeNull();
-    expect(document.activeElement).toBe(open);
   });
 
   it("adds, edits and removes rules through policy.set", async () => {
     const core = await setup();
-    $<HTMLButtonElement>("[data-testid=open-policy]")?.click();
-    await settle();
     type("[data-testid=policy-tool]", "Bash");
     type("[data-testid=policy-match]", "git push");
     type("[data-testid=policy-action]", "deny");
@@ -117,8 +100,6 @@ describe("PolicyPanel", () => {
 
   it("says once, without asking the core, that a tool takes no match", async () => {
     const core = await setup();
-    $<HTMLButtonElement>("[data-testid=open-policy]")?.click();
-    await settle();
     type("[data-testid=policy-tool]", "WebFetch");
     flushSync();
     const matchField = $<HTMLInputElement>("[data-testid=policy-match]");
@@ -143,8 +124,6 @@ describe("PolicyPanel", () => {
   it("fixes a tool name's case and shows the core's refusal in plain words", async () => {
     const core = await setup();
     core.refuse.set("Bash", "Bash(rm -rf): the match is empty; leave it out to match every call");
-    $<HTMLButtonElement>("[data-testid=open-policy]")?.click();
-    await settle();
     type("[data-testid=policy-tool]", "bash");
     flushSync();
     expect($("#policy-tool-warning")?.textContent).toBe("Saved as Bash: tool names are case-sensitive.");
@@ -161,8 +140,6 @@ describe("PolicyPanel", () => {
 
   it("keeps an edit whose rule changed elsewhere as a new rule instead of overwriting", async () => {
     const core = await setup();
-    $<HTMLButtonElement>("[data-testid=open-policy]")?.click();
-    await settle();
     $<HTMLButtonElement>("[aria-label='Edit WebFetch deny']")?.click();
     await settle();
     core.rules.set("p1", [
@@ -187,8 +164,6 @@ describe("PolicyPanel", () => {
 
   it("keeps editing the same rule when another one is removed", async () => {
     const core = await setup();
-    $<HTMLButtonElement>("[data-testid=open-policy]")?.click();
-    await settle();
     $<HTMLButtonElement>("[aria-label='Edit WebFetch deny']")?.click();
     await settle();
     const remove = $<HTMLButtonElement>("[aria-label='Remove Bash(npm test) auto']");
@@ -203,8 +178,6 @@ describe("PolicyPanel", () => {
 
   it("adopts a policy changed elsewhere instead of dropping it, and keeps what was typed", async () => {
     const core = await setup();
-    $<HTMLButtonElement>("[data-testid=open-policy]")?.click();
-    await settle();
     // Another window adds a rule; its event has not arrived yet.
     core.rules.set("p1", [...(core.rules.get("p1") ?? []), { tool: "Read", match: "secrets/**", action: "deny" }]);
     type("[data-testid=policy-tool]", "Bash");
@@ -220,8 +193,6 @@ describe("PolicyPanel", () => {
 
   it("keeps what was typed when the same project's details refresh, and clears it for another", async () => {
     const core = await setup();
-    $<HTMLButtonElement>("[data-testid=open-policy]")?.click();
-    await settle();
     type("[data-testid=policy-tool]", "Bash");
     workspace.project = { id: "p1", name: "demo", root: "/demo", last_opened_ms: 1, trusted: true };
     await settle();
@@ -233,44 +204,20 @@ describe("PolicyPanel", () => {
     expect($("[data-testid=policy-empty]")?.textContent).toMatch(/No rules yet/);
   });
 
-  it("keeps Tab inside the dialog", async () => {
-    await setup();
-    $<HTMLButtonElement>("[data-testid=open-policy]")?.click();
-    await settle();
-    const tab = (shiftKey: boolean) =>
-      $("[data-testid=policy]")?.dispatchEvent(
-        new KeyboardEvent("keydown", { code: "Tab", key: "Tab", shiftKey, bubbles: true, cancelable: true }),
-      );
-    $<HTMLButtonElement>("button[type=submit]")?.focus();
-    tab(false);
-    expect(document.activeElement?.textContent?.trim()).toBe("Close");
-    tab(true);
-    expect(document.activeElement?.textContent?.trim()).toBe("Add rule");
-  });
-
-  it("keeps Tab inside the dialog while the form waits for the rules", async () => {
+  it("keeps the form off while the rules load", async () => {
     const core = await setup();
     core.hold = "policy.get";
-    $<HTMLButtonElement>("[data-testid=open-policy]")?.click();
+    workspace.project = { id: "p2", name: "other", root: "/other", last_opened_ms: null, trusted: false };
     await settle();
     expect($("[data-testid=policy-empty]")?.textContent).toBe("Loading…");
     expect($<HTMLInputElement>("[data-testid=policy-tool]")?.matches(":disabled")).toBe(true);
-    const focused: (string | undefined)[] = [];
-    for (const shiftKey of [false, false, true]) {
-      $("[data-testid=policy]")?.dispatchEvent(
-        new KeyboardEvent("keydown", { code: "Tab", key: "Tab", shiftKey, bubbles: true, cancelable: true }),
-      );
-      focused.push(document.activeElement?.textContent?.trim());
-    }
-    // Only Close and the "How rules combine" disclosure: the disabled form is skipped.
-    expect(focused).toEqual(["Close", "Close", "How rules combine"]);
     core.release();
   });
 
   it("offers to try again when the rules cannot be read", async () => {
     const core = await setup();
     core.readFails = "the core is not reachable";
-    $<HTMLButtonElement>("[data-testid=open-policy]")?.click();
+    core.emit({ type: "policy.changed", data: { project: "p1" } });
     await settle();
     expect($("[role=alert]")?.textContent).toMatch(/Could not read the project's policy: the core is not reachable/);
     core.readFails = null;
@@ -280,35 +227,26 @@ describe("PolicyPanel", () => {
     expect($("[data-testid=policy-retry]")).toBeNull();
   });
 
-  it("closes an open list of suggestions before the dialog, and returns focus to its button", async () => {
-    const core = await setup();
-    document.body.focus();
-    await listCommands()
-      .find((c) => c.id === "policy.toggle")
-      ?.run();
-    await settle();
+  it("keeps Escape for an open list of suggestions, so Settings stays open", async () => {
+    await setup();
     type("[data-testid=policy-tool]", "Ba");
+    // What Settings sees of the key: the browser closes its list, then the next Escape closes Settings.
+    let reached = 0;
+    const count = () => reached++;
+    document.addEventListener("keydown", count);
     const pressEscape = () =>
       $("[data-testid=policy-tool]")?.dispatchEvent(
         new KeyboardEvent("keydown", { code: "Escape", key: "Escape", bubbles: true, cancelable: true }),
       );
     pressEscape();
-    await settle();
-    expect($("[data-testid=policy]")).not.toBeNull();
+    expect(reached).toBe(0);
     pressEscape();
-    await settle();
-    expect($("[data-testid=policy]")).toBeNull();
-    expect(document.activeElement).toBe($("[data-testid=open-policy]"));
-    // A closed dialog no longer follows the policy.
-    core.emit({ type: "policy.changed", data: { project: "p1" } });
-    await settle();
-    expect(core.calls.filter((c) => c.method === "policy.get")).toHaveLength(1);
+    expect(reached).toBe(1);
+    document.removeEventListener("keydown", count);
   });
 
   it("reads the rules again when the policy changes elsewhere", async () => {
     const core = await setup();
-    $<HTMLButtonElement>("[data-testid=open-policy]")?.click();
-    await settle();
     core.rules.set("p1", [{ tool: "Write", match: "docs/**", action: "auto" }]);
     core.emit({ type: "policy.changed", data: { project: "p1" } });
     await settle();

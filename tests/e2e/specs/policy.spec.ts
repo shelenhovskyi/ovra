@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "../test";
 
-test("a project's policy rules are added in the policies dialog, refused inline and kept", async ({ page }) => {
+test("a project's rules are added in Settings, refused inline and kept", async ({ page }) => {
   const url = process.env.OVRA_URL;
   if (!url) throw new Error("OVRA_URL is not set; globalSetup did not run");
   const dir = mkdtempSync(join(tmpdir(), "ovra-policy-"));
@@ -16,9 +16,10 @@ test("a project's policy rules are added in the policies dialog, refused inline 
 
   await page.getByTestId("more").click();
   await page.getByRole("menuitem", { name: "Settings…" }).click();
-  await page.getByRole("option", { name: /Project policies/ }).click();
-  const dialog = page.getByRole("dialog", { name: "Project policies" });
-  await expect(dialog.getByRole("heading", { name: "Project policies" })).toBeFocused();
+  const settings = page.getByRole("region", { name: "Settings" });
+  await expect(settings.getByRole("heading", { name: "Settings" })).toBeFocused();
+  await settings.getByRole("navigation", { name: "Settings panes" }).getByRole("button", { name: "Rules" }).click();
+  const dialog = settings.getByRole("region", { name: "Rules" });
   await expect(dialog.getByTestId("policy-empty")).toHaveText(/No rules yet/);
 
   // A tool that never takes a match turns Match off, and a match typed before is refused once.
@@ -36,14 +37,17 @@ test("a project's policy rules are added in the policies dialog, refused inline 
   await dialog.getByRole("button", { name: "Add rule" }).click();
   await expect(dialog.getByTestId("policy-rule")).toHaveText(/Bash\(git push\)\s*Deny.*Advisory/);
 
-  await page.keyboard.press("Escape");
-  await expect(dialog).toBeHidden();
-  // A new page reads the rules from the core again.
-  // The project opens by itself after a reload.
+  // Opening a file closes Settings.
+  await page.getByRole("treeitem", { name: /README\.md/ }).click();
+  await expect(settings).toBeHidden();
+  // A new page reads the rules from the core again; the project opens by
+  // itself after a reload, and Mod+K finds the pane by another name.
   await page.reload();
   await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();
-  await page.getByTestId("more").click();
-  await page.getByRole("menuitem", { name: "Settings…" }).click();
-  await page.getByRole("option", { name: /Project policies/ }).click();
+  await page.keyboard.press("ControlOrMeta+K");
+  await page.keyboard.type(">permissions");
+  await page.getByRole("option", { name: /Rules/ }).click();
   await expect(page.getByTestId("policy-rule")).toHaveText(/Bash\(git push\)/);
+  await page.keyboard.press("Escape");
+  await expect(settings).toBeHidden();
 });

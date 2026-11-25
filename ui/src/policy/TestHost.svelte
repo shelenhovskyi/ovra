@@ -1,5 +1,5 @@
 <script lang="ts">
-// Test-only host: the policy dialog with the shell's context.
+// Test-only host: the Rules pane with the shell's context.
 import type { Transport } from "../lib/transport";
 import { provideOvra } from "../shell/context";
 import type { Workspace } from "../shell/workspace.svelte";

@@ -7,6 +7,7 @@ import { untrack } from "svelte";
 import { listCommands } from "../keys/commands";
 import { formatShortcut, inBrowserTab, isApple, liveKeys } from "../keys/shortcut";
 import type { CoreInfo } from "../lib/protocol";
+import PolicyPanel from "../policy/PolicyPanel.svelte";
 import { useOvra } from "../shell/context";
 import ViewFrame from "../shell/ViewFrame.svelte";
 import { loadScreenReader } from "../terminal/prefs";
@@ -105,7 +106,9 @@ function onListKeydown(event: KeyboardEvent): void {
       <section class="pane" aria-labelledby="settings-pane-title" data-testid={`settings-${pane.id}`}>
         <h3 id="settings-pane-title" class="title">{pane.title}</h3>
         <p class="line">{pane.line}</p>
-        {#if pane.id === "notifications"}
+        {#if pane.id === "rules"}
+          <PolicyPanel />
+        {:else if pane.id === "notifications"}
           <p class="field">
             <span>System notifications</span>
             <strong data-testid="notifications-state"
