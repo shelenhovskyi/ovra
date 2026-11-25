@@ -237,6 +237,25 @@ describe("trust summary", () => {
 });
 
 describe("ClaudeSetup", () => {
+  it("holds its place with one quiet line, and no account links, until the first check answers", async () => {
+    const core = new FakeAgentCore();
+    const call = core.call.bind(core);
+    let answer = () => {};
+    const held = new Promise<void>((resolve) => (answer = resolve));
+    core.call = (async (request) => {
+      if (request.method === "agents.setup") await held;
+      return call(request);
+    }) as FakeAgentCore["call"];
+    await show(core);
+    expect(card()?.getAttribute("aria-busy")).toBe("true");
+    expect(card()?.textContent?.trim()).toBe("Claude");
+    expect(card()?.querySelector("button")).toBeNull();
+    answer();
+    await settle();
+    expect(card()?.getAttribute("aria-busy")).toBe("false");
+    expect(card()?.querySelector("h3")?.textContent).toBe("Claude 2.1.331 is ready");
+  });
+
   it("shows a ready Claude in one line and hides the path field", async () => {
     await show(new FakeAgentCore());
     expect(card()?.querySelector("h3")?.textContent).toBe("Claude 2.1.331 is ready");
