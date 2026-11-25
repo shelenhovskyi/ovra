@@ -24,6 +24,7 @@ export const ICONS = {
   "collapse-all": '<path d="m7 15 5-5 5 5M7 9l5-5 5 5"/>',
   reveal: '<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.5"/>',
   filter: '<path d="M4 6h16M7 12h10M10 18h4"/>',
+  pin: '<path d="M12 16v4.5M8.5 4h7M10 4v5l-3.5 4.5V16h11v-2.5L14 9V4"/>',
   review:
     '<path d="M5 5.5A1.5 1.5 0 0 1 6.5 4h11A1.5 1.5 0 0 1 19 5.5v13a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 18.5z"/><path d="m9 12 2 2 4-4"/>',
   settings:
