@@ -189,6 +189,8 @@ pub(crate) struct Plan {
     pub(crate) path: OsString,
     /// Variables the plan sets (the cache, temporary and proxy ones).
     pub(crate) set: Vec<(OsString, Option<OsString>)>,
+    /// The project's SID ([`project_sid`]).
+    pub(crate) sid: String,
 }
 
 impl Plan {
@@ -203,6 +205,7 @@ impl Plan {
             denied: Vec::new(),
             path: OsString::new(),
             set: Vec::new(),
+            sid: project_sid(&work_dir),
         };
         let claude = (home.join(".claude"), home.join(".claude.json"));
         let data = real(&setup.data_dir).unwrap_or_else(|_| setup.data_dir.clone());
@@ -402,7 +405,7 @@ impl Plan {
         line: CommandLine,
         outer_env: &[OsString],
     ) -> CommandLine {
-        let mut args: Vec<OsString> = vec![HELPER_FLAG.into()];
+        let mut args: Vec<OsString> = vec![HELPER_FLAG.into(), "--sid".into(), (&self.sid).into()];
         for (path, right) in &self.grants {
             args.extend([OsString::from(format!("--{}", right.flag())), path.into()]);
         }
@@ -462,6 +465,27 @@ pub(crate) fn project_key(work_dir: &Path) -> String {
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
         .collect()
+}
+
+/// The SID that stands for one project in ACEs and in the session's
+/// token: `S-1-5-21-` and four numbers from a hash of the project's key.
+/// It names no account; only Ovra's grants mention it.
+pub(crate) fn project_sid(work_dir: &Path) -> String {
+    let key = project_key(work_dir);
+    let fnv = |seed: u64| {
+        key.bytes().fold(seed, |hash, byte| {
+            (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
+        })
+    };
+    let (a, b) = (fnv(0xcbf2_9ce4_8422_2325), fnv(0x6c62_272e_07bb_0142));
+    let part = |n: u64| n as u32;
+    format!(
+        "S-1-5-21-{}-{}-{}-{}",
+        part(a),
+        part(a >> 32),
+        part(b),
+        part(b >> 32)
+    )
 }
 
 /// `path` with links resolved, absolute.
