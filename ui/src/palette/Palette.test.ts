@@ -34,7 +34,7 @@ async function open(
     target.remove();
   });
   flushSync();
-  await new Promise((resolve) => setTimeout(resolve)); // let the entries load
+  await new Promise((resolve) => setImmediate(resolve)); // let the entries load
   flushSync();
   const input = target.querySelector("input");
   if (!input) throw new Error("no input");
@@ -50,7 +50,7 @@ async function type(input: HTMLInputElement, text: string): Promise<void> {
 }
 
 async function settle(): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
   flushSync();
 }
 
