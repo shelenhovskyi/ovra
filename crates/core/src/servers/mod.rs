@@ -33,7 +33,7 @@ use crate::protocol::servers::{
 use crate::protocol::{ErrorCode, OkResponse, ProtocolError, Response};
 use crate::services::{DevServerSpec, DevServers, NetProxy, SandboxStatus, ServerSink};
 
-pub(crate) use grants::{forward, session_ended, session_started};
+pub(crate) use grants::{forward, granted_ports, session_ended, session_started};
 pub(crate) use pods::allowlist_changed;
 
 type Result<T> = std::result::Result<T, ProtocolError>;

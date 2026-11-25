@@ -24,8 +24,8 @@ use crate::protocol::policy::PolicyAction;
 use crate::protocol::projects::ProjectId;
 use crate::protocol::{ErrorCode, ProtocolError};
 use crate::services::{
-    EventSink, IdeTools, NetProxy, RunningAgent, SessionStore, StoredSession, ToolCaller, ToolRole,
-    Worktrees,
+    EventSink, IdeTools, NetProxy, ProfileNetwork, RunningAgent, SessionStore, StoredSession,
+    ToolCaller, ToolRole, Worktrees,
 };
 
 pub(crate) use permissions::Permissions;
@@ -63,6 +63,9 @@ struct Session {
     trusted: bool,
     /// Counts the runs of this session: a resume starts the next one.
     run: u64,
+    /// The network of this run's agent: its browser goes through the same
+    /// netproxy.
+    network: Option<ProfileNetwork>,
 }
 
 /// Where a session works and which IDE tools it gets; kept to resume it the
@@ -127,6 +130,7 @@ impl Sessions {
                 launch: None,
                 trusted: false,
                 run: 0,
+                network: None,
             };
             if !session.info.status.is_ended() {
                 session.info.status = AgentStatus::Stopped;
@@ -173,6 +177,7 @@ impl Sessions {
             launch: None,
             trusted: false,
             run: 0,
+            network: None,
         };
         let _ = self.store.save(&session.stored());
         list.push(session);
@@ -289,6 +294,12 @@ impl SessionView<'_> {
     }
     pub(crate) fn set_launch(&mut self, launch: Launch) {
         self.session.launch = Some(launch);
+    }
+    pub(crate) fn network(&self) -> Option<ProfileNetwork> {
+        self.session.network.clone()
+    }
+    fn set_network(&mut self, network: ProfileNetwork) {
+        self.session.network = Some(network);
     }
     fn set_trusted(&mut self, trusted: bool) {
         self.session.trusted = trusted;
@@ -654,6 +665,7 @@ impl AgentHost {
                 crate::orchestration::on_status(&core, &self.session, &status);
                 if status.is_ended() {
                     crate::servers::session_ended(&core, &self.session);
+                    crate::browser::session_ended(&core, &self.session);
                 }
             }
         }

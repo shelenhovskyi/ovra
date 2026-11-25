@@ -372,6 +372,7 @@ async fn run(
         crate::servers::session_started(core, id);
     }
     let sandbox = profile(&target.project, mode, &launch.cwd, network, forward);
+    sessions.find(id, |s| s.set_network(sandbox.network.clone()))?;
     let spec = AgentSpec {
         session: id.clone(),
         agent,

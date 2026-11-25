@@ -8,6 +8,7 @@
 
 mod agents;
 mod audit;
+mod browser;
 mod core;
 #[cfg(any(test, feature = "fakes"))]
 pub mod fakes;

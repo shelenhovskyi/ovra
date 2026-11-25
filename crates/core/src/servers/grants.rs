@@ -77,6 +77,13 @@ pub(crate) fn session_ended(core: &Core, session: &SessionId) {
     }
 }
 
+/// The ports of the servers `session` may reach now.
+pub(crate) fn granted_ports(core: &Core, session: &SessionId) -> Vec<u16> {
+    let state = core.dev_servers().lock();
+    let granted = state.granted.get(session).map(Vec::as_slice);
+    granted.unwrap_or_default().iter().map(|g| g.1).collect()
+}
+
 /// The ports defined in `dir` when a session starts there, which its
 /// sandbox forwards to its netproxy. None while servers cannot run.
 pub(crate) async fn forward(core: &Core, dir: &Path) -> Vec<u16> {

@@ -19,7 +19,7 @@ use crate::protocol::{ErrorCode, Event, OkResponse, ProtocolError, Request, Resp
 use crate::search::{self, Searches};
 use crate::servers::DevServerState;
 use crate::services::{
-    AgentRuntime, AuditLog, DevServers, EventSink, FsService, GitService, IdeTools,
+    AgentRuntime, AuditLog, Browser, DevServers, EventSink, FsService, GitService, IdeTools,
     LanguageServers, NetProxy, Opener, ProjectStore, Secrets, SessionStore, TerminalService,
     Unavailable, Worktrees,
 };
@@ -45,6 +45,7 @@ pub struct CoreBuilder {
     netproxy: Option<Arc<dyn NetProxy>>,
     lsp: Arc<dyn LanguageServers>,
     dev_servers: Arc<dyn DevServers>,
+    browser: Arc<dyn Browser>,
 }
 
 impl CoreBuilder {
@@ -135,6 +136,12 @@ impl CoreBuilder {
         self
     }
 
+    /// A browser per agent session, behind the session's netproxy (ADR 0009).
+    pub fn browser(mut self, browser: Arc<dyn Browser>) -> Self {
+        self.browser = browser;
+        self
+    }
+
     pub fn build(self) -> Core {
         let (events, _) = broadcast::channel(EVENT_CAPACITY);
         let kept = self.sessions.clone();
@@ -147,6 +154,7 @@ impl CoreBuilder {
                 terminals: self.terminals,
                 agents: self.agents,
                 dev_servers: DevServerState::new(self.dev_servers, self.netproxy.clone()),
+                browser: crate::browser::BrowserState::new(self.browser),
                 sessions: Arc::new(Sessions::new(
                     self.sessions,
                     self.worktrees.clone(),
@@ -208,6 +216,7 @@ struct Inner {
     lsp_servers: crate::lsp::Servers,
     audit_state: crate::audit::State,
     dev_servers: DevServerState,
+    browser: crate::browser::BrowserState,
 }
 
 /// A [`Core`] that does not keep it alive; sessions hold one so their IDE
@@ -286,6 +295,7 @@ impl Core {
             netproxy: None,
             lsp: Arc::new(Unavailable("language servers")),
             dev_servers: Arc::new(Unavailable("servers")),
+            browser: Arc::new(Unavailable("the agent browser")),
         }
     }
 
@@ -370,11 +380,7 @@ impl Core {
             Request::Git(r) => crate::git::handle(self, r).await,
             Request::Lsp(r) => crate::lsp::handle(self, r).await,
             Request::Servers(r) => crate::servers::handle(self, r).await,
-            // Until the core implements it (task B.B).
-            Request::Browser(_) => Err(ProtocolError::new(
-                ErrorCode::Unavailable,
-                "the agent browser is not available in this build",
-            )),
+            Request::Browser(r) => crate::browser::handle(self, r).await,
         }
     }
 
@@ -433,6 +439,10 @@ impl Core {
 
     pub(crate) fn dev_servers(&self) -> &DevServerState {
         &self.inner.dev_servers
+    }
+
+    pub(crate) fn browser_state(&self) -> &crate::browser::BrowserState {
+        &self.inner.browser
     }
 
     pub(crate) fn project_store(&self) -> &dyn ProjectStore {
@@ -647,7 +657,7 @@ impl Core {
 /// Only web pages may leave the IDE: no `file:`, `javascript:` or custom
 /// schemes that could start other programs, and nothing a system handler
 /// could read as an option or a second argument.
-fn check_web_url(url: &str) -> Result<(), ProtocolError> {
+pub(crate) fn check_web_url(url: &str) -> Result<(), ProtocolError> {
     let lower = url.get(..8).unwrap_or(url).to_ascii_lowercase();
     let has_host = ["http://", "https://"]
         .iter()
