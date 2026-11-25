@@ -137,7 +137,8 @@ fn language_servers(args: &Args) -> Arc<dyn LanguageServers> {
 }
 
 /// With the fake agent, `rust` files get the fake language server built
-/// next to the daemon (`just build-headless`) instead of rust-analyzer.
+/// next to the daemon (`just build-headless`) instead of rust-analyzer,
+/// and `typescript` a server that is never installed.
 #[cfg(feature = "fake-agent")]
 fn language_servers(args: &Args) -> Arc<dyn LanguageServers> {
     let sandbox = ovra_sandbox::for_this_os(&args.data_dir);
@@ -155,7 +156,20 @@ fn language_servers(args: &Args) -> Arc<dyn LanguageServers> {
         install: "just build-headless".into(),
         env: Vec::new(),
     };
-    Arc::new(ovra_lsp::Servers::with_known(sandbox, caches, vec![def]))
+    // One that is never installed, so the missing-server hint can be seen.
+    let missing = ovra_lsp::ServerDef {
+        language: "typescript".into(),
+        name: "fake-ts".into(),
+        program: exe.with_file_name("fake-ts-not-installed"),
+        args: Vec::new(),
+        install: "(not installed in fake mode)".into(),
+        env: Vec::new(),
+    };
+    Arc::new(ovra_lsp::Servers::with_known(
+        sandbox,
+        caches,
+        vec![def, missing],
+    ))
 }
 
 #[cfg(not(feature = "fake-agent"))]

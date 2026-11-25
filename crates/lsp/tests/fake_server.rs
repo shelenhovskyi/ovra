@@ -107,3 +107,57 @@ async fn runs_through_the_sandbox_and_reports_a_crash_with_stderr() {
     let reason = reason.expect("a reason");
     assert!(reason.ends_with(": fake: crashed on purpose"), "{reason}");
 }
+
+// `file://` plus a Unix path; Windows paths need more encoding than the fake does.
+#[cfg(unix)]
+#[tokio::test]
+async fn the_fake_finds_and_renames_a_word_in_open_files_and_at_the_root() {
+    let dir = tempfile::tempdir().expect("tmp");
+    std::fs::write(dir.path().join("b.rs"), "use crate::greet;\n").expect("write");
+    let (servers, _) = servers(unsandboxed(), &dir.path().join("lsp"));
+    let (host, record) = ServerHost::recording();
+    let server = servers
+        .start(spec(dir.path()), host)
+        .await
+        .expect("start")
+        .process;
+    let root = format!("file://{}", dir.path().display());
+    let a = format!("{root}/a.rs");
+    let b = format!("{root}/b.rs");
+    let send = |message: Value| server.send(message).expect("send");
+    send(json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": root}}));
+    send(
+        json!({"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {
+            "textDocument": {"uri": a, "languageId": "rust", "version": 1, "text": "fn greet() {}\nfn greeting() { greet(); }\n"},
+        }}),
+    );
+    let at = json!({"textDocument": {"uri": a}, "position": {"line": 0, "character": 4}});
+    send(json!({"jsonrpc": "2.0", "id": 2, "method": "textDocument/references", "params": at}));
+    let mut rename = at.clone();
+    rename["newName"] = json!("hello");
+    send(json!({"jsonrpc": "2.0", "id": 3, "method": "textDocument/rename", "params": rename}));
+    record.wait(|r| with_id(r, 3).is_some()).await;
+    let found = with_id(&record, 2).expect("references")["result"].clone();
+    let places: Vec<(String, u64, u64)> = found
+        .as_array()
+        .expect("list")
+        .iter()
+        .map(|l| {
+            let start = &l["range"]["start"];
+            let uri = l["uri"].as_str().unwrap_or_default().to_owned();
+            (
+                uri,
+                start["line"].as_u64().unwrap_or(9),
+                start["character"].as_u64().unwrap_or(9),
+            )
+        })
+        .collect();
+    assert_eq!(
+        places,
+        [(a.clone(), 0, 3), (a.clone(), 1, 16), (b.clone(), 0, 11)]
+    );
+    let changes = &with_id(&record, 3).expect("rename")["result"]["changes"];
+    assert_eq!(changes[&a].as_array().map(Vec::len), Some(2));
+    assert_eq!(changes[&b][0]["newText"], "hello");
+    server.stop();
+}

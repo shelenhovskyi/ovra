@@ -1,10 +1,13 @@
 //! A stand-in language server for tests and e2e (feature `fake-server`).
 //! It speaks the LSP base protocol on stdio: it answers `initialize`
 //! (after asking the client for `workspace/configuration` once), reports a
-//! diagnostic on each line with `TODO`, answers hover and definition, and
-//! exits on `exit` or the end of its input. `fake/crash` makes it write to
-//! stderr and exit with code 3.
+//! diagnostic on each line with `TODO`, answers hover, definition,
+//! completion, and references and rename by the word at the position (in
+//! open files and the `.rs` files at the root), and exits on `exit` or the
+//! end of its input. `fake/crash` makes it write to stderr and exit with
+//! code 3.
 
+use std::collections::BTreeMap;
 use std::io::{BufRead, Write};
 
 use serde_json::{Value, json};
@@ -13,6 +16,8 @@ fn main() -> std::io::Result<()> {
     let stdin = std::io::stdin();
     let mut input = stdin.lock();
     let mut out = std::io::stdout().lock();
+    let mut docs: BTreeMap<String, String> = BTreeMap::new();
+    let mut root: Option<String> = None;
     while let Some(message) = read(&mut input)? {
         let method = message["method"].as_str().unwrap_or_default();
         let id = message.get("id").cloned();
@@ -26,15 +31,28 @@ fn main() -> std::io::Result<()> {
                     "params": {"items": [{"section": "fake"}]},
                 });
                 write(&mut out, &ask)?;
+                root = params["rootUri"].as_str().map(str::to_owned);
                 json!({"capabilities": {
                     "textDocumentSync": 1,
                     "hoverProvider": true,
                     "definitionProvider": true,
+                    "referencesProvider": true,
+                    "renameProvider": true,
+                    "completionProvider": {},
                 }})
             }
             "textDocument/didOpen" => {
                 let text = params["textDocument"]["text"].as_str();
+                if let (Some(uri), Some(text)) = (params["textDocument"]["uri"].as_str(), text) {
+                    docs.insert(uri.to_owned(), text.to_owned());
+                }
                 publish(&mut out, params, text)?;
+                continue;
+            }
+            "textDocument/didClose" => {
+                if let Some(uri) = params["textDocument"]["uri"].as_str() {
+                    docs.remove(uri);
+                }
                 continue;
             }
             "textDocument/didChange" => {
@@ -42,6 +60,9 @@ fn main() -> std::io::Result<()> {
                     .as_array()
                     .and_then(|changes| changes.last())
                     .and_then(|change| change["text"].as_str());
+                if let (Some(uri), Some(text)) = (params["textDocument"]["uri"].as_str(), text) {
+                    docs.insert(uri.to_owned(), text.to_owned());
+                }
                 publish(&mut out, params, text)?;
                 continue;
             }
@@ -52,6 +73,37 @@ fn main() -> std::io::Result<()> {
                 "uri": params["textDocument"]["uri"],
                 "range": range(0, 0, 0),
             }),
+            "textDocument/completion" => json!({
+                "isIncomplete": false,
+                "items": [{"label": "fake_item", "detail": "from the fake"}],
+            }),
+            "textDocument/references" => {
+                let found = occurrences(&docs, root.as_deref(), params);
+                let locations: Vec<Value> = found
+                    .into_iter()
+                    .flat_map(|(uri, ranges)| {
+                        ranges
+                            .into_iter()
+                            .map(move |range| json!({"uri": uri, "range": range}))
+                    })
+                    .collect();
+                json!(locations)
+            }
+            "textDocument/rename" => {
+                let name = params["newName"].as_str().unwrap_or_default();
+                let changes: serde_json::Map<String, Value> =
+                    occurrences(&docs, root.as_deref(), params)
+                        .into_iter()
+                        .map(|(uri, ranges)| {
+                            let edits: Vec<Value> = ranges
+                                .into_iter()
+                                .map(|range| json!({"range": range, "newText": name}))
+                                .collect();
+                            (uri, json!(edits))
+                        })
+                        .collect();
+                json!({"changes": changes})
+            }
             "shutdown" => Value::Null,
             "exit" => std::process::exit(0),
             "fake/crash" => {
@@ -101,6 +153,91 @@ fn publish(out: &mut impl Write, params: &Value, text: Option<&str>) -> std::io:
         "params": {"uri": params["textDocument"]["uri"], "diagnostics": diagnostics},
     });
     write(out, &notification)
+}
+
+/// The word at the request's position, found in every open file and in
+/// the `.rs` files at the root that are not open, by URI.
+fn occurrences(
+    docs: &BTreeMap<String, String>,
+    root: Option<&str>,
+    params: &Value,
+) -> BTreeMap<String, Vec<Value>> {
+    let uri = params["textDocument"]["uri"].as_str().unwrap_or_default();
+    let line = params["position"]["line"].as_u64().unwrap_or(0) as usize;
+    let at = params["position"]["character"].as_u64().unwrap_or(0) as usize;
+    let word = docs
+        .get(uri)
+        .and_then(|text| text.lines().nth(line))
+        .and_then(|text| word_at(text, at));
+    let Some(word) = word else {
+        return BTreeMap::new();
+    };
+    let mut files: BTreeMap<String, String> = docs.clone();
+    // Plain file names only, so the URI needs no encoding.
+    let plain = |name: &str| {
+        name.ends_with(".rs")
+            && name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || "._-".contains(c))
+    };
+    if let Some(root) = root
+        && let Some(dir) = root.strip_prefix("file://")
+        && let Ok(entries) = std::fs::read_dir(dir)
+    {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let uri = format!("{}/{name}", root.trim_end_matches('/'));
+            if plain(&name)
+                && !files.contains_key(&uri)
+                && let Ok(text) = std::fs::read_to_string(entry.path())
+            {
+                files.insert(uri, text);
+            }
+        }
+    }
+    let word = word.as_str();
+    files
+        .into_iter()
+        .filter_map(|(uri, text)| {
+            let mut ranges = Vec::new();
+            for (n, line) in text.lines().enumerate() {
+                for start in whole_words(line, word) {
+                    ranges.push(range(n, start, start + word.len()));
+                }
+            }
+            (!ranges.is_empty()).then_some((uri, ranges))
+        })
+        .collect()
+}
+
+fn is_word(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '_'
+}
+
+/// The ASCII word around byte `at` of `line`.
+fn word_at(line: &str, at: usize) -> Option<String> {
+    let bytes = line.as_bytes();
+    let at = at.min(bytes.len());
+    let start = line[..at].rfind(|c: char| !is_word(c)).map_or(0, |i| i + 1);
+    let end = line[at..]
+        .find(|c: char| !is_word(c))
+        .map_or(line.len(), |i| at + i);
+    (start < end).then(|| line[start..end].to_owned())
+}
+
+/// Where `word` starts in `line` as a whole word.
+fn whole_words<'a>(line: &'a str, word: &'a str) -> impl Iterator<Item = usize> + 'a {
+    line.match_indices(word).filter_map(move |(start, _)| {
+        let before = line[..start]
+            .chars()
+            .next_back()
+            .is_none_or(|c| !is_word(c));
+        let after = line[start + word.len()..]
+            .chars()
+            .next()
+            .is_none_or(|c| !is_word(c));
+        (before && after).then_some(start)
+    })
 }
 
 fn range(line: usize, start: usize, end: usize) -> Value {
