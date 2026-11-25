@@ -179,6 +179,12 @@ const PANELS: Panel[] = ["side", "agents"];
 function edge(panel: Panel): "left" | "right" {
   return layout.left === panel ? "left" : "right";
 }
+
+/** Folds `panel`. The rail's panel leaves no strip, so focus goes to the rail button that unfolds it. */
+function fold(panel: Panel, name: string): void {
+  layout.setCollapsed(panel, true);
+  if (panel === "side") document.querySelector<HTMLElement>(`nav[aria-label="Views"] [aria-label="${name}"]`)?.focus();
+}
 </script>
 
 {#snippet controls(panel: Panel, name: string)}
@@ -193,7 +199,8 @@ function edge(panel: Panel): "left" | "right" {
       type="button"
       title="Collapse"
       aria-label={`Collapse ${name}`}
-      onclick={() => layout.setCollapsed(panel, true)}><Icon name="collapse" small /></button
+      onclick={() => fold(panel, name)}><Icon name="collapse" small /></button
+
     >
   </span>
 {/snippet}

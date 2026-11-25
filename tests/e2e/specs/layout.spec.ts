@@ -53,6 +53,7 @@ test("side panels resize, fold and swap, and the layout survives a reload", asyn
   expect((await rail.boundingBox())?.x ?? 0).toBeGreaterThan((await sidebar.boundingBox())?.x ?? 0);
   await sidebar.getByRole("button", { name: "Collapse Files" }).click();
   await expect(files).toHaveAttribute("aria-pressed", "false");
+  await expect(files).toBeFocused();
   expect(Math.round((await sidebar.boundingBox())?.width ?? 0)).toBe(0);
 
   await page.reload();
