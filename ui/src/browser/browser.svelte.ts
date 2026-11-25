@@ -15,8 +15,8 @@ export class SessionBrowsers {
   readonly pages = new SvelteMap<SessionId, PageInfo[]>();
   /** Navigations waiting for an answer, oldest first. */
   asks = $state<NavigationAsk[]>([]);
-  /** The core's reason when the browser cannot run here; set by the first call it refuses. */
-  unavailable = $state<string | null>(null);
+  /** Why the browser cannot run for a session, in the core's words; set by the call it refused. */
+  unavailable = $state<{ session: SessionId; reason: string } | null>(null);
   /** Whether the pane is shown. */
   shown = $state(false);
 
@@ -28,9 +28,9 @@ export class SessionBrowsers {
     return this.pages.get(session) ?? [];
   }
 
-  /** Opens `url` in a new page of the session's browser; null when the browser cannot run here. */
+  /** Opens `url` in a new page of the session's browser; null when the browser cannot run for it. */
   async open(session: SessionId, url: string): Promise<PageInfo | null> {
-    const data = await this.guard(async () => {
+    const data = await this.guard(session, async () => {
       const { data } = await this.transport.call({ method: "browser.open", params: { session, url } });
       return data;
     });
@@ -42,7 +42,7 @@ export class SessionBrowsers {
   }
 
   async close(page: PageInfo): Promise<void> {
-    await this.guard(() => this.transport.call({ method: "browser.close", params: { page: page.id } }));
+    await this.guard(page.session, () => this.transport.call({ method: "browser.close", params: { page: page.id } }));
     this.pages.set(
       page.session,
       this.of(page.session).filter((p) => p.id !== page.id),
@@ -51,19 +51,19 @@ export class SessionBrowsers {
 
   async answer(ask: NavigationAsk, allow: boolean): Promise<void> {
     const { page, origin } = ask;
-    await this.guard(() =>
+    await this.guard(ask.session, () =>
       this.transport.call({ method: "browser.answer_navigation", params: { page, origin, allow } }),
     );
     this.asks = this.asks.filter((a) => a !== ask);
   }
 
-  /** Runs a call; `unavailable` is remembered and answers null, other errors are thrown. */
-  async guard<T>(call: () => Promise<T>): Promise<T | null> {
+  /** Runs a call for `session`; `unavailable` is remembered and answers null, other errors are thrown. */
+  async guard<T>(session: SessionId, call: () => Promise<T>): Promise<T | null> {
     try {
       return await call();
     } catch (err) {
       if (err instanceof CoreError && err.code === "unavailable") {
-        this.unavailable = err.error.message;
+        this.unavailable = { session, reason: err.error.message };
         return null;
       }
       throw err;

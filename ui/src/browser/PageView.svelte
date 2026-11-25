@@ -147,7 +147,7 @@ function screencast(on: boolean): void {
   if (casting === on) return;
   casting = on;
   const params = { page: id, on };
-  browsers.guard(() => transport.call({ method: "browser.screencast", params })).catch(() => {});
+  browsers.guard(session, () => transport.call({ method: "browser.screencast", params })).catch(() => {});
 }
 
 $effect(() => {
@@ -166,7 +166,7 @@ $effect(() =>
 );
 
 function input(event: InputEvent): Promise<unknown> {
-  return browsers.guard(() => transport.call({ method: "browser.input", params: { page: id, event } }));
+  return browsers.guard(session, () => transport.call({ method: "browser.input", params: { page: id, event } }));
 }
 
 function send(event: InputEvent): void {

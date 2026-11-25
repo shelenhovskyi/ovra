@@ -328,9 +328,13 @@ describe("the agent browser", () => {
     expect($("[data-testid=browser-ask]")).toBeNull();
   });
 
-  it("explains why the browser cannot run here", async () => {
+  it("says why the browser cannot run for one session, and only there", async () => {
     const core = new FakeBrowserCore();
-    core.refuse.set("browser.open", { code: "unavailable", message: "no Chromium found" });
+    const [first] = core.sessions;
+    if (!first) throw new Error("no session");
+    core.sessions = [first, { ...first, id: "s2", title: "Other" }];
+    const reason = "the agent browser runs only for sessions whose agent runs in the sandbox";
+    core.refuse.set("browser.open", { code: "unavailable", message: reason });
     await setup(core, { frame: false });
     const field = $<HTMLInputElement>("#browser-address");
     if (!field) throw new Error("no address field");
@@ -340,10 +344,23 @@ describe("the agent browser", () => {
     button("Open in new tab")?.click();
     await settle();
     expect(core.sent("browser.open")).toEqual([{ session: "s1", url: "http://localhost:5173/login" }]);
-    const note = $("[data-testid=browser-unavailable]")?.textContent ?? "";
-    expect(note).toContain("never downloads one");
-    expect(note).toContain("Linux sandbox");
-    expect(note).toContain("no Chromium found");
+    const note = () => $("[data-testid=browser-unavailable]")?.textContent ?? null;
+    expect(note()).toContain(`The agent browser runs only for sessions whose agent runs in the sandbox.`);
+    expect(note()).not.toContain("Chromium");
+    const choose = async (id: string) => {
+      const select = $<HTMLSelectElement>("[data-testid=browser-session]");
+      if (!select) throw new Error("no session select");
+      select.value = id;
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+      await settle();
+    };
+    await choose("s2");
+    expect(note()).toBeNull();
+    expect($("#browser-address")).not.toBeNull();
+    // Coming back tries again instead of keeping the old refusal.
+    await choose("s1");
+    expect(note()).toBeNull();
+    expect($("#browser-address")).not.toBeNull();
   });
 });
 

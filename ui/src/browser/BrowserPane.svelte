@@ -35,6 +35,13 @@ const session = $derived(
 );
 const pages = $derived(session ? browsers.of(session.id) : []);
 const page = $derived(pages.find((p) => p.id === activePage) ?? pages[0] ?? null);
+/** Why the shown session's browser cannot run, as the core said it, made a sentence. */
+const refusal = $derived.by(() => {
+  const refused = browsers.unavailable;
+  if (!refused || refused.session !== session?.id) return null;
+  const reason = refused.reason.trim();
+  return `${reason.charAt(0).toUpperCase()}${reason.slice(1)}${/[.!?]$/.test(reason) ? "" : "."}`;
+});
 const asks = $derived(browsers.asks.filter((a) => list.some((s) => s.id === a.session)));
 
 $effect(() => {
@@ -44,6 +51,14 @@ $effect(() => {
 // Showing the pane moves focus to it.
 $effect(() => {
   if (browsers.shown) void tick().then(() => heading?.focus());
+});
+
+// A refusal is about one session: showing another one forgets it, so coming back tries again.
+$effect(() => {
+  const shown = session?.id ?? null;
+  untrack(() => {
+    if (browsers.unavailable && browsers.unavailable.session !== shown) browsers.unavailable = null;
+  });
 });
 
 // The field shows the address of the page on screen.
@@ -147,15 +162,9 @@ function hide(): void {
       <p class="error" role="alert">{error}</p>
     {/if}
 
-    {#if browsers.unavailable}
+    {#if refusal}
       <div class="warn" role="note" data-testid="browser-unavailable">
-        <p>
-          The agent browser cannot run here. Ovra uses a Chromium or Google Chrome installed on this computer
-          (<code>chromium</code>, <code>chromium-browser</code> or <code>google-chrome</code> on <code>PATH</code>) and
-          never downloads one. For now it also needs the Linux sandbox, which keeps the browser behind the session's
-          network rules.
-        </p>
-        <p class="muted">The core said: {browsers.unavailable}</p>
+        <p>{refusal}</p>
         <button type="button" onclick={() => (browsers.unavailable = null)}>Try again</button>
       </div>
     {:else if !project}
