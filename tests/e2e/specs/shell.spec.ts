@@ -111,6 +111,44 @@ test("the project name switches projects, opens another folder and survives a re
   await expect(name).toBeHidden();
 });
 
+test("a view keeps the open tabs in sight, and the open file's tab, Ctrl+, or the palette go back", async ({
+  page,
+}) => {
+  const dir = mkdtempSync(join(tmpdir(), "ovra-view-"));
+  writeFileSync(join(dir, "a.txt"), "alpha\n");
+  writeFileSync(join(dir, "b.txt"), "beta\n");
+  await page.goto(daemonUrl().href);
+  const projects = page.getByTestId("project-list");
+  await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
+  await projects.getByRole("button", { name: "Open", exact: true }).click();
+  await page.getByRole("treeitem", { name: /a\.txt/ }).dblclick();
+
+  const tabs = page.getByRole("tablist", { name: "Open files" });
+  const settings = page.getByRole("region", { name: "Settings" });
+  await page.keyboard.press("ControlOrMeta+Comma");
+  await expect(settings).toBeVisible();
+  await expect(tabs.getByRole("tab", { name: "a.txt" })).toBeVisible();
+  await expect(page.getByTestId("view-tab")).toHaveText("Settings");
+  // The tab of the file already open brings it back.
+  await tabs.getByRole("tab", { name: "a.txt" }).click();
+  await expect(settings).toBeHidden();
+
+  // The key that opened Settings closes it.
+  await page.keyboard.press("ControlOrMeta+Comma");
+  await expect(settings).toBeVisible();
+  await page.keyboard.press("ControlOrMeta+Comma");
+  await expect(settings).toBeHidden();
+
+  // A file picked in the palette while a view is open gets the focus.
+  await page.keyboard.press("ControlOrMeta+Comma");
+  await page.keyboard.press("Alt+P");
+  await page.getByRole("combobox").fill("b.txt");
+  await page.keyboard.press("Enter");
+  await expect(settings).toBeHidden();
+  await expect(tabs.getByRole("tab", { name: /b\.txt/ })).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#ovra-tabpanel")).toBeFocused();
+});
+
 test("a wrong token is refused", async ({ page }) => {
   const url = daemonUrl();
   url.searchParams.set("token", "wrong");
