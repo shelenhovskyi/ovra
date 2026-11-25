@@ -679,3 +679,213 @@ fn the_known_limits_are_what_the_threat_model_says() {
     );
     insta::assert_snapshot!(out);
 }
+
+/// The host the secret is bound to. It never resolves (RFC 6761), so the
+/// proxy hands it to the user's proxy, which the test plays.
+const BOUND: &str = "bound.invalid";
+
+/// Starts a netproxy with one secret bound to [`BOUND`], chaining to the
+/// user's proxy that `HTTPS_PROXY` names. Run by
+/// [`a_bound_secret_never_enters_the_sandbox`] as a child process, since
+/// the netproxy reads that variable from its own environment. Prints the
+/// socket and the CA bundle, then serves until its input closes.
+#[test]
+#[ignore = "a helper process of a_bound_secret_never_enters_the_sandbox"]
+fn secret_proxy() {
+    // Only as the child the test starts, never on its own.
+    if std::env::var_os("OVRA_SECRET_PROXY").is_none() {
+        return;
+    }
+    use std::io::{BufRead as _, Write as _};
+
+    use ovra_core::protocol::secrets::{SecretInfo, SecretValue};
+    use ovra_core::services::Secrets as _;
+
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .enable_all()
+        .build()
+        .unwrap();
+    let project = ProjectId("p1".into());
+    let info = SecretInfo {
+        name: "token".into(),
+        host: BOUND.into(),
+        header: "Authorization".into(),
+        prefix: "Bearer ".into(),
+    };
+    let secrets = std::sync::Arc::new(ovra_core::fakes::MemorySecrets::default());
+    secrets
+        .set(&project, info.clone(), SecretValue::new(SECRET))
+        .unwrap();
+    let proxies = NetProxies::from_env(secrets).unwrap();
+    let core = Core::new("test");
+    let session = SessionId("s1".into());
+    let reporter = NetReporter::new(project, session.clone(), core.sink());
+    let started = rt
+        .block_on(proxies.start(
+            session,
+            Allowlist {
+                hosts: vec![AllowedHost {
+                    host: BOUND.into(),
+                    port: None,
+                }],
+            },
+            reporter,
+            vec![info],
+        ))
+        .unwrap();
+    let mut out = std::io::stdout();
+    writeln!(out, "ovra-address={}", started.address).unwrap();
+    writeln!(out, "ovra-ca={}", started.ca_bundle.unwrap().display()).unwrap();
+    out.flush().unwrap();
+    // Until the test closes this process's input.
+    for _ in std::io::stdin().lock().lines() {}
+}
+
+#[test]
+fn a_bound_secret_never_enters_the_sandbox() {
+    use std::io::{BufRead as _, BufReader, Read as _, Write as _};
+
+    let world = World::new("bound");
+    let Some(sandbox) = world.sandbox() else {
+        return;
+    };
+    // The user's proxy: it answers each CONNECT and then hangs up, so the
+    // TLS the netproxy tries next fails. A request that passed the checks
+    // gets 502, one they refused gets 400. It keeps what it was sent.
+    let upstream = TcpListener::bind("127.0.0.1:0").unwrap();
+    let up = upstream.local_addr().unwrap().port();
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
+    {
+        let seen = seen.clone();
+        std::thread::spawn(move || {
+            for stream in upstream.incoming() {
+                let Ok(mut stream) = stream else { return };
+                let mut head = Vec::new();
+                let mut byte = [0u8];
+                while !head.ends_with(b"\r\n\r\n") && stream.read(&mut byte).is_ok_and(|n| n == 1) {
+                    head.push(byte[0]);
+                }
+                let _ = stream.write_all(b"HTTP/1.1 200 Connection established\r\n\r\n");
+                seen.lock().unwrap().extend(head);
+            }
+        });
+    }
+    let mut proxy = Command::new(std::env::current_exe().unwrap())
+        .args(["secret_proxy", "--exact", "--ignored", "--nocapture"])
+        .env("OVRA_SECRET_PROXY", "1")
+        .env("HTTPS_PROXY", format!("http://127.0.0.1:{up}"))
+        .env_remove("HTTP_PROXY")
+        .env_remove("http_proxy")
+        .env_remove("https_proxy")
+        .env_remove("NO_PROXY")
+        .env_remove("no_proxy")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut lines = BufReader::new(proxy.stdout.take().unwrap()).lines();
+    let mut value = |key: &str| loop {
+        let line = lines.next().unwrap().unwrap();
+        if let Some(v) = line.strip_prefix(key) {
+            break v.to_owned();
+        }
+    };
+    let address = value("ovra-address=");
+    let ca = PathBuf::from(value("ovra-ca="));
+    let profile = world.profile(ProfileNetwork::Proxy {
+        address,
+        ca_bundle: Some(ca.clone()),
+    });
+    let checks = format!(
+        "find the value in the environment: env | grep -q {pattern}
+        find the value in a process: grep -qs {pattern} /proc/*/environ /proc/*/cmdline
+        find the value in a file: grep -rqs {pattern} {root} {home} /tmp /var/tmp /run {ca_dir}
+        find the CA key: grep -rqs 'PRIVATE KEY' {ca_dir}",
+        // Never the value itself: the script is in a command line.
+        pattern = "'ovra-planted-secre[t]'",
+        root = world.root.display(),
+        home = world.home.display(),
+        ca_dir = ca.parent().unwrap().display(),
+    );
+    // Each request goes through its own tunnel, with TLS the sandbox
+    // trusts through the bundle it was given; in parallel, each answer to
+    // its own file, printed in order after.
+    let send = |n: usize, name: &str, request: &str| {
+        format!(
+            "(echo \"{name}: $(printf '{request}' | openssl s_client -quiet -proxy 127.0.0.1:${{HTTPS_PROXY##*:}} -connect {BOUND}:443 -servername {BOUND} -CAfile \"$SSL_CERT_FILE\" -verify_return_error 2>/dev/null | tr -d '\\r' | sed -n '1p;$p' | paste -sd' ')\" > /tmp/answer-{n:02}) &\n"
+        )
+    };
+    let host = format!("Host: {BOUND}\\r\\n");
+    let mut script = attacks(&checks);
+    for (n, (name, request)) in [
+        (
+            "a plain request",
+            format!("GET / HTTP/1.1\\r\\n{host}\\r\\n"),
+        ),
+        (
+            "length and chunked",
+            format!(
+                "POST / HTTP/1.1\\r\\n{host}Content-Length: 4\\r\\nTransfer-Encoding: chunked\\r\\n\\r\\n0\\r\\n\\r\\n"
+            ),
+        ),
+        (
+            "two lengths",
+            format!(
+                "POST / HTTP/1.1\\r\\n{host}Content-Length: 0\\r\\nContent-Length: 40\\r\\n\\r\\n"
+            ),
+        ),
+        (
+            "an odd transfer coding",
+            format!("POST / HTTP/1.1\\r\\n{host}Transfer-Encoding: gzip, chunked\\r\\n\\r\\n"),
+        ),
+        (
+            "a folded header",
+            format!("GET / HTTP/1.1\\r\\n{host}X-A: a\\r\\n b\\r\\n\\r\\n"),
+        ),
+        ("a bare line feed", format!("GET / HTTP/1.1\\n{host}\\r\\n")),
+        (
+            "an upgrade",
+            format!(
+                "GET / HTTP/1.1\\r\\n{host}Upgrade: websocket\\r\\nConnection: Upgrade\\r\\n\\r\\n"
+            ),
+        ),
+        (
+            "CONNECT inside the tunnel",
+            "CONNECT evil.example.com:443 HTTP/1.1\\r\\nHost: evil.example.com:443\\r\\n\\r\\n"
+                .to_owned(),
+        ),
+        (
+            "a target on another host",
+            format!("GET https://evil.example.com/ HTTP/1.1\\r\\n{host}\\r\\n"),
+        ),
+        ("no Host", "GET / HTTP/1.1\\r\\n\\r\\n".to_owned()),
+        (
+            "two Hosts",
+            format!("GET / HTTP/1.1\\r\\n{host}Host: evil.example.com\\r\\n\\r\\n"),
+        ),
+        (
+            "another Host",
+            "GET / HTTP/1.1\\r\\nHost: evil.example.com\\r\\n\\r\\n".to_owned(),
+        ),
+        (
+            "a second request in the same write",
+            format!("GET / HTTP/1.1\\r\\n{host}\\r\\nGET /steal HTTP/1.1\\r\\n{host}\\r\\n"),
+        ),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        script.push_str(&send(n, name, &request));
+    }
+    script.push_str("wait\ncat /tmp/answer-*\n");
+    let out = run(&sandbox, &profile, &script, &[]);
+    drop(proxy.stdin.take());
+    let _ = proxy.wait();
+    insta::assert_snapshot!("bound_secret", out);
+    // The 502s came from the tunnel to the user's proxy, not from a failed
+    // lookup. (Nothing after a request is ever sent upstream: the
+    // netproxy's own tests show that, with a TLS server behind it.)
+    let seen = String::from_utf8(seen.lock().unwrap().clone()).unwrap();
+    assert!(seen.starts_with(&format!("CONNECT {BOUND}:443 ")), "{seen}");
+}
