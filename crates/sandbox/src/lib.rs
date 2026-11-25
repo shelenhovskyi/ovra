@@ -68,6 +68,8 @@ pub fn for_this_os(data_dir: &Path) -> Arc<dyn Sandbox> {
 pub fn helper_if_asked() {
     #[cfg(target_os = "linux")]
     ovra_sandbox_linux::helper_if_asked();
+    #[cfg(windows)]
+    ovra_sandbox_windows::helper_if_asked();
 }
 
 /// No sandbox: [`SandboxStatus::Unavailable`], and the line runs as it is.
