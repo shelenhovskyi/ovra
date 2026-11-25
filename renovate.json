@@ -1,15 +1,9 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": [
-    "config:recommended",
-    ":semanticCommits",
-    "helpers:pinGitHubActionDigests"
-  ],
+  "extends": ["config:recommended", ":semanticCommits", "helpers:pinGitHubActionDigests"],
   "rangeStrategy": "pin",
   "timezone": "Europe/Kyiv",
-  "schedule": [
-    "before 9am on monday"
-  ],
+  "schedule": ["before 9am on monday"],
   "prConcurrentLimit": 3,
   "prHourlyLimit": 2,
   "reviewers": [],
@@ -17,53 +11,28 @@
   "packageRules": [
     {
       "description": "One weekly PR for every non-major update outside CI.",
-      "matchUpdateTypes": [
-        "minor",
-        "patch",
-        "digest",
-        "pin",
-        "pinDigest"
-      ],
-      "matchManagers": [
-        "!github-actions"
-      ],
+      "matchUpdateTypes": ["minor", "patch", "digest", "pin", "pinDigest"],
+      "matchManagers": ["!github-actions"],
       "groupName": "non-major dependencies",
       "groupSlug": "non-major"
     },
     {
       "description": "CI actions and runners in their own weekly PR: workflows are code-owned and get a human review.",
-      "matchManagers": [
-        "github-actions"
-      ],
-      "matchUpdateTypes": [
-        "minor",
-        "patch",
-        "digest",
-        "pin",
-        "pinDigest"
-      ],
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["minor", "patch", "digest", "pin", "pinDigest"],
       "groupName": "github actions",
       "groupSlug": "github-actions"
     },
     {
       "description": "Majors open no PR until ticked in the Dependency Dashboard issue.",
-      "matchUpdateTypes": [
-        "major"
-      ],
+      "matchUpdateTypes": ["major"],
       "dependencyDashboardApproval": true
     },
     {
       "description": "Dev-only npm tools (minor, patch) get their own weekly PR that merges itself on green CI, once a release is 3 days old. Owner approved 2026-11-25.",
-      "matchManagers": [
-        "npm"
-      ],
-      "matchDepTypes": [
-        "devDependencies"
-      ],
-      "matchUpdateTypes": [
-        "minor",
-        "patch"
-      ],
+      "matchManagers": ["npm"],
+      "matchDepTypes": ["devDependencies"],
+      "matchUpdateTypes": ["minor", "patch"],
       "groupName": "dev tools",
       "groupSlug": "dev-tools",
       "minimumReleaseAge": "3 days",
