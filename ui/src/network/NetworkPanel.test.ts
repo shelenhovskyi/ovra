@@ -124,10 +124,21 @@ describe("NetworkPanel", () => {
 
   it("disables the form when the keychain is unavailable and shows why", async () => {
     const core = new FakeAccessCore();
-    core.store = { state: "unavailable", reason: "no Secret Service is running" };
+    core.store = { state: "unavailable", reason: "zbus error: Failed to connect (os error 2)" };
     await open(core);
-    expect($("[data-testid=store-unavailable]")?.textContent).toContain("no Secret Service is running");
+    const note = $("[data-testid=store-unavailable]");
+    expect(note?.querySelector("p")?.textContent?.trim()).toMatch(/^Secrets can't be saved: the system keychain/);
+    expect(note?.querySelector("p")?.textContent).not.toContain("zbus");
+    expect($("details [data-testid=store-reason]")?.textContent).toBe("zbus error: Failed to connect (os error 2)");
     expect($<HTMLFieldSetElement>("form[aria-label='Add a secret'] fieldset")?.disabled).toBe(true);
+    expect($("[data-testid=secret-off]")?.textContent?.trim()).toBe("Saving needs the system keychain.");
+
+    core.store = { state: "available", name: "Secret Service" };
+    $<HTMLButtonElement>("[data-testid=store-retry]")?.click();
+    await settle();
+    expect($("[data-testid=store-unavailable]")).toBeNull();
+    expect($<HTMLFieldSetElement>("form[aria-label='Add a secret'] fieldset")?.disabled).toBe(false);
+    expect($("[data-testid=secret-off]")).toBeNull();
   });
 
   it("follows changes made elsewhere and closes on Escape", async () => {
