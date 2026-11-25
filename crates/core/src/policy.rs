@@ -28,6 +28,10 @@ const FILE_TOOLS: [(&str, &str); 5] = [
 /// never matches an `auto` rule.
 const SHELL_JOINS: [&str; 8] = [";", "&", "|", "`", "$(", ">", "<", "\n"];
 
+/// Held while a `policy.set` compares and stores. One lock for every
+/// project and core: changes are rare and quick.
+static SETTING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 pub(crate) fn handle(core: &Core, request: PolicyRequest) -> Result<Response, ProtocolError> {
     let store = core.project_store();
     match request {
@@ -35,10 +39,25 @@ pub(crate) fn handle(core: &Core, request: PolicyRequest) -> Result<Response, Pr
             store.policy(&project)?,
         ))),
         PolicyRequest::Set {
-            project, policy, ..
+            project,
+            policy,
+            expected,
         } => {
             for rule in &policy.rules {
                 check(rule)?;
+            }
+            // Comparing and storing under one lock: two changes built from
+            // the same policy cannot both be kept.
+            let _setting = SETTING
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if let Some(expected) = expected
+                && store.policy(&project)? != expected
+            {
+                return Err(ProtocolError::new(
+                    ErrorCode::Conflict,
+                    "The policy changed since this change was made; nothing was kept.",
+                ));
             }
             store.set_policy(&project, &policy)?;
             let event = AuditEvent::PolicyChanged {
