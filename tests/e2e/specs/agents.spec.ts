@@ -275,6 +275,12 @@ test("a task's coordinator splits the work among three workers whose diffs wait 
   const approvals = page.getByTestId("approvals");
   await expect(approvals.getByTestId("approvals-more")).toHaveText("2 more requests");
   await expect(approvals.locator("[data-request]")).toHaveCount(1);
+  // Hide gives the room back at once, and the toast says what waits.
+  await approvals.getByRole("button", { name: "Hide" }).click();
+  await expect(page.getByTestId("toast")).toContainText("3 requests need approval");
+  expect((await approvals.boundingBox())?.height).toBeLessThan(48);
+  await approvals.getByRole("button", { name: "Show" }).click();
+  await expect(page.getByTestId("toast")).toHaveCount(0);
   for (let allowed = 0; allowed < 3; allowed++) {
     const card = approvals.getByRole("group", { name: "Write NOTES.md" }).first();
     await expect(card).toBeVisible();

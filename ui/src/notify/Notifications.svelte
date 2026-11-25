@@ -4,7 +4,7 @@
 // politely. The approvals toast steps aside while an approval card is on
 // screen; while a modal covers the window, a banner over it says that
 // approvals wait, so a request is never hidden.
-import { untrack } from "svelte";
+import { tick, untrack } from "svelte";
 import { approvalQueue } from "../approvals/queue.svelte";
 import { registerCommand } from "../keys/commands";
 import type { PermissionId } from "../lib/protocol";
@@ -62,6 +62,8 @@ const look = () => untrack(() => looked++);
 /** An approval card is in sight: no toast for approvals then, and no banner. */
 function cardInSight(): boolean {
   void looked;
+  // Hidden by the person: said at once, without waiting for the next focus change.
+  if (approvals.hidden) return false;
   for (const card of document.querySelectorAll<HTMLElement>("[data-testid=approvals] [data-request]")) {
     const box = card.getBoundingClientRect();
     if (box.bottom > 0 && box.top < window.innerHeight && box.height > 0 && !card.closest("[hidden]")) return true;
@@ -103,6 +105,11 @@ function place(): void {
   const there = { left: box.left, right: box.right, top: bottom - box.height, bottom };
   atTop = focus instanceof HTMLElement && focus !== document.body && overlaps(there, focus.getBoundingClientRect());
 }
+
+// Shown again: look once the cards are back on the page.
+$effect(() => {
+  if (!approvals.hidden) void tick().then(look);
+});
 
 // Again whenever the stack changes size, focus moves or the window resizes.
 $effect(() => {

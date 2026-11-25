@@ -47,8 +47,6 @@ let list = $state<HTMLElement>();
 let heading = $state<HTMLElement>();
 let section = $state<HTMLElement>();
 let returnTo: HTMLElement | null = null;
-/** The list is hidden; the heading still counts what waits. */
-let collapsed = $state(false);
 /** Every request has its card, not only the oldest; until nothing waits. */
 let showAll = $state(false);
 /** Requests after the first whose details the person opened. */
@@ -188,7 +186,7 @@ $effect(() =>
 $effect(() => {
   queue.revealer = async (id) => {
     remember();
-    if (collapsed) await show();
+    if (queue.hidden) await show();
     if (!card(id) && visible.some((r) => r.id === id)) await showMore();
     const target = card(id);
     // Never another request instead: a key press meant for this one would answer it.
@@ -231,14 +229,14 @@ async function unfoldAgents(): Promise<void> {
 async function enter(): Promise<void> {
   remember();
   await unfoldAgents();
-  if (collapsed) await show();
+  if (queue.hidden) await show();
   const first = cards()[0];
   if (first) await bringUp(first);
   else heading?.focus();
 }
 
 async function show(): Promise<void> {
-  collapsed = false;
+  queue.hidden = false;
   await tick();
 }
 
@@ -249,8 +247,11 @@ async function showMore(): Promise<void> {
   await tick();
 }
 
+// Once nothing waits, the next request starts with the oldest card shown, not hidden.
 $effect(() => {
-  if (queue.pending.length === 0) showAll = false;
+  if (queue.pending.length > 0) return;
+  showAll = false;
+  queue.hidden = false;
 });
 
 /** Only the first request shows its details at once, so a few requests leave room for the agents. */
@@ -577,6 +578,7 @@ function verbAndObject(tool: string, action: string): { verb: string; object: st
 <section
   class="approvals"
   class:idle
+  class:collapsed={queue.hidden}
   bind:this={section}
   aria-labelledby="approvals-heading"
   data-testid="approvals"
@@ -602,9 +604,9 @@ function verbAndObject(tool: string, action: string): { verb: string; object: st
     <button
       type="button"
       class="toggle"
-      aria-expanded={!collapsed}
+      aria-expanded={!queue.hidden}
       aria-controls="approvals-list"
-      onclick={() => (collapsed = !collapsed)}>{collapsed ? "Show" : "Hide"}</button
+      onclick={() => (queue.hidden = !queue.hidden)}>{queue.hidden ? "Show" : "Hide"}</button
     >
   {/if}
   </div>
@@ -617,8 +619,8 @@ function verbAndObject(tool: string, action: string): { verb: string; object: st
   {/if}
   <!-- The keys show on the buttons; screen readers hear them with each request. -->
   <p class="sr-only" id="approvals-keys">Y allows, N denies, Shift+N denies with a message.</p>
-  <ul bind:this={list} id="approvals-list" hidden={collapsed}>
-    {#if !collapsed}
+  <ul bind:this={list} id="approvals-list" hidden={queue.hidden}>
+    {#if !queue.hidden}
     {#each onScreen as group (group.key)}
       {@const first = group.requests[0] as PermissionRequest}
       {@const project = projects.get(first.project)}
@@ -838,6 +840,13 @@ function verbAndObject(tool: string, action: string): { verb: string; object: st
      column (the stacked layout): a 26 px strip shows only who asks. */
   .approvals:not(.idle) {
     min-height: min(100%, 220px);
+  }
+  /* Hidden by the person: only the heading line, the room goes back to the agents. */
+  .approvals.collapsed {
+    min-height: 0;
+  }
+  .collapsed .head {
+    margin-bottom: 0;
   }
   /* A request in focus is the one thing to decide: the rest of the window dims. */
   .approvals:not(.idle):has(.card:focus-within) {

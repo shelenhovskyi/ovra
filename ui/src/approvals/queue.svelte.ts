@@ -23,6 +23,8 @@ export class ApprovalQueue {
   error = $state<string | null>(null);
   /** The request whose card has focus: on screen, so its notification steps aside. */
   focused = $state<PermissionId | null>(null);
+  /** The person hid the cards (Hide): none is on screen, so the notification says what waits. */
+  hidden = $state(false);
   /** Set by the approvals list: focuses one request (from a notification's Review). */
   revealer: ((id: PermissionId) => void) | null = null;
 

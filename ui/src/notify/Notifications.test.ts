@@ -61,6 +61,35 @@ describe("Notifications", () => {
     expect(toasts()).toHaveLength(1);
   });
 
+  it("says what waits as soon as the cards are hidden, and steps aside when they are shown", async () => {
+    const core = new FakeAgentCore();
+    core.addSession("p1", "Fix the typo", { state: "working" });
+    // A card in sight, as the approvals draw it.
+    const section = document.createElement("section");
+    section.dataset.testid = "approvals";
+    const card = document.createElement("div");
+    card.dataset.request = "perm1";
+    card.getBoundingClientRect = () => DOMRect.fromRect({ x: 0, y: 40, width: 300, height: 200 });
+    section.append(card);
+    target.append(section);
+    app = mount(TestHost, { target, props: { transport: core, workspace: new Workspace() } });
+    flushSync();
+    core.status("s1", { state: "working" });
+    core.ask(bash("perm1"));
+    await new Promise((resolve) => setTimeout(resolve));
+    await settle();
+    const toasts = () => target.querySelectorAll("[data-testid=toast]").length;
+    expect(toasts()).toBe(0);
+    const queue = approvalQueue(core);
+    // Hide keeps focus on its button: no focus change is needed.
+    queue.hidden = true;
+    flushSync();
+    expect(toasts()).toBe(1);
+    queue.hidden = false;
+    await settle();
+    expect(toasts()).toBe(0);
+  });
+
   it("puts a banner over a modal while approvals wait, and Show closes the modal", async () => {
     const core = new FakeAgentCore();
     app = mount(TestHost, { target, props: { transport: core, workspace: new Workspace() } });

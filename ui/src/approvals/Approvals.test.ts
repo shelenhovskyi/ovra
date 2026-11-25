@@ -572,6 +572,11 @@ describe("Approvals", () => {
     await settle();
     expect(cards()).toEqual([]);
     expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+    // Only the heading keeps its room, and the notification is told at once.
+    const section = target.querySelector("[data-testid=approvals]");
+    expect(section?.classList.contains("collapsed")).toBe(true);
+    const { approvalQueue } = await import("./queue.svelte");
+    expect(approvalQueue(core).hidden).toBe(true);
     expect(target.querySelector("#approvals-heading")?.textContent).toContain("(1 waiting)");
     press("KeyA", { altKey: true, shiftKey: true });
     await settle();
