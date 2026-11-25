@@ -24,9 +24,9 @@ function xtermUnderFrozenPrototype(): Plugin {
 
 // Component tests compile components without the compiler's dev
 // instrumentation (source locations, ownership and binding warnings), as the
-// shipped build does; Svelte's runtime still runs its dev checks. Templates
-// are built with DOM calls instead of innerHTML, which jsdom would parse
-// anew in every test file. The DOM is the same either way; both cut about a
+// shipped build does; Svelte's runtime still runs its dev checks. Only in
+// tests, templates are built with DOM calls instead of innerHTML (the shipped
+// build keeps innerHTML), which jsdom would parse anew in every test file. The DOM is the same either way; both cut about a
 // sixth of the suite's CPU time.
 const testCompilerOptions = { dev: false, fragments: "tree" } as const;
 
