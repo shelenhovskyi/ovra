@@ -709,16 +709,17 @@ async fn always_allow_adds_the_rule_answers_and_the_next_call_is_allowed() {
 }
 
 #[tokio::test]
-async fn always_allow_is_refused_once_a_rule_asks_about_the_call() {
+async fn always_allow_takes_the_request_first_and_adds_no_rule_twice() {
     use std::sync::Arc;
 
     use crate::Core;
     use crate::agents::AgentHost;
     use crate::fakes::{MemoryProjects, ScriptedAgent, Step};
     use crate::protocol::agents::SessionId;
-    use crate::protocol::permissions::PermissionsEvent;
+    use crate::protocol::permissions::{Decision, PermissionsEvent};
+    use crate::protocol::policy::PolicyResponse;
     use crate::protocol::projects::ProjectId;
-    use crate::protocol::{ErrorCode, Event, Request};
+    use crate::protocol::{ErrorCode, Event, Request, Response};
 
     let core = Core::builder("test")
         .projects(Arc::new(MemoryProjects::default()))
@@ -747,35 +748,87 @@ async fn always_allow_is_refused_once_a_rule_asks_about_the_call() {
         core.sink(),
     );
     host.sandboxed(Some(sandboxed(SandboxNetwork::Blocked)));
-    let mut rx = core.subscribe();
-    let asking = tokio::spawn({
+    let rx = core.subscribe();
+    let ask = || {
         let host = host.clone();
-        async move {
+        tokio::spawn(async move {
             host.ask("Bash".into(), json!({"command": "npm test"}), None, None)
                 .await
-        }
-    });
-    let request = loop {
-        if let Some(Event::Permissions(PermissionsEvent::Requested(r))) =
-            Core::next_event(&mut rx).await
-        {
-            break r;
+        })
+    };
+    let requested = || {
+        let mut rx = rx.resubscribe();
+        async move {
+            loop {
+                if let Some(Event::Permissions(PermissionsEvent::Requested(r))) =
+                    Core::next_event(&mut rx).await
+                {
+                    return r;
+                }
+            }
         }
     };
+    let set = |rules: serde_json::Value| json!({"method": "policy.set", "params": {"project": "p1", "policy": {"rules": rules}}});
+    let always = |id: &str| {
+        json!({"method": "permissions.answer", "params": {
+            "id": id, "decision": "allow", "always": true}})
+    };
+    let rules = || async {
+        match call(json!({"method": "policy.get", "params": {"project": "p1"}})).await {
+            Ok(Response::Policy(PolicyResponse::Policy(p))) => p.rules,
+            other => panic!("{other:?}"),
+        }
+    };
+    let pending =
+        || async { format!("{:?}", call(json!({"method": "permissions.pending"})).await) };
+
+    // A rule the person wrote in Settings is the same rule: none is added.
+    let waiting = requested();
+    let asking = ask();
+    let request = waiting.await;
+    let mine = json!([{"tool": "Bash", "match": "npm test", "action": "auto", "exact": true}]);
+    assert!(call(set(mine)).await.is_ok());
+    assert!(call(always(&request.id.0)).await.is_ok());
+    let answered = asking.await.unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(answered.decision, Decision::Allow);
+    let kept = rules().await;
+    assert_eq!(kept.len(), 1);
+    assert!(!kept[0].from_approval, "{kept:?}");
+
+    // A request answered already adds no rule, and says so.
+    assert!(call(set(json!([]))).await.is_ok());
+    let waiting = requested();
+    let asking = ask();
+    let request = waiting.await;
+    let once = json!({"method": "permissions.answer", "params": {
+        "id": request.id.0, "decision": "allow"}});
+    assert!(call(once).await.is_ok());
+    assert!(asking.await.is_ok());
+    let gone = call(always(&request.id.0)).await.err();
+    assert_eq!(gone.as_ref().map(|e| e.code), Some(ErrorCode::NotFound));
+    assert!(
+        gone.is_some_and(|e| e.message.contains("no rule was added")),
+        "the refusal does not say no rule was added"
+    );
+    assert_eq!(rules().await, Vec::new());
+
+    // Refused once a rule asks: nothing is added and the request still
+    // waits for Allow once or Deny.
+    let waiting = requested();
+    let asking = ask();
+    let request = waiting.await;
     assert!(request.always.is_some());
-    let set = json!({"method": "policy.set", "params": {"project": "p1", "policy": {"rules": [
-        {"tool": "Bash", "match": "npm", "action": "ask"}]}}});
-    assert!(call(set).await.is_ok());
-    let always = json!({"method": "permissions.answer", "params": {
-        "id": request.id.0, "decision": "allow", "always": true}});
+    let ask_rule = json!([{"tool": "Bash", "match": "npm", "action": "ask"}]);
+    assert!(call(set(ask_rule)).await.is_ok());
     assert_eq!(
-        call(always).await.err().map(|e| e.code),
+        call(always(&request.id.0)).await.err().map(|e| e.code),
         Some(ErrorCode::BadRequest)
     );
-    let policy = call(json!({"method": "policy.get", "params": {"project": "p1"}})).await;
-    assert!(
-        format!("{policy:?}").matches("tool").count() == 1,
-        "{policy:?}"
-    );
-    asking.abort();
+    assert_eq!(rules().await.len(), 1);
+    assert!(pending().await.contains(&request.id.0), "it was dropped");
+    let deny = json!({"method": "permissions.answer", "params": {
+        "id": request.id.0, "decision": "deny"}});
+    assert!(call(deny).await.is_ok());
+    let denied = asking.await.unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(denied.decision, Decision::Deny);
 }

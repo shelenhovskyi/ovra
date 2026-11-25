@@ -370,17 +370,13 @@ impl Core {
             Request::Open(r) => self.open(r).map(|()| Response::Ok(OkResponse::Ok)),
             Request::Terminals(r) => self.terminals(r).await,
             Request::Agents(r) => agents::handle_agents(&self.agents_ctx(), r).await,
-            Request::Permissions(r) => {
-                if let PermissionsRequest::Answer {
-                    id,
-                    answer,
-                    always: true,
-                } = &r
-                {
-                    crate::policy::add_from_approval(self, id, answer.decision)?;
-                }
-                agents::handle_permissions(&self.agents_ctx(), r)
-            }
+            Request::Permissions(PermissionsRequest::Answer {
+                id,
+                answer,
+                always: true,
+            }) => crate::policy::answer_always(self, &id, answer)
+                .map(|()| Response::Ok(OkResponse::Ok)),
+            Request::Permissions(r) => agents::handle_permissions(&self.agents_ctx(), r),
             Request::Review(r) => orchestration::review(self, r).await,
             Request::Orchestration(r) => orchestration::orchestration(self, r).await,
             Request::Search(r) => search::handle(self, r),

@@ -608,11 +608,18 @@ rules for each project:
     names or hosts where anyone can receive data (the netproxy's broad
     list).
   - Nothing else.
-- `permissions.answer { always: true }` adds the rule (marked
-  `from_approval`) under the same lock as `policy.set`, records
-  `RuleAdded { rule, by: Person }` for the asking session, announces
-  `policy.changed`, then answers allow. It refuses with `bad_request` when
-  the request offers no rule or a deny or ask rule matches the call by then.
+- `permissions.answer { always: true }` first takes the request out of
+  the pending ones, so no other answer can come between. Then, under the
+  same lock as `policy.set`, it adds the rule (marked `from_approval`),
+  records `RuleAdded { rule, by: Person }` for the asking session and
+  announces `policy.changed`. Last it answers allow.
+  - It refuses with `not_found`, adding no rule, when the request is no
+    longer pending.
+  - It refuses with `bad_request` when the request offers no rule or a deny
+    or ask rule matches the call by then. The request then stays pending
+    for Allow once or Deny.
+  - A rule with the same tool, match, action and `exact` already in the
+    policy, wherever it came from, is not added again.
 - Agents cannot reach it: it is a client method, not an IDE tool. The rule
   shows in Settings > Rules, marked "exactly" and "From an approval", where
   Remove takes it out. A person can add an exact Bash rule there too

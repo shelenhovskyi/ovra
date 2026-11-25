@@ -72,6 +72,31 @@ impl Permissions {
         true
     }
 
+    /// Takes the request `id` out of the pending ones, so nobody else can
+    /// answer it; `None` if nothing waits for it. Answer it with
+    /// [`Taken::answer`], or [`Permissions::put_back`] it.
+    pub(crate) fn take(&self, id: &PermissionId) -> Option<Taken> {
+        let mut state = lock(&self.state);
+        let index = state.pending.iter().position(|(r, _)| &r.id == id)?;
+        let (request, tx) = state.pending.remove(index);
+        Some(Taken {
+            request,
+            tx,
+            at: index,
+        })
+    }
+
+    /// Makes a taken request pending again, in its place, unless its agent
+    /// stopped waiting meanwhile.
+    pub(crate) fn put_back(&self, taken: Taken) {
+        if taken.tx.is_closed() {
+            return;
+        }
+        let mut state = lock(&self.state);
+        let at = taken.at.min(state.pending.len());
+        state.pending.insert(at, (taken.request, taken.tx));
+    }
+
     /// Removes a request nobody waits for any more. `false` if it was not pending.
     pub(crate) fn withdraw(&self, id: &PermissionId) -> bool {
         let mut state = lock(&self.state);
@@ -112,5 +137,22 @@ impl Permissions {
             .partition::<Vec<_>, _>(|(r, _)| &r.session == session);
         state.pending = kept;
         dropped
+    }
+}
+
+/// A request taken out of the pending ones, still waiting for its answer.
+#[derive(Debug)]
+pub(crate) struct Taken {
+    pub(crate) request: PermissionRequest,
+    tx: oneshot::Sender<(PermissionAnswer, DecidedBy)>,
+    /// Its place among the pending requests.
+    at: usize,
+}
+
+impl Taken {
+    /// Passes the person's answer to the waiting agent.
+    pub(crate) fn answer(self, answer: PermissionAnswer) {
+        // The agent may have stopped waiting; then the answer has no effect.
+        let _ = self.tx.send((answer, DecidedBy::Person));
     }
 }

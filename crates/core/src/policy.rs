@@ -10,7 +10,9 @@ use serde_json::Value;
 use crate::Core;
 use crate::protocol::agents::{SandboxNetwork, SandboxReport};
 use crate::protocol::audit::{AuditEvent, DecidedBy};
-use crate::protocol::permissions::{Decision, PermissionId};
+use crate::protocol::permissions::{
+    Decision, PermissionAnswer, PermissionId, PermissionRequest, PermissionsEvent,
+};
 use crate::protocol::policy::{
     Policy, PolicyAction, PolicyEvent, PolicyRequest, PolicyResponse, PolicyRule,
 };
@@ -370,57 +372,98 @@ fn program(word: &str) -> Vec<String> {
     }
 }
 
-/// "Always allow" on the pending request `id`: adds the rule it offers to
-/// its project's policy, unless a project rule now asks about or refuses
-/// the call. The caller then answers the request.
-pub(crate) fn add_from_approval(
+/// "Always allow" on the pending request `id`: takes the request, so no
+/// other answer can come between, adds the rule it offers to its project's
+/// policy, then answers it. Refuses, adding nothing, when the request is
+/// no longer pending, offers no rule, or a project rule now asks about or
+/// refuses the call.
+pub(crate) fn answer_always(
     core: &Core,
     id: &PermissionId,
-    decision: Decision,
+    answer: PermissionAnswer,
 ) -> Result<(), ProtocolError> {
     let bad = |why: &str| Err(ProtocolError::new(ErrorCode::BadRequest, why));
-    if decision != Decision::Allow {
+    if answer.decision != Decision::Allow {
         return bad("only an allow can add a rule");
     }
-    let pending = core.sessions().permissions.pending();
-    let Some(request) = pending.into_iter().find(|r| &r.id == id) else {
-        return Err(ProtocolError::new(
+    let gone = || {
+        Err(ProtocolError::new(
             ErrorCode::NotFound,
-            format!("permission request {} is not pending", id.0),
-        ));
+            format!(
+                "permission request {} is not pending; no rule was added",
+                id.0
+            ),
+        ))
     };
-    let (Some(rule), Some(cwd)) = (request.always, request.cwd) else {
-        return bad("this request offers no rule to always allow");
-    };
-    let store = core.project_store();
-    let _setting = SETTING
+    let permissions = &core.sessions().permissions;
+    // Held until the rule is stored: no policy change comes between the
+    // check below and the store.
+    let setting = SETTING
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let Some(taken) = permissions.take(id) else {
+        return gone();
+    };
+    let request = &taken.request;
+    let refused = match (&request.always, &request.cwd) {
+        (Some(rule), Some(cwd)) => added(core, request, rule, Path::new(cwd)).err(),
+        _ => Some(ProtocolError::new(
+            ErrorCode::BadRequest,
+            "this request offers no rule to always allow",
+        )),
+    };
+    drop(setting);
+    if let Some(refused) = refused {
+        // Still pending, for an Allow once or a Deny.
+        permissions.put_back(taken);
+        return Err(refused);
+    }
+    let decision = answer.decision;
+    taken.answer(answer);
+    core.emit(PermissionsEvent::Resolved {
+        id: id.clone(),
+        decision,
+    });
+    Ok(())
+}
+
+/// Adds `rule`, offered by `request`, to its project's policy, unless a
+/// project rule now asks about or refuses the call. The caller holds
+/// [`SETTING`].
+fn added(
+    core: &Core,
+    request: &PermissionRequest,
+    rule: &PolicyRule,
+    cwd: &Path,
+) -> Result<(), ProtocolError> {
+    let store = core.project_store();
     let mut policy = store.policy(&request.project)?;
     // Without a sandbox only deny and ask rules decide.
-    if decide(
-        &policy,
-        &request.tool,
-        &request.input,
-        Path::new(&cwd),
-        None,
-    )
-    .is_some()
-    {
-        return bad("a project rule now asks about this call; nothing was added");
+    if decide(&policy, &request.tool, &request.input, cwd, None).is_some() {
+        return Err(ProtocolError::new(
+            ErrorCode::BadRequest,
+            "a project rule now asks about this call; nothing was added",
+        ));
     }
-    if policy.rules.contains(&rule) {
+    // The same rule, wherever it came from, is there already.
+    let same = |r: &PolicyRule| {
+        r.tool == rule.tool
+            && r.pattern == rule.pattern
+            && r.action == rule.action
+            && r.exact == rule.exact
+    };
+    if policy.rules.iter().any(same) {
         return Ok(());
     }
     policy.rules.push(rule.clone());
     store.set_policy(&request.project, &policy)?;
     let event = AuditEvent::RuleAdded {
-        rule,
+        rule: rule.clone(),
         by: DecidedBy::Person,
     };
     crate::audit::record(core, &request.project, Some(&request.session), event);
     core.emit(PolicyEvent::Changed {
-        project: request.project,
+        project: request.project.clone(),
     });
     Ok(())
 }
