@@ -7,6 +7,22 @@ const seqs = (trail: AuditTrail) => trail.entries.map((e) => e.seq);
 const params = (calls: Request[]) => calls.map((c) => (c.method === "audit.list" ? c.params : null));
 const log = (length: number) => Array.from({ length }, (_, i) => entry(i + 1, bash(true)));
 
+type ListParams = Extract<Request, { method: "audit.list" }>["params"];
+
+/** Holds the `audit.list` calls `which` picks until the returned function is called. */
+function hold(core: FakeAuditCore, which: (params: ListParams) => boolean): () => void {
+  let release = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const call = core.call.bind(core);
+  core.call = (async (request: Request) => {
+    if (request.method === "audit.list" && which(request.params)) await held;
+    return call(request);
+  }) as typeof core.call;
+  return release;
+}
+
 describe("AuditTrail", () => {
   it("opens on the newest page and follows new entries", async () => {
     const core = new FakeAuditCore();
@@ -89,6 +105,38 @@ describe("AuditTrail", () => {
     await trail.show("p2");
     expect(trail.entries).toEqual([]);
     expect(trail.older).toBe(false);
+  });
+
+  it("an entry appended while an older page loads leaves no gap", async () => {
+    const core = new FakeAuditCore();
+    core.entries = log(3);
+    const trail = new AuditTrail(core);
+    await trail.show("p1");
+    core.entries.push(...Array.from({ length: MAX_SHOWN - 2 }, (_, i) => entry(i + 4, bash(true))));
+    await trail.reload();
+    expect(trail.entries[0]?.seq).toBe(2);
+    const release = hold(core, (params) => params.before !== undefined);
+    const loading = trail.loadOlder();
+    core.append(entry(MAX_SHOWN + 2, bash(true)));
+    release();
+    await loading;
+    expect(seqs(trail)).toEqual(Array.from({ length: MAX_SHOWN + 2 }, (_, i) => i + 1));
+  });
+
+  it("a reload does not undo what an older page found out", async () => {
+    const core = new FakeAuditCore();
+    core.entries = log(PAGE + 1);
+    const trail = new AuditTrail(core);
+    await trail.show("p1");
+    expect(trail.older).toBe(true);
+    const release = hold(core, (params) => params.after !== undefined);
+    const reloading = trail.reload();
+    await trail.loadOlder();
+    expect(trail.older).toBe(false);
+    release();
+    await reloading;
+    expect(trail.older).toBe(false);
+    expect(trail.entries).toHaveLength(PAGE + 1);
   });
 
   it("says when the log cannot be read", async () => {

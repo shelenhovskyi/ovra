@@ -19,6 +19,8 @@ let opened = $state(false);
 let filter = $state<Filter>("all");
 let refusedOnly = $state(false);
 let dialog = $state<HTMLElement>();
+/** Read out when older entries arrive. */
+let olderNote = $state("");
 let returnTo: HTMLElement | null = null;
 
 const shown = $derived(
@@ -68,7 +70,7 @@ function onDialogKeydown(event: KeyboardEvent): void {
   if (event.code !== "Tab") return;
   // Keep Tab inside the dialog (aria-modal).
   const focusable = [...(dialog?.querySelectorAll<HTMLElement>("button, input, select, [tabindex]") ?? [])].filter(
-    (el) => el.tabIndex >= 0,
+    (el) => el.tabIndex >= 0 && !el.matches(":disabled"),
   );
   const first = focusable[0];
   const last = focusable[focusable.length - 1];
@@ -80,6 +82,16 @@ function onDialogKeydown(event: KeyboardEvent): void {
     event.preventDefault();
     first.focus();
   }
+}
+
+async function loadOlder(): Promise<void> {
+  const before = trail.entries.length;
+  await trail.loadOlder();
+  const added = trail.entries.length - before;
+  if (added > 0) olderNote = `${added} older ${added === 1 ? "entry" : "entries"} loaded.`;
+  await tick();
+  // At the start of the log the button goes; focus must stay in the dialog.
+  if (opened && !dialog?.contains(document.activeElement)) dialog?.querySelector<HTMLElement>("h2")?.focus();
 }
 
 function who(session: string | null): string {
@@ -153,13 +165,14 @@ function who(session: string | null): string {
           <button
             type="button"
             data-testid="audit-older"
-            disabled={trail.loadingOlder}
-            onclick={() => void trail.loadOlder()}
+            aria-busy={trail.loadingOlder}
+            onclick={() => void loadOlder()}
           >
             {trail.loadingOlder ? "Loading…" : "Load older"}
           </button>
         </p>
       {/if}
+      <p class="visually-hidden" role="status" data-testid="audit-older-note">{olderNote}</p>
     </div>
   </div>
 {/if}
@@ -208,9 +221,17 @@ function who(session: string | null): string {
     padding: 8px 12px;
     border-bottom: 1px solid #2a2a31;
   }
-  button:disabled {
-    cursor: default;
+  button[aria-busy="true"] {
+    cursor: progress;
     opacity: 0.6;
+  }
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
   .close {
     margin-left: auto;

@@ -71,7 +71,6 @@ export class AuditTrail {
     try {
       const newest = this.entries[this.entries.length - 1];
       let read: AuditEntry[];
-      let older = this.older;
       if (!newest) {
         const page = await this.transport.call({
           method: "audit.list",
@@ -79,7 +78,9 @@ export class AuditTrail {
         });
         if (mine !== this.latest) return;
         read = [...page.data].reverse();
-        older = page.data.length === PAGE;
+        // Only here: reading newer entries says nothing about older ones, and
+        // `loadOlder` may have changed what is known meanwhile.
+        this.older = page.data.length === PAGE;
       } else {
         read = [];
         let after = newest.seq;
@@ -93,7 +94,6 @@ export class AuditTrail {
           after = last.seq;
         }
       }
-      this.older = older;
       this.keep(merge(this.entries, read));
       this.error = null;
     } catch (err) {
@@ -136,11 +136,13 @@ export class AuditTrail {
 
   /**
    * Shows `entries`, growing to `MAX_SHOWN` (or what older pages made it);
-   * past that the oldest leave the view and can be loaded again.
+   * past that the oldest leave the view and can be loaded again. Nothing
+   * leaves while an older page loads: it joins the oldest shown, and trimming
+   * that would leave a gap.
    */
   private keep(entries: AuditEntry[]): void {
     const room = Math.max(MAX_SHOWN, this.entries.length);
-    if (entries.length > room) {
+    if (entries.length > room && !this.loadingOlder) {
       this.older = true;
       this.entries = entries.slice(entries.length - room);
     } else {
