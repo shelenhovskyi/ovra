@@ -196,6 +196,51 @@ describe("AgentsPanel", () => {
     expect(state()).toEqual(["Done", "Done", "Starting"]);
   });
 
+  it("closes a task with its workers after asking once; finished workers stay Done", async () => {
+    const core = new FakeAgentCore();
+    core.addSession("p1", "Write the notes", { state: "idle" });
+    for (const name of ["docs", "lint"]) {
+      const worker = core.addSession("p1", `${name} notes`, { state: "stopped" });
+      core.transcripts.set(worker.id, [
+        { kind: "turn_end", usage: { input_tokens: 1, output_tokens: 1, cost_micro_usd: null } },
+      ]);
+    }
+    core.tasks.push({
+      id: "t1",
+      project: "p1",
+      coordinator: "s1",
+      workers: ["s2", "s3"].map((session, n) => ({
+        session,
+        name: n === 0 ? "docs" : "lint",
+        branch: `ovra/t1/${n}`,
+        worktree: `/wt/${n}`,
+        kept: null,
+      })),
+      limits: { max_workers: 3, budget_micro_usd: null },
+      spent_micro_usd: 0,
+    });
+    // lint's newest item is decided, an older one still waits: the inbox counts it, so does the row.
+    core.reviews = [{ ...review("s3", []), id: "new", state: "approved" }, review("s3", [file("NOTES.md", "agent")])];
+    await setup(core);
+    const rows = () =>
+      [...target.querySelectorAll(".sessions .row-button")].map((b) => b.textContent?.replace(/\s+/g, " ").trim());
+    expect(rows()).toEqual([
+      "Task: Write the notes Done Review",
+      "docs · Write the notes Done",
+      "lint · Write the notes Done Review",
+    ]);
+    target.querySelector<HTMLButtonElement>("[aria-label='Close Task: Write the notes']")?.click();
+    await settle();
+    expect(core.sent("agents.stop")).toEqual([]);
+    expect(target.querySelector("[data-testid=agents-close-confirm]")?.textContent?.replace(/\s+/g, " ").trim()).toBe(
+      "Close this task and its 2 workers? Their changes stay in Reviews. Cancel Close task",
+    );
+    button("Close task")?.click();
+    await settle();
+    expect(core.sent("agents.stop").map((c) => c.params)).toEqual([{ session: "s1" }]);
+    expect(rows()).toEqual([]);
+  });
+
   it("starts a session in the open project and streams its transcript", async () => {
     const core = await setup();
     type(target.querySelector("#agent-prompt"), "Fix the typo\nin README.md");

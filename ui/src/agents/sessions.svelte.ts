@@ -44,6 +44,8 @@ export class AgentSessions {
   readonly transcripts = new SvelteMap<SessionId, AgentMessage[]>();
   /** Each session's newest review item: what its agent changed, kept or not. */
   readonly reviews = new SvelteMap<SessionId, ReviewItem>();
+  /** Sessions with an item that waits for the person, counted as the inbox counts them. */
+  private readonly waitingReview = new SvelteSet<SessionId>();
   /** How many of each loaded project's agents work, of how many may. */
   readonly capacity = new SvelteMap<ProjectId, AgentCapacity>();
   /**
@@ -87,9 +89,21 @@ export class AgentSessions {
     } catch {
       return;
     }
-    for (const [session, item] of this.reviews) if (item.project === project) this.reviews.delete(session);
+    for (const [session, item] of this.reviews)
+      if (item.project === project) {
+        this.reviews.delete(session);
+        this.waitingReview.delete(session);
+      }
     // Newest first: the first item of a session is its current one.
-    for (const item of items) if (!this.reviews.has(item.session)) this.reviews.set(item.session, item);
+    for (const item of items) {
+      if (!this.reviews.has(item.session)) this.reviews.set(item.session, item);
+      if (waits(item)) this.waitingReview.add(item.session);
+    }
+  }
+
+  /** Whether any of `id`'s review items waits for the person, as the inbox counts it. */
+  waitsForReview(id: SessionId): boolean {
+    return this.waitingReview.has(id);
   }
 
   /** The files `id`'s agent changed that wait for the person's review. */
@@ -100,10 +114,7 @@ export class AgentSessions {
 
   /** How many of the task's workers have changes waiting for review. */
   waitingInTask(coordinator: SessionId): number {
-    return [...this.roles].filter(([session, role]) => {
-      const item = this.reviews.get(session);
-      return role.kind === "worker" && role.coordinator === coordinator && item !== undefined && waits(item);
-    }).length;
+    return this.workers(coordinator).filter((session) => this.waitsForReview(session)).length;
   }
 
   /** The task's workers, in the order it started them. */
@@ -188,7 +199,11 @@ export class AgentSessions {
       if (workers.some(isBusy)) return "Workers are on it";
       if (workers.some((s) => s?.state === "queued")) return "Workers are waiting for a free agent";
     }
-    return failedLabel(info.status, this.transcripts.get(id)) ?? statusLabel(info.status);
+    const transcript = this.transcripts.get(id);
+    // Stopping a worker that had finished (its task was stopped) does not undo its work.
+    if (role?.kind === "worker" && info.status.state === "stopped" && transcript?.at(-1)?.kind === "turn_end")
+      return failedLabel(info.status, transcript) ?? "Done";
+    return failedLabel(info.status, transcript) ?? statusLabel(info.status);
   }
 
   /** `grouped` without the sessions the person closed. */
@@ -196,12 +211,17 @@ export class AgentSessions {
     return this.grouped(project).filter((s) => !this.closed.has(s.id));
   }
 
-  /** Hides a session that is done; one that still waits for replies is stopped first. */
+  /**
+   * Hides a session that is done; one that still waits for replies is
+   * stopped first. A task's coordinator takes its workers along.
+   */
   async close(id: SessionId): Promise<void> {
     const info = this.byId.get(id);
     if (!info || isBusy(info.status)) return;
     if (!isEnded(info.status)) await this.stop(id);
     this.closed.add(id);
+    // A task closes with its workers; stopping its coordinator stopped them.
+    if (this.roles.get(id)?.kind === "coordinator") for (const worker of this.workers(id)) this.closed.add(worker);
     this.saveClosed(info.project);
   }
 

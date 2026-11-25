@@ -87,10 +87,15 @@ const changed = $derived(
     ? sessions.changes(current.id)
     : [],
 );
-/** A task's workers whose changes wait in Reviews. */
-const waiting = $derived(
-  current && sessions.roles.get(current.id)?.kind === "coordinator" ? sessions.waitingInTask(current.id) : 0,
-);
+/** A task's workers, or a worker itself, whose changes wait in Reviews. */
+const waiting = $derived.by(() => {
+  const kind = current ? sessions.roles.get(current.id)?.kind : undefined;
+  if (!current || !kind) return 0;
+  if (kind === "coordinator") return sessions.waitingInTask(current.id);
+  return sessions.waitsForReview(current.id) ? 1 : 0;
+});
+/** The task the person pressed Close on: it asks once before closing it with its workers. */
+let confirming = $state<SessionId | null>(null);
 const capacity = $derived(project ? sessions.capacity.get(project.id) : undefined);
 
 $effect(() => {
@@ -208,7 +213,7 @@ function step(id: SessionId): string | null {
 /** The row's call to action, if the person is needed. */
 function chip(s: SessionInfo): { text: string; tone: "warn" | "ok" } | null {
   if (s.status.state === "waiting_for_approval") return { text: "Approve", tone: "warn" };
-  if (!isBusy(s.status) && (sessions.changes(s.id).length > 0 || sessions.waitingInTask(s.id) > 0))
+  if (!isBusy(s.status) && (sessions.waitsForReview(s.id) || sessions.waitingInTask(s.id) > 0))
     return { text: "Review", tone: "ok" };
   return null;
 }
@@ -219,7 +224,10 @@ function closable(s: SessionInfo): boolean {
 }
 
 function tone(s: SessionInfo): string {
-  if (s.status.state === "failed" || sessions.status(s.id).startsWith("Failed")) return "failed";
+  const label = sessions.status(s.id);
+  if (s.status.state === "failed" || label.startsWith("Failed")) return "failed";
+  // A worker stopped with its task after it finished is done.
+  if (label === "Done") return "idle";
   return s.status.state;
 }
 
@@ -314,7 +322,13 @@ function stop(id: SessionId): Promise<void> {
   return run(() => sessions.stop(id));
 }
 
+/** Closes `id`; a task (a coordinator) asks first, since its workers close with it. */
 function close(id: SessionId): Promise<void> {
+  if (sessions.roles.get(id)?.kind === "coordinator" && confirming !== id) {
+    confirming = id;
+    return Promise.resolve();
+  }
+  confirming = null;
   return run(async () => {
     await sessions.close(id);
     if (selected === id) selected = null;
@@ -341,6 +355,22 @@ const canReply = $derived(current !== null && current.status.state === "idle");
 
 {#snippet icon(path: string)}
   <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d={path} /></svg>
+{/snippet}
+
+{#snippet confirmClose(id: SessionId)}
+  {@const workers = sessions.workers(id).length}
+  {@const kept = sessions.waitingInTask(id)}
+  <div class="confirm" role="group" aria-label="Close this task?" data-testid="agents-close-confirm">
+    <p>
+      Close this task{workers > 0 ? ` and its ${workers === 1 ? "worker" : `${workers} workers`}` : ""}?{kept > 0
+        ? " Their changes stay in Reviews."
+        : ""}
+    </p>
+    <span class="buttons">
+      <button type="button" class="quiet" onclick={() => (confirming = null)}>Cancel</button>
+      <button type="button" class="quiet strong" disabled={busy} onclick={() => close(id)}>Close task</button>
+    </span>
+  </div>
 {/snippet}
 
 <section class="agents" aria-labelledby="agents-heading" data-testid="agents-panel">
@@ -392,6 +422,7 @@ const canReply = $derived(current !== null && current.status.state === "idle");
           {/if}
         </span>
       </div>
+      {#if confirming === current.id}{@render confirmClose(current.id)}{/if}
       <!-- What the session is, and what waits: it gives way (and scrolls) before the transcript does. -->
       <div class="info">
         <div class="facts">
@@ -464,7 +495,14 @@ const canReply = $derived(current !== null && current.status.state === "idle");
         {:else if waiting > 0}
           <div class="card outcome row" data-testid="agent-reviews">
             <span>{waiting === 1 ? "1 change waits" : `${waiting} changes wait`} for your review.</span>
-            <button type="button" class="quiet" onclick={() => current && openReviews(sessions.workers(current.id))}
+            <button
+              type="button"
+              class="quiet"
+              onclick={() =>
+                current &&
+                openReviews(
+                  sessions.roles.get(current.id)?.kind === "coordinator" ? sessions.workers(current.id) : [current.id],
+                )}
               >Review</button
             >
           </div>
@@ -572,8 +610,11 @@ const canReply = $derived(current !== null && current.status.state === "idle");
                   disabled={busy}
                   onclick={() => close(session.id)}>{@render icon("M6 6l12 12M18 6L6 18")}</button
                 >
+              {:else}
+                <span class="close-space" aria-hidden="true"></span>
               {/if}
             </li>
+            {#if confirming === session.id}<li class="confirm-row">{@render confirmClose(session.id)}</li>{/if}
           {/each}
         </ul>
       {/if}
@@ -894,20 +935,43 @@ const canReply = $derived(current !== null && current.status.state === "idle");
     color: var(--ok);
     background: var(--ok-soft);
   }
-  /* Close shows on hover or focus, like the rest of the chrome. */
-  .close {
-    position: absolute;
-    top: 8px;
-    right: 6px;
+  /* Close has its own column, so it never covers a badge; muted like the
+     rest of the chrome, at full strength on hover or focus. */
+  .close,
+  .close-space {
+    flex: none;
     width: 28px;
+    margin: 8px 4px 0 0;
+  }
+  .close {
     padding: 0;
     justify-content: center;
-    background: var(--s2);
-    opacity: 0;
+    opacity: 0.6;
   }
   .sessions li:hover .close,
   .close:focus-visible {
     opacity: 1;
+  }
+  .confirm {
+    margin: 0 8px 8px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 13px;
+    background: var(--s2);
+    border-radius: var(--radius);
+  }
+  .sessions .confirm {
+    flex: 1;
+    margin: 0;
+  }
+  .confirm .buttons {
+    justify-content: flex-end;
+  }
+  .strong {
+    color: var(--text);
+    font-weight: 500;
   }
 
   /* One session */
