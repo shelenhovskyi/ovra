@@ -183,13 +183,13 @@ function count(kind: ConfigKind, entries: string[]): number {
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
-/** "9 actions Claude may take without asking", for the summary line. */
+/** "9 narrow permissions", for the summary line. */
 export function countText(kind: ConfigKind, n: number): string {
   switch (kind) {
     case "broad_allow_rules":
-      return plural(n, "unlimited permission", "unlimited permissions");
+      return plural(n, "broad permission", "broad permissions");
     case "allow_rules":
-      return `${plural(n, "action", "actions")} Claude may take without asking`;
+      return plural(n, "narrow permission", "narrow permissions");
     case "hooks":
       return `${plural(n, "hook", "hooks")} that ${n === 1 ? "runs" : "run"} code`;
     case "helpers":
@@ -236,7 +236,7 @@ function tally(items: { kind: ConfigKind; entries: string[] }[]): [ConfigKind, n
   });
 }
 
-/** One line of counts: "1 unlimited permission · 1 hook that runs code · 2 skills". */
+/** One line of counts: "1 broad permission · 1 hook that runs code · 2 skills". */
 export function summary(items: ConfigItem[]): string {
   return tally(items)
     .map(([kind, n]) => countText(kind, n))

@@ -134,9 +134,7 @@ describe("trust summary", () => {
   ];
 
   it("counts by kind in plain words, riskiest first", () => {
-    expect(summary(items)).toBe(
-      "4 unlimited permissions · 1 hook that runs code · 9 actions Claude may take without asking · 2 skills",
-    );
+    expect(summary(items)).toBe("4 broad permissions · 1 hook that runs code · 9 narrow permissions · 2 skills");
     expect(countText("plugins", 1)).toBe("1 plugin that can run code");
     expect(summary([{ path: "s.json", kind: "unreadable", entries: ["bad JSON"] }])).toBe("1 file Ovra could not read");
     expect(changeSummary([])).toBe("");
@@ -300,7 +298,7 @@ describe("ProjectTrust", () => {
     };
     const workspace = await show(core);
     expect(heading()).toBe("This project has its own Claude settings");
-    expect(testid("trust-summary")).toBe("2 unlimited permissions · 1 hook that runs code · 1 custom subagent");
+    expect(testid("trust-summary")).toBe("2 broad permissions · 1 hook that runs code · 1 custom subagent");
     expect(testid("broad-rules")).toBe("Claude will use Bash(*) and Edit without asking you.");
     expect(testid("trust-runs-code")).toBe("1 hook runs commands on your computer.");
     // The lists wait behind "Show details".
