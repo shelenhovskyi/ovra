@@ -1,12 +1,12 @@
 <script lang="ts">
 // Agent sessions of the open project: a compact list of tasks with a start
 // box under it; a row opens its transcript, where the person replies, stops
-// and closes it. Ctrl+Enter (Cmd+Enter) sends from a text field.
+// and closes it. Enter sends from a text field (Ctrl+Enter or Cmd+Enter
+// too); Shift+Enter starts a new line.
 import { type Snippet, tick, untrack } from "svelte";
 import { describeTool } from "../approvals/describe";
 import { browserPicks, pickLabel } from "../browser/picks.svelte";
 import { registerCommand } from "../keys/commands";
-import { formatShortcut, isApple } from "../keys/shortcut";
 import type { AccountState, FileChange, SessionId, SessionInfo } from "../lib/protocol";
 import { CoreError } from "../lib/transport";
 import { useOvra } from "../shell/context";
@@ -30,7 +30,6 @@ const { transport, workspace } = useOvra();
 const sessions = agentSessions(transport);
 const picks = browserPicks(transport);
 const accounts = claudeAccounts(transport);
-const modEnter = formatShortcut("Mod+Enter", isApple());
 
 /** `hint`: a few words under the options; `more`: the whole of it, on hover. */
 const MODES: { id: TaskMode; label: string; hint: string; more: string }[] = [
@@ -354,8 +353,10 @@ function copy(value: string): void {
   navigator.clipboard?.writeText(value).catch(() => {});
 }
 
-function submitOnModEnter(event: KeyboardEvent, submit: () => Promise<void>): void {
-  if (event.code === "Enter" && (event.ctrlKey || event.metaKey) && !event.isComposing) {
+/** Enter submits, as in Claude's own apps; Shift+Enter is a new line, and Enter that ends an IME composition is not a send. */
+function submitOnEnter(event: KeyboardEvent, submit: () => Promise<void>): void {
+  const composing = event.isComposing || event.keyCode === 229;
+  if ((event.code === "Enter" || event.code === "NumpadEnter") && !event.shiftKey && !composing) {
     event.preventDefault();
     void submit();
   }
@@ -539,7 +540,7 @@ const canReply = $derived(current !== null && current.status.state === "idle");
             placeholder={canReply ? "Reply to Claude" : "Claude is working…"}
             bind:this={replyField}
             bind:value={reply}
-            onkeydown={(event) => submitOnModEnter(event, send)}
+            onkeydown={(event) => submitOnEnter(event, send)}
           ></textarea>
           {#if chips.length > 0}
             <ul class="chips" aria-label="Picked elements, sent with the reply">
@@ -556,7 +557,7 @@ const canReply = $derived(current !== null && current.status.state === "idle");
             </ul>
           {/if}
           <div class="row">
-            <span class="line">{canReply ? `${modEnter} sends` : ""}</span>
+            <span class="line">{canReply ? "Shift+Enter: new line" : ""}</span>
             <button type="submit" class="primary" disabled={busy || !canReply || !reply.trim()}>Send</button>
           </div>
         </form>
@@ -574,7 +575,7 @@ const canReply = $derived(current !== null && current.status.state === "idle");
             rows="2"
             placeholder="Resume with a message"
             bind:value={reply}
-            onkeydown={(event) => submitOnModEnter(event, resume)}
+            onkeydown={(event) => submitOnEnter(event, resume)}
           ></textarea>
           <div class="row">
             <span class="line">Picks up where it stopped</span>
@@ -667,7 +668,7 @@ const canReply = $derived(current !== null && current.status.state === "idle");
         bind:this={promptField}
         bind:value={prompt}
         aria-describedby="agent-mode-hint"
-        onkeydown={(event) => submitOnModEnter(event, start)}
+        onkeydown={(event) => submitOnEnter(event, start)}
       ></textarea>
       <fieldset class="modes">
         <legend class="visually-hidden">How Claude works on it</legend>
@@ -711,7 +712,7 @@ const canReply = $derived(current !== null && current.status.state === "idle");
         <button
           type="submit"
           class="primary"
-          title={prompt.trim() ? `${modEnter} starts` : "Type a task first"}
+          title={prompt.trim() ? "Enter starts · Shift+Enter: new line" : "Type a task first"}
           disabled={busy || blocked || !prompt.trim()}>Start</button
         >
       </div>

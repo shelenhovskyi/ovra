@@ -129,6 +129,22 @@ describe("AgentsPanel", () => {
     expect(target.querySelector<HTMLInputElement>("input[value=split]")?.checked).toBe(true);
   });
 
+  it("starts on Enter, not on Shift+Enter or an Enter that ends an IME composition", async () => {
+    const core = await setup();
+    type(target.querySelector("#agent-prompt"), "Fix the typo");
+    const press = (init: KeyboardEventInit) =>
+      document.activeElement?.dispatchEvent(
+        new KeyboardEvent("keydown", { code: "Enter", key: "Enter", bubbles: true, cancelable: true, ...init }),
+      );
+    press({ shiftKey: true });
+    press({ isComposing: true });
+    await settle();
+    expect(core.sent("agents.start")).toEqual([]);
+    press({});
+    await settle();
+    expect(core.sent("agents.start")).toHaveLength(1);
+  });
+
   it("starts a task whose coordinator splits the work among workers", async () => {
     const core = await setup();
     choose("Plan and split");
