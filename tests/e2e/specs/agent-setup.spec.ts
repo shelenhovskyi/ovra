@@ -26,7 +26,7 @@ test("review what a project would load, trust it and stop trusting it", async ({
   const trust = page.getByTestId("project-trust");
   await expect(trust.getByRole("heading")).toHaveText("This project has its own Claude settings");
   await expect(trust.getByTestId("trust-summary")).toHaveText("1 hook that runs code");
-  await expect(trust.getByRole("note")).toHaveText("1 hook runs commands on your computer.");
+  await expect(trust.getByTestId("trust-runs-code")).toHaveText("1 hook runs commands on your computer.");
   await trust.getByRole("button", { name: "Show details" }).click();
   await expect(trust.getByTestId("trust-details")).toContainText("PostToolUse (Edit): ./fmt.sh");
   await trust.getByRole("button", { name: "Trust project" }).click();
