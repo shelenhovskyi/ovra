@@ -415,3 +415,35 @@ test("a direct session's protected files and git hooks need a look before approv
   expect(existsSync(join(dir, ".envrc"))).toBe(true);
   expect(existsSync(join(dir, ".git/hooks/pre-commit"))).toBe(true);
 });
+
+test("always allow adds a rule, and the next identical request is allowed by it", async ({ page }) => {
+  // Tasks that start with "Sandboxed" run `npm test` twice in a fake sandbox with a limited network.
+  await openProject(page, "ovra-agents-always-");
+  await page.getByRole("textbox", { name: "Give Claude a task" }).fill("Sandboxed: run the tests");
+  await page.keyboard.press("ControlOrMeta+Enter");
+  const approvals = page.getByTestId("approvals");
+  const run = approvals.getByRole("group", { name: "Run npm test" });
+  await expect(run).toBeVisible();
+  const always = run.getByTestId("approval-always");
+  await expect(always).toHaveText("Always allow npm test here");
+  await arm(page);
+  await expect(always).toHaveAttribute("aria-disabled", "false");
+  await always.click();
+
+  // The second `npm test` asks nobody: the turn ends with both runs.
+  const session = page.getByTestId("agent-session");
+  await expect(session.getByRole("status")).toHaveText("Done");
+  await expect(approvals).toContainText("Nothing waits for your approval.");
+  const transcript = page.getByTestId("transcript");
+  await expect(transcript).toContainText("The tests ran twice.");
+  await expect(transcript.locator(".step summary", { hasText: "Ran npm test" })).toHaveCount(2);
+
+  // The rule shows in Settings > Rules, marked, with Remove.
+  await page.keyboard.press("ControlOrMeta+K");
+  await page.keyboard.type(">rules");
+  await page.getByRole("option", { name: /Rules/ }).click();
+  const rule = page.getByTestId("policy-rule");
+  await expect(rule).toHaveCount(1);
+  await expect(rule).toContainText(/Bash\(npm test\)\s*Auto\s*From an approval/);
+  await expect(rule.getByRole("button", { name: "Remove Bash(npm test) auto" })).toBeVisible();
+});

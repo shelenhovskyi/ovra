@@ -288,12 +288,26 @@ fn agents(args: &Args) -> Arc<dyn AgentRuntime> {
     // Sessions that browse say one thing, ask nothing, and report a fake
     // sandbox behind their netproxy.
     let browsing = ScriptedAgent::new(vec![vec![Step::Say("I will look at the page.")]]);
-    if let Ok(mut sandbox) = browsing.sandbox.lock() {
-        *sandbox = Some(ovra_core::protocol::agents::SandboxReport {
-            name: "fake sandbox for tests".into(),
-            network: ovra_core::protocol::agents::SandboxNetwork::Proxy,
-            gaps: vec!["everything: nothing is confined".into()],
-        });
+    // Sessions for tasks that start with "Sandboxed" run the tests twice in
+    // the same fake sandbox, so a rule from the first approval can decide
+    // the second.
+    let npm_test = || Step::Use {
+        tool: "Bash",
+        input: serde_json::json!({ "command": "npm test", "description": "Run the tests" }),
+    };
+    let sandboxed = ScriptedAgent::new(vec![vec![
+        npm_test(),
+        npm_test(),
+        Step::Say("The tests ran twice."),
+    ]]);
+    for agent in [&browsing, &sandboxed] {
+        if let Ok(mut sandbox) = agent.sandbox.lock() {
+            *sandbox = Some(ovra_core::protocol::agents::SandboxReport {
+                name: "fake sandbox for tests".into(),
+                network: ovra_core::protocol::agents::SandboxNetwork::Proxy,
+                gaps: vec!["everything: nothing is confined".into()],
+            });
+        }
     }
     // Sessions that stream are caught mid-sentence until interrupted.
     let streaming = ScriptedAgent::new(vec![vec![Step::Partial(
@@ -302,6 +316,7 @@ fn agents(args: &Args) -> Arc<dyn AgentRuntime> {
     Arc::new(FakeAgent {
         script,
         browsing,
+        sandboxed,
         streaming,
         claude: ClaudeCli::new(None, ovra_sandbox::for_this_os(&args.data_dir)),
     })
@@ -336,6 +351,8 @@ struct FakeAgent {
     script: ovra_core::fakes::ScriptedAgent,
     /// For tasks that start with "Browse".
     browsing: ovra_core::fakes::ScriptedAgent,
+    /// For tasks that start with "Sandboxed".
+    sandboxed: ovra_core::fakes::ScriptedAgent,
     /// For tasks that start with "Stream".
     streaming: ovra_core::fakes::ScriptedAgent,
     claude: ClaudeCli,
@@ -350,6 +367,9 @@ impl AgentRuntime for FakeAgent {
     ) -> ovra_core::services::Result<Box<dyn ovra_core::services::RunningAgent>> {
         if spec.prompt.starts_with("Browse") {
             return self.browsing.start(spec, host);
+        }
+        if spec.prompt.starts_with("Sandboxed") {
+            return self.sandboxed.start(spec, host);
         }
         if spec.prompt.starts_with("Stream") {
             return self.streaming.start(spec, host);
