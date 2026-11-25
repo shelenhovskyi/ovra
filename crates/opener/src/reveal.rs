@@ -1,8 +1,9 @@
 //! Shows a file or folder in the system file manager: `open -R` on macOS,
 //! `explorer /select,` on Windows, and on Linux the freedesktop
 //! `FileManager1.ShowItems` call over D-Bus, else `xdg-open` on the folder
-//! that holds it. Nothing is ever opened or run: a file is only selected,
-//! and only folders are handed to `explorer` or `xdg-open`.
+//! that holds it. Nothing is ever opened or run: `explorer` only ever
+//! selects, and `xdg-open` gets `<folder>/.`, which names no file even if
+//! the folder was swapped for one.
 
 use std::ffi::OsString;
 use std::io;
@@ -32,7 +33,8 @@ pub(crate) fn plan(platform: Platform, target: &Path, kind: Kind) -> Result<Vec<
     Ok(match platform {
         Platform::Macos => vec![invocation("open", vec!["-R".into(), target.into()])],
         // Passed as written (see `start`): explorer splits its command line
-        // at commas outside quotes, so the path is always quoted.
+        // at commas outside quotes, so the path is always quoted. Folders
+        // and the root are selected too: `explorer <path>` would run a file.
         Platform::Windows => {
             let path = target.as_os_str();
             if path.as_encoded_bytes().contains(&b'"') {
@@ -41,11 +43,7 @@ pub(crate) fn plan(platform: Platform, target: &Path, kind: Kind) -> Result<Vec<
                     "a path with a quote cannot be shown in Explorer",
                 ));
             }
-            let mut arg = OsString::from(if kind == Kind::File {
-                "/select,\""
-            } else {
-                "\""
-            });
+            let mut arg = OsString::from("/select,\"");
             arg.push(path);
             arg.push("\"");
             vec![invocation("explorer", vec![arg])]
@@ -55,6 +53,9 @@ pub(crate) fn plan(platform: Platform, target: &Path, kind: Kind) -> Result<Vec<
                 Kind::Root => target,
                 Kind::File | Kind::Folder => target.parent().unwrap_or(target),
             };
+            // `.` resolves only in a directory, so `xdg-open` never gets a
+            // file to open.
+            let folder = folder.join(".");
             let mut item = OsString::from("array:string:");
             item.push(file_uri(target));
             vec![
@@ -72,7 +73,7 @@ pub(crate) fn plan(platform: Platform, target: &Path, kind: Kind) -> Result<Vec<
                         "string:".into(),
                     ],
                 ),
-                invocation("xdg-open", vec![folder.into()]),
+                invocation("xdg-open", vec![folder.into_os_string()]),
             ]
         }
     })
@@ -92,8 +93,18 @@ fn file_uri(path: &Path) -> String {
     uri
 }
 
-/// Waits for a started program and tells whether it succeeded.
-pub(crate) type Wait = Box<dyn FnOnce() -> bool + Send>;
+/// How a started program ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Exit {
+    Succeeded,
+    Failed,
+    /// D-Bus got no reply in time: the file manager may still be starting
+    /// and show the item, so nothing else is tried, to avoid two windows.
+    NoReply,
+}
+
+/// Waits for a started program and tells how it ended.
+pub(crate) type Wait = Box<dyn FnOnce() -> Exit + Send>;
 
 /// Starts the first invocation that starts and returns. A background
 /// thread waits for it and, if it fails, goes on with the rest.
@@ -123,7 +134,7 @@ fn continue_after<S>(wait: Wait, rest: Vec<Invocation>, start: S)
 where
     S: Fn(&Invocation) -> io::Result<Wait> + Send + 'static,
 {
-    if !wait() && !rest.is_empty() {
+    if wait() == Exit::Failed && !rest.is_empty() {
         // Nobody is left to tell; the person sees that nothing opened.
         let _ = run_in_order(rest, start);
     }
@@ -142,12 +153,29 @@ pub(crate) fn start(invocation: &Invocation) -> io::Result<Wait> {
     }
     #[cfg(not(windows))]
     command.args(&invocation.args);
-    let mut child = command
+    let child = command
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
         .spawn()?;
-    Ok(Box::new(move || child.wait().is_ok_and(|s| s.success())))
+    Ok(Box::new(move || match child.wait_with_output() {
+        Ok(out) => exit(out.status.success(), &out.stderr),
+        Err(_) => Exit::Failed,
+    }))
+}
+
+/// Tells a D-Bus timeout from other failures by what `dbus-send` prints.
+fn exit(success: bool, stderr: &[u8]) -> Exit {
+    let says = |name: &[u8]| stderr.windows(name.len()).any(|w| w == name);
+    if success {
+        Exit::Succeeded
+    } else if says(b"org.freedesktop.DBus.Error.NoReply")
+        || says(b"org.freedesktop.DBus.Error.Timeout")
+    {
+        Exit::NoReply
+    } else {
+        Exit::Failed
+    }
 }
 
 #[cfg(test)]
@@ -180,13 +208,15 @@ mod tests {
     }
 
     #[test]
-    fn windows_selects_files_and_opens_folders_quoted() {
+    fn windows_only_ever_selects_quoted() {
         let file = lines(Platform::Windows, r"C:\p\a,b c.txt", Kind::File);
         assert_eq!(file, [r#"explorer /select,"C:\p\a,b c.txt""#]);
         let folder = lines(Platform::Windows, r"C:\p\src", Kind::Folder);
-        assert_eq!(folder, [r#"explorer "C:\p\src""#]);
+        assert_eq!(folder, [r#"explorer /select,"C:\p\src""#]);
         let root = lines(Platform::Windows, r"C:\p", Kind::Root);
-        assert_eq!(root, [r#"explorer "C:\p""#]);
+        assert_eq!(root, [r#"explorer /select,"C:\p""#]);
+        let drive = lines(Platform::Windows, r"C:\", Kind::Root);
+        assert_eq!(drive, [r#"explorer /select,"C:\""#]);
         let quoted = plan(Platform::Windows, Path::new("C:\\p\\a\" /x"), Kind::File);
         assert_eq!(quoted.err().map(|e| e.code), Some(ErrorCode::BadRequest));
     }
@@ -201,13 +231,13 @@ mod tests {
             file,
             [
                 format!("{show} array:string:file:///p/a%20b%2Cc%25.txt string:"),
-                "xdg-open /p".into(),
+                "xdg-open /p/.".into(),
             ]
         );
         let folder = lines(Platform::Unix, "/p/src", Kind::Folder);
-        assert_eq!(folder[1], "xdg-open /p");
+        assert_eq!(folder[1], "xdg-open /p/.");
         let root = lines(Platform::Unix, "/p", Kind::Root);
-        assert_eq!(root[1], "xdg-open /p");
+        assert_eq!(root[1], "xdg-open /p/.");
         assert_eq!(file_uri(Path::new("/p/\u{e9}")), "file:///p/%C3%A9");
     }
 
@@ -220,9 +250,13 @@ mod tests {
             if program == "missing" {
                 return Err(io::ErrorKind::NotFound.into());
             }
-            let ok = program != fails;
+            let exit = if program == fails {
+                Exit::Failed
+            } else {
+                Exit::Succeeded
+            };
             started.send(program).unwrap_or_else(|e| panic!("{e}"));
-            Ok(Box::new(move || ok))
+            Ok(Box::new(move || exit))
         }
     }
 
@@ -246,10 +280,33 @@ mod tests {
     #[test]
     fn stops_after_one_that_succeeds() {
         let (tx, rx) = mpsc::channel();
-        let wait: Wait = Box::new(|| true);
+        let wait: Wait = Box::new(|| Exit::Succeeded);
+        continue_after(wait, vec![inv("xdg-open")], fake(tx.clone(), ""));
+        assert!(rx.try_recv().is_err());
+        let wait: Wait = Box::new(|| Exit::NoReply);
         continue_after(wait, vec![inv("xdg-open")], fake(tx, ""));
         assert!(rx.try_recv().is_err());
         let none = run_in_order(vec![inv("missing")], fake(mpsc::channel().0, ""));
         assert_eq!(none.err().map(|e| e.code), Some(ErrorCode::Unavailable));
+    }
+
+    #[test]
+    fn a_dbus_timeout_is_told_from_other_failures() {
+        let timeout = b"Error org.freedesktop.DBus.Error.NoReply: Did not receive a reply.";
+        assert_eq!(exit(false, timeout), Exit::NoReply);
+        let unknown = b"Error org.freedesktop.DBus.Error.ServiceUnknown: no such name";
+        assert_eq!(exit(false, unknown), Exit::Failed);
+        assert_eq!(exit(false, b""), Exit::Failed);
+        assert_eq!(exit(true, timeout), Exit::Succeeded);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_xdg_open_dot_names_no_file() {
+        let tmp = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+        let file = tmp.path().join("a.txt");
+        std::fs::write(&file, "x").unwrap_or_else(|e| panic!("{e}"));
+        assert!(file.join(".").metadata().is_err());
+        assert!(tmp.path().join(".").is_dir());
     }
 }
