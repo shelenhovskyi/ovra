@@ -32,6 +32,11 @@ export type Filter = "all" | "changed";
 /** Loads the direct children of a directory (`""` is the root). Rejects with a CoreError. */
 export type LoadDir = (path: string) => Promise<DirEntry[]>;
 
+/** A tracked file deleted from disk: listed so the change shows, but nothing is there to act on. */
+export function isGone(row: Pick<Row, "kind" | "git">): boolean {
+  return row.kind !== "dir" && row.git === "deleted";
+}
+
 export function joinPath(dir: string, name: string): string {
   return dir === "" ? name : `${dir}/${name}`;
 }

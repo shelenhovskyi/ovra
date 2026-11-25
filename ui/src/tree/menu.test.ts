@@ -37,6 +37,10 @@ describe("rowMenu", () => {
     expect(layout(rowMenu(actions, { path: "a.ts", kind: "file" }))).not.toContain("Paste");
   });
 
+  it("offers only Copy path on a deleted file, which is gone from disk", () => {
+    expect(layout(rowMenu(actions, { path: "a.ts", kind: "file", git: "deleted" }))).toEqual(["Copy path"]);
+  });
+
   it("copies the relative path from Copy path's Alt variant", () => {
     const copied: [string[], boolean][] = [];
     const spy = { clip: null, copyPaths: (p: string[], rel: boolean) => void copied.push([p, rel]) };

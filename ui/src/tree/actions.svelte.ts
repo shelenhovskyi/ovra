@@ -427,7 +427,8 @@ export class FileActions {
     this.info = null;
   }
 
-  private tell(text: string): void {
+  /** Shows a brief note that is no failure. */
+  tell(text: string): void {
     this.info = text;
     clearTimeout(this.infoTimer);
     this.infoTimer = setTimeout(() => (this.info = null), NOTICE_MS);

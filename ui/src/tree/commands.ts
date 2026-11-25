@@ -6,7 +6,7 @@ import { registerCommand } from "../keys/commands";
 import { findInFolder } from "../search/find-in";
 import { openTerminalIn } from "../terminal/open-in";
 import type { FileActions } from "./actions.svelte";
-import { parentOf, type Row } from "./model";
+import { isGone, parentOf, type Row } from "./model";
 import { revealLabel } from "./ops";
 
 /** The folder a new entry goes in when `row` is active (`""` is the project folder). */
@@ -18,12 +18,12 @@ export function folderFor(row: Pick<Row, "path" | "kind"> | null): string {
 /** Registers the commands; `active` is the active real row, `show` makes the tree visible first. */
 export function registerFileCommands(
   actions: FileActions,
-  active: () => Pick<Row, "path" | "kind"> | null,
+  active: () => Pick<Row, "path" | "kind" | "git"> | null,
   show: () => void,
 ): () => void {
   const on = (run: (row: Pick<Row, "path" | "kind">) => unknown) => () => {
     const row = active();
-    if (!row) return;
+    if (!row || isGone(row)) return;
     show();
     void run(row);
   };

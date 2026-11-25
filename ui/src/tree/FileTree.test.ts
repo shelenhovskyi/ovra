@@ -176,6 +176,11 @@ describe("FileTree", () => {
     expect(t.row("gone.ts").querySelector(".name.git-deleted")).not.toBeNull();
     t.row("gone.ts").click();
     expect(t.opened).toEqual([]);
+    // Nothing on disk to rename.
+    t.tree().dispatchEvent(new KeyboardEvent("keydown", { key: "F2", code: "F2", bubbles: true }));
+    await settle();
+    expect(document.querySelector("input")).toBeNull();
+    expect(document.querySelector('[role="status"]')?.textContent).toBe("Deleted. Restore it in Git.");
     expect(description(t.row("new.ts"))).toBe("renamed, from old/name.ts");
     // The letter in the tooltip, besides the dot's colour.
     expect(t.row("new.ts").title).toBe("new.ts (R: renamed, from old/name.ts)");

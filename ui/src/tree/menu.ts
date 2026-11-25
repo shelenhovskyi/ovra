@@ -9,7 +9,7 @@ import { findInFolder } from "../search/find-in";
 import { openTerminalIn } from "../terminal/open-in";
 import type { FileActions } from "./actions.svelte";
 import { folderFor } from "./commands";
-import type { Row } from "./model";
+import { isGone, type Row } from "./model";
 import { revealLabel, trashKeys } from "./ops";
 
 /** New file… and New folder… in `dir`. */
@@ -45,7 +45,12 @@ function trashItem(actions: FileActions, paths: string[]): MenuItem {
 }
 
 /** The menu of a file or folder row; New file…, New folder… and Find in folder… on folders only. */
-export function rowMenu(actions: FileActions, row: Pick<Row, "path" | "kind">): MenuEntry[] {
+export function rowMenu(
+  actions: FileActions,
+  row: Pick<Row, "path" | "kind"> & Partial<Pick<Row, "git">>,
+): MenuEntry[] {
+  // A deleted file has only its path left.
+  if (isGone({ kind: row.kind, git: row.git ?? null })) return [copyPathItem(actions, [row.path])];
   const dir = folderFor(row);
   const folder = row.kind === "dir";
   return [

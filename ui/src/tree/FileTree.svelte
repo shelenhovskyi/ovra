@@ -37,7 +37,7 @@ import { FileActions } from "./actions.svelte";
 import { folderFor, registerFileCommands } from "./commands";
 import { HoverExpander } from "./hover-expand";
 import { rootMenu, rowMenu, selectionMenu } from "./menu";
-import { ancestorsOf, type Filter, parentOf, type Row, TreeModel, typeaheadMatch, visibleRange } from "./model";
+import { ancestorsOf, type Filter, isGone, parentOf, type Row, TreeModel, typeaheadMatch, visibleRange } from "./model";
 import NameInput from "./NameInput.svelte";
 import { keyAction, moveTarget, stemRange } from "./ops";
 import { ExpandedSaver, loadExpanded } from "./persist";
@@ -231,6 +231,7 @@ let activeIndex = $derived(current === null ? -1 : rows.findIndex((r) => r.path 
 /** The selected paths: the picked rows, or else the active one. */
 let chosen = $derived(picked.length > 0 ? picked : current !== null && activeIndex >= 0 ? [current] : []);
 let chosenSet = $derived(new Set(chosen));
+let gonePaths = $derived(new Set(rows.filter(isGone).map((r) => r.path)));
 /** Rows cut and not pasted yet: they look dimmed, and so does what is in a cut folder. */
 let cutPaths = $derived(actions.clip?.cut ? actions.clip.paths : []);
 const isCut = (path: string) => cutPaths.some((p) => path === p || path.startsWith(`${p}/`));
@@ -366,7 +367,8 @@ function oncontextmenu(e: MouseEvent): void {
     return;
   }
   selectPath(path);
-  openContextMenu(at, rowMenu(actions, { path, kind: el.hasAttribute("aria-expanded") ? "dir" : "file" }));
+  const row = rows.find((r) => r.path === path);
+  openContextMenu(at, rowMenu(actions, row ?? { path, kind: el.hasAttribute("aria-expanded") ? "dir" : "file" }));
 }
 
 /** The active row's menu (the project's without one), under the row. */
@@ -525,11 +527,15 @@ function onkeydown(e: KeyboardEvent): void {
   const page = Math.max(1, Math.floor(height / ROW_HEIGHT) - 1);
   const action = e.target instanceof HTMLInputElement ? null : keyAction(e);
   const real = row && !row.draft ? row : null;
+  // A deleted file is not on disk: file actions skip it.
+  const onDisk = chosen.filter((path) => !gonePaths.has(path));
+  const acts = action === "rename" || action === "trash" || action === "cut" || action === "copy";
+  if (acts && real && onDisk.length === 0) actions.tell("Deleted. Restore it in Git.");
   // Rename works on one row only.
-  if (action === "rename" && real && picked.length <= 1) actions.startRename(real.path);
-  else if (action === "trash" && real) actions.askTrash(chosen);
-  else if (action === "cut" && real) actions.cut(chosen);
-  else if (action === "copy" && real) void actions.copy(chosen);
+  else if (action === "rename" && real && picked.length <= 1) actions.startRename(real.path);
+  else if (action === "trash" && real) actions.askTrash(onDisk);
+  else if (action === "cut" && real) actions.cut(onDisk);
+  else if (action === "copy" && real) void actions.copy(onDisk);
   else if (action === "paste") void actions.paste(folderFor(real));
   else if (action === "undo") void actions.undo();
   else if (action === "redo") void actions.redo();
