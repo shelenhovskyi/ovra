@@ -48,6 +48,21 @@ describe("Buffer", () => {
     expect(a.dirty).toBe(false);
   });
 
+  test("a CRLF file saves with CRLF, after an outside change too", async () => {
+    const { core, show, type } = setup();
+    core.put("a.txt", "one\r\ntwo");
+    const a = await show("a.txt");
+    expect([a.text, a.lineEnding]).toEqual(["one\ntwo", "CRLF"]);
+    type("\nthree");
+    await a.save();
+    expect(core.writes.at(-1)?.text).toBe("one\r\ntwo\r\nthree");
+    core.put("a.txt", "lf\nonly");
+    await a.diskChanged();
+    type("!");
+    await a.save();
+    expect([core.writes.at(-1)?.text, a.lineEnding]).toEqual(["lf\nonly!", "LF"]);
+  });
+
   test("names the text box after its file", async () => {
     const { core, view, show } = setup();
     core.put("src/a.txt", "hello");

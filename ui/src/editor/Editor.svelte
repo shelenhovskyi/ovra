@@ -111,8 +111,8 @@ function publish(target: EditorView, docChanged: boolean): void {
       cursor: cursorOf(state),
       language: shown?.heavy ? "Plain text (large file)" : (shown?.language?.name ?? "Plain text"),
       indent,
-      // The editor keeps and saves "\n" line breaks.
-      lineEnding: "LF",
+      // The file's own line breaks, which saving keeps.
+      lineEnding: shown?.lineEnding ?? "LF",
     };
     publishFacts(facts, next);
   });

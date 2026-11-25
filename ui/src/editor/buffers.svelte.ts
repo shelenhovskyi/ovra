@@ -27,6 +27,7 @@ import { treeSitterHighlighting } from "./highlight/extension";
 import type { LanguageSource } from "./highlight/protocol";
 import { commentTokens, type Language, languageFor, languageSource } from "./languages";
 import { editorPrefs } from "./prefs.svelte";
+import { lineEndingOf } from "./status.svelte";
 import { theme } from "./theme";
 
 /**
@@ -109,6 +110,8 @@ export class Buffer {
   deleted = $state(false);
   /** The text is too large or has too long a line: no highlighting (see `isHeavy`). */
   heavy = $state(false);
+  /** The file's line breaks; CodeMirror keeps "\n" inside, saving writes these. */
+  lineEnding = $state<"LF" | "CRLF">("LF");
   /** Where the file is; a rename or move of it changes this (`moveTo`). */
   path = $state("");
   readonly language: Language | null;
@@ -233,7 +236,7 @@ export class Buffer {
         params: {
           project: this.options.project,
           path: this.path,
-          text: doc.toString(),
+          text: doc.sliceString(0, doc.length, this.lineEnding === "CRLF" ? "\r\n" : "\n"),
           expected_mtime_ms: overwrite ? null : this.mtime,
         },
       });
@@ -310,6 +313,7 @@ export class Buffer {
     }
     if (this.disposed) return;
     this.mtime = file.mtime_ms;
+    this.lineEnding = lineEndingOf(file.body.text);
     this.state = this.create(draft ? draft.text : file.body.text);
     this.saved = this.state.toText(file.body.text);
     // A draft made against another version of the file is a conflict, never a silent pick.
@@ -327,6 +331,7 @@ export class Buffer {
     const state = this.create(text, previous?.selection.main.head);
     this.saved = state.doc;
     this.mtime = mtime;
+    this.lineEnding = lineEndingOf(text);
     this.conflict = false;
     this.deleted = false;
     this.error = null;
