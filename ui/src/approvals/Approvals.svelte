@@ -22,7 +22,7 @@ import { hints } from "../agents/hints.svelte";
 import { sandboxGaps, sandboxState } from "../agents/sandbox";
 import { agentSessions } from "../agents/sessions.svelte";
 import { claudeAccounts } from "../agents/setup/claude-accounts.svelte";
-import { registerCommand } from "../keys/commands";
+import { listCommands, registerCommand } from "../keys/commands";
 import type { Decision, PermissionId, PermissionRequest, Project, ProjectId, SessionId } from "../lib/protocol";
 import { useOvra } from "../shell/context";
 import { typed } from "../shell/menu";
@@ -215,8 +215,18 @@ function remember(): void {
   if (active instanceof HTMLElement && !list?.contains(active) && active !== heading) returnTo = active;
 }
 
+/** The person folded the Agents column: the shortcut unfolds it, through the shell's own command. */
+async function unfoldAgents(): Promise<void> {
+  if (!document.querySelector("[data-testid=agents] .strip")) return;
+  await listCommands()
+    .find((c) => c.id === "layout.toggle_agents")
+    ?.run();
+  await tick();
+}
+
 async function enter(): Promise<void> {
   remember();
+  await unfoldAgents();
   if (collapsed) await show();
   const first = cards()[0];
   if (first) await bringUp(first);

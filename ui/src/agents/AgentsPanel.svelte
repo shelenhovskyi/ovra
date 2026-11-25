@@ -3,7 +3,7 @@
 // box under it; a row opens its transcript, where the person replies, stops
 // and closes it. Enter sends from a text field (Ctrl+Enter or Cmd+Enter
 // too); Shift+Enter starts a new line.
-import { type Snippet, tick, untrack } from "svelte";
+import { tick, untrack } from "svelte";
 import { describeTool } from "../approvals/describe";
 import { approvalQueue } from "../approvals/queue.svelte";
 import { browserPicks, pickLabel } from "../browser/picks.svelte";
@@ -28,9 +28,6 @@ import { billedShort, paidText } from "./setup/texts";
 import { isBusy, isEnded } from "./status";
 import Transcript from "./Transcript.svelte";
 import { rememberedMode, rememberMode, type TaskMode } from "./task-mode";
-
-/** `controls`: the shell's buttons for the panel (swap, collapse), drawn at the header's end. */
-let { controls }: { controls?: Snippet } = $props();
 
 const { transport, workspace } = useOvra();
 const sessions = agentSessions(transport);
@@ -574,7 +571,6 @@ const canReply = $derived(current !== null && current.status.state === "idle");
           onclick={newTask}>{@render icon("M12 5v14M5 12h14")}</button
         >
       {/if}
-      {@render controls?.()}
     </span>
   </header>
   {#if unsandboxed && !current}

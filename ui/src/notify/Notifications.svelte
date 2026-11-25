@@ -8,6 +8,7 @@ import { approvalQueue } from "../approvals/queue.svelte";
 import { registerCommand } from "../keys/commands";
 import type { PermissionId } from "../lib/protocol";
 import { useOvra } from "../shell/context";
+import Icon from "../shell/Icon.svelte";
 import { APPROVALS_KEY, watchAgents } from "./agent-events";
 import { Notifier, overlaps, type SystemNotifications, type Toast } from "./notifier.svelte";
 
@@ -138,7 +139,7 @@ $effect(() => {
         >
       {/if}
       <button type="button" aria-label="Dismiss notification" onclick={() => notifier.dismiss(item.id)}
-        ><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg></button
+        ><Icon name="close" small /></button
       >
     </div>
   </div>
@@ -256,14 +257,6 @@ $effect(() => {
   button.act {
     color: var(--accent);
     font-weight: 500;
-  }
-  svg {
-    width: 15px;
-    height: 15px;
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 1.6;
-    stroke-linecap: round;
   }
   @media (max-width: 900px) {
     .notifications {

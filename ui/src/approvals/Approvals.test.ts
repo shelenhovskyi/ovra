@@ -1,6 +1,7 @@
 import { flushSync, mount, unmount } from "svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeAgentCore } from "../agents/fake-core";
+import { registerCommand } from "../keys/commands";
 import type { PermissionRequest } from "../lib/protocol";
 import { Workspace } from "../shell/workspace.svelte";
 import { ARM_MS } from "./queue.svelte";
@@ -640,6 +641,24 @@ describe("Approvals", () => {
     press("Enter", { ctrlKey: true });
     await settle();
     expect(answers(core)).toEqual([{ id: "perm1", decision: "deny", message: "use git ls-files" }]);
+  });
+
+  it("unfolds a folded Agents column for the shortcut", async () => {
+    await setup();
+    const column = document.createElement("div");
+    column.dataset.testid = "agents";
+    column.innerHTML = '<div class="strip"></div>';
+    document.body.append(column);
+    const unfold = vi.fn(() => column.querySelector(".strip")?.remove());
+    const off = registerCommand({ id: "layout.toggle_agents", title: "t", run: unfold });
+    press("KeyA", { altKey: true, shiftKey: true });
+    await settle();
+    // Once: unfolded, the next press leaves the column as it is.
+    press("KeyA", { altKey: true, shiftKey: true });
+    await settle();
+    expect(unfold).toHaveBeenCalledOnce();
+    off();
+    column.remove();
   });
 
   it("is reached with a shortcut and Escape goes back", async () => {
