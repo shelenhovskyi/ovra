@@ -41,8 +41,9 @@ Before every push: `just test && just e2e && just lint` must pass.
 - `crates/worktree` - `Worktrees`: git worktrees, snapshots and review diffs.
 - `crates/netproxy` - `NetProxy`: per-session HTTP proxies with a host
   allowlist, the sandbox's only way out.
-- `crates/sandbox` - `Sandbox`: the protected paths every platform shares and
-  the sandbox for this OS.
+- `crates/sandbox` - `Sandbox`: the protected paths every platform shares (the
+  `work_dir` list is defined in `ovra-core`, `src/protected.rs`, and
+  re-exported here) and the sandbox for this OS.
 - `crates/sandbox-linux` - the Linux sandbox: bubblewrap, plus a helper (the
   daemon or app itself, `helper_if_asked`) that applies Landlock and seccomp.
 - `crates/mcp-server` - `IdeTools`: Ovra's MCP tools for agents
