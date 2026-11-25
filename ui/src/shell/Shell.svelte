@@ -16,6 +16,7 @@ import LanguageServers from "../lsp/LanguageServers.svelte";
 import NetworkPanel from "../network/NetworkPanel.svelte";
 import Notifications from "../notify/Notifications.svelte";
 import Palette from "../palette/Palette.svelte";
+import PolicyPanel from "../policy/PolicyPanel.svelte";
 import Search from "../search/Search.svelte";
 import ServersPanel from "../servers/ServersPanel.svelte";
 import Terminals from "../terminal/Terminals.svelte";
@@ -97,6 +98,7 @@ const status = $derived.by((): { text: string; ok: boolean } => {
     <span class="project">{workspace.project?.name ?? "No project"}</span>
     <Inbox />
     <AuditLog />
+    <PolicyPanel />
     <NetworkPanel />
     <ServersPanel />
   </header>
