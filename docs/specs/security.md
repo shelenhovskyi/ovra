@@ -587,8 +587,10 @@ rules for each project:
   - `Bash`: the exact command, in single spaces, as an `exact` rule, so
     it allows that command and nothing longer. Not offered for joined
     commands, commands longer than 200 characters, a first word that runs
-    other commands (`env`, `sudo`, `xargs`, shells, ...) or sets a
-    variable, or any word naming a path outside the folder (`/`, `~`, `$`,
+    other commands (`env`, `sudo`, `xargs`, `source`, `npx`, shells, ...;
+    compared without quotes, backslashes, folder, `.exe` or version, in any
+    case) or sets a variable, a runtime or tool that takes code on its own
+    (`node`, `python3`, `git`, ...), or any word naming a path outside the folder (`/`, `~`, `$`,
     `%`, `..`, a drive) or a protected or review-marked path.
   - `Edit` and `Write`: the exact file, relative to `work_dir`. Not offered
     outside it, for protected or review-marked paths, or for names with

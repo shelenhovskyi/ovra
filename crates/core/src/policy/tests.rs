@@ -2,7 +2,7 @@ use std::path::Path;
 
 use serde_json::json;
 
-use super::{always_rule, check, decide, text};
+use super::{always_rule, check, decide, program, text};
 use crate::protocol::agents::{SandboxNetwork, SandboxReport};
 use crate::protocol::policy::{Policy, PolicyAction, PolicyRule};
 
@@ -399,6 +399,25 @@ async fn the_person_sets_a_projects_policy_and_bad_rules_are_refused() {
 }
 
 #[test]
+fn a_commands_program_is_read_as_the_shell_finds_it() {
+    let cases = [
+        ("env", vec!["env"]),
+        ("\"ENV\"", vec!["env"]),
+        ("e\\nv", vec!["env", "nv"]),
+        ("'e'nv.EXE", vec!["env"]),
+        ("/usr/bin/env", vec!["env"]),
+        (".\\bin\\bash.exe", vec![".binbash", "bash"]),
+        ("python3.12", vec!["python"]),
+        (".", vec!["."]),
+        ("!", vec!["!"]),
+        ("7z", vec!["7z"]),
+    ];
+    for (word, want) in cases {
+        assert_eq!(program(word), want, "{word}");
+    }
+}
+
+#[test]
 fn always_allow_offers_the_narrowest_rule_or_none() {
     let proxy = sandboxed(SandboxNetwork::Proxy);
     // `@/` stands for the session's folder, so the lines read the same everywhere.
@@ -419,6 +438,35 @@ fn always_allow_offers_the_narrowest_rule_or_none() {
         ("Bash", json!({"command": "npm test && curl x"})),
         ("Bash", json!({"command": "sh -c 'npm test'"})),
         ("Bash", json!({"command": "env npm test"})),
+        ("Bash", json!({"command": "\"env\" npm test"})),
+        ("Bash", json!({"command": "\\env npm test"})),
+        ("Bash", json!({"command": "e\\nv npm test"})),
+        ("Bash", json!({"command": "'e'nv npm test"})),
+        ("Bash", json!({"command": "ENV npm test"})),
+        ("Bash", json!({"command": "env.exe npm test"})),
+        ("Bash", json!({"command": "Env.EXE npm test"})),
+        ("Bash", json!({"command": "./bash x.sh"})),
+        ("Bash", json!({"command": ".\\bash.exe x.sh"})),
+        ("Bash", json!({"command": "bin\\sudo npm test"})),
+        ("Bash", json!({"command": "bash5 x.sh"})),
+        ("Bash", json!({"command": "! npm test"})),
+        ("Bash", json!({"command": ". ./x.sh"})),
+        ("Bash", json!({"command": "source x.sh"})),
+        ("Bash", json!({"command": "builtin eval x"})),
+        ("Bash", json!({"command": "stdbuf -o0 npm test"})),
+        ("Bash", json!({"command": "setsid npm test"})),
+        ("Bash", json!({"command": "busybox sh"})),
+        ("Bash", json!({"command": "systemd-run npm test"})),
+        ("Bash", json!({"command": "npx cowsay"})),
+        ("Bash", json!({"command": "uvx ruff"})),
+        ("Bash", json!({"command": "wsl npm test"})),
+        ("Bash", json!({"command": "start npm"})),
+        ("Bash", json!({"command": "node"})),
+        ("Bash", json!({"command": "python3.12"})),
+        ("Bash", json!({"command": "Python3"})),
+        ("Bash", json!({"command": "git"})),
+        ("Bash", json!({"command": "git status"})),
+        ("Bash", json!({"command": "node scripts/build.js"})),
         ("Bash", json!({"command": "FOO=1 npm test"})),
         ("Bash", json!({"command": "cat /etc/passwd"})),
         ("Bash", json!({"command": "cat ../other/a"})),

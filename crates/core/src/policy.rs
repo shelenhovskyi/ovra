@@ -31,29 +31,99 @@ const SHELL_JOINS: [&str; 8] = [";", "&", "|", "`", "$(", ">", "<", "\n"];
 
 /// Commands that run whatever their arguments name: a rule for one of
 /// them would allow any command, so "Always allow" never offers one.
-const RUNNERS: [&str; 22] = [
+/// Compared with [`program`]'s names.
+const RUNNERS: [&str; 57] = [
     "env",
     "sudo",
     "doas",
     "su",
+    "runuser",
+    "pkexec",
+    "sg",
     "xargs",
     "eval",
     "exec",
     "command",
+    "builtin",
+    "coproc",
+    "trap",
+    "source",
+    ".",
+    "!",
     "nohup",
     "time",
     "timeout",
     "nice",
+    "ionice",
+    "chrt",
+    "taskset",
+    "stdbuf",
+    "setsid",
+    "flock",
+    "unshare",
+    "nsenter",
+    "chroot",
+    "fakeroot",
+    "systemd-run",
+    "script",
+    "busybox",
+    "strace",
+    "parallel",
     "watch",
+    "npx",
+    "bunx",
+    "pnpx",
+    "uvx",
+    "wsl",
+    "start",
+    "open",
     "bash",
     "sh",
+    "ash",
     "zsh",
     "dash",
     "ksh",
+    "mksh",
+    "csh",
+    "tcsh",
     "fish",
     "pwsh",
     "powershell",
     "cmd",
+];
+
+/// Runtimes and tools that take code. Alone, they read it from the
+/// terminal or start a prompt, so "Always allow" never offers one
+/// without arguments (`git` with no subcommand is in the same place).
+const CODE_TAKERS: [&str; 28] = [
+    "node",
+    "nodejs",
+    "python",
+    "py",
+    "ruby",
+    "irb",
+    "perl",
+    "php",
+    "deno",
+    "bun",
+    "lua",
+    "luajit",
+    "julia",
+    "r",
+    "rscript",
+    "tclsh",
+    "osascript",
+    "java",
+    "jshell",
+    "ghci",
+    "groovy",
+    "scala",
+    "erl",
+    "iex",
+    "elixir",
+    "awk",
+    "gawk",
+    "git",
 ];
 
 /// The longest command "Always allow" offers a rule for; longer ones are
@@ -211,8 +281,11 @@ fn command_scope(command: &str) -> Option<String> {
                 || crate::protected::changes(bare, None)
         })
     };
+    let program = program(first);
+    let runs = |list: &[&str]| program.iter().any(|name| list.contains(&name.as_str()));
     if SHELL_JOINS.iter().any(|j| command.contains(j))
-        || RUNNERS.contains(first)
+        || runs(&RUNNERS)
+        || (words.len() == 1 && runs(&CODE_TAKERS))
         || first.contains('=')
         || words.iter().any(outside)
     {
@@ -220,6 +293,29 @@ fn command_scope(command: &str) -> Option<String> {
     }
     let scope = words.join(" ");
     (scope.len() <= MAX_ALWAYS_COMMAND).then_some(scope)
+}
+
+/// The names the shell may find for a command's first word: without
+/// quotes, backslashes, folder, `.exe` or version (`python3.12`), in lower
+/// case. Two when a backslash may be an escape or a Windows folder.
+fn program(word: &str) -> Vec<String> {
+    let name = |word: &str| {
+        let bare: String = word.chars().filter(|c| !matches!(c, '"' | '\'')).collect();
+        let bare = bare.rsplit('/').next().unwrap_or_default().to_lowercase();
+        let bare = bare.strip_suffix(".exe").unwrap_or(&bare);
+        // `.` is a runner of its own; a name is never only a version.
+        match bare.trim_end_matches(|c: char| c.is_ascii_digit() || c == '.') {
+            "" => bare.to_owned(),
+            stem => stem.to_owned(),
+        }
+    };
+    let escaped = name(&word.replace('\\', ""));
+    let folder = name(word.rsplit('\\').next().unwrap_or_default());
+    if escaped == folder {
+        vec![escaped]
+    } else {
+        vec![escaped, folder]
+    }
 }
 
 /// "Always allow" on the pending request `id`: adds the rule it offers to
