@@ -68,30 +68,26 @@ async function remove(pickId: string): Promise<void> {
   }
   .hint {
     margin: 0;
-    color: #b4b4c0;
-    font-size: 12px;
+    color: var(--text-2);
+    font-size: 13px;
   }
   input {
     flex: 1;
     min-width: 0;
     font: inherit;
     color: inherit;
-    background: #121216;
-    border: 1px solid #4a4a57;
-    border-radius: 3px;
+    padding: 4px 10px;
+    background: var(--s3);
+    border: 0;
+    border-radius: var(--radius);
   }
   button {
     font: inherit;
-    padding: 2px 10px;
-    color: #e6e6e6;
-    background: #2a2a33;
-    border: 1px solid #4a4a57;
-    border-radius: 3px;
+    padding: 4px 10px;
+    color: var(--text);
+    background: var(--s3);
+    border: 0;
+    border-radius: var(--radius);
     cursor: pointer;
-  }
-  button:focus-visible,
-  input:focus-visible {
-    outline: 2px solid #7aa2ff;
-    outline-offset: 1px;
   }
 </style>

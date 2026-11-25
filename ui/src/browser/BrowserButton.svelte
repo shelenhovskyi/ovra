@@ -56,23 +56,20 @@ function toggle(): void {
 <style>
   button {
     font: inherit;
-    padding: 2px 10px;
-    color: #e6e6e6;
-    background: #2a2a33;
-    border: 1px solid #4a4a57;
+    padding: 4px 10px;
+    color: var(--text-2);
+    background: transparent;
+    border: 0;
     border-radius: 3px;
     cursor: pointer;
-  }
-  button:focus-visible {
-    outline: 2px solid #7aa2ff;
-    outline-offset: 1px;
   }
   .badge {
     margin-left: 4px;
     padding: 0 5px;
-    font-size: 11px;
-    color: #101013;
-    background: #ffd36b;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--warn);
+    background: var(--warn-soft);
     border-radius: 8px;
   }
 </style>

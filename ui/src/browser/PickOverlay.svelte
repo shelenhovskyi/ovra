@@ -60,27 +60,27 @@ function placed(p: PendingPick) {
     box-sizing: border-box;
   }
   .hover {
-    background: rgb(122 162 255 / 20%);
-    border: 2px solid #7aa2ff;
+    background: var(--accent-soft);
+    border: 2px solid var(--accent);
   }
   .picked {
-    border: 2px dashed #7ee787;
+    border: 2px dashed var(--ok);
   }
   .label {
     position: absolute;
-    top: -18px;
+    top: -20px;
     left: -2px;
     padding: 0 4px;
     max-width: 320px;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
-    font-size: 11px;
-    color: #101013;
-    background: #7aa2ff;
+    font-size: 12px;
+    color: var(--accent-ink);
+    background: var(--accent);
   }
   .picked .label {
-    background: #7ee787;
+    background: var(--ok);
   }
   @media (forced-colors: active) {
     .box {

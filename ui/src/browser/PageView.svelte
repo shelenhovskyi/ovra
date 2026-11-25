@@ -409,27 +409,24 @@ $effect(() => {
   }
   .mode,
   .waiting {
-    color: #b4b4c0;
-    font-size: 12px;
+    color: var(--text-2);
+    font-size: 13px;
   }
   .mode.controlling {
-    color: #ffd36b;
-    font-weight: 600;
+    color: var(--warn);
+    font-weight: 500;
   }
   .stage {
     position: relative;
     flex: 1;
     min-height: 120px;
     overflow: hidden;
-    background: #0c0c0f;
-    border: 2px solid #2a2a31;
-    border-radius: 3px;
-  }
-  .stage:focus-visible {
-    outline: 2px solid #7aa2ff;
+    background: var(--s0);
+    border: 2px solid transparent;
+    border-radius: var(--radius);
   }
   .stage.controlling {
-    border-color: #ffd36b;
+    border-color: var(--warn);
   }
   .stage.picking {
     cursor: crosshair;
@@ -450,19 +447,15 @@ $effect(() => {
   }
   button {
     font: inherit;
-    padding: 2px 10px;
-    color: #e6e6e6;
-    background: #2a2a33;
-    border: 1px solid #4a4a57;
-    border-radius: 3px;
+    padding: 4px 10px;
+    color: var(--text);
+    background: var(--s3);
+    border: 0;
+    border-radius: var(--radius);
     cursor: pointer;
   }
   button[aria-pressed="true"] {
-    border-color: #7aa2ff;
-    background: #33334a;
-  }
-  button:focus-visible {
-    outline: 2px solid #7aa2ff;
-    outline-offset: 1px;
+    color: var(--accent);
+    background: var(--accent-soft);
   }
 </style>

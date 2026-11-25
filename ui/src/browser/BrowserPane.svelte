@@ -217,7 +217,7 @@ function onPaneKeydown(event: KeyboardEvent): void {
     {:else if !project}
       <p class="muted">Open a project to use the agent browser.</p>
     {:else if !session}
-      <p class="muted">Each agent session gets its own browser. Give Claude a task to start one; its pages show here.</p>
+      <p class="muted">Each agent gets its own browser; its pages show here.</p>
     {:else}
       <form
         class="address"
@@ -258,7 +258,7 @@ function onPaneKeydown(event: KeyboardEvent): void {
           </div>
         {/key}
       {:else}
-        <p class="muted">No pages open. The agent opens pages with its browser tools, or open one above.</p>
+        <p class="muted">No pages open. The agent opens them, or open one above.</p>
       {/if}
     {/if}
   </section>
@@ -273,7 +273,7 @@ function onPaneKeydown(event: KeyboardEvent): void {
     min-height: 0;
     padding: 6px 12px 8px;
     box-sizing: border-box;
-    border-top: 1px solid #2a2a31;
+    background: var(--s1);
   }
   header,
   .address,
@@ -286,40 +286,41 @@ function onPaneKeydown(event: KeyboardEvent): void {
   h2 {
     margin: 0;
     font-size: 14px;
+    font-weight: 600;
   }
   .close {
     margin-left: auto;
+    color: var(--text-2);
+    background: transparent;
   }
   label,
   .muted {
-    color: #b4b4c0;
-    font-size: 12px;
+    color: var(--text-2);
+    font-size: 13px;
   }
   .address input {
     flex: 1;
     min-width: 120px;
   }
   .ask {
-    padding: 4px 8px;
-    background: #2b2616;
-    border: 1px solid #6b5a22;
-    border-radius: 3px;
+    padding: 6px 10px;
+    background: var(--warn-soft);
+    border-radius: var(--radius);
   }
   .warn {
-    color: #ffd36b;
+    color: var(--warn);
   }
   .warn p {
     margin: 0 0 6px;
   }
   .error {
     margin: 0;
-    color: #ff8f8f;
+    color: var(--danger);
   }
   .tabs {
     display: flex;
     gap: 2px;
     overflow-x: auto;
-    border-bottom: 1px solid #2a2a31;
   }
   .tab {
     display: flex;
@@ -332,8 +333,18 @@ function onPaneKeydown(event: KeyboardEvent): void {
     white-space: nowrap;
     border-bottom-color: transparent;
   }
+  .tab [role="tab"] {
+    color: var(--text-2);
+    background: transparent;
+  }
   .tab [aria-selected="true"] {
-    border-bottom: 2px solid #4a6bb0;
+    color: var(--text);
+    background: var(--s3);
+    font-weight: 500;
+  }
+  .tab .x {
+    color: var(--text-2);
+    background: transparent;
   }
   .tabpanel {
     display: flex;
@@ -344,14 +355,11 @@ function onPaneKeydown(event: KeyboardEvent): void {
   input,
   select {
     font: inherit;
-    padding: 2px 8px;
-    color: #e6e6e6;
-    background: #2a2a33;
-    border: 1px solid #4a4a57;
-    border-radius: 3px;
-  }
-  input {
-    background: #121216;
+    padding: 4px 10px;
+    color: var(--text);
+    background: var(--s3);
+    border: 0;
+    border-radius: var(--radius);
   }
   button {
     cursor: pointer;
@@ -360,11 +368,19 @@ function onPaneKeydown(event: KeyboardEvent): void {
     cursor: default;
     opacity: 0.6;
   }
-  button:focus-visible,
-  input:focus-visible,
-  select:focus-visible,
-  h2:focus-visible {
-    outline: 2px solid #7aa2ff;
-    outline-offset: 1px;
+  button:hover {
+    background: var(--s4);
+  }
+  .ask button:first-of-type {
+    color: var(--accent-ink);
+    background: var(--accent);
+  }
+  @media (forced-colors: active) {
+    button,
+    input,
+    select,
+    .ask {
+      border: 1px solid ButtonText;
+    }
   }
 </style>
