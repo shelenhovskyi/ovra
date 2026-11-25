@@ -9,6 +9,7 @@ import { highlightLines, type Segment } from "../editor/highlight/static";
 import { languageFor } from "../editor/languages";
 import { serverFor } from "../editor/lsp/clients";
 import { unsavedText } from "../editor/open-files.svelte";
+import { editorPrefs } from "../editor/prefs.svelte";
 import { formatShortcut, inBrowserTab, isApple, liveKeys } from "../keys/shortcut";
 import { CoreError } from "../lib/transport";
 import { languageServers } from "../lsp/servers.svelte";
@@ -27,8 +28,9 @@ const lsp = languageServers(transport);
 const lspHint = $derived(workspace.openPath ? serverFor(workspace.openPath, lsp.status)?.name : undefined);
 const editKeys = formatShortcut(liveKeys("Mod+E", inBrowserTab()), isApple());
 
-/** The editor's line height: 13.5 px at 1.65 (editor/theme.ts). */
-const ROW = 13.5 * 1.65;
+/** The editor's text size and line height (1.65, editor/theme.ts). */
+const fontSize = $derived(editorPrefs.fontSize);
+const rowHeight = $derived(fontSize * 1.65);
 
 let loaded = $state<Loaded | null>(null);
 // Unsaved editor text wins over the file on disk, so the preview matches what will be saved.
@@ -198,8 +200,8 @@ async function openExternal() {
         <PatchView text={shown.view.text} />
       {:else if shown.view.kind === "text"}
         <!-- Line height, gutter and padding match the editor's, so View and Edit line up. -->
-        <div class="code" style:--digits={String(textLines.length).length}>
-          <Lines items={textLines} label="File text" testid="text-view" rowHeight={ROW}>
+        <div class="code" style:--digits={String(textLines.length).length} style:--editor-font-size="{fontSize}px">
+          <Lines items={textLines} label="File text" testid="text-view" {rowHeight}>
             {#snippet row(line, i)}
               <div class="text-line" data-line={i + 1}>
                 <Code text={line} segments={painted?.lines === textLines ? painted.segments[i] : null} />
@@ -305,7 +307,7 @@ async function openExternal() {
   }
   .code :global(.viewport) {
     padding-top: 4px;
-    font-size: 13.5px;
+    font-size: var(--editor-font-size, 13.5px);
   }
   .text-line {
     padding-right: 16px;
