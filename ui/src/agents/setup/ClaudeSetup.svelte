@@ -1,15 +1,21 @@
 <script lang="ts">
 // Onboarding: is the user's Claude installed, supported and signed in? Says
 // how to fix it when not, and lets the user choose the executable's path.
-// Once Claude is ready the card is one line; "Change" opens the rest.
+// Once the account new tasks start with is ready the card goes (an API key
+// in the environment still warns); `open` shows it again, from the start
+// form's Claude button.
 import { untrack } from "svelte";
 import type { AgentSetup } from "../../lib/protocol";
 import { CoreError } from "../../lib/transport";
 import { useOvra } from "../../shell/context";
 import Accounts from "./Accounts.svelte";
+import { claudeAccounts } from "./claude-accounts.svelte";
 import { advice, billingText, INSTALL_COMMANDS, paidShort, SETUP_DOCS } from "./texts";
 
+let { open = false }: { open?: boolean } = $props();
+
 const { transport } = useOvra();
+const accounts = claudeAccounts(transport);
 
 let setup = $state<AgentSetup | null>(null);
 let error = $state<string | null>(null);
@@ -26,6 +32,13 @@ const ready = $derived(setup?.state.state === "ready");
 const compact = $derived(ready && !editing);
 const billing = $derived(setup && ready ? billingText(setup) : null);
 const paid = $derived(setup && ready ? paidShort(setup) : null);
+/** The account new tasks start with can run them; with several, the picker's, not the default one. */
+const usable = $derived.by(() => {
+  const chosen = accounts.list.length > 1 ? accounts.state(accounts.preferred) : undefined;
+  return chosen ? chosen.setup.state.state === "ready" : ready;
+});
+/** Nothing to do: no card, only an API key warning. Also while the first check runs. */
+const hidden = $derived(!open && !editing && (first || usable));
 
 $effect(() => {
   untrack(() => void check());
@@ -80,6 +93,11 @@ function openDocs(): void {
 }
 </script>
 
+{#if hidden}
+  {#if billing?.warning}
+    <p class="warning alone" role="note" data-testid="claude-api-key">{billing.warning}</p>
+  {/if}
+{:else}
 <section
   class="setup"
   class:problem={setup && !ready}
@@ -178,6 +196,7 @@ function openDocs(): void {
   {/if}
   {#if !first}<Accounts quiet={compact} />{/if}
 </section>
+{/if}
 
 <style>
   .setup {
@@ -304,6 +323,11 @@ function openDocs(): void {
   }
   .error {
     color: var(--danger);
+  }
+  .warning.alone {
+    margin: 0;
+    padding: 4px 8px;
+    font-size: 13px;
   }
   .warning {
     /* Who pays is what this card must get right (ADR 0006): it stands out. */

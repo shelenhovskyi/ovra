@@ -89,7 +89,8 @@ describe("AgentsPanel", () => {
   it("offers one Start button and two plainly worded ways to work, one agent here by default", async () => {
     await setup();
     const buttons = [...target.querySelectorAll("form.new button")].map((b) => b.textContent);
-    expect(buttons).toEqual(["Start"]);
+    // Who pays (it opens Claude's setup), and Start.
+    expect(buttons).toEqual(["Claude plan", "Start"]);
     expect(target.querySelector("label[for=agent-prompt]")?.textContent).toBe("What should Claude do?");
     const options = () =>
       [...target.querySelectorAll<HTMLInputElement>("input[name=agent-mode]")].map((i) => [
@@ -595,7 +596,12 @@ describe("AgentsPanel", () => {
     await settle();
     core.status("s2", { state: "failed", message: "claude was not found." });
     await settle();
-    expect(alert()?.trim()).toBe("Claude could not start: claude was not found. See Claude above, then try again.");
+    expect(alert()?.trim()).toBe("Claude could not start: claude was not found. Check Claude");
+    // It opens Claude's setup, though the last check said Claude is ready.
+    expect(target.querySelector("[data-testid=claude-setup]")).toBeNull();
+    button("Check Claude")?.click();
+    await settle();
+    expect(target.querySelector("[data-testid=claude-setup] h3")?.textContent).toBe("Claude 2.1.331 is ready");
     // Back at the start box, with the prompt to try again.
     expect(target.querySelector<HTMLTextAreaElement>("#agent-prompt")?.value).toBe("Again");
   });

@@ -91,8 +91,10 @@ describe("account texts", () => {
 describe("accounts in the agents panel", () => {
   it("offers only a way to add one while there is a single account", async () => {
     await show(new FakeAgentCore());
-    // The ready card is one line: the way to add one shows once it is opened.
+    // No card while Claude is ready: the way to add one shows once it is opened.
     expect(accounts()).toBeNull();
+    button("Claude plan")?.click();
+    await settle();
     button("Change")?.click();
     await settle();
     expect(accounts()?.textContent).toContain("Use another Claude account");
@@ -104,6 +106,10 @@ describe("accounts in the agents panel", () => {
     const core = new FakeAgentCore();
     core.found = ["/Users/me/.claude-work"];
     await show(core);
+    // Found folders wait in Claude's setup, opened from the start form.
+    expect(button("Add as Work")).toBeUndefined();
+    button("Claude plan")?.click();
+    await settle();
     button("Add as Work")?.click();
     await settle();
     expect(core.sent("agents.save_account").map((c) => c.params.account)).toEqual([
@@ -133,11 +139,25 @@ describe("accounts in the agents panel", () => {
     expect(core.sent("agents.start").map((c) => c.params.account)).toEqual(["account-1"]);
   });
 
+  it("shows no setup card while the account new tasks start with is signed in", async () => {
+    const core = new FakeAgentCore();
+    core.setup = { ...core.setup, state: { state: "signed_out" } };
+    core.accounts = [{ ...core.accounts[0], setup: core.setup } as AccountState, work()];
+    core.projectAccounts.set("p1", "account-1");
+    await show(core);
+    expect(picker()?.value).toBe("account-1");
+    expect(target.querySelector("[data-testid=claude-setup]")).toBeNull();
+  });
+
   it("shows the sign-in command of a signed-out account and removes it", async () => {
     const core = new FakeAgentCore();
     core.accounts = [...core.accounts, work({ state: "signed_out" })];
     core.projectAccounts.set("p1", "account-1");
     await show(core);
+    // New tasks start with Default, which is signed in: no setup card for Work.
+    expect(target.querySelector("[data-testid=claude-setup]")).toBeNull();
+    button("Claude plan")?.click();
+    await settle();
     expect(summary()).toBe("Accounts: Default, Work (not signed in)");
     // The project's account is signed out: a new task starts with a signed-in one.
     expect(picker()?.value).toBe("default");
@@ -158,6 +178,8 @@ describe("accounts in the agents panel", () => {
   it("adds a typed folder, says why the core refuses one, and renames", async () => {
     const core = new FakeAgentCore();
     await show(core);
+    button("Claude plan")?.click();
+    await settle();
     button("Change")?.click();
     await settle();
     button("Use another Claude account")?.click();

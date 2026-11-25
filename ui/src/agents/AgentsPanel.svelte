@@ -58,6 +58,8 @@ let launchedPrompt = "";
 /** How the next task runs; the last choice is kept per project. */
 let mode = $state<TaskMode>("here");
 let promptField = $state<HTMLTextAreaElement>();
+/** Claude's setup card is open although Claude is ready (from the start form's Claude button). */
+let setupOpen = $state(false);
 let replyField = $state<HTMLTextAreaElement>();
 /** The account the picker shows; null while there is only one. */
 let account = $state<string | null>(null);
@@ -83,6 +85,11 @@ const fallback = $derived.by((): AccountState | undefined => {
 /** The account a new task would start with is known to be signed out. */
 const blocked = $derived(accounts.signedOut(account ?? accounts.projectAccount));
 const usable = $derived(accounts.signedIn);
+/** Who pays for the next task, in two or three words; it opens Claude's setup. */
+const billing = $derived.by(() => {
+  const paid = accounts.state(account ?? accounts.preferred)?.setup.billing;
+  return paid ? billedShort(paid) : "Claude";
+});
 /** A direct session's own files once its turn is over; a worker's live in its worktree, so Reviews shows them. */
 const changed = $derived(
   current && current.mode === "direct" && sessions.roles.get(current.id)?.kind !== "worker" && !isBusy(current.status)
@@ -169,6 +176,12 @@ $effect(() => {
     for (const unregister of off) unregister();
   };
 });
+
+async function openSetup(): Promise<void> {
+  setupOpen = true;
+  await tick();
+  document.querySelector("[data-testid=claude-setup]")?.scrollIntoView?.({ block: "nearest" });
+}
 
 async function newTask(): Promise<void> {
   selected = null;
@@ -623,7 +636,7 @@ const canReply = $derived(current !== null && current.status.state === "idle");
       {#if error}
         <p class="error" role="alert">{error}</p>
       {/if}
-      <ClaudeSetup />
+      <ClaudeSetup open={setupOpen} />
       <ProjectTrust />
     </div>
     <form
@@ -676,6 +689,13 @@ const canReply = $derived(current !== null && current.status.state === "idle");
       <div class="row">
         <AccountPicker project={project.id} bind:account />
         <button
+          type="button"
+          class="quiet"
+          title="Claude: setup, accounts, billing"
+          aria-expanded={setupOpen}
+          onclick={() => (setupOpen ? (setupOpen = false) : openSetup())}>{billing}</button
+        >
+        <button
           type="submit"
           class="primary"
           title={prompt.trim() ? `${modEnter} starts` : "Type a task first"}
@@ -684,7 +704,9 @@ const canReply = $derived(current !== null && current.status.state === "idle");
       </div>
       {#if startError}
         <p class="error" role="alert" data-testid="agent-start-error">
-          {startError.text}{#if startError.setup}{" "}<span class="fix">See Claude above, then try again.</span>{/if}
+          {startError.text}{#if startError.setup}{" "}<button type="button" class="quiet fix" onclick={openSetup}
+              >Check Claude</button
+            >{/if}
         </p>
       {/if}
     </form>

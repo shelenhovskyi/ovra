@@ -22,7 +22,9 @@ test("review what a project would load, trust it and stop trusting it", async ({
   await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
   await projects.getByRole("button", { name: "Open", exact: true }).click();
 
-  await expect(page.getByTestId("claude-setup")).toContainText("is ready");
+  // Claude is ready: no setup card; the start form has a button for it.
+  await expect(page.getByRole("button", { name: "Claude", exact: true })).toBeVisible();
+  await expect(page.getByTestId("claude-setup")).toHaveCount(0);
   const trust = page.getByTestId("project-trust");
   await expect(trust.getByRole("heading")).toHaveText("This project has its own Claude settings");
   await expect(trust.getByTestId("trust-summary")).toHaveText("1 hook that runs code");
@@ -32,6 +34,10 @@ test("review what a project would load, trust it and stop trusting it", async ({
   await trust.getByRole("button", { name: "Show details" }).click();
   await expect(trust.getByTestId("trust-details")).toContainText("PostToolUse (Edit): ./fmt.sh");
   await trust.getByRole("button", { name: "Trust project" }).click();
+  // Trusted: one quiet line; the rest is under Details.
+  await expect(trust.getByRole("heading")).toHaveText("Trusted project settings");
+  await expect(trust.getByTestId("trust-warning-count")).toHaveText("⚠ 1 warning");
+  await trust.getByRole("button", { name: "Details" }).click();
   await expect(trust.getByRole("heading")).toHaveText("Project settings are on");
   // Trusting rereads the settings when it is done; change them only after
   // that, or the reread already shows the change.
@@ -50,10 +56,11 @@ test("review what a project would load, trust it and stop trusting it", async ({
   await expect(trust.getByRole("heading")).toHaveText("Project settings changed");
   await expect(trust.getByTestId("trust-summary")).toHaveText("1 added");
   await expect(trust.getByTestId("trust-risky-env")).toContainText("New project settings set ANTHROPIC_BASE_URL");
-  await trust.getByRole("button", { name: "Show details" }).click();
+  // Details is still open from before.
   await expect(trust.getByTestId("trust-details")).toContainText("ANTHROPIC_BASE_URL");
   await trust.getByRole("button", { name: "Trust the new settings" }).click();
-  await expect(trust.getByRole("heading")).toHaveText("Project settings are on");
+  await expect(trust.getByRole("heading")).toHaveText("Trusted project settings");
+  await trust.getByRole("button", { name: "Details" }).click();
 
   await trust.getByRole("button", { name: "Stop trusting" }).click();
   await expect(trust.getByRole("heading")).toHaveText("This project has its own Claude settings");

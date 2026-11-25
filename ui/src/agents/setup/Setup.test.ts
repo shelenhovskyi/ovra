@@ -237,7 +237,7 @@ describe("trust summary", () => {
 });
 
 describe("ClaudeSetup", () => {
-  it("holds its place with one quiet line, and no account links, until the first check answers", async () => {
+  it("shows nothing until the first check answers, nor once Claude is ready", async () => {
     const core = new FakeAgentCore();
     const call = core.call.bind(core);
     let answer = () => {};
@@ -247,20 +247,18 @@ describe("ClaudeSetup", () => {
       return call(request);
     }) as FakeAgentCore["call"];
     await show(core);
-    expect(card()?.getAttribute("aria-busy")).toBe("true");
-    expect(card()?.textContent?.trim()).toBe("Claude");
-    expect(card()?.querySelector("button")).toBeNull();
+    expect(card()).toBeNull();
     answer();
     await settle();
-    expect(card()?.getAttribute("aria-busy")).toBe("false");
-    expect(card()?.querySelector("h3")?.textContent).toBe("Claude 2.1.331 is ready");
+    expect(card()).toBeNull();
   });
 
-  it("shows a ready Claude in one line and hides the path field", async () => {
+  it("opens from the start form's billing button, and hides the path field until Change", async () => {
     await show(new FakeAgentCore());
-    expect(card()?.querySelector("h3")?.textContent).toBe("Claude 2.1.331 is ready");
-    expect(card()?.textContent?.replace(/\s+/g, " ").trim()).toBe(
-      "Claude 2.1.331 is ready · uses your Claude plan Change",
+    button(target, "Claude plan")?.click();
+    await settle();
+    expect(card()?.textContent?.replace(/\s+/g, " ").trim()).toMatch(
+      /^Claude 2.1.331 is ready · uses your Claude plan Change/,
     );
     expect(card()?.querySelector("#claude-path")).toBeNull();
     button(card(), "Change")?.click();
@@ -270,11 +268,17 @@ describe("ClaudeSetup", () => {
     button(card(), "Cancel")?.click();
     flushSync();
     expect(card()?.querySelector("#claude-path")).toBeNull();
+    // The same button closes it again.
+    button(target, "Claude plan")?.click();
+    flushSync();
+    expect(card()).toBeNull();
   });
 
   it("says who pays for usage and warns about an API key in the environment", async () => {
     const core = new FakeAgentCore();
     await show(core);
+    button(target, "Claude plan")?.click();
+    await settle();
     expect(card()?.querySelector("[data-testid=claude-billing]")?.textContent).toBe("· uses your Claude plan");
     expect(paidShort(setup({ state: "ready" }, { billing: { kind: "cloud", provider: "vertex" } }))).toBe(
       "billed to Google Vertex AI",
@@ -308,9 +312,8 @@ describe("ClaudeSetup", () => {
     const core = new FakeAgentCore();
     core.setup = setup({ state: "ready" }, { api_key_in_env: true });
     await show(core);
-    expect(card()?.textContent).not.toContain("plan's limits");
-    expect(card()?.textContent).not.toContain("sign-in");
-    expect(card()?.querySelector("[data-testid=claude-api-key]")?.textContent).toContain("not to your Claude plan");
+    expect(card()).toBeNull();
+    expect(target.querySelector("[data-testid=claude-api-key]")?.textContent).toContain("not to your Claude plan");
   });
 
   it("explains how to install and saves a chosen path", async () => {
@@ -375,7 +378,7 @@ describe("ClaudeSetup", () => {
     core.setup = setup({ state: "ready" });
     button(card(), "Check again")?.click();
     await settle();
-    expect(card()?.querySelector("h3")?.textContent).toBe("Claude 2.1.331 is ready");
+    expect(card()).toBeNull();
     expect(core.sent("agents.setup")).toHaveLength(2);
   });
 });
