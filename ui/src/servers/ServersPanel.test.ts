@@ -1,5 +1,6 @@
 import { flushSync, mount, unmount } from "svelte";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { installKeybindings } from "../keys/keybindings";
 import type { ServerInfo } from "../lib/protocol";
 import { Workspace } from "../shell/workspace.svelte";
 import { FakeServersCore } from "./fake-servers";
@@ -215,6 +216,19 @@ describe("ServersPanel", () => {
     await settle();
     expect(box.scrollTop).toBe(1000);
     expect(button("Jump to the newest line")).toBeUndefined();
+  });
+
+  it("opens with Mod+Shift+S on any keyboard layout", async () => {
+    const workspace = new Workspace();
+    workspace.project = { id: "p1", name: "demo", root: "/demo", last_opened_ms: null, trusted: false };
+    app = mount(TestHost, { target, props: { transport: new FakeServersCore(), workspace } });
+    const off = installKeybindings(window, false, false);
+    await settle();
+    // A Cyrillic layout: the key is a Cyrillic letter, the physical key is KeyS.
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "\u044b", code: "KeyS", ctrlKey: true, shiftKey: true }));
+    await settle();
+    off();
+    expect($("[data-testid=servers]")).not.toBeNull();
   });
 
   it("closes on Escape", async () => {

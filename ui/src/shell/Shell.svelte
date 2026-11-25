@@ -17,6 +17,7 @@ import NetworkPanel from "../network/NetworkPanel.svelte";
 import Notifications from "../notify/Notifications.svelte";
 import Palette from "../palette/Palette.svelte";
 import Search from "../search/Search.svelte";
+import ServersPanel from "../servers/ServersPanel.svelte";
 import Terminals from "../terminal/Terminals.svelte";
 import Tree from "../tree/Tree.svelte";
 import Viewer from "../viewers/Viewer.svelte";
@@ -97,6 +98,7 @@ const status = $derived.by((): { text: string; ok: boolean } => {
     <Inbox />
     <AuditLog />
     <NetworkPanel />
+    <ServersPanel />
   </header>
   <aside data-testid="sidebar">
     {#if workspace.project}
