@@ -230,7 +230,7 @@ function fold(panel: Panel, name: string): void {
         <!-- The start screen's second column: whether Claude is ready, before any project is open. -->
         <section class="claude-column" aria-labelledby="start-claude">
           <h2 id="start-claude">Claude</h2>
-          <ClaudeSetup />
+          <ClaudeSetup open />
         </section>
       {/if}
     </div>
