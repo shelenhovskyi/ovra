@@ -71,3 +71,12 @@ jobs:
       - uses: github/codeql-action/analyze@915412ff23e8b7659517e607487dbeae018f2934 # v4.39.5
         with:
           category: /language:${{ matrix.language }}
+          output: sarif
+      # Agents cannot read the code scanning API, so the weekly alert pass
+      # reads the findings from this log (docs/security-alerts.md).
+      - name: List findings
+        run: |
+          jq -r '.runs[].results[] | [.ruleId, (.level // "warning"),
+            "\(.locations[0].physicalLocation.artifactLocation.uri):\(.locations[0].physicalLocation.region.startLine)",
+            (.message.text | split("\n")[0])] | @tsv' sarif/*.sarif | tee findings.tsv
+          echo "findings: $(wc -l < findings.tsv)"
