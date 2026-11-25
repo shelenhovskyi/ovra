@@ -36,6 +36,15 @@ windows-sys = { version = "0.61", features = [
 [dev-dependencies]
 insta.workspace = true
 
+[target.'cfg(windows)'.dev-dependencies]
+windows-sys = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_Security_Authorization",
+  "Win32_System_Rpc",
+  "Win32_NetworkManagement_WindowsFilteringPlatform",
+] }
+
 # The workspace's lints, except that unsafe code is denied instead of
 # forbidden: the Win32 calls in `src/win` need it, and only that module
 # allows it. Keep the rest in step with the root Cargo.toml.

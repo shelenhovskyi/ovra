@@ -129,7 +129,7 @@ jobs:
       - name: Windows sandbox
         if: ${{ !cancelled() && runner.os == 'Windows' }}
         timeout-minutes: 5
-        run: cargo test -p ovra-sandbox-windows --no-fail-fast --test sandbox --test setup -- --ignored
+        run: cargo test -p ovra-sandbox-windows --no-fail-fast --test sandbox --test setup --test wfp_spike -- --ignored --nocapture
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ovra-${{ matrix.os }}
