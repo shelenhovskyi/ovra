@@ -42,13 +42,16 @@ export function pickerLabel(state: AccountState): string {
   return state.account.name;
 }
 
-/** What the person should know before starting with the picked account; null when nothing. */
+/**
+ * What the person should know before starting with the picked account; null
+ * when nothing, or when it is signed out (the start form says so itself).
+ */
 export function pickerWarning(state: AccountState): string | null {
   const status = accountStatus(state);
   const name = state.account.name;
-  if (!status.ok)
-    return `${name}: ${shortProblem(status.text)}. Agents started with it will fail; Manage under Claude above shows how to fix it.`;
-  if (state.setup.billing?.kind === "api_key") return `${name} bills an Anthropic API key, at API prices.`;
+  if (state.setup.state.state === "signed_out") return null;
+  if (!status.ok) return `${name}: ${shortProblem(status.text)}.`;
+  if (state.setup.billing?.kind === "api_key") return `${name} bills an API key, at API prices.`;
   return null;
 }
 

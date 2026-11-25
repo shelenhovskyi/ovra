@@ -1,9 +1,10 @@
 <script lang="ts">
 // The Claude account a new session starts with, shown once there is more
-// than one. Starts at the project's account; a choice becomes the project's
-// account, so the next session (and a task's workers) use it too. Each
-// option says what the person should know: an API key that bills, or an
-// account that is not signed in, with a warning under the picker.
+// than one. Starts at the project's account, or at a signed-in one when the
+// project's is signed out; a choice becomes the project's account, so the
+// next session (and a task's workers) use it too. An account that bills an
+// API key gets a warning under the picker; a signed-out one is the start
+// form's to explain.
 import { untrack } from "svelte";
 import type { ProjectId } from "../../lib/protocol";
 import { useOvra } from "../../shell/context";
@@ -15,14 +16,22 @@ let { project, account = $bindable(null) }: { project: ProjectId; account?: stri
 const { transport } = useOvra();
 const accounts = claudeAccounts(transport);
 let failed = $state<string | null>(null);
+/** The person picked one here: a reload of the accounts keeps it. */
+let chosen = false;
 
 $effect(() => {
   const id = project;
+  chosen = false;
   untrack(() => void accounts.ensure(id).catch(() => {}));
 });
 
 $effect(() => {
-  account = accounts.list.length > 1 ? accounts.projectAccount : null;
+  const many = accounts.list.length > 1;
+  const preferred = accounts.preferred;
+  untrack(() => {
+    if (!many) account = null;
+    else if (!chosen || account === null) account = preferred;
+  });
 });
 
 const picked = $derived(accounts.list.find((s) => s.account.id === account));
@@ -30,6 +39,7 @@ const warning = $derived(picked ? pickerWarning(picked) : null);
 
 function choose(id: string): void {
   account = id;
+  chosen = true;
   failed = null;
   accounts.setProject(project, id).catch((err: unknown) => {
     failed = err instanceof Error ? err.message : String(err);
@@ -38,9 +48,8 @@ function choose(id: string): void {
 </script>
 
 {#if accounts.list.length > 1}
-  <div class="account">
   <label class="picker" data-testid="account-picker" title="Remembered for this project">
-    <span>Account</span>
+    <span class="visually-hidden">Account</span>
     <select value={account} onchange={(event) => choose(event.currentTarget.value)}>
       {#each accounts.list as state (state.account.id)}
         <option value={state.account.id}>{pickerLabel(state)}</option>
@@ -48,49 +57,51 @@ function choose(id: string): void {
     </select>
   </label>
   {#if warning}
-    <span class="warning" role="note" data-testid="account-picker-warning">{warning}</span>
+    <p class="warning" role="note" data-testid="account-picker-warning">{warning}</p>
   {/if}
   {#if failed}
-    <span class="error" role="alert">{failed}</span>
+    <p class="error" role="alert">{failed}</p>
   {/if}
-  </div>
 {/if}
 
 <style>
   .picker {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    color: #b4b4c0;
-    font-size: 12px;
+    min-width: 0;
   }
   select {
+    max-width: 100%;
+    height: 32px;
+    padding: 0 8px;
     font: inherit;
-    color: #e6e6e6;
-    background: #121216;
-    border: 1px solid #4a4a57;
-    border-radius: 3px;
-    padding: 1px 2px;
+    font-size: 13px;
+    color: var(--text-2);
+    background: var(--s3);
+    border: none;
+    border-radius: var(--radius-sm);
   }
-  select:focus-visible {
-    outline: 2px solid #7aa2ff;
-    outline-offset: 1px;
-  }
-  .account {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 2px;
-    min-width: 0;
-    max-width: 60%;
+  .warning,
+  .error {
+    flex-basis: 100%;
+    margin: 0;
+    font-size: 13px;
   }
   .warning {
-    text-align: right;
-    color: #ffd36b;
-    font-size: 12px;
+    color: var(--warn);
   }
   .error {
-    color: #ff8f8f;
-    font-size: 12px;
+    color: var(--danger);
+  }
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  @media (forced-colors: active) {
+    select {
+      border: 1px solid ButtonText;
+    }
   }
 </style>

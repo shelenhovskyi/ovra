@@ -138,7 +138,8 @@ describe("accounts in the agents panel", () => {
     core.projectAccounts.set("p1", "account-1");
     await show(core);
     expect(summary()).toBe("Accounts: Default, Work (not signed in)");
-    expect(picker()?.value).toBe("account-1");
+    // The project's account is signed out: a new task starts with a signed-in one.
+    expect(picker()?.value).toBe("default");
     button("Manage")?.click();
     await settle();
     const status = [...target.querySelectorAll("[data-testid=claude-account-status]")].map((s) => s.textContent);
@@ -201,10 +202,11 @@ describe("accounts in the agents panel", () => {
     expect(warning()).toBeUndefined();
     change(picker(), "account-1");
     await settle();
-    expect(warning()).toBe("Work bills an Anthropic API key, at API prices.");
+    expect(warning()).toBe("Work bills an API key, at API prices.");
+    // The start form says it when an account is signed out.
     change(picker(), "account-2");
     await settle();
-    expect(warning()).toContain("Agents started with it will fail");
+    expect(warning()).toBeUndefined();
   });
 
   it("names the account that pays for a session", async () => {
