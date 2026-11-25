@@ -1,0 +1,41 @@
+---
+source: crates/browser/src/launch.rs
+expression: line
+---
+CommandLine {
+    program: "/bin/sh",
+    args: [
+        "-c",
+        "exec \"$@\" 3<&0 4>&1 </dev/null >&2",
+        "sh",
+        "/usr/bin/chromium",
+        "--headless=new",
+        "--remote-debugging-pipe",
+        "--no-sandbox",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--disable-extensions",
+        "--disable-sync",
+        "--disable-background-networking",
+        "--disable-component-update",
+        "--disable-default-apps",
+        "--disable-dev-shm-usage",
+        "--password-store=basic",
+        "--disable-quic",
+        "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
+        "--mute-audio",
+        "--user-data-dir=/t/profile",
+        "--proxy-server=http://127.0.0.1:3128",
+        "--proxy-bypass-list=<-loopback>",
+        "about:blank",
+    ],
+    env: [
+        (
+            "OVRA_FAKE_SANDBOX",
+            Some(
+                "1",
+            ),
+        ),
+    ],
+    cwd: "/t/profile",
+}
