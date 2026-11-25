@@ -478,6 +478,10 @@ function trust(trusted: boolean): Promise<void> {
     align-self: flex-start;
     padding: 0 4px;
   }
+  .quiet button.link {
+    flex: none;
+    white-space: nowrap;
+  }
   .quiet button.link.primary {
     height: 24px;
     padding: 0 8px;

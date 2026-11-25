@@ -631,3 +631,484 @@ const canReply = $derived(current !== null && current.status.state === "idle");
     </form>
   {/if}
 </section>
+
+<style>
+  .agents {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    background: var(--s1);
+  }
+  .head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 44px;
+    padding: 8px 12px 4px 16px;
+  }
+  h2 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .capacity {
+    font-size: 13px;
+    color: var(--text-2);
+  }
+  .slots {
+    display: inline-flex;
+    gap: 3px;
+  }
+  .slots i {
+    width: 14px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--s4);
+  }
+  .slots i.on {
+    background: var(--accent);
+  }
+  .new-task {
+    margin-left: auto;
+  }
+  p {
+    margin: 0;
+  }
+  .intro {
+    padding: 8px 16px;
+    color: var(--text-2);
+  }
+  .line,
+  .status {
+    font-size: 13px;
+    color: var(--text-2);
+    overflow-wrap: anywhere;
+  }
+  .warn {
+    color: var(--warn);
+  }
+  .error {
+    margin: 0 16px 8px;
+    font-size: 13px;
+    color: var(--danger);
+  }
+  .compose .error {
+    margin: 0;
+  }
+  .icon {
+    width: 15px;
+    height: 15px;
+    flex: none;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  /* Buttons: one filled action per view, the rest quiet. */
+  button {
+    font: inherit;
+    color: var(--text);
+    background: none;
+    border: none;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+  }
+  button:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .quiet {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 28px;
+    padding: 0 8px;
+    font-size: 13px;
+    color: var(--text-2);
+  }
+  .quiet:hover:not(:disabled) {
+    color: var(--text);
+    background: var(--s3);
+  }
+  .primary {
+    height: 32px;
+    padding: 0 14px;
+    font-weight: 500;
+    color: var(--accent-ink);
+    background: var(--accent);
+  }
+
+  /* The list */
+  .scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 0 8px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .sessions {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .sessions li {
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+    border-radius: 10px;
+  }
+  .sessions li:hover {
+    background: var(--s2);
+  }
+  .sessions li.worker {
+    margin-left: 20px;
+  }
+  .row-button {
+    flex: 1;
+    min-width: 0;
+    display: grid;
+    grid-template-columns: 16px 1fr auto;
+    align-items: start;
+    column-gap: 10px;
+    padding: 10px;
+    text-align: left;
+    border-radius: 10px;
+  }
+  .row-button .pill + .pill {
+    grid-column: 3;
+    margin-top: 4px;
+  }
+  .state-mark {
+    width: 9px;
+    height: 9px;
+    margin: 6px 0 0 3px;
+    border-radius: 50%;
+    background: var(--s4);
+  }
+  [data-state="working"] .state-mark,
+  [data-state="starting"] .state-mark {
+    width: 14px;
+    height: 14px;
+    margin: 3px 0 0 1px;
+    background: none;
+    border: 2px solid var(--accent-soft);
+    border-top-color: var(--accent);
+    animation: spin 0.9s linear infinite;
+  }
+  [data-state="waiting_for_approval"] .state-mark {
+    background: var(--warn);
+  }
+  [data-state="idle"] .state-mark {
+    background: var(--ok);
+  }
+  [data-state="failed"] .state-mark {
+    background: var(--danger);
+  }
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .state-mark {
+      animation: none !important;
+    }
+  }
+  .text {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .title {
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .state {
+    font-size: 13px;
+    color: var(--text-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  [data-state="failed"] .state {
+    color: var(--danger);
+  }
+  [data-state="waiting_for_approval"] .state {
+    color: var(--warn);
+  }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    height: 22px;
+    padding: 0 8px;
+    border-radius: var(--radius-sm);
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .pill.warn {
+    color: var(--warn);
+    background: var(--warn-soft);
+  }
+  .pill.ok {
+    color: var(--ok);
+    background: var(--ok-soft);
+  }
+  /* Close shows on hover or focus, like the rest of the chrome. */
+  .close {
+    position: absolute;
+    top: 8px;
+    right: 6px;
+    width: 28px;
+    padding: 0;
+    justify-content: center;
+    background: var(--s2);
+    opacity: 0;
+  }
+  .sessions li:hover .close,
+  .close:focus-visible {
+    opacity: 1;
+  }
+
+  /* One session */
+  .detail {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 8px;
+  }
+  .buttons {
+    display: flex;
+    gap: 2px;
+  }
+  .facts {
+    padding: 4px 16px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  h3 {
+    margin: 0 0 2px;
+    font-size: 14px;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
+  .status[data-state="failed"] {
+    color: var(--danger);
+  }
+  .status[data-state="waiting_for_approval"] {
+    color: var(--warn);
+  }
+  .more summary {
+    width: fit-content;
+    font-size: 13px;
+    color: var(--text-2);
+    cursor: pointer;
+  }
+  .more p {
+    font-size: 13px;
+    color: var(--text-2);
+  }
+  .card {
+    margin: 0 8px 8px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    background: var(--s2);
+    border-radius: var(--radius);
+  }
+  .signed-out .title {
+    font-weight: 600;
+    color: var(--warn);
+  }
+  .command {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 100%;
+  }
+  code {
+    min-width: 0;
+    padding: 4px 8px;
+    font-size: 13px;
+    background: var(--s3);
+    border-radius: var(--radius-sm);
+    user-select: all;
+    overflow-wrap: anywhere;
+  }
+  .outcome h4 {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .outcome ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .outcome li {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .file {
+    padding: 0;
+    color: var(--accent);
+    text-align: left;
+    overflow-wrap: anywhere;
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+  }
+
+  /* Text boxes: the start box and the reply box */
+  .compose {
+    flex: none;
+    margin: 8px;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    background: var(--s2);
+    border-radius: 12px;
+  }
+  textarea {
+    font: inherit;
+    color: var(--text);
+    background: none;
+    border: none;
+    resize: none;
+    padding: 2px;
+  }
+  textarea:focus-visible {
+    outline: none;
+  }
+  .compose:focus-within {
+    box-shadow: 0 0 0 2px var(--accent-soft);
+  }
+  .compose .row {
+    flex-wrap: wrap;
+  }
+  .compose .row .primary {
+    margin-left: auto;
+  }
+  .modes {
+    display: flex;
+    gap: 2px;
+    margin: 0;
+    padding: 2px;
+    border: none;
+    background: var(--s1);
+    border-radius: var(--radius-sm);
+  }
+  .mode {
+    flex: 1;
+    position: relative;
+    padding: 4px 8px;
+    text-align: center;
+    font-size: 13px;
+    color: var(--text-2);
+    border-radius: 5px;
+    cursor: pointer;
+  }
+  .mode:has(input:checked) {
+    color: var(--text);
+    font-weight: 500;
+    background: var(--s3);
+  }
+  .mode:has(input:focus-visible) {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  /* The native radio keeps arrow keys and screen readers; the label is the button. */
+  .mode input {
+    position: absolute;
+    opacity: 0;
+    inset: 0;
+    margin: 0;
+    cursor: pointer;
+  }
+  .blocked {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--warn);
+  }
+  .fix {
+    color: var(--text-2);
+  }
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .chip {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 100%;
+    padding: 0 0 0 8px;
+    font-size: 13px;
+    color: var(--ok);
+    background: var(--ok-soft);
+    border-radius: 10px;
+  }
+  .chip span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .chip button {
+    padding: 0 6px;
+    color: inherit;
+  }
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  @media (forced-colors: active) {
+    .compose,
+    .card,
+    .pill {
+      border: 1px solid CanvasText;
+    }
+    .mode:has(input:checked) {
+      border: 2px solid Highlight;
+    }
+    .close {
+      opacity: 1;
+    }
+  }
+</style>
