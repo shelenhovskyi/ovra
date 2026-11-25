@@ -180,8 +180,11 @@ it("commits with Mod+Enter, says why it waits and shows a hook's output", async 
   expect(commit?.getAttribute("aria-disabled")).toBe("true");
   expect(text("#git-commit-why")).toBe("Stage changes to commit them, or amend the last commit.");
   box.dispatchEvent(new KeyboardEvent("keydown", { code: "Enter", ctrlKey: true, bubbles: true }));
-  flushSync();
-  expect(text("[data-testid=git-announce]")).toBe("Stage changes to commit them, or amend the last commit.");
+  await settle();
+  // Said once, under the button, and read out from there.
+  expect(text("[data-testid=git-announce]")).toBe("");
+  expect($("#git-commit-why")?.closest("[role=status]")).not.toBeNull();
+  expect(text("#git-commit-why")).toBe("Stage changes to commit them, or amend the last commit.");
 
   click("[aria-label='Stage a.ts']");
   await settle();
@@ -197,6 +200,7 @@ it("commits with Mod+Enter, says why it waits and shows a hook's output", async 
   await settle();
   expect(core.calls.at(-2)).toMatchObject({ method: "git.commit", params: { message: "Fix the thing\n\nBody" } });
   expect(text("[data-testid=git-committed]")).toBe("Committed c100000: Fix the thing");
+  expect(text("[data-testid=git-announce]")).toBe("");
   expect(box.value).toBe("");
   // Recent commits read with the short id only: no title with the full one.
   click(".log .toggle");
@@ -329,6 +333,16 @@ it("shows a diff with hunk staging and reloads it on fs.git_changed", async () =
     "-old",
     "+new",
   ]);
+  // Said in words: a leading sign is often not read out.
+  const spoken = (line: Element) => {
+    const copy = line.cloneNode(true) as Element;
+    for (const hidden of copy.querySelectorAll("[aria-hidden=true]")) hidden.remove();
+    return copy.textContent?.replace(/\s+/g, " ").trim();
+  };
+  expect([...target.querySelectorAll("[data-testid=git-diff] .line")].map(spoken)).toEqual([
+    "removed line 3: old",
+    "added line 3: new",
+  ]);
   // A hunk is a group with a plain title, not a landmark; the @@ header is its tooltip.
   const title = $("[data-testid=git-diff] [role=group][aria-label='Hunk 1 of 1, lines 3 to 3'] h3");
   expect(title?.textContent?.replace(/\s+/g, " ").trim()).toBe("Lines 3 to 3 fn main");
@@ -374,6 +388,42 @@ it("shows a diff with hunk staging and reloads it on fs.git_changed", async () =
   await settle();
   expect(document.activeElement?.closest("[data-testid=git-changes]")).not.toBeNull();
   expect(focusedRow()).toBe("a.ts");
+});
+
+it("follows the file's changes to the staged side, and says where they went after the commit", async () => {
+  const core = new FakeGitCore();
+  core.status = repo({ files: [changed("a.ts")] });
+  const diff = (lines: string[]) => ({
+    path: "a.ts",
+    from: null,
+    binary: false,
+    hunks: [{ old_start: 1, old_lines: 1, new_start: 1, new_lines: 1, header: "", lines }],
+    truncated: false,
+  });
+  core.diffs.set("a.ts", diff(["-old", "+new"]));
+  await setup(core);
+  click("[data-testid=git-changes] [data-path='a.ts']");
+  await settle();
+
+  core.diffs.delete("a.ts");
+  core.diffs.set("staged:a.ts", diff(["-old", "+new"]));
+  $<HTMLElement>("[data-testid=git-changes] [data-path='a.ts']")?.focus();
+  click("[aria-label='Stage a.ts']");
+  await settle();
+  expect(workspace.gitDiff).toEqual({ project: "p1", path: "a.ts", staged: true });
+  // Focus stays in the panel, where the person works.
+  expect(document.activeElement?.closest("[data-testid=git]")).not.toBeNull();
+  expect(text("[data-testid=git-diff] [role=status]")).toBe("All changes in this file are staged: showing them.");
+
+  core.diffs.delete("staged:a.ts");
+  const box = $<HTMLTextAreaElement>("textarea");
+  if (box) box.value = "Say hello";
+  box?.dispatchEvent(new Event("input", { bubbles: true }));
+  click("[data-testid=git-commit]");
+  await settle();
+  expect(text("[data-testid=git-diff-empty]")).toBe(
+    "No changes left in this file: they were committed as c100000 (Say hello).",
+  );
 });
 
 it("is one Tab stop per list, with keys for row actions and the close-tab key for the diff", async () => {

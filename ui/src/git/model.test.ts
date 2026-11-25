@@ -81,7 +81,9 @@ describe("GitModel", () => {
 
     expect(await model.commit("Fix it", false)).toBe(true);
     expect(model.error).toBeNull();
-    expect(model.notice).toBe("Committed c100000: Fix it");
+    // The commit box says it, once.
+    expect(model.committed?.commit.summary).toBe("Fix it");
+    expect(model.notice).toBe("");
 
     core.failNext.set("git.stage_hunk", new CoreError({ code: "conflict", message: "patch does not apply" }));
     const hunk = { old_start: 1, old_lines: 1, new_start: 1, new_lines: 1, header: "", lines: ["-a", "+b"] };
