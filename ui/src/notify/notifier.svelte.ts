@@ -38,8 +38,12 @@ export class Notifier {
 
   constructor(readonly system: SystemNotifications = webNotifications()) {}
 
-  notify(toast: Omit<Toast, "id">, title = "Ovra"): void {
-    if (toast.key) this.dismissKey(toast.key);
+  /** `system`: false only updates the toast (a count that went down), never a system notification. */
+  notify(toast: Omit<Toast, "id">, title = "Ovra", system = true): void {
+    if (toast.key) {
+      for (const old of this.toasts) if (old.key === toast.key) this.dismiss(old.id);
+      if (system) this.system.close(toast.key);
+    }
     const id = this.nextId++;
     let toasts = [...this.toasts, { ...toast, id }];
     while (toasts.length > MAX_TOASTS) {
@@ -54,7 +58,7 @@ export class Notifier {
         setTimeout(() => this.dismiss(id), INFO_MS),
       );
     }
-    if (this.system.permission() === "granted" && !this.system.inForeground()) {
+    if (system && this.system.permission() === "granted" && !this.system.inForeground()) {
       this.system.show(title, toast.text, toast.key ?? `ovra-${id}`, () => toast.action?.run());
     }
   }

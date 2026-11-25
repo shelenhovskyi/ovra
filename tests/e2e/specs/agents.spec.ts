@@ -63,7 +63,8 @@ test("start an agent and answer its requests from the keyboard", async ({ page }
     "No sandbox: the agent can read and change anything your user can.",
   );
   await expect(approvals.getByTestId("approval-unsandboxed")).toBeVisible();
-  await expect(page.getByTestId("notifications")).toContainText("Fix the typo needs approval: Run ls -la");
+  // The card is in sight, so no toast repeats it.
+  await expect(page.getByTestId("toast")).toHaveCount(0);
   // The task opens, ready for a reply; nothing moves focus to the request.
   await expect(page.getByRole("textbox", { name: "Reply to Claude" })).toBeFocused();
   // In a 1280x720 window the request, the header and the reply box all fit:
@@ -99,7 +100,8 @@ test("start an agent and answer its requests from the keyboard", async ({ page }
   const header = await agents.getByRole("heading", { name: "Agents", exact: true }).boundingBox();
   expect((band?.y ?? 0) + (band?.height ?? 0)).toBeLessThanOrEqual(header?.y ?? 0);
   const transcript = page.getByTestId("transcript");
-  // A command and an edit each get one folded card: verb, mono object, result inside.
+  // Once the turn is over, a command and an edit each are one folded card: verb, mono object, result inside.
+  await expect(transcript).toContainText(/Claude\s*Done\./);
   const ran = transcript.locator(".step summary", { hasText: "Ran ls -la" });
   await expect(ran).toBeVisible();
   await expect(ran.locator("code")).toHaveText("ls -la");
@@ -107,7 +109,6 @@ test("start an agent and answer its requests from the keyboard", async ({ page }
   await ran.click();
   await expect(transcript.getByTestId("tool-detail").first()).toBeVisible();
   await expect(transcript.locator(".step.failed summary")).toHaveText(/Edit README\.md\s*failed/);
-  await expect(transcript).toContainText(/Claude\s*Done\./);
 });
 
 test("a working agent's text streams in under a live row until the turn ends", async ({ page }) => {
@@ -131,7 +132,7 @@ test("a working agent's text streams in under a live row until the turn ends", a
   await expect(transcript.getByTestId("streaming-text")).toHaveCount(0);
 });
 
-test("in a short window, Review shows the whole request and the title counts what waits", async ({ page }) => {
+test("in a short window, the shortcut shows the whole request and the title counts what waits", async ({ page }) => {
   // About 200% zoom on a laptop: approvals sit under the main area.
   await page.setViewportSize({ width: 640, height: 400 });
   await openProject(page, "ovra-agents-short-");
@@ -142,7 +143,9 @@ test("in a short window, Review shows the whole request and the title counts wha
   const run = approvals.getByRole("group", { name: "Run ls -la" });
   await expect(run).toBeVisible();
   await expect(page).toHaveTitle("(1) Ovra");
-  await page.getByTestId("notifications").getByRole("button", { name: "Review" }).click();
+  // The card is in sight: no toast repeats it.
+  await expect(page.getByTestId("toast")).toHaveCount(0);
+  await page.keyboard.press("Alt+Shift+A");
   await expect(run).toBeFocused();
   await expect(run.locator("dl")).toBeInViewport({ ratio: 1 });
   // Who asks and the sandbox warning stay in sight above it (SEC-2).
@@ -154,12 +157,8 @@ test("in a short window, Review shows the whole request and the title counts wha
 
   const edit = approvals.getByRole("group", { name: "Edit README.md" });
   await expect(edit).toBeVisible();
-  const toasts = page.getByTestId("toast");
-  await expect(toasts).toContainText(["needs approval: Edit README.md"]);
   await page.keyboard.press("ArrowDown");
   await expect(edit).toBeFocused();
-  // The focused request is on screen: its toast no longer covers it.
-  await expect(toasts).toHaveCount(0);
   await arm(page);
   await page.keyboard.press("n");
   await expect(approvals).toContainText("Nothing waits for your approval.");

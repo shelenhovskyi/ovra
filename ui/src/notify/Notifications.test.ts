@@ -61,6 +61,30 @@ describe("Notifications", () => {
     expect(toasts()).toHaveLength(1);
   });
 
+  it("puts a banner over a modal while approvals wait, and Show closes the modal", async () => {
+    const core = new FakeAgentCore();
+    app = mount(TestHost, { target, props: { transport: core, workspace: new Workspace() } });
+    await settle();
+    const dialog = document.createElement("div");
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("aria-modal", "true");
+    dialog.tabIndex = -1;
+    let escaped = false;
+    dialog.addEventListener("keydown", (event) => {
+      if (event.code === "Escape") escaped = true;
+    });
+    target.append(dialog);
+    dialog.focus();
+    core.ask(bash("perm1"));
+    await settle();
+    const banner = () => target.querySelector("[data-testid=approvals-banner]");
+    expect(banner()?.textContent?.replace(/\s+/g, " ").trim()).toBe("1 approval waits Show");
+    // Nothing else about approvals while the modal covers them.
+    expect(target.querySelectorAll("[data-testid=toast]")).toHaveLength(0);
+    banner()?.querySelector("button")?.click();
+    expect(escaped).toBe(true);
+  });
+
   it("counts waiting requests in the window title", async () => {
     const core = new FakeAgentCore();
     app = mount(TestHost, { target, props: { transport: core, workspace: new Workspace() } });

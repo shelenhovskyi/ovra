@@ -1,12 +1,14 @@
 <script lang="ts">
 // Toasts for agent events, announced through live regions without taking
 // focus. Requests for approval and errors are announced at once, the rest
-// politely.
+// politely. The approvals toast steps aside while an approval card is on
+// screen; while a modal covers the window, a banner over it says that
+// approvals wait, so a request is never hidden.
 import { approvalQueue } from "../approvals/queue.svelte";
 import { registerCommand } from "../keys/commands";
 import type { PermissionId } from "../lib/protocol";
 import { useOvra } from "../shell/context";
-import { watchAgents } from "./agent-events";
+import { APPROVALS_KEY, watchAgents } from "./agent-events";
 import { Notifier, overlaps, type SystemNotifications, type Toast } from "./notifier.svelte";
 
 let { system }: { system?: SystemNotifications } = $props();
@@ -50,8 +52,37 @@ $effect(() =>
   }),
 );
 
-/** A request whose card has focus is on screen: its toast would only cover it. */
-const shown = $derived(notifier.toasts.filter((t) => t.key !== `permission:${approvals.focused}`));
+/** Bumped when what is on screen may have changed (focus moved, as it does when a modal opens or closes; a resize), so the checks below run again. */
+let looked = $state(0);
+const look = () => looked++;
+
+/** An approval card is in sight: no toast for approvals then, and no banner. */
+function cardInSight(): boolean {
+  void looked;
+  for (const card of document.querySelectorAll<HTMLElement>("[data-testid=approvals] [data-request]")) {
+    const box = card.getBoundingClientRect();
+    if (box.bottom > 0 && box.top < window.innerHeight && box.height > 0 && !card.closest("[hidden]")) return true;
+  }
+  return false;
+}
+
+/** The open modal, if any: it covers the approvals. */
+function modal(): HTMLElement | null {
+  void looked;
+  return document.querySelector<HTMLElement>("[role=dialog][aria-modal=true]");
+}
+
+const covered = $derived(approvals.pending.length > 0 && modal() !== null);
+const shown = $derived(
+  notifier.toasts.filter((t) => t.key !== APPROVALS_KEY || (approvals.focused === null && !covered && !cardInSight())),
+);
+
+/** Closes the modal (as Escape would) and shows the oldest request. */
+function showApprovals(): void {
+  modal()?.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", key: "Escape", bubbles: true }));
+  const first = approvals.pending[0];
+  if (first) setTimeout(() => review(first.id));
+}
 const urgent = $derived(shown.filter((t) => t.level !== "info"));
 const polite = $derived(shown.filter((t) => t.level === "info"));
 
@@ -77,11 +108,15 @@ $effect(() => {
 });
 
 $effect(() => {
-  document.addEventListener("focusin", place);
-  window.addEventListener("resize", place);
+  const again = () => {
+    place();
+    look();
+  };
+  document.addEventListener("focusin", again);
+  window.addEventListener("resize", again);
   return () => {
-    document.removeEventListener("focusin", place);
-    window.removeEventListener("resize", place);
+    document.removeEventListener("focusin", again);
+    window.removeEventListener("resize", again);
   };
 });
 </script>
@@ -109,6 +144,14 @@ $effect(() => {
   </div>
 {/snippet}
 
+{#if covered}
+  {@const count = approvals.pending.length}
+  <div class="banner" role="status" data-testid="approvals-banner">
+    <span class="dot" aria-hidden="true"></span>
+    <p>{count === 1 ? "1 approval waits" : `${count} approvals wait`}</p>
+    <button type="button" class="act" onclick={showApprovals}>Show</button>
+  </div>
+{/if}
 <div class="notifications" class:top={atTop} data-testid="notifications" bind:this={stack}>
   <div aria-live="assertive">
     {#each urgent as item (item.id)}{@render toast(item)}{/each}
@@ -139,6 +182,26 @@ $effect(() => {
     display: flex;
     flex-direction: column;
     gap: 8px;
+  }
+  /* Over any modal and its scrim: an approval is never hidden. */
+  .banner {
+    position: fixed;
+    top: 8px;
+    left: 50%;
+    z-index: 1000;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: 32px;
+    padding: 0 6px 0 14px;
+    color: var(--text);
+    background: var(--s4);
+    border-radius: 16px;
+    box-shadow: var(--card-shadow);
+  }
+  .banner .dot {
+    background: var(--warn);
   }
   .toast {
     pointer-events: auto;

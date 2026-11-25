@@ -1,5 +1,6 @@
-// Turns agent events into notifications: a permission request needs the
-// person, a finished turn waits for them, a failure is an error. A task's
+// Turns agent events into notifications: permission requests need the
+// person (one toast for all of them, with a count), a finished turn waits
+// for them, a failure is an error. A task's
 // sessions (its coordinator and workers) finish together: one notification
 // when none of them works any more, never one per session while others run.
 
@@ -8,6 +9,9 @@ import { describeTool } from "../approvals/describe";
 import type { AgentStatus, PermissionId, PermissionRequest, ProjectId, SessionId, Task } from "../lib/protocol";
 import type { Transport } from "../lib/transport";
 import type { Notifier } from "./notifier.svelte";
+
+/** The key of the one toast for all waiting approvals. */
+export const APPROVALS_KEY = "permissions";
 
 /** Listens until the returned function is called. `review` shows one pending request. */
 export function watchAgents(transport: Transport, notifier: Notifier, review: (id: PermissionId) => void): () => void {
@@ -68,24 +72,33 @@ export function watchAgents(transport: Transport, notifier: Notifier, review: (i
     });
   }
 
-  /** Requests still waiting: one answered while its name loads gets no toast. */
-  const pending = new Set<PermissionId>();
+  /** Requests still waiting, oldest first: one answered while its name loads gets no toast. */
+  const pending = new Map<PermissionId, PermissionRequest>();
+
+  /** The one approvals toast: the request itself while it is alone, else how many wait. */
+  function approvalsToast(system: boolean): void {
+    const [first] = pending.values();
+    if (!first) {
+      notifier.dismissKey(APPROVALS_KEY);
+      return;
+    }
+    const text =
+      pending.size === 1
+        ? `${name(first.session)} needs approval: ${describeTool(first.tool, first.input).action}`
+        : `${pending.size} requests need approval`;
+    notifier.notify(
+      { key: APPROVALS_KEY, level: "attention", text, action: { label: "Review", run: () => review(first.id) } },
+      "Approval needed",
+      system,
+    );
+  }
 
   async function requested(request: PermissionRequest): Promise<void> {
-    pending.add(request.id);
+    pending.set(request.id, request);
     // A session that just started may not have its title or task yet.
     await sessions.named(request.project, request.session);
     if (!pending.has(request.id)) return;
-    const action = describeTool(request.tool, request.input).action;
-    notifier.notify(
-      {
-        key: `permission:${request.id}`,
-        level: "attention",
-        text: `${name(request.session)} needs approval: ${action}`,
-        action: { label: "Review", run: () => review(request.id) },
-      },
-      "Approval needed",
-    );
+    approvalsToast(true);
   }
 
   return transport.onEvent((event) => {
@@ -94,8 +107,7 @@ export function watchAgents(transport: Transport, notifier: Notifier, review: (i
         void requested(event.data);
         break;
       case "permissions.resolved":
-        pending.delete(event.data.id);
-        notifier.dismissKey(`permission:${event.data.id}`);
+        if (pending.delete(event.data.id)) approvalsToast(false);
         break;
       case "agents.status": {
         const { session, project, status } = event.data;

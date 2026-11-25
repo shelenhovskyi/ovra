@@ -70,10 +70,18 @@ describe("watchAgents", () => {
     ]);
     back.shown[0]?.click();
     expect(review).toHaveBeenCalledExactlyOnceWith("perm1");
+    // A second request: still one toast, with the count; one answered: the count goes down quietly.
+    core.ask({ id: "perm2", session: "s1", project: "p1", tool: "Bash", input: { command: "pwd" }, title: null });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(notifier.toasts.map((t) => t.text)).toEqual(["2 requests need approval"]);
+    const systemShown = back.shown.length;
+    core.emit({ type: "permissions.resolved", data: { id: "perm2", decision: "allow" } });
+    expect(notifier.toasts.map((t) => t.text)).toEqual(["Fix the typo needs approval: Run ls"]);
+    expect(back.shown).toHaveLength(systemShown);
     core.emit({ type: "permissions.resolved", data: { id: "perm1", decision: "allow" } });
     expect(notifier.toasts).toEqual([]);
     // Answered elsewhere: the system notification goes too, so its Review cannot be pressed late.
-    expect(back.closed.at(-1)).toBe("permission:perm1");
+    expect(back.closed.at(-1)).toBe("permissions");
 
     core.status("s1", { state: "working" });
     core.status("s1", { state: "idle" });
