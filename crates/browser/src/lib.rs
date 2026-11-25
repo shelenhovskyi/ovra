@@ -149,16 +149,13 @@ fn profile_dir(parent: &std::path::Path) -> Result<PathBuf> {
             format!("no profile folder for the browser: {e}"),
         )
     };
+    #[cfg_attr(not(unix), allow(unused_mut))]
     let mut builder = std::fs::DirBuilder::new();
     #[cfg(unix)]
     std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
     loop {
-        let mut random = [0u8; 16];
-        std::fs::File::open("/dev/urandom")
-            .and_then(|mut f| std::io::Read::read_exact(&mut f, &mut random))
-            .map_err(failed)?;
-        let name: String = random.iter().map(|b| format!("{b:02x}")).collect();
-        let dir = parent.join(format!("ovra-browser-{name}"));
+        // Windows has no /dev/urandom.
+        let dir = parent.join(format!("ovra-browser-{:032x}", rand::random::<u128>()));
         // `create` fails on anything already there, a link included.
         match builder.create(&dir) {
             Ok(()) => return Ok(dir),
