@@ -322,7 +322,9 @@ pub trait NetProxy: Send + Sync + Debug {
   make only its own session's socket reachable, never the folder above
   it, or an agent could use another project's allowlist (4.A, 4.B). On
   Windows it is a 127.0.0.1 port, which any local process can use; 4.F
-  records this. The platform's helper bridges the
+  records this. There the sandbox user's firewall rule blocks the
+  internet but not loopback or the system's DNS resolver
+  (`docs/specs/sandbox-windows.md`). The platform's helper bridges the
   socket to a local port inside the sandbox. `wrap` sets `HTTP_PROXY` and
   `HTTPS_PROXY` to that port, clears `NO_PROXY`, and sets
   `NODE_USE_ENV_PROXY=1` (4.A, 4.B). For each port in the profile's
