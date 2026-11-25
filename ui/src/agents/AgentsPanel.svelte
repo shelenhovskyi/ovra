@@ -192,7 +192,7 @@ $effect(() => {
   });
 });
 /** A task waits for review, and nobody opened a review yet: one line says what Review does. */
-const reviewHint = $derived(!hints.has("reviewed") && list.some((s) => chip(s)?.text === "Review"));
+const reviewHint = $derived(!hints.has("reviewed") && list.some((s) => chip(s)?.tone === "ok"));
 
 /** The task the person pressed Close on: it asks once before closing it with its workers. */
 let confirming = $state<SessionId | null>(null);
@@ -350,12 +350,36 @@ function step(id: SessionId): string | null {
   return null;
 }
 
-/** The row's call to action, if the person is needed. */
+/**
+ * The row's call to action, if the person is needed. A task says how many
+ * of its workers' changes wait; its workers do not say it again.
+ */
 function chip(s: SessionInfo): { text: string; tone: "warn" | "ok" } | null {
   if (s.status.state === "waiting_for_approval") return { text: "Approve", tone: "warn" };
-  if (!isBusy(s.status) && (sessions.waitsForReview(s.id) || sessions.waitingInTask(s.id) > 0))
-    return { text: "Review", tone: "ok" };
-  return null;
+  if (isBusy(s.status)) return null;
+  const inTask = sessions.waitingInTask(s.id);
+  if (inTask > 0) return { text: inTask > 1 ? `Review ${inTask}` : "Review", tone: "ok" };
+  const role = sessions.roles.get(s.id);
+  const told = role?.kind === "worker" && list.some((t) => t.id === role.coordinator && chip(t)?.tone === "ok");
+  return sessions.waitsForReview(s.id) && !told ? { text: "Review", tone: "ok" } : null;
+}
+
+/**
+ * A row's title: a worker under its task by its own name and what it was
+ * asked to do (its first line), a task or a session by its title.
+ */
+function rowTitle(s: SessionInfo): string {
+  const role = sessions.roles.get(s.id);
+  if (role?.kind === "worker") return s.title ? `${role.name} · ${s.title}` : role.name;
+  return s.title || sessions.name(s.id);
+}
+
+/** The row's tooltip: the whole title, and a worker's branch and kept folder. */
+function rowTip(s: SessionInfo): string {
+  const role = sessions.roles.get(s.id);
+  if (role?.kind !== "worker") return sessions.name(s.id);
+  const kept = role.kept ? `\nIts folder was kept: ${role.kept}` : "";
+  return `${role.name}${s.title ? `: ${s.title}` : ""}\nBranch ${role.branch}${kept}`;
 }
 
 /** Needs the person first, then working, then queued, then the rest. */
@@ -810,14 +834,12 @@ const canReply = $derived(current !== null && current.status.state === "idle");
                 type="button"
                 class="row-button"
                 data-state={tone(session)}
-                title={role?.kind === "worker"
-                  ? `${sessions.name(session.id)}. Branch ${role.branch}${role.kept ? `. Its folder was kept: ${role.kept}` : ""}`
-                  : sessions.name(session.id)}
+                title={rowTip(session)}
                 onclick={() => open(session.id)}
               >
                 <span class="state-mark" aria-hidden="true"></span>
                 <span class="text">
-                  <span class="title">{sessions.name(session.id)}</span>
+                  <span class="title">{rowTitle(session)}</span>
                   <span class="state">{#if now}<span class="visually-hidden">Working: </span>{now}{:else}{sessions.status(
                         session.id,
                       )}{/if}</span>

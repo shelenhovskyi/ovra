@@ -266,14 +266,11 @@ export class AgentSessions {
     }
   }
 
-  /** Sessions of `project` with each task's workers right after their coordinator. */
+  /** Sessions of `project` with each task's workers right after their coordinator, in the order it started them. */
   grouped(project: ProjectId): SessionInfo[] {
     const all = this.inProject(project);
     const workersOf = (coordinator: SessionId) =>
-      all.filter((s) => {
-        const role = this.roles.get(s.id);
-        return role?.kind === "worker" && role.coordinator === coordinator;
-      });
+      this.workers(coordinator).flatMap((id) => all.filter((s) => s.id === id));
     return all
       .filter((s) => this.roles.get(s.id)?.kind !== "worker")
       .flatMap((s) => [s, ...workersOf(s.id)])

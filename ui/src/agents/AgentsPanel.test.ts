@@ -229,16 +229,16 @@ describe("AgentsPanel", () => {
     await settle();
     const rows = [...target.querySelectorAll(".sessions .row-button")];
     expect(rows.map((b) => b.querySelector(".title")?.textContent)).toEqual([
-      "Task: Write the notes",
-      // With its task's name, so the workers of two tasks differ.
-      "docs · Write the notes",
+      "Write the notes",
+      // Under its task: its own name and what it was asked to do, not the task's title again.
+      "docs · Write the docs notes.",
       "A plain session",
     ]);
     expect(rows[1]?.closest("li")?.classList.contains("worker")).toBe(true);
-    // The whole name shows on hover, should it be cut after two lines.
+    // The whole name shows on hover, should it be cut.
     expect(rows.slice(0, 2).map((b) => b.getAttribute("title"))).toEqual([
       "Task: Write the notes",
-      "docs · Write the notes. Branch ovra/t1/docs",
+      "docs: Write the docs notes.\nBranch ovra/t1/docs",
     ]);
     // A coordinator that waits while its worker runs is not done.
     const state = () => [...target.querySelectorAll(".sessions .state")].map((s) => s.textContent);
@@ -274,14 +274,19 @@ describe("AgentsPanel", () => {
       spent_micro_usd: 0,
     });
     // lint's newest item is decided, an older one still waits: the inbox counts it, so does the row.
-    core.reviews = [{ ...review("s3", []), id: "new", state: "approved" }, review("s3", [file("NOTES.md", "agent")])];
+    core.reviews = [
+      { ...review("s3", []), id: "new", state: "approved" },
+      review("s3", [file("NOTES.md", "agent")]),
+      review("s2", [file("NOTES.md", "agent")]),
+    ];
     await setup(core);
     const rows = () =>
       [...target.querySelectorAll(".sessions .row-button")].map((b) => b.textContent?.replace(/\s+/g, " ").trim());
+    // One Review on the task, with how many; its workers do not repeat it.
     expect(rows()).toEqual([
-      "Task: Write the notes Done 2 of 2 done Review",
-      "docs · Write the notes Done",
-      "lint · Write the notes Done Review",
+      "Write the notes Done 2 of 2 done Review 2",
+      "docs · docs notes Done",
+      "lint · lint notes Done",
     ]);
     target.querySelector<HTMLButtonElement>("[aria-label='Close Task: Write the notes']")?.click();
     await settle();
@@ -293,6 +298,27 @@ describe("AgentsPanel", () => {
     await settle();
     expect(core.sent("agents.stop").map((c) => c.params)).toEqual([{ session: "s1" }]);
     expect(rows()).toEqual([]);
+  });
+
+  it("lists a task's workers in the order it started them", async () => {
+    const core = new FakeAgentCore();
+    core.addSession("p1", "Write the notes", { state: "idle" });
+    // Known in another order than they were started (lint's status came first).
+    for (const name of ["lint", "docs"]) core.addSession("p1", `${name} notes`, { state: "idle" });
+    core.tasks.push({
+      id: "t1",
+      project: "p1",
+      coordinator: "s1",
+      workers: [
+        { session: "s3", name: "docs", branch: "ovra/t1/docs", worktree: "/wt/docs", kept: null },
+        { session: "s2", name: "lint", branch: "ovra/t1/lint", worktree: "/wt/lint", kept: null },
+      ],
+      limits: { max_workers: 3, budget_micro_usd: null },
+      spent_micro_usd: 0,
+    });
+    await setup(core);
+    const titles = [...target.querySelectorAll(".sessions .title")].map((t) => t.textContent);
+    expect(titles).toEqual(["Write the notes", "docs · docs notes", "lint · lint notes"]);
   });
 
   it("keeps a task Done when it is stopped after all its workers finished", async () => {
@@ -315,11 +341,7 @@ describe("AgentsPanel", () => {
       b.textContent?.replace(/\s+/g, " ").trim(),
     );
     // Working first; the stopped task stays Done, with its workers' bar full.
-    expect(rows).toEqual([
-      "Still working Working",
-      "Task: Write the notes Done 1 of 1 done",
-      "docs · Write the notes Done",
-    ]);
+    expect(rows).toEqual(["Still working Working", "Write the notes Done 1 of 1 done", "docs · docs notes Done"]);
     expect(target.querySelector("[role=progressbar]")?.getAttribute("aria-valuenow")).toBe("1");
   });
 
@@ -339,9 +361,9 @@ describe("AgentsPanel", () => {
     await setup(core);
     const rows = [...target.querySelectorAll(".sessions li")].map((li) => li.textContent?.replace(/\s+/g, " ").trim());
     expect(rows).toEqual([
-      "Task: Write the notes Failed: 2 of 2 workers 0 of 2 done",
+      "Write the notes Failed: 2 of 2 workers 0 of 2 done",
       "lint Did not start: the worktree could not be made",
-      "docs · Write the notes Failed: claude was not found",
+      "docs · docs notes Failed: claude was not found",
     ]);
   });
 
@@ -542,7 +564,7 @@ describe("AgentsPanel", () => {
       },
     ]);
     await setup(core);
-    selectRow("Task: Write the notes");
+    selectRow("Write the notes");
     await settle();
     // Plain lines for the person; ids and tool names only behind a fold.
     expect(transcript()).toEqual([
@@ -577,7 +599,7 @@ describe("AgentsPanel", () => {
     expect(asked).toHaveBeenCalledWith(["s2"]);
     // A worker's files are in its own worktree: no diff of the project folder.
     back();
-    selectRow("docs · Write the notes");
+    selectRow("docs · Write the docs notes.");
     expect(target.querySelector("[data-testid=agent-changes]")).toBeNull();
   });
 
