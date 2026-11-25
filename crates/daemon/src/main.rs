@@ -39,6 +39,11 @@ struct Args {
     #[cfg(feature = "fake-agent")]
     #[arg(long)]
     fake_agent: bool,
+    /// Runs dev servers that start nothing and play a preset named by their
+    /// command: `ready` gets ready, `fail` fails, anything else exits with 1.
+    #[cfg(feature = "fake-agent")]
+    #[arg(long)]
+    fake_servers: bool,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -94,8 +99,15 @@ async fn serve() -> anyhow::Result<()> {
         .terminals(Arc::new(Pty::new()))
         .netproxy(Arc::new(ovra_netproxy::NetProxies::from_env(secrets)?))
         .lsp(language_servers(&args))
-        .agents(agents(&args))
-        .build();
+        .agents(agents(&args));
+    #[cfg(feature = "fake-agent")]
+    let core = if args.fake_servers {
+        tracing::warn!("using fake dev servers");
+        core.dev_servers(Arc::new(PresetServers::default()))
+    } else {
+        core
+    };
+    let core = core.build();
     let app = ws::router(
         core,
         Access {
@@ -253,6 +265,66 @@ impl AgentRuntime for FakeAgent {
         ovra_core::services::Result<ovra_core::protocol::agents::ProjectAgentConfig>,
     > {
         self.claude.project_config(root)
+    }
+}
+
+/// [`ovra_core::fakes::FakeDevServers`] that report by themselves, after
+/// `start` returned, as the program named in `.ovra/servers.json` says.
+#[cfg(feature = "fake-agent")]
+#[derive(Debug, Default)]
+struct PresetServers(Arc<ovra_core::fakes::FakeDevServers>);
+
+#[cfg(feature = "fake-agent")]
+impl ovra_core::services::DevServers for PresetServers {
+    fn status(&self) -> ovra_core::services::SandboxStatus {
+        self.0.status()
+    }
+
+    fn start(
+        &self,
+        pod: &ovra_core::services::PodSpec,
+        server: ovra_core::services::DevServerSpec,
+        sink: Arc<dyn ovra_core::services::ServerSink>,
+    ) -> ovra_core::services::Result<()> {
+        use ovra_core::protocol::servers::ServerStatus;
+        let id = server.id.clone();
+        let preset = server.line.program.to_string_lossy().into_owned();
+        let port = server.port;
+        self.0.start(pod, server, sink)?;
+        let servers = self.0.clone();
+        tokio::spawn(async move {
+            tokio::task::yield_now().await;
+            servers.output(&id, &["\u{1b}[32mfake\u{1b}[0m starting"]);
+            let status = match preset.as_str() {
+                "ready" => {
+                    let line = format!("ready in 1 ms on port {port}");
+                    servers.output(&id, &[line.as_str()]);
+                    ServerStatus::Ready
+                }
+                "fail" => ServerStatus::Failed {
+                    reason: format!("port {port} is taken"),
+                },
+                _ => {
+                    servers.output(&id, &["\u{1b}[31merror\u{1b}[0m: no such preset"]);
+                    ServerStatus::Exited { code: Some(1) }
+                }
+            };
+            servers.report(&id, status);
+        });
+        Ok(())
+    }
+
+    fn stop(&self, id: &ovra_core::protocol::servers::ServerId, grace: std::time::Duration) {
+        self.0.stop(id, grace);
+    }
+
+    fn connect(
+        &self,
+        work_dir: PathBuf,
+        port: u16,
+    ) -> ovra_core::services::BoxFuture<'_, ovra_core::services::Result<ovra_core::services::PodConn>>
+    {
+        self.0.connect(work_dir, port)
     }
 }
 
