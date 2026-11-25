@@ -504,6 +504,7 @@ fn every_request_round_trips() {
         serde_json::json!({"method": "review.diff", "params": {"id": "r1", "path": "a.rs"}}),
         serde_json::json!({"method": "review.approve", "params": {"id": "r1", "commit": "fix: a"}}),
         serde_json::json!({"method": "review.approve", "params": {"id": "r1", "commit": null, "fingerprint": "f1"}}),
+        serde_json::json!({"method": "review.approve", "params": {"id": "r1", "commit": null, "fingerprint": "f1", "include_protected": true}}),
         serde_json::json!({"method": "review.reject", "params": {"id": "r1"}}),
         serde_json::json!({"method": "review.comment", "params": {"id": "r1", "text": "also b"}}),
         serde_json::json!({"method": "review.resolve", "params": {"id": "r1"}}),

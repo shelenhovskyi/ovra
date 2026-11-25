@@ -242,7 +242,10 @@ Not every platform can protect a path that does not exist yet, or make a
 subtree read-only. The backstop is outside the sandbox:
 
 - the review marks any change to a protected path, and approve never
-  applies one without saying so (4.A adds this to the inbox). The marks
+  applies one unless the person includes protected files
+  (`include_protected`): a worker's are otherwise left out, as in a partial
+  approve, and a direct item with one is refused. The inbox offers that
+  only once each protected file's diff has been shown. The marks
   cover the `work_dir` list, in any case, and also, though the sandbox
   does not keep them read-only, `.envrc` and `.claude/` in any folder,
   `.husky/`, `.gitattributes` in any folder, `.gitmodules`, `.lfsconfig`,

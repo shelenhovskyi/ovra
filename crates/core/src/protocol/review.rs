@@ -56,7 +56,8 @@ pub struct FileChange {
     pub blocked: bool,
     /// The file, or the old path of a rename, is a protected path
     /// (`docs/specs/security.md`): agent configuration or code that tools
-    /// run on their own. Approve applies it too, so the inbox says so.
+    /// run on their own. Approve applies it only when the person includes
+    /// protected files (`review.approve`'s `include_protected`).
     #[serde(default)]
     pub protected: bool,
 }
@@ -75,8 +76,9 @@ pub struct ReviewItem {
     #[serde(default)]
     pub can_undo: bool,
     /// A worker's files that approve did not copy: the person's version
-    /// changed since the worker started, or the direct agent's changes to
-    /// them wait. The worker's version stays in its worktree and in
+    /// changed since the worker started, the direct agent's changes to
+    /// them wait, or they are protected and the person did not include
+    /// them. The worker's version stays in its worktree and in
     /// `review.diff`.
     #[serde(default)]
     pub not_copied: Vec<String>,
@@ -128,6 +130,12 @@ pub enum ReviewRequest {
         /// item needs it.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         fingerprint: Option<String>,
+        /// The person chose to apply the item's protected files too.
+        /// Without it a worker's protected files are not copied (they wait
+        /// in `not_copied`, as in a partial approve), and a direct item
+        /// with protected files, already on disk, is refused.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        include_protected: bool,
     },
     /// Restores the agent's files from the base. Files changed outside the
     /// agent since are left alone and listed as conflicts.

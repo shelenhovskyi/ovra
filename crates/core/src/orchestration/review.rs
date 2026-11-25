@@ -212,8 +212,14 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
             id,
             commit,
             fingerprint,
+            include_protected,
         } => {
-            let (item, conflicts) = approve(core, &id, commit, fingerprint).await?;
+            let choice = Approval {
+                commit,
+                reviewed: fingerprint,
+                include_protected,
+            };
+            let (item, conflicts) = approve(core, &id, choice).await?;
             let action = if item.state == ReviewState::PartlyApproved {
                 ReviewAction::PartlyApproved
             } else {
@@ -223,7 +229,7 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
             prune(core, &item.project).await;
             super::tasks::clean_up(core, &item.project).await;
             let what = if item.state == ReviewState::PartlyApproved {
-                "had its work approved by the person, except files the person had changed too or that wait for the direct session: those were not copied and wait for the person"
+                "had its work approved by the person, except files the person had changed too, that wait for the direct session, or protected files the person did not include: those were not copied and wait for the person"
             } else if conflicts.is_empty() {
                 "had its work approved by the person"
             } else {
@@ -587,15 +593,29 @@ fn rel_paths(files: &[FileChange]) -> Result<Vec<RelPath>> {
     paths.into_iter().map(RelPath::parse).collect()
 }
 
+/// What the person chose in `review.approve`.
+struct Approval {
+    commit: Option<String>,
+    /// The fingerprint of the files they looked at.
+    reviewed: Option<String>,
+    /// Apply protected files too.
+    include_protected: bool,
+}
+
 /// Applies a worker's files to the main checkout, except those the direct
-/// session touched, which wait, and those the person changed since the
-/// worker started, which conflict. Both are returned for the person.
+/// session touched, which wait, protected files the person did not
+/// include, which wait too, and those the person changed since the worker
+/// started, which conflict. All are returned for the person.
 async fn approve(
     core: &Core,
     id: &ReviewId,
-    commit: Option<String>,
-    reviewed: Option<String>,
+    choice: Approval,
 ) -> Result<(ReviewItem, Vec<String>)> {
+    let Approval {
+        commit,
+        reviewed,
+        include_protected,
+    } = choice;
     let entry = find(core, id)?;
     check_open(&entry)?;
     // A session still at work would change the worktree while the person
@@ -618,6 +638,9 @@ async fn approve(
             // Ovra no longer knows which files are the agent's (it
             // restarted since): keeping the changes needs no such knowledge.
             let decided = files(core, &entry).await?;
+            if !include_protected {
+                super::direct::protected_refused(&decided)?;
+            }
             let diffs = freeze(core, &entry, &decided, None).await;
             let git = git_seen(core, &entry).await;
             let entry = update(core, id, |e| {
@@ -628,7 +651,9 @@ async fn approve(
             })?;
             return Ok((item(core, &entry).await?, Vec::new()));
         }
-        let outcome = direct.approve(&entry.session, commit).await?;
+        let outcome = direct
+            .approve(&entry.session, commit, include_protected)
+            .await?;
         let diffs = freeze(core, &entry, &outcome.files, outcome.seen.as_ref()).await;
         let git = git_seen(core, &entry).await;
         let entry = update(core, id, |e| {
@@ -665,8 +690,12 @@ async fn approve(
         Some(_) => {}
     }
     let mut diffs = freeze(core, &entry, &decided, Some(&snapshot)).await;
-    let (waiting, ready): (Vec<FileChange>, Vec<FileChange>) =
-        decided.iter().cloned().partition(|f| f.blocked);
+    // Protected files land only by the person's explicit choice; until then
+    // they wait like files the direct session holds.
+    let (waiting, ready): (Vec<FileChange>, Vec<FileChange>) = decided
+        .iter()
+        .cloned()
+        .partition(|f| f.blocked || (f.protected && !include_protected));
     let mut conflicts = worktrees
         .apply(
             snapshot.clone(),

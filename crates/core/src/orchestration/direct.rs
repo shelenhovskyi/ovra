@@ -395,11 +395,13 @@ impl Direct {
 
     /// Keeps the changes. With `commit`, commits the
     /// agent's own files with that message; files changed by both are left
-    /// uncommitted and listed as conflicts.
+    /// uncommitted and listed as conflicts. Refused when a protected file
+    /// changed, unless `include_protected`: the person chose to keep those.
     pub(crate) async fn approve(
         &self,
         session: &SessionId,
         commit: Option<String>,
+        include_protected: bool,
     ) -> Result<Outcome> {
         let worktrees = &*self.worktrees;
         let (_, writer) = self.held(session)?;
@@ -408,6 +410,9 @@ impl Direct {
         t.idle()?;
         let now = worktrees.look(writer.dir.clone()).await.ok();
         let files = t.files(worktrees, &writer.dir, now.as_ref()).await?;
+        if !include_protected {
+            protected_refused(&files)?;
+        }
         let mut outcome = Outcome {
             conflicts: Vec::new(),
             snapshot: None,
@@ -899,6 +904,26 @@ impl Tracker {
             })
             .collect())
     }
+}
+
+/// Refuses to keep `files` blindly when one of them is protected: they
+/// are already on disk, so only the person's explicit choice keeps them.
+pub(crate) fn protected_refused(files: &[FileChange]) -> Result<()> {
+    let guarded: Vec<&str> = files
+        .iter()
+        .filter(|f| f.protected)
+        .map(|f| f.path.as_str())
+        .collect();
+    if guarded.is_empty() {
+        return Ok(());
+    }
+    Err(ProtocolError::new(
+        ErrorCode::BadRequest,
+        format!(
+            "these changes include protected files ({}); look at their diffs and approve with include_protected",
+            guarded.join(", ")
+        ),
+    ))
 }
 
 /// Every path (renames: both) of the files changed by `by`.
