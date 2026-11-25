@@ -345,7 +345,10 @@ call is decided as today.
 
 `browser.open`, `browser.close`, `browser.input { page, event }`,
 `browser.pick { page, x, y }` (the element at a point, for the overlay),
-`browser.attach { page, picks }` (the payload of a sent message), events
+`browser.attach { page, picks }` (the payload of a sent message),
+`browser.status { session }` (whether the session's browser can run, or a
+refusal code: `session_ended`, `no_chromium`, `no_sandbox`,
+`not_supported`, `not_sandboxed`, checked in that order), events
 `browser.frame { page, jpeg, metadata }`, `browser.pages`,
 `browser.navigation_asked { page, origin }`.
 

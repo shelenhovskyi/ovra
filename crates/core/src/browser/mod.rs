@@ -21,7 +21,8 @@ use crate::Core;
 use crate::core::WeakCore;
 use crate::protocol::agents::{SandboxNetwork, SandboxReport, SessionId};
 use crate::protocol::browser::{
-    BrowserEvent, BrowserRequest, BrowserResponse, FrameMetadata, PageId, PageInfo, Pick,
+    BrowserAvailability, BrowserEvent, BrowserRefusal, BrowserRequest, BrowserResponse,
+    FrameMetadata, PageId, PageInfo, Pick,
 };
 use crate::protocol::{ErrorCode, OkResponse, ProtocolError, Response};
 use crate::services::{
@@ -89,8 +90,14 @@ impl BrowserState {
 
 pub(crate) async fn handle(core: &Core, request: BrowserRequest) -> Result<Response> {
     let browser = core.browser_state().browser.clone();
-    available(browser.as_ref())?;
+    // `status` says why, even when no browser runs here.
+    if !matches!(request, BrowserRequest::Status { .. }) {
+        available(browser.as_ref())?;
+    }
     let answer = match request {
+        BrowserRequest::Status { session } => {
+            BrowserResponse::Status(availability(core, &session)?)
+        }
         BrowserRequest::Open {
             session,
             url,
@@ -223,6 +230,28 @@ fn profile(core: &Core, session: &SessionId) -> Result<SandboxProfile> {
             "the agent browser runs only for sessions whose agent runs in the sandbox behind \
              its own netproxy, and this session's agent does not",
         )),
+    }
+}
+
+/// Whether `session`'s browser can run, and if not, why, most basic first:
+/// the session ended, no browser here, or not an agent in the sandbox.
+fn availability(core: &Core, session: &SessionId) -> Result<BrowserAvailability> {
+    let refused = |code, reason| Ok(BrowserAvailability::Refused { code, reason });
+    let profile = profile(core, session);
+    match &profile {
+        Err(e) if e.code == ErrorCode::Conflict => {
+            return refused(BrowserRefusal::SessionEnded, e.message.clone());
+        }
+        Err(e) if e.code != ErrorCode::Unavailable => return Err(e.clone()),
+        _ => {}
+    }
+    let browser = core.browser_state().browser.as_ref();
+    if let SandboxStatus::Unavailable { reason } = browser.status() {
+        return refused(browser.refusal(), reason);
+    }
+    match profile {
+        Ok(_) => Ok(BrowserAvailability::Available),
+        Err(e) => refused(BrowserRefusal::NotSandboxed, e.message),
     }
 }
 

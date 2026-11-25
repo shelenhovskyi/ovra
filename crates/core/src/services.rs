@@ -23,7 +23,9 @@ use crate::protocol::agents::{
     SessionMode, SetupState,
 };
 use crate::protocol::audit::{AuditEntry, AuditEvent, AuditRange};
-use crate::protocol::browser::{FrameMetadata, InputEvent, MouseButton, PageId, PageInfo, Pick};
+use crate::protocol::browser::{
+    BrowserRefusal, FrameMetadata, InputEvent, MouseButton, PageId, PageInfo, Pick,
+};
 use crate::protocol::fs::{DirListing, FileContent, FileList};
 use crate::protocol::git::{
     Blame, BranchInfo, CommitInfo, Committed, FileDiff, GitFileText, GitRev, Hunk, RepoStatus,
@@ -773,6 +775,9 @@ pub struct Inspected {
 /// returns is untrusted; the core wraps it before an agent sees it.
 pub trait Browser: Send + Sync + Debug {
     fn status(&self) -> SandboxStatus;
+    /// Why `status` is unavailable, as a code the UI can act on; asked
+    /// only when it is.
+    fn refusal(&self) -> BrowserRefusal;
     /// Opens a page at `url`, first starting the session's browser in
     /// `profile` with `sink` if it does not run. `size` is the viewport
     /// in CSS pixels. The core's `profile` holds only the session's
@@ -1617,6 +1622,9 @@ impl DevServers for Unavailable {
 impl Browser for Unavailable {
     fn status(&self) -> SandboxStatus {
         DevServers::status(self)
+    }
+    fn refusal(&self) -> BrowserRefusal {
+        BrowserRefusal::NotSupported
     }
     fn open(
         &self,

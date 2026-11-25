@@ -1,6 +1,6 @@
 ---
 source: crates/core/src/protocol/browser.rs
-expression: "serde_json::json!({\n    \"requests\":\n    [Request::Browser(BrowserRequest::Input\n    {\n        page: page(), event: InputEvent::MouseDown\n        { x: 15, y: 25, button: MouseButton::Left, clicks: 1, modifiers: 8, }\n    }),\n    Request::Browser(BrowserRequest::Input\n    {\n        page: page(), event: InputEvent::KeyDown\n        {\n            key: \"a\".into(), code: \"KeyA\".into(), text: Some(\"a\".into()),\n            modifiers: 0,\n        }\n    }),\n    Request::Browser(BrowserRequest::Attach\n    { page: page(), picks: vec![pick.clone()] }),], \"responses\":\n    [Response::Browser(BrowserResponse::Page(info.clone())),\n    Response::Browser(BrowserResponse::Picked(Box::new(pick))),], \"events\":\n    [Event::from(BrowserEvent::Frame\n    {\n        page: page(), jpeg: \"/9j/4A==\".into(), metadata: FrameMetadata\n        { width: 1280, height: 800, scroll_x: 0, scroll_y: 120 },\n    }),\n    Event::from(BrowserEvent::Pages\n    { session: SessionId(\"s1\".into()), pages: vec![info] }),\n    Event::from(BrowserEvent::NavigationAsked\n    {\n        page: page(), session: SessionId(\"s1\".into()), origin:\n        \"https://example.com\".into(),\n    }),], \"audit\":\n    [AuditEvent::BrowserNavigation\n    {\n        origin: \"https://example.com\".into(), allowed: false, by:\n        NavigationBy::NoAnswer,\n    },],\n})"
+expression: "serde_json::json!({\n    \"requests\":\n    [Request::Browser(BrowserRequest::Input\n    {\n        page: page(), event: InputEvent::MouseDown\n        { x: 15, y: 25, button: MouseButton::Left, clicks: 1, modifiers: 8, }\n    }),\n    Request::Browser(BrowserRequest::Input\n    {\n        page: page(), event: InputEvent::KeyDown\n        {\n            key: \"a\".into(), code: \"KeyA\".into(), text: Some(\"a\".into()),\n            modifiers: 0,\n        }\n    }),\n    Request::Browser(BrowserRequest::Attach\n    { page: page(), picks: vec![pick.clone()] }),], \"responses\":\n    [Response::Browser(BrowserResponse::Page(info.clone())),\n    Response::Browser(BrowserResponse::Picked(Box::new(pick))),\n    Response::Browser(BrowserResponse::Status(BrowserAvailability::Available)),\n    Response::Browser(BrowserResponse::Status(BrowserAvailability::Refused\n    {\n        code: BrowserRefusal::NoChromium, reason:\n        \"install Chromium or Google Chrome\".into(),\n    })),], \"events\":\n    [Event::from(BrowserEvent::Frame\n    {\n        page: page(), jpeg: \"/9j/4A==\".into(), metadata: FrameMetadata\n        { width: 1280, height: 800, scroll_x: 0, scroll_y: 120 },\n    }),\n    Event::from(BrowserEvent::Pages\n    { session: SessionId(\"s1\".into()), pages: vec![info] }),\n    Event::from(BrowserEvent::NavigationAsked\n    {\n        page: page(), session: SessionId(\"s1\".into()), origin:\n        \"https://example.com\".into(),\n    }),], \"audit\":\n    [AuditEvent::BrowserNavigation\n    {\n        origin: \"https://example.com\".into(), allowed: false, by:\n        NavigationBy::NoAnswer,\n    },],\n})"
 ---
 {
   "audit": [
@@ -159,6 +159,20 @@ expression: "serde_json::json!({\n    \"requests\":\n    [Request::Browser(Brows
         "url": "http://localhost:5173/"
       },
       "type": "browser.picked"
+    },
+    {
+      "data": {
+        "state": "available"
+      },
+      "type": "browser.status"
+    },
+    {
+      "data": {
+        "code": "no_chromium",
+        "reason": "install Chromium or Google Chrome",
+        "state": "refused"
+      },
+      "type": "browser.status"
     }
   ]
 }

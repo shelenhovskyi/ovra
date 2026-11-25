@@ -50,7 +50,17 @@ export type Pick = {
 /** What a screencast frame shows, to map the canvas onto the page. */
 export type FrameMetadata = { width: number; height: number; scroll_x: number; scroll_y: number };
 
+/** Why a session's agent browser cannot run. */
+export type BrowserRefusal = "no_chromium" | "no_sandbox" | "not_supported" | "not_sandboxed" | "session_ended";
+
+export type BrowserAvailability =
+  | { state: "available" }
+  /** `reason` is the core's words, with the detail the code lacks. */
+  | { state: "refused"; code: BrowserRefusal; reason: string };
+
 export type BrowserRequest =
+  /** Whether the session's browser can run, without starting it. */
+  | { method: "browser.status"; params: { session: SessionId } }
   | {
       method: "browser.open";
       params: { session: SessionId; url: string; width?: number | null; height?: number | null };
@@ -65,7 +75,10 @@ export type BrowserRequest =
   | { method: "browser.attach"; params: { page: PageId; picks: Pick[] } }
   | { method: "browser.answer_navigation"; params: { page: PageId; origin: string; allow: boolean } };
 
-export type BrowserResponse = { type: "browser.page"; data: PageInfo } | { type: "browser.picked"; data: Pick };
+export type BrowserResponse =
+  | { type: "browser.page"; data: PageInfo }
+  | { type: "browser.picked"; data: Pick }
+  | { type: "browser.status"; data: BrowserAvailability };
 
 export type BrowserEvent =
   /** `jpeg` is base64. */
@@ -78,4 +91,6 @@ export type BrowserResponseFor<M extends BrowserRequest["method"]> = M extends "
   ? Extract<BrowserResponse, { type: "browser.page" }>
   : M extends "browser.pick"
     ? Extract<BrowserResponse, { type: "browser.picked" }>
-    : { type: "ok" };
+    : M extends "browser.status"
+      ? Extract<BrowserResponse, { type: "browser.status" }>
+      : { type: "ok" };

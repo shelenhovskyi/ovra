@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use ovra_core::protocol::agents::SessionId;
-use ovra_core::protocol::browser::{InputEvent, PageId, PageInfo, Pick};
+use ovra_core::protocol::browser::{BrowserRefusal, InputEvent, PageId, PageInfo, Pick};
 use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::{
     BoxFuture, Browser, BrowserSink, ConsoleEntry, ElementRef, Inspected, NetworkEntry, PageAction,
@@ -44,6 +44,8 @@ const DEFAULT_SIZE: (u32, u32) = (1280, 800);
 pub struct ChromiumBrowser {
     launcher: Option<Box<dyn Launch>>,
     status: SandboxStatus,
+    /// Why `status` is unavailable; unused while it is available.
+    refusal: BrowserRefusal,
     sessions: Sessions,
     /// One browser starts at a time, so a session never gets two.
     starting: tokio::sync::Mutex<()>,
@@ -58,35 +60,51 @@ impl ChromiumBrowser {
     pub fn new(sandbox: Arc<dyn Sandbox>, chromium: Option<PathBuf>) -> Self {
         let path = ovra_core::child_path::or_inherited(std::env::var_os("PATH"));
         let found = launch::find(chromium.as_deref(), path.as_deref());
-        let unavailable = |reason: String| SandboxStatus::Unavailable { reason };
-        let status = match (&found, sandbox.status()) {
-            _ if !cfg!(unix) => unavailable("the agent browser needs Linux for now".into()),
-            (_, SandboxStatus::Unavailable { reason }) => unavailable(format!(
-                "the agent browser runs only in the sandbox, which is unavailable: {reason}"
-            )),
-            (None, _) => unavailable(match &chromium {
-                Some(path) => format!("no browser at {}", path.display()),
-                None => format!(
-                    "install Chromium or Google Chrome: none of {} is on PATH",
-                    launch::NAMES.join(", ")
+        let unavailable = |code, reason: String| (SandboxStatus::Unavailable { reason }, code);
+        let (status, refusal) = match (&found, sandbox.status()) {
+            _ if !cfg!(unix) => unavailable(
+                BrowserRefusal::NotSupported,
+                "the agent browser needs Linux for now".into(),
+            ),
+            (_, SandboxStatus::Unavailable { reason }) => unavailable(
+                BrowserRefusal::NoSandbox,
+                format!(
+                    "the agent browser runs only in the sandbox, which is unavailable: {reason}"
                 ),
-            }),
+            ),
+            (None, _) => unavailable(
+                BrowserRefusal::NoChromium,
+                match &chromium {
+                    Some(path) => format!("no browser at {}", path.display()),
+                    None => format!(
+                        "install Chromium or Google Chrome: none of {} is on PATH",
+                        launch::NAMES.join(", ")
+                    ),
+                },
+            ),
             // What the sandbox does not cover, the browser in it does not either.
-            (Some(program), SandboxStatus::Available { gaps, .. }) => SandboxStatus::Available {
-                name: format!("Chromium at {}", program.display()),
-                gaps,
-            },
+            (Some(program), SandboxStatus::Available { gaps, .. }) => (
+                SandboxStatus::Available {
+                    name: format!("Chromium at {}", program.display()),
+                    gaps,
+                },
+                BrowserRefusal::NoChromium,
+            ),
         };
         let launcher = found
             .filter(|_| matches!(status, SandboxStatus::Available { .. }))
             .map(|program| Box::new(launch::Chromium { program, sandbox }) as Box<dyn Launch>);
-        Self::with(launcher, status)
+        Self {
+            refusal,
+            ..Self::with(launcher, status)
+        }
     }
 
     fn with(launcher: Option<Box<dyn Launch>>, status: SandboxStatus) -> Self {
         Self {
             launcher,
             status,
+            refusal: BrowserRefusal::NoChromium,
             sessions: Sessions::default(),
             starting: tokio::sync::Mutex::new(()),
             count: AtomicU64::new(0),
@@ -168,6 +186,10 @@ fn profile_dir(parent: &std::path::Path) -> Result<PathBuf> {
 impl Browser for ChromiumBrowser {
     fn status(&self) -> SandboxStatus {
         self.status.clone()
+    }
+
+    fn refusal(&self) -> BrowserRefusal {
+        self.refusal
     }
 
     fn open(

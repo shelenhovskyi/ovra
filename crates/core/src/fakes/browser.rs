@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use super::{lock, not_found};
 use crate::protocol::agents::SessionId;
-use crate::protocol::browser::{FrameMetadata, InputEvent, PageId, PageInfo, Pick};
+use crate::protocol::browser::{BrowserRefusal, FrameMetadata, InputEvent, PageId, PageInfo, Pick};
 use crate::protocol::{ErrorCode, ProtocolError};
 use crate::services::{
     BoxFuture, Browser, BrowserSink, ConsoleEntry, ElementRef, Inspected, NetworkEntry, PageAction,
@@ -24,6 +24,8 @@ pub const FAKE_PNG: &[u8] = b"fake png";
 pub struct FakeBrowser {
     /// When set, `open` fails with `unavailable`.
     pub fails: bool,
+    /// When set, `status` is unavailable for this reason.
+    pub missing: Mutex<Option<BrowserRefusal>>,
     pub pages: Mutex<BTreeMap<PageId, FakePage>>,
     /// The profile of each browser started, in order.
     pub started: Mutex<Vec<(SessionId, SandboxProfile)>>,
@@ -127,10 +129,19 @@ impl FakeBrowser {
 
 impl Browser for FakeBrowser {
     fn status(&self) -> SandboxStatus {
-        SandboxStatus::Available {
-            name: "fake".into(),
-            gaps: Vec::new(),
+        match *lock(&self.missing) {
+            Some(code) => SandboxStatus::Unavailable {
+                reason: format!("the fake browser is missing: {code:?}"),
+            },
+            None => SandboxStatus::Available {
+                name: "fake".into(),
+                gaps: Vec::new(),
+            },
         }
+    }
+
+    fn refusal(&self) -> BrowserRefusal {
+        lock(&self.missing).unwrap_or(BrowserRefusal::NoChromium)
     }
 
     fn open(

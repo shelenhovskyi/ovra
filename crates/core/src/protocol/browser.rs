@@ -144,9 +144,41 @@ pub struct FrameMetadata {
     pub scroll_y: i32,
 }
 
+/// Why a session's agent browser cannot run, for the pane to say what helps.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BrowserRefusal {
+    /// Neither Chromium nor Google Chrome was found when Ovra started.
+    NoChromium,
+    /// The sandbox it runs in is unavailable on this computer.
+    NoSandbox,
+    /// Not on this system yet (Linux only for now).
+    NotSupported,
+    /// The session's agent does not run in the sandbox behind its own
+    /// netproxy.
+    NotSandboxed,
+    SessionEnded,
+}
+
+/// Whether a session's browser can run.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum BrowserAvailability {
+    Available,
+    /// `reason` is the core's words, with the detail the code lacks.
+    Refused {
+        code: BrowserRefusal,
+        reason: String,
+    },
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "method", content = "params")]
 pub enum BrowserRequest {
+    /// Whether the session's browser can run, without starting it.
+    /// Answers `browser.status`.
+    #[serde(rename = "browser.status")]
+    Status { session: SessionId },
     /// Opens a page in the session's browser, starting it if needed.
     /// Answers `browser.page`.
     #[serde(rename = "browser.open")]
@@ -198,6 +230,8 @@ pub enum BrowserResponse {
     Page(PageInfo),
     #[serde(rename = "browser.picked")]
     Picked(Box<Pick>),
+    #[serde(rename = "browser.status")]
+    Status(BrowserAvailability),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -282,6 +316,11 @@ mod tests {
             "responses": [
                 Response::Browser(BrowserResponse::Page(info.clone())),
                 Response::Browser(BrowserResponse::Picked(Box::new(pick))),
+                Response::Browser(BrowserResponse::Status(BrowserAvailability::Available)),
+                Response::Browser(BrowserResponse::Status(BrowserAvailability::Refused {
+                    code: BrowserRefusal::NoChromium,
+                    reason: "install Chromium or Google Chrome".into(),
+                })),
             ],
             "events": [
                 Event::from(BrowserEvent::Frame {
@@ -309,6 +348,7 @@ mod tests {
     #[test]
     fn every_request_round_trips() {
         let requests = [
+            serde_json::json!({"method": "browser.status", "params": {"session": "s1"}}),
             serde_json::json!({"method": "browser.open", "params": {"session": "s1", "url": "http://localhost:5173/", "width": null, "height": 800}}),
             serde_json::json!({"method": "browser.close", "params": {"page": "pg1"}}),
             serde_json::json!({"method": "browser.screencast", "params": {"page": "pg1", "on": true}}),
