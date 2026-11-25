@@ -116,6 +116,12 @@ jobs:
         run: |
           cargo nextest run --workspace --exclude ovra-app --all-features --no-fail-fast --no-tests=pass
           cargo test --workspace --exclude ovra-app --all-features --doc
+      # The runner is an administrator: the Windows sandbox's one-time
+      # setup, a session as its user, and the removal (crates/sandbox-windows).
+      - name: Windows sandbox setup
+        if: runner.os == 'Windows'
+        timeout-minutes: 5
+        run: cargo test -p ovra-sandbox-windows --test setup -- --ignored
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ovra-${{ matrix.os }}
