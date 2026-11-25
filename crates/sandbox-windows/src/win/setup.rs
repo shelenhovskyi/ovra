@@ -19,8 +19,8 @@ use windows_sys::Win32::NetworkManagement::NetManagement::{
     USER_INFO_1, USER_INFO_1003, USER_PRIV_USER,
 };
 use windows_sys::Win32::Security::Cryptography::{
-    BCRYPT_USE_SYSTEM_PREFERRED_RNG, BCryptGenRandom, CRYPT_INTEGER_BLOB, CryptProtectData,
-    CryptUnprotectData,
+    BCRYPT_USE_SYSTEM_PREFERRED_RNG, BCryptGenRandom, CRYPT_INTEGER_BLOB,
+    CRYPTPROTECT_UI_FORBIDDEN, CryptProtectData, CryptUnprotectData,
 };
 use windows_sys::Win32::System::Registry::{
     HKEY, HKEY_LOCAL_MACHINE, KEY_SET_VALUE, REG_DWORD, REG_OPTION_NON_VOLATILE, RegCloseKey,
@@ -285,7 +285,7 @@ fn dpapi(data: &[u8], protect: bool) -> std::io::Result<Vec<u8>> {
                 std::ptr::null(),
                 std::ptr::null(),
                 std::ptr::null(),
-                0,
+                CRYPTPROTECT_UI_FORBIDDEN,
                 &mut output,
             )
         } else {
@@ -295,7 +295,7 @@ fn dpapi(data: &[u8], protect: bool) -> std::io::Result<Vec<u8>> {
                 std::ptr::null(),
                 std::ptr::null(),
                 std::ptr::null(),
-                0,
+                CRYPTPROTECT_UI_FORBIDDEN,
                 &mut output,
             )
         };

@@ -102,11 +102,13 @@ pub(crate) fn restricted(project_sid: &str) -> std::io::Result<Handle> {
         }
         let token = Handle(token);
         // What the session's processes make (pipes, their own processes)
-        // must open again under the restricted token.
+        // must open again under the restricted token. The account itself
+        // gets only READ_CONTROL (`OW`), so another project's session, the
+        // same account, cannot read this one's memory.
         let logon_text = sid_text(&logon)?;
         default_dacl(
             token.0,
-            &format!("D:(A;;GA;;;{project_sid})(A;;GA;;;{logon_text})(A;;GA;;;SY)(A;;GA;;;OW)"),
+            &format!("D:(A;;GA;;;{project_sid})(A;;GA;;;{logon_text})(A;;GA;;;SY)(A;;RC;;;OW)"),
         )?;
         let medium = Sid::parse(MEDIUM)?;
         let label = TOKEN_MANDATORY_LABEL {
@@ -164,36 +166,140 @@ pub(crate) fn sid_text_raw(sid: windows_sys::Win32::Security::PSID) -> std::io::
     }
 }
 
-fn default_dacl(token: HANDLE, sddl: &str) -> std::io::Result<()> {
-    // SAFETY: the descriptor is freed after SetTokenInformation copied it.
-    unsafe {
+/// A security descriptor parsed from SDDL, freed on drop.
+struct Descriptor(PSECURITY_DESCRIPTOR);
+
+impl Descriptor {
+    fn parse(sddl: &str) -> std::io::Result<Self> {
         let mut descriptor: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
         let text = wide(OsStr::new(sddl));
-        if ConvertStringSecurityDescriptorToSecurityDescriptorW(
-            text.as_ptr(),
-            1,
-            &mut descriptor,
-            std::ptr::null_mut(),
-        ) == 0
-        {
-            return Err(last_error("building the default DACL"));
+        // SAFETY: the string is NUL-terminated; the descriptor is freed on
+        // drop.
+        let ok = unsafe {
+            ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                text.as_ptr(),
+                1,
+                &mut descriptor,
+                std::ptr::null_mut(),
+            )
+        };
+        if ok == 0 {
+            return Err(last_error("building a DACL"));
         }
+        Ok(Self(descriptor))
+    }
+
+    fn dacl(&self) -> *mut ACL {
         let (mut present, mut defaulted) = (0, 0);
         let mut dacl: *mut ACL = std::ptr::null_mut();
-        GetSecurityDescriptorDacl(descriptor, &mut present, &mut dacl, &mut defaulted);
-        let value = TOKEN_DEFAULT_DACL { DefaultDacl: dacl };
-        let ok = SetTokenInformation(
+        // SAFETY: the descriptor is valid while `self` lives.
+        unsafe { GetSecurityDescriptorDacl(self.0, &mut present, &mut dacl, &mut defaulted) };
+        dacl
+    }
+}
+
+impl Drop for Descriptor {
+    fn drop(&mut self) {
+        // SAFETY: allocated by the conversion above, freed once.
+        unsafe { LocalFree(self.0) };
+    }
+}
+
+fn default_dacl(token: HANDLE, sddl: &str) -> std::io::Result<()> {
+    let descriptor = Descriptor::parse(sddl)?;
+    let value = TOKEN_DEFAULT_DACL {
+        DefaultDacl: descriptor.dacl(),
+    };
+    // SAFETY: the DACL lives in `descriptor`, which outlives the call; the
+    // token copies it.
+    let ok = unsafe {
+        SetTokenInformation(
             token,
             TokenDefaultDacl,
             (&raw const value).cast(),
             size_of::<TOKEN_DEFAULT_DACL>() as u32,
-        );
-        LocalFree(descriptor);
-        if ok == 0 {
-            return Err(last_error("setting the default DACL"));
+        )
+    };
+    if ok == 0 {
+        return Err(last_error("setting the default DACL"));
+    }
+    Ok(())
+}
+
+/// Closes this process, its thread and its token to the account's other
+/// processes: only SYSTEM may open them, the account only reads their
+/// security (`OW`). The middle stage runs as the sandbox user without
+/// restriction; this keeps the session's restricted processes, the same
+/// account, from writing it or taking its token. Handles opened before
+/// (the person's helper waits on one) keep their access.
+pub(crate) fn close_to_account() -> std::io::Result<()> {
+    use windows_sys::Win32::Security::Authorization::{SE_KERNEL_OBJECT, SetSecurityInfo};
+    use windows_sys::Win32::Security::DACL_SECURITY_INFORMATION;
+    use windows_sys::Win32::System::Threading::GetCurrentThread;
+    let descriptor = Descriptor::parse("D:(A;;GA;;;SY)(A;;RC;;;OW)")?;
+    // SAFETY: pseudo-handles need no closing; the token handle is owned;
+    // the DACL outlives the calls, which copy it.
+    unsafe {
+        let mut own = std::ptr::null_mut();
+        if OpenProcessToken(GetCurrentProcess(), WRITE_DAC_RIGHT, &mut own) == 0 {
+            return Err(last_error("opening this process's token"));
+        }
+        let own = Handle(own);
+        for (what, object) in [
+            ("process", GetCurrentProcess()),
+            ("thread", GetCurrentThread()),
+            ("token", own.0),
+        ] {
+            let code = SetSecurityInfo(
+                object,
+                SE_KERNEL_OBJECT,
+                DACL_SECURITY_INFORMATION,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                descriptor.dacl(),
+                std::ptr::null(),
+            );
+            if code != 0 {
+                return Err(std::io::Error::other(format!(
+                    "closing this {what}: {}",
+                    std::io::Error::from_raw_os_error(code as i32)
+                )));
+            }
         }
     }
     Ok(())
+}
+
+/// `WRITE_DAC`.
+const WRITE_DAC_RIGHT: u32 = 0x0004_0000;
+
+/// Puts a process started suspended in the helper's job, lets it run and
+/// waits for it. If any step fails the process is ended, never left
+/// running outside the job.
+pub(crate) fn finish(process: &Handle, thread: &Handle) -> std::io::Result<u32> {
+    use windows_sys::Win32::System::Threading::TerminateProcess;
+    // SAFETY: both handles are open and owned by the caller.
+    unsafe {
+        let started = super::job::assign(process.0).and_then(|()| {
+            if ResumeThread(thread.0) == u32::MAX {
+                Err(last_error("resuming the session"))
+            } else {
+                Ok(())
+            }
+        });
+        if let Err(error) = started {
+            TerminateProcess(process.0, 126);
+            return Err(error);
+        }
+        if WaitForSingleObject(process.0, INFINITE) == WAIT_FAILED {
+            return Err(last_error("waiting for the session"));
+        }
+        let mut code = 0u32;
+        if GetExitCodeProcess(process.0, &mut code) == 0 {
+            return Err(last_error("reading the session's exit code"));
+        }
+        Ok(code)
+    }
 }
 
 /// Runs `program` with `args` under `token`, with this process's standard
@@ -232,16 +338,8 @@ pub(crate) fn run(
         if ok == 0 {
             return Err(last_error("starting the sandboxed process"));
         }
-        let process = Handle(info.hProcess);
-        let thread = Handle(info.hThread);
-        super::job::assign(process.0)?;
-        ResumeThread(thread.0);
-        if WaitForSingleObject(process.0, INFINITE) == WAIT_FAILED {
-            return Err(last_error("waiting for the sandboxed process"));
-        }
-        let mut code = 0u32;
-        GetExitCodeProcess(process.0, &mut code);
-        Ok(code)
+        let (process, thread) = (Handle(info.hProcess), Handle(info.hThread));
+        finish(&process, &thread)
     }
 }
 
