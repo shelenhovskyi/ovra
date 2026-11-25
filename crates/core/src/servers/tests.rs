@@ -479,3 +479,5 @@ async fn without_a_servers_service_starts_are_unavailable() {
         matches!(list, Response::Servers(ServersResponse::List(l)) if l.definitions.len() == 2)
     );
 }
+
+mod tools;

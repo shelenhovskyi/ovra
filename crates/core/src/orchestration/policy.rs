@@ -21,8 +21,17 @@ const COORDINATOR_TOOLS: [&str; 5] = [
     "stop_agent",
 ];
 
-/// Tools every session with IDE tools may call.
-const SHARED_TOOLS: [&str; 2] = ["request_review", "open_in_ui"];
+/// Tools every session with IDE tools may call; the `server_*` ones act
+/// on the caller's own work dir only.
+const SHARED_TOOLS: [&str; 7] = [
+    "request_review",
+    "open_in_ui",
+    "server_list",
+    "server_start",
+    "server_stop",
+    "server_restart",
+    "server_logs",
+];
 
 /// Decides a call of the IDE tool `name` (without the prefix) by `session`.
 pub(crate) fn decide(

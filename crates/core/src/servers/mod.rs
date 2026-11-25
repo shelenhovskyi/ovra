@@ -11,6 +11,7 @@ mod defs;
 mod grants;
 mod logs;
 mod pods;
+mod tools;
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;

@@ -393,6 +393,12 @@ async fn ovra_tools_are_decided_by_role_without_asking() {
     );
     assert_eq!(show("s2", json!("src/a.rs")), None);
     assert_eq!(show("s1", json!("src/a.rs")), None);
+    // Every role runs its own work dir's servers.
+    for session in ["s1", "s2"] {
+        let answer =
+            crate::orchestration::decide(&f.core, &sid(session), "server_start", &json!({}));
+        assert_eq!(answer.message, None, "{session}");
+    }
     // Nobody was asked.
     while let Ok(event) = rx.try_recv() {
         assert!(!matches!(
