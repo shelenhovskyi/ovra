@@ -15,6 +15,7 @@ import { useOvra } from "../shell/context";
 import ViewFrame from "../shell/ViewFrame.svelte";
 import { loadScreenReader } from "../terminal/prefs";
 import ClaudePane from "./ClaudePane.svelte";
+import EditorPane from "./EditorPane.svelte";
 import { type PaneId, panesFor, settings } from "./panes.svelte";
 import TrustPane from "./TrustPane.svelte";
 
@@ -158,6 +159,8 @@ function onListKeydown(event: KeyboardEvent): void {
         <p class="line">{pane.line}</p>
         {#if pane.id === "trust"}
           <TrustPane />
+        {:else if pane.id === "editor"}
+          <EditorPane />
         {:else if pane.id === "claude"}
           <ClaudePane />
         {:else if pane.id === "rules"}

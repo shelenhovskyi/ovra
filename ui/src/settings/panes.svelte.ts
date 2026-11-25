@@ -7,6 +7,7 @@ export type PaneId =
   | "rules"
   | "network"
   | "servers"
+  | "editor"
   | "claude"
   | "keyboard"
   | "notifications"
@@ -52,6 +53,13 @@ export const PANES: Pane[] = [
     line: "Commands that start your app, so you and agents can open it.",
     group: "project",
     keywords: ["dev servers", "ports"],
+  },
+  {
+    id: "editor",
+    title: "Editor",
+    line: "How text looks and when files save while you edit.",
+    group: "ovra",
+    keywords: ["font", "text size", "indent", "tab size", "wrap", "autosave", "auto save"],
   },
   {
     id: "claude",

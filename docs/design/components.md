@@ -230,8 +230,9 @@ Works in this folder, without a sandbox. Asks before risky steps.
 
 - One main-area view, Mod+, or the rail gear; reopens on the last pane.
 - Left list in two groups. **This project**: Trust, Rules, Network (hosts,
-  then secrets), Servers (definitions). **Ovra**: Claude (path, version,
-  accounts, billing), Notifications, Keyboard, Accessibility, About.
+  then secrets), Servers (definitions). **Ovra**: Editor (text size, tabs,
+  word wrap, auto save), Claude (path, version, accounts, billing),
+  Notifications, Keyboard, Accessibility, About.
 - Pane: title (`--t-title2`, a noun), one line on what it does, one column
   of fields at most 480 px, one primary. Explanations behind one disclosure
   per section. Security warnings at the top of their pane, never folded.

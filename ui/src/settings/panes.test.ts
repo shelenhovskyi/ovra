@@ -1,5 +1,6 @@
 import { flushSync, mount, unmount } from "svelte";
 import { afterEach, expect, it } from "vitest";
+import { editorPrefs } from "../editor/prefs.svelte";
 import { registerCommand } from "../keys/commands";
 import type { AgentSetup, Request } from "../lib/protocol";
 import type { Transport } from "../lib/transport";
@@ -97,4 +98,21 @@ it("lists what trusting the project would load and leaves trusting to the trust 
   [...(pane?.querySelectorAll("button") ?? [])].find((b) => b.textContent === "Review and trust…")?.click();
   await new Promise((resolve) => setImmediate(resolve));
   expect(asked).toBe(1);
+});
+
+it("edits the editor preferences, keeping numbers within their limits", async () => {
+  const pane = await show("editor", { "info.get": { name: "ovra", version: "1", mode: "headless" } });
+  const field = <T extends HTMLElement>(id: string) => pane?.querySelector<T>(`[data-testid=${id}]`) as T;
+  const tab = field<HTMLInputElement>("editor-tab-size");
+  tab.value = "40";
+  tab.dispatchEvent(new Event("change", { bubbles: true }));
+  const autoSave = field<HTMLSelectElement>("editor-auto-save");
+  autoSave.value = "after_delay";
+  autoSave.dispatchEvent(new Event("change"));
+  field<HTMLInputElement>("editor-wrap").click();
+  field<HTMLInputElement>("editor-spaces").click();
+  flushSync();
+  const prefs = [editorPrefs.tabSize, editorPrefs.autoSave, editorPrefs.wordWrap, editorPrefs.insertSpaces];
+  expect([tab.value, ...prefs]).toEqual(["16", 16, "after_delay", true, false]);
+  Object.assign(editorPrefs, { tabSize: 4, autoSave: "off", wordWrap: false, insertSpaces: true });
 });

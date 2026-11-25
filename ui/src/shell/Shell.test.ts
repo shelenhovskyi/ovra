@@ -428,7 +428,7 @@ describe("Shell", () => {
       flushSync();
       const view = target.querySelector("main [data-testid=settings]");
       const panes = [...(view?.querySelectorAll("nav button") ?? [])].map((b) => b.textContent);
-      expect(panes).toEqual(["Claude", "Notifications", "Keyboard", "Accessibility", "About"]);
+      expect(panes).toEqual(["Editor", "Claude", "Notifications", "Keyboard", "Accessibility", "About"]);
       key(view, "Escape");
       flushSync();
       expect(target.querySelector("[data-testid=settings]")).toBeNull();
