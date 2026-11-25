@@ -1,6 +1,8 @@
-// The tree's context menus (docs/design/components.md): find your way first,
-// then change, Move to Trash last. Every item is also a palette command
-// (`tree.*`) or a row key.
+// The tree's context menus (docs/design/components.md): at most 3 groups and
+// about 10 items, in VS Code's order. Create and find your way first, then
+// change, Move to Trash last. Every item is also a palette command (`tree.*`)
+// or a row key; what a menu leaves out (Copy relative path without Alt,
+// New file… on a file) stays in the palette.
 
 import type { MenuEntry, MenuItem } from "../menu/context-menu.svelte";
 import { findInFolder } from "../search/find-in";
@@ -10,18 +12,27 @@ import { folderFor } from "./commands";
 import type { Row } from "./model";
 import { revealLabel, trashKeys } from "./ops";
 
-/** Cut and Copy of `paths`, and Paste into `dir` when something was cut or copied. */
-function clipItems(actions: FileActions, paths: string[], dir: string | null): MenuItem[] {
-  const items: MenuItem[] = [
-    { label: "Cut", keys: "Mod+X", run: () => actions.cut(paths) },
-    { label: "Copy", keys: "Mod+C", run: () => actions.copy(paths) },
+/** New file… and New folder… in `dir`. */
+function newItems(actions: FileActions, dir: string): MenuItem[] {
+  return [
+    { label: "New file…", run: () => actions.startNew(dir, "file") },
+    { label: "New folder…", run: () => actions.startNew(dir, "dir") },
   ];
-  if (dir !== null) items.push(pasteItem(actions, dir));
-  return items;
 }
 
-function pasteItem(actions: FileActions, dir: string): MenuItem {
-  return { label: "Paste", keys: "Mod+V", disabled: actions.clip === null, run: () => void actions.paste(dir) };
+/** Paste into `dir`, only when something was cut or copied. */
+function pasteItem(actions: FileActions, dir: string): MenuItem | null {
+  return actions.clip === null ? null : { label: "Paste", keys: "Mod+V", run: () => void actions.paste(dir) };
+}
+
+/** Copy path of `paths`; with Alt (Option) held, their paths relative to the project. */
+function copyPathItem(actions: FileActions, paths: string[]): MenuItem {
+  const many = paths.length > 1;
+  return {
+    label: many ? "Copy paths" : "Copy path",
+    run: () => actions.copyPaths(paths, false),
+    alt: { label: many ? "Copy relative paths" : "Copy relative path", run: () => actions.copyPaths(paths, true) },
+  };
 }
 
 /** Opens a terminal in `dir`. */
@@ -29,48 +40,50 @@ function terminalItem(dir: string): MenuItem {
   return { label: "Open in terminal", run: () => openTerminalIn(dir) };
 }
 
-/** The menu of a file or folder row. */
+function trashItem(actions: FileActions, paths: string[]): MenuItem {
+  return { label: "Move to Trash…", keys: trashKeys(), danger: true, run: () => actions.askTrash(paths) };
+}
+
+/** The menu of a file or folder row; New file…, New folder… and Find in folder… on folders only. */
 export function rowMenu(actions: FileActions, row: Pick<Row, "path" | "kind">): MenuEntry[] {
   const dir = folderFor(row);
+  const folder = row.kind === "dir";
   return [
+    ...(folder ? newItems(actions, dir) : []),
+    folder && { label: "Find in folder…", run: () => findInFolder(row.path) },
     { label: revealLabel(), run: () => actions.reveal(row.path) },
     terminalItem(dir),
-    row.kind === "dir" && { label: "Find in folder…", run: () => findInFolder(row.path) },
-    { label: "Copy path", run: () => actions.copyPaths([row.path], false) },
-    { label: "Copy relative path", run: () => actions.copyPaths([row.path], true) },
     "separator",
-    ...clipItems(actions, [row.path], dir),
-    "separator",
-    { label: "New file…", run: () => actions.startNew(dir, "file") },
-    { label: "New folder…", run: () => actions.startNew(dir, "dir") },
-    { label: "Rename…", keys: "F2", run: () => actions.startRename(row.path) },
+    { label: "Cut", keys: "Mod+X", run: () => actions.cut([row.path]) },
+    { label: "Copy", keys: "Mod+C", run: () => actions.copy([row.path]) },
+    pasteItem(actions, dir),
+    copyPathItem(actions, [row.path]),
     { label: "Duplicate", run: () => actions.duplicate(row.path) },
+    { label: "Rename…", keys: "F2", run: () => actions.startRename(row.path) },
     "separator",
-    { label: "Move to Trash…", keys: trashKeys(), danger: true, run: () => actions.askTrash([row.path]) },
+    trashItem(actions, [row.path]),
   ];
 }
 
 /** The menu of several selected rows: what works on all of them at once. */
 export function selectionMenu(actions: FileActions, paths: string[]): MenuEntry[] {
   return [
-    { label: "Copy paths", run: () => actions.copyPaths(paths, false) },
-    { label: "Copy relative paths", run: () => actions.copyPaths(paths, true) },
+    { label: "Cut", keys: "Mod+X", run: () => actions.cut(paths) },
+    { label: "Copy", keys: "Mod+C", run: () => actions.copy(paths) },
+    copyPathItem(actions, paths),
     "separator",
-    ...clipItems(actions, paths, null),
-    "separator",
-    { label: "Move to Trash…", keys: trashKeys(), danger: true, run: () => actions.askTrash(paths) },
+    trashItem(actions, paths),
   ];
 }
 
 /** The menu of the space below the rows and of the header: the project folder. */
 export function rootMenu(actions: FileActions, collapseAll: () => void): MenuEntry[] {
   return [
+    ...newItems(actions, ""),
     { label: "Reveal project folder", run: () => actions.reveal("") },
     terminalItem(""),
-    { label: "Collapse all", run: collapseAll },
     "separator",
-    { label: "New file…", run: () => actions.startNew("", "file") },
-    { label: "New folder…", run: () => actions.startNew("", "dir") },
     pasteItem(actions, ""),
+    { label: "Collapse all", run: collapseAll },
   ];
 }

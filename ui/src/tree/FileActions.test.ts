@@ -99,17 +99,12 @@ describe("file actions in the tree", () => {
     expect(labels()).toEqual([
       "Open Containing Folder",
       "Open in terminal",
-      "Copy path",
-      "Copy relative path",
       "-",
       "Cut",
       "Copy",
-      "Paste",
-      "-",
-      "New file…",
-      "New folder…",
-      "Rename…",
+      "Copy path",
       "Duplicate",
+      "Rename…",
       "-",
       "Move to Trash…!",
     ]);
@@ -122,16 +117,15 @@ describe("file actions in the tree", () => {
 
     t.tree.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2 }));
     expect(labels()).toEqual([
-      "Reveal project folder",
-      "Open in terminal",
-      "Collapse all",
-      "-",
       "New file…",
       "New folder…",
-      "Paste",
+      "Reveal project folder",
+      "Open in terminal",
+      "-",
+      "Collapse all",
     ]);
     t.tree.dispatchEvent(new KeyboardEvent("keydown", { code: "F10", key: "F10", shiftKey: true, bubbles: true }));
-    expect(labels()[11]).toBe("Rename…");
+    expect(labels()[7]).toBe("Rename…");
     closeContextMenu(false);
   });
 
@@ -217,7 +211,7 @@ describe("file actions in the tree", () => {
     expect(selectedPaths()).toEqual(["lib", "a.ts", "b.ts"]);
     t.row("a.ts")?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2 }));
     const labels = (contextMenu.open?.entries ?? []).map((e) => (e === "separator" ? "-" : e.label));
-    expect(labels).toEqual(["Copy paths", "Copy relative paths", "-", "Cut", "Copy", "-", "Move to Trash…"]);
+    expect(labels).toEqual(["Cut", "Copy", "Copy paths", "-", "Move to Trash…"]);
     closeContextMenu(false);
 
     // Mod+X dims what is cut, and what is in a cut folder, until Escape.

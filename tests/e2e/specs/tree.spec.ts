@@ -37,7 +37,7 @@ test("an added project shows its files and picks up new ones", async ({ page }) 
   await expect(tree.getByRole("treeitem", { name: "main.rs" })).toBeVisible();
 });
 
-test("new file from a row's menu, F2 rename in place and drag to move", async ({ page }) => {
+test("new file from the tree's menu, F2 rename in place and drag to move", async ({ page }) => {
   const dir = mkdtempSync(join(tmpdir(), "ovra-tree-"));
   writeFileSync(join(dir, "notes.md"), "");
 
@@ -51,6 +51,13 @@ test("new file from a row's menu, F2 rename in place and drag to move", async ({
   await notes.click({ button: "right" });
   const menu = page.getByRole("menu");
   await expect(menu.getByRole("menuitem", { name: /Move to Trash/ })).toBeVisible();
+  await page.keyboard.press("Escape");
+  // New file… is on folders and on the space below the rows.
+  const below = async () => {
+    const box = await tree.boundingBox();
+    await tree.click({ button: "right", position: { x: 20, y: (box?.height ?? 200) - 10 } });
+  };
+  await below();
   await menu.getByRole("menuitem", { name: "New file…" }).click();
 
   // The field keeps focus after the menu gives focus back to the tree.
@@ -63,7 +70,7 @@ test("new file from a row's menu, F2 rename in place and drag to move", async ({
   await expect(tree).toBeFocused();
 
   // A nested name makes its folder; the new file is selected and opens.
-  await notes.click({ button: "right" });
+  await below();
   await menu.getByRole("menuitem", { name: "New file…" }).click();
   await field.fill("docs/plan.md");
   await field.press("Enter");
