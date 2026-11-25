@@ -17,10 +17,21 @@ const notifier = new Notifier(system);
 
 /** Focuses the request the notification is about, not just the first one. */
 function review(id: PermissionId): void {
-  approvalQueue(transport).reveal(id);
+  approvals.reveal(id);
 }
 
 $effect(() => watchAgents(transport, notifier, review));
+
+// Seen from another tab or window too: "(2) Ovra" while two requests wait.
+const approvals = approvalQueue(transport);
+$effect(() => {
+  const waiting = approvals.pending.length;
+  const base = document.title.replace(/^\(\d+\) /, "");
+  document.title = waiting > 0 ? `(${waiting}) ${base}` : base;
+  return () => {
+    document.title = base;
+  };
+});
 
 $effect(() =>
   registerCommand({
