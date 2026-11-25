@@ -12,7 +12,8 @@ function daemonUrl(): URL {
 test("UI connects to the headless core", async ({ page }) => {
   await page.goto(daemonUrl().href);
   await expect(page.getByRole("heading", { name: "Ovra" })).toBeVisible();
-  await expect(page.getByTestId("status")).toHaveText(/^Connected to ovra \d+\.\d+\.\d+ \(headless\)$/);
+  await expect(page.getByTestId("status")).toHaveText("Connected");
+  await expect(page.getByTestId("status")).toHaveAttribute("title", /^ovra \d+\.\d+\.\d+ \(headless\)$/);
 });
 
 test("the shell shows its panels", async ({ page }) => {

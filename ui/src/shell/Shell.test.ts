@@ -23,7 +23,10 @@ describe("Shell", () => {
     await new Promise((resolve) => setImmediate(resolve)); // let the reply resolve
     flushSync();
     expect(target.querySelector("[data-testid=sidebar]")?.textContent).toContain("File tree");
-    expect(target.querySelector("[data-testid=status]")?.textContent).toBe("Connected to ovra 0.0.0 (test)");
+    const status = target.querySelector("[data-testid=status]");
+    expect(status?.textContent).toBe("Connected");
+    // The version is for whoever needs it, not the first thing a person reads.
+    expect(status?.getAttribute("title")).toBe("ovra 0.0.0 (test)");
     unmount(app);
   });
 
@@ -46,7 +49,7 @@ describe("Shell", () => {
     expect(await status()).toBe("Connecting…");
     router.setStatus("open");
     answerInfo();
-    expect(await status()).toBe("Connected to ovra 0.0.0 (test)");
+    expect(await status()).toBe("Connected");
 
     router.setStatus("closed");
     expect(await status()).toBe("Connection to core lost, reconnecting…");
@@ -55,7 +58,7 @@ describe("Shell", () => {
 
     router.setStatus("open");
     answerInfo();
-    expect(await status()).toBe("Connected to ovra 0.0.0 (test)");
+    expect(await status()).toBe("Connected");
     unmount(app);
   });
 

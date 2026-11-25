@@ -83,7 +83,7 @@ $effect(() =>
 
 const status = $derived.by((): { text: string; ok: boolean } => {
   if (connection === "open") {
-    if (info) return { text: `Connected to ${info.name} ${info.version} (${info.mode})`, ok: true };
+    if (info) return { text: "Connected", ok: true };
     if (error) return { text: `Core unavailable: ${error}`, ok: false };
     return { text: "Connecting…", ok: true };
   }
@@ -169,7 +169,12 @@ const status = $derived.by((): { text: string; ok: boolean } => {
     <AgentsPanel />
   </aside>
   <footer>
-    <span data-testid="status" role="status" class:error={!status.ok}>{status.text}</span>
+    <span
+      data-testid="status"
+      role="status"
+      class:error={!status.ok}
+      title={info ? `${info.name} ${info.version} (${info.mode})` : undefined}>{status.text}</span
+    >
     <LanguageServers />
   </footer>
   <Notifications />
