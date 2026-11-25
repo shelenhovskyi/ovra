@@ -152,11 +152,11 @@ function ago(seconds: number, now = Date.now() / 1000): string {
         {status.truncated.toLocaleString("en-US")} more changed {status.truncated === 1 ? "file is" : "files are"} not shown.
       </p>
     {/if}
+    <!-- Push and pull stay git's own: a terminal is one press away. -->
     <div class="remote">
-      <p class="hint" data-testid="git-remote-hint">
-        Push and pull: <code>git push</code>, <code>git pull</code> in a terminal.
-      </p>
-      <button type="button" onclick={openTerminal}>Open terminal</button>
+      <button type="button" data-testid="git-remote-hint" title="git push, git pull" onclick={openTerminal}
+        ><Icon name="terminal" small />Push or pull in a terminal</button
+      >
     </div>
     <div class="log">
       <button type="button" class="toggle" aria-expanded={model.logOpen} onclick={() => model.toggleLog()}>
@@ -260,6 +260,11 @@ function ago(seconds: number, now = Date.now() / 1000): string {
     gap: 4px;
     align-items: center;
     margin-top: 6px;
+  }
+  .remote button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
   }
   .log .toggle {
     display: inline-flex;

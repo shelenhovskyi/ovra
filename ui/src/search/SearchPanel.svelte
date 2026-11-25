@@ -349,10 +349,14 @@ const folder = (path: string) => path.slice(0, Math.max(path.lastIndexOf("/"), 0
     color: var(--text-2);
   }
   .summary,
+  /* Read out with the field; the keys are the usual ones. */
   .keys {
-    margin: 0;
-    font-size: 13px;
-    color: var(--text-2);
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
   .summary:empty {
     display: none;

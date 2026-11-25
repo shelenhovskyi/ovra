@@ -317,7 +317,8 @@ test("an untrusted project says once why its files get no language server", asyn
   core.trusted = false;
   const { notes, show } = setup(core);
   await show("src/a b.ts");
-  await until(() => expect(notes).toEqual([expect.stringContaining("only once you trust the project")]));
+  await until(() => expect(notes).toEqual([expect.stringContaining("only once you trust the project.")]));
+
   await show("src/b.ts");
   await until(() => expect(methods(core)).toEqual(["lsp.status", "lsp.status"]));
   expect(notes).toHaveLength(1);

@@ -195,7 +195,7 @@ export class LanguageClients {
     if (status && known?.path && !status.trusted && !this.toldUntrusted) {
       this.toldUntrusted = true;
       this.options.note(
-        `No ${known.name} here: language servers run the project's code, so they start only once you trust the project (Trust project, in the Agents panel).`,
+        `${known.name} is off: language servers run the project's code, so they start only once you trust the project.`,
       );
     }
     if (!status?.trusted || !known?.path || this.closed) return null;

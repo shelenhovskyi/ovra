@@ -128,7 +128,7 @@ it("says when the project is not a repository", async () => {
   core.emit({ type: "fs.git_changed", data: { project: "p1" } });
   await settle();
   expect(text("[data-testid=git-branch]")).toBe("Branch: No branch, at commit abc1234 (detached HEAD)");
-  expect(text("[data-testid=git-remote-hint]")).toBe("Push and pull: git push, git pull in a terminal.");
+  expect(text("[data-testid=git-remote-hint]")).toBe("Push or pull in a terminal");
   // With no commits and no changes there is nothing to commit or list: one line.
   core.status = repo({ head: null });
   core.emit({ type: "fs.git_changed", data: { project: "p1" } });
@@ -139,7 +139,7 @@ it("says when the project is not a repository", async () => {
   core.status = repo({ head: null, files: [changed("a.ts", { unstaged: "untracked" })] });
   core.emit({ type: "fs.git_changed", data: { project: "p1" } });
   await settle();
-  expect(text("#git-commit-why")).toBe("Stage changes to commit them.");
+  expect(text("#git-commit-why")).toBe("Stage files first.");
   expect(text("[data-testid=git-staged] .empty")).toBe("Nothing staged.");
 });
 
@@ -192,13 +192,13 @@ it("commits with Mod+Enter, says why it waits and shows a hook's output", async 
   if (!box) throw new Error("no commit message");
   const commit = $("[data-testid=git-commit]");
   expect(commit?.getAttribute("aria-disabled")).toBe("true");
-  expect(text("#git-commit-why")).toBe("Stage changes to commit them, or amend the last commit.");
+  expect(text("#git-commit-why")).toBe("Stage files, or amend.");
   box.dispatchEvent(new KeyboardEvent("keydown", { code: "Enter", ctrlKey: true, bubbles: true }));
   await settle();
   // Said once, under the button, and read out from there.
   expect(text("[data-testid=git-announce]")).toBe("");
   expect($("#git-commit-why")?.closest("[role=status]")).not.toBeNull();
-  expect(text("#git-commit-why")).toBe("Stage changes to commit them, or amend the last commit.");
+  expect(text("#git-commit-why")).toBe("Stage files, or amend.");
 
   click("[aria-label='Stage a.ts']");
   await settle();

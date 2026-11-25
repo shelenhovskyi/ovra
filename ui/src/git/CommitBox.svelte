@@ -15,8 +15,7 @@ let amend = $state(false);
 
 const staged = $derived(status.files.filter((f) => f.staged !== null && f.unstaged !== "conflicted").length);
 const why = $derived.by(() => {
-  if (!amend && staged === 0)
-    return status.head ? "Stage changes to commit them, or amend the last commit." : "Stage changes to commit them.";
+  if (!amend && staged === 0) return status.head ? "Stage files, or amend." : "Stage files first.";
   if (!text.trim() && !amend) return "Write a commit message.";
   return null;
 });
