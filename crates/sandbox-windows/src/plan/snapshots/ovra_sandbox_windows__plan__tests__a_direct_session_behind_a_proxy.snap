@@ -6,11 +6,11 @@ expression: root.show(&line)
 --sid SID
 --data ROOT/data
 --r ROOT/data/net/ca.pem
---m ROOT/data/sandbox-caches/-ROOT-projects-app/cargo
---m ROOT/data/sandbox-caches/-ROOT-projects-app/npm
---m ROOT/data/sandbox-caches/-ROOT-projects-app/pip
---m ROOT/data/sandbox-caches/-ROOT-projects-app/pnpm
---m ROOT/data/sandbox-temp/-ROOT-projects-app
+--m ROOT/data/sandbox-caches/PROJECT/cargo
+--m ROOT/data/sandbox-caches/PROJECT/npm
+--m ROOT/data/sandbox-caches/PROJECT/pip
+--m ROOT/data/sandbox-caches/PROJECT/pnpm
+--m ROOT/data/sandbox-temp/PROJECT
 --rx ROOT/home/.cargo
 --r ROOT/home/.claude
 --m ROOT/home/.claude/.credentials.json
@@ -106,12 +106,12 @@ ROOT/home/.local/bin/claude.exe
 -p
 environment:
   CLAUDECODE = (removed)
-  CARGO_HOME = ROOT/data/sandbox-caches/-ROOT-projects-app/cargo
-  npm_config_cache = ROOT/data/sandbox-caches/-ROOT-projects-app/npm
-  PIP_CACHE_DIR = ROOT/data/sandbox-caches/-ROOT-projects-app/pip
-  npm_config_store_dir = ROOT/data/sandbox-caches/-ROOT-projects-app/pnpm
-  TEMP = ROOT/data/sandbox-temp/-ROOT-projects-app
-  TMP = ROOT/data/sandbox-temp/-ROOT-projects-app
+  CARGO_HOME = ROOT/data/sandbox-caches/PROJECT/cargo
+  npm_config_cache = ROOT/data/sandbox-caches/PROJECT/npm
+  PIP_CACHE_DIR = ROOT/data/sandbox-caches/PROJECT/pip
+  npm_config_store_dir = ROOT/data/sandbox-caches/PROJECT/pnpm
+  TEMP = ROOT/data/sandbox-temp/PROJECT
+  TMP = ROOT/data/sandbox-temp/PROJECT
   HTTP_PROXY = http;//127.0.0.1;49152
   HTTPS_PROXY = http;//127.0.0.1;49152
   NO_PROXY = (removed)

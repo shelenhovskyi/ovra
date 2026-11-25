@@ -16,6 +16,7 @@ test = false
 
 [dependencies]
 ovra-core.workspace = true
+sha2 = "0.10"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [

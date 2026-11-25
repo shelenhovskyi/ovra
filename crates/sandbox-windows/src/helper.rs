@@ -170,6 +170,7 @@ fn middle(args: &Args) -> Result<u32, String> {
         return Err("the sandbox user reaches the internet: its firewall rule is missing. Set the Windows sandbox up again".into());
     }
     let token = token::restricted(&args.sid).map_err(io)?;
+    token::close_to_account().map_err(io)?;
     let me = std::env::current_exe().map_err(io)?;
     let mut inner = vec![OsString::from(INNER_FLAG), args.program.clone().into()];
     inner.extend(args.args.iter().cloned());
