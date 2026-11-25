@@ -135,6 +135,7 @@ describe("inbox wording", () => {
   it("titles items without saying Worker twice", () => {
     expect(itemTitle(review("r1", { mode: "isolated" }), "Worker docs")).toBe("Worker docs");
     expect(itemTitle(review("r1", { mode: "isolated" }), "Session s2")).toBe("Worker: Session s2");
+    expect(itemTitle(review("r1", { mode: "isolated" }), "lint · Add notes · v2")).toBe("lint (task: Add notes · v2)");
     expect(itemTitle(review("r1"), "Fix the typo")).toBe("Direct agent: Fix the typo");
   });
 

@@ -209,13 +209,11 @@ describe("Inbox", () => {
     expect(include()?.checked).toBe(false);
     expect(include()?.parentElement?.textContent).toContain("Also apply protected files: .envrc, .mcp.json");
     expect($("[data-testid=inbox-include-why]")?.textContent).toContain("look at the diff of each first: .mcp.json.");
-    // Approve without them: they are not copied, and the outcome says so.
+    // Approve without them: they are not copied, and the note below says why, once.
     button(/^Keep changes$/)?.click();
     await settle();
     expect(core.sent("review.approve").map((c) => c.params)).toEqual([{ id: "r1", commit: null, fingerprint: "f1" }]);
-    expect($("[data-testid=inbox-outcome]")?.textContent).toContain(
-      "Not copied, as files that can run code or change agent rules: .envrc, .mcp.json.",
-    );
+    expect($("[data-testid=inbox-outcome]")?.textContent).toContain("Some files were not copied: see why below.");
     expect($("[data-testid=inbox-not-copied]")?.textContent).toContain(
       "because they can run code or change agent rules: .envrc, .mcp.json",
     );
@@ -242,7 +240,10 @@ describe("Inbox", () => {
     button(/^Keep changes$/)?.click();
     await settle();
     expect($("[data-testid=inbox-outcome]")?.textContent?.trim()).toBe(
-      "Kept, not all copied. Not copied, as files that can run code or change agent rules: CLAUDE.md, notes.md.",
+      "Kept. Some files were not copied: see why below.",
+    );
+    expect($("[data-testid=inbox-not-copied]")?.textContent).toContain(
+      "because they can run code or change agent rules: CLAUDE.md, notes.md.",
     );
   });
 
@@ -387,7 +388,7 @@ describe("Inbox", () => {
     await settle();
     expect(core.sent("review.reject")).toEqual([]);
     // The step starts on the safe choice; Escape leaves the step, not the inbox.
-    expect(document.activeElement?.textContent).toBe("Keep reviewing");
+    expect(document.activeElement?.textContent).toBe("Cancel");
     expect($("#inbox-reject-hint")?.textContent).toContain(
       "Files changed any other way (by you, another program or the agent's commands) stay as they are",
     );
@@ -412,7 +413,7 @@ describe("Inbox", () => {
     await open();
     button(/^Keep changes$/)?.click();
     await settle();
-    expect($("[data-testid=inbox-outcome]")?.textContent?.trim()).toBe("Kept, not all copied. Not copied: NOTES.md.");
+    expect($("[data-testid=inbox-outcome]")?.textContent?.trim()).toBe("Kept. One file was not copied: see why below.");
     expect($("[data-item=r1]")?.textContent).toContain("Kept, not all copied");
     expect($("[data-item=r1]")?.textContent).toContain("1 not copied");
     expect($("[data-file='NOTES.md']")?.textContent).toContain("Not copied: your version changed");
@@ -535,6 +536,55 @@ describe("Inbox", () => {
     expect(core.sent("review.comment").map((c) => c.params)).toEqual([{ id: "r1", text: "Add a test" }]);
     expect(field?.value).toBe("");
     expect(button(/^Keep changes$/)).toBeDefined();
+  });
+
+  it("keeps a comment draft per item: Escape leaves the field, the next closes the inbox", async () => {
+    await setup([review("r1"), review("r2", { files: [change("b.md")] })]);
+    await open();
+    const field = () => $<HTMLTextAreaElement>("#inbox-comment");
+    field()?.focus();
+    const typed = field();
+    if (typed) typed.value = "please rename the file";
+    typed?.dispatchEvent(new Event("input", { bubbles: true }));
+    press("Escape");
+    await settle();
+    expect(document.activeElement?.id).toBe("inbox-item-title");
+    expect(field()?.value).toBe("please rename the file");
+    $<HTMLButtonElement>("[data-item=r2]")?.click();
+    await settle();
+    expect(field()?.value).toBe("");
+    $<HTMLButtonElement>("[data-item=r1]")?.click();
+    await settle();
+    expect(field()?.value).toBe("please rename the file");
+    press("Escape");
+    await settle();
+    expect($("[data-testid=inbox]")).toBeNull();
+  });
+
+  it("names the other workers of a shared file, and the one kept first", async () => {
+    const notes = () => [change("NOTES.md")];
+    await setup([
+      review("r3", { session: "s3", mode: "isolated", fingerprint: "f3", files: notes() }),
+      review("r2", { session: "s2", mode: "isolated", fingerprint: "f2", files: notes() }),
+      review("r1", {
+        session: "s1",
+        mode: "isolated",
+        state: "partly_approved",
+        files: notes(),
+        not_copied: ["NOTES.md"],
+      }),
+      review("r0", { session: "s0", mode: "isolated", state: "approved", files: notes() }),
+    ]);
+    await open();
+    expect($("[data-testid=inbox-shared]")?.textContent).toBe(
+      "Session s2 also changed NOTES.md. Only the version you keep first is copied; a later one that differs is left for you to choose, and one that is the same counts as copied.",
+    );
+    $<HTMLButtonElement>("[data-item=r1]")?.click();
+    await settle();
+    expect($("[data-testid=inbox-not-copied]")?.textContent).toContain(
+      "because you kept Session s0's different version first: NOTES.md.",
+    );
+    expect($("[data-file='NOTES.md']")?.textContent).toContain("Not copied: you kept Session s0's version");
   });
 
   it("chooses the review an agent asks to show without taking focus, and follows changes", async () => {

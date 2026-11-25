@@ -24,6 +24,7 @@ import {
   gitWarning,
   itemSummary,
   itemTitle,
+  keptElsewhere,
   notCopiedHint,
   PROTECTED_MARKER,
   protectedHint,
@@ -32,6 +33,8 @@ import {
   rejectHint,
   STATE_LABEL,
   sharedFiles,
+  sharedHint,
+  workerName,
 } from "./describe";
 import { handleOpenFor } from "./open";
 import { message as errorText, type Outcome, ReviewInbox } from "./reviews.svelte";
@@ -51,6 +54,8 @@ let commit = $state(false);
 let commitMessage = $state("");
 let confirmingReject = $state(false);
 let comment = $state("");
+/** Unsent comments of the items not selected now, by item. */
+const drafts = new Map<ReviewId, string>();
 let announcement = $state("");
 /** Approve was stopped because the diff shown was older than the item. */
 let staleDiff = $state(false);
@@ -68,6 +73,16 @@ let returnTo: HTMLElement | null = null;
 const item = $derived(inbox.items.find((i) => i.id === selectedId) ?? null);
 const file = $derived(item?.files.find((f) => f.path === selectedPath) ?? null);
 const shared = $derived(item ? sharedFiles(item, inbox.items) : new Set<string>());
+const sharedText = $derived(item ? sharedHint(item, inbox.items, (o) => sessions.name(o.session)) : null);
+/** Files not copied because another worker's version was kept first, with that worker's name. */
+const keptFrom = $derived(
+  new Map(
+    [...(item ? keptElsewhere(item, inbox.items) : [])].map(([path, o]) => [
+      path,
+      workerName(sessions.name(o.session)),
+    ]),
+  ),
+);
 const protectedText = $derived(item ? protectedHint(item) : null);
 const gitText = $derived(item ? gitWarning(item) : null);
 const busy = $derived(item ? inbox.busy.includes(item.id) : false);
@@ -101,6 +116,7 @@ const approveWhy = $derived(
   [
     commit && !commitMessage.trim() ? "inbox-commit-why" : diffShown ? null : "inbox-diff-why",
     protectedText ? "inbox-protected" : null,
+    sharedText ? "inbox-shared" : null,
     gitText ? "inbox-git" : null,
     directWaits ? "inbox-protected-why" : null,
   ]
@@ -204,6 +220,7 @@ function seenKey(review: ReviewItem, f: FileChange): string {
 
 function select(id: ReviewId | null): void {
   if (id === selectedId) return;
+  if (selectedId !== null) drafts.set(selectedId, comment);
   selectedId = id;
   staleDiff = false;
   const next = inbox.items.find((i) => i.id === id);
@@ -213,7 +230,7 @@ function select(id: ReviewId | null): void {
   commit = false;
   commitMessage = next ? defaultCommitMessage(next) : "";
   confirmingReject = false;
-  comment = "";
+  comment = (id !== null && drafts.get(id)) || "";
 }
 
 async function show(): Promise<void> {
@@ -367,7 +384,10 @@ async function approve(review: ReviewItem): Promise<void> {
       ? review.files.some((f) => f.protected)
       : includeProtected && includable.length > 0 && includableUnseen.length === 0;
   if ((await inbox.approve(review.id, message, included)) && inbox.outcome) {
-    announcement = outcomeText(inbox.outcome);
+    // The note on what was not copied is not read out by itself.
+    const now = inbox.items.find((i) => i.id === review.id);
+    const left = now?.state === "partly_approved" ? ` ${notCopiedHint(now, keptFrom)}` : "";
+    announcement = `${outcomeText(inbox.outcome)}${left}`;
     await refocus();
   }
 }
@@ -424,21 +444,12 @@ function outcomeText(outcome: Outcome): string {
   const of = inbox.items.find((i) => i.id === outcome.id);
   const worker = of?.mode === "isolated";
   const files = outcome.conflicts.join(", ");
-  // A worker's protected files that approve left out, named as such.
-  const guarded = (path: string) =>
-    of?.files.some((f) => f.protected && !f.blocked && (f.path === path || f.from === path)) ?? false;
-  const leftOut = outcome.conflicts.filter(guarded);
-  const others = outcome.conflicts.filter((p) => !guarded(p));
   const left =
     outcome.conflicts.length === 0
       ? ""
       : worker && outcome.action === "approved"
-        ? [
-            others.length > 0 ? ` Not copied: ${others.join(", ")}.` : "",
-            leftOut.length > 0
-              ? ` Not copied, as files that can run code or change agent rules: ${leftOut.join(", ")}.`
-              : "",
-          ].join("")
+        ? // Which and why is said once, in the note below.
+          ` ${outcome.conflicts.length === 1 ? "One file was" : "Some files were"} not copied: see why below.`
         : ` Kept as you changed them: ${files}.`;
   if (outcome.action === "resolved") return "Marked done. The files stay as they are now.";
   if (outcome.action === "taken") {
@@ -459,7 +470,7 @@ function outcomeText(outcome: Outcome): string {
     return `${back}${left}`.trim() || "Nothing needed putting back.";
   }
   if (outcome.action === "approved") {
-    const what = outcome.conflicts.length > 0 && worker ? "Kept, not all copied." : "Kept.";
+    const what = "Kept.";
     const committed = outcome.commit ? ` Committed as “${outcome.commit}”.` : "";
     return `${what}${committed}${left}`;
   }
@@ -480,9 +491,10 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
     event.preventDefault();
     void sendComment(review);
   } else if (event.code === "Escape" && comment) {
-    // The first Escape clears the draft, the next one closes the inbox.
+    // The first Escape leaves the field for the item's heading and keeps
+    // the draft; the next one closes the inbox.
     event.preventDefault();
-    comment = "";
+    dialog?.querySelector<HTMLElement>("#inbox-item-title")?.focus();
   }
 }
 </script>
@@ -603,6 +615,9 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                   {#if protectedText}
                     <p class="protected" id="inbox-protected" data-testid="inbox-protected">{protectedText}</p>
                   {/if}
+                  {#if sharedText}
+                    <p class="hint" id="inbox-shared" data-testid="inbox-shared">{sharedText}</p>
+                  {/if}
                   {#if directWaits}
                     <p class="hint" id="inbox-protected-why" data-testid="inbox-protected-why">
                       Keep changes waits until you have looked at the diff of each of these: {unseen
@@ -693,7 +708,7 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                             if (!busy) void reject(item);
                           }}>Reject the changes</button
                         >
-                        <button type="button" data-cancel-reject onclick={cancelReject}>Keep reviewing</button>
+                        <button type="button" data-cancel-reject onclick={cancelReject}>Cancel</button>
                       </div>
                     </div>
                   {/if}
@@ -702,7 +717,7 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
 
               {#if item.state === "partly_approved"}
                 <div class="actions" role="group" aria-label="Files that were not copied">
-                  <p class="hint" data-testid="inbox-not-copied">{notCopiedHint(item)}</p>
+                  <p class="hint" data-testid="inbox-not-copied">{notCopiedHint(item, keptFrom)}</p>
                   {#if takeUnseen.length > 0}
                     <p class="hint" id="inbox-take-why" data-testid="inbox-take-why">
                       Replacing waits until you have looked at the diff of each file that can run code or change agent
@@ -800,6 +815,7 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                       changed,
                       shared.has(changed.path),
                       item.not_copied.includes(changed.path) ? item.state : null,
+                      keptFrom.get(changed.path) ?? null,
                     )}
                     <li>
                       <button
