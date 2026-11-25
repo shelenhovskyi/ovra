@@ -270,7 +270,8 @@ pub struct Hunk {
     pub new_lines: u32,
     /// Git's text after the second `@@`, such as a function name.
     pub header: String,
-    /// The lines without line breaks, each starting with ` `, `+` or `-`,
+    /// The lines without line breaks (a CRLF file keeps the `\r`), each
+    /// starting with ` `, `+` or `-`,
     /// or `\` for git's "No newline at end of file".
     pub lines: Vec<String>,
 }

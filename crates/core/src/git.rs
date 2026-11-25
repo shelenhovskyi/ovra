@@ -41,7 +41,12 @@ pub(crate) async fn handle(core: &Core, request: GitRequest) -> Result<Response,
             if hunk.lines.is_empty() || hunk.lines.len() > MAX_HUNK_LINES {
                 return Err(bad(format!("a hunk must have 1 to {MAX_HUNK_LINES} lines")));
             }
-            if hunk.lines.iter().any(|l| l.contains(['\n', '\r'])) {
+            // A CRLF file's lines keep their `\r` so the patch applies.
+            let broken = |l: &String| {
+                let l = l.strip_suffix('\r').unwrap_or(l);
+                l.contains(['\n', '\r'])
+            };
+            if hunk.lines.iter().any(broken) {
                 return Err(bad("hunk lines must not contain line breaks"));
             }
             let root = core.root(&project)?;
