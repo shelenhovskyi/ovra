@@ -266,9 +266,16 @@ async fn branches_are_created_checked_and_never_switched_over_changes() {
     git(root, &["commit", "--quiet", "-am", "on feature"]);
     ok(g.switch(root.clone(), "main".into()).await);
     put(root, "a.txt", "mine\n");
+    let refused = g
+        .switch(root.clone(), "feature".into())
+        .await
+        .err()
+        .unwrap_or_else(|| panic!("switched over a change"));
+    assert_eq!(refused.code, ErrorCode::Conflict);
     assert_eq!(
-        code(g.switch(root.clone(), "feature".into()).await),
-        ErrorCode::Conflict
+        refused.message,
+        "you have changes to a.txt that this branch would overwrite: \
+         commit them or discard them first"
     );
     assert_eq!(read(root, "a.txt").as_deref(), Some("mine\n"));
 
@@ -397,4 +404,26 @@ fn names_git_would_quote_are_quoted_in_patches() {
         first,
         "diff --git \"a/dir/a \\\"b\\\"\\tc.txt\" \"b/dir/a \\\"b\\\"\\tc.txt\""
     );
+}
+
+#[test]
+fn a_refused_switch_names_a_few_files_and_says_what_to_do() {
+    let refused = |files: &[&str]| {
+        let list: String = files.iter().map(|f| format!("\t{f}\n")).collect();
+        super::refused_switch(&format!(
+            "error: Your local changes to the following files would be overwritten by checkout:\n\
+             {list}Please commit your changes or stash them before you switch branches.\nAborting"
+        ))
+    };
+    assert_eq!(
+        refused(&["a", "b", "c"]),
+        "you have changes to a, b and c that this branch would overwrite: \
+         commit them or discard them first"
+    );
+    let many = refused(&["1", "2", "3", "4", "5", "6", "7"]);
+    assert!(
+        many.starts_with("you have changes to 1, 2, 3, 4, 5 and 2 more files that"),
+        "{many}"
+    );
+    assert_eq!(super::refused_switch("fatal: odd"), "fatal: odd");
 }

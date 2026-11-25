@@ -164,14 +164,12 @@ it("switches branches, shows why a switch failed and creates a branch", async ()
   await settle();
   expect(document.activeElement?.textContent?.trim()).toBe("main (current)");
 
-  core.failNext.set(
-    "git.switch",
-    new CoreError({ code: "conflict", message: "an agent session writes this checkout" }),
-  );
+  const refused = "you have changes to a.ts that this branch would overwrite: commit them or discard them first";
+  core.failNext.set("git.switch", new CoreError({ code: "conflict", message: refused }));
   click("#git-branch-menu li:nth-child(2) button");
   await settle();
   expect(text("[data-testid=git-branch-error]")).toBe(
-    "Could not switch to topic: an agent session writes this checkout",
+    "Could not switch to topic. You have changes to a.ts that this branch would overwrite: commit them or discard them first.",
   );
 
   click("#git-branch-menu .new");

@@ -266,12 +266,41 @@ fn switch(root: &Path, name: &str) -> Result<()> {
         .args(["--quiet", "--no-guess", "--", &name])
         .output()?;
     if !out.status.success() {
-        return Err(conflict(format!(
-            "cannot switch to {name}: {}",
-            printed(&out)
-        )));
+        return Err(conflict(refused_switch(&printed(&out))));
     }
     Ok(())
+}
+
+/// Files named in a refused switch before "and N more".
+const NAMED_FILES: usize = 5;
+
+/// Why git refused a switch, for the person: what to do in Ovra when it
+/// would overwrite changes (git's text suggests stash, which Ovra does not
+/// offer), git's own text otherwise. The caller names the branch.
+fn refused_switch(printed: &str) -> String {
+    if !printed.contains("would be overwritten") {
+        return printed.to_owned();
+    }
+    // git lists the files one per line, each indented by a tab.
+    let files: Vec<&str> = printed
+        .lines()
+        .filter(|l| l.starts_with('\t'))
+        .map(str::trim)
+        .collect();
+    let named = match files.len() {
+        0 => String::new(),
+        1 => format!(" to {}", files[0]),
+        n if n <= NAMED_FILES => format!(" to {} and {}", files[..n - 1].join(", "), files[n - 1]),
+        n => format!(
+            " to {} and {} more files",
+            files[..NAMED_FILES].join(", "),
+            n - NAMED_FILES
+        ),
+    };
+    format!(
+        "you have changes{named} that this branch would overwrite: \
+         commit them or discard them first"
+    )
 }
 
 fn create_branch(root: &Path, name: &str, switch: bool) -> Result<()> {

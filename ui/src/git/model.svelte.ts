@@ -50,6 +50,12 @@ export function message(err: unknown): string {
   return err instanceof CoreError ? err.error.message : err instanceof Error ? err.message : String(err);
 }
 
+/** `text` as a sentence of its own: capital first letter, full stop at the end. */
+function sentence(text: string): string {
+  const trimmed = text.trim();
+  return `${trimmed.charAt(0).toUpperCase()}${trimmed.slice(1)}${/[.!?]$/.test(trimmed) ? "" : "."}`;
+}
+
 function statusError(err: unknown): string {
   if (err instanceof CoreError && err.code === "unavailable") return `Git is not available here: ${err.error.message}`;
   return `Could not read the git status: ${message(err)}`;
@@ -236,7 +242,7 @@ export class GitModel {
         await this.loadBranches();
       },
       `Switched to branch ${branch}.`,
-      (err) => ({ message: `Could not switch to ${branch}: ${message(err)}` }),
+      (err) => ({ message: `Could not switch to ${branch}. ${sentence(message(err))}` }),
     );
   }
 
