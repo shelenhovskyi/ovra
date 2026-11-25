@@ -500,6 +500,7 @@ fn wire_format_is_stable() {
                     tool: "Bash".into(),
                     pattern: Some("ls".into()),
                     action: crate::protocol::policy::PolicyAction::Auto,
+                    exact: true,
                     from_approval: true,
                 }),
             }))),

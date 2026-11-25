@@ -11,6 +11,7 @@ fn rule(tool: &str, pattern: Option<&str>, action: PolicyAction) -> PolicyRule {
         tool: tool.to_owned(),
         pattern: pattern.map(str::to_owned),
         action,
+        exact: false,
         from_approval: false,
     }
 }

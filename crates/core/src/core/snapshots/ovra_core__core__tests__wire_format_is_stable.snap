@@ -89,6 +89,7 @@ expression: samples
       "data": {
         "always": {
           "action": "auto",
+          "exact": true,
           "from_approval": true,
           "match": "ls",
           "tool": "Bash"

@@ -413,6 +413,7 @@ fn a_projects_policy_is_kept_across_opens() {
             tool: "Bash".into(),
             pattern: Some("npm test".into()),
             action: PolicyAction::Auto,
+            exact: false,
             from_approval: true,
         }],
     };

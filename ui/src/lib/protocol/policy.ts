@@ -9,11 +9,16 @@ export type PolicyRule = {
   /** A tool name, such as `Bash` or `Edit`. */
   tool: string;
   /**
-   * A command prefix for Bash, a glob on the session-relative path for file tools, the URL's host for
+   * A command prefix for Bash (the whole command with `exact`), a glob on the session-relative path for file tools, the URL's host for
    * WebFetch; absent matches every call.
    */
   match?: string;
   action: PolicyAction;
+  /**
+   * A Bash match is the whole command, not a prefix: `npm test` then does not match `npm test -- -u`.
+   * Only for Bash rules with a match.
+   */
+  exact?: true;
   /** Added by a person's "Always allow" on an approval, not in Settings. */
   from_approval?: true;
 };

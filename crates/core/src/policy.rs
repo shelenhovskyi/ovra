@@ -184,6 +184,7 @@ pub(crate) fn always_rule(
         tool: tool.to_owned(),
         pattern: Some(pattern),
         action: PolicyAction::Auto,
+        exact: false,
         from_approval: true,
     };
     let fits = check(&rule).is_ok() && matches(&rule, input, work_dir, PolicyAction::Auto);
