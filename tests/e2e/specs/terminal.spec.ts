@@ -1,7 +1,7 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "../test";
 
 test("terminals open from the keyboard, run commands in tabs and hide without ending", async ({ page }) => {
   const url = process.env.OVRA_URL;

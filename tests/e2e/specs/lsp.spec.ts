@@ -1,7 +1,8 @@
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, type Page, test } from "@playwright/test";
+import type { Page } from "@playwright/test";
+import { expect, test } from "../test";
 
 /** Opens a fresh project holding `files`, trusts it and shows `main.rs` in the viewer. */
 async function trustedProject(page: Page, files: Record<string, string>): Promise<string> {

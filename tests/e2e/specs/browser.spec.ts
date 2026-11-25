@@ -1,7 +1,7 @@
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "../test";
 
 // The daemon runs with --fake-browser: every page shows one still frame (a dark
 // bar on grey) and its one element, button "Save", is under every point. A task

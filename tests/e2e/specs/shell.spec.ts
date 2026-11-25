@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "../test";
 
 function daemonUrl(): URL {
   const raw = process.env.OVRA_URL;

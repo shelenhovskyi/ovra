@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "../test";
 
 test("the servers dialog opens with its shortcut and says what it can run", async ({ page }) => {
   const url = process.env.OVRA_URL;

@@ -1,7 +1,7 @@
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "../test";
 
 test("the review inbox opens from the keyboard and gives focus back", async ({ page }) => {
   const url = process.env.OVRA_URL;

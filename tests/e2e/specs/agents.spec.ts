@@ -2,7 +2,8 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, type Page, test } from "@playwright/test";
+import type { Page } from "@playwright/test";
+import { expect, test } from "../test";
 
 // The daemon runs with --fake-agent: every session asks to run `ls -la` and to
 // edit README.md, then waits; each reply asks to run `git status`. A task's

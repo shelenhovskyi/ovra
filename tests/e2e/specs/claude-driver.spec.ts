@@ -1,8 +1,9 @@
 import { copyFileSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
-import { expect, type Page, test } from "@playwright/test";
+import type { Page } from "@playwright/test";
 import { binary, root, startDaemon } from "../daemon";
+import { expect, test } from "../test";
 
 // The real claude driver against `fake-claude`, which plays a recorded
 // session (crates/agent-runtime/fixtures/edit_allowed.jsonl). This file has

@@ -1,7 +1,8 @@
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import { expect, type Page, test } from "@playwright/test";
+import type { Page } from "@playwright/test";
+import { expect, test } from "../test";
 
 function project(files: Record<string, string>): string {
   const dir = mkdtempSync(join(tmpdir(), "ovra-tabs-"));
