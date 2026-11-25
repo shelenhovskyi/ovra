@@ -123,6 +123,8 @@ it("shows only the open project's Claude settings, and re-reads them when they m
   workspace.project = project("p2");
   await settle();
   expect(pane()).toContain("Reading the project's settings");
+  // The project panes name the project they change.
+  expect(target.querySelector("nav h3")?.textContent).toBe("This project · p2");
   expect(asked.map((a) => a.project)).toEqual(["p1", "p1", "p2"]);
   asked[2]?.answer(config([]));
   asked[1]?.answer(skills);

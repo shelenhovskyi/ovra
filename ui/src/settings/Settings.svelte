@@ -19,10 +19,11 @@ import TrustPane from "./TrustPane.svelte";
 
 const { transport, workspace } = useOvra();
 
-const GROUPS = [
-  { id: "project", name: "This project" },
+// The project panes change one project: its name says which.
+const GROUPS = $derived([
+  { id: "project", name: `This project · ${workspace.project?.name ?? ""}` },
   { id: "ovra", name: "Ovra" },
-] as const;
+] as const);
 
 const panes = $derived(panesFor(!!workspace.project));
 /** The remembered pane, or the first there is (a project's pane with no project open). */
@@ -89,7 +90,7 @@ function onListKeydown(event: KeyboardEvent): void {
       {#each GROUPS as group (group.id)}
         {@const own = panes.filter((p) => p.group === group.id)}
         {#if own.length > 0}
-          <h3 class="group">{group.name}</h3>
+          <h3 class="group" title={group.name}>{group.name}</h3>
           <ul>
             {#each own as item (item.id)}
               <li>
@@ -180,6 +181,9 @@ function onListKeydown(event: KeyboardEvent): void {
     font: var(--t-caption);
     font-weight: 600;
     color: var(--text-2);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   ul {
     margin: 0;
