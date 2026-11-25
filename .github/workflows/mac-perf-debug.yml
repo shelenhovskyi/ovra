@@ -1,0 +1,54 @@
+name: Mac perf debug (temporary)
+on:
+  push:
+    branches: [claude/project-thread-x2b5w2]
+permissions:
+  contents: read
+jobs:
+  mac:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: cargo-nextest
+      - run: sysctl -n hw.ncpu; which -a git; git --version
+      - run: cargo nextest run --workspace --exclude ovra-app --all-features --no-run
+      - name: default threads
+        run: |
+          cargo nextest run --workspace --exclude ovra-app --all-features --no-tests=pass > /dev/null 2>&1 || true
+          python3 scripts/check_test_budgets.py rust || true
+      - name: one thread
+        run: |
+          cargo nextest run --workspace --exclude ovra-app --all-features --no-tests=pass -j 1 > /dev/null 2>&1 || true
+          python3 scripts/check_test_budgets.py rust || true
+      - name: git call cost in worktree tests
+        run: |
+          mkdir -p /tmp/gw
+          cat > /tmp/gw/git <<'SH'
+          #!/bin/sh
+          s=$(perl -MTime::HiRes=time -e 'printf "%.6f", time')
+          /opt/homebrew/bin/git "$@"; c=$?
+          e=$(perl -MTime::HiRes=time -e 'printf "%.6f", time')
+          echo "$s $e" >> /tmp/gw/log
+          exit $c
+          SH
+          chmod +x /tmp/gw/git
+          PATH=/tmp/gw:$PATH cargo nextest run -p ovra-worktree -j 1 > /dev/null 2>&1 || true
+          wc -l < /tmp/gw/log
+          awk '{t+=$2-$1} END {print "git seconds", t, "per call ms", 1000*t/NR}' /tmp/gw/log
+          python3 scripts/check_test_budgets.py rust || true
+      - name: bare process start
+        run: |
+          cat > /tmp/t.c <<'C'
+          int main(void){return 0;}
+          C
+          cc /tmp/t.c -o /tmp/t
+          perl -MTime::HiRes=time -e '$s=time; for(1..200){system("/tmp/t")} printf "exec ms %.2f\n", (time-$s)*5'
+          perl -MTime::HiRes=time -e '$s=time; for(1..100){system("/opt/homebrew/bin/git --version >/dev/null")} printf "git --version ms %.2f\n", (time-$s)*10'
+          perl -MTime::HiRes=time -e '$s=time; for(1..100){system("/usr/bin/git --version >/dev/null")} printf "/usr/bin/git shim ms %.2f\n", (time-$s)*10'
