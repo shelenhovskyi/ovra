@@ -1,6 +1,6 @@
 // What each palette mode lists and what choosing an entry does.
 
-import { modeOf } from "../editor/open-files.svelte";
+import { modeOf, tabs } from "../editor/open-files.svelte";
 import { type Command, listCommands } from "../keys/commands";
 import type { Project } from "../lib/protocol";
 import type { Transport } from "../lib/transport";
@@ -104,6 +104,8 @@ async function files(transport: Transport, workspace: Target, project: Project, 
       // A view covering the files makes way, also for the file already open, and the file gets the focus the view had.
       const covered = mainView.current !== null;
       mainView.close(false);
+      // Picking the file already shown keeps its preview tab, as Enter in the tree does.
+      if (workspace.openPath === path) tabs.current?.makePermanent(path);
       workspace.openFile(path, modeOf(path, workspace.mode));
       if (covered) void focusOpenFile(workspace.mode === "edit");
     },

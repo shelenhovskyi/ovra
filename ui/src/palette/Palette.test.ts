@@ -1,5 +1,7 @@
 import { flushSync, mount, unmount } from "svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { Buffers } from "../editor/buffers.svelte";
+import { OpenFiles, tabs } from "../editor/open-files.svelte";
 import { registerCommand } from "../keys/commands";
 import type { Project, Request } from "../lib/protocol";
 import type { Transport } from "../lib/transport";
@@ -154,6 +156,38 @@ describe("Palette", async () => {
     key(input, "Enter");
     expect([workspace.paletteOpen, palette.mode]).toEqual([false, "commands"]);
     await vi.waitFor(() => expect(workspace.openPath).toBe("src/main.rs"));
+  });
+
+  it("keeps the tab of the previewed file picked again, and only that one", async () => {
+    const paths = ["README.md", "src/main.rs"];
+    const core: Transport = {
+      call: ((request: Request) =>
+        request.method === "fs.list_files"
+          ? Promise.resolve({ type: "fs.files", data: { paths, total: paths.length, version: 1 } })
+          : Promise.reject(new Error(request.method))) as Transport["call"],
+      onEvent: () => () => {},
+    };
+    const files = new OpenFiles(unused, "files-keep", {} as Buffers);
+    files.preview = "README.md";
+    tabs.current = files;
+    cleanups.push(() => {
+      tabs.current = null;
+    });
+    const project = { id: "files-keep", name: "demo", root: "/demo", last_opened_ms: null, trusted: false };
+    const first = await open("files", core, project);
+    first.workspace.openPath = "README.md";
+    await type(first.input, "srcmain");
+    key(first.input, "Enter");
+    await vi.waitFor(() => expect(first.workspace.openPath).toBe("src/main.rs"));
+    expect(files.preview).toBe("README.md");
+    // The first palette goes, as it does after a pick; the tabs stay.
+    for (const cleanup of cleanups.splice(1)) cleanup();
+
+    const again = await open("files", core, project);
+    again.workspace.openPath = "README.md";
+    await type(again.input, "readme");
+    key(again.input, "Enter");
+    await vi.waitFor(() => expect(files.preview).toBeNull());
   });
 
   it("closes a view for a file picked over it, the open one too, and puts focus in the file", async () => {
