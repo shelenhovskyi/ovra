@@ -95,6 +95,34 @@ test("start an agent and answer its requests from the keyboard", async ({ page }
   await expect(transcript).toContainText(/Claude\s*Done\./);
 });
 
+test("in a short window, Review shows the whole request and the title counts what waits", async ({ page }) => {
+  // About 200% zoom on a laptop: approvals sit under the main area.
+  await page.setViewportSize({ width: 640, height: 400 });
+  await openProject(page, "ovra-agents-short-");
+  await page.getByRole("textbox", { name: "What should Claude do?" }).fill("Fix the typo");
+  await page.keyboard.press("ControlOrMeta+Enter");
+
+  const approvals = page.getByTestId("approvals");
+  const run = approvals.getByRole("group", { name: "Run ls -la" });
+  await expect(run).toBeVisible();
+  await expect(page).toHaveTitle("(1) Ovra");
+  await page.getByTestId("notifications").getByRole("button", { name: "Review" }).click();
+  await expect(run).toBeFocused();
+  await expect(run.locator("dl")).toBeInViewport({ ratio: 1 });
+  await arm(page);
+  await expect(run.getByRole("button", { name: "Allow" })).toHaveAttribute("aria-disabled", "false");
+  await page.keyboard.press("y");
+
+  const edit = approvals.getByRole("group", { name: "Edit README.md" });
+  await expect(edit).toBeVisible();
+  await page.keyboard.press("ArrowDown");
+  await expect(edit).toBeFocused();
+  await arm(page);
+  await page.keyboard.press("n");
+  await expect(approvals).toContainText("Nothing waits for your approval.");
+  await expect(page).toHaveTitle("Ovra");
+});
+
 test("reply to an agent, allow with the mouse and stop it while it waits", async ({ page }) => {
   await openProject(page, "ovra-agents-reply-");
   await page.getByRole("textbox", { name: "What should Claude do?" }).fill("Tidy up");
