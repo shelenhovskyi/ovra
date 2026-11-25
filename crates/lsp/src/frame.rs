@@ -2,8 +2,9 @@
 
 use serde_json::Value;
 
-/// A larger message ends the server (`docs/specs/lsp.md`, "Limits").
-pub(crate) const MAX_MESSAGE: usize = 16 << 20;
+/// A larger message ends the server (`docs/specs/lsp.md`, "Limits"). As a
+/// `serde_json::Value` a message can take ~16 times its length.
+pub(crate) const MAX_MESSAGE: usize = 4 << 20;
 
 /// Headers longer than this are not a header.
 const MAX_HEADER: usize = 4096;
@@ -28,8 +29,9 @@ impl Decoder {
         self.buf.extend_from_slice(bytes);
     }
 
-    /// The next whole message, `None` until more bytes come.
-    pub(crate) fn next(&mut self) -> Result<Option<Value>, String> {
+    /// The next whole message and its length in bytes, `None` until more
+    /// bytes come.
+    pub(crate) fn next(&mut self) -> Result<Option<(Value, usize)>, String> {
         let Some(end) = self.buf.windows(4).position(|w| w == b"\r\n\r\n") else {
             if self.buf.len() > MAX_HEADER {
                 return Err("the server wrote a header that never ends".into());
@@ -52,7 +54,7 @@ impl Decoder {
         let message = serde_json::from_slice(&self.buf[start..start + length])
             .map_err(|e| format!("the server wrote a message that is not JSON: {e}"));
         self.buf.drain(..start + length);
-        message.map(Some)
+        message.map(|m| Some((m, length)))
     }
 }
 
@@ -77,7 +79,8 @@ mod tests {
 
     fn all(decoder: &mut Decoder) -> Result<Vec<Value>, String> {
         let mut out = Vec::new();
-        while let Some(message) = decoder.next()? {
+        while let Some((message, length)) = decoder.next()? {
+            assert_eq!(length, message.to_string().len());
             out.push(message);
         }
         Ok(out)

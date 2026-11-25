@@ -105,9 +105,12 @@ makes on disk still reach them.
 ## Limits
 
 - One server per project and language; at most 4 running at once.
-- A message over 16 MiB ends the server (`failed`).
+- A message over 4 MiB ends the server (`failed`).
 - The core holds back forwarding while the event channel is backed up, as
-  terminals do, so a flood of diagnostics cannot make every client resync.
+  terminals do, so a flood of diagnostics cannot make every client resync:
+  while 256 events wait, or while the server messages that may still wait
+  add up to 16 MiB of JSON (a stalled client cannot make Ovra hold
+  hundreds of large messages).
 - A server stops when the person stops it, its project loses trust or is
   removed, or it exits. It keeps running when the project closes in every
   client, so a reload does not restart it.

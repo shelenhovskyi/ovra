@@ -353,6 +353,32 @@ async fn a_server_that_dies_shows_as_failed() {
 }
 
 #[tokio::test]
+async fn a_flood_of_large_messages_is_held_back_until_clients_read() {
+    let mut test = setup(FakeLanguageServers::default(), true).await;
+    ok(start(&test.core, "rust").await);
+    events(&mut test);
+    let server = server(&test);
+    let note = json!({"jsonrpc": "2.0", "method": "window/logMessage"});
+    // Three 4 MiB messages are few events but 12 MiB; the fourth fills
+    // the 16 MiB budget.
+    for _ in 0..3 {
+        server.say_sized(note.clone(), 4 << 20);
+        assert!(!server.busy());
+    }
+    server.say_sized(note.clone(), 4 << 20);
+    assert!(server.busy());
+    assert_eq!(events(&mut test).len(), 4);
+    assert!(!server.busy());
+    // Small messages are held back by their count.
+    for _ in 0..super::MAX_BACKLOG {
+        server.say(note.clone());
+    }
+    assert!(server.busy());
+    events(&mut test);
+    assert!(!server.busy());
+}
+
+#[tokio::test]
 async fn taking_trust_back_stops_the_projects_servers() {
     let test = setup(FakeLanguageServers::default(), true).await;
     ok(start(&test.core, "rust").await);
