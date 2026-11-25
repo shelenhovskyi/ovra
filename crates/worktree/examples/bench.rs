@@ -2,7 +2,8 @@
 //! (`tests/perf/specs/worktree.spec.ts`, `just perf`). Builds a repository
 //! with 2,000 tracked and 10,000 untracked files in a temporary folder, has
 //! an "agent" change 600 tracked files, and prints one JSON line per metric:
-//! `{"name": "worktree.<metric>", "value": <ms>}`.
+//! `{"name": "worktree.<metric>", "value": <ms>}`. It also times the git
+//! panel's `GitRepo::status` and `blame`.
 
 use std::fs;
 use std::path::Path;
@@ -10,8 +11,8 @@ use std::process::Command;
 use std::time::Instant;
 
 use ovra_core::path::RelPath;
-use ovra_core::services::{Result, Worktrees};
-use ovra_worktree::GitWorktrees;
+use ovra_core::services::{GitService, Result, Worktrees};
+use ovra_worktree::{GitRepo, GitWorktrees};
 
 const TRACKED: usize = 2_000;
 const UNTRACKED: usize = 10_000;
@@ -114,6 +115,18 @@ async fn run() -> Result<()> {
     let started = Instant::now();
     w.patch(root.clone(), base.clone(), paths.clone()).await?;
     report("patch_600_ms", started);
+
+    let repo = GitRepo::new();
+    let started = Instant::now();
+    let status = repo.status(root.clone()).await?;
+    report("git_status_ms", started);
+    if status.is_none_or(|s| s.files.is_empty()) {
+        return Err(fail(&"git.status saw no changes"));
+    }
+
+    let started = Instant::now();
+    repo.blame(root.clone(), paths[0].clone()).await?;
+    report("git_blame_ms", started);
 
     let started = Instant::now();
     w.restore(root.clone(), base.clone(), paths).await?;
