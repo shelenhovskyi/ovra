@@ -121,7 +121,7 @@ judged; the friction is in moving between rows, the diff and the editor.
   keeps focus on the row (`out04/01-enter-name.png`). The diff only opens from
   the ± button, which moves focus to the diff heading. Alt+Shift+G always
   lands in the commit message, never on the row. "Close diff" puts focus on
-  the empty main view (`DIV.view aria=No file open`). Reviewing file *i*
+  the empty main view (`DIV.view aria=No file open`). Reviewing file _i_
   costs Alt+Shift+G plus 6 + 4(i-1) Tabs to its ±, then 4 more Tabs in the
   diff to reach "Stage hunk".
 - **Why it matters for Oleh:** "look at each change, stage the good hunks" is

@@ -66,7 +66,7 @@ core only builds profiles.
 | `work_dir` | The session's folder: its worktree, or the project root in direct mode. Readable and writable, except the protected paths (below). |
 | `read`     | More folders the agent may read but not write. A worker's main repository git folder goes here: object store, refs, packed refs.   |
 | `write`    | More folders the agent may write.                                                                                                  |
-| `expose`   | A server pod's ports (`docs/specs/servers-and-browser.md`). Non-empty makes the sandbox a pod; `network` must not be `Open`.        |
+| `expose`   | A server pod's ports (`docs/specs/servers-and-browser.md`). Non-empty makes the sandbox a pod; `network` must not be `Open`.       |
 | `forward`  | Ports of the work dir's servers the helper forwards to the netproxy as `OVRA-LOCAL <port>`. Needs `network` to be `Proxy`.         |
 | `network`  | `Blocked`, or `Proxy { address }` for the session's netproxy. `Open` exists only for platforms that cannot limit the network.      |
 

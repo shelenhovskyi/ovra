@@ -188,7 +188,7 @@ strip still says "README.md, selected".
 
 - **Area:** ui/src/editor (git/extension.ts styles)
 - **Steps:** 1. Same file as A11Y-36. 2. Compare the added and changed
-   markers' styles. 3. Emulate `forced-colors: active`.
+  markers' styles. 3. Emulate `forced-colors: active`.
 - **Expected:** the kinds differ by shape as well (for example a solid bar
   for added, a dashed or striped one for changed, a triangle for deleted).
   In forced colours each stays visible with `forced-color-adjust: none` and a
