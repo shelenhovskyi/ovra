@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 
 use super::*;
 use crate::fakes::MemoryWorktrees;
+use crate::orchestration::review::Guard;
 use crate::protocol::review::ChangeKind;
 use crate::services::{BoxFuture, GitFiles, WorktreeInfo};
 
@@ -279,7 +280,12 @@ async fn one_running_direct_writer_per_project_and_a_resumed_session_keeps_its_b
     assert!(h.direct.begin(&h.project, &s2, DIR.into()).await.is_ok());
     let resumed = h.direct.begin(&h.project, &h.session, DIR.into()).await;
     assert_eq!(resumed.err().map(|e| e.code), Some(ErrorCode::Conflict));
-    assert!(h.direct.approve(&h.session, None, false).await.is_ok());
+    assert!(
+        h.direct
+            .approve(&h.session, None, &Guard::default())
+            .await
+            .is_ok()
+    );
     let reviewed = h.direct.files(&h.session).await;
     assert_eq!(reviewed.err().map(|e| e.code), Some(ErrorCode::Conflict));
 }
@@ -498,7 +504,7 @@ async fn reject_waits_for_running_tools() {
     h.started("t1", "Bash", json!({"command": "make"})).await;
     let refused = h.direct.reject(&h.session).await;
     assert_eq!(refused.err().map(|e| e.code), Some(ErrorCode::Conflict));
-    let refused = h.direct.approve(&h.session, None, false).await;
+    let refused = h.direct.approve(&h.session, None, &Guard::default()).await;
     assert_eq!(refused.err().map(|e| e.code), Some(ErrorCode::Conflict));
     // Ending the session drops its tools: what they changed is outside.
     h.put("out.o", "bin\n");
@@ -680,7 +686,7 @@ async fn approve_commits_only_the_agents_own_files() {
     h.put("mine.rs", "mine\n");
     let outcome = h
         .direct
-        .approve(&h.session, Some("feat: move a".into()), false)
+        .approve(&h.session, Some("feat: move a".into()), &Guard::default())
         .await
         .unwrap_or_else(|e| panic!("{e:?}"));
     assert_eq!(outcome.conflicts, ["both.rs"]);

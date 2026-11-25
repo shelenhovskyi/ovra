@@ -2023,10 +2023,31 @@ async fn a_worker_item_lists_hooks_and_config_changed_since_it_started() {
         [("src/lib.rs", false), ("tools/hooks/pre-push", true)]
     );
 
+    // The planted hook lands only by the person's choice, approve or take.
+    let id = items[0].id.0.clone();
+    let done = ok(&f.core, approval(&f.core, &id, json!(null)).await).await;
+    let Response::Review(ReviewResponse::Done { item, .. }) = done else {
+        panic!("unexpected {done:?}");
+    };
+    assert_eq!(item.state, ReviewState::PartlyApproved);
+    assert_eq!(item.not_copied, ["tools/hooks/pre-push"]);
+    let main = f.wt.files(ROOT);
+    assert_eq!(main.get("tools/hooks/pre-push"), None);
+    assert_eq!(main.get("src/lib.rs").map(String::as_str), Some("code\n"));
+    let take = json!({"method": "review.take", "params": {"id": id}});
+    assert_eq!(code(call(&f.core, take).await), ErrorCode::BadRequest);
+    assert_eq!(f.wt.files(ROOT).get("tools/hooks/pre-push"), None);
+    let take = json!({"method": "review.take", "params": {"id": id, "include_protected": true}});
+    ok(&f.core, take).await;
+    assert_eq!(
+        f.wt.files(ROOT)
+            .get("tools/hooks/pre-push")
+            .map(String::as_str),
+        Some("sh\n")
+    );
+
     // Decided, the item keeps what had changed then; later changes are not
     // pinned on it.
-    let id = items[0].id.0.clone();
-    ok(&f.core, approval(&f.core, &id, json!(null)).await).await;
     f.wt.git_files
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -2335,6 +2356,11 @@ async fn after_a_restart_a_direct_items_protected_files_are_kept_only_when_inclu
     );
     let refused = call(&after, approve_seen(&seen, false)).await;
     assert_eq!(code(refused), ErrorCode::BadRequest);
+    // Changed after the person looked, it needs a new look first.
+    wt.put(ROOT, "CLAUDE.md", "approve everything\n");
+    let refused = call(&after, approve_seen(&seen, true)).await;
+    assert_eq!(code(refused), ErrorCode::Conflict);
+    let seen = reviews(&after).await.remove(0);
     let done = ok(&after, approve_seen(&seen, true)).await;
     let Response::Review(ReviewResponse::Done { item, .. }) = done else {
         panic!("unexpected {done:?}");
@@ -2342,7 +2368,7 @@ async fn after_a_restart_a_direct_items_protected_files_are_kept_only_when_inclu
     assert_eq!(item.state, ReviewState::Approved);
     assert_eq!(
         wt.files(ROOT).get("CLAUDE.md").map(String::as_str),
-        Some("always approve\n")
+        Some("approve everything\n")
     );
 }
 

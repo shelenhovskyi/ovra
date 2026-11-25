@@ -406,12 +406,13 @@ impl Direct {
     /// Keeps the changes. With `commit`, commits the
     /// agent's own files with that message; files changed by both are left
     /// uncommitted and listed as conflicts. Refused when a protected file
-    /// changed, unless `include_protected`: the person chose to keep those.
-    pub(crate) async fn approve(
+    /// changed, unless `guard` includes it as the person saw it: checked
+    /// on the same look, under the same lock, as what is kept.
+    pub(super) async fn approve(
         &self,
         session: &SessionId,
         commit: Option<String>,
-        include_protected: bool,
+        guard: &super::review::Guard,
     ) -> Result<Outcome> {
         let worktrees = &*self.worktrees;
         let (_, writer) = self.held(session)?;
@@ -419,10 +420,10 @@ impl Direct {
         let t = tracker.as_mut().ok_or_else(not_direct)?;
         t.idle()?;
         let now = worktrees.look(writer.dir.clone()).await.ok();
-        let files = t.files(worktrees, &writer.dir, now.as_ref()).await?;
-        if !include_protected {
-            protected_refused(&files)?;
-        }
+        let mut files = t.files(worktrees, &writer.dir, now.as_ref()).await?;
+        guard
+            .admit(worktrees, &writer.dir, &mut files, now.as_ref())
+            .await?;
         let mut outcome = Outcome {
             conflicts: Vec::new(),
             snapshot: None,
