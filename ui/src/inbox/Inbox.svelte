@@ -230,9 +230,10 @@ $effect(() => {
 });
 
 // A protected file counts as seen once its diff, read from the version of
-// the files the list shows, is on screen.
+// the files the list shows, is on screen: never while the view is closed,
+// where the chosen file's diff still loads.
 $effect(() => {
-  if (!item || !file?.protected || !diff || diff.key !== diffKey || diff.patch === null) return;
+  if (!opened || !item || !file?.protected || !diff || diff.key !== diffKey || diff.patch === null) return;
   if (item.fingerprint && diff.fingerprint !== item.fingerprint) return;
   const key = seenKey(item, file);
   untrack(() => {
