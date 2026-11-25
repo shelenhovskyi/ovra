@@ -5,6 +5,7 @@
 
 use crate::Core;
 use crate::path::RelPath;
+use crate::protocol::fs::FsEvent;
 use crate::protocol::git::{GitRequest, GitResponse, MAX_LOG};
 use crate::protocol::{ErrorCode, OkResponse, ProtocolError, Response};
 
@@ -22,6 +23,12 @@ pub(crate) async fn handle(core: &Core, request: GitRequest) -> Result<Response,
             Some(status) => GitResponse::Status(status),
             None => GitResponse::NoRepo,
         }),
+        GitRequest::Init { project } => {
+            git.init(core.root(&project)?).await?;
+            // The fs watcher only follows repositories it saw at the start.
+            core.emit(FsEvent::GitChanged { project });
+            ok()
+        }
         GitRequest::Stage { project, paths } => {
             git.stage(core.root(&project)?, paths_of(&paths)?).await?;
             ok()

@@ -94,6 +94,21 @@ impl GitService for MemoryGit {
         let status = lock(&self.status).clone();
         self.read("status", &root, "", status)
     }
+    /// Refused in a repository; else the repository of a fresh `git init`.
+    fn init(&self, root: PathBuf) -> BoxFuture<'_, Result<()>> {
+        if lock(&self.status).is_some() {
+            self.record("init", &root, "");
+            let refused = ProtocolError::new(ErrorCode::Conflict, "already a git repository");
+            return Box::pin(async move { Err(refused) });
+        }
+        if lock(&self.refuse).is_none() {
+            *lock(&self.status) = Some(RepoStatus {
+                branch: Some("main".to_owned()),
+                ..RepoStatus::default()
+            });
+        }
+        self.change("init", &root, "", ())
+    }
     fn stage(&self, root: PathBuf, paths: Vec<RelPath>) -> BoxFuture<'_, Result<()>> {
         self.change("stage", &root, &joined(&paths), ())
     }

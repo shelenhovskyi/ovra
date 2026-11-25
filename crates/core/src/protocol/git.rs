@@ -28,6 +28,12 @@ pub enum GitRequest {
     /// project is not in a git repository.
     #[serde(rename = "git.status")]
     Status { project: ProjectId },
+    /// `git init` in the project folder: no commit, no remote, nothing
+    /// fetched. A person's action, not an agent tool. `conflict` when the
+    /// folder is already in a git repository or has a `.git` of its own.
+    /// Emits `fs.git_changed`.
+    #[serde(rename = "git.init")]
+    Init { project: ProjectId },
     /// Adds the working-tree version of `paths` (new, changed or deleted
     /// files) to the index.
     #[serde(rename = "git.stage")]

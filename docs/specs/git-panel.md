@@ -25,7 +25,7 @@ In v1:
 Not in v1: push, pull and fetch (they need the person's credentials and
 prompts; the panel offers to open a terminal with the command typed but not
 run), resolving conflicts (the panel shows them and opens the file), stash,
-remote branches, submodules, `git init`.
+remote branches, submodules.
 
 ## Protocol
 
@@ -81,6 +81,11 @@ monitor, submodules ignored. Diffs, blame and show also pass
 - `show`: `git cat-file` of `HEAD:<path>` or `:<path>`, at most 4 MiB, null
   for binary files.
 - `log`: `git log -n <limit>` with a fixed format.
+- `init`: "Set up git" from the panel and the composer (a person's action, not
+  an agent tool). Refused when `.git` exists or `git rev-parse` finds a
+  repository (it never reads the folder's files); then `git init --quiet`, no
+  commit, no remote. The core emits `fs.git_changed` afterwards, since the fs
+  watcher only follows repositories it saw at the start.
 
 Tests run real git in temporary repositories (nextest group `git`) and stay
 under the budgets in `scripts/test-budgets.json`.

@@ -89,6 +89,32 @@ fn commit_info(line: &str) -> Option<CommitInfo> {
     })
 }
 
+/// `git init` in `root`, only after asking git whether `root` is in a
+/// repository already: `rev-parse` looks at `root` and its parents (and
+/// stops at a mount point, as git itself does), never at the folder's files.
+fn init(root: &Path) -> Result<()> {
+    if !root.is_dir() {
+        return Err(ProtocolError::new(
+            ErrorCode::NotFound,
+            "the project folder does not exist",
+        ));
+    }
+    // A `.git` git cannot read (a broken file or folder) is still someone's.
+    if root.join(".git").symlink_metadata().is_ok() {
+        return Err(conflict("this folder already has a .git"));
+    }
+    match git::dirs(root) {
+        Ok(dirs) => Err(conflict(format!(
+            "this folder is already in the git repository at {}",
+            dirs.top.display()
+        ))),
+        Err(e) if e.code == ErrorCode::NotFound => {
+            Git::new(root, "init").arg("--quiet").run().map(drop)
+        }
+        Err(e) => Err(e),
+    }
+}
+
 fn stage(root: &Path, paths: &[RelPath]) -> Result<()> {
     git::dirs(root)?;
     Git::new(root, "add")
@@ -388,6 +414,9 @@ fn log(root: &Path, limit: u32) -> Result<Vec<CommitInfo>> {
 impl GitService for GitRepo {
     fn status(&self, root: PathBuf) -> BoxFuture<'_, Result<Option<RepoStatus>>> {
         blocking(move || status::status(&root))
+    }
+    fn init(&self, root: PathBuf) -> BoxFuture<'_, Result<()>> {
+        blocking(move || init(&root))
     }
     fn stage(&self, root: PathBuf, paths: Vec<RelPath>) -> BoxFuture<'_, Result<()>> {
         blocking(move || stage(&root, &paths))

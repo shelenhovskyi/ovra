@@ -5,7 +5,7 @@ use serde_json::json;
 use crate::Core;
 use crate::fakes::{MemoryGit, MemoryProjects, MemoryWorktrees, ScriptedAgent};
 use crate::protocol::git::{GitResponse, RepoStatus};
-use crate::protocol::{ErrorCode, ProtocolError, Request, Response};
+use crate::protocol::{ErrorCode, OkResponse, ProtocolError, Request, Response};
 use crate::test_path;
 
 const ROOT: &str = test_path!("/work/a");
@@ -75,6 +75,40 @@ async fn status_answers_no_repo_outside_a_repository() {
     let wire = serde_json::to_value(status.unwrap_or_else(|e| panic!("{e}")))
         .unwrap_or_else(|e| panic!("{e}"));
     assert_eq!(wire, json!({"type": "git.no_repo"}));
+}
+
+#[tokio::test]
+async fn init_sets_up_a_repository_once_and_says_so() {
+    let f = fixture().await;
+    *f.git.status.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    let mut rx = f.core.subscribe();
+    let init = call(&f.core, git("init", json!({}))).await;
+    assert_eq!(init, Ok(Response::Ok(OkResponse::Ok)));
+    let event = serde_json::to_value(rx.try_recv().unwrap_or_else(|e| panic!("{e}")))
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(
+        event,
+        json!({"type": "fs.git_changed", "data": {"project": "p1"}})
+    );
+    let status = call(&f.core, git("status", json!({}))).await;
+    assert!(
+        matches!(status, Ok(Response::Git(GitResponse::Status(_)))),
+        "{status:?}"
+    );
+    // Already a repository: refused, and nothing announced.
+    assert_eq!(
+        code(&f.core, git("init", json!({}))).await,
+        ErrorCode::Conflict
+    );
+    assert!(rx.try_recv().is_err());
+    assert_eq!(
+        f.git.calls(),
+        [
+            format!("init {ROOT} "),
+            format!("status {ROOT} "),
+            format!("init {ROOT} ")
+        ]
+    );
 }
 
 #[tokio::test]

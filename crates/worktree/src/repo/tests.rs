@@ -2,6 +2,7 @@
 //! commands per test.
 
 use std::fs;
+use std::path::PathBuf;
 
 use ovra_core::protocol::ErrorCode;
 use ovra_core::protocol::git::{GitChange, GitOperation, GitRev, Hunk};
@@ -155,6 +156,33 @@ async fn outside_a_repository_status_is_none_and_the_rest_not_found() {
     assert_eq!(ok(g.status(dir.path().to_path_buf()).await), None);
     assert_eq!(
         code(g.log(dir.path().to_path_buf(), 5).await),
+        ErrorCode::NotFound
+    );
+}
+
+#[tokio::test]
+async fn init_sets_up_a_repository_only_where_there_is_none() {
+    let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+    let g = GitRepo::new();
+    let root = dir.path().join("proj");
+    put(&root, "a.txt", "a\n");
+    // A project root may come with a trailing slash.
+    ok(g.init(PathBuf::from(format!("{}/", root.display()))).await);
+    let status = ok(g.status(root.clone()).await).unwrap_or_else(|| panic!("no repo"));
+    assert_eq!((status.head, status.files.len()), (None, 1));
+
+    assert_eq!(code(g.init(root.clone()).await), ErrorCode::Conflict);
+    fs::create_dir(root.join("sub")).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(code(g.init(root.join("sub")).await), ErrorCode::Conflict);
+    assert!(!root.join("sub/.git").exists());
+
+    // A `.git` git cannot read is left alone.
+    let broken = dir.path().join("broken");
+    put(&broken, ".git", "not a gitfile\n");
+    assert_eq!(code(g.init(broken.clone()).await), ErrorCode::Conflict);
+    assert_eq!(read(&broken, ".git").as_deref(), Some("not a gitfile\n"));
+    assert_eq!(
+        code(g.init(dir.path().join("gone")).await),
         ErrorCode::NotFound
     );
 }

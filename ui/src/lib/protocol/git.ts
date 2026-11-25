@@ -21,6 +21,12 @@ export type Hunk = {
 export type GitRequest =
   /** Answers `git.no_repo` when the project is not in a git repository. */
   | { method: "git.status"; params: { project: ProjectId } }
+  /**
+   * `git init` in the project folder: no commit, no remote, nothing fetched.
+   * A person's action, not an agent tool. `conflict` when it is already in a
+   * git repository or has a `.git` of its own. Emits `fs.git_changed`.
+   */
+  | { method: "git.init"; params: { project: ProjectId } }
   /** Adds the working-tree version of `paths` (new, changed or deleted) to the index. */
   | { method: "git.stage"; params: { project: ProjectId; paths: string[] } }
   /** Puts `paths` in the index back as in HEAD; the working tree is not touched. */

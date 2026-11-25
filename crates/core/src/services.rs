@@ -1070,6 +1070,10 @@ pub struct Taken {
 pub trait GitService: Send + Sync + Debug {
     /// `None` when `root` is not in a git repository.
     fn status(&self, root: PathBuf) -> BoxFuture<'_, Result<Option<RepoStatus>>>;
+    /// `git init` in `root`, nothing more: no commit, no remote. `Conflict`
+    /// when `root` is already in a repository or has a `.git` of its own;
+    /// finding that out never reads the folder's files.
+    fn init(&self, root: PathBuf) -> BoxFuture<'_, Result<()>>;
     fn stage(&self, root: PathBuf, paths: Vec<RelPath>) -> BoxFuture<'_, Result<()>>;
     fn unstage(&self, root: PathBuf, paths: Vec<RelPath>) -> BoxFuture<'_, Result<()>>;
     /// Applies `hunk` (from [`GitService::diff`] of `path`) to the index,
@@ -1123,6 +1127,9 @@ impl Unavailable {
 
 impl GitService for Unavailable {
     fn status(&self, _: PathBuf) -> BoxFuture<'_, Result<Option<RepoStatus>>> {
+        self.later()
+    }
+    fn init(&self, _: PathBuf) -> BoxFuture<'_, Result<()>> {
         self.later()
     }
     fn stage(&self, _: PathBuf, _: Vec<RelPath>) -> BoxFuture<'_, Result<()>> {
