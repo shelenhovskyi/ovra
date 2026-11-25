@@ -86,15 +86,23 @@ impl Permissions {
         })
     }
 
-    /// Makes a taken request pending again, in its place, unless its agent
-    /// stopped waiting meanwhile.
-    pub(crate) fn put_back(&self, taken: Taken) {
+    /// Makes a taken request pending again, in its place, while its
+    /// session is `live`; otherwise denies it, as an ended session's
+    /// requests are. `true` if it is pending again: not when denied, nor
+    /// when its agent stopped waiting meanwhile.
+    pub(crate) fn put_back(&self, taken: Taken, live: bool) -> bool {
+        if !live {
+            let ended = PermissionAnswer::deny("the session ended");
+            let _ = taken.tx.send((ended, DecidedBy::SessionEnded));
+            return false;
+        }
         if taken.tx.is_closed() {
-            return;
+            return false;
         }
         let mut state = lock(&self.state);
         let at = taken.at.min(state.pending.len());
         state.pending.insert(at, (taken.request, taken.tx));
+        true
     }
 
     /// Removes a request nobody waits for any more. `false` if it was not pending.

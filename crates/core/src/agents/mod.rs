@@ -228,6 +228,29 @@ impl Sessions {
         }))
     }
 
+    /// Makes a request taken for "Always allow" pending again, and says so
+    /// anew, so a client that reloaded meanwhile still shows it. Under the
+    /// sessions' lock: a request of a session that stopped or ended since
+    /// it was taken, which the stop could not deny, is denied and resolved
+    /// instead.
+    pub(crate) fn put_back(&self, taken: permissions::Taken, sink: &EventSink) {
+        let request = taken.request.clone();
+        let list = lock(&self.list);
+        let live = list
+            .iter()
+            .any(|s| s.info.id == request.session && !s.stopping && !s.info.status.is_ended());
+        let pending = self.permissions.put_back(taken, live);
+        drop(list);
+        if pending {
+            sink.emit(PermissionsEvent::Requested(Box::new(request)));
+        } else {
+            sink.emit(PermissionsEvent::Resolved {
+                id: request.id,
+                decision: Decision::Deny,
+            });
+        }
+    }
+
     /// Whether a session that writes the main checkout of `project` runs:
     /// a direct session other than a coordinator, which only reads.
     pub(crate) fn direct_writer(&self, project: &ProjectId) -> bool {

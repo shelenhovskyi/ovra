@@ -437,7 +437,7 @@ pub(crate) fn answer_always(
     drop(setting);
     if let Some(refused) = refused {
         // Still pending, for an Allow once or a Deny.
-        permissions.put_back(taken);
+        core.sessions().put_back(taken, &core.sink());
         return Err(refused);
     }
     let decision = answer.decision;

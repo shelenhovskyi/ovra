@@ -623,7 +623,10 @@ rules for each project:
     longer pending.
   - It refuses with `bad_request` when the request offers no rule or a deny
     or ask rule matches the call by then. The request then stays pending
-    for Allow once or Deny.
+    for Allow once or Deny, announced again with `permissions.requested`
+    so a client that reloaded meanwhile still shows it. If its session
+    stopped or ended while the request was taken, it is denied and
+    resolved instead.
   - A rule with the same tool, match, action and `exact` already in the
     policy, wherever it came from, is not added again.
 - For a Bash rule the card says beside the action: "Runs what this

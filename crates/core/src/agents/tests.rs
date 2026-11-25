@@ -9,7 +9,9 @@ use crate::protocol::agents::{
     AgentMessage, AgentStatus, AgentsEvent, AgentsResponse, SessionInfo, TurnUsage,
 };
 use crate::protocol::agents::{ProjectAgentConfig, ProjectConfigReview, SetupState};
-use crate::protocol::permissions::{PermissionAnswer, PermissionsEvent, PermissionsResponse};
+use crate::protocol::permissions::{
+    PermissionAnswer, PermissionId, PermissionsEvent, PermissionsResponse,
+};
 use crate::protocol::projects::{Project, ProjectsEvent, ProjectsResponse};
 use crate::protocol::terminals::{TerminalsEvent, TerminalsResponse};
 use crate::protocol::{ErrorCode, Event, ProtocolError, Request, Response};
@@ -259,6 +261,61 @@ async fn an_ended_session_drops_its_permission_requests() {
         resolved |= matches!(event, Event::Permissions(PermissionsEvent::Resolved { .. }));
     }
     assert!(resolved, "the dropped request was not resolved");
+}
+
+#[tokio::test]
+async fn a_request_put_back_is_announced_again_or_denied_once_its_session_ended() {
+    let core = core_with(ScriptedAgent::default());
+    project(&core).await;
+    ok(&core, start("x")).await;
+    let host = host(&core);
+    let mut rx = core.subscribe();
+    let asking = tokio::spawn({
+        let host = host.clone();
+        async move { host.ask("Bash".into(), json!({}), None, None).await }
+    });
+    until(&mut rx, AgentStatus::WaitingForApproval).await;
+    let sessions = core.inner_sessions();
+    let id = PermissionId(pending_id(&core).await);
+    let take = || {
+        sessions
+            .permissions
+            .take(&id)
+            .unwrap_or_else(|| panic!("{id:?} is not pending"))
+    };
+    let events = |rx: &mut broadcast::Receiver<Event>| {
+        let mut seen = Vec::new();
+        while let Ok(event) = rx.try_recv() {
+            match event {
+                Event::Permissions(PermissionsEvent::Requested(r)) => {
+                    seen.push(("requested", r.id))
+                }
+                Event::Permissions(PermissionsEvent::Resolved { id, .. }) => {
+                    seen.push(("resolved", id));
+                }
+                _ => {}
+            }
+        }
+        seen
+    };
+
+    // Taken, as "Always allow" does, and put back: pending and announced again.
+    sessions.put_back(take(), &core.sink());
+    assert_eq!(pending_id(&core).await, id.0);
+    assert_eq!(events(&mut rx), [("requested", id.clone())]);
+
+    // The session ends while the request is taken: its end cannot deny it,
+    // so putting it back does.
+    let taken = take();
+    host.status(AgentStatus::Stopped);
+    sessions.put_back(taken, &core.sink());
+    let answer = asking.await.unwrap_or_else(|e| panic!("ask panicked: {e}"));
+    assert_eq!(answer.message.as_deref(), Some("the session ended"));
+    match ok(&core, json!({"method": "permissions.pending"})).await {
+        Response::Permissions(PermissionsResponse::Pending(p)) => assert!(p.is_empty()),
+        other => panic!("unexpected {other:?}"),
+    }
+    assert_eq!(events(&mut rx), [("resolved", id)]);
 }
 
 /// A host for session s1 of p1, to report as a runtime would.
