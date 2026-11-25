@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
@@ -28,6 +28,11 @@ async function openProject(page: Page, prefix: string): Promise<void> {
   await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
   await projects.getByRole("button", { name: "Open", exact: true }).click();
   await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();
+}
+
+/** The text of `path`, or `null` while it does not exist. */
+function readIfThere(path: string): string | null {
+  return existsSync(path) ? readFileSync(path, "utf8") : null;
 }
 
 /** Opens a new git repository with README.md committed; returns its folder. */
@@ -282,9 +287,11 @@ test("reply to an agent, allow with the mouse and stop it while it waits", async
   await expect(audit).toBeHidden();
 });
 
-test("a task's coordinator splits the work among three workers whose diffs wait for review", async ({ page }) => {
+// The phase 3 gate (3.E): a task, three workers, three diffs in Reviews; keep
+// one, discard one, comment on one.
+test("a task's three workers wait in Reviews to be kept, discarded or sent back", async ({ page }) => {
   // Workers need a git repository for their worktrees.
-  await openGitProject(page, "ovra-agents-task-");
+  const dir = await openGitProject(page, "ovra-agents-task-");
 
   await page.getByRole("textbox", { name: "Give Claude a task" }).fill("Write the notes");
   await page.getByTestId("agent-mode").click();
@@ -322,6 +329,41 @@ test("a task's coordinator splits the work among three workers whose diffs wait 
     await expect(item.getByRole("list", { name: "Changed files" })).toContainText("NOTES.md");
     await expect(item.getByTestId("inbox-diff")).toContainText("Notes from a worker.");
   }
+
+  const item = inbox.getByTestId("inbox-item");
+  const pick = async (worker: string) => {
+    await items.filter({ hasText: worker }).click();
+    await expect(item.getByRole("heading", { level: 3 })).toContainText(worker);
+  };
+  // Keep the docs worker's notes: they land in the main checkout.
+  await pick("docs");
+  await item.getByRole("button", { name: "Keep changes" }).click();
+  await expect.poll(() => readIfThere(join(dir, "NOTES.md"))).toBe("Notes from a worker.\n");
+
+  // Discard the tests worker's notes, after the confirmation.
+  await pick("tests");
+  await item.getByRole("button", { name: "Discard…" }).click();
+  await item.getByRole("button", { name: "Discard the changes" }).click();
+  // A decision moves on to the next open item; the decided ones say how.
+  await pick("docs");
+  await expect(item.locator(".state")).toHaveText("Kept");
+  await pick("tests");
+  await expect(item.locator(".state")).toHaveText("Discarded");
+  await expect.poll(() => readIfThere(join(dir, "NOTES.md"))).toBe("Notes from a worker.\n");
+
+  // Send the lint worker back with a comment; its rework shows in the same
+  // review once the person allows the write.
+  await pick("lint");
+  await item.getByRole("textbox", { name: "Comment to the agent" }).fill("Say what lint checks.");
+  await item.getByRole("button", { name: /^Send comment/ }).click();
+  await expect(item.getByRole("textbox", { name: "Comment to the agent" })).toHaveValue("");
+  const rework = approvals.getByRole("group", { name: "Write NOTES.md" });
+  await expect(rework).toBeVisible();
+  await arm(page);
+  await rework.getByRole("button", { name: "Allow" }).click();
+  await expect(item).toContainText("Agent's summary: Reworked NOTES.md.");
+  await expect(item.getByTestId("inbox-diff")).toContainText("Notes reworked after your comment.");
+  await expect(item.locator(".state")).toHaveText("Waiting for review");
 });
 
 test("a direct session's protected files and git hooks need a look before approve", async ({ page }) => {

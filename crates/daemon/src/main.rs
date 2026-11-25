@@ -246,7 +246,8 @@ fn agents(args: &Args) -> Arc<dyn AgentRuntime> {
     ]];
     turns.extend(std::iter::repeat_with(reply).take(20));
     // A task: the coordinator starts three workers, and each writes its notes
-    // (after an approval) and asks for review.
+    // (after an approval) and asks for review; a comment on the review has it
+    // rewrite them and ask again.
     let spawn = |name: &str| Step::Use {
         tool: "mcp__ovra__spawn_agent",
         input: serde_json::json!({ "name": name, "task": format!("Write the {name} notes.") }),
@@ -258,16 +259,28 @@ fn agents(args: &Args) -> Arc<dyn AgentRuntime> {
         spawn("lint"),
         Step::Say("Three workers are on it."),
     ]];
-    let worker = vec![vec![
-        Step::Use {
-            tool: "Write",
-            input: serde_json::json!({ "file_path": "NOTES.md", "content": "Notes from a worker.\n" }),
-        },
-        Step::Use {
-            tool: "mcp__ovra__request_review",
-            input: serde_json::json!({ "summary": "Wrote NOTES.md." }),
-        },
-    ]];
+    let worker = vec![
+        vec![
+            Step::Use {
+                tool: "Write",
+                input: serde_json::json!({ "file_path": "NOTES.md", "content": "Notes from a worker.\n" }),
+            },
+            Step::Use {
+                tool: "mcp__ovra__request_review",
+                input: serde_json::json!({ "summary": "Wrote NOTES.md." }),
+            },
+        ],
+        vec![
+            Step::Use {
+                tool: "Write",
+                input: serde_json::json!({ "file_path": "NOTES.md", "content": "Notes reworked after your comment.\n" }),
+            },
+            Step::Use {
+                tool: "mcp__ovra__request_review",
+                input: serde_json::json!({ "summary": "Reworked NOTES.md." }),
+            },
+        ],
+    ];
     let script = ScriptedAgent::new(turns)
         .for_role(ovra_core::services::ToolRole::Coordinator, coordinator)
         .for_role(ovra_core::services::ToolRole::Worker, worker)
