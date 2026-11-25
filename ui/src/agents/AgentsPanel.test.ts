@@ -171,9 +171,22 @@ describe("AgentsPanel", () => {
 
   it("starts a session in the open project and streams its transcript", async () => {
     const core = await setup();
+    const form = () => target.querySelector<HTMLFormElement>("form.new");
+    const shape = () => [
+      form()?.classList.contains("compact"),
+      target.querySelector("#agent-prompt")?.getAttribute("rows"),
+    ];
+    expect(shape()).toEqual([false, "3"]);
     type(target.querySelector("#agent-prompt"), "Fix the typo\nin README.md");
     modEnter();
     await settle();
+    // With a task to watch: the tasks come first (in reading order too),
+    // then the setup cards, then a shorter form.
+    const setupCard = target.querySelector("[data-testid=agents-panel] > :not(h2, h3, ul, p)");
+    const order = (a: Element | null, b: Element | null) => a?.compareDocumentPosition(b as Node);
+    expect(order(target.querySelector("#sessions-heading"), setupCard)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(order(setupCard, form())).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(shape()).toEqual([true, "2"]);
     expect(core.sent("agents.start").map((c) => c.params)).toEqual([
       { project: "p1", agent: "claude", mode: "direct", account: null, prompt: "Fix the typo\nin README.md" },
     ]);
@@ -350,6 +363,16 @@ describe("AgentsPanel", () => {
       "Task step Message a worker Text: x",
     ]);
     expect(target.querySelector("[data-testid=transcript] li.user_text details")?.hasAttribute("open")).toBe(false);
+    // Its worker asked for review: the task says so, next to a way there.
+    core.reviews = [{ ...review("s2", [file("NOTES.md", "agent")]), mode: "isolated" }];
+    core.emit({ type: "review.changed", data: { project: "p1", id: "rs2" } });
+    await settle();
+    expect(target.querySelector("[data-testid=agent-reviews]")?.textContent?.replace(/\s+/g, " ").trim()).toBe(
+      "1 change waits for your review. Review",
+    );
+    // A worker's files are in its own worktree: no diff of the project folder.
+    selectRow("docs · Write the notes");
+    expect(target.querySelector("[data-testid=agent-changes]")).toBeNull();
   });
 
   it("replies only when the agent waits, and stops", async () => {
@@ -532,38 +555,6 @@ describe("AgentsPanel", () => {
     await settle();
     expect(changes()).toBeNull();
     off();
-  });
-
-  it("says how many of a split task's changes wait in Reviews", async () => {
-    const core = new FakeAgentCore();
-    core.addSession("p1", "Write the notes", { state: "idle" });
-    core.addSession("p1", "Write the docs notes.", { state: "idle" });
-    core.addSession("p1", "Write the test notes.", { state: "idle" });
-    const worker = (session: string, name: string) => ({
-      session,
-      name,
-      branch: `ovra/t1/${name}`,
-      worktree: `/wt/${name}`,
-      kept: null,
-    });
-    core.tasks.push({
-      id: "t1",
-      project: "p1",
-      coordinator: "s1",
-      workers: [worker("s2", "docs"), worker("s3", "tests")],
-      limits: { max_workers: 3, budget_micro_usd: null },
-      spent_micro_usd: 0,
-    });
-    core.reviews = [review("s3", [file("NOTES.md", "agent")]), review("s2", [file("NOTES.md", "agent")])];
-    await setup(core);
-    selectRow("Task: Write the notes");
-    await settle();
-    expect(target.querySelector("[data-testid=agent-reviews]")?.textContent?.replace(/\s+/g, " ").trim()).toBe(
-      "2 changes wait for your review. Review",
-    );
-    // A worker's files are in its own worktree: no diff of the project folder.
-    selectRow("docs · Write the notes");
-    expect(target.querySelector("[data-testid=agent-changes]")).toBeNull();
   });
 });
 

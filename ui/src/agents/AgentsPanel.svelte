@@ -63,6 +63,8 @@ const messages = $derived(current ? sessions.transcripts.get(current.id) : undef
 const chips = $derived(current ? picks.of(current.id) : []);
 const sandbox = $derived(current ? sandboxLine(sandboxState(current), isEnded(current.status)) : null);
 const gaps = $derived(current ? sandboxGaps(sandboxState(current), isEnded(current.status)) : null);
+/** The project has tasks: the column shows them first. */
+const working = $derived(list.length > 0);
 const modeHint = $derived(MODES.find((m) => m.id === mode)?.hint);
 /** A direct session's own files once its turn is over; a worker's live in its worktree, so Reviews shows them. */
 const changed = $derived(
@@ -241,11 +243,41 @@ const canReply = $derived(current !== null && current.status.state === "idle");
   {:else if list.length === 0}
     <p class="intro" data-testid="agents-empty">Give Claude a task. It asks before risky steps.</p>
   {/if}
+  <!-- Once the project has tasks the column is a working view: the tasks
+       come first, the setup cards (one line each once done) and a short form
+       follow. They stay mounted, so their state survives the first task. -->
+  {#if project && working}
+    <h3 id="sessions-heading">Tasks</h3>
+    <ul class="sessions" aria-labelledby="sessions-heading">
+      {#each list as session (session.id)}
+        {@const role = sessions.roles.get(session.id)}
+        {@const badge = sandboxBadge(sandboxState(session))}
+        <li>
+          <button
+            type="button"
+            class:worker={role?.kind === "worker"}
+            aria-current={session.id === current?.id ? "true" : undefined}
+            title={role?.kind === "worker"
+              ? `Branch ${role.branch}${role.kept ? `. Its folder was kept: ${role.kept}` : ""}`
+              : undefined}
+            onclick={() => (selected = session.id)}
+          >
+            <span class="title">{sessions.name(session.id)}</span>
+            {#if badge}
+              <span class="badge" class:unsandboxed={badge.warning} data-testid="agent-sandbox-badge">{badge.text}</span>
+            {/if}
+            <span class="state" data-state={session.status.state}>{sessions.status(session.id)}</span>
+          </button>
+        </li>
+      {/each}
+    </ul>
+  {/if}
   <ClaudeSetup />
   {#if project}
     <ProjectTrust />
     <form
       class="new"
+      class:compact={working}
       onsubmit={(event) => {
         event.preventDefault();
         void start();
@@ -254,7 +286,7 @@ const canReply = $derived(current !== null && current.status.state === "idle");
       <label for="agent-prompt" class="ask">What should Claude do?</label>
       <textarea
         id="agent-prompt"
-        rows="3"
+        rows={working ? 2 : 3}
         placeholder="e.g. Fix the failing login test"
         bind:this={promptField}
         bind:value={prompt}
@@ -288,32 +320,6 @@ const canReply = $derived(current !== null && current.status.state === "idle");
     {#if error}
       <p class="error" role="alert">{error}</p>
     {/if}
-    {#if list.length > 0}
-      <h3 id="sessions-heading">Tasks</h3>
-      <ul class="sessions" aria-labelledby="sessions-heading">
-        {#each list as session (session.id)}
-          {@const role = sessions.roles.get(session.id)}
-          {@const badge = sandboxBadge(sandboxState(session))}
-          <li>
-            <button
-              type="button"
-              class:worker={role?.kind === "worker"}
-              aria-current={session.id === current?.id ? "true" : undefined}
-              title={role?.kind === "worker"
-                ? `Branch ${role.branch}${role.kept ? `. Its folder was kept: ${role.kept}` : ""}`
-                : undefined}
-              onclick={() => (selected = session.id)}
-            >
-              <span class="title">{sessions.name(session.id)}</span>
-              {#if badge}
-                <span class="badge" class:unsandboxed={badge.warning} data-testid="agent-sandbox-badge">{badge.text}</span>
-              {/if}
-              <span class="state" data-state={session.status.state}>{sessions.status(session.id)}</span>
-            </button>
-          </li>
-        {/each}
-      </ul>
-    {/if}
     {#if current}
       <div class="detail" data-testid="agent-session">
         <div class="row">
@@ -345,7 +351,6 @@ const canReply = $derived(current !== null && current.status.state === "idle");
         {#if gaps}
           <p class="status" data-testid="agent-sandbox-gaps">{gaps}</p>
         {/if}
-        <Transcript messages={messages ?? []} billing={current.billing} {workerName} />
         {#if changed.length > 0}
           <!-- One agent here changes the folder itself: what it changed, each
                file's diff one press away, and where to keep or undo it. -->
@@ -370,6 +375,7 @@ const canReply = $derived(current !== null && current.status.state === "idle");
             <button type="button" onclick={openReviews}>Review</button>
           </div>
         {/if}
+        <Transcript messages={messages ?? []} billing={current.billing} {workerName} />
         {#if !isEnded(current.status)}
           <form
             class="reply"
@@ -650,6 +656,12 @@ const canReply = $derived(current !== null && current.status.state === "idle");
   .new .hint {
     margin: 0;
   }
+  /* With tasks to watch, the form is one field and one row; the mode's
+     explanation shows while the person uses the form. */
+  .new.compact:not(:focus-within) #agent-mode-hint {
+    display: none;
+  }
+
   .modes {
     display: flex;
     margin: 4px 0 0;
