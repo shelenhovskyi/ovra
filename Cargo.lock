@@ -3386,6 +3386,7 @@ name = "ovra-app"
 version = "0.1.0"
 dependencies = [
  "ovra-agent-runtime",
+ "ovra-browser",
  "ovra-core",
  "ovra-fs-index",
  "ovra-lsp",
@@ -3437,6 +3438,7 @@ dependencies = [
  "axum",
  "clap",
  "ovra-agent-runtime",
+ "ovra-browser",
  "ovra-core",
  "ovra-fs-index",
  "ovra-lsp",

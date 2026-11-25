@@ -11,7 +11,7 @@ use anyhow::Context;
 use clap::Parser;
 use ovra_agent_runtime::ClaudeCli;
 use ovra_core::Core;
-use ovra_core::services::{AgentRuntime, DevServers, LanguageServers, Secrets};
+use ovra_core::services::{AgentRuntime, Browser, DevServers, LanguageServers, Secrets};
 use ovra_fs_index::FsIndex;
 use ovra_mcp_server::IdeServer;
 use ovra_opener::SystemOpener;
@@ -110,15 +110,9 @@ async fn serve() -> anyhow::Result<()> {
         .netproxy(Arc::new(ovra_netproxy::NetProxies::from_env(secrets)?))
         .lsp(language_servers(&args))
         .agents(agents(&args))
-        .dev_servers(dev_servers);
-    #[cfg(feature = "fake-agent")]
-    let core = if args.fake_browser {
-        tracing::warn!("using the fake agent browser");
-        core.browser(Arc::new(fake_browser()))
-    } else {
-        core
-    };
-    let core = core.build();
+        .dev_servers(dev_servers)
+        .browser(agent_browser(&args))
+        .build();
     let app = ws::router(
         core,
         Access {
@@ -137,6 +131,27 @@ async fn serve() -> anyhow::Result<()> {
         })
         .await?;
     Ok(())
+}
+
+#[cfg(not(feature = "fake-agent"))]
+fn agent_browser(args: &Args) -> Arc<dyn Browser> {
+    chromium(args)
+}
+
+/// With the fake agent, `--fake-browser` gives a browser that starts nothing.
+#[cfg(feature = "fake-agent")]
+fn agent_browser(args: &Args) -> Arc<dyn Browser> {
+    if !args.fake_browser {
+        return chromium(args);
+    }
+    tracing::warn!("using the fake agent browser");
+    Arc::new(fake_browser())
+}
+
+/// The user's Chromium found on `PATH`, in the sandbox; never downloaded.
+fn chromium(args: &Args) -> Arc<dyn Browser> {
+    let sandbox = ovra_sandbox::for_this_os(&args.data_dir);
+    Arc::new(ovra_browser::ChromiumBrowser::new(sandbox, None))
 }
 
 #[cfg(not(feature = "fake-agent"))]

@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use ovra_agent_runtime::ClaudeCli;
+use ovra_browser::ChromiumBrowser;
 use ovra_core::services::Secrets;
 use ovra_core::{Client, Core};
 use ovra_fs_index::FsIndex;
@@ -66,6 +67,10 @@ fn main() {
                 .dev_servers(Arc::new(PodServers::new(
                     ovra_sandbox::for_this_os(&data_dir),
                     servers_dir.clone(),
+                )))
+                .browser(Arc::new(ChromiumBrowser::new(
+                    ovra_sandbox::for_this_os(&data_dir),
+                    None,
                 )))
                 .build();
             app.manage(ServersDir(servers_dir));
