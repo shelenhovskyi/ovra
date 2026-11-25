@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use tokio::sync::broadcast;
 
-use super::review;
+use super::{overlap, review};
 use crate::Core;
 use crate::protocol::Event;
 use crate::protocol::agents::{SessionId, SessionMode};
@@ -106,6 +106,7 @@ async fn forward(
                 id: entry.id,
             });
         }
+        overlap::check(&core, &session).await;
         drop(core);
         tokio::time::sleep(EVERY).await;
         due = false;

@@ -10,6 +10,7 @@
 
 pub(crate) mod direct;
 mod ide;
+mod overlap;
 mod policy;
 mod review;
 mod saved;
@@ -72,6 +73,10 @@ struct State {
     holds: BTreeSet<SessionId>,
     /// Workers whose worktree is watched while they run ([`watch`]).
     watches: BTreeSet<SessionId>,
+    /// Each worker's changed paths as [`overlap`] last saw them; not saved.
+    changed: BTreeMap<SessionId, BTreeSet<String>>,
+    /// Worker pairs and paths [`overlap`] already told of; not saved.
+    overlaps: BTreeSet<((SessionId, SessionId), String)>,
     /// Places a person's starts took while their sessions are set up
     /// ([`slots::reserve`]); not saved.
     reserved: BTreeMap<ProjectId, usize>,
@@ -163,6 +168,11 @@ pub(crate) fn on_status(core: &Core, session: &SessionId, status: &AgentStatus) 
     }
     // It may have made room for a queued worker.
     slots::start_queued(core, &project);
+    // A finished turn may have changed files another worker changed too.
+    if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+        let (core, session) = (core.clone(), session.clone());
+        runtime.spawn(async move { overlap::check(&core, &session).await });
+    }
     // A finished turn or session may have changed files or spent money.
     let (review, task) = {
         let state = state.lock();

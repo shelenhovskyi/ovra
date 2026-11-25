@@ -190,6 +190,16 @@ fn find(core: &Core, task: &TaskId) -> Result<Entry> {
         .ok_or_else(|| not_found(format!("task {}", task.0)))
 }
 
+/// The task `worker` works for.
+pub(super) fn of_worker(core: &Core, worker: &SessionId) -> Option<Entry> {
+    core.orchestration_state()
+        .lock()
+        .tasks
+        .iter()
+        .find(|t| t.workers.iter().any(|w| &w.session == worker))
+        .cloned()
+}
+
 /// Tells a worker's coordinator, as its next message, that something
 /// happened to the worker it may want to act on, so a coordinator that ended
 /// its turn wakes up. Only Ovra's own words: nothing a worker wrote is

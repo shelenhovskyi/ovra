@@ -2898,3 +2898,69 @@ async fn the_saved_limit_holds_after_a_restart_and_a_wrong_one_is_the_default() 
         assert_eq!(capacity(&f.core).await.limit, want);
     }
 }
+
+#[tokio::test]
+async fn workers_changing_the_same_file_hear_of_it_once() {
+    let bash = Step::Use {
+        tool: "Bash",
+        input: json!({"command": "make"}),
+    };
+    let f = fx(vec![vec![Step::Say("on it")], vec![bash]]).await;
+    let mut rx = f.core.subscribe();
+    start_task(&f.core, 3).await;
+    until(&mut rx, "s1", AgentStatus::Idle).await;
+    let boss = caller("s1", ToolRole::Coordinator);
+    let mut trees = Vec::new();
+    for (session, name) in [("s2", "lint"), ("s3", "docs")] {
+        let worker = f.core.spawn_agent(&boss, name, "x", false).await;
+        let worker = worker.unwrap_or_else(|e| panic!("{e}"));
+        until(&mut rx, session, AgentStatus::Idle).await;
+        trees.push(worker.worktree);
+    }
+    f.wt.put(&trees[0], "NOTES.md", "lint\n");
+    f.wt.put(&trees[0], "lint.rs", "lint\n");
+    f.wt.put(&trees[1], "NOTES.md", "docs\n");
+    // lint is working (its command waits for the person); docs waits idle.
+    assert!(f.core.send_message(&boss, &sid("s2"), "go on").is_ok());
+    until(&mut rx, "s2", AgentStatus::WaitingForApproval).await;
+    super::overlap::check(&f.core, &sid("s2")).await;
+    super::overlap::check(&f.core, &sid("s3")).await;
+    super::overlap::check(&f.core, &sid("s2")).await;
+
+    let notes = |session: &'static str| {
+        let core = f.core.clone();
+        async move {
+            transcript(&core, session)
+                .await
+                .into_iter()
+                .filter_map(|m| match m {
+                    AgentMessage::UserText {
+                        text,
+                        from: MessageFrom::Ovra,
+                    } if text.contains("changed NOTES.md") => Some(text),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        }
+    };
+    let boss_notes = notes("s1").await;
+    assert_eq!(boss_notes.len(), 1, "told once: {boss_notes:?}");
+    // Either worker's look may find it first.
+    let told = &boss_notes[0];
+    assert!(
+        told.starts_with("Ovra: Workers lint and docs both changed NOTES.md.")
+            || told.starts_with("Ovra: Workers docs and lint both changed NOTES.md."),
+        "{told}"
+    );
+    assert!(
+        told.contains("agent_ids are s2 and s3") || told.contains("agent_ids are s3 and s2"),
+        "{told}"
+    );
+    let lint = notes("s2").await;
+    assert_eq!(lint.len(), 1, "{lint:?}");
+    assert!(
+        lint[0].starts_with("Ovra: Worker docs of your task also changed NOTES.md."),
+        "{lint:?}"
+    );
+    assert!(notes("s3").await.is_empty(), "an idle worker is not woken");
+}
