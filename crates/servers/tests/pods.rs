@@ -295,6 +295,24 @@ async fn a_server_that_ignores_term_is_killed_after_the_grace() {
 }
 
 #[tokio::test]
+async fn waiting_for_a_pod_lasts_until_its_process_ended() {
+    let mut s = setup();
+    let work = s.work.path().to_owned();
+    // No pod runs: nothing to wait for.
+    s.servers.pod_ended(work.clone()).await;
+    s.start("srv", "echo up; exec sleep 5", free_port(), None)
+        .expect("start");
+    s.until("srv out up").await;
+    let data = s.data.path().to_owned();
+    assert_eq!(entries(&data).len(), 1);
+    s.servers
+        .stop(&ServerId("srv".into()), Duration::from_secs(5));
+    s.servers.pod_ended(work).await;
+    // Its folder goes last, once its process has ended.
+    assert_eq!(entries(&data), Vec::<PathBuf>::new());
+}
+
+#[tokio::test]
 async fn dropping_the_servers_ends_their_pods() {
     let mut s = setup();
     s.start("srv", "echo $$; exec sleep 5", free_port(), None)

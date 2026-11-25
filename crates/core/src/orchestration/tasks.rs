@@ -572,7 +572,14 @@ pub(super) async fn clean_up(core: &Core, project: &ProjectId) {
         }
         let dir = PathBuf::from(&worker.worktree);
         let worktrees = core.worktrees();
-        let (removed, kept) = match review::settled(core, &worker.session).await {
+        let settled = match review::settled(core, &worker.session).await {
+            // Its pod holds the worktree until it ended; retried next time.
+            Some(base) if crate::servers::worktree_stopped(core, &worker.session).await => {
+                Some(base)
+            }
+            _ => None,
+        };
+        let (removed, kept) = match settled {
             None => (false, None),
             Some(base) => match worktrees.remove(root.clone(), dir, Vec::new()).await {
                 Ok(()) => {

@@ -407,14 +407,29 @@ fn stop_worktree(core: &Core, session: &SessionId) -> Vec<ServerId> {
     ids
 }
 
-/// Ends the servers of a worker's worktree before its changes are applied,
-/// so nothing writes it meanwhile. False if one still runs after its grace.
+/// Ends the servers of a worker's worktree, then waits for its pod to end,
+/// before its changes are applied or the worktree goes, so nothing writes
+/// or holds it meanwhile. False if a server or the pod still runs then.
 pub(crate) async fn worktree_stopped(core: &Core, session: &SessionId) -> bool {
     for id in stop_worktree(core, session) {
         let limit = DEFAULT_GRACE + STOP_SLACK;
         match wait(core, &id, limit, |e| !e.running()).await {
             Ok(info) if !ended(&info.status) => return false,
             _ => {}
+        }
+    }
+    let servers = core.dev_servers();
+    let dirs: std::collections::BTreeSet<PathBuf> = servers
+        .lock()
+        .servers
+        .iter()
+        .filter(|e| e.place.session.as_ref() == Some(session))
+        .map(|e| e.place.dir.clone())
+        .collect();
+    for dir in dirs {
+        let ended = servers.dev.pod_ended(dir);
+        if tokio::time::timeout(STOP_SLACK, ended).await.is_err() {
+            return false;
         }
     }
     true

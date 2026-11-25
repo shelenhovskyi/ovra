@@ -16,6 +16,7 @@ use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _, AsyncWriteExt as _, Buf
 use tokio::process::Child;
 use tokio::runtime::Handle;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
+use tokio::sync::watch;
 
 use crate::control::{Event, LISTENING, Lines, MAX_CONTROL_LINE, Request, Sig, Spawn, encode};
 use crate::init::POD_FLAG;
@@ -45,6 +46,10 @@ pub(crate) struct Pods {
 #[derive(Default)]
 struct State {
     pods: BTreeMap<PathBuf, Pod>,
+    /// Every pod whose process may still run, by its folder: its work dir,
+    /// and a receiver that closes once it ended. A pod leaves `pods` with
+    /// its last server, before its process exits.
+    alive: BTreeMap<PathBuf, (PathBuf, watch::Receiver<()>)>,
     /// Names spawns in the control protocol.
     spawns: u64,
 }
@@ -177,9 +182,15 @@ impl Pods {
         let name = state.spawns.to_string();
         let spawn = Spawn::new(name.clone(), &server.line, server.port)
             .map_err(|e| ProtocolError::new(ErrorCode::BadRequest, e))?;
+        let state = &mut *state;
         let target = match state.pods.entry(pod.work_dir.clone()) {
             std::collections::btree_map::Entry::Occupied(e) => e.into_mut(),
-            std::collections::btree_map::Entry::Vacant(e) => e.insert(self.open(&runtime, pod)?),
+            std::collections::btree_map::Entry::Vacant(e) => {
+                let (opened, alive) = self.open(&runtime, pod)?;
+                let entry = (pod.work_dir.clone(), alive);
+                state.alive.insert(opened.dir.clone(), entry);
+                e.insert(opened)
+            }
         };
         let _ = target.control.send(Request::Spawn(spawn));
         let running = Running {
@@ -193,8 +204,9 @@ impl Pods {
         Ok(())
     }
 
-    /// A new pod for `spec.work_dir`, its pod-init started.
-    fn open(&self, runtime: &Handle, spec: &PodSpec) -> Result<Pod> {
+    /// A new pod for `spec.work_dir`, its pod-init started, and the
+    /// receiver that closes once it ended.
+    fn open(&self, runtime: &Handle, spec: &PodSpec) -> Result<(Pod, watch::Receiver<()>)> {
         if !crate::socket_paths_fit(&self.dir) {
             return Err(internal(crate::too_long(&self.dir).to_string()));
         }
@@ -209,14 +221,16 @@ impl Pods {
         let (control, requests) = unbounded_channel();
         let work_dir = spec.work_dir.clone();
         let state = self.state.clone();
+        let (done, alive) = watch::channel(());
         let at = (work_dir, dir.clone(), sockets.clone());
-        runtime.spawn(drive(state, at, child, requests));
-        Ok(Pod {
+        runtime.spawn(drive(state, at, child, requests, done));
+        let pod = Pod {
             dir,
             sockets,
             control,
             servers: BTreeMap::new(),
-        })
+        };
+        Ok((pod, alive))
     }
 
     fn launch(&self, runtime: &Handle, spec: &PodSpec, dir: &Path) -> Result<Child> {
@@ -262,6 +276,20 @@ impl Pods {
             tokio::time::sleep(grace).await;
             signal(&state, Sig::Kill, |n, _| *n == name);
         });
+    }
+
+    /// Waits until every pod of `work_dir` that runs now has ended.
+    pub(crate) async fn ended(&self, work_dir: PathBuf) {
+        let alive: Vec<watch::Receiver<()>> = lock(&self.state)
+            .alive
+            .values()
+            .filter(|(w, _)| *w == work_dir)
+            .map(|(_, ended)| ended.clone())
+            .collect();
+        for mut ended in alive {
+            // Closed when its driver is done; nothing is ever sent.
+            while ended.changed().await.is_ok() {}
+        }
     }
 
     pub(crate) async fn connect(&self, work_dir: PathBuf, port: u16) -> Result<PodConn> {
@@ -342,6 +370,7 @@ async fn drive(
     (work_dir, dir, sockets): (PathBuf, PathBuf, Arc<Sockets>),
     mut child: Child,
     requests: UnboundedReceiver<Request>,
+    done: watch::Sender<()>,
 ) {
     let at = (work_dir.as_path(), dir.as_path(), &sockets);
     let reason = run(&state, at, &mut child, requests).await;
@@ -361,6 +390,9 @@ async fn drive(
         let _ = child.kill().await;
     }
     let _ = std::fs::remove_dir_all(&dir);
+    lock(&state).alive.remove(&dir);
+    // Wakes those waiting in `ended`.
+    drop(done);
 }
 
 /// Returns why the pod ended, if it ended before its servers.
@@ -570,6 +602,7 @@ mod tests {
         };
         let state = Mutex::new(State {
             pods: BTreeMap::from([(PathBuf::from("/w"), pod)]),
+            alive: BTreeMap::new(),
             spawns: 2,
         });
         // The grace of the stop of spawn 1 runs out after the restart.

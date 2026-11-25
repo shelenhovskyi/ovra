@@ -100,7 +100,10 @@ The person defines servers in `.ovra/servers.json` in the project:
   pod does not outlive the worker: every server of its worktree is
   stopped when the worker's session ends, and before its review is
   approved or its files are copied over the person's (`review.take`), so
-  nothing writes the worktree while its changes land.
+  nothing writes the worktree while its changes land. Both, and removing
+  the worktree once its task ended, wait for the pod's process to exit
+  too (`DevServers::pod_ended`); a pod that has not after 5 s refuses the
+  step, which is tried again later.
 - **Pod-init.** A pod's first process is Ovra itself in pod mode
   (`<ovra> --ovra-pod <pod dir>`, `ovra_servers::pod_init_if_asked`). It
   prints `ovra-pod: listening` once `<pod dir>/control.sock` listens,

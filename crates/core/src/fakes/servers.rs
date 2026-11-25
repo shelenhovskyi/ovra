@@ -1,6 +1,6 @@
 //! [`FakeDevServers`]: servers that run nothing; tests drive their reports.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -17,6 +17,8 @@ use crate::services::{
 /// a server ended by SIGTERM does; [`FakeDevServers::report`] sends any
 /// other report. `connect` hands out the connections tests queued with
 /// [`FakeDevServers::serve`] for a running server's work dir and port.
+/// A pod ends with its last server, unless a test keeps it with
+/// [`FakeDevServers::hold_pod`].
 #[derive(Default)]
 pub struct FakeDevServers {
     /// When set, `start` fails with `unavailable`.
@@ -30,6 +32,9 @@ pub struct FakeDevServers {
     /// up to the one it names is reported as started.
     pub setup_end: Mutex<Option<SetupEnd>>,
     queued: Mutex<BTreeMap<(PathBuf, u16), Vec<PodConn>>>,
+    held: Mutex<BTreeSet<PathBuf>>,
+    /// Bumped whenever a server or a held pod ends.
+    changed: tokio::sync::watch::Sender<u64>,
 }
 
 /// One running fake server.
@@ -61,6 +66,17 @@ impl FakeDevServers {
             .push(conn);
     }
 
+    /// Keeps the pod of `work_dir` running after its last server, as a
+    /// process that is slow to exit would, until [`Self::release_pod`].
+    pub fn hold_pod(&self, work_dir: impl Into<PathBuf>) {
+        lock(&self.held).insert(work_dir.into());
+    }
+
+    pub fn release_pod(&self, work_dir: &std::path::Path) {
+        lock(&self.held).remove(work_dir);
+        self.changed.send_modify(|n| *n += 1);
+    }
+
     /// Reports `status` for the running server's current generation; an
     /// ended status removes it. Returns whether it was running.
     pub fn report(&self, id: &ServerId, status: ServerStatus) -> bool {
@@ -80,6 +96,9 @@ impl FakeDevServers {
             return false;
         };
         server.sink.status(id, server.spec.generation, status);
+        if ended {
+            self.changed.send_modify(|n| *n += 1);
+        }
         true
     }
 
@@ -161,6 +180,21 @@ impl DevServers for FakeDevServers {
         }
         lock(&self.setups).push((pod.clone(), steps));
         Box::pin(async move { Ok(end) })
+    }
+
+    fn pod_ended(&self, work_dir: PathBuf) -> BoxFuture<'_, ()> {
+        Box::pin(async move {
+            let mut changed = self.changed.subscribe();
+            loop {
+                let runs = lock(&self.held).contains(&work_dir)
+                    || lock(&self.running)
+                        .values()
+                        .any(|s| s.pod.work_dir == work_dir);
+                if !runs || changed.changed().await.is_err() {
+                    return;
+                }
+            }
+        })
     }
 }
 
