@@ -276,7 +276,10 @@ pub(crate) fn always_rule(
         "Edit" | "Write" => {
             let path = inside(work_dir, Path::new(text("file_path")?))?;
             let special = path.contains(['*', '?', '[', ':']);
-            let kept = special || crate::protected::changes(&path, None) || runs_commands(&path);
+            let kept = special
+                || short_name(&path)
+                || crate::protected::changes(&path, None)
+                || runs_commands(&path);
             (!kept).then_some(path)?
         }
         "WebFetch" => {
@@ -355,6 +358,17 @@ fn runs_commands(path: &str) -> bool {
         parts.len() > folder.len() && parts.iter().zip(&folder).all(|(p, f)| p == f)
     });
     in_git || named || folder
+}
+
+/// Whether a part of `path` may be a Windows 8.3 short name, such as
+/// `PACKAG~1.JSO` for `package.json`: `~` and a digit. Such a name may
+/// stand for any file, those the checks above keep out too.
+fn short_name(path: &str) -> bool {
+    path.split(['/', '\\']).any(|part| {
+        part.as_bytes()
+            .windows(2)
+            .any(|w| w[0] == b'~' && w[1].is_ascii_digit())
+    })
 }
 
 /// The names the shell may find for a command's first word: without

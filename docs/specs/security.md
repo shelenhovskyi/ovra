@@ -601,7 +601,9 @@ rules for each project:
   - `Edit` and `Write`: the exact file, relative to `work_dir`. Not offered
     outside it, for protected or review-marked paths, for names with glob
     characters, for any path with a `.git` part (in any case, with
-    trailing dots or spaces, or as `git~1`), or for files that say what
+    trailing dots or spaces, or as `git~1`), for any path with a part that
+    may be a Windows 8.3 short name (`~` and a digit, as in
+    `PACKAG~1.JSO`, which may stand for any file), or for files that say what
     commands run: `package.json`, `Makefile`, `GNUmakefile`, `build.rs`,
     `Cargo.toml`, `pyproject.toml`, `setup.py`, `.npmrc`, `justfile`,
     `.envrc`, `lefthook.yml`, `.pre-commit-config.yaml`, `Rakefile` (by
