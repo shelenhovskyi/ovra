@@ -2,6 +2,7 @@
 // The commit box: a message, "Amend last commit" and Commit. Mod+Enter
 // anywhere in the box commits. Commit says why it waits; a hook's output is shown
 // when the commit fails, and a short line names the commit when it is made.
+import { tick } from "svelte";
 import { formatShortcut, isApple } from "../keys/shortcut";
 import type { RepoStatus } from "../lib/protocol";
 import type { GitModel } from "./model.svelte";
@@ -20,11 +21,16 @@ const why = $derived.by(() => {
   return null;
 });
 
+/** Blanks the reason for a moment, so that its live region reads it out again. */
+let repeating = $state(false);
+
 async function commit(): Promise<void> {
   if (model.busy) return;
   if (why) {
-    // Mod+Enter from the message: say why nothing happened.
-    model.notice = why;
+    // Mod+Enter from the message: say why nothing happened, where it shows.
+    repeating = true;
+    await tick();
+    repeating = false;
     return;
   }
   if (await model.commit(text.trim(), amend)) {
@@ -72,9 +78,17 @@ function onkeydown(event: KeyboardEvent): void {
     aria-describedby={why ? "git-commit-why" : undefined}
     onclick={commit}>{amend ? "Amend commit" : "Commit"}</button
   >
-  {#if why}
-    <p class="hint" id="git-commit-why">{why}</p>
-  {/if}
+  <!-- Each message shows once, here, and is read out from here. -->
+  <div class="said" role="status">
+    {#if why}
+      <p class="hint" id="git-commit-why">{repeating ? "" : why}</p>
+    {/if}
+    {#if model.committed && model.error?.scope !== "commit"}
+      <p class="ok" data-testid="git-committed">
+        Committed {model.committed.commit.id.slice(0, 7)}: {model.committed.commit.summary}
+      </p>
+    {/if}
+  </div>
   {#if model.error?.scope === "commit"}
     <div class="error" role="alert" data-testid="git-commit-error">
       <p>{model.error.message}</p>
@@ -83,9 +97,6 @@ function onkeydown(event: KeyboardEvent): void {
       {/if}
     </div>
   {:else if model.committed}
-    <p class="ok" data-testid="git-committed">
-      Committed {model.committed.commit.id.slice(0, 7)}: {model.committed.commit.summary}
-    </p>
     {#if model.committed.output.trim()}
       <details>
         <summary>Output of git and hooks</summary>
@@ -119,6 +130,10 @@ function onkeydown(event: KeyboardEvent): void {
     border: 1px solid #3a3a44;
     border-radius: 3px;
     resize: vertical;
+  }
+  textarea::placeholder {
+    /* 4.7:1 on the field. */
+    color: #8a8a96;
   }
   textarea:focus-visible,
   input:focus-visible,

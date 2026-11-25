@@ -250,7 +250,8 @@ export class GitModel {
           params: { project: this.project, message: text, amend },
         });
         this.committed = reply.data;
-        this.notice = `${amend ? "Amended" : "Committed"} ${reply.data.commit.id.slice(0, 7)}: ${reply.data.commit.summary}`;
+        // The commit box shows and reads out which commit it made.
+        this.notice = "";
       },
       null,
       (err) =>

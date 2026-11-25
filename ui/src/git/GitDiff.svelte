@@ -6,7 +6,7 @@
 // It is the selected tab while it shows: Escape and the close-tab shortcut
 // close it, next / previous tab go to the file tabs, and closing puts focus
 // back on the panel row it was opened from.
-import { tick } from "svelte";
+import { tick, untrack } from "svelte";
 import { focusMain, show, tabs } from "../editor/open-files.svelte";
 import { listCommands } from "../keys/commands";
 import { inBrowserTab, isApple, liveKeys, matchesShortcut, parseShortcut } from "../keys/shortcut";
@@ -32,6 +32,12 @@ let heading = $state<HTMLElement>();
 let view = $state<HTMLElement>();
 /** The hunk whose button was pressed, to keep focus there once the diff reloads. */
 let refocus: number | null = null;
+/** This file and side had changes since it was chosen, and so may run out of them. */
+let hadHunks = false;
+/** The side switched by itself: focus stays where the person works. */
+let followed = false;
+/** The file had staged changes when last seen in the status. */
+let wasStaged = $state(false);
 
 /** The diff shown: the latest load of this file and side; an older one stays up while it reloads. */
 const shown = $derived(loaded?.key.startsWith(which) ? loaded : null);
@@ -80,11 +86,43 @@ $effect(() => {
   };
 });
 
-// A newly chosen file or side: start at the top, with focus on the heading.
+// A newly chosen file or side: start at the top, with focus on the heading
+// unless the diff followed the file by itself.
 $effect(() => {
   void which;
   shownLines = PAGE;
-  void tick().then(() => heading?.focus());
+  hadHunks = false;
+  if (followed) followed = false;
+  else void tick().then(() => heading?.focus());
+});
+
+$effect(() => {
+  if (hunks.length > 0) hadHunks = true;
+  if (file) wasStaged = file.staged !== null;
+});
+
+// The side shown ran out of changes (all staged, or all unstaged): follow
+// the file to the side that has them.
+$effect(() => {
+  if (!shown?.data || shown.data.binary || hunks.length > 0 || !hadHunks) return;
+  const other = target.staged ? file?.unstaged : file?.staged;
+  if (!other) return;
+  untrack(() => {
+    followed = true;
+    announcement = target.staged
+      ? "No staged changes are left in this file: showing its unstaged changes."
+      : "All changes in this file are staged: showing them.";
+    workspace.gitDiff = { ...target, staged: !target.staged };
+  });
+});
+
+/** What an empty diff says: a file with no changes left says where they went, when known. */
+const emptyText = $derived.by(() => {
+  if (file) return target.staged ? "No staged changes in this file." : "No unstaged changes in this file.";
+  const made = model?.committed?.commit;
+  return wasStaged && made
+    ? `No changes left in this file: they were committed as ${made.id.slice(0, 7)} (${made.summary}).`
+    : "No changes left in this file.";
 });
 
 /** After staging a hunk, focus the button now in its place, or the heading when none is left. */
@@ -166,16 +204,29 @@ $effect(() => {
   return () => document.removeEventListener("keydown", onkeydown);
 });
 
-/** Old and new line numbers of each line of `hunk`. */
-function numbered(hunk: Hunk): { text: string; kind: string; old: number | null; new: number | null }[] {
+type Line = { sign: string; text: string; kind: string; old: number | null; new: number | null; said: string };
+
+/**
+ * Old and new line numbers of each line of `hunk`, its sign apart from its
+ * text, and what a screen reader says before an added or removed line (a
+ * leading "+" or "-" is often not read out).
+ */
+function numbered(hunk: Hunk): Line[] {
   let old = hunk.old_start;
   let now = hunk.new_start;
-  return hunk.lines.map((text) => {
-    const sign = text[0];
-    if (sign === "+") return { text, kind: "added", old: null, new: now++ };
-    if (sign === "-") return { text, kind: "removed", old: old++, new: null };
-    if (sign === "\\") return { text, kind: "note", old: null, new: null };
-    return { text, kind: "context", old: old++, new: now++ };
+  return hunk.lines.map((line) => {
+    const sign = line.slice(0, 1);
+    const text = line.slice(1);
+    if (sign === "+") {
+      const at = now++;
+      return { sign, text, kind: "added", old: null, new: at, said: `added line ${at}: ` };
+    }
+    if (sign === "-") {
+      const at = old++;
+      return { sign, text, kind: "removed", old: at, new: null, said: `removed line ${at}: ` };
+    }
+    if (sign === "\\") return { sign: "", text: line, kind: "note", old: null, new: null, said: "" };
+    return { sign, text, kind: "context", old: old++, new: now++, said: "" };
   });
 }
 
@@ -212,7 +263,7 @@ const range = (hunk: Hunk) =>
   {:else if shown.data?.binary}
     <p class="hint">Binary file: there is no text diff to show.</p>
   {:else if hunks.length === 0}
-    <p class="hint">{target.staged ? "No staged changes in this file." : "No unstaged changes in this file."}</p>
+    <p class="hint" data-testid="git-diff-empty">{emptyText}</p>
   {:else}
     {#if noHunks}
       <p class="hint" data-testid="git-diff-no-hunks">{noHunks}</p>
@@ -243,7 +294,8 @@ const range = (hunk: Hunk) =>
               <div class="line {line.kind}">
                 <span class="num" aria-hidden="true">{line.old ?? ""}</span>
                 <span class="num" aria-hidden="true">{line.new ?? ""}</span>
-                <span class="text">{line.text}</span>
+                {#if line.said}<span class="visually-hidden">{line.said}</span>{/if}
+                <span class="text"><span class="sign" aria-hidden="true">{line.sign}</span>{line.text}</span>
               </div>
             {/each}
           </div>
