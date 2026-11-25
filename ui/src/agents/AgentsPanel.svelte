@@ -658,12 +658,6 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
       <Icon name="shield-alert" small />{unsandboxed}
     </p>
   {/if}
-  {#if approvals.pending.length > 0 && !hints.has("answered")}
-    <!-- Said once, before the first answer; outside the approvals, which keep their room. -->
-    <p class="first-approval" data-testid="approval-hint">
-      Allow lets Claude do this one step. Deny stops it and Claude tries another way.
-    </p>
-  {/if}
 
   {#if !project}
     <p class="intro">Open a project to start an agent.</p>
@@ -1341,12 +1335,6 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
   }
   .hint {
     padding: 0 8px;
-  }
-  .first-approval {
-    flex: none;
-    padding: 0 16px 6px;
-    font-size: 13px;
-    color: var(--text-2);
   }
   .no-sandbox {
     flex: none;

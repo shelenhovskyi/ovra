@@ -750,6 +750,8 @@ describe("AgentsPanel", () => {
     await settle();
     // One line: the field alone; the list and the requests keep the room.
     expect(form()?.classList.contains("folded")).toBe(true);
+    // The card explains itself: no extra Allow/Deny line takes the column's room.
+    expect(target.querySelector("[data-testid=approval-hint]")).toBeNull();
     expect(field()?.rows).toBe(1);
     expect(startButton()).toBeUndefined();
     field()?.focus();
