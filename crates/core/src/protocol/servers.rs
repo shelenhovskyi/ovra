@@ -117,6 +117,10 @@ pub enum ServersRequest {
         #[serde(default)]
         work_dir: Option<SessionId>,
     },
+    /// Every server started in the project, in any work dir: the main
+    /// checkout and each worker's worktree. Answers `servers.overview`.
+    #[serde(rename = "servers.overview")]
+    Overview { project: ProjectId },
     /// Starts a defined server. Answers `servers.server`.
     #[serde(rename = "servers.start")]
     Start {
@@ -158,6 +162,8 @@ pub enum ServersRequest {
 pub enum ServersResponse {
     #[serde(rename = "servers.list")]
     List(ServerList),
+    #[serde(rename = "servers.overview")]
+    Overview { servers: Vec<ServerInfo> },
     #[serde(rename = "servers.server")]
     Server(ServerInfo),
     #[serde(rename = "servers.logs")]
@@ -239,6 +245,7 @@ mod tests {
                     servers: vec![info.clone()],
                     error: None,
                 })),
+                Response::Servers(ServersResponse::Overview { servers: vec![info.clone()] }),
                 Response::Servers(ServersResponse::Server(ServerInfo {
                     status: ServerStatus::Failed { reason: "port 5173 is taken".into() },
                     started_by: StartedBy::Person,
@@ -270,6 +277,7 @@ mod tests {
     fn every_request_round_trips() {
         let requests = [
             serde_json::json!({"method": "servers.list", "params": {"project": "p1", "work_dir": "s1"}}),
+            serde_json::json!({"method": "servers.overview", "params": {"project": "p1"}}),
             serde_json::json!({"method": "servers.start", "params": {"project": "p1", "name": "web", "work_dir": null}}),
             serde_json::json!({"method": "servers.stop", "params": {"id": "srv1", "grace_ms": null}}),
             serde_json::json!({"method": "servers.restart", "params": {"id": "srv1"}}),

@@ -1,6 +1,6 @@
 ---
 source: crates/core/src/protocol/servers.rs
-expression: "serde_json::json!({\n    \"requests\":\n    [Request::Servers(ServersRequest::List\n    { project: ProjectId(\"p1\".into()), work_dir: None }),\n    Request::Servers(ServersRequest::Stop { id: id(), grace_ms: Some(1000) }),\n    Request::Servers(ServersRequest::Logs\n    {\n        id: id(), since: Some(6), limit: Some(100), grep: Some(\"error\".into())\n    }),], \"responses\":\n    [Response::Servers(ServersResponse::List(ServerList\n    {\n        definitions:\n        vec![def, ServerDef\n        {\n            name: \"api\".into(), command: vec![\"cargo\".into(), \"run\".into()],\n            cwd: None, env: BTreeMap::new(), port: 8080, ready: None,\n        }], servers: vec![info.clone()], error: None,\n    })),\n    Response::Servers(ServersResponse::Server(ServerInfo\n    {\n        status: ServerStatus::Failed { reason: \"port 5173 is taken\".into() },\n        started_by: StartedBy::Person, work_dir: None, ..info\n    })),\n    Response::Servers(ServersResponse::Logs(LogPage\n    { lines: vec![line.clone()], next: 7 })),\n    Response::Servers(ServersResponse::Opened\n    { url: \"http://127.0.0.1:5173/\".into() }),], \"events\":\n    [Event::from(ServersEvent::Status\n    {\n        id: id(), project: ProjectId(\"p1\".into()), status:\n        ServerStatus::Exited { code: Some(1) }, generation: 2,\n    }), Event::from(ServersEvent::Output { id: id(), lines: vec![line] }),],\n    \"audit\":\n    [AuditEvent::ServerStarted\n    {\n        server: id(), name: \"web\".into(), generation: 2, by: StartedBy::Person\n    }, AuditEvent::ServerStopped\n    { server: id(), name: \"web\".into(), generation: 2, code: None },\n    AuditEvent::LoopbackGranted { server: id(), port: 5173, generation: 2 },\n    AuditEvent::LoopbackRevoked { server: id(), port: 5173, generation: 2 },],\n})"
+expression: "serde_json::json!({\n    \"requests\":\n    [Request::Servers(ServersRequest::List\n    { project: ProjectId(\"p1\".into()), work_dir: None }),\n    Request::Servers(ServersRequest::Stop { id: id(), grace_ms: Some(1000) }),\n    Request::Servers(ServersRequest::Logs\n    {\n        id: id(), since: Some(6), limit: Some(100), grep: Some(\"error\".into())\n    }),], \"responses\":\n    [Response::Servers(ServersResponse::List(ServerList\n    {\n        definitions:\n        vec![def, ServerDef\n        {\n            name: \"api\".into(), command: vec![\"cargo\".into(), \"run\".into()],\n            cwd: None, env: BTreeMap::new(), port: 8080, ready: None,\n        }], servers: vec![info.clone()], error: None,\n    })),\n    Response::Servers(ServersResponse::Overview\n    { servers: vec![info.clone()] }),\n    Response::Servers(ServersResponse::Server(ServerInfo\n    {\n        status: ServerStatus::Failed { reason: \"port 5173 is taken\".into() },\n        started_by: StartedBy::Person, work_dir: None, ..info\n    })),\n    Response::Servers(ServersResponse::Logs(LogPage\n    { lines: vec![line.clone()], next: 7 })),\n    Response::Servers(ServersResponse::Opened\n    { url: \"http://127.0.0.1:5173/\".into() }),], \"events\":\n    [Event::from(ServersEvent::Status\n    {\n        id: id(), project: ProjectId(\"p1\".into()), status:\n        ServerStatus::Exited { code: Some(1) }, generation: 2,\n    }), Event::from(ServersEvent::Output { id: id(), lines: vec![line] }),],\n    \"audit\":\n    [AuditEvent::ServerStarted\n    {\n        server: id(), name: \"web\".into(), generation: 2, by: StartedBy::Person\n    }, AuditEvent::ServerStopped\n    { server: id(), name: \"web\".into(), generation: 2, code: None },\n    AuditEvent::LoopbackGranted { server: id(), port: 5173, generation: 2 },\n    AuditEvent::LoopbackRevoked { server: id(), port: 5173, generation: 2 },],\n})"
 ---
 {
   "audit": [
@@ -132,6 +132,28 @@ expression: "serde_json::json!({\n    \"requests\":\n    [Request::Servers(Serve
         ]
       },
       "type": "servers.list"
+    },
+    {
+      "data": {
+        "servers": [
+          {
+            "generation": 2,
+            "id": "srv1",
+            "name": "web",
+            "port": 5173,
+            "project": "p1",
+            "started_by": {
+              "kind": "agent",
+              "session": "s1"
+            },
+            "status": {
+              "state": "ready"
+            },
+            "work_dir": "s1"
+          }
+        ]
+      },
+      "type": "servers.overview"
     },
     {
       "data": {

@@ -193,6 +193,8 @@ server the person starts themselves.
 ### Protocol (`servers.*`)
 
 - `servers.list { project, work_dir? }` -> definitions and running servers.
+- `servers.overview { project }` -> every server started in the project,
+  in any work dir.
 - `servers.start { project, name, work_dir? }`, `servers.stop { id, grace_ms? }`,
   `servers.restart { id }`.
 - `servers.logs { id, since?, limit?, grep? }` -> lines and `next`.

@@ -545,6 +545,29 @@ async fn a_workers_servers_end_before_its_changes_land_and_with_it() {
     assert_eq!(running.ok(), Some(true));
 }
 
+#[tokio::test]
+async fn the_overview_lists_every_work_dirs_servers() {
+    let f = fx().await;
+    coordinator_and_worker(&f).await;
+    let main = person_starts(&f, "web").await;
+    let own = starts_in(&f, "web", Some("s2")).await;
+    let own = own.unwrap_or_else(|e| panic!("{e}"));
+    let overview = json!({"method": "servers.overview", "params": {"project": "p1"}});
+    let Response::Servers(ServersResponse::Overview { servers }) = ok(&f.core, overview).await
+    else {
+        panic!("not an overview");
+    };
+    let seen: Vec<_> = servers
+        .iter()
+        .map(|s| (&s.id, s.work_dir.as_ref()))
+        .collect();
+    let worker = SessionId("s2".into());
+    assert_eq!(seen, [(&main.id, None), (&own.id, Some(&worker))]);
+    let other = json!({"method": "servers.overview", "params": {"project": "nope"}});
+    let refused = call(&f.core, other).await.err().map(|e| e.code);
+    assert_eq!(refused, Some(ErrorCode::NotFound));
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_worktree_counts_as_stopped_only_once_its_pod_ended() {
     let f = fx().await;
