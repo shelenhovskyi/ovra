@@ -45,10 +45,12 @@ impl Root {
     fn show(&self, line: &CommandLine) -> String {
         let root = self.0.display().to_string();
         let key = project_key(&self.0);
-        let sid = project_sid(&self.0.join("projects/app"));
+        let app = real(&self.0.join("projects").join("app")).unwrap();
+        let (dir, sid) = (project_dir(&app), project_sid(&app));
         let clean = |s: &OsStr| {
             s.to_string_lossy()
                 .replace(&sid, "SID")
+                .replace(&dir, "PROJECT")
                 .replace(&key, "-ROOT")
                 .replace(&root, "ROOT")
                 .replace(':', ";")
@@ -222,6 +224,16 @@ fn each_folder_has_its_own_sid_and_keeps_it() {
     let a = project_sid(Path::new("C:/work/a"));
     assert_eq!(a, project_sid(Path::new("C:/work/a")));
     assert_ne!(a, project_sid(Path::new("C:/work/b")));
+    assert_eq!(a, project_sid(Path::new("C:/WORK/A")));
+    // One key, three folders: each its own SID and folders.
+    let names = ["C:/w/a-b", "C:/w/a b", "C:/w/a/b"].map(Path::new);
+    assert_eq!(project_key(names[0]), project_key(names[1]));
+    for (i, x) in names.iter().enumerate() {
+        for y in &names[i + 1..] {
+            assert_ne!(project_sid(x), project_sid(y));
+            assert_ne!(project_dir(x), project_dir(y));
+        }
+    }
     assert!(
         a.starts_with("S-1-5-21-") && a.split('-').count() == 8,
         "{a}"
@@ -244,4 +256,29 @@ fn a_helper_installed_in_the_home_folder_can_be_started() {
     let plan = Plan::new(&setup, &profile, &claude).unwrap();
     let folder = root.0.join("home/AppData/Local/Programs/Ovra");
     assert!(plan.grants.contains(&(folder, Right::ReadExecute)));
+}
+
+#[test]
+fn secret_folders_stay_hidden_whatever_the_case_of_their_name() {
+    let root = Root::new("case-secret");
+    let work = root.dir("projects/app");
+    let claude = root.file("sys/bin/claude.exe");
+    let tools = root.dir("home/.SSH/bin");
+    let setup = root.setup(&["home/.SSH/bin", "sys/bin"]);
+    let profile = SandboxProfile {
+        work_dir: work,
+        read: Vec::new(),
+        write: Vec::new(),
+        network: ProfileNetwork::Blocked,
+    };
+    let plan = Plan::new(&setup, &profile, &claude).unwrap();
+    assert!(plan.grants.iter().all(|(p, _)| !p.starts_with(&tools)));
+    let home_claude = root.dir("home/.Claude/x");
+    let profile = SandboxProfile {
+        work_dir: home_claude,
+        read: Vec::new(),
+        write: Vec::new(),
+        network: ProfileNetwork::Blocked,
+    };
+    assert!(Plan::new(&setup, &profile, &claude).is_err());
 }

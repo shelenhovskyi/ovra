@@ -223,7 +223,7 @@ impl Plan {
         }
         for path in std::iter::once(&profile.work_dir).chain(&profile.write) {
             let path = real(path).unwrap_or_else(|_| path.clone());
-            if path.starts_with(&claude.0) || path == claude.1 {
+            if within(&path, &claude.0) || within(&path, &claude.1) {
                 return Err(invalid(format!(
                     "the sandbox does not let an agent write {}: it holds claude's settings",
                     path.display()
@@ -378,7 +378,7 @@ impl Plan {
     /// The project's own package caches and temporary folder, in Ovra's
     /// data folder.
     fn private(&mut self, setup: &Setup, work_dir: &Path) -> Result<()> {
-        let key = project_key(work_dir);
+        let key = project_dir(work_dir);
         let made = |dir: PathBuf| -> Result<PathBuf> {
             fs::create_dir_all(&dir)
                 .map_err(|e| invalid(format!("cannot make {}: {e}", dir.display())))?;
@@ -455,6 +455,13 @@ impl Plan {
     }
 }
 
+/// Whether `path` is `base` or inside it, ignoring case as Windows does:
+/// `~/.SSH` is `~/.ssh` there.
+fn within(path: &Path, base: &Path) -> bool {
+    let fold = |p: &Path| PathBuf::from(p.to_string_lossy().to_lowercase());
+    fold(path).starts_with(fold(base))
+}
+
 /// Whether two variable names are the same to Windows.
 fn same_name(a: &OsStr, b: impl AsRef<OsStr>) -> bool {
     a.eq_ignore_ascii_case(b)
@@ -462,7 +469,7 @@ fn same_name(a: &OsStr, b: impl AsRef<OsStr>) -> bool {
 
 /// Whether `path` lies in a folder of the home folder no grant reaches.
 fn never_granted(home: &Path, path: &Path) -> bool {
-    NEVER_GRANTED.iter().any(|n| path.starts_with(home.join(n)))
+    NEVER_GRANTED.iter().any(|n| within(path, &home.join(n)))
 }
 
 /// The name of `work_dir`'s folder among `claude`'s projects: every
@@ -475,25 +482,31 @@ pub(crate) fn project_key(work_dir: &Path) -> String {
         .collect()
 }
 
+/// A hash of the project's folder, its identity for Ovra: the same folder
+/// whatever the case of its name (Windows treats names so), and a
+/// different one for any other folder. [`project_key`] would not do:
+/// `a-b`, `a b` and `a/b` share a key.
+fn project_hash(work_dir: &Path) -> [u8; 32] {
+    use sha2::Digest as _;
+    let text = work_dir.to_string_lossy().to_lowercase();
+    sha2::Sha256::digest(text.as_bytes()).into()
+}
+
+/// The name of the project's own folders (caches, temp) in Ovra's data.
+pub(crate) fn project_dir(work_dir: &Path) -> String {
+    project_hash(work_dir)[..12]
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
 /// The SID that stands for one project in ACEs and in the session's
-/// token: `S-1-5-21-` and four numbers from a hash of the project's key.
-/// It names no account; only Ovra's grants mention it.
+/// token: `S-1-5-21-` and four numbers from [`project_hash`]. It names no
+/// account; only Ovra's grants mention it.
 pub(crate) fn project_sid(work_dir: &Path) -> String {
-    let key = project_key(work_dir);
-    let fnv = |seed: u64| {
-        key.bytes().fold(seed, |hash, byte| {
-            (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
-        })
-    };
-    let (a, b) = (fnv(0xcbf2_9ce4_8422_2325), fnv(0x6c62_272e_07bb_0142));
-    let part = |n: u64| n as u32;
-    format!(
-        "S-1-5-21-{}-{}-{}-{}",
-        part(a),
-        part(a >> 32),
-        part(b),
-        part(b >> 32)
-    )
+    let hash = project_hash(work_dir);
+    let part = |i: usize| u32::from_le_bytes([hash[i], hash[i + 1], hash[i + 2], hash[i + 3]]);
+    format!("S-1-5-21-{}-{}-{}-{}", part(0), part(4), part(8), part(12))
 }
 
 /// `path` with links resolved, absolute.

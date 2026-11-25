@@ -104,3 +104,41 @@ fn the_token_writes_only_what_the_plan_grants() {
     ");
     assert!(work.join(".git/config").exists());
 }
+
+#[test]
+fn grants_never_follow_a_junction_out_of_the_project() {
+    let root = Root::new("junction");
+    let work = root.0.join("work");
+    let outside = root.0.join("outside");
+    fs::create_dir_all(&work).unwrap();
+    fs::create_dir_all(&outside).unwrap();
+    // What an agent leaves behind for the next session.
+    let made = Command::new("cmd")
+        .args(["/C", "mklink", "/J"])
+        .arg(work.join("door"))
+        .arg(&outside)
+        .output()
+        .unwrap();
+    assert!(
+        made.status.success(),
+        "{}",
+        String::from_utf8_lossy(&made.stderr)
+    );
+    let sid = "S-1-5-21-1000000021-1000000022-1000000023-1000000024";
+    let work_text = work.display().to_string();
+    let out = run(
+        &work,
+        &["--sid", sid, "--m", &work_text],
+        &[
+            ("write", work.join("a.txt")),
+            ("write", outside.join("through.txt")),
+            ("write", work.join("door").join("through.txt")),
+        ],
+    );
+    let out = out.replace(&root.0.display().to_string(), "ROOT");
+    insta::assert_snapshot!(out, @r"
+    write WORK\a.txt: yes
+    write ROOT\outside\through.txt: no
+    write WORK\door\through.txt: no
+    ");
+}
