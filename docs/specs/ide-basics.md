@@ -92,7 +92,7 @@ remembered View or Edit per file type). This list only adds the menu.
 | Word wrap toggle                                                             | yes     | yes | yes       | yes    | yes (Alt+Z)                 | done                   |
 | Auto save (after delay / on focus change)                                    | yes     | yes | yes       | yes    | no                          | P1                     |
 | Font size zoom (Mod+= / Mod+-)                                               | yes     | yes | yes       | yes    | yes                         | done                   |
-| Comment line (Mod+/)                                                         | yes     | yes | yes       | yes    | check                       | P1                     |
+| Comment line (Mod+/)                                                         | yes     | yes | yes       | yes    | yes                         | done                   |
 | Code folding                                                                 | yes     | yes | yes       | yes    | no                          | P1                     |
 | Change language mode of a file                                               | yes     | yes | yes       | yes    | no                          | P2                     |
 | Indentation and line-ending switch                                           | yes     | yes | yes       | yes    | no                          | P2                     |

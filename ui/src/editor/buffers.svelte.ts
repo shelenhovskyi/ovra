@@ -25,7 +25,7 @@ import { GitFile } from "./git/file";
 import type { HighlightClient, HighlightedDoc } from "./highlight/client";
 import { treeSitterHighlighting } from "./highlight/extension";
 import type { LanguageSource } from "./highlight/protocol";
-import { type Language, languageFor, languageSource } from "./languages";
+import { commentTokens, type Language, languageFor, languageSource } from "./languages";
 import { editorPrefs } from "./prefs.svelte";
 import { theme } from "./theme";
 
@@ -401,6 +401,7 @@ export class Buffer {
       // Named, so a screen reader says which file the text box edits.
       this.label.of(this.labelExtension()),
       this.wrap.of(wrapExtension()),
+      commentData(this.language),
       theme,
       this.highlight ? treeSitterHighlighting(this.highlight) : [],
       this.server.of(this.serverExtension),
@@ -522,6 +523,12 @@ export class Buffers {
     this.unsubscribe();
     this.unsubscribeStatus();
   }
+}
+
+/** The language's comment markers, so Mod+/ comments lines (there is no CodeMirror language here, only tree-sitter). */
+function commentData(language: Language | null): Extension {
+  const tokens = commentTokens(language);
+  return tokens ? EditorState.languageData.of(() => [{ commentTokens: tokens }]) : [];
 }
 
 function wrapExtension(): Extension {

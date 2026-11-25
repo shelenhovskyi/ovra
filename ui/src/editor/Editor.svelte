@@ -3,7 +3,10 @@ import { registerContextKeys } from "../keys/context-keys";
 
 // This panel's own keys, for Settings > Keyboard; the panel handles them itself.
 registerContextKeys(
-  [{ keys: "Shift+F8", title: "Go to previous problem" }].map((key) => ({ ...key, where: "Editor" })),
+  [
+    { keys: "Mod+/", title: "Comment or uncomment lines" },
+    { keys: "Shift+F8", title: "Go to previous problem" },
+  ].map((key) => ({ ...key, where: "Editor" })),
 );
 </script>
 

@@ -37,6 +37,26 @@ export function languageFor(path: string): Language | null {
   return languages.find((l) => l.extensions.includes(ext)) ?? null;
 }
 
+/** Comment markers, as CodeMirror's comment commands take them. */
+type CommentTokens = { line?: string; block?: { open: string; close: string } };
+
+const C_STYLE: CommentTokens = { line: "//", block: { open: "/*", close: "*/" } };
+
+/** By language id; JSON has no comments. */
+const COMMENTS: Record<string, CommentTokens> = {
+  css: { block: { open: "/*", close: "*/" } },
+  javascript: C_STYLE,
+  python: { line: "#" },
+  rust: C_STYLE,
+  tsx: C_STYLE,
+  typescript: C_STYLE,
+};
+
+/** The comment markers of `language`, for Mod+/ (line comment) and block comments; null when it has none. */
+export function commentTokens(language: Language | null): CommentTokens | null {
+  return (language && COMMENTS[language.id]) ?? null;
+}
+
 /** What the highlight worker needs: the grammar URL and the query texts. */
 export async function languageSource(language: Language): Promise<LanguageSource> {
   const grammar = grammarUrls[language.grammar];

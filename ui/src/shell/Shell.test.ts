@@ -150,6 +150,7 @@ describe("Shell", () => {
         "Approvals: Escape Leave the request waiting",
         "Diffs: N Next change",
         "Diffs: P Previous change",
+        "Editor: Mod+/ Comment or uncomment lines",
         "Editor: Shift+F8 Go to previous problem",
         "Files: Enter Open the file, or keep its tab when it is shown",
         "Files: F2 Rename",
