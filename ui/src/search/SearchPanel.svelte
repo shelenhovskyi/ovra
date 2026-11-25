@@ -17,7 +17,7 @@ let {
   onopen: (path: string, at: TextSpot) => void;
 } = $props();
 
-/** Lines rendered at first and added by "Show more". */
+/** Lines rendered at first and added by "Show more lines". */
 const PAGE = 500;
 
 // svelte-ignore state_referenced_locally
@@ -54,7 +54,7 @@ const summary = $derived.by(() => {
   const found = `${plural(model.lineCount, "matching line", "matching lines")} in ${plural(model.files.length, "file", "files")}`;
   switch (status.kind) {
     case "idle":
-      return "Type to search the contents of the project's files.";
+      return "";
     case "error":
       return status.message;
     case "searching":
@@ -62,7 +62,7 @@ const summary = $derived.by(() => {
     case "done":
       if (status.stopped) return model.files.length ? `Stopped: ${found} so far.` : "Stopped.";
       if (!model.files.length) return "No results.";
-      return status.truncated ? `${found}. Stopped at the limit: narrow the search to see the rest.` : `${found}.`;
+      return status.truncated ? `${found}. Limit reached: narrow the search.` : `${found}.`;
   }
   return "";
 });
@@ -203,16 +203,16 @@ const folder = (path: string) => path.slice(0, Math.max(path.lastIndexOf("/"), 0
   {#if showFilters}
     <label>
       Files to include
-      <input type="text" placeholder="e.g. *.ts, src" spellcheck="false" bind:value={model.include} oninput={changed} />
+      <input type="text" placeholder="*.ts, src" spellcheck="false" bind:value={model.include} oninput={changed} />
     </label>
     <label>
       Files to exclude
-      <input type="text" placeholder="e.g. *.test.ts, docs" spellcheck="false" bind:value={model.exclude} oninput={changed} />
+      <input type="text" placeholder="*.test.ts, docs" spellcheck="false" bind:value={model.exclude} oninput={changed} />
     </label>
   {/if}
   <p class="summary" class:error={model.status.kind === "error"} role="status" data-testid="search-summary">{summary}</p>
   {#if visible.length > 0}
-    <p class="keys" id="search-keys">Down arrow: to the results. Escape: back here.</p>
+    <p class="keys" id="search-keys">Down arrow: results. Escape: back.</p>
   {/if}
   <!-- Arrow keys move between the result buttons inside. -->
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
@@ -252,7 +252,7 @@ const folder = (path: string) => path.slice(0, Math.max(path.lastIndexOf("/"), 0
   </ul>
   {#if model.lineCount > shownLines}
     <button type="button" class="more" onclick={() => (shownLines += PAGE)}>
-      Show more ({plural(model.lineCount - shownLines, "line", "lines")} hidden)
+      Show {plural(model.lineCount - shownLines, "more line", "more lines")}
     </button>
   {/if}
 </section>
@@ -261,11 +261,12 @@ const folder = (path: string) => path.slice(0, Math.max(path.lastIndexOf("/"), 0
   .search {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 8px;
     height: 100%;
     min-height: 0;
-    padding: 8px;
+    padding: 12px 10px 8px;
     box-sizing: border-box;
+    background: var(--s1);
   }
   .query {
     display: flex;
@@ -275,57 +276,55 @@ const folder = (path: string) => path.slice(0, Math.max(path.lastIndexOf("/"), 0
   input {
     width: 100%;
     box-sizing: border-box;
-    padding: 4px 6px;
+    padding: 6px 10px;
     font: inherit;
     color: inherit;
-    background: #1e1e24;
-    border: 1px solid #3a3a44;
-    border-radius: 3px;
+    background: var(--s3);
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
   }
   .toggles {
     display: flex;
     gap: 2px;
   }
+  /* Secondary chrome: muted until hovered or focused. */
   .toggles button {
-    min-width: 26px;
-    padding: 2px 4px;
-    font: inherit;
-    font-family: ui-monospace, monospace;
-    color: #b9b9c4;
+    min-width: 28px;
+    padding: 2px 6px;
+    font: 13px var(--mono);
+    color: var(--text-2);
     background: transparent;
-    border: 1px solid transparent;
-    border-radius: 3px;
+    border: 0;
+    border-radius: var(--radius-sm);
     cursor: pointer;
+  }
+  .toggles button:hover {
+    color: var(--text);
+    background: var(--s3);
   }
   .toggles button[aria-pressed="true"],
   .toggles button[aria-expanded="true"] {
-    color: #e6e6e6;
-    background: #2f3d5c;
-    border-color: #4a6bb0;
+    color: var(--accent);
+    background: var(--accent-soft);
   }
   label {
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    font-size: 12px;
-    color: #9a9aa6;
+    gap: 4px;
+    font-size: 13px;
+    color: var(--text-2);
   }
-  .summary {
-    margin: 0;
-    font-size: 12px;
-    color: #9a9aa6;
-  }
+  .summary,
   .keys {
     margin: 0;
-    font-size: 11px;
-    color: #9a9aa6;
+    font-size: 13px;
+    color: var(--text-2);
   }
-  input::placeholder {
-    /* 4.7:1 on the field. */
-    color: #8a8a96;
+  .summary:empty {
+    display: none;
   }
   .summary.error {
-    color: #ff6b6b;
+    color: var(--danger);
   }
   .results {
     flex: 1;
@@ -336,62 +335,64 @@ const folder = (path: string) => path.slice(0, Math.max(path.lastIndexOf("/"), 0
     list-style: none;
   }
   .results ul {
-    margin: 0;
+    margin: 0 0 6px;
     padding: 0;
     list-style: none;
   }
   .file-name {
     display: flex;
-    gap: 6px;
+    gap: 8px;
     align-items: baseline;
-    padding: 4px 2px 2px;
+    padding: 6px 4px 2px;
     white-space: nowrap;
     overflow: hidden;
   }
   .name {
-    color: #e6e6e6;
+    color: var(--text);
+    font-weight: 500;
   }
   .folder {
     flex: 1;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
-    font-size: 12px;
-    color: #9a9aa6;
+    font-size: 13px;
+    color: var(--text-2);
   }
   .count {
-    padding: 0 6px;
-    font-size: 11px;
-    border-radius: 8px;
-    background: #2a2a31;
+    padding: 0 7px;
+    font-size: 12px;
+    border-radius: 9px;
+    color: var(--text-2);
+    background: var(--s3);
   }
   .line {
     display: flex;
-    gap: 6px;
+    gap: 8px;
     width: 100%;
-    padding: 1px 2px 1px 10px;
-    font: inherit;
-    font-family: ui-monospace, monospace;
-    font-size: 12px;
+    padding: 3px 4px 3px 8px;
+    font: 13px var(--mono);
     text-align: left;
-    color: #c8c8d0;
+    color: var(--text-2);
     background: transparent;
     border: none;
+    border-radius: var(--radius-sm);
     cursor: pointer;
   }
   .line:hover,
   .line:focus-visible {
-    background: #24242c;
+    color: var(--text);
+    background: var(--s3);
   }
   .line:focus-visible {
-    outline: 1px solid #4a6bb0;
-    outline-offset: -1px;
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
   }
   .num {
     flex: none;
     min-width: 3ch;
     text-align: right;
-    color: #8a8a96;
+    color: var(--text-2);
   }
   .text {
     overflow: hidden;
@@ -399,17 +400,31 @@ const folder = (path: string) => path.slice(0, Math.max(path.lastIndexOf("/"), 0
     white-space: pre;
   }
   mark {
-    color: #ffffff;
-    background: #6b5a1e;
-    border-radius: 2px;
+    color: var(--text);
+    background: var(--warn-soft);
+    border-radius: 3px;
   }
   .more {
-    padding: 4px;
+    padding: 4px 8px;
     font: inherit;
-    color: #b9b9c4;
-    background: #24242c;
-    border: 1px solid #3a3a44;
-    border-radius: 3px;
+    color: var(--text-2);
+    background: transparent;
+    border: 0;
+    border-radius: var(--radius-sm);
     cursor: pointer;
+  }
+  .more:hover {
+    color: var(--text);
+    background: var(--s3);
+  }
+  @media (forced-colors: active) {
+    input {
+      border-color: FieldText;
+    }
+    mark {
+      forced-color-adjust: none;
+      background: Mark;
+      color: MarkText;
+    }
   }
 </style>
