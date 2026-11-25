@@ -32,6 +32,7 @@ ovra-lsp.workspace = true
 ovra-browser.workspace = true
 ovra-servers.workspace = true
 ovra-forge.workspace = true
+ovra-resources.workspace = true
 ovra-transport = { workspace = true, features = ["ws"] }
 anyhow.workspace = true
 axum.workspace = true

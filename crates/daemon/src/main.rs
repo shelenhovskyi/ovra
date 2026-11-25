@@ -11,12 +11,15 @@ use anyhow::Context;
 use clap::Parser;
 use ovra_agent_runtime::ClaudeCli;
 use ovra_core::Core;
-use ovra_core::services::{AgentRuntime, Browser, DevServers, LanguageServers, Secrets};
+use ovra_core::services::{
+    AgentRuntime, Browser, DevServers, LanguageServers, ResourceMonitor, Secrets,
+};
 use ovra_forge::GhForge;
 use ovra_fs_index::FsIndex;
 use ovra_mcp_server::IdeServer;
 use ovra_opener::SystemOpener;
 use ovra_pty::Pty;
+use ovra_resources::SysResources;
 use ovra_secrets::KeychainSecrets;
 use ovra_servers::PodServers;
 use ovra_store::Store;
@@ -114,6 +117,7 @@ async fn serve() -> anyhow::Result<()> {
         .dev_servers(dev_servers)
         .browser(agent_browser(&args))
         .forge(Arc::new(GhForge::new()))
+        .resources(resources(&args))
         .build();
     let app = ws::router(
         core,
@@ -198,6 +202,34 @@ fn language_servers(args: &Args) -> Arc<dyn LanguageServers> {
         caches,
         vec![def, missing],
     ))
+}
+
+#[cfg(not(feature = "fake-agent"))]
+fn resources(_: &Args) -> Arc<dyn ResourceMonitor> {
+    Arc::new(SysResources::new())
+}
+
+/// The fake agent's processes do not exist: each of its sessions shows
+/// the same made-up usage on a calm machine.
+#[cfg(feature = "fake-agent")]
+fn resources(args: &Args) -> Arc<dyn ResourceMonitor> {
+    use ovra_core::fakes::{FakeResources, fake_pid};
+    use ovra_core::protocol::agents::SessionId;
+    use ovra_core::protocol::resources::Usage;
+    if !args.fake_agent {
+        return Arc::new(SysResources::new());
+    }
+    let fake = FakeResources::default();
+    fake.set_system(16 << 30, 9 << 30, 18);
+    for n in 1..=50 {
+        let usage = Usage {
+            memory_bytes: (380 + 20 * u64::from(n % 5)) << 20,
+            cpu_percent: 4 + n % 7,
+            processes: 3,
+        };
+        fake.set_tree(fake_pid(&SessionId(format!("s{n}"))), usage);
+    }
+    Arc::new(fake)
 }
 
 #[cfg(not(feature = "fake-agent"))]

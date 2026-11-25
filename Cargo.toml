@@ -29,6 +29,7 @@ ovra-lsp = { path = "crates/lsp" }
 ovra-servers = { path = "crates/servers" }
 ovra-browser = { path = "crates/browser" }
 ovra-forge = { path = "crates/forge" }
+ovra-resources = { path = "crates/resources" }
 anyhow = "1"
 axum = { version = "0.8", features = ["ws"] }
 futures-util = "0.3"

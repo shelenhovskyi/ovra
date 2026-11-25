@@ -16,6 +16,7 @@ use ovra_fs_index::FsIndex;
 use ovra_mcp_server::IdeServer;
 use ovra_opener::SystemOpener;
 use ovra_pty::Pty;
+use ovra_resources::SysResources;
 use ovra_secrets::KeychainSecrets;
 use ovra_servers::PodServers;
 use ovra_store::Store;
@@ -109,6 +110,7 @@ fn main() {
                 .worktrees(Arc::new(GitWorktrees::new()))
                 .git(Arc::new(GitRepo::new()))
                 .forge(Arc::new(GhForge::new()))
+                .resources(Arc::new(SysResources::new()))
                 .worktrees_dir(data_dir.join("worktrees"))
                 .ide_tools(Arc::new(IdeServer::new()))
                 .terminals(Arc::new(Pty::new()))
