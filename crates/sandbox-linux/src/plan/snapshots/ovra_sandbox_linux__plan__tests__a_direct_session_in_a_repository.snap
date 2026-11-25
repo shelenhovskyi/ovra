@@ -150,6 +150,8 @@ NVM_DIR
 --env
 GOPATH
 --env
+OVRA_FAKE_CLAUDE_FIXTURE
+--env
 PATH
 --env
 TMPDIR

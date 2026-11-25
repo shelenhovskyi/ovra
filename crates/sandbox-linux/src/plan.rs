@@ -54,7 +54,7 @@ const CLAUDE_FILES: [&str; 2] = [".credentials.json", "history.jsonl"];
 /// amending ADR 0006). Whole names only: a prefix such as `CLAUDE_CODE_`
 /// would let `CLAUDE_CODE_OAUTH_TOKEN` through. The proxy variables,
 /// `PATH` and `TMPDIR` are set by the plan itself.
-const ENV_KEPT: [&str; 35] = [
+const ENV_KEPT: [&str; 36] = [
     "HOME",
     "USER",
     "LOGNAME",
@@ -94,6 +94,9 @@ const ENV_KEPT: [&str; 35] = [
     "RUSTUP_HOME",
     "NVM_DIR",
     "GOPATH",
+    // The recording Ovra's own stand-in for `claude` plays in e2e and UX
+    // runs: a file path, never a secret.
+    "OVRA_FAKE_CLAUDE_FIXTURE",
 ];
 
 /// Package caches builds write, relative to the home folder. Each session
