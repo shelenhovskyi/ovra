@@ -7,7 +7,7 @@ use super::transcript::MAX_TEXT_BYTES;
 use super::{AgentHost, Launch, Sessions};
 use crate::protocol::agents::{
     AgentKind, AgentMessage, AgentStatus, AgentsEvent, AgentsRequest, AgentsResponse, MessageFrom,
-    ProjectConfigReview, SessionId, SessionInfo, SessionMode, TurnUsage,
+    ProjectConfigReview, SessionId, SessionInfo, SessionMode, SetupState, TurnUsage,
 };
 use crate::protocol::audit::DecidedBy;
 use crate::protocol::permissions::{
@@ -49,10 +49,22 @@ pub(crate) async fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Resp
                     "the path must be absolute",
                 ));
             }
+            let setup = ctx.runtime.setup(path.clone().map(PathBuf::from)).await;
+            // A path that leads nowhere is not saved: it would only make every
+            // later session fail (a typo, or the name of a shell alias).
+            if let (Some(path), SetupState::NotFound) = (&path, &setup.state) {
+                return Err(ProtocolError::new(
+                    ErrorCode::BadRequest,
+                    format!(
+                        "There is no file at {path}. Choose the claude program itself; \
+                         a shell alias or function cannot be used. \
+                         `which claude` in a terminal prints its path."
+                    ),
+                ));
+            }
             let mut settings = ctx.projects.agent_settings()?;
             settings.claude_path.clone_from(&path);
             ctx.projects.set_agent_settings(settings)?;
-            let setup = ctx.runtime.setup(path.map(PathBuf::from)).await;
             Ok(Response::Agents(AgentsResponse::Setup(setup)))
         }
         AgentsRequest::ProjectConfig { project } => {

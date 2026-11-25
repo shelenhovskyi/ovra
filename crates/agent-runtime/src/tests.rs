@@ -585,13 +585,19 @@ echo '{"type":"result","subtype":"success","usage":{"input_tokens":1,"output_tok
         };
         assert_eq!(outdated.version.as_deref(), Some("2.0.1"));
         assert!(matches!(outdated.state, SetupState::Outdated { .. }));
-        let gone = dir.0.join("gone");
-        call(
-            &core,
-            json!({"method": "agents.set_path", "params": {"agent": "claude", "path": gone}}),
-        )
-        .await;
-        assert_eq!(setup(&core).await.state, SetupState::NotFound);
+        // A path that leads nowhere is refused and the saved one stays.
+        let gone = dir.0.join("claude-work");
+        let refused = core
+            .handle(serde_json::from_value::<Request>(json!({"method": "agents.set_path", "params": {"agent": "claude", "path": gone}})).unwrap_or_else(|e| panic!("{e}")))
+            .await;
+        let Err(error) = refused else {
+            panic!("unexpected {refused:?}");
+        };
+        assert!(error.message.contains("shell alias"), "{error:?}");
+        assert_eq!(
+            setup(&core).await.path,
+            Some(old.to_string_lossy().into_owned())
+        );
     }
 
     #[tokio::test]

@@ -69,7 +69,8 @@ impl std::fmt::Display for Problem {
         match self {
             Self::NotFound(Some(path)) => write!(
                 f,
-                "{} was not found. Install Claude Code or choose another path in the agent setup.",
+                "Claude could not start: there is no program at {}. In the Agents panel, \
+                 choose \"Find automatically\" or another path.",
                 path.display()
             ),
             Self::NotFound(None) => f.write_str(
