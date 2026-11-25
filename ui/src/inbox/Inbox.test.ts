@@ -74,6 +74,7 @@ describe("Inbox", () => {
     await open();
     expect($("[role=dialog]")?.getAttribute("aria-modal")).toBe("true");
     expect(document.activeElement?.getAttribute("data-item")).toBe("r1");
+    expect($("[data-item=r1]")?.classList.contains("flagged")).toBe(false);
     expect($("[data-testid=inbox-diff]")?.textContent).toContain("the readme");
     expect([...target.querySelectorAll("[data-testid=file-marker]")].map((m) => m.textContent)).toEqual([
       "Not changed by the agent's file tools",
@@ -115,6 +116,7 @@ describe("Inbox", () => {
     expect($("[data-item=r1] [data-testid=item-protected]")?.textContent).toBe(
       "2 files can run code or change agent rules",
     );
+    expect($("[data-item=r1]")?.classList.contains("flagged")).toBe(true);
     expect($("[data-testid=inbox-protected]")?.textContent).toContain(
       "Reject leaves .envrc as it is: changed outside the agent's file tools",
     );
@@ -150,6 +152,7 @@ describe("Inbox", () => {
     await open();
     expect($("[data-item=r1] [data-testid=item-git]")?.textContent).toBe("1 git hook or config file changed");
     expect($("[data-item=r1]")?.textContent).toContain("No changed files");
+    expect($("[data-item=r1]")?.classList.contains("flagged")).toBe(true);
     expect($("[data-testid=inbox-git]")?.textContent).toContain(".git/hooks/pre-commit (added)");
     expect($("[data-testid=inbox-git]")?.textContent).toContain("neither applies nor undoes them");
     expect(button(/^Approve$/)?.getAttribute("aria-describedby")).toBe("inbox-git");

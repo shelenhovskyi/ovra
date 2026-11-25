@@ -491,6 +491,7 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                   <button
                     type="button"
                     class="entry"
+                    class:flagged={protectedTag(review) !== null || gitTag(review) !== null}
                     data-item={review.id}
                     aria-current={review.id === selectedId}
                     tabindex={review.id === selectedId ? 0 : -1}
@@ -896,6 +897,10 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
     background: #2a2a38;
     box-shadow: inset 3px 0 0 #7aa2ff;
   }
+  /* Items with protected files or git changes stand out in the list. */
+  .entry.flagged {
+    border-left: 3px solid #ff8f8f;
+  }
   .entry:focus-visible {
     outline: 2px solid #7aa2ff;
     outline-offset: -2px;
@@ -1038,11 +1043,18 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
     margin: 0;
     font-size: 12px;
   }
+  /* Git hooks and config: nothing else on the item shows them. */
+  #inbox-git {
+    padding: 6px 8px;
+    border: 1px solid #ff8f8f;
+    border-radius: 3px;
+  }
   @media (forced-colors: active) {
     .entry[aria-current="true"] {
       outline: 2px solid Highlight;
     }
-    .marker {
+    .marker,
+    #inbox-git {
       border-color: CanvasText;
     }
     button[aria-disabled="true"] {
