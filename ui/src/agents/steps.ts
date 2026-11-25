@@ -31,18 +31,51 @@ function note(text: string): Note {
 const named = (names: string[]): string =>
   names.length < 2 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
 
+/** What the person did to a worker's work, as Ovra tells the coordinator, and how the person is told. */
+const BY_PERSON: [RegExp, string][] = [
+  [/^had its work approved by the person, except /, "You kept part of"],
+  [/^had its work approved by the person/, "You kept"],
+  [/^had its work rejected by the person/, "You rejected"],
+];
+
+type Said = { name: string; what: string; you: string | null };
+
+/** A note about one worker: its name, what it did, or what the person did ("You kept"). */
+function said(line: string): Said | null {
+  const match = /^Worker (\S+) (.+)$/.exec(line.replace(/\.$/, ""));
+  if (!match) return null;
+  const [, name = "", what = ""] = match;
+  return { name, what, you: BY_PERSON.find(([pattern]) => pattern.test(what))?.[1] ?? null };
+}
+
+const capital = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1);
+
+function sentence(names: string[], what: Said): string {
+  if (what.you) return `${what.you} ${named(names)}`;
+  return `${names.length > 1 ? "Workers" : "Worker"} ${named(names)} ${what.what}`;
+}
+
+/** One note's line in the person's words: "You kept lint", not "Worker lint had its work approved by the person". */
+export function noteLine(line: string): string {
+  const what = said(line);
+  return what ? sentence([what.name], what) : capital(line.replace(/\.$/, ""));
+}
+
 /**
- * Ovra's notes in a row as one line: `Workers docs, tests and lint asked
- * for review` when they say the same of several workers, else each note's
- * line.
+ * Ovra's notes in a row as one line: notes in a row that say the same of
+ * several workers become one (`Workers docs, tests and lint asked for
+ * review · You kept lint`), the others keep their own line.
  */
 export function notesLabel(notes: Note[]): string {
-  const lines = notes.map((n) => n.line.replace(/\.$/, ""));
-  const parts = lines.map((line) => /^Worker (\S+) (.+)$/.exec(line));
-  const what = parts[0]?.[2];
-  if (notes.length > 1 && parts.every((p) => p && p[2] === what))
-    return `Workers ${named(parts.map((p) => p?.[1] ?? ""))} ${what}`;
-  return lines.map((line) => line.charAt(0).toUpperCase() + line.slice(1)).join(" · ");
+  const runs: { what: Said | null; names: string[]; line: string }[] = [];
+  for (const { line } of notes) {
+    const what = said(line);
+    const last = runs.at(-1);
+    if (what && last?.what && (last.what.you ?? last.what.what) === (what.you ?? what.what)) {
+      if (!last.names.includes(what.name)) last.names.push(what.name);
+    } else runs.push({ what, names: what ? [what.name] : [], line });
+  }
+  return runs.map((run) => (run.what ? sentence(run.names, run.what) : noteLine(run.line))).join(" · ");
 }
 
 /** Tools that only look: in a row they fold into one line. */

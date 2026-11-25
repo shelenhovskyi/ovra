@@ -16,6 +16,7 @@ import {
   entries,
   foldLabel,
   inFolder,
+  noteLine,
   notesLabel,
   type Step,
   stepIcon,
@@ -125,12 +126,15 @@ const spoken = $derived.by(() => {
 const FOLLOW_PX = 60;
 /** The person scrolled up to read: "Jump to latest" brings the view back. */
 let detached = $state(false);
+/** Scrolled down from the top: the top line fades out under what sits above, never cut through its letters. */
+let faded = $state(false);
 /** How many entries there were when the person scrolled away: the rest are new to them. */
 let seen = $state(0);
 const fresh = $derived(detached ? Math.max(0, shown.length - seen) : 0);
 
 function onscroll(): void {
   if (!box) return;
+  faded = box.scrollTop > 0;
   const away = box.scrollHeight - box.scrollTop - box.clientHeight > FOLLOW_PX;
   if (away && !detached) seen = shown.length;
   detached = away;
@@ -214,6 +218,7 @@ const lastError = $derived.by(() => {
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 <ol
   class="transcript"
+  class:faded
   role="log"
   aria-live="off"
   aria-label="Transcript"
@@ -244,7 +249,7 @@ const lastError = $derived.by(() => {
             <summary>{notesLabel(entry.notes)}</summary>
             <div class="cards">
               {#each entry.notes as { line, rest }, n (n)}
-                {#if entry.notes.length > 1}<p>{line}</p>{/if}
+                {#if entry.notes.length > 1}<p>{noteLine(line)}</p>{/if}
                 {#if rest}
                   <p class="detail">Message sent to Claude:</p>
                   <pre>{clip(rest)}</pre>
@@ -367,6 +372,9 @@ const lastError = $derived.by(() => {
     flex: 1;
     /* The panel keeps the reply box in sight: the transcript gives way. */
     min-height: 0;
+  }
+  .transcript.faded {
+    mask-image: linear-gradient(to bottom, transparent, currentColor 20px);
   }
   .transcript:focus-visible {
     outline-offset: -2px;

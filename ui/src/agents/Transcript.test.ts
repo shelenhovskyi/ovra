@@ -9,6 +9,12 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
+it("starts unfaded at the top", () => {
+  app = mount(Transcript, { target: document.body, props: { messages: [] } });
+  flushSync();
+  expect(document.querySelector("[role=log]")?.classList.contains("faded")).toBe(false);
+});
+
 it("stops following once scrolled up, offers Jump to latest, and Retry on a turn's error", () => {
   const onretry = vi.fn();
   app = mount(Transcript, {
@@ -33,6 +39,8 @@ it("stops following once scrolled up, offers Jump to latest, and Retry on a turn
   flushSync();
   const jump = () => document.querySelector<HTMLButtonElement>("[data-testid=jump-to-latest]");
   expect(jump()).toBeNull();
+  // Scrolled: its top line fades out instead of being cut through its letters.
+  expect(log.classList.contains("faded")).toBe(true);
   log.scrollTop = 600;
   log.dispatchEvent(new Event("scroll"));
   flushSync();
@@ -104,6 +112,7 @@ it("folds Ovra's notes in a row into one quiet line, and a tool's raw answer beh
         note("docs"),
         note("tests"),
         note("lint"),
+        { kind: "user_text", text: "Ovra: Worker lint had its work approved by the person.", from: "ovra" },
         { kind: "assistant_text", text: "All three are done." },
         { kind: "user_text", text: "Ovra: Worker docs stopped.", from: "ovra" },
         { kind: "user_text", text: "Ovra: Worker lint failed: claude exited.", from: "ovra" },
@@ -114,7 +123,16 @@ it("folds Ovra's notes in a row into one quiet line, and a tool's raw answer beh
   const items = [...document.querySelectorAll("[data-testid=transcript] > li")];
   // No grey cards: one quiet line for each run of notes.
   expect(items.map((li) => li.className.split(" ")[0])).toEqual(["steps", "notes", "assistant_text", "notes"]);
-  expect(items[1]?.querySelector("summary")?.textContent).toBe("Workers docs, tests and lint asked for review");
+  // In the person's words: what they did is "You".
+  expect(items[1]?.querySelector("summary")?.textContent).toBe(
+    "Workers docs, tests and lint asked for review · You kept lint",
+  );
+  expect([...(items[1]?.querySelectorAll(".cards > p:not(.detail)") ?? [])].map((p) => p.textContent)).toEqual([
+    "Worker docs asked for review",
+    "Worker tests asked for review",
+    "Worker lint asked for review",
+    "You kept lint",
+  ]);
   expect(items[3]?.querySelector("summary")?.textContent).toBe(
     "Worker docs stopped · Worker lint failed: claude exited",
   );
