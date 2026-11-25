@@ -2,7 +2,7 @@
 // Sidebar search view for the open project, and the "Search in files" and
 // "Replace in files" commands.
 import { tick, untrack } from "svelte";
-import { tabs } from "../editor/open-files.svelte";
+import { focusMain, tabs } from "../editor/open-files.svelte";
 import { registerCommand } from "../keys/commands";
 import { useOvra } from "../shell/context";
 import { handleFindInFolder } from "./find-in";
@@ -59,6 +59,7 @@ $effect(() => {
       {transport}
       project={workspace.project.id}
       onopen={(path, at) => workspace.openFile(path, "edit", at)}
+      onleave={() => void focusMain()}
       {buffer}
     />
   {/key}

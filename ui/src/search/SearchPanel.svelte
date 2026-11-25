@@ -20,10 +20,13 @@ let {
   project,
   onopen,
   buffer = () => undefined,
+  onleave = () => {},
 }: {
   transport: Transport;
   project: ProjectId;
   onopen: (path: string, at: TextSpot) => void;
+  /** Escape in the search or replace text: back to the open file. */
+  onleave?: () => void;
   /** The open editor buffer of `path`, if any; replacing there leaves the change unsaved. */
   buffer?: (path: string) => OpenBuffer | undefined;
 } = $props();
@@ -64,12 +67,13 @@ export function limitTo(include: string): void {
   focus();
 }
 
-/** Shows the Replace field and focuses it. */
+/** Shows the Replace field and focuses it, or the search text while that is empty. */
 export async function focusReplace(): Promise<void> {
   showReplace = true;
   await tick();
-  replaceInput?.focus();
-  replaceInput?.select();
+  const field = model.pattern ? replaceInput : input;
+  field?.focus();
+  field?.select();
 }
 
 /** The results, without those already replaced in open buffers. */
@@ -109,7 +113,8 @@ const summary = $derived.by(() => {
       return files.length ? `Searching… ${found} so far` : "Searching…";
     case "done":
       if (status.stopped) return files.length ? `Stopped: ${found} so far.` : "Stopped.";
-      if (!files.length) return "No results.";
+      // After a replace, the note says what happened; no matches left is the point.
+      if (!files.length) return note ? "" : "No results.";
       return status.truncated ? `${found}. Limit reached: narrow the search.` : `${found}.`;
   }
   return "";
@@ -144,7 +149,10 @@ async function replace(targets: FileMatches[], only?: number): Promise<void> {
         if (only === undefined || match.line === only) next.add(resultKey(file.path, match));
     }
     hidden = next;
-    note = describe(out);
+    // Open files change in their tabs only: the disk keeps the old text until they are saved.
+    const unsaved = out.files.filter((path) => buffer(path)).length;
+    const who = unsaved === 1 ? "1 open file has" : `${unsaved} open files have`;
+    note = unsaved > 0 ? `${describe(out)} ${who} unsaved changes.` : describe(out);
   } finally {
     replacing = false;
   }
@@ -152,6 +160,11 @@ async function replace(targets: FileMatches[], only?: number): Promise<void> {
 }
 
 function onReplaceKeydown(event: KeyboardEvent): void {
+  if (event.code === "Escape") {
+    event.preventDefault();
+    onleave();
+    return;
+  }
   if (event.code !== "Enter" && event.code !== "NumpadEnter") return;
   event.preventDefault();
   if (canReplace) confirming = true;
@@ -206,9 +219,10 @@ function onQueryKeydown(event: KeyboardEvent): void {
     shownLines = PAGE;
     hidden = new Set();
     void model.run();
-  } else if (event.key === "Escape" && model.status.kind === "searching") {
+  } else if (event.key === "Escape") {
     event.preventDefault();
-    model.stop();
+    if (model.status.kind === "searching") model.stop();
+    else onleave();
   }
 }
 
@@ -388,7 +402,7 @@ const folder = (path: string) => path.slice(0, Math.max(path.lastIndexOf("/"), 0
   <p class="summary" class:error={model.status.kind === "error"} role="status" data-testid="search-summary">{summary}</p>
   {#if model.status.kind === "idle"}
     <EmptyState headline="Search in files" line="Searches every file except ignored ones." />
-  {:else if nothingFound}
+  {:else if nothingFound && !note}
     <EmptyState
       headline={`No results for "${model.pattern}"`}
       line={narrowed ? "Check the spelling, or clear the options." : "Check the spelling."}
