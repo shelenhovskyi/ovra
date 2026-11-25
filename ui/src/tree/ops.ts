@@ -99,9 +99,9 @@ export function trashKeys(apple = isApple()): string {
 
 type Keys = Pick<KeyboardEvent, "code" | "ctrlKey" | "metaKey" | "altKey" | "shiftKey">;
 
-export type KeyAction = "rename" | "trash" | "cut" | "copy" | "paste" | "undo" | "redo";
+export type KeyAction = "rename" | "trash" | "cut" | "copy" | "paste" | "undo" | "redo" | "select_all";
 
-const CLIP_KEYS: Record<string, KeyAction> = { KeyX: "cut", KeyC: "copy", KeyV: "paste" };
+const CLIP_KEYS: Record<string, KeyAction> = { KeyX: "cut", KeyC: "copy", KeyV: "paste", KeyA: "select_all" };
 
 /** Which file action a key on the tree asks for, matched on the physical key. */
 export function keyAction(e: Keys, apple = isApple()): KeyAction | null {

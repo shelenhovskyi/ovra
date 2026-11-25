@@ -158,6 +158,8 @@ describe("Shell", () => {
         "Files: F2 Rename",
         "Files: Delete Move to the trash",
         "Files: Shift+Up/Down Select a range of rows (Mod+click adds one)",
+        "Files: Shift+Home/End/PageUp/PageDown Select up to the first or last row, or by a page",
+        "Files: Mod+A Select every shown row",
         "Files: Mod+X Cut",
         "Files: Mod+C Copy, also as paths for other apps",
         "Files: Mod+V Paste into the folder",

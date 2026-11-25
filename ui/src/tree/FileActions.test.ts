@@ -219,6 +219,23 @@ describe("file actions in the tree", () => {
     expect(t.core.calls.find((c) => c.method === "fs.trash")?.params).toEqual({ project: "p1", paths: ["a.ts"] });
   });
 
+  it("extends the selection with Shift+End and Shift+Home, and selects every row with Ctrl+A", async () => {
+    const t = await mountTree(["a.ts", "b.ts", "c.ts", "d.ts"]);
+    const key = (code: string, mods: KeyboardEventInit = {}) => {
+      t.tree.dispatchEvent(new KeyboardEvent("keydown", { code, key: code, bubbles: true, ...mods }));
+      flushSync();
+    };
+    const selected = () =>
+      [...t.target.querySelectorAll('[aria-selected="true"]')].map((r) => r.getAttribute("data-path"));
+    t.row("b.ts")?.click();
+    key("End", { shiftKey: true });
+    expect(selected()).toEqual(["b.ts", "c.ts", "d.ts"]);
+    key("Home", { shiftKey: true });
+    expect(selected()).toEqual(["a.ts", "b.ts"]);
+    key("KeyA", { ctrlKey: true });
+    expect(selected()).toEqual(["a.ts", "b.ts", "c.ts", "d.ts"]);
+  });
+
   it("selects several rows with Ctrl+click, Shift+click and Shift+Arrow, and acts on all of them", async () => {
     const t = await mountTree(["lib/x.ts", "a.ts", "b.ts", "c.ts"]);
     const click = (path: string, mods: MouseEventInit = {}) => {

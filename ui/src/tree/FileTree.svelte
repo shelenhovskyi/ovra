@@ -9,6 +9,8 @@ registerContextKeys(
     { keys: "F2", title: "Rename" },
     { keys: trashKeys(), title: "Move to the trash" },
     { keys: "Shift+Up/Down", title: "Select a range of rows (Mod+click adds one)" },
+    { keys: "Shift+Home/End/PageUp/PageDown", title: "Select up to the first or last row, or by a page" },
+    { keys: "Mod+A", title: "Select every shown row" },
     { keys: "Mod+X", title: "Cut" },
     { keys: "Mod+C", title: "Copy, also as paths for other apps" },
     { keys: "Mod+V", title: "Paste into the folder" },
@@ -464,6 +466,12 @@ function onrowclick(e: MouseEvent, row: Row): void {
   viewport?.focus();
 }
 
+/** Mod+A: selects every shown row, keeping the active one. */
+function selectAll(): void {
+  picked = rows.filter((r) => !r.draft).map((r) => r.path);
+  anchor = current;
+}
+
 /** Shift+Arrow: moves the active row and selects the range from the anchor to it. */
 function extendTo(index: number): void {
   const row = rows[index];
@@ -577,6 +585,7 @@ function onkeydown(e: KeyboardEvent): void {
   else if (action === "paste") void actions.paste(folderFor(real));
   else if (action === "undo") void actions.undo();
   else if (action === "redo") void actions.redo();
+  else if (action === "select_all") selectAll();
   if (action) {
     e.preventDefault();
     return;
@@ -599,16 +608,16 @@ function onkeydown(e: KeyboardEvent): void {
       anchor = current;
       break;
     case "PageDown":
-      select(Math.min(rows.length - 1, Math.max(0, index) + page));
+      (e.shiftKey ? extendTo : select)(Math.min(rows.length - 1, Math.max(0, index) + page));
       break;
     case "PageUp":
-      select(Math.max(0, index - page));
+      (e.shiftKey ? extendTo : select)(Math.max(0, index - page));
       break;
     case "Home":
-      select(0);
+      (e.shiftKey ? extendTo : select)(0);
       break;
     case "End":
-      select(rows.length - 1);
+      (e.shiftKey ? extendTo : select)(rows.length - 1);
       break;
     case "ArrowRight":
       if (row?.kind !== "dir") return;
