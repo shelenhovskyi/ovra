@@ -2,7 +2,7 @@
 // Agent sessions of the open project: a compact list of tasks with a start
 // box under it; a row opens its transcript, where the person replies, stops
 // and closes it. Ctrl+Enter (Cmd+Enter) sends from a text field.
-import { tick, untrack } from "svelte";
+import { type Snippet, tick, untrack } from "svelte";
 import { describeTool } from "../approvals/describe";
 import { browserPicks, pickLabel } from "../browser/picks.svelte";
 import { registerCommand } from "../keys/commands";
@@ -22,6 +22,9 @@ import { billedShort, paidText } from "./setup/texts";
 import { isBusy, isEnded } from "./status";
 import Transcript from "./Transcript.svelte";
 import { rememberedMode, rememberMode, type TaskMode } from "./task-mode";
+
+/** `controls`: the shell's buttons for the panel (swap, collapse), drawn at the header's end. */
+let { controls }: { controls?: Snippet } = $props();
 
 const { transport, workspace } = useOvra();
 const sessions = agentSessions(transport);
@@ -351,9 +354,18 @@ const canReply = $derived(current !== null && current.status.state === "idle");
         {#each { length: capacity.limit } as _, n (n)}<i class:on={n < capacity.working}></i>{/each}
       </span>
     {/if}
-    {#if current}
-      <button type="button" class="quiet new-task" onclick={newTask}>{@render icon("M12 5v14M5 12h14")}New task</button>
-    {/if}
+    <span class="end">
+      {#if current}
+        <button
+          type="button"
+          class="quiet icon-only"
+          title="New task"
+          aria-label="New task"
+          onclick={newTask}>{@render icon("M12 5v14M5 12h14")}</button
+        >
+      {/if}
+      {@render controls?.()}
+    </span>
   </header>
 
   {#if !project}
@@ -380,81 +392,84 @@ const canReply = $derived(current !== null && current.status.state === "idle");
           {/if}
         </span>
       </div>
-      <div class="facts">
-        <h3>{sessions.name(current.id)}</h3>
-        <p class="status" role="status" data-state={tone(current)}>{sessions.status(current.id)}</p>
-        {#if current.billing}
-          <!-- An API key bills at API prices, often not what a plan user expects. -->
-          <p class="line" class:warn={current.billing.kind === "api_key"} data-testid="agent-billing">
-            {accounts.list.length > 1 ? `${accounts.name(current.account)} · ` : ""}{billedShort(current.billing)}
-          </p>
-        {/if}
-        {#if sandbox}
-          <p class="line" class:warn={sandbox.warning} data-testid="agent-sandbox">{sandbox.text}</p>
-        {/if}
-        {#if gaps}
-          <p class="line" data-testid="agent-sandbox-gaps">{gaps}</p>
-        {/if}
-        {#if current.usage.input_tokens + current.usage.output_tokens > 0 || current.billing}
-          <details class="more">
-            <summary>Details</summary>
-            {#if current.billing}<p>{paidText(current.billing)}</p>{/if}
-            {#if current.usage.input_tokens + current.usage.output_tokens > 0}
-              <p data-testid="agent-usage">Total: {usageText(current.usage, current.billing)}</p>
+      <!-- What the session is, and what waits: it gives way (and scrolls) before the transcript does. -->
+      <div class="info">
+        <div class="facts">
+          <h3>{sessions.name(current.id)}</h3>
+          <p class="status" role="status" data-state={tone(current)}>{sessions.status(current.id)}</p>
+          {#if current.billing}
+            <!-- An API key bills at API prices, often not what a plan user expects. -->
+            <p class="line" class:warn={current.billing.kind === "api_key"} data-testid="agent-billing">
+              {accounts.list.length > 1 ? `${accounts.name(current.account)} · ` : ""}{billedShort(current.billing)}
+            </p>
+          {/if}
+          {#if sandbox}
+            <p class="line" class:warn={sandbox.warning} data-testid="agent-sandbox">{sandbox.text}</p>
+          {/if}
+          {#if gaps}
+            <p class="line" data-testid="agent-sandbox-gaps">{gaps}</p>
+          {/if}
+          {#if current.usage.input_tokens + current.usage.output_tokens > 0 || current.billing}
+            <details class="more">
+              <summary>Details</summary>
+              {#if current.billing}<p>{paidText(current.billing)}</p>{/if}
+              {#if current.usage.input_tokens + current.usage.output_tokens > 0}
+                <p data-testid="agent-usage">Total: {usageText(current.usage, current.billing)}</p>
+              {/if}
+            </details>
+          {/if}
+        </div>
+        {#if signedOut}
+          {@const name = accounts.name(current.account)}
+          {@const command = signInCommand(accounts.state(current.account)?.account.config_dir ?? null)}
+          <div class="card signed-out" role="alert" data-testid="agent-signed-out">
+            <p class="title">{name} account signed out</p>
+            {#if fallback}
+              <button type="button" class="primary" disabled={busy} onclick={() => current && retry(current, fallback)}
+                >Use {fallback.account.name}</button
+              >
             {/if}
-          </details>
+            <p class="line">{fallback ? "Or sign in" : "Sign in"} from a terminal:</p>
+            <p class="command">
+              <code data-testid="agent-sign-in">{command}</code>
+              <button type="button" class="quiet" onclick={() => copy(command)}>Copy</button>
+            </p>
+            <details class="more">
+              <summary>Details</summary>
+              <p>{signedOut}</p>
+            </details>
+          </div>
+        {/if}
+        {#if error}
+          <p class="error" role="alert">{error}</p>
+        {/if}
+        {#if changed.length > 0}
+          <!-- One agent here changes the folder itself: what it changed, each
+               file's diff one press away, and where to keep or undo it. -->
+          <section class="card outcome" aria-labelledby="agent-changes-heading" data-testid="agent-changes">
+            <h4 id="agent-changes-heading">Changed files ({changed.length})</h4>
+            <ul aria-labelledby="agent-changes-heading">
+              {#each changed as file (file.path)}
+                <li>
+                  <button type="button" class="file" onclick={() => showChange(file)}>{file.path}</button>
+                  <span class="line">{changeText(file)}</span>
+                </li>
+              {/each}
+            </ul>
+            <div class="row">
+              <span class="line">Already in your folder.</span>
+              <button type="button" class="quiet" onclick={() => current && openReviews([current.id])}>Review</button>
+            </div>
+          </section>
+        {:else if waiting > 0}
+          <div class="card outcome row" data-testid="agent-reviews">
+            <span>{waiting === 1 ? "1 change waits" : `${waiting} changes wait`} for your review.</span>
+            <button type="button" class="quiet" onclick={() => current && openReviews(sessions.workers(current.id))}
+              >Review</button
+            >
+          </div>
         {/if}
       </div>
-      {#if signedOut}
-        {@const name = accounts.name(current.account)}
-        {@const command = signInCommand(accounts.state(current.account)?.account.config_dir ?? null)}
-        <div class="card signed-out" role="alert" data-testid="agent-signed-out">
-          <p class="title">{name} account signed out</p>
-          {#if fallback}
-            <button type="button" class="primary" disabled={busy} onclick={() => current && retry(current, fallback)}
-              >Use {fallback.account.name}</button
-            >
-          {/if}
-          <p class="line">{fallback ? "Or sign in" : "Sign in"} from a terminal:</p>
-          <p class="command">
-            <code data-testid="agent-sign-in">{command}</code>
-            <button type="button" class="quiet" onclick={() => copy(command)}>Copy</button>
-          </p>
-          <details class="more">
-            <summary>Details</summary>
-            <p>{signedOut}</p>
-          </details>
-        </div>
-      {/if}
-      {#if error}
-        <p class="error" role="alert">{error}</p>
-      {/if}
-      {#if changed.length > 0}
-        <!-- One agent here changes the folder itself: what it changed, each
-             file's diff one press away, and where to keep or undo it. -->
-        <section class="card outcome" aria-labelledby="agent-changes-heading" data-testid="agent-changes">
-          <h4 id="agent-changes-heading">Changed files ({changed.length})</h4>
-          <ul aria-labelledby="agent-changes-heading">
-            {#each changed as file (file.path)}
-              <li>
-                <button type="button" class="file" onclick={() => showChange(file)}>{file.path}</button>
-                <span class="line">{changeText(file)}</span>
-              </li>
-            {/each}
-          </ul>
-          <div class="row">
-            <span class="line">Already in your folder.</span>
-            <button type="button" class="quiet" onclick={() => current && openReviews([current.id])}>Review</button>
-          </div>
-        </section>
-      {:else if waiting > 0}
-        <div class="card outcome row" data-testid="agent-reviews">
-          <span>{waiting === 1 ? "1 change waits" : `${waiting} changes wait`} for your review.</span>
-          <button type="button" class="quiet" onclick={() => current && openReviews(sessions.workers(current.id))}
-            >Review</button
-          >
-        </div>
-      {/if}
       <Transcript messages={messages ?? []} billing={current.billing} {workerName} />
       {#if !isEnded(current.status) && !signedOut}
         <form
@@ -578,7 +593,7 @@ const canReply = $derived(current !== null && current.status.state === "idle");
       <label for="agent-prompt" class="visually-hidden">What should Claude do?</label>
       <textarea
         id="agent-prompt"
-        rows="3"
+        rows="2"
         placeholder="What should Claude do?"
         bind:this={promptField}
         bind:value={prompt}
@@ -601,7 +616,8 @@ const canReply = $derived(current !== null && current.status.state === "idle");
           </label>
         {/each}
       </fieldset>
-      <p class="line" id="agent-mode-hint">{modeHint}</p>
+      <!-- Shown while the box is in use; screen readers always hear it with the options. -->
+      <p class="line hint" class:shown={prompt.trim() !== ""} id="agent-mode-hint">{modeHint}</p>
       {#if blocked}
         <p class="blocked" role="note" data-testid="agent-account-blocked">
           <span
@@ -642,10 +658,11 @@ const canReply = $derived(current !== null && current.status.state === "idle");
   }
   .head {
     display: flex;
+    flex: none;
     align-items: center;
     gap: 8px;
     min-height: 44px;
-    padding: 8px 12px 4px 16px;
+    padding: 8px 8px 4px 16px;
   }
   h2 {
     margin: 0;
@@ -655,9 +672,11 @@ const canReply = $derived(current !== null && current.status.state === "idle");
   .capacity {
     font-size: 13px;
     color: var(--text-2);
+    white-space: nowrap;
   }
   .slots {
     display: inline-flex;
+    flex: none;
     gap: 3px;
   }
   .slots i {
@@ -669,8 +688,18 @@ const canReply = $derived(current !== null && current.status.state === "idle");
   .slots i.on {
     background: var(--accent);
   }
-  .new-task {
+  /* New task and the shell's buttons share the header's end. */
+  .end {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 2px;
     margin-left: auto;
+  }
+  .icon-only {
+    width: 28px;
+    padding: 0;
+    justify-content: center;
   }
   p {
     margin: 0;
@@ -744,7 +773,7 @@ const canReply = $derived(current !== null && current.status.state === "idle");
   /* The list */
   .scroll {
     flex: 1;
-    min-height: 0;
+    min-height: 72px;
     overflow-y: auto;
     padding: 0 8px 8px;
     display: flex;
@@ -888,8 +917,15 @@ const canReply = $derived(current !== null && current.status.state === "idle");
     display: flex;
     flex-direction: column;
   }
+  .info {
+    flex: 0 1 auto;
+    max-height: 45%;
+    min-height: 0;
+    overflow-y: auto;
+  }
   .bar {
     display: flex;
+    flex: none;
     align-items: center;
     justify-content: space-between;
     padding: 0 8px;
@@ -1005,6 +1041,21 @@ const canReply = $derived(current !== null && current.status.state === "idle");
   }
   textarea:focus-visible {
     outline: none;
+  }
+  /* The start box gives way last: the list keeps a few rows, and in a short
+     column the box scrolls on its own rather than falling under the edge. */
+  .compose.new {
+    flex: 0 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+  }
+  .compose.new:not(:focus-within) .hint:not(.shown) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
   .compose:focus-within {
     box-shadow: 0 0 0 2px var(--accent-soft);

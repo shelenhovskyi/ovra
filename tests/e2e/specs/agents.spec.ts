@@ -66,6 +66,20 @@ test("start an agent and answer its requests from the keyboard", async ({ page }
   await expect(page.getByTestId("notifications")).toContainText("Fix the typo needs approval: Run ls -la");
   // The task opens, ready for a reply; nothing moves focus to the request.
   await expect(page.getByRole("textbox", { name: "Reply to Claude" })).toBeFocused();
+  // In a 1280x720 window the request, the header and the reply box all fit:
+  // Send is not cut off, and the header is one line with room for its buttons.
+  const agents = page.getByTestId("agents");
+  await expect(agents.getByRole("button", { name: "Send" })).toBeInViewport({ ratio: 1 });
+  const box = async (name: string) =>
+    (await agents.getByRole("button", { name }).boundingBox()) ?? { x: 0, y: 0, width: 0, height: 0 };
+  const [capacity, newTask, swap] = await Promise.all([
+    page.getByTestId("agents-capacity").boundingBox(),
+    box("New task"),
+    box("Move Agents to the other side"),
+  ]);
+  expect(capacity?.height).toBeLessThan(24);
+  expect(swap.x).toBeGreaterThanOrEqual(newTask.x + newTask.width);
+  expect(Math.abs(swap.y - newTask.y)).toBeLessThan(4);
 
   await page.keyboard.press("Alt+Shift+A");
   await expect(run).toBeFocused();
@@ -89,6 +103,10 @@ test("start an agent and answer its requests from the keyboard", async ({ page }
   const session = page.getByTestId("agent-session");
   await expect(session.getByRole("status")).toHaveText("Done");
   await expect(approvals).toContainText("Nothing waits for your approval.");
+  // The empty band sits above the Agents header, never over it.
+  const band = await approvals.boundingBox();
+  const header = await agents.getByRole("heading", { name: "Agents", exact: true }).boundingBox();
+  expect((band?.y ?? 0) + (band?.height ?? 0)).toBeLessThanOrEqual(header?.y ?? 0);
   const transcript = page.getByTestId("transcript");
   await expect(transcript).toContainText(/Tool output \(1 line\)\s*done/);
   await expect(transcript).toContainText(/Tool failed \(1 line\)\s*Leave the readme alone/);

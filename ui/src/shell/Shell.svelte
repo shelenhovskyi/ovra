@@ -206,6 +206,10 @@ function fold(panel: Panel, name: string): void {
   </span>
 {/snippet}
 
+{#snippet agentsControls()}
+  {@render controls("agents", "Agents")}
+{/snippet}
+
 <Keybindings />
 <div class="shell" class:start={!workspace.project} class:solo class:rail-right={layout.swapped} style={grid}>
   <div class="title-area"><TitleBar /></div>
@@ -282,13 +286,13 @@ function fold(panel: Panel, name: string): void {
         >
       </div>
     {/if}
-    <div class="body" hidden={folded.agents}>
+    <!-- One column, top to bottom: approvals (bounded, they scroll themselves),
+         then Agents, whose list or transcript scrolls above a reply box that
+         stays in sight. Agents draws its own header and puts the swap and
+         collapse buttons in it. -->
+    <div class="body column" hidden={folded.agents}>
       <Approvals />
-      <!-- The panel draws its own header (name, slots); the swap and collapse buttons sit at its right end. -->
-      <div class="agents-panel">
-        {@render controls("agents", "Agents")}
-        <AgentsPanel />
-      </div>
+      <AgentsPanel controls={agentsControls} />
     </div>
   </aside>
   <!-- The connection on the left; what runs for the open project on the right. -->
@@ -413,22 +417,42 @@ function fold(panel: Panel, name: string): void {
   /* Chrome on demand: the panel's own buttons are faint until the header is pointed at or focused. */
   .controls {
     display: flex;
+    flex: none;
     gap: 2px;
     margin-left: auto;
   }
   .controls button {
     color: var(--text-3);
   }
-  :where(.head:hover, .own-head:hover, .agents-panel:hover) .controls button,
+  :where(.head:hover, .own-head:hover, .column:hover) .controls button,
   .controls:focus-within button {
     color: var(--text-2);
   }
-  .agents-panel {
-    position: relative;
-    display: flex;
-    flex: 1;
-    flex-direction: column;
-    min-height: 0;
+  /* Nothing in the column may be taller than the column. */
+  .column {
+    overflow: clip;
+  }
+  /* With nothing to approve, the approvals band takes no room. Focus in it
+     (the shortcut, the last answer) opens it in the column's flow, above the
+     Agents header instead of over it. It closes a moment after focus leaves,
+     so the click that moved focus still lands where it was aimed. */
+  .column > :global(section.approvals.idle) {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0s 0.4s;
+  }
+  .column > :global(section.approvals.idle:focus-within) {
+    max-height: 120px;
+    transition: none;
+  }
+  .column > :global(section.approvals.idle > .body) {
+    position: static;
+    width: auto;
+    height: auto;
+    padding: 10px 12px;
+    clip-path: none;
+    white-space: normal;
+    box-shadow: none;
   }
   .own-head {
     position: relative;
@@ -441,16 +465,6 @@ function fold(panel: Panel, name: string): void {
     padding-left: 0;
   }
   .own-head :global(.toolbar) {
-    padding-right: 72px;
-  }
-  .agents-panel > .controls {
-    position: absolute;
-    top: 9px;
-    right: 8px;
-    z-index: 1;
-  }
-  /* Room at the end of the Agents header for the buttons above. */
-  .agents-panel :global([data-testid="agents-panel"] > header) {
     padding-right: 72px;
   }
   .strip button {

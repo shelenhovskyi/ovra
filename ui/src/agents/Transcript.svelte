@@ -206,7 +206,8 @@ $effect(() => {
     gap: 12px;
     overflow: auto;
     flex: 1;
-    min-height: 120px;
+    /* The panel keeps the reply box in sight: the transcript gives way. */
+    min-height: 0;
   }
   .transcript:focus-visible {
     outline-offset: -2px;
