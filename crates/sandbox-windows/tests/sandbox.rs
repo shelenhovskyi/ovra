@@ -68,6 +68,10 @@ fn root_text(work: &Path) -> String {
 
 #[test]
 #[ignore = "a real Windows token and ACEs; the Windows CI job runs it"]
+/// Writes only: the token's restricting SIDs are checked for write
+/// rights, and Windows counts neither DELETE nor a change of the ACL as
+/// one. Those are held by the sandbox user's own deny ACEs, which only the
+/// whole chain applies (`tests/setup.rs`).
 fn the_token_writes_only_what_the_plan_grants() {
     let root = Root::new("writes");
     let work = root.0.join("work");
@@ -85,9 +89,8 @@ fn the_token_writes_only_what_the_plan_grants() {
         &[
             ("write", work.join("a.txt")),
             ("write", work.join("src.txt")),
-            ("write", work.join(".git/hooks/pre-commit")),
-            ("write", work.join(".git/config")),
-            ("remove", work.join(".git")),
+            ("write", work.join(".git").join("hooks").join("pre-commit")),
+            ("write", work.join(".git").join("config")),
             ("write", outside.join("x.txt")),
             ("read", outside.join("..").join("work").join("a.txt")),
             ("env", "OVRA_PROBE_KEPT".into()),
@@ -100,7 +103,6 @@ fn the_token_writes_only_what_the_plan_grants() {
     write WORK\src.txt: yes
     write WORK\.git\hooks\pre-commit: no
     write WORK\.git\config: no
-    remove WORK\.git: no
     write ROOT\outside\x.txt: no
     read ROOT\outside\..\work\a.txt: yes
     env OVRA_PROBE_KEPT: yes
