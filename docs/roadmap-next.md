@@ -18,16 +18,16 @@ Windows sandbox (needs a Windows machine).
 
 ## Order
 
-| #   | Task                                         | Area                                                             | Start               |
-| --- | -------------------------------------------- | ---------------------------------------------------------------- | ------------------- |
-| 1   | Orchestration gaps and the 3.E scenario      | `crates/core/src/orchestration`, `agents/roles`, `tests/e2e`     | now                 |
-| 2   | Claude driver bugs from the live suite       | `crates/agent-runtime`, `tests/agents`                           | now                 |
-| 3   | Sandbox and netproxy tightening              | `crates/sandbox-linux`, `crates/netproxy`, `tests/security`      | now                 |
-| 4   | Git panel follow-ups                         | `crates/worktree/src/repo`, `ui/src/git`                         | now                 |
-| 5   | Dev server follow-ups                        | `crates/servers`, `ui/src/servers`                               | after a slot frees  |
-| 6   | Test speed and budget flakes                 | `scripts/`, `.config/nextest.toml`, `crates/secrets` tests       | after a slot frees  |
-| 7   | Specs: worktree setup, checkpoints, PR flow  | `docs/specs/` only                                               | any time (no code)  |
-| 8   | Review by hunk and line comments to agents   | `ui/src/inbox`, `crates/core/src/orchestration/review.rs`        | after task 1 and the Keep/Discard work land |
+| #   | Task                                        | Area                                                         | Start                                       |
+| --- | ------------------------------------------- | ------------------------------------------------------------ | ------------------------------------------- |
+| 1   | Orchestration gaps and the 3.E scenario     | `crates/core/src/orchestration`, `agents/roles`, `tests/e2e` | now                                         |
+| 2   | Claude driver bugs from the live suite      | `crates/agent-runtime`, `tests/agents`                       | now                                         |
+| 3   | Sandbox and netproxy tightening             | `crates/sandbox-linux`, `crates/netproxy`, `tests/security`  | now                                         |
+| 4   | Git panel follow-ups                        | `crates/worktree/src/repo`, `ui/src/git`                     | now                                         |
+| 5   | Dev server follow-ups                       | `crates/servers`, `ui/src/servers`                           | after a slot frees                          |
+| 6   | Test speed and budget flakes                | `scripts/`, `.config/nextest.toml`, `crates/secrets` tests   | after a slot frees                          |
+| 7   | Specs: worktree setup, checkpoints, PR flow | `docs/specs/` only                                           | any time (no code)                          |
+| 8   | Review by hunk and line comments to agents  | `ui/src/inbox`, `crates/core/src/orchestration/review.rs`    | after task 1 and the Keep/Discard work land |
 
 Tasks 1 to 4 can run at once: their areas do not overlap. A task that needs a
 protocol field or a trait method adds it in its own small commit, rebased and
