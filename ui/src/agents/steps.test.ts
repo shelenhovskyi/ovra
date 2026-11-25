@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { describeTool } from "../approvals/describe";
 import type { AgentMessage } from "../lib/protocol";
-import { elapsed, entries, foldLabel, liveStep, stepLabel, stepMeta, turnCost } from "./steps";
+import { elapsed, entries, foldLabel, inFolder, liveStep, stepLabel, stepMeta, turnCost } from "./steps";
 
 const use = (id: string, name: string, input: unknown): AgentMessage => ({ kind: "tool_use", id, name, input });
 const result = (id: string, is_error = false): AgentMessage => ({
@@ -77,5 +77,22 @@ describe("steps", () => {
     expect(liveStep({ state: "waiting_for_approval" }, [edit], false)).toBeNull();
     expect(liveStep({ state: "idle" }, [], false)).toBeNull();
     expect([elapsed(4200), elapsed(125_000)]).toEqual(["4s", "2m 05s"]);
+  });
+});
+
+describe("paths in steps", () => {
+  it("shows a file in the session's folder relative to it, and others as they are", () => {
+    const input = { file_path: "/tmp/ux/demo-app/src/README.md", old_string: "a" };
+    expect(inFolder(input, "/tmp/ux/demo-app")).toEqual({ file_path: "src/README.md", old_string: "a" });
+    expect(inFolder({ notebook_path: "/wt/docs/a.ipynb" }, "/wt/docs/")).toEqual({ notebook_path: "a.ipynb" });
+    // Not inside it, a prefix that is not a folder, no folder known, no path.
+    expect(inFolder({ file_path: "/etc/hosts" }, "/tmp/ux/demo-app")).toEqual({ file_path: "/etc/hosts" });
+    expect(inFolder({ file_path: "/tmp/ux/demo-apple/x" }, "/tmp/ux/demo-app")).toEqual({
+      file_path: "/tmp/ux/demo-apple/x",
+    });
+    expect(inFolder({ file_path: "/a/b" }, null)).toEqual({ file_path: "/a/b" });
+    expect(inFolder("ls", "/a")).toBe("ls");
+    const edit = use("t1", "Edit", { file_path: "/w/src/x.ts", old_string: "a", new_string: "b" });
+    expect(liveStep(working, [edit], false, "/w")).toBe("Editing src/x.ts");
   });
 });

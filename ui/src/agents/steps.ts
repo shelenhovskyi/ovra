@@ -193,7 +193,12 @@ export function stepIcon(step: Step): IconName {
  * What a session that works does right now: the tool it runs, writing,
  * thinking or starting; `null` when it waits for someone.
  */
-export function liveStep(status: AgentStatus, messages: AgentMessage[], writing: boolean): string | null {
+export function liveStep(
+  status: AgentStatus,
+  messages: AgentMessage[],
+  writing: boolean,
+  root: string | null = null,
+): string | null {
   if (status.state === "starting") return "Starting";
   if (status.state !== "working") return null;
   // Only this turn's calls: one an interrupt cut off never gets a result.
@@ -203,9 +208,30 @@ export function liveStep(status: AgentStatus, messages: AgentMessage[], writing:
     if (!m || m.kind === "turn_end" || m.kind === "user_text") break;
     if (m.kind === "tool_result") done.add(m.tool_use_id);
     else if (m.kind === "tool_use" && !done.has(m.id))
-      return reword(short(m.name, describeTool(m.name, m.input).action), NOW);
+      return reword(short(m.name, describeTool(m.name, inFolder(m.input, root)).action), NOW);
   }
   return writing ? "Writing" : "Thinking";
+}
+
+/** The input fields that name a file the tool works on. */
+const PATH_FIELDS = ["file_path", "notebook_path"];
+
+/**
+ * A tool call's input with the file it works on relative to `root`, the
+ * session's folder (the project, or a worker's copy): Claude sends absolute
+ * paths, whose start says nothing and pushes the file name out of sight.
+ */
+export function inFolder(input: unknown, root: string | null): unknown {
+  if (!root || typeof input !== "object" || input === null) return input;
+  const base = root.endsWith("/") ? root : `${root}/`;
+  const fields = input as Record<string, unknown>;
+  const out = { ...fields };
+  for (const key of PATH_FIELDS) {
+    const path = fields[key];
+    if (typeof path === "string" && path.startsWith(base) && path.length > base.length)
+      out[key] = path.slice(base.length);
+  }
+  return out;
 }
 
 /** `4s`, `2m 05s`. */

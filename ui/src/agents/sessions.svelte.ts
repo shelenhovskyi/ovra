@@ -32,6 +32,8 @@ export type SessionRole =
       task: TaskId;
       name: string;
       branch: string;
+      /** Absolute path of its copy of the project, where it works. */
+      worktree: string;
       /** Why its worktree stays although its task ended. */
       kept: string | null;
       coordinator: SessionId;
@@ -164,6 +166,7 @@ export class AgentSessions {
             task: task.id,
             name: w.name,
             branch: w.branch,
+            worktree: w.worktree,
             kept: w.kept,
             coordinator: task.coordinator,
           });

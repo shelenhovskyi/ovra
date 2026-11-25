@@ -12,7 +12,17 @@ import Icon from "../shell/Icon.svelte";
 import { isAuthFailure, withoutEchoes } from "./errors";
 import LiveActivity from "./LiveActivity.svelte";
 import { usageText } from "./sessions.svelte";
-import { entries, foldLabel, type Step, stepIcon, stepLabel, stepMeta, turnCost, verbAndObject } from "./steps";
+import {
+  entries,
+  foldLabel,
+  inFolder,
+  type Step,
+  stepIcon,
+  stepLabel,
+  stepMeta,
+  turnCost,
+  verbAndObject,
+} from "./steps";
 import { ideResult } from "./tool-results";
 
 /**
@@ -21,11 +31,13 @@ import { ideResult } from "./tool-results";
  * workers as the person knows them instead of by id.
  * `status` and `partial` (the text Claude is writing) show at the end what
  * a working session does now. `onretry`, when given, puts Retry on an error
- * that ended the last turn.
+ * that ended the last turn. `root`: the session's folder; files in it show
+ * relative to it.
  */
 let {
   messages,
   billing = null,
+  root = null,
   workerName = () => undefined,
   status = null,
   partial = "",
@@ -33,6 +45,7 @@ let {
 }: {
   messages: AgentMessage[];
   billing?: Billing | null;
+  root?: string | null;
   workerName?: (session: string) => string | undefined;
   status?: AgentStatus | null;
   partial?: string;
@@ -57,8 +70,9 @@ function clip(text: string): string {
   return `${text.slice(0, MAX_OUTPUT)}\n… ${text.length - MAX_OUTPUT} more characters`;
 }
 
-/** A tool call in words, with a worker's id replaced by its name. */
-function describe(tool: string, input: unknown) {
+/** A tool call in words, with a worker's id replaced by its name and files relative to the session's folder. */
+function describe(tool: string, given: unknown) {
+  const input = inFolder(given, root);
   const fields = typeof input === "object" && input !== null ? (input as Record<string, unknown>) : null;
   const name = typeof fields?.agent_id === "string" ? workerName(fields.agent_id) : undefined;
   return describeTool(tool, name ? { ...fields, agent_id: name } : input);
@@ -72,6 +86,15 @@ function note(text: string): { line: string; rest: string } {
   const plain = text.startsWith("Ovra: ") ? text.slice("Ovra: ".length) : text;
   const end = plain.indexOf("\n");
   return end < 0 ? { line: plain, rest: "" } : { line: plain.slice(0, end), rest: plain.slice(end + 1).trim() };
+}
+
+/** The file a step works on, in full, for its tooltip. */
+function fileOf(step: Step): string | null {
+  const input = step.use?.input;
+  if (typeof input !== "object" || input === null) return null;
+  const { file_path, notebook_path } = input as Record<string, unknown>;
+  const path = file_path ?? notebook_path;
+  return typeof path === "string" ? path : null;
 }
 
 const capital = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
@@ -145,16 +168,19 @@ const lastError = $derived.by(() => {
   {@const plain = step.use && step.result && !failed ? ideResult(step.use.name, step.result.output) : null}
   {@const parts = verbAndObject(step, stepLabel(step, summary?.action ?? ""))}
   {@const meta = failed ? "" : stepMeta(step)}
+  {@const file = fileOf(step)}
   <details class="step" class:failed={failed && !denied} class:sub={sub !== ""}>
-    <summary title={step.use?.name}>
+    <summary title={file ?? step.use?.name}>
       <Icon name={stepIcon(step)} small />
-      <span class="label"
-        >{sub}{#if denied}{summary
-            ? `Not run: ${summary.action}`
-            : "Not run: you denied it or interrupted the turn"}{:else}{parts.verb}{#if parts.object}{" "}<code
-              class="object">{parts.object}</code
-            >{/if}{/if}</span
-      >
+      {#if denied}
+        <span class="label"
+          >{sub}{summary ? `Not run: ${summary.action}` : "Not run: you denied it or interrupted the turn"}</span
+        >
+      {:else}
+        <span class="label" class:verb={parts.object !== ""}>{sub}{parts.verb}</span>
+        <!-- A file is cut from the left, so its name stays in sight. -->
+        {#if parts.object}<code class="object" class:path={file !== null}><bdi>{parts.object}</bdi></code>{/if}
+      {/if}
       {#if failed && !denied}<span class="flag">failed</span>{/if}
       {#if meta}<span class="meta">{meta}</span>{/if}
     </summary>
@@ -234,7 +260,7 @@ const lastError = $derived.by(() => {
       </li>
     {/if}
   {/each}
-  {#if status}<LiveActivity {status} {messages} {partial} />{/if}
+  {#if status}<LiveActivity {status} {messages} {partial} {root} />{/if}
 </ol>
 {#if detached}
   <button type="button" class="jump" data-testid="jump-to-latest" onclick={jump}>Jump to latest</button>
@@ -279,8 +305,20 @@ const lastError = $derived.by(() => {
     background: var(--s3);
   }
   .object {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-family: var(--mono);
     font-size: 12px;
+  }
+  /* Right to left, so the ellipsis eats the folders, not the file's name. */
+  .object.path {
+    direction: rtl;
+    text-align: left;
+  }
+  .step > summary .label.verb {
+    flex: none;
   }
   .meta {
     flex: none;

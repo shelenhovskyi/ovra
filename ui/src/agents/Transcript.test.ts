@@ -65,6 +65,25 @@ it("keeps Retry on a turn's error when only the turn's end line follows it", () 
   expect(retries()).toHaveLength(1);
 });
 
+it("names files relative to the session's folder, with the whole path on hover", () => {
+  const file_path = "/tmp/ovra-ux/demo-app/docs/README.md";
+  app = mount(Transcript, {
+    target: document.body,
+    props: {
+      root: "/tmp/ovra-ux/demo-app",
+      messages: [
+        { kind: "tool_use", id: "t1", name: "Edit", input: { file_path, old_string: "teh", new_string: "the" } },
+        { kind: "tool_result", tool_use_id: "t1", output: "ok", is_error: false },
+      ],
+    },
+  });
+  flushSync();
+  const summary = document.querySelector(".step > summary");
+  expect(summary?.textContent?.replace(/\s+/g, " ").trim()).toBe("Edited docs/README.md +1 −1");
+  expect(summary?.getAttribute("title")).toBe(file_path);
+  expect(summary?.querySelector("code")?.classList.contains("path")).toBe(true);
+});
+
 it("offers no Retry on an error that later messages answered", () => {
   app = mount(Transcript, {
     target: document.body,

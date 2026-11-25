@@ -26,6 +26,7 @@ import { claudeAccounts, DEFAULT_ACCOUNT } from "./setup/claude-accounts.svelte"
 import ProjectTrust from "./setup/ProjectTrust.svelte";
 import { billedShort, paidText } from "./setup/texts";
 import { isBusy, isEnded } from "./status";
+import { inFolder } from "./steps";
 import Transcript from "./Transcript.svelte";
 import { rememberedMode, rememberMode, type TaskMode } from "./task-mode";
 
@@ -330,12 +331,18 @@ function workerName(id: SessionId): string | undefined {
   return role?.kind === "worker" ? role.name : undefined;
 }
 
+/** Where a session works: a worker in its copy of the project, the others in the project. */
+function folder(id: SessionId): string | null {
+  const role = sessions.roles.get(id);
+  return role?.kind === "worker" ? role.worktree : (project?.root ?? null);
+}
+
 /** What a working session does now: its newest tool call, in words. */
 function step(id: SessionId): string | null {
   const transcript = sessions.transcripts.get(id) ?? [];
   for (let i = transcript.length - 1; i >= 0; i--) {
     const message = transcript[i];
-    if (message?.kind === "tool_use") return describeTool(message.name, message.input).action;
+    if (message?.kind === "tool_use") return describeTool(message.name, inFolder(message.input, folder(id))).action;
     if (message?.kind === "user_text") return null;
   }
   return null;
@@ -716,6 +723,7 @@ const canReply = $derived(current !== null && current.status.state === "idle");
       <Transcript
         messages={messages ?? []}
         billing={current.billing}
+        root={folder(current.id)}
         {workerName}
         status={current.status}
         partial={sessions.partial.get(current.id) ?? ""}

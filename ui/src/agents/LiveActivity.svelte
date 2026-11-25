@@ -6,9 +6,15 @@
 import type { AgentMessage, AgentStatus } from "../lib/protocol";
 import { elapsed, liveStep } from "./steps";
 
-let { status, messages, partial = "" }: { status: AgentStatus; messages: AgentMessage[]; partial?: string } = $props();
+/** `root`: the session's folder; files in it show relative to it. */
+let {
+  status,
+  messages,
+  partial = "",
+  root = null,
+}: { status: AgentStatus; messages: AgentMessage[]; partial?: string; root?: string | null } = $props();
 
-const step = $derived(liveStep(status, messages, partial !== ""));
+const step = $derived(liveStep(status, messages, partial !== "", root));
 let since = $state(Date.now());
 let now = $state(Date.now());
 
