@@ -6,6 +6,7 @@
 //! repository: git runs in the project folder, so pathspecs mean the same
 //! there, and paths git prints from the top are translated back.
 
+mod diff;
 mod status;
 #[cfg(test)]
 mod tests;
@@ -363,8 +364,14 @@ impl GitService for GitRepo {
     fn unstage(&self, root: PathBuf, paths: Vec<RelPath>) -> BoxFuture<'_, Result<()>> {
         blocking(move || unstage(&root, &paths))
     }
-    fn stage_hunk(&self, _: PathBuf, _: RelPath, _: Hunk, _: bool) -> BoxFuture<'_, Result<()>> {
-        later()
+    fn stage_hunk(
+        &self,
+        root: PathBuf,
+        path: RelPath,
+        hunk: Hunk,
+        unstage: bool,
+    ) -> BoxFuture<'_, Result<()>> {
+        blocking(move || diff::stage_hunk(&root, &path, &hunk, unstage))
     }
     fn discard(&self, root: PathBuf, paths: Vec<RelPath>) -> BoxFuture<'_, Result<()>> {
         blocking(move || discard(&root, &paths))
@@ -391,8 +398,8 @@ impl GitService for GitRepo {
     ) -> BoxFuture<'_, Result<()>> {
         blocking(move || create_branch(&root, &name, switch))
     }
-    fn diff(&self, _: PathBuf, _: RelPath, _: bool) -> BoxFuture<'_, Result<FileDiff>> {
-        later()
+    fn diff(&self, root: PathBuf, path: RelPath, staged: bool) -> BoxFuture<'_, Result<FileDiff>> {
+        blocking(move || diff::diff(&root, &path, staged))
     }
     fn show(
         &self,
