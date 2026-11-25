@@ -8,8 +8,10 @@ export type Described = {
   title: string;
   /** Who or what decided, and how the agent ran. */
   detail: string;
-  /** The tool's input as the log keeps it, if any. */
+  /** The input in one plain line: a command, a path, a summary. */
   input: string | null;
+  /** What the log keeps as it is (JSON, hashes), for a "Details" disclosure. */
+  raw: string | null;
   /** Refusals and unsandboxed runs stand out. */
   tone: "plain" | "refused" | "warn";
 };
@@ -72,6 +74,32 @@ function decidedBy(by: DecidedBy): string {
   }
 }
 
+/** A tool as people read it: `mcp__ovra__request_review` is "Ovra: request review". */
+export function toolLabel(tool: string): string {
+  const [prefix, server, ...name] = tool.split("__");
+  if (prefix !== "mcp" || !server || name.length === 0) return tool;
+  return `${server === "ovra" ? "Ovra" : server}: ${name.join(" ").replaceAll("_", " ")}`;
+}
+
+/** Input fields that say in one line what a call was about, in the order they are looked for. */
+const GIST = ["command", "file_path", "notebook_path", "path", "url", "query", "pattern", "summary", "description"];
+
+/** A tool's JSON input as one plain line, and the JSON itself for the details. */
+function toolInput(text: string): { input: string | null; raw: string | null } {
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    // Cut or not JSON: the text is all there is.
+    return { input: null, raw: text };
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) return { input: null, raw: text };
+  const fields = value as Record<string, unknown>;
+  if (Object.keys(fields).length === 0) return { input: null, raw: null };
+  const gist = GIST.map((key) => fields[key]).find((v): v is string => typeof v === "string" && v.trim() !== "");
+  return { input: gist ?? null, raw: JSON.stringify(value, null, 2) };
+}
+
 export function describe(entry: AuditEntry): Described {
   const event = entry.event;
   switch (event.kind) {
@@ -83,29 +111,32 @@ export function describe(entry: AuditEntry): Described {
         title: "Agent started",
         detail: `${where}, ${settings}, ${sandbox}.`,
         input: null,
+        raw: null,
         tone: event.sandbox ? "plain" : "warn",
       };
     }
     case "tool_decided": {
       const verb = event.allowed ? "Allowed" : "Refused";
-      const input =
+      const shown =
         event.input.kind === "file"
-          ? `${event.input.path}${event.input.sha256 ? `\nSHA-256 of what it writes: ${event.input.sha256}` : ""}`
-          : event.input.text;
+          ? {
+              input: event.input.path,
+              raw: event.input.sha256 ? `SHA-256 of what it writes: ${event.input.sha256}` : null,
+            }
+          : toolInput(event.input.text);
       return {
-        title: `${verb} ${event.tool}`,
+        title: `${verb} ${toolLabel(event.tool)}`,
         detail: `${verb} ${decidedBy(event.by)}.`,
-        input,
+        ...shown,
         tone: event.allowed ? "plain" : "refused",
       };
     }
     case "trust_changed":
       return {
         title: event.trusted ? "Project settings trusted" : "Trust in project settings removed",
-        detail: event.fingerprint
-          ? `Agents load the settings as reviewed (${event.fingerprint}).`
-          : "Agents no longer load them.",
+        detail: event.trusted ? "Agents load the settings as they were reviewed." : "Agents no longer load them.",
         input: null,
+        raw: event.fingerprint ? `Fingerprint of the reviewed settings: ${event.fingerprint}` : null,
         tone: "plain",
       };
     case "policy_changed": {
@@ -117,6 +148,7 @@ export function describe(entry: AuditEntry): Described {
             ? "No rules: every tool call asks."
             : `${rules.length} ${rules.length === 1 ? "rule" : "rules"}.`,
         input: rules.length === 0 ? null : rules.join("\n"),
+        raw: null,
         tone: "plain",
       };
     }
@@ -125,15 +157,17 @@ export function describe(entry: AuditEntry): Described {
         title: `Review ${REVIEW[event.action]}`,
         detail: `Review ${event.review}, decided by a person.`,
         input: null,
+        raw: null,
         tone: "plain",
       };
     case "network_refused":
-      return { title: `Network refused: ${event.host}`, detail: event.reason, input: null, tone: "refused" };
+      return { title: `Network refused: ${event.host}`, detail: event.reason, input: null, raw: null, tone: "refused" };
     case "secret_used":
       return {
         title: `Secret ${event.name} used`,
         detail: `Sent to ${event.host}. The log never keeps its value.`,
         input: null,
+        raw: null,
         tone: "plain",
       };
     case "server_started":
@@ -141,6 +175,7 @@ export function describe(entry: AuditEntry): Described {
         title: `Server ${event.name} started`,
         detail: `Run ${event.generation}, started ${event.by.kind === "person" ? "by a person" : `by agent ${event.by.session}`}.`,
         input: null,
+        raw: null,
         tone: "plain",
       };
     case "server_stopped":
@@ -148,6 +183,7 @@ export function describe(entry: AuditEntry): Described {
         title: `Server ${event.name} stopped`,
         detail: `Run ${event.generation}, ${event.code === null ? "ended by a signal" : `exit code ${event.code}`}.`,
         input: null,
+        raw: null,
         tone: "plain",
       };
     case "loopback_granted":
@@ -155,6 +191,7 @@ export function describe(entry: AuditEntry): Described {
         title: `Server reachable on localhost:${event.port}`,
         detail: `The agent may reach server ${event.server} (run ${event.generation}) while it runs.`,
         input: null,
+        raw: null,
         tone: "plain",
       };
     case "loopback_revoked":
@@ -162,6 +199,7 @@ export function describe(entry: AuditEntry): Described {
         title: `Server no longer reachable on localhost:${event.port}`,
         detail: `Server ${event.server} (run ${event.generation}) stopped, or the agent did.`,
         input: null,
+        raw: null,
         tone: "plain",
       };
     case "language_server_started":
@@ -172,6 +210,7 @@ export function describe(entry: AuditEntry): Described {
             ? `For ${event.language} files, without a sandbox: it could read and change your files.`
             : `For ${event.language} files, in the sandbox (${event.sandbox}).`,
         input: null,
+        raw: null,
         tone: event.sandbox === null ? "warn" : "plain",
       };
     case "language_server_stopped":
@@ -179,6 +218,7 @@ export function describe(entry: AuditEntry): Described {
         title: `Language server ${event.name} ${event.reason === null ? "stopped" : "failed"}`,
         detail: event.reason ?? `It served ${event.language} files.`,
         input: null,
+        raw: null,
         tone: "plain",
       };
     case "browser_navigation": {
@@ -187,6 +227,7 @@ export function describe(entry: AuditEntry): Described {
         title: `Browser ${event.allowed ? "may open" : "may not open"} ${event.origin}`,
         detail: `The agent's browser was ${verb} ${NAVIGATION_BY[event.by]}.`,
         input: null,
+        raw: null,
         tone: event.allowed ? "plain" : "refused",
       };
     }

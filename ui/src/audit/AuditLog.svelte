@@ -71,9 +71,9 @@ function onDialogKeydown(event: KeyboardEvent): void {
   }
   if (event.code !== "Tab") return;
   // Keep Tab inside the dialog (aria-modal).
-  const focusable = [...(dialog?.querySelectorAll<HTMLElement>("button, input, select, [tabindex]") ?? [])].filter(
-    (el) => el.tabIndex >= 0 && !el.matches(":disabled"),
-  );
+  const focusable = [
+    ...(dialog?.querySelectorAll<HTMLElement>("button, input, select, summary, [tabindex]") ?? []),
+  ].filter((el) => el.tabIndex >= 0 && !el.matches(":disabled"));
   const first = focusable[0];
   const last = focusable[focusable.length - 1];
   if (!first || !last) return;
@@ -120,15 +120,18 @@ function who(session: string | null): string {
       <header>
         <h2 id="audit-title" tabindex="-1">Audit log</h2>
         <span class="muted">{workspace.project?.name ?? "No project"}</span>
-        <label>
-          Show
-          <select bind:value={filter} data-testid="audit-filter">
-            {#each Object.entries(FILTERS) as [value, { label }] (value)}
-              <option {value}>{label}</option>
-            {/each}
-          </select>
-        </label>
-        <label><input type="checkbox" bind:checked={refusedOnly} data-testid="audit-refused" /> Refused only</label>
+        {#if trail.entries.length > 0 || trail.loading}
+          <!-- Nothing to filter in an empty log. -->
+          <label>
+            Show
+            <select bind:value={filter} data-testid="audit-filter">
+              {#each Object.entries(FILTERS) as [value, { label }] (value)}
+                <option {value}>{label}</option>
+              {/each}
+            </select>
+          </label>
+          <label><input type="checkbox" bind:checked={refusedOnly} data-testid="audit-refused" /> Refused only</label>
+        {/if}
         <button type="button" class="close" aria-keyshortcuts="Escape" onclick={close}>Close</button>
       </header>
       <p class="muted note">
@@ -142,7 +145,11 @@ function who(session: string | null): string {
         <p class="muted note">Open a project to see its audit log.</p>
       {:else if shown.length === 0}
         <p class="muted note" data-testid="audit-empty">
-          {trail.loading ? "Loading the audit log…" : trail.entries.length === 0 ? "Nothing recorded yet." : "No entries match."}
+          {trail.loading
+            ? "Loading the audit log…"
+            : trail.entries.length === 0
+              ? "Nothing yet. Entries appear when an agent starts or asks to use a tool."
+              : "No entries match."}
         </p>
       {:else}
         <ol class="entries" aria-label="Audit entries, newest first">
@@ -155,7 +162,13 @@ function who(session: string | null): string {
               </div>
               <p class="detail">{row.detail}</p>
               {#if row.input}
-                <pre>{row.input}</pre>
+                <pre class="input">{row.input}</pre>
+              {/if}
+              {#if row.raw}
+                <details>
+                  <summary>Details</summary>
+                  <pre>{row.raw}</pre>
+                </details>
               {/if}
             </li>
           {/each}
@@ -193,6 +206,7 @@ function who(session: string | null): string {
   button:focus-visible,
   select:focus-visible,
   input:focus-visible,
+  summary:focus-visible,
   h2:focus-visible {
     outline: 2px solid #7aa2ff;
     outline-offset: 1px;
@@ -293,6 +307,15 @@ function who(session: string | null): string {
   .detail {
     margin: 2px 0 0;
     color: #c8c8d2;
+  }
+  details {
+    margin-top: 2px;
+    font-size: 12px;
+    color: #b4b4c0;
+  }
+  summary {
+    cursor: pointer;
+    width: fit-content;
   }
   pre {
     margin: 4px 0 0;

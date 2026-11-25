@@ -66,6 +66,24 @@ describe("AuditLog", () => {
     expect(document.activeElement).toBe(open);
   });
 
+  it("keeps the input's JSON behind Details, and an empty log without filters", async () => {
+    const core = await setup();
+    core.entries = [];
+    target.querySelector<HTMLButtonElement>("[data-testid=open-audit]")?.click();
+    await settle();
+    expect(target.querySelector("[data-testid=audit-empty]")?.textContent?.trim()).toMatch(
+      /^Nothing yet\. Entries appear when an agent starts/,
+    );
+    expect(target.querySelector("[data-testid=audit-filter]")).toBeNull();
+
+    core.append(entry(1, bash(true)));
+    await settle();
+    const first = target.querySelector("[data-testid=audit-entry]");
+    expect(first?.querySelector("pre.input")?.textContent).toBe("ls");
+    expect(first?.querySelector("details:not([open]) pre")?.textContent).toContain('"command": "ls"');
+    expect(target.querySelector("[data-testid=audit-filter]")).not.toBeNull();
+  });
+
   it("filters to refusals and by kind", async () => {
     await setup();
     target.querySelector<HTMLButtonElement>("[data-testid=open-audit]")?.click();
@@ -164,8 +182,8 @@ describe("AuditLog", () => {
     const disabled = document.createElement("button");
     disabled.disabled = true;
     dialog?.append(disabled);
-    const close = target.querySelector<HTMLButtonElement>("button.close");
-    close?.focus();
+    const last = [...target.querySelectorAll<HTMLElement>("[data-testid=audit] summary")].at(-1);
+    last?.focus();
     dialog?.dispatchEvent(new KeyboardEvent("keydown", { code: "Tab", key: "Tab", bubbles: true }));
     expect(document.activeElement).toBe(target.querySelector("[data-testid=audit-filter]"));
     disabled.remove();

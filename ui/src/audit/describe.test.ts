@@ -1,6 +1,6 @@
 import { expect, describe as group, it } from "vitest";
 import type { AuditEvent } from "../lib/protocol";
-import { describe, shows, when } from "./describe";
+import { describe, shows, toolLabel, when } from "./describe";
 import { bash, entry } from "./fake-audit";
 
 const line = (event: AuditEvent) => describe(entry(1, event));
@@ -10,7 +10,8 @@ group("describe", () => {
     expect(line(bash(true))).toEqual({
       title: "Allowed Bash",
       detail: "Allowed by a person.",
-      input: '{"command":"ls"}',
+      input: "ls",
+      raw: '{\n  "command": "ls"\n}',
       tone: "plain",
     });
     expect(line(bash(false))).toMatchObject({
@@ -25,7 +26,7 @@ group("describe", () => {
       allowed: false,
       by: { kind: "session_ended" },
     });
-    expect(write.input).toBe("src/a.rs\nSHA-256 of what it writes: abc");
+    expect([write.input, write.raw]).toEqual(["src/a.rs", "SHA-256 of what it writes: abc"]);
     expect(write.detail).toBe("Refused because the agent stopped or finished.");
     expect(
       line({
@@ -34,8 +35,31 @@ group("describe", () => {
         input: { kind: "json", text: "{}" },
         allowed: true,
         by: { kind: "role" },
-      }).detail,
-    ).toBe("Allowed by Ovra's rules for its own tools.");
+      }),
+    ).toMatchObject({
+      title: "Allowed Ovra: spawn agent",
+      detail: "Allowed by Ovra's rules for its own tools.",
+      input: null,
+      raw: null,
+    });
+    const review = line({
+      kind: "tool_decided",
+      tool: "mcp__ovra__request_review",
+      input: { kind: "json", text: '{"summary":"Wrote NOTES.md."}' },
+      allowed: true,
+      by: { kind: "role" },
+    });
+    expect([review.title, review.input]).toEqual(["Allowed Ovra: request review", "Wrote NOTES.md."]);
+    // Cut to 4 KiB, the input may not parse: it is kept for the details only.
+    const cut = line({ ...bash(true), input: { kind: "json", text: '{"command":"ls' } } as AuditEvent);
+    expect([cut.input, cut.raw]).toEqual([null, '{"command":"ls']);
+  });
+
+  it("names tools for people", () => {
+    expect(toolLabel("mcp__ovra__request_review")).toBe("Ovra: request review");
+    expect(toolLabel("mcp__tracker__create_issue")).toBe("tracker: create issue");
+    expect(toolLabel("Bash")).toBe("Bash");
+    expect(toolLabel("mcp__broken")).toBe("mcp__broken");
   });
 
   it("warns about sessions that ran without a sandbox", () => {
@@ -55,7 +79,11 @@ group("describe", () => {
   });
 
   it("describes settings, reviews, the network and secrets", () => {
-    expect(line({ kind: "trust_changed", trusted: true, fingerprint: "9f2c" }).title).toBe("Project settings trusted");
+    expect(line({ kind: "trust_changed", trusted: true, fingerprint: "9f2c" })).toMatchObject({
+      title: "Project settings trusted",
+      detail: "Agents load the settings as they were reviewed.",
+      raw: "Fingerprint of the reviewed settings: 9f2c",
+    });
     expect(line({ kind: "trust_changed", trusted: false, fingerprint: null }).detail).toBe(
       "Agents no longer load them.",
     );
