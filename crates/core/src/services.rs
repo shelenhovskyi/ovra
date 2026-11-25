@@ -775,9 +775,9 @@ pub struct Inspected {
 /// returns is untrusted; the core wraps it before an agent sees it.
 pub trait Browser: Send + Sync + Debug {
     fn status(&self) -> SandboxStatus;
-    /// Why `status` is unavailable, as a code the UI can act on; asked
-    /// only when it is.
-    fn refusal(&self) -> BrowserRefusal;
+    /// Why `status` is unavailable, as a code the UI can act on; `None`
+    /// while it is available.
+    fn refusal(&self) -> Option<BrowserRefusal>;
     /// Opens a page at `url`, first starting the session's browser in
     /// `profile` with `sink` if it does not run. `size` is the viewport
     /// in CSS pixels. The core's `profile` holds only the session's
@@ -1623,8 +1623,8 @@ impl Browser for Unavailable {
     fn status(&self) -> SandboxStatus {
         DevServers::status(self)
     }
-    fn refusal(&self) -> BrowserRefusal {
-        BrowserRefusal::NotSupported
+    fn refusal(&self) -> Option<BrowserRefusal> {
+        Some(BrowserRefusal::NotSupported)
     }
     fn open(
         &self,

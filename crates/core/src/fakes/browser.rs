@@ -140,8 +140,8 @@ impl Browser for FakeBrowser {
         }
     }
 
-    fn refusal(&self) -> BrowserRefusal {
-        lock(&self.missing).unwrap_or(BrowserRefusal::NoChromium)
+    fn refusal(&self) -> Option<BrowserRefusal> {
+        *lock(&self.missing)
     }
 
     fn open(

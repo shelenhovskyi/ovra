@@ -44,8 +44,8 @@ const DEFAULT_SIZE: (u32, u32) = (1280, 800);
 pub struct ChromiumBrowser {
     launcher: Option<Box<dyn Launch>>,
     status: SandboxStatus,
-    /// Why `status` is unavailable; unused while it is available.
-    refusal: BrowserRefusal,
+    /// Why `status` is unavailable.
+    refusal: Option<BrowserRefusal>,
     sessions: Sessions,
     /// One browser starts at a time, so a session never gets two.
     starting: tokio::sync::Mutex<()>,
@@ -60,7 +60,8 @@ impl ChromiumBrowser {
     pub fn new(sandbox: Arc<dyn Sandbox>, chromium: Option<PathBuf>) -> Self {
         let path = ovra_core::child_path::or_inherited(std::env::var_os("PATH"));
         let found = launch::find(chromium.as_deref(), path.as_deref());
-        let unavailable = |code, reason: String| (SandboxStatus::Unavailable { reason }, code);
+        let unavailable =
+            |code, reason: String| (SandboxStatus::Unavailable { reason }, Some(code));
         let (status, refusal) = match (&found, sandbox.status()) {
             _ if !cfg!(unix) => unavailable(
                 BrowserRefusal::NotSupported,
@@ -88,7 +89,7 @@ impl ChromiumBrowser {
                     name: format!("Chromium at {}", program.display()),
                     gaps,
                 },
-                BrowserRefusal::NoChromium,
+                None,
             ),
         };
         let launcher = found
@@ -104,7 +105,7 @@ impl ChromiumBrowser {
         Self {
             launcher,
             status,
-            refusal: BrowserRefusal::NoChromium,
+            refusal: None,
             sessions: Sessions::default(),
             starting: tokio::sync::Mutex::new(()),
             count: AtomicU64::new(0),
@@ -188,7 +189,7 @@ impl Browser for ChromiumBrowser {
         self.status.clone()
     }
 
-    fn refusal(&self) -> BrowserRefusal {
+    fn refusal(&self) -> Option<BrowserRefusal> {
         self.refusal
     }
 
