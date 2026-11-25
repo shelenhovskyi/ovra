@@ -724,9 +724,16 @@ function billedTo(session: SessionId): { text: string; key: boolean } | null {
     background: var(--s2);
     box-shadow: var(--card-shadow);
   }
-  /* Inside: the list's scrolling would clip a ring outside the card. */
+  /* The card the keys act on, however focus got there (the shortcut has
+     modifiers, so browsers do not count it as keyboard focus). Inside: the
+     list's scrolling would clip a ring outside the card. */
+  .card:focus-within {
+    box-shadow:
+      inset 0 0 0 2px var(--accent),
+      var(--card-shadow);
+  }
   .card:focus-visible {
-    outline-offset: -2px;
+    outline: none;
   }
   /* Who asks stays in sight while a tall request scrolls under it. */
   .who {
@@ -966,6 +973,10 @@ function billedTo(session: SessionId): { text: string; key: boolean } | null {
     .card,
     .flag {
       border: 1px solid CanvasText;
+    }
+    .card:focus-within {
+      outline: 2px solid Highlight;
+      outline-offset: -3px;
     }
     button {
       border: 1px solid ButtonText;
