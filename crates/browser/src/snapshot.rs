@@ -11,6 +11,10 @@ use serde_json::Value;
 
 /// Names are cut to this many characters.
 const NAME_LIMIT: usize = 200;
+/// A snapshot is cut after this many bytes, with [`CUT`] in place of the
+/// rest.
+const OUTPUT_LIMIT: usize = 64 << 10;
+const CUT: &str = "- (cut at 64 KiB: snapshot a ref, or pass a smaller depth, for the rest)\n";
 
 /// The refs of a page's latest snapshot.
 #[derive(Debug, Default)]
@@ -66,8 +70,12 @@ pub(crate) fn render(
         depth: depth.map_or(usize::MAX, |d| d as usize),
         refs,
         text: String::new(),
+        cut: false,
     };
     walk.node(start, 0, "");
+    if walk.cut {
+        walk.text.push_str(CUT);
+    }
     Ok(walk.text)
 }
 
@@ -76,6 +84,8 @@ struct Walk<'a, 'r> {
     depth: usize,
     refs: &'r mut Refs,
     text: String,
+    /// Whether a line did not fit in [`OUTPUT_LIMIT`].
+    cut: bool,
 }
 
 fn value_str(v: &Value) -> Option<&str> {
@@ -136,21 +146,32 @@ impl<'a> Walk<'a, '_> {
             }
             below = level + 1;
             let indent = "  ".repeat(level);
+            let mut line = String::new();
             if role == "StaticText" {
-                let _ = writeln!(self.text, "{indent}- text {}", quoted(name));
+                let _ = write!(line, "{indent}- text {}", quoted(name));
             } else {
-                let _ = write!(self.text, "{indent}- {role}");
+                let _ = write!(line, "{indent}- {role}");
                 if !name.is_empty() {
-                    let _ = write!(self.text, " {}", quoted(name));
+                    let _ = write!(line, " {}", quoted(name));
                 }
-                self.text.push_str(&states(node));
-                if let Some(backend) = node["backendDOMNodeId"].as_i64() {
-                    self.refs.next += 1;
-                    let r = format!("e{}", self.refs.next);
-                    let _ = write!(self.text, " [ref={r}]");
-                    self.refs.nodes.insert(r, backend);
-                }
-                self.text.push('\n');
+                line.push_str(&states(node));
+            }
+            let backend = node["backendDOMNodeId"]
+                .as_i64()
+                .filter(|_| role != "StaticText");
+            let r = backend.map(|_| format!("e{}", self.refs.next + 1));
+            if let Some(r) = &r {
+                let _ = write!(line, " [ref={r}]");
+            }
+            line.push('\n');
+            if self.cut || self.text.len() + line.len() > OUTPUT_LIMIT - CUT.len() {
+                self.cut = true;
+                return;
+            }
+            self.text.push_str(&line);
+            if let (Some(r), Some(backend)) = (r, backend) {
+                self.refs.next += 1;
+                self.refs.nodes.insert(r, backend);
             }
         }
         let name = if shown { name } else { parent_name };
@@ -212,6 +233,32 @@ pub(crate) mod tests {
         let text = render(&nodes(), None, None, &mut refs).expect("render");
         insta::assert_snapshot!(text);
         assert_eq!(refs.resolve("e6").ok(), Some(20));
+    }
+
+    #[test]
+    fn a_huge_page_is_cut_with_a_note() {
+        let mut nodes = vec![
+            json!({"nodeId": "0", "role": {"value": "RootWebArea"}, "childIds": (1..1000).map(|n| n.to_string()).collect::<Vec<_>>()}),
+        ];
+        for n in 1..1000 {
+            nodes.push(json!({"nodeId": n.to_string(), "backendDOMNodeId": n, "role": {"value": "link"}, "name": {"value": "x".repeat(150)}}));
+        }
+        let mut refs = Refs::default();
+        let text = render(&nodes, None, None, &mut refs).expect("render");
+        assert!(
+            text.len() <= OUTPUT_LIMIT && text.ends_with(CUT),
+            "{}",
+            text.len()
+        );
+        let last = text
+            .lines()
+            .rev()
+            .nth(1)
+            .and_then(|l| l.split("[ref=").nth(1));
+        let last = last.map(|r| r.trim_end_matches(']')).expect("a ref");
+        assert!(refs.resolve(last).is_ok());
+        let next = format!("e{}", last[1..].parse::<u64>().unwrap_or_default() + 1);
+        assert!(refs.resolve(&next).is_err());
     }
 
     #[test]

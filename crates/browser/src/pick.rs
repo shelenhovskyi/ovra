@@ -33,7 +33,9 @@ pub(crate) const READ: &str = "function () {
     parts.unshift(part);
   }
   const attributes = {};
-  for (const a of e.attributes) attributes[a.name] = a.value;
+  for (const a of Array.from(e.attributes).slice(0, 64)) {
+    attributes[a.name.slice(0, 128)] = a.value.slice(0, 1024);
+  }
   const computed = getComputedStyle(e);
   const styles = {};
   for (const k of STYLES) styles[k] = computed.getPropertyValue(k);
@@ -65,6 +67,10 @@ pub(crate) const STYLES: [&str; 10] = [
 
 const TEXT_LIMIT: usize = 200;
 const HTML_LIMIT: usize = 2048;
+/// At most this many attributes besides `id` and `class`, each name and
+/// value cut to [`ATTRIBUTE_LIMIT`] bytes: a page cannot flood the agent.
+const ATTRIBUTES_KEPT: usize = 32;
+const ATTRIBUTE_LIMIT: usize = 512;
 
 /// [`READ`] with the style names filled in.
 pub(crate) fn read_function() -> String {
@@ -132,12 +138,17 @@ pub(crate) fn build(read: &Value, pick_id: String, url: String, locator: String)
             .filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned())))
             .collect()
     };
-    let mut attributes = map("attributes");
+    let mut attributes: BTreeMap<String, String> = map("attributes")
+        .into_iter()
+        .map(|(k, v)| (cut(&k, ATTRIBUTE_LIMIT), cut(&v, ATTRIBUTE_LIMIT)))
+        .collect();
     let id = attributes.remove("id");
     let classes = attributes
         .remove("class")
         .map(|c| c.split_whitespace().map(str::to_owned).collect())
         .unwrap_or_default();
+    let source = source(&attributes);
+    let attributes = attributes.into_iter().take(ATTRIBUTES_KEPT).collect();
     let number = |key: &str| read["rect"][key].as_f64().unwrap_or_default().round() as i32;
     let words: Vec<&str> = read["text"]
         .as_str()
@@ -152,7 +163,7 @@ pub(crate) fn build(read: &Value, pick_id: String, url: String, locator: String)
         tag: text("tag"),
         id,
         classes,
-        source: source(&attributes),
+        source,
         attributes,
         text: words.join(" ").chars().take(TEXT_LIMIT).collect(),
         html: cut(read["html"].as_str().unwrap_or_default(), HTML_LIMIT),
@@ -203,6 +214,24 @@ pub(crate) mod tests {
             html: format!("{}... ({} bytes)", &pick.html[..18], pick.html.len()),
             ..pick
         });
+    }
+
+    #[test]
+    fn a_flood_of_attributes_is_cut() {
+        let mut flood = read();
+        let long = "x".repeat(5000);
+        for n in 0..100 {
+            flood["attributes"][format!("data-{n:03}")] = json!(long);
+        }
+        flood["attributes"]["class"] = json!(format!("a {long}"));
+        let pick = build(&flood, "pk1".into(), String::new(), String::new());
+        assert_eq!(pick.attributes.len(), ATTRIBUTES_KEPT);
+        assert!(pick.attributes.values().all(|v| v.len() <= ATTRIBUTE_LIMIT));
+        assert_eq!(
+            pick.classes,
+            ["a".to_owned(), "x".repeat(ATTRIBUTE_LIMIT - 2)]
+        );
+        assert_eq!(pick.source.and_then(|s| s.line), Some(12));
     }
 
     #[test]
