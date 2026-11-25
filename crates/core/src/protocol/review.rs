@@ -93,7 +93,7 @@ pub struct ReviewItem {
     /// (SEC-5): hooks, config. No diff shows them
     /// and approve and reject never touch them; the person checks them.
     #[serde(default)]
-    pub git_changes: Vec<GitChange>,
+    pub git_changes: Vec<GitFileChange>,
     /// Hooks and config could not be compared (the record from the
     /// session's start or the reading now failed): `git_changes` may be
     /// incomplete, and the person should look.
@@ -104,7 +104,7 @@ pub struct ReviewItem {
 /// A changed file of the git folder or hooks folder, by the name
 /// `Worktrees::git_files` gives it (`.git/hooks/pre-commit`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct GitChange {
+pub struct GitFileChange {
     pub path: String,
     pub kind: ChangeKind,
 }

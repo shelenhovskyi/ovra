@@ -51,13 +51,13 @@ export type ReviewItem = {
    * that changed since the session started. No diff shows them, and
    * approve and reject never touch them: the person checks them.
    */
-  git_changes: GitChange[];
+  git_changes: GitFileChange[];
   /** Hooks and config could not be compared: `git_changes` may be incomplete. */
   git_unchecked: boolean;
 };
 
 /** A changed file of the git folder or hooks folder, such as `.git/hooks/pre-commit`. */
-export type GitChange = { path: string; kind: ChangeKind };
+export type GitFileChange = { path: string; kind: ChangeKind };
 
 export type ReviewRequest =
   | { method: "review.list"; params: { project: ProjectId } }

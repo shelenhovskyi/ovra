@@ -14,8 +14,8 @@ use crate::protocol::agents::{AgentStatus, MessageFrom, SessionId, SessionMode};
 use crate::protocol::audit::{AuditEvent, ReviewAction};
 use crate::protocol::projects::ProjectId;
 use crate::protocol::review::{
-    ChangeKind, ChangedBy, FileChange, GitChange, ReviewEvent, ReviewId, ReviewItem, ReviewRequest,
-    ReviewResponse, ReviewState,
+    ChangeKind, ChangedBy, FileChange, GitFileChange, ReviewEvent, ReviewId, ReviewItem,
+    ReviewRequest, ReviewResponse, ReviewState,
 };
 use crate::protocol::{ErrorCode, OkResponse, ProtocolError, Response};
 use crate::services::Delta;
@@ -64,7 +64,7 @@ pub(super) struct Entry {
 /// started ([`git_seen`]).
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 struct GitSeen {
-    changes: Vec<GitChange>,
+    changes: Vec<GitFileChange>,
     /// They could not be compared: the record or the reading failed.
     unchecked: bool,
     /// The hooks folder, relative to the project, if it is inside it.
@@ -403,7 +403,7 @@ async fn git_seen(core: &Core, entry: &Entry) -> GitSeen {
     let Ok(now) = core.worktrees().git_files(root).await else {
         return unchecked;
     };
-    let mut changes: Vec<GitChange> = now
+    let mut changes: Vec<GitFileChange> = now
         .files
         .iter()
         .filter_map(|(path, version)| {
@@ -412,7 +412,7 @@ async fn git_seen(core: &Core, entry: &Entry) -> GitSeen {
                 Some(was) if was != version => ChangeKind::Modified,
                 Some(_) => return None,
             };
-            Some(GitChange {
+            Some(GitFileChange {
                 path: path.clone(),
                 kind,
             })
@@ -421,7 +421,7 @@ async fn git_seen(core: &Core, entry: &Entry) -> GitSeen {
     changes.extend(
         seen.keys()
             .filter(|p| !now.files.contains_key(*p))
-            .map(|path| GitChange {
+            .map(|path| GitFileChange {
                 path: path.clone(),
                 kind: ChangeKind::Deleted,
             }),
