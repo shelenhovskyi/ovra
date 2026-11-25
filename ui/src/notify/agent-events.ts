@@ -43,7 +43,7 @@ export function watchAgents(transport: Transport, notifier: Notifier, review: (i
         ...(changed > 0
           ? {
               text: `${name(session)} is done and changed ${changed === 1 ? "1 file" : `${changed} files`}. Keep or undo it in Reviews.`,
-              action: { label: "Review", run: openReviews },
+              action: { label: "Review", run: () => openReviews([session]) },
             }
           : { text: `${name(session)} is done. Reply to ask for more.` }),
       });
@@ -62,7 +62,7 @@ export function watchAgents(transport: Transport, notifier: Notifier, review: (i
       ...(waiting > 0
         ? {
             text: `${sessions.byId.get(task.coordinator)?.title || "A task"}: ${waiting === 1 ? "1 change waits" : `${waiting} changes wait`} for your review`,
-            action: { label: "Review", run: openReviews },
+            action: { label: "Review", run: () => openReviews(task.workers.map((w) => w.session)) },
           }
         : { text: `${name(task.coordinator)} is done. Reply to ask for more.` }),
     });

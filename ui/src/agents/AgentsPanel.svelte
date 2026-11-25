@@ -377,13 +377,13 @@ const canReply = $derived(current !== null && current.status.state === "idle");
             </ul>
             <div class="row">
               <span class="hint">Already in your folder. Keep or undo them in Reviews.</span>
-              <button type="button" onclick={openReviews}>Review</button>
+              <button type="button" onclick={() => current && openReviews([current.id])}>Review</button>
             </div>
           </section>
         {:else if waiting > 0}
           <div class="outcome row" data-testid="agent-reviews">
             <span>{waiting === 1 ? "1 change waits" : `${waiting} changes wait`} for your review.</span>
-            <button type="button" onclick={openReviews}>Review</button>
+            <button type="button" onclick={() => current && openReviews(sessions.workers(current.id))}>Review</button>
           </div>
         {/if}
         <Transcript messages={messages ?? []} billing={current.billing} {workerName} />

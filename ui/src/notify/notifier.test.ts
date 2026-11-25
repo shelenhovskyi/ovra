@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeAgentCore } from "../agents/fake-core";
+import { handleOpenFor } from "../inbox/open";
 import { watchAgents } from "./agent-events";
 import { INFO_MS, Notifier, type SystemNotifications } from "./notifier.svelte";
 
@@ -194,6 +195,12 @@ describe("watchAgents", () => {
     core.status("s2", { state: "idle" });
     expect(await texts()).toEqual(["Add notes: 1 change waits for your review"]);
     expect(notifier.toasts[0]?.action?.label).toBe("Review");
+    // On the task's workers' items, not the one chosen last.
+    const asked = vi.fn();
+    const off = handleOpenFor(asked);
+    void notifier.toasts[0]?.action?.run();
+    off();
+    expect(asked).toHaveBeenCalledWith(["s2"]);
     // Work starts again: the toast no longer holds.
     core.status("s2", { state: "working" });
     expect(await texts()).toEqual([]);

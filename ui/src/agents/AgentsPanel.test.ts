@@ -1,6 +1,7 @@
 import { flushSync, mount, unmount } from "svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { browserPicks } from "../browser/picks.svelte";
+import { handleOpenFor } from "../inbox/open";
 import { registerCommand } from "../keys/commands";
 import type { FileChange, Pick, ReviewItem } from "../lib/protocol";
 import { Workspace } from "../shell/workspace.svelte";
@@ -383,6 +384,12 @@ describe("AgentsPanel", () => {
     expect(target.querySelector("[data-testid=agent-reviews]")?.textContent?.replace(/\s+/g, " ").trim()).toBe(
       "1 change waits for your review. Review",
     );
+    // Review opens the inbox on this task's workers, not the item chosen last.
+    const asked = vi.fn();
+    const off = handleOpenFor(asked);
+    target.querySelector<HTMLButtonElement>("[data-testid=agent-reviews] button")?.click();
+    off();
+    expect(asked).toHaveBeenCalledWith(["s2"]);
     // A worker's files are in its own worktree: no diff of the project folder.
     selectRow("docs · Write the notes");
     expect(target.querySelector("[data-testid=agent-changes]")).toBeNull();

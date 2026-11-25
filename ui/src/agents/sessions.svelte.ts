@@ -3,6 +3,7 @@
 // notifications (`agentSessions(transport)`).
 
 import { SvelteMap } from "svelte/reactivity";
+import { openInboxFor } from "../inbox/open";
 import { listCommands } from "../keys/commands";
 import type {
   AgentCapacity,
@@ -96,6 +97,13 @@ export class AgentSessions {
       const item = this.reviews.get(session);
       return role.kind === "worker" && role.coordinator === coordinator && item !== undefined && waits(item);
     }).length;
+  }
+
+  /** The task's workers, in the order it started them. */
+  workers(coordinator: SessionId): SessionId[] {
+    return [...this.roles]
+      .filter(([, role]) => role.kind === "worker" && role.coordinator === coordinator)
+      .map(([session]) => session);
   }
 
   /** Front ends without a count show none. */
@@ -335,8 +343,12 @@ function waits(item: ReviewItem): boolean {
   );
 }
 
-/** Opens the review inbox through its command. */
-export function openReviews(): void {
+/**
+ * Opens the review inbox on the waiting item of the first of `sessions`
+ * that has one; without an inbox that can, through its command.
+ */
+export function openReviews(sessions: SessionId[]): void {
+  if (openInboxFor(sessions)) return;
   void listCommands()
     .find((c) => c.id === "inbox.toggle")
     ?.run();
