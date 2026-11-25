@@ -4,7 +4,7 @@
 // reads; trusting stays on the trust card in the Agents column ("Review and
 // trust…"), where Trust sits under the same list, armed after a moment.
 import { untrack } from "svelte";
-import { changes, groups, KIND_LABELS, runsCode, summary } from "../agents/setup/texts";
+import { changes, groups, KIND_LABELS, runsCode, summary, touchesConfig } from "../agents/setup/texts";
 import { listCommands } from "../keys/commands";
 import type { ProjectConfigReview } from "../lib/protocol";
 import { CoreError } from "../lib/transport";
@@ -14,6 +14,10 @@ const { transport, workspace } = useOvra();
 
 let review = $state<ProjectConfigReview | null>(null);
 let error = $state<string | null>(null);
+// Answers can come back out of order: only the latest request's counts.
+let latest = 0;
+/** The project whose list `review` holds. */
+let shownFor: string | null = null;
 
 const project = $derived(workspace.project);
 const items = $derived(review?.current.items ?? []);
@@ -46,22 +50,45 @@ const listed = $derived(
   ),
 );
 
+// Another project's list never shows under this one, not even for a moment.
 $effect(() => {
   const id = project?.id ?? null;
   void project?.trusted;
   untrack(() => {
-    if (!id) return;
-    transport
-      .call({ method: "agents.project_config", params: { project: id } })
-      .then((answer) => {
-        if (workspace.project?.id === id) review = answer.data;
-        error = null;
-      })
-      .catch((err: unknown) => {
-        error = err instanceof CoreError ? err.error.message : String(err);
-      });
+    if (id !== shownFor) {
+      shownFor = id;
+      review = null;
+      error = null;
+    }
+    if (id) void load(id);
   });
 });
+
+// Re-read when the trust card does: a session starts, a review was decided,
+// or files under .claude/ changed.
+$effect(() =>
+  transport.onEvent((event) => {
+    const id = project?.id;
+    const matters =
+      (event.type === "agents.status" && event.data.status.state === "starting") ||
+      event.type === "review.changed" ||
+      (event.type === "fs.changed" && touchesConfig(event.data.paths));
+    if (matters && id && event.data.project === id) void load(id);
+  }),
+);
+
+async function load(id: string): Promise<void> {
+  const request = ++latest;
+  try {
+    const answer = await transport.call({ method: "agents.project_config", params: { project: id } });
+    if (request === latest && workspace.project?.id === id) {
+      review = answer.data;
+      error = null;
+    }
+  } catch (err) {
+    if (request === latest) error = err instanceof CoreError ? err.error.message : String(err);
+  }
+}
 
 function reviewAndTrust(): void {
   void listCommands()

@@ -1,7 +1,7 @@
 import { flushSync, mount, unmount } from "svelte";
 import { afterEach, expect, it } from "vitest";
 import { listCommands, registerCommand } from "../keys/commands";
-import type { Request } from "../lib/protocol";
+import type { ConfigItem, CoreEvent, ProjectConfigReview, Request, Response } from "../lib/protocol";
 import type { Transport } from "../lib/transport";
 import { mainView } from "../shell/main-view.svelte";
 import { Workspace } from "../shell/workspace.svelte";
@@ -71,4 +71,66 @@ it("opens on a pane from its command, moves with the arrow keys and reopens on t
   await run("settings.open");
   flushSync();
   expect(current()?.textContent).toBe("About");
+});
+
+it("shows only the open project's Claude settings, and re-reads them when they may have changed", async () => {
+  const asked: { project: string; answer: (review: ProjectConfigReview) => void }[] = [];
+  const listeners: ((event: CoreEvent) => void)[] = [];
+  const core: Transport = {
+    call: ((request: Request) =>
+      request.method === "agents.project_config"
+        ? new Promise<Response>((resolve) =>
+            asked.push({
+              project: request.params.project,
+              answer: (data) => resolve({ type: "agents.project_config", data }),
+            }),
+          )
+        : transport.call(request)) as Transport["call"],
+    onEvent: (listener) => {
+      listeners.push(listener);
+      return () => listeners.splice(listeners.indexOf(listener), 1);
+    },
+  };
+  const emit = (event: CoreEvent) => {
+    for (const listener of listeners) listener(event);
+  };
+  const config = (items: ConfigItem[]): ProjectConfigReview => ({
+    current: { fingerprint: "f", items },
+    trusted: null,
+  });
+  const skills = config([{ path: ".claude/skills", kind: "skills", entries: ["a"] }]);
+  const project = (id: string) => ({ id, name: id, root: `/${id}`, last_opened_ms: null, trusted: false });
+  const target = document.createElement("div");
+  document.body.append(target);
+  const workspace = new Workspace();
+  workspace.project = project("p1");
+  const app = mount(TestHost, { target, props: { transport: core, workspace } });
+  cleanup.push(registerSettingsCommands(), () => {
+    unmount(app);
+    target.remove();
+  });
+  await listCommands()
+    .find((c) => c.id === "settings.trust")
+    ?.run();
+  await settle();
+  const pane = () => target.querySelector("[data-testid=trust-settings]")?.textContent ?? "";
+  asked[0]?.answer(skills);
+  await settle();
+  expect(pane()).toContain("Not trusted");
+
+  // A read for p1 still on its way when p2 opens: p1's list neither stays nor comes back.
+  emit({ type: "fs.changed", data: { project: "p1", paths: [".claude/skills/a/SKILL.md"] } });
+  workspace.project = project("p2");
+  await settle();
+  expect(pane()).toContain("Reading the project's settings");
+  expect(asked.map((a) => a.project)).toEqual(["p1", "p1", "p2"]);
+  asked[2]?.answer(config([]));
+  asked[1]?.answer(skills);
+  await settle();
+  expect(pane()).toContain("None: this project brings no Claude settings");
+
+  emit({ type: "review.changed", data: { project: "p1", id: "r1" } });
+  emit({ type: "review.changed", data: { project: "p2", id: "r2" } });
+  await settle();
+  expect(asked.map((a) => a.project)).toEqual(["p1", "p1", "p2", "p2"]);
 });
