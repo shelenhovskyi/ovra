@@ -130,6 +130,29 @@ const CODE_TAKERS: [&str; 28] = [
 /// rarely repeated and hard to read on a card.
 const MAX_ALWAYS_COMMAND: usize = 200;
 
+/// Files that say what commands run: an `Edit` rule for one would let the
+/// agent change what an allowed command does, so "Always allow" never
+/// offers one. Compared by file name, in any case.
+const COMMAND_FILES: [&str; 13] = [
+    "package.json",
+    "makefile",
+    "gnumakefile",
+    "build.rs",
+    "cargo.toml",
+    "pyproject.toml",
+    "setup.py",
+    ".npmrc",
+    "justfile",
+    ".envrc",
+    "lefthook.yml",
+    ".pre-commit-config.yaml",
+    "rakefile",
+];
+
+/// Folders whose files say what commands run, as [`COMMAND_FILES`]: by
+/// their path inside the folder, in any case.
+const COMMAND_FOLDERS: [&str; 3] = [".github/workflows", ".cargo", ".husky"];
+
 /// Held while a `policy.set` compares and stores. One lock for every
 /// project and core: changes are rare and quick.
 static SETTING: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -244,7 +267,8 @@ pub(crate) fn always_rule(
         "Edit" | "Write" => {
             let path = inside(work_dir, Path::new(text("file_path")?))?;
             let special = path.contains(['*', '?', '[', ':']);
-            (!special && !crate::protected::changes(&path, None)).then_some(path)?
+            let kept = special || crate::protected::changes(&path, None) || runs_commands(&path);
+            (!kept).then_some(path)?
         }
         "WebFetch" => {
             let host = url_host(text("url")?)?;
@@ -302,6 +326,25 @@ fn command_scope(command: &str) -> Option<String> {
     }
     let scope = words.join(" ");
     (scope.len() <= MAX_ALWAYS_COMMAND).then_some(scope)
+}
+
+/// Whether `path` (relative, `/` separators) is in git's own folder or a
+/// file that says what commands run. Windows drops trailing dots and
+/// spaces from names and knows `.git` as `git~1` too.
+fn runs_commands(path: &str) -> bool {
+    let parts: Vec<String> = path
+        .split('/')
+        .map(|p| p.trim_end_matches(['.', ' ']).to_ascii_lowercase())
+        .collect();
+    let in_git = parts.iter().any(|p| p == ".git" || p.starts_with("git~"));
+    let named = parts
+        .last()
+        .is_some_and(|name| COMMAND_FILES.contains(&name.as_str()));
+    let folder = COMMAND_FOLDERS.iter().any(|folder| {
+        let folder: Vec<&str> = folder.split('/').collect();
+        parts.len() > folder.len() && parts.iter().zip(&folder).all(|(p, f)| p == f)
+    });
+    in_git || named || folder
 }
 
 /// The names the shell may find for a command's first word: without

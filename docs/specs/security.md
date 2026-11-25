@@ -595,8 +595,15 @@ rules for each project:
     review-marked path, or any word the shell expands past that check
     (`*`, `?`, `[`, `{` or `$` anywhere, or a quote inside the word).
   - `Edit` and `Write`: the exact file, relative to `work_dir`. Not offered
-    outside it, for protected or review-marked paths, or for names with
-    glob characters.
+    outside it, for protected or review-marked paths, for names with glob
+    characters, for any path with a `.git` part (in any case, with
+    trailing dots or spaces, or as `git~1`), or for files that say what
+    commands run: `package.json`, `Makefile`, `GNUmakefile`, `build.rs`,
+    `Cargo.toml`, `pyproject.toml`, `setup.py`, `.npmrc`, `justfile`,
+    `.envrc`, `lefthook.yml`, `.pre-commit-config.yaml`, `Rakefile` (by
+    name, in any folder and case) and anything in `.github/workflows/`,
+    `.cargo/` or `.husky/`. A rule for one would let the agent change what
+    an allowed command does.
   - `WebFetch`: the URL's host. Not offered for addresses, single-label
     names or hosts where anyone can receive data (the netproxy's broad
     list).
