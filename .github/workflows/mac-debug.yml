@@ -23,14 +23,13 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Rust tests and budget
-        continue-on-error: true
-        run: |
-          cargo nextest run --workspace --exclude ovra-app --all-features --no-tests=pass
-          python3 scripts/check_test_budgets.py rust
       - run: just build-headless
       - run: pnpm --filter @ovra/e2e exec playwright install chromium
       - name: e2e
-        run: pnpm --filter @ovra/e2e exec playwright test --reporter=list --trace off
+        run: pnpm --filter @ovra/e2e exec playwright test --reporter=list --trace off specs/claude-driver.spec.ts specs/git.spec.ts
       - if: always()
-        run: python3 scripts/check_test_budgets.py e2e || true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: mac-e2e
+          path: tests/e2e/test-results/
+          retention-days: 3
