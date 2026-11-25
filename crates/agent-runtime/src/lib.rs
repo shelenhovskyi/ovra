@@ -180,6 +180,10 @@ async fn session(
         Ok(child) => child,
         Err(e) => return failed(format!("could not start {}: {e}", executable.display())),
     };
+    // Its memory and CPU are counted with every command it runs.
+    if let Some(pid) = child.id() {
+        host.process(pid);
+    }
     let (Some(stdin), Some(stdout), Some(mut stderr)) =
         (child.stdin.take(), child.stdout.take(), child.stderr.take())
     else {

@@ -164,6 +164,10 @@ impl DevServers for PodServers {
     fn pod_ended(&self, work_dir: PathBuf) -> BoxFuture<'_, ()> {
         Box::pin(self.pods.ended(work_dir))
     }
+
+    fn pod_pid(&self, work_dir: &Path) -> Option<u32> {
+        self.pods.pid(work_dir)
+    }
 }
 
 #[cfg(not(unix))]

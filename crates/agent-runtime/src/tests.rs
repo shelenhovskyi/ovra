@@ -762,6 +762,35 @@ echo '{"type":"result","subtype":"success","usage":{"input_tokens":1,"output_tok
     }
 
     #[tokio::test]
+    async fn the_agents_process_is_counted_for_its_resources() {
+        let dir = Dir::new("pid");
+        let claude = dir.claude(
+            "2.1.331",
+            &format!("echo $$ > \"$0.pid\"\n{ONE_TURN}\ncat > /dev/null"),
+        );
+        let resources = Arc::new(ovra_core::fakes::FakeResources::default());
+        let core = Core::builder("test")
+            .projects(Arc::new(MemoryProjects::default()))
+            .agents(Arc::new(ClaudeCli::new(Some(claude), unsandboxed())))
+            .resources(resources.clone())
+            .build();
+        let mut rx = core.subscribe();
+        start(&core, &dir.0.to_string_lossy(), "hi").await;
+        wait_idle(&mut rx).await;
+        let pid: u32 = dir.read("claude.pid").trim().parse().unwrap_or(0);
+        while !resources.asked().iter().any(|roots| roots.contains(&pid)) {
+            if Core::next_event(&mut rx).await.is_none() {
+                panic!("the core closed");
+            }
+        }
+        call(
+            &core,
+            json!({"method": "agents.stop", "params": {"session": "s1"}}),
+        )
+        .await;
+    }
+
+    #[tokio::test]
     async fn a_sandboxed_session_runs_the_wrapped_line_and_reports_it() {
         use ovra_core::fakes::FakeSandbox;
         use ovra_core::protocol::agents::{SandboxNetwork, SandboxReport};

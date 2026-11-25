@@ -228,6 +228,10 @@ impl Browser for ChromiumBrowser {
         })
     }
 
+    fn pid(&self, session: &SessionId) -> Option<u32> {
+        lock(&self.sessions).get(session).and_then(|s| s.pid())
+    }
+
     fn end(&self, session: &SessionId) {
         let ended = lock(&self.sessions).remove(session);
         if let Some(ended) = ended {

@@ -61,6 +61,9 @@ struct Pod {
     control: UnboundedSender<Request>,
     /// By spawn name.
     servers: BTreeMap<String, Running>,
+    /// The pid of the process it was launched as, for counting its memory
+    /// and CPU with its servers'.
+    pid: Option<u32>,
 }
 
 struct Running {
@@ -218,6 +221,7 @@ impl Pods {
             let _ = std::fs::remove_dir_all(&dir);
         })?;
         let sockets = Arc::new(sockets);
+        let pid = child.id();
         let (control, requests) = unbounded_channel();
         let work_dir = spec.work_dir.clone();
         let state = self.state.clone();
@@ -229,6 +233,7 @@ impl Pods {
             sockets,
             control,
             servers: BTreeMap::new(),
+            pid,
         };
         Ok((pod, alive))
     }
@@ -276,6 +281,11 @@ impl Pods {
             tokio::time::sleep(grace).await;
             signal(&state, Sig::Kill, |n, _| *n == name);
         });
+    }
+
+    /// The pid `work_dir`'s pod was launched as, while it runs.
+    pub(crate) fn pid(&self, work_dir: &Path) -> Option<u32> {
+        lock(&self.state).pods.get(work_dir).and_then(|p| p.pid)
     }
 
     /// Waits until every pod of `work_dir` that runs now has ended.
@@ -623,6 +633,7 @@ mod tests {
             sockets: Arc::new(Sockets::open(folder.path()).expect("pod folder")),
             control,
             servers: BTreeMap::from([("2".to_owned(), running)]),
+            pid: None,
         };
         let state = Mutex::new(State {
             pods: BTreeMap::from([(PathBuf::from("/w"), pod)]),

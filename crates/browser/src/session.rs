@@ -40,6 +40,11 @@ pub(crate) struct Session {
 }
 
 impl Session {
+    /// The browser's pid while it runs.
+    pub(crate) fn pid(&self) -> Option<u32> {
+        lock(&self.child).as_ref().and_then(Child::id)
+    }
+
     /// Starts talking to a launched browser; it leaves `sessions` by
     /// itself when it closes.
     pub(crate) async fn start(
