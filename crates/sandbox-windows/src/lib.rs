@@ -72,12 +72,13 @@ impl Setup {
 /// What the Windows sandbox does not isolate yet, as sessions report it
 /// (`docs/specs/sandbox-windows.md`, "What is not isolated"). WFP filters
 /// are meant to close the network ones.
-const GAPS: [&str; 5] = [
+const GAPS: [&str; 6] = [
     "DNS lookups",
     "loopback services",
     "Windows file sharing (SMB, WebDAV, BITS)",
-    "reads and deletes in other sandboxed projects",
-    "processes started through WMI or the task scheduler",
+    "reads in other sandboxed projects, caches and temp folders",
+    "deletes, moves and ACL changes in other sandboxed projects",
+    "processes started through WMI, the task scheduler or COM servers",
 ];
 
 /// The Windows sandbox: the sandbox user and a write-restricted token.
@@ -196,6 +197,6 @@ mod tests {
         ] {
             assert!(gaps.iter().any(|g| g == gap), "{gap} missing from {gaps:?}");
         }
-        assert_eq!(gaps.len(), 5, "{gaps:?}");
+        assert_eq!(gaps.len(), 6, "{gaps:?}");
     }
 }

@@ -47,6 +47,7 @@ fn the_sandbox_user_writes_its_project_only_and_reaches_nothing() {
     let other = root.join("other");
     fs::create_dir_all(&other).unwrap();
     fs::write(other.join("kept.txt"), "kept").unwrap();
+    fs::write(other.join("moved.txt"), "moved").unwrap();
     let other_sid = "S-1-5-21-1000000031-1000000032-1000000033-1000000034";
     let out = Command::new(PROBE)
         .args([
@@ -59,6 +60,7 @@ fn the_sandbox_user_writes_its_project_only_and_reaches_nothing() {
         .args(["--m", &text(&other)])
         .args(["--rx", &text(Path::new(PROBE).parent().unwrap())])
         .args(["--env", "SystemRoot", "--", PROBE])
+        .args(["write", &text(&other.join("mine.txt"))])
         .current_dir(&other)
         .output()
         .unwrap();
@@ -88,6 +90,17 @@ fn the_sandbox_user_writes_its_project_only_and_reaches_nothing() {
         .args(["remove", &text(&work.join(".git"))])
         .args(["write", &text(&other.join("kept.txt"))])
         .args(["remove", &text(&other.join("kept.txt"))])
+        .args(["delete", &text(&other.join("kept.txt"))])
+        .args([
+            "rename",
+            &format!(
+                "{}|{}",
+                text(&other.join("moved.txt")),
+                text(&work.join("moved.txt"))
+            ),
+        ])
+        .args(["acl", &format!("{}|{sid}", text(&other.join("mine.txt")))])
+        .args(["write", &text(&other.join("mine.txt"))])
         .current_dir(&work)
         .output()
         .unwrap();
@@ -104,10 +117,9 @@ fn the_sandbox_user_writes_its_project_only_and_reaches_nothing() {
         "{}",
         String::from_utf8_lossy(&removed.stderr)
     );
-    // The last line is a known limit (docs/specs/sandbox-windows.md):
-    // Windows does not count DELETE as a write, so the token's project SID
-    // does not stop it, and the sandbox user may delete in every project it
-    // was ever granted.
+    // The last lines probe another project. Windows does not count DELETE,
+    // renames or ACL changes as writes, so the token's project SID may not
+    // stop them; `docs/specs/sandbox-windows.md` lists what gets through.
     let shown = String::from_utf8_lossy(&out.stdout)
         .replace(&text(&work), "WORK")
         .replace(&text(&other), "OTHER")
@@ -121,6 +133,10 @@ fn the_sandbox_user_writes_its_project_only_and_reaches_nothing() {
     connect 1.1.1.1:443: no
     remove WORK\.git: no
     write OTHER\kept.txt: no
-    remove OTHER\kept.txt: yes
+    remove OTHER\kept.txt: no
+    delete OTHER\kept.txt: no
+    rename OTHER\moved.txt|WORK\moved.txt: no
+    acl OTHER\mine.txt|S-1-5-21-1000000011-1000000012-1000000013-1000000014: no
+    write OTHER\mine.txt: no
     ");
 }

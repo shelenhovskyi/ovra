@@ -122,8 +122,8 @@ spec.
   the machine stay reachable. Name lookups go through the system's
   resolver service, so DNS is a slow channel out, and SMB, WebDAV and BITS
   traffic Windows sends from its own services is not the sandbox user's,
-  so the rule does not block it. Projects are isolated for writes only: a
-  session can read, and delete files in, another sandboxed project. `~/.claude`'s session
+  so the rule does not block it. A session can read another sandboxed
+  project and may delete, move or re-ACL files there, but not write. `~/.claude`'s session
   folders (`todos/`, `plans/`, ...) are the person's own, shared with
   their sessions; `shell-snapshots/` and `session-env/` stay read-only.
   Sessions are sandboxed only after the one-time setup (administrator);
