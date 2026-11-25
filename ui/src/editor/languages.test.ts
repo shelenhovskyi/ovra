@@ -1,8 +1,14 @@
 import { describe, expect, test } from "vitest";
 import { grammarUrls } from "./grammars";
-import { languageFor, languages } from "./languages";
+import { commentTokens, languageFor, languages } from "./languages";
 
 describe("languages", () => {
+  test("comment markers follow the language; JSON and plain text have none", () => {
+    const markers = (path: string) => commentTokens(languageFor(path));
+    expect([markers("a.py"), markers("a.rs")?.line, markers("a.css")?.line]).toEqual([{ line: "#" }, "//", undefined]);
+    expect([markers("a.json"), markers("notes.txt")]).toEqual([null, null]);
+  });
+
   test("every language package names a bundled grammar", () => {
     expect(languages.map((l) => l.id).sort()).toEqual([
       "css",

@@ -58,18 +58,11 @@ describe("Buffer", () => {
   test("Mod+/ comments and uncomments lines with the language's marker", async () => {
     const { core, view, show } = setup();
     core.put("a.ts", "let a = 1;");
-    core.put("b.py", "a = 1");
-    core.put("c.json", "{}");
     await show("a.ts");
     toggleComment(view);
     expect(view.state.doc.toString()).toBe("// let a = 1;");
     toggleComment(view);
     expect(view.state.doc.toString()).toBe("let a = 1;");
-    await show("b.py");
-    toggleComment(view);
-    expect(view.state.doc.toString()).toBe("# a = 1");
-    await show("c.json");
-    expect(toggleComment(view)).toBe(false);
   });
 
   test("wraps lines while word wrap is on, keeping the text and its undo history", async () => {
