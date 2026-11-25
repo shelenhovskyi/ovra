@@ -140,3 +140,17 @@ test("a language action from the viewer opens the file for editing, then runs in
   view.destroy();
   unregister();
 });
+
+test("find, replace and go to line have VS Code's keys, which no other editor command uses", () => {
+  const { unregister } = setup();
+  const commands = listCommands().filter((c) => c.id.startsWith("editor."));
+  const keys = (id: string) => commands.find((c) => c.id === id)?.keys;
+  expect([keys("editor.find"), keys("editor.replace"), keys("editor.go_to_line")]).toEqual([
+    "Mod+F",
+    "Mod+Alt+F",
+    "Ctrl+G",
+  ]);
+  const all = commands.flatMap((c) => (c.keys ? [c.keys] : []));
+  expect(new Set(all).size).toBe(all.length);
+  unregister();
+});

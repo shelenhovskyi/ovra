@@ -62,3 +62,34 @@ test("reopens the file that was open when the project was left", async ({ page }
   await expect(page.getByTestId("project-name")).toContainText(basename(dir));
   await expect(page.getByTestId("main")).toContainText("Notes");
 });
+
+test("the editor's context menu finds in the file, and Ctrl+G goes to a line", async ({ page }) => {
+  const url = process.env.OVRA_URL;
+  if (!url) throw new Error("OVRA_URL is not set; globalSetup did not run");
+  const dir = mkdtempSync(join(tmpdir(), "ovra-menu-"));
+  writeFileSync(join(dir, "main.rs"), "fn main() {}\n");
+
+  await page.goto(url);
+  const projects = page.getByTestId("project-list");
+  await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
+  await projects.getByRole("button", { name: "Open", exact: true }).click();
+  await page.getByRole("treeitem", { name: /main\.rs/ }).click();
+  await page.keyboard.press("ControlOrMeta+E");
+  const content = page.getByTestId("main").locator(".cm-content");
+  await expect(content).toHaveText("fn main() {}");
+
+  await content.click({ button: "right" });
+  const menu = page.getByRole("menu");
+  await expect(menu.getByRole("menuitem", { name: "Copy relative path", exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(menu).toBeHidden();
+  await expect(content).toBeFocused();
+
+  await content.click({ button: "right" });
+  await menu.getByRole("menuitem", { name: "Find", exact: true }).click();
+  await expect(page.locator(".cm-search input[name=search]")).toBeFocused();
+
+  await content.click();
+  await page.keyboard.press("Control+G");
+  await expect(page.locator(".cm-goto-line input")).toBeFocused();
+});

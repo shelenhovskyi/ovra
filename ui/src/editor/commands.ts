@@ -5,6 +5,7 @@ import type { Workspace } from "../shell/workspace.svelte";
 import { editorReady, goToChange, readBlame, showChangeAtCursor, toggleBlame } from "./git/extension";
 import type { LspAction } from "./lsp/actions";
 import { focusMain, requestClose, show, tabs } from "./open-files.svelte";
+import { runSearch, type SearchAction } from "./search";
 
 type Target = Pick<Workspace, "openPath" | "mode" | "openFile">;
 
@@ -73,6 +74,16 @@ const LSP_ACTIONS: [LspAction, string, string?][] = [
   ["next_problem", "Go to next problem", "F8"],
 ];
 
+/**
+ * CodeMirror's panels, with the keys VS Code uses. Inside the editor its own
+ * keymap answers Mod+F; Ctrl+G is bound there too (buffers.svelte.ts).
+ */
+const SEARCH_ACTIONS: [SearchAction, string, string][] = [
+  ["find", "Find in file", "Mod+F"],
+  ["replace", "Replace in file", "Mod+Alt+F"],
+  ["go_to_line", "Go to line…", "Ctrl+G"],
+];
+
 /** Registers the editor and tab commands; returns a function that unregisters them. */
 export function registerEditorCommands(workspace: Target): () => void {
   const step = (offset: number) => () => {
@@ -122,6 +133,9 @@ export function registerEditorCommands(workspace: Target): () => void {
         keys,
         run: inEditor(workspace, () => tabs.current?.lsp?.action(action)),
       }),
+    ),
+    ...SEARCH_ACTIONS.map(([action, title, keys]) =>
+      registerCommand({ id: `editor.${action}`, title, keys, run: inEditor(workspace, () => runSearch(action)) }),
     ),
   ];
   return () => {

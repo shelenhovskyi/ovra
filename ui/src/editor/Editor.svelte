@@ -6,11 +6,14 @@ import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { untrack } from "svelte";
 import { formatShortcut, inBrowserTab, isApple, liveKeys } from "../keys/shortcut";
+import { isMenuKey, openContextMenu } from "../menu/context-menu.svelte";
 import { useOvra } from "../shell/context";
 import type { TextSpot } from "../shell/workspace.svelte";
 import type { Buffer } from "./buffers.svelte";
 import { toggle } from "./commands";
+import { editorMenu } from "./context-menu";
 import { answerClose, tabs } from "./open-files.svelte";
+import { showView } from "./search";
 
 const { workspace } = useOvra();
 const viewKeys = formatShortcut(liveKeys("Mod+E", inBrowserTab()), isApple());
@@ -54,12 +57,14 @@ $effect(() => {
     else focusUnlessInTabs();
     entering = false;
     shown = next;
+    showView(target);
     // Showing a file is what starts its language server (ADR 0007).
     untrack(() => lsp?.showing(next, target));
   });
   return () => {
     live = false;
     shown = null;
+    showView(null);
     lsp?.hiding(next);
     next.detach();
     // Nothing typed before the next buffer arrives may land in this one.
@@ -102,6 +107,26 @@ async function save(overwrite = false): Promise<void> {
 async function revert(): Promise<void> {
   await buffer?.revert();
   view?.focus();
+}
+
+/** The context menu: a right-click first moves the cursor there unless it hits the selection; a key opens it at the cursor. */
+function openMenu(event: MouseEvent | KeyboardEvent): void {
+  const target = view;
+  const path = shown?.path;
+  // The find and go-to-line fields keep the native menu.
+  if (!target || !path || (event.target instanceof Element && event.target.closest(".cm-panels"))) return;
+  const root = workspace.project?.root ?? null;
+  if (event instanceof MouseEvent && event.button === 2) {
+    const pos = target.posAtCoords({ x: event.clientX, y: event.clientY });
+    const { from, to } = target.state.selection.main;
+    if (pos !== null && (pos < from || pos > to)) target.dispatch({ selection: { anchor: pos } });
+    openContextMenu(event, editorMenu(target, root, path));
+    return;
+  }
+  event.preventDefault();
+  const at = target.coordsAtPos(target.state.selection.main.head);
+  const entries = editorMenu(target, root, path);
+  openContextMenu({ x: at?.left ?? 0, y: at?.bottom ?? 0, returnFocus: target.contentDOM }, entries);
 }
 
 function discard(path: string): void {
@@ -156,7 +181,14 @@ function discard(path: string): void {
   {:else}
     <p class="message">No file open.</p>
   {/if}
-  <div class="host" class:hidden={buffer?.status !== "ready"} bind:this={host}></div>
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div
+    class="host"
+    class:hidden={buffer?.status !== "ready"}
+    bind:this={host}
+    oncontextmenu={openMenu}
+    onkeydown={(event) => isMenuKey(event) && openMenu(event)}
+  ></div>
 </div>
 
 <style>

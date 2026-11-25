@@ -3,6 +3,7 @@
 // The bar above the file has Edit, so it is always in sight; typing into the
 // view says that it is read-only and how to edit.
 import { toggle } from "../editor/commands";
+import { pathEntries } from "../editor/context-menu";
 import Code from "../editor/highlight/Code.svelte";
 import { highlightLines, type Segment } from "../editor/highlight/static";
 import { languageFor } from "../editor/languages";
@@ -11,6 +12,7 @@ import { unsavedText } from "../editor/open-files.svelte";
 import { formatShortcut, inBrowserTab, isApple, liveKeys } from "../keys/shortcut";
 import { CoreError } from "../lib/transport";
 import { languageServers } from "../lsp/servers.svelte";
+import { isMenuKey, openContextMenu } from "../menu/context-menu.svelte";
 import { useOvra } from "../shell/context";
 import ImageView from "./ImageView.svelte";
 import Lines from "./Lines.svelte";
@@ -106,6 +108,21 @@ function ontyping(event: KeyboardEvent): void {
     : "This file cannot be edited here.";
 }
 
+/** Copy, Select all and the file's path; Shift+F10 or the ContextMenu key open it too. */
+function openMenu(event: MouseEvent | KeyboardEvent): void {
+  const path = workspace.openPath;
+  const area = content;
+  if (!path || !area) return;
+  const text = window.getSelection()?.toString() ?? "";
+  const board = navigator.clipboard;
+  openContextMenu(event, [
+    board && text !== "" && { label: "Copy", keys: "Mod+C", run: () => board.writeText(text) },
+    { label: "Select all", keys: "Mod+A", run: () => window.getSelection()?.selectAllChildren(area) },
+    "separator",
+    ...pathEntries(workspace.project?.root ?? null, path),
+  ]);
+}
+
 async function openExternal() {
   const project = workspace.project?.id;
   const path = workspace.openPath;
@@ -154,7 +171,13 @@ async function openExternal() {
     <p class="notice" role="status">{notice}</p>
     <!-- A scroll area; the key handler only explains why typing does nothing. -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="content" bind:this={content} tabindex="-1" onkeydown={ontyping}>
+    <div
+      class="content"
+      bind:this={content}
+      tabindex="-1"
+      onkeydown={(event) => (isMenuKey(event) ? openMenu(event) : ontyping(event))}
+      oncontextmenu={openMenu}
+    >
       {#if unsaved !== null}
         <p class="note unsaved" data-testid="unsaved-preview">Showing unsaved changes from the editor.</p>
       {/if}

@@ -6,7 +6,7 @@
 // drafts so it survives a reload.
 
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
-import { highlightSelectionMatches, searchKeymap } from "@codemirror/search";
+import { gotoLine, highlightSelectionMatches, searchKeymap } from "@codemirror/search";
 import {
   Compartment,
   EditorSelection,
@@ -334,6 +334,8 @@ export class Buffer {
             return true;
           },
         },
+        // Go to line on every platform, as in VS Code (CodeMirror's Mod-g finds the next match).
+        { key: "Ctrl-g", run: gotoLine, preventDefault: true },
         indentWithTab,
         ...defaultKeymap,
         ...historyKeymap,
