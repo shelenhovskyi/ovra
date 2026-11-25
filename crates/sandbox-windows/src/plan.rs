@@ -242,7 +242,13 @@ impl Plan {
                 )));
             }
         }
-        plan.grant(work_dir.clone(), Right::Modify);
+        // A research session's folder is read-only (ADR 0011).
+        let work_right = if profile.work_dir_read_only {
+            Right::Read
+        } else {
+            Right::Modify
+        };
+        plan.grant(work_dir.clone(), work_right);
         for write in &profile.write {
             plan.grant(real(write)?, Right::Modify);
         }
@@ -277,8 +283,11 @@ impl Plan {
                 plan.set.push(("SSL_CERT_DIR".into(), None));
             }
         }
-        plan.denied
-            .extend(crate::protected::paths(setup, &work_dir, &FOLDERS_MADE)?);
+        // Nothing in a read-only folder needs protecting, or making.
+        if !profile.work_dir_read_only {
+            plan.denied
+                .extend(crate::protected::paths(setup, &work_dir, &FOLDERS_MADE)?);
+        }
         plan.denied.sort();
         plan.grants.sort();
         plan.grants.dedup_by(|a, b| a.0 == b.0);

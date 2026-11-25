@@ -107,6 +107,7 @@ fn profile(work_dir: &Path, network: ProfileNetwork) -> SandboxProfile {
         project: None,
         work_env: None,
         work_dir: work_dir.to_path_buf(),
+        work_dir_read_only: false,
         read: Vec::new(),
         write: Vec::new(),
         expose: Vec::new(),
@@ -825,4 +826,45 @@ fn cleaners_down_to(root: &Path, n: usize) -> bool {
         }
         std::thread::yield_now();
     }
+}
+
+#[test]
+fn a_research_session_reads_its_project_and_writes_none_of_it() {
+    let root = Dir::new("research");
+    let home = root.0.join("home");
+    let project = root.0.join("project");
+    root.file("home/.ssh/id_ed25519", "secret");
+    root.file("project/README.md", "hello");
+    root.file("project/src/lib.rs", "fn main() {}");
+    git(&project, &["init", "-q"]);
+    let data = root.0.join("data");
+    root.file("data/store.db", "projects");
+    let Some(sandbox) = sandbox(&home, vec![data.clone()]) else {
+        return;
+    };
+    let checks = format!(
+        "read the project: cat README.md
+        search the project: grep -r main src
+        write the project: echo x > new.txt
+        change a file: echo x >> README.md
+        make a folder: mkdir docs
+        remove a file: rm src/lib.rs
+        write git config: echo x >> .git/config
+        make agent settings: mkdir -p .claude
+        read ssh keys: cat {home}/.ssh/id_ed25519
+        read the data folder: cat {data}/store.db
+        write the private tmp: echo x > /tmp/x",
+        home = home.display(),
+        data = data.display(),
+    );
+    let mut profile = profile(&project, ProfileNetwork::Open);
+    profile.work_dir_read_only = true;
+    let out = run(&sandbox, &profile, &script(&checks));
+    insta::assert_snapshot!(out);
+    assert!(!project.join("new.txt").exists());
+    assert!(!project.join(".claude").exists());
+    assert_eq!(
+        fs::read_to_string(project.join("README.md")).unwrap(),
+        "hello"
+    );
 }

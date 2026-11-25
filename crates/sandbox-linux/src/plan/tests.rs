@@ -122,6 +122,7 @@ fn profile(work_dir: &Path) -> SandboxProfile {
         project: None,
         work_env: None,
         work_dir: work_dir.to_path_buf(),
+        work_dir_read_only: false,
         read: Vec::new(),
         write: Vec::new(),
         expose: Vec::new(),
@@ -677,3 +678,31 @@ fn ports_a_sandbox_cannot_keep_to_itself_are_refused() {
 }
 
 mod server;
+
+#[test]
+fn a_research_session_sees_the_project_read_only_and_makes_nothing_in_it() {
+    let root = Root::new("research");
+    let project = root.dir("project");
+    root.file("project/src/main.rs");
+    root.file("project/data/worktrees/w/CLAUDE.md");
+    let mut setup = root.setup("/usr/bin");
+    setup.protected = Protected {
+        work_dir: &[".claude", ".ovra", ".mcp.json"],
+    };
+    setup.hidden = vec![project.join("data")];
+    let mut profile = profile(&project);
+    profile.work_dir_read_only = true;
+    let plan = Plan::new(&setup, &profile).unwrap();
+    assert!(plan.mounts.contains(&Mount::Ro(project.clone())));
+    assert!(!plan.writable.iter().any(|w| w.starts_with(&project)));
+    assert!(!plan.mounts.iter().any(
+        |m| matches!(m, Mount::Rw(p) | Mount::Private { at: p, .. } if p.starts_with(&project))
+    ));
+    // Ovra's data folder inside it stays hidden.
+    assert!(plan.mounts.contains(&Mount::Tmpfs(project.join("data"))));
+    // No protected folder or file was made for it.
+    assert!(!project.join(".claude").exists());
+    assert!(!project.join(".ovra").exists());
+    assert!(!project.join(".mcp.json").exists());
+    assert!(plan.temporary.is_empty());
+}

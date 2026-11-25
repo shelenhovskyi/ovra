@@ -338,7 +338,12 @@ impl Plan {
         for write in &profile.write {
             plan.rw(real(write)?);
         }
-        plan.rw(work_dir.clone());
+        let read_only = profile.work_dir_read_only;
+        if read_only {
+            plan.mounts.push(Mount::Ro(work_dir.clone()));
+        } else {
+            plan.rw(work_dir.clone());
+        }
         let mut hidden: Vec<PathBuf> = setup.hidden.iter().filter_map(|h| real(h).ok()).collect();
         hidden.sort_by_key(|h| h.components().count());
         // Held while folders are made and recorded, so no cleaner of an
@@ -350,7 +355,9 @@ impl Plan {
                 record.display()
             ))
         })?;
-        let absent = |name: &str| fs::symlink_metadata(work_dir.join(name)).is_err();
+        // A read-only work dir needs no protected paths: nothing in it is
+        // writable, so nothing is made there either.
+        let absent = |name: &str| !read_only && fs::symlink_metadata(work_dir.join(name)).is_err();
         let missing: Vec<PathBuf> = FOLDERS_MADE
             .into_iter()
             .filter(|name| absent(name))
@@ -360,7 +367,11 @@ impl Plan {
             .filter(|name| absent(name))
             .map(|name| work_dir.join(name))
             .collect();
-        let protected = protected_paths(setup, &work_dir, &home, &hidden)?;
+        let protected = if read_only {
+            Vec::new()
+        } else {
+            protected_paths(setup, &work_dir, &home, &hidden)?
+        };
         // A pod's folders stay: removing them could drop the bind under an
         // agent's session that started meanwhile.
         if plan.kind == Kind::Agent {
@@ -386,8 +397,9 @@ impl Plan {
             let covered = plan.mounts[before..]
                 .iter()
                 .any(|m| matches!(m, Mount::Tmpfs(t) if hidden.starts_with(t)));
-            if !work_dir.starts_with(&hidden) && plan.under_writable(&hidden).is_some() && !covered
-            {
+            let shown = plan.under_writable(&hidden).is_some()
+                || (read_only && hidden.starts_with(&work_dir));
+            if !work_dir.starts_with(&hidden) && shown && !covered {
                 plan.mounts.push(Mount::Tmpfs(hidden));
             }
         }
