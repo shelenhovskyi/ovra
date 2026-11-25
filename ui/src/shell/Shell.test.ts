@@ -128,16 +128,26 @@ describe("Shell", () => {
       flushSync();
       expect(more?.getAttribute("aria-expanded")).toBe("true");
       expect(menu()?.getAttribute("aria-labelledby")).toBe(more?.id);
+      // The palette's names, so searching for what the menu says finds it; the shortcut on the right.
       const described = items().map((item) => [
         item.getAttribute("aria-label"),
+        item.querySelector("kbd")?.textContent ?? null,
         document.getElementById(item.getAttribute("aria-describedby") ?? "")?.textContent,
       ]);
       expect(described).toEqual([
-        ["Audit log", "Everything agents did, and who approved it"],
-        ["Policies", "Rules for what agents may do in this project"],
-        ["Network", "Which websites agents may reach, and secrets"],
-        ["Servers", "Your project's dev servers, run for agents"],
-        ["Browser", "The web browser an agent uses"],
+        ["Audit log", null, "Everything agents did, and who approved it"],
+        ["Project policies", null, "Rules for what agents may do in this project"],
+        ["Network and secrets", null, "Which websites agents may reach, and secrets"],
+        ["Servers", "Ctrl+Shift+S", "Your project's dev servers, run for agents"],
+        ["Agent browser", "Ctrl+Shift+B", "The web browser an agent uses"],
+      ]);
+      expect(items()[3]?.getAttribute("aria-keyshortcuts")).toBe("Mod+Shift+S");
+      expect(items().map((item) => item.dataset.testid)).toEqual([
+        "open-audit",
+        "open-policy",
+        "open-network",
+        "open-servers",
+        "open-browser",
       ]);
       done();
     });
@@ -153,6 +163,11 @@ describe("Shell", () => {
       key(document.activeElement, "ArrowDown");
       expect(document.activeElement).toBe(items()[0]);
       key(document.activeElement, "End");
+      expect(document.activeElement).toBe(items()[4]);
+      // First-letter typeahead: P is Project policies, A goes on to Agent browser.
+      key(document.activeElement, "KeyP");
+      expect(document.activeElement).toBe(items()[1]);
+      key(document.activeElement, "KeyA");
       expect(document.activeElement).toBe(items()[4]);
       key(document.activeElement, "Escape");
       flushSync();
