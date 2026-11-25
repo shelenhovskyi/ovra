@@ -14,7 +14,7 @@ export type GitState =
   | { kind: "error"; message: string };
 
 /** Where a failure is shown: next to what the person pressed. */
-export type GitErrorScope = "files" | "commit" | "branch" | "diff";
+export type GitErrorScope = "files" | "commit" | "branch" | "diff" | "setup";
 
 /** A failed action; `output` is a hook's or git's text, shown as is. */
 export type GitError = { scope: GitErrorScope; message: string; output?: string };
@@ -197,6 +197,16 @@ export class GitModel {
   toggleLog(): void {
     this.logOpen = !this.logOpen;
     if (this.logOpen) void this.loadLog();
+  }
+
+  /** `git init` in the project folder, nothing more; true when there is a repository now. */
+  init(): Promise<boolean> {
+    return this.act(
+      "setup",
+      () => this.call({ method: "git.init", params: { project: this.project } }),
+      "Set up git. Changes now show here.",
+      (err) => ({ message: `Could not set up git: ${message(err)}` }),
+    );
   }
 
   stage(paths: string[]): Promise<boolean> {

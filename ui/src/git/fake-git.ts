@@ -80,6 +80,11 @@ export class FakeGitCore implements Transport {
     const status = this.status;
     if (request.method === "git.status")
       return status ? { type: "git.status", data: structuredClone(status) } : { type: "git.no_repo" };
+    if (request.method === "git.init") {
+      if (status) throw new CoreError({ code: "conflict", message: "this folder already has a .git" });
+      this.status = repo({ head: null });
+      return { type: "ok" };
+    }
     if (!status) throw new CoreError({ code: "bad_request", message: "not a git repository" });
     switch (request.method) {
       case "git.stage":

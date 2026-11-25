@@ -1,6 +1,6 @@
 <script lang="ts">
 // Sidebar git view for the open project, and its palette commands: show
-// the panel, stage all, commit, new branch, switch branch.
+// the panel, set up git, stage all, commit, new branch, switch branch.
 import { tick } from "svelte";
 import { registerCommand } from "../keys/commands";
 import { useOvra } from "../shell/context";
@@ -57,6 +57,16 @@ $effect(() => {
         if (paths.length === 0) model.notice = "There are no changes to stage.";
         else await model.stage(paths);
         focusMessage();
+      },
+    }),
+    registerCommand({
+      id: "git.init",
+      title: "Git: set up git",
+      // `git init` in a folder without git; the panel opens only to show why it failed.
+      run: async () => {
+        const model = workspace.project ? gitModel(workspace.project.id) : undefined;
+        await model?.loaded();
+        if (model?.state.kind !== "no_repo" || !(await model.init())) await showPanel();
       },
     }),
     registerCommand({

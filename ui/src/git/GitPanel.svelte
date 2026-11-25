@@ -49,6 +49,15 @@ function openTerminal(): void {
   void command?.run();
 }
 
+/** `git init`, then focus on the panel it opens up: a changed file, else its first button. */
+async function setUp(): Promise<void> {
+  if (model.busy || !(await model.init())) return;
+  await tick();
+  focusList("changes");
+  const panel = document.querySelector<HTMLElement>("[data-testid=git]");
+  if (!panel?.contains(document.activeElement)) panel?.querySelector<HTMLElement>("button")?.focus();
+}
+
 function showDiff(path: string, staged: boolean): void {
   diffOpened({ project, path, staged });
   workspace.gitDiff = { project, path, staged };
@@ -92,12 +101,12 @@ function ago(seconds: number, now = Date.now() / 1000): string {
     <EmptyState
       testid="git-no-repo"
       headline="Not a git repository"
-      line="Git keeps a history, so you can review and undo changes. Run git init in a terminal to start one."
-      actions={[
-        { label: "Open terminal", run: openTerminal },
-        { label: "Check again", run: () => void model.refresh() },
-      ]}
+      line="Git keeps a history, so you can review and undo changes."
+      actions={[{ label: "Set up git", run: () => void setUp() }]}
     />
+    {#if model.error?.scope === "setup"}
+      <p class="error" role="alert" data-testid="git-setup-error">{model.error.message}</p>
+    {/if}
   {:else if model.state.kind === "error"}
     <p class="error" role="alert" data-testid="git-error">{model.state.message}</p>
     <button type="button" onclick={() => model.refresh()}>Try again</button>

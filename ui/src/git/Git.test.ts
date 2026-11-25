@@ -117,12 +117,24 @@ it("shows the branch and the lists, stages and unstages files and opens them", a
   expect(workspace.openPath).toBe("src/a.ts");
 });
 
-it("says when the project is not a repository", async () => {
+it("says when the project is not a repository and sets up git in one press", async () => {
   const core = new FakeGitCore();
   core.status = null;
   await setup(core);
   expect(text("[data-testid=git-no-repo] h2")).toBe("Not a git repository");
-  expect(target.textContent).toContain("git init");
+  const setUp = () => [...target.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Set up git");
+  expect([...target.querySelectorAll("[data-testid=git-no-repo] button")].map((b) => b.textContent?.trim())).toEqual([
+    "Set up git",
+  ]);
+  core.failNext.set("git.init", new CoreError({ code: "unavailable", message: "git is not installed" }));
+  setUp()?.click();
+  await settle();
+  expect(text("[data-testid=git-setup-error]")).toBe("Could not set up git: git is not installed");
+  setUp()?.click();
+  await settle();
+  expect(core.methods().filter((m) => m === "git.init")).toHaveLength(2);
+  expect(text("[data-testid=git-fresh] h2")).toBe("No changes");
+  expect(text("[data-testid=git-announce]")).toBe("Set up git. Changes now show here.");
 
   // Then a repository on a detached HEAD, then one with no commits: plain words, no amend.
   core.status = repo({ branch: null });

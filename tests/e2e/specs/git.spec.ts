@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
@@ -128,4 +128,18 @@ test("the editor marks changed lines against the index", async ({ page }) => {
   await expect(main.locator(".cm-activeLine")).toHaveText("line 1");
   await page.keyboard.press("Alt+F5");
   await expect(main.locator(".cm-activeLine")).toHaveText("added line");
+});
+
+test("set up git in a folder without it", async ({ page }) => {
+  const dir = mkdtempSync(join(tmpdir(), "ovra-nogit-"));
+  made.push(dir);
+  writeFileSync(join(dir, "README.md"), "Hello\n");
+  await open(page, dir);
+
+  await page.keyboard.press("Alt+Shift+G");
+  const panel = page.getByTestId("git");
+  await expect(panel.getByTestId("git-no-repo")).toContainText("Not a git repository");
+  await panel.getByRole("button", { name: "Set up git" }).click();
+  await expect(panel.getByTestId("git-changes").getByRole("button", { name: "Stage README.md" })).toBeVisible();
+  expect(existsSync(join(dir, ".git"))).toBe(true);
 });
