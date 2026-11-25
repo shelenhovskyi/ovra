@@ -42,21 +42,21 @@ test("side panels resize, fold and swap, and the layout survives a reload", asyn
   await expect(handle).toHaveAttribute("aria-valuenow", "316");
   expect(Math.round((await sidebar.boundingBox())?.width ?? 0)).toBe(316);
 
-  // Fold Agents to a strip and swap sides.
+  // Swap sides, then fold Files to a strip. (Agents is not folded here: it
+  // unfolds while any project's request waits, and other specs make some.)
   const agents = page.getByTestId("agents");
-  await agents.getByRole("button", { name: "Collapse Agents" }).click();
-  await expect(agents.getByRole("button", { name: /^Show Agents/ })).toBeVisible();
-  expect(Math.round((await agents.boundingBox())?.width ?? 0)).toBe(48);
   await sidebar.getByRole("button", { name: "Move Files to the other side" }).click();
   expect((await agents.boundingBox())?.x ?? 0).toBeLessThan((await sidebar.boundingBox())?.x ?? 0);
+  await sidebar.getByRole("button", { name: "Collapse Files" }).click();
+  await expect(sidebar.getByRole("button", { name: "Show Files" })).toBeVisible();
+  expect(Math.round((await sidebar.boundingBox())?.width ?? 0)).toBe(48);
 
   await page.reload();
-  await expect(page.getByRole("separator", { name: "Resize Files" })).toHaveAttribute("aria-valuenow", "316");
-  await expect(agents.getByRole("button", { name: /^Show Agents/ })).toBeVisible();
+  await expect(sidebar.getByRole("button", { name: "Show Files" })).toBeVisible();
   expect((await agents.boundingBox())?.x ?? 0).toBeLessThan((await sidebar.boundingBox())?.x ?? 0);
-  await agents.getByRole("button", { name: /^Show Agents/ }).click();
-  await page.getByRole("button", { name: "Move Agents to the other side" }).click();
-  await expect(page.getByRole("separator", { name: "Resize Agents" })).toBeVisible();
+  // The rail's Files button unfolds it too, at the width it had.
+  await page.getByRole("button", { name: "Files", exact: true }).click();
+  await expect(page.getByRole("separator", { name: "Resize Files" })).toHaveAttribute("aria-valuenow", "316");
 });
 
 test("the window never scrolls, whatever a panel scrolls into view", async ({ page }) => {

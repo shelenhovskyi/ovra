@@ -256,18 +256,12 @@ function edge(panel: Panel): "left" | "right" {
       </div>
     {/if}
     <div class="body" hidden={folded.agents}>
-      <div class="head">
-        <span class="name">Agents</span>
-        {#if capacity}
-          <span class="capacity">{capacity.working} of {capacity.limit}</span>
-          <span class="slots" aria-hidden="true">
-            {#each { length: capacity.limit } as _, slot}<i class:on={slot < capacity.working}></i>{/each}
-          </span>
-        {/if}
-        {@render controls("agents", "Agents")}
-      </div>
       <Approvals />
-      <AgentsPanel />
+      <!-- The panel draws its own header (name, slots); the swap and collapse buttons sit at its right end. -->
+      <div class="agents-panel">
+        {@render controls("agents", "Agents")}
+        <AgentsPanel />
+      </div>
     </div>
   </aside>
   <footer>
@@ -366,24 +360,6 @@ function edge(panel: Panel): "left" | "right" {
   .head .name {
     color: var(--text);
   }
-  .capacity {
-    font-size: 13px;
-    font-weight: 400;
-    color: var(--text-2);
-  }
-  .slots {
-    display: inline-flex;
-    gap: 3px;
-  }
-  .slots i {
-    width: 14px;
-    height: 4px;
-    border-radius: 2px;
-    background: var(--s4);
-  }
-  .slots i.on {
-    background: var(--accent);
-  }
   .controls {
     display: flex;
     gap: 2px;
@@ -391,8 +367,26 @@ function edge(panel: Panel): "left" | "right" {
     opacity: 0.6;
   }
   .head:hover .controls,
+  .agents-panel:hover > .controls,
   .controls:focus-within {
     opacity: 1;
+  }
+  .agents-panel {
+    position: relative;
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .agents-panel > .controls {
+    position: absolute;
+    top: 9px;
+    right: 8px;
+    z-index: 1;
+  }
+  /* Room at the end of the Agents header for the buttons above. */
+  .agents-panel :global([data-testid="agents-panel"] > header) {
+    padding-right: 72px;
   }
   .controls button,
   .strip button {
@@ -439,6 +433,8 @@ function edge(panel: Panel): "left" | "right" {
   .sidebar-view {
     flex: 1;
     min-height: 0;
+    /* A view that needs more room than a short window gives scrolls here, not the page. */
+    overflow-y: auto;
   }
   .handle {
     min-width: 0;
@@ -472,7 +468,7 @@ function edge(panel: Panel): "left" | "right" {
     gap: 18px;
     min-width: 0;
     padding: 0 16px;
-    overflow: clip;
+    /* No clip: the language server list opens upwards from here. */
     font-size: 13px;
     color: var(--text-2);
   }
@@ -525,7 +521,8 @@ function edge(panel: Panel): "left" | "right" {
     .shell,
     .shell.start {
       grid-template-columns: 52px minmax(0, 220px) minmax(0, 1fr);
-      grid-template-rows: 44px minmax(240px, 1fr) minmax(160px, 35%) 28px;
+      /* Both rows give way in a short window, so nothing falls under the window's edge. */
+      grid-template-rows: 44px minmax(0, 1fr) minmax(0, 50%) 28px;
       grid-template-areas:
         "title title title"
         "rail side main"
