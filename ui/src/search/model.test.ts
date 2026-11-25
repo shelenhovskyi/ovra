@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CoreError } from "../lib/transport";
 import { FakeSearchCore, file } from "./fake-search";
-import { mergeFiles, SearchModel, splitGlobs, TYPING_DELAY_MS } from "./model.svelte";
+import { mergeFiles, SearchModel, searchError, splitGlobs, TYPING_DELAY_MS } from "./model.svelte";
 
 const models: SearchModel[] = [];
 
@@ -87,13 +87,23 @@ describe("SearchModel", () => {
     expect(model.status).toEqual({ kind: "idle" });
   });
 
-  it("shows the core's error for a query it rejects", async () => {
+  it("says in plain words why the core rejects a pattern, and how to search as typed", async () => {
     const { core, model } = setup();
-    core.failNext = new CoreError({ code: "bad_request", message: "invalid search pattern: unclosed group" });
-    model.pattern = "(";
+    core.failNext = new CoreError({
+      code: "bad_request",
+      message: "invalid search pattern: regex parse error:\n    (?:fn ()\n       ^\nerror: unclosed group",
+    });
+    model.pattern = "fn (";
     model.regex = true;
     await model.run();
-    expect(model.status).toEqual({ kind: "error", message: "invalid search pattern: unclosed group" });
+    expect(model.status).toEqual({
+      kind: "error",
+      message: "Not a valid regular expression: a ( is not closed. Turn off .* to search for the text as typed.",
+    });
+    expect(searchError("invalid search pattern: something new")).toBe(
+      "Not a valid regular expression. Turn off .* to search for the text as typed.",
+    );
+    expect(searchError("invalid glob: [")).toBe("invalid glob: [");
   });
 
   it("stop cancels the running search and keeps what it found", async () => {

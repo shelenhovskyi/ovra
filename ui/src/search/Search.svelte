@@ -1,6 +1,6 @@
 <script lang="ts">
 // Sidebar search view for the open project, and the "Search in files" command.
-import { tick } from "svelte";
+import { tick, untrack } from "svelte";
 import { registerCommand } from "../keys/commands";
 import { useOvra } from "../shell/context";
 import SearchPanel from "./SearchPanel.svelte";
@@ -16,6 +16,15 @@ async function show(): Promise<void> {
 }
 
 $effect(() => registerCommand({ id: "search.show", title: "Search in files", keys: "Mod+Shift+F", run: show }));
+
+// Choosing the Search view (its sidebar tab) puts the cursor in the box, so
+// typing searches; the view shown at start takes no focus.
+let shown = untrack(() => workspace.sidebar);
+$effect(() => {
+  const now = workspace.sidebar;
+  if (now === "search" && shown !== "search") void tick().then(() => panel?.focus());
+  shown = now;
+});
 </script>
 
 {#if workspace.project}

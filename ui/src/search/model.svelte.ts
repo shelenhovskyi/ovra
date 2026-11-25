@@ -22,6 +22,30 @@ export function splitGlobs(text: string): string[] {
     .filter((glob) => glob !== "");
 }
 
+/** What the regex engine's error names, said in plain words. */
+const REGEX_PROBLEMS: [string, string][] = [
+  ["unclosed group", "a ( is not closed"],
+  ["unopened group", "a ) has no ( before it"],
+  ["unclosed character class", "a [ is not closed"],
+  ["repetition operator missing expression", "*, + or ? has nothing before it to repeat"],
+  ["unclosed counted repetition", "a { is not closed"],
+  ["invalid escape", "a \\ is followed by a letter that means nothing here"],
+  ["incomplete escape", "it ends with a \\"],
+  ["invalid character class range", "a range in [ ] goes backwards"],
+];
+
+/**
+ * The core's error in words for people: a pattern the regex engine cannot
+ * read becomes one sentence that says how to search for the text as typed,
+ * without the engine's own text (which shows a wrapper never typed).
+ */
+export function searchError(message: string): string {
+  if (!message.startsWith("invalid search pattern:")) return message;
+  const problem = REGEX_PROBLEMS.find(([engine]) => message.includes(engine))?.[1];
+  const what = problem ? `Not a valid regular expression: ${problem}.` : "Not a valid regular expression.";
+  return `${what} Turn off .* to search for the text as typed.`;
+}
+
 /** Inserts `more` into `files` (sorted by path) and returns the new list. */
 export function mergeFiles(files: readonly FileMatches[], more: readonly FileMatches[]): FileMatches[] {
   const merged = [...files, ...more];
@@ -106,7 +130,7 @@ export class SearchModel {
       if (run !== this.runs) return;
       this.early = null;
       const message = error instanceof CoreError ? error.error.message : String(error);
-      this.status = { kind: "error", message };
+      this.status = { kind: "error", message: searchError(message) };
     }
   }
 
