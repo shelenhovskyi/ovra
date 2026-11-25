@@ -11,7 +11,7 @@ replace the hooks path: no
 allow every tool for the project: no
 add a project MCP server: no
 write CLAUDE.md: no
-add a CLAUDE.local.md: yes
+add a CLAUDE.local.md: no
 write a nested AGENTS.md: no
 add a folder-open task: no
 write .envrc: no

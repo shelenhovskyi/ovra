@@ -7,9 +7,10 @@ expression: changed
     "data/sandbox-caches/<project>/-cargo-registry/src/evil",
     "data/sandbox-caches/<project>/-cargo-registry/src/evil/build.rs",
     "data/sandbox-made/<project>",
-    "project/CLAUDE.local.md",
     "project/new.txt",
     "data/sandbox-made/<project>",
     "project/.idea",
     "project/.ovra",
+    "project/AGENTS.md",
+    "project/CLAUDE.local.md",
 ]

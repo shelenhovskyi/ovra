@@ -482,6 +482,32 @@ fn a_missing_ovra_folder_is_made_and_kept_read_only() {
 }
 
 #[test]
+fn missing_protected_files_are_made_empty_and_kept_read_only_for_the_session() {
+    let root = Root::new("files-made");
+    let project = root.dir("project");
+    root.file("project/AGENTS.md");
+    std::fs::write(project.join(".envrc"), "use flake").unwrap();
+    let mut setup = root.setup("/usr/bin");
+    setup.protected = Protected {
+        work_dir: &[".mcp.json", "**/CLAUDE.md", "**/AGENTS.md", ".envrc"],
+    };
+    let plan = Plan::new(&setup, &profile(&project)).unwrap();
+    for name in [".mcp.json", "CLAUDE.md"] {
+        let path = project.join(name);
+        assert_eq!(std::fs::read(&path).unwrap(), b"", "{name}");
+        assert!(plan.mounts.contains(&Mount::Ro(path)), "{name}");
+    }
+    // Only what was missing and is still empty goes again; what the list
+    // does not name is never made.
+    assert_eq!(
+        plan.temporary,
+        [project.join("CLAUDE.md"), project.join(".mcp.json")]
+    );
+    assert!(!project.join("CLAUDE.local.md").exists());
+    assert!(plan.mounts.contains(&Mount::Ro(project.join(".envrc"))));
+}
+
+#[test]
 fn hidden_folders_inside_each_other_are_hidden_once() {
     let root = Root::new("hidden-nested");
     let project = root.dir("project");
@@ -543,8 +569,9 @@ fn a_server_pod_listens_in_its_own_network_and_writes_its_pod_folder() {
     // `claude`'s folder is neither made nor bound for a pod.
     assert!(!root.0.join("home/.claude/projects").exists());
     // The protected folders it made stay: an agent may have bound them since.
+    // The empty files it made go: they would show in git status.
     assert!(project.join(".claude").is_dir());
-    assert!(plan.temporary.is_empty());
+    assert_eq!(plan.temporary, [project.join("CLAUDE.md")]);
     assert!(plan.record.is_some());
 }
 

@@ -52,6 +52,7 @@ ROOT/data/sandbox-made/-ROOT-projects-app
 --bind ROOT/projects/app/docs/guide
 --ro-bind ROOT/projects/app/.claude
 --ro-bind ROOT/projects/app/.git
+--ro-bind ROOT/projects/app/CLAUDE.md
 --ro-bind ROOT/projects/app/docs/guide/CLAUDE.md
 --ro-bind ROOT/bin/ovra
 --ro-bind ROOT/home/.local/share/claude/versions

@@ -1,0 +1,7 @@
+---
+source: tests/security/tests/attacks.rs
+expression: refused
+---
+[
+    "<name>:443: the host resolves to a loopback, private or link-local address",
+]

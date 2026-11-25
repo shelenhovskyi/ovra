@@ -117,8 +117,32 @@ const CA_BUNDLE_VARS: [&str; 5] = [
 /// tasks, `.ovra/servers.json` commands) for the user's own tools to run
 /// later. Those an agent's session made are removed again once the last
 /// sandbox of the work dir has ended ([`crate::made`]); those a pod made
-/// stay. Missing protected files are left to the review.
+/// stay.
 const FOLDERS_MADE: [&str; 5] = [".claude", ".vscode", ".idea", ".devcontainer", ".ovra"];
+
+/// Protected files made empty at the top of the session's folder when
+/// missing, for the same reason: agent instructions, MCP servers and
+/// `direnv` scripts the user's own tools would load later. Empty files show
+/// in git status, so whoever made them (agents and pods alike) removes
+/// them again once the last sandbox of the work dir has ended, if they are
+/// still empty. One in a folder below stays to the review.
+const FILES_MADE: [&str; 5] = [
+    "CLAUDE.md",
+    "CLAUDE.local.md",
+    "AGENTS.md",
+    ".mcp.json",
+    ".envrc",
+];
+
+/// Which of [`FILES_MADE`] the protected list names at the top of the
+/// work dir, as `name` or `**/name`.
+fn files_made(protected: &[&str]) -> impl Iterator<Item = &'static str> {
+    FILES_MADE.into_iter().filter(|name| {
+        protected
+            .iter()
+            .any(|p| p == name || p.strip_prefix("**/") == Some(name))
+    })
+}
 
 /// Package caches builds write, relative to the home folder. Each session
 /// gets its project's own copy (empty at first), bound where the cache is
@@ -210,8 +234,9 @@ pub(crate) struct Plan {
     /// netproxy with `OVRA-LOCAL <port>`.
     forward: Vec<u16>,
     path: OsString,
-    /// Folders of [`FOLDERS_MADE`] an agent's plan made: removed again once
-    /// every sandbox of the work dir and everything they started are gone.
+    /// Folders of [`FOLDERS_MADE`] an agent's plan made, and files of
+    /// [`FILES_MADE`] any plan made: removed again once every sandbox of
+    /// the work dir and everything they started are gone.
     temporary: Vec<PathBuf>,
     /// The work dir's record of those folders, held shared while the
     /// sandbox runs (agents and pods; [`crate::made`]).
@@ -325,10 +350,15 @@ impl Plan {
                 record.display()
             ))
         })?;
+        let absent = |name: &str| fs::symlink_metadata(work_dir.join(name)).is_err();
         let missing: Vec<PathBuf> = FOLDERS_MADE
-            .iter()
+            .into_iter()
+            .filter(|name| absent(name))
             .map(|name| work_dir.join(name))
-            .filter(|path| fs::symlink_metadata(path).is_err())
+            .collect();
+        let missing_files: Vec<PathBuf> = files_made(setup.protected.work_dir)
+            .filter(|name| absent(name))
+            .map(|name| work_dir.join(name))
             .collect();
         let protected = protected_paths(setup, &work_dir, &home, &hidden)?;
         // A pod's folders stay: removing them could drop the bind under an
@@ -338,9 +368,14 @@ impl Plan {
                 .into_iter()
                 .filter(|path| fs::symlink_metadata(path).is_ok_and(|m| m.is_dir()))
                 .collect();
-            crate::made::add(&held, &plan.temporary)
-                .map_err(|e| invalid(format!("cannot record {}: {e}", record.display())))?;
         }
+        plan.temporary.extend(
+            missing_files.into_iter().filter(|path| {
+                fs::symlink_metadata(path).is_ok_and(|m| m.is_file() && m.len() == 0)
+            }),
+        );
+        crate::made::add(&held, &plan.temporary)
+            .map_err(|e| invalid(format!("cannot record {}: {e}", record.display())))?;
         drop(held);
         plan.record = Some(record);
         plan.protect(protected);
@@ -986,6 +1021,7 @@ fn protected_paths(
         .filter(|name| setup.protected.work_dir.contains(name))
         .map(|name| (work_dir.join(name), true))
         .collect();
+    made.extend(files_made(setup.protected.work_dir).map(|name| (work_dir.join(name), false)));
     if let Some(hooks) = hooks_path(work_dir, home) {
         made.push((hooks, true));
     }

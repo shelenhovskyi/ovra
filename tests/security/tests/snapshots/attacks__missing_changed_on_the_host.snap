@@ -1,0 +1,11 @@
+---
+source: tests/security/tests/attacks.rs
+expression: changed
+---
+[
+    "project/.git",
+    "project/.git/config",
+    "project/c",
+    "project/docs",
+    "project/docs/CLAUDE.md",
+]

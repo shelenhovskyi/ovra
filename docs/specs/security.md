@@ -236,10 +236,12 @@ Known gaps on Linux, left to the backstop below:
   projects whose keys match (`/a/b-c` and `/a/b_c`) share one; both
   sides are sandboxed, so that only reaches the other project's agents;
 - a bind mount of the home folder outside `/mnt`, `/media`, `/sysroot` and
-  `/.snapshots` (for example `/srv`) stays readable.
+  `/.snapshots` (for example `/srv`) stays readable;
+- a `CLAUDE.md`, `CLAUDE.local.md` or `AGENTS.md` that does not exist yet
+  in a subfolder (new or not) can be created.
 
-The sandbox status lists these gaps, plus the missing protected files
-below, and the UI shows them; that list must change with this one.
+The sandbox status lists these gaps and the UI shows them; that list must
+change with this one.
 
 Ovra's own git calls (fs-index, worktree) should pass
 `--ignore-submodules=all` so a missed submodule cannot run a filter in
@@ -255,8 +257,13 @@ pods) and every process in them are gone, also when they are killed: each
 holds a shared lock on the work dir's record in Ovra's data folder, and
 the helper outside the sandbox that ends last removes what the record
 lists. A folder that is no longer empty stays, and so do those a pod made.
-A missing protected file (`.mcp.json`, `.envrc`, `CLAUDE.md` and the like)
-can still be created; the review backstop below covers it.
+A missing `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, `.mcp.json` or
+`.envrc` at the top of the work dir is made as an empty file and bound
+read-only the same way, for agents, pods and the browser alike, and
+removed by the same last helper if it is still an empty file. While a
+session runs it shows in git status (the owner chose this over leaving
+the files creatable, 2026-11-25). One in a subfolder can still be
+created; the review backstop below covers it.
 
 An agent that needs one of these changed says so in its summary, and the
 person makes the change. A protected path that is a link cannot be kept
@@ -409,7 +416,11 @@ pub trait NetProxy: Send + Sync + Debug {
   reads them, with `NO_PROXY`), the netproxy chains to it, with the user
   and password from its URL. Only `http://` proxies are supported. A name
   that does not resolve where Ovra runs is left to that proxy to resolve;
-  names that do resolve are still checked.
+  names that do resolve are still checked. Each name is also looked up as
+  given, not fully qualified, as a proxy on this machine would: entries in
+  `/etc/hosts`, search domains and the system's other name sources that
+  answer with a loopback, private or link-local address refuse the
+  request too.
 - **Limits.**
   - Without TLS inspection the proxy cannot see inside a tunnel, so a
     broad host such as `github.com` is still a way to send data out, and a

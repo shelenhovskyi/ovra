@@ -1,0 +1,12 @@
+---
+source: tests/security/tests/attacks.rs
+expression: out
+---
+add CLAUDE.md: no
+add CLAUDE.local.md: no
+add AGENTS.md: no
+add a project MCP server: no
+add .envrc: no
+replace CLAUDE.md: no
+link .envrc elsewhere: no
+add CLAUDE.md in a new folder: yes

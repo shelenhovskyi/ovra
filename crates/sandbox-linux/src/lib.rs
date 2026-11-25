@@ -120,7 +120,7 @@ const GAPS: [&str; 5] = [
     "submodules added during a session",
     "package caches shared by similar project paths",
     "other mounts of the home folder stay readable",
-    "new protected files such as CLAUDE.md or .envrc",
+    "new CLAUDE.md or AGENTS.md files in subfolders",
 ];
 
 /// The Linux sandbox: bubblewrap, plus Landlock and seccomp in the helper.
@@ -343,7 +343,7 @@ mod tests {
                 "submodules added during a session",
                 "package caches shared by similar project paths",
                 "other mounts of the home folder stay readable",
-                "new protected files such as CLAUDE.md or .envrc",
+                "new CLAUDE.md or AGENTS.md files in subfolders",
             ]
         );
     }

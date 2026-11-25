@@ -451,13 +451,70 @@ fn a_hostile_repository_cannot_widen_what_later_runs_outside_the_sandbox() {
             path.replace(&key, "<project>")
         })
         .collect();
-    // Known gap (`docs/specs/security.md`): a protected file that does not
-    // exist yet, here `CLAUDE.local.md`, can be created; the review is the
-    // backstop. The poisoned cache is the project's private one. The
-    // empty `.idea` and `.ovra` planning made are gone with the record's
-    // entries.
+    // The poisoned cache is the project's private one. The empty `.idea`,
+    // `.ovra`, `CLAUDE.local.md` and `AGENTS.md` planning made are gone
+    // with the record's entries.
     insta::assert_debug_snapshot!("changed_on_the_host", changed);
     // The control: without the sandbox every attack works.
+    let control = outside(project, &script, &[]);
+    assert_eq!(failed(&control), Vec::<&str>::new(), "{control}");
+}
+
+/// A protected file that does not exist yet is made empty and read-only
+/// for the session, and gone again once the session is over: the agent
+/// cannot leave instructions, MCP servers or a `direnv` script for the
+/// user's own tools to load later.
+#[test]
+fn missing_protected_files_cannot_be_created() {
+    let world = World::new("missing");
+    let project = &world.project;
+    let Some(sandbox) = world.sandbox() else {
+        return;
+    };
+    let before = world.files();
+    let checks = "add CLAUDE.md: echo x > CLAUDE.md
+        add CLAUDE.local.md: echo x > CLAUDE.local.md
+        add AGENTS.md: echo x > AGENTS.md
+        add a project MCP server: echo '{\"mcpServers\":{\"x\":{\"command\":\"./x\"}}}' > .mcp.json
+        add .envrc: echo x > .envrc
+        replace CLAUDE.md: echo x > c && mv c CLAUDE.md
+        link .envrc elsewhere: rm -f .envrc && ln -s /tmp/x .envrc
+        add CLAUDE.md in a new folder: mkdir docs && echo x > docs/CLAUDE.md";
+    let script = attacks(checks);
+    let out = run(
+        &sandbox,
+        &world.profile(ProfileNetwork::Blocked),
+        &script,
+        &[],
+    );
+    insta::assert_snapshot!(out);
+    // Once the last sandbox of the project is over, the empty files are
+    // gone; only what the known gap let through stays.
+    let key: String = project
+        .to_string_lossy()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect();
+    let record = world.data.join("sandbox-made").join(&key);
+    let start = std::time::Instant::now();
+    while fs::metadata(&record).is_ok_and(|m| m.len() > 0) {
+        assert!(start.elapsed() < std::time::Duration::from_secs(2));
+        std::thread::yield_now();
+    }
+    let after = world.files();
+    let changed: Vec<String> = after
+        .iter()
+        .filter(|f| !before.contains(f) && f.0.starts_with(project))
+        .map(|(path, _)| {
+            path.strip_prefix(&world.root)
+                .unwrap()
+                .display()
+                .to_string()
+        })
+        .collect();
+    insta::assert_debug_snapshot!("missing_changed_on_the_host", changed);
+    // The control: without the sandbox every attack works.
+    fs::remove_dir_all(project.join("docs")).unwrap();
     let control = outside(project, &script, &[]);
     assert_eq!(failed(&control), Vec::<&str>::new(), "{control}");
 }
@@ -1012,4 +1069,143 @@ fn a_bound_secret_never_enters_the_sandbox() {
     // netproxy's own tests show that, with a TLS server behind it.)
     let seen = String::from_utf8(seen.lock().unwrap().clone()).unwrap();
     assert!(seen.starts_with(&format!("CONNECT {BOUND}:443 ")), "{seen}");
+}
+
+/// A name `/etc/hosts` gives a loopback, private or link-local address,
+/// other than `localhost`: the netproxy's own lookup is fully qualified
+/// and misses it, the user's proxy on this machine finds it.
+fn private_name_in_hosts_file() -> Option<String> {
+    let hosts = fs::read_to_string("/etc/hosts").ok()?;
+    hosts.lines().find_map(|line| {
+        let line = line.split('#').next().unwrap_or("");
+        let mut words = line.split_whitespace();
+        let ip: std::net::IpAddr = words.next()?.parse().ok()?;
+        let private = match ip {
+            std::net::IpAddr::V4(ip) => ip.is_loopback() || ip.is_private() || ip.is_link_local(),
+            std::net::IpAddr::V6(ip) => ip.is_loopback(),
+        };
+        let name = words.find(|w| {
+            let w = w.to_ascii_lowercase();
+            w != "localhost" && !w.ends_with(".localhost") && w.parse::<std::net::IpAddr>().is_err()
+        })?;
+        private.then(|| name.to_owned())
+    })
+}
+
+/// Starts a netproxy that lists `OVRA_HOSTS_NAME`, chaining to the user's
+/// proxy that `HTTPS_PROXY` names. Run by
+/// [`a_name_in_the_hosts_file_never_reaches_the_users_proxy`] as a child
+/// process, since the netproxy reads that variable from its own
+/// environment. Prints the socket and each refusal, then serves until its
+/// input closes.
+#[test]
+#[ignore = "a helper process of a_name_in_the_hosts_file_never_reaches_the_users_proxy"]
+fn hosts_proxy() {
+    // Only as the child the test starts, never on its own.
+    let Some(name) = std::env::var_os("OVRA_HOSTS_NAME") else {
+        return;
+    };
+    use std::io::{BufRead as _, Write as _};
+
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .enable_all()
+        .build()
+        .unwrap();
+    let secrets = std::sync::Arc::new(ovra_core::fakes::MemorySecrets::default());
+    let proxies = NetProxies::from_env(secrets).unwrap();
+    let core = Core::new("test");
+    let mut events = core.subscribe();
+    let session = SessionId("s1".into());
+    let reporter = NetReporter::new(ProjectId("p1".into()), session.clone(), core.sink());
+    let allow = Allowlist {
+        hosts: vec![AllowedHost {
+            host: name.into_string().unwrap(),
+            port: None,
+        }],
+    };
+    let started = rt
+        .block_on(proxies.start(session, allow, reporter, Vec::new()))
+        .unwrap();
+    let mut out = std::io::stdout();
+    writeln!(out, "ovra-address={}", started.address).unwrap();
+    out.flush().unwrap();
+    for _ in std::io::stdin().lock().lines() {}
+    for refused in refusals(&mut events) {
+        writeln!(out, "ovra-refused={refused}").unwrap();
+    }
+}
+
+#[test]
+fn a_name_in_the_hosts_file_never_reaches_the_users_proxy() {
+    use std::io::{BufRead as _, BufReader, Read as _, Write as _};
+
+    let world = World::new("hosts");
+    let Some(sandbox) = world.sandbox() else {
+        return;
+    };
+    let Some(name) = private_name_in_hosts_file() else {
+        eprintln!("no private name other than localhost in /etc/hosts: skipped");
+        return;
+    };
+    // The user's proxy: it answers every CONNECT and keeps what it got.
+    let upstream = TcpListener::bind("127.0.0.1:0").unwrap();
+    let up = upstream.local_addr().unwrap().port();
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
+    {
+        let seen = seen.clone();
+        std::thread::spawn(move || {
+            for stream in upstream.incoming() {
+                let Ok(mut stream) = stream else { return };
+                let mut head = Vec::new();
+                let mut byte = [0u8];
+                while !head.ends_with(b"\r\n\r\n") && stream.read(&mut byte).is_ok_and(|n| n == 1) {
+                    head.push(byte[0]);
+                }
+                let _ = stream.write_all(b"HTTP/1.1 200 Connection established\r\n\r\n");
+                seen.lock().unwrap().extend(head);
+            }
+        });
+    }
+    let mut proxy = Command::new(std::env::current_exe().unwrap())
+        .args(["hosts_proxy", "--exact", "--ignored", "--nocapture"])
+        .env("OVRA_HOSTS_NAME", &name)
+        .env("HTTPS_PROXY", format!("http://127.0.0.1:{up}"))
+        .env_remove("HTTP_PROXY")
+        .env_remove("http_proxy")
+        .env_remove("https_proxy")
+        .env_remove("NO_PROXY")
+        .env_remove("no_proxy")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut lines = BufReader::new(proxy.stdout.take().unwrap()).lines();
+    let address = loop {
+        let line = lines.next().unwrap().unwrap();
+        if let Some(v) = line.strip_prefix("ovra-address=") {
+            break v.to_owned();
+        }
+    };
+    let profile = world.profile(ProfileNetwork::Proxy {
+        address,
+        ca_bundle: None,
+    });
+    let script = format!(
+        "exec 3<>/dev/tcp/127.0.0.1/${{HTTPS_PROXY##*:}} && printf 'CONNECT {name}:443 HTTP/1.1\\r\\nHost: {name}:443\\r\\n\\r\\n' >&3 && echo \"tunnel to a listed name from /etc/hosts: $(head -n1 <&3 | tr -d '\\r')\"\n"
+    );
+    let out = run(&sandbox, &profile, &script, &[]);
+    drop(proxy.stdin.take());
+    let refused: Vec<String> = lines
+        .map_while(Result::ok)
+        .filter_map(|l| {
+            l.strip_prefix("ovra-refused=")
+                .map(|r| r.replace(&name, "<name>"))
+        })
+        .collect();
+    let _ = proxy.wait();
+    insta::assert_snapshot!("hosts_file", out);
+    insta::assert_debug_snapshot!("hosts_file_refused", refused);
+    let seen = String::from_utf8(seen.lock().unwrap().clone()).unwrap();
+    assert_eq!(seen, "", "the user's proxy was asked");
 }

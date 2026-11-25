@@ -1,8 +1,8 @@
-//! The protected folders sessions made in one work dir, and when they go
-//! away again.
+//! The protected folders and files sessions made in one work dir, and when
+//! they go away again.
 //!
-//! Linux lets a process remove an empty folder that is a mount point in
-//! another mount namespace, and detaches the bind there. So a folder made
+//! Linux lets a process remove an empty folder or a file that is a mount
+//! point in another mount namespace, and detaches the bind there. So one made
 //! for one sandbox and bound read-only in every sandbox of that work dir
 //! is removed only after the last of them has ended: each holds a shared
 //! `flock` on the work dir's record (in Ovra's data folder, hidden from
@@ -41,7 +41,7 @@ pub(crate) fn hold(record: &Path) -> std::io::Result<File> {
     Ok(file)
 }
 
-/// Adds `folders` to the record `held` (from [`hold`]).
+/// Adds `folders` (and files) to the record `held` (from [`hold`]).
 pub(crate) fn add(mut held: &File, folders: &[PathBuf]) -> std::io::Result<()> {
     let mut bytes = Vec::new();
     for folder in folders {
@@ -53,8 +53,8 @@ pub(crate) fn add(mut held: &File, folders: &[PathBuf]) -> std::io::Result<()> {
 }
 
 /// Once the sandbox that held `held` has ended: if no other sandbox of the
-/// work dir holds the record, removes the folders it lists (only empty
-/// ones, never through a link) and empties it. Otherwise the last one
+/// work dir holds the record, removes the folders and files it lists
+/// (only empty ones, never through a link) and empties it. Otherwise the last one
 /// does.
 pub(crate) fn clean(mut held: File) -> std::io::Result<()> {
     // Turns the shared lock into an exclusive one, or gives it up.
@@ -64,8 +64,17 @@ pub(crate) fn clean(mut held: File) -> std::io::Result<()> {
     let mut bytes = Vec::new();
     held.rewind()?;
     held.read_to_end(&mut bytes)?;
-    for folder in bytes.split(|b| *b == 0).filter(|f| !f.is_empty()) {
-        let _ = fs::remove_dir(OsStr::from_bytes(folder));
+    for path in bytes.split(|b| *b == 0).filter(|f| !f.is_empty()) {
+        let path = Path::new(OsStr::from_bytes(path));
+        match fs::symlink_metadata(path) {
+            Ok(meta) if meta.is_dir() => {
+                let _ = fs::remove_dir(path);
+            }
+            Ok(meta) if meta.is_file() && meta.len() == 0 => {
+                let _ = fs::remove_file(path);
+            }
+            _ => {}
+        }
     }
     held.set_len(0)
 }
@@ -92,6 +101,15 @@ mod tests {
         assert!(vscode.is_dir() && idea.is_dir());
         clean(second).unwrap();
         assert!(!vscode.exists() && !idea.exists());
+        // An empty file goes too; one written meanwhile stays.
+        let (envrc, mcp) = (root.join("work/.envrc"), root.join("work/.mcp.json"));
+        fs::write(&envrc, "").unwrap();
+        fs::write(&mcp, "").unwrap();
+        let third = hold(&record).unwrap();
+        add(&third, &[envrc.clone(), mcp.clone()]).unwrap();
+        fs::write(&mcp, "{}").unwrap();
+        clean(third).unwrap();
+        assert!(!envrc.exists() && mcp.exists());
         assert_eq!(fs::read(&record).unwrap(), b"");
         fs::remove_dir_all(&root).unwrap();
     }
