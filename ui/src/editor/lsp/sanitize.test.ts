@@ -3,7 +3,7 @@ import { sanitizeHtml } from "./sanitize";
 
 test("keeps the markup Markdown produces", () => {
   const html =
-    '<h2>fn</h2><p>Takes <em>a</em> and <strong>b</strong>.</p><pre><code class="language-rust"><span class="tok">x</span></code></pre>' +
+    '<h2>fn</h2><p>Takes <em>a</em> and <strong>b</strong>.</p><pre><code class="language-rust"><span class="tok-keyword">x</span></code></pre>' +
     "<ul><li>one</li></ul><table><thead><tr><th>a</th></tr></thead><tbody><tr><td>1</td></tr></tbody></table><hr><br>";
   expect(sanitizeHtml(html)).toBe(html);
 });
@@ -19,7 +19,7 @@ test("drops event handlers and every attribute but class and a safe href", () =>
   expect(sanitizeHtml('<img src=x onerror="alert(1)"><p onclick="x()" style="color:red" id="i">t</p>')).toBe(
     "<p>t</p>",
   );
-  expect(sanitizeHtml('<span class="c" title="t" data-x="1">s</span>')).toBe('<span class="c">s</span>');
+  expect(sanitizeHtml('<span class="tok-c" title="t" data-x="1">s</span>')).toBe('<span class="tok-c">s</span>');
   expect(sanitizeHtml('<a href="https://docs.rs/x" target="_blank" onmouseover="x()">d</a>')).toBe(
     '<a href="https://docs.rs/x">d</a>',
   );
@@ -44,4 +44,11 @@ test("links keep only http and https targets", () => {
 test("unknown elements keep their text", () => {
   expect(sanitizeHtml("<div><details><summary>s</summary><p>t</p></details></div>")).toBe("s<p>t</p>");
   expect(sanitizeHtml("<form><input value=x><button>b</button></form>")).toBe("b");
+});
+
+test("keeps only highlighting classes, so a tooltip cannot borrow the app's styles", () => {
+  expect(sanitizeHtml('<span class="tok-keyword \u037c1x modal overlay">s</span>')).toBe(
+    '<span class="tok-keyword \u037c1x">s</span>',
+  );
+  expect(sanitizeHtml('<p class="dialog">x</p>')).toBe("<p>x</p>");
 });

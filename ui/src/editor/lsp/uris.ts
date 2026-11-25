@@ -17,7 +17,10 @@ export function uriOf(path: string): string {
 export function pathOf(uri: string): string | null {
   if (!uri.startsWith(PREFIX) || uri.length === PREFIX.length) return null;
   try {
-    return uri.slice(PREFIX.length).split("/").map(decodeURIComponent).join("/");
+    const segments = uri.slice(PREFIX.length).split("/").map(decodeURIComponent);
+    // `..%2F..` decodes to a separator: never a path in the project.
+    const bad = (s: string) => s === "" || s === "." || s === ".." || s.includes("/") || s.includes("\\");
+    return segments.some(bad) ? null : segments.join("/");
   } catch {
     return null;
   }

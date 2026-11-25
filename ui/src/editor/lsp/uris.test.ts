@@ -14,3 +14,15 @@ test("URIs outside the project have no path", () => {
   expect(pathOf("ovra:///bad%E0%A4%A")).toBeNull();
   expect(pathOf("ovra://host/a.rs")).toBeNull();
 });
+
+test("a server URI that leaves the project or hides a separator names no path", () => {
+  for (const uri of [
+    "ovra:///..%2F..%2F.ssh%2Fid_rsa",
+    "ovra:///../x",
+    "ovra:///a//b",
+    "ovra:///a/./b",
+    "ovra:///a%5Cb",
+  ]) {
+    expect(pathOf(uri), uri).toBeNull();
+  }
+});

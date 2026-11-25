@@ -39,6 +39,16 @@ export function sanitizeHtml(html: string): string {
   return out.innerHTML;
 }
 
+/**
+ * Only the classes code highlighting gives (`tok-*`, CodeMirror's generated
+ * `ͼ*`, `language-*`): any other would let a server borrow the app's own
+ * styles and draw fake app UI in a tooltip.
+ */
+function safeClass(value: string | null): string | null {
+  const kept = (value ?? "").split(/\s+/).filter((c) => /^(tok-[\w-]+|\u037c\w+|language-[\w+#-]+)$/.test(c));
+  return kept.length > 0 ? kept.join(" ") : null;
+}
+
 function copy(from: Node, to: Element): void {
   const doc = to.ownerDocument;
   for (const node of from.childNodes) {
@@ -55,7 +65,7 @@ function copy(from: Node, to: Element): void {
       continue;
     }
     const clean = doc.createElement(tag);
-    const cls = node.getAttribute("class");
+    const cls = safeClass(node.getAttribute("class"));
     if (cls) clean.setAttribute("class", cls);
     const href = tag === "a" ? safeHref(node.getAttribute("href")) : null;
     if (href) clean.setAttribute("href", href);
