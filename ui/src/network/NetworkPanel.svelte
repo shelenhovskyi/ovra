@@ -249,20 +249,24 @@ function onDialogKeydown(event: KeyboardEvent): void {
       {#if !workspace.project}
         <p class="muted note">Open a project to see what its agents may reach.</p>
       {:else}
+        <p class="muted note">
+          Which websites and services agents in the sandbox may reach, and tokens they can use there without seeing
+          them.
+        </p>
         {#if access.error}
           <p class="error" role="alert">Could not read the project's network settings: {access.error}</p>
         {/if}
         {#if exposed.length > 0}
           <p class="warn note" role="note" data-testid="unsandboxed">
-            {exposed.length === 1 ? "One session of this project runs" : `${exposed.length} sessions of this project run`}
+            {exposed.length === 1 ? "One agent in this project runs" : `${exposed.length} agents in this project run`}
             {bare > 0 ? "without Ovra's sandbox" : "with an open network"}. These hosts do not limit
             {exposed.length === 1 ? "it" : "them"}{bare > 0
-              ? ", and a session without the sandbox can read stored secrets from the keychain like any program you run"
+              ? ", and an agent without the sandbox can read stored secrets from the keychain like any program you run"
               : ""}.
           </p>
         {:else if sessionsError}
           <p class="warn note" role="note" data-testid="unsandboxed">
-            Could not check whether this project's sessions run in the sandbox.
+            Could not check whether this project's agents run in the sandbox.
           </p>
         {/if}
         <div class="body">
@@ -332,8 +336,8 @@ function onDialogKeydown(event: KeyboardEvent): void {
           <section aria-labelledby="secrets-title">
             <h3 id="secrets-title">Secrets</h3>
             <p class="muted">
-              The proxy adds a token to requests for one host, so agents use it without ever seeing it. Only sandboxed
-              sessions get secrets. An agent can still do anything the token allows on that host, so give it the
+              Ovra's proxy adds a token to requests for one host, so agents use it without ever seeing it. Only agents in
+              the sandbox get secrets. An agent can still do anything the token allows on that host, so give it the
               narrowest scope you can.
             </p>
             {#if access.store?.state === "unavailable"}

@@ -270,7 +270,8 @@ function onDialogKeydown(event: KeyboardEvent): void {
       {:else}
         <div class="body">
           <p class="muted">
-            Rules decide an agent's tool call before you are asked. Deny rules are checked first, then ask, then auto.
+            These rules decide whether an agent may use a tool: refuse it (deny), ask you first (ask), or allow it
+            without asking (auto). Deny rules are checked first, then ask, then auto.
             Your own Claude settings are checked too; deny and ask rules override them; auto never skips more than they
             allow.
           </p>

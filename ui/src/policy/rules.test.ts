@@ -26,7 +26,7 @@ describe("policy rules", () => {
       "Only this tool is refused; others such as Bash can do the same.",
     ]);
     expect(caveats({ tool: "Edit", match: "docs/**", action: "auto" })).toEqual([
-      "Applies only in a sandboxed session whose network is limited. Otherwise the call is decided as if this rule were not there.",
+      "Applies only to an agent in the sandbox with limited network access. Otherwise the call is decided as if this rule were not there.",
     ]);
     expect(caveats({ tool: "Bash", match: "npm test", action: "auto" })[1]).toMatch(
       /^npm test also runs .*package\.json scripts, and the agent can edit those\.$/,

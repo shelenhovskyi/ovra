@@ -485,6 +485,7 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
         <span class="project">{workspace.project?.name ?? "No project"}</span>
         <button type="button" aria-keyshortcuts="Escape" onclick={close}>Close</button>
       </header>
+      <p class="intro">Changes agents made, waiting for you to approve or reject.</p>
       {#if inbox.error}
         <p class="error" role="alert">{inbox.error}</p>
       {/if}
@@ -876,6 +877,7 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
     font-size: 13px;
   }
   .project,
+  .intro,
   .meta,
   .hint,
   .empty,
@@ -886,6 +888,11 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
   .empty {
     padding: 12px;
     margin: 0;
+  }
+  .intro {
+    margin: 0;
+    padding: 6px 12px;
+    border-bottom: 1px solid #2a2a31;
   }
   .error {
     color: #ff8f8f;

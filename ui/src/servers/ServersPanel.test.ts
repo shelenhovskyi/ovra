@@ -84,7 +84,7 @@ describe("ServersPanel", () => {
     await open(core);
     const row = $("[data-testid=server]")?.textContent ?? "";
     expect(row).toContain("port 5173");
-    expect(row).toContain("in main checkout");
+    expect(row).toContain("in project folder");
     expect(row).toContain("started by Session s1");
     expect(row).toContain("run 2");
     button("Stop web")?.click();
@@ -157,7 +157,7 @@ describe("ServersPanel", () => {
     await open(core);
     expect($("[data-testid=server]")).toBeNull();
     const select = $<HTMLSelectElement>("[data-testid=servers-work-dir]");
-    expect([...(select?.options ?? [])].map((o) => o.textContent)).toEqual(["Main checkout", "Worker docs"]);
+    expect([...(select?.options ?? [])].map((o) => o.textContent)).toEqual(["Project folder", "Worker docs"]);
     if (select) select.selectedIndex = 1;
     select?.dispatchEvent(new Event("change", { bubbles: true }));
     await settle();

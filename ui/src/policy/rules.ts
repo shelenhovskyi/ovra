@@ -22,7 +22,8 @@ export function ruleText(rule: PolicyRule): string {
 /** What `match` means for `tool`, for the field's description. */
 export function matchHint(tool: string): string {
   if (tool.trim() === "Bash") return "A command prefix, matched on whole words: npm test also matches npm test -- -u.";
-  if (FILE_TOOLS.includes(tool.trim())) return "A glob on the path inside the session's folder, such as docs/**.";
+  if (FILE_TOOLS.includes(tool.trim()))
+    return "A glob on the path inside the folder the agent works in, such as docs/**.";
   return "Only Bash and the file tools take a match. Leave it empty to match every call.";
 }
 
@@ -69,7 +70,7 @@ export function caveats(rule: PolicyRule): string[] {
   }
   if (rule.action === "auto") {
     notes.push(
-      "Applies only in a sandboxed session whose network is limited. Otherwise the call is decided as if this rule were not there.",
+      "Applies only to an agent in the sandbox with limited network access. Otherwise the call is decided as if this rule were not there.",
     );
     if (rule.tool === "Bash") {
       const what = rule.match === undefined ? "Every command" : rule.match;

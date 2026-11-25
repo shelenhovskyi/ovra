@@ -157,7 +157,7 @@ function who(by: StartedBy): string {
 }
 
 function where(server: ServerInfo): string {
-  return server.work_dir === null ? "main checkout" : sessions.name(server.work_dir);
+  return server.work_dir === null ? "project folder" : sessions.name(server.work_dir);
 }
 
 function onDialogKeydown(event: KeyboardEvent): void {
@@ -209,7 +209,7 @@ function onDialogKeydown(event: KeyboardEvent): void {
           <label>
             Runs in
             <select bind:value={workDir} data-testid="servers-work-dir">
-              <option value={null}>Main checkout</option>
+              <option value={null}>Project folder</option>
               {#each workers as worker (worker.id)}
                 <option value={worker.id}>{worker.name}</option>
               {/each}
@@ -219,12 +219,15 @@ function onDialogKeydown(event: KeyboardEvent): void {
         <button type="button" class="close" aria-keyshortcuts="Escape" onclick={close}>Close</button>
       </header>
       <div class="body">
+        <p class="muted">
+          Your project's dev servers, run in the sandbox so agents working in the same folder can reach them.
+        </p>
         {#if !project}
           <p class="muted">Open a project to run its dev servers.</p>
         {:else if servers.unavailable}
           <p class="warn" role="note" data-testid="servers-unavailable">
-            Servers cannot run here: they need the Linux sandbox, which keeps each work dir's servers in their own
-            sandbox. ({servers.unavailable})
+            Servers cannot run here: they need the Linux sandbox, which keeps the servers of each folder agents
+            work in apart. ({servers.unavailable})
           </p>
         {:else}
           {#if servers.error}
@@ -239,10 +242,10 @@ function onDialogKeydown(event: KeyboardEvent): void {
             <p class="muted">Loading…</p>
           {:else if list.definitions.length === 0 && !list.error}
             <div class="empty" data-testid="servers-empty">
-              <p>No servers are defined for this work dir.</p>
+              <p>No servers are defined for this folder.</p>
               <p class="muted">
                 Add them to <code>.ovra/servers.json</code> in the project. Each runs its command (no shell) in a sandbox
-                with <code>PORT</code> set; agents of this work dir can reach it while it is ready. Only you can edit the
+                with <code>PORT</code> set; agents working in this folder can reach it while it is ready. Only you can edit the
                 file.
               </p>
               <pre>{example}</pre>

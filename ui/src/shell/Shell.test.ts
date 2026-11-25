@@ -88,7 +88,7 @@ describe("Shell", () => {
     expect(target.querySelector("[role=status]")?.textContent).toBe(
       "Core unavailable: it no longer accepts this address",
     );
-    expect(target.querySelector("[aria-labelledby=refused-title] h2")?.textContent).toBe("Ovra core was restarted");
+    expect(target.querySelector("[aria-labelledby=refused-title] h2")?.textContent).toBe("Ovra was restarted");
     expect(target.querySelector("[aria-labelledby=refused-title]")?.textContent).toContain("OVRA_URL=");
     unmount(app);
   });

@@ -171,9 +171,7 @@ describe("NetworkPanel", () => {
     app = null;
     core.sessions = [session("s1", { name: "bubblewrap", network: "proxy", gaps: [] }), session("s2", null)];
     await open(core);
-    expect($("[data-testid=unsandboxed]")?.textContent).toMatch(
-      /One session of this project runs\s+without.*keychain/s,
-    );
+    expect($("[data-testid=unsandboxed]")?.textContent).toMatch(/One agent in this project runs\s+without.*keychain/s);
     unmount(app ?? {});
     app = null;
     const failing = new FakeAccessCore();

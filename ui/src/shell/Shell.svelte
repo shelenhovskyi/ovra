@@ -180,10 +180,10 @@ const status = $derived.by((): { text: string; ok: boolean } => {
   <Notifications />
   {#if connection === "refused"}
     <section class="refused" role="alert" aria-labelledby="refused-title">
-      <h2 id="refused-title">Ovra core was restarted</h2>
-      <p>This page uses the address of an earlier run, and the new core does not accept it.</p>
+      <h2 id="refused-title">Ovra was restarted</h2>
+      <p>This page uses the address of an earlier run, and the new run does not accept it.</p>
       <p>
-        Open the new address instead. The core prints it when it starts, on a line that begins with
+        Open the new address instead. Ovra prints it when it starts, on a line that begins with
         <code>OVRA_URL=</code> (for example in the terminal running <code>just dev-headless</code>).
       </p>
     </section>
