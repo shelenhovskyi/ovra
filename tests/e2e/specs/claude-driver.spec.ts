@@ -29,8 +29,12 @@ test.afterAll(() => daemon?.stop());
 async function allow(page: Page, name: RegExp): Promise<void> {
   const card = page.getByTestId("approvals").getByRole("group", { name });
   await expect(card).toBeVisible();
+  // Allow counts only once the request has been in sight.
+  await card.scrollIntoViewIfNeeded();
   await page.clock.fastForward(600);
-  await card.getByRole("button", { name: "Allow" }).click();
+  const button = card.getByRole("button", { name: "Allow" });
+  await expect(button).toHaveAttribute("aria-disabled", "false");
+  await button.click();
 }
 
 test("a recorded Claude session runs through the real driver", async ({ page }) => {
