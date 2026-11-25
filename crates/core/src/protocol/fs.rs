@@ -50,7 +50,8 @@ pub enum FsRequest {
     /// Renames or moves a file or directory; a symlink is moved, not
     /// followed. Missing parents of `to` are created. Fails with `conflict`
     /// if `to` exists and with `bad_request` for moving a directory into
-    /// itself.
+    /// itself. A nested `.git` inside a moved, copied or trashed directory
+    /// goes with it.
     #[serde(rename = "fs.rename")]
     Rename {
         project: ProjectId,
@@ -67,7 +68,9 @@ pub enum FsRequest {
     },
     /// Moves files and directories to the system trash, where the person can
     /// restore them. Nothing is deleted for good. Stops at the first path
-    /// that fails; the ones before it are already in the trash.
+    /// that fails; the ones before it are already in the trash. A path inside
+    /// another one goes with it. Fails with `unavailable` for an item on a
+    /// drive the system trash does not cover.
     #[serde(rename = "fs.trash")]
     Trash {
         project: ProjectId,

@@ -291,6 +291,11 @@ async fn file_operations_leave_the_root_and_git_alone() {
             ErrorCode::BadRequest,
         ),
         (
+            // The same folder on a case-insensitive drive.
+            serde_json::json!({"method": "fs.copy", "params": {"from": "Src", "to": "sRC/in"}}),
+            ErrorCode::BadRequest,
+        ),
+        (
             serde_json::json!({"method": "fs.copy", "params": {"from": "src", "to": "../x"}}),
             ErrorCode::Forbidden,
         ),

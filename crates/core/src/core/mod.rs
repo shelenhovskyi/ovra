@@ -705,8 +705,12 @@ impl Core {
     }
 }
 
+/// Refuses `to` inside the folder `from`, also with other letter case: on a
+/// case-insensitive drive it is the same folder, and elsewhere refusing
+/// `src` to `SRC/x` costs little.
 fn not_into_itself(from: &RelPath, to: &RelPath) -> Result<(), ProtocolError> {
-    if to.as_str().starts_with(&format!("{from}/")) {
+    let (from, to) = (from.as_str().to_lowercase(), to.as_str().to_lowercase());
+    if to.starts_with(&format!("{from}/")) {
         return Err(ProtocolError::new(
             ErrorCode::BadRequest,
             "cannot put a folder inside itself",
