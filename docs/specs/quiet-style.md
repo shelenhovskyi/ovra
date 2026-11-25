@@ -59,8 +59,8 @@ tone instead of lines, and chrome that appears only when needed.
   panels are swapped): Files, Search, Git; Terminal, Reviews and More
   (settings) at the bottom; badges for counts. Hidden on the start screen.
 - **Side panels** (the rail's panel, and Agents) resize by dragging a handle
-  between 180 and 460 px (arrow keys on a focused handle, double-click resets),
-  collapse to a 48 px strip with one icon (the Agents strip shows how many
+  from 160 px to 60% of the window, leaving the main area 320 px (arrow keys
+  on a focused handle, double-click resets), collapse to a 48 px strip with one icon (the Agents strip shows how many
   agents work), and swap sides. The layout is remembered.
 - **The window never scrolls**; each panel scrolls on its own.
 - **Agents** is a compact list: one row per task with its state ("2 of 3"

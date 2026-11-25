@@ -37,8 +37,8 @@ Sizes and colours refer to [tokens.md](tokens.md).
   actions are muted until hover or focus, and below 220 px they go into a
   "…" menu. Collapse is the title-bar toggles (Mod+0, Alt+Mod+0); swap is in
   the palette, the View menu and the header's context menu.
-- Resize 180-460 px, collapse to a 48 px strip; the hit area of a split is
-  8 px and shows a 2 px `--separator` on hover.
+- Resize from 160 px to 60% of the window (the main area keeps 320 px),
+  collapse to a 48 px strip; the hit area of a split is 8 px and shows a 2 px `--separator` on hover.
 - Rows: `--row` 28 px with a 4 px inset so the selection reads as a pill
   (`--r-xs`). `--sel-focus` while the list has focus, `--sel` otherwise.
   Indent 16 px per level; chevron 12 px rotating over `--dur-2`; 16 px

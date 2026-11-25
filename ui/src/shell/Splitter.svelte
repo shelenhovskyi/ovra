@@ -3,19 +3,22 @@
 // use the arrow keys (Home and End for the limits); a double click resets.
 // `edge` is the side of the window the panel sits on, so dragging away from
 // that edge widens it.
-import { MAX_WIDTH, MIN_WIDTH } from "./layout.svelte";
+import { MIN_WIDTH } from "./layout.svelte";
 
 const STEP = 16;
 
 let {
   label,
   width,
+  max,
   edge,
   onresize,
   onreset,
 }: {
   label: string;
   width: number;
+  /** The widest the panel may be now. */
+  max: number;
   edge: "left" | "right";
   onresize: (width: number) => void;
   onreset: () => void;
@@ -47,7 +50,7 @@ function onkeydown(event: KeyboardEvent): void {
         : event.code === "Home"
           ? MIN_WIDTH
           : event.code === "End"
-            ? MAX_WIDTH
+            ? max
             : null;
   if (next === null) return;
   event.preventDefault();
@@ -66,7 +69,7 @@ function onkeydown(event: KeyboardEvent): void {
   aria-orientation="vertical"
   aria-valuenow={width}
   aria-valuemin={MIN_WIDTH}
-  aria-valuemax={MAX_WIDTH}
+  aria-valuemax={max}
   {onpointerdown}
   {onpointermove}
   onpointerup={() => (drag = null)}

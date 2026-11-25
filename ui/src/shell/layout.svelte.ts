@@ -5,9 +5,16 @@
 
 export type Panel = "side" | "agents";
 
-export const MIN_WIDTH = 180;
-export const MAX_WIDTH = 460;
+export const MIN_WIDTH = 160;
+/** A side panel takes at most this share of the window... */
+export const MAX_SHARE = 0.6;
+/** ...and always leaves the main area this wide. */
+export const MIN_MAIN = 320;
 export const DEFAULT_WIDTH: Record<Panel, number> = { side: 260, agents: 320 };
+/** What sits beside the panels: the rail, the two handles, a folded Agents strip. */
+const RAIL = 52;
+const HANDLES = 16;
+const STRIP = 48;
 
 const KEY = "ovra.layout";
 
@@ -22,8 +29,8 @@ function storage(): Storage | null {
   }
 }
 
-function clampWidth(width: number): number {
-  return Math.round(Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, width)));
+function clampWidth(width: number, max = Number.POSITIVE_INFINITY): number {
+  return Math.round(Math.min(max, Math.max(MIN_WIDTH, width)));
 }
 
 function readPanel(value: unknown, panel: Panel): PanelState {
@@ -40,6 +47,8 @@ export class Layout {
   agents = $state<PanelState>({ width: DEFAULT_WIDTH.agents, collapsed: false });
   /** Agents on the left, the rail's panel on the right. */
   swapped = $state(false);
+  /** The window's width, kept up to date by the shell: it bounds the panels. */
+  viewport = $state(typeof window === "undefined" ? 1440 : window.innerWidth);
   readonly #store: Storage | null;
 
   constructor(store = storage()) {
@@ -60,8 +69,21 @@ export class Layout {
     return this.swapped ? "agents" : "side";
   }
 
+  /** The widest `panel` may be now: a share of the window that leaves the main area its room. */
+  max(panel: Panel): number {
+    const other = this[panel === "side" ? "agents" : "side"];
+    const beside = other.collapsed ? (panel === "side" ? STRIP : 0) : other.width;
+    const room = this.viewport - RAIL - HANDLES - MIN_MAIN - beside;
+    return Math.max(MIN_WIDTH, Math.floor(Math.min(this.viewport * MAX_SHARE, room)));
+  }
+
+  /** The width `panel` is drawn at: the remembered one, within what the window allows now. */
+  width(panel: Panel): number {
+    return Math.min(this[panel].width, this.max(panel));
+  }
+
   resize(panel: Panel, width: number): void {
-    this[panel].width = clampWidth(width);
+    this[panel].width = clampWidth(width, this.max(panel));
     this.#save();
   }
 

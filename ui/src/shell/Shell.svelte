@@ -154,7 +154,7 @@ const grid = $derived.by(() => {
   const left = layout.left;
   const right: Panel = left === "side" ? "agents" : "side";
   const track = (panel: Panel) =>
-    folded[panel] ? (panel === "side" ? "0" : "48px") : `minmax(0, ${layout[panel].width}px)`;
+    folded[panel] ? (panel === "side" ? "0" : "48px") : `minmax(0, ${layout.width(panel)}px)`;
   const handle = (panel: Panel) => (folded[panel] ? "0" : "8px");
   const main = "minmax(320px, 1fr)";
   let tracks = `${track(left)} ${handle(left)} ${main} ${handle(right)} ${track(right)}`;
@@ -213,6 +213,7 @@ function fold(panel: Panel, name: string): void {
   {@render controls("agents", "Agents")}
 {/snippet}
 
+<svelte:window bind:innerWidth={layout.viewport} />
 <Keybindings />
 <div class="shell" class:start={!workspace.project} class:solo class:rail-right={layout.swapped} style={grid}>
   <div class="title-area"><TitleBar /></div>
@@ -243,7 +244,8 @@ function fold(panel: Panel, name: string): void {
       <div class="handle {panel}-handle">
         <Splitter
           label={panel === "side" ? `Resize ${view.name}` : "Resize Agents"}
-          width={layout[panel].width}
+          width={layout.width(panel)}
+          max={layout.max(panel)}
           edge={edge(panel)}
           onresize={(width) => layout.resize(panel, width)}
           onreset={() => layout.reset(panel)}

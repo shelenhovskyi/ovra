@@ -23,12 +23,15 @@ test("side panels resize, fold and swap, and the layout survives a reload", asyn
   const handle = page.getByRole("separator", { name: "Resize Files" });
   await expect(handle).toHaveAttribute("aria-valuenow", "260");
 
-  // Keyboard: arrows step, Home goes to the minimum; a double click resets.
+  // Keyboard: arrows step, Home and End go to the limits (End leaves the main
+  // area 320 px beside Agents in a 1280 px window); a double click resets.
   await handle.focus();
   await page.keyboard.press("ArrowRight");
   await expect(handle).toHaveAttribute("aria-valuenow", "276");
+  await page.keyboard.press("End");
+  await expect(handle).toHaveAttribute("aria-valuenow", String(1280 - 52 - 16 - 320 - 320));
   await page.keyboard.press("Home");
-  await expect(handle).toHaveAttribute("aria-valuenow", "180");
+  await expect(handle).toHaveAttribute("aria-valuenow", "160");
   await handle.dblclick();
   await expect(handle).toHaveAttribute("aria-valuenow", "260");
 
