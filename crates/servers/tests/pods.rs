@@ -313,6 +313,25 @@ async fn waiting_for_a_pod_lasts_until_its_process_ended() {
 }
 
 #[tokio::test]
+async fn a_pod_that_never_listens_ends_with_a_kill() {
+    let mut s = setup();
+    let script = s.work.path().join("hang.sh");
+    std::fs::write(&script, "#!/bin/sh\nexec sleep 30\n").expect("script");
+    let mode = std::os::unix::fs::PermissionsExt::from_mode(0o755);
+    std::fs::set_permissions(&script, mode).expect("mode");
+    let data = s.data.path().to_owned();
+    let servers = PodServers::new(Arc::new(Identity(true)), data.clone()).program(script);
+    servers
+        .start(&s.pod(), s.spec("srv", "exit 0"), s.sink.clone())
+        .expect("start");
+    servers.stop(&ServerId("srv".into()), Duration::ZERO);
+    s.until("srv #1 Failed { reason: \"the pod was stopped before it started\" }")
+        .await;
+    servers.pod_ended(s.work.path().into()).await;
+    assert_eq!(entries(&data), Vec::<PathBuf>::new());
+}
+
+#[tokio::test]
 async fn dropping_the_servers_ends_their_pods() {
     let mut s = setup();
     s.start("srv", "echo $$; exec sleep 5", free_port(), None)
