@@ -224,16 +224,17 @@ impl Pods {
     }
 
     pub(crate) fn stop(&self, id: &ServerId, grace: Duration) {
-        if !signal(&self.state, id, Sig::Term) {
+        let Some(name) = signal(&self.state, Sig::Term, |_, s| s.id == *id) else {
             return;
-        }
+        };
         let Ok(runtime) = Handle::try_current() else {
             return;
         };
-        let (state, id) = (self.state.clone(), id.clone());
+        // Only this start: a restart of the same server is a new spawn.
+        let state = self.state.clone();
         runtime.spawn(async move {
             tokio::time::sleep(grace).await;
-            signal(&state, &id, Sig::Kill);
+            signal(&state, Sig::Kill, |n, _| *n == name);
         });
     }
 
@@ -265,19 +266,22 @@ impl Drop for Pods {
     }
 }
 
-/// Sends `sig` to the server's process group; false if it is not running.
-fn signal(state: &Mutex<State>, id: &ServerId, sig: Sig) -> bool {
+/// Sends `sig` to the process group of the running spawn that `pick`
+/// chooses, and returns its name.
+fn signal(
+    state: &Mutex<State>,
+    sig: Sig,
+    pick: impl Fn(&String, &Running) -> bool,
+) -> Option<String> {
     let state = lock(state);
     for pod in state.pods.values() {
-        if let Some((name, _)) = pod.servers.iter().find(|(_, s)| s.id == *id) {
-            let _ = pod.control.send(Request::Signal {
-                id: name.clone(),
-                sig,
-            });
-            return true;
+        if let Some((name, _)) = pod.servers.iter().find(|(n, s)| pick(n, s)) {
+            let id = name.clone();
+            let _ = pod.control.send(Request::Signal { id, sig });
+            return Some(name.clone());
         }
     }
-    false
+    None
 }
 
 /// A new folder in `dir` only this user can open, with a name nobody can
@@ -496,6 +500,50 @@ fn answered(status: &[u8; 12]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[derive(Debug)]
+    struct Ignore;
+
+    impl ServerSink for Ignore {
+        fn output(&self, _: &ServerId, _: u64, _: Vec<String>) {}
+        fn status(&self, _: &ServerId, _: u64, _: ServerStatus) {}
+    }
+
+    #[test]
+    fn a_late_kill_misses_a_restarted_server() {
+        let (control, mut sent) = unbounded_channel();
+        let running = Running {
+            id: ServerId("srv".into()),
+            generation: 2,
+            port: 5173,
+            sink: Arc::new(Ignore),
+            ready: Readiness::new(None),
+        };
+        let pod = Pod {
+            dir: "/pods/1".into(),
+            control,
+            servers: BTreeMap::from([("2".to_owned(), running)]),
+        };
+        let state = Mutex::new(State {
+            pods: BTreeMap::from([(PathBuf::from("/w"), pod)]),
+            spawns: 2,
+        });
+        // The grace of the stop of spawn 1 runs out after the restart.
+        assert_eq!(signal(&state, Sig::Kill, |n, _| n == "1"), None);
+        assert!(sent.try_recv().is_err());
+        let id = ServerId("srv".into());
+        assert_eq!(
+            signal(&state, Sig::Term, |_, s| s.id == id).as_deref(),
+            Some("2")
+        );
+        assert_eq!(
+            sent.try_recv().ok(),
+            Some(Request::Signal {
+                id: "2".into(),
+                sig: Sig::Term
+            })
+        );
+    }
 
     #[test]
     fn an_http_check_needs_a_plain_path_and_an_answer_below_500() {
