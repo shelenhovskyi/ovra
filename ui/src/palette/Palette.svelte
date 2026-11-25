@@ -1,11 +1,12 @@
 <script lang="ts">
 // The palette: fuzzy search over commands, the project's files or the known
-// projects (see `mode.svelte.ts`). The shell mounts it while
+// projects (see `mode.svelte.ts`), or a folder path to open. The shell mounts it while
 // `workspace.paletteOpen` is true; it closes by setting it to false.
 import { tick } from "svelte";
 import { runCommand } from "../keys/keybindings";
 import { formatShortcut, inBrowserTab, isApple, liveKeys } from "../keys/shortcut";
 import { useOvra } from "../shell/context";
+import { FolderOpener } from "../tree/folder-opener.svelte";
 import { type Ranked, segments } from "./fuzzy";
 import { palette } from "./mode.svelte";
 import { createRanker, type Ranker } from "./ranker";
@@ -14,6 +15,16 @@ import { type Entry, source } from "./sources";
 const { transport, workspace } = useOvra();
 // svelte-ignore state_referenced_locally
 const from = source(palette.mode, transport, workspace);
+// Folder mode: the typed path opens as a project, through the same checks as the start screen.
+// svelte-ignore state_referenced_locally
+const folder =
+  palette.mode === "folder"
+    ? new FolderOpener(transport, (project) => {
+        workspace.openPath = null;
+        workspace.mode = "view";
+        workspace.project = project;
+      })
+    : null;
 const apple = isApple();
 const browser = inBrowserTab();
 
@@ -110,6 +121,11 @@ function run(item: Ranked<Entry> | undefined): void {
   void tick().then(() => runCommand({ id, title: label, run }));
 }
 
+/** Opens the typed folder; a refused path stays in the box with the reason. */
+async function openTyped(): Promise<void> {
+  if (folder && (await folder.open(query.trim()))) close();
+}
+
 /** Rows PageUp and PageDown move by. */
 const PAGE = 10;
 
@@ -137,7 +153,8 @@ function onkeydown(event: KeyboardEvent): void {
       if (count) selected = Math.max(selected - PAGE, 0);
       break;
     case "Enter":
-      if (rankedQuery === query) run(items[selected]);
+      if (folder) void openTyped();
+      else if (rankedQuery === query) run(items[selected]);
       else enterPending = failure === null;
       break;
     case "Escape":
@@ -160,7 +177,10 @@ function onfocusout(event: FocusEvent): void {
     <input
       bind:this={input}
       bind:value={query}
-      oninput={() => (selected = 0)}
+      oninput={() => {
+        selected = 0;
+        if (folder) folder.error = null;
+      }}
       {onkeydown}
       type="text"
       role="combobox"
@@ -168,6 +188,7 @@ function onfocusout(event: FocusEvent): void {
       aria-controls="palette-list"
       aria-activedescendant={items.length ? `palette-item-${selected}` : undefined}
       aria-label={from.placeholder}
+      aria-invalid={folder?.error ? true : undefined}
       placeholder={from.placeholder}
       spellcheck="false"
       autocomplete="off"
@@ -193,13 +214,17 @@ function onfocusout(event: FocusEvent): void {
           {#if item.item.keys}<kbd>{formatShortcut(liveKeys(item.item.keys, browser), apple)}</kbd>{/if}
         </li>
       {:else}
-        <li class="empty" role="presentation">{failure ?? (rankedQuery === null ? "Loading…" : from.empty)}</li>
+        {#if folder}
+          <li class="empty" class:error={folder.error} role="presentation">{folder.error ?? from.empty}</li>
+        {:else}
+          <li class="empty" role="presentation">{failure ?? (rankedQuery === null ? "Loading…" : from.empty)}</li>
+        {/if}
       {/each}
     </ul>
     {#if matches > items.length}
       <p class="more">Showing {items.length} of {matches.toLocaleString("en")}. Type more to narrow down.</p>
     {/if}
-    <p class="visually-hidden" role="status">{query || failure ? announcement : ""}</p>
+    <p class="visually-hidden" role="status">{folder ? (folder.error ?? "") : query || failure ? announcement : ""}</p>
   </div>
 </div>
 
@@ -301,6 +326,9 @@ function onfocusout(event: FocusEvent): void {
       text-decoration: underline;
       text-underline-offset: 2px;
     }
+  }
+  .empty.error {
+    color: #ff8f8f;
   }
   .more {
     margin: 0;

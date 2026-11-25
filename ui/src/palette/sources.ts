@@ -4,10 +4,10 @@ import { modeOf } from "../editor/open-files.svelte";
 import { listCommands } from "../keys/commands";
 import type { Project } from "../lib/protocol";
 import type { Transport } from "../lib/transport";
-import { openAnotherFolder } from "../shell/open-folder";
+import { folderDialogCommand, openAnotherFolder } from "../shell/open-folder";
 import type { Workspace } from "../shell/workspace.svelte";
 import { projectFiles } from "./files";
-import type { PaletteMode } from "./mode.svelte";
+import { type PaletteMode, palette } from "./mode.svelte";
 
 export type Entry = {
   id: string;
@@ -28,7 +28,7 @@ export type Source = {
   entries: () => Entry[] | Promise<Entry[]>;
 };
 
-type Target = Pick<Workspace, "project" | "openPath" | "mode" | "openFile">;
+type Target = Pick<Workspace, "project" | "openPath" | "mode" | "openFile" | "paletteOpen">;
 
 /** Opens `project` in the window, leaving the file to the project's saved state. */
 async function openProject(transport: Transport, workspace: Target, project: Project): Promise<void> {
@@ -36,6 +36,12 @@ async function openProject(transport: Transport, workspace: Target, project: Pro
   workspace.openPath = null;
   workspace.mode = "view";
   workspace.project = opened;
+}
+
+function openFolder(workspace: Target): Promise<void> | void {
+  if (folderDialogCommand() || !workspace.project) return openAnotherFolder(workspace);
+  palette.mode = "folder";
+  workspace.paletteOpen = true;
 }
 
 export function source(mode: PaletteMode, transport: Transport, workspace: Target): Source {
@@ -67,6 +73,16 @@ export function source(mode: PaletteMode, transport: Transport, workspace: Targe
             : [],
       };
     }
+    case "folder":
+      return {
+        name: "Open a folder",
+        placeholder: "Folder to open, for example /home/you/my-app",
+        empty: workspace.project
+          ? `${workspace.project.name} stays open until the new folder opens. Enter opens it.`
+          : "Enter opens the folder.",
+        limit: 0,
+        entries: () => [],
+      };
     case "projects":
       return {
         name: "Projects",
@@ -80,8 +96,9 @@ export function source(mode: PaletteMode, transport: Transport, workspace: Targe
             detail: p.root,
             run: () => openProject(transport, workspace, p),
           })),
-          // A folder that is not a project yet: the system's dialog, or the start screen's field.
-          { id: "palette.open_folder", label: "Open a folder…", run: () => openAnotherFolder(workspace) },
+          // A folder that is not a project yet: the system's dialog, else a path asked
+          // for here, so the open project stays until the new one opens.
+          { id: "palette.open_folder", label: "Open a folder…", run: () => openFolder(workspace) },
         ],
       };
   }
