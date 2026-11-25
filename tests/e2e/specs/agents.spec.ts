@@ -118,8 +118,12 @@ test("in a short window, Review shows the whole request and the title counts wha
 
   const edit = approvals.getByRole("group", { name: "Edit README.md" });
   await expect(edit).toBeVisible();
+  const toasts = page.getByTestId("toast");
+  await expect(toasts).toContainText(["needs approval: Edit README.md"]);
   await page.keyboard.press("ArrowDown");
   await expect(edit).toBeFocused();
+  // The focused request is on screen: its toast no longer covers it.
+  await expect(toasts).toHaveCount(0);
   await arm(page);
   await page.keyboard.press("n");
   await expect(approvals).toContainText("Nothing waits for your approval.");

@@ -206,9 +206,17 @@ describe("Approvals", () => {
     press("KeyY");
     await settle();
     expect(answers(core)).toEqual([]);
+    // As for an early click, the card says why.
+    expect(cards()[0]?.querySelector("[data-testid=approval-wait]")?.textContent?.trim()).toBe(
+      "Ready in a moment — read the request first.",
+    );
     expect(cards()[0]?.querySelector("button.allow")?.getAttribute("aria-disabled")).toBe("true");
     await settle(ARM_MS);
     expect(cards()[0]?.querySelector("button.allow")?.getAttribute("aria-disabled")).toBe("false");
+    // QWERTZ: the key labelled Z sits where Y is on QWERTY and does not allow.
+    press("KeyY", { key: "z" });
+    await settle();
+    expect(answers(core)).toEqual([]);
     // A non-Latin layout: the physical Y key still allows.
     press("KeyY", { key: "\u043d" }); // Cyrillic en
     await settle();
@@ -221,7 +229,7 @@ describe("Approvals", () => {
     core.ask(bash("perm2", "rm -rf build"));
     await settle(ARM_MS);
     cards()[0]?.focus();
-    press("KeyY");
+    press("KeyZ", { key: "y" }); // QWERTZ: the key labelled Y
     await settle();
     press("KeyY");
     await settle();
@@ -493,6 +501,8 @@ describe("Approvals", () => {
     const { approvalQueue } = await import("./queue.svelte");
     approvalQueue(core).reveal("perm2");
     expect(document.activeElement).toBe(cards()[1]);
+    // Its notification steps aside while the card has focus.
+    expect(approvalQueue(core).focused).toBe("perm2");
     await settle();
     // All of it, not just the line that says who asks.
     expect(scrolled).toEqual([

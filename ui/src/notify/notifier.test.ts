@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeAgentCore } from "../agents/fake-core";
 import { handleOpenFor } from "../inbox/open";
 import { watchAgents } from "./agent-events";
-import { INFO_MS, Notifier, type SystemNotifications } from "./notifier.svelte";
+import { INFO_MS, Notifier, overlaps, type SystemNotifications } from "./notifier.svelte";
 
 function system(granted: boolean, foreground: boolean) {
   const shown: { title: string; body: string; click: () => void }[] = [];
@@ -41,6 +41,14 @@ describe("Notifier", () => {
     const off = system(false, false);
     new Notifier(off.api).notify({ level: "info", text: "done" });
     expect([...front.shown, ...off.shown]).toEqual([]);
+  });
+
+  it("tells whether the stack would cover a box", () => {
+    const stack = { left: 0, right: 360, top: 320, bottom: 368 };
+    expect(overlaps(stack, { left: 12, right: 628, top: 236, bottom: 441 })).toBe(true);
+    expect(overlaps(stack, { left: 12, right: 628, top: 100, bottom: 320 })).toBe(false);
+    // Nothing laid out covers nothing.
+    expect(overlaps(stack, { left: 0, right: 0, top: 0, bottom: 0 })).toBe(false);
   });
 });
 

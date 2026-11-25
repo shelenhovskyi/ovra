@@ -23,6 +23,7 @@ import { agentSessions } from "../agents/sessions.svelte";
 import { registerCommand } from "../keys/commands";
 import type { Decision, PermissionId, PermissionRequest, Project, ProjectId, SessionId } from "../lib/protocol";
 import { useOvra } from "../shell/context";
+import { typed } from "../shell/menu";
 import { describeTool } from "./describe";
 import { ARM_MS, approvalQueue } from "./queue.svelte";
 import { pathScopes, sameFolder } from "./scope";
@@ -300,9 +301,14 @@ async function revealNote(id: PermissionId): Promise<void> {
   if (row.getBoundingClientRect().top !== before) quiet();
 }
 
-/** Answers from a key press: at most one answer per press. */
+/** Answers from a key press: at most one answer per press; one too early says why, as a click does. */
 function answerByKey(event: KeyboardEvent, request: PermissionRequest, decision: Decision, message?: string): void {
-  if (event.repeat || keyHeld || !armed(request.id)) return;
+  if (event.repeat || keyHeld) return;
+  if (!armed(request.id)) {
+    said = { id: request.id, text: EARLY };
+    void revealNote(request.id);
+    return;
+  }
   // `answer` checks `armed` before its first await, so mark the key after.
   void answer(request, decision, message);
   keyHeld = true;
@@ -334,8 +340,11 @@ function onKeydown(event: KeyboardEvent, request: PermissionRequest): void {
   const at = all.findIndex((c) => c.dataset.request === request.id);
   // Y and N answer only on the card itself, never from a control inside it.
   const onCard = event.target === event.currentTarget;
+  // Y and N by the letter typed (on QWERTZ the key labelled Y), else by
+  // the physical key on a non-Latin layout, as the menus and shortcuts do.
+  const letter = typed(event);
   const handled = (() => {
-    switch (event.code) {
+    switch (letter ? `Key${letter.toUpperCase()}` : event.code) {
       case "KeyY":
         if (event.shiftKey || !onCard) return false;
         answerByKey(event, request, "allow");
@@ -468,7 +477,15 @@ function workerCopy(session: SessionId): string {
           aria-labelledby="{domId}-action"
           aria-describedby="{domId}-session approvals-keys"
           onkeydown={(event) => onKeydown(event, request)}
-          onfocusin={() => expand(request.id)}
+          onfocusin={() => {
+            queue.focused = request.id;
+            expand(request.id);
+          }}
+          onfocusout={(event) => {
+            const to = event.relatedTarget;
+            if (!(to instanceof Node && event.currentTarget.contains(to)) && queue.focused === request.id)
+              queue.focused = null;
+          }}
         >
           <!-- Who asks and how it is sandboxed: Allow needs it in sight too. -->
           <div class="who" {@attach watch(headSeen, request.id)}>

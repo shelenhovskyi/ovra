@@ -76,6 +76,15 @@ export class Notifier {
   }
 }
 
+type Box = Pick<DOMRect, "top" | "bottom" | "left" | "right">;
+
+/** Whether two boxes share any area; an empty box (nothing laid out) shares none. */
+export function overlaps(a: Box, b: Box): boolean {
+  const empty = (box: Box) => box.bottom <= box.top || box.right <= box.left;
+  if (empty(a) || empty(b)) return false;
+  return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+}
+
 function webNotifications(): SystemNotifications {
   const api = () => (typeof Notification === "undefined" ? undefined : Notification);
   const open = new Map<string, Notification>();

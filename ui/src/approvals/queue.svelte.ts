@@ -21,6 +21,8 @@ export class ApprovalQueue {
   /** Requests with an answer on the way; they cannot be answered again. */
   readonly answering = new SvelteSet<PermissionId>();
   error = $state<string | null>(null);
+  /** The request whose card has focus: on screen, so its notification steps aside. */
+  focused = $state<PermissionId | null>(null);
   /** Set by the approvals list: focuses one request (from a notification's Review). */
   revealer: ((id: PermissionId) => void) | null = null;
 

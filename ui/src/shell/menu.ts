@@ -6,7 +6,7 @@
  * The typed letter or digit, lower-case, or null. A non-Latin layout falls
  * back to the physical key, so P finds "Project policies" whatever the input language.
  */
-function typed(event: KeyboardEvent): string | null {
+export function typed(event: KeyboardEvent): string | null {
   if (event.ctrlKey || event.metaKey || event.altKey) return null;
   const key = (event.key ?? "").toLowerCase();
   if (/^[a-z0-9]$/.test(key)) return key;
