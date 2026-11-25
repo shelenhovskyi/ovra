@@ -98,5 +98,12 @@ test("the editor marks changed lines against the index", async ({ page }) => {
   await text.click();
   await page.keyboard.press("ControlOrMeta+Home");
   await page.keyboard.type("added line\n");
-  await expect(main.locator('[data-testid="git-marker"][data-change="added"]')).toHaveCount(1);
+  const marker = main.locator('[data-testid="git-marker"][data-change="added"]');
+  await expect(marker).toHaveCount(1);
+  await expect(marker).toBeVisible();
+  expect((await marker.boundingBox())?.width).toBeGreaterThan(0);
+  // The cursor is on line 2; the next change wraps around to line 1.
+  await expect(main.locator(".cm-activeLine")).toHaveText("line 1");
+  await page.keyboard.press("Alt+F5");
+  await expect(main.locator(".cm-activeLine")).toHaveText("added line");
 });

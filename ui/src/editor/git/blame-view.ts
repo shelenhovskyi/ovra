@@ -37,6 +37,8 @@ class InlineBlame extends WidgetType {
   toDOM(): HTMLElement {
     const dom = document.createElement("span");
     dom.className = "cm-git-inline-blame";
+    // Not part of the line's text for a screen reader; "Git: read blame of cursor line" says it.
+    dom.setAttribute("aria-hidden", "true");
     dom.dataset.testid = "git-inline-blame";
     dom.textContent = this.text;
     return dom;
@@ -111,17 +113,24 @@ export function blameGutterEffect(
   );
 }
 
+/** The blame of the cursor line, such as "Ann, 2 days ago · Start". */
+export function cursorBlame(state: EditorState, blame: Blame, map: ToDisk): string {
+  const line = state.doc.lineAt(state.selection.main.head);
+  return lineBlame(blame, commitsOf(blame), map(line.number - 1), Date.now());
+}
+
 /** The effect that shows the inline blame of the cursor line. */
 export function inlineBlameEffect(state: EditorState, blame: Blame, map: ToDisk): StateEffect<unknown> {
   const line = state.doc.lineAt(state.selection.main.head);
-  const widget = new InlineBlame(lineBlame(blame, commitsOf(blame), map(line.number - 1), Date.now()));
+  const widget = new InlineBlame(cursorBlame(state, blame, map));
   return setInlineBlame.of(Decoration.set([Decoration.widget({ widget, side: 1 }).range(line.to)]));
 }
 
 const styles = EditorView.baseTheme({
-  ".cm-git-blame-gutter .cm-gutterElement": { padding: "0 8px", color: "#6f6f7a" },
+  // At least 4.5:1 on the editor's backgrounds (#16161a, active line #1d1d23).
+  ".cm-git-blame-gutter .cm-gutterElement": { padding: "0 8px", color: "#9a9aa6" },
   ".cm-git-blame": { display: "inline-block", maxWidth: "22ch", overflow: "hidden", textOverflow: "ellipsis" },
-  ".cm-git-inline-blame": { marginLeft: "2em", color: "#5a5a66", fontStyle: "italic" },
+  ".cm-git-inline-blame": { marginLeft: "2em", color: "#8a8a96", fontStyle: "italic" },
 });
 
 /** The blame state, its gutter (left of the line numbers) and styles. */

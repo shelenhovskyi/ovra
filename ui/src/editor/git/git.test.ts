@@ -4,7 +4,7 @@ import { EditorView } from "@codemirror/view";
 import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import type { Blame, CoreEvent, Hunk, Request } from "../../lib/protocol";
 import { CoreError, type Transport } from "../../lib/transport";
-import { gitExtension, showChangeAtCursor, toggleBlame } from "./extension";
+import { describeChange, gitExtension, goToChange, readBlame, showChangeAtCursor, toggleBlame } from "./extension";
 import { GitFile, pickHunk } from "./file";
 
 class FakeGit implements Transport {
@@ -108,6 +108,9 @@ describe("git extension", () => {
     vi.useRealTimers();
   });
 
+  /** The text of the editor's live region. */
+  const announced = (target: EditorView) => target.dom.querySelector(".cm-announced")?.textContent;
+
   function setup(doc: string, dirty = false) {
     const core = new FakeGit();
     const file = new GitFile({ transport: core, project: "p1", path: "f" });
@@ -124,9 +127,7 @@ describe("git extension", () => {
     const { file, core, view, markers } = setup("a\nB\nc\nd\n");
     await vi.advanceTimersByTimeAsync(0);
     expect(markers()).toEqual(["modified", "added"]);
-    expect(view.dom.querySelector("[data-change=added]")?.getAttribute("aria-label")).toBe(
-      "Added lines, click for actions",
-    );
+    expect(view.dom.querySelector<HTMLElement>("[data-change=added]")?.title).toBe("Added lines, click for actions");
     view.dispatch({ changes: { from: 2, to: 3, insert: "b" } });
     await vi.advanceTimersByTimeAsync(150);
     expect(markers()).toHaveLength(2);
@@ -139,8 +140,9 @@ describe("git extension", () => {
   });
 
   test("Revert hunk puts the index lines back as an undoable edit; Escape closes the popup", async () => {
-    const { view } = setup("a\nB\nX\nc\n");
+    const { view, markers } = setup("a\nB\nX\nc\n");
     await vi.advanceTimersByTimeAsync(0);
+    expect(markers()).toEqual(["modified", "modified"]);
     view.dispatch({ selection: { anchor: 3 } });
     showChangeAtCursor();
     const popup = view.dom.querySelector<HTMLElement>("[data-testid=git-change-popup]");
@@ -154,9 +156,59 @@ describe("git extension", () => {
     await vi.advanceTimersByTimeAsync(200);
     showChangeAtCursor();
     const again = view.dom.querySelector<HTMLElement>("[data-testid=git-change-popup]");
+    expect(again?.getAttribute("aria-label")).toBe("Changed lines 2 to 3");
+    // Tab cycles inside the popup; Escape from any of its buttons closes it.
+    const tab = (shiftKey = false) =>
+      document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { code: "Tab", shiftKey, bubbles: true }));
+    tab();
+    tab();
+    expect(document.activeElement?.textContent).toBe("Close");
+    tab();
+    expect(document.activeElement?.textContent).toBe("Stage hunk");
+    tab(true);
+    expect(document.activeElement?.textContent).toBe("Close");
     again?.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true }));
     expect(view.dom.querySelector("[data-testid=git-change-popup]")).toBeNull();
     expect(view.hasFocus).toBe(true);
+    // On a line without a change the command closes an open popup and says why.
+    showChangeAtCursor();
+    view.dispatch({ selection: { anchor: 0 } });
+    showChangeAtCursor();
+    expect(view.dom.querySelector("[data-testid=git-change-popup]")).toBeNull();
+    expect(announced(view)).toBe("No git change on this line.");
+  });
+
+  test("an unsaved file's popup focuses Close, never Revert", async () => {
+    const { view } = setup("a\nB\nc\n", true);
+    await vi.advanceTimersByTimeAsync(0);
+    view.dispatch({ selection: { anchor: 2 } });
+    showChangeAtCursor();
+    expect(document.activeElement?.textContent).toBe("Close");
+  });
+
+  test("next and previous change move the cursor, wrap around and announce the change", async () => {
+    // Index a b c: line 1 added, line 3 changed, line 5 added at the end.
+    const { view } = setup("new\na\nB\nc\nend\n");
+    await vi.advanceTimersByTimeAsync(0);
+    const line = () => view.state.doc.lineAt(view.state.selection.main.head).number;
+    goToChange(1);
+    expect([line(), announced(view)]).toEqual([3, "Changed line 3, 2 of 3"]);
+    goToChange(1);
+    expect([line(), announced(view)]).toEqual([5, "Added line 5, 3 of 3"]);
+    goToChange(1);
+    expect([line(), announced(view)]).toEqual([1, "Added line 1, 1 of 3"]);
+    goToChange(-1);
+    expect(line()).toBe(5);
+    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: "a\nb\nc\n" } });
+    goToChange(-1);
+    expect(announced(view)).toBe("No git changes in this file.");
+    expect(
+      [
+        { oldStart: 2, oldCount: 3, newStart: 2, newCount: 0 },
+        { oldStart: 0, oldCount: 1, newStart: 0, newCount: 0 },
+        { oldStart: 1, oldCount: 0, newStart: 1, newCount: 2 },
+      ].map(describeChange),
+    ).toEqual(["Deleted 3 lines after line 2", "Deleted line at the start", "Added lines 2 to 3"]);
   });
 
   test("blames the cursor line after a pause and shows the blame gutter on toggle", async () => {
@@ -176,11 +228,18 @@ describe("git extension", () => {
     expect(inline()).toBeUndefined();
     await vi.advanceTimersByTimeAsync(500);
     expect(inline()).toBe("Not committed yet");
+    // Not read as part of the line; said on demand instead.
+    expect(view.dom.querySelector("[data-testid=git-inline-blame]")?.getAttribute("aria-hidden")).toBe("true");
+    view.dispatch({ selection: { anchor: 0 } });
+    await readBlame();
+    expect(announced(view)).toBe("Ann, 2 days ago · Start");
     toggleBlame();
+    expect(announced(view)).toBe("Blame shown.");
     await vi.advanceTimersByTimeAsync(0);
     const labels = [...view.dom.querySelectorAll("[data-testid=git-blame]")].map((m) => m.textContent);
     expect(labels).toEqual(["Ann, 2 days ago", "Not committed yet"]);
     toggleBlame();
+    expect(announced(view)).toBe("Blame hidden.");
     await vi.advanceTimersByTimeAsync(0);
     expect(view.dom.querySelectorAll("[data-testid=git-blame]")).toHaveLength(0);
     expect(core.count("git.blame")).toBe(1);
