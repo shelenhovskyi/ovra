@@ -156,14 +156,17 @@ $effect(() => {
 function close(): void {
   workspace.paletteOpen = false;
   palette.mode = "commands";
+  palette.list = null;
 }
 
 function run(item: Ranked<Entry> | undefined): void {
   if (!item) return;
+  // A handed-over list (the symbols of a file) is not a place to come back to.
+  const recent = palette.mode !== "list";
   close();
   // Run once the palette is gone, so a command can open it again in another mode.
   const { id, label, run } = item.item;
-  noteRecent(id);
+  if (recent) noteRecent(id);
   void tick().then(() => runCommand({ id, title: label, run }));
 }
 

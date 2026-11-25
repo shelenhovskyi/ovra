@@ -183,6 +183,8 @@ export function source(mode: PaletteMode, transport: Transport, workspace: Targe
         limit: 0,
         entries: () => [],
       };
+    case "list":
+      return palette.list ?? { name: "List", placeholder: "", empty: "Nothing to show", limit: 0, entries: () => [] };
     case "projects":
       return {
         name: "Projects",
