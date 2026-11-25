@@ -5,6 +5,7 @@
 // too); Shift+Enter starts a new line.
 import { type Snippet, tick, untrack } from "svelte";
 import { describeTool } from "../approvals/describe";
+import { approvalQueue } from "../approvals/queue.svelte";
 import { browserPicks, pickLabel } from "../browser/picks.svelte";
 import { registerCommand } from "../keys/commands";
 import type { AccountState, FileChange, SessionId, SessionInfo } from "../lib/protocol";
@@ -13,6 +14,8 @@ import { useOvra } from "../shell/context";
 import Icon from "../shell/Icon.svelte";
 import { menuTarget } from "../shell/menu";
 import { signedOutError } from "./errors";
+import FirstSteps from "./FirstSteps.svelte";
+import { hints } from "./hints.svelte";
 import { listWarning, sandboxGaps, sandboxLine, sandboxState } from "./sandbox";
 import { agentSessions, openReviews, usageText } from "./sessions.svelte";
 import AccountPicker from "./setup/AccountPicker.svelte";
@@ -33,6 +36,7 @@ const { transport, workspace } = useOvra();
 const sessions = agentSessions(transport);
 const picks = browserPicks(transport);
 const accounts = claudeAccounts(transport);
+const approvals = approvalQueue(transport);
 
 /** `more`: what choosing it means, in the menu; the hint under the box adds the sandbox. */
 const MODES: { id: TaskMode; label: string; more: string }[] = [
@@ -172,6 +176,19 @@ const waiting = $derived.by(() => {
   if (kind === "coordinator") return sessions.waitingInTask(current.id);
   return sessions.waitsForReview(current.id) ? 1 : 0;
 });
+/** The session whose first "Done · Changed …" line shows; said once, then never again. */
+let doneLine = $state<SessionId | null>(null);
+$effect(() => {
+  const id = current?.id;
+  if (!id || changed.length === 0 || hints.has("done_line")) return;
+  untrack(() => {
+    doneLine = id;
+    hints.mark("done_line");
+  });
+});
+/** A task waits for review, and nobody opened a review yet: one line says what Review does. */
+const reviewHint = $derived(!hints.has("reviewed") && list.some((s) => chip(s)?.text === "Review"));
+
 /** The task the person pressed Close on: it asks once before closing it with its workers. */
 let confirming = $state<SessionId | null>(null);
 const capacity = $derived(project ? sessions.capacity.get(project.id) : undefined);
@@ -408,6 +425,7 @@ async function start(): Promise<void> {
   startError = null;
   try {
     launched = await begin(body, mode, account);
+    hints.mark("started");
     launchedPrompt = body;
     prompt = "";
   } catch (err) {
@@ -562,6 +580,12 @@ const canReply = $derived(current !== null && current.status.state === "idle");
   {#if unsandboxed && !current}
     <p class="no-sandbox" role="note" data-testid="agents-no-sandbox">{unsandboxed}</p>
   {/if}
+  {#if approvals.pending.length > 0 && !hints.has("answered")}
+    <!-- Said once, before the first answer; outside the approvals, which keep their room. -->
+    <p class="first-approval" data-testid="approval-hint">
+      Allow lets Claude do this one step. Deny stops it and Claude tries another way.
+    </p>
+  {/if}
 
   {#if !project}
     <p class="intro">Open a project to start an agent.</p>
@@ -643,6 +667,16 @@ const canReply = $derived(current !== null && current.status.state === "idle");
           <!-- One agent here changes the folder itself: what it changed, each
                file's diff one press away, and where to keep or undo it. -->
           <section class="card outcome" aria-labelledby="agent-changes-heading" data-testid="agent-changes">
+            {#if doneLine === current.id}
+              <p class="row" data-testid="agent-done-hint">
+                <span
+                  >Done · Changed {changed[0]?.path}{changed.length > 1 ? ` and ${changed.length - 1} more` : ""}</span
+                >
+                <button type="button" class="quiet" onclick={() => current && openReviews([current.id])}
+                  >Show changes</button
+                >
+              </p>
+            {/if}
             <h4 id="agent-changes-heading">Changed files ({changed.length})</h4>
             <ul aria-labelledby="agent-changes-heading">
               {#each changed as file (file.path)}
@@ -814,9 +848,13 @@ const canReply = $derived(current !== null && current.status.state === "idle");
           {/each}
         </ul>
       {/if}
+      {#if reviewHint}
+        <p class="line hint" data-testid="agents-review-hint">Changes wait for you: Review keeps or discards them.</p>
+      {/if}
       {#if error}
         <p class="error" role="alert">{error}</p>
       {/if}
+      <FirstSteps ready={usable !== undefined} started={list.length > 0} />
       <ClaudeSetup open={setupOpen} />
       <ProjectTrust />
     </div>
@@ -1188,6 +1226,15 @@ const canReply = $derived(current !== null && current.status.state === "idle");
   .pill.ok {
     color: var(--ok);
     background: var(--ok-soft);
+  }
+  .hint {
+    padding: 0 8px;
+  }
+  .first-approval {
+    flex: none;
+    padding: 0 16px 6px;
+    font-size: 13px;
+    color: var(--text-2);
   }
   .no-sandbox {
     flex: none;

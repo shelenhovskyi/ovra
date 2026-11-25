@@ -21,6 +21,7 @@ import type {
 } from "../lib/protocol";
 import type { Transport } from "../lib/transport";
 import { failedLabel } from "./errors";
+import { hints } from "./hints.svelte";
 import { isBusy, isEnded, statusLabel } from "./status";
 
 /** A session's part in a task, if it has one. */
@@ -441,6 +442,7 @@ function waits(item: ReviewItem): boolean {
  * that has one; without an inbox that can, through its command.
  */
 export function openReviews(sessions: SessionId[]): void {
+  hints.mark("reviewed");
   if (openInboxFor(sessions)) return;
   void listCommands()
     .find((c) => c.id === "inbox.toggle")

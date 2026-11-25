@@ -18,6 +18,7 @@
 import { tick, untrack } from "svelte";
 import type { Attachment } from "svelte/attachments";
 import { SvelteMap, SvelteSet } from "svelte/reactivity";
+import { hints } from "../agents/hints.svelte";
 import { sandboxGaps, sandboxState } from "../agents/sandbox";
 import { agentSessions } from "../agents/sessions.svelte";
 import { claudeAccounts } from "../agents/setup/claude-accounts.svelte";
@@ -281,6 +282,7 @@ async function answer(
   quiet();
   const sent = await queue.answer(request.id, decision, message);
   if (!sent) return;
+  hints.mark("answered");
   if (denying === request.id) {
     denying = null;
     note = "";
@@ -893,6 +895,7 @@ function verbAndObject(tool: string, action: string): { verb: string; object: st
   .notice:not(:empty) {
     color: var(--warn);
   }
+
   /* Risk chips: what reaches past the sandbox or the project. */
   .chips {
     display: flex;
