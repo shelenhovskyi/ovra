@@ -4,8 +4,8 @@ import type { ChangeKind, FileChange, ReviewItem, ReviewState } from "../lib/pro
 
 export const STATE_LABEL: Record<ReviewState, string> = {
   open: "Waiting for review",
-  approved: "Approved",
-  partly_approved: "Approved, not all copied",
+  approved: "Kept",
+  partly_approved: "Kept, not all copied",
   rejected: "Rejected",
 };
 
@@ -133,7 +133,7 @@ export function gitWarning(item: ReviewItem): string | null {
   if (item.git_changes.length > 0) {
     const listed = item.git_changes.map((c) => `${c.path} (${KIND_LABEL[c.kind]})`).join(", ");
     parts.push(
-      `Git hooks and config changed since the session started, by the agent or anyone else: ${listed}. Git runs hooks by itself, and its config can make it run programs. Ovra shows no diff of these and neither applies nor undoes them: Approve and Reject leave them as they are. Check each one yourself before you next use git here.`,
+      `Git hooks and config changed since the session started, by the agent or anyone else: ${listed}. Git runs hooks by itself, and its config can make it run programs. Ovra shows no diff of these and neither applies nor undoes them: Keep changes and Reject leave them as they are. Check each one yourself before you next use git here.`,
     );
   }
   if (item.git_unchecked) parts.push("Ovra could not check git hooks and config for this item: look at them yourself.");
@@ -148,10 +148,10 @@ export function itemTitle(item: ReviewItem, name: string): string {
 
 /** What approve does for this kind of session (ADR 0005), in plain words. */
 export function approveHint(item: ReviewItem): string {
-  if (item.mode === "direct") return "Approve keeps the changes in your project folder.";
+  if (item.mode === "direct") return "Keep changes leaves them in your project folder.";
   const copies = item.files.some((f) => f.blocked)
-    ? "Approve copies the worker's changes into your project folder, except files that wait for the direct agent."
-    : "Approve copies the worker's changes into your project folder.";
+    ? "Keep changes copies the worker's changes into your project folder, except files that wait for the direct agent."
+    : "Keep changes copies the worker's changes into your project folder.";
   return `${copies} A file you changed yourself since the worker started is not copied; you will see which.`;
 }
 
@@ -177,8 +177,8 @@ export function protectedHint(item: ReviewItem): string | null {
     const mine = files.filter((f) => f.by === "agent");
     const other = files.filter((f) => f.by !== "agent");
     const parts = [`These can run code or change agent rules, and are already in your project folder: ${described}.`];
-    if (other.length === 0) return [...parts, "Approve keeps them; Reject restores them."].join(" ");
-    parts.push("Approve keeps them.");
+    if (other.length === 0) return [...parts, "Keep changes leaves them; Reject restores them."].join(" ");
+    parts.push("Keep changes leaves them.");
     if (mine.length > 0)
       parts.push(
         `Reject restores ${names(mine)}: the agent changed ${mine.length === 1 ? "it" : "them"} with its own file tools.`,
@@ -190,7 +190,7 @@ export function protectedHint(item: ReviewItem): string | null {
   }
   const waiting = files.filter((f) => f.blocked);
   const wait = waiting.length > 0 ? ` Waiting for the direct agent either way: ${names(waiting)}.` : "";
-  return `These can run code or change agent rules: ${described}. Approve leaves them out of your project folder unless you include them.${wait}`;
+  return `These can run code or change agent rules: ${described}. Keep changes leaves them out of your project folder unless you include them.${wait}`;
 }
 
 /** What a partly approved item left, and what the person can do about it. */

@@ -72,7 +72,7 @@ describe("inbox wording", () => {
     expect(protectedTag(item)).toBe("3 files can run code or change agent rules");
     expect(protectedTag(review("r2"))).toBeNull();
     expect(protectedHint(item)).toBe(
-      "These can run code or change agent rules: .claude/settings.json (the agent's settings and permissions), docs/CLAUDE.md (from CLAUDE.md) (instructions every agent reads), .mcp.json (tools the agent can start). Approve leaves them out of your project folder unless you include them. Waiting for the direct agent either way: .mcp.json.",
+      "These can run code or change agent rules: .claude/settings.json (the agent's settings and permissions), docs/CLAUDE.md (from CLAUDE.md) (instructions every agent reads), .mcp.json (tools the agent can start). Keep changes leaves them out of your project folder unless you include them. Waiting for the direct agent either way: .mcp.json.",
     );
     expect(protectedHint(review("r2"))).toBeNull();
     expect(itemSummary(review("r3", { files: [change(".envrc", { by: "outside", protected: true })] }))).toBe(
@@ -86,7 +86,7 @@ describe("inbox wording", () => {
       files: [change("CLAUDE.md", { protected: true }), change("src/a.ts")],
     });
     expect(protectedHint(mine)).toBe(
-      "These can run code or change agent rules, and are already in your project folder: CLAUDE.md (instructions every agent reads). Approve keeps them; Reject restores them.",
+      "These can run code or change agent rules, and are already in your project folder: CLAUDE.md (instructions every agent reads). Keep changes leaves them; Reject restores them.",
     );
     const mixed = review("r2", {
       mode: "direct",
@@ -97,7 +97,7 @@ describe("inbox wording", () => {
       ],
     });
     expect(protectedHint(mixed)).toBe(
-      "These can run code or change agent rules, and are already in your project folder: .mcp.json (tools the agent can start), .envrc (runs commands when you enter the folder with direnv), .claude/settings.json (the agent's settings and permissions). Approve keeps them. Reject restores .mcp.json: the agent changed it with its own file tools. Reject leaves .envrc, .claude/settings.json as they are: changed outside the agent's file tools (by you, another program or the agent's commands).",
+      "These can run code or change agent rules, and are already in your project folder: .mcp.json (tools the agent can start), .envrc (runs commands when you enter the folder with direnv), .claude/settings.json (the agent's settings and permissions). Keep changes leaves them. Reject restores .mcp.json: the agent changed it with its own file tools. Reject leaves .envrc, .claude/settings.json as they are: changed outside the agent's file tools (by you, another program or the agent's commands).",
     );
     // The person's own edit is never called the agent's.
     const theirs = review("r3", { mode: "direct", files: [change(".envrc", { protected: true, by: "outside" })] });
@@ -116,7 +116,7 @@ describe("inbox wording", () => {
     expect(itemSummary(item)).toBe("No changed files");
     const warning = gitWarning(item) ?? "";
     expect(warning).toContain(".git/hooks/pre-commit (added), /home/me/.gitconfig (modified)");
-    expect(warning).toContain("neither applies nor undoes them: Approve and Reject leave them as they are");
+    expect(warning).toContain("neither applies nor undoes them: Keep changes and Reject leave them as they are");
     expect(warning).toContain("Check each one yourself");
     expect(warning).not.toContain("could not check");
 
@@ -149,7 +149,7 @@ describe("inbox wording", () => {
     );
     expect(approveHint(worker)).toContain("except files that wait for the direct agent");
     expect(approveHint(worker)).toContain("A file you changed yourself since the worker started is not copied");
-    expect(approveHint(review("r4"))).toBe("Approve keeps the changes in your project folder.");
+    expect(approveHint(review("r4"))).toBe("Keep changes leaves them in your project folder.");
     expect(rejectHint(worker)).toBe(
       "Reject discards the worker's changes from its own copy of the project. Your project folder is not touched.",
     );

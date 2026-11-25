@@ -121,18 +121,18 @@ describe("Inbox", () => {
       "Reject leaves .envrc as it is: changed outside the agent's file tools",
     );
     expect($("[data-testid=inbox-protected-why]")?.textContent).toContain("each of these: .envrc.");
-    expect(button(/^Approve$/)?.getAttribute("aria-disabled")).toBe("true");
-    expect(button(/^Approve$/)?.getAttribute("aria-describedby")).toBe("inbox-protected inbox-protected-why");
-    button(/^Approve$/)?.click();
+    expect(button(/^Keep changes$/)?.getAttribute("aria-disabled")).toBe("true");
+    expect(button(/^Keep changes$/)?.getAttribute("aria-describedby")).toBe("inbox-protected inbox-protected-why");
+    button(/^Keep changes$/)?.click();
     await settle();
     expect(core.sent("review.approve")).toEqual([]);
 
     $<HTMLButtonElement>("[data-file='.envrc']")?.click();
     await settle();
     expect($("[data-testid=inbox-protected-why]")).toBeNull();
-    expect(button(/^Approve$/)?.getAttribute("aria-disabled")).toBe("false");
-    expect(button(/^Approve$/)?.getAttribute("aria-describedby")).toBe("inbox-protected");
-    button(/^Approve$/)?.click();
+    expect(button(/^Keep changes$/)?.getAttribute("aria-disabled")).toBe("false");
+    expect(button(/^Keep changes$/)?.getAttribute("aria-describedby")).toBe("inbox-protected");
+    button(/^Keep changes$/)?.click();
     await settle();
     expect(core.sent("review.approve").map((c) => c.params)).toEqual([
       { id: "r1", commit: null, include_protected: true },
@@ -146,14 +146,14 @@ describe("Inbox", () => {
     core.emit({ type: "review.changed", data: { project: "p1", id: "r1" } });
     await open();
     expect($("[data-testid=inbox-protected-why]")?.textContent).toContain("CLAUDE.md");
-    button(/^Approve$/)?.click();
+    button(/^Keep changes$/)?.click();
     await settle();
     expect(core.sent("review.approve")).toEqual([]);
     core.diffFingerprint = null;
     core.emit({ type: "review.changed", data: { project: "p1", id: "r1" } });
     await settle();
     expect($("[data-testid=inbox-protected-why]")).toBeNull();
-    button(/^Approve$/)?.click();
+    button(/^Keep changes$/)?.click();
     await settle();
     expect(core.sent("review.approve").map((c) => c.params)).toEqual([
       { id: "r1", commit: null, fingerprint: "d2", include_protected: true },
@@ -176,7 +176,7 @@ describe("Inbox", () => {
     expect($("[data-item=r1]")?.classList.contains("flagged")).toBe(true);
     expect($("[data-testid=inbox-git]")?.textContent).toContain(".git/hooks/pre-commit (added)");
     expect($("[data-testid=inbox-git]")?.textContent).toContain("neither applies nor undoes them");
-    expect(button(/^Approve$/)?.getAttribute("aria-describedby")).toBe("inbox-git");
+    expect(button(/^Keep changes$/)?.getAttribute("aria-describedby")).toBe("inbox-git");
     expect($("[data-testid=inbox-diff]")?.textContent).toContain("Only git hooks or config changed");
 
     // A decided item keeps the list it was decided with, and says what was not checked.
@@ -208,7 +208,7 @@ describe("Inbox", () => {
     expect(include()?.parentElement?.textContent).toContain("Also apply protected files: .envrc, .mcp.json");
     expect($("[data-testid=inbox-include-why]")?.textContent).toContain("look at the diff of each first: .mcp.json.");
     // Approve without them: they are not copied, and the outcome says so.
-    button(/^Approve$/)?.click();
+    button(/^Keep changes$/)?.click();
     await settle();
     expect(core.sent("review.approve").map((c) => c.params)).toEqual([{ id: "r1", commit: null, fingerprint: "f1" }]);
     expect($("[data-testid=inbox-outcome]")?.textContent).toContain(
@@ -237,10 +237,10 @@ describe("Inbox", () => {
     // Like the core, which leaves both paths of the rename.
     core.conflicts = ["CLAUDE.md"];
     await open();
-    button(/^Approve$/)?.click();
+    button(/^Keep changes$/)?.click();
     await settle();
     expect($("[data-testid=inbox-outcome]")?.textContent?.trim()).toBe(
-      "Approved, not all copied. Not copied, as files that can run code or change agent rules: CLAUDE.md, notes.md.",
+      "Kept, not all copied. Not copied, as files that can run code or change agent rules: CLAUDE.md, notes.md.",
     );
   });
 
@@ -252,7 +252,7 @@ describe("Inbox", () => {
     expect(include()?.getAttribute("aria-disabled")).toBe("false");
     include()?.click();
     flushSync();
-    button(/^Approve$/)?.click();
+    button(/^Keep changes$/)?.click();
     await settle();
     expect(core.sent("review.approve")[0]?.params).toEqual({
       id: "r2",
@@ -309,7 +309,7 @@ describe("Inbox", () => {
     await settle();
     expect(include()?.getAttribute("aria-disabled")).toBe("false");
     expect(include()?.checked).toBe(false);
-    button(/^Approve$/)?.click();
+    button(/^Keep changes$/)?.click();
     await settle();
     expect(core.sent("review.approve").map((c) => c.params)).toEqual([{ id: "r2", commit: null, fingerprint: "f3" }]);
   });
@@ -326,19 +326,19 @@ describe("Inbox", () => {
     if (message) message.value = " ";
     message?.dispatchEvent(new Event("input", { bubbles: true }));
     flushSync();
-    expect(button(/^Approve and commit$/)?.getAttribute("aria-describedby")).toBe("inbox-commit-why");
-    expect($("#inbox-commit-why")?.textContent).toBe("Write a commit message to approve and commit.");
-    button(/^Approve and commit$/)?.click();
+    expect(button(/^Keep and commit$/)?.getAttribute("aria-describedby")).toBe("inbox-commit-why");
+    expect($("#inbox-commit-why")?.textContent).toBe("Write a commit message to keep and commit.");
+    button(/^Keep and commit$/)?.click();
     await settle();
     expect(core.sent("review.approve")).toEqual([]);
     if (message) message.value = "Fix the typo";
     message?.dispatchEvent(new Event("input", { bubbles: true }));
     flushSync();
-    button(/^Approve and commit$/)?.click();
+    button(/^Keep and commit$/)?.click();
     await settle();
     expect(core.sent("review.approve").map((c) => c.params)).toEqual([{ id: "r1", commit: "Fix the typo" }]);
-    expect($("[data-testid=inbox-outcome]")?.textContent?.trim()).toBe("Approved. Committed as “Fix the typo”.");
-    expect(button(/^Approve/)).toBeUndefined();
+    expect($("[data-testid=inbox-outcome]")?.textContent?.trim()).toBe("Kept. Committed as “Fix the typo”.");
+    expect(button(/^Keep/)).toBeUndefined();
     expect(document.activeElement?.id).toBe("inbox-item-title");
   });
 
@@ -349,16 +349,16 @@ describe("Inbox", () => {
     core.diffFingerprint = "f1";
     core.emit({ type: "review.changed", data: { project: "p1", id: "r1" } });
     await settle();
-    button(/^Approve$/)?.click();
+    button(/^Keep changes$/)?.click();
     await settle();
     expect(core.sent("review.approve")).toEqual([]);
-    expect($("[data-testid=inbox-stale]")?.textContent).toContain("nothing was approved");
+    expect($("[data-testid=inbox-stale]")?.textContent).toContain("nothing was kept");
     const diffs = core.sent("review.diff").length;
     expect(diffs).toBeGreaterThan(2);
     core.diffFingerprint = null;
     core.emit({ type: "review.changed", data: { project: "p1", id: "r1" } });
     await settle();
-    button(/^Approve$/)?.click();
+    button(/^Keep changes$/)?.click();
     await settle();
     expect(core.sent("review.approve").map((c) => c.params)).toEqual([{ id: "r1", commit: null, fingerprint: "f2" }]);
     expect($("[data-testid=inbox-stale]")).toBeNull();
@@ -369,9 +369,9 @@ describe("Inbox", () => {
     core.diffGone.set("README.md", "gone");
     core.emit({ type: "review.changed", data: { project: "p1", id: "r1" } });
     await open();
-    expect(button(/^Approve$/)?.getAttribute("aria-disabled")).toBe("true");
+    expect(button(/^Keep changes$/)?.getAttribute("aria-disabled")).toBe("true");
     expect($("[data-testid=inbox-diff-why]")?.textContent).toContain("did not load");
-    button(/^Approve$/)?.click();
+    button(/^Keep changes$/)?.click();
     await settle();
     expect(core.sent("review.approve")).toEqual([]);
   });
@@ -408,12 +408,10 @@ describe("Inbox", () => {
     const core = await setup([review("r1", { mode: "isolated", files: [change("NOTES.md"), change("a.rs")] })]);
     core.conflicts = ["NOTES.md"];
     await open();
-    button(/^Approve$/)?.click();
+    button(/^Keep changes$/)?.click();
     await settle();
-    expect($("[data-testid=inbox-outcome]")?.textContent?.trim()).toBe(
-      "Approved, not all copied. Not copied: NOTES.md.",
-    );
-    expect($("[data-item=r1]")?.textContent).toContain("Approved, not all copied");
+    expect($("[data-testid=inbox-outcome]")?.textContent?.trim()).toBe("Kept, not all copied. Not copied: NOTES.md.");
+    expect($("[data-item=r1]")?.textContent).toContain("Kept, not all copied");
     expect($("[data-item=r1]")?.textContent).toContain("1 not copied");
     expect($("[data-file='NOTES.md']")?.textContent).toContain("Not copied: your version changed");
     expect($("[data-testid=inbox-not-copied]")?.textContent).toContain(
@@ -442,7 +440,7 @@ describe("Inbox", () => {
     await settle();
     expect(core.sent("review.take").map((c) => c.params)).toEqual([{ id: "r1" }]);
     expect($("[data-testid=inbox-outcome]")?.textContent?.trim()).toBe(
-      "Replaced with the worker's version: NOTES.md. Not replaced, because the worker changed them after you approved: a.rs.",
+      "Replaced with the worker's version: NOTES.md. Not replaced, because the worker changed them after you kept its changes: a.rs.",
     );
     core.restored = ["NOTES.md"];
     core.conflicts = [];
@@ -534,7 +532,7 @@ describe("Inbox", () => {
     await settle();
     expect(core.sent("review.comment").map((c) => c.params)).toEqual([{ id: "r1", text: "Add a test" }]);
     expect(field?.value).toBe("");
-    expect(button(/^Approve$/)).toBeDefined();
+    expect(button(/^Keep changes$/)).toBeDefined();
   });
 
   it("chooses the review an agent asks to show without taking focus, and follows changes", async () => {
@@ -574,9 +572,9 @@ describe("Inbox", () => {
     press("KeyP", { altKey: true });
     await settle();
     expect(workspace.paletteOpen).toBe(false);
-    button(/^Approve$/)?.click();
+    button(/^Keep changes$/)?.click();
     await settle();
-    expect($("[data-item=r1]")?.textContent).toContain("Approved");
+    expect($("[data-item=r1]")?.textContent).toContain("Kept");
     expect($("[data-testid=inbox-diff]")?.textContent).toContain("the readme");
     $("[data-file='src/a.ts']")?.click();
     await settle();

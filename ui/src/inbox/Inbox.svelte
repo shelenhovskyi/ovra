@@ -410,7 +410,7 @@ function outcomeText(outcome: Outcome): string {
       outcome.restored.length > 0 ? `Replaced with the worker's version: ${outcome.restored.join(", ")}.` : "";
     const kept =
       outcome.conflicts.length > 0
-        ? ` Not replaced, because the worker changed them after you approved: ${outcome.conflicts.join(", ")}.`
+        ? ` Not replaced, because the worker changed them after you kept its changes: ${outcome.conflicts.join(", ")}.`
         : "";
     return `${put}${kept}`.trim() || "Nothing was replaced.";
   }
@@ -423,7 +423,7 @@ function outcomeText(outcome: Outcome): string {
     return `${back}${left}`.trim() || "Nothing needed putting back.";
   }
   if (outcome.action === "approved") {
-    const what = outcome.conflicts.length > 0 && worker ? "Approved, not all copied." : "Approved.";
+    const what = outcome.conflicts.length > 0 && worker ? "Kept, not all copied." : "Kept.";
     const committed = outcome.commit ? ` Committed as “${outcome.commit}”.` : "";
     return `${what}${committed}${left}`;
   }
@@ -485,13 +485,13 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
         <span class="project">{workspace.project?.name ?? "No project"}</span>
         <button type="button" aria-keyshortcuts="Escape" onclick={close}>Close</button>
       </header>
-      <p class="intro">Changes agents made, waiting for you to approve or reject.</p>
+      <p class="intro">Changes agents made, waiting for you to keep or reject.</p>
       {#if inbox.error}
         <p class="error" role="alert">{inbox.error}</p>
       {/if}
       {#if staleDiff}
         <p class="error" role="alert" data-testid="inbox-stale">
-          The worker's files changed since this diff loaded, so nothing was approved. Look at them again, then approve.
+          The worker's files changed since this diff loaded, so nothing was kept. Look at them again, then keep the changes.
         </p>
       {/if}
       <p class="visually-hidden" role="status">{announcement}</p>
@@ -558,7 +558,7 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                   {/if}
                   {#if directWaits}
                     <p class="hint" id="inbox-protected-why" data-testid="inbox-protected-why">
-                      Approve waits until you have looked at the diff of each of these: {unseen
+                      Keep changes waits until you have looked at the diff of each of these: {unseen
                         .map(fileName)
                         .join(", ")}. Select each one in the list of changed files.
                     </p>
@@ -599,14 +599,14 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                       <input type="text" bind:value={commitMessage} aria-describedby="inbox-commit-why" />
                     </label>
                     {#if !commitMessage.trim()}
-                      <p class="hint" id="inbox-commit-why">Write a commit message to approve and commit.</p>
+                      <p class="hint" id="inbox-commit-why">Write a commit message to keep and commit.</p>
                     {/if}
                   {/if}
                   {#if !diffShown}
                     <p class="hint" id="inbox-diff-why" data-testid="inbox-diff-why">
                       {diff?.error
-                        ? "The diff of this file did not load, so approve waits: you approve only what you have seen."
-                        : "Approve waits until the diff of this file has loaded."}
+                        ? "The diff of this file did not load, so Keep changes waits: you keep only what you have seen."
+                        : "Keep changes waits until the diff of this file has loaded."}
                     </p>
                   {/if}
                   <div class="buttons">
@@ -617,7 +617,7 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                       aria-describedby={approveWhy}
                       onclick={() => {
                         if (!busy) void approve(item);
-                      }}>{commit ? "Approve and commit" : "Approve"}</button
+                      }}>{commit ? "Keep and commit" : "Keep changes"}</button
                     >
                     {#if !confirmingReject}
                       <button

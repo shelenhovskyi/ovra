@@ -205,8 +205,8 @@ test("a direct session's protected files and git hooks need a look before approv
   await expect(item.getByTestId("inbox-protected")).toContainText("Reject leaves .envrc, .mcp.json as they are");
   await expect(item.getByTestId("inbox-protected")).not.toContainText("Reject restores");
 
-  // It opens on the first protected file; Approve waits for the other one.
-  const approve = item.getByRole("button", { name: "Approve", exact: true });
+  // It opens on the first protected file; Keep changes waits for the other one.
+  const approve = item.getByRole("button", { name: "Keep changes", exact: true });
   await expect(item.getByTestId("inbox-diff")).toContainText("echo hi");
   await expect(item.getByTestId("inbox-protected-why")).toContainText(".mcp.json");
   await expect(approve).toHaveAttribute("aria-disabled", "true");
@@ -217,7 +217,7 @@ test("a direct session's protected files and git hooks need a look before approv
   await expect(item.getByTestId("inbox-protected-why")).toBeHidden();
   await expect(approve).toHaveAttribute("aria-disabled", "false");
   await approve.click();
-  await expect(item).toContainText("Approved");
+  await expect(item).toContainText("Kept");
   expect(existsSync(join(dir, ".envrc"))).toBe(true);
   expect(existsSync(join(dir, ".git/hooks/pre-commit"))).toBe(true);
 });
