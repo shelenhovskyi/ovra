@@ -1,3 +1,4 @@
+import { EditorView } from "@codemirror/view";
 import { afterEach, expect, test, vi } from "vitest";
 import { listCommands } from "../keys/commands";
 import { Workspace } from "../shell/workspace.svelte";
@@ -97,5 +98,24 @@ test("editor.save in view mode saves unsaved text and otherwise does nothing", a
   await run("editor.save");
   expect(core.writes).toEqual([{ path: "a.txt", text: "draft", expected: 101 }]);
   expect(drafts.has("p1", "a.txt")).toBe(false);
+  unregister();
+});
+
+test("git change commands in view mode switch the file to editing and then act", async () => {
+  const { core, files, workspace, unregister } = setup();
+  core.put("a.rs", "fn a() {}");
+  workspace.openFile("a.rs");
+  const done = run("editor.next_git_change");
+  const buffer = files.buffers.open("a.rs");
+  await buffer.loaded;
+  expect(workspace.mode).toBe("edit");
+  // What Editor.svelte does in edit mode; the command then acts in that view.
+  const view = new EditorView({ parent: document.body });
+  buffer.attach(view);
+  await done;
+  // The fake core has no git, so there is no change to go to, and it says so.
+  expect(view.dom.querySelector(".cm-announced")?.textContent).toBe("No git changes in this file.");
+  buffer.detach();
+  view.destroy();
   unregister();
 });

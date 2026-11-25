@@ -4,7 +4,15 @@ import { EditorView } from "@codemirror/view";
 import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import type { Blame, CoreEvent, Hunk, Request } from "../../lib/protocol";
 import { CoreError, type Transport } from "../../lib/transport";
-import { describeChange, gitExtension, goToChange, readBlame, showChangeAtCursor, toggleBlame } from "./extension";
+import {
+  describeChange,
+  editorReady,
+  gitExtension,
+  goToChange,
+  readBlame,
+  showChangeAtCursor,
+  toggleBlame,
+} from "./extension";
 import { GitFile, pickHunk } from "./file";
 
 class FakeGit implements Transport {
@@ -124,9 +132,16 @@ describe("git extension", () => {
   }
 
   test("marks changes against the index after a pause; untracked files get none", async () => {
+    // Commands run from view mode wait for this before they act.
+    let ready = false;
+    void editorReady().then(() => {
+      ready = true;
+    });
     const { file, core, view, markers } = setup("a\nB\nc\nd\n");
+    expect(ready).toBe(false);
     await vi.advanceTimersByTimeAsync(0);
     expect(markers()).toEqual(["modified", "added"]);
+    expect(ready).toBe(true);
     expect(view.dom.querySelector<HTMLElement>("[data-change=added]")?.title).toBe("Added lines, click for actions");
     view.dispatch({ changes: { from: 2, to: 3, insert: "b" } });
     await vi.advanceTimersByTimeAsync(150);
@@ -140,20 +155,21 @@ describe("git extension", () => {
   });
 
   test("Revert hunk puts the index lines back as an undoable edit; Escape closes the popup", async () => {
-    const { view, markers } = setup("a\nB\nX\nc\n");
+    const { core, view, markers } = setup("a\nB\nX\nc\n");
     await vi.advanceTimersByTimeAsync(0);
     expect(markers()).toEqual(["modified", "modified"]);
     view.dispatch({ selection: { anchor: 3 } });
     showChangeAtCursor();
     const popup = view.dom.querySelector<HTMLElement>("[data-testid=git-change-popup]");
+    expect(popup?.querySelector("p")?.textContent).toBe("Before this change:");
     expect(popup?.querySelector("pre")?.textContent).toBe("b");
     expect(document.activeElement?.textContent).toBe("Stage hunk");
     [...(popup?.querySelectorAll("button") ?? [])].find((b) => b.textContent === "Revert hunk")?.click();
     expect(view.state.doc.toString()).toBe("a\nb\nc\n");
     expect(view.dom.querySelector("[data-testid=git-change-popup]")).toBeNull();
+    expect(announced(view)).toBe("Change reverted; save to keep it.");
     undo(view);
     expect(view.state.doc.toString()).toBe("a\nB\nX\nc\n");
-    await vi.advanceTimersByTimeAsync(200);
     showChangeAtCursor();
     const again = view.dom.querySelector<HTMLElement>("[data-testid=git-change-popup]");
     expect(again?.getAttribute("aria-label")).toBe("Changed lines 2 to 3");
@@ -176,6 +192,15 @@ describe("git extension", () => {
     showChangeAtCursor();
     expect(view.dom.querySelector("[data-testid=git-change-popup]")).toBeNull();
     expect(announced(view)).toBe("No git change on this line.");
+    // Staging says that it worked, after the core answered.
+    core.hunks = [hunk(2, 2)];
+    view.dispatch({ selection: { anchor: 3 } });
+    showChangeAtCursor();
+    (document.activeElement as HTMLButtonElement).click();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(core.count("git.stage_hunk")).toBe(1);
+    expect(view.dom.querySelector("[data-testid=git-change-popup]")).toBeNull();
+    expect(announced(view)).toBe("Hunk staged.");
   });
 
   test("an unsaved file's popup focuses Close, never Revert", async () => {
@@ -217,9 +242,12 @@ describe("git extension", () => {
     core.blame = {
       ranges: [
         { start: 1, lines: 2, commit: "c1" },
-        { start: 3, lines: 1, commit: null },
+        { start: 3, lines: 1, commit: "c2" },
       ],
-      commits: { c1: { id: "c1", author: "Ann", time, summary: "Start" } },
+      commits: {
+        c1: { id: "c1", author: "Ann", time, summary: "Start" },
+        c2: { id: "c2", author: "Bo", time, summary: "Fix" },
+      },
     };
     await vi.advanceTimersByTimeAsync(500);
     const inline = () => view.dom.querySelector("[data-testid=git-inline-blame]")?.textContent;
@@ -227,9 +255,15 @@ describe("git extension", () => {
     view.dispatch({ selection: { anchor: 4 } });
     expect(inline()).toBeUndefined();
     await vi.advanceTimersByTimeAsync(500);
-    expect(inline()).toBe("Not committed yet");
+    expect(inline()).toBe("Bo, 2 days ago · Fix");
     // Not read as part of the line; said on demand instead.
     expect(view.dom.querySelector("[data-testid=git-inline-blame]")?.getAttribute("aria-hidden")).toBe("true");
+    // The empty line after the last line break has no blame.
+    view.dispatch({ selection: { anchor: 6 } });
+    await vi.advanceTimersByTimeAsync(500);
+    expect(inline()).toBeUndefined();
+    await readBlame();
+    expect(announced(view)).toBe("No blame for this line.");
     view.dispatch({ selection: { anchor: 0 } });
     await readBlame();
     expect(announced(view)).toBe("Ann, 2 days ago · Start");
@@ -237,7 +271,7 @@ describe("git extension", () => {
     expect(announced(view)).toBe("Blame shown.");
     await vi.advanceTimersByTimeAsync(0);
     const labels = [...view.dom.querySelectorAll("[data-testid=git-blame]")].map((m) => m.textContent);
-    expect(labels).toEqual(["Ann, 2 days ago", "Not committed yet"]);
+    expect(labels).toEqual(["Ann, 2 days ago", "Bo, 2 days ago"]);
     toggleBlame();
     expect(announced(view)).toBe("Blame hidden.");
     await vi.advanceTimersByTimeAsync(0);

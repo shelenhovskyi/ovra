@@ -185,7 +185,7 @@ function popupDom(view: EditorView, popup: Popup): HTMLElement {
   dom.setAttribute("aria-label", describeChange(hunk));
   dom.dataset.testid = "git-change-popup";
   const caption = element("p", "cm-git-caption");
-  caption.textContent = old.length > 0 ? "In the index:" : "New lines, not in the index.";
+  caption.textContent = old.length > 0 ? "Before this change:" : "New lines: nothing was here before.";
   const lines = element("pre", "cm-git-old");
   lines.textContent = old.join("\n");
   const status = element("p", "cm-git-status");
@@ -209,11 +209,18 @@ function popupDom(view: EditorView, popup: Popup): HTMLElement {
     const error = await git.file.stage(hunk);
     staging = false;
     stage.removeAttribute("aria-disabled");
-    if (error === null) closePopup(view);
-    else status.textContent = error;
+    if (error === null) {
+      closePopup(view);
+      announce(view, "Hunk staged.");
+    } else status.textContent = error;
   };
   revert.onclick = () => {
-    view.dispatch({ changes: revertChange(view.state.doc, hunk, old), userEvent: "input.revert" });
+    // The edit closes the popup; the revert is only in the buffer until it is saved.
+    view.dispatch({
+      changes: revertChange(view.state.doc, hunk, old),
+      userEvent: "input.revert",
+      effects: EditorView.announce.of("Change reverted; save to keep it."),
+    });
     closePopup(view);
   };
   dom.onkeydown = (event) => {
@@ -284,6 +291,13 @@ function announce(view: EditorView, message: string): void {
 
 /** The controller of the editor view, for the commands. */
 let current: Controller | null = null;
+/** Waiting for an editor view's first markers, see `editorReady`. */
+let waiting: (() => void)[] = [];
+
+/** Resolves once the next editor view knows its git changes, so a command can act on them. */
+export function editorReady(): Promise<void> {
+  return new Promise((resolve) => waiting.push(resolve));
+}
 
 class Controller {
   private diffTimer: ReturnType<typeof setTimeout> | undefined;
@@ -370,7 +384,7 @@ class Controller {
     if (this.destroyed) return;
     const { state } = this.view;
     const map = git && toDisk(state, git.saved(), git.dirty());
-    announce(this.view, blame && map ? cursorBlame(state, blame, map) : "No blame for this line.");
+    announce(this.view, (blame && map && cursorBlame(state, blame, map)) || "No blame for this line.");
   }
 
   announce(message: string): void {
@@ -389,6 +403,11 @@ class Controller {
       changes = { base, marks: changeMarks(diffLines(base, doc.toJSON()), doc), tooLarge: false };
     }
     this.view.dispatch({ effects: setChanges.of(changes) });
+    if (current === this) {
+      const ready = waiting;
+      waiting = [];
+      for (const resolve of ready) resolve();
+    }
     await this.renderBlameGutter();
   }
 
@@ -413,7 +432,8 @@ class Controller {
     if (!git || !blame || this.destroyed) return;
     const { state } = this.view;
     const map = toDisk(state, git.saved(), git.dirty());
-    if (map) this.view.dispatch({ effects: inlineBlameEffect(state, blame, map) });
+    const effect = map && inlineBlameEffect(state, blame, map);
+    if (effect) this.view.dispatch({ effects: effect });
   }
 }
 

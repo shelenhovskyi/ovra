@@ -107,22 +107,32 @@ export function blameGutterEffect(
   if (!blame) return setBlameGutter.of(RangeSet.empty);
   const now = Date.now();
   const doc = state.doc;
-  const blocks = blameBlocks(blame, doc.lines, map ?? (() => null));
+  // The empty line after a final line break is not a line of code: it gets no label.
+  const lines = isTrailingEmpty(doc, doc.lines) ? doc.lines - 1 : doc.lines;
+  const blocks = blameBlocks(blame, lines, map ?? (() => null));
   return setBlameGutter.of(
     RangeSet.of(blocks.map((b) => new BlameMarker(blockLabel(b.commit, now)).range(doc.line(b.line + 1).from))),
   );
 }
 
-/** The blame of the cursor line, such as "Ann, 2 days ago · Start". */
-export function cursorBlame(state: EditorState, blame: Blame, map: ToDisk): string {
+/** Whether line `number` (1-based) is the empty line after the file's final line break. */
+function isTrailingEmpty(doc: Text, number: number): boolean {
+  return number > 1 && number === doc.lines && doc.line(number).length === 0;
+}
+
+/** The blame of the cursor line, such as "Ann, 2 days ago · Start"; null on the empty last line. */
+export function cursorBlame(state: EditorState, blame: Blame, map: ToDisk): string | null {
   const line = state.doc.lineAt(state.selection.main.head);
+  if (isTrailingEmpty(state.doc, line.number)) return null;
   return lineBlame(blame, commitsOf(blame), map(line.number - 1), Date.now());
 }
 
-/** The effect that shows the inline blame of the cursor line. */
-export function inlineBlameEffect(state: EditorState, blame: Blame, map: ToDisk): StateEffect<unknown> {
+/** The effect that shows the inline blame of the cursor line; null when the line has none. */
+export function inlineBlameEffect(state: EditorState, blame: Blame, map: ToDisk): StateEffect<unknown> | null {
+  const text = cursorBlame(state, blame, map);
+  if (text === null) return null;
   const line = state.doc.lineAt(state.selection.main.head);
-  const widget = new InlineBlame(cursorBlame(state, blame, map));
+  const widget = new InlineBlame(text);
   return setInlineBlame.of(Decoration.set([Decoration.widget({ widget, side: 1 }).range(line.to)]));
 }
 
@@ -130,7 +140,13 @@ const styles = EditorView.baseTheme({
   // At least 4.5:1 on the editor's backgrounds (#16161a, active line #1d1d23).
   ".cm-git-blame-gutter .cm-gutterElement": { padding: "0 8px", color: "#9a9aa6" },
   ".cm-git-blame": { display: "inline-block", maxWidth: "22ch", overflow: "hidden", textOverflow: "ellipsis" },
-  ".cm-git-inline-blame": { marginLeft: "2em", color: "#8a8a96", fontStyle: "italic" },
+  // Upright and after a rule, so it does not read as a comment in the code.
+  ".cm-git-inline-blame": {
+    marginLeft: "2em",
+    paddingLeft: "0.75em",
+    borderLeft: "1px solid #3a3a44",
+    color: "#8a8a96",
+  },
 });
 
 /** The blame state, its gutter (left of the line numbers) and styles. */

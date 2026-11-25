@@ -2,7 +2,7 @@
 
 import { registerCommand } from "../keys/commands";
 import type { Workspace } from "../shell/workspace.svelte";
-import { goToChange, readBlame, showChangeAtCursor, toggleBlame } from "./git/extension";
+import { editorReady, goToChange, readBlame, showChangeAtCursor, toggleBlame } from "./git/extension";
 import { focusMain, requestClose, show, tabs } from "./open-files.svelte";
 
 type Target = Pick<Workspace, "openPath" | "mode" | "openFile">;
@@ -34,6 +34,25 @@ export async function toggle(workspace: Target): Promise<void> {
   workspace.mode = "edit";
 }
 
+/**
+ * `action`, run in the editor: in view mode the open file switches to editing
+ * first (the markers live there), and the action waits for its changes. A
+ * file that cannot be edited says why instead, as Mod+E does.
+ */
+function inEditor(workspace: Target, action: () => unknown): () => Promise<void> {
+  // A function, so the check after `toggle` is not narrowed away.
+  const editing = () => workspace.mode === "edit";
+  return async () => {
+    if (!editing()) {
+      const ready = editorReady();
+      await toggle(workspace);
+      if (!editing()) return;
+      await ready;
+    }
+    await action();
+  };
+}
+
 /** Saves the open file if it has unsaved text (loaded or as a draft); otherwise does nothing. */
 async function saveActive(workspace: Target): Promise<void> {
   const path = workspace.openPath;
@@ -48,8 +67,10 @@ export function registerEditorCommands(workspace: Target): () => void {
     const next = tabs.current?.neighbour(offset);
     if (next) show(workspace, next);
   };
-  const nextChange = () => goToChange(1);
-  const previousChange = () => goToChange(-1);
+  const nextChange = inEditor(workspace, () => goToChange(1));
+  const previousChange = inEditor(workspace, () => goToChange(-1));
+  const readCursorBlame = inEditor(workspace, readBlame);
+  const showChange = inEditor(workspace, showChangeAtCursor);
   const unregister = [
     registerCommand({
       id: "editor.toggle",
@@ -71,8 +92,8 @@ export function registerEditorCommands(workspace: Target): () => void {
     }),
     // No default shortcuts: free ones that browsers leave alone are scarce; the palette reaches these.
     registerCommand({ id: "editor.toggle_blame", title: "Git: toggle blame", run: toggleBlame }),
-    registerCommand({ id: "editor.read_blame", title: "Git: read blame of cursor line", run: readBlame }),
-    registerCommand({ id: "editor.show_git_change", title: "Git: show change at cursor", run: showChangeAtCursor }),
+    registerCommand({ id: "editor.read_blame", title: "Git: read blame of cursor line", run: readCursorBlame }),
+    registerCommand({ id: "editor.show_git_change", title: "Git: show change at cursor", run: showChange }),
     registerCommand({
       id: "editor.close_tab",
       title: "Close tab",
