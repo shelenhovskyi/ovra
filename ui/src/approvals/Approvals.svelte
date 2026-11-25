@@ -792,9 +792,14 @@ function billedTo(session: SessionId): { text: string; key: boolean } | null {
     font-weight: 500;
     overflow-wrap: anywhere;
   }
+  /* Label and value side by side: the buttons stay in sight in a short column. */
   dl {
     display: grid;
-    gap: 2px;
+    grid-template-columns: auto minmax(0, 1fr);
+    /* Scrolled to whole: fractional heights would leave a sliver clipped. */
+    scroll-margin: 4px;
+    align-items: baseline;
+    gap: 4px 12px;
     margin: 8px 0 0;
     padding: 8px 10px;
     border-radius: 10px;
@@ -802,12 +807,9 @@ function billedTo(session: SessionId): { text: string; key: boolean } | null {
   }
   dt {
     color: var(--text-2);
-    font-size: 12px;
+    font-size: 13px;
   }
   dd {
-    margin: 0 0 6px;
-  }
-  dd:last-child {
     margin: 0;
   }
   pre {
