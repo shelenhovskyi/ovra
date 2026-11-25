@@ -8,10 +8,11 @@ import { lintGutter, setDiagnostics } from "@codemirror/lint";
 import { findReferences, LSPClient, LSPPlugin, languageServerExtensions } from "@codemirror/lsp-client";
 import { Prec, Text } from "@codemirror/state";
 import { EditorView, keymap, ViewPlugin } from "@codemirror/view";
-import type { LspStatus, ProjectId, ServerId, ServerInfo } from "../../lib/protocol";
+import type { KnownServer, LspStatus, ProjectId, ServerId, ServerInfo } from "../../lib/protocol";
 import type { Transport } from "../../lib/transport";
 import { languageServers } from "../../lsp/servers.svelte";
 import type { Buffer } from "../buffers.svelte";
+import { languageFor } from "../languages";
 import { actionKeys, keyboardHover, type LspAction, runAction } from "./actions";
 import { ServerChannel } from "./channel";
 import { safeHref, sanitizeHtml } from "./sanitize";
@@ -28,6 +29,14 @@ const LANGUAGES: Record<string, { server: string; languageId: string }> = {
   tsx: { server: "typescript", languageId: "typescriptreact" },
   typescript: { server: "typescript", languageId: "typescript" },
 };
+
+/** The installed server that would serve `path` in a trusted project, or null. */
+export function serverFor(path: string, status: Pick<LspStatus, "trusted" | "known"> | null): KnownServer | null {
+  const language = languageFor(path);
+  const server = language ? LANGUAGES[language.id]?.server : undefined;
+  if (!server || !status?.trusted) return null;
+  return status.known.find((k) => k.language === server && k.path !== null) ?? null;
+}
 
 /** Files not shown in the editor whose text is read to list references in them. */
 const MAX_PEEKED = 50;

@@ -1,5 +1,6 @@
 import { flushSync, mount, unmount } from "svelte";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { registerCommand } from "../keys/commands";
 import { Workspace } from "../shell/workspace.svelte";
 import { FakeLspCore, server } from "./fake-lsp";
 import { languageServers } from "./servers.svelte";
@@ -68,7 +69,9 @@ describe("LanguageServers", () => {
     await openPanel();
     expect(item()?.getAttribute("aria-expanded")).toBe("true");
     expect(document.activeElement?.id).toBe("lsp-title");
-    expect($("[data-testid=lsp-server]")?.textContent).toContain("Sandboxed: bubblewrap");
+    expect($("[data-testid=lsp-server]")?.textContent).toContain(
+      "In the sandbox: reads the project, writes only its own cache, no network (bubblewrap",
+    );
     $("[data-testid=lsp-panel]")?.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true }));
     flushSync();
     expect($("[data-testid=lsp-panel]")).toBeNull();
@@ -113,6 +116,36 @@ describe("LanguageServers", () => {
     expect([...target.querySelectorAll("[data-testid=lsp-server] strong")].map((el) => el.textContent)).toEqual([
       "rust-analyzer",
     ]);
+    expect(document.activeElement?.id).toBe("lsp-title");
+    expect($("[role=status]")?.textContent).toBe("Stopped tsserver. It starts again when you edit a typescript file.");
+  });
+
+  it("closes when a click lands elsewhere, without taking focus", async () => {
+    const core = new FakeLspCore();
+    core.servers = [server("a")];
+    await mountWith(core);
+    await openPanel();
+    const elsewhere = document.body.appendChild(document.createElement("button"));
+    elsewhere.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    flushSync();
+    expect($("[data-testid=lsp-panel]")).toBeNull();
+    elsewhere.remove();
+  });
+
+  it("links an untrusted project's panel to its trust card", async () => {
+    const core = new FakeLspCore();
+    core.trusted = false;
+    let asked = 0;
+    const off = registerCommand({ id: "projects.review_trust", title: "t", run: () => void asked++ });
+    await mountWith(core);
+    languageServers(core).needServer("rust");
+    flushSync();
+    await openPanel();
+    [...target.querySelectorAll("button")].find((b) => b.textContent === "Review and trust…")?.click();
+    await settle();
+    expect(asked).toBe(1);
+    expect($("[data-testid=lsp-panel]")).toBeNull();
+    off();
   });
 
   it("says why servers do not start in an untrusted project", async () => {
@@ -138,7 +171,8 @@ describe("LanguageServers", () => {
     expect(item()).toBeNull();
     languageServers(core).needServer("go");
     flushSync();
-    expect(item()?.textContent?.trim()).toBe("Language server missing");
+    expect(item()?.textContent?.trim()).toBe("!gopls not installed");
+    expect(item()?.getAttribute("aria-label")).toBe("gopls not installed, needs attention");
     await openPanel();
     expect($("[data-testid=lsp-untrusted]")).toBeNull();
     expect($("[data-testid=lsp-missing]")?.textContent).toContain("gopls");

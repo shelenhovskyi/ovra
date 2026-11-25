@@ -5,13 +5,17 @@
 // commands, so the card shows everything that would load before asking.
 // Settings that changed since (a git pull, say) do not load until the user
 // reviews what changed and trusts them again.
-import { untrack } from "svelte";
+import { tick, untrack } from "svelte";
+import { registerCommand } from "../../keys/commands";
 import type { ProjectConfigReview } from "../../lib/protocol";
 import { CoreError } from "../../lib/transport";
+import { languageServers } from "../../lsp/servers.svelte";
 import { useOvra } from "../../shell/context";
 import { changes, KIND_LABELS, runsCode, touchesConfig, weight } from "./texts";
 
 const { transport, workspace } = useOvra();
+const lsp = languageServers(transport);
+let section = $state<HTMLElement>();
 
 let review = $state<ProjectConfigReview | null>(null);
 let reviewing = $state(false);
@@ -42,6 +46,20 @@ const heading = $derived(
     : changed
       ? "Project settings changed since you trusted them"
       : "Project settings: trusted",
+);
+
+// The language servers' footer links here: trusting is what starts them.
+$effect(() =>
+  registerCommand({
+    id: "projects.review_trust",
+    title: "Review and trust this project",
+    run: async () => {
+      if (!project?.trusted) await open();
+      await tick();
+      section?.scrollIntoView({ block: "nearest" });
+      section?.querySelector<HTMLElement>("[data-testid=trust-review] button.primary, button")?.focus();
+    },
+  }),
 );
 
 $effect(() => {
@@ -126,7 +144,7 @@ function trust(trusted: boolean): Promise<void> {
 </script>
 
 {#if project}
-  <section class="trust" class:changed aria-labelledby="trust-heading" data-testid="project-trust">
+  <section class="trust" class:changed aria-labelledby="trust-heading" data-testid="project-trust" bind:this={section}>
     <div class="row">
       <h3 id="trust-heading">{heading}</h3>
       {#if !reviewing && !changed}
@@ -188,6 +206,13 @@ function trust(trusted: boolean): Promise<void> {
       </div>
     {:else if reviewing && review}
       <div class="review" data-testid="trust-review">
+        <p class="detail" data-testid="trust-language-servers">
+          {project.trusted ? "Ovra starts" : "Trusting it also lets Ovra start"} language servers for the files you edit.
+          They run the project's code (build scripts, for example){lsp.status?.sandbox
+            ? ` in the sandbox (${lsp.status.sandbox}), which keeps them to the project and their cache, without network`
+            : ", without a sandbox on this computer"}.
+          Stop trusting stops them.
+        </p>
         {#if items.length === 0}
           <p class="detail">
             This project has no Claude settings of its own yet. If you trust it and settings appear later (for example

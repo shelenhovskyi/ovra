@@ -4,6 +4,9 @@
 // panel with each server, whether it is sandboxed, why it failed, a Stop
 // button, and the servers that are not installed. Escape closes it.
 import { tick, untrack } from "svelte";
+import { focusMain } from "../editor/open-files.svelte";
+import { listCommands } from "../keys/commands";
+import { runCommand } from "../keys/keybindings";
 import type { ServerInfo } from "../lib/protocol";
 import { useOvra } from "../shell/context";
 import { languageServers } from "./servers.svelte";
@@ -15,21 +18,26 @@ let opened = $state(false);
 let button = $state<HTMLButtonElement>();
 let panel = $state<HTMLElement>();
 let stopError = $state<string | null>(null);
+let stopped = $state<string | null>(null);
 
 const servers = $derived(lsp.servers);
 const untrusted = $derived(lsp.status?.trusted === false);
-const attention = $derived(servers.some((s) => s.sandbox === null || s.state === "failed"));
+const attention = $derived(servers.some((s) => s.sandbox === null || s.state === "failed") || lsp.hints.length > 0);
 const visible = $derived(servers.length > 0 || lsp.hints.length > 0 || (untrusted && lsp.needed.size > 0));
 const label = $derived.by(() => {
   if (servers.length === 1) return servers[0]?.name ?? "";
   if (servers.length > 1) return `${servers.length} language servers`;
-  return untrusted ? "Language servers off" : "Language server missing";
+  if (untrusted) return "Language servers off";
+  const hint = lsp.hints[0];
+  return hint ? `${hint.name} not installed` : "Language servers";
 });
 // Needed ones first: those are what the person just ran into.
 const missing = $derived([...lsp.hints, ...lsp.missing.filter((k) => !lsp.hints.includes(k))]);
 
+// Again when trust changes: it decides whether servers may start.
 $effect(() => {
   const project = workspace.project?.id ?? null;
+  void workspace.project?.trusted;
   untrack(() => void lsp.show(project));
 });
 
@@ -51,6 +59,7 @@ async function toggle(): Promise<void> {
   }
   opened = true;
   stopError = null;
+  stopped = null;
   await tick();
   panel?.querySelector<HTMLElement>("h2")?.focus();
 }
@@ -64,10 +73,44 @@ async function stop(server: ServerInfo): Promise<void> {
   try {
     await lsp.stop(server.id);
     stopError = null;
+    stopped = `Stopped ${server.name}. It starts again when you edit a ${server.language} file.`;
   } catch (err) {
     stopError = `Could not stop ${server.name}: ${err instanceof Error ? err.message : String(err)}`;
   }
+  // The item goes away with its last server: focus goes back to the editor then.
+  await tick();
+  if (panel?.isConnected) panel.querySelector<HTMLElement>("h2")?.focus();
+  else if (button?.isConnected) button.focus();
+  else await focusMain();
 }
+
+/** The command that opens the project's trust card, while its panel is mounted. */
+function trustCommand() {
+  return listCommands().find((c) => c.id === "projects.review_trust");
+}
+
+function reviewTrust(): void {
+  const command = trustCommand();
+  opened = false;
+  if (command) void runCommand(command);
+}
+
+/** Closes the panel when focus or a click goes elsewhere, without taking focus back. */
+function onFocusout(event: FocusEvent): void {
+  const next = event.relatedTarget;
+  if (next instanceof Node && (panel?.contains(next) || button?.contains(next))) return;
+  if (next) opened = false;
+}
+
+$effect(() => {
+  if (!opened) return;
+  const away = (event: PointerEvent) => {
+    const target = event.target;
+    if (target instanceof Node && !panel?.contains(target) && !button?.contains(target)) opened = false;
+  };
+  window.addEventListener("pointerdown", away, true);
+  return () => window.removeEventListener("pointerdown", away, true);
+});
 
 function onKeydown(event: KeyboardEvent): void {
   if (event.code !== "Escape") return;
@@ -101,18 +144,25 @@ function onKeydown(event: KeyboardEvent): void {
         data-testid="lsp-panel"
         bind:this={panel}
         onkeydown={onKeydown}
+        onfocusout={onFocusout}
       >
         <h2 id="lsp-title" tabindex="-1">Language servers</h2>
         {#if untrusted}
           <p class="muted" data-testid="lsp-untrusted">
             Language servers run this project's code, so they start only in trusted projects.
           </p>
+          {#if trustCommand()}
+            <button type="button" onclick={reviewTrust}>Review and trust…</button>
+          {/if}
         {/if}
         {#if lsp.error}
           <p class="error" role="alert">Could not read the language servers: {lsp.error}</p>
         {/if}
         {#if stopError}
           <p class="error" role="alert">{stopError}</p>
+        {/if}
+        {#if stopped}
+          <p class="muted" role="status">{stopped}</p>
         {/if}
         {#if servers.length > 0}
           <ul aria-label="Running language servers">
@@ -131,7 +181,9 @@ function onKeydown(event: KeyboardEvent): void {
                     Runs without a sandbox: it can read and change your files and reach the network.
                   </p>
                 {:else}
-                  <p class="muted">Sandboxed: {server.sandbox}</p>
+                  <p class="muted">
+                    In the sandbox: reads the project, writes only its own cache, no network ({server.sandbox}).
+                  </p>
                 {/if}
                 {#if server.state === "failed"}
                   <p class="error" data-testid="lsp-reason">{server.reason}</p>

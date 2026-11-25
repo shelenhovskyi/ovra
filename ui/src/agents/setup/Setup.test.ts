@@ -189,6 +189,9 @@ describe("ProjectTrust", () => {
     expect(kinds).toEqual(["hooks", "agents"]);
     expect(trustCard()?.querySelector("[role=note]")?.textContent).toContain("runs commands");
     expect(trustCard()?.textContent).toContain("./check.sh");
+    expect(trustCard()?.querySelector("[data-testid=trust-language-servers]")?.textContent).toMatch(
+      /Trusting it also lets Ovra start language servers.*run the project's code.*Stop trusting stops them/s,
+    );
     button(trustCard(), "Trust project")?.click();
     await settle();
     expect(core.sent("projects.trust").map((c) => c.params)).toEqual([{ id: "p1", trusted: true, fingerprint: "f1" }]);

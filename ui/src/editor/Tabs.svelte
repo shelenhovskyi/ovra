@@ -5,12 +5,19 @@
 // modal dialog. The Edit / View button switches the open file's mode.
 // A git diff shown in the main area is the last tab, selected while it shows.
 import { tick } from "svelte";
+import { languageServers } from "../lsp/servers.svelte";
 import { useOvra } from "../shell/context";
 import { toggle } from "./commands";
 import { tabLabels } from "./labels";
+import { serverFor } from "./lsp/clients";
 import { answerClose, requestClose, show, tabs } from "./open-files.svelte";
 
-const { workspace } = useOvra();
+const { workspace, transport } = useOvra();
+const lsp = languageServers(transport);
+// The viewer has no language features: say where they are.
+const lspHint = $derived(
+  workspace.mode === "view" && workspace.openPath ? serverFor(workspace.openPath, lsp.status)?.name : undefined,
+);
 
 let strip = $state<HTMLDivElement>();
 let dialog = $state<HTMLDialogElement>();
@@ -198,6 +205,7 @@ function scrollToActive(): void {
       </div>
     {/if}
     {#if workspace.openPath && !diff}
+      {#if lspHint}<span class="lsp-hint" data-testid="lsp-edit-hint">{lspHint} in Edit</span>{/if}
       <button type="button" class="mode" onclick={() => toggle(workspace)}>
         {workspace.mode === "edit" ? "View" : "Edit"}
       </button>
@@ -279,6 +287,14 @@ function scrollToActive(): void {
     font-size: 11px;
     color: #6f6f7a;
   }
+  .lsp-hint {
+    align-self: center;
+    margin-left: auto;
+    padding: 0 6px;
+    font-size: 11px;
+    color: #b4b4c0;
+    white-space: nowrap;
+  }
   .close {
     width: 20px;
     height: 20px;
@@ -315,6 +331,9 @@ function scrollToActive(): void {
     flex-shrink: 0;
     padding: 4px 12px;
     color: #82aaff;
+  }
+  .lsp-hint + .mode {
+    margin-left: 0;
   }
   .mode:hover {
     background: #2a2a31;
