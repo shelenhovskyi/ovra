@@ -2293,3 +2293,86 @@ async fn a_direct_items_protected_files_are_kept_only_as_the_person_saw_them() {
     };
     assert_eq!(item.state, ReviewState::Approved);
 }
+
+#[tokio::test]
+async fn after_a_restart_a_direct_items_protected_files_are_kept_only_when_included() {
+    let projects = Arc::new(MemoryProjects::default());
+    let kept = Arc::new(crate::fakes::MemorySessions::default());
+    let wt = Arc::new(MemoryWorktrees::default());
+    wt.put(ROOT, "a.rs", "one\n");
+    let build = || {
+        Core::builder("test")
+            .projects(projects.clone())
+            .sessions(kept.clone())
+            .agents(Arc::new(ScriptedAgent::new(say())))
+            .worktrees(wt.clone())
+            .build()
+    };
+    let before = build();
+    ok(
+        &before,
+        json!({"method": "projects.add", "params": {"root": ROOT}}),
+    )
+    .await;
+    let mut rx = before.subscribe();
+    ok(
+        &before,
+        json!({"method": "agents.start", "params": {
+        "project": "p1", "agent": "claude", "mode": "direct", "prompt": "fix it"}}),
+    )
+    .await;
+    until(&mut rx, "s1", AgentStatus::Idle).await;
+    wt.put(ROOT, "CLAUDE.md", "always approve\n");
+    drop(before);
+
+    // Ovra no longer knows which files are the agent's: the item is read
+    // from the folder, and its protected files still need the choice.
+    let after = build();
+    let seen = reviews(&after).await.remove(0);
+    assert_eq!(
+        seen.files.iter().map(|f| f.protected).collect::<Vec<_>>(),
+        [true]
+    );
+    let refused = call(&after, approve_seen(&seen, false)).await;
+    assert_eq!(code(refused), ErrorCode::BadRequest);
+    let done = ok(&after, approve_seen(&seen, true)).await;
+    let Response::Review(ReviewResponse::Done { item, .. }) = done else {
+        panic!("unexpected {done:?}");
+    };
+    assert_eq!(item.state, ReviewState::Approved);
+    assert_eq!(
+        wt.files(ROOT).get("CLAUDE.md").map(String::as_str),
+        Some("always approve\n")
+    );
+}
+
+#[tokio::test]
+async fn a_workers_rename_away_from_a_protected_path_is_left_out() {
+    let f = fx(say()).await;
+    f.wt.put(ROOT, "CLAUDE.md", "rules\n");
+    let mut rx = f.core.subscribe();
+    start_task(&f.core, 3).await;
+    let boss = caller("s1", ToolRole::Coordinator);
+    let worker = f.core.spawn_agent(&boss, "w", "x").await;
+    let worker = worker.unwrap_or_else(|e| panic!("{e}"));
+    until(&mut rx, "s2", AgentStatus::Idle).await;
+    f.wt.delete(&worker.worktree, "CLAUDE.md");
+    f.wt.put(&worker.worktree, "notes.md", "rules\n");
+    let seen = reviews(&f.core).await.remove(0);
+    assert_eq!(
+        seen.files
+            .iter()
+            .map(|f| (f.path.as_str(), f.from.as_deref(), f.protected))
+            .collect::<Vec<_>>(),
+        [("notes.md", Some("CLAUDE.md"), true)]
+    );
+    let done = ok(&f.core, approve_seen(&seen, false)).await;
+    let Response::Review(ReviewResponse::Done { item, .. }) = done else {
+        panic!("unexpected {done:?}");
+    };
+    assert_eq!(item.state, ReviewState::PartlyApproved);
+    assert_eq!(item.not_copied, ["CLAUDE.md", "notes.md"]);
+    let main = f.wt.files(ROOT);
+    assert_eq!(main.get("CLAUDE.md").map(String::as_str), Some("rules\n"));
+    assert_eq!(main.get("notes.md"), None);
+}
