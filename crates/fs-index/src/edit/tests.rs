@@ -1,3 +1,5 @@
+use std::sync::Mutex;
+
 use ovra_core::services::FsService;
 use tempfile::TempDir;
 
@@ -19,12 +21,23 @@ fn project() -> (TempDir, PathBuf, PathBuf) {
     (tmp, root, out)
 }
 
-fn code<T: std::fmt::Debug>(result: Result<T>) -> ErrorCode {
+fn code<T: fmt::Debug>(result: Result<T>) -> ErrorCode {
     result.expect_err("should fail").code
 }
 
 fn read(path: &Path) -> String {
     fs::read_to_string(path).expect("read")
+}
+
+/// A fake trash that records the paths it gets.
+fn recording() -> (Trash, Arc<Mutex<Vec<PathBuf>>>) {
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let log = Arc::clone(&seen);
+    let trash = Trash::fake(move |path| {
+        log.lock().expect("lock").push(path.to_path_buf());
+        Ok(())
+    });
+    (trash, seen)
 }
 
 #[test]
@@ -87,10 +100,41 @@ fn copies_files_and_trees() {
     assert_eq!(code(missing), ErrorCode::NotFound);
 }
 
+#[test]
+fn trash_checks_every_path_before_trashing_any() {
+    let (_tmp, root, _) = project();
+    fs::write(root.join("b.txt"), "b").expect("write");
+    let (fake, seen) = recording();
+
+    let missing = trash(&root, &[rel("b.txt"), rel("gone")], &fake);
+    assert_eq!(code(missing), ErrorCode::NotFound);
+    assert!(seen.lock().expect("lock").is_empty());
+
+    trash(&root, &[rel("src/a.txt"), rel("b.txt")], &fake).expect("trash");
+    let real = fs::canonicalize(&root).expect("canonical");
+    let expected = vec![real.join("src").join("a.txt"), real.join("b.txt")];
+    assert_eq!(*seen.lock().expect("lock"), expected);
+}
+
+#[test]
+fn a_failing_trash_is_an_internal_error_and_stops() {
+    let (_tmp, root, _) = project();
+    let calls = Arc::new(Mutex::new(0));
+    let count = Arc::clone(&calls);
+    let fake = Trash::fake(move |_| {
+        *count.lock().expect("lock") += 1;
+        Err("no trash here".into())
+    });
+    let failed = trash(&root, &[rel("src/a.txt"), rel("src")], &fake);
+    assert_eq!(code(failed), ErrorCode::Internal);
+    assert_eq!(*calls.lock().expect("lock"), 1);
+}
+
 #[tokio::test]
 async fn the_service_runs_each_operation() {
     let (_tmp, root, _) = project();
-    let fs = FsIndex::new();
+    let (fake, seen) = recording();
+    let fs = FsIndex::with_trash(fake);
     fs.create(root.clone(), rel("n.txt"), false)
         .await
         .expect("create");
@@ -100,7 +144,11 @@ async fn the_service_runs_each_operation() {
     fs.copy(root.clone(), rel("m.txt"), rel("k.txt"))
         .await
         .expect("copy");
+    fs.trash(root.clone(), vec![rel("k.txt")])
+        .await
+        .expect("trash");
     assert!(root.join("m.txt").is_file() && root.join("k.txt").is_file());
+    assert_eq!(seen.lock().expect("lock").len(), 1);
 }
 
 #[cfg(unix)]
@@ -114,6 +162,7 @@ mod links {
         let (_tmp, root, out) = project();
         symlink(&out, root.join("out")).expect("symlink");
         symlink(out.join("missing"), root.join("dangling")).expect("symlink");
+        let (fake, seen) = recording();
 
         for path in ["out/x", "out/new/deep/x", "dangling/x"] {
             assert_eq!(
@@ -130,6 +179,9 @@ mod links {
         assert_eq!(code(taken), ErrorCode::Forbidden);
         let copied = copy(&root, &rel("out/secret.txt"), &rel("stolen.txt"));
         assert_eq!(code(copied), ErrorCode::Forbidden);
+        let trashed = trash(&root, &[rel("src/a.txt"), rel("out/secret.txt")], &fake);
+        assert_eq!(code(trashed), ErrorCode::Forbidden);
+        assert!(seen.lock().expect("lock").is_empty());
 
         let mut left: Vec<_> = fs::read_dir(&out)
             .expect("list")
@@ -153,7 +205,7 @@ mod links {
     }
 
     #[test]
-    fn links_are_moved_and_copied_not_followed() {
+    fn links_are_moved_copied_and_trashed_not_followed() {
         let (_tmp, root, out) = project();
         symlink(out.join("secret.txt"), root.join("l")).expect("symlink");
         symlink(&out, root.join("dir-link")).expect("symlink");
@@ -180,6 +232,11 @@ mod links {
 
         let taken = create(&root, &rel("m"), false);
         assert_eq!(code(taken), ErrorCode::Conflict);
+
+        let (fake, seen) = recording();
+        trash(&root, &[rel("m")], &fake).expect("trash link");
+        let real = fs::canonicalize(&root).expect("canonical");
+        assert_eq!(*seen.lock().expect("lock"), [real.join("m")]);
     }
 
     #[test]

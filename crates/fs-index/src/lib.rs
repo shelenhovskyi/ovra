@@ -1,6 +1,6 @@
 //! File access for projects: directory listings that honour `.gitignore`,
-//! git status, reading, writing, creating, renaming and copying files,
-//! and watching for changes.
+//! git status, reading, writing, creating, renaming, copying and trashing
+//! files, and watching for changes.
 //!
 //! Contract: `ovra_core::services::FsService`; the in-memory reference
 //! behaviour is `ovra_core::fakes::MemoryFs`. Paths arrive validated, and
@@ -34,6 +34,7 @@ use crate::watch::{SharedFiles, Timing, Watch};
 pub struct FsIndex {
     watches: Mutex<HashMap<ProjectId, Watch>>,
     timing: Timing,
+    trash: edit::Trash,
 }
 
 impl FsIndex {
@@ -49,6 +50,15 @@ impl FsIndex {
                 git_quiet: std::time::Duration::from_millis(100),
                 ..Timing::default()
             },
+            ..Self::default()
+        }
+    }
+
+    /// Trashes through `trash` instead of the system trash.
+    #[cfg(test)]
+    fn with_trash(trash: edit::Trash) -> Self {
+        Self {
+            trash,
             ..Self::default()
         }
     }
@@ -146,14 +156,8 @@ impl FsService for FsIndex {
     }
 
     fn trash(&self, root: PathBuf, paths: Vec<RelPath>) -> BoxFuture<'_, Result<()>> {
-        // Lands in its own commit.
-        let _ = (root, paths);
-        blocking(|| {
-            Err(ProtocolError::new(
-                ErrorCode::Unavailable,
-                "trash is not available yet",
-            ))
-        })
+        let trash = self.trash.clone();
+        blocking(move || edit::trash(&root, &paths, &trash))
     }
 
     fn search(

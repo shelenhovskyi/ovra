@@ -1,8 +1,8 @@
-//! Creating, renaming and copying files and folders.
+//! Creating, renaming, copying and trashing files and folders.
 //!
 //! Every path is placed by its parent: the parent must resolve inside the
 //! canonical root and outside any `.git` folder, and the last component is
-//! used as it is, never followed, so renaming or copying a symlink
+//! used as it is, never followed, so renaming, copying or trashing a symlink
 //! acts on the link and not on its target. A path that must be new is
 //! refused with `conflict` if anything, even a dangling link, has its name.
 //!
@@ -11,15 +11,48 @@
 //! crate; files are created with `create_new`, so at least the last
 //! component is never followed or replaced.
 
+use std::fmt;
 use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::path::{Component, Path, PathBuf};
+use std::sync::Arc;
 
 use ovra_core::path::RelPath;
 use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::Result;
 
 use crate::resolve;
+
+type TrashFn = dyn Fn(&Path) -> std::result::Result<(), String> + Send + Sync;
+
+/// Moves one absolute path to the system trash. Tests swap it for a fake,
+/// so they never touch the real trash.
+#[derive(Clone)]
+pub(crate) struct Trash(Arc<TrashFn>);
+
+impl Trash {
+    #[cfg(test)]
+    pub(crate) fn fake(
+        f: impl Fn(&Path) -> std::result::Result<(), String> + Send + Sync + 'static,
+    ) -> Self {
+        Self(Arc::new(f))
+    }
+}
+
+impl Default for Trash {
+    fn default() -> Self {
+        // `trash` resolves only the parent, so a symlink itself is trashed.
+        Self(Arc::new(|path| {
+            trash::delete(path).map_err(|e| e.to_string())
+        }))
+    }
+}
+
+impl fmt::Debug for Trash {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Trash")
+    }
+}
 
 fn io_error(path: &RelPath, err: &io::Error) -> ProtocolError {
     match err.kind() {
@@ -200,6 +233,24 @@ fn copy_link(from: &Path, _: &Path) -> io::Result<()> {
             from.display()
         ),
     ))
+}
+
+/// Checks every path, then trashes them in order, stopping at the first
+/// failure.
+pub(crate) fn trash(root: &Path, paths: &[RelPath], trash: &Trash) -> Result<()> {
+    let found = paths
+        .iter()
+        .map(|path| existing(root, path))
+        .collect::<Result<Vec<_>>>()?;
+    for (path, full) in paths.iter().zip(&found) {
+        (trash.0)(full).map_err(|e| {
+            ProtocolError::new(
+                ErrorCode::Internal,
+                format!("cannot move {path} to the trash: {e}"),
+            )
+        })?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

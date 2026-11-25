@@ -16,6 +16,7 @@ grep-searcher = "0.1"
 ignore = "0.4"
 notify = "8"
 tokio = { workspace = true, features = ["rt"] }
+trash = "5"
 
 [dev-dependencies]
 ovra-core = { workspace = true, features = ["fakes"] }
