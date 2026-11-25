@@ -30,6 +30,7 @@ import { menuTarget } from "../shell/menu";
 import { signedOutError } from "./errors";
 import FirstSteps from "./FirstSteps.svelte";
 import { hints } from "./hints.svelte";
+import { pressureNote, resourcesLine, resourcesTip } from "./resources";
 import { listWarning, sandboxGaps, sandboxLine, sandboxState } from "./sandbox";
 import { agentSessions, openReviews, usageText } from "./sessions.svelte";
 import AccountPicker from "./setup/AccountPicker.svelte";
@@ -87,6 +88,8 @@ const project = $derived(workspace.project);
 const list = $derived(project ? sessions.shown(project.id) : []);
 /** How many of the project's agents work, of how many may. */
 const capacity = $derived(project ? sessions.capacity.get(project.id) : undefined);
+/** Why queued workers wait although a place may be free. */
+const pressure = $derived(project ? sessions.pressure.get(project.id) : undefined);
 /** "No sandbox" for the whole list, once under the header. */
 const unsandboxed = $derived(listWarning(list));
 const current = $derived(list.find((s) => s.id === selected) ?? null);
@@ -742,7 +745,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
           ? `${needYou} ${needYou === 1 ? "needs" : "need"} you`
           : `${capacity.working} of ${capacity.limit}`}{capacity.queued > 0 ? ` · ${capacity.queued} queued` : ""}{planning
           ? ` · ${planning} planning`
-          : ""}
+          : ""}{pressure ? ` · ${pressureNote(pressure)}` : ""}
       </span>
       <span class="slots" aria-hidden="true">
         {#each { length: capacity.limit } as _, n (n)}<i class:on={n < capacity.working}></i>{/each}
@@ -982,6 +985,8 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
             {@const action = chip(session)}
             {@const parts = role?.kind === "coordinator" ? progress(session.id) : null}
             {@const now = session.status.state === "working" ? step(session.id) : null}
+            {@const taken = sessions.resources.get(session.id)}
+            {@const disk = role?.kind === "worker" ? role.disk : null}
             <li class:worker={role?.kind === "worker"}>
               <!-- One Tab stop for the list (arrows move, Delete closes, Shift+F10 opens its menu). -->
               <button
@@ -1003,6 +1008,12 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
                   <span class="state">{#if now}<span class="visually-hidden">Working: </span>{now}{:else}{sessions.status(
                         session.id,
                       )}{/if}</span>
+                  {#if taken && resourcesLine(taken)}
+                    <!-- Quiet: what it takes of the computer; the split on hover. -->
+                    <span class="taken" data-testid="agent-resources" title={resourcesTip(taken, disk)}
+                      >{resourcesLine(taken, disk)}</span
+                    >
+                  {/if}
                   {#if parts}
                     <span class="progress" data-testid="agent-task-progress">
                       <span
@@ -1471,6 +1482,14 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
     gap: 6px;
     color: var(--text);
     font-weight: 500;
+  }
+  .taken {
+    font-size: 12px;
+    color: var(--text-3);
+    font-variant-numeric: tabular-nums;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .progress {
     display: flex;

@@ -262,6 +262,83 @@ describe("AgentsPanel", () => {
     expect(target.querySelector<HTMLTextAreaElement>("#agent-prompt")?.value).toBe("");
   });
 
+  it("shows what each agent takes of the computer and why queued workers wait", async () => {
+    const core = await setup();
+    choose("Plan and split");
+    type(target.querySelector("#agent-prompt"), "Write the notes");
+    flushSync();
+    startButton()?.click();
+    await settle();
+    back();
+    const docs = core.addSession("p1", "Write the docs notes.");
+    const later = core.addSession("p1", "Write the tests.");
+    core.tasks[0]?.workers.push(
+      {
+        session: docs.id,
+        name: "docs",
+        branch: "ovra/t1/docs",
+        worktree: "/wt/docs",
+        kept: null,
+        disk: { bytes: 2.4 * 2 ** 30, complete: true },
+      },
+      { session: later.id, name: "tests", branch: "ovra/t1/tests", worktree: "/wt/tests", kept: null },
+    );
+    core.emit({ type: "orchestration.changed", data: { project: "p1", task: "t1" } });
+    core.capacity = { working: 1, limit: 3, queued: 1 };
+    core.status(docs.id, { state: "working" });
+    core.status(later.id, { state: "queued" });
+    await settle();
+    const MB = 2 ** 20;
+    core.emit({
+      type: "resources.sample",
+      data: {
+        project: "p1",
+        system: { memory_total_bytes: 16 * 2 ** 30, memory_available_bytes: 500 * MB, cpu_percent: 40 },
+        pressure: "low_memory",
+        sessions: [
+          {
+            session: docs.id,
+            agent: { memory_bytes: 900 * MB, cpu_percent: 30, processes: 5 },
+            servers: { memory_bytes: 300 * MB, cpu_percent: 5, processes: 2 },
+            browser: null,
+          },
+          { session: later.id, agent: null, servers: null, browser: null },
+        ],
+      },
+    });
+    await settle();
+    const row = (title: string) =>
+      [...target.querySelectorAll(".sessions .row-button")].find((b) => b.textContent?.includes(title));
+    const taken = row("docs")?.querySelector("[data-testid=agent-resources]");
+    expect(taken?.textContent).toBe("1.2 GB · 35% CPU · 2.4 GB on disk");
+    expect(taken?.getAttribute("title")?.split("\n")).toEqual([
+      "About 1.2 GB of memory and 35% CPU (100% is one core)",
+      "Agent and its commands: 900 MB, 30% CPU, 5 processes",
+      "Dev servers: 300 MB, 5% CPU, 2 processes",
+      "Worktree: 2.4 GB on disk",
+    ]);
+    // A queued worker runs nothing yet, and says why it waits with a place free.
+    expect(row("tests")?.querySelector("[data-testid=agent-resources]")).toBeNull();
+    expect(row("tests")?.querySelector(".state")?.textContent).toBe("Waiting: low memory");
+    const count = () => target.querySelector("[data-testid=agents-capacity]")?.textContent?.trim();
+    expect(count()).toBe("1 of 3 · 1 queued · 1 planning · memory low");
+
+    // Memory is back; an ended session's line goes.
+    core.emit({
+      type: "resources.sample",
+      data: {
+        project: "p1",
+        system: { memory_total_bytes: 16 * 2 ** 30, memory_available_bytes: 8 * 2 ** 30, cpu_percent: 40 },
+        pressure: null,
+        sessions: [],
+      },
+    });
+    await settle();
+    expect(row("tests")?.querySelector(".state")?.textContent).toBe("Waiting for a free agent");
+    expect(row("docs")?.querySelector("[data-testid=agent-resources]")).toBeNull();
+    expect(count()).toBe("1 of 3 · 1 queued · 1 planning");
+  });
+
   it("names a task's workers and lists them under their coordinator", async () => {
     const core = await setup();
     choose("Plan and split");

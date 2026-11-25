@@ -10,18 +10,22 @@ import type {
   AgentMessage,
   Billing,
   CoreEvent,
+  DiskUsage,
   FailedWorker,
   FileChange,
+  Pressure,
   ProjectId,
   ReviewItem,
   SessionId,
   SessionInfo,
+  SessionResources,
   TaskId,
   TurnUsage,
 } from "../lib/protocol";
 import type { Transport } from "../lib/transport";
 import { failedLabel } from "./errors";
 import { hints } from "./hints.svelte";
+import { pressureNote, waitingLabel } from "./resources";
 import { isBusy, isEnded, statusLabel } from "./status";
 
 /** A session's part in a task, if it has one. */
@@ -36,6 +40,8 @@ export type SessionRole =
       worktree: string;
       /** Why its worktree stays although its task ended. */
       kept: string | null;
+      /** Its worktree's size on disk, once counted. */
+      disk: DiskUsage | null;
       coordinator: SessionId;
     };
 
@@ -54,6 +60,10 @@ export class AgentSessions {
   private readonly waitingReview = new SvelteSet<SessionId>();
   /** How many of each loaded project's agents work, of how many may. */
   readonly capacity = new SvelteMap<ProjectId, AgentCapacity>();
+  /** What each running session takes of the computer, from the latest `resources.sample`. */
+  readonly resources = new SvelteMap<SessionId, SessionResources>();
+  /** Why each project's queued workers wait although a place may be free; absent when they need not. */
+  readonly pressure = new SvelteMap<ProjectId, Pressure>();
   /** The text each session's agent is writing now (`agents.text_delta`), until its message comes. */
   readonly partial = new SvelteMap<SessionId, string>();
   /**
@@ -180,6 +190,7 @@ export class AgentSessions {
             branch: w.branch,
             worktree: w.worktree,
             kept: w.kept,
+            disk: w.disk ?? null,
             coordinator: task.coordinator,
           });
       }
@@ -228,7 +239,10 @@ export class AgentSessions {
         .filter(([, r]) => r.kind === "worker" && r.coordinator === id)
         .map(([session]) => this.byId.get(session)?.status ?? null);
       if (workers.some(isBusy)) return "Workers are on it";
-      if (workers.some((s) => s?.state === "queued")) return "Workers are waiting for a free agent";
+      if (workers.some((s) => s?.state === "queued")) {
+        const pressure = this.pressure.get(info.project);
+        return pressure ? `Workers are waiting: ${pressureNote(pressure)}` : "Workers are waiting for a free agent";
+      }
       // Never done while a worker failed or did not start.
       const missed = this.failedStarts.get(id)?.length ?? 0;
       const failed = missed + workers.filter((s) => s?.state === "failed").length;
@@ -245,6 +259,9 @@ export class AgentSessions {
       if (workers.length > 0 && missed === 0 && workers.every((w) => this.status(w) === "Done"))
         return failedLabel(info.status, transcript) ?? "Done";
     }
+    // A free place does not start it while the computer is short of memory or CPU.
+    const pressure = this.pressure.get(info.project);
+    if (info.status.state === "queued" && pressure) return waitingLabel(pressure);
     return failedLabel(info.status, transcript) ?? statusLabel(info.status);
   }
 
@@ -361,6 +378,14 @@ export class AgentSessions {
     } else if (event.type === "agents.limit_changed") {
       // "2 of 3 working" names the limit.
       for (const project of this.loaded) void this.loadCapacity(project);
+    } else if (event.type === "resources.sample") {
+      const { project, pressure, sessions } = event.data;
+      if (pressure) this.pressure.set(project, pressure);
+      else this.pressure.delete(project);
+      const now = new Set(sessions.map((r) => r.session));
+      for (const [id] of this.resources)
+        if (this.byId.get(id)?.project === project && !now.has(id)) this.resources.delete(id);
+      for (const r of sessions) this.resources.set(r.session, r);
     } else if (event.type === "agents.text_delta") {
       const { session, text } = event.data;
       this.partial.set(session, (this.partial.get(session) ?? "") + text);
@@ -369,6 +394,7 @@ export class AgentSessions {
       // Any change of state may change how many work.
       if (this.loaded.has(project)) void this.loadCapacity(project);
       if (status.state !== "working") this.partial.delete(session);
+      if (isEnded(status)) this.resources.delete(session);
       const known = this.byId.get(session);
       // A turn ended: what it changed is in the session's review item now.
       if (known && status.state === "idle") void this.loadReviews(project);
