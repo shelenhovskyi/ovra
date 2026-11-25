@@ -534,6 +534,9 @@ pub enum ReviewAction { Approved, PartlyApproved, Rejected, UndoneReject, Taken,
   - strings that look like tokens: `sk-`, `ghp_`, `gho_`, `github_pat_`,
     `xox`, `AKIA` and JWTs;
   - the values of `Authorization` and `Cookie` headers.
+- If the secrets' values cannot be read (a locked keychain), nothing the
+  agent wrote is kept: the input is `[redacted]`, and a file tool keeps
+  only its hash.
 
 **Service:**
 

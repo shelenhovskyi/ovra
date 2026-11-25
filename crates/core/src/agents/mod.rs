@@ -499,8 +499,23 @@ impl AgentHost {
         }
     }
 
+    /// Records who decided a tool call.
+    async fn audit_tool(
+        &self,
+        tool: &str,
+        input: &serde_json::Value,
+        allowed: bool,
+        by: DecidedBy,
+    ) {
+        if let Some(core) = self.sessions.core() {
+            let event =
+                crate::audit::tool_decided(&core, &self.project, tool, input, allowed, by).await;
+            crate::audit::record(&core, &self.project, Some(&self.session), event);
+        }
+    }
+
     /// Records who decided a tool call and passes the answer on.
-    fn decided(
+    async fn decided(
         &self,
         tool: &str,
         input: &serde_json::Value,
@@ -508,7 +523,7 @@ impl AgentHost {
         by: DecidedBy,
     ) -> PermissionAnswer {
         let allowed = answer.decision == Decision::Allow;
-        self.audit(crate::audit::tool_decided(tool, input, allowed, by));
+        self.audit_tool(tool, input, allowed, by).await;
         answer
     }
 
@@ -560,7 +575,7 @@ impl AgentHost {
             };
             if let Some((why, rule)) = refused {
                 let by = DecidedBy::Policy { rule };
-                self.audit(crate::audit::tool_decided(name, &input, false, by));
+                self.audit_tool(name, &input, false, by).await;
                 return BeforeTool::Deny(why);
             }
         }
@@ -651,7 +666,7 @@ impl AgentHost {
             return match self.sessions.core() {
                 Some(core) => {
                     let answer = crate::orchestration::decide(&core, &self.session, name, &input);
-                    self.decided(&tool, &input, answer, DecidedBy::Role)
+                    self.decided(&tool, &input, answer, DecidedBy::Role).await
                 }
                 None => PermissionAnswer::deny("Ovra is shutting down"),
             };
@@ -667,11 +682,15 @@ impl AgentHost {
                 let answer = PermissionAnswer::deny(format!(
                     "The project's policy refuses this ({rule}). Ask the person if it is needed."
                 ));
-                return self.decided(&tool, &input, answer, DecidedBy::Policy { rule });
+                return self
+                    .decided(&tool, &input, answer, DecidedBy::Policy { rule })
+                    .await;
             }
             Ok(Some((PolicyAction::Auto, rule))) => {
                 let by = DecidedBy::Policy { rule };
-                return self.decided(&tool, &input, PermissionAnswer::allow(), by);
+                return self
+                    .decided(&tool, &input, PermissionAnswer::allow(), by)
+                    .await;
             }
             // Unreadable policy: ask, never decide on its own.
             _ => {}
@@ -699,12 +718,16 @@ impl AgentHost {
             Ok(Ok(registered)) => registered,
             Ok(Err(answer)) => {
                 let (tool, input) = &tool_input;
-                return self.decided(tool, input, answer, DecidedBy::SessionEnded);
+                return self
+                    .decided(tool, input, answer, DecidedBy::SessionEnded)
+                    .await;
             }
             Err(_) => {
                 let (tool, input) = &tool_input;
                 let answer = PermissionAnswer::deny("the session ended");
-                return self.decided(tool, input, answer, DecidedBy::SessionEnded);
+                return self
+                    .decided(tool, input, answer, DecidedBy::SessionEnded)
+                    .await;
             }
         };
         let mut waiting = Waiting {
@@ -723,7 +746,7 @@ impl AgentHost {
             )
         });
         waiting.id = None;
-        let answer = self.decided(&tool, &input, answer, by);
+        let answer = self.decided(&tool, &input, answer, by).await;
         let allowed = answer.decision == Decision::Allow;
         direct
             .tool_answered(&self.session, &tool, &input, allowed)

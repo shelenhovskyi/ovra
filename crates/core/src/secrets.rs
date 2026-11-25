@@ -98,7 +98,7 @@ pub(crate) async fn remove_project(core: &Core, project: &ProjectId) -> Result<(
     blocking(move || secrets.remove_project(&project)).await
 }
 
-async fn blocking<T: Send + 'static>(
+pub(crate) async fn blocking<T: Send + 'static>(
     f: impl FnOnce() -> Result<T, ProtocolError> + Send + 'static,
 ) -> Result<T, ProtocolError> {
     tokio::task::spawn_blocking(f).await.map_err(|_| {

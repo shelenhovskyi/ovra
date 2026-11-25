@@ -1,7 +1,8 @@
 //! A tool call's input as the audit log keeps it (`docs/specs/security.md`):
 //! file tools by path and the SHA-256 of what they write, everything else as
-//! JSON with token-like strings, credential fields and the values of
-//! `Authorization` and `Cookie` headers removed, cut to 4 KiB.
+//! JSON with the values of the project's secrets, token-like strings,
+//! credential fields and the values of `Authorization` and `Cookie` headers
+//! removed, cut to 4 KiB.
 
 use std::fmt::Write as _;
 
@@ -9,6 +10,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use crate::protocol::audit::AuditInput;
+use crate::protocol::secrets::SecretValue;
 
 /// The most bytes of JSON (or of a path) an entry keeps.
 pub(crate) const MAX_INPUT_BYTES: usize = 4096;
@@ -62,19 +64,29 @@ const SECRET_FIELD_ENDS: [&str; 10] = [
     "credentials",
 ];
 
-pub(crate) fn input(tool: &str, input: &Value) -> AuditInput {
+/// `known` holds the values of the project's secrets; `None` when they
+/// could not be read, and then nothing the agent wrote is kept but a hash.
+pub(crate) fn input(tool: &str, input: &Value, known: Option<&[SecretValue]>) -> AuditInput {
     if let Some((_, path, content)) = FILE_TOOLS.iter().find(|(name, ..)| *name == tool) {
         let path = input.get(*path).and_then(Value::as_str).unwrap_or("");
         return AuditInput::File {
-            path: cut(redact_text(clip(path))),
+            path: match known {
+                Some(known) => cut(redact_text(clip(&redact_known(path, known)))),
+                None => REDACTED.to_owned(),
+            },
             sha256: input.get(*content).map(|content| match content {
                 Value::String(text) => sha256(text.as_bytes()),
                 other => sha256(other.to_string().as_bytes()),
             }),
         };
     }
+    let Some(known) = known else {
+        return AuditInput::Json {
+            text: REDACTED.to_owned(),
+        };
+    };
     let mut kept = input.clone();
-    redact(&mut kept);
+    redact(&mut kept, known);
     AuditInput::Json {
         text: cut(kept.to_string()),
     }
@@ -82,8 +94,8 @@ pub(crate) fn input(tool: &str, input: &Value) -> AuditInput {
 
 /// A tool name as kept: agents choose them, so they are redacted and cut
 /// like any text.
-pub(crate) fn cut_name(tool: &str) -> String {
-    cut(redact_text(clip(tool)))
+pub(crate) fn cut_name(tool: &str, known: Option<&[SecretValue]>) -> String {
+    cut(redact_text(clip(&redact_known(tool, known.unwrap_or(&[])))))
 }
 
 fn sha256(bytes: &[u8]) -> String {
@@ -95,10 +107,10 @@ fn sha256(bytes: &[u8]) -> String {
         })
 }
 
-fn redact(value: &mut Value) {
+fn redact(value: &mut Value, known: &[SecretValue]) {
     match value {
-        Value::String(text) => *text = redact_text(clip(text)),
-        Value::Array(items) => items.iter_mut().for_each(redact),
+        Value::String(text) => *text = redact_text(clip(&redact_known(text, known))),
+        Value::Array(items) => items.iter_mut().for_each(|item| redact(item, known)),
         Value::Object(fields) => {
             *fields = std::mem::take(fields)
                 .into_iter()
@@ -106,9 +118,9 @@ fn redact(value: &mut Value) {
                     if secret_field(&name) {
                         field = Value::String(REDACTED.to_owned());
                     } else {
-                        redact(&mut field);
+                        redact(&mut field, known);
                     }
-                    (redact_text(clip(&name)), field)
+                    (redact_text(clip(&redact_known(&name, known))), field)
                 })
                 .collect();
         }
@@ -125,6 +137,45 @@ fn secret_field(name: &str) -> bool {
     name == "cookie"
         || name == "setcookie"
         || SECRET_FIELD_ENDS.iter().any(|end| name.ends_with(end))
+}
+
+/// `text` without any of the `known` values. Every place one occurs is
+/// marked first, so values that overlap each other are removed whole.
+fn redact_known(text: &str, known: &[SecretValue]) -> String {
+    let mut covered: Vec<(usize, usize)> = Vec::new();
+    for value in known.iter().map(SecretValue::expose) {
+        if value.is_empty() {
+            continue;
+        }
+        let mut from = 0;
+        while let Some(at) = text[from..].find(value) {
+            let start = from + at;
+            covered.push((start, start + value.len()));
+            // The next char, so a value that overlaps itself is found again.
+            from = start + text[start..].chars().next().map_or(1, char::len_utf8);
+        }
+    }
+    if covered.is_empty() {
+        return text.to_owned();
+    }
+    covered.sort_unstable();
+    let mut out = String::with_capacity(text.len());
+    let mut copied = 0;
+    let mut covered = covered.into_iter().peekable();
+    while let Some((start, mut end)) = covered.next() {
+        while let Some(&(next, next_end)) = covered.peek() {
+            if next > end {
+                break;
+            }
+            end = end.max(next_end);
+            covered.next();
+        }
+        out.push_str(&text[copied..start]);
+        out.push_str(REDACTED);
+        copied = end;
+    }
+    out.push_str(&text[copied..]);
+    out
 }
 
 /// `text` without header values and token-like words.

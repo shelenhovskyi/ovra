@@ -10,6 +10,7 @@ use crate::protocol::audit::{
     AuditEvent, AuditLogEvent, AuditRange, AuditRequest, AuditResponse, DecidedBy, MAX_AUDIT_PAGE,
 };
 use crate::protocol::projects::ProjectId;
+use crate::protocol::secrets::SecretValue;
 use crate::protocol::{ProtocolError, Response};
 
 /// Appends `event` and shows it to live viewers. A log that cannot be
@@ -25,20 +26,39 @@ pub(crate) fn record(
     }
 }
 
-/// The entry for a decided tool call; the input is kept as
-/// [`input::input`] says.
-pub(crate) fn tool_decided(
+/// The entry for a decided tool call of `project`; the input is kept as
+/// [`input::input`] says, without the values of the project's secrets.
+pub(crate) async fn tool_decided(
+    core: &Core,
+    project: &ProjectId,
     tool: &str,
     input: &serde_json::Value,
     allowed: bool,
     by: DecidedBy,
 ) -> AuditEvent {
+    let known = known_secrets(core, project).await;
     AuditEvent::ToolDecided {
-        tool: input::cut_name(tool),
-        input: input::input(tool, input),
+        tool: input::cut_name(tool, known.as_deref()),
+        input: input::input(tool, input, known.as_deref()),
         allowed,
         by,
     }
+}
+
+/// The values of the project's secrets, read on a blocking thread as every
+/// keychain call; `None` if any of them cannot be read.
+async fn known_secrets(core: &Core, project: &ProjectId) -> Option<Vec<SecretValue>> {
+    let secrets = core.secrets_store();
+    let project = project.clone();
+    crate::secrets::blocking(move || {
+        secrets
+            .list(&project)?
+            .iter()
+            .map(|secret| secrets.value(&project, &secret.name))
+            .collect()
+    })
+    .await
+    .ok()
 }
 
 pub(crate) fn handle(core: &Core, request: AuditRequest) -> Result<Response, ProtocolError> {

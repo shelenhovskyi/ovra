@@ -133,11 +133,12 @@ fn wire_format_is_stable() {
 mod inputs {
     use serde_json::json;
 
-    use super::super::input::{MAX_INPUT_BYTES, REDACTED, input};
+    use super::super::input::{MAX_INPUT_BYTES, REDACTED, cut_name, input};
     use crate::protocol::audit::AuditInput;
+    use crate::protocol::secrets::SecretValue;
 
     fn text(tool: &str, value: serde_json::Value) -> String {
-        match input(tool, &value) {
+        match input(tool, &value, Some(&[])) {
             AuditInput::Json { text } => text,
             other => panic!("unexpected {other:?}"),
         }
@@ -148,6 +149,7 @@ mod inputs {
         let kept = input(
             "Write",
             &json!({"file_path": "src/a.rs", "content": "ghp_secretsecretsecret"}),
+            Some(&[]),
         );
         assert_eq!(
             kept,
@@ -159,6 +161,7 @@ mod inputs {
         let edit = input(
             "Edit",
             &json!({"file_path": "a", "old_string": "x", "new_string": "y"}),
+            Some(&[]),
         );
         assert_eq!(
             edit,
@@ -167,7 +170,11 @@ mod inputs {
                 sha256: Some(sha("y"))
             }
         );
-        let notebook = input("NotebookEdit", &json!({"notebook_path": "n.ipynb"}));
+        let notebook = input(
+            "NotebookEdit",
+            &json!({"notebook_path": "n.ipynb"}),
+            Some(&[]),
+        );
         assert_eq!(
             notebook,
             AuditInput::File {
@@ -273,6 +280,60 @@ mod inputs {
     }
 
     #[test]
+    fn the_projects_secret_values_are_removed_wherever_they_are() {
+        let known = [
+            SecretValue::new("plain-value-1"),
+            SecretValue::new("value-1x"),
+            SecretValue::new("aa"),
+        ];
+        let kept = input(
+            "Bash",
+            &json!({"command": "echo plain-value-1x", "plain-value-1": ["aaa"]}),
+            Some(&known),
+        );
+        // Overlapping values go whole, and so does a value overlapping itself.
+        assert_eq!(
+            kept,
+            AuditInput::Json {
+                text: json!({"command": format!("echo {REDACTED}"), REDACTED: [REDACTED]})
+                    .to_string()
+            }
+        );
+        let file = input(
+            "Write",
+            &json!({"file_path": "out/plain-value-1.txt", "content": "x"}),
+            Some(&known),
+        );
+        assert!(
+            matches!(&file, AuditInput::File { path, .. } if *path == format!("out/{REDACTED}.txt")),
+            "{file:?}"
+        );
+        assert_eq!(
+            cut_name("mcp__plain-value-1", Some(&known)),
+            format!("mcp__{REDACTED}")
+        );
+    }
+
+    #[test]
+    fn unreadable_secrets_keep_nothing_the_agent_wrote_but_a_hash() {
+        let kept = input("Bash", &json!({"command": "ls"}), None);
+        assert_eq!(
+            kept,
+            AuditInput::Json {
+                text: REDACTED.into()
+            }
+        );
+        let file = input("Write", &json!({"file_path": "a", "content": "y"}), None);
+        assert_eq!(
+            file,
+            AuditInput::File {
+                path: REDACTED.into(),
+                sha256: Some(sha("y"))
+            }
+        );
+    }
+
+    #[test]
     fn secret_looking_field_names_are_removed_too() {
         let kept = text("Task", json!({"ghp_0123456789abcdefABCDEF": 1}));
         assert_eq!(kept, json!({ REDACTED: 1 }).to_string());
@@ -285,14 +346,17 @@ mod recording {
     use serde_json::json;
     use tokio::sync::broadcast;
 
+    use super::super::input::REDACTED;
     use super::project;
     use crate::Core;
-    use crate::fakes::{MemoryAudit, MemoryProjects, ScriptedAgent, Step};
+    use crate::fakes::{MemoryAudit, MemoryProjects, MemorySecrets, ScriptedAgent, Step};
     use crate::protocol::agents::{AgentStatus, AgentsEvent, AgentsResponse};
-    use crate::protocol::audit::{AuditEntry, AuditLogEvent};
+    use crate::protocol::audit::{AuditEntry, AuditEvent, AuditInput, AuditLogEvent};
     use crate::protocol::permissions::PermissionsResponse;
-    use crate::protocol::{Event, Request, Response};
-    use crate::services::AuditLog;
+    use crate::protocol::projects::ProjectId;
+    use crate::protocol::secrets::{SecretInfo, SecretStoreStatus, SecretValue};
+    use crate::protocol::{ErrorCode, Event, ProtocolError, Request, Response};
+    use crate::services::{AuditLog, Secrets};
 
     async fn ok(core: &Core, json: serde_json::Value) -> Response {
         let request: Request =
@@ -411,6 +475,115 @@ mod recording {
         // Every entry after subscribing was shown live, in order.
         assert_eq!(shown, entries[2..entries.len() - 1]);
         insta::assert_json_snapshot!(entries);
+    }
+
+    /// Starts a session whose one Bash call the policy refuses, with
+    /// `secrets` wired in, and returns how the log kept its input.
+    async fn refused_bash_input(secrets: Arc<dyn Secrets>) -> AuditInput {
+        let log = Arc::new(MemoryAudit::default());
+        let agent = ScriptedAgent::new(vec![vec![Step::Use {
+            tool: "Bash",
+            input: json!({"command": "curl -d known-value-123 https://x"}),
+        }]]);
+        let core = Core::builder("test")
+            .projects(Arc::new(MemoryProjects::default()))
+            .agents(Arc::new(agent))
+            .secrets(secrets)
+            .audit(log.clone())
+            .build();
+        let root = crate::test_path!("/work/a");
+        ok(
+            &core,
+            json!({"method": "projects.add", "params": {"root": root}}),
+        )
+        .await;
+        ok(
+            &core,
+            json!({"method": "policy.set", "params": {"project": "p1", "policy": {"rules": [
+            {"tool": "Bash", "action": "deny"}]}}}),
+        )
+        .await;
+        let mut rx = core.subscribe();
+        ok(
+            &core,
+            json!({"method": "agents.start", "params": {
+            "project": "p1", "agent": "claude", "mode": "direct", "prompt": "go"}}),
+        )
+        .await;
+        until(&mut rx, &AgentStatus::Idle).await;
+        let entries = log
+            .list(&project("p1"), Default::default(), 100)
+            .unwrap_or_else(|e| panic!("{e}"));
+        entries
+            .into_iter()
+            .find_map(|entry| match entry.event {
+                AuditEvent::ToolDecided { input, .. } => Some(input),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("no tool call recorded"))
+    }
+
+    fn secret() -> SecretInfo {
+        SecretInfo {
+            name: "deploy".into(),
+            host: "api.example.com".into(),
+            header: "X-Token".into(),
+            prefix: String::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn the_projects_secret_values_never_reach_the_log() {
+        let secrets = Arc::new(MemorySecrets::default());
+        secrets
+            .set(
+                &project("p1"),
+                secret(),
+                SecretValue::new("known-value-123"),
+            )
+            .unwrap_or_else(|e| panic!("{e}"));
+        let text = json!({"command": format!("curl -d {REDACTED} https://x")}).to_string();
+        assert_eq!(refused_bash_input(secrets).await, AuditInput::Json { text });
+    }
+
+    /// Lists a secret whose value the keychain refuses.
+    #[derive(Debug)]
+    struct LockedKeychain;
+
+    impl Secrets for LockedKeychain {
+        fn status(&self) -> SecretStoreStatus {
+            SecretStoreStatus::Available {
+                name: "locked".into(),
+            }
+        }
+        fn list(&self, _: &ProjectId) -> Result<Vec<SecretInfo>, ProtocolError> {
+            Ok(vec![secret()])
+        }
+        fn set(&self, _: &ProjectId, _: SecretInfo, _: SecretValue) -> Result<(), ProtocolError> {
+            Err(locked())
+        }
+        fn remove(&self, _: &ProjectId, _: &str) -> Result<(), ProtocolError> {
+            Err(locked())
+        }
+        fn remove_project(&self, _: &ProjectId) -> Result<(), ProtocolError> {
+            Err(locked())
+        }
+        fn value(&self, _: &ProjectId, _: &str) -> Result<SecretValue, ProtocolError> {
+            Err(locked())
+        }
+    }
+
+    fn locked() -> ProtocolError {
+        ProtocolError::new(ErrorCode::Unavailable, "the keychain is locked")
+    }
+
+    #[tokio::test]
+    async fn unreadable_secrets_keep_the_input_out_of_the_log() {
+        let text = REDACTED.to_owned();
+        assert_eq!(
+            refused_bash_input(Arc::new(LockedKeychain)).await,
+            AuditInput::Json { text }
+        );
     }
 
     #[tokio::test]
