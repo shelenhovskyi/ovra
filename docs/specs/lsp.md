@@ -154,6 +154,11 @@ data folder or inside or holding a folder agents never get (`~/.config`,
 `~/.ssh`, ...), `~/.claude`, `~/.claude.json` or a credentials file
 (`~/.netrc`, `~/.git-credentials`, `credentials.toml`, ...), and a cache
 folder inside the project or outside `<data dir>/lsp`. The server's working folder is the project.
+Its seccomp filter also refuses `socket(AF_UNIX)` (`socketpair` still
+works): Landlock does not limit connecting to a socket file in a folder
+the sandbox shows. rust-analyzer, pyright and the vscode JSON server
+were checked to make no such call (gopls and clangd not yet); `typescript-language-server` forks
+`tsserver` over a `socketpair`.
 
 ## Tasks
 

@@ -104,6 +104,8 @@ struct Args {
     forward: Vec<u16>,
     /// The only variables the agent gets.
     env: Vec<OsString>,
+    /// No `socket(AF_UNIX)` (a language server's sandbox).
+    no_unix: bool,
     command: Vec<OsString>,
 }
 
@@ -125,6 +127,7 @@ fn parse(args: Vec<OsString>) -> Result<Args, String> {
             }
             Some("--rw") => parsed.writable.push(value(&mut args, "--rw")?.into()),
             Some("--env") => parsed.env.push(value(&mut args, "--env")?),
+            Some("--no-unix-sockets") => parsed.no_unix = true,
             Some("--bridge") => {
                 let socket = value(&mut args, "--bridge")?;
                 parsed.bridge = Some((socket, value(&mut args, "--bridge")?));
@@ -147,6 +150,10 @@ fn parse(args: Vec<OsString>) -> Result<Args, String> {
     }
     if !parsed.forward.is_empty() && parsed.bridge.is_none() {
         return Err("--forward needs --bridge".into());
+    }
+    // The bridge reaches the netproxy over a Unix socket.
+    if parsed.no_unix && parsed.bridge.is_some() {
+        return Err("--no-unix-sockets leaves no way to the bridge".into());
     }
     Ok(parsed)
 }
@@ -206,7 +213,7 @@ fn run(args: Vec<OsString>) -> String {
         Some(Landlock::Report) if held => println!("{LANDLOCK_HELD}"),
         _ => {}
     }
-    if let Err(e) = crate::seccomp::apply() {
+    if let Err(e) = crate::seccomp::apply(args.no_unix) {
         return format!("seccomp failed: {e}");
     }
     // After both: the bridge is held as tightly as the agent, which could
@@ -414,6 +421,27 @@ mod tests {
         assert!(parse(args(&["--net", "open", "--", "x"])).is_err());
         assert!(parse(args(&["--landlock", "maybe", "--", "x"])).is_err());
         assert!(parse(args(&["--rw", "/w"])).is_err());
+    }
+
+    #[test]
+    fn a_line_without_unix_sockets_has_no_bridge() {
+        let parsed =
+            parse(args(&["--no-unix-sockets", "--", "x"])).unwrap_or_else(|e| panic!("{e}"));
+        assert!(parsed.no_unix);
+        assert!(
+            !parse(args(&["--", "x"]))
+                .unwrap_or_else(|e| panic!("{e}"))
+                .no_unix
+        );
+        let both = parse(args(&[
+            "--no-unix-sockets",
+            "--bridge",
+            "/s",
+            "3128",
+            "--",
+            "x",
+        ]));
+        assert!(both.is_err());
     }
 
     #[test]

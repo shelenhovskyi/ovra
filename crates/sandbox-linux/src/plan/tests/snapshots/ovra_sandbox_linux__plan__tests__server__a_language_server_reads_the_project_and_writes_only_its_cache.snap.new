@@ -1,0 +1,104 @@
+---
+source: crates/sandbox-linux/src/plan/tests/server.rs
+assertion_line: 77
+expression: root.show(&line)
+---
+--unshare-user
+--unshare-pid
+--unshare-ipc
+--unshare-uts
+--unshare-cgroup-try
+--die-with-parent
+--new-session
+--cap-drop ALL
+--unshare-net
+--ro-bind /
+--dev /dev
+--proc /proc
+--tmpfs /tmp
+--tmpfs /var/tmp
+--tmpfs /run
+--tmpfs /mnt
+--tmpfs /media
+--tmpfs ROOT/home
+--ro-bind ROOT/home/.cargo
+--ro-bind ROOT/home/.rustup
+--ro-bind ROOT/home/.npm
+--ro-bind ROOT/home/.cache/pip
+--ro-bind /dev/null ROOT/home/.cargo/credentials.toml
+--ro-bind ROOT/home/projects/app
+--bind ROOT/data/lsp/p1/rust
+--ro-bind ROOT/bin/ovra
+--ro-bind ROOT/home/.cargo/bin/rust-analyzer
+--chdir ROOT/home/projects/app
+--
+ROOT/bin/ovra
+--ovra-sandbox-helper
+--landlock require
+--rw /tmp
+--rw /dev
+--rw ROOT/data/lsp/p1/rust
+--no-unix-sockets
+--env
+HOME
+--env
+USER
+--env
+LOGNAME
+--env
+SHELL
+--env
+LANG
+--env
+LANGUAGE
+--env
+LC_ALL
+--env
+LC_CTYPE
+--env
+TZ
+--env
+TERM
+--env
+COLORTERM
+--env
+NO_COLOR
+--env
+SSL_CERT_FILE
+--env
+SSL_CERT_DIR
+--env
+NODE_EXTRA_CA_CERTS
+--env
+CARGO_HOME
+--env
+RUSTUP_HOME
+--env
+NVM_DIR
+--env
+GOPATH
+--env
+PATH
+--env
+TMPDIR
+--env
+CARGO_TARGET_DIR
+--env
+CARGO_NET_OFFLINE
+--
+ROOT/home/.cargo/bin/rust-analyzer
+env PATH = Some("ROOT/home/.cargo/bin:/usr/bin")
+env TMPDIR = Some("/tmp")
+env CARGO_TARGET_DIR = Some("ROOT/data/lsp/p1/rust/target")
+env TMPDIR = Some("ROOT/data/lsp/p1/rust/tmp")
+env CARGO_NET_OFFLINE = Some("true")
+env GITHUB_TOKEN = None
+env SSH_AUTH_SOCK = None
+env CLAUDE_CODE_OAUTH_TOKEN = None
+env CLAUDECODE = None
+env ANTHROPIC_API_KEY = None
+env ANTHROPIC_BASE_URL = None
+env CLAUDE_CODE_USE_BEDROCK = None
+env AWS_REGION = None
+env GOOGLE_CLOUD_PROJECT = None
+env OVRA_FAKE_CLAUDE_FIXTURE = None

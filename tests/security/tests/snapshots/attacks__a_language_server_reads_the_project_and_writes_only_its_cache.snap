@@ -16,6 +16,7 @@ read ovra data: no
 read the cargo token: no
 reach the daemon: no
 reach an abstract socket: no
+reach a socket in a visible folder: no
 find ANTHROPIC_API_KEY: no
 find GITHUB_TOKEN: no
 find a secret in any process environment: no

@@ -1,7 +1,9 @@
 //! The seccomp filter the helper applies last: system calls an agent's
 //! tools never need, which only widen the kernel an attacker can reach or
 //! undo the sandbox. Everything else is allowed; the mounts, Landlock and
-//! the namespaces are what limit files and the network.
+//! the namespaces are what limit files and the network. A language
+//! server also gets no Unix socket of its own (`no_unix`): Landlock does
+//! not limit connecting to a socket file in a folder the sandbox shows.
 
 use std::collections::BTreeMap;
 
@@ -60,14 +62,16 @@ const TIOCLINUX: u64 = 0x541C;
 const X32: u32 = 0x4000_0000;
 
 /// Installs the filters on this thread; they pass to everything it runs.
-pub(crate) fn apply() -> Result<(), seccompiler::Error> {
-    for program in programs()? {
+/// With `no_unix`, `socket(AF_UNIX, ...)` is refused too; `socketpair`,
+/// which pipes to a child use, still works, as it reaches no one else.
+pub(crate) fn apply(no_unix: bool) -> Result<(), seccompiler::Error> {
+    for program in programs(no_unix)? {
         seccompiler::apply_filter(&program)?;
     }
     Ok(())
 }
 
-fn programs() -> Result<Vec<BpfProgram>, seccompiler::Error> {
+fn programs(no_unix: bool) -> Result<Vec<BpfProgram>, seccompiler::Error> {
     let arch = TargetArch::try_from(std::env::consts::ARCH)?;
     let mut denied: BTreeMap<i64, Vec<SeccompRule>> =
         DENIED.iter().map(|&nr| (nr, Vec::new())).collect();
@@ -89,6 +93,16 @@ fn programs() -> Result<Vec<BpfProgram>, seccompiler::Error> {
             .and_then(|c| SeccompRule::new(vec![c]))
     };
     denied.insert(libc::SYS_ioctl, vec![ioctl(TIOCSTI)?, ioctl(TIOCLINUX)?]);
+    if no_unix {
+        let unix = SeccompCondition::new(
+            0,
+            SeccompCmpArgLen::Dword,
+            SeccompCmpOp::Eq,
+            libc::AF_UNIX as u64,
+        )
+        .and_then(|c| SeccompRule::new(vec![c]))?;
+        denied.insert(libc::SYS_socket, vec![unix]);
+    }
     let eperm = SeccompFilter::new(
         denied,
         SeccompAction::Allow,
@@ -135,11 +149,13 @@ mod tests {
 
     #[test]
     fn the_filters_compile_for_this_machine() {
-        let programs = programs().unwrap_or_else(|e| panic!("{e}"));
-        assert_eq!(
-            programs.len(),
-            2 + usize::from(cfg!(target_arch = "x86_64"))
-        );
-        assert!(programs.iter().all(|p| !p.is_empty()));
+        for no_unix in [false, true] {
+            let programs = programs(no_unix).unwrap_or_else(|e| panic!("{e}"));
+            assert_eq!(
+                programs.len(),
+                2 + usize::from(cfg!(target_arch = "x86_64"))
+            );
+            assert!(programs.iter().all(|p| !p.is_empty()));
+        }
     }
 }

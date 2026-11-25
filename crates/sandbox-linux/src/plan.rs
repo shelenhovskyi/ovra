@@ -636,6 +636,9 @@ impl Plan {
         for path in &self.writable {
             args.extend([os("--rw"), os(path)]);
         }
+        if matches!(self.kind, Kind::Server { .. }) {
+            args.push(os("--no-unix-sockets"));
+        }
         // A server's line points its caches and temporary files into its
         // cache folder: its variables come last, so they win.
         let (mut env, last) = match self.kind {

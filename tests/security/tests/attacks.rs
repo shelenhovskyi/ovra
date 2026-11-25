@@ -161,6 +161,8 @@ impl World {
                 } else if meta.is_symlink() {
                     let target = fs::read_link(&path).unwrap();
                     files.push((path, target.into_os_string().into_encoded_bytes()));
+                } else if std::os::unix::fs::FileTypeExt::is_socket(&meta.file_type()) {
+                    files.push((path, b"socket".to_vec()));
                 } else {
                     files.push((path.clone(), fs::read(&path).unwrap()));
                 }
@@ -707,6 +709,9 @@ fn a_language_server_reads_the_project_and_writes_only_its_cache() {
         let addr = std::os::unix::net::SocketAddr::from_abstract_name(&abstract_name).unwrap();
         UnixListener::bind_addr(&addr).unwrap()
     };
+    // Something on the host listening on a socket file the sandbox shows.
+    let socket = world.home.join("ide.sock");
+    let _socket = UnixListener::bind(&socket).unwrap();
     let checks = format!(
         "read the project: grep -q hello README.md
         read the registry of the user: test -f {home}/.cargo/registry/index/.keep
@@ -722,12 +727,14 @@ fn a_language_server_reads_the_project_and_writes_only_its_cache() {
         read the cargo token: grep -q {SECRET} {home}/.cargo/credentials.toml
         reach the daemon: echo > /dev/tcp/127.0.0.1/{port}
         reach an abstract socket: {AGENT} connect-abstract {abstract_name}
+        reach a socket in a visible folder: {AGENT} connect-unix {socket}
         find ANTHROPIC_API_KEY: printenv ANTHROPIC_API_KEY
         find GITHUB_TOKEN: printenv GITHUB_TOKEN
         find a secret in any process environment: grep -qs {SECRET} /proc/*/environ",
         home = world.home.display(),
         data = world.data.display(),
         cache = cache.display(),
+        socket = socket.display(),
     );
     // No control for these: outside they would leave this machine.
     let offline = "reach the internet: echo > /dev/tcp/1.1.1.1/443

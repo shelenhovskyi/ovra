@@ -37,6 +37,7 @@ ROOT/bin/ovra
 --rw /tmp
 --rw /dev
 --rw ROOT/data/lsp/p1/rust
+--no-unix-sockets
 --env
 HOME
 --env
