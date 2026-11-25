@@ -37,6 +37,23 @@ async function showPanel(): Promise<GitModel | undefined> {
   return model;
 }
 
+/**
+ * Says `text` from a live region of its own on the page: without a project the panel is
+ * hidden, and its own region with it. The same text twice is still read out.
+ */
+function sayOutside(text: string): void {
+  let region = document.getElementById("git-outside-announce");
+  if (!region) {
+    region = document.createElement("p");
+    region.id = "git-outside-announce";
+    region.setAttribute("role", "status");
+    region.setAttribute("data-testid", "git-outside-announce");
+    region.style.cssText = "position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);margin:0";
+    document.body.append(region);
+  }
+  region.textContent = region.textContent === text ? `${text}\u00a0` : text;
+}
+
 /** The commit message when there is a repository, else the panel's first button. */
 function focusPanel(): void {
   const panel = document.querySelector<HTMLElement>("[data-testid=git]");
@@ -50,8 +67,9 @@ $effect(() => {
       title: "Git: open panel",
       keys: "Ctrl+Shift+G",
       run: async () => {
-        // Without a project there is no git to show: go where one is opened.
+        // Without a project there is no git to show: say so, and go where one is opened.
         if (!workspace.project) {
+          sayOutside("Open a project first. Git shows the changes in a project's folder.");
           document.getElementById("project-root")?.focus();
           return;
         }

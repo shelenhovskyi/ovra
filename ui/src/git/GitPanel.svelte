@@ -106,6 +106,17 @@ function ago(seconds: number, now = Date.now() / 1000): string {
 <section class="git" aria-labelledby="git-title" data-testid="git">
   <h2 id="git-title" class="visually-hidden">Git</h2>
   <p class="visually-hidden" role="status" data-testid="git-announce">{model.notice}</p>
+  <!-- A hook or gpg may wait for input Ovra cannot give: say so, and let the person stop it. -->
+  {#if model.slow}
+    <div class="first" data-testid="git-running">
+      <p role="status">
+        {model.stopping ? "Stopping…" : `${model.slow === "commit" ? "Committing" : "Switching branches"}: git or a hook is still running.`}
+      </p>
+      <button type="button" class="bordered" aria-disabled={model.stopping} onclick={() => void model.cancel()}
+        >Cancel</button
+      >
+    </div>
+  {/if}
 
   {#if model.state.kind === "loading"}
     <p class="hint">Loading git status…</p>
