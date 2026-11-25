@@ -1,6 +1,6 @@
 # 0012. A task board for agents of one task
 
-- Status: proposed
+- Status: accepted (owner, 2026-11-25)
 - Date: 2026-11-25
 
 ## Context

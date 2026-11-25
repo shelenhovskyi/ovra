@@ -1,9 +1,8 @@
 # Task board
 
-Status: draft for the owner's review. ADR 0012; builds on
-`docs/specs/orchestration.md` and `docs/research/agent-messaging.md`.
-The owner chose the shared board on 2026-11-25; the items marked
-"Decision" below wait for their answer, each with a recommended option.
+Status: approved by the owner on 2026-11-25 with the recommended option
+of B1-B3; questions to the person stay quiet (no toasts). ADR 0012; builds
+on `docs/specs/orchestration.md` and `docs/research/agent-messaging.md`.
 
 ## What it is for
 
@@ -64,21 +63,20 @@ becomes the new worker's first claim.
   board: a question to it is answered by the core with "worker X waits
   idle; ask the coordinator", and the entry stays for whoever resumes it.
 - The coordinator gets every entry, also when idle: it is the task's
-  planner and is woken today by Ovra's notes. **Decision B1:** wake the
-  coordinator for every entry (recommended: only for questions to it,
-  overlaps and `ovra` entries; the rest waits for its next turn).
+  planner. **B1:** an idle coordinator is woken only for questions to
+  it, overlaps and `ovra` entries; the rest waits for its next turn.
 - Mid-turn delivery inside a long turn (a `PostToolUse` hook answer with
   `additionalContext`) is a later step; it needs a check on the CLI first.
 
 ## Questions for the person
 
-`ask(to: "person")` shows the question in the agents panel and in the
-attention list like an approval, with a desktop notification. The person
+`ask(to: "person")` shows the question quietly: on the task's board and
+under "Waiting on you" next to approvals, with no toast and no desktop
+notification of its own. The person
 answers from the UI (`board.answer`); the answer is marked as theirs
 because it comes from the UI. The asker keeps working while it waits.
-**Decision B2:** may workers ask the person directly (recommended: yes,
-the coordinator sees the question and the answer), or only the
-coordinator?
+**B2:** workers may ask the person directly; the coordinator sees the
+question and the answer.
 
 ## Limits
 
@@ -124,9 +122,8 @@ coordinator?
 - Opening the task shows the board: a timeline of entries with their
   authors, a box to post or answer, and "who changes what" (file →
   workers, from claims and changes) with overlaps marked.
-- **Decision B3:** where the board lives (recommended: a "Board" tab in the
-  task view of the agents panel, next to its workers; the alternative is a
-  panel of its own).
+- **B3:** the board is a "Board" tab in the task view of the agents
+  panel, next to its workers.
 
 ## Tests
 
