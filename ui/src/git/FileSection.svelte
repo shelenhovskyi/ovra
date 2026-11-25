@@ -315,13 +315,14 @@ const all = $derived(files.flatMap((f) => (kind === "staged" && f.from ? [f.path
     padding: 0;
     list-style: none;
   }
-  /* A 28 px row with a 4 px inset, so the selection (the shown diff) reads as a pill. */
+  /* A 28 px row (--ctl: the shell hides --row) with a 4 px inset, so the
+     selection (the shown diff) reads as a pill. */
   .row {
     display: flex;
     align-items: center;
     gap: var(--sp-1);
     min-width: 0;
-    height: var(--row);
+    height: var(--ctl);
     margin: 0 var(--sp-1);
     padding-right: var(--sp-1);
     border-radius: var(--r-xs);

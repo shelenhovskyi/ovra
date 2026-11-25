@@ -406,7 +406,7 @@ const folder = (path: string) => path.slice(0, Math.max(path.lastIndexOf("/"), 0
     display: flex;
     gap: 8px;
     align-items: center;
-    min-height: var(--row);
+    min-height: var(--ctl);
     padding: 0 4px;
     white-space: nowrap;
     overflow: hidden;
@@ -436,7 +436,7 @@ const folder = (path: string) => path.slice(0, Math.max(path.lastIndexOf("/"), 0
     align-items: center;
     gap: 8px;
     width: 100%;
-    min-height: var(--row);
+    min-height: var(--ctl);
     padding: 0 4px 0 8px;
     font: 13px var(--mono);
     text-align: left;

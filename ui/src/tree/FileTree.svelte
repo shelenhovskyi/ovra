@@ -666,12 +666,13 @@ function onkeydown(e: KeyboardEvent): void {
   .spacer {
     position: relative;
   }
-  /* A 4 px inset, so the selection reads as a pill. */
+  /* A 4 px inset, so the selection reads as a pill. 28 px from --ctl: the
+     shell uses the name --row for its grid, which hides the token here. */
   .row {
     position: absolute;
     left: var(--sp-1);
     right: var(--sp-1);
-    height: var(--row);
+    height: var(--ctl);
     display: flex;
     align-items: center;
     gap: 6px;
