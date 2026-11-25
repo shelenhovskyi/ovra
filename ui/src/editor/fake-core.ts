@@ -69,6 +69,8 @@ export class FakeCore implements Transport {
       case "projects.set_state":
         this.sentStates.push(request.params.state);
         this.state = { ...this.state, ...request.params.state };
+        // As the core does: a second group without tabs is closed.
+        if (this.state.second_group?.open_files.length === 0) delete this.state.second_group;
         return { type: "ok" };
       default:
         throw new Error(`unexpected ${request.method}`);

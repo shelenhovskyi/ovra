@@ -10,18 +10,24 @@ import {
   closeOtherTabs,
   closeSavedTabs,
   closeTabsToTheRight,
+  focusGroup,
   focusMain,
+  moveTab,
   reopenClosedTab,
   requestClose,
   saveAll,
   show,
+  splitRight,
   tabs,
 } from "./open-files.svelte";
 import { editorPrefs } from "./prefs.svelte";
 import { runSearch, type SearchAction, shownView } from "./search";
 import { symbolSource } from "./symbols";
 
-type Target = Pick<Workspace, "openPath" | "mode" | "openFile" | "paletteOpen">;
+type Target = Pick<
+  Workspace,
+  "openPath" | "mode" | "openFile" | "paletteOpen" | "other" | "group" | "focusGroup" | "split" | "closeGroup"
+>;
 
 /** Lists the shown file's symbols in the palette; Enter jumps to one. */
 async function goToSymbol(workspace: Target): Promise<void> {
@@ -227,6 +233,35 @@ export function registerEditorCommands(workspace: Target): () => void {
       run: () => {
         const active = tabs.current?.active;
         if (active) tabs.current?.togglePin(active);
+      },
+    }),
+    // Mod+\ as in VS Code. Mod+1 and Mod+2 are free in Ovra; a browser tab keeps them, so headless mode uses Mod+Alt.
+    registerCommand({
+      id: "editor.split_right",
+      title: "Split editor right",
+      keys: "Mod+\\",
+      keywords: ["group", "side by side"],
+      run: () => splitRight(workspace),
+    }),
+    registerCommand({
+      id: "editor.focus_group_1",
+      title: "Focus first editor group",
+      keys: "Mod+1",
+      run: () => focusGroup(workspace, 0),
+    }),
+    registerCommand({
+      id: "editor.focus_group_2",
+      title: "Focus second editor group",
+      keys: "Mod+2",
+      run: () => focusGroup(workspace, 1),
+    }),
+    registerCommand({
+      id: "editor.move_tab_to_other_group",
+      title: "Move tab to other editor group",
+      keywords: ["split"],
+      run: () => {
+        const active = tabs.current?.active;
+        if (active) moveTab(workspace, active, workspace.group === 0 ? 1 : 0);
       },
     }),
     ...LSP_ACTIONS.map(([action, title, keys]) =>

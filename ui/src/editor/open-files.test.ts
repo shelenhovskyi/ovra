@@ -26,7 +26,7 @@ function setup() {
 test("writes only its own fields and keeps the tab order", async () => {
   const { core, files } = setup();
   core.state = { open_files: ["a.rs", "b.rs"], active_file: "b.rs", expanded_dirs: ["src"] };
-  expect(await files.restore()).toBe("b.rs");
+  expect((await files.restore()).active_file).toBe("b.rs");
   await files.opened("a.rs");
   expect(core.sentStates.at(-1)).toEqual({ open_files: ["a.rs", "b.rs"], active_file: "a.rs", pinned_files: [] });
   await core.call({ method: "projects.set_state", params: { id: "p1", state: { expanded_dirs: ["docs"] } } });

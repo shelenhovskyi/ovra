@@ -5,11 +5,14 @@
 // may have an editor buffer; a tab with unsaved text is never closed without
 // asking. A file opened with a single click is a preview tab that the next
 // one replaces; pinned tabs sit first and outlast Close others / Close all.
+// A split main area has two editor groups (docs/specs/split-editor.md), each
+// with its own `OpenFiles`; they share the project's buffers, and the second
+// group's tabs are kept in the state's `second_group`.
 
 import { tick, untrack } from "svelte";
-import type { ProjectId, ProjectStatePatch } from "../lib/protocol";
+import type { EditorGroup, ProjectId, ProjectState, ProjectStatePatch } from "../lib/protocol";
 import { CoreError, type Transport } from "../lib/transport";
-import type { MainMode, Workspace } from "../shell/workspace.svelte";
+import type { GroupIndex, MainMode, Workspace } from "../shell/workspace.svelte";
 import { movedPath } from "../tree/ops";
 import { autoSaver } from "./autosave";
 import { Buffers } from "./buffers.svelte";
@@ -23,6 +26,9 @@ const MAX_OPEN_FILES = 20;
 
 /** How many closed tabs Reopen closed tab remembers. */
 const MAX_CLOSED = 20;
+
+/** Writes of every group, in order, so a closing group never overwrites the one taking its place. */
+let writes = Promise.resolve();
 
 export class OpenFiles {
   /** Tab order; the pinned tabs come first. */
@@ -39,7 +45,10 @@ export class OpenFiles {
   readonly modes = new Map<string, MainMode>();
   /** The project's language servers, once the shell wires them up. */
   lsp: LanguageClients | null = null;
-  private writes = Promise.resolve();
+  /** Which group's fields of the project state this group writes. */
+  slot: GroupIndex = 0;
+  /** Whether the other group has a tab for `path` (whose buffer then stays when this tab closes). */
+  shared: (path: string) => boolean = () => false;
   /** Tabs closed this session, the last one last, for Reopen closed tab. */
   private closed: string[] = [];
 
@@ -49,17 +58,35 @@ export class OpenFiles {
     readonly buffers: Buffers,
   ) {}
 
-  /** Loads the stored state; resolves to the file that was active. */
-  async restore(): Promise<string | null> {
+  /** Loads the stored state into the first group; resolves to all of it. */
+  async restore(): Promise<ProjectState> {
     const { data: state } = await this.transport.call({
       method: "projects.get_state",
       params: { id: this.project },
     });
-    const pinned = (state.pinned_files ?? []).filter((path) => state.open_files.includes(path));
+    this.apply(state);
+    return state;
+  }
+
+  /** Takes the tabs of a stored group. */
+  apply(group: Pick<EditorGroup, "open_files" | "active_file"> & { pinned_files?: string[] }): void {
+    const pinned = (group.pinned_files ?? []).filter((path) => group.open_files.includes(path));
     this.pinned = pinned;
-    this.files = [...pinned, ...state.open_files.filter((path) => !pinned.includes(path))];
-    this.active = state.active_file;
-    return state.active_file;
+    this.files = [...pinned, ...group.open_files.filter((path) => !pinned.includes(path))];
+    this.active = group.active_file;
+  }
+
+  /** A new, empty group for `slot` that shares this one's buffers and language servers. */
+  sibling(slot: GroupIndex): OpenFiles {
+    const files = new OpenFiles(this.transport, this.project, this.buffers);
+    files.lsp = this.lsp;
+    files.slot = slot;
+    return files;
+  }
+
+  /** Whether closing the tab for `path` would lose unsaved text. */
+  private unsaved(path: string): boolean {
+    return this.buffers.isDirty(path) && !this.shared(path);
   }
 
   isPinned(path: string): boolean {
@@ -71,7 +98,7 @@ export class OpenFiles {
    * the preview tab, in the place of the old one unless that has unsaved text.
    */
   opened(path: string | null): Promise<void> {
-    if (path === this.active) return this.writes;
+    if (path === this.active) return writes;
     this.active = path;
     if (path && !this.files.includes(path)) {
       const files = [...this.files];
@@ -145,7 +172,7 @@ export class OpenFiles {
    */
   private closeSome(candidates: string[], next: string | null): number {
     const unpinned = candidates.filter((p) => !this.isPinned(p));
-    const unsaved = unpinned.filter((p) => this.buffers.isDirty(p));
+    const unsaved = unpinned.filter((p) => this.unsaved(p));
     const closing = unpinned.filter((p) => !unsaved.includes(p));
     const stays = (p: string) => !closing.includes(p);
     for (const p of closing) this.forget(p);
@@ -214,7 +241,7 @@ export class OpenFiles {
   forgetPaths(paths: string[]): string | null {
     const gone = (path: string) => paths.some((dir) => movedPath(path, dir, dir) !== null);
     this.closed = this.closed.filter((path) => !gone(path));
-    const closing = this.files.filter((path) => gone(path) && !this.buffers.isDirty(path));
+    const closing = this.files.filter((path) => gone(path) && !this.unsaved(path));
     for (const path of this.files)
       if (gone(path) && !closing.includes(path)) void this.buffers.get(path)?.diskChanged();
     if (closing.length === 0) return this.active;
@@ -264,45 +291,150 @@ export class OpenFiles {
   }
 
   private forget(path: string): void {
-    this.buffers.discard(path);
+    if (!this.shared(path)) this.buffers.discard(path);
     this.modes.delete(path);
   }
 
-  private write(): Promise<void> {
-    const state: ProjectStatePatch = {
-      open_files: this.files,
-      active_file: this.active,
-      pinned_files: this.pinned,
-    };
-    this.writes = this.writes
+  /** This group is the only one left: it writes the first group's fields and clears the second's. */
+  becomeOnly(): void {
+    this.slot = 0;
+    this.shared = () => false;
+    void this.write({ second_group: { open_files: [], active_file: null, pinned_files: [] } });
+  }
+
+  private write(also: ProjectStatePatch = {}): Promise<void> {
+    const group: EditorGroup = { open_files: this.files, active_file: this.active, pinned_files: this.pinned };
+    const state: ProjectStatePatch = { ...(this.slot === 0 ? group : { second_group: group }), ...also };
+    writes = writes
       .then(async () => {
         await this.transport.call({ method: "projects.set_state", params: { id: this.project, state } });
       })
       .catch(() => {
         // Losing the list of open files is harmless; the next change writes it again.
       });
-    return this.writes;
+    return writes;
   }
 }
 
 /**
- * The open project's tabs, or null before its state is loaded, the tab
- * waiting for a Save / Don't save / Cancel answer, and whether its Save is
- * still writing (the question stays until it is done).
+ * The open project's editor groups, left to right (none before its state is
+ * loaded), the tab waiting for a Save / Don't save / Cancel answer, and
+ * whether its Save is still writing (the question stays until it is done).
  */
-export const tabs = $state<{
-  current: OpenFiles | null;
-  closing: string | null;
-  saving: boolean;
-  notice: string | null;
-}>({
-  current: null,
-  closing: null,
-  saving: false,
-  notice: null,
-});
+class Tabs {
+  groups = $state<OpenFiles[]>([]);
+  closing = $state<string | null>(null);
+  saving = $state(false);
+  notice = $state<string | null>(null);
+  /** The focused group, as the workspace says; `persistOpenFiles` connects it. */
+  focused: () => GroupIndex = () => 0;
 
-type Target = Pick<Workspace, "openPath" | "mode" | "openFile">;
+  /** The focused group's tabs, which commands act on. */
+  get current(): OpenFiles | null {
+    return this.groups[this.focused()] ?? null;
+  }
+
+  /** One group, or none. */
+  set current(files: OpenFiles | null) {
+    this.groups = files ? [files] : [];
+  }
+}
+
+export const tabs = new Tabs();
+
+type Target = Pick<
+  Workspace,
+  "openPath" | "mode" | "openFile" | "other" | "group" | "focusGroup" | "split" | "closeGroup"
+>;
+
+/** The id of group `group`'s tab panel, which its tabs control. */
+export function panelId(group: GroupIndex): string {
+  return group === 0 ? "ovra-tabpanel" : "ovra-tabpanel-2";
+}
+
+/** Connects a new group to the others, so a tab both have keeps its buffer when one closes it. */
+function joined(files: OpenFiles): OpenFiles {
+  files.shared = (path) => tabs.groups.some((group) => group !== files && group.files.includes(path));
+  return files;
+}
+
+/** The mode `path` was last shown in within `group`. */
+function modeIn(group: OpenFiles, path: string): MainMode {
+  return group.modes.get(path) ?? modeMemory.get(path) ?? "view";
+}
+
+/**
+ * Split right: the focused group's file opens in a new group on the right,
+ * which takes focus; with two groups, focus moves to the other one.
+ */
+export function splitRight(workspace: Target): void {
+  const current = tabs.current;
+  if (workspace.other) {
+    workspace.focusGroup(workspace.group === 0 ? 1 : 0);
+    void focusMain();
+    return;
+  }
+  const path = workspace.openPath;
+  if (!current || !path) return;
+  const right = joined(current.sibling(1));
+  joined(current);
+  tabs.groups = [current, right];
+  right.modes.set(path, workspace.mode);
+  void right.opened(path);
+  right.makePermanent(path);
+  workspace.split({ openPath: path, mode: workspace.mode });
+  void focusMain();
+}
+
+/** Focuses group `group`, if there is one, and moves focus into it. */
+export function focusGroup(workspace: Target, group: GroupIndex): void {
+  if (!tabs.groups[group]) return;
+  workspace.focusGroup(group);
+  void focusMain();
+}
+
+/**
+ * Moves the tab for `path` from the group it is in to the other one, which
+ * shows it and takes focus; with one group, a new group on the right takes
+ * it, unless it is the only tab. The group it leaves closes if it was its last.
+ */
+export function moveTab(workspace: Target, path: string, to: GroupIndex): void {
+  const fromIndex: GroupIndex = to === 0 ? 1 : 0;
+  const from = tabs.groups[fromIndex];
+  if (!from?.files.includes(path)) return;
+  const mode = modeIn(from, path);
+  let target = tabs.groups[to];
+  if (!target) {
+    if (to === 0 || from.files.length < 2) return;
+    target = joined(from.sibling(1));
+    joined(from);
+    tabs.groups = [from, target];
+  }
+  target.modes.set(path, mode);
+  void target.opened(path);
+  target.makePermanent(path);
+  // The other group shows the moved file, so closing this tab keeps its buffer.
+  workspace.focusGroup(fromIndex);
+  const next = from.close(path);
+  show(workspace, next);
+  if (workspace.other) {
+    workspace.focusGroup(to);
+    workspace.openFile(path, mode);
+  } else workspace.split({ openPath: path, mode });
+  closeEmptyGroup(workspace);
+  void focusMain();
+}
+
+/** With two groups, one without tabs closes; the other takes the whole width. */
+function closeEmptyGroup(workspace: Target): void {
+  if (tabs.groups.length < 2) return;
+  const empty = tabs.groups.findIndex((group) => group.files.length === 0);
+  if (empty < 0) return;
+  const left = tabs.groups.filter((_, index) => index !== empty);
+  tabs.groups = left;
+  workspace.closeGroup(empty === 0 ? 0 : 1);
+  left[0]?.becomeOnly();
+}
 
 /** Unsaved editor text for a file of the open project, or null. Reactive; for the viewer. */
 export function unsavedText(project: ProjectId, path: string): string | null {
@@ -314,7 +446,7 @@ export function unsavedText(project: ProjectId, path: string): string | null {
 export function requestClose(workspace: Target, path: string): void {
   const current = tabs.current;
   if (!current) return;
-  if (current.buffers.isDirty(path)) {
+  if (current.buffers.isDirty(path) && !current.shared(path)) {
     tabs.closing = path;
     return;
   }
@@ -364,7 +496,8 @@ export async function saveAll(): Promise<void> {
   const current = tabs.current;
   if (!current) return;
   const { buffers } = current;
-  const paths = [...new Set([...current.files.filter((p) => buffers.isDirty(p)), ...buffers.unsavedPaths()])];
+  const open = tabs.groups.flatMap((group) => group.files);
+  const paths = [...new Set([...open.filter((p) => buffers.isDirty(p)), ...buffers.unsavedPaths()])];
   const saveOne = async (path: string) => {
     const buffer = buffers.open(path);
     await buffer.loaded;
@@ -402,32 +535,46 @@ function closeTabsBy(workspace: Target, close: (current: OpenFiles) => number): 
   const unsaved = close(current);
   tabs.notice = unsaved > 0 ? `${unsaved === 1 ? "A tab" : `${unsaved} tabs`} with unsaved changes stayed open.` : null;
   if (current.active !== before) show(workspace, current.active);
-  void keepFocus(current.files.length === 0);
+  closed(workspace, current);
 }
 
-/** `from` was renamed or moved to `to`: its tabs follow, and the main area keeps showing the file. */
+/** `from` was renamed or moved to `to`: the tabs of both groups follow, and they keep showing the file. */
 export function renameTabs(workspace: Target, from: string, to: string): void {
-  tabs.current?.renamePath(from, to);
+  for (const group of tabs.groups) group.renamePath(from, to);
   const shown = workspace.openPath === null ? null : movedPath(workspace.openPath, from, to);
   if (shown) workspace.openPath = shown;
+  const other = workspace.other;
+  const moved = other?.openPath ? movedPath(other.openPath, from, to) : null;
+  if (other && moved) workspace.other = { ...other, openPath: moved };
 }
 
-/** `paths` went to the Trash: their tabs close, except unsaved ones, which say the file was deleted. */
+/** `paths` went to the Trash: their tabs close in both groups, except unsaved ones, which say the file was deleted. */
 export function forgetTabs(workspace: Target, paths: string[]): void {
   const current = tabs.current;
   if (!current) return;
-  const before = current.active;
-  const next = current.forgetPaths(paths);
-  if (next === before) return;
-  show(workspace, next);
-  void keepFocus(current.files.length === 0);
+  const other = tabs.groups.find((group) => group !== current);
+  const before = other?.active;
+  const next = other?.forgetPaths(paths);
+  if (other && workspace.other && next !== before)
+    workspace.other = { openPath: next ?? null, mode: next ? modeIn(other, next) : "view" };
+  const was = current.active;
+  const shown = current.forgetPaths(paths);
+  if (shown !== was) show(workspace, shown);
+  if (shown !== was || (other && next !== before)) closed(workspace, current);
 }
 
 function closeTab(workspace: Target, current: OpenFiles, path: string): void {
   const wasActive = current.active === path;
   const next = current.close(path);
   if (wasActive) show(workspace, next);
-  void keepFocus(current.files.length === 0);
+  closed(workspace, current);
+}
+
+/** After tabs closed in `current`: an emptied group closes, and focus stays in the window. */
+function closed(workspace: Target, current: OpenFiles): void {
+  const last = current.files.length === 0;
+  closeEmptyGroup(workspace);
+  void keepFocus(last && tabs.groups.length === 1 && tabs.groups[0]?.files.length === 0);
 }
 
 /**
@@ -450,7 +597,7 @@ async function keepFocus(lastTab: boolean): Promise<void> {
  */
 export async function focusMain(): Promise<void> {
   await tick();
-  const panel = document.getElementById("ovra-tabpanel");
+  const panel = document.getElementById(panelId(tabs.focused()));
   const candidates = [...(panel?.querySelectorAll<HTMLElement>(".cm-content, [data-panel] [tabindex='-1']") ?? [])];
   const target = candidates.find((element) => element.offsetParent !== null) ?? panel;
   target?.focus();
@@ -472,12 +619,18 @@ export function show(workspace: Target, path: string | null, mode?: MainMode): v
 
 /** Keeps `tabs.current` in step with the open project; returns a function that stops. */
 export function persistOpenFiles(transport: Transport, workspace: Workspace): () => void {
+  tabs.focused = () => workspace.group;
   return $effect.root(() => {
     $effect(() => {
       const project = workspace.project?.id;
       const name = workspace.project?.name ?? "";
       tabs.current = null;
       tabs.closing = null;
+      // Another project opens with one group, until its own state says otherwise.
+      untrack(() => {
+        workspace.other = null;
+        workspace.group = 0;
+      });
       if (!project) return;
       const buffers = new Buffers({ transport, project, drafts, highlighter, autoSave: autoSaver });
       const files = new OpenFiles(transport, project, buffers);
@@ -490,7 +643,7 @@ export function persistOpenFiles(transport: Transport, workspace: Workspace): ()
           tabs.notice = text;
         },
         buffers,
-        keep: (path) => files.keep(path),
+        keep: (path) => (tabs.current ?? files).keep(path),
       });
       files.lsp = lsp;
       let live = true;
@@ -499,7 +652,7 @@ export function persistOpenFiles(transport: Transport, workspace: Workspace): ()
         tabs.current = files;
         void files.opened(workspace.openPath);
       };
-      files.restore().then((active) => {
+      files.restore().then(({ active_file: active }) => {
         if (live && active && workspace.openPath === null) workspace.openFile(active);
         ready();
       }, ready);
