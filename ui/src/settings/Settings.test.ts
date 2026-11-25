@@ -87,7 +87,9 @@ it("lists every key by where it works, keys of one place too, and filters them",
     registerContextKeys([
       { keys: "Y", title: "Allow once", where: "Approvals" },
       { keys: "S", title: "Stage", where: "Git" },
+      { keys: "Shift+F10", title: "Open the menu", where: "Editor" },
     ]),
+    registerCommand({ id: "t.rename", title: "Rename symbol", keys: "F2", where: "Editor", run: () => {} }),
     () => {
       unmount(app);
       target.remove();
@@ -105,6 +107,7 @@ it("lists every key by where it works, keys of one place too, and filters them",
   expect(groups()).toEqual([
     ["Everywhere", ["Open settingsCtrl+,"]],
     ["Approvals", ["Allow onceY"]],
+    ["Editor", ["Rename symbolF2", "Open the menuShift+F10"]],
     ["Git", ["StageS"]],
   ]);
   expect(target.querySelector("section.pane")?.textContent).toContain("Letters follow your Latin layout");
@@ -120,7 +123,7 @@ it("lists every key by where it works, keys of one place too, and filters them",
   flushSync();
   expect(filter.value).toBe("");
   expect(mainView.current).toBe("settings");
-  expect(groups()).toHaveLength(3);
+  expect(groups()).toHaveLength(4);
 });
 
 it("shows only the open project's Claude settings, and re-reads them when they may have changed", async () => {

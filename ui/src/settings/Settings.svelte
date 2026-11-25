@@ -54,7 +54,7 @@ let keyFilter = $state("");
 
 /**
  * Every key, grouped by where it works: the commands' shortcuts work
- * everywhere, then the keys panels declared for one place, by place.
+ * everywhere unless they name a place, then the keys of one place, by place.
  */
 const keyGroups = $derived.by(() => {
   void pane;
@@ -68,7 +68,7 @@ const keyGroups = $derived.by(() => {
               title: c.title,
               binding: c.keys,
               keys: formatShortcut(liveKeys(c.keys, inBrowserTab()), apple),
-              where: EVERYWHERE,
+              where: c.where ?? EVERYWHERE,
             },
           ]
         : [],
