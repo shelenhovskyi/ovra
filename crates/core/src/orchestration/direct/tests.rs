@@ -772,6 +772,8 @@ async fn a_session_without_agent_changes_is_forgotten_after_it_ends() {
     assert_eq!(gone.err().map(|e| e.code), Some(ErrorCode::Conflict));
 }
 
+mod turns;
+
 /// Through the core: `agents.start` takes the lock and the baseline, and the
 /// host's hooks feed the tracker.
 mod through_the_core {
@@ -1222,5 +1224,81 @@ mod through_the_core {
         let refused = call(&f.core, reject).await;
         let message = refused.err().map(|e| e.message).unwrap_or_default();
         assert!(message.contains("nothing was restored"), "{message}");
+    }
+
+    /// `agents.go_back` and its undo, the session's fields, and the note
+    /// the agent's next message starts with.
+    #[tokio::test]
+    async fn going_back_through_the_core_tells_the_agent() {
+        use crate::protocol::agents::{AgentMessage, AgentsResponse, MessageFrom, SessionInfo};
+        let f = fixture(&[("a.rs", "a\n")]).await;
+        let host = f.start().await;
+        bash(&host, "t1", async {
+            f.trees.put(DIR, "gen.rs", "agent\n");
+        })
+        .await;
+        let back = json!({"method": "agents.go_back", "params": {"session": "s1", "turn": 1}});
+        let refused = call(&f.core, back.clone()).await;
+        assert_eq!(refused.err().map(|e| e.code), Some(ErrorCode::Conflict));
+        host.status(AgentStatus::Idle);
+        let list = json!({"method": "agents.checkpoints", "params": {"session": "s1"}});
+        let Ok(Response::Agents(AgentsResponse::Checkpoints(list))) = call(&f.core, list).await
+        else {
+            panic!("no checkpoints");
+        };
+        let list: Vec<_> = list.iter().map(|c| (c.turn, c.message.as_str())).collect();
+        assert_eq!(list, [(1, "go")]);
+
+        let went = call(&f.core, back).await;
+        let Ok(Response::Agents(AgentsResponse::WentBack {
+            restored,
+            conflicts,
+            can_undo: true,
+        })) = went
+        else {
+            panic!("{went:?}");
+        };
+        assert_eq!((restored, conflicts), (vec!["gen.rs".to_owned()], vec![]));
+        assert!(!f.trees.files(DIR).contains_key("gen.rs"));
+        let info = || async {
+            let list = json!({"method": "agents.list", "params": {"project": "p1"}});
+            match call(&f.core, list).await {
+                Ok(Response::Agents(AgentsResponse::List(list))) => list[0].clone(),
+                other => panic!("{other:?}"),
+            }
+        };
+        let fields = |i: SessionInfo| (i.undone_from, i.can_undo_go_back);
+        assert_eq!(fields(info().await), (Some(1), true));
+
+        let send = json!({"method": "agents.send", "params": {"session": "s1", "text": "again"}});
+        assert!(call(&f.core, send).await.is_ok());
+        let transcript = json!({"method": "agents.transcript", "params": {"session": "s1"}});
+        let Ok(Response::Agents(AgentsResponse::Transcript(messages))) =
+            call(&f.core, transcript).await
+        else {
+            panic!("no transcript");
+        };
+        let sent: Vec<_> = messages
+            .iter()
+            .filter_map(|m| match m {
+                AgentMessage::UserText { text, from } => Some((text.as_str(), *from)),
+                _ => None,
+            })
+            .collect();
+        let note = "The files were set back to how they were before your turn 1; \
+                    changes from turn 1 are undone.";
+        assert_eq!(
+            sent,
+            [
+                ("go", MessageFrom::Person),
+                (note, MessageFrom::Ovra),
+                ("again", MessageFrom::Person)
+            ]
+        );
+        // The next turn started: the go-back stays, its undo is gone.
+        assert_eq!(fields(info().await), (Some(1), false));
+        let undo = json!({"method": "agents.undo_go_back", "params": {"session": "s1"}});
+        let refused = call(&f.core, undo).await;
+        assert_eq!(refused.err().map(|e| e.code), Some(ErrorCode::Conflict));
     }
 }

@@ -210,16 +210,76 @@ pub(crate) async fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Resp
             };
             Ok(Response::Agents(AgentsResponse::ResearchLimit(limit)))
         }
-        AgentsRequest::Checkpoints { session }
-        | AgentsRequest::GoBack { session, .. }
-        | AgentsRequest::UndoGoBack { session } => {
-            // Checkpoints come with CP.A (`docs/specs/checkpoints.md`).
-            sessions.find(&session, |_| ())?;
-            Err(ProtocolError::new(
-                ErrorCode::Unavailable,
-                "going back to an earlier turn is not available yet",
-            ))
+        AgentsRequest::Checkpoints { session } => {
+            writes_main(ctx, &session)?;
+            let list = sessions.direct.checkpoints(&session).await?;
+            Ok(Response::Agents(AgentsResponse::Checkpoints(list)))
         }
+        AgentsRequest::GoBack { session, turn } => {
+            writes_main(ctx, &session)?;
+            let (restored, conflicts) = sessions.direct.go_back(&session, turn).await?;
+            let can_undo = !restored.is_empty();
+            if can_undo {
+                sessions.find(&session, |s| s.went_back(Some(turn), true))?;
+            }
+            Ok(Response::Agents(AgentsResponse::WentBack {
+                restored,
+                conflicts,
+                can_undo,
+            }))
+        }
+        AgentsRequest::UndoGoBack { session } => {
+            writes_main(ctx, &session)?;
+            let (restored, conflicts) = sessions.direct.undo_go_back(&session).await?;
+            sessions.find(&session, |s| s.went_back(None, false))?;
+            Ok(Response::Agents(AgentsResponse::UndidGoBack {
+                restored,
+                conflicts,
+            }))
+        }
+    }
+}
+
+/// Checkpoints are kept for direct sessions that change the main checkout
+/// (`docs/specs/checkpoints.md`).
+fn writes_main(ctx: &Ctx<'_>, session: &SessionId) -> Result<()> {
+    let (mode, launch) = ctx
+        .sessions
+        .find(session, |s| (s.info().mode, s.launch()))?;
+    let refused = match (mode, launch.and_then(|l| l.tools)) {
+        (SessionMode::Isolated, _) => {
+            "going back to an earlier turn is for direct sessions; a worker's changes wait \
+             for review in its own worktree"
+        }
+        (_, Some(ToolRole::Coordinator)) => "a coordinator does not change files",
+        _ => return Ok(()),
+    };
+    Err(ProtocolError::new(ErrorCode::BadRequest, refused))
+}
+
+/// `parts` after the note a go-back left for the agent, if any.
+fn with_note(ctx: &Ctx<'_>, session: &SessionId, parts: Parts) -> Parts {
+    let note = ctx.sessions.direct.note(session);
+    note.map(|n| (n, MessageFrom::Ovra))
+        .into_iter()
+        .chain(parts)
+        .collect()
+}
+
+/// `parts`, now in the transcript, start a turn: direct mode takes its
+/// before snapshot.
+fn turn_started(ctx: &Ctx<'_>, session: &SessionId, parts: &Parts) {
+    let Ok(turn) = ctx.sessions.find(session, |s| s.turn_started()) else {
+        return;
+    };
+    let message = parts
+        .iter()
+        .find(|(_, from)| *from != MessageFrom::Ovra)
+        .or(parts.first())
+        .map(|(text, _)| title(text))
+        .unwrap_or_default();
+    if ctx.sessions.direct.turn_started(session, turn, message) {
+        ctx.sessions.record_turns(session);
     }
 }
 
@@ -570,6 +630,7 @@ async fn run(
     parts: Parts,
     resume: Option<String>,
 ) -> Result<SessionInfo> {
+    let parts = with_note(ctx, id, parts);
     let prompt = joined(&parts)?;
     let sessions = ctx.sessions;
     let project = target.project.id.clone();
@@ -593,9 +654,10 @@ async fn run(
         sessions.clone(),
         ctx.sink.clone(),
     );
-    for (text, from) in parts {
+    for (text, from) in parts.clone() {
         host.message(AgentMessage::UserText { text, from });
     }
+    turn_started(ctx, id, &parts);
     let (agent, mode) = sessions.find(id, |s| {
         let info = s.info();
         (info.agent, info.mode)
@@ -720,6 +782,7 @@ pub(crate) async fn trust(
 
 /// Sends `parts` as the running session's next message.
 pub(crate) fn send(ctx: &Ctx<'_>, session: SessionId, parts: Parts) -> Result<()> {
+    let parts = with_note(ctx, &session, parts);
     let text = joined(&parts)?;
     let sessions = ctx.sessions;
     let (process, info, stopping) =
@@ -739,10 +802,16 @@ pub(crate) fn send(ctx: &Ctx<'_>, session: SessionId, parts: Parts) -> Result<()
         }
         None => return Err(conflict("the session has ended")),
     };
-    let host = AgentHost::new(session, info.project, sessions.clone(), ctx.sink.clone());
-    for (text, from) in parts {
+    let host = AgentHost::new(
+        session.clone(),
+        info.project,
+        sessions.clone(),
+        ctx.sink.clone(),
+    );
+    for (text, from) in parts.clone() {
         host.message(AgentMessage::UserText { text, from });
     }
+    turn_started(ctx, &session, &parts);
     host.set_status(AgentStatus::Working);
     process.send(text)
 }

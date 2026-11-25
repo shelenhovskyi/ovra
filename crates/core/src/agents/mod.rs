@@ -151,6 +151,8 @@ impl Sessions {
                 queued: None,
                 pid: None,
             };
+            // What a go-back restored is no longer known (`Direct`).
+            session.info.can_undo_go_back = false;
             if !session.info.status.is_ended() {
                 session.info.status = AgentStatus::Stopped;
                 let _ = store.save(&session.stored());
@@ -342,6 +344,16 @@ impl Sessions {
         Some(session.queued.take().unwrap_or_default())
     }
 
+    /// Soon takes the snapshots of the turn edges `id` reported
+    /// ([`Direct::turn_started`]), so that they show the tree as it was
+    /// then. Needs no runtime: the next look at the session takes them.
+    pub(crate) fn record_turns(self: &Arc<Self>, id: &SessionId) {
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            let (sessions, id) = (self.clone(), id.clone());
+            runtime.spawn(async move { sessions.direct.catch_up(&id).await });
+        }
+    }
+
     /// Sessions of `project` that have not ended.
     pub(crate) fn running(&self, project: &ProjectId) -> Vec<SessionId> {
         lock(&self.list)
@@ -442,6 +454,20 @@ impl SessionView<'_> {
     }
     pub(crate) fn run(&self) -> u64 {
         self.session.run
+    }
+    /// The next message to the agent is in the transcript: answers the
+    /// number of its turn. A go-back can no longer be undone.
+    fn turn_started(&mut self) -> u32 {
+        if std::mem::take(&mut self.session.info.can_undo_go_back) {
+            self.save();
+        }
+        self.session.transcript.turns()
+    }
+    /// Files were set back to before turn `undone_from` (`None`: put back).
+    fn went_back(&mut self, undone_from: Option<u32>, can_undo: bool) {
+        self.session.info.undone_from = undone_from;
+        self.session.info.can_undo_go_back = can_undo;
+        self.save();
     }
     /// Starts an ended session over for `agents.resume`.
     pub(crate) fn restart(&mut self) {
@@ -776,10 +802,16 @@ impl AgentHost {
         let ended = status.is_ended();
         if ended {
             self.sessions.direct.session_ended(&self.session);
+            self.sessions.record_turns(&self.session);
         }
-        if self.set_status(status) && ended {
+        let idle = status == AgentStatus::Idle;
+        let changed = self.set_status(status);
+        if changed && ended {
             let dropped = self.sessions.permissions.drop_session(&self.session);
             self.resolved(dropped, Decision::Deny);
+        }
+        if changed && idle && self.sessions.direct.turn_ended(&self.session) {
+            self.sessions.record_turns(&self.session);
         }
     }
 

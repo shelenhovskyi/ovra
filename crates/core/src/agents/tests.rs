@@ -1461,7 +1461,7 @@ async fn streamed_text_is_shown_but_never_kept() {
 }
 
 #[tokio::test]
-async fn going_back_routes_to_the_session_and_is_not_available_yet() {
+async fn going_back_needs_snapshots_of_the_project() {
     let core = core_with(ScriptedAgent::new(vec![vec![Step::Say("hi")]]));
     project(&core).await;
     ok(&core, start("x")).await;
@@ -1472,8 +1472,15 @@ async fn going_back_routes_to_the_session_and_is_not_available_yet() {
         ("agents.go_back", json!({"session": "s1", "turn": 1})),
         ("agents.undo_go_back", json!({"session": "s1"})),
     ] {
+        // No worktrees here, as in a project that is not a git repository.
         let asked = json!({"method": method, "params": params});
-        assert_eq!(code(&core, asked).await, ErrorCode::Unavailable, "{method}");
+        let refused = call(&core, asked).await.err();
+        assert!(
+            refused.as_ref().is_some_and(
+                |e| e.code == ErrorCode::Unavailable && e.message.contains("git repositor")
+            ),
+            "{method}: {refused:?}"
+        );
         let mut params = params;
         params["session"] = json!("s9");
         let unknown = json!({"method": method, "params": params});

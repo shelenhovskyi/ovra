@@ -15,12 +15,18 @@ pub(crate) const MAX_TEXT_BYTES: usize = 64 * 1024;
 pub(crate) struct Transcript {
     messages: VecDeque<AgentMessage>,
     usage: TurnUsage,
+    /// Messages to the agent so far: each run of user texts is one, and
+    /// starts a turn (`Checkpoint::turn`).
+    turns: u32,
 }
 
 impl Transcript {
     /// Adds `message`, cut to the limits, and returns what was kept.
     pub(crate) fn push(&mut self, message: AgentMessage) -> AgentMessage {
         let message = clip(message);
+        if starts_turn(self.messages.back(), &message) {
+            self.turns += 1;
+        }
         if let AgentMessage::TurnEnd { usage } = &message {
             add(&mut self.usage, usage);
         }
@@ -34,10 +40,22 @@ impl Transcript {
     /// A transcript loaded from the store, with the usage summed when saved
     /// (older turns may no longer be among the messages).
     pub(crate) fn restore(messages: Vec<AgentMessage>, usage: TurnUsage) -> Self {
+        let mut previous = None;
+        let mut turns = 0;
+        for message in &messages {
+            turns += u32::from(starts_turn(previous, message));
+            previous = Some(message);
+        }
         Self {
             messages: messages.into(),
             usage,
+            turns,
         }
+    }
+
+    /// The number of the latest turn, from 1; 0 before the first message.
+    pub(crate) fn turns(&self) -> u32 {
+        self.turns
     }
 
     pub(crate) fn messages(&self) -> Vec<AgentMessage> {
@@ -47,6 +65,13 @@ impl Transcript {
     pub(crate) fn usage(&self) -> &TurnUsage {
         &self.usage
     }
+}
+
+/// A user text after anything but another one: the next message to the
+/// agent, whose parts (the person's text, Ovra's notes) come in a row.
+fn starts_turn(previous: Option<&AgentMessage>, message: &AgentMessage) -> bool {
+    matches!(message, AgentMessage::UserText { .. })
+        && !matches!(previous, Some(AgentMessage::UserText { .. }))
 }
 
 fn add(total: &mut TurnUsage, turn: &TurnUsage) {
@@ -115,6 +140,22 @@ mod tests {
             )
         );
         assert_eq!(transcript.messages(), std::slice::from_ref(&kept));
+    }
+
+    #[test]
+    fn each_run_of_user_texts_is_one_turn_also_when_restored() {
+        let user = |text: &str| AgentMessage::UserText {
+            text: text.into(),
+            from: crate::protocol::agents::MessageFrom::Person,
+        };
+        let mut transcript = Transcript::default();
+        assert_eq!(transcript.turns(), 0);
+        for message in [user("a"), user("note"), said("x".into()), user("b")] {
+            transcript.push(message);
+        }
+        assert_eq!(transcript.turns(), 2);
+        let restored = Transcript::restore(transcript.messages(), TurnUsage::default());
+        assert_eq!(restored.turns(), 2);
     }
 
     #[test]
