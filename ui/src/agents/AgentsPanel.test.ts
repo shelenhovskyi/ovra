@@ -132,6 +132,33 @@ describe("AgentsPanel", () => {
     expect(billed?.classList.contains("billed-key")).toBe(true);
   });
 
+  it("says whether a session runs in a sandbox, in the detail and the list", async () => {
+    const core = new FakeAgentCore();
+    core.addSession("p1", "Earlier task", { state: "stopped" });
+    await setup(core);
+    const line = () => panel()?.querySelector("[data-testid=agent-sandbox]");
+    const badges = () => [...target.querySelectorAll("[data-testid=agent-sandbox-badge]")].map((b) => b.textContent);
+    // Saved before Ovra recorded the report: nothing to say.
+    expect(line()).toBeNull();
+    type(target.querySelector("#agent-prompt"), "Fix the typo");
+    modEnter();
+    await settle();
+    expect(line()?.textContent).toBe("Sandbox: starting…");
+    expect(badges()).toEqual([]);
+    core.sandboxed("s2", null);
+    await settle();
+    expect(line()?.textContent).toBe("No sandbox: the agent can read and change anything your user can.");
+    expect(line()?.classList.contains("unsandboxed")).toBe(true);
+    expect(badges()).toEqual(["No sandbox"]);
+    core.sandboxed("s2", { name: "bubblewrap, Landlock, seccomp", network: "proxy" });
+    await settle();
+    expect(line()?.textContent).toBe(
+      "Runs in a sandbox (bubblewrap, Landlock, seccomp), network only through Ovra's proxy.",
+    );
+    expect(line()?.classList.contains("unsandboxed")).toBe(false);
+    expect(badges()).toEqual(["Sandboxed"]);
+  });
+
   it("names who wrote each message an agent was sent", async () => {
     const core = new FakeAgentCore();
     core.addSession("p1", "Write the notes", { state: "idle" });

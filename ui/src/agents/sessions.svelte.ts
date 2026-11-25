@@ -174,6 +174,9 @@ export class AgentSessions {
     } else if (event.type === "agents.billing") {
       const known = this.byId.get(event.data.session);
       if (known) this.byId.set(event.data.session, { ...known, billing: event.data.billing });
+    } else if (event.type === "agents.sandbox") {
+      const known = this.byId.get(event.data.session);
+      if (known) this.byId.set(event.data.session, { ...known, sandbox: event.data.sandbox, sandbox_reported: true });
     } else if (event.type === "agents.message") {
       const { session, message } = event.data;
       const transcript = this.transcripts.get(session);

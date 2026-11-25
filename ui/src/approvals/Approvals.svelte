@@ -13,6 +13,7 @@
 //   next answer needs the key released first.
 import { tick, untrack } from "svelte";
 import { SvelteMap, SvelteSet } from "svelte/reactivity";
+import { sandboxState } from "../agents/sandbox";
 import { agentSessions } from "../agents/sessions.svelte";
 import { registerCommand } from "../keys/commands";
 import type { Decision, PermissionId, PermissionRequest, Project, ProjectId, SessionId } from "../lib/protocol";
@@ -267,6 +268,12 @@ function folderOf(request: PermissionRequest, project: Project | undefined): { p
   return { path, name: own ? "the project folder" : "the agent's working folder" };
 }
 
+/** Whether the runtime said the session runs without a sandbox; unknown sessions say nothing. */
+function unsandboxed(session: SessionId): boolean {
+  const info = sessions.byId.get(session);
+  return info !== undefined && sandboxState(info).kind === "none";
+}
+
 /** A worker acts on its own copy of the project, not on the project itself. */
 function workerCopy(session: SessionId): string {
   const role = sessions.roles.get(session);
@@ -336,6 +343,11 @@ function workerCopy(session: SessionId): string {
           </p>
           {#if sessions.roles.get(request.session)?.kind === "worker"}
             <p class="where" data-testid="approval-worker-copy">{workerCopy(request.session)}</p>
+          {/if}
+          {#if unsandboxed(request.session)}
+            <p class="other" data-testid="approval-unsandboxed">
+              No sandbox: what you allow can reach anything your user can.
+            </p>
           {/if}
           <h3 id="{domId}-action">{summary.action}</h3>
           {#if request.project !== workspace.project?.id}

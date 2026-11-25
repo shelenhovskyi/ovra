@@ -93,6 +93,21 @@ describe("Approvals", () => {
     );
   });
 
+  it("says on the card when the session runs without a sandbox", async () => {
+    const core = await setup();
+    core.ask(bash("perm1"));
+    await settle();
+    const warning = () => cards()[0]?.querySelector("[data-testid=approval-unsandboxed]");
+    // Not reported yet: no claim either way.
+    expect(warning()).toBeNull();
+    core.sandboxed("s1", null);
+    await settle();
+    expect(warning()?.textContent?.trim()).toBe("No sandbox: what you allow can reach anything your user can.");
+    core.sandboxed("s1", { name: "bubblewrap", network: "proxy" });
+    await settle();
+    expect(warning()).toBeNull();
+  });
+
   it("shows what the agent asks for without taking focus", async () => {
     const core = await setup();
     const elsewhere = target.querySelector<HTMLElement>("[data-testid=elsewhere]");

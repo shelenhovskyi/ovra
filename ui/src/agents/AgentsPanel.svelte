@@ -7,6 +7,7 @@ import { formatShortcut, isApple } from "../keys/shortcut";
 import type { SessionId } from "../lib/protocol";
 import { CoreError } from "../lib/transport";
 import { useOvra } from "../shell/context";
+import { sandboxBadge, sandboxLine, sandboxState } from "./sandbox";
 import { agentSessions, usageText } from "./sessions.svelte";
 import ClaudeSetup from "./setup/ClaudeSetup.svelte";
 import ProjectTrust from "./setup/ProjectTrust.svelte";
@@ -29,6 +30,7 @@ const project = $derived(workspace.project);
 const list = $derived(project ? sessions.grouped(project.id) : []);
 const current = $derived(list.find((s) => s.id === selected) ?? null);
 const messages = $derived(current ? sessions.transcripts.get(current.id) : undefined);
+const sandbox = $derived(current ? sandboxLine(sandboxState(current)) : null);
 
 $effect(() => {
   const id = project?.id;
@@ -196,6 +198,7 @@ const canReply = $derived(current !== null && current.status.state === "idle");
       <ul class="sessions" aria-labelledby="sessions-heading">
         {#each list as session (session.id)}
           {@const role = sessions.roles.get(session.id)}
+          {@const badge = sandboxBadge(sandboxState(session))}
           <li>
             <button
               type="button"
@@ -207,6 +210,9 @@ const canReply = $derived(current !== null && current.status.state === "idle");
               onclick={() => (selected = session.id)}
             >
               <span class="title">{sessions.name(session.id)}</span>
+              {#if badge}
+                <span class="badge" class:unsandboxed={!session.sandbox} data-testid="agent-sandbox-badge">{badge}</span>
+              {/if}
               <span class="state" data-state={session.status.state}>{statusLabel(session.status)}</span>
             </button>
           </li>
@@ -235,6 +241,9 @@ const canReply = $derived(current !== null && current.status.state === "idle");
           <p class={current.billing.kind === "api_key" ? "status billed-key" : "status"} data-testid="agent-billing">
             This session: {paidText(current.billing)}
           </p>
+        {/if}
+        {#if sandbox}
+          <p class={sandbox.warning ? "status unsandboxed" : "status"} data-testid="agent-sandbox">{sandbox.text}</p>
         {/if}
         <Transcript messages={messages ?? []} />
         {#if !isEnded(current.status)}
@@ -393,7 +402,17 @@ const canReply = $derived(current !== null && current.status.state === "idle");
     font-size: 12px;
     color: #b4b4c0;
   }
-  .billed-key {
+  .billed-key,
+  .unsandboxed {
+    color: #ffd36b;
+  }
+  .badge {
+    flex: none;
+    margin-left: auto;
+    font-size: 11px;
+    color: #b4b4c0;
+  }
+  .badge.unsandboxed {
     color: #ffd36b;
   }
   .state[data-state="waiting_for_approval"] {

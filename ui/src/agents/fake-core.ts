@@ -12,6 +12,7 @@ import type {
   ProjectId,
   Request,
   ResponseFor,
+  SandboxReport,
   SessionId,
   SessionInfo,
   Task,
@@ -77,6 +78,13 @@ export class FakeAgentCore implements Transport {
   message(session: SessionId, message: AgentMessage): void {
     this.transcripts.set(session, [...(this.transcripts.get(session) ?? []), message]);
     this.emit({ type: "agents.message", data: { session, message } });
+  }
+
+  /** The runtime says how it runs the session (`null`: without a sandbox). */
+  sandboxed(session: SessionId, sandbox: SandboxReport | null): void {
+    const info = this.sessions.find((s) => s.id === session);
+    if (info) Object.assign(info, { sandbox, sandbox_reported: true });
+    this.emit({ type: "agents.sandbox", data: { session, sandbox } });
   }
 
   ask(request: PermissionRequest): void {
