@@ -109,7 +109,7 @@ impl std::fmt::Debug for Launched {
 /// Starts a session's browser. The seam tests replace with a scripted
 /// CDP peer.
 pub(crate) trait Launch: Send + Sync + std::fmt::Debug {
-    /// Starts it in `profile` with `profile_dir`, already in its `write`.
+    /// Starts it in `profile` with `profile_dir`, already its `work_dir`.
     fn launch(&self, profile: &SandboxProfile, profile_dir: &Path) -> Result<Launched>;
 }
 

@@ -123,7 +123,8 @@ impl ChromiumBrowser {
             ProtocolError::new(ErrorCode::Unavailable, reason)
         })?;
         let dir = profile_dir(&std::env::temp_dir())?;
-        profile.write.push(dir.clone());
+        // The core passes a placeholder: the browser's folder is its work dir.
+        profile.work_dir.clone_from(&dir);
         let launched = match launcher.launch(&profile, &dir) {
             Ok(launched) => launched,
             Err(e) => {

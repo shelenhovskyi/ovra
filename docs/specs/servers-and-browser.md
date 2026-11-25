@@ -230,8 +230,15 @@ A Chromium the user has installed (`chromium`, `chromium-browser`,
 `google-chrome` on `PATH`, or a path in the settings), never downloaded,
 started per agent session:
 
-- through the `Sandbox`, with the session's profile and its netproxy as
-  the only way out: `--proxy-server` pointed at the forwarded proxy port,
+- through the `Sandbox`, in a profile of its own: its fresh profile
+  folder is its `work_dir`, it reads and writes nothing else (none of the
+  project), exposes and forwards no ports, and has the session's netproxy
+  (the agent's `Proxy { address, ca_bundle }`) as the only way out. A
+  renderer exploit gets what that profile allows, since Chromium runs
+  with `--no-sandbox`. The core passes `Browser::open` this profile with
+  an empty `work_dir` placeholder; the service makes the folder and puts
+  it there, so a service that does not cannot start a browser.
+  `--proxy-server` points at the forwarded proxy port,
   `--proxy-bypass-list=<-loopback>` so loopback goes through it too, QUIC
   off, WebRTC limited to proxied TCP;
 - controlled over `--remote-debugging-pipe`, never a TCP port;

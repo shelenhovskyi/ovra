@@ -683,7 +683,10 @@ pub trait Browser: Send + Sync + Debug {
     fn status(&self) -> SandboxStatus;
     /// Opens a page at `url`, first starting the session's browser in
     /// `profile` with `sink` if it does not run. `size` is the viewport
-    /// in CSS pixels.
+    /// in CSS pixels. The core's `profile` holds only the session's
+    /// netproxy: its `work_dir` is an empty placeholder that the service
+    /// replaces with the browser's own fresh profile folder, and it lets
+    /// the browser read and write nothing else.
     fn open(
         &self,
         session: SessionId,
