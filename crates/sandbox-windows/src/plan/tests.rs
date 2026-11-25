@@ -170,10 +170,9 @@ fn a_worker_reads_its_git_folder() {
 }
 
 #[test]
-fn a_research_session_only_reads_its_project_and_makes_nothing_in_it() {
+fn a_read_only_folder_is_refused_until_it_can_be_kept_read_only() {
     let root = Root::new("research");
     let work = root.dir("projects/app");
-    root.file("projects/app/README.md");
     let claude = root.file("sys/bin/claude.exe");
     let setup = root.setup(&["sys/bin"]);
     let profile = SandboxProfile {
@@ -187,15 +186,9 @@ fn a_research_session_only_reads_its_project_and_makes_nothing_in_it() {
         forward: Vec::new(),
         network: ProfileNetwork::Blocked,
     };
-    let plan = Plan::new(&setup, &profile, &claude).unwrap();
-    assert!(plan.grants.contains(&(work.clone(), Right::Read)));
-    assert!(
-        !plan
-            .grants
-            .iter()
-            .any(|(p, r)| p.starts_with(&work) && *r == Right::Modify)
-    );
-    assert!(!work.join(".claude").exists() && !work.join(".vscode").exists());
+    let refused = Plan::new(&setup, &profile, &claude).err().unwrap();
+    assert!(refused.message.contains("read-only"), "{}", refused.message);
+    assert!(!work.join(".claude").exists());
 }
 
 #[test]

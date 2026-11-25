@@ -367,6 +367,9 @@ impl Plan {
             .filter(|name| absent(name))
             .map(|name| work_dir.join(name))
             .collect();
+        // Skipped with its refusal of protected names that are links: a
+        // link in a read-only bind leads nowhere writable that the plan
+        // does not already allow.
         let protected = if read_only {
             Vec::new()
         } else {

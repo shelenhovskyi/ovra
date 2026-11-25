@@ -167,7 +167,7 @@ pub(crate) fn args(
         // `.claude/` settings, hooks, agents and skills load only once the
         // user trusts the project in Ovra.
         "--setting-sources",
-        if trusted {
+        if trusted && !research {
             "user,project,local"
         } else {
             "user"
@@ -400,6 +400,16 @@ mod tests {
         assert_eq!(after("--append-system-prompt"), Some(RESEARCH_PROMPT));
         assert_eq!(after("--mcp-config"), Some(r#"{"mcpServers":{}}"#));
         assert_eq!(after("--permission-mode"), Some("default"));
+        // A project's hooks could change files unseen: research has no review.
+        let trusted: Vec<String> = super::args(&Conversation::New("id".into()), true, None, true)
+            .iter()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        let at = trusted
+            .iter()
+            .position(|a| a == "--setting-sources")
+            .unwrap_or(0);
+        assert_eq!(trusted.get(at + 1).map(String::as_str), Some("user"));
     }
 
     #[test]

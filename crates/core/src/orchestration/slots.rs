@@ -233,9 +233,10 @@ pub(crate) fn reserve_research(
     core: &Core,
     project: &ProjectId,
 ) -> Result<Reservation, (usize, u32)> {
-    let limit = research_limit(core);
     let state = core.orchestration_state();
     let mut guard = state.lock();
+    // Read under the lock `set_research_limit` saves under.
+    let limit = research_limit(core);
     let working = research_count(core, &guard, project);
     if working >= usize::try_from(limit).unwrap_or(usize::MAX) {
         return Err((working, limit));

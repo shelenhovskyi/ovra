@@ -27,7 +27,13 @@ reader uses no disk and runs no builds. ADR 0005 knows only two modes,
   usual netproxy allowlist. Opening web pages (`WebFetch`) is not offered:
   it would need the proxy to let the agent reach any host. A research
   session's `WebSearch` is allowed without asking unless a project policy
-  rule asks or denies.
+  rule asks or denies. Residual risk: a prompt injection in a file or a
+  search result could put project text into a query, which reaches the
+  search provider's logs (the transcript reaches Anthropic anyway). Every
+  call is in the audit log; a `deny WebSearch` rule turns it off.
+- Only the user's own Claude settings load (`--setting-sources user`), even
+  in a trusted project: a project hook would run outside the tool list,
+  and research has no review that would show what it changed.
 - Research sessions have their own cap per project, 2 by default, set in
   Settings (`agents.set_research_limit`, kept in `AgentSettings`). They do not
   count against the worker cap of 3, nor workers against theirs. A start
@@ -42,7 +48,10 @@ reader uses no disk and runs no builds. ADR 0005 knows only two modes,
 - Every place that switches on `SessionMode` handles `research`; most only
   check for `direct` or `isolated` and leave it out naturally.
 - The Linux sandbox binds the work dir read-only and makes nothing in it.
-  The Windows sandbox grants it read access only. Without a sandbox (macOS
-  today) the tool list and the core's refusal are what keep it read-only.
+  The Windows sandbox refuses a read-only work dir for now: grants stay on
+  a folder after its sessions, so an earlier direct session's write access
+  would still apply; it needs a SID of its own first. Without a sandbox
+  (macOS today) the tool list and the core's refusal are what keep it
+  read-only.
 - Research still spends the user's subscription limits; the cap and
   Settings say so. Resource balancing counts research sessions as light.

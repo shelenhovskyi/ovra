@@ -868,3 +868,32 @@ fn a_research_session_reads_its_project_and_writes_none_of_it() {
         "hello"
     );
 }
+
+#[test]
+fn a_research_project_inside_the_home_folder_stays_read_only() {
+    // Landlock lets the home folder be written; the read-only bind alone
+    // must hold for a project inside it.
+    let root = Dir::new("research-home");
+    let home = root.0.join("home");
+    let project = home.join("code/app");
+    root.file("home/code/app/README.md", "hello");
+    let Some(sandbox) = sandbox(&home, Vec::new()) else {
+        return;
+    };
+    let mut profile = profile(&project, ProfileNetwork::Open);
+    profile.work_dir_read_only = true;
+    let out = run(
+        &sandbox,
+        &profile,
+        &script(
+            "read the project: cat README.md
+            write the project: echo x > new.txt
+            change a file: echo x >> README.md",
+        ),
+    );
+    assert_eq!(
+        out,
+        "read the project: yes\nwrite the project: no\nchange a file: no\n"
+    );
+    assert!(!project.join("new.txt").exists());
+}

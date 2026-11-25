@@ -44,8 +44,9 @@ should not flood the person with approvals for a job that changes nothing.
   outside `RESEARCH_TOOLS` (`Read`, `Grep`, `Glob`, `WebSearch`) in a
   research session; `ask` allows `WebSearch` there unless a policy rule
   decides it.
-- Runtime: `--tools Read,Grep,Glob,WebSearch` and
-  `agents/roles/research.md` as the appended system prompt; no IDE tools.
+- Runtime: `--tools Read,Grep,Glob,WebSearch`, `--setting-sources user`
+  and `agents/roles/research.md` as the appended system prompt; no IDE
+  tools.
 
 ## Tests
 
@@ -53,7 +54,7 @@ should not flood the person with approvals for a job that changes nothing.
   separate from the worker cap, Write and Bash are refused, WebSearch is
   allowed, a deny rule still wins, the sandbox profile is read-only.
 - Runtime: the arguments of a research session.
-- Sandbox: Linux binds the work dir read-only and makes no folders in it;
-  Windows grants read only.
+- Sandbox: Linux binds the work dir read-only and makes no folders in it,
+  also for a project inside the home folder; Windows refuses it for now.
 - UI: the mode choice, Save as doc (create then write), Turn into task.
 - e2e: start a research session on the fake agent and save its report.

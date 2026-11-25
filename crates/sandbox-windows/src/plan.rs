@@ -206,6 +206,14 @@ impl Plan {
         if !profile.expose.is_empty() {
             return Err(invalid("the Windows sandbox cannot run server pods yet"));
         }
+        // Grants stay on a folder after its sessions (the project's SID is
+        // the same for each), so an earlier direct session's write access
+        // would still apply: a read-only folder needs a SID of its own first.
+        if profile.work_dir_read_only {
+            return Err(invalid(
+                "the Windows sandbox cannot keep a folder read-only yet, so research agents cannot run in it",
+            ));
+        }
         // It would show `~/.claude` instead of the account's folder.
         if profile.claude_dir.is_some() {
             return Err(invalid(
@@ -242,13 +250,7 @@ impl Plan {
                 )));
             }
         }
-        // A research session's folder is read-only (ADR 0011).
-        let work_right = if profile.work_dir_read_only {
-            Right::Read
-        } else {
-            Right::Modify
-        };
-        plan.grant(work_dir.clone(), work_right);
+        plan.grant(work_dir.clone(), Right::Modify);
         for write in &profile.write {
             plan.grant(real(write)?, Right::Modify);
         }
@@ -283,11 +285,8 @@ impl Plan {
                 plan.set.push(("SSL_CERT_DIR".into(), None));
             }
         }
-        // Nothing in a read-only folder needs protecting, or making.
-        if !profile.work_dir_read_only {
-            plan.denied
-                .extend(crate::protected::paths(setup, &work_dir, &FOLDERS_MADE)?);
-        }
+        plan.denied
+            .extend(crate::protected::paths(setup, &work_dir, &FOLDERS_MADE)?);
         plan.denied.sort();
         plan.grants.sort();
         plan.grants.dedup_by(|a, b| a.0 == b.0);

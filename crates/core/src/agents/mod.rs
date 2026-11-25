@@ -952,7 +952,14 @@ impl AgentHost {
     /// Why `tool` is refused, if this is a research session and the tool is
     /// not one of [`RESEARCH_TOOLS`].
     fn outside_research(&self, tool: &str) -> Option<String> {
-        (self.is_research() && !RESEARCH_TOOLS.contains(&tool)).then(|| {
+        let Ok(research) = self
+            .sessions
+            .find(&self.session, |s| s.info().mode == SessionMode::Research)
+        else {
+            // Fails closed: a session that is gone runs nothing.
+            return Some("The session has ended.".to_owned());
+        };
+        (research && !RESEARCH_TOOLS.contains(&tool)).then(|| {
             format!(
                 "A research session only reads the project and searches the web; {tool} is \
                  not available. Put what should change in your report instead."
