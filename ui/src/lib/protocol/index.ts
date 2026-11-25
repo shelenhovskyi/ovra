@@ -21,6 +21,9 @@ export type * from "./agents";
 export type * from "./audit";
 export type * from "./fs";
 export type * from "./git";
+// `review.ts` has its own `GitChange` (a review item's changed git file); the
+// index exports the git panel's.
+export type { GitChange } from "./git";
 export type * from "./info";
 export type * from "./lsp";
 export type * from "./netproxy";

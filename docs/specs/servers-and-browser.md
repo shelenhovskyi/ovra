@@ -176,13 +176,13 @@ ports a helper exposes or forwards).
 
 ### IDE tools
 
-| Tool             | Arguments                    | Answer                                      |
-| ---------------- | ---------------------------- | ------------------------------------------- |
-| `server_list`    | none                         | definitions and running servers of this work dir: id, name, status, port, url |
-| `server_start`   | `name`, `wait_ms?` (<= 60000) | id, status, url, the first log lines; waits until ready, failed or `wait_ms` |
-| `server_stop`    | `id`                         | exit code                                   |
-| `server_restart` | `id`, `wait_ms?`             | the new status                              |
-| `server_logs`    | `id`, `since?`, `limit?` (<= 500), `grep?` | lines, `next`                 |
+| Tool             | Arguments                                  | Answer                                                                        |
+| ---------------- | ------------------------------------------ | ----------------------------------------------------------------------------- |
+| `server_list`    | none                                       | definitions and running servers of this work dir: id, name, status, port, url |
+| `server_start`   | `name`, `wait_ms?` (<= 60000)              | id, status, url, the first log lines; waits until ready, failed or `wait_ms`  |
+| `server_stop`    | `id`                                       | exit code                                                                     |
+| `server_restart` | `id`, `wait_ms?`                           | the new status                                                                |
+| `server_logs`    | `id`, `since?`, `limit?` (<= 500), `grep?` | lines, `next`                                                                 |
 
 Every role gets them, for its own work dir only. Logs are the server's
 output, which project code writes: the tool answer wraps them as data
@@ -241,20 +241,20 @@ Refs come from `browser_snapshot`: an accessibility tree, one line per
 element, each with a ref (`e12`; `f2e7` inside a frame) tied to that
 snapshot. A ref from an older snapshot fails with "take a new snapshot".
 
-| Tool                 | Arguments                                            |
-| -------------------- | ---------------------------------------------------- |
-| `browser_open`       | `url`, `width?`, `height?` -> `page_id`               |
-| `browser_navigate`   | `page_id`, `url` or `action` (`back`, `forward`, `reload`) |
-| `browser_snapshot`   | `page_id`, `ref?` (a subtree), `depth?`               |
-| `browser_click`      | `page_id`, `ref`, `button?`, `double?`, `modifiers?`  |
-| `browser_type`       | `page_id`, `ref`, `text`, `submit?`                   |
-| `browser_press_key`  | `page_id`, `key`                                      |
-| `browser_wait_for`   | `page_id`, `text?`, `text_gone?`, `timeout_ms` (<= 30000) |
-| `browser_console`    | `page_id`, `level?`, `since?`, `limit?`               |
-| `browser_network`    | `page_id`, `since?`, `limit?`                         |
-| `browser_screenshot` | `page_id`, `ref?`, `full_page?` -> an image           |
+| Tool                 | Arguments                                                   |
+| -------------------- | ----------------------------------------------------------- |
+| `browser_open`       | `url`, `width?`, `height?` -> `page_id`                     |
+| `browser_navigate`   | `page_id`, `url` or `action` (`back`, `forward`, `reload`)  |
+| `browser_snapshot`   | `page_id`, `ref?` (a subtree), `depth?`                     |
+| `browser_click`      | `page_id`, `ref`, `button?`, `double?`, `modifiers?`        |
+| `browser_type`       | `page_id`, `ref`, `text`, `submit?`                         |
+| `browser_press_key`  | `page_id`, `key`                                            |
+| `browser_wait_for`   | `page_id`, `text?`, `text_gone?`, `timeout_ms` (<= 30000)   |
+| `browser_console`    | `page_id`, `level?`, `since?`, `limit?`                     |
+| `browser_network`    | `page_id`, `since?`, `limit?`                               |
+| `browser_screenshot` | `page_id`, `ref?`, `full_page?` -> an image                 |
 | `browser_inspect`    | `page_id`, `ref` or `pick_id` -> styles, box, source, image |
-| `browser_close`      | `page_id`                                             |
+| `browser_close`      | `page_id`                                                   |
 
 At most 4 pages per session. Every role gets them.
 
@@ -291,17 +291,17 @@ the real one.
 
 ## Tasks
 
-| Task | Area                                                           | After |
-| ---- | -------------------------------------------------------------- | ----- |
-| S.0  | protocol `servers.rs`, `browser.rs` (core and UI), `DevServers` and `Browser` traits, fakes, `.ovra` protected, stub crates `servers` and `browser`, crate graph | spec  |
-| S.A  | `crates/servers`: processes, pods, logs, readiness, stop        | S.0   |
-| S.B  | `crates/sandbox-linux`: pod profile, `expose` and `forward` in the helper | S.0 |
-| S.C  | `crates/netproxy`: the loopback rule, `OVRA-LOCAL`, refusals    | S.0   |
-| S.D  | core: definitions, `servers.*`, grants, audit                   | S.0   |
-| S.E  | `crates/mcp-server`: `server_*`                                 | S.D   |
-| S.F  | `ui/src/servers`: panel, logs, open in browser                  | S.0   |
-| B.A  | `crates/browser`: launch, pipe, screencast, input, snapshot     | S.B   |
-| B.B  | core: pages, picks, untrusted wrapping, navigation asks         | S.0   |
-| B.C  | `crates/mcp-server`: `browser_*`                                | B.B   |
-| B.D  | `ui/src/browser`: canvas, input, pick overlay, chips            | S.0   |
-| B.E  | e2e with fake services; UX persona pass                         | S.F, B.D |
+| Task | Area                                                                                                                                                             | After    |
+| ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| S.0  | protocol `servers.rs`, `browser.rs` (core and UI), `DevServers` and `Browser` traits, fakes, `.ovra` protected, stub crates `servers` and `browser`, crate graph | spec     |
+| S.A  | `crates/servers`: processes, pods, logs, readiness, stop                                                                                                         | S.0      |
+| S.B  | `crates/sandbox-linux`: pod profile, `expose` and `forward` in the helper                                                                                        | S.0      |
+| S.C  | `crates/netproxy`: the loopback rule, `OVRA-LOCAL`, refusals                                                                                                     | S.0      |
+| S.D  | core: definitions, `servers.*`, grants, audit                                                                                                                    | S.0      |
+| S.E  | `crates/mcp-server`: `server_*`                                                                                                                                  | S.D      |
+| S.F  | `ui/src/servers`: panel, logs, open in browser                                                                                                                   | S.0      |
+| B.A  | `crates/browser`: launch, pipe, screencast, input, snapshot                                                                                                      | S.B      |
+| B.B  | core: pages, picks, untrusted wrapping, navigation asks                                                                                                          | S.0      |
+| B.C  | `crates/mcp-server`: `browser_*`                                                                                                                                 | B.B      |
+| B.D  | `ui/src/browser`: canvas, input, pick overlay, chips                                                                                                             | S.0      |
+| B.E  | e2e with fake services; UX persona pass                                                                                                                          | S.F, B.D |
