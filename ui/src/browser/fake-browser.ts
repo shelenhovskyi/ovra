@@ -3,6 +3,7 @@
 // lists and navigation asks themselves with `emit`.
 
 import type {
+  BrowserAvailability,
   BrowserRequest,
   CoreEvent,
   PageInfo,
@@ -38,6 +39,8 @@ export class FakeBrowserCore implements Transport {
   sessions: SessionInfo[] = [session("s1")];
   /** Errors to answer with, by method. */
   refuse = new Map<string, ProtocolError>();
+  /** What `browser.status` answers, by session; available when unset. */
+  status = new Map<SessionId, BrowserAvailability>();
   /** What `browser.pick` answers. */
   element: (x: number, y: number, up: number) => Pick = (_x, _y, up) =>
     fakePick(up === 0 ? "button" : `div${up}`, { x: 10 * up, y: 10 * up, width: 100, height: 40 });
@@ -57,6 +60,10 @@ export class FakeBrowserCore implements Transport {
         const { session, url } = request.params;
         const data: PageInfo = { id: `new${this.nextPage++}`, session, url, title: "" };
         return { type: "browser.page", data } as ResponseFor<R>;
+      }
+      case "browser.status": {
+        const data = this.status.get(request.params.session) ?? { state: "available" };
+        return { type: "browser.status", data } as ResponseFor<R>;
       }
       case "browser.pick": {
         const { x, y, up } = request.params;

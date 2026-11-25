@@ -11,6 +11,7 @@ import { useOvra } from "../shell/context";
 import Icon from "../shell/Icon.svelte";
 import { type NavigationAsk, sessionBrowsers } from "./browser.svelte";
 import PageView from "./PageView.svelte";
+import { refusalText } from "./refusal";
 
 const { transport, workspace } = useOvra();
 const browsers = sessionBrowsers(transport);
@@ -37,12 +38,10 @@ const session = $derived(
 );
 const pages = $derived(session ? browsers.of(session.id) : []);
 const page = $derived(pages.find((p) => p.id === activePage) ?? pages[0] ?? null);
-/** Why the shown session's browser cannot run, as the core said it, made a sentence. */
+/** Why the shown session's browser cannot run, in words that say what helps. */
 const refusal = $derived.by(() => {
-  const refused = browsers.unavailable;
-  if (!refused || refused.session !== session?.id) return null;
-  const reason = refused.reason.trim();
-  return `${reason.charAt(0).toUpperCase()}${reason.slice(1)}${/[.!?]$/.test(reason) ? "" : "."}`;
+  const refused = session ? browsers.refusals.get(session.id) : undefined;
+  return refused ? refusalText(refused) : null;
 });
 const asks = $derived(browsers.asks.filter((a) => list.some((s) => s.id === a.session)));
 
@@ -76,12 +75,12 @@ $effect(() => {
   if (grew && browsers.shown) void tick().then(() => focusIsFree() && allowOf(count - 1)?.focus());
 });
 
-// A refusal is about one session: showing another one forgets it, so coming back tries again.
+// Ask the core, each time a session is shown, whether its browser can run, before the person tries.
 $effect(() => {
-  const shown = session?.id ?? null;
-  untrack(() => {
-    if (browsers.unavailable && browsers.unavailable.session !== shown) browsers.unavailable = null;
-  });
+  const shown = browsers.shown ? (session?.id ?? null) : null;
+  // An agent that ends loses its browser: ask again.
+  void (session && isEnded(session.status));
+  if (shown) untrack(() => void browsers.check(shown));
 });
 
 // The field shows the address of the page on screen.
@@ -210,10 +209,15 @@ function onPaneKeydown(event: KeyboardEvent): void {
       <p class="error" role="alert">{error}</p>
     {/if}
 
-    {#if refusal}
+    {#if refusal && session}
       <div class="warn" role="note" data-testid="browser-unavailable">
-        <p>{refusal}</p>
-        <button type="button" onclick={() => (browsers.unavailable = null)}>Try again</button>
+        <p>{refusal.headline}</p>
+        {#if refusal.detail}
+          <p class="muted">{refusal.detail}</p>
+        {/if}
+        {#if refusal.retry}
+          <button type="button" onclick={() => void browsers.check(session.id)}>Try again</button>
+        {/if}
       </div>
     {:else if !project}
       <p class="muted">Open a project to use the agent browser.</p>
@@ -313,6 +317,9 @@ function onPaneKeydown(event: KeyboardEvent): void {
   }
   .warn p {
     margin: 0 0 6px;
+  }
+  .warn p.muted {
+    color: var(--text-2);
   }
   .error {
     margin: 0;

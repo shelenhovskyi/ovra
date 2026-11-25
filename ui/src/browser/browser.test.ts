@@ -22,12 +22,20 @@ describe("SessionBrowsers", () => {
     expect(browsers.of("s1").map((p) => p.id)).toEqual(["pg1", opened?.id]);
   });
 
-  it("remembers for which session the browser cannot run and throws other errors", async () => {
+  it("remembers for which session the browser cannot run, with the core's code, and throws other errors", async () => {
     const core = new FakeBrowserCore();
     const browsers = new SessionBrowsers(core);
     core.refuse.set("browser.open", { code: "unavailable", message: "no Chromium found" });
     expect(await browsers.open("s1", "http://localhost/")).toBeNull();
-    expect(browsers.unavailable).toEqual({ session: "s1", reason: "no Chromium found" });
+    // The status does not see it: the refusal stays, without a code.
+    expect(browsers.refusals.get("s1")).toEqual({ code: null, reason: "no Chromium found" });
+    core.status.set("s1", { state: "refused", code: "no_chromium", reason: "no browser at /x" });
+    expect(await browsers.open("s1", "http://localhost/")).toBeNull();
+    expect(browsers.refusals.get("s1")).toEqual({ code: "no_chromium", reason: "no browser at /x" });
+    expect(browsers.refusals.has("s2")).toBe(false);
+    core.status.clear();
+    await browsers.check("s1");
+    expect(browsers.refusals.has("s1")).toBe(false);
     core.refuse.set("browser.open", { code: "conflict", message: "at most 4 pages" });
     await expect(browsers.open("s1", "http://localhost/")).rejects.toThrow("at most 4 pages");
   });
