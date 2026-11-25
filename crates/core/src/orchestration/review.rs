@@ -584,9 +584,12 @@ async fn listed(core: &Core, entry: &Entry, at: Option<&String>) -> Result<Liste
         Some(at) => at.clone(),
         None => worktrees.look(ws.dir.clone()).await?,
     };
-    let deltas = worktrees
+    let mut deltas = worktrees
         .diff(ws.dir.clone(), ws.base.clone(), tree.clone())
         .await?;
+    // A pod may still hold the sandbox's placeholders in a worker's
+    // worktree: never a change to keep.
+    deltas.retain(|d| !protected::is_placeholder(d));
     // Only a worker's files wait for the direct session. A direct item asking
     // this would recurse into itself through `direct_touched`.
     let touched = if entry.mode == SessionMode::Direct {

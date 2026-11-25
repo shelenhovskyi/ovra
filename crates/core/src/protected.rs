@@ -78,6 +78,34 @@ pub(crate) fn changes(path: &str, from: Option<&str>) -> bool {
     is_marked(path) || from.is_some_and(is_marked)
 }
 
+/// Files the Linux sandbox makes empty and read-only at the top of a work
+/// dir while a session runs, when they are missing, and removes after it
+/// (`crates/sandbox-linux`, `FILES_MADE`).
+const PLACEHOLDERS: [&str; 5] = [
+    "CLAUDE.md",
+    "CLAUDE.local.md",
+    "AGENTS.md",
+    ".mcp.json",
+    ".envrc",
+];
+
+/// Git's empty blob, in SHA-1 and SHA-256 repositories, as a regular file.
+const EMPTY_FILE: [&str; 2] = [
+    "100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+    "100644 473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813",
+];
+
+/// Whether `delta` is only the sandbox's placeholder: an added empty
+/// file at one of [`PLACEHOLDERS`]. No agent can write it, and it goes
+/// with the session, so a review never lists it (it would ask the person
+/// to include a protected file on every session).
+pub(crate) fn is_placeholder(delta: &crate::services::Delta) -> bool {
+    delta.kind == crate::protocol::review::ChangeKind::Added
+        && delta.from.is_none()
+        && PLACEHOLDERS.contains(&delta.path.as_str())
+        && EMPTY_FILE.contains(&delta.version.as_str())
+}
+
 /// Whether `path` starts with the segments of `pattern` (`*`: any one name).
 fn prefix(pattern: &[String], path: &[String]) -> bool {
     pattern.len() <= path.len() && pattern.iter().zip(path).all(|(p, s)| p == "*" || p == s)
@@ -86,6 +114,55 @@ fn prefix(pattern: &[String], path: &[String]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_an_added_empty_top_level_placeholder_is_left_out() {
+        use crate::protocol::review::ChangeKind;
+        use crate::services::Delta;
+        let delta = |path: &str, kind, version: &str| Delta {
+            path: path.into(),
+            kind,
+            from: None,
+            additions: 0,
+            deletions: 0,
+            version: version.into(),
+        };
+        let empty = EMPTY_FILE[0];
+        for path in PLACEHOLDERS {
+            assert!(
+                is_placeholder(&delta(path, ChangeKind::Added, empty)),
+                "{path}"
+            );
+            assert!(is_placeholder(&delta(
+                path,
+                ChangeKind::Added,
+                EMPTY_FILE[1]
+            )));
+        }
+        for (path, kind, version) in [
+            ("CLAUDE.md", ChangeKind::Added, "100644 0123"),
+            (
+                "CLAUDE.md",
+                ChangeKind::Added,
+                "100755 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+            ),
+            (
+                "CLAUDE.md",
+                ChangeKind::Added,
+                "120000 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+            ),
+            ("CLAUDE.md", ChangeKind::Modified, empty),
+            ("CLAUDE.md", ChangeKind::Deleted, ""),
+            ("src/CLAUDE.md", ChangeKind::Added, empty),
+            ("claude.md", ChangeKind::Added, empty),
+            (".claude", ChangeKind::Added, empty),
+        ] {
+            assert!(
+                !is_placeholder(&delta(path, kind, version)),
+                "{path} {kind:?} {version}"
+            );
+        }
+    }
 
     #[test]
     fn agent_configuration_and_tool_folders_are_protected() {

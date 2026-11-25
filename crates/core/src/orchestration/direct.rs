@@ -897,6 +897,7 @@ impl Tracker {
         };
         Ok(changed
             .into_iter()
+            .filter(|delta| !protected::is_placeholder(delta))
             .map(|delta| {
                 // Per path: `Some(tainted)` for the agent's, `None` for others.
                 let marks: Vec<Option<bool>> = delta_paths(&delta)
