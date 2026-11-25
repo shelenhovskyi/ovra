@@ -94,7 +94,17 @@ pub(crate) async fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Resp
             Ok(Response::Agents(AgentsResponse::Session(info)))
         }
         AgentsRequest::Send { session, text } => {
-            send(ctx, session, vec![(text, MessageFrom::Person)])?;
+            // The person's picks go with their next message, in Ovra's words.
+            let core = sessions.core();
+            let picks = core
+                .as_ref()
+                .and_then(|c| crate::browser::pending(c, &session));
+            let mut parts = vec![(text, MessageFrom::Person)];
+            parts.extend(picks.as_ref().map(|(t, _)| (t.clone(), MessageFrom::Ovra)));
+            send(ctx, session.clone(), parts)?;
+            if let (Some(core), Some((_, count))) = (&core, picks) {
+                crate::browser::sent(core, &session, count);
+            }
             Ok(OK)
         }
         AgentsRequest::Interrupt { session } => {

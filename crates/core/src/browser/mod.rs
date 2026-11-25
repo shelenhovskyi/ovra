@@ -1,6 +1,6 @@
 //! The agent browser's core state (`docs/specs/servers-and-browser.md`,
-//! ADR 0009): which session each page belongs to and the person's answers
-//! to its navigations. Pages themselves are the [`Browser`] service's.
+//! ADR 0009): which session each page belongs to, the person's answers
+//! to its navigations and the elements the person picked. Pages themselves are the [`Browser`] service's.
 //!
 //! A session's browser runs in a sandbox of its own that sees none of the
 //! project, behind the session's netproxy, so the allowlist and the
@@ -8,6 +8,7 @@
 //! it may report through the sink at once.
 
 mod navigation;
+mod picks;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -19,7 +20,7 @@ use crate::Core;
 use crate::core::WeakCore;
 use crate::protocol::agents::{SandboxNetwork, SandboxReport, SessionId};
 use crate::protocol::browser::{
-    BrowserEvent, BrowserRequest, BrowserResponse, FrameMetadata, PageId, PageInfo,
+    BrowserEvent, BrowserRequest, BrowserResponse, FrameMetadata, PageId, PageInfo, Pick,
 };
 use crate::protocol::{ErrorCode, OkResponse, ProtocolError, Response};
 use crate::services::{
@@ -27,6 +28,7 @@ use crate::services::{
 };
 
 pub(crate) use navigation::session_ended;
+pub(crate) use picks::{pending, sent};
 
 type Result<T> = std::result::Result<T, ProtocolError>;
 
@@ -61,6 +63,10 @@ struct Pages {
     answers: BTreeMap<String, bool>,
     /// Navigations waiting for the person, by origin.
     asks: BTreeMap<String, watch::Sender<Option<bool>>>,
+    /// Picks for the session's next message, with their pages.
+    picks: Vec<(PageId, Pick)>,
+    /// Picks its messages carried, the latest last.
+    sent: Vec<(PageId, Pick)>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -117,11 +123,9 @@ pub(crate) async fn handle(core: &Core, request: BrowserRequest) -> Result<Respo
             owner(core, &page)?;
             BrowserResponse::Picked(Box::new(browser.pick_at(&page, x, y, up).await?))
         }
-        BrowserRequest::Attach { .. } => {
-            return Err(ProtocolError::new(
-                ErrorCode::Unavailable,
-                "attaching picks is not available in this build",
-            ));
+        BrowserRequest::Attach { page, picks } => {
+            picks::attach(core, &page, picks)?;
+            return Ok(Response::Ok(OkResponse::Ok));
         }
         BrowserRequest::AnswerNavigation {
             page,
@@ -314,6 +318,15 @@ impl BrowserSink for Sink {
             }
         })
     }
+}
+
+/// `scheme://host[:port]` of a URL, as the browser names origins.
+pub(crate) fn origin(url: &str) -> String {
+    let start = url.find("://").map_or(0, |i| i + 3);
+    let end = url[start..]
+        .find(['/', '?', '#'])
+        .map_or(url.len(), |i| start + i);
+    url[..end].to_owned()
 }
 
 fn page_not_found(page: &PageId) -> ProtocolError {

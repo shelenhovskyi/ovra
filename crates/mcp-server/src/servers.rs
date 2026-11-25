@@ -11,7 +11,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::calls::{Nothing, failed, parse, text};
-use crate::untrusted::untrusted;
+use ovra_core::untrusted::untrusted;
 
 /// The longest `wait_ms`, and how long a start waits without one.
 const MAX_WAIT_MS: u64 = 60_000;

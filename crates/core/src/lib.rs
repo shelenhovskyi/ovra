@@ -24,6 +24,7 @@ mod search;
 mod secrets;
 mod servers;
 pub mod services;
+pub mod untrusted;
 
 pub use crate::core::{Client, Core, CoreBuilder};
 pub use crate::orchestration::{Output, WorkerState};

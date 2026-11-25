@@ -1,10 +1,11 @@
 //! Text that project code, servers or pages wrote reaches agents as data
-//! (`docs/specs/servers-and-browser.md`, "Page content is data").
+//! (`docs/specs/servers-and-browser.md`, "Page content is data"): the
+//! core wraps picks with it, the IDE tools logs and page content.
 
 /// `text` inside `<untrusted origin="...">...</untrusted>`, with `&`, `<`
 /// and `>` escaped so it cannot close the wrapper; `origin` also has `"`
 /// escaped.
-pub(crate) fn untrusted(origin: &str, text: &str) -> String {
+pub fn untrusted(origin: &str, text: &str) -> String {
     let origin = escape(origin).replace('"', "&quot;");
     format!(
         "<untrusted origin=\"{origin}\">{}</untrusted>",

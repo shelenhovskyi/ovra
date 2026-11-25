@@ -10,7 +10,6 @@
 
 mod calls;
 mod servers;
-mod untrusted;
 
 use ovra_core::Core;
 use ovra_core::services::{BoxFuture, IdeTools, ToolCaller, ToolRole};
