@@ -79,12 +79,14 @@ describe("platform words and keys", () => {
     expect(keyAction(key("Backspace"), true)).toBeNull();
   });
 
-  it("reads Mod+X, Mod+C and Mod+V on the physical key, Cmd on Apple and Ctrl elsewhere", () => {
+  it("reads Mod+X, Mod+C, Mod+V and Mod+(Shift+)Z on the physical key, Cmd on Apple and Ctrl elsewhere", () => {
     expect(keyAction(key("KeyX", { ctrlKey: true }), false)).toBe("cut");
     expect(keyAction(key("KeyC", { metaKey: true }), true)).toBe("copy");
     expect(keyAction(key("KeyV", { ctrlKey: true }), false)).toBe("paste");
     expect(keyAction(key("KeyV", { ctrlKey: true }), true)).toBeNull();
     expect(keyAction(key("KeyC", { ctrlKey: true, shiftKey: true }), false)).toBeNull();
     expect(keyAction(key("KeyC"), false)).toBeNull();
+    expect(keyAction(key("KeyZ", { ctrlKey: true }), false)).toBe("undo");
+    expect(keyAction(key("KeyZ", { metaKey: true, shiftKey: true }), true)).toBe("redo");
   });
 });

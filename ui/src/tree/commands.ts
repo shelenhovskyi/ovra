@@ -45,6 +45,8 @@ export function registerFileCommands(
       title: "Copy relative file path",
       run: on((row) => actions.copyPaths([row.path], true)),
     }),
+    registerCommand({ id: "tree.undo", title: "Undo file operation", run: () => void actions.undo() }),
+    registerCommand({ id: "tree.redo", title: "Redo file operation", run: () => void actions.redo() }),
     registerCommand({
       id: "tree.reveal_in_os",
       title: revealLabel(),

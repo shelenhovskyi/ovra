@@ -173,6 +173,48 @@ describe("FileActions", () => {
     expect(t.copied).toEqual([]);
   });
 
+  it("undoes and redoes the person's own creates, renames, moves and copies", async () => {
+    const t = await setup(["src/a.ts", "b.ts"]);
+    await t.actions.startNew("", "file");
+    await t.actions.commit("new.ts");
+    t.actions.startRename("b.ts");
+    await t.actions.commit("c.ts");
+    await t.actions.copy(["c.ts"]);
+    await t.actions.paste("src");
+    await t.actions.move(["new.ts"], "src");
+    expect(t.paths()).toEqual(["src", "src/a.ts", "src/c.ts", "src/new.ts", "c.ts"]);
+
+    await t.actions.undo(); // the move
+    await t.actions.undo(); // the pasted copy goes to the trash
+    expect(t.paths()).toEqual(["src", "src/a.ts", "c.ts", "new.ts"]);
+    expect(t.log.trashed).toEqual(["src/c.ts"]);
+    await t.actions.undo(); // the rename
+    await t.actions.undo(); // the new file goes to the trash
+    expect(t.paths()).toEqual(["src", "src/a.ts", "b.ts"]);
+    expect(t.log.moved.slice(-2)).toEqual(["src/new.ts -> new.ts", "c.ts -> b.ts"]);
+    await t.actions.undo();
+    expect(t.actions.info).toBe("Nothing to undo");
+
+    await t.actions.redo();
+    await t.actions.redo();
+    expect(t.paths()).toEqual(["src", "src/a.ts", "c.ts", "new.ts"]);
+    expect(t.core.calls.filter((c) => c.method === "fs.trash")).toHaveLength(2);
+  });
+
+  it("refuses to undo a move back onto a taken path, and says where trashed files went", async () => {
+    const t = await setup(["a.ts"]);
+    t.actions.startRename("a.ts");
+    await t.actions.commit("b.ts");
+    await t.core.call({ method: "fs.create", params: { project: "p1", path: "a.ts", dir: false } });
+    await t.actions.undo();
+    expect(t.actions.notice).toBe("Could not undo: a.ts exists");
+    expect(t.paths()).toContain("b.ts");
+
+    t.actions.askTrash(["b.ts"]);
+    await t.actions.confirmTrash();
+    expect(t.actions.info).toBe("Moved to Trash. Restore it from the Trash.");
+  });
+
   it("copies absolute and relative paths and reveals through the core", async () => {
     const t = await setup(["src/a.ts"]);
     await t.actions.copyPaths(["src/a.ts"], false);

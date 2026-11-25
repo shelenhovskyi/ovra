@@ -13,6 +13,8 @@ registerContextKeys(
     { keys: "Mod+C", title: "Copy, also as paths for other apps" },
     { keys: "Mod+V", title: "Paste into the folder" },
     { keys: "Escape", title: "Clear the selection and the cut" },
+    { keys: "Mod+Z", title: "Undo the last file operation" },
+    { keys: "Mod+Shift+Z", title: "Redo the file operation" },
     { keys: "Shift+F10", title: "Open the row's menu (also the Menu key)" },
   ].map((key) => ({ ...key, where: "Files" })),
 );
@@ -520,6 +522,8 @@ function onkeydown(e: KeyboardEvent): void {
   else if (action === "cut" && real) actions.cut(chosen);
   else if (action === "copy" && real) void actions.copy(chosen);
   else if (action === "paste") void actions.paste(folderFor(real));
+  else if (action === "undo") void actions.undo();
+  else if (action === "redo") void actions.redo();
   if (action) {
     e.preventDefault();
     return;
@@ -604,6 +608,7 @@ function onkeydown(e: KeyboardEvent): void {
     />
   {/if}
   {#if actions.notice}<p class="note error" role="alert">{actions.notice}</p>{/if}
+  {#if actions.info}<p class="note" role="status">{actions.info}</p>{/if}
   <!-- Outside the tree, whose children are its rows. -->
   {#if !error && !rootLoading && rows.length === 0}
     {#if filter === "changed"}

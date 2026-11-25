@@ -91,3 +91,30 @@ test("new file from a row's menu, F2 rename in place and drag to move", async ({
   await expect(tab).toHaveText(["t.md"]);
   await expect(tab).toHaveAttribute("data-path", "docs/t.md");
 });
+
+test("several rows cut with Mod+X paste into a folder with Mod+V, and Mod+Z moves them back", async ({ page }) => {
+  const dir = mkdtempSync(join(tmpdir(), "ovra-tree-"));
+  mkdirSync(join(dir, "docs"));
+  writeFileSync(join(dir, "a.md"), "");
+  writeFileSync(join(dir, "b.md"), "");
+
+  await page.goto(daemonUrl());
+  const projects = page.getByTestId("project-list");
+  await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
+  await projects.getByRole("button", { name: "Open", exact: true }).click();
+
+  const tree = page.getByTestId("file-tree");
+  await tree.getByRole("treeitem", { name: "a.md" }).click();
+  await tree.getByRole("treeitem", { name: "b.md" }).click({ modifiers: ["ControlOrMeta"] });
+  await expect(tree.locator("[aria-selected=true]")).toHaveCount(2);
+  await tree.press("ControlOrMeta+KeyX");
+  await tree.getByRole("treeitem", { name: "docs" }).click();
+  await tree.press("ControlOrMeta+KeyV");
+  await expect(tree.getByRole("treeitem", { name: "b.md" })).toHaveAttribute("aria-level", "2");
+  expect(existsSync(join(dir, "docs", "a.md"))).toBe(true);
+
+  await tree.press("ControlOrMeta+KeyZ");
+  await expect(tree.getByRole("treeitem", { name: "b.md" })).toHaveAttribute("aria-level", "1");
+  expect(existsSync(join(dir, "a.md"))).toBe(true);
+  expect(existsSync(join(dir, "docs", "a.md"))).toBe(false);
+});

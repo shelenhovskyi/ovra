@@ -12,11 +12,19 @@ import { baseName, copyName, moveTarget, nameProblem } from "./ops";
 import { topLevel } from "./selection";
 
 const NOTICE_MS = 5000;
+/** How many of the person's own file operations Mod+Z can take back. */
+const UNDO_DEPTH = 20;
 
 /** Files cut or copied in the tree, waiting for Paste; kept inside Ovra. */
 export type Clip = { cut: boolean; paths: string[] };
 
 type Pair = { from: string; to: string };
+
+/** A file operation the person made in this session, as undo and redo need it. */
+type Done =
+  | { kind: "create"; path: string; entry: EntryKind }
+  | { kind: "copy"; pairs: Pair[] }
+  | { kind: "move"; pairs: Pair[] };
 
 export type Edit = { kind: "new"; dir: string; entry: EntryKind } | { kind: "rename"; path: string; entry: EntryKind };
 
@@ -45,9 +53,14 @@ export class FileActions {
   clip = $state<Clip | null>(null);
   /** A failed action, shown briefly. */
   notice = $state<string | null>(null);
+  /** A brief note that is no failure, such as where trashed files went. */
+  info = $state<string | null>(null);
+  private future: Done[] = [];
+  private history: Done[] = [];
   private before: string | null = null;
   private busy = false;
   private timer: ReturnType<typeof setTimeout> | undefined;
+  private infoTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(private readonly host: ActionsHost) {}
 
@@ -123,6 +136,7 @@ export class FileActions {
     const path = joinPath(dir, name);
     const { transport, project, model } = this.host;
     await transport.call({ method: "fs.create", params: { project, path, dir: entry === "dir" } });
+    this.record({ kind: "create", path, entry });
     this.end();
     await model.reload(dir);
     await model.reveal(path);
@@ -134,6 +148,7 @@ export class FileActions {
     const to = joinPath(parentOf(from), name);
     const { transport, project, model } = this.host;
     await transport.call({ method: "fs.rename", params: { project, from, to } });
+    this.record({ kind: "move", pairs: [{ from, to }] });
     model.moved(from, to);
     this.end();
     await model.reload(parentOf(from));
@@ -158,6 +173,7 @@ export class FileActions {
     );
     try {
       await transport.call({ method: "fs.copy", params: { project, from: path, to } });
+      this.record({ kind: "copy", pairs: [{ from: path, to }] });
       await model.reload(dir);
       this.startRename(to);
     } catch (err) {
@@ -180,6 +196,8 @@ export class FileActions {
       await transport.call({ method: "fs.trash", params: { project, paths } });
       for (const dir of new Set(paths.map(parentOf))) await model.reload(dir);
       this.host.trashed?.(paths);
+      // Ovra cannot take a trash back yet; say where the files are.
+      this.tell(`Moved to Trash. Restore ${paths.length === 1 ? "it" : "them"} from the Trash.`);
     } catch (err) {
       this.fail(err);
     }
@@ -212,6 +230,7 @@ export class FileActions {
       this.fail(err);
     }
     if (done.length === 0) return done;
+    this.record({ kind: "move", pairs: done });
     for (const d of new Set([...moves.map((m) => parentOf(m.from)), dir])) await model.reload(d);
     await this.show(done.at(-1)?.to as string);
     return done;
@@ -271,6 +290,7 @@ export class FileActions {
       this.fail(err);
     }
     if (done.length === 0) return done;
+    this.record({ kind: "copy", pairs: done });
     await model.reload(dir);
     await this.show(done.at(-1)?.to as string);
     return done;
@@ -300,8 +320,79 @@ export class FileActions {
     }
   }
 
-  private fail(err: unknown): void {
-    this.notice = err instanceof CoreError ? err.error.message : err instanceof Error ? err.message : String(err);
+  /** Takes back the last file operation: made files go to the trash, moved ones move back. */
+  async undo(): Promise<void> {
+    await this.step(this.history, this.future, "undo");
+  }
+
+  async redo(): Promise<void> {
+    await this.step(this.future, this.history, "redo");
+  }
+
+  private record(op: Done): void {
+    this.history.push(op);
+    if (this.history.length > UNDO_DEPTH) this.history.shift();
+    this.future = [];
+  }
+
+  private async step(from: Done[], to: Done[], verb: "undo" | "redo"): Promise<void> {
+    const op = from.pop();
+    if (!op) return this.tell(`Nothing to ${verb}`);
+    // A failed step is dropped: what it would change has changed since.
+    try {
+      await (verb === "undo" ? this.revert(op) : this.reapply(op));
+      to.push(op);
+    } catch (err) {
+      this.fail(err, `Could not ${verb}: `);
+    }
+  }
+
+  private async revert(op: Done): Promise<void> {
+    if (op.kind === "move") return this.renameAll(op.pairs.map(({ from, to }) => ({ from: to, to: from })).reverse());
+    const paths = op.kind === "create" ? [op.path] : op.pairs.map((p) => p.to);
+    const { transport, project, model } = this.host;
+    await transport.call({ method: "fs.trash", params: { project, paths } });
+    for (const dir of new Set(paths.map(parentOf))) await model.reload(dir);
+    this.host.trashed?.(paths);
+  }
+
+  private async reapply(op: Done): Promise<void> {
+    const { transport, project, model } = this.host;
+    if (op.kind === "move") return this.renameAll(op.pairs);
+    if (op.kind === "create") {
+      await transport.call({ method: "fs.create", params: { project, path: op.path, dir: op.entry === "dir" } });
+      await model.reload(parentOf(op.path));
+      return this.show(op.path);
+    }
+    for (const { from, to } of op.pairs) await transport.call({ method: "fs.copy", params: { project, from, to } });
+    for (const dir of new Set(op.pairs.map((p) => parentOf(p.to)))) await model.reload(dir);
+    await this.show(op.pairs.at(-1)?.to as string);
+  }
+
+  /** Renames each pair in turn, keeping open folders and tabs with them; the core refuses a taken path. */
+  private async renameAll(pairs: Pair[]): Promise<void> {
+    const { transport, project, model } = this.host;
+    try {
+      for (const { from, to } of pairs) {
+        await transport.call({ method: "fs.rename", params: { project, from, to } });
+        model.moved(from, to);
+        this.host.moved?.(from, to);
+      }
+    } finally {
+      for (const dir of new Set(pairs.flatMap((p) => [parentOf(p.from), parentOf(p.to)]))) await model.reload(dir);
+    }
+    await this.show(pairs.at(-1)?.to as string);
+  }
+
+  private tell(text: string): void {
+    this.info = text;
+    clearTimeout(this.infoTimer);
+    this.infoTimer = setTimeout(() => (this.info = null), NOTICE_MS);
+  }
+
+  private fail(err: unknown, prefix = ""): void {
+    const message = err instanceof CoreError ? err.error.message : err instanceof Error ? err.message : String(err);
+    this.notice = prefix + message;
     clearTimeout(this.timer);
     this.timer = setTimeout(() => (this.notice = null), NOTICE_MS);
   }

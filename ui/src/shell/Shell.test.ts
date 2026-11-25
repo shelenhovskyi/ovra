@@ -159,6 +159,8 @@ describe("Shell", () => {
         "Files: Mod+C Copy, also as paths for other apps",
         "Files: Mod+V Paste into the folder",
         "Files: Escape Clear the selection and the cut",
+        "Files: Mod+Z Undo the last file operation",
+        "Files: Mod+Shift+Z Redo the file operation",
         "Files: Shift+F10 Open the row's menu (also the Menu key)",
         "Git: S Stage",
         "Git: U Unstage",
