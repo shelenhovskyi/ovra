@@ -222,12 +222,29 @@ describe("Palette", async () => {
     expect(workspace.openPath).toBeNull();
   });
 
-  it("ends the project list with Open a folder…, which leaves for the start screen without a folder dialog", async () => {
+  it("ends the project list with Open a folder…, which asks for a path and keeps the project until it opens", async () => {
     const projects = [{ id: "a", name: "alpha", root: "/w/alpha", last_opened_ms: null, trusted: false }];
-    const { workspace, input } = await open("projects", new FakeCore(undefined, projects), projects[0]);
+    const { workspace, target, input } = await open("projects", new FakeCore(undefined, projects), projects[0]);
     await type(input, "open a folder");
     key(input, "Enter");
-    await vi.waitFor(() => expect(workspace.project).toBeNull());
+    await vi.waitFor(() => expect(palette.mode).toBe("folder"));
+    await settle();
+    const field = target.querySelector("input");
+    if (!field) throw new Error("no folder field");
+    expect(document.activeElement).toBe(field);
+    expect(field.placeholder).toBe("Folder to open, for example /home/you/my-app");
+    expect(target.textContent).toContain("alpha stays open until the new folder opens.");
+
+    await type(field, "relative");
+    key(field, "Enter");
+    await vi.waitFor(() => expect(target.querySelector("[role=status]")?.textContent).toContain("Use the full path"));
+    expect(field.getAttribute("aria-invalid")).toBe("true");
+    expect([workspace.project?.id, workspace.paletteOpen]).toEqual(["a", true]);
+
+    await type(field, "/w/beta");
+    key(field, "Enter");
+    await vi.waitFor(() => expect(workspace.project?.root).toBe("/w/beta"));
+    expect(workspace.paletteOpen).toBe(false);
   });
 
   it("shows why the list could not load", async () => {
