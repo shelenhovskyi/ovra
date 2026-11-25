@@ -320,8 +320,8 @@ function onkeydown(e: KeyboardEvent): void {
 <div class="panel">
   <div class="toolbar">
     <button type="button" onclick={collapseAll} title="Collapse all folders">Collapse all</button>
-    <button type="button" onclick={reveal} disabled={!openPath} title="Show the open file in the tree">Reveal</button>
-    <button type="button" onclick={toggleChanged} aria-pressed={filter === "changed"} title="Show only changed files">
+    <button type="button" onclick={reveal} disabled={!openPath} title="Find the open file in the tree: opens its folders and selects it">Reveal</button>
+    <button type="button" onclick={toggleChanged} aria-pressed={filter === "changed"} title="Show only files git sees as changed or new, and their folders">
       Changed only
     </button>
   </div>

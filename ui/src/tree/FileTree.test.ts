@@ -214,6 +214,9 @@ describe("FileTree", () => {
     const button = (name: string) =>
       [...target.querySelectorAll("button")].find((b) => b.textContent?.trim() === name) as HTMLButtonElement;
     const paths = () => [...target.querySelectorAll<HTMLElement>("[role=treeitem]")].map((r) => r.dataset.path);
+    // Tooltips say what the short labels do.
+    expect(button("Reveal").title).toBe("Find the open file in the tree: opens its folders and selects it");
+    expect(button("Changed only").title).toBe("Show only files git sees as changed or new, and their folders");
     button("Reveal").click();
     await settle();
     // The sidebar is asked to show the tree first, also from the Git or Search view.
