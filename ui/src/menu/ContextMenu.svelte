@@ -2,7 +2,8 @@
 // The window's context menu, mounted once by the shell; `openContextMenu`
 // (context-menu.svelte.ts) fills it. It opens at the asked point, kept inside
 // the viewport. Arrow keys, Home, End and a first letter move between items,
-// Enter or Space runs one; Escape, Tab or a press outside closes it and gives
+// Enter or Space runs one; holding Alt (Option) shows and runs an item's
+// `alt` variant. Escape, Tab or a press outside closes it and gives
 // focus back to where it was.
 import { formatShortcut, inBrowserTab, isApple, liveKeys } from "../keys/shortcut";
 import { menuTarget } from "../shell/menu";
@@ -11,6 +12,9 @@ import { clampToViewport, closeContextMenu, contextMenu, type MenuItem } from ".
 let menu = $state<HTMLElement>();
 let place = $state<{ x: number; y: number } | null>(null);
 const open = $derived(contextMenu.open);
+// Alt (Option) is held: items with an `alt` variant show and run it.
+let altHeld = $state(false);
+const modifierEvents = ["keydown", "keyup", "pointermove"] as const;
 
 function items(): HTMLElement[] {
   return [...(menu?.querySelectorAll<HTMLElement>("[role=menuitem]") ?? [])];
@@ -35,25 +39,37 @@ $effect(() => {
     if (!menu?.contains(event.target as Node | null)) closeContextMenu(true);
   };
   const away = () => closeContextMenu(false);
+  const onModifier = (event: KeyboardEvent | PointerEvent) => {
+    altHeld = event.altKey;
+  };
+  altHeld = false;
   document.addEventListener("pointerdown", onPointerDown, true);
+  for (const type of modifierEvents) window.addEventListener(type, onModifier, true);
   window.addEventListener("blur", away);
   window.addEventListener("resize", away);
   return () => {
     document.removeEventListener("pointerdown", onPointerDown, true);
+    for (const type of modifierEvents) window.removeEventListener(type, onModifier, true);
     window.removeEventListener("blur", away);
     window.removeEventListener("resize", away);
   };
 });
 
-function choose(item: MenuItem): void {
+/** The item as it reads now: its `alt` variant while Alt is held. */
+function current(item: MenuItem): { label: string; run: () => void | Promise<void> } {
+  return altHeld && item.alt ? item.alt : item;
+}
+
+function choose(item: MenuItem, event: MouseEvent): void {
   if (item.disabled) return;
+  const chosen = (altHeld || event.altKey) && item.alt ? item.alt : item;
   // Focus goes back first, so what the item opens (a search field, a dialog) can take it.
   closeContextMenu(true);
   void (async () => {
     try {
-      await item.run();
+      await chosen.run();
     } catch (error) {
-      console.error(`menu item ${item.label} failed`, error);
+      console.error(`menu item ${chosen.label} failed`, error);
     }
   })();
 }
@@ -100,9 +116,10 @@ function shown(keys: string): string {
           class:danger={entry.danger}
           aria-disabled={entry.disabled ? "true" : undefined}
           aria-keyshortcuts={entry.keys ? liveKeys(entry.keys, inBrowserTab()) : undefined}
-          onclick={() => choose(entry)}
+          title={entry.alt ? `Hold ${isApple() ? "Option" : "Alt"}: ${entry.alt.label}` : undefined}
+          onclick={(event) => choose(entry, event)}
         >
-          {entry.label}
+          {current(entry).label}
           {#if entry.keys}<kbd aria-hidden="true">{shown(entry.keys)}</kbd>{/if}
         </button>
       {/if}

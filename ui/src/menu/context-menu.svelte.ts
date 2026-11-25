@@ -13,6 +13,8 @@ export type MenuItem = {
   disabled?: boolean;
   /** Something that deletes or cannot be undone. */
   danger?: boolean;
+  /** What the item becomes while Alt (Option) is held, as in native menus. */
+  alt?: { label: string; run: () => void | Promise<void> };
 };
 
 /** An item, or a line between groups of items. Falsy entries are left out, so `cond && item` works. */

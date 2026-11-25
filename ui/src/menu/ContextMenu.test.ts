@@ -55,6 +55,32 @@ describe("ContextMenu", () => {
     expect(document.activeElement).toBe(origin);
   });
 
+  it("shows and runs an item's alt variant while Alt is held", () => {
+    const full = vi.fn();
+    const relative = vi.fn();
+    const entry = { label: "Copy path", run: full, alt: { label: "Copy relative path", run: relative } };
+    const alt = (type: string, altKey: boolean) =>
+      document.activeElement?.dispatchEvent(new KeyboardEvent(type, { code: "AltLeft", altKey, bubbles: true }));
+    openContextMenu({ x: 0, y: 0 }, [entry]);
+    flushSync();
+    expect(items()[0]?.textContent?.trim()).toBe("Copy path");
+    alt("keydown", true);
+    flushSync();
+    expect(items()[0]?.textContent?.trim()).toBe("Copy relative path");
+    alt("keyup", false);
+    flushSync();
+    expect(items()[0]?.textContent?.trim()).toBe("Copy path");
+    items()[0]?.dispatchEvent(new MouseEvent("click", { altKey: true, bubbles: true }));
+    flushSync();
+    expect(relative).toHaveBeenCalledOnce();
+    expect(full).not.toHaveBeenCalled();
+
+    openContextMenu({ x: 0, y: 0 }, [entry]);
+    flushSync();
+    items()[0]?.click();
+    expect(full).toHaveBeenCalledOnce();
+  });
+
   it("closes on Escape or a press outside, giving focus back", () => {
     openContextMenu({ x: 0, y: 0, returnFocus: origin }, [{ label: "Copy", run: vi.fn() }]);
     flushSync();
