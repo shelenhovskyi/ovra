@@ -9,7 +9,7 @@ import type {
   Request,
   ResponseFor,
   ServerDef,
-  ServerInfo,
+  DevServerInfo as ServerInfo,
   SessionInfo,
 } from "../lib/protocol";
 import { CoreError, type Transport } from "../lib/transport";

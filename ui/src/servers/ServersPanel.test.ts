@@ -1,7 +1,7 @@
 import { flushSync, mount, unmount } from "svelte";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { installKeybindings } from "../keys/keybindings";
-import type { ServerInfo } from "../lib/protocol";
+import type { DevServerInfo as ServerInfo } from "../lib/protocol";
 import { Workspace } from "../shell/workspace.svelte";
 import { FakeServersCore } from "./fake-servers";
 import TestHost from "./TestHost.svelte";
@@ -139,6 +139,7 @@ describe("ServersPanel", () => {
         resumable: false,
         billing: null,
         sandbox: null,
+        sandbox_reported: false,
       },
     ];
     core.servers = [server({ work_dir: "w1" })];

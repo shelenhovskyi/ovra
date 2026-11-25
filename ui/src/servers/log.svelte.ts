@@ -3,7 +3,7 @@
 // restarts, so a line is new when its number is higher than the last one.
 // Only the newest `MAX_LINES` stay in memory.
 
-import type { CoreEvent, LogLine, LogPage, ServerId } from "../lib/protocol";
+import type { CoreEvent, LogLine, LogPage, DevServerId as ServerId } from "../lib/protocol";
 import type { Transport } from "../lib/transport";
 import { message } from "./servers.svelte";
 

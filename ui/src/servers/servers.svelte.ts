@@ -2,7 +2,15 @@
 // worker's worktree): definitions from `.ovra/servers.json` and the servers
 // that ran, kept current from `servers.status`.
 
-import type { CoreEvent, ProjectId, ServerId, ServerInfo, ServerList, ServerStatus, SessionId } from "../lib/protocol";
+import type {
+  CoreEvent,
+  ProjectId,
+  DevServerId as ServerId,
+  DevServerInfo as ServerInfo,
+  ServerList,
+  ServerStatus,
+  SessionId,
+} from "../lib/protocol";
 import { CoreError, type Transport } from "../lib/transport";
 
 export class ProjectServers {

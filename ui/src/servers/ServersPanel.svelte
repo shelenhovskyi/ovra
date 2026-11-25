@@ -6,7 +6,7 @@
 import { tick, untrack } from "svelte";
 import { agentSessions } from "../agents/sessions.svelte";
 import { registerCommand } from "../keys/commands";
-import type { ServerInfo, SessionId, StartedBy } from "../lib/protocol";
+import type { DevServerInfo as ServerInfo, SessionId, StartedBy } from "../lib/protocol";
 import { useOvra } from "../shell/context";
 import LogView from "./LogView.svelte";
 import { ProjectServers, running, statusText } from "./servers.svelte";

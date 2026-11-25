@@ -2,7 +2,7 @@
 // One server's output. It follows new lines until the person scrolls up, and
 // again once they scroll back to the end. Colours are text runs, never HTML.
 import { tick, untrack } from "svelte";
-import type { ServerId } from "../lib/protocol";
+import type { DevServerId as ServerId } from "../lib/protocol";
 import { useOvra } from "../shell/context";
 import { PALETTE, parseAnsi } from "./ansi";
 import { MAX_LINES, ServerLog } from "./log.svelte";
