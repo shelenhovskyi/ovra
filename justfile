@@ -20,6 +20,7 @@ test:
     cargo test --workspace --exclude ovra-app --all-features --doc
     pnpm --filter @ovra/ui test
     python3 scripts/check_test_budgets.py rust ui
+    python3 -B -m unittest discover -s scripts
 
 # Build the UI and the headless daemon.
 build-headless:

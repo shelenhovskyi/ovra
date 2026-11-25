@@ -3,7 +3,9 @@
 
 Usage: check_test_budgets.py SUITE [SUITE...]   (suites: rust, ui, e2e)
 Budgets live in scripts/test-budgets.json. Always prints the slowest tests so
-growth is visible before it becomes a failure.
+growth is visible before it becomes a failure. The ui suite is measured in CPU
+time per test (`meta.cpuMs`, written by ui/src/test-setup.ts), so load from
+other work on the machine does not fail it; the others in wall time.
 """
 
 import json
@@ -24,12 +26,15 @@ def rust(report):
 
 
 def ui(report):
-    data = json.loads(report.read_text())
-    return [
-        (f"{pathlib.Path(f['name']).name} > {t['fullName']}", t.get("duration") or 0)
-        for f in data["testResults"]
-        for t in f["assertionResults"]
-    ]
+    tests = []
+    for f in json.loads(report.read_text())["testResults"]:
+        for t in f["assertionResults"]:
+            name = f"{pathlib.Path(f['name']).name} > {t['fullName']}"
+            cpu_ms = (t.get("meta") or {}).get("cpuMs")
+            if cpu_ms is None and t["status"] in ("passed", "failed"):
+                sys.exit(f"test-budget[ui]: {name} has no meta.cpuMs; is ui/src/test-setup.ts loaded?")
+            tests.append((name, cpu_ms or 0))
+    return tests
 
 
 def e2e(report):
@@ -50,6 +55,7 @@ def e2e(report):
 
 
 PARSERS = {"rust": rust, "ui": ui, "e2e": e2e}
+CLOCKS = {"ui": "CPU time"}
 
 
 def check(suite):
@@ -60,16 +66,18 @@ def check(suite):
         return False
     tests = PARSERS[suite](report)
     total = sum(ms for _, ms in tests)
+    clock = CLOCKS.get(suite, "wall time")
     ok = True
-    print(f"test-budget[{suite}]: {len(tests)} tests, {total:.0f} ms of {budget['total_ms']} ms budget")
+    print(f"test-budget[{suite}]: {len(tests)} tests, {total:.0f} ms {clock} of {budget['total_ms']} ms budget")
+    print(f"  slowest ({clock}):")
     for name, ms in sorted(tests, key=lambda t: -t[1])[:5]:
         print(f"  {ms:8.0f} ms  {name}")
     if total > budget["total_ms"]:
-        print(f"error: {suite} suite took {total:.0f} ms, budget {budget['total_ms']} ms", file=sys.stderr)
+        print(f"error: {suite} suite took {total:.0f} ms {clock}, budget {budget['total_ms']} ms", file=sys.stderr)
         ok = False
     for name, ms in tests:
         if ms > budget["per_test_ms"]:
-            print(f"error: {name} took {ms:.0f} ms, per-test budget {budget['per_test_ms']} ms", file=sys.stderr)
+            print(f"error: {name} took {ms:.0f} ms {clock}, per-test budget {budget['per_test_ms']} ms", file=sys.stderr)
             ok = False
     return ok
 

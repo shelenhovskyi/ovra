@@ -38,7 +38,7 @@ export default defineConfig({
     // One jsdom per worker instead of per file, with each file still in its own
     // module context: far less setup work competing with the tests themselves.
     pool: "vmThreads",
-    // Two workers: each test's duration counts toward the budget, and more
+    // Two workers: each test's CPU time counts toward the budget, and more
     // workers mostly add CPU contention to every test without a faster run.
     maxWorkers: 2,
     setupFiles: ["src/test-setup.ts"],
