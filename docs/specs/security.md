@@ -458,6 +458,9 @@ rules for each project:
     allow never reach `can_use_tool`.
 - An `ask` rule wins over an `auto` rule that also matches: the stricter
   rule decides.
+  - Ask is enforced in the hook too: it answers `permissionDecision: "ask"`,
+    so the CLI asks through `can_use_tool` and Ovra asks the person, even
+    for a call the user's own Claude settings allow.
 - An `auto` rule applies only when the runtime reported a sandbox for the
   session (above) whose network is not `Open`. Ovra skips the question only
   when the sandbox would contain a mistake. Otherwise `auto` counts as
@@ -473,12 +476,19 @@ rules for each project:
   asked. These are the user's settings, plus the project's
   `.claude/settings.json` when the project is trusted. Policies add a layer
   on top and replace nothing.
+  - Only `deny` and `ask` rules override those settings, through the hook.
+  - An `auto` rule never skips more than they allow: the hook leaves it to
+    the CLI, and it applies only to calls the CLI asks Ovra about.
 
 **Storage and protocol.**
 
 - A project's policy is kept by `ProjectStore`.
-- `policy.get { project }` reads it. `policy.set { project, policy }`
-  replaces it.
+- `policy.get { project }` reads it. `policy.set { project, policy,
+  expected? }` replaces it.
+  - `expected` is the policy the change was built from. When it is given
+    and the stored policy differs, `set` refuses with `conflict` and keeps
+    nothing, so a rule added elsewhere meanwhile is never dropped. The UI
+    always sends it.
 - Only the person changes a policy, through the UI. No agent tool can, and
   policies live outside every sandbox.
 - `set` refuses unknown actions, empty tool names and globs that cannot

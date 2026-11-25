@@ -14,7 +14,7 @@ use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::broadcast;
 
-pub use crate::agents::AgentHost;
+pub use crate::agents::{AgentHost, BeforeTool};
 pub use crate::lsp::ServerHost;
 use crate::path::RelPath;
 use crate::protocol::agents::{

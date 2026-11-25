@@ -517,19 +517,20 @@ impl AgentHost {
     /// before the tool runs, so a direct session can snapshot the tree
     /// first (ADR 0005).
     ///
-    /// Returns why the project's policy refuses the call, if it does: the
-    /// hook also sees calls the user's own settings allow without asking,
-    /// which never reach [`Self::ask`].
-    pub async fn before_tool(&self, hook_input: &serde_json::Value) -> Option<String> {
+    /// Returns what the project's policy says about the call: the hook also
+    /// sees calls the user's own settings allow without asking, which never
+    /// reach [`Self::ask`] unless the hook tells the CLI to ask.
+    pub async fn before_tool(&self, hook_input: &serde_json::Value) -> BeforeTool {
         let field = |name: &str| hook_input.get(name).and_then(serde_json::Value::as_str);
         let (Some(id), Some(name)) = (field("tool_use_id"), field("tool_name")) else {
-            return None;
+            return BeforeTool::Proceed;
         };
         let input = hook_input
             .get("tool_input")
             .cloned()
             .unwrap_or(serde_json::Value::Null);
         // Ovra's own tools follow their role rules (`Self::ask`).
+        let mut verdict = BeforeTool::Proceed;
         if !name.starts_with(crate::orchestration::IDE_TOOL_PREFIX) {
             let refused = match self.policy(name, &input) {
                 Ok(Some((PolicyAction::Deny, rule))) => Some((
@@ -543,19 +544,29 @@ impl AgentHost {
                         .to_owned(),
                     UNREADABLE_POLICY.to_owned(),
                 )),
-                Ok(_) => None,
+                // The CLI asks through `can_use_tool`, and `Self::ask`
+                // asks the person, whatever the user's settings allow.
+                Ok(Some((PolicyAction::Ask, rule))) => {
+                    verdict = BeforeTool::Ask(format!(
+                        "The project's policy asks the person first ({rule})."
+                    ));
+                    None
+                }
+                // Auto never skips more than the user's settings: the CLI
+                // decides as usual, and `Self::ask` applies the rule.
+                Ok(Some((PolicyAction::Auto, _)) | None) => None,
             };
             if let Some((why, rule)) = refused {
                 let by = DecidedBy::Policy { rule };
                 self.audit(crate::audit::tool_decided(name, &input, false, by));
-                return Some(why);
+                return BeforeTool::Deny(why);
             }
         }
         self.sessions
             .direct
             .tool_started(&self.session, id, name, &input)
             .await;
-        None
+        verdict
     }
 
     /// Finishes the bookkeeping for tool results reported with
@@ -717,6 +728,18 @@ impl AgentHost {
         self.set_status(AgentStatus::Working);
         answer
     }
+}
+
+/// What the project's policy says about a tool call before it runs
+/// ([`AgentHost::before_tool`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BeforeTool {
+    /// No deny or ask rule matches: the CLI decides as usual.
+    Proceed,
+    /// The person is asked, even if the user's settings allow the call.
+    Ask(String),
+    /// Refused, for this reason.
+    Deny(String),
 }
 
 /// Withdraws the request when the agent stops waiting before it is answered

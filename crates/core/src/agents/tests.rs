@@ -1048,6 +1048,7 @@ async fn a_resumed_session_reports_its_sandbox_anew() {
 
 #[tokio::test]
 async fn the_projects_policy_decides_before_the_person_is_asked() {
+    use crate::agents::BeforeTool;
     use crate::protocol::agents::{SandboxNetwork, SandboxReport};
     use crate::protocol::permissions::Decision;
 
@@ -1063,6 +1064,7 @@ async fn the_projects_policy_decides_before_the_person_is_asked() {
         &core,
         json!({"method": "policy.set", "params": {"project": "p1", "policy": {"rules": [
             {"tool": "WebFetch", "action": "deny"},
+            {"tool": "Bash", "match": "git push", "action": "ask"},
             {"tool": "Bash", "match": "npm test", "action": "auto"}]}}}),
     )
     .await;
@@ -1072,11 +1074,23 @@ async fn the_projects_policy_decides_before_the_person_is_asked() {
         .await;
     assert_eq!(fetch.decision, Decision::Deny);
     assert!(fetch.message.is_some_and(|m| m.contains("(WebFetch)")));
-    // The hook refuses it too, for calls the user's settings let through.
-    let hook = json!({"tool_use_id": "t1", "tool_name": "WebFetch", "tool_input": {"url": "x"}});
-    assert!(host.before_tool(&hook).await.is_some());
-    let bash = json!({"tool_use_id": "t2", "tool_name": "Bash", "tool_input": {"command": "ls"}});
-    assert_eq!(host.before_tool(&bash).await, None);
+    // The hook refuses it too, for calls the user's settings let through,
+    // and has the CLI ask about what an ask rule matches.
+    let hook = |id: &str, tool: &str, input: serde_json::Value| json!({"tool_use_id": id, "tool_name": tool, "tool_input": input});
+    let fetch = hook("t1", "WebFetch", json!({"url": "x"}));
+    assert!(matches!(
+        host.before_tool(&fetch).await,
+        BeforeTool::Deny(_)
+    ));
+    let push = hook("t2", "Bash", json!({"command": "git push origin"}));
+    assert!(
+        matches!(host.before_tool(&push).await, BeforeTool::Ask(why) if why.contains("(Bash(git push))"))
+    );
+    // Auto never skips the user's settings: the CLI decides as usual.
+    for (id, command) in [("t3", "ls"), ("t4", "npm test")] {
+        let bash = hook(id, "Bash", json!({"command": command}));
+        assert_eq!(host.before_tool(&bash).await, BeforeTool::Proceed);
+    }
 
     // Auto counts only once the runtime said it ran a sandbox.
     let mut rx = core.subscribe();
@@ -1120,11 +1134,9 @@ async fn the_projects_policy_decides_before_the_person_is_asked() {
         core.inner_sessions(),
         core.sink(),
     );
-    let hook = json!({"tool_use_id": "t3", "tool_name": "Read", "tool_input": {"file_path": "a"}});
+    let read = hook("t5", "Read", json!({"file_path": "a"}));
     assert!(
-        lost.before_tool(&hook)
-            .await
-            .is_some_and(|m| m.contains("could not read"))
+        matches!(lost.before_tool(&read).await, BeforeTool::Deny(why) if why.contains("could not read"))
     );
     let asking = tokio::spawn(async move {
         lost.ask("Bash".into(), json!({"command": "npm test"}), None, None)

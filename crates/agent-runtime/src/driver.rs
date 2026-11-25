@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use ovra_core::protocol::agents::{AgentMessage, AgentStatus, Billing};
 use ovra_core::protocol::permissions::{Decision, PermissionReason};
-use ovra_core::services::{AgentHost, ToolRole};
+use ovra_core::services::{AgentHost, BeforeTool, ToolRole};
 use serde_json::Value;
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::mpsc;
@@ -156,8 +156,9 @@ impl Driver {
                     // The CLI waits for the hook, so the tool has not run yet:
                     // a direct session snapshots the tree first (ADR 0005).
                     let verdict = match self.host.before_tool(&input).await {
-                        Some(reason) => policy::Verdict::Deny(reason),
-                        None => policy::pre_tool_use(&self.cwd, &input),
+                        BeforeTool::Deny(reason) => policy::Verdict::Deny(reason),
+                        BeforeTool::Ask(reason) => policy::Verdict::Ask(reason),
+                        BeforeTool::Proceed => policy::pre_tool_use(&self.cwd, &input),
                     };
                     wire::success(&request_id, verdict.to_hook_output())
                 } else {
