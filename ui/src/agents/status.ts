@@ -14,8 +14,10 @@ export function statusLabel(status: AgentStatus): string {
     case "waiting_for_approval":
       return "Needs approval";
     case "idle":
-      // The turn ended and nothing waits for an answer: done, until the person asks for more.
-      return "Done, you can reply";
+      // The turn ended and nothing waits for an answer: done, until the person
+      // asks for more. A turn that ended with an error says so instead
+      // (`failedLabel`).
+      return "Done";
     case "stopped":
       return "Stopped";
     case "failed":

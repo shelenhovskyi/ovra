@@ -64,8 +64,8 @@ test("start an agent and answer its requests from the keyboard", async ({ page }
   );
   await expect(run.getByTestId("approval-unsandboxed")).toBeVisible();
   await expect(page.getByTestId("notifications")).toContainText("Fix the typo needs approval: Run ls -la");
-  // Nothing moves focus to the request: the prompt field keeps it.
-  await expect(page.getByRole("textbox", { name: "What should Claude do?" })).toBeFocused();
+  // The task opens, ready for a reply; nothing moves focus to the request.
+  await expect(page.getByRole("textbox", { name: "Reply to Claude" })).toBeFocused();
 
   await page.keyboard.press("Alt+Shift+A");
   await expect(run).toBeFocused();
@@ -87,7 +87,7 @@ test("start an agent and answer its requests from the keyboard", async ({ page }
   await page.keyboard.press("ControlOrMeta+Enter");
 
   const session = page.getByTestId("agent-session");
-  await expect(session.getByRole("status")).toHaveText("Done, you can reply");
+  await expect(session.getByRole("status")).toHaveText("Done");
   await expect(approvals).toContainText("Nothing waits for your approval.");
   const transcript = page.getByTestId("transcript");
   await expect(transcript).toContainText(/Tool output \(1 line\)\s*done/);
@@ -153,19 +153,25 @@ test("reply to an agent, allow with the mouse and stop it while it waits", async
     await card.getByRole("button", { name: "Allow" }).click();
   }
   const session = page.getByTestId("agent-session");
-  await expect(session.getByRole("status")).toHaveText("Done, you can reply");
+  await expect(session.getByRole("status")).toHaveText("Done");
 
   await session.getByRole("textbox", { name: "Reply to Claude" }).fill("Check the status too");
   await session.getByRole("button", { name: "Send" }).click();
   const status = approvals.getByRole("group", { name: "Run git status" });
   await expect(status).toBeVisible();
-  await expect(page.getByRole("button", { name: /Tidy up.*Needs approval/ })).toBeVisible();
+  await expect(session.getByRole("status")).toHaveText("Needs approval");
 
   // Stopping denies what the agent still waits for.
   await session.getByRole("button", { name: "Stop" }).click();
   await expect(session.getByRole("status")).toHaveText("Stopped");
   await expect(status).toBeHidden();
   await expect(session.getByRole("textbox", { name: "Reply to Claude" })).toBeHidden();
+  // The list says so too; Close takes it off.
+  await session.getByRole("button", { name: "Tasks" }).click();
+  const agents = page.getByTestId("agents-panel");
+  await expect(agents.getByRole("button", { name: /Tidy up.*Stopped/ })).toBeVisible();
+  await agents.getByRole("button", { name: "Close Tidy up" }).click();
+  await expect(agents.getByTestId("agents-empty")).toBeVisible();
 
   // The audit log says what was decided and by whom, newest first.
   await page.getByTestId("more").click();
@@ -229,7 +235,7 @@ test("a direct session's protected files and git hooks need a look before approv
     await expect(deny).toHaveAttribute("aria-disabled", "false");
     await deny.click();
   }
-  await expect(page.getByTestId("agent-session").getByRole("status")).toHaveText("Done, you can reply");
+  await expect(page.getByTestId("agent-session").getByRole("status")).toHaveText("Done");
 
   // Not the agent's file tools: the person (here the test) writes these.
   writeFileSync(join(dir, ".envrc"), "echo hi\n");

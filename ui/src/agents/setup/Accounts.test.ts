@@ -19,6 +19,7 @@ afterEach(() => {
   if (app) unmount(app);
   app = null;
   target.remove();
+  localStorage.clear();
 });
 
 async function settle() {
@@ -203,10 +204,17 @@ describe("accounts in the agents panel", () => {
     change(picker(), "account-1");
     await settle();
     expect(warning()).toBe("Work bills an API key, at API prices.");
-    // The start form says it when an account is signed out.
+    // A signed-out account cannot start: one line and a way out.
     change(picker(), "account-2");
     await settle();
     expect(warning()).toBeUndefined();
+    const blocked = target.querySelector("[data-testid=agent-account-blocked]");
+    expect(blocked?.textContent?.replace(/\s+/g, " ").trim()).toBe("Old is signed out. Use Default");
+    expect(button("Start")?.disabled).toBe(true);
+    button("Use Default")?.click();
+    await settle();
+    expect([picker()?.value, button("Start")?.disabled]).toEqual(["default", true]);
+    expect(target.querySelector("[data-testid=agent-account-blocked]")).toBeNull();
   });
 
   it("names the account that pays for a session", async () => {
@@ -215,6 +223,47 @@ describe("accounts in the agents panel", () => {
     const info = core.addSession("p1", "fix", { state: "idle" });
     Object.assign(info, { account: "account-1", billing: { kind: "api_key" } });
     await show(core);
-    expect(target.querySelector("[data-testid=agent-billing]")?.textContent).toContain("(Work account)");
+    target.querySelector<HTMLButtonElement>(".sessions .row-button")?.click();
+    flushSync();
+    expect(target.querySelector("[data-testid=agent-billing]")?.textContent?.trim()).toBe(
+      "Work · API key, at API prices",
+    );
+  });
+
+  it("says once that a session's account signed out, and starts it again with a signed-in one", async () => {
+    const core = new FakeAgentCore();
+    const [own] = core.accounts;
+    if (own) own.setup = { ...own.setup, state: { state: "signed_out" } };
+    core.accounts = [...core.accounts, work()];
+    core.addSession("p1", "Fix it", { state: "idle" });
+    const AUTH = "Failed to authenticate: OAuth session expired and could not be refreshed";
+    core.transcripts.set("s1", [
+      { kind: "user_text", text: "Fix it", from: "person" },
+      { kind: "assistant_text", text: AUTH },
+      { kind: "error", message: AUTH },
+    ]);
+    await show(core);
+    expect(target.querySelector(".sessions .state")?.textContent).toBe("Failed: signed out");
+    target.querySelector<HTMLButtonElement>(".sessions .row-button")?.click();
+    await settle();
+    const lines = [...target.querySelectorAll("[data-testid=transcript] li")].map((li) =>
+      li.textContent?.replace(/\s+/g, " ").trim(),
+    );
+    expect(lines).toEqual(["You Fix it", "Error Account signed out"]);
+    expect(target.querySelector("[role=status]")?.textContent).toBe("Failed: signed out");
+    const card = target.querySelector("[data-testid=agent-signed-out]");
+    expect(card?.querySelector(".title")?.textContent).toBe("Default account signed out");
+    expect(card?.querySelector("code")?.textContent).toBe("claude auth login");
+    expect(target.querySelector("#agent-reply")).toBeNull();
+    button("Use Work")?.click();
+    await settle();
+    expect(core.sent("agents.start").map((c) => [c.params.prompt, c.params.account])).toEqual([
+      ["Fix it", "account-1"],
+    ]);
+    // The old one is stopped and closed; the new one is open.
+    expect(core.sent("agents.stop").map((c) => c.params.session)).toEqual(["s1"]);
+    expect(localStorage.getItem("ovra.agents.closed.p1")).toBe(JSON.stringify(["s1"]));
+    expect(target.querySelector("[data-testid=agent-session] h3")?.textContent).toBe("Fix it");
+    expect(target.querySelector("[data-testid=agent-signed-out]")).toBeNull();
   });
 });

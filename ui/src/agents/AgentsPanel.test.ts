@@ -66,15 +66,24 @@ const panel = () => target.querySelector<HTMLElement>("[data-testid=agents-panel
 const transcript = () =>
   [...target.querySelectorAll("[data-testid=transcript] li")].map((li) => li.textContent?.replace(/\s+/g, " ").trim());
 
-/** Shows the session whose row title is `title`. */
+/** Opens the transcript of the session whose row title is `title`. */
 function selectRow(title: string) {
-  const row = [...target.querySelectorAll<HTMLButtonElement>(".sessions button")].find(
+  const row = [...target.querySelectorAll<HTMLButtonElement>(".sessions .row-button")].find(
     (b) => b.querySelector(".title")?.textContent === title,
   );
   if (!row) throw new Error(`no row ${title}`);
   row.click();
   flushSync();
 }
+
+/** Back from a transcript to the list. */
+function back() {
+  button("Tasks")?.click();
+  flushSync();
+}
+
+const button = (name: string) =>
+  [...target.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent?.trim() === name);
 
 describe("AgentsPanel", () => {
   it("offers one Start button and two plainly worded ways to work, one agent here by default", async () => {
@@ -92,19 +101,14 @@ describe("AgentsPanel", () => {
       ["One agent, here", true],
       ["Plan and split", false],
     ]);
-    expect(hint()).toBe("Claude works directly in this folder. You approve risky steps as it goes.");
+    expect(hint()).toBe("Works in this folder. Asks before risky steps.");
     choose("Plan and split");
     expect(options()).toEqual([
       ["One agent, here", false],
       ["Plan and split", true],
     ]);
-    expect(hint()).toContain("up to 3 agents, each on its own copy of the project");
-    expect(hint()).toContain("At most 3 agents work at once in a project");
-    expect(panel()?.querySelector("[data-testid=agents-empty]")?.textContent?.trim()).toBe(
-      "Give Claude a task. It asks before risky steps.",
-    );
-    // Said once, right under the heading, before the setup cards and the form.
-    expect(panel()?.querySelector("h2")?.nextElementSibling?.getAttribute("data-testid")).toBe("agents-empty");
+    expect(hint()).toBe("Up to 3 agents at once, each on its own copy. You review before anything is merged.");
+    expect(panel()?.querySelector("[data-testid=agents-empty]")?.textContent?.trim()).toBe("No tasks yet.");
   });
 
   it("plans and splits a task when asked, from Mod+Enter too, and keeps the choice", async () => {
@@ -115,6 +119,7 @@ describe("AgentsPanel", () => {
     await settle();
     expect(core.sent("orchestration.start")).toHaveLength(1);
     expect(core.sent("agents.start")).toEqual([]);
+    back();
     expect(target.querySelector<HTMLInputElement>("input[value=split]")?.checked).toBe(true);
     expect(panel()?.querySelector("[data-testid=agents-empty]")).toBeNull();
     // A reload offers the project's last mode again.
@@ -134,7 +139,9 @@ describe("AgentsPanel", () => {
       { project: "p1", prompt: "Write the notes" },
     ]);
     expect(core.sent("agents.start")).toEqual([]);
-    expect(panel()?.querySelector("[aria-current=true]")?.textContent).toContain("Write the notes");
+    // It opens; the start box is empty for the next one.
+    expect(panel()?.querySelector("[data-testid=agent-session] h3")?.textContent).toBe("Task: Write the notes");
+    back();
     expect(target.querySelector<HTMLTextAreaElement>("#agent-prompt")?.value).toBe("");
   });
 
@@ -145,6 +152,7 @@ describe("AgentsPanel", () => {
     flushSync();
     startButton()?.click();
     await settle();
+    back();
     const docs = core.addSession("p1", "Write the docs notes.");
     core.addSession("p1", "A plain session");
     core.tasks[0]?.workers.push({
@@ -158,21 +166,21 @@ describe("AgentsPanel", () => {
     core.capacity = { working: 3, limit: 3, queued: 1 };
     core.status(docs.id, { state: "queued" });
     await settle();
-    expect(target.querySelector("[data-testid=agents-capacity]")?.textContent).toBe("3 of 3 agents working, 1 waiting");
+    expect(target.querySelector("[data-testid=agents-capacity]")?.textContent).toBe("3 of 3, 1 waiting");
     expect(target.querySelectorAll(".sessions .state")[1]?.textContent).toBe("Waiting for a free agent");
     core.status("s1", { state: "idle" });
     await settle();
     expect(target.querySelectorAll(".sessions .state")[0]?.textContent).toBe("Workers are waiting for a free agent");
     core.status(docs.id, { state: "working" });
     await settle();
-    const rows = [...target.querySelectorAll(".sessions button")];
+    const rows = [...target.querySelectorAll(".sessions .row-button")];
     expect(rows.map((b) => b.querySelector(".title")?.textContent)).toEqual([
       "Task: Write the notes",
       // With its task's name, so the workers of two tasks differ.
       "docs · Write the notes",
       "A plain session",
     ]);
-    expect(rows[1]?.classList.contains("worker")).toBe(true);
+    expect(rows[1]?.closest("li")?.classList.contains("worker")).toBe(true);
     // The whole name shows on hover, should it be cut after two lines.
     expect(rows.slice(0, 2).map((b) => b.getAttribute("title"))).toEqual([
       "Task: Write the notes",
@@ -185,31 +193,19 @@ describe("AgentsPanel", () => {
     expect(state()).toEqual(["Workers are on it", "Working", "Starting"]);
     core.status(docs.id, { state: "idle" });
     await settle();
-    expect(state()).toEqual(["Done, you can reply", "Done, you can reply", "Starting"]);
+    expect(state()).toEqual(["Done", "Done", "Starting"]);
   });
 
   it("starts a session in the open project and streams its transcript", async () => {
     const core = await setup();
-    const form = () => target.querySelector<HTMLFormElement>("form.new");
-    const shape = () => [
-      form()?.classList.contains("compact"),
-      target.querySelector("#agent-prompt")?.getAttribute("rows"),
-    ];
-    expect(shape()).toEqual([false, "3"]);
     type(target.querySelector("#agent-prompt"), "Fix the typo\nin README.md");
     modEnter();
     await settle();
-    // With a task to watch: the tasks come first (in reading order too),
-    // then the setup cards, then a shorter form.
-    const setupCard = target.querySelector("[data-testid=agents-panel] > :not(h2, h3, ul, p, .tasks-head)");
-    const order = (a: Element | null, b: Element | null) => a?.compareDocumentPosition(b as Node);
-    expect(order(target.querySelector(".tasks-head"), setupCard)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(order(setupCard, form())).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(shape()).toEqual([true, "2"]);
     expect(core.sent("agents.start").map((c) => c.params)).toEqual([
       { project: "p1", agent: "claude", mode: "direct", account: null, prompt: "Fix the typo\nin README.md" },
     ]);
-    expect(panel()?.querySelector("[aria-current=true]")?.textContent).toContain("Fix the typo");
+    // It opens, ready for a reply.
+    expect(document.activeElement?.id).toBe("agent-reply");
     core.status("s1", { state: "working" });
     core.message("s1", { kind: "assistant_text", text: "Looking." });
     core.message("s1", { kind: "tool_use", id: "t1", name: "Bash", input: { command: "ls" } });
@@ -237,8 +233,8 @@ describe("AgentsPanel", () => {
     core.emit({ type: "agents.billing", data: { session: "s1", billing: { kind: "api_key" } } });
     await settle();
     const billed = panel()?.querySelector("[data-testid=agent-billing]");
-    expect(billed?.textContent?.trim()).toBe("This agent: Usage is billed to an Anthropic API key, at API prices.");
-    expect(billed?.classList.contains("billed-key")).toBe(true);
+    expect(billed?.textContent?.trim()).toBe("API key, at API prices");
+    expect(billed?.classList.contains("warn")).toBe(true);
   });
 
   it("says whether a session runs in a sandbox, in the detail and the list", async () => {
@@ -248,24 +244,26 @@ describe("AgentsPanel", () => {
     const line = () => panel()?.querySelector("[data-testid=agent-sandbox]");
     const badges = () => [...target.querySelectorAll("[data-testid=agent-sandbox-badge]")].map((b) => b.textContent);
     // Saved before Ovra recorded the report: nothing to say.
+    selectRow("Earlier task");
     expect(line()).toBeNull();
+    back();
     type(target.querySelector("#agent-prompt"), "Fix the typo");
     modEnter();
     await settle();
     expect(line()?.textContent).toBe("Sandbox: starting…");
-    expect(badges()).toEqual([]);
     core.sandboxed("s2", null);
     await settle();
     expect(line()?.textContent).toBe("No sandbox: the agent can read and change anything your user can.");
-    expect(line()?.classList.contains("unsandboxed")).toBe(true);
+    expect(line()?.classList.contains("warn")).toBe(true);
+    back();
     expect(badges()).toEqual(["No sandbox"]);
+    selectRow("Fix the typo");
     core.sandboxed("s2", { name: "bubblewrap, Landlock, seccomp", network: "proxy", gaps: [] });
     await settle();
     expect(line()?.textContent).toBe(
       "Runs in a sandbox (bubblewrap, Landlock, seccomp), network only through Ovra's proxy.",
     );
-    expect(line()?.classList.contains("unsandboxed")).toBe(false);
-    expect(badges()).toEqual(["Sandboxed"]);
+    expect(line()?.classList.contains("warn")).toBe(false);
     const gaps = () => panel()?.querySelector("[data-testid=agent-sandbox-gaps]")?.textContent;
     expect(gaps()).toBeUndefined();
     core.sandboxed("s2", {
@@ -289,6 +287,7 @@ describe("AgentsPanel", () => {
     const core = new FakeAgentCore();
     core.addSession("p1", "Earlier task", { state: "idle" });
     await setup(core);
+    selectRow("Earlier task");
     const line = () => panel()?.querySelector("[data-testid=agent-sandbox]")?.textContent;
     core.sandboxed("s1", null);
     await settle();
@@ -328,6 +327,7 @@ describe("AgentsPanel", () => {
       { kind: "turn_end", usage: info.usage },
     ]);
     await setup(core);
+    selectRow("Earlier task");
     const estimate = "64,044 tokens in, 372 out, about $0.0024 at API prices (your plan's limits, not this amount)";
     expect(panel()?.querySelector("[data-testid=agent-usage]")?.textContent).toBe(`Total: ${estimate}`);
     expect(transcript()).toEqual([`Turn ended: ${estimate}`]);
@@ -403,6 +403,7 @@ describe("AgentsPanel", () => {
     off();
     expect(asked).toHaveBeenCalledWith(["s2"]);
     // A worker's files are in its own worktree: no diff of the project folder.
+    back();
     selectRow("docs · Write the notes");
     expect(target.querySelector("[data-testid=agent-changes]")).toBeNull();
   });
@@ -412,6 +413,8 @@ describe("AgentsPanel", () => {
     core.addSession("p1", "Earlier task", { state: "working" });
     core.transcripts.set("s1", [{ kind: "user_text", text: "Earlier task", from: "person" }]);
     await setup(core);
+    selectRow("Earlier task");
+    await settle();
     expect(transcript()).toEqual(["You Earlier task"]);
     const send = () => [...target.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Send");
     const button = (name: string) =>
@@ -436,12 +439,18 @@ describe("AgentsPanel", () => {
     await settle();
     expect(panel()?.querySelector("[role=status]")?.textContent).toBe("Failed: claude exited with code 1");
     expect(target.querySelector("#agent-reply")).toBeNull();
+    // Closed: off the list, in this browser for good; the core keeps it.
+    button("Close")?.click();
+    await settle();
+    expect(panel()?.querySelector("[data-testid=agents-empty]")).not.toBeNull();
+    expect(localStorage.getItem("ovra.agents.closed.p1")).toBe(JSON.stringify(["s1"]));
   });
 
   it("shows the elements picked in the session's browser and attaches them to the reply", async () => {
     const core = new FakeAgentCore();
     core.addSession("p1", "Fix the header", { state: "idle" });
     await setup(core);
+    selectRow("Fix the header");
     const pick = (tag: string, locator: string): Pick => ({
       pick_id: `pk-${tag}`,
       url: "http://localhost:5173/",
@@ -481,6 +490,7 @@ describe("AgentsPanel", () => {
     core.addSession("p1", "Earlier task", { state: "working" });
     core.transcripts.set("s1", [{ kind: "user_text", text: "Earlier task", from: "person" }]);
     await setup(core);
+    selectRow("Earlier task");
     const info = core.sessions[0];
     if (info) info.resumable = true;
     core.status("s1", { state: "stopped" });
@@ -500,6 +510,8 @@ describe("AgentsPanel", () => {
     core.addSession("p1", "Earlier task", { state: "working" });
     core.transcripts.set("s1", [{ kind: "user_text", text: "Earlier task", from: "person" }]);
     await setup(core);
+    selectRow("Earlier task");
+    await settle();
     core.message("s1", {
       kind: "tool_result",
       tool_use_id: "t1",
@@ -531,15 +543,16 @@ describe("AgentsPanel", () => {
     core.status("s1", { state: "failed", message: "later" });
     await settle();
     // Failing after it got going is not a start problem.
+    back();
     expect(alert()).toBeUndefined();
     type(target.querySelector("#agent-prompt"), "Again");
     modEnter();
     await settle();
     core.status("s2", { state: "failed", message: "claude was not found." });
     await settle();
-    expect(alert()?.trim()).toBe(
-      "Claude could not start: claude was not found. If Claude is not set up yet, the Claude section above says what to do; then press Start again.",
-    );
+    expect(alert()?.trim()).toBe("Claude could not start: claude was not found. See Claude above, then try again.");
+    // Back at the start box, with the prompt to try again.
+    expect(target.querySelector<HTMLTextAreaElement>("#agent-prompt")?.value).toBe("Again");
   });
 
   it("shows why a session could not start", async () => {
@@ -567,6 +580,7 @@ describe("AgentsPanel", () => {
     const toggle = vi.fn();
     const off = registerCommand({ id: "inbox.toggle", title: "Review inbox", run: toggle });
     await setup(core);
+    selectRow("Fix the typo");
     const changes = () => target.querySelector("[data-testid=agent-changes]");
     expect(changes()).toBeNull();
     core.status("s1", { state: "idle" });
