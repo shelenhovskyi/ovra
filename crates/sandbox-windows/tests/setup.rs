@@ -42,6 +42,32 @@ fn the_sandbox_user_writes_its_project_only_and_reaches_nothing() {
     );
     assert!(data.join("sandbox-user").is_file());
 
+    // Another project a session ran in before: the sandbox user keeps
+    // its grant there.
+    let other = root.join("other");
+    fs::create_dir_all(&other).unwrap();
+    fs::write(other.join("kept.txt"), "kept").unwrap();
+    let other_sid = "S-1-5-21-1000000031-1000000032-1000000033-1000000034";
+    let out = Command::new(PROBE)
+        .args([
+            "--ovra-sandbox-helper",
+            "--sid",
+            other_sid,
+            "--data",
+            &text(&data),
+        ])
+        .args(["--m", &text(&other)])
+        .args(["--rx", &text(Path::new(PROBE).parent().unwrap())])
+        .args(["--env", "SystemRoot", "--", PROBE])
+        .current_dir(&other)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
     let sid = "S-1-5-21-1000000011-1000000012-1000000013-1000000014";
     let probe_dir = text(Path::new(PROBE).parent().unwrap());
     let out = Command::new(PROBE)
@@ -59,6 +85,9 @@ fn the_sandbox_user_writes_its_project_only_and_reaches_nothing() {
         .args(["read", &text(&secret)])
         .args(["write", &text(&home.join("planted.txt"))])
         .args(["connect", "1.1.1.1:443"])
+        .args(["remove", &text(&work.join(".git"))])
+        .args(["write", &text(&other.join("kept.txt"))])
+        .args(["remove", &text(&other.join("kept.txt"))])
         .current_dir(&work)
         .output()
         .unwrap();
@@ -75,8 +104,13 @@ fn the_sandbox_user_writes_its_project_only_and_reaches_nothing() {
         "{}",
         String::from_utf8_lossy(&removed.stderr)
     );
+    // The last line is a known limit (docs/specs/sandbox-windows.md):
+    // Windows does not count DELETE as a write, so the token's project SID
+    // does not stop it, and the sandbox user may delete in every project it
+    // was ever granted.
     let shown = String::from_utf8_lossy(&out.stdout)
         .replace(&text(&work), "WORK")
+        .replace(&text(&other), "OTHER")
         .replace(&text(&home), "HOME")
         .replace(&std::process::id().to_string(), "PID");
     insta::assert_snapshot!(shown, @r"
@@ -85,5 +119,8 @@ fn the_sandbox_user_writes_its_project_only_and_reaches_nothing() {
     read HOME\ovra-secret-PID.txt: no
     write HOME\planted.txt: no
     connect 1.1.1.1:443: no
+    remove WORK\.git: no
+    write OTHER\kept.txt: no
+    remove OTHER\kept.txt: yes
     ");
 }
