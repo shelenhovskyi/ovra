@@ -572,8 +572,8 @@ function onkeydown(e: KeyboardEvent): void {
             onclick={() => activate(row)}
             ondblclick={() => row.kind !== "dir" && row.git !== "deleted" && onkeep?.(row.path)}
           >
-            <span class="twisty" aria-hidden="true"
-              >{#if row.kind === "dir"}<Icon name={row.expanded ? "chevron" : "chevron-right"} small />{/if}</span
+            <span class="twisty" class:open={row.expanded} aria-hidden="true"
+              >{#if row.kind === "dir"}<Icon name="chevron-right" small />{/if}</span
             >
             {#if row.draft || (actions.edit?.kind === "rename" && actions.edit.path === row.path)}
               <NameInput
@@ -592,9 +592,8 @@ function onkeydown(e: KeyboardEvent): void {
             {#if row.failed}<span class="failed" aria-hidden="true">!</span>{/if}
             {#if describe(row)}<span id="{rowId(index)}-d" class="visually-hidden">{describe(row)}</span>{/if}
             {#if row.git}
-              <span class="badge git-{row.git}" class:dot={row.kind === "dir"} aria-hidden="true"
-                >{row.kind === "dir" ? "" : GIT_LETTER[row.git]}</span
-              >
+              <span class="dot git-{row.git}" aria-hidden="true" title={`${GIT_LETTER[row.git]}: ${describe(row)}`}
+              ></span>
             {/if}
           </div>
         {/if}
@@ -667,16 +666,17 @@ function onkeydown(e: KeyboardEvent): void {
   .spacer {
     position: relative;
   }
+  /* A 4 px inset, so the selection reads as a pill. */
   .row {
     position: absolute;
-    left: 6px;
-    right: 6px;
-    height: 28px;
+    left: var(--sp-1);
+    right: var(--sp-1);
+    height: var(--row);
     display: flex;
     align-items: center;
     gap: 6px;
     padding-right: 10px;
-    border-radius: var(--radius-sm);
+    border-radius: var(--r-xs);
     color: var(--text-2);
     white-space: nowrap;
     cursor: default;
@@ -686,9 +686,12 @@ function onkeydown(e: KeyboardEvent): void {
     background: var(--s3);
   }
   .row.selected {
-    background: var(--s3);
+    background: var(--sel);
     color: var(--text);
     font-weight: 500;
+  }
+  .viewport:focus-within .row.selected {
+    background: var(--sel-focus);
   }
   /* Where a dragged file or folder would land. */
   .viewport .row.drop,
@@ -703,27 +706,35 @@ function onkeydown(e: KeyboardEvent): void {
     color: var(--text-2);
     font-style: italic;
   }
+  /* A 12 px chevron in a 16 px column, turned down while the folder is open. */
   .twisty {
-    display: flex;
-    width: 15px;
+    display: grid;
+    place-items: center;
+    width: var(--icon-sm);
     flex: none;
     color: var(--text-2);
+  }
+  .twisty :global(svg) {
+    width: 12px;
+    height: 12px;
+    transition: transform var(--dur-2) var(--ease-out);
+  }
+  .twisty.open :global(svg) {
+    transform: rotate(90deg);
   }
   .name {
     flex: 1;
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .badge {
+  /* Git status as a 6 px dot in the change's colour: the letter in its
+     tooltip, the word in the row's description. */
+  .dot {
     flex: none;
-    font: 500 12px var(--mono);
-  }
-  /* A folder with changes inside: a dot in the change's colour. */
-  .badge.dot {
     width: 6px;
     height: 6px;
-    margin-right: 3px;
-    border-radius: 50%;
+    margin-right: var(--sp-1);
+    border-radius: var(--r-pill);
     background: currentColor;
   }
   .visually-hidden {
@@ -750,22 +761,22 @@ function onkeydown(e: KeyboardEvent): void {
     flex: none;
     font-weight: 600;
   }
-  /* Names keep the row's colour; the small letter or dot carries the status. */
-  .badge.git-modified {
+  /* Names keep the row's colour; the dot carries the status. */
+  .dot.git-modified {
     color: var(--warn);
   }
-  .badge.git-added,
-  .badge.git-untracked {
+  .dot.git-added,
+  .dot.git-untracked {
     color: var(--ok);
   }
   .name.git-deleted {
     text-decoration: line-through;
   }
-  .badge.git-deleted,
-  .badge.git-conflicted {
+  .dot.git-deleted,
+  .dot.git-conflicted {
     color: var(--danger);
   }
-  .badge.git-renamed {
+  .dot.git-renamed {
     color: var(--accent);
   }
   @media (forced-colors: active) {

@@ -54,7 +54,7 @@ describe("FileTree", () => {
     t.row("src").click();
     await settle();
     expect(t.row("src").getAttribute("aria-expanded")).toBe("true");
-    expect(t.row("src/a.ts").textContent).toContain("A");
+    expect(t.row("src/a.ts").querySelector(".dot")?.getAttribute("title")).toBe("A: added");
 
     t.row("src/a.ts").click();
     expect(t.opened).toEqual(["src/a.ts"]);
@@ -104,7 +104,9 @@ describe("FileTree", () => {
     core.emit({ type: "fs.changed", data: { project: "p1", paths: ["b.ts"] } });
     await settle();
     expect(t.rows().map((r) => r.dataset.path)).toEqual(["a.ts", "b.ts"]);
-    expect(t.row("a.ts").textContent).toContain("M");
+    // The status is a dot with its letter in the tooltip, and a word for screen readers.
+    expect(t.row("a.ts").querySelector(".dot")?.getAttribute("title")).toBe("M: modified");
+    expect(t.row("a.ts").textContent).toContain("modified");
   });
 
   it("restores the folders expanded last time and saves new ones", async () => {
