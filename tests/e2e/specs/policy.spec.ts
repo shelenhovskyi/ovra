@@ -20,12 +20,15 @@ test("a project's policy rules are added in the policies dialog, refused inline 
   await expect(dialog.getByRole("heading", { name: "Project policies" })).toBeFocused();
   await expect(dialog.getByTestId("policy-empty")).toHaveText(/No rules yet/);
 
-  // The core refuses a match on a tool that never takes one.
+  // A tool that never takes a match turns Match off, and a match typed before is refused once.
   await dialog.getByLabel("Tool", { exact: true }).fill("WebFetch");
+  await expect(dialog.getByLabel("Match (optional)")).toBeDisabled();
+  await dialog.getByLabel("Tool", { exact: true }).fill("");
   await dialog.getByLabel("Match (optional)").fill("example.com");
+  await dialog.getByLabel("Tool", { exact: true }).fill("WebFetch");
   await dialog.getByRole("combobox", { name: "Action" }).selectOption("deny");
   await dialog.getByRole("button", { name: "Add rule" }).click();
-  await expect(dialog.getByRole("alert")).toHaveText(/only Bash and file tools take a match/);
+  await expect(dialog.getByRole("alert")).toHaveText(/^WebFetch takes no match/);
 
   await dialog.getByLabel("Tool", { exact: true }).fill("Bash");
   await dialog.getByLabel("Match (optional)").fill("git push");
