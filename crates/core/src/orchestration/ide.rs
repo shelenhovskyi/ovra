@@ -87,8 +87,13 @@ impl Core {
     pub fn send_message(&self, caller: &ToolCaller, agent: &SessionId, text: &str) -> Result<()> {
         let worker = self.worker_of(caller, agent)?;
         let parts = vec![(text.to_owned(), MessageFrom::Coordinator)];
+        let session = worker.session.clone();
         agents::send(&self.agents_ctx(), worker.session, parts).map_err(|err| {
-            if err.code != ErrorCode::Conflict {
+            let ended = self
+                .sessions()
+                .find(&session, |s| s.status().is_ended())
+                .unwrap_or(true);
+            if err.code != ErrorCode::Conflict || !ended {
                 return err;
             }
             let why = format!(
@@ -146,6 +151,8 @@ impl Core {
             ));
         }
         let entry = review::request(self, &session, summary.to_owned())?;
+        // An idle worker that asks for review makes room.
+        super::slots::start_queued(self, &caller.project);
         if caller.role == ToolRole::Worker {
             tasks::tell_coordinator(self, &session, "asked for review");
         }

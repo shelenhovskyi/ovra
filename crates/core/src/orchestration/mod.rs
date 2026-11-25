@@ -142,6 +142,8 @@ pub(crate) fn on_status(core: &Core, session: &SessionId, status: &AgentStatus) 
     if !(status.is_ended() || *status == AgentStatus::Idle) {
         return;
     }
+    // It may have made room for a queued worker.
+    slots::start_queued(core, &project);
     // A finished turn or session may have changed files or spent money.
     let (review, task) = {
         let state = state.lock();

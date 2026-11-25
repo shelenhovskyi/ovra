@@ -32,7 +32,7 @@ use crate::services::{
 pub(crate) use permissions::Permissions;
 pub(crate) use requests::{
     Ctx, NewSession, Parts, agents as handle_agents, check_text, permissions as handle_permissions,
-    profile, resume, send, start, stop, stop_project, trust,
+    profile, resume, send, start, start_queued, stop, stop_project, trust,
 };
 pub(crate) use transcript::MAX_TEXT_BYTES;
 use transcript::Transcript;
@@ -67,6 +67,8 @@ struct Session {
     /// The network of this run's agent: its browser goes through the same
     /// netproxy.
     network: Option<ProfileNetwork>,
+    /// The first message of a `queued` session, until it starts.
+    queued: Option<Parts>,
 }
 
 /// Where a session works and which IDE tools it gets; kept to resume it the
@@ -132,6 +134,7 @@ impl Sessions {
                 trusted: false,
                 run: 0,
                 network: None,
+                queued: None,
             };
             if !session.info.status.is_ended() {
                 session.info.status = AgentStatus::Stopped;
@@ -166,7 +169,9 @@ impl Sessions {
         SessionId(format!("s{started}"))
     }
 
-    pub(crate) fn insert(&self, info: SessionInfo) {
+    /// Adds a session that works in `launch`; `queued`: the first message
+    /// of a session that waits for a place.
+    pub(crate) fn insert(&self, info: SessionInfo, launch: Launch, queued: Option<Parts>) {
         let mut list = lock(&self.list);
         let project = info.project.clone();
         let session = Session {
@@ -175,10 +180,11 @@ impl Sessions {
             process: None,
             stopping: false,
             agent_session: None,
-            launch: None,
+            launch: Some(launch),
             trusted: false,
             run: 0,
             network: None,
+            queued,
         };
         let _ = self.store.save(&session.stored());
         list.push(session);
@@ -247,6 +253,21 @@ impl Sessions {
                 (s.info.id.clone(), s.info.status.clone(), role)
             })
             .collect()
+    }
+
+    /// Moves the oldest `queued` session of `project` to `starting`, without
+    /// telling anyone yet, and hands over its first message.
+    pub(crate) fn dequeue(&self, project: &ProjectId) -> Option<(SessionId, Parts)> {
+        let mut list = lock(&self.list);
+        let session = list
+            .iter_mut()
+            .find(|s| &s.info.project == project && s.info.status == AgentStatus::Queued)?;
+        session.info.status = AgentStatus::Starting;
+        let _ = self.store.save(&session.stored());
+        Some((
+            session.info.id.clone(),
+            session.queued.take().unwrap_or_default(),
+        ))
     }
 
     /// Sessions of `project` that have not ended.

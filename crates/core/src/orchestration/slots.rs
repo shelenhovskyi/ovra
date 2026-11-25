@@ -5,6 +5,7 @@
 
 use super::{State, tasks};
 use crate::Core;
+use crate::agents;
 use crate::protocol::agents::{AgentCapacity, AgentStatus};
 use crate::protocol::projects::ProjectId;
 use crate::services::ToolRole;
@@ -49,4 +50,32 @@ pub(super) fn count(core: &Core, state: &State, project: &ProjectId) -> (usize, 
         queued += wait;
     }
     (working, queued)
+}
+
+/// Starts queued workers of `project`, oldest first, while there is room.
+/// Each was asked for by the coordinator of a task a person started.
+pub(super) fn start_queued(core: &Core, project: &ProjectId) {
+    let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+        return;
+    };
+    loop {
+        // Counted and taken under one lock, so two calls never both take
+        // the last place.
+        let next = {
+            let state = core.orchestration_state();
+            let guard = state.lock();
+            if count(core, &guard, project).0 >= MAX_WORKING {
+                return;
+            }
+            core.sessions().dequeue(project)
+        };
+        let Some((id, parts)) = next else {
+            return;
+        };
+        let core = core.clone();
+        runtime.spawn(async move {
+            // A start that fails shows as the session's failure.
+            let _ = agents::start_queued(&core.agents_ctx(), id, parts).await;
+        });
+    }
 }

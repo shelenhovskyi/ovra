@@ -2479,3 +2479,67 @@ async fn capacity_counts_the_agents_that_work_but_not_coordinators() {
     assert!(f.core.request_review(&me, None, "done").await.is_ok());
     assert_eq!(capacity(&f.core).await.working, 1);
 }
+
+fn status(core: &Core, session: &SessionId) -> AgentStatus {
+    core.sessions()
+        .find(session, |s| s.status().clone())
+        .unwrap_or_else(|e| panic!("{e}"))
+}
+
+#[tokio::test]
+async fn workers_past_the_projects_cap_wait_and_start_when_a_place_frees() {
+    let f = fx(say()).await;
+    let mut rx = f.core.subscribe();
+    // Two tasks: the first takes every place, the second's workers wait.
+    start_task(&f.core, 3).await;
+    let a = caller("s1", ToolRole::Coordinator);
+    let mut first = Vec::new();
+    for name in ["one", "two", "three"] {
+        let worker = f.core.spawn_agent(&a, name, "x").await;
+        first.push(worker.unwrap_or_else(|e| panic!("{e}")).session);
+    }
+    let b = start_task(&f.core, 3).await.coordinator;
+    let b = caller(&b.0, ToolRole::Coordinator);
+    let waits = f.core.spawn_agent(&b, "four", "do four").await;
+    let waits = waits.unwrap_or_else(|e| panic!("{e}")).session;
+    let later = f.core.spawn_agent(&b, "five", "do five").await;
+    let later = later.unwrap_or_else(|e| panic!("{e}")).session;
+    let c = capacity(&f.core).await;
+    assert_eq!((c.working, c.limit, c.queued), (3, 3, 2));
+    assert_eq!(status(&f.core, &waits), AgentStatus::Queued);
+    let started = || f.agent.started.lock().map(|s| s.len()).unwrap_or(0);
+    assert_eq!(started(), 5, "two coordinators and three workers");
+
+    // A person's start is refused, a message to a waiting worker too.
+    let direct = json!({"method": "agents.start", "params": {
+        "project": "p1", "agent": "claude", "mode": "direct", "prompt": "fix it"}});
+    let Err(refused) = call(&f.core, direct).await else {
+        panic!("a fourth agent started");
+    };
+    let Err(sent) = f.core.send_message(&b, &waits, "hello") else {
+        panic!("a waiting worker took a message");
+    };
+    insta::assert_snapshot!(format!("{}\n{}", refused.message, sent.message), @"
+    3 agents are already working in this project, the most at once. Start this when one of them finishes, or stop one.
+    the agent waits for a free place and starts when another agent finishes
+    ");
+
+    // A stopped waiting worker never starts; a stopped working one makes
+    // room for the oldest waiting one, with its task as first message.
+    assert!(f.core.stop_agent(&b, &later).is_ok());
+    until(&mut rx, &later.0, AgentStatus::Stopped).await;
+    assert!(f.core.stop_agent(&a, &first[0]).is_ok());
+    until(&mut rx, &waits.0, AgentStatus::Idle).await;
+    assert_eq!(started(), 6);
+    let first_message = transcript(&f.core, &waits.0).await.into_iter().next();
+    assert_eq!(
+        first_message,
+        Some(AgentMessage::UserText {
+            text: "do four".into(),
+            from: MessageFrom::Coordinator
+        })
+    );
+    assert_eq!(status(&f.core, &later), AgentStatus::Stopped);
+    let c = capacity(&f.core).await;
+    assert_eq!((c.working, c.queued), (3, 0));
+}

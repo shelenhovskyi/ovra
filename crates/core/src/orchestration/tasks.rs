@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use super::{Result, Workspace, conflict, forbidden, not_found, review};
+use super::{Result, Workspace, conflict, forbidden, not_found, review, slots};
 use crate::Core;
 use crate::agents::{self, NewSession};
 use crate::protocol::agents::{AgentKind, AgentStatus, MessageFrom, SessionId, SessionMode};
@@ -29,9 +29,9 @@ pub(super) struct Entry {
     pub(super) coordinator: SessionId,
     pub(super) workers: Vec<Worker>,
     pub(super) limits: TaskLimits,
-    /// Names of workers being set up, which count against `max_workers`.
+    /// Workers being set up, which count against `max_workers`.
     #[serde(skip)]
-    starting: Vec<String>,
+    starting: Vec<Starting>,
     /// Workers whose worktree was removed, or is being removed, after the
     /// task ended.
     #[serde(default)]
@@ -39,6 +39,14 @@ pub(super) struct Entry {
     /// Someone stopped the coordinator; only then are worktrees removed.
     #[serde(default)]
     ended: bool,
+}
+
+/// A worker being set up.
+#[derive(Debug, Clone)]
+struct Starting {
+    name: String,
+    /// It will wait for a place in the project.
+    queued: bool,
 }
 
 impl Entry {
@@ -49,7 +57,8 @@ impl Entry {
     /// Workers being set up: how many will wait for a place, how many
     /// will work.
     pub(super) fn starting(&self) -> (usize, usize) {
-        (0, self.starting.len())
+        let queued = self.starting.iter().filter(|s| s.queued).count();
+        (queued, self.starting.len() - queued)
     }
 
     fn sessions(&self) -> impl Iterator<Item = &SessionId> {
@@ -139,6 +148,7 @@ async fn start(
         tools: Some(ToolRole::Coordinator),
         from: MessageFrom::Person,
         account: None,
+        queued: false,
     };
     let coordinator = agents::start(&core.agents_ctx(), new).await?.id;
     let entry = {
@@ -343,7 +353,9 @@ fn valid_name(name: &str) -> bool {
 }
 
 /// Starts a worker of `coordinator`'s task in a new worktree of the main
-/// checkout's current state, on branch `ovra/<task>/<name>`.
+/// checkout's current state, on branch `ovra/<task>/<name>`. While the
+/// project has as many agents working as it may, the worker waits `queued`
+/// in its worktree and starts when a place frees.
 pub(super) async fn spawn(
     core: &Core,
     coordinator: &SessionId,
@@ -364,9 +376,16 @@ pub(super) async fn spawn(
             "workers need a worktrees folder, which this front end does not set",
         ));
     };
-    let entry = {
+    let (entry, queued) = {
         let mut guard = state.lock();
         let asked = asked_for_review(&guard.reviews);
+        let project = guard
+            .tasks
+            .iter()
+            .find(|t| &t.coordinator == coordinator)
+            .map(|t| t.project.clone());
+        let queued =
+            project.is_some_and(|p| slots::count(core, &guard, &p).0 >= slots::MAX_WORKING);
         let entry = guard
             .tasks
             .iter_mut()
@@ -375,18 +394,23 @@ pub(super) async fn spawn(
         if let Some(reason) = spawn_blocked(core, entry, &asked) {
             return Err(conflict(reason));
         }
-        if entry.workers.iter().any(|w| w.name == name) || entry.starting.contains(&name) {
+        let taken = entry.workers.iter().any(|w| w.name == name)
+            || entry.starting.iter().any(|s| s.name == name);
+        if taken {
             return Err(conflict(format!(
                 "the task already has a worker named {name}"
             )));
         }
-        entry.starting.push(name.clone());
-        entry.clone()
+        entry.starting.push(Starting {
+            name: name.clone(),
+            queued,
+        });
+        (entry.clone(), queued)
     };
-    let result = create_worker(core, &entry, &worktrees_dir, &name, prompt).await;
+    let result = create_worker(core, &entry, &worktrees_dir, &name, prompt, queued).await;
     let mut guard = state.lock();
     if let Some(task) = guard.tasks.iter_mut().find(|t| t.id == entry.id) {
-        task.starting.retain(|n| n != &name);
+        task.starting.retain(|s| s.name != name);
         if let Ok((worker, _)) = &result {
             task.workers.push(worker.clone());
         }
@@ -399,6 +423,10 @@ pub(super) async fn spawn(
         project: entry.project.clone(),
         task: entry.id.clone(),
     });
+    if queued {
+        // A place may have freed while it was set up.
+        slots::start_queued(core, &entry.project);
+    }
     Ok(worker)
 }
 
@@ -408,6 +436,7 @@ async fn create_worker(
     worktrees_dir: &std::path::Path,
     name: &str,
     prompt: String,
+    queued: bool,
 ) -> Result<(Worker, Workspace)> {
     let root = core.root(&task.project)?;
     let worktrees = core.worktrees();
@@ -441,6 +470,7 @@ async fn create_worker(
         tools: Some(ToolRole::Worker),
         from: MessageFrom::Coordinator,
         account: Some(account),
+        queued,
     };
     let session = match agents::start(&core.agents_ctx(), new).await {
         Ok(session) => session.id,

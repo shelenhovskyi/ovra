@@ -129,6 +129,7 @@ pub(crate) async fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Resp
                 tools: None,
                 from: MessageFrom::Person,
                 account,
+                queued: false,
             };
             let info = start(ctx, new).await?;
             Ok(Response::Agents(AgentsResponse::Session(info)))
@@ -203,11 +204,18 @@ pub(crate) struct NewSession {
     /// The Claude account ([`crate::protocol::agents::ClaudeAccount::id`]);
     /// `None` uses the project's.
     pub(crate) account: Option<String>,
+    /// Waits `queued` for [`start_queued`] instead of starting now.
+    pub(crate) queued: bool,
 }
 
 /// Starts a session and returns it as it is now.
 pub(crate) async fn start(ctx: &Ctx<'_>, new: NewSession) -> Result<SessionInfo> {
     check_text(&new.prompt)?;
+    // Workers wait for a place instead (`crate::orchestration`), and
+    // coordinators do not take one.
+    if new.tools.is_none() {
+        check_room(ctx, &new.project)?;
+    }
     let target = prepare(
         ctx,
         &new.project,
@@ -224,12 +232,18 @@ pub(crate) async fn start(ctx: &Ctx<'_>, new: NewSession) -> Result<SessionInfo>
     };
     let id = ctx.sessions.next_id();
     let base = baseline(ctx, &new.project, &id, new.mode, &launch).await?;
-    ctx.sessions.insert(SessionInfo {
+    let parts = vec![(new.prompt.clone(), new.from)];
+    let (status, queued) = if new.queued {
+        (AgentStatus::Queued, Some(parts.clone()))
+    } else {
+        (AgentStatus::Starting, None)
+    };
+    let info = SessionInfo {
         id: id.clone(),
-        project: new.project,
+        project: new.project.clone(),
         agent: new.agent,
         mode: new.mode,
-        status: AgentStatus::Starting,
+        status: status.clone(),
         title: title(&new.prompt),
         usage: TurnUsage::default(),
         resumable: false,
@@ -237,10 +251,82 @@ pub(crate) async fn start(ctx: &Ctx<'_>, new: NewSession) -> Result<SessionInfo>
         sandbox: None,
         sandbox_reported: false,
         account: target.account.id.clone(),
-    });
+    };
+    // With its folder and role from the start, so that it counts in its
+    // role, and its first message if it waits.
+    ctx.sessions.insert(info, launch.clone(), queued);
+    if new.queued {
+        // Told before anything can start it.
+        ctx.sink.emit(AgentsEvent::Status {
+            session: id.clone(),
+            project: new.project,
+            status,
+        });
+    }
     review_from(ctx, &id, &launch, base).await;
+    if new.queued {
+        return ctx.sessions.find(&id, |s| s.info());
+    }
     let target = trusted_in(ctx, target, &launch.cwd).await;
-    run(ctx, &id, target, launch, vec![(new.prompt, new.from)], None).await
+    run(ctx, &id, target, launch, parts, None).await
+}
+
+/// Starts the queued session `id`, which [`Sessions::dequeue`] moved to
+/// `starting`, with `parts`, its first message.
+pub(crate) async fn start_queued(
+    ctx: &Ctx<'_>,
+    id: SessionId,
+    parts: Parts,
+) -> Result<SessionInfo> {
+    let (info, launch) = ctx.sessions.find(&id, |s| (s.info(), s.launch()))?;
+    let host = AgentHost::new(
+        id.clone(),
+        info.project.clone(),
+        ctx.sessions.clone(),
+        ctx.sink.clone(),
+    );
+    let tools = launch.as_ref().and_then(|l| l.tools);
+    let account = info.account.as_deref().unwrap_or(DEFAULT_ACCOUNT);
+    let prepared = prepare(ctx, &info.project, info.mode, tools, Some(account)).await;
+    let (target, launch) = match (prepared, launch) {
+        (Ok(target), Some(launch)) => (target, launch),
+        (Err(err), _) => {
+            host.status(AgentStatus::Failed {
+                message: err.message.clone(),
+            });
+            return Err(err);
+        }
+        (Ok(_), None) => {
+            let err = conflict("the session has no folder to start in");
+            host.status(AgentStatus::Failed {
+                message: err.message.clone(),
+            });
+            return Err(err);
+        }
+    };
+    let target = trusted_in(ctx, target, &launch.cwd).await;
+    // Stopped while it was being prepared.
+    if ctx.sessions.find(&id, |s| s.status().is_ended())? {
+        return Err(conflict("the session was stopped before it started"));
+    }
+    run(ctx, &id, target, launch, parts, None).await
+}
+
+/// Refuses a person's start while the project has as many agents working
+/// as it may.
+fn check_room(ctx: &Ctx<'_>, project: &ProjectId) -> Result<()> {
+    let Some(core) = ctx.sessions.core() else {
+        return Ok(());
+    };
+    let capacity = crate::orchestration::capacity(&core, project);
+    if capacity.working < capacity.limit {
+        return Ok(());
+    }
+    Err(conflict(&format!(
+        "{} agents are already working in this project, the most at once. \
+         Start this when one of them finishes, or stop one.",
+        capacity.working
+    )))
 }
 
 /// The project a session may start in, with what the runtime needs to know.
@@ -339,6 +425,9 @@ pub(crate) async fn resume(ctx: &Ctx<'_>, session: SessionId, parts: Parts) -> R
         ));
     }
     let tools = launch.as_ref().and_then(|l| l.tools);
+    if tools != Some(ToolRole::Coordinator) {
+        check_room(ctx, &info.project)?;
+    }
     // Its conversation lives in its account's folder: no other account
     // can continue it.
     let account = info.account.as_deref().unwrap_or(DEFAULT_ACCOUNT);
@@ -554,14 +643,19 @@ pub(crate) async fn trust(
 pub(crate) fn send(ctx: &Ctx<'_>, session: SessionId, parts: Parts) -> Result<()> {
     let text = joined(&parts)?;
     let sessions = ctx.sessions;
-    let (process, project, stopping) =
-        sessions.find(&session, |s| (s.process(), s.info().project, s.stopping()))?;
+    let (process, info, stopping) =
+        sessions.find(&session, |s| (s.process(), s.info(), s.stopping()))?;
     let process = match process {
         Some(process) if !stopping => process,
         Some(_) => return Err(conflict("the session is stopping")),
+        None if info.status == AgentStatus::Queued => {
+            return Err(conflict(
+                "the agent waits for a free place and starts when another agent finishes",
+            ));
+        }
         None => return Err(conflict("the session has ended")),
     };
-    let host = AgentHost::new(session, project, sessions.clone(), ctx.sink.clone());
+    let host = AgentHost::new(session, info.project, sessions.clone(), ctx.sink.clone());
     for (text, from) in parts {
         host.message(AgentMessage::UserText { text, from });
     }

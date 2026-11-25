@@ -22,6 +22,14 @@ A task is one coordinator and its workers. Limits per task: at most
 millionths of a dollar across all its sessions; `spawn_agent` fails with a
 clear message past either.
 
+Across the whole project at most 3 agents work at once (owner decision of
+2026-11-25, ORCH-3): direct sessions and workers of every task. Coordinators
+do not count, since they only plan and wait for their workers, and neither
+does a worker that asked for review and waits idle. A worker spawned past
+the cap waits `queued` in its worktree and starts, oldest first, when a place
+frees; a person's start or resume past it is refused with a clear message.
+`agents.capacity` reports the count ("2 of 3 agents working").
+
 ## Roles
 
 The runtime appends a role prompt to Claude Code's system prompt
