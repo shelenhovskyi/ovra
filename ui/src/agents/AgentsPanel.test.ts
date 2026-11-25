@@ -913,10 +913,7 @@ describe("AgentsPanel", () => {
   });
 
   it("unfolds a folded Agents column for New task, from its command and Mod+N", async () => {
-    const core = new FakeAgentCore();
-    core.addSession("p1", "Fix the typo", { state: "idle" });
-    await setup(core);
-    selectRow("Fix the typo");
+    await setup();
     const column = document.createElement("div");
     column.dataset.testid = "agents";
     column.innerHTML = '<div class="strip"></div>';
