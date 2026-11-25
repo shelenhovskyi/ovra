@@ -1,7 +1,6 @@
 //! The agent browser's core state (`docs/specs/servers-and-browser.md`,
-//! ADR 0009): which session each page belongs to and which origins its
-//! pages may load. Pages
-//! themselves are the [`Browser`] service's.
+//! ADR 0009): which session each page belongs to and the person's answers
+//! to its navigations. Pages themselves are the [`Browser`] service's.
 //!
 //! A session's browser runs in a sandbox of its own that sees none of the
 //! project, behind the session's netproxy, so the allowlist and the
@@ -13,6 +12,8 @@ mod navigation;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+
+use tokio::sync::watch;
 
 use crate::Core;
 use crate::core::WeakCore;
@@ -56,6 +57,10 @@ struct Pages {
     had: BTreeSet<PageId>,
     /// Pages being opened, counted against [`MAX_PAGES`].
     opening: usize,
+    /// The person's answers by origin.
+    answers: BTreeMap<String, bool>,
+    /// Navigations waiting for the person, by origin.
+    asks: BTreeMap<String, watch::Sender<Option<bool>>>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -118,11 +123,13 @@ pub(crate) async fn handle(core: &Core, request: BrowserRequest) -> Result<Respo
                 "attaching picks is not available in this build",
             ));
         }
-        BrowserRequest::AnswerNavigation { .. } => {
-            return Err(ProtocolError::new(
-                ErrorCode::Unavailable,
-                "asking about navigations is not available in this build",
-            ));
+        BrowserRequest::AnswerNavigation {
+            page,
+            origin,
+            allow,
+        } => {
+            navigation::answer(core, &page, origin, allow)?;
+            return Ok(Response::Ok(OkResponse::Ok));
         }
     };
     Ok(Response::Browser(answer))

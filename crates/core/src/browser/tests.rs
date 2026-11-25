@@ -10,7 +10,7 @@ use crate::fakes::{
 };
 use crate::protocol::agents::{SandboxNetwork, SandboxReport};
 use crate::protocol::audit::{AuditEvent, AuditRange};
-use crate::protocol::browser::{BrowserEvent, BrowserResponse, PageInfo};
+use crate::protocol::browser::{BrowserEvent, BrowserResponse, PageId, PageInfo};
 use crate::protocol::projects::ProjectId;
 use crate::protocol::servers::{ServerStatus, ServersResponse};
 use crate::protocol::{ErrorCode, Event, ProtocolError, Request, Response};
@@ -107,6 +107,13 @@ async fn next<T>(
         if let Some(found) = pick(event) {
             return found;
         }
+    }
+}
+
+fn asked(event: Event) -> Option<(PageId, String)> {
+    match event {
+        Event::Browser(BrowserEvent::NavigationAsked { page, origin, .. }) => Some((page, origin)),
+        _ => None,
     }
 }
 
@@ -220,6 +227,75 @@ async fn only_a_session_behind_its_netproxy_gets_a_browser() {
 }
 
 #[tokio::test]
+async fn other_origins_ask_the_person_once_per_session() {
+    let f = fx(true).await;
+    let mut rx = f.core.subscribe();
+    let core = f.core.clone();
+    let opening = tokio::spawn(async move { open(&core, "https://example.com/a").await });
+    let (page, origin) = next(&mut rx, asked).await;
+    assert_eq!(
+        (page.0.as_str(), origin.as_str()),
+        ("pg1", "https://example.com")
+    );
+    // The ask is the person's to answer, for the page that asked.
+    let answer = json!({"method": "browser.answer_navigation", "params": {
+        "page": "pg1", "origin": "https://example.com", "allow": true}});
+    ok(&f.core, answer.clone()).await;
+    let opened = opening.await.ok().and_then(Result::ok);
+    assert_eq!(
+        opened.map(|p| p.url),
+        Some("https://example.com/a".to_owned())
+    );
+    assert_eq!(code(call(&f.core, answer).await), ErrorCode::NotFound);
+    // Kept for the session: the next page does not ask again.
+    assert!(open(&f.core, "https://example.com/b").await.is_ok());
+
+    let core = f.core.clone();
+    let opening = tokio::spawn(async move { open(&core, "http://evil.test/").await });
+    let (page, origin) = next(&mut rx, asked).await;
+    let deny = json!({"method": "browser.answer_navigation", "params": {
+        "page": page, "origin": origin, "allow": false}});
+    ok(&f.core, deny).await;
+    let refused = opening.await.unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(code(refused), ErrorCode::Forbidden);
+    assert_eq!(
+        code(open(&f.core, "http://evil.test/x").await),
+        ErrorCode::Forbidden
+    );
+    insta::assert_json_snapshot!(navigations(&f), @r#"
+    [
+      {
+        "allowed": true,
+        "by": "person",
+        "kind": "browser_navigation",
+        "origin": "https://example.com"
+      },
+      {
+        "allowed": false,
+        "by": "person",
+        "kind": "browser_navigation",
+        "origin": "http://evil.test"
+      }
+    ]
+    "#);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_navigation_nobody_answers_is_refused_in_time() {
+    let f = fx(true).await;
+    // Not a grant: no server runs on that port, and `localhost.` is not `localhost`.
+    for url in ["http://localhost:5173/", "http://localhost.:5173/"] {
+        assert_eq!(
+            code(open(&f.core, url).await),
+            ErrorCode::Forbidden,
+            "{url}"
+        );
+    }
+    let by: Vec<_> = navigations(&f).iter().map(|n| n["by"].clone()).collect();
+    assert_eq!(by, [json!("no_answer"), json!("no_answer")]);
+}
+
+#[tokio::test]
 async fn a_session_has_four_pages_at_most_and_its_end_closes_them() {
     let f = fx(true).await;
     ready_web(&f).await;
@@ -245,19 +321,21 @@ async fn a_session_has_four_pages_at_most_and_its_end_closes_them() {
     )
     .await;
 
-    // Not a granted server: refused.
-    assert_eq!(
-        code(open(&f.core, "https://example.com/").await),
-        ErrorCode::Forbidden
-    );
+    // A navigation waits for the person when the session ends.
     let mut rx = f.core.subscribe();
+    let core = f.core.clone();
+    let opening = tokio::spawn(async move { open(&core, "https://example.com/").await });
+    next(&mut rx, asked).await;
     ok(
         &f.core,
         json!({"method": "agents.stop", "params": {"session": "s1"}}),
     )
     .await;
     assert_eq!(next(&mut rx, listed).await, Vec::<String>::new());
+    let refused = opening.await.unwrap_or_else(|e| panic!("{e}"));
+    assert!(refused.is_err(), "{refused:?}");
     assert!(super::lock(&f.browser.pages).is_empty());
+    assert_eq!(navigations(&f)[0]["by"], "session_ended");
     assert_eq!(
         code(open(&f.core, "http://localhost:5173/").await),
         ErrorCode::Conflict
