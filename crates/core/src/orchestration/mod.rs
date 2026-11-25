@@ -75,8 +75,8 @@ struct State {
     watches: BTreeSet<SessionId>,
     /// Each worker's changed paths as [`overlap`] last saw them; not saved.
     changed: BTreeMap<SessionId, BTreeSet<String>>,
-    /// Worker pairs and paths [`overlap`] already told of; not saved.
-    overlaps: BTreeSet<((SessionId, SessionId), String)>,
+    /// Worker pairs [`overlap`] already told of; not saved.
+    overlaps: BTreeSet<(SessionId, SessionId)>,
     /// Places a person's starts took while their sessions are set up
     /// ([`slots::reserve`]); not saved.
     reserved: BTreeMap<ProjectId, usize>,
@@ -159,6 +159,16 @@ pub(crate) fn on_status(core: &Core, session: &SessionId, status: &AgentStatus) 
     match status {
         AgentStatus::Stopped => tasks::tell_coordinator(core, session, "stopped"),
         AgentStatus::Failed { message } => {
+            // The runtime's error may quote the CLI or a hook: one short
+            // line that cannot open a tag, as the person reads it too.
+            let line: String = message
+                .lines()
+                .next()
+                .unwrap_or("")
+                .chars()
+                .take(200)
+                .collect();
+            let message = crate::provenance::escaped(&line);
             tasks::tell_coordinator(core, session, &format!("failed: {message}"));
         }
         _ => {}

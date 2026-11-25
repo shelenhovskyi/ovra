@@ -698,6 +698,11 @@ async fn a_comment_after_a_reject_continues_the_worker_with_the_lost_diff() {
             .starts_with("Ovra: the person rejected your changes")
     );
     assert!(sent[2].1.contains("+wrong"));
+    assert!(
+        sent[2].1.contains("<untrusted origin=\"rejected diff\">"),
+        "the agent's own diff is data inside Ovra's note: {}",
+        sent[2].1
+    );
     let listed = reviews(&f.core).await;
     assert_eq!(
         listed.iter().map(|r| r.state).collect::<Vec<_>>(),
@@ -2956,6 +2961,9 @@ async fn workers_changing_the_same_file_hear_of_it_once() {
         told.contains("agent_ids are s2 and s3") || told.contains("agent_ids are s3 and s2"),
         "{told}"
     );
+    // The agent reads it as Ovra's, inside a mark only the core writes.
+    let marked = crate::provenance::for_agent([(told.as_str(), MessageFrom::Ovra)]);
+    assert!(marked.starts_with("<ovra-note>\nOvra: Workers"), "{marked}");
     let lint = notes("s2").await;
     assert_eq!(lint.len(), 1, "{lint:?}");
     assert!(
@@ -2963,4 +2971,50 @@ async fn workers_changing_the_same_file_hear_of_it_once() {
         "{lint:?}"
     );
     assert!(notes("s3").await.is_empty(), "an idle worker is not woken");
+}
+
+#[tokio::test]
+async fn a_turn_end_finds_an_overlap_and_a_discarded_worker_has_none() {
+    let f = fx(say()).await;
+    let mut rx = f.core.subscribe();
+    start_task(&f.core, 3).await;
+    until(&mut rx, "s1", AgentStatus::Idle).await;
+    let boss = caller("s1", ToolRole::Coordinator);
+    let mut trees = Vec::new();
+    for (session, name) in [("s2", "lint"), ("s3", "docs")] {
+        let worker = f.core.spawn_agent(&boss, name, "x", false).await;
+        let worker = worker.unwrap_or_else(|e| panic!("{e}"));
+        until(&mut rx, session, AgentStatus::Idle).await;
+        trees.push(worker.worktree);
+    }
+    f.wt.put(&trees[0], "NOTES.md", "lint\n");
+    f.wt.put(&trees[1], "NOTES.md", "docs\n");
+    // The ends of their next turns look again; nobody calls the check.
+    assert!(f.core.send_message(&boss, &sid("s2"), "go on").is_ok());
+    until(&mut rx, "s2", AgentStatus::Idle).await;
+    assert!(f.core.send_message(&boss, &sid("s3"), "go on").is_ok());
+    loop {
+        match Core::next_event(&mut rx).await {
+            Some(Event::Agents(AgentsEvent::Message {
+                session,
+                message: AgentMessage::UserText { text, .. },
+            })) if session.0 == "s1" && text.contains("both changed NOTES.md") => break,
+            Some(_) => {}
+            None => panic!("core closed"),
+        }
+    }
+    let docs = reviews(&f.core)
+        .await
+        .into_iter()
+        .find(|i| i.session.0 == "s3")
+        .map(|i| i.id.0)
+        .unwrap_or_default();
+    ok(
+        &f.core,
+        json!({"method": "review.reject", "params": {"id": docs}}),
+    )
+    .await;
+    let state = f.core.orchestration_state();
+    let changed = state.lock().changed.get(&sid("s3")).cloned();
+    assert_eq!(changed, Some(std::collections::BTreeSet::new()));
 }

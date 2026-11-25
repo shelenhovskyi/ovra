@@ -1080,6 +1080,7 @@ async fn reject(core: &Core, id: &ReviewId) -> Result<(ReviewItem, Vec<String>, 
         e.decided = files;
         e.decided_diffs = diffs;
     })?;
+    super::overlap::discarded(core, &entry.session);
     Ok((item(core, &entry).await?, Vec::new(), restored))
 }
 
@@ -1174,9 +1175,20 @@ async fn continue_session(core: &Core, session: &SessionId, parts: agents::Parts
 /// bytes in one message, which has a size limit.
 fn rejected_note(comment_len: usize, diff: &str) -> String {
     let room = agents::MAX_TEXT_BYTES.saturating_sub(comment_len + WRAPPER_BYTES);
-    let mut cut = diff.len().min(room);
-    while !diff.is_char_boundary(cut) {
-        cut -= 1;
+    // The diff is the agent's own text, so it goes inside `untrusted`,
+    // whose escaping makes `&`, `<` and `>` longer.
+    let mut size = 0;
+    let mut cut = diff.len();
+    for (at, c) in diff.char_indices() {
+        size += match c {
+            '&' => 5,
+            '<' | '>' => 4,
+            c => c.len_utf8(),
+        };
+        if size > room {
+            cut = at;
+            break;
+        }
     }
     let more = if cut < diff.len() {
         "\n(diff cut short)"
@@ -1184,8 +1196,8 @@ fn rejected_note(comment_len: usize, diff: &str) -> String {
         ""
     };
     format!(
-        "Ovra: the person rejected your changes, and they were reverted. This was the rejected diff:\n```diff\n{}\n```{more}",
-        &diff[..cut]
+        "Ovra: the person rejected your changes, and they were reverted. This was the rejected diff:\n{}{more}",
+        crate::untrusted::untrusted("rejected diff", &diff[..cut])
     )
 }
 

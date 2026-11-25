@@ -710,6 +710,14 @@ pub(super) fn set_ended(core: &Core, coordinator: &SessionId, ended: bool) {
     };
     if entry.ended != ended {
         entry.ended = ended;
+        let sessions: Vec<SessionId> = entry.sessions().cloned().collect();
+        // An ended task's workers change nothing more that overlaps.
+        if ended {
+            guard.changed.retain(|s, _| !sessions.contains(s));
+            guard
+                .overlaps
+                .retain(|(a, b)| !sessions.contains(a) && !sessions.contains(b));
+        }
         state.save(&guard);
     }
 }
