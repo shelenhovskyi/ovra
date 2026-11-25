@@ -193,10 +193,11 @@ $effect(() => {
     flex-direction: column;
     gap: 8px;
   }
-  /* Over any modal and its scrim: an approval is never hidden. */
+  /* Over any modal and its scrim: an approval is never hidden. Just under
+     the title bar (36 px), so it never covers the title bar's search. */
   .banner {
     position: fixed;
-    top: 8px;
+    top: 42px;
     left: 50%;
     z-index: 1000;
     transform: translateX(-50%);

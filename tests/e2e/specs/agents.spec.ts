@@ -195,6 +195,14 @@ test("at 1024x700 the request's answers are in sight and not covered", async ({ 
     );
     expect(hit).toContain(name.replace("…", ""));
   }
+  // Over a modal, the banner says what waits from under the title bar, not over its search.
+  const search = await page.getByRole("button", { name: /Search or run/ }).boundingBox();
+  await page.keyboard.press("Control+k");
+  const banner = page.getByTestId("approvals-banner");
+  await expect(banner).toBeVisible();
+  expect((await banner.boundingBox())?.y).toBeGreaterThanOrEqual((search?.y ?? 0) + (search?.height ?? 0));
+  await page.keyboard.press("Escape");
+  await expect(banner).toBeHidden();
   await arm(page);
   await run.getByRole("button", { name: "Deny", exact: true }).click();
   const edit = approvals.getByRole("group", { name: "Edit README.md" });
