@@ -499,8 +499,8 @@ fn every_request_round_trips() {
         serde_json::json!({"method": "orchestration.start", "params": {"project": "p1", "prompt": "x", "limits": {"max_workers": 2, "budget_micro_usd": null}}}),
         serde_json::json!({"method": "orchestration.list", "params": {"project": "p1"}}),
         serde_json::json!({"method": "orchestration.stop", "params": {"task": "task1"}}),
-        serde_json::json!({"method": "audit.list", "params": {"project": "p1", "after": 3, "limit": 50}}),
-        serde_json::json!({"method": "audit.list", "params": {"project": "p1", "after": null, "limit": null}}),
+        serde_json::json!({"method": "audit.list", "params": {"project": "p1", "after": 3, "before": null, "order": "oldest_first", "limit": 50}}),
+        serde_json::json!({"method": "audit.list", "params": {"project": "p1", "after": null, "before": 9, "order": "newest_first", "limit": null}}),
     ];
     for json in requests {
         let parsed: Request = req(json.clone());

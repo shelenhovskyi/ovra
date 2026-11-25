@@ -915,7 +915,7 @@ mod through_the_core {
         use crate::protocol::audit::{AuditEvent, ReviewAction};
         use crate::services::AuditLog;
         let actions: Vec<_> = audit
-            .list(&ProjectId("p1".into()), None, 100)
+            .list(&ProjectId("p1".into()), Default::default(), 100)
             .unwrap_or_default()
             .into_iter()
             .filter_map(|e| match e.event {

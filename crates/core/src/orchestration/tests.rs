@@ -426,7 +426,7 @@ async fn ovra_tools_are_decided_by_role_without_asking() {
 /// The project's audit entries: who and what.
 fn audited(f: &Fx) -> Vec<(Option<SessionId>, AuditEvent)> {
     f.audit
-        .list(&ProjectId("p1".into()), None, 1000)
+        .list(&ProjectId("p1".into()), Default::default(), 1000)
         .unwrap_or_else(|e| panic!("{e}"))
         .into_iter()
         .map(|e| (e.session, e.event))

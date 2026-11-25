@@ -125,16 +125,39 @@ pub enum ReviewAction {
 /// The most entries one `audit.list` returns.
 pub const MAX_AUDIT_PAGE: usize = 500;
 
+/// Which of a project's entries one `audit.list` reads: those with a
+/// `seq` above `after` and below `before`, in `order`. A page holds the
+/// first entries in that order, so `newest_first` without `before` opens
+/// the end of a long log, and `before` the lowest `seq` shown pages back.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct AuditRange {
+    pub after: Option<u64>,
+    pub before: Option<u64>,
+    pub order: AuditOrder,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AuditOrder {
+    #[default]
+    OldestFirst,
+    NewestFirst,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "method", content = "params")]
 pub enum AuditRequest {
     /// Up to `limit` (at most [`MAX_AUDIT_PAGE`]) of the project's entries
-    /// with a `seq` above `after`, oldest first. Answers `audit.entries`.
+    /// as [`AuditRange`] says. Answers `audit.entries`.
     #[serde(rename = "audit.list")]
     List {
         project: ProjectId,
         #[serde(default)]
         after: Option<u64>,
+        #[serde(default)]
+        before: Option<u64>,
+        #[serde(default)]
+        order: AuditOrder,
         #[serde(default)]
         limit: Option<usize>,
     },

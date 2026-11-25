@@ -7,7 +7,7 @@ mod input;
 use crate::Core;
 use crate::protocol::agents::SessionId;
 use crate::protocol::audit::{
-    AuditEvent, AuditLogEvent, AuditRequest, AuditResponse, DecidedBy, MAX_AUDIT_PAGE,
+    AuditEvent, AuditLogEvent, AuditRange, AuditRequest, AuditResponse, DecidedBy, MAX_AUDIT_PAGE,
 };
 use crate::protocol::projects::ProjectId;
 use crate::protocol::{ProtocolError, Response};
@@ -46,10 +46,17 @@ pub(crate) fn handle(core: &Core, request: AuditRequest) -> Result<Response, Pro
         AuditRequest::List {
             project,
             after,
+            before,
+            order,
             limit,
         } => {
             let limit = limit.unwrap_or(MAX_AUDIT_PAGE).min(MAX_AUDIT_PAGE);
-            let entries = core.audit_log().list(&project, after, limit)?;
+            let range = AuditRange {
+                after,
+                before,
+                order,
+            };
+            let entries = core.audit_log().list(&project, range, limit)?;
             Ok(Response::Audit(AuditResponse::Entries(entries)))
         }
     }

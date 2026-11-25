@@ -1183,7 +1183,7 @@ async fn the_projects_policy_decides_before_the_person_is_asked() {
     let decided = |project: &str| {
         let entries = audit.list(
             &crate::protocol::projects::ProjectId(project.into()),
-            None,
+            Default::default(),
             100,
         );
         entries

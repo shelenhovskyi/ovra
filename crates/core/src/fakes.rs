@@ -37,7 +37,7 @@ use crate::protocol::agents::{
     AgentMessage, AgentSettings, AgentStatus, ProjectAgentConfig, SandboxReport, SessionId,
     TurnUsage,
 };
-use crate::protocol::audit::{AuditEntry, AuditEvent};
+use crate::protocol::audit::{AuditEntry, AuditEvent, AuditOrder, AuditRange};
 use crate::protocol::fs::{DirEntry, DirListing, EntryKind, FileBody, FileContent, FileList};
 use crate::protocol::netproxy::{AllowedHost, Allowlist};
 use crate::protocol::permissions::Decision;
@@ -587,15 +587,24 @@ impl AuditLog for MemoryAudit {
     fn list(
         &self,
         project: &ProjectId,
-        after: Option<u64>,
+        range: AuditRange,
         limit: usize,
     ) -> Result<Vec<AuditEntry>> {
-        Ok(lock(&self.entries)
+        let entries = lock(&self.entries);
+        let mut kept: Vec<AuditEntry> = entries
             .iter()
-            .filter(|e| &e.project == project && after.is_none_or(|a| e.seq > a))
-            .take(limit)
+            .filter(|e| {
+                &e.project == project
+                    && range.after.is_none_or(|a| e.seq > a)
+                    && range.before.is_none_or(|b| e.seq < b)
+            })
             .cloned()
-            .collect())
+            .collect();
+        if range.order == AuditOrder::NewestFirst {
+            kept.reverse();
+        }
+        kept.truncate(limit);
+        Ok(kept)
     }
 }
 

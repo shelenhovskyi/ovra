@@ -21,7 +21,7 @@ use crate::protocol::agents::{
     AgentKind, AgentMessage, AgentSettings, AgentSetup, ProjectAgentConfig, SessionId, SessionInfo,
     SessionMode, SetupState,
 };
-use crate::protocol::audit::{AuditEntry, AuditEvent};
+use crate::protocol::audit::{AuditEntry, AuditEvent, AuditRange};
 use crate::protocol::browser::{FrameMetadata, InputEvent, MouseButton, PageId, PageInfo, Pick};
 use crate::protocol::fs::{DirListing, FileContent, FileList};
 use crate::protocol::git::{
@@ -727,13 +727,10 @@ pub trait AuditLog: Send + Sync + Debug {
         session: Option<&SessionId>,
         event: AuditEvent,
     ) -> Result<AuditEntry>;
-    /// Up to `limit` entries of `project` after `after` (a `seq`), oldest first.
-    fn list(
-        &self,
-        project: &ProjectId,
-        after: Option<u64>,
-        limit: usize,
-    ) -> Result<Vec<AuditEntry>>;
+    /// Up to `limit` entries of `project` in `range`, the first in its
+    /// order.
+    fn list(&self, project: &ProjectId, range: AuditRange, limit: usize)
+    -> Result<Vec<AuditEntry>>;
 }
 
 /// Tokens in the OS keychain, each bound to one project, host and header
@@ -1237,7 +1234,7 @@ impl AuditLog for Unavailable {
     fn append(&self, _: &ProjectId, _: Option<&SessionId>, _: AuditEvent) -> Result<AuditEntry> {
         self.err()
     }
-    fn list(&self, _: &ProjectId, _: Option<u64>, _: usize) -> Result<Vec<AuditEntry>> {
+    fn list(&self, _: &ProjectId, _: AuditRange, _: usize) -> Result<Vec<AuditEntry>> {
         self.err()
     }
 }

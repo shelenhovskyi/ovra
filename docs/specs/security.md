@@ -540,14 +540,18 @@ pub enum ReviewAction { Approved, PartlyApproved, Rejected, UndoneReject, Taken,
 ```rust
 pub trait AuditLog: Send + Sync + Debug {
     fn append(&self, project: &ProjectId, session: Option<&SessionId>, event: AuditEvent) -> Result<AuditEntry>;
-    fn list(&self, project: &ProjectId, after: Option<u64>, limit: usize) -> Result<Vec<AuditEntry>>;
+    fn list(&self, project: &ProjectId, range: AuditRange, limit: usize) -> Result<Vec<AuditEntry>>;
 }
+pub struct AuditRange { pub after: Option<u64>, pub before: Option<u64>, pub order: AuditOrder }
+pub enum AuditOrder { OldestFirst, NewestFirst } // OldestFirst by default
 ```
 
 - **Storage.** `ovra-store` keeps it in its SQLite file (4.E). The file
   mode is 0600.
-- **Protocol.** `audit.list { project, after, limit }`, plus an
-  `audit.appended` event for live viewers.
+- **Protocol.** `audit.list { project, after, before, order, limit }`
+  returns the first `limit` entries (at most 500) with a `seq` between
+  `after` and `before`, in `order`. Plus an `audit.appended` event for
+  live viewers.
 - **No edits.** The log is only appended to. No method deletes or edits an
   entry, and removing a project keeps its entries.
 - **4.0 versus 4.E.** 4.0 defines the trait and the schema, with an

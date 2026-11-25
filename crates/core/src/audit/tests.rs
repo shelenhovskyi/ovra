@@ -1,10 +1,12 @@
 use std::sync::Arc;
 
+use serde_json::json;
+
 use crate::Core;
 use crate::fakes::MemoryAudit;
 use crate::protocol::audit::{
-    AuditEntry, AuditEvent, AuditInput, AuditLogEvent, AuditRequest, AuditResponse, DecidedBy,
-    MAX_AUDIT_PAGE,
+    AuditEntry, AuditEvent, AuditInput, AuditLogEvent, AuditOrder, AuditRequest, AuditResponse,
+    DecidedBy, MAX_AUDIT_PAGE,
 };
 use crate::protocol::projects::ProjectId;
 use crate::protocol::{ErrorCode, Event, Request, Response};
@@ -21,12 +23,12 @@ fn trust(trusted: bool) -> AuditEvent {
     }
 }
 
-async fn list(core: &Core, after: Option<u64>, limit: Option<usize>) -> Vec<AuditEntry> {
-    let request = Request::Audit(AuditRequest::List {
-        project: project("p1"),
-        after,
-        limit,
-    });
+/// `audit.list` for `p1`, with `params` as the client sends them.
+async fn list(core: &Core, mut params: serde_json::Value) -> Vec<AuditEntry> {
+    params["project"] = "p1".into();
+    let request =
+        serde_json::from_value(serde_json::json!({"method": "audit.list", "params": params}))
+            .unwrap_or_else(|e| panic!("bad request: {e}"));
     match core.handle(request).await {
         Ok(Response::Audit(AuditResponse::Entries(entries))) => entries,
         other => panic!("unexpected {other:?}"),
@@ -42,9 +44,39 @@ async fn list_pages_through_one_projects_entries() {
     }
     let core = Core::builder("test").audit(log).build();
     let seqs = |entries: Vec<AuditEntry>| entries.iter().map(|e| e.seq).collect::<Vec<_>>();
-    assert_eq!(seqs(list(&core, None, None).await), [1, 3, 4]);
-    assert_eq!(seqs(list(&core, Some(1), Some(1)).await), [3]);
-    assert_eq!(seqs(list(&core, Some(4), None).await), Vec::<u64>::new());
+    assert_eq!(seqs(list(&core, json!({})).await), [1, 3, 4]);
+    assert_eq!(
+        seqs(list(&core, json!({"after": 1, "limit": 1})).await),
+        [3]
+    );
+    assert_eq!(
+        seqs(list(&core, json!({"after": 4})).await),
+        Vec::<u64>::new()
+    );
+}
+
+#[tokio::test]
+async fn list_pages_back_from_the_newest_entry() {
+    let log = Arc::new(MemoryAudit::default());
+    for (p, trusted) in [("p1", true), ("p2", true), ("p1", false), ("p1", true)] {
+        log.append(&project(p), None, trust(trusted))
+            .unwrap_or_else(|e| panic!("{e}"));
+    }
+    let core = Core::builder("test").audit(log).build();
+    let seqs = |entries: Vec<AuditEntry>| entries.iter().map(|e| e.seq).collect::<Vec<_>>();
+    let newest = |params: serde_json::Value| {
+        let mut params = params;
+        params["order"] = "newest_first".into();
+        params
+    };
+    assert_eq!(seqs(list(&core, newest(json!({"limit": 2}))).await), [4, 3]);
+    assert_eq!(seqs(list(&core, newest(json!({"before": 3}))).await), [1]);
+    assert_eq!(
+        seqs(list(&core, newest(json!({"before": 1}))).await),
+        Vec::<u64>::new()
+    );
+    // `before` bounds an oldest-first page too.
+    assert_eq!(seqs(list(&core, json!({"before": 4})).await), [1, 3]);
 }
 
 #[tokio::test]
@@ -55,10 +87,10 @@ async fn list_never_returns_more_than_a_page() {
             .unwrap_or_else(|e| panic!("{e}"));
     }
     let core = Core::builder("test").audit(log).build();
-    assert_eq!(
-        list(&core, None, Some(usize::MAX)).await.len(),
-        MAX_AUDIT_PAGE
-    );
+    for order in ["oldest_first", "newest_first"] {
+        let page = list(&core, json!({"limit": usize::MAX, "order": order})).await;
+        assert_eq!(page.len(), MAX_AUDIT_PAGE);
+    }
 }
 
 #[tokio::test]
@@ -66,6 +98,8 @@ async fn without_a_log_list_is_unavailable() {
     let request = Request::Audit(AuditRequest::List {
         project: project("p1"),
         after: None,
+        before: None,
+        order: AuditOrder::default(),
         limit: None,
     });
     let err = Core::new("test").handle(request).await.err();
@@ -89,7 +123,8 @@ fn wire_format_is_stable() {
         },
     };
     insta::assert_json_snapshot!(serde_json::json!({
-        "request": Request::Audit(AuditRequest::List { project: project("p1"), after: Some(6), limit: Some(100) }),
+        "request": Request::Audit(AuditRequest::List { project: project("p1"), after: Some(6), before: None, order: AuditOrder::default(), limit: Some(100) }),
+        "newest": Request::Audit(AuditRequest::List { project: project("p1"), after: None, before: Some(9), order: AuditOrder::NewestFirst, limit: None }),
         "response": Response::Audit(AuditResponse::Entries(vec![entry.clone()])),
         "event": Event::from(AuditLogEvent::Appended(entry)),
     }));
@@ -371,7 +406,7 @@ mod recording {
         .await;
 
         let entries = log
-            .list(&project("p1"), None, 100)
+            .list(&project("p1"), Default::default(), 100)
             .unwrap_or_else(|e| panic!("{e}"));
         // Every entry after subscribing was shown live, in order.
         assert_eq!(shown, entries[2..entries.len() - 1]);

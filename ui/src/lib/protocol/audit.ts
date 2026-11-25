@@ -40,10 +40,22 @@ export type DecidedBy =
 
 export type ReviewAction = "approved" | "partly_approved" | "rejected" | "undone_reject" | "taken" | "undone_take";
 
+/** `newest_first` without `before` opens the end of the log; `before` pages back. */
+export type AuditOrder = "oldest_first" | "newest_first";
+
 export type AuditRequest = {
   method: "audit.list";
-  /** Entries with a `seq` above `after`, oldest first; `limit` at most 500 (the default). */
-  params: { project: ProjectId; after?: number | null; limit?: number | null };
+  /**
+   * Entries with a `seq` above `after` and below `before`, the first `limit` (at most 500, the default) in
+   * `order` (`oldest_first` by default).
+   */
+  params: {
+    project: ProjectId;
+    after?: number | null;
+    before?: number | null;
+    order?: AuditOrder;
+    limit?: number | null;
+  };
 };
 
 export type AuditResponse = { type: "audit.entries"; data: AuditEntry[] };
