@@ -19,9 +19,12 @@ test("UI connects to the headless core", async ({ page }) => {
 test("the shell shows its panels", async ({ page }) => {
   await page.goto(daemonUrl().href);
   await expect(page.getByTestId("sidebar")).toContainText("File tree");
-  // On the start screen the project list takes the main area's place.
+  // On the start screen the start page takes the main area's place, and there is no rail.
   await expect(page.getByTestId("main")).toBeHidden();
-  await expect(page.getByTestId("agents")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Open a project" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Views" })).toBeHidden();
+  // Whether Claude is ready shows before any project is open.
+  await expect(page.getByTestId("claude-setup")).toContainText("is ready");
 });
 
 test("with no file open, the main area offers the next steps", async ({ page }) => {

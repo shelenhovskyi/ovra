@@ -7,6 +7,7 @@
 import { untrack } from "svelte";
 import AgentsPanel from "../agents/AgentsPanel.svelte";
 import { agentSessions } from "../agents/sessions.svelte";
+import ClaudeSetup from "../agents/setup/ClaudeSetup.svelte";
 import Approvals from "../approvals/Approvals.svelte";
 import { approvalQueue } from "../approvals/queue.svelte";
 import BrowserPane from "../browser/BrowserPane.svelte";
@@ -213,6 +214,13 @@ function edge(panel: Panel): "left" | "right" {
       <div class="sidebar-view" hidden={!!workspace.project && workspace.sidebar !== "files"}><Tree /></div>
       <div class="sidebar-view" hidden={!workspace.project || workspace.sidebar !== "search"}><Search /></div>
       <div class="sidebar-view" hidden={!workspace.project || workspace.sidebar !== "git"}><Git /></div>
+      {#if !workspace.project}
+        <!-- The start screen's second column: whether Claude is ready, before any project is open. -->
+        <section class="claude-column" aria-labelledby="start-claude">
+          <h2 id="start-claude">Claude</h2>
+          <ClaudeSetup />
+        </section>
+      {/if}
     </div>
   </aside>
   {#each PANELS as panel (panel)}
@@ -344,8 +352,25 @@ function edge(panel: Panel): "left" | "right" {
   .agents {
     grid-area: agents;
   }
+  /* The start page in the main area's tone, Claude in the side panels'. */
   .start .side {
+    background: var(--s2);
+  }
+  .start .side > .body {
+    flex-direction: row;
+  }
+  .claude-column {
+    flex: none;
+    width: 340px;
+    padding: 64px 24px 24px;
+    overflow-y: auto;
     background: var(--s1);
+  }
+  .claude-column h2 {
+    margin: 0 0 12px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-2);
   }
   .start .rail-area,
   .solo .agents,
@@ -587,6 +612,14 @@ function edge(panel: Panel): "left" | "right" {
     .handle {
       display: none;
     }
+    .start .side > .body {
+      flex-direction: column;
+    }
+    .claude-column {
+      width: auto;
+      padding-top: 24px;
+    }
+
   }
   /* Narrower still: one column, the rail a row; the page scrolls down, never sideways. */
   @media (max-width: 600px) {

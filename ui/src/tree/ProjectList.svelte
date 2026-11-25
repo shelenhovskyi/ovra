@@ -1,10 +1,13 @@
 <script lang="ts">
 // Start screen: the known projects, most recently opened first, a button for
-// the system's folder dialog where there is one, and a field to open a folder
-// by its path.
+// the system's folder dialog where there is one (and a place to drop a
+// folder), and a field to open a folder by its path.
+import { formatShortcut, isApple } from "../keys/shortcut";
 import type { Project } from "../lib/protocol";
 import type { Transport } from "../lib/transport";
+import Icon from "../shell/Icon.svelte";
 import { type FolderOpener, folderError } from "./folder-opener.svelte";
+import { openedAgo, shortPath } from "./start";
 
 let { transport, opener }: { transport: Transport; opener: FolderOpener } = $props();
 
@@ -18,6 +21,8 @@ let list = $state<HTMLUListElement>();
 
 const KEYS = ["ArrowDown", "ArrowUp", "Home", "End"];
 const error = $derived(opener.error ?? loadError);
+const pickKeys = formatShortcut("Mod+O", isApple());
+const now = Date.now();
 
 function load(): void {
   transport
@@ -77,10 +82,11 @@ function move(e: KeyboardEvent): void {
 </script>
 
 <section class="start" data-testid="project-list">
-  <h2>Projects</h2>
+  <h2>Open a project</h2>
   {#if projects?.length === 0}
-    <p class="muted">No projects yet.</p>
+    <p class="lead">No projects yet. Open a folder, give Claude a task, then approve its steps and review its changes.</p>
   {:else if projects}
+    <p class="lead">Pick up where you left off.</p>
     <h3 id="recent">Recent</h3>
     <!-- Arrow keys bubble up from the project buttons. -->
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
@@ -92,17 +98,27 @@ function move(e: KeyboardEvent): void {
             tabindex={i === focused ? 0 : -1}
             onfocus={() => (focused = i)}
             onclick={() => open(project)}
+            title={project.root}
           >
-            <span class="name">{project.name}</span>
-            <span class="path">{project.root}</span>
+            <span class="initial" aria-hidden="true">{project.name.slice(0, 1).toUpperCase()}</span>
+            <span class="text">
+              <span class="name">{project.name}</span>
+              <span class="path">{shortPath(project.root)}</span>
+            </span>
+            <span class="when">{openedAgo(project.last_opened_ms, now)}</span>
           </button>
         </li>
       {/each}
     </ul>
   {/if}
   {#if opener.canPick}
-    <button type="button" class="pick" bind:this={pickButton} disabled={opener.busy} onclick={() => opener.pick()}>Open folder…</button>
-    <p class="muted hint drop-hint">Or drop a folder here.</p>
+    <div class="drop">
+      <span class="tile"><Icon name="folder" /></span>
+      <span class="muted">Drop a folder here</span>
+      <button type="button" class="pick" bind:this={pickButton} disabled={opener.busy} onclick={() => opener.pick()}
+        >Open folder…<kbd aria-hidden="true">{pickKeys}</kbd></button
+      >
+    </div>
   {/if}
   <form onsubmit={add}>
     <label for="project-root">{opener.canPick ? "Or type its path" : "Open a folder"}</label>
@@ -112,25 +128,36 @@ function move(e: KeyboardEvent): void {
         bind:this={input}
         bind:value={root}
         oninput={edited}
+        spellcheck="false"
+        autocomplete="off"
         aria-invalid={error ? "true" : undefined}
-        aria-describedby={error ? "project-root-error project-root-hint" : "project-root-hint"}
+        aria-describedby={error ? "project-root-error" : "project-root-hint"}
       />
       <button type="submit" disabled={opener.busy}>{opener.busy ? "Opening…" : "Open"}</button>
     </div>
-    <p id="project-root-hint" class="muted hint">Full path, like /home/you/my-app</p>
+    <!-- The error replaces the hint rather than repeating it. -->
+    {#if error}
+      <p id="project-root-error" class="error" role="alert">{error}</p>
+    {:else}
+      <p id="project-root-hint" class="muted hint">Full path, like /home/you/my-app</p>
+    {/if}
   </form>
-  {#if error}<p id="project-root-error" class="error" role="alert">{error}</p>{/if}
 </section>
 
 <style>
+  /* One column of about 560 px, set in from the window's edge as in the mockup. */
   .start {
-    padding: 14px;
-    background: var(--s1);
+    max-width: 560px;
+    padding: 64px 32px 32px 64px;
   }
   h2 {
-    margin: 0 0 12px;
-    font-size: 14px;
+    margin: 0 0 8px;
+    font-size: 24px;
     font-weight: 600;
+  }
+  .lead {
+    margin: 0 0 32px;
+    color: var(--text-2);
   }
   h3 {
     margin: 0 0 6px;
@@ -140,16 +167,18 @@ function move(e: KeyboardEvent): void {
   }
   ul {
     list-style: none;
-    margin: 0 0 16px;
+    margin: 0 0 24px -8px;
     padding: 0;
   }
   li button {
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: 32px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
     width: 100%;
-    padding: 6px 8px;
+    padding: 8px;
     border: 0;
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius);
     background: none;
     color: inherit;
     font: inherit;
@@ -159,13 +188,61 @@ function move(e: KeyboardEvent): void {
   li button:hover {
     background: var(--s3);
   }
+  .initial,
+  .tile {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-2);
+    background: var(--s3);
+    border-radius: var(--radius-sm);
+  }
+  .text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
   .name {
     font-weight: 500;
   }
   .path {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     color: var(--text-2);
     font: 13px var(--mono);
-    overflow-wrap: anywhere;
+  }
+  .when {
+    font-size: 13px;
+    color: var(--text-2);
+    white-space: nowrap;
+  }
+  /* The drop target needs an edge to be found. */
+  .drop {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 24px;
+    padding: 16px;
+    border: 1px dashed var(--s4);
+    border-radius: var(--radius);
+  }
+  .drop .muted {
+    flex: 1;
+  }
+  .pick {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  kbd {
+    padding: 2px 6px;
+    font: 500 12px var(--font);
+    background: color-mix(in srgb, var(--accent-ink) 15%, transparent);
+    border-radius: 5px;
   }
   label {
     display: block;
@@ -189,12 +266,6 @@ function move(e: KeyboardEvent): void {
   }
   input[aria-invalid="true"] {
     border-color: var(--danger);
-  }
-  .pick {
-    width: 100%;
-  }
-  .drop-hint {
-    margin-bottom: 16px;
   }
   form button,
   .pick {
@@ -230,8 +301,11 @@ function move(e: KeyboardEvent): void {
     font-size: 13px;
   }
   .error {
+    margin: 6px 0 0;
+    font-size: 13px;
     color: var(--danger);
   }
+
   @media (forced-colors: active) {
     input,
     form button,

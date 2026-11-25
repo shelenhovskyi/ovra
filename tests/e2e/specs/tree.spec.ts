@@ -12,7 +12,7 @@ function daemonUrl(): string {
 test("the sidebar starts on the project list", async ({ page }) => {
   await page.goto(daemonUrl());
   const sidebar = page.getByTestId("project-list");
-  await expect(sidebar.getByRole("heading", { name: "Projects" })).toBeVisible();
+  await expect(sidebar.getByRole("heading", { name: "Open a project" })).toBeVisible();
   await expect(sidebar.getByRole("textbox", { name: "Open a folder" })).toBeVisible();
   await expect(sidebar.getByRole("button", { name: "Open", exact: true })).toBeEnabled();
 });

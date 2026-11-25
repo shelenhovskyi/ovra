@@ -101,13 +101,12 @@ describe("ProjectList start screen", () => {
     await t.send("/gone");
     expect(t.input().getAttribute("aria-invalid")).toBe("true");
     const described = t.input().getAttribute("aria-describedby")?.split(" ") ?? [];
-    expect(described.map((id) => document.getElementById(id)?.textContent)).toEqual([
-      "Folder not found: /gone",
-      "Full path, like /home/you/my-app",
-    ]);
+    // The error takes the hint's place: it says the same and more.
+    expect(described.map((id) => document.getElementById(id)?.textContent)).toEqual(["Folder not found: /gone"]);
     t.type("/gone2");
     expect(t.error()).toBeNull();
     expect(t.input().getAttribute("aria-invalid")).toBeNull();
+    expect(document.getElementById("project-root-hint")?.textContent).toBe("Full path, like /home/you/my-app");
   });
 
   it("shows a busy button while opening and clears the old error on submit", async () => {
@@ -195,7 +194,8 @@ describe("ProjectList with the system's folder dialog", () => {
     const t = mountList(new DialogCore());
     await settle();
     const pick = t.target.querySelector<HTMLButtonElement>("button.pick");
-    expect(pick?.textContent).toBe("Open folder…");
+    expect(pick?.textContent).toBe("Open folder…Ctrl+O");
+
     expect(document.activeElement).toBe(pick);
     expect(t.input().labels?.[0]?.textContent).toBe("Or type its path");
     pick?.click();
