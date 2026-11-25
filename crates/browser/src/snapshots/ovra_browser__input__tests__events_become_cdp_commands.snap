@@ -1,0 +1,18 @@
+---
+source: crates/browser/src/input.rs
+expression: commands
+---
+[
+    "Input.dispatchMouseEvent {\"modifiers\":8,\"type\":\"mouseMoved\",\"x\":5,\"y\":6}",
+    "Input.dispatchMouseEvent {\"button\":\"right\",\"clickCount\":1,\"modifiers\":8,\"type\":\"mousePressed\",\"x\":5,\"y\":6}",
+    "Input.dispatchMouseEvent {\"button\":\"right\",\"clickCount\":1,\"modifiers\":8,\"type\":\"mouseReleased\",\"x\":5,\"y\":6}",
+    "Input.dispatchMouseEvent {\"button\":\"right\",\"clickCount\":2,\"modifiers\":8,\"type\":\"mousePressed\",\"x\":5,\"y\":6}",
+    "Input.dispatchMouseEvent {\"button\":\"right\",\"clickCount\":2,\"modifiers\":8,\"type\":\"mouseReleased\",\"x\":5,\"y\":6}",
+    "Input.dispatchKeyEvent {\"code\":\"Enter\",\"key\":\"Enter\",\"modifiers\":0,\"text\":\"\\r\",\"type\":\"keyDown\",\"windowsVirtualKeyCode\":13}",
+    "Input.dispatchKeyEvent {\"code\":\"Enter\",\"key\":\"Enter\",\"modifiers\":0,\"type\":\"keyUp\",\"windowsVirtualKeyCode\":13}",
+    "Input.dispatchKeyEvent {\"code\":\"KeyA\",\"key\":\"a\",\"modifiers\":2,\"type\":\"rawKeyDown\",\"windowsVirtualKeyCode\":65}",
+    "Input.dispatchKeyEvent {\"code\":\"KeyA\",\"key\":\"a\",\"modifiers\":2,\"type\":\"keyUp\",\"windowsVirtualKeyCode\":65}",
+    "Input.dispatchKeyEvent {\"code\":\"\",\"key\":\"+\",\"modifiers\":8,\"text\":\"+\",\"type\":\"keyDown\"}",
+    "Input.dispatchKeyEvent {\"code\":\"\",\"key\":\"+\",\"modifiers\":8,\"type\":\"keyUp\"}",
+    "Input.dispatchMouseEvent {\"deltaX\":0,\"deltaY\":-120,\"modifiers\":0,\"type\":\"mouseWheel\",\"x\":1,\"y\":2}",
+]

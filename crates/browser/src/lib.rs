@@ -16,6 +16,7 @@ use ovra_core::services::{
 };
 
 mod cdp;
+mod input;
 mod launch;
 mod snapshot;
 
