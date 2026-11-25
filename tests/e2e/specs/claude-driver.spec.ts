@@ -31,7 +31,7 @@ async function allow(page: Page, name: RegExp): Promise<void> {
   const card = page.getByTestId("approvals").getByRole("group", { name });
   await expect(card).toBeVisible();
   await page.clock.fastForward(600);
-  await card.getByRole("button", { name: "Allow" }).click();
+  await card.getByRole("button", { name: "Allow once" }).click();
 }
 
 /** Opens a new project with a README and starts Claude on `prompt`. */
