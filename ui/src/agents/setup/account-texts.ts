@@ -32,14 +32,36 @@ export function accountStatus({ account, setup }: AccountState): { text: string;
   }
 }
 
+/** An account in the picker: its name, and what to know before starting with it. */
+export function pickerLabel(state: AccountState): string {
+  const status = accountStatus(state);
+  if (!status.ok) return `${state.account.name} (${shortProblem(status.text)})`;
+  const billing = state.setup.billing;
+  if (billing?.kind === "api_key") return `${state.account.name} (API key)`;
+  if (billing?.kind === "cloud") return `${state.account.name} (${billing.provider || "cloud"})`;
+  return state.account.name;
+}
+
+/** What the person should know before starting with the picked account; null when nothing. */
+export function pickerWarning(state: AccountState): string | null {
+  const status = accountStatus(state);
+  const name = state.account.name;
+  if (!status.ok)
+    return `${name}: ${shortProblem(status.text)}. Agents started with it will fail; Manage under Claude above shows how to fix it.`;
+  if (state.setup.billing?.kind === "api_key") return `${name} bills an Anthropic API key, at API prices.`;
+  return null;
+}
+
+function shortProblem(text: string): string {
+  return text.replace(/[.:].*$/, "").toLowerCase();
+}
+
 /** The accounts in one line: each name, with what is wrong if anything. */
 export function accountsSummary(states: AccountState[]): string {
   return states
     .map((state) => {
       const status = accountStatus(state);
-      return status.ok
-        ? state.account.name
-        : `${state.account.name} (${status.text.replace(/[.:].*$/, "").toLowerCase()})`;
+      return status.ok ? state.account.name : `${state.account.name} (${shortProblem(status.text)})`;
     })
     .join(", ");
 }

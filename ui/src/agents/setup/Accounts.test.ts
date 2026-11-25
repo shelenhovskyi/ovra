@@ -36,6 +36,7 @@ async function show(core: FakeAgentCore) {
 
 const accounts = () => target.querySelector<HTMLElement>("[data-testid=claude-accounts]");
 const picker = () => target.querySelector<HTMLSelectElement>("[data-testid=account-picker] select");
+const warning = () => target.querySelector("[data-testid=account-picker-warning]")?.textContent;
 const summary = () => target.querySelector("[data-testid=claude-accounts-summary]")?.textContent;
 const button = (label: string) => [...target.querySelectorAll("button")].find((b) => b.textContent?.trim() === label);
 
@@ -187,6 +188,23 @@ describe("accounts in the agents panel", () => {
       name: "Personal",
       config_dir: null,
     });
+  });
+
+  it("says in the picker which account bills a key and which is signed out", async () => {
+    const core = new FakeAgentCore();
+    const out = work({ state: "signed_out" });
+    out.account = { id: "account-2", name: "Old", config_dir: "/Users/me/.claude-old" };
+    core.accounts = [...core.accounts, work(), out];
+    await show(core);
+    const options = [...(picker()?.options ?? [])].map((o) => o.textContent);
+    expect(options).toEqual(["Default", "Work (API key)", "Old (not signed in)"]);
+    expect(warning()).toBeUndefined();
+    change(picker(), "account-1");
+    await settle();
+    expect(warning()).toBe("Work bills an Anthropic API key, at API prices.");
+    change(picker(), "account-2");
+    await settle();
+    expect(warning()).toContain("Agents started with it will fail");
   });
 
   it("names the account that pays for a session", async () => {
