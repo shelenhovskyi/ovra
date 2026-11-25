@@ -800,7 +800,7 @@ const canReply = $derived(current !== null && current.status.state === "idle");
                   {#if parts}
                     <span class="progress" data-testid="agent-task-progress">
                       <span
-                        class="bar"
+                        class="meter"
                         role="progressbar"
                         aria-label="Workers done"
                         aria-valuemin={0}
@@ -1246,7 +1246,7 @@ const canReply = $derived(current !== null && current.status.state === "idle");
     font-size: 13px;
     color: var(--text-2);
   }
-  .bar {
+  .meter {
     flex: 1;
     max-width: 120px;
     height: 4px;
@@ -1254,7 +1254,7 @@ const canReply = $derived(current !== null && current.status.state === "idle");
     border-radius: 2px;
     background: var(--s4);
   }
-  .bar i {
+  .meter i {
     display: block;
     height: 100%;
     background: var(--ok);
