@@ -22,11 +22,21 @@ export type Worker = {
   kept: string | null;
 };
 
+/** A worker the coordinator asked for that could not start. */
+export type FailedWorker = {
+  /** The label the coordinator gave it. */
+  name: string;
+  /** Why it did not start, in words for people. */
+  reason: string;
+};
+
 export type Task = {
   id: TaskId;
   project: ProjectId;
   coordinator: SessionId;
   workers: Worker[];
+  /** Workers that never started, so they have no session to show (absent from older cores). */
+  failed?: FailedWorker[];
   limits: TaskLimits;
   spent_micro_usd: number;
 };

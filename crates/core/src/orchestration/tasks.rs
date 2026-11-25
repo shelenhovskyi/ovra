@@ -7,8 +7,8 @@ use crate::Core;
 use crate::agents::{self, NewSession};
 use crate::protocol::agents::{AgentKind, AgentStatus, MessageFrom, SessionId, SessionMode};
 use crate::protocol::orchestration::{
-    OrchestrationEvent, OrchestrationRequest, OrchestrationResponse, Task, TaskId, TaskLimits,
-    Worker,
+    FailedWorker, OrchestrationEvent, OrchestrationRequest, OrchestrationResponse, Task, TaskId,
+    TaskLimits, Worker,
 };
 use crate::protocol::projects::ProjectId;
 use crate::protocol::{ErrorCode, OkResponse, ProtocolError, Response};
@@ -28,6 +28,9 @@ pub(super) struct Entry {
     pub(super) project: ProjectId,
     pub(super) coordinator: SessionId,
     pub(super) workers: Vec<Worker>,
+    /// Workers that could not start, latest attempt per name.
+    #[serde(default)]
+    failed: Vec<FailedWorker>,
     pub(super) limits: TaskLimits,
     /// Workers being set up, which count against `max_workers`.
     #[serde(skip)]
@@ -160,6 +163,7 @@ async fn start(
             project: project.clone(),
             coordinator,
             workers: Vec::new(),
+            failed: Vec::new(),
             limits,
             starting: Vec::new(),
             cleaned: Vec::new(),
@@ -262,6 +266,7 @@ pub(super) fn view(core: &Core, entry: &Entry) -> Task {
         project: entry.project.clone(),
         coordinator: entry.coordinator.clone(),
         workers: entry.workers.clone(),
+        failed: entry.failed.clone(),
         limits: entry.limits.clone(),
         spent_micro_usd: spent(core, entry),
     }
@@ -411,13 +416,25 @@ pub(super) async fn spawn(
     let mut guard = state.lock();
     if let Some(task) = guard.tasks.iter_mut().find(|t| t.id == entry.id) {
         task.starting.retain(|s| s.name != name);
-        if let Ok((worker, _)) = &result {
-            task.workers.push(worker.clone());
+        task.failed.retain(|f| f.name != name);
+        match &result {
+            Ok((worker, _)) => task.workers.push(worker.clone()),
+            // The person sees it with the task, not only the coordinator.
+            Err(err) => task.failed.push(FailedWorker {
+                name: name.clone(),
+                reason: err.message.clone(),
+            }),
         }
     }
     state.save(&guard);
-    let (worker, workspace) = result?;
     drop(guard);
+    if result.is_err() {
+        core.emit(OrchestrationEvent::Changed {
+            project: entry.project.clone(),
+            task: entry.id.clone(),
+        });
+    }
+    let (worker, workspace) = result?;
     review::set_workspace(core, &worker.session, workspace);
     core.emit(OrchestrationEvent::Changed {
         project: entry.project.clone(),

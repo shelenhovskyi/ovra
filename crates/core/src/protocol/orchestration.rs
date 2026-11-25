@@ -42,12 +42,24 @@ pub struct Worker {
     pub kept: Option<String>,
 }
 
+/// A worker the coordinator asked for that could not start.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FailedWorker {
+    /// The label the coordinator gave it.
+    pub name: String,
+    /// Why it did not start, in words for people.
+    pub reason: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Task {
     pub id: TaskId,
     pub project: ProjectId,
     pub coordinator: SessionId,
     pub workers: Vec<Worker>,
+    /// Workers that never started, so they have no session to show.
+    #[serde(default)]
+    pub failed: Vec<FailedWorker>,
     pub limits: TaskLimits,
     /// Spent so far by all of its sessions.
     pub spent_micro_usd: u64,

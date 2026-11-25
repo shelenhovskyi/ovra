@@ -11,7 +11,9 @@ use crate::protocol::agents::{
     SessionMode, TurnUsage,
 };
 use crate::protocol::audit::{AuditEvent, DecidedBy, ReviewAction};
-use crate::protocol::orchestration::{OrchestrationEvent, OrchestrationResponse, ShowTarget, Task};
+use crate::protocol::orchestration::{
+    FailedWorker, OrchestrationEvent, OrchestrationResponse, ShowTarget, Task,
+};
 use crate::protocol::permissions::PermissionsEvent;
 use crate::protocol::projects::ProjectId;
 use crate::protocol::review::{ChangeKind, ReviewItem, ReviewResponse, ReviewState};
@@ -1294,6 +1296,57 @@ async fn work_is_approved_only_once_its_agent_stopped_changing_it() {
     assert!(f.core.stop_agent(&boss, &worker.session).is_ok());
     until(&mut rx, "s2", AgentStatus::Stopped).await;
     ok(&f.core, approve).await;
+}
+
+#[tokio::test]
+async fn a_worker_that_could_not_start_is_listed_with_its_task_and_why() {
+    let f = fx(say()).await;
+    start_task(&f.core, 2).await;
+    let boss = caller("s1", ToolRole::Coordinator);
+    // Its worktree's folder is taken: it cannot start.
+    let dir = std::path::Path::new(WORKTREES)
+        .join("p1")
+        .join("t1")
+        .join("docs");
+    f.wt.put(dir.clone(), "x", "y");
+    let mut rx = f.core.subscribe();
+    let err = f.core.spawn_agent(&boss, "docs", "x").await.err();
+    let reason = format!("{} already exists", dir.display());
+    assert_eq!(err.map(|e| e.message), Some(reason.clone()));
+    let changed = rx.try_recv().ok();
+    assert!(
+        matches!(
+            changed,
+            Some(Event::Orchestration(OrchestrationEvent::Changed { .. }))
+        ),
+        "{changed:?}"
+    );
+    let list = json!({"method": "orchestration.list", "params": {"project": "p1"}});
+    let Response::Orchestration(OrchestrationResponse::List(tasks)) =
+        ok(&f.core, list.clone()).await
+    else {
+        panic!("not a list");
+    };
+    assert_eq!(
+        tasks[0].failed,
+        [FailedWorker {
+            name: "docs".into(),
+            reason
+        }]
+    );
+    assert!(tasks[0].workers.is_empty());
+
+    // Once it starts after all, it is no longer listed as failed.
+    let removed =
+        crate::services::Worktrees::remove(&*f.wt, PathBuf::from(ROOT), dir.clone()).await;
+    assert!(removed.is_ok());
+    assert!(f.core.spawn_agent(&boss, "docs", "x").await.is_ok());
+    let Response::Orchestration(OrchestrationResponse::List(tasks)) = ok(&f.core, list).await
+    else {
+        panic!("not a list");
+    };
+    assert!(tasks[0].failed.is_empty());
+    assert_eq!(tasks[0].workers.len(), 1);
 }
 
 #[tokio::test]
