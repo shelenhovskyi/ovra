@@ -123,8 +123,18 @@ $effect(() => {
   if (box && !untrack(() => detached)) box.scrollTop = box.scrollHeight;
 });
 
-/** The last entry, when it is an error that ended the turn: it gets Retry. */
-const lastError = $derived(shown.at(-1)?.kind === "message" && shown.at(-1));
+/**
+ * The error that ended the last turn: it gets Retry. Only the turn's end
+ * line (with its usage, from the real driver) may follow it.
+ */
+const lastError = $derived.by(() => {
+  for (let i = shown.length - 1; i >= 0; i--) {
+    const entry = shown[i];
+    if (entry?.kind === "message" && entry.message.kind === "turn_end") continue;
+    return entry?.kind === "message" && entry.message.kind === "error" ? entry : undefined;
+  }
+  return undefined;
+});
 </script>
 
 {#snippet card(step: Step)}

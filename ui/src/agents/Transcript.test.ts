@@ -44,3 +44,38 @@ it("stops following once scrolled up, offers Jump to latest, and Retry on a turn
   [...document.querySelectorAll("button")].find((b) => b.textContent === "Retry")?.click();
   expect(onretry).toHaveBeenCalledOnce();
 });
+
+const retries = () => [...document.querySelectorAll("button")].filter((b) => b.textContent === "Retry");
+
+it("keeps Retry on a turn's error when only the turn's end line follows it", () => {
+  const usage = { input_tokens: 40_000, output_tokens: 3_600, cost_micro_usd: null };
+  app = mount(Transcript, {
+    target: document.body,
+    props: {
+      messages: [
+        { kind: "user_text", text: "Fix it", from: "person" },
+        { kind: "error", message: "The turn stopped: it reached its turn limit." },
+        { kind: "turn_end", usage },
+      ],
+      onretry: () => {},
+    },
+  });
+  flushSync();
+  expect(document.querySelector(".divider")?.textContent).toContain("Turn ended");
+  expect(retries()).toHaveLength(1);
+});
+
+it("offers no Retry on an error that later messages answered", () => {
+  app = mount(Transcript, {
+    target: document.body,
+    props: {
+      messages: [
+        { kind: "error", message: "Overloaded" },
+        { kind: "user_text", text: "Go on", from: "person" },
+      ],
+      onretry: () => {},
+    },
+  });
+  flushSync();
+  expect(retries()).toHaveLength(0);
+});
