@@ -199,7 +199,19 @@ export class FakeAgentCore implements Transport {
         return { type: "ok" };
       case "git.status":
         if (this.noRepo) return { type: "git.no_repo" };
-        throw new CoreError({ code: "unavailable", message: "git.status is not faked" });
+        return {
+          type: "git.status",
+          data: {
+            branch: "main",
+            head: null,
+            upstream: null,
+            ahead: 0,
+            behind: 0,
+            operation: null,
+            files: [],
+            truncated: 0,
+          },
+        };
       case "review.list":
         return { type: "review.list", data: this.reviews.filter((r) => r.project === request.params.project) };
       case "permissions.pending":

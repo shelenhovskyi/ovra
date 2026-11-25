@@ -148,12 +148,23 @@ describe("AgentsPanel", () => {
     choose("Plan and split");
     await settle();
     expect(target.querySelector("[data-testid=agent-needs-git]")?.textContent?.replace(/\s+/g, " ").trim()).toBe(
-      "Needs git: Plan and split works on copies of a git repository. Use One agent, here",
+      "Needs git: Plan and split works on copies of a git repository. Set up git",
     );
     expect(startButton()?.disabled).toBe(true);
-    button("Use One agent, here")?.click();
-    flushSync();
+    // The Git area's command runs `git init`; the composer asks again.
+    const off = registerCommand({
+      id: "git.init",
+      title: "Git: set up git",
+      run: () => {
+        core.noRepo = false;
+      },
+    });
+    button("Set up git")?.click();
+    await settle();
+    off();
+    expect(target.querySelector("[data-testid=agent-needs-git]")).toBeNull();
     expect(startButton()?.disabled).toBe(false);
+    expect(modeLabel()).toBe("Plan and split");
   });
 
   it("starts on Enter, not on Shift+Enter or an Enter that ends an IME composition", async () => {

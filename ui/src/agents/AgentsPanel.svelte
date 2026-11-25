@@ -142,19 +142,30 @@ const billing = $derived.by(() => {
 /** An API key bills the next task: the footer says it in the warning colour. */
 const billingKey = $derived(accounts.state(account ?? accounts.preferred)?.setup.billing?.kind === "api_key");
 
-// Whether the project is a git repository, asked once Plan and split is chosen.
+/** Whether the project is a git repository. */
+function checkGit(id: string): void {
+  transport
+    .call({ method: "git.status", params: { project: id } })
+    .then((reply) => {
+      noRepo = reply.type === "git.no_repo" ? id : noRepo === id ? null : noRepo;
+    })
+    .catch(() => {});
+}
+
+// Asked once Plan and split is chosen.
 $effect(() => {
   const id = project?.id;
   if (!id || mode !== "split") return;
-  untrack(() => {
-    transport
-      .call({ method: "git.status", params: { project: id } })
-      .then((reply) => {
-        noRepo = reply.type === "git.no_repo" ? id : noRepo === id ? null : noRepo;
-      })
-      .catch(() => {});
-  });
+  untrack(() => checkGit(id));
 });
+
+/** The Git area's "Set up git" (`git init`), then the question again. */
+async function setUpGit(id: string): Promise<void> {
+  await listCommands()
+    .find((c) => c.id === "git.init")
+    ?.run();
+  checkGit(id);
+}
 
 /** Where the menu opens: fixed, above its button, so the start box's own scrolling never clips it. */
 let menuAt = $state({ left: 0, bottom: 0 });
@@ -1042,7 +1053,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
       {:else if noGit}
         <p class="blocked" role="note" data-testid="agent-needs-git">
           <span>Needs git: Plan and split works on copies of a git repository.</span>
-          <button type="button" class="quiet" onclick={() => pickMode("here")}>Use One agent, here</button>
+          <button type="button" class="quiet" onclick={() => project && setUpGit(project.id)}>Set up git</button>
         </p>
       {:else if atCap}
         <p class="blocked calm" role="note" data-testid="agent-at-cap">
