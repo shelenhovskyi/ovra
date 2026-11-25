@@ -46,6 +46,8 @@ export class FakeServersCore implements Transport {
         };
         return { type: "servers.list", data } as ResponseFor<R>;
       }
+      case "servers.overview":
+        return { type: "servers.overview", data: { servers: this.servers } } as ResponseFor<R>;
       case "servers.start": {
         const { project, name, work_dir } = request.params;
         const def = this.definitions.find((d) => d.name === name);

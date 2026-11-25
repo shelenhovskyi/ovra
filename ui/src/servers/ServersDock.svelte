@@ -1,7 +1,7 @@
 <script lang="ts">
 // The Servers tab of the bottom dock, next to the terminals: the dev servers
-// that run (or ran) for the open project's main checkout or a worker's
-// worktree, with their output. "Show servers" (Alt+Mod+S) shows it, goes
+// that run (or ran) for the open project, in every work dir (the main
+// checkout and the workers' worktrees) or in one, with their output. "Show servers" (Alt+Mod+S) shows it, goes
 // into it, and hides it from inside; Escape inside hides it too. Settings >
 // Servers defines and starts them.
 import { tick, untrack } from "svelte";
@@ -52,11 +52,11 @@ $effect(() =>
   }),
 );
 
-// Follow the project and the work dir the tab shows, also while it is hidden: the status bar counts what runs.
+// Follow the project and the work dirs the tab shows, also while it is hidden: the status bar counts what runs.
 $effect(() => {
-  const shown = { project, workDir: serversDock.workDir };
+  const shown = { project, workDir: serversDock.workDir, everywhere: serversDock.everywhere };
   untrack(() => {
-    void servers.show(shown.project, shown.workDir);
+    void servers.show(shown.project, shown.workDir, shown.everywhere);
     if (shown.project) sessions.load(shown.project).catch(() => {});
   });
 });
@@ -65,6 +65,7 @@ $effect(() => {
 $effect(() => {
   void project;
   untrack(() => {
+    serversDock.everywhere = true;
     serversDock.workDir = null;
     logsOf = new Set();
   });
@@ -156,6 +157,16 @@ function who(by: StartedBy): string {
   return by.kind === "person" ? "you" : sessions.name(by.session);
 }
 
+/** The work dir choice as the select's value: `all`, `main` or `w:<session>`. */
+const choice = $derived(
+  serversDock.everywhere ? "all" : serversDock.workDir === null ? "main" : `w:${serversDock.workDir}`,
+);
+
+function choose(value: string): void {
+  serversDock.everywhere = value === "all";
+  serversDock.workDir = value.startsWith("w:") ? value.slice(2) : null;
+}
+
 function where(server: ServerInfo): string {
   return server.work_dir === null ? "project folder" : sessions.name(server.work_dir);
 }
@@ -178,14 +189,15 @@ function onkeydown(event: KeyboardEvent): void {
 >
   <div class="bar">
     <h2 id="servers-dock-title" tabindex="-1">Servers</h2>
-    {#if project && (workers.length > 0 || serversDock.workDir !== null)}
+    {#if project && (workers.length > 0 || choice !== "all")}
       <!-- Only a choice once a worker has its own copy of the project. -->
       <label>
         Runs in
-        <select bind:value={serversDock.workDir} data-testid="servers-work-dir">
-          <option value={null}>Project folder</option>
+        <select value={choice} onchange={(e) => choose(e.currentTarget.value)} data-testid="servers-work-dir">
+          <option value="all">All folders</option>
+          <option value="main">Project folder</option>
           {#each workers as worker (worker.id)}
-            <option value={worker.id}>{worker.name}</option>
+            <option value={`w:${worker.id}`}>{worker.name}</option>
           {/each}
         </select>
       </label>

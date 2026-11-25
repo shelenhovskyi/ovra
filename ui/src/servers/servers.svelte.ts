@@ -1,6 +1,7 @@
 // The open project's servers for one work dir (the main checkout or a
 // worker's worktree): definitions from `.ovra/servers.json` and the servers
-// that ran, kept current from `servers.status`.
+// that ran, kept current from `servers.status`. Or, `everywhere`, the
+// servers that ran in every work dir of the project, without definitions.
 
 import type {
   CoreEvent,
@@ -16,6 +17,7 @@ import { CoreError, type Transport } from "../lib/transport";
 export class ProjectServers {
   project = $state<ProjectId | null>(null);
   workDir = $state<SessionId | null>(null);
+  everywhere = $state(false);
   list = $state<ServerList | null>(null);
   /** Why servers cannot run here at all (no Linux sandbox). */
   unavailable = $state<string | null>(null);
@@ -34,10 +36,11 @@ export class ProjectServers {
     this.off();
   }
 
-  async show(project: ProjectId | null, workDir: SessionId | null): Promise<void> {
-    if (project !== this.project || workDir !== this.workDir) this.list = null;
+  async show(project: ProjectId | null, workDir: SessionId | null, everywhere = false): Promise<void> {
+    if (project !== this.project || workDir !== this.workDir || everywhere !== this.everywhere) this.list = null;
     this.project = project;
     this.workDir = workDir;
+    this.everywhere = everywhere;
     await this.reload();
   }
 
@@ -46,10 +49,13 @@ export class ProjectServers {
     const mine = ++this.latest;
     if (!project) return;
     try {
-      const { data } = await this.transport.call({
-        method: "servers.list",
-        params: { project, work_dir: this.workDir },
-      });
+      const data = this.everywhere
+        ? {
+            definitions: [],
+            servers: (await this.transport.call({ method: "servers.overview", params: { project } })).data.servers,
+            error: null,
+          }
+        : (await this.transport.call({ method: "servers.list", params: { project, work_dir: this.workDir } })).data;
       if (mine !== this.latest) return;
       this.list = data;
       this.unavailable = null;
