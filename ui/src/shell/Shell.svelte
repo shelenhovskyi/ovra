@@ -21,6 +21,7 @@ import Keybindings from "../keys/Keybindings.svelte";
 import type { CoreInfo } from "../lib/protocol";
 import type { ConnectionStatus, Transport } from "../lib/transport";
 import LanguageServers from "../lsp/LanguageServers.svelte";
+import ContextMenu from "../menu/ContextMenu.svelte";
 import Notifications from "../notify/Notifications.svelte";
 import Palette from "../palette/Palette.svelte";
 import Search from "../search/Search.svelte";
@@ -302,6 +303,7 @@ function fold(panel: Panel, name: string): void {
     <span class="footer-end"><LanguageServers /></span>
   </footer>
   <Notifications />
+  <ContextMenu />
   {#if connection === "refused"}
     <section class="refused" role="alert" aria-labelledby="refused-title">
       <h2 id="refused-title">Ovra was restarted</h2>
