@@ -59,6 +59,8 @@ const seen = new SvelteSet<PermissionId>();
 const headSeen = new SvelteSet<PermissionId>();
 /** A note on one card: why a press did not answer. */
 let said = $state<{ id: PermissionId; text: string } | null>(null);
+/** The card that itself has focus: only there do Y and N answer, so only there are they shown. */
+let keysOn = $state<PermissionId | null>(null);
 const projects = new SvelteMap<ProjectId, Project>();
 /** Projects already asked for, so a project the core does not know is asked once. */
 const requested = new Set<ProjectId>();
@@ -685,6 +687,10 @@ function verbAndObject(tool: string, action: string): { verb: string; object: st
             if (!(to instanceof Node && event.currentTarget.contains(to)) && queue.focused === request.id)
               queue.focused = null;
           }}
+          onfocus={() => (keysOn = request.id)}
+          onblur={() => {
+            if (keysOn === request.id) keysOn = null;
+          }}
         >
           <p class="worker" id="{domId}-session">
             {#if role?.kind === "worker"}{role.name}{/if}{#if stack.length > 1}<span data-testid="approval-stack"
@@ -756,7 +762,7 @@ function verbAndObject(tool: string, action: string): { verb: string; object: st
               class="deny"
               aria-disabled={!ready}
               aria-keyshortcuts="N"
-              onclick={(event) => answerByClick(event, request, "deny")}>Deny <kbd aria-hidden="true">N</kbd></button
+              onclick={(event) => answerByClick(event, request, "deny")}>Deny <kbd aria-hidden="true" class:off={keysOn !== request.id}>N</kbd></button
             >
             <button
               type="button"
@@ -764,7 +770,7 @@ function verbAndObject(tool: string, action: string): { verb: string; object: st
               aria-disabled={!allowable(request.id)}
               aria-keyshortcuts="Y"
               onclick={(event) => answerByClick(event, request, "allow")}
-              >Allow once <kbd aria-hidden="true">Y</kbd>{#if !ready}{#key armedAt(request.id)}<span
+              >Allow once <kbd aria-hidden="true" class:off={keysOn !== request.id}>Y</kbd>{#if !ready}{#key armedAt(request.id)}<span
                     class="fill"
                     aria-hidden="true"
                     data-testid="approval-arming"
@@ -1290,6 +1296,12 @@ function verbAndObject(tool: string, action: string): { verb: string; object: st
   button[aria-disabled="true"] {
     opacity: 0.55;
     cursor: default;
+  }
+  /* The keys answer only on the card itself; elsewhere they would type
+     into a field. Out of sight, not out of the layout: the buttons never
+     move under the pointer when the caps come and go. */
+  kbd.off {
+    visibility: hidden;
   }
   kbd {
     padding: 1px 5px;

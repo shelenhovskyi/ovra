@@ -302,6 +302,30 @@ describe("Approvals", () => {
     expect(document.activeElement).toBe(field);
   });
 
+  it("shows the Y and N caps only while the keys answer", async () => {
+    const core = await setup();
+    const field = document.createElement("textarea");
+    target.append(field);
+    field.focus();
+    core.ask(bash("perm1"));
+    await settle(ARM_MS);
+    const caps = () => [...(cards()[0]?.querySelectorAll("kbd") ?? [])].map((k) => !k.classList.contains("off"));
+    // Focus in a text field: Y and N would type there, so no cap promises them.
+    expect(caps()).toEqual([false, false]);
+    cards()[0]?.focus();
+    flushSync();
+    expect(caps()).toEqual([true, true]);
+    // On a button inside the card the keys do nothing either.
+    cards()[0]?.querySelector<HTMLButtonElement>("button.deny")?.focus();
+    flushSync();
+    expect(caps()).toEqual([false, false]);
+    // The buttons answer a click wherever focus is.
+    field.focus();
+    cards()[0]?.querySelector<HTMLButtonElement>("button.deny")?.click();
+    await settle();
+    expect(answers(core)).toEqual([{ id: "perm1", decision: "deny" }]);
+  });
+
   it("marks requests from a project other than the open one", async () => {
     const core = await setup();
     core.projects.push({ id: "p2", name: "other", root: "/other", last_opened_ms: null, trusted: false });

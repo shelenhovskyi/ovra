@@ -73,8 +73,12 @@ test("start an agent and answer its requests from the keyboard", async ({ page }
   await expect(agents.getByRole("button", { name: "Send" })).toBeInViewport({ ratio: 1 });
   expect((await page.getByTestId("agents-capacity").boundingBox())?.height).toBeLessThan(24);
 
+  // Y and N would type into the reply box: no key cap says otherwise until the card has focus.
+  await expect(run.locator("kbd")).toHaveCount(2);
+  for (const cap of await run.locator("kbd").all()) await expect(cap).toBeHidden();
   await page.keyboard.press("Alt+Shift+A");
   await expect(run).toBeFocused();
+  for (const cap of await run.locator("kbd").all()) await expect(cap).toBeVisible();
   await arm(page);
   await expect(run.getByRole("button", { name: "Allow" })).toHaveAttribute("aria-disabled", "false");
   await page.keyboard.press("y");
