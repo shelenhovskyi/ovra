@@ -443,6 +443,7 @@ function scrollToActive(): void {
   {@const closing = tabs.closing}
   <dialog
     class="confirm"
+    aria-modal="true"
     aria-labelledby="ovra-close-question"
     bind:this={dialog}
     oncancel={(event) => {
