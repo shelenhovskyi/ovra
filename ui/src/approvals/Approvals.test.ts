@@ -490,4 +490,43 @@ describe("Approvals", () => {
     expect(cards()).toEqual([]);
     expect(target.textContent).toContain("Nothing waits for your approval.");
   });
+
+  it("takes no space while nothing waits, and shows itself when something does", async () => {
+    const core = await setup();
+    const section = () => target.querySelector<HTMLElement>("[data-testid=approvals]");
+    const toggle = () => target.querySelector("button.toggle");
+    // Out of sight, not out of the page: the shortcut and screen readers still reach it.
+    expect(section()?.classList.contains("idle")).toBe(true);
+    expect(toggle()).toBeNull();
+    expect(section()?.textContent).toContain("Nothing waits for your approval.");
+    press("KeyA", { altKey: true, shiftKey: true });
+    await settle();
+    expect(document.activeElement?.id).toBe("approvals-heading");
+
+    core.ask(bash("perm1"));
+    await settle();
+    expect(section()?.classList.contains("idle")).toBe(false);
+    expect(toggle()?.textContent).toBe("Hide");
+    expect(target.querySelector("#approvals-heading")?.textContent).toContain("(1 waiting)");
+
+    core.emit({ type: "permissions.resolved", data: { id: "perm1", decision: "deny" } });
+    await settle();
+    expect(section()?.classList.contains("idle")).toBe(true);
+  });
+
+  it("stays in sight when it has something to report", async () => {
+    const core = await setup();
+    core.ask(bash("perm1"));
+    await settle();
+    core.emit({ type: "permissions.resolved", data: { id: "perm1", decision: "deny" } });
+    await settle();
+    const { approvalQueue } = await import("./queue.svelte");
+    approvalQueue(core).reveal("perm1");
+    await settle();
+    const section = target.querySelector<HTMLElement>("[data-testid=approvals]");
+    expect(target.querySelector("[data-testid=approvals-notice]")?.textContent).toBe(
+      "That request was already answered.",
+    );
+    expect(section?.classList.contains("idle")).toBe(false);
+  });
 });

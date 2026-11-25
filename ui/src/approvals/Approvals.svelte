@@ -46,6 +46,9 @@ const projects = new SvelteMap<ProjectId, Project>();
 /** Projects already asked for, so a project the core does not know is asked once. */
 const requested = new Set<ProjectId>();
 
+/** Nothing waits and nothing to report: the section takes no space. */
+const idle = $derived(queue.pending.length === 0 && !queue.error && !notice);
+
 const armedAt = (id: string): number => Math.max(queue.arrived.get(id) ?? 0, quietFrom) + ARM_MS;
 /** The one test for both the look of the buttons and whether a press counts. */
 const armed = (id: string): boolean => !keyHeld && now >= armedAt(id) && !queue.answering.has(id);
@@ -293,7 +296,16 @@ function workerCopy(session: SessionId): string {
 }
 </script>
 
-<section class="approvals" aria-labelledby="approvals-heading" data-testid="approvals">
+<!-- Nothing to say: the section takes no space and is out of sight (screen
+     readers still find it). Focus in it (the shortcut, the last answer) shows
+     it over the agents, so nothing below moves when focus leaves again. -->
+<section
+  class="approvals"
+  class:idle
+  aria-labelledby="approvals-heading"
+  data-testid="approvals"
+>
+  <div class="body">
   <div class="head">
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <h2
@@ -310,13 +322,15 @@ function workerCopy(session: SessionId): string {
   >
     Approvals{#if queue.pending.length > 0}{" "}<span class="count">({queue.pending.length} waiting)</span>{/if}
   </h2>
-  <button
-    type="button"
-    class="toggle"
-    aria-expanded={!collapsed}
-    aria-controls="approvals-list"
-    onclick={() => (collapsed = !collapsed)}>{collapsed ? "Show" : "Hide"}</button
-  >
+  {#if queue.pending.length > 0}
+    <button
+      type="button"
+      class="toggle"
+      aria-expanded={!collapsed}
+      aria-controls="approvals-list"
+      onclick={() => (collapsed = !collapsed)}>{collapsed ? "Show" : "Hide"}</button
+    >
+  {/if}
   </div>
   <p class="notice" aria-live="polite" data-testid="approvals-notice">{notice}</p>
   {#if queue.error}
@@ -443,6 +457,7 @@ function workerCopy(session: SessionId): string {
     {/each}
     {/if}
   </ul>
+  </div>
 </section>
 
 <style>
@@ -455,6 +470,37 @@ function workerCopy(session: SessionId): string {
     flex-direction: column;
     padding: 8px 12px;
     border-bottom: 1px solid #2a2a31;
+  }
+  .body {
+    flex: 0 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .approvals.idle {
+    position: relative;
+    padding: 0;
+    border: 0;
+  }
+  .idle .body {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 1;
+    padding: 8px 12px;
+    background: #16161a;
+    border-bottom: 1px solid #2a2a31;
+    box-shadow: 0 4px 8px rgb(0 0 0 / 40%);
+  }
+  /* Visually hidden, like .visually-hidden elsewhere. */
+  .idle:not(:focus-within) .body {
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
   .head {
     display: flex;

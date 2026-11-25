@@ -205,10 +205,15 @@ const canReply = $derived(current !== null && current.status.state === "idle");
 
 <section class="agents" aria-labelledby="agents-heading" data-testid="agents-panel">
   <h2 id="agents-heading">Agents</h2>
-  <ClaudeSetup />
+  <!-- Until the first task the column reads as the first run: this line, Claude's
+       setup, the project's settings, then the task field. -->
   {#if !project}
-    <p class="empty">Open a project to start an agent.</p>
-  {:else}
+    <p class="intro">Open a project to start an agent.</p>
+  {:else if list.length === 0}
+    <p class="intro" data-testid="agents-empty">Give Claude a task. It asks before risky steps.</p>
+  {/if}
+  <ClaudeSetup />
+  {#if project}
     <ProjectTrust />
     <form
       class="new"
@@ -217,7 +222,7 @@ const canReply = $derived(current !== null && current.status.state === "idle");
         void start();
       }}
     >
-      <label for="agent-prompt">What should Claude do?</label>
+      <label for="agent-prompt" class="ask">What should Claude do?</label>
       <textarea
         id="agent-prompt"
         rows="3"
@@ -254,11 +259,7 @@ const canReply = $derived(current !== null && current.status.state === "idle");
     {#if error}
       <p class="error" role="alert">{error}</p>
     {/if}
-    {#if list.length === 0}
-      <p class="empty" data-testid="agents-empty">
-        Describe a task and press Start. Claude asks before risky steps; its answers appear here.
-      </p>
-    {:else}
+    {#if list.length > 0}
       <h3 id="sessions-heading">Tasks</h3>
       <ul class="sessions" aria-labelledby="sessions-heading">
         {#each list as session (session.id)}
@@ -398,7 +399,7 @@ const canReply = $derived(current !== null && current.status.state === "idle");
   form,
   .detail > .row,
   .status,
-  .empty,
+  .intro,
   .error {
     margin: 0 12px 8px;
   }
@@ -418,11 +419,20 @@ const canReply = $derived(current !== null && current.status.state === "idle");
     gap: 8px;
   }
   .hint,
-  .empty,
+  .intro,
   .status,
   label {
     color: #b4b4c0;
     font-size: 12px;
+  }
+  /* The column's main action: the setup cards above stay quieter. */
+  .new {
+    margin-top: 4px;
+  }
+  label.ask {
+    color: #e6e6e6;
+    font-size: 13px;
+    font-weight: 600;
   }
   textarea {
     font: inherit;

@@ -86,8 +86,10 @@ describe("AgentsPanel", () => {
     ]);
     expect(hint()).toContain("up to 3 agents, each on its own copy of the project");
     expect(panel()?.querySelector("[data-testid=agents-empty]")?.textContent?.trim()).toBe(
-      "Describe a task and press Start. Claude asks before risky steps; its answers appear here.",
+      "Give Claude a task. It asks before risky steps.",
     );
+    // Said once, right under the heading, before the setup cards and the form.
+    expect(panel()?.querySelector("h2")?.nextElementSibling?.getAttribute("data-testid")).toBe("agents-empty");
   });
 
   it("plans and splits a task when asked, from Mod+Enter too, and keeps the choice", async () => {
