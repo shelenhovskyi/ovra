@@ -231,10 +231,11 @@ export class FileActions {
     this.host.select(this.host.selected());
   }
 
-  cancelTrash(): void {
+  /** Drops the question; `refocus` puts focus back on its row, unless focus went elsewhere. */
+  cancelTrash(refocus = true): void {
     const paths = this.confirming;
     this.confirming = null;
-    this.host.select(paths?.[0] ?? null);
+    if (paths && refocus) this.host.select(paths[0] ?? null);
   }
 
   /** Moves `paths` into the folder `dir` (`""` is the project folder); one already there stays. */

@@ -26,6 +26,8 @@ registerContextKeys(
 // tree and `aria-activedescendant` names the active row, which is always
 // rendered. Folders load lazily; fs events mark listings stale and only the
 // ones on screen reload.
+import { untrack } from "svelte";
+import { tabs, unsavedText } from "../editor/open-files.svelte";
 import { listCommands, registerCommand } from "../keys/commands";
 import type { GitStatus, ProjectId } from "../lib/protocol";
 import type { Transport } from "../lib/transport";
@@ -123,6 +125,10 @@ const actions = new FileActions({
   open: (path) => onopen(path, "edit"),
   moved: (from, to) => onmoved?.(from, to),
   trashed: (paths) => ontrashed?.(paths),
+  unsaved: (paths) =>
+    [...new Set(tabs.groups.flatMap((g) => g.files))].filter(
+      (f) => paths.some((p) => f === p || f.startsWith(`${p}/`)) && unsavedText(project, f) !== null,
+    ),
 });
 
 /** Takes new rows, keeping the selection and the rows under the user's eyes in place. */
@@ -223,6 +229,27 @@ $effect(() => {
     window.removeEventListener("pagehide", flush);
     flush();
   };
+});
+
+/** The row the trash question is about: the active one if it is asked about, else the first. */
+let trashIndex = $derived.by(() => {
+  const paths = actions.confirming;
+  if (!paths) return -1;
+  return current !== null && paths.includes(current) ? activeIndex : rows.findIndex((r) => r.path === paths[0]);
+});
+let trashCard = $state(0);
+/** The question sits below its row, or above it when there is no room below. */
+let trashTop = $derived.by(() => {
+  const base = viewport?.offsetTop ?? 0;
+  if (trashIndex < 0) return base;
+  const rowTop = trashIndex * ROW_HEIGHT - scrollTop;
+  const below = rowTop + ROW_HEIGHT;
+  return base + (below + trashCard > height && rowTop >= trashCard ? rowTop - trashCard : below);
+});
+
+// Keep the row being asked about in view.
+$effect(() => {
+  if (trashIndex >= 0) untrack(() => scrollTo(trashIndex));
 });
 
 let range = $derived(visibleRange(scrollTop, height, ROW_HEIGHT, rows.length, OVERSCAN));
@@ -447,6 +474,11 @@ function select(index: number, center = false): void {
   picked = [];
   anchor = row.path;
   lost = null;
+  scrollTo(index, center);
+}
+
+/** Scrolls the row at `index` into view, or to the middle. */
+function scrollTo(index: number, center = false): void {
   if (!viewport) return;
   const top = index * ROW_HEIGHT;
   const view = viewport.clientHeight;
@@ -618,8 +650,11 @@ function onkeydown(e: KeyboardEvent): void {
   {#if actions.confirming !== null}
     <TrashConfirm
       question={actions.question}
+      warning={actions.warning}
+      top={trashTop}
+      oncard={(h) => (trashCard = h)}
       onconfirm={() => void actions.confirmTrash()}
-      oncancel={() => actions.cancelTrash()}
+      oncancel={(refocus) => actions.cancelTrash(refocus)}
     />
   {/if}
   {#if actions.notice}<p class="note error" role="alert">{actions.notice}</p>{/if}
@@ -730,6 +765,7 @@ function onkeydown(e: KeyboardEvent): void {
 
 <style>
   .panel {
+    position: relative;
     display: flex;
     flex-direction: column;
     height: 100%;

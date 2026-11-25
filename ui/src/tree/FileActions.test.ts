@@ -176,6 +176,19 @@ describe("file actions in the tree", () => {
     t.press(document.activeElement, "Escape");
     expect(dialog()).toBeNull();
 
+    // Tab stays on its two buttons; focus going elsewhere drops the question.
+    t.press(t.tree, "Delete");
+    t.press(document.activeElement, "Tab");
+    expect(document.activeElement?.textContent).toBe("Cancel");
+    t.press(document.activeElement, "Tab");
+    expect(document.activeElement?.textContent).toBe("Move to Trash");
+    const elsewhere = document.body.appendChild(document.createElement("button"));
+    elsewhere.focus();
+    flushSync();
+    expect(dialog()).toBeNull();
+    expect(document.activeElement).toBe(elsewhere);
+
+    t.tree.focus();
     t.press(t.tree, "Delete");
     (document.activeElement as HTMLButtonElement).click();
     await settle();
