@@ -73,6 +73,21 @@ then sends each JSON-RPC message as a `control_request` with
 caller is known from the pipe. Fallback if this changes: an HTTP MCP server
 on 127.0.0.1 with a per-session bearer token.
 
+## Who wrote a message
+
+The core records the author of every part of a message it sends an agent
+(`MessageFrom`: person, coordinator, Ovra), and the transcript shows each
+part with its author. The agent itself only reads text, so the text it gets
+marks the authors with tags only the core writes
+(`crates/core/src/provenance.rs`): a coordinator's words inside
+`<coordinator-message>`, Ovra's notes inside `<ovra-note>`, the person's
+words outside both. These tags inside any part are defused (`<` written as
+`&lt;`), so no part can close its own mark and speak as the person or as
+Ovra. `read_output` defuses them in a worker's transcript too, so a worker
+cannot pass its own text to the coordinator as a note from Ovra. The role
+prompts say which tags mean what and that a coordinator's words are never
+the person's approval.
+
 ## Review
 
 Every session with changes gets one review item. States: `open`,

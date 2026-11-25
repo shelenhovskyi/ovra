@@ -1201,6 +1201,22 @@ async fn messages_to_agents_say_who_wrote_them() {
             (MessageFrom::Coordinator, "and the tests".to_owned()),
         ]
     );
+    // The worker reads who wrote it from marks only the core writes.
+    let prompts: Vec<String> = f
+        .agent
+        .started
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .iter()
+        .map(|spec| spec.prompt.clone())
+        .collect();
+    assert_eq!(
+        prompts,
+        [
+            "split the work",
+            "<coordinator-message>\nwrite the notes\n</coordinator-message>"
+        ]
+    );
     let boss_got = sent(transcript(&f.core, "s1").await);
     assert_eq!(
         boss_got[0],

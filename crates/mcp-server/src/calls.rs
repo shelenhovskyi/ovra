@@ -6,6 +6,7 @@ use ovra_core::protocol::ProtocolError;
 use ovra_core::protocol::agents::SessionId;
 use ovra_core::protocol::orchestration::{ShowTarget, Worker};
 use ovra_core::protocol::review::ReviewId;
+use ovra_core::provenance::defused;
 use ovra_core::services::ToolCaller;
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
@@ -117,9 +118,11 @@ pub(crate) async fn call(
                     args.max_messages,
                 )
                 .map_err(failed)?;
-            Ok(text(
+            // A worker's words must not pass for a note from Ovra or the
+            // coordinator once they reach another agent.
+            Ok(defused(&text(
                 &json!({"messages": output.messages, "next": output.next}),
-            ))
+            )))
         }
         "send_message" => {
             let Send { agent_id, text } = parse(arguments)?;
