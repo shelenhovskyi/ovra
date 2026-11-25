@@ -16,6 +16,8 @@ let error = $state<string | null>(null);
 // A path the core refused (no file there, say), shown under the field.
 let pathError = $state<string | null>(null);
 let busy = $state(false);
+/** The first check has not answered yet: a quiet line holds the card's place. */
+let first = $state(true);
 let editing = $state(false);
 let path = $state("");
 
@@ -51,6 +53,7 @@ async function run(
     onError(text(err));
   } finally {
     busy = false;
+    first = false;
   }
 }
 
@@ -81,9 +84,16 @@ function openDocs(): void {
   class="setup"
   class:problem={setup && !ready}
   aria-labelledby="claude-setup-heading"
+  aria-busy={first}
   data-testid="claude-setup"
 >
-  {#if compact}
+  {#if first}
+    <!-- The check usually answers within a moment: one quiet line, as tall
+         as the ready card's, instead of a status and links that flash. -->
+    <div class="row">
+      <h3 id="claude-setup-heading" class="pending">Claude</h3>
+    </div>
+  {:else if compact}
     <div class="row">
       <div class="line">
         <h3 id="claude-setup-heading">{tip?.title}</h3>
@@ -93,7 +103,7 @@ function openDocs(): void {
     </div>
   {:else}
     <div class="row">
-      <h3 id="claude-setup-heading">{tip?.title ?? "Checking Claude…"}</h3>
+      <h3 id="claude-setup-heading">{tip?.title ?? "Could not check Claude"}</h3>
       <button type="button" disabled={busy} onclick={check}>Check again</button>
     </div>
   {/if}
@@ -163,7 +173,7 @@ function openDocs(): void {
   {:else if setup && !ready}
     <button type="button" class="link" onclick={() => (editing = true)}>Choose a path</button>
   {/if}
-  <Accounts quiet={compact} />
+  {#if !first}<Accounts quiet={compact} />{/if}
 </section>
 
 <style>
@@ -186,6 +196,10 @@ function openDocs(): void {
   }
   .line h3 {
     display: inline;
+  }
+  h3.pending {
+    font-weight: normal;
+    color: #9a9aa6;
   }
   .row {
     display: flex;
