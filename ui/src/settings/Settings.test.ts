@@ -71,6 +71,10 @@ it("opens on a pane from its command, moves with the arrow keys and reopens on t
   await run("settings.open");
   flushSync();
   expect(current()?.textContent).toBe("About");
+  // The key that opened it closes it again.
+  await run("settings.open");
+  flushSync();
+  expect(pane()).toBeNull();
 });
 
 it("shows only the open project's Claude settings, and re-reads them when they may have changed", async () => {

@@ -20,7 +20,8 @@ export function registerSettingsCommands(): () => void {
       keys: "Mod+,",
       category: "Settings",
       keywords: ["preferences", "options"],
-      run: () => openSettings(),
+      // The key that opened Settings closes it, as the gear and Reviews' key do.
+      run: () => (mainView.current === "settings" ? mainView.close() : openSettings()),
     }),
     ...PANES.map((pane) =>
       registerCommand({

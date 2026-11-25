@@ -3,7 +3,8 @@
 // view puts beside it, and the view's content, which scrolls on its own.
 // The view's tab above it (in the shell) has the close button. The title
 // takes focus when the view opens; Escape closes it, unless something
-// inside used the key first.
+// inside used the key first. In a field with text, Escape first leaves the
+// field for the title and keeps the text.
 import type { Snippet } from "svelte";
 import { type MainViewName, mainView, VIEW_TITLES } from "./main-view.svelte";
 
@@ -17,9 +18,22 @@ function focusTitle(title: HTMLElement): void {
   if (!title.closest("section")?.contains(document.activeElement)) title.focus();
 }
 
+/** Text fields whose Escape leaves the field rather than the view. */
+const TEXT = new Set(["text", "search", "url", "email", "number", "tel", "password"]);
+
+function filled(target: EventTarget | null): boolean {
+  if (target instanceof HTMLTextAreaElement) return target.value !== "";
+  return target instanceof HTMLInputElement && TEXT.has(target.type) && target.value !== "";
+}
+
 function onkeydown(event: KeyboardEvent): void {
   if (event.code !== "Escape" || event.defaultPrevented) return;
   event.preventDefault();
+  if (filled(event.target)) {
+    // Out of habit, or to close the browser's suggestions: the typed text stays, the next Escape closes.
+    if (event.currentTarget instanceof HTMLElement) event.currentTarget.querySelector<HTMLElement>("h2")?.focus();
+    return;
+  }
   mainView.close();
 }
 </script>
