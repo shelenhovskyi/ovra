@@ -24,6 +24,9 @@ pub use helper::helper_if_asked;
 
 /// The first argument that makes a program the sandbox helper.
 pub const HELPER_FLAG: &str = "--ovra-sandbox-helper";
+/// The file in Ovra's data folder that holds the sandbox user's password,
+/// sealed with DPAPI for the person: there once setup has run.
+pub(crate) const PASSWORD_FILE: &str = "sandbox-user";
 
 /// What the sandbox needs to know about the machine, apart from the
 /// session's profile.
@@ -74,15 +77,22 @@ pub struct Restricted {
 }
 
 impl Restricted {
-    /// Whether this machine can sandbox agents. Until the setup and the
-    /// helper land, it cannot, and sessions run unsandboxed as before 5.A.
+    /// Whether this machine can sandbox agents: once the one-time setup
+    /// has run for this data folder. Until then sessions run unsandboxed,
+    /// as before 5.A. The helper checks the rest when a session starts (the
+    /// account, its password, the firewall rule) and refuses it if any is
+    /// missing.
     pub fn detect(setup: Setup) -> Self {
-        Self {
-            setup,
-            status: SandboxStatus::Unavailable {
-                reason: "the Windows sandbox is not built yet".into(),
-            },
-        }
+        let status = if setup.data_dir.join(PASSWORD_FILE).is_file() {
+            SandboxStatus::Available {
+                name: "sandbox user, restricted token".into(),
+            }
+        } else {
+            SandboxStatus::Unavailable {
+                reason: "set up the Windows sandbox (administrator, once)".into(),
+            }
+        };
+        Self { setup, status }
     }
 }
 
@@ -97,7 +107,7 @@ impl Sandbox for Restricted {
         }
         let plan = plan::Plan::new(&self.setup, profile, &line.program)?;
         let outer: Vec<OsString> = std::env::vars_os().map(|(name, _)| name).collect();
-        Ok(plan.line(&self.setup.helper, line, &outer))
+        Ok(plan.line(&self.setup, line, &outer))
     }
 }
 
@@ -114,12 +124,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn until_it_is_built_it_says_so_and_changes_nothing() {
+    fn until_it_is_set_up_it_says_so_and_changes_nothing() {
         let setup = Setup {
             helper: "ovra".into(),
             home: "home".into(),
             path: OsString::new(),
-            data_dir: "data".into(),
+            data_dir: "no-such-data".into(),
             caches: "data/caches".into(),
             temp: "data/temp".into(),
             protected: &[],
@@ -142,5 +152,27 @@ mod tests {
             network: ProfileNetwork::Blocked,
         };
         assert_eq!(sandbox.wrap(&profile, line.clone()).ok(), Some(line));
+    }
+
+    #[test]
+    fn once_set_up_it_is_available() {
+        let data = std::env::temp_dir().join(format!("ovra-win-detect-{}", std::process::id()));
+        std::fs::create_dir_all(&data).unwrap();
+        std::fs::write(data.join(PASSWORD_FILE), b"sealed").unwrap();
+        let setup = Setup {
+            helper: "ovra".into(),
+            home: "home".into(),
+            path: OsString::new(),
+            data_dir: data.clone(),
+            caches: data.join("caches"),
+            temp: data.join("temp"),
+            protected: &[],
+        };
+        let status = Restricted::detect(setup).status();
+        let _ = std::fs::remove_dir_all(&data);
+        assert!(
+            matches!(status, SandboxStatus::Available { .. }),
+            "{status:?}"
+        );
     }
 }
