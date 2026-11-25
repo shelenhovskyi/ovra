@@ -72,46 +72,63 @@ fn the_sandbox_user_writes_its_project_only_and_reaches_nothing() {
 
     let sid = "S-1-5-21-1000000011-1000000012-1000000013-1000000014";
     let probe_dir = text(Path::new(PROBE).parent().unwrap());
-    let out = Command::new(PROBE)
-        .args([
-            "--ovra-sandbox-helper",
-            "--sid",
-            sid,
-            "--data",
-            &text(&data),
-        ])
-        .args(["--m", &text(&work), "--deny", &text(&work.join(".git"))])
-        .args(["--rx", &probe_dir, "--env", "SystemRoot", "--", PROBE])
-        .args(["write", &text(&work.join("a.txt"))])
-        .args(["write", &text(&work.join(".git").join("config"))])
-        .args(["read", &text(&secret)])
-        .args(["write", &text(&home.join("planted.txt"))])
-        .args(["connect", "1.1.1.1:443"])
-        .args(["remove", &text(&work.join(".git"))])
-        .args(["write", &text(&other.join("kept.txt"))])
-        .args(["remove", &text(&other.join("kept.txt"))])
-        .args(["delete", &text(&other.join("kept.txt"))])
-        .args([
+    // `CreateProcessWithLogonW` takes at most 1024 characters of command
+    // line, so the probes are split over two sessions in the same project.
+    let session = |probes: &[String]| {
+        Command::new(PROBE)
+            .args([
+                "--ovra-sandbox-helper",
+                "--sid",
+                sid,
+                "--data",
+                &text(&data),
+            ])
+            .args(["--m", &text(&work), "--deny", &text(&work.join(".git"))])
+            .args(["--rx", &probe_dir, "--env", "SystemRoot", "--", PROBE])
+            .args(probes)
+            .current_dir(&work)
+            .output()
+            .unwrap()
+    };
+    let pairs = |pairs: &[(&str, String)]| -> Vec<String> {
+        pairs
+            .iter()
+            .flat_map(|(what, path)| [what.to_string(), path.clone()])
+            .collect()
+    };
+    let own = session(&pairs(&[
+        ("write", text(&work.join("a.txt"))),
+        ("write", text(&work.join(".git").join("config"))),
+        ("read", text(&secret)),
+        ("write", text(&home.join("planted.txt"))),
+        ("connect", "1.1.1.1:443".into()),
+        ("remove", text(&work.join(".git"))),
+    ]));
+    let across = session(&pairs(&[
+        ("write", text(&other.join("kept.txt"))),
+        ("remove", text(&other.join("kept.txt"))),
+        ("delete", text(&other.join("kept.txt"))),
+        (
             "rename",
-            &format!(
+            format!(
                 "{}|{}",
                 text(&other.join("moved.txt")),
                 text(&work.join("moved.txt"))
             ),
-        ])
-        .args(["acl", &format!("{}|{sid}", text(&other.join("mine.txt")))])
-        .args(["write", &text(&other.join("mine.txt"))])
-        .current_dir(&work)
-        .output()
-        .unwrap();
+        ),
+        ("acl", format!("{}|{sid}", text(&other.join("mine.txt")))),
+        ("write", text(&other.join("mine.txt"))),
+    ]));
     let removed = probe(&["--ovra-sandbox-remove"]);
     let _ = fs::remove_file(&secret);
     let _ = fs::remove_dir_all(&root);
-    assert!(
-        out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
+    for out in [&own, &across] {
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
     assert!(
         removed.status.success(),
         "{}",
@@ -120,7 +137,8 @@ fn the_sandbox_user_writes_its_project_only_and_reaches_nothing() {
     // The last lines probe another project. Windows does not count DELETE,
     // renames or ACL changes as writes, so the token's project SID may not
     // stop them; `docs/specs/sandbox-windows.md` lists what gets through.
-    let shown = String::from_utf8_lossy(&out.stdout)
+    let shown = [own.stdout, across.stdout].concat();
+    let shown = String::from_utf8_lossy(&shown)
         .replace(&text(&work), "WORK")
         .replace(&text(&other), "OTHER")
         .replace(&text(&home), "HOME")
