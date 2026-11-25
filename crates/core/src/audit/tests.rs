@@ -694,3 +694,295 @@ mod recording {
         assert_eq!(until(&mut rx, &AgentStatus::Idle).await, Vec::new());
     }
 }
+
+/// Keychain reads: cached, bounded by a timeout, and kept when the caller
+/// stops waiting.
+mod keychain {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Condvar, Mutex};
+
+    use serde_json::json;
+    use tokio::sync::Notify;
+
+    use super::super::input::REDACTED;
+    use super::super::{KEYCHAIN_TIMEOUT, tool_decided};
+    use super::project;
+    use crate::Core;
+    use crate::fakes::{MemoryAudit, MemoryProjects, MemorySecrets, ScriptedAgent};
+    use crate::protocol::agents::{AgentStatus, AgentsEvent, AgentsResponse, SessionId};
+    use crate::protocol::audit::{AuditEvent, AuditInput, AuditLogEvent, DecidedBy};
+    use crate::protocol::permissions::PermissionsResponse;
+    use crate::protocol::projects::ProjectId;
+    use crate::protocol::secrets::{SecretInfo, SecretStoreStatus, SecretValue};
+    use crate::protocol::{Event, ProtocolError, Request, Response};
+    use crate::services::{AuditLog, Secrets};
+
+    /// A keychain whose values wait until it is opened, counting reads.
+    #[derive(Debug, Default)]
+    struct SlowKeychain {
+        open: Mutex<bool>,
+        opened: Condvar,
+        entered: Notify,
+        reads: AtomicUsize,
+        inner: MemorySecrets,
+    }
+
+    impl SlowKeychain {
+        fn with(value: &str) -> Arc<Self> {
+            let keychain = Arc::new(Self::default());
+            let secret = SecretInfo {
+                name: "deploy".into(),
+                host: "api.example.com".into(),
+                header: "X-Token".into(),
+                prefix: String::new(),
+            };
+            keychain
+                .inner
+                .set(&project("p1"), secret, SecretValue::new(value))
+                .unwrap_or_else(|e| panic!("{e}"));
+            keychain
+        }
+
+        fn open(&self) {
+            *self.open.lock().unwrap_or_else(|e| e.into_inner()) = true;
+            self.opened.notify_all();
+        }
+
+        fn reads(&self) -> usize {
+            self.reads.load(Ordering::SeqCst)
+        }
+    }
+
+    /// Opens the keychain when the test ends, so its blocked thread ends too.
+    struct Opens(Arc<SlowKeychain>);
+
+    impl Drop for Opens {
+        fn drop(&mut self) {
+            self.0.open();
+        }
+    }
+
+    impl Secrets for SlowKeychain {
+        fn status(&self) -> SecretStoreStatus {
+            self.inner.status()
+        }
+        fn list(&self, p: &ProjectId) -> Result<Vec<SecretInfo>, ProtocolError> {
+            self.inner.list(p)
+        }
+        fn set(&self, p: &ProjectId, s: SecretInfo, v: SecretValue) -> Result<(), ProtocolError> {
+            self.inner.set(p, s, v)
+        }
+        fn remove(&self, p: &ProjectId, name: &str) -> Result<(), ProtocolError> {
+            self.inner.remove(p, name)
+        }
+        fn remove_project(&self, p: &ProjectId) -> Result<(), ProtocolError> {
+            self.inner.remove_project(p)
+        }
+        fn value(&self, p: &ProjectId, name: &str) -> Result<SecretValue, ProtocolError> {
+            self.reads.fetch_add(1, Ordering::SeqCst);
+            self.entered.notify_one();
+            let open = self.open.lock().unwrap_or_else(|e| e.into_inner());
+            drop(
+                self.opened
+                    .wait_while(open, |open| !*open)
+                    .unwrap_or_else(|e| e.into_inner()),
+            );
+            self.inner.value(p, name)
+        }
+    }
+
+    fn core(keychain: &Arc<SlowKeychain>, log: &Arc<MemoryAudit>) -> Core {
+        Core::builder("test")
+            .projects(Arc::new(MemoryProjects::default()))
+            .agents(Arc::new(ScriptedAgent::default()))
+            .secrets(keychain.clone())
+            .audit(log.clone())
+            .build()
+    }
+
+    async fn ok(core: &Core, json: serde_json::Value) -> Response {
+        let request: Request =
+            serde_json::from_value(json).unwrap_or_else(|e| panic!("bad request: {e}"));
+        core.handle(request)
+            .await
+            .unwrap_or_else(|e| panic!("request failed: {e}"))
+    }
+
+    fn inputs(log: &MemoryAudit) -> Vec<AuditInput> {
+        log.list(&project("p1"), Default::default(), 100)
+            .unwrap_or_else(|e| panic!("{e}"))
+            .into_iter()
+            .filter_map(|entry| match entry.event {
+                AuditEvent::ToolDecided { input, .. } => Some(input),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn bash(command: &str) -> serde_json::Value {
+        json!({ "command": command })
+    }
+
+    fn redacted() -> AuditInput {
+        AuditInput::Json {
+            text: REDACTED.to_owned(),
+        }
+    }
+
+    fn kept(command: &str) -> AuditInput {
+        AuditInput::Json {
+            text: bash(command).to_string(),
+        }
+    }
+
+    async fn decide(core: &Core, command: &str) {
+        let input = bash(command);
+        let by = DecidedBy::Person;
+        let recorded = tool_decided(core, &project("p1"), None, "Bash", &input, true, by);
+        recorded.await.unwrap_or_else(|e| panic!("{e}"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_keychain_that_never_answers_times_out_to_redacted() {
+        let keychain = SlowKeychain::with("known-value-123");
+        let _opens = Opens(keychain.clone());
+        let log = Arc::new(MemoryAudit::default());
+        let core = core(&keychain, &log);
+        let input = bash("echo known-value-123");
+        let by = DecidedBy::Person;
+        let recorded = tool_decided(&core, &project("p1"), None, "Bash", &input, true, by);
+        keychain.entered.notified().await;
+        tokio::time::advance(KEYCHAIN_TIMEOUT).await;
+        recorded.await.unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(inputs(&log), [redacted()]);
+    }
+
+    #[tokio::test]
+    async fn secret_values_are_read_once_until_they_change() {
+        let keychain = SlowKeychain::with("known-value-123");
+        keychain.open();
+        let log = Arc::new(MemoryAudit::default());
+        let core = core(&keychain, &log);
+        ok(
+            &core,
+            json!({"method": "projects.add", "params": {"root": crate::test_path!("/work/a")}}),
+        )
+        .await;
+        decide(&core, "echo known-value-123").await;
+        decide(&core, "echo new-value-456").await;
+        assert_eq!(keychain.reads(), 1);
+        ok(
+            &core,
+            json!({"method": "secrets.set", "params": {"project": "p1",
+            "secret": {"name": "other", "host": "api.other.com", "header": "X-Key"},
+            "value": "new-value-456"}}),
+        )
+        .await;
+        decide(&core, "echo new-value-456").await;
+        assert_eq!(keychain.reads(), 3);
+        ok(
+            &core,
+            json!({"method": "secrets.remove", "params": {"project": "p1", "name": "other"}}),
+        )
+        .await;
+        decide(&core, "echo new-value-456").await;
+        assert_eq!(keychain.reads(), 4);
+        let gone = format!("echo {REDACTED}");
+        assert_eq!(
+            inputs(&log),
+            [
+                kept(&gone),
+                kept("echo new-value-456"),
+                kept(&gone),
+                kept("echo new-value-456")
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn an_answer_is_recorded_even_if_the_agent_stops_waiting_mid_read() {
+        let keychain = SlowKeychain::with("known-value-123");
+        let _opens = Opens(keychain.clone());
+        let log = Arc::new(MemoryAudit::default());
+        let core = core(&keychain, &log);
+        ok(
+            &core,
+            json!({"method": "projects.add", "params": {"root": crate::test_path!("/work/a")}}),
+        )
+        .await;
+        let mut rx = core.subscribe();
+        ok(
+            &core,
+            json!({"method": "agents.start", "params": {
+            "project": "p1", "agent": "claude", "mode": "direct", "prompt": "go"}}),
+        )
+        .await;
+        let status = |want: AgentStatus| move |event: &Event| matches!(event, Event::Agents(AgentsEvent::Status { status, .. }) if *status == want);
+        next(&mut rx, status(AgentStatus::Idle)).await;
+        let host = crate::agents::AgentHost::new(
+            SessionId("s1".into()),
+            project("p1"),
+            core.inner_sessions(),
+            core.sink(),
+        );
+        let asking = tokio::spawn(async move {
+            host.ask("Bash".into(), bash("echo known-value-123"), None, None)
+                .await
+        });
+        next(&mut rx, status(AgentStatus::WaitingForApproval)).await;
+        let id = match ok(&core, json!({"method": "permissions.pending"})).await {
+            Response::Permissions(PermissionsResponse::Pending(p)) => p[0].id.0.clone(),
+            other => panic!("unexpected {other:?}"),
+        };
+        ok(
+            &core,
+            json!({"method": "permissions.answer", "params": {"id": id, "decision": "allow"}}),
+        )
+        .await;
+        keychain.entered.notified().await;
+        asking.abort();
+        let _ = asking.await;
+        keychain.open();
+        let appended = next(&mut rx, |event| {
+            matches!(event, Event::Audit(AuditLogEvent::Appended(_)))
+        })
+        .await;
+        let Event::Audit(AuditLogEvent::Appended(entry)) = appended else {
+            unreachable!()
+        };
+        let gone = format!("echo {REDACTED}");
+        assert_eq!(
+            entry.event,
+            AuditEvent::ToolDecided {
+                tool: "Bash".into(),
+                input: kept(&gone),
+                allowed: true,
+                by: DecidedBy::Person,
+            }
+        );
+        match ok(
+            &core,
+            json!({"method": "agents.list", "params": {"project": "p1"}}),
+        )
+        .await
+        {
+            Response::Agents(AgentsResponse::List(list)) => {
+                assert_eq!(list[0].status, AgentStatus::Working);
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    async fn next(
+        rx: &mut tokio::sync::broadcast::Receiver<Event>,
+        want: impl Fn(&Event) -> bool,
+    ) -> Event {
+        loop {
+            match Core::next_event(rx).await {
+                Some(event) if want(&event) => return event,
+                Some(_) => {}
+                None => panic!("core closed"),
+            }
+        }
+    }
+}

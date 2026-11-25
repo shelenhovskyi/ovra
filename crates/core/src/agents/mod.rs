@@ -499,18 +499,31 @@ impl AgentHost {
         }
     }
 
-    /// Records who decided a tool call.
-    async fn audit_tool(
+    /// Records who decided a tool call. The entry is queued before this
+    /// returns, so it is kept even if the caller stops waiting for it; the
+    /// returned future waits until it is written.
+    fn audit_tool(
         &self,
         tool: &str,
         input: &serde_json::Value,
         allowed: bool,
         by: DecidedBy,
-    ) {
-        if let Some(core) = self.sessions.core() {
-            let event =
-                crate::audit::tool_decided(&core, &self.project, tool, input, allowed, by).await;
-            crate::audit::record(&core, &self.project, Some(&self.session), event);
+    ) -> impl Future<Output = ()> + use<> {
+        let recorded = self.sessions.core().map(|core| {
+            crate::audit::tool_decided(
+                &core,
+                &self.project,
+                Some(&self.session),
+                tool,
+                input,
+                allowed,
+                by,
+            )
+        });
+        async move {
+            if let Some(recorded) = recorded {
+                let _ = recorded.await;
+            }
         }
     }
 
@@ -733,6 +746,7 @@ impl AgentHost {
         let mut waiting = Waiting {
             host: self,
             id: Some(request.id.clone()),
+            settled: false,
         };
         let (tool, input) = tool_input;
         let direct = &self.sessions.direct;
@@ -746,13 +760,16 @@ impl AgentHost {
             )
         });
         waiting.id = None;
-        let answer = self.decided(&tool, &input, answer, by).await;
+        // Queued at once, so the entry survives the future being dropped.
         let allowed = answer.decision == Decision::Allow;
+        let recorded = self.audit_tool(&tool, &input, allowed, by);
         direct
             .tool_answered(&self.session, &tool, &input, allowed)
             .await;
         // Ignored while other requests of the session still wait.
         self.set_status(AgentStatus::Working);
+        waiting.settled = true;
+        recorded.await;
         answer
     }
 }
@@ -771,18 +788,28 @@ pub enum BeforeTool {
 }
 
 /// Withdraws the request when the agent stops waiting before it is answered
-/// (the [`AgentHost::ask`] future is dropped, e.g. the agent cancelled it).
+/// (the [`AgentHost::ask`] future is dropped, e.g. the agent cancelled it),
+/// and shows the session working again if it stops after the answer but
+/// before that.
 struct Waiting<'a> {
     host: &'a AgentHost,
     id: Option<PermissionId>,
+    settled: bool,
 }
 
 impl Drop for Waiting<'_> {
     fn drop(&mut self) {
-        let Some(id) = self.id.take() else { return };
-        if self.host.sessions.permissions.withdraw(&id) {
-            self.host.resolved(vec![id], Decision::Deny);
-            self.host.set_status(AgentStatus::Working);
+        match self.id.take() {
+            Some(id) => {
+                if self.host.sessions.permissions.withdraw(&id) {
+                    self.host.resolved(vec![id], Decision::Deny);
+                    self.host.set_status(AgentStatus::Working);
+                }
+            }
+            None if !self.settled => {
+                self.host.set_status(AgentStatus::Working);
+            }
+            None => {}
         }
     }
 }

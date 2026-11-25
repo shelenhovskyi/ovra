@@ -537,6 +537,11 @@ pub enum ReviewAction { Approved, PartlyApproved, Rejected, UndoneReject, Taken,
 - If the secrets' values cannot be read (a locked keychain), nothing the
   agent wrote is kept: the input is `[redacted]`, and a file tool keeps
   only its hash.
+- The core reads a project's values once and keeps them in memory until
+  its secrets change (`secrets.set`, `secrets.remove`, removing the
+  project). A read that takes longer than 5 s counts as unreadable.
+- Decisions are queued when they are made and recorded in that order by a
+  task of their own, so an agent that stops waiting loses no entry.
 
 **Service:**
 

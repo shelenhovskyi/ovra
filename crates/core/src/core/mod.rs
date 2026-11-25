@@ -153,6 +153,7 @@ impl CoreBuilder {
                 audit: self.audit,
                 lsp: self.lsp,
                 lsp_servers: crate::lsp::Servers::default(),
+                audit_state: crate::audit::State::default(),
             }),
             events,
         };
@@ -195,6 +196,7 @@ struct Inner {
     audit: Arc<dyn AuditLog>,
     lsp: Arc<dyn LanguageServers>,
     lsp_servers: crate::lsp::Servers,
+    audit_state: crate::audit::State,
 }
 
 /// A [`Core`] that does not keep it alive; sessions hold one so their IDE
@@ -414,6 +416,10 @@ impl Core {
 
     pub(crate) fn lsp_servers(&self) -> &crate::lsp::Servers {
         &self.inner.lsp_servers
+    }
+
+    pub(crate) fn audit_state(&self) -> &crate::audit::State {
+        &self.inner.audit_state
     }
 
     pub(crate) fn project_store(&self) -> &dyn ProjectStore {
