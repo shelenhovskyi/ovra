@@ -69,6 +69,7 @@ export function editorMenu(view: EditorView, root: string | null, path: string):
     { label: "Find", keys: "Mod+F", run: search("find") },
     { label: "Replace", keys: "Mod+Alt+F", run: search("replace") },
     { label: "Go to line", keys: "Ctrl+G", run: search("go_to_line") },
+    commandItem("editor.go_to_symbol", "Go to symbol"),
     "separator",
     lsp && commandItem("editor.lsp_definition", "Go to definition"),
     lsp && commandItem("editor.lsp_references", "Find references"),

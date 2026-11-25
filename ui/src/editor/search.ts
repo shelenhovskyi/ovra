@@ -13,6 +13,11 @@ export function showView(view: EditorView | null): void {
   shown = view;
 }
 
+/** The view the editor shows, or null. */
+export function shownView(): EditorView | null {
+  return shown;
+}
+
 /** Opens the search panel (with the replace field focused for "replace") or the go-to-line field. */
 export function runSearch(action: SearchAction, view: EditorView | null = shown): void {
   if (!view) return;

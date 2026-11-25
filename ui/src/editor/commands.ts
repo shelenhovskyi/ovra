@@ -1,6 +1,7 @@
 // Commands owned by the editor that work in any mode.
 
 import { registerCommand } from "../keys/commands";
+import { showList } from "../palette/mode.svelte";
 import type { Workspace } from "../shell/workspace.svelte";
 import { editorReady, goToChange, readBlame, showChangeAtCursor, toggleBlame } from "./git/extension";
 import type { LspAction } from "./lsp/actions";
@@ -17,9 +18,19 @@ import {
   tabs,
 } from "./open-files.svelte";
 import { editorPrefs } from "./prefs.svelte";
-import { runSearch, type SearchAction } from "./search";
+import { runSearch, type SearchAction, shownView } from "./search";
+import { symbolSource } from "./symbols";
 
-type Target = Pick<Workspace, "openPath" | "mode" | "openFile">;
+type Target = Pick<Workspace, "openPath" | "mode" | "openFile" | "paletteOpen">;
+
+/** Lists the shown file's symbols in the palette; Enter jumps to one. */
+async function goToSymbol(workspace: Target): Promise<void> {
+  const view = shownView();
+  const path = workspace.openPath;
+  if (!view || !path) return;
+  const list = await symbolSource(view, path);
+  if (workspace.openPath === path && shownView() === view) showList(list, workspace);
+}
 
 /**
  * Switches between viewing and editing; files that cannot be edited say why
@@ -226,6 +237,13 @@ export function registerEditorCommands(workspace: Target): () => void {
         run: inEditor(workspace, () => tabs.current?.lsp?.action(action)),
       }),
     ),
+    registerCommand({
+      id: "editor.go_to_symbol",
+      title: "Go to symbol in file…",
+      keys: "Mod+Shift+O",
+      keywords: ["outline"],
+      run: inEditor(workspace, () => goToSymbol(workspace)),
+    }),
     ...SEARCH_ACTIONS.map(([action, title, keys]) =>
       registerCommand({ id: `editor.${action}`, title, keys, run: inEditor(workspace, () => runSearch(action)) }),
     ),

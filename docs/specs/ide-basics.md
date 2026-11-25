@@ -86,7 +86,7 @@ remembered View or Edit per file type). This list only adds the menu.
 | Undo / redo, multi-cursor, bracket matching                                  | yes     | yes | yes       | yes    | yes                         | done                   |
 | Go to definition, references, rename (LSP)                                   | yes     | yes | yes       | yes    | yes (ADR 0007)              | done                   |
 | Diagnostics (LSP)                                                            | yes     | yes | yes       | yes    | yes                         | done                   |
-| Go to symbol in file (Mod+Shift+O)                                           | yes     | yes | yes       | yes    | no                          | P1                     |
+| Go to symbol in file (Mod+Shift+O)                                           | yes     | yes | yes       | yes    | yes                         | done                   |
 | Format document (LSP), format on save                                        | yes     | yes | yes       | yes    | no                          | P1                     |
 | Breadcrumbs (path and symbol)                                                | yes     | yes | yes       | yes    | no                          | P1                     |
 | Word wrap toggle                                                             | yes     | yes | yes       | yes    | yes (Alt+Z)                 | done                   |
