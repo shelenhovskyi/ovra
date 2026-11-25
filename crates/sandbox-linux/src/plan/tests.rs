@@ -41,6 +41,16 @@ impl Root {
             toolchains: vec![self.0.join("home/.cargo")],
             hidden: vec![self.0.join("data")],
             caches: self.0.join("data/sandbox-caches"),
+            env: [
+                "HOME",
+                "LANG",
+                "GITHUB_TOKEN",
+                "SSH_AUTH_SOCK",
+                "CLAUDE_CODE_OAUTH_TOKEN",
+                "CLAUDECODE",
+            ]
+            .map(Into::into)
+            .to_vec(),
             protected: PROTECTED,
         }
     }

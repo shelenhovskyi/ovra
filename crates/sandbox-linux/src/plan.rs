@@ -48,6 +48,54 @@ const CLAUDE_PRIVATE: [&str; 14] = [
 /// prompt history. The history is made if missing.
 const CLAUDE_FILES: [&str; 2] = [".credentials.json", "history.jsonl"];
 
+/// The variables a session keeps from Ovra's environment; every other one
+/// is removed, so tokens such as `GITHUB_TOKEN`, `GH_TOKEN`, `NPM_TOKEN`,
+/// `AWS_*` credentials and `SSH_AUTH_SOCK` stay out (owner approved,
+/// amending ADR 0006). Whole names only: a prefix such as `CLAUDE_CODE_`
+/// would let `CLAUDE_CODE_OAUTH_TOKEN` through. The proxy variables,
+/// `PATH` and `TMPDIR` are set by the plan itself.
+const ENV_KEPT: [&str; 35] = [
+    "HOME",
+    "USER",
+    "LOGNAME",
+    "SHELL",
+    "LANG",
+    "LANGUAGE",
+    "LC_ALL",
+    "LC_CTYPE",
+    "TZ",
+    "TERM",
+    "COLORTERM",
+    "NO_COLOR",
+    // Where usage is billed, and the gateway it goes through.
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_AUTH_TOKEN",
+    "ANTHROPIC_BASE_URL",
+    "ANTHROPIC_MODEL",
+    "ANTHROPIC_SMALL_FAST_MODEL",
+    // Cloud providers: which one, its region and project, never its keys.
+    "CLAUDE_CODE_USE_BEDROCK",
+    "CLAUDE_CODE_USE_VERTEX",
+    "CLAUDE_CODE_USE_FOUNDRY",
+    "ANTHROPIC_BEDROCK_BASE_URL",
+    "ANTHROPIC_VERTEX_BASE_URL",
+    "ANTHROPIC_VERTEX_PROJECT_ID",
+    "ANTHROPIC_FOUNDRY_RESOURCE",
+    "ANTHROPIC_FOUNDRY_BASE_URL",
+    "AWS_REGION",
+    "CLOUD_ML_REGION",
+    "GOOGLE_CLOUD_PROJECT",
+    // Certificate bundles, for networks that inspect TLS.
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+    "NODE_EXTRA_CA_CERTS",
+    // Toolchain homes.
+    "CARGO_HOME",
+    "RUSTUP_HOME",
+    "NVM_DIR",
+    "GOPATH",
+];
+
 /// Package caches builds write, relative to the home folder. Each session
 /// gets its project's own copy (empty at first), bound where the cache is
 /// if that cache or its parent exists: one shared with the user's own
@@ -135,6 +183,8 @@ pub(crate) struct Plan {
     writable: Vec<PathBuf>,
     network: ProfileNetwork,
     path: OsString,
+    /// The names in Ovra's environment ([`Setup::env`]).
+    outer_env: Vec<OsString>,
 }
 
 impl Plan {
@@ -173,6 +223,7 @@ impl Plan {
             writable: vec!["/tmp".into(), "/dev".into(), home.clone()],
             network: profile.network.clone(),
             path: OsString::new(),
+            outer_env: setup.env.clone(),
         };
         plan.hide(setup, &home);
         let shown: Vec<PathBuf> = std::iter::once(work_dir.clone())
@@ -519,17 +570,40 @@ impl Plan {
             }
             env.push((os("NODE_USE_ENV_PROXY"), Some(os("1"))));
         }
+        env.push((os("PATH"), Some(self.path.clone())));
+        env.push((os("TMPDIR"), Some(os("/tmp"))));
+        self.allowlist(&mut env);
+        // The helper keeps only these: the plan removes the rest, and
+        // whatever Ovra's environment gains later.
+        let mut kept: Vec<OsString> = ENV_KEPT.iter().map(os).collect();
+        for (name, value) in &env {
+            if value.is_some() && !kept.contains(name) {
+                kept.push(name.clone());
+            }
+        }
+        for name in kept.into_iter().filter(|name| !removed(&env, name)) {
+            args.extend([os("--env"), name]);
+        }
         args.push(os("--"));
         args.push(os(&program));
         args.extend(line.args);
-        env.push((os("PATH"), Some(self.path.clone())));
-        env.push((os("TMPDIR"), Some(os("/tmp"))));
         Ok(CommandLine {
             program: bwrap.to_path_buf(),
             args,
             env,
             cwd,
         })
+    }
+
+    /// Removes every variable of Ovra's environment that is neither kept
+    /// nor set by `env`.
+    fn allowlist(&self, env: &mut Vec<(OsString, Option<OsString>)>) {
+        for name in &self.outer_env {
+            let kept = ENV_KEPT.iter().any(|k| name == k);
+            if !kept && !env.iter().any(|(n, _)| n == name) {
+                env.push((name.clone(), None));
+            }
+        }
     }
 
     /// What to bind so that `program` runs: its folder when it is installed
@@ -726,6 +800,14 @@ fn config_files(work_dir: &Path, home: &Path) -> Vec<PathBuf> {
         .into_iter()
         .filter(|file| lexically_inside(file, work_dir))
         .collect()
+}
+
+/// Whether the last word on `name` in `env` removes it.
+fn removed(env: &[(OsString, Option<OsString>)], name: &OsString) -> bool {
+    env.iter()
+        .rev()
+        .find(|(n, _)| n == name)
+        .is_some_and(|(_, value)| value.is_none())
 }
 
 /// Whether `path`, with `..` resolved by name, is inside `dir`.

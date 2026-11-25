@@ -135,7 +135,14 @@ its changes on approve.
     `ANTHROPIC_BASE_URL`, the cloud-provider variables, CA bundles
     (`SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`), toolchain homes (`CARGO_HOME`,
     `RUSTUP_HOME`, `NVM_DIR`) and the proxy variables below;
-  - a project can add names to it.
+  - a project can add names to it (not built yet: it needs a profile
+    field).
+
+  On Linux the list is `ENV_KEPT` in `crates/sandbox-linux`. The wrapped
+  command line removes every other variable of Ovra's environment, so
+  bubblewrap's own processes never hold them, and the helper starts the
+  agent with only the kept names, so a variable set later is dropped too.
+  The netproxy bridge gets no environment.
 
 **Protected paths.** They stay read-only. The list lives in
 `crates/sandbox`, so every platform uses the same one:

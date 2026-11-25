@@ -78,6 +78,8 @@ struct Args {
     landlock: Option<Landlock>,
     writable: Vec<PathBuf>,
     bridge: Option<(OsString, OsString)>,
+    /// The only variables the agent gets.
+    env: Vec<OsString>,
     command: Vec<OsString>,
 }
 
@@ -98,6 +100,7 @@ fn parse(args: Vec<OsString>) -> Result<Args, String> {
                 };
             }
             Some("--rw") => parsed.writable.push(value(&mut args, "--rw")?.into()),
+            Some("--env") => parsed.env.push(value(&mut args, "--env")?),
             Some("--bridge") => {
                 let socket = value(&mut args, "--bridge")?;
                 parsed.bridge = Some((socket, value(&mut args, "--bridge")?));
@@ -142,7 +145,15 @@ fn run(args: Vec<OsString>) -> String {
     }
     let mut command = args.command.into_iter();
     let program = command.next().unwrap_or_default();
-    let error = Command::new(&program).args(command).exec();
+    let error = Command::new(&program)
+        .args(command)
+        .env_clear()
+        .envs(
+            args.env
+                .iter()
+                .filter_map(|name| std::env::var_os(name).map(|value| (name, value))),
+        )
+        .exec();
     format!("could not run {}: {error}", program.to_string_lossy())
 }
 
@@ -164,7 +175,9 @@ fn landlock(writable: &[PathBuf]) -> Result<bool, landlock::RulesetError> {
 /// Starts the bridge as a process of its own (this one becomes the agent)
 /// and waits until it listens.
 fn start_bridge(socket: &OsString, port: &OsString) -> std::io::Result<()> {
+    // The agent can read the bridge's environment: it gets none.
     let mut child = Command::new(std::env::current_exe()?)
+        .env_clear()
         .arg(BRIDGE_FLAG)
         .arg(socket)
         .arg(port)
@@ -242,6 +255,8 @@ mod tests {
             "--bridge",
             "/s",
             "3128",
+            "--env",
+            "HOME",
             "--",
             "claude",
             "-p",
@@ -250,6 +265,7 @@ mod tests {
         assert_eq!(parsed.landlock, Some(Landlock::Require));
         assert_eq!(parsed.writable, vec![PathBuf::from("/w")]);
         assert_eq!(parsed.bridge, Some(("/s".into(), "3128".into())));
+        assert_eq!(parsed.env, args(&["HOME"]));
         assert_eq!(parsed.command, args(&["claude", "-p"]));
     }
 

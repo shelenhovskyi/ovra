@@ -60,6 +60,9 @@ pub struct Setup {
     /// Where sessions keep their package caches, one folder per project, so
     /// what an agent puts in a cache never reaches the user's own builds.
     pub caches: PathBuf,
+    /// The names in Ovra's own environment: a session keeps only those
+    /// the sandbox allows.
+    pub env: Vec<std::ffi::OsString>,
     /// The protected paths every platform shares (`ovra-sandbox`).
     pub protected: Protected,
 }
@@ -80,6 +83,7 @@ impl Setup {
         Some(Self {
             helper: std::env::current_exe().ok()?,
             caches: data_dir.join("sandbox-caches"),
+            env: std::env::vars_os().map(|(name, _)| name).collect(),
             path: std::env::var_os("PATH").unwrap_or_default(),
             toolchains: vec![
                 var("CARGO_HOME", ".cargo"),

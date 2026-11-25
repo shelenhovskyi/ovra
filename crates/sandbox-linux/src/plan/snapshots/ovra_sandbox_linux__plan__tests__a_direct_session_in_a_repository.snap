@@ -79,9 +79,86 @@ ROOT/bin/ovra
 --rw ROOT/home/.cargo/registry
 --rw ROOT/home/.cargo/git
 --rw ROOT/projects/app
+--env
+HOME
+--env
+USER
+--env
+LOGNAME
+--env
+SHELL
+--env
+LANG
+--env
+LANGUAGE
+--env
+LC_ALL
+--env
+LC_CTYPE
+--env
+TZ
+--env
+TERM
+--env
+COLORTERM
+--env
+NO_COLOR
+--env
+ANTHROPIC_API_KEY
+--env
+ANTHROPIC_AUTH_TOKEN
+--env
+ANTHROPIC_BASE_URL
+--env
+ANTHROPIC_MODEL
+--env
+ANTHROPIC_SMALL_FAST_MODEL
+--env
+CLAUDE_CODE_USE_BEDROCK
+--env
+CLAUDE_CODE_USE_VERTEX
+--env
+CLAUDE_CODE_USE_FOUNDRY
+--env
+ANTHROPIC_BEDROCK_BASE_URL
+--env
+ANTHROPIC_VERTEX_BASE_URL
+--env
+ANTHROPIC_VERTEX_PROJECT_ID
+--env
+ANTHROPIC_FOUNDRY_RESOURCE
+--env
+ANTHROPIC_FOUNDRY_BASE_URL
+--env
+AWS_REGION
+--env
+CLOUD_ML_REGION
+--env
+GOOGLE_CLOUD_PROJECT
+--env
+SSL_CERT_FILE
+--env
+SSL_CERT_DIR
+--env
+NODE_EXTRA_CA_CERTS
+--env
+CARGO_HOME
+--env
+RUSTUP_HOME
+--env
+NVM_DIR
+--env
+GOPATH
+--env
+PATH
+--env
+TMPDIR
 --
 ROOT/home/.local/share/claude/versions/2.1.0
 -p
 env CLAUDECODE = None
 env PATH = Some("ROOT/home/.local/bin:ROOT/home/.cargo/bin:/usr/bin")
 env TMPDIR = Some("/tmp")
+env GITHUB_TOKEN = None
+env SSH_AUTH_SOCK = None
+env CLAUDE_CODE_OAUTH_TOKEN = None

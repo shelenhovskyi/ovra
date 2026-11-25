@@ -83,6 +83,7 @@ fn sandbox_on(home: &Path, hidden: Vec<PathBuf>, path: &str) -> Option<Bubblewra
         path: path.into(),
         toolchains: vec![home.join(".cargo")],
         caches: home.with_file_name("ovra-caches"),
+        env: std::env::vars_os().map(|(name, _)| name).collect(),
         hidden,
         protected: PROTECTED,
     });
@@ -478,4 +479,64 @@ fn starting_a_session_runs_nothing_a_nested_repository_names() {
         "true",
     );
     assert!(!marker.exists());
+}
+
+#[test]
+fn a_session_gets_only_the_allowed_environment() {
+    let root = Dir::new("env");
+    let home = root.0.join("home");
+    let project = root.0.join("project");
+    fs::create_dir_all(&home).unwrap();
+    fs::create_dir_all(&project).unwrap();
+    let Some(sandbox) = sandbox(&home, Vec::new()) else {
+        return;
+    };
+    let line = CommandLine {
+        program: "/usr/bin/env".into(),
+        args: Vec::new(),
+        env: Vec::new(),
+        cwd: project.clone(),
+    };
+    let line = sandbox
+        .wrap(&profile(&project, ProfileNetwork::Blocked), line)
+        .unwrap();
+    // Set after the sandbox was made, so only the helper can drop them.
+    let mut command = Command::new(&line.program);
+    command.args(&line.args).current_dir(&line.cwd);
+    for (name, value) in &line.env {
+        match value {
+            Some(value) => command.env(name, value),
+            None => command.env_remove(name),
+        };
+    }
+    let out = command
+        .env("GITHUB_TOKEN", "t")
+        .env("SSH_AUTH_SOCK", "/s")
+        .env("CLAUDE_CODE_OAUTH_TOKEN", "t")
+        .env("AWS_SECRET_ACCESS_KEY", "t")
+        .env("ANTHROPIC_API_KEY", "billed-here")
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let env = String::from_utf8(out.stdout).unwrap();
+    let mut names: Vec<&str> = env
+        .lines()
+        .filter_map(|l| l.split_once('='))
+        .map(|(n, _)| n)
+        .collect();
+    names.sort_unstable();
+    assert!(env.contains("ANTHROPIC_API_KEY=billed-here\n"), "{env}");
+    assert!(env.contains("TMPDIR=/tmp\n"), "{env}");
+    for name in &names {
+        assert!(
+            ![
+                "GITHUB_TOKEN",
+                "SSH_AUTH_SOCK",
+                "CLAUDE_CODE_OAUTH_TOKEN",
+                "AWS_SECRET_ACCESS_KEY"
+            ]
+            .contains(name),
+            "{name} reached the session: {env}"
+        );
+    }
 }
