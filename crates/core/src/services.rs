@@ -1096,6 +1096,10 @@ pub trait GitService: Send + Sync + Debug {
     ) -> BoxFuture<'_, Result<Committed>>;
     fn branches(&self, root: PathBuf) -> BoxFuture<'_, Result<Vec<BranchInfo>>>;
     fn switch(&self, root: PathBuf, branch: String) -> BoxFuture<'_, Result<()>>;
+    /// Stops a [`GitService::commit`], [`GitService::switch`] or switching
+    /// [`GitService::create_branch`] running in `root`, with everything it
+    /// started; that call answers `Conflict`.
+    fn cancel(&self, root: PathBuf) -> BoxFuture<'_, Result<()>>;
     fn create_branch(&self, root: PathBuf, name: String, switch: bool)
     -> BoxFuture<'_, Result<()>>;
     fn diff(&self, root: PathBuf, path: RelPath, staged: bool) -> BoxFuture<'_, Result<FileDiff>>;
@@ -1151,6 +1155,9 @@ impl GitService for Unavailable {
         self.later()
     }
     fn switch(&self, _: PathBuf, _: String) -> BoxFuture<'_, Result<()>> {
+        self.later()
+    }
+    fn cancel(&self, _: PathBuf) -> BoxFuture<'_, Result<()>> {
         self.later()
     }
     fn create_branch(&self, _: PathBuf, _: String, _: bool) -> BoxFuture<'_, Result<()>> {
