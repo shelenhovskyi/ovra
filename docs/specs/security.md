@@ -194,6 +194,8 @@ the toolchains, Landlock and seccomp through the helper. It differs in:
   `CLAUDE.local.md` and `AGENTS.md`.
 - Code that tools run on their own: `.vscode/`, `.idea/`, `.devcontainer/`
   and `.envrc`.
+- Ovra's own project settings: `.ovra/`, whose `servers.json` holds the
+  commands a server start runs (`docs/specs/servers-and-browser.md`).
 
 Known gaps on Linux, left to the backstop below:
 
@@ -219,7 +221,8 @@ sandbox removes it again once the session and every process in it are
 gone, also when the session is killed; a folder that is no longer empty
 stays. A
 missing protected file (`.mcp.json`, `.envrc`, `CLAUDE.md` and the like)
-can still be created; the review backstop below covers it.
+can still be created; the review backstop below covers it. For now so can a
+missing `.ovra/`; task S.B makes it like the folders above.
 
 An agent that needs one of these changed says so in its summary, and the
 person makes the change. A protected path that is a link cannot be kept
