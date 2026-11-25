@@ -142,9 +142,9 @@ test("a hook asks before a write outside the project even when settings allow it
   const before = recorded();
   await open(page, dir);
   const trust = page.getByTestId("project-trust");
-  await trust.getByRole("button", { name: "Review and trust…" }).click();
-  await trust.getByTestId("trust-review").getByRole("button", { name: "Trust project" }).click();
-  await expect(trust.getByRole("heading")).toHaveText("Project settings: trusted");
+  await expect(trust.getByTestId("broad-rules")).toContainText("without asking you");
+  await trust.getByRole("button", { name: "Trust project" }).click();
+  await expect(trust.getByRole("heading")).toHaveText("Project settings are on");
 
   const session = await startSession(
     page,

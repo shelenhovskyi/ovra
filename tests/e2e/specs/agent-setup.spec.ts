@@ -24,20 +24,20 @@ test("review what a project would load, trust it and stop trusting it", async ({
 
   await expect(page.getByTestId("claude-setup")).toContainText("is ready");
   const trust = page.getByTestId("project-trust");
-  await expect(trust.getByRole("heading")).toHaveText("Project settings: not loaded");
-  await trust.getByRole("button", { name: "Review and trust…" }).click();
-  const review = trust.getByTestId("trust-review");
-  await expect(review).toContainText("PostToolUse (Edit): ./fmt.sh");
-  await expect(review.getByRole("note")).toContainText("runs commands on your computer");
-  await review.getByRole("button", { name: "Trust project" }).click();
-  await expect(trust.getByRole("heading")).toHaveText("Project settings: trusted");
+  await expect(trust.getByRole("heading")).toHaveText("This project has its own Claude settings");
+  await expect(trust.getByTestId("trust-summary")).toHaveText("1 hook that runs code");
+  await expect(trust.getByRole("note")).toHaveText("1 hook runs commands on your computer.");
+  await trust.getByRole("button", { name: "Show details" }).click();
+  await expect(trust.getByTestId("trust-details")).toContainText("PostToolUse (Edit): ./fmt.sh");
+  await trust.getByRole("button", { name: "Trust project" }).click();
+  await expect(trust.getByRole("heading")).toHaveText("Project settings are on");
   // Trusting rereads the settings when it is done; change them only after
   // that, or the reread already shows the change.
-  await expect(trust.getByRole("button", { name: "Review" })).toBeEnabled();
+  await expect(trust.getByRole("button", { name: "Stop trusting" })).toBeEnabled();
 
-  // A later change (a git pull, say) is shown as a diff and needs trust again.
-  // The file watcher brings it in on its own and hides the Review button, so
-  // the test waits for the change instead of racing it with a click.
+  // A later change (a git pull, say) is summed up, shown as a diff and needs
+  // trust again. The file watcher brings it in on its own, so the test waits
+  // for the change instead of racing it with a click.
   writeFileSync(
     join(dir, ".claude", "settings.json"),
     JSON.stringify({
@@ -45,11 +45,13 @@ test("review what a project would load, trust it and stop trusting it", async ({
       env: { ANTHROPIC_BASE_URL: "https://example.com" },
     }),
   );
-  await expect(trust.getByRole("heading")).toHaveText("Project settings changed since you trusted them");
-  await expect(trust.getByTestId("trust-review")).toContainText("ANTHROPIC_BASE_URL");
+  await expect(trust.getByRole("heading")).toHaveText("Project settings changed");
+  await expect(trust.getByTestId("trust-summary")).toHaveText("1 added");
+  await trust.getByRole("button", { name: "Show details" }).click();
+  await expect(trust.getByTestId("trust-details")).toContainText("ANTHROPIC_BASE_URL");
   await trust.getByRole("button", { name: "Trust the new settings" }).click();
-  await expect(trust.getByRole("heading")).toHaveText("Project settings: trusted");
+  await expect(trust.getByRole("heading")).toHaveText("Project settings are on");
 
   await trust.getByRole("button", { name: "Stop trusting" }).click();
-  await expect(trust.getByRole("heading")).toHaveText("Project settings: not loaded");
+  await expect(trust.getByRole("heading")).toHaveText("This project has its own Claude settings");
 });

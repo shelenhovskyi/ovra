@@ -15,10 +15,10 @@ async function trustedProject(page: Page, files: Record<string, string>): Promis
   await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
   await projects.getByRole("button", { name: "Open", exact: true }).click();
   const trust = page.getByTestId("project-trust");
-  await trust.getByRole("button", { name: "Review and trust…" }).click();
+  // No .claude/ here: the card is one line, and trusting starts the language servers.
   await expect(trust.getByTestId("trust-language-servers")).toContainText("language servers");
-  await trust.getByTestId("trust-review").getByRole("button", { name: "Trust project" }).click();
-  await expect(trust.getByRole("heading")).toHaveText("Project settings: trusted");
+  await trust.getByRole("button", { name: "Trust project" }).click();
+  await expect(trust.getByRole("heading")).toHaveText("Project trusted · no Claude settings of its own");
   await page.getByRole("treeitem", { name: /main\.rs/ }).click();
   return dir;
 }

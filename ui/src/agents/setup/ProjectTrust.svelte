@@ -1,24 +1,39 @@
 <script lang="ts">
 // Per-project trust. Until the user trusts a project, Claude runs with the
 // user's own settings only; trusting it also loads the project's .claude/
-// settings, hooks, agents, commands and skills. Hooks and helpers run
-// commands, so the card shows everything that would load before asking.
-// Settings that changed since (a git pull, say) do not load until the user
-// reviews what changed and trusts them again.
+// settings, hooks, agents, commands and skills. The card leads with counts
+// and the risky parts (rules that skip approvals, what runs code) in one or
+// two lines; the full lists sit behind "Show details". Settings that changed
+// since (a git pull, say) do not load until the user trusts them again.
 import { tick, untrack } from "svelte";
 import { registerCommand } from "../../keys/commands";
 import type { ProjectConfigReview } from "../../lib/protocol";
 import { CoreError } from "../../lib/transport";
 import { languageServers } from "../../lsp/servers.svelte";
 import { useOvra } from "../../shell/context";
-import { changes, KIND_LABELS, runsCode, touchesConfig, weight } from "./texts";
+import {
+  changeSummary,
+  changes,
+  groups,
+  KIND_LABELS,
+  type Row,
+  runsCode,
+  summary,
+  touchesConfig,
+  warnings,
+  weight,
+} from "./texts";
+
+/** Entries shown per file before "+N more". */
+const SHOWN = 5;
 
 const { transport, workspace } = useOvra();
 const lsp = languageServers(transport);
 let section = $state<HTMLElement>();
 
 let review = $state<ProjectConfigReview | null>(null);
-let reviewing = $state(false);
+let details = $state(false);
+let more = $state<Record<string, boolean>>({});
 let busy = $state(false);
 let error = $state<string | null>(null);
 // Answers can come back out of order: only the latest request's counts.
@@ -29,24 +44,56 @@ const changed = $derived(
   project?.trusted === true && review !== null && review.trusted?.fingerprint !== review.current.fingerprint,
 );
 const diff = $derived(changed && review?.trusted ? changes(review.trusted, review.current) : []);
-const items = $derived([...(review?.current.items ?? [])].sort((a, b) => weight(b.kind) - weight(a.kind)));
-// Rules that let Claude act without Ovra's approvals: new ones when the
-// settings changed, all of them otherwise.
-const broad = $derived(
+const items = $derived(review?.current.items ?? []);
+const empty = $derived(!changed && items.length === 0);
+// What the user is asked about: what was added when the settings changed, all of it otherwise.
+const risk = $derived(
   changed
-    ? diff.filter((c) => c.kind === "broad_allow_rules").flatMap((c) => c.added)
-    : items.filter((item) => item.kind === "broad_allow_rules").flatMap((item) => item.entries),
+    ? warnings(
+        diff.map((c) => ({ kind: c.kind, entries: c.added })),
+        true,
+      )
+    : warnings(items),
 );
-const risky = $derived(
-  changed ? diff.some((c) => runsCode(c.kind) && c.added.length > 0) : items.some((item) => runsCode(item.kind)),
+const counts = $derived(
+  changed
+    ? changeSummary(diff) ||
+        "The list is the same, but file contents changed (a hook script, a skill or an environment value, for example)."
+    : summary(items),
+);
+const shownGroups = $derived(
+  groups(
+    changed
+      ? diff.map((c) => ({
+          path: c.path,
+          kind: c.kind,
+          rows: [
+            ...c.added.map((text): Row => ({ text, sign: "added" })),
+            ...c.removed.map((text): Row => ({ text, sign: "removed" })),
+          ],
+        }))
+      : items.map((item) => ({ path: item.path, kind: item.kind, rows: item.entries.map((text) => ({ text })) })),
+  ),
 );
 const heading = $derived(
-  !project?.trusted
-    ? "Project settings: not loaded"
-    : changed
-      ? "Project settings changed since you trusted them"
-      : "Project settings: trusted",
+  changed
+    ? "Project settings changed"
+    : project?.trusted
+      ? empty
+        ? "Project trusted · no Claude settings of its own"
+        : "Project settings are on"
+      : empty
+        ? "No Claude settings in this project"
+        : "This project has its own Claude settings",
 );
+const lead = $derived(
+  changed
+    ? "Claude runs without them until you trust the changes."
+    : project?.trusted
+      ? "Claude uses this project's own commands, hooks and skills. If they change, Ovra asks again."
+      : "Trusting lets Claude use this project's own commands, hooks and skills, and starts language servers.",
+);
+const sandbox = $derived(lsp.status?.sandbox);
 
 // The language servers' footer links here: trusting is what starts them.
 $effect(() =>
@@ -54,10 +101,10 @@ $effect(() =>
     id: "projects.review_trust",
     title: "Review and trust this project",
     run: async () => {
-      if (!project?.trusted) await open();
+      details = true;
       await tick();
       section?.scrollIntoView({ block: "nearest" });
-      section?.querySelector<HTMLElement>("[data-testid=trust-review] button.primary, button")?.focus();
+      (section?.querySelector<HTMLElement>("button.primary") ?? section?.querySelector<HTMLElement>("button"))?.focus();
     },
   }),
 );
@@ -65,7 +112,8 @@ $effect(() =>
 $effect(() => {
   const id = project?.id;
   untrack(() => {
-    reviewing = false;
+    details = false;
+    more = {};
     review = null;
     error = null;
     if (id) void load(id);
@@ -74,10 +122,10 @@ $effect(() => {
 
 // Check again when changed settings matter (a session starts) and when they
 // may have changed: a review was decided, or files under .claude/ changed.
-// An untrusted project's settings show only while the user reviews them.
+// The summary is always on screen, so untrusted projects are re-read too.
 $effect(() =>
   transport.onEvent((event) => {
-    const id = project?.trusted || reviewing ? project?.id : undefined;
+    const id = project?.id;
     const matters =
       (event.type === "agents.status" && event.data.status.state === "starting") ||
       event.type === "review.changed" ||
@@ -101,159 +149,128 @@ async function load(id: string): Promise<void> {
   }
 }
 
-async function run(action: () => Promise<void>): Promise<void> {
-  if (busy) return;
-  busy = true;
-  error = null;
-  try {
-    await action();
-  } catch (err) {
-    error = text(err);
-  } finally {
-    busy = false;
-  }
-}
-
-function open(): Promise<void> {
-  const id = project?.id;
-  if (!id) return Promise.resolve();
-  return run(async () => {
-    await load(id);
-    reviewing = true;
-  });
-}
-
 function trust(trusted: boolean): Promise<void> {
   const id = project?.id;
+  // The settings the card shows: the core refuses them if they changed meanwhile.
   const fingerprint = review?.current.fingerprint;
-  if (!id) return Promise.resolve();
-  return run(async () => {
+  if (!id || busy) return Promise.resolve();
+  busy = true;
+  error = null;
+  return (async () => {
     try {
       const updated = await transport.call({
         method: "projects.trust",
         params: trusted ? { id, trusted, fingerprint } : { id, trusted },
       });
       if (workspace.project?.id === id) workspace.project = updated.data;
-      reviewing = false;
+      details = false;
+    } catch (err) {
+      error = text(err);
     } finally {
       // After a conflict this shows what changed meanwhile.
       await load(id);
+      busy = false;
     }
-  });
+  })();
 }
 </script>
 
-{#if project}
-  <section class="trust" class:changed aria-labelledby="trust-heading" data-testid="project-trust" bind:this={section}>
-    <div class="row">
-      <h3 id="trust-heading">{heading}</h3>
-      {#if !reviewing && !changed}
-        <button type="button" disabled={busy} onclick={open}>{project.trusted ? "Review" : "Review and trust…"}</button>
-      {/if}
-    </div>
-    <p class="detail">
-      {#if changed}
-        Sessions run without the project's .claude/ settings until you trust what changed.
-      {:else if project.trusted}
-        Claude loads this project's .claude/ settings, hooks, agents, commands and skills.
-      {:else}
-        Claude reads the project's CLAUDE.md but not its .claude/ settings, hooks, agents, commands or skills.
-      {/if}
-      Changes apply to sessions started afterwards.
-    </p>
-    {#if (changed || reviewing) && review && broad.length > 0}
-      <div class="broad" role="note" data-testid="broad-rules">
-        <strong>Ovra will stop asking before these.</strong>
-        The project allows {broad.join(", ")} without asking. {project.trusted && !changed ? "Now" : "Once you trust it"},
-        Claude runs such commands and edits right away; they do not reach your approvals.
+{#if project && (review || error)}
+  <section
+    class="trust"
+    class:changed
+    class:quiet={empty}
+    aria-labelledby="trust-heading"
+    data-testid="project-trust"
+    bind:this={section}
+  >
+    {#if empty}
+      <div class="row">
+        <h3 id="trust-heading">{heading}</h3>
+        <button type="button" class="link" class:primary={!project.trusted} disabled={busy} onclick={() => trust(!project.trusted)}>
+          {project.trusted ? "Stop trusting" : "Trust project"}
+        </button>
       </div>
-    {/if}
-    {#if changed && review}
-      <div class="review" data-testid="trust-review">
-        {#if diff.length === 0}
-          <p class="detail">
-            The summary is the same, but file contents changed (for example a hook script, a skill or an environment
-            value).
-          </p>
-        {:else}
-          {#if risky}
-            <p class="warning" role="note">Some of what was added runs commands on your computer.</p>
-          {/if}
-          <ul class="items">
-            {#each diff as change, n (n)}
-              <li data-kind={change.kind}>
-                <span class="kind">
-                  {KIND_LABELS[change.kind]}
-                  {#if runsCode(change.kind)}<strong>runs code</strong>{/if}
-                </span>
-                <span class="path">{change.path}</span>
-                <ul>
-                  {#each change.added as entry, m (m)}
-                    <li class="added"><span class="sign" aria-label="Added">+</span> <code>{entry}</code></li>
-                  {/each}
-                  {#each change.removed as entry, m (m)}
-                    <li class="removed"><span class="sign" aria-label="Removed">−</span> <code>{entry}</code></li>
-                  {/each}
-                </ul>
-              </li>
-            {/each}
-          </ul>
-        {/if}
-        <div class="row actions">
-          <button type="button" disabled={busy} onclick={() => trust(false)}>Stop trusting</button>
-          <button type="button" class="primary" disabled={busy} onclick={() => trust(true)}>Trust the new settings</button>
-        </div>
-      </div>
-    {:else if reviewing && review}
-      <div class="review" data-testid="trust-review">
-        <p class="detail" data-testid="trust-language-servers">
-          {project.trusted ? "Ovra starts" : "Trusting it also lets Ovra start"} language servers for the files you edit.
-          They run the project's code (build scripts, for example){lsp.status?.sandbox
-            ? ` in the sandbox (${lsp.status.sandbox}), which keeps them to the project and their cache, without network`
-            : ", without a sandbox on this computer"}.
-          Stop trusting stops them.
+      {#if !project.trusted}
+        <p data-testid="trust-language-servers">
+          Trusting it starts language servers, which run the project's code{sandbox
+            ? " in the sandbox"
+            : " without a sandbox on this computer"}.
         </p>
-        {#if items.length === 0}
-          <p class="detail">
-            This project has no Claude settings of its own yet. If you trust it and settings appear later (for example
-            after a git pull), Ovra asks again before they load.
-          </p>
-        {:else}
-          <p class="detail">
-            {project.trusted ? "Loaded" : "Trusting the project loads"} the following. If it changes later, Ovra asks again
-            before loading it.
-          </p>
-          {#if risky}
-            <p class="warning" role="note">Some of it runs commands on your computer.</p>
-          {/if}
-          <ul class="items">
-            {#each items as item, n (n)}
-              <li data-kind={item.kind}>
-                <span class="kind">
-                  {KIND_LABELS[item.kind]}
-                  {#if runsCode(item.kind)}<strong>runs code</strong>{/if}
-                </span>
-                <span class="path">{item.path}</span>
-                <ul>
-                  {#each item.entries as entry, m (m)}
-                    <li><code>{entry}</code></li>
-                  {/each}
-                </ul>
-              </li>
-            {/each}
-          </ul>
-        {/if}
-        <div class="row actions">
-          <button type="button" disabled={busy} onclick={() => (reviewing = false)}>Close</button>
+      {/if}
+    {:else}
+      <h3 id="trust-heading">{heading}</h3>
+      <p class="detail">{lead}</p>
+      <p data-testid="trust-summary">{counts}</p>
+      {#if risk.broad}
+        <p class="warning" role="note" data-testid="broad-rules">{risk.broad}</p>
+      {/if}
+      {#if risk.code}
+        <p class="warning" role="note" data-testid="trust-runs-code">{risk.code}</p>
+      {/if}
+      <div class="row">
+        <button
+          type="button"
+          class="link"
+          aria-expanded={details}
+          aria-controls="trust-details"
+          onclick={() => (details = !details)}>{details ? "Hide details" : "Show details"}</button
+        >
+        <span class="actions">
           {#if project.trusted}
             <button type="button" disabled={busy} onclick={() => trust(false)}>Stop trusting</button>
-          {:else}
+          {/if}
+          {#if changed}
+            <button type="button" class="primary" disabled={busy} onclick={() => trust(true)}>Trust the new settings</button>
+          {:else if !project.trusted}
             <button type="button" class="primary" disabled={busy} onclick={() => trust(true)}>Trust project</button>
           {/if}
-        </div>
+        </span>
       </div>
-    {:else if project.trusted}
-      <button type="button" class="link" disabled={busy} onclick={() => trust(false)}>Stop trusting</button>
+      {#if details}
+        <div id="trust-details" class="details" data-testid="trust-details">
+          <p class="detail" data-testid="trust-language-servers">
+            {project.trusted ? "Ovra starts" : "Trusting also lets Ovra start"} language servers for the files you edit.
+            They run the project's code (build scripts, for example){sandbox
+              ? ` in the sandbox (${sandbox}), which keeps them to the project and their cache, without network`
+              : ", without a sandbox on this computer"}. Stop trusting stops them.
+          </p>
+          <p class="detail">
+            {changed ? "Lines with + load once you trust them; lines with − no longer load." : ""}
+            Changes apply to sessions started afterwards.
+          </p>
+          {#each shownGroups as group (group.kind)}
+            <details class="group" data-kind={group.kind} open={weight(group.kind) > 0}>
+              <summary>
+                {KIND_LABELS[group.kind]}
+                {#if runsCode(group.kind)}<strong>runs code</strong>{/if}
+              </summary>
+              {#each group.files as file (file.path)}
+                {@const key = `${group.kind}\u0000${file.path}`}
+                {@const rows = more[key] ? file.rows : file.rows.slice(0, SHOWN)}
+                <div class="file">
+                  <span class="path">{file.path}</span>
+                  <ul>
+                    {#each rows as row, n (n)}
+                      <li class={row.sign}>
+                        {#if row.sign}<span class="sign" aria-label={row.sign === "added" ? "Added" : "Removed"}
+                            >{row.sign === "added" ? "+" : "−"}</span
+                          >{/if}
+                        <code>{row.text}</code>
+                      </li>
+                    {/each}
+                  </ul>
+                  {#if rows.length < file.rows.length}
+                    <button type="button" class="link" onclick={() => (more[key] = true)}
+                      >+{file.rows.length - rows.length} more</button
+                    >
+                  {/if}
+                </div>
+              {/each}
+            </details>
+          {/each}
+        </div>
+      {/if}
     {/if}
     {#if error}
       <p class="error" role="alert">{error}</p>
@@ -272,9 +289,17 @@ function trust(trusted: boolean): Promise<void> {
     gap: 4px;
     font-size: 12px;
   }
+  .trust.quiet {
+    border-color: transparent;
+    padding-block: 2px;
+    color: #9a9aa8;
+  }
   h3 {
     margin: 0;
     font-size: 12px;
+  }
+  .quiet h3 {
+    font-weight: normal;
   }
   .row {
     display: flex;
@@ -283,7 +308,8 @@ function trust(trusted: boolean): Promise<void> {
     gap: 8px;
   }
   .actions {
-    justify-content: flex-end;
+    display: flex;
+    gap: 6px;
   }
   p,
   ul {
@@ -293,11 +319,6 @@ function trust(trusted: boolean): Promise<void> {
   .path {
     color: #b4b4c0;
   }
-  .review {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
   .warning,
   strong {
     color: #ffd36b;
@@ -306,24 +327,28 @@ function trust(trusted: boolean): Promise<void> {
     margin-left: 4px;
     font-weight: 600;
   }
-  .items {
-    list-style: none;
-    padding: 0;
-    max-height: 30vh;
+  .details {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 40vh;
     overflow: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
   }
-  .items > li {
-    display: flex;
-    flex-direction: column;
+  summary {
+    cursor: pointer;
   }
-  .items ul {
+  .file {
     padding-left: 14px;
+    display: flex;
+    flex-direction: column;
+  }
+  .file ul {
+    list-style: none;
+    padding-left: 8px;
   }
   code {
     font-family: ui-monospace, monospace;
+    font-size: 11px;
     overflow-wrap: anywhere;
   }
   button {
@@ -350,7 +375,8 @@ function trust(trusted: boolean): Promise<void> {
     opacity: 0.55;
     cursor: default;
   }
-  button:focus-visible {
+  button:focus-visible,
+  summary:focus-visible {
     outline: 2px solid #7aa2ff;
     outline-offset: 1px;
   }
@@ -359,16 +385,6 @@ function trust(trusted: boolean): Promise<void> {
   }
   .trust.changed {
     border-color: #ffd36b;
-  }
-  .broad {
-    padding: 4px 6px;
-    border: 1px solid #ff8f8f;
-    border-radius: 3px;
-    color: #e6e6e6;
-  }
-  .broad strong {
-    margin-left: 0;
-    color: #ff8f8f;
   }
   .added .sign {
     color: #8fd18f;
