@@ -1,11 +1,10 @@
 <script lang="ts">
-// The window's top row: project, branch, a search field that opens the
-// palette, Reviews and More. In the desktop app on macOS it is the title bar
+// The window's top row: project, branch and a search field that opens the
+// palette (Reviews and More sit in the rail). In the desktop app on macOS it is the title bar
 // itself (`data-chrome="overlay"` on the root, set by the app): the traffic
 // lights sit on its left and its empty space drags the window.
 import AuditLog from "../audit/AuditLog.svelte";
 import BrowserButton from "../browser/BrowserButton.svelte";
-import Inbox from "../inbox/Inbox.svelte";
 import { listCommands } from "../keys/commands";
 import { formatShortcut, inBrowserTab, isApple, liveKeys } from "../keys/shortcut";
 import NetworkPanel from "../network/NetworkPanel.svelte";
@@ -13,7 +12,6 @@ import PolicyPanel from "../policy/PolicyPanel.svelte";
 import ServersPanel from "../servers/ServersPanel.svelte";
 import { useOvra } from "./context";
 import Icon from "./Icon.svelte";
-import MoreMenu from "./MoreMenu.svelte";
 import ProjectSwitcher from "./ProjectSwitcher.svelte";
 
 // Mod+K. The palette it opens lists files (projects on the start screen), not
@@ -89,10 +87,7 @@ function search(): void {
     <span class="label">{workspace.project ? "Go to file" : "Open a project"}</span>
     {#if keys}<kbd aria-hidden="true">{formatShortcut(keys, isApple())}</kbd>{/if}
   </button>
-  <span class="actions" data-tauri-drag-region>
-    <Inbox />
-    <MoreMenu />
-  </span>
+  <span class="end" data-tauri-drag-region></span>
   <!-- Opened from the "More" menu, the palette or their shortcuts. -->
   <AuditLog trigger={false} />
   <PolicyPanel trigger={false} />
@@ -152,7 +147,7 @@ function search(): void {
     font: 13px var(--mono);
   }
   .start,
-  .actions {
+  .end {
     display: flex;
     align-items: center;
     align-self: stretch;
@@ -193,10 +188,7 @@ function search(): void {
     background: var(--s3);
     border-radius: 5px;
   }
-  .actions {
-    justify-content: flex-end;
-    gap: 4px;
-  }
+
   .visually-hidden {
     position: absolute;
     width: 1px;

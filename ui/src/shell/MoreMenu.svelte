@@ -1,6 +1,6 @@
 <script lang="ts">
-// The header's "More" menu: the terminal and the panels a newcomer rarely needs, each with a
-// line on what it is for and its shortcut. An item runs the panel's own
+// The rail's "More" menu: the terminal and the panels a newcomer rarely needs, each
+// with its shortcut and, as a tooltip, what it is for. An item runs the panel's own
 // command and carries its name, so the menu, the palette and the shortcuts
 // open the same dialog under the same name. Arrow keys, Home, End and a first
 // letter move between items; Escape closes and gives focus back to the button.
@@ -30,7 +30,7 @@ const waiting = $derived(browsers.asks.length);
 let open = $state(false);
 let button = $state<HTMLButtonElement>();
 let menu = $state<HTMLElement>();
-/** Where the menu sits: under the button, right edges aligned (the header clips what overflows it). */
+/** Where the menu sits: beside the button, towards the window's middle. */
 let place = $state("");
 /** The panels' commands, read when the menu opens: their names and shortcuts. */
 let commands = $state<Command[]>([]);
@@ -50,12 +50,22 @@ function items(): HTMLElement[] {
 
 async function show(focus: "first" | "last"): Promise<void> {
   const at = button?.getBoundingClientRect();
-  place = at ? `top: ${at.bottom + 4}px; right: ${Math.max(0, window.innerWidth - at.right)}px;` : "";
+  place = at ? placeBeside(at) : "";
   commands = listCommands();
   open = true;
   await tick();
   const all = items();
   (focus === "first" ? all[0] : all[all.length - 1])?.focus();
+}
+
+function placeBeside(at: DOMRect): string {
+  const across =
+    at.left < window.innerWidth / 2
+      ? `left: ${at.right + 8}px;`
+      : `right: ${Math.max(0, window.innerWidth - at.left + 8)}px;`;
+  const down =
+    at.top < window.innerHeight / 2 ? `top: ${at.top}px;` : `bottom: ${Math.max(0, window.innerHeight - at.bottom)}px;`;
+  return `${across} ${down}`;
 }
 
 function close(refocus: boolean): void {
@@ -108,21 +118,23 @@ $effect(() => {
 </script>
 
 <div class="more">
+  <!-- Styled by the rail it sits in (`rail-button`, `tip`). -->
   <button
     type="button"
     id="more-button"
+    class="rail-button tip"
+    data-tip="More"
     data-testid="more"
     aria-haspopup="menu"
     aria-expanded={open}
     aria-controls={open ? "more-menu" : undefined}
     aria-label={waiting > 0 ? `More, ${waiting} waiting for you` : "More"}
-    title="More"
     bind:this={button}
     onclick={() => (open ? close(false) : void show("first"))}
     onkeydown={onButtonKeydown}
   >
-    <Icon name="more" />
-    {#if waiting > 0}<span class="badge" aria-hidden="true">{waiting}</span>{/if}
+    <Icon name="settings" />
+    {#if waiting > 0}<span class="rail-badge warn" aria-hidden="true">{waiting}</span>{/if}
   </button>
   {#if open}
     <div id="more-menu" class="menu" role="menu" aria-labelledby="more-button" tabindex="-1" style={place} bind:this={menu} onkeydown={onMenuKeydown}>
@@ -137,14 +149,13 @@ $effect(() => {
           aria-label={browser && waiting > 0 ? `${item.name}, ${waiting} waiting for you` : item.name}
           aria-describedby={`more-about-${item.id}`}
           aria-keyshortcuts={item.keys}
+          title={item.about}
           onclick={() => choose(item.command)}
         >
-          <span class="name">
-            {item.name}
-            {#if browser && waiting > 0}<span class="badge" aria-hidden="true">{waiting}</span>{/if}
-            {#if item.shown}<kbd aria-hidden="true">{item.shown}</kbd>{/if}
-          </span>
-          <span class="about" id={`more-about-${item.id}`}>{item.about}</span>
+          {item.name}
+          {#if browser && waiting > 0}<span class="badge" aria-hidden="true">{waiting}</span>{/if}
+          {#if item.shown}<kbd aria-hidden="true">{item.shown}</kbd>{/if}
+          <span class="visually-hidden" id={`more-about-${item.id}`}>{item.about}</span>
         </button>
       {/each}
     </div>
@@ -160,27 +171,10 @@ $effect(() => {
     color: var(--text);
     cursor: pointer;
   }
-  .more > button {
-    position: relative;
-    display: grid;
-    place-items: center;
-    width: 30px;
-    height: 30px;
-    padding: 0;
-    color: var(--text-2);
-    background: none;
-    border: 0;
-    border-radius: 7px;
-  }
-  .more > button:hover,
-  .more > button[aria-expanded="true"] {
-    color: var(--text);
-    background: var(--s3);
-  }
   .menu {
     position: fixed;
     z-index: 100;
-    min-width: 300px;
+    min-width: 240px;
     padding: 6px;
     background: var(--s4);
     border-radius: var(--radius);
@@ -188,8 +182,7 @@ $effect(() => {
   }
   .menu button {
     display: flex;
-    flex-direction: column;
-    align-items: flex-start;
+    align-items: center;
     width: 100%;
     padding: 7px 10px;
     text-align: left;
@@ -201,20 +194,19 @@ $effect(() => {
   .menu button:focus {
     background: var(--s3);
   }
-  .name {
-    display: flex;
-    align-items: center;
-    width: 100%;
-  }
   kbd {
     margin-left: auto;
     padding-left: 16px;
     font: 500 12px var(--font);
     color: var(--text-2);
   }
-  .about {
-    font-size: 13px;
-    color: var(--text-2);
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
   .badge {
     margin-left: 4px;
@@ -226,12 +218,10 @@ $effect(() => {
     background: var(--warn);
     border-radius: 8px;
   }
-  .more > button .badge {
-    position: absolute;
-    top: -2px;
-    right: -4px;
-    margin: 0;
+  .more > button .rail-badge.warn {
+    background: var(--warn);
   }
+
   @media (forced-colors: active) {
     .menu {
       border: 1px solid CanvasText;

@@ -28,7 +28,6 @@ import Tree from "../tree/Tree.svelte";
 import Viewer from "../viewers/Viewer.svelte";
 import { provideOvra } from "./context";
 import Icon from "./Icon.svelte";
-import type { IconName } from "./icons";
 import { rememberProject, restoreProject } from "./last-project";
 import { Layout, type Panel } from "./layout.svelte";
 import Rail from "./Rail.svelte";
@@ -47,10 +46,10 @@ const sessions = agentSessions(transport);
 // svelte-ignore state_referenced_locally
 const approvals = approvalQueue(transport);
 
-const VIEWS: Record<SidebarView, { name: string; icon: IconName }> = {
-  files: { name: "Files", icon: "files" },
-  search: { name: "Search", icon: "search" },
-  git: { name: "Git", icon: "branch" },
+const VIEWS: Record<SidebarView, { name: string }> = {
+  files: { name: "Files" },
+  search: { name: "Search" },
+  git: { name: "Git" },
 };
 
 let info = $state<CoreInfo | null>(null);
@@ -138,22 +137,40 @@ const folded = $derived({
   agents: layout.agents.collapsed && approvals.pending.length === 0,
 });
 
-/** The grid's tracks and areas; narrow windows replace them in the stylesheet. */
+/** The start screen has no Agents column, unless a request of an earlier project waits there. */
+const solo = $derived(!workspace.project && approvals.pending.length === 0);
+
+/**
+ * The grid's tracks and areas; narrow windows replace them in the stylesheet.
+ * The rail sits on the edge of its panel's side, and a folded rail's panel
+ * leaves no strip: the rail's buttons unfold it.
+ */
 const grid = $derived.by(() => {
   const left = layout.left;
   const right: Panel = left === "side" ? "agents" : "side";
-  const track = (panel: Panel) => (folded[panel] ? "48px" : `minmax(0, ${layout[panel].width}px)`);
+  const track = (panel: Panel) =>
+    folded[panel] ? (panel === "side" ? "0" : "48px") : `minmax(0, ${layout[panel].width}px)`;
   const handle = (panel: Panel) => (folded[panel] ? "0" : "8px");
   const main = "minmax(320px, 1fr)";
   let tracks = `${track(left)} ${handle(left)} ${main} ${handle(right)} ${track(right)}`;
   let row = `${left} ${left}-handle main ${right}-handle ${right}`;
   if (!workspace.project) {
-    // The start screen: the project list takes the main area's place.
-    tracks =
-      left === "side" ? `0 0 ${main} ${handle(right)} ${track(right)}` : `${track(left)} ${handle(left)} ${main} 0 0`;
-    row = left === "side" ? "side side side agents-handle agents" : "agents agents-handle side side side";
+    // The start screen: the start page takes the main area's place, and there is no rail.
+    tracks = solo
+      ? `0 0 ${main} 0 0`
+      : left === "side"
+        ? `0 0 ${main} ${handle(right)} ${track(right)}`
+        : `${track(left)} ${handle(left)} ${main} 0 0`;
+    row = solo
+      ? "side side side side side"
+      : left === "side"
+        ? "side side side agents-handle agents"
+        : "agents agents-handle side side side";
+    return `--tracks: 0 ${tracks}; --row: "rail ${row}";`;
   }
-  return `--tracks: 52px ${tracks}; --row: "rail ${row}";`;
+  return layout.left === "side"
+    ? `--tracks: 52px ${tracks}; --row: "rail ${row}";`
+    : `--tracks: ${tracks} 52px; --row: "${row} rail";`;
 });
 
 const PANELS: Panel[] = ["side", "agents"];
@@ -181,17 +198,10 @@ function edge(panel: Panel): "left" | "right" {
 {/snippet}
 
 <Keybindings />
-<div class="shell" class:start={!workspace.project} style={grid}>
+<div class="shell" class:start={!workspace.project} class:solo class:rail-right={layout.swapped} style={grid}>
   <div class="title-area"><TitleBar /></div>
   <div class="rail-area"><Rail {layout} /></div>
   <aside class="panel side" data-testid="sidebar" aria-label={workspace.project ? view.name : "Projects"}>
-    {#if folded.side}
-      <div class="strip">
-        <button type="button" title={`Show ${view.name}`} aria-label={`Show ${view.name}`} onclick={() => layout.setCollapsed("side", false)}
-          ><Icon name={view.icon} /></button
-        >
-      </div>
-    {/if}
     <div class="body" class:own-head={workspace.sidebar === "files"} hidden={folded.side}>
       <!-- The file tree draws its own header; Search and Git get one here. -->
       {#if workspace.project}
@@ -265,8 +275,8 @@ function edge(panel: Panel): "left" | "right" {
       </div>
     </div>
   </aside>
+  <!-- The connection on the left; what runs for the open project on the right. -->
   <footer>
-    <LanguageServers />
     <span
       class="status"
       data-testid="status"
@@ -274,6 +284,7 @@ function edge(panel: Panel): "left" | "right" {
       class:error={!status.ok}
       title={info ? `${info.name} ${info.version} (${info.mode})` : undefined}>{status.text}</span
     >
+    <span class="footer-end"><LanguageServers /></span>
   </footer>
   <Notifications />
   {#if connection === "refused"}
@@ -336,6 +347,12 @@ function edge(panel: Panel): "left" | "right" {
   .start .side {
     background: var(--s1);
   }
+  .start .rail-area,
+  .solo .agents,
+  .solo .agents-handle {
+    display: none;
+  }
+
   .body {
     display: flex;
     flex: 1;
@@ -494,8 +511,14 @@ function edge(panel: Panel): "left" | "right" {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    margin-left: auto;
     white-space: nowrap;
+  }
+  .footer-end {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    margin-left: auto;
+    min-width: 0;
   }
   .status::before {
     content: "";
@@ -550,8 +573,15 @@ function edge(panel: Panel): "left" | "right" {
     .shell.start {
       grid-template-areas:
         "title title title"
-        "rail side side"
-        "rail agents agents"
+        "side side side"
+        "agents agents agents"
+        "footer footer footer";
+    }
+    .shell.solo {
+      grid-template-rows: 44px minmax(0, 1fr) 28px;
+      grid-template-areas:
+        "title title title"
+        "side side side"
         "footer footer footer";
     }
     .handle {
@@ -576,9 +606,25 @@ function edge(panel: Panel): "left" | "right" {
         "agents"
         "footer";
     }
+    .shell.start {
+      grid-template-rows: 44px minmax(320px, auto) minmax(200px, 40vh) 28px;
+      grid-template-areas:
+        "title"
+        "side"
+        "agents"
+        "footer";
+    }
+    .shell.solo {
+      grid-template-rows: 44px minmax(320px, auto) 28px;
+      grid-template-areas:
+        "title"
+        "side"
+        "footer";
+    }
     .rail-area > :global(nav) {
       flex-direction: row;
       padding: 0 8px;
     }
   }
+
 </style>

@@ -42,20 +42,24 @@ test("side panels resize, fold and swap, and the layout survives a reload", asyn
   await expect(handle).toHaveAttribute("aria-valuenow", "316");
   expect(Math.round((await sidebar.boundingBox())?.width ?? 0)).toBe(316);
 
-  // Swap sides, then fold Files to a strip. (Agents is not folded here: it
-  // unfolds while any project's request waits, and other specs make some.)
+  // Swap sides: the rail goes with Files. Then fold Files: no strip, the
+  // rail unfolds it. (Agents is not folded here: it unfolds while any
+  // project's request waits, and other specs make some.)
   const agents = page.getByTestId("agents");
+  const rail = page.getByRole("navigation", { name: "Views" });
+  const files = rail.getByRole("button", { name: "Files", exact: true });
   await sidebar.getByRole("button", { name: "Move Files to the other side" }).click();
   expect((await agents.boundingBox())?.x ?? 0).toBeLessThan((await sidebar.boundingBox())?.x ?? 0);
+  expect((await rail.boundingBox())?.x ?? 0).toBeGreaterThan((await sidebar.boundingBox())?.x ?? 0);
   await sidebar.getByRole("button", { name: "Collapse Files" }).click();
-  await expect(sidebar.getByRole("button", { name: "Show Files" })).toBeVisible();
-  expect(Math.round((await sidebar.boundingBox())?.width ?? 0)).toBe(48);
+  await expect(files).toHaveAttribute("aria-pressed", "false");
+  expect(Math.round((await sidebar.boundingBox())?.width ?? 0)).toBe(0);
 
   await page.reload();
-  await expect(sidebar.getByRole("button", { name: "Show Files" })).toBeVisible();
-  expect((await agents.boundingBox())?.x ?? 0).toBeLessThan((await sidebar.boundingBox())?.x ?? 0);
-  // The rail's Files button unfolds it too, at the width it had.
-  await page.getByRole("button", { name: "Files", exact: true }).click();
+  await expect(files).toHaveAttribute("aria-pressed", "false");
+  expect((await agents.boundingBox())?.x ?? 0).toBeLessThan((await rail.boundingBox())?.x ?? 0);
+  // The rail's Files button unfolds it, at the width it had.
+  await files.click();
   await expect(page.getByRole("separator", { name: "Resize Files" })).toHaveAttribute("aria-valuenow", "316");
 });
 

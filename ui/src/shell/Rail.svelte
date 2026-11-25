@@ -1,12 +1,15 @@
 <script lang="ts">
-// The icon rail on the window's left edge: what the side panel shows (Files,
-// Search, Git) and the terminal. Pressing the shown view again folds the
-// panel; another view unfolds it.
+// The icon rail beside the rail's panel: what that panel shows (Files,
+// Search, Git), and at the bottom the terminal, Reviews and More. Pressing
+// the shown view again folds the panel; another view unfolds it. The shell
+// moves the rail to the right edge when the panel goes there.
+import Inbox from "../inbox/Inbox.svelte";
 import { listCommands } from "../keys/commands";
 import { useOvra } from "./context";
 import Icon from "./Icon.svelte";
 import type { IconName } from "./icons";
 import type { Layout } from "./layout.svelte";
+import MoreMenu from "./MoreMenu.svelte";
 import type { SidebarView } from "./workspace.svelte";
 
 let { layout }: { layout: Layout } = $props();
@@ -30,25 +33,40 @@ function run(id: string): void {
     .find((c) => c.id === id)
     ?.run();
 }
+
+/** A press hides the pressed button's tooltip until the pointer leaves it, so it never covers what opened. */
+function hush(event: PointerEvent): void {
+  const button = (event.target as Element | null)?.closest<HTMLElement>(".tip");
+  if (!button) return;
+  button.dataset.hush = "";
+  button.addEventListener("pointerleave", () => delete button.dataset.hush, { once: true });
+}
 </script>
 
-<nav class="rail" aria-label="Views">
+<!-- The press only hides a tooltip; the buttons inside do the work. -->
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+<nav class="rail" aria-label="Views" onpointerdown={hush}>
   {#if workspace.project}
     {#each VIEWS as view (view.id)}
       <button
         type="button"
-        class="tip"
+        class="rail-button tip"
         data-tip={view.name}
         aria-label={view.name}
         aria-pressed={workspace.sidebar === view.id && !layout.side.collapsed}
         onclick={() => choose(view.id)}><Icon name={view.icon} /></button
       >
     {/each}
-    <span class="grow"></span>
-    <button type="button" class="tip" data-tip="Terminal" aria-label="Terminal" onclick={() => run("terminal.toggle")}
+  {/if}
+  <span class="grow"></span>
+  {#if workspace.project}
+    <button type="button" class="rail-button tip" data-tip="Terminal" aria-label="Terminal" onclick={() => run("terminal.toggle")}
       ><Icon name="terminal" /></button
     >
   {/if}
+  <!-- Mounted with or without a project: their shortcuts and dialogs work everywhere. -->
+  <Inbox />
+  <MoreMenu />
 </nav>
 
 <style>
@@ -62,7 +80,8 @@ function run(id: string): void {
   .grow {
     flex: 1;
   }
-  button {
+  /* Rail buttons, Reviews' and More's included: they carry the class. */
+  .rail :global(.rail-button) {
     position: relative;
     display: grid;
     place-items: center;
@@ -75,19 +94,34 @@ function run(id: string): void {
     border-radius: 9px;
     cursor: pointer;
   }
-  button:hover {
+  .rail :global(.rail-button:hover),
+  .rail :global(.rail-button[aria-expanded="true"]) {
     color: var(--text);
     background: var(--s3);
   }
-  button[aria-pressed="true"] {
+  .rail :global(.rail-button[aria-pressed="true"]) {
     color: var(--text);
     background: var(--s2);
   }
-  /* Tooltips: the button's name to its right, on hover or keyboard focus. */
-  .tip::after {
+  /* A count on a rail button (reviews waiting, browser requests). */
+  .rail :global(.rail-badge) {
+    position: absolute;
+    top: 1px;
+    right: 0;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    font: 600 12px / 16px var(--font);
+    text-align: center;
+    color: var(--accent-ink);
+    background: var(--accent);
+    border-radius: 8px;
+  }
+  /* Tooltips: the button's name beside it, after a short hover or on keyboard focus; a press hides it. */
+  .rail :global(.tip::after) {
     content: attr(data-tip);
     position: absolute;
-    left: calc(100% + 10px);
+    left: calc(100% + 8px);
     top: 50%;
     z-index: 50;
     padding: 4px 9px;
@@ -102,17 +136,29 @@ function run(id: string): void {
     pointer-events: none;
     transition: opacity 0.12s;
   }
-  .tip:hover::after,
-  .tip:focus-visible::after {
+  /* On the right edge the tooltip opens to the left. */
+  :global(.rail-right) .rail :global(.tip::after) {
+    left: auto;
+    right: calc(100% + 8px);
+  }
+  .rail :global(.tip:hover::after) {
+    opacity: 1;
+    transition-delay: 0.3s;
+  }
+  .rail :global(.tip:focus-visible::after) {
     opacity: 1;
   }
+  .rail :global(.tip[data-hush]::after) {
+    opacity: 0;
+    transition: none;
+  }
   @media (prefers-reduced-motion: reduce) {
-    .tip::after {
+    .rail :global(.tip::after) {
       transition: none;
     }
   }
   @media (forced-colors: active) {
-    button[aria-pressed="true"] {
+    .rail :global(.rail-button[aria-pressed="true"]) {
       outline: 2px solid Highlight;
       outline-offset: -2px;
     }

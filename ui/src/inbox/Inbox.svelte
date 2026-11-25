@@ -1,5 +1,5 @@
 <script lang="ts">
-// The review inbox: agents' changes waiting for a person. A header button
+// The review inbox: agents' changes waiting for a person. A rail button
 // (and Mod+Shift+R, Alt+Shift+R in a browser tab) opens a dialog with the
 // project's review items, the files of the chosen one and that file's diff.
 // Approve, reject and comment are always a person's press; nothing here
@@ -500,17 +500,20 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
 }
 </script>
 
+<!-- Styled by the rail it sits in (`rail-button`, `tip`). -->
 <button
   type="button"
-  class="open-inbox"
+  class="rail-button tip open-inbox"
   class:asked
   data-testid="inbox-button"
+  data-tip={`Reviews ${shortcut}`}
+  aria-label={inbox.waiting.length > 0 ? `Reviews, ${inbox.waiting.length} waiting` : "Reviews"}
   aria-keyshortcuts={liveKeys(KEYS, inBrowserTab()).replace("Mod", isApple() ? "Meta" : "Control")}
   aria-haspopup="dialog"
-  title="Review inbox ({shortcut})"
   onclick={toggle}
 >
-  Reviews{#if inbox.waiting.length > 0}{" "}<span class="count">({inbox.waiting.length} waiting)</span>{/if}
+  <Icon name="review" />
+  {#if inbox.waiting.length > 0}<span class="rail-badge" aria-hidden="true">{inbox.waiting.length}</span>{/if}
 </button>
 <span class="visually-hidden" aria-live="polite" data-testid="inbox-asked"
   >{asked ? `An agent asks you to review its changes. Open the review inbox with ${shortcut}.` : ""}</span
@@ -894,17 +897,7 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
   button:hover {
     background: var(--s4);
   }
-  /* The header's button: quiet until an agent asks. */
-  .open-inbox {
-    margin-left: auto;
-    padding: 3px 10px;
-    color: var(--text-2);
-    background: transparent;
-  }
-  .open-inbox:hover {
-    color: var(--text);
-    background: var(--s3);
-  }
+  /* The rail's button: quiet until an agent asks. */
   .open-inbox.asked {
     color: var(--text);
     background: var(--warn-soft);
@@ -914,9 +907,7 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
     opacity: 0.55;
     cursor: default;
   }
-  .count {
-    color: var(--warn);
-  }
+
   .backdrop {
     position: fixed;
     inset: 0;

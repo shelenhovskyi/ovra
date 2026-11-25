@@ -148,14 +148,19 @@ describe("Shell", () => {
       return { target, more, menu, items };
     }
 
-    it("keeps Reviews in the header and the other panels behind More, each explained", () => {
+    it("keeps Reviews and More in the rail and the other panels behind More, each explained", () => {
       const { target, more, menu, items } = shell();
-      const actions = target.querySelector("header .actions");
-      expect(
-        [...(actions?.querySelectorAll(":scope > button, :scope > .more > button") ?? [])].map(
-          (b) => b.getAttribute("aria-label") ?? b.textContent?.trim(),
-        ),
-      ).toEqual([expect.stringMatching(/^Reviews/), "More"]);
+      const rail = target.querySelector("nav[aria-label=Views]");
+      expect([...(rail?.querySelectorAll("button") ?? [])].map((b) => b.getAttribute("aria-label"))).toEqual([
+        "Reviews",
+        "More",
+      ]);
+      // A press hides the tooltip until the pointer leaves.
+      more?.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+      expect(more?.hasAttribute("data-hush")).toBe(true);
+      more?.dispatchEvent(new PointerEvent("pointerleave"));
+      expect(more?.hasAttribute("data-hush")).toBe(false);
+
       expect(target.querySelector("[data-testid=open-audit], [data-testid=open-browser]")).toBeNull();
       expect(target.querySelector("[data-testid=project-name]")?.textContent).toBe("No project open");
       expect(more?.getAttribute("aria-haspopup")).toBe("menu");

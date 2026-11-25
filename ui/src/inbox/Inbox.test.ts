@@ -72,7 +72,7 @@ describe("Inbox", () => {
       review("r1", { files: [change("README.md"), change("notes.md", { by: "outside" })] }),
       review("r2", { session: "s2", mode: "isolated", files: [change("src/a.ts", { blocked: true })] }),
     ]);
-    expect($("[data-testid=inbox-button]")?.textContent).toContain("(2 waiting)");
+    expect($("[data-testid=inbox-button]")?.getAttribute("aria-label")).toBe("Reviews, 2 waiting");
     await open();
     expect($("[role=dialog]")?.getAttribute("aria-modal")).toBe("true");
     expect(document.activeElement?.getAttribute("data-item")).toBe("r1");
@@ -171,7 +171,7 @@ describe("Inbox", () => {
         git_unchecked: true,
       }),
     ]);
-    expect($("[data-testid=inbox-button]")?.textContent).toContain("(1 waiting)");
+    expect($("[data-testid=inbox-button]")?.getAttribute("aria-label")).toBe("Reviews, 1 waiting");
     await open();
     expect($("[data-item=r1] [data-testid=item-git]")?.textContent).toBe("1 git hook or config file changed");
     expect($("[data-item=r1]")?.textContent).toContain("No changed files");

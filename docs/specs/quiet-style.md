@@ -52,11 +52,12 @@ tone instead of lines, and chrome that appears only when needed.
 ## Layout
 
 - **Title bar.** No separate app header. In the desktop app the window uses an
-  overlay title bar: project switcher, branch, a search field (Mod+K opens the
-  palette), Reviews and More sit next to the traffic lights; empty space drags
-  the window. In headless mode the same bar is the top row of the page.
-- **Icon rail** on the far left: Files, Search, Git, Terminal; Reviews and
-  settings at the bottom; badges for counts.
+  overlay title bar: project switcher, branch and a search field (Mod+K opens
+  the palette) sit next to the traffic lights; empty space drags the window.
+  In headless mode the same bar is the top row of the page.
+- **Icon rail** on the edge of its panel's side (the far left unless the
+  panels are swapped): Files, Search, Git; Terminal, Reviews and More
+  (settings) at the bottom; badges for counts. Hidden on the start screen.
 - **Side panels** (the rail's panel, and Agents) resize by dragging a handle
   between 180 and 460 px (arrow keys on a focused handle, double-click resets),
   collapse to a 48 px strip with one icon (the Agents strip shows how many
