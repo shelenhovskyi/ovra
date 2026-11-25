@@ -18,6 +18,9 @@ notify = "8"
 tokio = { workspace = true, features = ["rt"] }
 trash = "5"
 
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1", features = ["fs"] }
+
 [dev-dependencies]
 ovra-core = { workspace = true, features = ["fakes"] }
 insta.workspace = true

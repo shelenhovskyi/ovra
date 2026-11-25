@@ -8,8 +8,11 @@
 //!
 //! The checks run just before the change. A parent that another process
 //! swaps for a symlink in between is not detected, as elsewhere in this
-//! crate; files are created with `create_new`, so at least the last
-//! component is never followed or replaced.
+//! crate (`docs/specs/security.md`, "File operations"). The last component
+//! is never followed or replaced: files are created with `create_new`,
+//! renames refuse to replace where the OS can, and a copy opens each source
+//! without following links and refuses one that changed since it was looked
+//! at.
 
 use std::fmt;
 use std::fs::{self, File, OpenOptions};
@@ -173,9 +176,27 @@ pub(crate) fn rename(root: &Path, from: &RelPath, to: &RelPath) -> Result<()> {
     let target = vacant(root, to)?;
     not_inside(&source, &target)?;
     make_parents(&target, to)?;
-    // Check, then rename: there is no portable rename that refuses to
-    // replace, so a file created at `to` since `vacant` would be replaced.
-    fs::rename(&source, &target).map_err(|e| io_error(from, &e))
+    rename_new(&source, &target).map_err(|e| match e.kind() {
+        io::ErrorKind::AlreadyExists => conflict(to),
+        _ => io_error(from, &e),
+    })
+}
+
+/// Renames without replacing: `renameat2(RENAME_NOREPLACE)` on Linux,
+/// `renamex_np(RENAME_EXCL)` on macOS. Elsewhere, or on a file system
+/// without it, a plain rename follows `vacant`'s check, so a file created
+/// at `target` in between would be replaced.
+fn rename_new(source: &Path, target: &Path) -> io::Result<()> {
+    #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
+    {
+        use rustix::fs::{CWD, RenameFlags, renameat_with};
+        use rustix::io::Errno;
+        match renameat_with(CWD, source, CWD, target, RenameFlags::NOREPLACE) {
+            Err(Errno::INVAL | Errno::NOSYS | Errno::NOTSUP) => {}
+            done => return done.map_err(io::Error::from),
+        }
+    }
+    fs::rename(source, target)
 }
 
 pub(crate) fn copy(root: &Path, from: &RelPath, to: &RelPath) -> Result<()> {
@@ -197,6 +218,7 @@ fn copy_entry(from: &Path, to: &Path) -> io::Result<()> {
     if kind.is_symlink() {
         copy_link(from, to)
     } else if kind.is_dir() {
+        check_dir(from, &meta)?;
         fs::create_dir(to)?;
         for entry in fs::read_dir(from)? {
             let entry = entry?;
@@ -205,7 +227,7 @@ fn copy_entry(from: &Path, to: &Path) -> io::Result<()> {
         // Last, so a read-only folder still gets its children.
         fs::set_permissions(to, meta.permissions())
     } else if kind.is_file() {
-        let mut source = File::open(from)?;
+        let mut source = open_file(from, &meta)?;
         let mut target = OpenOptions::new().write(true).create_new(true).open(to)?;
         io::copy(&mut source, &mut target)?;
         target.set_permissions(meta.permissions())
@@ -215,6 +237,54 @@ fn copy_entry(from: &Path, to: &Path) -> io::Result<()> {
             format!("{} is not a file, folder or link", from.display()),
         ))
     }
+}
+
+/// Opens `path` without following a link, non-blocking (a FIFO swapped in
+/// does not hang), and refuses it unless it is still the entry `meta`
+/// describes.
+#[cfg(unix)]
+fn open_unchanged(path: &Path, meta: &fs::Metadata, dir: bool) -> io::Result<File> {
+    use std::os::unix::fs::MetadataExt;
+
+    use rustix::fs::{Mode, OFlags};
+    let kind = if dir {
+        OFlags::DIRECTORY
+    } else {
+        OFlags::NONBLOCK
+    };
+    let flags = OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC | kind;
+    let file = File::from(rustix::fs::open(path, flags, Mode::empty())?);
+    let now = file.metadata()?;
+    if (now.dev(), now.ino()) != (meta.dev(), meta.ino()) {
+        return Err(io::Error::other(format!(
+            "{} changed while it was copied",
+            path.display()
+        )));
+    }
+    Ok(file)
+}
+
+/// The file `meta` describes, opened for reading.
+#[cfg(unix)]
+fn open_file(path: &Path, meta: &fs::Metadata) -> io::Result<File> {
+    open_unchanged(path, meta, false)
+}
+
+/// Refuses a folder swapped (for a link, say) since `meta` was read, just
+/// before it is listed.
+#[cfg(unix)]
+fn check_dir(path: &Path, meta: &fs::Metadata) -> io::Result<()> {
+    open_unchanged(path, meta, true).map(drop)
+}
+
+#[cfg(not(unix))]
+fn open_file(path: &Path, _: &fs::Metadata) -> io::Result<File> {
+    File::open(path)
+}
+
+#[cfg(not(unix))]
+fn check_dir(_: &Path, _: &fs::Metadata) -> io::Result<()> {
+    Ok(())
 }
 
 #[cfg(unix)]

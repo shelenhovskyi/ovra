@@ -81,6 +81,21 @@ fn renames_and_moves_into_new_folders() {
     assert_eq!(read(&root.join("src/lib/b.txt")), "a");
 }
 
+/// A file created at the target after `vacant` looked is not replaced.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn a_rename_never_replaces_what_appeared_since_the_check() {
+    let (_tmp, root, _) = project();
+    fs::write(root.join("late.txt"), "late").expect("write");
+    let raced = rename_new(&root.join("src/a.txt"), &root.join("late.txt"));
+    assert_eq!(
+        raced.expect_err("refused").kind(),
+        io::ErrorKind::AlreadyExists
+    );
+    assert_eq!(read(&root.join("late.txt")), "late");
+    assert_eq!(read(&root.join("src/a.txt")), "a");
+}
+
 #[test]
 fn copies_files_and_trees() {
     let (_tmp, root, _) = project();
@@ -237,6 +252,47 @@ mod links {
         trash(&root, &[rel("m")], &fake).expect("trash link");
         let real = fs::canonicalize(&root).expect("canonical");
         assert_eq!(*seen.lock().expect("lock"), [real.join("m")]);
+    }
+
+    #[test]
+    fn a_copy_refuses_a_source_swapped_since_it_was_looked_at() {
+        let (_tmp, root, out) = project();
+        let src = root.join("src");
+        let dir = fs::symlink_metadata(&src).expect("meta");
+        let file = fs::symlink_metadata(src.join("a.txt")).expect("meta");
+        check_dir(&src, &dir).expect("unchanged folder");
+        open_file(&src.join("a.txt"), &file).expect("unchanged file");
+
+        // A folder or file swapped for a link, or for another one.
+        symlink(&src, root.join("link")).expect("symlink");
+        symlink(src.join("a.txt"), root.join("file-link")).expect("symlink");
+        assert!(check_dir(&root.join("link"), &dir).is_err());
+        assert!(open_file(&root.join("file-link"), &file).is_err());
+        assert!(check_dir(&out, &dir).is_err());
+        assert!(check_dir(&src.join("a.txt"), &file).is_err());
+        assert!(open_file(&out.join("secret.txt"), &file).is_err());
+    }
+
+    #[test]
+    fn a_tree_with_a_socket_or_fifo_is_not_copied() {
+        let (_tmp, root, _) = project();
+        let socket = std::os::unix::net::UnixListener::bind(root.join("src/s.sock"));
+        drop(socket.expect("socket"));
+        let copied = copy(&root, &rel("src"), &rel("src2"));
+        assert_eq!(code(copied), ErrorCode::BadRequest);
+
+        #[cfg(target_os = "linux")]
+        {
+            use rustix::fs::{CWD, FileType, Mode};
+            fs::remove_file(root.join("src/s.sock")).expect("remove");
+            let fifo = root.join("src/f");
+            rustix::fs::mknodat(CWD, &fifo, FileType::Fifo, Mode::RUSR, 0).expect("fifo");
+            let copied = copy(&root, &rel("src"), &rel("src3"));
+            assert_eq!(code(copied), ErrorCode::BadRequest);
+            // Opened in place of a file, a FIFO neither hangs nor passes.
+            let file = fs::symlink_metadata(root.join("src/a.txt")).expect("meta");
+            assert!(open_file(&fifo, &file).is_err());
+        }
     }
 
     #[test]

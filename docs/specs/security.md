@@ -622,6 +622,20 @@ pub enum AuditOrder { OldestFirst, NewestFirst } // OldestFirst by default
   in-memory fake. Writing entries from the core, the store and the viewer
   are 4.E.
 
+## File operations
+
+Creating, renaming, copying and trashing (`ovra-fs-index`, `edit`) check
+each path's parent just before the change: it must resolve inside the
+project and outside `.git`. The last component is never followed or
+replaced: new files use `create_new`, renames use `RENAME_NOREPLACE`
+(Linux) or `RENAME_EXCL` (macOS), and a copy opens every source file and
+folder with `O_NOFOLLOW` and refuses one whose device and inode changed
+since it was looked at. One race is accepted for now: a direct-mode agent
+that swaps a parent folder for a symlink between the check and the change
+can redirect it outside the project. The full fix is resolving every path
+relative to the root's handle (`openat2` with `RESOLVE_BENEATH`, or
+`cap-std`), a later task.
+
 ## Tests
 
 - Unit and integration tests use the fake sandbox and the fake netproxy, as
