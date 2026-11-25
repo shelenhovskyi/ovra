@@ -24,7 +24,9 @@ over and picks elements in. Options (research, 2026-11-25):
   downloaded (as ADR 0006 does for `claude`), started through the
   `Sandbox` with the session's netproxy as its only way out, a fresh
   profile, and control over `--remote-debugging-pipe` only.
-- `crates/browser` implements a `Browser` service with `chromiumoxide`.
+- `crates/browser` implements a `Browser` service with a small CDP client
+  of its own over the pipe. `chromiumoxide` speaks CDP only over a
+  WebSocket, which needs a debugging port, and brings about 140 crates.
 - The UI draws the screencast and Ovra's own pick overlay in a panel; the
   page never runs Ovra code and Ovra's UI never runs in the page.
 - Agents get Playwright-style tools (accessibility snapshot with refs) but
@@ -37,4 +39,7 @@ over and picks elements in. Options (research, 2026-11-25):
 - The browser works in headless mode and in cloud containers.
 - Without an installed Chromium the panel says how to install one.
 - Linux first, like the servers (ADR 0008).
-- A new crate, `crates/browser`, with a permissive dependency.
+- A new crate, `crates/browser`, with no new dependency beyond `base64`.
+- Chromium's own sandbox cannot run inside Ovra's (no user namespaces, no
+  setuid helper under `no_new_privs`), so it runs with `--no-sandbox` and
+  Ovra's sandbox holds all of its processes.

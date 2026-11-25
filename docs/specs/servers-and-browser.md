@@ -321,8 +321,7 @@ call is decided as today.
 `Browser` in `services.rs`, implemented by `crates/browser` with a small
 CDP client of its own over the pipe (tokio and serde_json): `chromiumoxide`
 (0.9) speaks CDP only over a WebSocket, which needs a debugging port, and
-brings about 140 crates. This differs from ADR 0009, which names
-`chromiumoxide`; the owner decides whether the ADR changes. Tests use a
+brings about 140 crates (ADR 0009). Tests use a
 scripted CDP peer; no real Chromium in `just test`. One opt-in smoke test
 (`just browser-live [path]`) runs the real one, without the sandbox.
 
