@@ -318,10 +318,40 @@ call is decided as today.
 
 ### Service
 
-`Browser` in `services.rs`, implemented by `crates/browser` with
-`chromiumoxide` (MIT or Apache-2.0). Tests use a fake page model; no real
-Chromium in `just test`. One opt-in smoke test (`just browser-live`) runs
-the real one.
+`Browser` in `services.rs`, implemented by `crates/browser` with a small
+CDP client of its own over the pipe (tokio and serde_json): `chromiumoxide`
+(0.9) speaks CDP only over a WebSocket, which needs a debugging port, and
+brings about 140 crates. This differs from ADR 0009, which names
+`chromiumoxide`; the owner decides whether the ADR changes. Tests use a
+scripted CDP peer; no real Chromium in `just test`. One opt-in smoke test
+(`just browser-live [path]`) runs the real one, without the sandbox.
+
+How it runs:
+
+- `sh -c 'exec "$@" 3<&0 4>&1 ...'` around the sandboxed line moves the
+  pipe onto fds 3 and 4, so no `unsafe` code is needed to set them up.
+- Chromium's own sandbox is off (`--no-sandbox`): it needs new user
+  namespaces or a setuid helper, and the Ovra sandbox around it forbids
+  both (seccomp refuses `CLONE_NEWUSER`, Landlock sets `no_new_privs`).
+  That sandbox holds every Chromium process instead, so a compromised
+  renderer is as contained as the agent itself, not more.
+- The browser needs the session's netproxy: a profile with an open
+  network is refused. Popups (pages a page opens) are closed, since
+  nothing watches their navigations. Pages report changes only once
+  `open` has answered.
+- Each document request (frames too) is held through the `Fetch` domain
+  until `BrowserSink::navigation` answers for its origin; a refusal fails
+  it as `ERR_BLOCKED_BY_CLIENT`, and the action answers `forbidden`.
+- Picks are read in an isolated world of Ovra's, with the browser's own
+  `getComputedStyle` and `getBoundingClientRect`, so a page cannot change
+  what they say by replacing them. The source guess reads only
+  `data-source` (`file:line[:column]`) and `data-component`: React's
+  fields live in the page's own world.
+- Refs number on across a page's snapshots, so a ref of an older one is
+  never reused. Frames inside the page are not in the snapshot yet (no
+  `f2e7` refs).
+- Known limit: Chromium does not read `SSL_CERT_FILE`, so HTTPS to a host
+  whose secrets the netproxy adds fails in the browser.
 
 ## Tasks
 

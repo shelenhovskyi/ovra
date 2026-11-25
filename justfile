@@ -47,6 +47,11 @@ perf:
 agents-live mode="check": build-headless
     OVRA_UPDATE_FIXTURES={{ if mode == "record" { "1" } else { "0" } }} pnpm --filter @ovra/agents-live test
 
+# The agent browser against a real Chromium, without the sandbox (opt-in).
+# `path` is the browser; empty finds it on PATH.
+browser-live path="":
+    OVRA_BROWSER_LIVE="{{path}}" cargo test -p ovra-browser --test live -- --ignored --nocapture
+
 # Everything CI lints.
 lint: check
     cargo clippy -p ovra-app --all-targets -- -D warnings
