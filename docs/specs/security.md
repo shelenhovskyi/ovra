@@ -217,6 +217,9 @@ Known gaps on Linux, left to the backstop below:
 - a bind mount of the home folder outside `/mnt`, `/media`, `/sysroot` and
   `/.snapshots` (for example `/srv`) stays readable.
 
+The sandbox status lists these gaps, plus the missing protected files
+below, and the UI shows them; that list must change with this one.
+
 Ovra's own git calls (fs-index, worktree) should pass
 `--ignore-submodules=all` so a missed submodule cannot run a filter in
 them; that is a follow-up in those areas.

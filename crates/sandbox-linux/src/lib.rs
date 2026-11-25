@@ -112,12 +112,14 @@ impl Setup {
 }
 
 /// What the sandbox does not cover: the known gaps on Linux in
-/// `docs/specs/security.md`, left to the review backstop.
-const GAPS: [&str; 4] = [
-    "git config commands that name project files",
+/// `docs/specs/security.md`, left to the review backstop. Keep it in step
+/// with that list.
+const GAPS: [&str; 5] = [
+    "git config values that name project files",
     "submodules added during a session",
     "package caches shared by similar project paths",
-    "home folder mounts outside /mnt and /media",
+    "other mounts of the home folder stay readable",
+    "new protected files such as CLAUDE.md or .envrc",
 ];
 
 /// The Linux sandbox: bubblewrap, plus Landlock and seccomp in the helper.
@@ -326,6 +328,20 @@ mod tests {
     use ovra_core::services::ProfileNetwork;
 
     use super::*;
+
+    #[test]
+    fn the_gaps_are_the_known_gaps_in_the_security_spec() {
+        assert_eq!(
+            GAPS,
+            [
+                "git config values that name project files",
+                "submodules added during a session",
+                "package caches shared by similar project paths",
+                "other mounts of the home folder stay readable",
+                "new protected files such as CLAUDE.md or .envrc",
+            ]
+        );
+    }
 
     #[test]
     fn a_failed_probe_names_apparmor_when_it_restricts_user_namespaces() {
