@@ -32,6 +32,24 @@ describe("Notifier", () => {
     expect(notifier.toasts).toEqual([]);
   });
 
+  it("keeps toasts that point to Reviews out of sight while Reviews is open", () => {
+    const { api, shown } = system(true, false);
+    const notifier = new Notifier(api);
+    const review = { key: "task:t1", level: "info" as const, text: "Add notes: 3 changes to review", review: true };
+    notifier.notify(review);
+    notifier.notify({ level: "error", text: "lint failed" });
+    notifier.stepAsideForReviews(true);
+    expect(notifier.toasts.map((t) => t.text)).toEqual(["lint failed"]);
+    // A count that changes there (after a Keep) does not come back on top of it.
+    notifier.notify({ ...review, text: "Add notes: 2 changes to review" });
+    expect(notifier.toasts.map((t) => t.text)).toEqual(["lint failed"]);
+    // In the background, the system still says it.
+    expect(shown.map((n) => n.body)).toContain("Add notes: 2 changes to review");
+    notifier.stepAsideForReviews(false);
+    notifier.notify({ ...review, text: "Add notes: 1 change to review" });
+    expect(notifier.toasts.map((t) => t.text)).toEqual(["lint failed", "Add notes: 1 change to review"]);
+  });
+
   it("uses system notifications only when allowed and Ovra is in the background", () => {
     const back = system(true, false);
     new Notifier(back.api).notify({ level: "info", text: "done" }, "Agent");
@@ -166,8 +184,8 @@ describe("watchAgents", () => {
     core.status("s1", { state: "working" });
     core.status("s1", { state: "idle" });
     await vi.advanceTimersByTimeAsync(0);
-    expect(notifier.toasts.map((t) => [t.text, t.action?.label])).toEqual([
-      ["Fix the typo is done: 1 file changed.", "Review"],
+    expect(notifier.toasts.map((t) => [t.text, t.action?.label, t.review])).toEqual([
+      ["Fix the typo is done: 1 file changed.", "Review", true],
     ]);
   });
 
@@ -235,6 +253,7 @@ describe("watchAgents", () => {
     core.status("s2", { state: "idle" });
     expect(await texts()).toEqual(["Add notes: 1 change to review"]);
     expect(notifier.toasts[0]?.action?.label).toBe("Review");
+    expect(notifier.toasts[0]?.review).toBe(true);
     // On the task's workers' items, not the one chosen last.
     const asked = vi.fn();
     const off = handleOpenFor(asked);

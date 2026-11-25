@@ -12,6 +12,8 @@ export type Toast = {
   level: Level;
   text: string;
   action?: { label: string; run: () => void };
+  /** It points to Reviews: out of sight while Reviews is open. */
+  review?: boolean;
 };
 
 type Permission = "granted" | "denied" | "default" | "unsupported";
@@ -35,6 +37,8 @@ export class Notifier {
   toasts = $state<Toast[]>([]);
   private nextId = 1;
   private readonly timers = new Map<number, ReturnType<typeof setTimeout>>();
+  /** Reviews is on screen: toasts that point there would only cover it. */
+  private reviewsOpen = false;
 
   constructor(readonly system: SystemNotifications = webNotifications()) {}
 
@@ -45,6 +49,10 @@ export class Notifier {
       if (system) this.system.close(toast.key);
     }
     const id = this.nextId++;
+    if (system && this.system.permission() === "granted" && !this.system.inForeground()) {
+      this.system.show(title, toast.text, toast.key ?? `ovra-${id}`, () => toast.action?.run());
+    }
+    if (toast.review && this.reviewsOpen) return;
     let toasts = [...this.toasts, { ...toast, id }];
     while (toasts.length > MAX_TOASTS) {
       const oldest = toasts.find((t) => t.level === "info") ?? toasts[0];
@@ -58,9 +66,12 @@ export class Notifier {
         setTimeout(() => this.dismiss(id), INFO_MS),
       );
     }
-    if (system && this.system.permission() === "granted" && !this.system.inForeground()) {
-      this.system.show(title, toast.text, toast.key ?? `ovra-${id}`, () => toast.action?.run());
-    }
+  }
+
+  /** While Reviews is open, toasts that point there go, and new ones are not shown. */
+  stepAsideForReviews(open: boolean): void {
+    this.reviewsOpen = open;
+    if (open) for (const toast of this.toasts) if (toast.review) this.dismiss(toast.id);
   }
 
   dismiss(id: number): void {

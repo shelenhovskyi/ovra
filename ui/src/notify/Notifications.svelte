@@ -10,6 +10,7 @@ import { registerCommand } from "../keys/commands";
 import type { PermissionId } from "../lib/protocol";
 import { useOvra } from "../shell/context";
 import Icon from "../shell/Icon.svelte";
+import { mainView } from "../shell/main-view.svelte";
 import { APPROVALS_KEY, watchAgents } from "./agent-events";
 import { Notifier, overlaps, type SystemNotifications, type Toast } from "./notifier.svelte";
 
@@ -25,6 +26,12 @@ function review(id: PermissionId): void {
 }
 
 $effect(() => watchAgents(transport, notifier, review));
+
+// Reviews open: its "to review" toasts would only cover the diff, and count down there.
+$effect(() => {
+  const open = mainView.current === "reviews";
+  untrack(() => notifier.stepAsideForReviews(open));
+});
 
 // Seen from another tab or window too: "(2) Ovra" while two requests wait.
 const approvals = approvalQueue(transport);

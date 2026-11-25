@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { FakeAgentCore } from "../agents/fake-core";
 import { approvalQueue } from "../approvals/queue.svelte";
 import type { PermissionRequest } from "../lib/protocol";
+import { mainView } from "../shell/main-view.svelte";
 import { Workspace } from "../shell/workspace.svelte";
 import TestHost from "./TestHost.svelte";
 
@@ -112,6 +113,52 @@ describe("Notifications", () => {
     expect(target.querySelectorAll("[data-testid=toast]")).toHaveLength(0);
     banner()?.querySelector("button")?.click();
     expect(escaped).toBe(true);
+  });
+
+  it("takes a review toast away while Reviews is open", async () => {
+    const core = new FakeAgentCore();
+    core.addSession("p1", "Fix the typo", { state: "working" });
+    core.reviews = [
+      {
+        id: "r1",
+        project: "p1",
+        session: "s1",
+        mode: "direct",
+        state: "open",
+        summary: null,
+        files: [
+          {
+            path: "README.md",
+            kind: "modified",
+            from: null,
+            by: "agent",
+            additions: 1,
+            deletions: 1,
+            blocked: false,
+            protected: false,
+          },
+        ],
+        can_undo: false,
+        not_copied: [],
+        can_undo_take: false,
+        fingerprint: null,
+        git_changes: [],
+        git_unchecked: false,
+      },
+    ];
+    app = mount(TestHost, { target, props: { transport: core, workspace: new Workspace() } });
+    flushSync();
+    core.status("s1", { state: "working" });
+    core.status("s1", { state: "idle" });
+    await new Promise((resolve) => setTimeout(resolve));
+    await settle();
+    const toasts = () => [...target.querySelectorAll("[data-testid=toast] p")].map((p) => p.textContent);
+    expect(toasts()).toEqual(["Fix the typo is done: 1 file changed."]);
+    mainView.show("reviews");
+    flushSync();
+    expect(toasts()).toEqual([]);
+    mainView.close(false);
+    flushSync();
   });
 
   it("counts waiting requests in the window title", async () => {
