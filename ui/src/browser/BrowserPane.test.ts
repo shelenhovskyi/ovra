@@ -200,6 +200,20 @@ describe("the agent browser", () => {
     await settle();
     expect(inputs(core)).toHaveLength(8);
     expect(button("Take over")?.getAttribute("aria-pressed")).toBe("false");
+    // Escape on the page is the page's, never the pane's.
+    key("keydown", { code: "Escape", key: "Escape" });
+    await settle();
+    expect($("[data-testid=browser]")).not.toBeNull();
+  });
+
+  it("hides on Escape outside the page and gives focus back", async () => {
+    await setup(new FakeBrowserCore(), { frame: false });
+    expect(document.activeElement?.id).toBe("browser-title");
+    const pressed = key("keydown", { code: "Escape", key: "Escape" });
+    await settle();
+    expect(pressed.defaultPrevented).toBe(true);
+    expect($("[data-testid=browser]")).toBeNull();
+    expect(document.activeElement).toBe($("[data-testid=open-browser]"));
   });
 
   it("releases the keys it pressed in the page when control ends", async () => {
