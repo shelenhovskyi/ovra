@@ -13,8 +13,9 @@ sha2 = "0.10"
 tokio = { workspace = true, features = ["rt"] }
 
 [target.'cfg(unix)'.dependencies]
-# `openat`/`unlinkat`: deleting under a folder an agent may swap for a link.
-rustix = { version = "1", features = ["fs"] }
+# `openat`/`unlinkat`: deleting under a folder an agent may swap for a link;
+# `kill_process_group`: ending a hook that hangs, with what it started.
+rustix = { version = "1", features = ["fs", "process"] }
 
 [dev-dependencies]
 ovra-core = { workspace = true, features = ["fakes"] }

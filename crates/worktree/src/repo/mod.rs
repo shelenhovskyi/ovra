@@ -12,9 +12,12 @@ mod status;
 #[cfg(test)]
 mod tests;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::process::Output;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::time::Duration;
 
 use ovra_core::path::RelPath;
 use ovra_core::protocol::git::{
@@ -26,7 +29,7 @@ use ovra_core::services::{BoxFuture, GitService, Result};
 
 use crate::blocking;
 use crate::files::{self, OnDisk};
-use crate::git::{self, Git, internal};
+use crate::git::{self, Ended, Git, internal};
 
 /// The most bytes of git's and the hooks' output passed on.
 const MAX_OUTPUT: usize = 64 * 1024;
@@ -37,13 +40,153 @@ const PATHSPEC_STDIN: [&str; 2] = ["--pathspec-from-file=-", "--pathspec-file-nu
 /// `--format` of one commit: id, author, author time, summary.
 const COMMIT_FORMAT: &str = "--format=%H%x00%an%x00%at%x00%s";
 
+/// How long a commit or a switch may run with its hooks and gpg. Hooks
+/// may run a project's tests; one waiting for input never ends.
+const LIMIT: Duration = Duration::from_secs(10 * 60);
+
 /// The git panel through the `git` command line.
-#[derive(Debug, Default)]
-pub struct GitRepo;
+#[derive(Debug)]
+pub struct GitRepo {
+    running: Arc<Running>,
+    limit: Duration,
+}
 
 impl GitRepo {
     pub fn new() -> Self {
-        Self
+        Self::with_limit(LIMIT)
+    }
+
+    fn with_limit(limit: Duration) -> Self {
+        Self {
+            running: Arc::default(),
+            limit,
+        }
+    }
+
+    /// `work` with a stop flag that `cancel` of `root` sets from now on.
+    fn watched<T: Send + 'static>(
+        &self,
+        root: PathBuf,
+        work: impl FnOnce(&Path, Watch) -> Result<T> + Send + 'static,
+    ) -> BoxFuture<'_, Result<T>> {
+        let running = Listed::new(self.running.clone(), root);
+        let limit = self.limit;
+        blocking(move || {
+            let watch = Watch {
+                stop: &running.stop,
+                limit,
+            };
+            work(&running.root, watch)
+        })
+    }
+}
+
+/// A stop flag in [`Running`] until dropped.
+#[derive(Debug)]
+struct Listed {
+    running: Arc<Running>,
+    root: PathBuf,
+    stop: Arc<AtomicBool>,
+}
+
+impl Listed {
+    fn new(running: Arc<Running>, root: PathBuf) -> Self {
+        let stop = running.start(&root);
+        Self {
+            running,
+            root,
+            stop,
+        }
+    }
+}
+
+impl Drop for Listed {
+    fn drop(&mut self) {
+        self.running.done(&self.root, &self.stop);
+    }
+}
+
+impl Default for GitRepo {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// The stop flags of the commits and switches running, by project root.
+#[derive(Debug, Default)]
+struct Running(Mutex<HashMap<PathBuf, Vec<Arc<AtomicBool>>>>);
+
+impl Running {
+    fn lock(&self) -> MutexGuard<'_, HashMap<PathBuf, Vec<Arc<AtomicBool>>>> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn start(&self, root: &Path) -> Arc<AtomicBool> {
+        let stop = Arc::new(AtomicBool::new(false));
+        self.lock()
+            .entry(root.to_path_buf())
+            .or_default()
+            .push(stop.clone());
+        stop
+    }
+
+    fn done(&self, root: &Path, stop: &Arc<AtomicBool>) {
+        let mut running = self.lock();
+        if let Some(list) = running.get_mut(root) {
+            list.retain(|s| !Arc::ptr_eq(s, stop));
+            if list.is_empty() {
+                running.remove(root);
+            }
+        }
+    }
+
+    fn cancel(&self, root: &Path) {
+        for stop in self.lock().get(root).into_iter().flatten() {
+            stop.store(true, Ordering::Relaxed);
+        }
+    }
+}
+
+/// When a git that runs the person's hooks is ended.
+#[derive(Debug, Clone, Copy)]
+struct Watch<'a> {
+    stop: &'a AtomicBool,
+    limit: Duration,
+}
+
+impl Watch<'_> {
+    /// Runs `run` (`what` names it for the person); `Conflict` when it was
+    /// stopped or ran too long, with what it printed until then.
+    fn output(self, run: Git, what: &str) -> Result<Output> {
+        let (why, out) = match run.output_until(self.stop, self.limit)? {
+            Ended::Exited(out) => return Ok(out),
+            Ended::Stopped(out) => (format!("{what} was stopped"), out),
+            Ended::TimedOut(out) => (
+                format!(
+                    "{what} was still running after {} and was stopped: a hook or \
+                     gpg may be waiting for input that Ovra cannot give, such as a \
+                     passphrase",
+                    minutes(self.limit)
+                ),
+                out,
+            ),
+        };
+        let output = printed(&out);
+        Err(conflict(if output.is_empty() {
+            why
+        } else {
+            format!("{why}. What it printed:\n{output}")
+        }))
+    }
+}
+
+/// `limit` for the person: whole minutes, or seconds below one.
+fn minutes(limit: Duration) -> String {
+    match limit.as_secs() {
+        60 => "1 minute".to_owned(),
+        s if s >= 60 => format!("{} minutes", s / 60),
+        1 => "1 second".to_owned(),
+        s => format!("{s} seconds"),
     }
 }
 
@@ -178,7 +321,7 @@ fn last_commit(root: &Path) -> Result<CommitInfo> {
     commit_info(&out).ok_or_else(|| internal("git log printed no commit"))
 }
 
-fn commit(root: &Path, message: &str, amend: bool) -> Result<Committed> {
+fn commit(root: &Path, message: &str, amend: bool, watch: Watch) -> Result<Committed> {
     let dirs = git::dirs(root)?;
     // A merge may be committed as it is; anything else needs staged changes.
     if !amend && !dirs.git_dir.join("MERGE_HEAD").exists() {
@@ -194,7 +337,7 @@ fn commit(root: &Path, message: &str, amend: bool) -> Result<Committed> {
         }
     }
     let keep = amend && message.trim().is_empty();
-    let mut run = Git::new(root, "commit");
+    let mut run = Git::with_hooks(root, "commit");
     run = if keep {
         // Amend what is staged into the last commit, message and all.
         run.args(["--amend", "--no-edit"])
@@ -203,7 +346,7 @@ fn commit(root: &Path, message: &str, amend: bool) -> Result<Committed> {
     } else {
         run.args(["-F", "-"]).input(message)
     };
-    let out = run.output()?;
+    let out = watch.output(run, "git commit")?;
     let output = printed(&out);
     if !out.status.success() {
         return Err(conflict(if output.is_empty() {
@@ -284,7 +427,7 @@ fn has_branch(root: &Path, name: &str) -> Result<bool> {
         .is_some())
 }
 
-fn switch(root: &Path, name: &str) -> Result<()> {
+fn switch(root: &Path, name: &str, watch: Watch) -> Result<()> {
     git::dirs(root)?;
     let name = branch_name(root, name)?;
     if !has_branch(root, &name)? {
@@ -294,9 +437,8 @@ fn switch(root: &Path, name: &str) -> Result<()> {
         ));
     }
     // Never forced: git refuses when changes would be overwritten.
-    let out = Git::new(root, "switch")
-        .args(["--quiet", "--no-guess", "--", &name])
-        .output()?;
+    let run = Git::with_hooks(root, "switch").args(["--quiet", "--no-guess", "--", &name]);
+    let out = watch.output(run, "git switch")?;
     if !out.status.success() {
         return Err(conflict(refused_switch(&printed(&out))));
     }
@@ -335,7 +477,7 @@ fn refused_switch(printed: &str) -> String {
     )
 }
 
-fn create_branch(root: &Path, name: &str, switch: bool) -> Result<()> {
+fn create_branch(root: &Path, name: &str, switch: bool, watch: Watch) -> Result<()> {
     git::dirs(root)?;
     let name = branch_name(root, name)?;
     if has_branch(root, &name)? {
@@ -343,9 +485,11 @@ fn create_branch(root: &Path, name: &str, switch: bool) -> Result<()> {
     }
     if switch {
         // Also before the first commit: HEAD then names the new branch.
-        Git::new(root, "switch")
-            .args(["--quiet", "-c", &name])
-            .run()?;
+        let run = Git::with_hooks(root, "switch").args(["--quiet", "-c", &name]);
+        let out = watch.output(run, "git switch")?;
+        if !out.status.success() {
+            return Err(internal(format!("git switch: {}", printed(&out))));
+        }
     } else {
         if git::head(root)?.is_none() {
             return Err(bad("a branch needs a commit to start from; commit first"));
@@ -442,16 +586,18 @@ impl GitService for GitRepo {
         message: String,
         amend: bool,
     ) -> BoxFuture<'_, Result<Committed>> {
-        blocking(move || commit(&root, &message, amend))
+        self.watched(root, move |root, watch| {
+            commit(root, &message, amend, watch)
+        })
     }
     fn branches(&self, root: PathBuf) -> BoxFuture<'_, Result<Vec<BranchInfo>>> {
         blocking(move || branches(&root))
     }
     fn switch(&self, root: PathBuf, branch: String) -> BoxFuture<'_, Result<()>> {
-        blocking(move || switch(&root, &branch))
+        self.watched(root, move |root, watch| switch(root, &branch, watch))
     }
-    fn cancel(&self, _: PathBuf) -> BoxFuture<'_, Result<()>> {
-        // Commits and switches cannot be stopped yet.
+    fn cancel(&self, root: PathBuf) -> BoxFuture<'_, Result<()>> {
+        self.running.cancel(&root);
         Box::pin(async { Ok(()) })
     }
     fn create_branch(
@@ -460,7 +606,9 @@ impl GitService for GitRepo {
         name: String,
         switch: bool,
     ) -> BoxFuture<'_, Result<()>> {
-        blocking(move || create_branch(&root, &name, switch))
+        self.watched(root, move |root, watch| {
+            create_branch(root, &name, switch, watch)
+        })
     }
     fn diff(&self, root: PathBuf, path: RelPath, staged: bool) -> BoxFuture<'_, Result<FileDiff>> {
         blocking(move || diff::diff(&root, &path, staged))

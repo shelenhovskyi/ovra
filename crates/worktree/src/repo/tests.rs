@@ -279,6 +279,113 @@ async fn a_failing_hook_is_a_conflict_with_its_output() {
     assert!(err.message.contains("lint: 3 problems"), "{}", err.message);
 }
 
+/// An executable hook `name` in the test repositories' `core.hooksPath`.
+#[cfg(unix)]
+fn hook(root: &std::path::Path, name: &str, script: &str) {
+    use std::os::unix::fs::PermissionsExt as _;
+    let path = format!("no-hooks/{name}");
+    put(root, &path, &format!("#!/bin/sh\n{script}"));
+    fs::set_permissions(root.join(&path), fs::Permissions::from_mode(0o755))
+        .unwrap_or_else(|e| panic!("{e}"));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn hooks_see_the_persons_git_not_ovras_options() {
+    let repo = Repo::new(&[("a.txt", "a\n")]);
+    let root = &repo.root;
+    let seen = repo.tmp.path().join("seen");
+    let record = format!(
+        "echo \"$GIT_LITERAL_PATHSPECS|$GIT_CONFIG_PARAMETERS\" >> '{}'\n",
+        seen.display()
+    );
+    hook(root, "pre-commit", &record);
+    hook(root, "post-checkout", &record);
+    put(root, "a.txt", "a2\n");
+    git(root, &["add", "a.txt"]);
+    let g = GitRepo::new();
+    ok(g.commit(root.clone(), "Change".into(), false).await);
+    ok(g.create_branch(root.clone(), "dev".into(), true).await);
+    ok(g.switch(root.clone(), "main".into()).await);
+
+    let seen = fs::read_to_string(seen).unwrap_or_else(|e| panic!("{e}"));
+    let lines: Vec<&str> = seen.lines().collect();
+    assert_eq!(lines.len(), 3, "{seen}");
+    for line in lines {
+        let (literal, config) = line.split_once('|').unwrap_or_default();
+        assert_eq!(literal, "", "{line}");
+        assert!(!config.contains("quotepath"), "{line}");
+        // What keeps repository content from running stays.
+        assert!(config.contains("'core.fsmonitor'='false'"), "{line}");
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_hanging_hook_is_ended_after_the_limit_with_its_output() {
+    let repo = Repo::new(&[("a.txt", "a\n")]);
+    let root = &repo.root;
+    hook(
+        root,
+        "pre-commit",
+        "echo 'Enter passphrase:' >&2\nsleep 30\n",
+    );
+    put(root, "a.txt", "a2\n");
+    git(root, &["add", "a.txt"]);
+
+    let err = GitRepo::with_limit(std::time::Duration::from_millis(50))
+        .commit(root.clone(), "Change".into(), false)
+        .await
+        .err()
+        .unwrap_or_else(|| panic!("committed through a hanging hook"));
+    assert_eq!(err.code, ErrorCode::Conflict);
+    assert!(
+        err.message
+            .starts_with("git commit was still running after"),
+        "{}",
+        err.message
+    );
+    assert!(err.message.contains("Enter passphrase:"), "{}", err.message);
+    // git was asked to end, so it removed its lock.
+    assert!(!root.join(".git/index.lock").exists());
+    assert_eq!(git(root, &["log", "-1", "--format=%s"]), "start");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn cancel_stops_a_running_commit_and_its_hook() {
+    let repo = Repo::new(&[("a.txt", "a\n")]);
+    let root = &repo.root;
+    let started = repo.tmp.path().join("started");
+    hook(
+        root,
+        "pre-commit",
+        &format!("touch '{}'\nsleep 30\n", started.display()),
+    );
+    put(root, "a.txt", "a2\n");
+    git(root, &["add", "a.txt"]);
+
+    let g = std::sync::Arc::new(GitRepo::new());
+    let commit = tokio::spawn({
+        let (g, root) = (g.clone(), root.clone());
+        async move { g.commit(root, "Change".into(), false).await }
+    });
+    let waiting = std::time::Instant::now();
+    while !started.exists() {
+        assert!(waiting.elapsed().as_secs() < 2, "the hook never started");
+        tokio::task::yield_now().await;
+    }
+    ok(g.cancel(root.clone()).await);
+    let err = commit
+        .await
+        .unwrap_or_else(|e| panic!("{e}"))
+        .err()
+        .unwrap_or_else(|| panic!("the commit was not stopped"));
+    assert_eq!(err.code, ErrorCode::Conflict);
+    assert_eq!(err.message, "git commit was stopped");
+    assert_eq!(git(root, &["log", "-1", "--format=%s"]), "start");
+}
+
 #[tokio::test]
 async fn branches_are_created_checked_and_never_switched_over_changes() {
     let repo = Repo::new(&[("a.txt", "a\n")]);
@@ -358,6 +465,35 @@ async fn blame_groups_lines_by_commit_and_leaves_new_lines_uncommitted() {
         ]
     );
     assert_eq!(commits.len(), 2);
+}
+
+#[tokio::test]
+async fn blame_says_why_it_failed_and_shows_new_files_as_uncommitted() {
+    let repo = Repo::new(&[("a.txt", "1\n")]);
+    let root = &repo.root;
+    put(root, "new.txt", "1\n2\n");
+    let g = GitRepo::new();
+    let new = ok(g.blame(root.clone(), rel("new.txt")).await);
+    let ranges: Vec<_> = new
+        .ranges
+        .iter()
+        .map(|r| (r.start, r.lines, r.commit.clone()))
+        .collect();
+    assert_eq!(ranges, [(1, 2, None)]);
+    assert_eq!(
+        code(g.blame(root.clone(), rel("gone.txt")).await),
+        ErrorCode::NotFound
+    );
+
+    // A committed file whose blame fails is not shown as all uncommitted.
+    git(root, &["config", "blame.ignoreRevsFile", "missing-revs"]);
+    let err = g
+        .blame(root.clone(), rel("a.txt"))
+        .await
+        .err()
+        .unwrap_or_else(|| panic!("blame hid the failure"));
+    assert_eq!(err.code, ErrorCode::Internal);
+    assert!(err.message.contains("missing-revs"), "{}", err.message);
 }
 
 #[tokio::test]

@@ -7,11 +7,14 @@
 
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
-use std::io::Write as _;
+use std::io::{Read, Write as _};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Mutex, MutexGuard, OnceLock, PoisonError};
+use std::process::{Child, Command, ExitStatus, Output, Stdio};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::Result;
@@ -82,12 +85,28 @@ impl Git {
     /// `git <subcommand>` in `dir`. Pathspecs are literal: file names with
     /// `*` or a leading `:` mean exactly that file.
     pub(crate) fn new(dir: &Path, subcommand: &str) -> Self {
+        Self::build(dir, subcommand, true)
+    }
+
+    /// `git <subcommand>` that runs the person's hooks (commit, switch), as
+    /// in their terminal. git hands `--literal-pathspecs` and every `-c` on
+    /// to hooks and to the git commands they run (`GIT_LITERAL_PATHSPECS`,
+    /// `GIT_CONFIG_PARAMETERS`), so only the options that keep repository
+    /// content from running or writing `.git` are given; the ones that
+    /// change how pathspecs and names read are not.
+    pub(crate) fn with_hooks(dir: &Path, subcommand: &str) -> Self {
+        Self::build(dir, subcommand, false)
+    }
+
+    fn build(dir: &Path, subcommand: &str, ours: bool) -> Self {
         let mut command = Command::new(program());
         if let Some(path) = ovra_core::child_path::login() {
             command.env("PATH", path);
         }
+        if ours {
+            command.args(["--literal-pathspecs", "-c", "core.quotepath=off"]);
+        }
         command
-            .args(["--literal-pathspecs", "-c", "core.quotepath=off"])
             // Never run a configured file monitor, and refuse `.git` paths
             // in every spelling some disk treats as `.git`.
             .args(["-c", "core.fsmonitor=false"])
@@ -95,7 +114,8 @@ impl Git {
             // Never look into or recurse into a submodule: an agent may have
             // changed one, and git would run that repository's config.
             .args(["-c", "diff.ignoreSubmodules=all"])
-            .args(["-c", "submodule.recurse=false"])
+            .args(["-c", "submodule.recurse=false"]);
+        command
             .arg(subcommand)
             .current_dir(dir)
             .env("GIT_TERMINAL_PROMPT", "0")
@@ -168,6 +188,69 @@ impl Git {
             .map_err(|e| internal(format!("git {}: {e}", self.name)))
     }
 
+    /// Runs to the end, unless `stop` is set or `limit` passes first: then
+    /// git and everything it started in its process group (hooks, gpg) are
+    /// ended. Never waits past that for its output: something a hook left
+    /// running may hold the pipes open.
+    pub(crate) fn output_until(mut self, stop: &AtomicBool, limit: Duration) -> Result<Ended> {
+        #[cfg(unix)]
+        {
+            // Its own process group, so that its hooks end with it.
+            use std::os::unix::process::CommandExt as _;
+            self.command.process_group(0);
+        }
+        let mut child = self
+            .command
+            .spawn()
+            .map_err(|e| internal(format!("cannot run git: {e}")))?;
+        if let (Some(input), Some(mut stdin)) = (self.input.take(), child.stdin.take()) {
+            // Off this thread: a git stuck in a hook may never read it.
+            thread::spawn(move || stdin.write_all(&input));
+        }
+        let pipes = [
+            Pipe::drain(child.stdout.take()),
+            Pipe::drain(child.stderr.take()),
+        ];
+        let failed = |e: std::io::Error| internal(format!("git {}: {e}", self.name));
+        let started = Instant::now();
+        let over = || -> Option<fn(Output) -> Ended> {
+            if stop.load(Ordering::Relaxed) {
+                Some(Ended::Stopped)
+            } else if started.elapsed() >= limit {
+                Some(Ended::TimedOut)
+            } else {
+                None
+            }
+        };
+        let mut pause = Pause::default();
+        let (status, how) = loop {
+            if let Some(status) = child.try_wait().map_err(failed)? {
+                break (status, None);
+            }
+            if let Some(how) = over() {
+                break (end(&mut child).map_err(failed)?, Some(how));
+            }
+            pause.wait(limit.saturating_sub(started.elapsed()));
+        };
+        // After an end, a grace for the last output; else as long as the
+        // call may still run.
+        let ended = Instant::now();
+        let done = || match how {
+            Some(_) => ended.elapsed() >= END_GRACE,
+            None => over().is_some(),
+        };
+        let [stdout, stderr] = pipes.map(|pipe| pipe.collect(&done));
+        let out = Output {
+            status,
+            stdout,
+            stderr,
+        };
+        Ok(match how {
+            None => Ended::Exited(out),
+            Some(how) => how(out),
+        })
+    }
+
     /// Stdout of a successful run; otherwise an error with git's message.
     pub(crate) fn run(self) -> Result<Vec<u8>> {
         let name = self.name.clone();
@@ -195,6 +278,108 @@ impl Git {
             .success()
             .then(|| String::from_utf8_lossy(&out.stdout).trim().to_owned()))
     }
+}
+
+/// How [`Git::output_until`] ended, with what git and its hooks printed.
+#[derive(Debug)]
+pub(crate) enum Ended {
+    Exited(Output),
+    /// Its `stop` was set.
+    Stopped(Output),
+    /// It ran past its limit.
+    TimedOut(Output),
+}
+
+/// The most bytes kept of one pipe of [`Git::output_until`].
+const MAX_PIPE: usize = 256 * 1024;
+
+/// How long git may take to clean up (its lock files) once told to end,
+/// and how long its output is waited for after an end.
+const END_GRACE: Duration = Duration::from_secs(2);
+
+/// Growing pauses between two looks at a running git: short at first, as
+/// most commits take milliseconds.
+#[derive(Debug)]
+struct Pause(Duration);
+
+impl Default for Pause {
+    fn default() -> Self {
+        Self(Duration::from_millis(1))
+    }
+}
+
+impl Pause {
+    const MAX: Duration = Duration::from_millis(25);
+
+    fn wait(&mut self, at_most: Duration) {
+        thread::sleep(self.0.min(at_most));
+        self.0 = (self.0 * 2).min(Self::MAX);
+    }
+}
+
+/// One output pipe, read on a thread of its own as it comes.
+#[derive(Debug)]
+struct Pipe {
+    bytes: Arc<Mutex<Vec<u8>>>,
+    closed: Receiver<()>,
+}
+
+impl Pipe {
+    fn drain(pipe: Option<impl Read + Send + 'static>) -> Self {
+        let bytes = Arc::new(Mutex::new(Vec::new()));
+        let (tx, closed) = mpsc::channel();
+        if let Some(mut pipe) = pipe {
+            let bytes = bytes.clone();
+            thread::spawn(move || {
+                let mut chunk = [0; 8192];
+                while let Ok(n @ 1..) = pipe.read(&mut chunk) {
+                    let mut bytes = bytes.lock().unwrap_or_else(PoisonError::into_inner);
+                    let room = MAX_PIPE.saturating_sub(bytes.len());
+                    bytes.extend_from_slice(&chunk[..n.min(room)]);
+                }
+                let _ = tx.send(());
+            });
+        }
+        Self { bytes, closed }
+    }
+
+    /// What came until the pipe closed, or until `done` says to stop waiting.
+    fn collect(self, done: &impl Fn() -> bool) -> Vec<u8> {
+        while let Err(RecvTimeoutError::Timeout) = self.closed.recv_timeout(Pause::MAX) {
+            if done() {
+                break;
+            }
+        }
+        std::mem::take(&mut *self.bytes.lock().unwrap_or_else(PoisonError::into_inner))
+    }
+}
+
+/// Ends git and what it started: asked first, so that git removes its lock
+/// files, then forced. git is not reaped before the forced end, so its
+/// process group id cannot belong to anything else yet. On Windows only git
+/// itself is ended; a hook it started may outlive it.
+fn end(child: &mut Child) -> std::io::Result<ExitStatus> {
+    #[cfg(unix)]
+    {
+        use rustix::process::{Pid, Signal, WaitId, WaitIdOptions, kill_process_group, waitid};
+        let group = Pid::from_child(child);
+        // Gone already when this fails; `wait` says how it ended.
+        let _ = kill_process_group(group, Signal::TERM);
+        let asked = Instant::now();
+        let mut pause = Pause::default();
+        let peek = WaitIdOptions::EXITED | WaitIdOptions::NOHANG | WaitIdOptions::NOWAIT;
+        while asked.elapsed() < END_GRACE {
+            if waitid(WaitId::Pid(group), peek)?.is_some() {
+                break;
+            }
+            pause.wait(END_GRACE.saturating_sub(asked.elapsed()));
+        }
+        // A hook that ignored the request, or git itself.
+        let _ = kill_process_group(group, Signal::KILL);
+    }
+    #[cfg(not(unix))]
+    child.kill()?;
+    child.wait()
 }
 
 /// Splits `-z` output into its NUL-terminated fields.
