@@ -35,6 +35,18 @@ const fresh = $derived(
     !model.discarded,
 );
 
+/** A repository with no commits whose files are not staged yet: the next step is a first commit. */
+const firstCommit = $derived(
+  !!status && !status.head && !status.operation && lists.changes.length > 0 && lists.staged.length === 0,
+);
+
+/** Stages every change, then hands over to the message: Commit stays the one primary. */
+async function stageAll(): Promise<void> {
+  if (model.busy || !(await model.stage(lists.changes.map((f) => f.path)))) return;
+  await tick();
+  focusMessage();
+}
+
 const OPERATION: Record<GitOperation, string> = {
   merge: "A merge is in progress.",
   rebase: "A rebase is in progress.",
@@ -98,12 +110,11 @@ function ago(seconds: number, now = Date.now() / 1000): string {
   {#if model.state.kind === "loading"}
     <p class="hint">Loading git status…</p>
   {:else if model.state.kind === "no_repo"}
-    <EmptyState
-      testid="git-no-repo"
-      headline="Not a git repository"
-      line="Git keeps a history, so you can review and undo changes."
-      actions={[{ label: "Set up git", run: () => void setUp() }]}
-    />
+    <div class="no-repo" data-testid="git-no-repo">
+      <EmptyState headline="Not a git repository" line="Git keeps a history, so you can review and undo changes." />
+      <!-- The panel's one primary action, so a newcomer sees a button, not a line of text. -->
+      <button type="button" class="primary" onclick={() => void setUp()}>Set up git</button>
+    </div>
     {#if model.error?.scope === "setup"}
       <p class="error" role="alert" data-testid="git-setup-error">{model.error.message}</p>
     {/if}
@@ -112,9 +123,19 @@ function ago(seconds: number, now = Date.now() / 1000): string {
     <button type="button" onclick={() => model.refresh()}>Try again</button>
   {:else if status && fresh}
     <Branches {model} {status} />
-    <EmptyState testid="git-fresh" headline="No changes" line="Changes you or Claude make appear here." />
+    <EmptyState
+      testid="git-fresh"
+      headline="No changes"
+      line="Git is set up. Add files, then commit them to keep a first version."
+    />
   {:else if status}
     <Branches {model} {status} />
+    {#if firstCommit}
+      <div class="first" data-testid="git-first-commit">
+        <p>Git is set up. Commit your files to keep a first version.</p>
+        <button type="button" class="bordered" aria-disabled={model.busy} onclick={stageAll}>Stage all</button>
+      </div>
+    {/if}
     {#if status.operation}
       <p class="operation" data-testid="git-operation">
         {OPERATION[status.operation]} Resolve, stage and commit to finish.
@@ -254,6 +275,39 @@ function ago(seconds: number, now = Date.now() / 1000): string {
   button[aria-disabled="true"] {
     opacity: 0.6;
     cursor: default;
+  }
+  .no-repo {
+    display: flex;
+    flex-direction: column;
+  }
+  /* In line with the empty state's text. */
+  .no-repo .primary {
+    margin-inline: 16px;
+  }
+  .primary,
+  .primary:hover {
+    height: var(--control-h-sm);
+    padding: 0 12px;
+    font-weight: 500;
+    color: var(--accent-ink);
+    background: var(--accent);
+  }
+  .bordered {
+    height: var(--control-h-sm);
+    color: var(--text);
+    background: var(--s3);
+  }
+  .bordered:hover {
+    background: var(--s4);
+  }
+  .first {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px 10px;
+    font-size: 13px;
+    background: var(--accent-soft);
+    border-radius: var(--radius);
   }
   .undo {
     display: flex;

@@ -128,6 +128,8 @@ it("says when the project is not a repository and sets up git in one press", asy
   expect([...target.querySelectorAll("[data-testid=git-no-repo] button")].map((b) => b.textContent?.trim())).toEqual([
     "Set up git",
   ]);
+  // The one primary action of the panel, drawn as a button.
+  expect(setUp()?.classList.contains("primary")).toBe(true);
   core.failNext.set("git.init", new CoreError({ code: "unavailable", message: "git is not installed" }));
   setUp()?.click();
   await settle();
@@ -136,6 +138,7 @@ it("says when the project is not a repository and sets up git in one press", asy
   await settle();
   expect(core.methods().filter((m) => m === "git.init")).toHaveLength(2);
   expect(text("[data-testid=git-fresh] h2")).toBe("No changes");
+  expect(text("[data-testid=git-fresh] p")).toBe("Git is set up. Add files, then commit them to keep a first version.");
   expect(text("[data-testid=git-announce]")).toBe("Set up git. Changes now show here.");
 
   // Then a repository on a detached HEAD, then one with no commits: plain words, no amend.
@@ -156,6 +159,13 @@ it("says when the project is not a repository and sets up git in one press", asy
   await settle();
   expect(text("#git-commit-why")).toBe("Stage files first.");
   expect(text("[data-testid=git-staged] .empty")).toBe("Nothing staged.");
+  // The first commit is suggested until something is staged; Stage all then leads to the message.
+  expect(text("[data-testid=git-first-commit] p")).toBe("Git is set up. Commit your files to keep a first version.");
+  click("[data-testid=git-first-commit] button");
+  await settle();
+  expect(core.calls.find((c) => c.method === "git.stage")?.params).toEqual({ project: "p1", paths: ["a.ts"] });
+  expect(document.activeElement?.tagName).toBe("TEXTAREA");
+  expect($("[data-testid=git-first-commit]")).toBeNull();
 });
 
 it("opens on the first change while nothing is staged, else on the commit message", async () => {

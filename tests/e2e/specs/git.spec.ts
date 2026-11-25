@@ -145,5 +145,9 @@ test("set up git in a folder without it", async ({ page }) => {
   await expect(panel.getByTestId("git-no-repo")).toContainText("Not a git repository");
   await panel.getByRole("button", { name: "Set up git" }).click();
   await expect(panel.getByTestId("git-changes").getByRole("button", { name: "Stage README.md" })).toBeVisible();
+  await expect(panel.getByTestId("git-first-commit")).toContainText("Commit your files to keep a first version.");
   expect(existsSync(join(dir, ".git"))).toBe(true);
+  // The tree agrees with the panel in a repository without commits.
+  await page.keyboard.press("ControlOrMeta+Shift+E");
+  await expect(page.getByRole("treeitem", { name: /README\.md/ })).toHaveAttribute("data-git", "untracked");
 });
