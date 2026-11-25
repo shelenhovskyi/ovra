@@ -75,6 +75,22 @@ group("describe", () => {
     );
   });
 
+  it("describes servers and loopback grants", () => {
+    const by = { kind: "agent", session: "s1" } as const;
+    expect(line({ kind: "server_started", server: "srv1", name: "web", generation: 2, by })).toMatchObject({
+      title: "Server web started",
+      detail: "Run 2, started by session s1.",
+    });
+    expect(line({ kind: "server_stopped", server: "srv1", name: "web", generation: 2, code: null }).detail).toBe(
+      "Run 2, ended by a signal.",
+    );
+    expect(line({ kind: "loopback_granted", server: "srv1", port: 5173, generation: 2 }).title).toBe(
+      "Server reachable on localhost:5173",
+    );
+    const revoked = entry(4, { kind: "loopback_revoked", server: "srv1", port: 5173, generation: 2 });
+    expect(shows("servers", false, revoked)).toBe(true);
+  });
+
   it("filters by kind and by refusals", () => {
     const allowed = entry(1, bash(true));
     const refused = entry(2, bash(false));

@@ -355,6 +355,11 @@ impl Core {
             Request::Netproxy(r) => crate::netproxy::handle(self, r),
             Request::Git(r) => crate::git::handle(self, r).await,
             Request::Lsp(r) => crate::lsp::handle(self, r).await,
+            // Until the core implements them (task S.D).
+            Request::Servers(_) => Err(ProtocolError::new(
+                ErrorCode::Unavailable,
+                "servers are not available in this build",
+            )),
         }
     }
 

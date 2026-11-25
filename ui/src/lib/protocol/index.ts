@@ -15,6 +15,7 @@ import type { ProjectsEvent, ProjectsRequest, ProjectsResponse } from "./project
 import type { ReviewEvent, ReviewRequest, ReviewResponse } from "./review";
 import type { SearchEvent, SearchRequest, SearchResponse } from "./search";
 import type { SecretsEvent, SecretsRequest, SecretsResponse } from "./secrets";
+import type { ServersEvent, ServersRequest, ServersResponse, ServersResponseFor } from "./servers";
 import type { TerminalsEvent, TerminalsRequest, TerminalsResponse } from "./terminals";
 
 export type * from "./agents";
@@ -26,6 +27,9 @@ export type * from "./git";
 export type { GitChange } from "./git";
 export type * from "./info";
 export type * from "./lsp";
+// `servers.ts` and `lsp.ts` both have `ServerId` and `ServerInfo`; the index
+// exports the language servers' and names the managed servers' apart.
+export type { ServerId, ServerInfo } from "./lsp";
 export type * from "./netproxy";
 export type * from "./open";
 export type * from "./orchestration";
@@ -35,6 +39,8 @@ export type * from "./projects";
 export type * from "./review";
 export type * from "./search";
 export type * from "./secrets";
+export type * from "./servers";
+export type { ServerId as DevServerId, ServerInfo as DevServerInfo } from "./servers";
 export type * from "./terminals";
 
 export type Request =
@@ -53,7 +59,8 @@ export type Request =
   | AuditRequest
   | NetproxyRequest
   | GitRequest
-  | LspRequest;
+  | LspRequest
+  | ServersRequest;
 
 export type Response =
   | InfoResponse
@@ -71,6 +78,7 @@ export type Response =
   | NetproxyResponse
   | GitResponse
   | LspResponse
+  | ServersResponse
   | { type: "ok" };
 
 export type CoreEvent =
@@ -87,7 +95,8 @@ export type CoreEvent =
   | SecretsEvent
   | AuditLogEvent
   | NetproxyEvent
-  | LspEvent;
+  | LspEvent
+  | ServersEvent;
 
 export type ErrorCode = "bad_request" | "not_found" | "conflict" | "forbidden" | "unavailable" | "internal";
 
@@ -190,4 +199,6 @@ type PhaseThreeResponseFor<R extends Request> = R extends { method: "review.list
                             ? Extract<Response, { type: "lsp.server" }>
                             : R extends { method: "lsp.send" | "lsp.stop" }
                               ? { type: "ok" }
-                              : never;
+                              : R extends ServersRequest
+                                ? ServersResponseFor<R["method"]>
+                                : never;

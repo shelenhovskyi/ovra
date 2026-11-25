@@ -7,6 +7,7 @@ use super::agents::{SandboxReport, SessionId, SessionMode};
 use super::policy::Policy;
 use super::projects::ProjectId;
 use super::review::ReviewId;
+use super::servers::{ServerId, StartedBy};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuditEntry {
@@ -53,6 +54,31 @@ pub enum AuditEvent {
     SecretUsed {
         name: String,
         host: String,
+    },
+    ServerStarted {
+        server: ServerId,
+        name: String,
+        generation: u64,
+        by: StartedBy,
+    },
+    /// `code` is missing when it was killed by a signal.
+    ServerStopped {
+        server: ServerId,
+        name: String,
+        generation: u64,
+        code: Option<i32>,
+    },
+    /// The session's netproxy may reach the server on `localhost:<port>`
+    /// while this generation runs (ADR 0008).
+    LoopbackGranted {
+        server: ServerId,
+        port: u16,
+        generation: u64,
+    },
+    LoopbackRevoked {
+        server: ServerId,
+        port: u16,
+        generation: u64,
     },
 }
 

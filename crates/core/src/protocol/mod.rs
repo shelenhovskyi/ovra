@@ -20,6 +20,7 @@ pub mod projects;
 pub mod review;
 pub mod search;
 pub mod secrets;
+pub mod servers;
 pub mod terminals;
 
 use serde::{Deserialize, Serialize};
@@ -44,6 +45,7 @@ pub enum Request {
     Netproxy(netproxy::NetproxyRequest),
     Git(git::GitRequest),
     Lsp(lsp::LspRequest),
+    Servers(servers::ServersRequest),
 }
 
 /// The core's answer to a [`Request`]. Wire form: `{"type": "<domain>.<name>", "data": ...}`.
@@ -65,6 +67,7 @@ pub enum Response {
     Netproxy(netproxy::NetproxyResponse),
     Git(git::GitResponse),
     Lsp(lsp::LspResponse),
+    Servers(servers::ServersResponse),
     /// The request succeeded and has nothing to return.
     Ok(OkResponse),
 }
@@ -93,6 +96,7 @@ pub enum Event {
     Audit(audit::AuditLogEvent),
     Netproxy(netproxy::NetproxyEvent),
     Lsp(lsp::LspEvent),
+    Servers(servers::ServersEvent),
 }
 
 /// An error returned instead of a [`Response`].
@@ -217,5 +221,11 @@ impl From<netproxy::NetproxyEvent> for Event {
 impl From<lsp::LspEvent> for Event {
     fn from(e: lsp::LspEvent) -> Self {
         Self::Lsp(e)
+    }
+}
+
+impl From<servers::ServersEvent> for Event {
+    fn from(e: servers::ServersEvent) -> Self {
+        Self::Servers(e)
     }
 }

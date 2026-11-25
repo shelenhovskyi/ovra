@@ -22,6 +22,10 @@ export const FILTERS = {
   settings: { label: "Trust and policy", kinds: ["trust_changed", "policy_changed"] },
   reviews: { label: "Reviews", kinds: ["review_decided"] },
   network: { label: "Network and secrets", kinds: ["network_refused", "secret_used"] },
+  servers: {
+    label: "Servers",
+    kinds: ["server_started", "server_stopped", "loopback_granted", "loopback_revoked"],
+  },
 } as const satisfies Record<string, { label: string; kinds: readonly AuditEvent["kind"][] | null }>;
 
 export type Filter = keyof typeof FILTERS;
@@ -116,6 +120,34 @@ export function describe(entry: AuditEntry): Described {
       return {
         title: `Secret ${event.name} used`,
         detail: `Sent to ${event.host}. The log never keeps its value.`,
+        input: null,
+        tone: "plain",
+      };
+    case "server_started":
+      return {
+        title: `Server ${event.name} started`,
+        detail: `Run ${event.generation}, started ${event.by.kind === "person" ? "by a person" : `by session ${event.by.session}`}.`,
+        input: null,
+        tone: "plain",
+      };
+    case "server_stopped":
+      return {
+        title: `Server ${event.name} stopped`,
+        detail: `Run ${event.generation}, ${event.code === null ? "ended by a signal" : `exit code ${event.code}`}.`,
+        input: null,
+        tone: "plain",
+      };
+    case "loopback_granted":
+      return {
+        title: `Server reachable on localhost:${event.port}`,
+        detail: `The session may reach server ${event.server} (run ${event.generation}) while it runs.`,
+        input: null,
+        tone: "plain",
+      };
+    case "loopback_revoked":
+      return {
+        title: `Server no longer reachable on localhost:${event.port}`,
+        detail: `Server ${event.server} (run ${event.generation}) stopped or the session ended.`,
         input: null,
         tone: "plain",
       };

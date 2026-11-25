@@ -73,6 +73,15 @@ async fn unwired_services_are_unavailable() {
 }
 
 #[tokio::test]
+async fn servers_and_the_browser_are_unavailable_for_now() {
+    let core = Core::new("test");
+    for json in [serde_json::json!({"method": "servers.list", "params": {"project": "p1"}})] {
+        let reply = core.handle(req(json)).await;
+        assert_eq!(reply.err().map(|e| e.code), Some(ErrorCode::Unavailable));
+    }
+}
+
+#[tokio::test]
 async fn open_switches_the_watched_project_and_emits() {
     let f = fixture();
     let mut events = f.core.subscribe();

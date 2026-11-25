@@ -4,6 +4,7 @@ import type { SandboxReport, SessionId, SessionMode } from "./agents";
 import type { Policy } from "./policy";
 import type { ProjectId } from "./projects";
 import type { ReviewId } from "./review";
+import type { ServerId, StartedBy } from "./servers";
 
 export type AuditEntry = {
   seq: number;
@@ -20,7 +21,13 @@ export type AuditEvent =
   | { kind: "policy_changed"; policy: Policy }
   | { kind: "review_decided"; review: ReviewId; action: ReviewAction }
   | { kind: "network_refused"; host: string; reason: string }
-  | { kind: "secret_used"; name: string; host: string };
+  | { kind: "secret_used"; name: string; host: string }
+  | { kind: "server_started"; server: ServerId; name: string; generation: number; by: StartedBy }
+  /** `code` is null when it was killed by a signal. */
+  | { kind: "server_stopped"; server: ServerId; name: string; generation: number; code: number | null }
+  /** The session may reach the server on `localhost:<port>` while this generation runs. */
+  | { kind: "loopback_granted"; server: ServerId; port: number; generation: number }
+  | { kind: "loopback_revoked"; server: ServerId; port: number; generation: number };
 
 /** Never file contents; other inputs redacted and cut to 4 KiB. */
 export type AuditInput = { kind: "file"; path: string; sha256: string | null } | { kind: "json"; text: string };
