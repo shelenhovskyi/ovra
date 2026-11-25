@@ -596,7 +596,9 @@ rules for each project:
   `policy.changed`, then answers allow. It refuses with `bad_request` when
   the request offers no rule or a deny or ask rule matches the call by then.
 - Agents cannot reach it: it is a client method, not an IDE tool. The rule
-  shows in Settings > Rules, where Remove takes it out.
+  shows in Settings > Rules, marked "exactly" and "From an approval", where
+  Remove takes it out. A person can add an exact Bash rule there too
+  ("Exact command").
 
 ## Audit log
 

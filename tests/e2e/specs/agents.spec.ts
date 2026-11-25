@@ -438,12 +438,12 @@ test("always allow adds a rule, and the next identical request is allowed by it"
   await expect(transcript).toContainText("The tests ran twice.");
   await expect(transcript.locator(".step summary", { hasText: "Ran npm test" })).toHaveCount(2);
 
-  // The rule shows in Settings > Rules, marked, with Remove.
+  // The rule shows in Settings > Rules, exact and marked, with Remove.
   await page.keyboard.press("ControlOrMeta+K");
   await page.keyboard.type(">rules");
   await page.getByRole("option", { name: /Rules/ }).click();
   const rule = page.getByTestId("policy-rule");
   await expect(rule).toHaveCount(1);
-  await expect(rule).toContainText(/Bash\(npm test\)\s*Auto\s*From an approval/);
-  await expect(rule.getByRole("button", { name: "Remove Bash(npm test) auto" })).toBeVisible();
+  await expect(rule).toContainText(/Bash\(npm test\)\s*exactly\s*Auto\s*From an approval/);
+  await expect(rule.getByRole("button", { name: "Remove Bash(npm test) exactly auto" })).toBeVisible();
 });

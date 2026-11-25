@@ -19,6 +19,11 @@ export function ruleText(rule: PolicyRule): string {
   return rule.match === undefined ? rule.tool : `${rule.tool}(${rule.match})`;
 }
 
+/** A rule's name in labels: its text, "exactly" for a whole-command rule, and its action. */
+export function ruleLabel(rule: PolicyRule): string {
+  return `${ruleText(rule)}${rule.exact ? " exactly" : ""} ${rule.action}`;
+}
+
 /** The tool a form names: a known tool typed in another case is that tool. */
 function toolName(tool: string): string {
   const name = tool.trim();
@@ -31,10 +36,16 @@ export function takesMatch(tool: string): boolean {
   return name === "Bash" || name === "WebFetch" || FILE_TOOLS.includes(name);
 }
 
+/** Whether a rule for `tool` with a match may match the whole command only (Bash). */
+export function takesExact(tool: string): boolean {
+  return toolName(tool) === "Bash";
+}
+
 /** What `match` means for `tool`, for the field's description. */
 export function matchHint(tool: string): string {
   const name = toolName(tool);
-  if (name === "Bash") return "A command prefix, matched on whole words: npm test also matches npm test -- -u.";
+  if (name === "Bash")
+    return "A command prefix, matched on whole words: npm test also matches npm test -- -u. With Exact command, only npm test itself.";
   if (FILE_TOOLS.includes(name)) return "A glob on the path inside the folder the agent works in, such as docs/**.";
   if (name === "WebFetch") return "One host, such as docs.rs: subdomains do not match.";
   if (name !== "") return `${name} takes no match: the rule covers every call.`;
@@ -141,9 +152,15 @@ export function byPrecedence(rules: PolicyRule[]): { rule: PolicyRule; index: nu
     .sort((a, b) => PRECEDENCE.indexOf(a.rule.action) - PRECEDENCE.indexOf(b.rule.action) || a.index - b.index);
 }
 
-/** The rule a form describes: names trimmed, a known tool in its own case, an empty match left out. */
-export function formRule(tool: string, match: string, action: PolicyAction): PolicyRule {
+/**
+ * The rule a form describes: names trimmed, a known tool in its own case, an empty match left out.
+ * `exact` counts only for a Bash match.
+ */
+export function formRule(tool: string, match: string, action: PolicyAction, exact = false): PolicyRule {
   const pattern = match.trim();
   const name = toolName(tool);
-  return pattern === "" ? { tool: name, action } : { tool: name, match: pattern, action };
+  if (pattern === "") return { tool: name, action };
+  return exact && takesExact(name)
+    ? { tool: name, match: pattern, action, exact }
+    : { tool: name, match: pattern, action };
 }

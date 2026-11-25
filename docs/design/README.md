@@ -78,7 +78,8 @@ Taken as the reasonable default (reversible; see each page):
 - "Always allow `npm test` here" (owner, 2026-11-25): a quiet action under
   the answers, with the same wait and checks as Allow once and no key. It
   writes the narrowest `auto` rule the core offers (`docs/specs/security.md`,
-  "Always allow"), marked "From an approval" in Settings > Rules. Its code
+  "Always allow"): for Bash, that exact command and nothing longer. Settings
+  > Rules marks it "exactly" and "From an approval". Its code
   still needs a human security review.
 
 Open for the owner:

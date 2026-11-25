@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { byPrecedence, caveats, formProblem, formRule, matchHint, ruleText, toolNote, toolWarning } from "./rules";
+import {
+  byPrecedence,
+  caveats,
+  formProblem,
+  formRule,
+  matchHint,
+  ruleLabel,
+  ruleText,
+  toolNote,
+  toolWarning,
+} from "./rules";
 
 describe("policy rules", () => {
   it("reads like the core writes them", () => {
@@ -10,6 +20,15 @@ describe("policy rules", () => {
   it("builds a rule from a form, leaving an empty match out", () => {
     expect(formRule(" Bash ", " npm test ", "auto")).toEqual({ tool: "Bash", match: "npm test", action: "auto" });
     expect(formRule("WebFetch", "  ", "deny")).toEqual({ tool: "WebFetch", action: "deny" });
+  });
+
+  it("marks only a Bash match exact, and names exact rules apart", () => {
+    const exact = formRule("bash", "npm test", "auto", true);
+    expect(exact).toEqual({ tool: "Bash", match: "npm test", action: "auto", exact: true });
+    expect(formRule("Bash", "", "auto", true)).toEqual({ tool: "Bash", action: "auto" });
+    expect(formRule("Edit", "a.md", "auto", true)).toEqual({ tool: "Edit", match: "a.md", action: "auto" });
+    expect(ruleLabel(exact)).toBe("Bash(npm test) exactly auto");
+    expect(ruleLabel(formRule("Bash", "npm test", "auto"))).toBe("Bash(npm test) auto");
   });
 
   it("says what deny and auto rules do not promise", () => {
@@ -55,7 +74,7 @@ describe("policy rules", () => {
   });
 
   it("explains the match for the tool being typed", () => {
-    expect(matchHint("Bash")).toMatch(/command prefix/);
+    expect(matchHint("Bash")).toMatch(/command prefix.*With Exact command, only npm test itself/);
     expect(matchHint("Edit")).toMatch(/glob/);
     expect(matchHint("webfetch")).toMatch(/^One host/);
     expect(matchHint("Grep")).toBe("Grep takes no match: the rule covers every call.");

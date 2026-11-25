@@ -31,7 +31,7 @@ let workspace: Workspace;
 async function setup() {
   const core = new FakePolicyCore();
   core.rules.set("p1", [
-    { tool: "Bash", match: "npm test", action: "auto", from_approval: true },
+    { tool: "Bash", match: "npm test", action: "auto", exact: true, from_approval: true },
     { tool: "WebFetch", action: "deny" },
   ]);
   workspace = new Workspace();
@@ -61,11 +61,14 @@ describe("PolicyPanel", () => {
     await setup();
     expect(rules()).toEqual([
       expect.stringMatching(/^WebFetch\s+Deny/),
-      expect.stringMatching(/^Bash\(npm test\)\s+Auto/),
+      expect.stringMatching(/^Bash\(npm test\)\s+exactly\s+Auto/),
     ]);
     const marked = [...target.querySelectorAll("[data-testid=policy-from-approval]")];
     expect(marked.map((el) => el.closest("li")?.querySelector("code")?.textContent)).toEqual(["Bash(npm test)"]);
     expect(marked[0]?.textContent).toBe("From an approval");
+    const exact = [...target.querySelectorAll("[data-testid=policy-exact]")];
+    expect(exact.map((el) => el.closest("li")?.querySelector("code")?.textContent)).toEqual(["Bash(npm test)"]);
+    expect(exact[0]?.textContent).toBe("exactly");
     const notes = [...target.querySelectorAll("[data-testid=policy-caveat]")].map((el) => el.textContent).join(" ");
     expect(notes).toMatch(/Only this tool is refused; others such as Bash can do the same/);
     expect(notes).toMatch(
@@ -92,13 +95,37 @@ describe("PolicyPanel", () => {
     await submit();
     expect(core.rules.get("p1")?.[1]).toEqual({ tool: "WebFetch", action: "ask" });
 
-    $<HTMLButtonElement>("[aria-label='Remove Bash(npm test) auto']")?.click();
+    $<HTMLButtonElement>("[aria-label='Remove Bash(npm test) exactly auto']")?.click();
     await settle();
     expect(core.rules.get("p1")).toEqual([
       { tool: "WebFetch", action: "ask" },
       { tool: "Bash", match: "git push", action: "deny" },
     ]);
     expect(core.calls.filter((c) => c.method === "policy.set")).toHaveLength(3);
+  });
+
+  it("adds and edits an exact Bash rule, offering Exact command only for Bash", async () => {
+    const core = await setup();
+    const box = () => $<HTMLInputElement>("[data-testid=policy-exact-field]");
+    type("[data-testid=policy-tool]", "Edit");
+    flushSync();
+    expect(box()).toBeNull();
+    type("[data-testid=policy-tool]", "Bash");
+    flushSync();
+    type("[data-testid=policy-match]", "cargo test");
+    type("[data-testid=policy-action]", "auto");
+    box()?.click();
+    await submit();
+    expect(core.rules.get("p1")?.[2]).toEqual({ tool: "Bash", match: "cargo test", action: "auto", exact: true });
+    // The form is cleared: no tool, so no box.
+    expect(box()).toBeNull();
+
+    $<HTMLButtonElement>("[aria-label='Edit Bash(cargo test) exactly auto']")?.click();
+    await settle();
+    expect(box()?.checked).toBe(true);
+    box()?.click();
+    await submit();
+    expect(core.rules.get("p1")?.[2]).toEqual({ tool: "Bash", match: "cargo test", action: "auto" });
   });
 
   it("says once, without asking the core, that a tool takes no match", async () => {
@@ -169,7 +196,7 @@ describe("PolicyPanel", () => {
     const core = await setup();
     $<HTMLButtonElement>("[aria-label='Edit WebFetch deny']")?.click();
     await settle();
-    const remove = $<HTMLButtonElement>("[aria-label='Remove Bash(npm test) auto']");
+    const remove = $<HTMLButtonElement>("[aria-label='Remove Bash(npm test) exactly auto']");
     expect(remove?.getAttribute("aria-describedby")).toBe("policy-notes-0");
     remove?.click();
     await settle();

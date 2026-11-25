@@ -16,7 +16,9 @@ import {
   formRule,
   KNOWN_TOOLS,
   matchHint,
+  ruleLabel,
   ruleText,
+  takesExact,
   takesMatch,
   toolNote,
 } from "./rules";
@@ -31,6 +33,8 @@ let matchField = $state<HTMLInputElement>();
 let tool = $state("");
 let match = $state("");
 let action = $state<PolicyAction>("ask");
+/** A Bash match is the whole command, not a prefix. */
+let exact = $state(false);
 /** The rule being edited: its place in the list and what it said then. */
 let editing = $state<{ index: number; rule: PolicyRule } | null>(null);
 let formError = $state<string | null>(null);
@@ -44,7 +48,7 @@ let busy = $state(false);
 let listOpen = false;
 
 const rows = $derived(byPrecedence(policy.rules ?? []));
-const preview = $derived(formRule(tool, match, action));
+const preview = $derived(formRule(tool, match, action, exact));
 const warning = $derived(toolNote(tool));
 const toolHelp = $derived(
   [invalid === "tool" && formError ? "policy-error" : null, warning ? "policy-tool-warning" : null]
@@ -73,13 +77,16 @@ $effect(() => {
 });
 
 function same(a: PolicyRule | undefined, b: PolicyRule): boolean {
-  return a !== undefined && a.tool === b.tool && a.match === b.match && a.action === b.action;
+  return (
+    a !== undefined && a.tool === b.tool && a.match === b.match && a.action === b.action && !!a.exact === !!b.exact
+  );
 }
 
 function clearForm(): void {
   tool = "";
   match = "";
   action = "ask";
+  exact = false;
   editing = null;
   formError = null;
   invalid = null;
@@ -153,6 +160,7 @@ async function edit(index: number, rule: PolicyRule): Promise<void> {
   tool = rule.tool;
   match = rule.match ?? "";
   action = rule.action;
+  exact = rule.exact ?? false;
   formError = null;
   invalid = null;
   await tick();
@@ -233,10 +241,11 @@ function onPaneKeydown(event: KeyboardEvent): void {
             <li data-testid="policy-rule" class={rule.action}>
               <div class="line">
                 <code>{ruleText(rule)}</code>
+                {#if rule.exact}<span class="origin" data-testid="policy-exact">exactly</span>{/if}
                 <span class="action">{ACTIONS[rule.action]}</span>
                 {#if rule.from_approval}<span class="origin" data-testid="policy-from-approval">From an approval</span>{/if}
-                <button type="button" aria-label={`Edit ${ruleText(rule)} ${rule.action}`} aria-describedby={about} onclick={() => void edit(index, rule)}>Edit</button>
-                <button type="button" aria-label={`Remove ${ruleText(rule)} ${rule.action}`} aria-describedby={about} onclick={() => void remove(index)}>Remove</button>
+                <button type="button" aria-label={`Edit ${ruleLabel(rule)}`} aria-describedby={about} onclick={() => void edit(index, rule)}>Edit</button>
+                <button type="button" aria-label={`Remove ${ruleLabel(rule)}`} aria-describedby={about} onclick={() => void remove(index)}>Remove</button>
               </div>
               {#if notes.length > 0}
                 <ul class="notes" id={`policy-notes-${index}`} data-testid="policy-caveat">
@@ -291,6 +300,12 @@ function onPaneKeydown(event: KeyboardEvent): void {
               data-testid="policy-match"
             />
           </label>
+          {#if takesExact(tool)}
+            <label class="check">
+              <input type="checkbox" bind:checked={exact} data-testid="policy-exact-field" />
+              Exact command
+            </label>
+          {/if}
           <label>
             Action
             <select
@@ -437,6 +452,11 @@ function onPaneKeydown(event: KeyboardEvent): void {
     display: flex;
     flex-direction: column;
     gap: 4px;
+  }
+  label.check {
+    flex-direction: row;
+    align-items: center;
+    align-self: center;
   }
   @media (forced-colors: active) {
     button,
