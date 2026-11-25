@@ -1,5 +1,5 @@
-import { flushSync, mount, unmount } from "svelte";
-import { afterEach, expect, it } from "vitest";
+import { flushSync, mount, tick, unmount } from "svelte";
+import { afterEach, expect, it, vi } from "vitest";
 import type { TextSpot } from "../shell/workspace.svelte";
 import { FakeSearchCore, file } from "./fake-search";
 import SearchPanel from "./SearchPanel.svelte";
@@ -77,4 +77,46 @@ it("shows results grouped by file, highlights matches and opens the chosen one",
   input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
   const last = core.calls.at(-1);
   expect(last?.method === "search.start" && last.params.query.case_sensitive).toBe(true);
+});
+
+it("replaces all matches after asking, then searches again", async () => {
+  const core = new FakeSearchCore();
+  core.disk.set("a.txt", "needle needle\n");
+  app = mount(SearchPanel, { target, props: { transport: core, project: "p1", onopen: () => {} } });
+  const input = target.querySelector<HTMLInputElement>("input[type=search]");
+  if (!input) throw new Error("no search input");
+  input.value = "needle";
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+  input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  for (let i = 0; i < 4; i++) await Promise.resolve();
+  core.results(
+    1,
+    file("a.txt", [
+      1,
+      "needle needle",
+      [
+        [0, 6],
+        [7, 13],
+      ],
+    ]),
+  );
+  core.done(1);
+  target.querySelector<HTMLButtonElement>("button[aria-label='Replace']")?.click();
+  await tick();
+  const replace = target.querySelector<HTMLInputElement>("input[aria-label='Replace with']");
+  if (!replace) throw new Error("no replace input");
+  expect(document.activeElement).toBe(replace);
+  replace.value = "pin";
+  replace.dispatchEvent(new Event("input", { bubbles: true }));
+  replace.dispatchEvent(new KeyboardEvent("keydown", { code: "Enter", key: "Enter", bubbles: true }));
+  flushSync();
+  const dialog = target.querySelector("[role=alertdialog]");
+  expect(dialog?.querySelector("p")?.textContent).toBe("Replace 2 matches in 1 file?");
+  expect(document.activeElement?.textContent).toBe("Replace");
+  (document.activeElement as HTMLButtonElement).click();
+  await vi.waitFor(() =>
+    expect(target.querySelector("[data-testid=replace-note]")?.textContent).toBe("Replaced 2 matches in 1 file."),
+  );
+  expect(core.disk.get("a.txt")).toBe("pin pin\n");
+  expect(core.methods().at(-1)).toBe("search.start");
 });

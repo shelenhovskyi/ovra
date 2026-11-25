@@ -1,7 +1,9 @@
 <script lang="ts">
 // Project-wide content search: a query with case, word and regex toggles and
 // include/exclude globs; results grouped by file. Choosing a result opens the
-// file in the editor with the match selected.
+// file in the editor with the match selected. With Replace shown, matches are
+// replaced all at once (after asking), per file or per line (replace.ts).
+import { tick } from "svelte";
 import Code from "../editor/highlight/Code.svelte";
 import { highlightLines, type Segment, sliceSegments } from "../editor/highlight/static";
 import { languageFor } from "../editor/languages";
@@ -11,15 +13,19 @@ import EmptyState from "../shell/EmptyState.svelte";
 import Icon from "../shell/Icon.svelte";
 import type { TextSpot } from "../shell/workspace.svelte";
 import { SearchModel } from "./model.svelte";
+import { describe, type OpenBuffer, replaceInFiles } from "./replace";
 
 let {
   transport,
   project,
   onopen,
+  buffer = () => undefined,
 }: {
   transport: Transport;
   project: ProjectId;
   onopen: (path: string, at: TextSpot) => void;
+  /** The open editor buffer of `path`, if any; replacing there leaves the change unsaved. */
+  buffer?: (path: string) => OpenBuffer | undefined;
 } = $props();
 
 /** Lines rendered at first and added by "Show more lines". */
@@ -33,6 +39,16 @@ let input = $state<HTMLInputElement | null>(null);
 let results = $state<HTMLElement | null>(null);
 let shownLines = $state(PAGE);
 let showFilters = $state(false);
+let showReplace = $state(false);
+let replacement = $state("");
+let replaceInput = $state<HTMLInputElement | null>(null);
+/** "Replace all" waits for this answer. */
+let confirming = $state(false);
+let replacing = $state(false);
+/** What the last replace did. */
+let note = $state("");
+/** Results replaced in an open buffer: the disk, which the search reads, still has them. */
+let hidden = $state.raw(new Set<string>());
 
 /** Focuses the search text with it selected. */
 export function focus(): void {
@@ -40,11 +56,30 @@ export function focus(): void {
   input?.select();
 }
 
+/** Shows the Replace field and focuses it. */
+export async function focusReplace(): Promise<void> {
+  showReplace = true;
+  await tick();
+  replaceInput?.focus();
+  replaceInput?.select();
+}
+
+/** The results, without those already replaced in open buffers. */
+const files = $derived.by(() => {
+  if (hidden.size === 0) return model.files;
+  return model.files
+    .map((file) => ({ path: file.path, lines: file.lines.filter((match) => !hidden.has(resultKey(file.path, match))) }))
+    .filter((file) => file.lines.length > 0);
+});
+const lineCount = $derived(files.reduce((sum, file) => sum + file.lines.length, 0));
+const matchCount = $derived(files.reduce((sum, file) => sum + file.lines.reduce((n, l) => n + l.ranges.length, 0), 0));
+const canReplace = $derived(model.status.kind === "done" && matchCount > 0 && !replacing);
+
 /** Files to render, cut so that at most `shownLines` lines are in the DOM. */
 const visible = $derived.by(() => {
   const out: FileMatches[] = [];
   let left = shownLines;
-  for (const file of model.files) {
+  for (const file of files) {
     if (left <= 0) break;
     out.push(file.lines.length <= left ? file : { path: file.path, lines: file.lines.slice(0, left) });
     left -= file.lines.length;
@@ -56,17 +91,17 @@ const plural = (n: number, one: string, many: string) => `${n.toLocaleString("en
 
 const summary = $derived.by(() => {
   const status = model.status;
-  const found = `${plural(model.lineCount, "matching line", "matching lines")} in ${plural(model.files.length, "file", "files")}`;
+  const found = `${plural(lineCount, "matching line", "matching lines")} in ${plural(files.length, "file", "files")}`;
   switch (status.kind) {
     case "idle":
       return "";
     case "error":
       return status.message;
     case "searching":
-      return model.files.length ? `Searching… ${found} so far` : "Searching…";
+      return files.length ? `Searching… ${found} so far` : "Searching…";
     case "done":
-      if (status.stopped) return model.files.length ? `Stopped: ${found} so far.` : "Stopped.";
-      if (!model.files.length) return "No results.";
+      if (status.stopped) return files.length ? `Stopped: ${found} so far.` : "Stopped.";
+      if (!files.length) return "No results.";
       return status.truncated ? `${found}. Limit reached: narrow the search.` : `${found}.`;
   }
   return "";
@@ -74,12 +109,64 @@ const summary = $derived.by(() => {
 
 function changed(): void {
   shownLines = PAGE;
+  hidden = new Set();
+  note = "";
+  confirming = false;
   model.schedule();
 }
 
+/** Replaces the matches of `targets` (only line `only` with one file), then searches again. */
+async function replace(targets: FileMatches[], only?: number): Promise<void> {
+  if (replacing) return;
+  replacing = true;
+  confirming = false;
+  const query = {
+    pattern: model.pattern,
+    regex: model.regex,
+    caseSensitive: model.caseSensitive,
+    wholeWord: model.wholeWord,
+    replacement,
+  };
+  try {
+    const out = await replaceInFiles({ transport, project, buffer }, targets, query, only);
+    const next = new Set(hidden);
+    for (const file of targets) {
+      if (!out.files.includes(file.path) || !buffer(file.path)) continue;
+      for (const match of file.lines)
+        if (only === undefined || match.line === only) next.add(resultKey(file.path, match));
+    }
+    hidden = next;
+    note = describe(out);
+  } finally {
+    replacing = false;
+  }
+  await model.run();
+}
+
+function onReplaceKeydown(event: KeyboardEvent): void {
+  if (event.code !== "Enter" && event.code !== "NumpadEnter") return;
+  event.preventDefault();
+  if (canReplace) confirming = true;
+}
+
+function cancelConfirm(): void {
+  confirming = false;
+  replaceInput?.focus();
+}
+
+function onConfirmKeydown(event: KeyboardEvent): void {
+  if (event.code !== "Escape") return;
+  event.preventDefault();
+  event.stopPropagation();
+  cancelConfirm();
+}
+
+let confirmButton = $state<HTMLButtonElement | null>(null);
+$effect(() => confirmButton?.focus());
+
 /** Whether any option narrows the search, so "no results" can offer to clear them. */
 const narrowed = $derived(model.caseSensitive || model.wholeWord || model.regex || !!model.include || !!model.exclude);
-const nothingFound = $derived(model.status.kind === "done" && !model.status.stopped && model.files.length === 0);
+const nothingFound = $derived(model.status.kind === "done" && !model.status.stopped && files.length === 0);
 
 function clearOptions(): void {
   model.caseSensitive = model.wholeWord = model.regex = false;
@@ -109,6 +196,7 @@ function onQueryKeydown(event: KeyboardEvent): void {
   } else if (event.key === "Enter") {
     event.preventDefault();
     shownLines = PAGE;
+    hidden = new Set();
     void model.run();
   } else if (event.key === "Escape" && model.status.kind === "searching") {
     event.preventDefault();
@@ -216,6 +304,14 @@ const folder = (path: string) => path.slice(0, Math.max(path.lastIndexOf("/"), 0
     <div class="toggles">
       <button
         type="button"
+        title="Replace"
+        aria-label="Replace"
+        aria-expanded={showReplace}
+        onclick={() => (showReplace ? (showReplace = false) : void focusReplace())}
+        ><Icon name={showReplace ? "chevron" : "chevron-right"} small /></button
+      >
+      <button
+        type="button"
         title="Match case"
         aria-label="Match case"
         aria-pressed={model.caseSensitive}
@@ -244,6 +340,33 @@ const folder = (path: string) => path.slice(0, Math.max(path.lastIndexOf("/"), 0
       >
     </div>
   </div>
+  {#if showReplace}
+    <div class="replace">
+      <input
+        type="text"
+        placeholder="Replace"
+        aria-label="Replace with"
+        spellcheck="false"
+        autocomplete="off"
+        bind:this={replaceInput}
+        bind:value={replacement}
+        onkeydown={onReplaceKeydown}
+      />
+      <button type="button" class="quiet" disabled={!canReplace} onclick={() => (confirming = true)}>Replace all</button>
+    </div>
+    {#if confirming}
+      <div class="confirm" role="alertdialog" aria-label="Replace all" tabindex="-1" onkeydown={onConfirmKeydown}>
+        <p>Replace {plural(matchCount, "match", "matches")} in {plural(files.length, "file", "files")}?</p>
+        <div class="buttons">
+          <button type="button" class="danger" bind:this={confirmButton} onclick={() => void replace(files)}
+            >Replace</button
+          >
+          <button type="button" class="quiet" onclick={cancelConfirm}>Cancel</button>
+        </div>
+      </div>
+    {/if}
+    {#if note}<p class="note" role="status" data-testid="replace-note">{note}</p>{/if}
+  {/if}
   {#if showFilters}
     <label>
       Files to include
@@ -278,6 +401,17 @@ const folder = (path: string) => path.slice(0, Math.max(path.lastIndexOf("/"), 0
           <span class="count" aria-label={plural(file.lines.length, "matching line", "matching lines")}
             >{file.lines.length}</span
           >
+          {#if showReplace}
+            <button
+              type="button"
+              class="row-action"
+              tabindex="-1"
+              title="Replace in file"
+              aria-label={`Replace in ${file.path}`}
+              disabled={!canReplace}
+              onclick={() => void replace(files.filter((f) => f.path === file.path))}>Replace</button
+            >
+          {/if}
         </div>
         <ul>
           {#each file.lines as match (match.line)}
@@ -303,15 +437,26 @@ const folder = (path: string) => path.slice(0, Math.max(path.lastIndexOf("/"), 0
                       />{/if}{/each}</span
                 >
               </button>
+              {#if showReplace}
+                <button
+                  type="button"
+                  class="row-action"
+                  tabindex="-1"
+                  title="Replace"
+                  aria-label={`Replace on ${file.path} line ${match.line}`}
+                  disabled={!canReplace}
+                  onclick={() => void replace([file], match.line)}>Replace</button
+                >
+              {/if}
             </li>
           {/each}
         </ul>
       </li>
     {/each}
   </ul>
-  {#if model.lineCount > shownLines}
+  {#if lineCount > shownLines}
     <button type="button" class="more" onclick={() => (shownLines += PAGE)}>
-      Show {plural(model.lineCount - shownLines, "more line", "more lines")}
+      Show {plural(lineCount - shownLines, "more line", "more lines")}
     </button>
   {/if}
 </section>
@@ -365,6 +510,90 @@ const folder = (path: string) => path.slice(0, Math.max(path.lastIndexOf("/"), 0
   .toggles button[aria-expanded="true"] {
     color: var(--accent);
     background: var(--accent-soft);
+  }
+  .replace {
+    display: flex;
+    gap: 4px;
+  }
+  .replace input {
+    flex: 1;
+    min-width: 0;
+  }
+  .quiet,
+  .row-action {
+    flex: none;
+    min-height: 26px;
+    padding: 0 8px;
+    font: inherit;
+    font-size: 13px;
+    color: var(--text-2);
+    background: transparent;
+    border: 0;
+    border-radius: var(--radius-sm);
+    cursor: default;
+  }
+  .quiet:hover:not(:disabled),
+  .row-action:hover:not(:disabled) {
+    color: var(--text);
+    background: var(--s3);
+  }
+  .quiet:disabled,
+  .row-action:disabled {
+    color: var(--text-2);
+    background: var(--s3);
+  }
+  .confirm {
+    padding: 10px 12px;
+    border-radius: var(--radius-sm);
+    background: var(--s4);
+    box-shadow: var(--card-shadow);
+  }
+  .confirm p {
+    margin: 0 0 8px;
+  }
+  .buttons {
+    display: flex;
+    gap: 6px;
+  }
+  .danger {
+    min-height: 26px;
+    padding: 0 10px;
+    font: inherit;
+    font-weight: 500;
+    color: var(--danger);
+    background: var(--danger-soft);
+    border: 0;
+    border-radius: var(--radius-sm);
+  }
+  .confirm button:focus-visible,
+  .row-action:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .note {
+    margin: 0;
+    font-size: 13px;
+    color: var(--text-2);
+  }
+  /* Per-file and per-line replace: shown on hover or focus of the row. */
+  .row-action {
+    display: none;
+    min-height: 22px;
+    background: var(--s3);
+  }
+  .file-name:hover .row-action,
+  .file-name:focus-within .row-action,
+  .results li:hover > .row-action,
+  .results li:focus-within > .row-action {
+    display: block;
+  }
+  .results li {
+    position: relative;
+  }
+  .results li > .row-action {
+    position: absolute;
+    top: 3px;
+    right: 4px;
   }
   label {
     display: flex;

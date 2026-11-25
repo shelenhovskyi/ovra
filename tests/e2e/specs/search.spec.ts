@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "../test";
@@ -40,4 +40,36 @@ test("Mod+Shift+F searches the project's files and opens a result at its match",
   await page.getByRole("button", { name: "Files", exact: true }).click();
   await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();
   await expect(search).toBeHidden();
+});
+
+test("Mod+Shift+H replaces in files: open files stay unsaved, others are written", async ({ page }) => {
+  const dir = mkdtempSync(join(tmpdir(), "ovra-replace-"));
+  writeFileSync(join(dir, "open.txt"), "old\n");
+  writeFileSync(join(dir, "closed.txt"), "an old (old)\n");
+
+  await page.goto(daemonUrl());
+  const projects = page.getByTestId("project-list");
+  await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
+  await projects.getByRole("button", { name: "Open", exact: true }).click();
+  await expect(page.getByRole("treeitem", { name: /open\.txt/ })).toBeVisible();
+
+  await page.keyboard.press("ControlOrMeta+Shift+F");
+  await page.keyboard.type("old");
+  const search = page.getByTestId("search");
+  await search.getByRole("button", { name: /open\.txt line 1/ }).click();
+  await expect(page.getByRole("tab", { name: "open.txt" })).toHaveAttribute("aria-selected", "true");
+
+  await page.keyboard.press("ControlOrMeta+Shift+H");
+  await expect(search.getByRole("textbox", { name: "Replace with" })).toBeFocused();
+  await page.keyboard.type("new");
+  await page.keyboard.press("Enter");
+  await expect(search.getByRole("alertdialog")).toContainText("Replace 3 matches in 2 files?");
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("replace-note")).toHaveText("Replaced 3 matches in 2 files.");
+
+  await expect.poll(() => readFileSync(join(dir, "closed.txt"), "utf8")).toBe("an new (new)\n");
+  expect(readFileSync(join(dir, "open.txt"), "utf8")).toBe("old\n");
+  await expect(page.getByTestId("main").locator(".cm-content")).toHaveText("new");
+  await expect(page.getByRole("tab", { name: "open.txt, unsaved changes" })).toBeVisible();
+  await expect(page.getByTestId("search-summary")).toHaveText("No results.");
 });

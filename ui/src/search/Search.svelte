@@ -1,6 +1,8 @@
 <script lang="ts">
-// Sidebar search view for the open project, and the "Search in files" command.
+// Sidebar search view for the open project, and the "Search in files" and
+// "Replace in files" commands.
 import { tick, untrack } from "svelte";
+import { tabs } from "../editor/open-files.svelte";
 import { registerCommand } from "../keys/commands";
 import { useOvra } from "../shell/context";
 import SearchPanel from "./SearchPanel.svelte";
@@ -15,7 +17,22 @@ async function show(): Promise<void> {
   panel?.focus();
 }
 
+async function showReplace(): Promise<void> {
+  workspace.sidebar = "search";
+  await tick();
+  await panel?.focusReplace();
+}
+
 $effect(() => registerCommand({ id: "search.show", title: "Search in files", keys: "Mod+Shift+F", run: show }));
+$effect(() =>
+  registerCommand({ id: "search.replace", title: "Replace in files", keys: "Mod+Shift+H", run: showReplace }),
+);
+
+/** The open editor buffer of `path`, if the editor shows this project. */
+function buffer(path: string) {
+  const current = tabs.current;
+  return current && current.project === workspace.project?.id ? current.buffers.get(path) : undefined;
+}
 
 // Choosing the Search view (its sidebar tab) puts the cursor in the box, so
 // typing searches; the view shown at start takes no focus.
@@ -34,6 +51,7 @@ $effect(() => {
       {transport}
       project={workspace.project.id}
       onopen={(path, at) => workspace.openFile(path, "edit", at)}
+      {buffer}
     />
   {/key}
 {/if}

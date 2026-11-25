@@ -15,6 +15,8 @@ export class FakeSearchCore implements Transport {
   failNext: CoreError | null = null;
   /** Events the core sends before it answers search.start. */
   beforeReply: (id: SearchId) => CoreEvent[] = () => [];
+  /** Files for fs.read_file and fs.write_file. */
+  disk = new Map<string, string>();
   private last = 0;
   private listeners = new Set<(event: CoreEvent) => void>();
 
@@ -29,6 +31,15 @@ export class FakeSearchCore implements Transport {
       const id = ++this.last;
       for (const event of this.beforeReply(id)) this.emit(event);
       return { type: "search.started", data: { id } } as ResponseFor<R>;
+    }
+    if (request.method === "fs.read_file") {
+      const text = this.disk.get(request.params.path) ?? "";
+      const data = { path: request.params.path, size: text.length, mtime_ms: 1, body: { kind: "text", text } };
+      return { type: "fs.file", data } as ResponseFor<R>;
+    }
+    if (request.method === "fs.write_file") {
+      this.disk.set(request.params.path, request.params.text);
+      return { type: "fs.written", data: { mtime_ms: 2 } } as ResponseFor<R>;
     }
     return { type: "ok" } as ResponseFor<R>;
   }
