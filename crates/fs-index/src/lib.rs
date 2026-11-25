@@ -1,11 +1,13 @@
 //! File access for projects: directory listings that honour `.gitignore`,
-//! git status, reading and writing files, and watching for changes.
+//! git status, reading, writing, creating, renaming and copying files,
+//! and watching for changes.
 //!
 //! Contract: `ovra_core::services::FsService`; the in-memory reference
 //! behaviour is `ovra_core::fakes::MemoryFs`. Paths arrive validated, and
 //! symlinks are not followed outside the root. Blocking work runs on tokio's
 //! blocking pool.
 
+mod edit;
 mod file_list;
 mod files;
 mod git;
@@ -62,13 +64,6 @@ impl FsIndex {
             .find(|w| &w.given_root == root)
             .map(get)
     }
-}
-
-fn not_yet() -> ProtocolError {
-    ProtocolError::new(
-        ErrorCode::Unavailable,
-        "file operations are not available yet",
-    )
 }
 
 fn blocking<T: Send + 'static>(
@@ -138,21 +133,27 @@ impl FsService for FsIndex {
         blocking(move || files::write(&root, &path, &text, expected_mtime_ms))
     }
 
-    // File operations land in their own commit; until then they are unavailable.
-    fn create(&self, _: PathBuf, _: RelPath, _: bool) -> BoxFuture<'_, Result<()>> {
-        blocking(|| Err(not_yet()))
+    fn create(&self, root: PathBuf, path: RelPath, dir: bool) -> BoxFuture<'_, Result<()>> {
+        blocking(move || edit::create(&root, &path, dir))
     }
 
-    fn rename(&self, _: PathBuf, _: RelPath, _: RelPath) -> BoxFuture<'_, Result<()>> {
-        blocking(|| Err(not_yet()))
+    fn rename(&self, root: PathBuf, from: RelPath, to: RelPath) -> BoxFuture<'_, Result<()>> {
+        blocking(move || edit::rename(&root, &from, &to))
     }
 
-    fn copy(&self, _: PathBuf, _: RelPath, _: RelPath) -> BoxFuture<'_, Result<()>> {
-        blocking(|| Err(not_yet()))
+    fn copy(&self, root: PathBuf, from: RelPath, to: RelPath) -> BoxFuture<'_, Result<()>> {
+        blocking(move || edit::copy(&root, &from, &to))
     }
 
-    fn trash(&self, _: PathBuf, _: Vec<RelPath>) -> BoxFuture<'_, Result<()>> {
-        blocking(|| Err(not_yet()))
+    fn trash(&self, root: PathBuf, paths: Vec<RelPath>) -> BoxFuture<'_, Result<()>> {
+        // Lands in its own commit.
+        let _ = (root, paths);
+        blocking(|| {
+            Err(ProtocolError::new(
+                ErrorCode::Unavailable,
+                "trash is not available yet",
+            ))
+        })
     }
 
     fn search(
