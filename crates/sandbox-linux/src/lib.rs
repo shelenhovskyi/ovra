@@ -219,7 +219,10 @@ impl Bubblewrap {
         let out = out?;
         if !out.status.success() {
             let err = String::from_utf8_lossy(&out.stderr);
-            return Err(format!("bubblewrap does not work here: {}", err.trim()));
+            let restricted =
+                std::fs::read_to_string("/proc/sys/kernel/apparmor_restrict_unprivileged_userns")
+                    .ok();
+            return Err(not_working(err.trim(), restricted.as_deref()));
         }
         Ok(String::from_utf8_lossy(&out.stdout).contains(helper::LANDLOCK_HELD))
     }
@@ -272,6 +275,22 @@ fn invalid(what: impl std::fmt::Display) -> ProtocolError {
     ProtocolError::new(ErrorCode::BadRequest, what.to_string())
 }
 
+/// Why the probe failed, with the usual cause on Ubuntu 23.10 and later
+/// named: AppArmor gives unprivileged user namespaces no rights, so
+/// bubblewrap cannot set one up. `restricted` is the value of
+/// `kernel.apparmor_restrict_unprivileged_userns`, if the kernel has it.
+fn not_working(err: &str, restricted: Option<&str>) -> String {
+    let mut reason = format!("bubblewrap does not work here: {err}");
+    if restricted.is_some_and(|v| v.trim() == "1") {
+        reason.push_str(
+            ". AppArmor restricts user namespaces on this system \
+             (kernel.apparmor_restrict_unprivileged_userns = 1); \
+             an AppArmor profile that lets bubblewrap use them is needed",
+        );
+    }
+    reason
+}
+
 /// The names in Ovra's environment now, when the session starts.
 fn outer_env() -> Vec<OsString> {
     std::env::vars_os().map(|(name, _)| name).collect()
@@ -288,6 +307,20 @@ mod tests {
     use ovra_core::services::ProfileNetwork;
 
     use super::*;
+
+    #[test]
+    fn a_failed_probe_names_apparmor_when_it_restricts_user_namespaces() {
+        let err = "bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted";
+        assert!(not_working(err, Some("1\n")).contains("AppArmor restricts user namespaces"));
+        assert_eq!(
+            not_working(err, Some("0\n")),
+            format!("bubblewrap does not work here: {err}")
+        );
+        assert_eq!(
+            not_working(err, None),
+            format!("bubblewrap does not work here: {err}")
+        );
+    }
 
     #[test]
     fn an_unavailable_sandbox_wraps_no_server_either() {

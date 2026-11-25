@@ -99,7 +99,12 @@ impl Root {
                 .map(|v| v.to_string_lossy().replace(&root, "ROOT"));
             out.push_str(&format!("env {} = {value:?}\n", name.to_string_lossy()));
         }
-        out
+        // The resolver's file kept under `/run` depends on the machine
+        // (systemd-resolved's stub, or none).
+        out.lines()
+            .filter(|l| !l.starts_with("--ro-bind /run/"))
+            .map(|l| format!("{l}\n"))
+            .collect()
     }
 }
 
