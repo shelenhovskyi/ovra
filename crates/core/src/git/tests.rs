@@ -84,6 +84,8 @@ async fn paths_must_stay_in_the_project_and_out_of_dot_git() {
         (json!(["../x"]), ErrorCode::Forbidden),
         (json!([".git/config"]), ErrorCode::Forbidden),
         (json!([".GIT/hooks/pre-commit"]), ErrorCode::Forbidden),
+        (json!(["vendor/lib/.git/config"]), ErrorCode::Forbidden),
+        (json!(["a\nb"]), ErrorCode::BadRequest),
         (json!([""]), ErrorCode::BadRequest),
         (json!([]), ErrorCode::BadRequest),
     ] {
@@ -205,6 +207,29 @@ async fn hunks_are_checked_before_staging() {
         )
     };
     assert_eq!(code(&f.core, hunk(json!([]))).await, ErrorCode::BadRequest);
+    // A second file smuggled in after the hunk's own lines.
+    let smuggled = json!([
+        "-a",
+        "+b",
+        "--- a/../outside",
+        "+++ b/../outside",
+        "@@ -1 +1 @@",
+        "-secret",
+        "+pwned"
+    ]);
+    assert_eq!(code(&f.core, hunk(smuggled)).await, ErrorCode::BadRequest);
+    // Counts that do not match the header, and a note with no line before it.
+    for lines in [
+        json!(["-a", "+b", "+c"]),
+        json!(["\\ No newline at end of file", "-a", "+b"]),
+        json!(["diff --git a/x b/x"]),
+    ] {
+        assert_eq!(
+            code(&f.core, hunk(lines.clone())).await,
+            ErrorCode::BadRequest,
+            "{lines}"
+        );
+    }
     assert_eq!(
         code(&f.core, hunk(json!(["-a", "+b\n+c"]))).await,
         ErrorCode::BadRequest

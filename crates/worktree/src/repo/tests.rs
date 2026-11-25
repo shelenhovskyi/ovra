@@ -102,6 +102,11 @@ async fn a_project_inside_a_repository_sees_only_its_folder() {
     // The same hunk again no longer applies; unstaging takes it out.
     let again = g.stage_hunk(root.clone(), rel("a.txt"), diff.hunks[0].clone(), false);
     assert_eq!(code(again.await), ErrorCode::Conflict);
+    // A hunk whose lines do not match its header never reaches git.
+    let mut forged = diff.hunks[1].clone();
+    forged.lines.push("+more".into());
+    let forged = g.stage_hunk(root.clone(), rel("a.txt"), forged, false);
+    assert_eq!(code(forged.await), ErrorCode::BadRequest);
     ok(
         g.stage_hunk(root.clone(), rel("a.txt"), staged.hunks[0].clone(), true)
             .await,

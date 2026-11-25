@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use super::projects::ProjectId;
+use super::{ErrorCode, ProtocolError};
 
 /// The most files `git.status` lists; the rest are counted as `truncated`.
 pub const MAX_STATUS_FILES: u32 = 5_000;
@@ -274,6 +275,48 @@ pub struct Hunk {
     /// starting with ` `, `+` or `-`,
     /// or `\` for git's "No newline at end of file".
     pub lines: Vec<String>,
+}
+
+impl Hunk {
+    /// Checks that the hunk is one hunk of one file, so it cannot carry
+    /// another file's patch into the index: every line is context, an
+    /// addition or a removal (or git's `\` note right after one), the
+    /// counts match the header, and lines hold no line breaks (a CRLF
+    /// file's lines keep one trailing `\r`).
+    pub fn check(&self) -> Result<(), ProtocolError> {
+        let bad = |why: &str| {
+            Err(ProtocolError::new(
+                ErrorCode::BadRequest,
+                format!("not a hunk of one file: {why}"),
+            ))
+        };
+        if self.lines.is_empty() || self.lines.len() > MAX_DIFF_LINES as usize {
+            return bad("it has no lines or too many");
+        }
+        let (mut old, mut new) = (0u32, 0u32);
+        let mut after_line = false;
+        for line in &self.lines {
+            let body = line.strip_suffix('\r').unwrap_or(line);
+            if body.contains(['\n', '\r']) {
+                return bad("a line contains a line break");
+            }
+            match line.as_bytes().first() {
+                Some(b' ') => (old, new) = (old + 1, new + 1),
+                Some(b'-') => old += 1,
+                Some(b'+') => new += 1,
+                Some(b'\\') if after_line => {
+                    after_line = false;
+                    continue;
+                }
+                _ => return bad("a line is not context, an addition or a removal"),
+            }
+            after_line = true;
+        }
+        if old != self.old_lines || new != self.new_lines {
+            return bad("its line counts do not match its header");
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

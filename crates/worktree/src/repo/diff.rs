@@ -16,7 +16,9 @@ const DIFF: [&str; 4] = ["--no-ext-diff", "--no-textconv", "--no-color", "-U3"];
 
 pub(super) fn diff(root: &Path, path: &RelPath, staged: bool) -> Result<FileDiff> {
     git::dirs(root)?;
-    let mut run = Git::new(root, "diff").args(DIFF);
+    let mut run = Git::new(root, "diff")
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .args(DIFF);
     let mut from = None;
     if staged {
         from = renamed_from(root, path)?;
@@ -38,6 +40,7 @@ pub(super) fn diff(root: &Path, path: &RelPath, staged: bool) -> Result<FileDiff
 /// The old path, relative to the project, of a staged rename to `path`.
 fn renamed_from(root: &Path, path: &RelPath) -> Result<Option<String>> {
     let out = Git::new(root, "diff")
+        .env("GIT_OPTIONAL_LOCKS", "0")
         .args(["--cached", "-M", "--name-status", "-z", "--relative"])
         .run()?;
     let fields: Vec<String> = git::fields(&out).collect();
@@ -62,6 +65,7 @@ fn untracked(root: &Path, path: &RelPath) -> Result<bool> {
         return Ok(false);
     }
     let listed = Git::new(root, "ls-files")
+        .env("GIT_OPTIONAL_LOCKS", "0")
         .args(["-z", "--cached", "--"])
         .arg(path.as_str())
         .run()?;
@@ -71,6 +75,7 @@ fn untracked(root: &Path, path: &RelPath) -> Result<bool> {
 /// An untracked file as all added.
 fn added(root: &Path, path: &RelPath) -> Result<Vec<u8>> {
     let out = Git::new(root, "diff")
+        .env("GIT_OPTIONAL_LOCKS", "0")
         .arg("--no-index")
         .args(DIFF)
         .args(["--", "/dev/null", path.as_str()])
@@ -200,6 +205,8 @@ pub(super) fn patch(path: &str, hunk: &Hunk) -> String {
 }
 
 pub(super) fn stage_hunk(root: &Path, path: &RelPath, hunk: &Hunk, unstage: bool) -> Result<()> {
+    // The core checked it too; a patch must never reach other files.
+    hunk.check()?;
     let dirs = git::dirs(root)?;
     let mut run = Git::new(&dirs.top, "apply").args(["--cached", "--whitespace=nowarn"]);
     if unstage {
