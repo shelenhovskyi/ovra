@@ -149,9 +149,10 @@ const status = $derived.by((): { text: string; ok: boolean } => {
       tabindex="-1"
       aria-label={gitDiff ? `Diff of ${gitDiff.path}` : (workspace.openPath ?? "No file open")}
     >
-      {#if gitDiff}
-        <GitDiff target={gitDiff} />
-      {/if}
+      <!-- An each block keeps the closing diff's target: an if block would hand it null while it unmounts. -->
+      {#each gitDiff ? [gitDiff] : [] as target (target)}
+        <GitDiff {target} />
+      {/each}
       <div class="file" hidden={!!gitDiff}>
         {#if workspace.mode === "edit"}
           <Editor />
