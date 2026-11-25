@@ -504,7 +504,14 @@ fn missing_protected_files_cannot_be_created() {
     let after = world.files();
     let changed: Vec<String> = after
         .iter()
-        .filter(|f| !before.contains(f) && f.0.starts_with(project))
+        // Not `.git`: planning makes an empty `.git/config` here only when
+        // the test's folder sits inside another repository (a checkout's
+        // `target/`), which depends on where the tests run.
+        .filter(|f| {
+            !before.contains(f)
+                && f.0.starts_with(project)
+                && !f.0.starts_with(project.join(".git"))
+        })
         .map(|(path, _)| {
             path.strip_prefix(&world.root)
                 .unwrap()
