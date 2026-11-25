@@ -25,6 +25,7 @@ import Terminals from "../terminal/Terminals.svelte";
 import Tree from "../tree/Tree.svelte";
 import Viewer from "../viewers/Viewer.svelte";
 import { provideOvra } from "./context";
+import { rememberProject, restoreProject } from "./last-project";
 import MoreMenu from "./MoreMenu.svelte";
 import ProjectSwitcher from "./ProjectSwitcher.svelte";
 import { Workspace } from "./workspace.svelte";
@@ -45,6 +46,22 @@ let request = 0;
 const gitDiff = $derived(workspace.gitDiff?.project === workspace.project?.id ? workspace.gitDiff : null);
 
 $effect(() => persistOpenFiles(transport, workspace));
+
+// The window opens the project it had before a reload; until that is decided, nothing is forgotten.
+let restoring = true;
+$effect(() =>
+  untrack(() => {
+    void restoreProject(transport, workspace).finally(() => {
+      restoring = false;
+    });
+  }),
+);
+$effect(() => {
+  const id = workspace.project?.id ?? null;
+  untrack(() => {
+    if (id || !restoring) rememberProject(id);
+  });
+});
 
 /** Asks the core who it is; only the latest request may update the status. */
 function requestInfo() {

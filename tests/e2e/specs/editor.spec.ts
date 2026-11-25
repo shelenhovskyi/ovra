@@ -57,10 +57,8 @@ test("reopens the file that was open when the project was left", async ({ page }
   await expect(page.getByTestId("main")).toContainText("Notes");
   await saved;
 
+  // A reload opens the project again by itself, with its file.
   await page.reload();
-  await page
-    .getByTestId("project-list")
-    .getByRole("button", { name: basename(dir) })
-    .click();
+  await expect(page.getByTestId("project-name")).toContainText(basename(dir));
   await expect(page.getByTestId("main")).toContainText("Notes");
 });

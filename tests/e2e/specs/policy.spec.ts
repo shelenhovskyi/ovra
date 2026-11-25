@@ -35,9 +35,8 @@ test("a project's policy rules are added in the policies dialog, refused inline 
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
   // A new page reads the rules from the core again.
+  // The project opens by itself after a reload.
   await page.reload();
-  await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
-  await projects.getByRole("button", { name: "Open", exact: true }).click();
   await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();
   await page.getByTestId("more").click();
   await page.getByRole("menuitem", { name: "Policies" }).click();

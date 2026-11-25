@@ -77,6 +77,31 @@ describe("Shell", () => {
     unmount(app);
   });
 
+  it("opens the project of the last visit again", async () => {
+    globalThis.ResizeObserver ??= class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    };
+    localStorage.setItem("ovra.project", "p1");
+    const demo = { id: "p1", name: "demo-app", root: "/work/demo-app", last_opened_ms: null, trusted: false };
+    const transport = fakeTransport();
+    const base = transport.call;
+    transport.call = ((request: Request) =>
+      request.method === "projects.open"
+        ? Promise.resolve({ type: "projects.project", data: demo })
+        : base(request)) as Transport["call"];
+    const target = document.createElement("div");
+    const app = mount(Shell, { target, props: { transport } });
+    flushSync();
+    await new Promise((resolve) => setImmediate(resolve));
+    flushSync();
+    expect(target.querySelector("[data-testid=project-name]")?.textContent).toMatch(/Project\s+demo-app/);
+    expect(localStorage.getItem("ovra.project")).toBe("p1");
+    unmount(app);
+    localStorage.clear();
+  });
+
   it("explains a refused address instead of retrying", async () => {
     const router = new FrameRouter(() => {}, "connecting");
     const target = document.createElement("div");

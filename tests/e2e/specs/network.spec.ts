@@ -26,10 +26,8 @@ test("a project's allowed hosts are added in the network dialog and kept", async
 
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
-  // A new page reads the hosts from the core again.
+  // A new page reads the hosts from the core again; the project opens by itself.
   await page.reload();
-  await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
-  await projects.getByRole("button", { name: "Open", exact: true }).click();
   await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();
   await page.getByTestId("more").click();
   await page.getByRole("menuitem", { name: "Network" }).click();

@@ -112,10 +112,7 @@ test("unsaved text survives a reload and an outside change becomes a conflict", 
   await expect(page.getByTestId("editor-dirty")).toBeVisible();
 
   await page.reload();
-  await page
-    .getByTestId("project-list")
-    .getByRole("button", { name: basename(dir) })
-    .click();
+  await expect(page.getByTestId("project-name")).toContainText(basename(dir));
   const tabs = page.getByRole("tablist", { name: "Open files" });
   await expect(tabs.getByRole("tab", { name: "notes.txt, unsaved changes" })).toBeVisible();
   await page.keyboard.press("ControlOrMeta+E");

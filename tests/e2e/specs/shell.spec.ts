@@ -1,6 +1,6 @@
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { expect, test } from "../test";
 
 function daemonUrl(): URL {
@@ -40,6 +40,49 @@ test("with no file open, the main area offers the next steps", async ({ page }) 
   await expect(start.getByRole("button", { name: /Find a file/ })).toContainText("Alt+P");
   await start.getByRole("button", { name: /Search in files/ }).click();
   await expect(page.getByRole("button", { name: "Search", pressed: true })).toBeVisible();
+});
+
+test("the project name switches projects, opens another folder and survives a reload", async ({ page }) => {
+  const first = mkdtempSync(join(tmpdir(), "ovra-switch-a-"));
+  const second = mkdtempSync(join(tmpdir(), "ovra-switch-b-"));
+  writeFileSync(join(first, "a.md"), "a\n");
+  writeFileSync(join(second, "b.md"), "b\n");
+  await page.goto(daemonUrl().href);
+  const projects = page.getByTestId("project-list");
+  await projects.getByRole("textbox", { name: "Open a folder" }).fill(first);
+  await projects.getByRole("button", { name: "Open", exact: true }).click();
+  await expect(page.getByRole("treeitem", { name: /a\.md/ })).toBeVisible();
+
+  // A browser tab has no folder dialog: Open a folder… goes to the start screen's field.
+  const name = page.getByTestId("project-name");
+  await name.click();
+  await page.getByRole("menuitem", { name: "Open a folder…" }).click();
+  const field = projects.getByRole("textbox", { name: "Open a folder" });
+  await expect(field).toBeFocused();
+  await field.fill(second);
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("treeitem", { name: /b\.md/ })).toBeVisible();
+
+  // Back to the first one with the keyboard: the menu lists it under Recent projects.
+  await name.focus();
+  await page.keyboard.press("ArrowDown");
+  const menu = page.getByRole("menu", { name: /switch project/ });
+  await expect(menu.getByRole("menuitem").first()).toBeFocused();
+  await menu.getByRole("menuitem", { name: basename(first) }).press("Enter");
+  await expect(page.getByRole("treeitem", { name: /a\.md/ })).toBeVisible();
+  await expect(name).toBeFocused();
+
+  await page.reload();
+  await expect(name).toContainText(basename(first));
+  await expect(page.getByRole("treeitem", { name: /a\.md/ })).toBeVisible();
+
+  // Closing the project is remembered too.
+  await name.click();
+  await page.getByRole("menuitem", { name: "Close project" }).click();
+  await expect(projects).toBeVisible();
+  await page.reload();
+  await expect(projects).toBeVisible();
+  await expect(name).toHaveText("No project open");
 });
 
 test("a wrong token is refused", async ({ page }) => {
