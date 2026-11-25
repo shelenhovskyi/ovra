@@ -446,6 +446,12 @@ describe("ProjectTrust", () => {
     await settle();
     expect(core.sent("projects.trust").map((c) => c.params)).toEqual([{ id: "p1", trusted: true, fingerprint: "f1" }]);
     expect(workspace.project?.trusted).toBe(true);
+    // Trusted: one quiet line with the warning count; the rest, and Stop trusting, under Details.
+    expect(heading()).toBe("Trusted project settings");
+    expect(testid("trust-warning-count")).toBe("⚠ 2 warnings");
+    expect(button(trustCard(), "Stop trusting")).toBeUndefined();
+    button(trustCard(), "Details")?.click();
+    await settle();
     expect(heading()).toBe("Project settings are on");
     button(trustCard(), "Stop trusting")?.click();
     await settle();
@@ -534,7 +540,7 @@ describe("ProjectTrust", () => {
     button(trustCard(), "Trust the new settings")?.click();
     await settle();
     expect(core.sent("projects.trust").map((c) => c.params.fingerprint)).toEqual(["new", "newer"]);
-    expect(heading()).toBe("Project settings are on");
+    expect(heading()).toBe("Trusted project settings");
   });
 
   it("rechecks when a session starts or the settings may have changed", async () => {

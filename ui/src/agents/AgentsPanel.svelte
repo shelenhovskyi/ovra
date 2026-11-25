@@ -32,12 +32,14 @@ const picks = browserPicks(transport);
 const accounts = claudeAccounts(transport);
 const modEnter = formatShortcut("Mod+Enter", isApple());
 
-const MODES: { id: TaskMode; label: string; hint: string }[] = [
-  { id: "here", label: "One agent, here", hint: "Works in this folder. Asks before risky steps." },
+/** `hint`: a few words under the options; `more`: the whole of it, on hover. */
+const MODES: { id: TaskMode; label: string; hint: string; more: string }[] = [
+  { id: "here", label: "One agent, here", hint: "Works in this folder", more: "Asks before risky steps." },
   {
     id: "split",
     label: "Plan and split",
-    hint: "Up to 3 agents at once, each on its own copy. You review before anything is merged.",
+    hint: "Up to 3 agents; you review",
+    more: "Each works on its own copy. You review before anything is merged.",
   },
 ];
 
@@ -644,7 +646,7 @@ const canReply = $derived(current !== null && current.status.state === "idle");
       <fieldset class="modes">
         <legend class="visually-hidden">How Claude works on it</legend>
         {#each MODES as option (option.id)}
-          <label class="mode">
+          <label class="mode" title={`${option.hint}. ${option.more}`}>
             <input
               type="radio"
               name="agent-mode"
@@ -676,7 +678,7 @@ const canReply = $derived(current !== null && current.status.state === "idle");
         <button
           type="submit"
           class="primary"
-          title={`${modEnter} starts`}
+          title={prompt.trim() ? `${modEnter} starts` : "Type a task first"}
           disabled={busy || blocked || !prompt.trim()}>Start</button
         >
       </div>
@@ -789,6 +791,12 @@ const canReply = $derived(current !== null && current.status.state === "idle");
   button:disabled {
     opacity: 0.5;
     cursor: default;
+  }
+  /* A primary that cannot be used is plainly a disabled button, not a pale accent one. */
+  .primary:disabled {
+    opacity: 1;
+    color: var(--text-2);
+    background: var(--s3);
   }
   .quiet {
     display: inline-flex;

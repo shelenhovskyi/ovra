@@ -101,13 +101,13 @@ describe("AgentsPanel", () => {
       ["One agent, here", true],
       ["Plan and split", false],
     ]);
-    expect(hint()).toBe("Works in this folder. Asks before risky steps.");
+    expect(hint()).toBe("Works in this folder");
     choose("Plan and split");
     expect(options()).toEqual([
       ["One agent, here", false],
       ["Plan and split", true],
     ]);
-    expect(hint()).toBe("Up to 3 agents at once, each on its own copy. You review before anything is merged.");
+    expect(hint()).toBe("Up to 3 agents; you review");
     expect(panel()?.querySelector("[data-testid=agents-empty]")?.textContent?.trim()).toBe("No tasks yet.");
   });
 

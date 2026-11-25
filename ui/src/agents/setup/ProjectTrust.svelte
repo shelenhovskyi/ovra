@@ -103,6 +103,9 @@ const lead = $derived(
       : "Trusting lets Claude use this project's own commands, hooks and skills, and starts language servers.",
 );
 const sandbox = $derived(lsp.status?.sandbox);
+/** Trusted and unchanged: nothing to decide, so one quiet line until Details opens. */
+const settled = $derived(project?.trusted === true && review !== null && !changed && !empty && !details);
+const warningCount = $derived([risk.broad, risk.code, risk.env, risk.unreadable].filter(Boolean).length);
 
 // The language servers' footer links here: trusting is what starts them.
 $effect(() =>
@@ -222,7 +225,7 @@ function trust(trusted: boolean): Promise<void> {
   <section
     class="trust"
     class:changed
-    class:quiet={empty}
+    class:quiet={empty || settled}
     aria-labelledby="trust-heading"
     data-testid="project-trust"
     bind:this={section}
@@ -235,9 +238,10 @@ function trust(trusted: boolean): Promise<void> {
         {#if project.trusted}
           <button type="button" class="link" disabled={busy} onclick={() => trust(false)}>Stop trusting</button>
         {:else}
+          <!-- Nothing of the project's own runs with Claude: a quiet button, not the panel's primary. -->
           <button
             type="button"
-            class="link primary"
+            class="link edge"
             disabled={busy}
             aria-disabled={!armed}
             title={armed ? undefined : EARLY}
@@ -255,6 +259,25 @@ function trust(trusted: boolean): Promise<void> {
             : " without a sandbox on this computer"}.
         </p>
       {/if}
+    {:else if settled}
+      <div class="row">
+        <h3 id="trust-heading" tabindex="-1">Trusted project settings</h3>
+        <span class="actions">
+          {#if warningCount > 0}
+            {@const words = warningCount === 1 ? " warning" : " warnings"}
+            <span class="chip" title="Warnings: see Details" data-testid="trust-warning-count"
+              ><span aria-hidden="true">⚠</span> {warningCount}<span class="visually-hidden">{words}</span></span
+            >
+          {/if}
+          <button
+            type="button"
+            class="link"
+            aria-expanded="false"
+            aria-controls="trust-details"
+            onclick={() => (details = true)}>Details</button
+          >
+        </span>
+      </div>
     {:else}
       <h3 id="trust-heading" tabindex="-1">{heading}</h3>
       <p class="detail">{lead}</p>
@@ -318,8 +341,7 @@ function trust(trusted: boolean): Promise<void> {
         <div id="trust-details" class="details" data-testid="trust-details">
           <p class="detail" data-testid="trust-language-servers">
             {project.trusted ? "Ovra starts" : "Trusting also lets Ovra start"} language servers for the files you edit.
-            They run the project's code (build scripts, for example){#if sandbox}
-              in the <span title={sandbox}>sandbox</span>, which keeps them to the project and their cache, without
+            They run the project's code (build scripts, for example){#if sandbox}{" "}in the <span title={sandbox}>sandbox</span>, which keeps them to the project and their cache, without
               network{:else}, without a sandbox on this computer{/if}. Stop trusting stops them.
           </p>
           <p class="detail">
@@ -482,9 +504,11 @@ function trust(trusted: boolean): Promise<void> {
     flex: none;
     white-space: nowrap;
   }
-  .quiet button.link.primary {
+  /* Quiet, with an edge so it can be found. */
+  .quiet button.link.edge {
     height: 24px;
     padding: 0 8px;
+    box-shadow: inset 0 0 0 1px var(--s4);
   }
   button:disabled,
   button[aria-disabled="true"] {
@@ -493,6 +517,25 @@ function trust(trusted: boolean): Promise<void> {
   }
   .error {
     color: var(--danger);
+  }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    height: 22px;
+    padding: 0 8px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--warn);
+    background: var(--warn-soft);
+    border-radius: var(--radius-sm);
+  }
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
   .added .sign {
     color: var(--ok);
