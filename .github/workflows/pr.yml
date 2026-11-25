@@ -11,7 +11,7 @@ permissions:
 jobs:
   commits:
     name: Conventional Commits
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -27,7 +27,7 @@ jobs:
 
   size:
     name: PR size (warning above 400 changed lines)
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - name: Check size
         env:
@@ -42,7 +42,7 @@ jobs:
 
   dco:
     name: DCO sign-off
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:

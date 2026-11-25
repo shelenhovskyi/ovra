@@ -32,7 +32,7 @@ jobs:
     # workflow_run also fires for pull requests (a fork's branch may be called
     # main); only pushes to this repository's main may publish the site.
     if: github.event_name != 'workflow_run' || (github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository)
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
       actions: read
@@ -57,7 +57,7 @@ jobs:
 
   deploy:
     needs: build
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       pages: write
       id-token: write
