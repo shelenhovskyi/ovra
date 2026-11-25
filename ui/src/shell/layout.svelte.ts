@@ -7,8 +7,6 @@ export type Panel = "side" | "agents";
 
 export const MIN_WIDTH = 180;
 export const MAX_WIDTH = 460;
-/** Width of a folded panel's strip. */
-export const STRIP_WIDTH = 48;
 export const DEFAULT_WIDTH: Record<Panel, number> = { side: 260, agents: 320 };
 
 const KEY = "ovra.layout";
@@ -24,7 +22,7 @@ function storage(): Storage | null {
   }
 }
 
-export function clampWidth(width: number): number {
+function clampWidth(width: number): number {
   return Math.round(Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, width)));
 }
 
