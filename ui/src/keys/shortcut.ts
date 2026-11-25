@@ -113,8 +113,19 @@ export function matchesShortcut(event: KeyEventLike, shortcut: Shortcut): boolea
   );
 }
 
-/** Label for menus and the palette: `⇧⌘P` on Apple keyboards, `Ctrl+Shift+P` elsewhere. */
+/**
+ * Label for menus and the palette: `⇧⌘P` on Apple keyboards, `Ctrl+Shift+P`
+ * elsewhere. A chord such as `Mod+K Mod+I` is formatted press by press; it is
+ * shown only, since the widget that owns it (the editor) handles the keys.
+ */
 export function formatShortcut(text: string, apple: boolean): string {
+  return text
+    .split(" ")
+    .map((press) => formatPress(press, apple))
+    .join(" ");
+}
+
+function formatPress(text: string, apple: boolean): string {
   const shortcut = parseShortcut(text, apple);
   if (!shortcut) return text;
   const key = shortcut.key.length === 1 ? shortcut.key.toUpperCase() : (text.split("+").pop() ?? "");

@@ -95,6 +95,28 @@ describe("Palette", async () => {
     expect(workspace.paletteOpen).toBe(false);
   });
 
+  it("moves with Ctrl+N/P and Ctrl+J/K by physical key, and by a page with PageDown/PageUp", async () => {
+    for (const name of "ABCDEFGHIJKL") cleanups.push(registerCommand({ id: `t.${name}`, title: name, run: () => {} }));
+    const { target, input } = await open();
+    const ctrl = (code: string, key: string) => {
+      input.dispatchEvent(new KeyboardEvent("keydown", { key, code, ctrlKey: true, bubbles: true, cancelable: true }));
+      flushSync();
+    };
+    ctrl("KeyN", "n");
+    expect(selected(target)).toBe("B");
+    ctrl("KeyJ", "\u043e"); // Ukrainian layout
+    expect(selected(target)).toBe("C");
+    ctrl("KeyP", "p");
+    ctrl("KeyK", "k");
+    expect(selected(target)).toBe("A");
+    key(input, "PageDown");
+    expect(selected(target)).toBe("K");
+    key(input, "PageDown");
+    expect(selected(target)).toBe("L");
+    key(input, "PageUp");
+    expect(selected(target)).toBe("B");
+  });
+
   it("closes on Escape and when focus leaves it", async () => {
     const first = await open();
     key(first.input, "Escape");
