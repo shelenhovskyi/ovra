@@ -697,9 +697,16 @@ fn a_language_server_reads_the_project_and_writes_only_its_cache() {
     let Some(sandbox) = world.sandbox() else {
         return;
     };
-    // Ovra's own daemon, outside the sandbox.
+    // Ovra's own daemon, outside the sandbox, and a local service on an
+    // abstract Unix socket.
     let daemon = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = daemon.local_addr().unwrap().port();
+    let abstract_name = format!("ovra-security-server-{}", std::process::id());
+    let _abstract = {
+        use std::os::linux::net::SocketAddrExt as _;
+        let addr = std::os::unix::net::SocketAddr::from_abstract_name(&abstract_name).unwrap();
+        UnixListener::bind_addr(&addr).unwrap()
+    };
     let checks = format!(
         "read the project: grep -q hello README.md
         read the registry of the user: test -f {home}/.cargo/registry/index/.keep
@@ -712,7 +719,9 @@ fn a_language_server_reads_the_project_and_writes_only_its_cache() {
         read the settings of claude: cat {home}/.claude.json
         write the registry of the user: touch {home}/.cargo/registry/index/planted
         read ovra data: cat {data}/store.db
+        read the cargo token: grep -q {SECRET} {home}/.cargo/credentials.toml
         reach the daemon: echo > /dev/tcp/127.0.0.1/{port}
+        reach an abstract socket: {AGENT} connect-abstract {abstract_name}
         find ANTHROPIC_API_KEY: printenv ANTHROPIC_API_KEY
         find GITHUB_TOKEN: printenv GITHUB_TOKEN
         find a secret in any process environment: grep -qs {SECRET} /proc/*/environ",

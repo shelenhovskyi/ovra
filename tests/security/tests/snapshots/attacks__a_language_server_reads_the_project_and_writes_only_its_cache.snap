@@ -13,7 +13,9 @@ read the login of claude: no
 read the settings of claude: no
 write the registry of the user: no
 read ovra data: no
+read the cargo token: no
 reach the daemon: no
+reach an abstract socket: no
 find ANTHROPIC_API_KEY: no
 find GITHUB_TOKEN: no
 find a secret in any process environment: no
