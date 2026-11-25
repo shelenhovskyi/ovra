@@ -350,6 +350,7 @@ pub(super) async fn item(core: &Core, entry: &Entry) -> Result<ReviewItem> {
         not_copied: entry.not_copied.clone(),
         can_undo_take: entry.taken.is_some(),
         fingerprint,
+        git_changes: Vec::new(),
     })
 }
 

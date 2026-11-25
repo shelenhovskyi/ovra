@@ -88,6 +88,19 @@ pub struct ReviewItem {
     /// changed since. `None` for direct and decided items.
     #[serde(default)]
     pub fingerprint: Option<String>,
+    /// Files of the repository's git folder or hooks folder that changed
+    /// since the session started (SEC-5): hooks, config. No diff shows them
+    /// and approve and reject never touch them; the person checks them.
+    #[serde(default)]
+    pub git_changes: Vec<GitChange>,
+}
+
+/// A changed file of the git folder or hooks folder, by the name
+/// `Worktrees::git_files` gives it (`.git/hooks/pre-commit`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GitChange {
+    pub path: String,
+    pub kind: ChangeKind,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
