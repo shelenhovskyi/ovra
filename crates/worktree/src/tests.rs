@@ -1013,6 +1013,9 @@ async fn apply_leaves_git_folders_and_odd_names_alone() {
         .collect();
     assert_eq!(rest, want);
     assert!(root.join(".git").join("config").is_file());
+    // On a case-insensitive disk README.md is readme.md: whether or not it
+    // was written, the file is never deleted.
+    assert!(read(root, "readme.md").is_some(), "readme.md was deleted");
     if written {
         assert_eq!(read(root, "README.md").as_deref(), Some("new\n"));
     }
