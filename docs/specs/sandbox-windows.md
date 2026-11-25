@@ -164,6 +164,11 @@ follow-up. `CreateProcessWithLogonW` takes at most 1024 characters of
 command line: `claude`'s own arguments pass through it, so a very long
 argument fails the session (it never runs unsandboxed).
 
+Sessions report these gaps in their sandbox status (`GAPS` in
+`src/lib.rs`), so the UI never says "fully sandboxed". Server pods
+(ADR 0008) have no Windows bridge yet: a pod profile is refused, and an
+agent's forwarded ports are left out, so it cannot reach its servers.
+
 **Environment.** `ENV_KEPT` as on Linux, plus `SystemRoot`, `windir`,
 `ComSpec`, `PATHEXT`, `USERPROFILE`, `HOMEDRIVE`, `HOMEPATH`, `APPDATA`,
 `LOCALAPPDATA`, `ProgramData`, `ProgramFiles`, `ProgramFiles(x86)`,
