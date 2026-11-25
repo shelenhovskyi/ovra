@@ -12,6 +12,7 @@ use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::{CommandLine, ProfileNetwork, Result, SandboxProfile};
 
 use crate::helper::Landlock;
+use crate::helper::OUTER_FLAG;
 use crate::{HELPER_FLAG, Setup, invalid, os};
 
 /// The protected paths of `ovra-sandbox`, handed over by it (it depends on
@@ -111,8 +112,8 @@ const CA_BUNDLE_VARS: [&str; 5] = [
 
 /// Protected folders made empty in the session's folder when missing, so
 /// the agent cannot create them (`.claude/settings.json` hooks, editor
-/// tasks) for the user's own tools to run later. Git does not show an
-/// empty folder. Missing protected files are left to the review.
+/// tasks) for the user's own tools to run later. They are removed again
+/// when the session ends. Missing protected files are left to the review.
 const FOLDERS_MADE: [&str; 4] = [".claude", ".vscode", ".idea", ".devcontainer"];
 
 /// Package caches builds write, relative to the home folder. Each session
@@ -202,6 +203,9 @@ pub(crate) struct Plan {
     writable: Vec<PathBuf>,
     network: ProfileNetwork,
     path: OsString,
+    /// Folders of [`FOLDERS_MADE`] this plan made: removed again once
+    /// the session and everything it started are gone.
+    temporary: Vec<PathBuf>,
 }
 
 impl Plan {
@@ -240,6 +244,7 @@ impl Plan {
             writable: vec!["/tmp".into(), "/dev".into(), home.clone()],
             network: profile.network.clone(),
             path: OsString::new(),
+            temporary: Vec::new(),
         };
         plan.hide(setup, &home);
         let shown: Vec<PathBuf> = std::iter::once(work_dir.clone())
@@ -263,7 +268,16 @@ impl Plan {
         plan.rw(work_dir.clone());
         let mut hidden: Vec<PathBuf> = setup.hidden.iter().filter_map(|h| real(h).ok()).collect();
         hidden.sort_by_key(|h| h.components().count());
+        let missing: Vec<PathBuf> = FOLDERS_MADE
+            .iter()
+            .map(|name| work_dir.join(name))
+            .filter(|path| fs::symlink_metadata(path).is_err())
+            .collect();
         let protected = protected_paths(setup, &work_dir, &home, &hidden)?;
+        plan.temporary = missing
+            .into_iter()
+            .filter(|path| fs::symlink_metadata(path).is_ok_and(|m| m.is_dir()))
+            .collect();
         plan.protect(protected);
         let before = plan.mounts.len();
         // Ovra's data folder inside a folder bound above (a project that
@@ -617,9 +631,23 @@ impl Plan {
         args.push(os("--"));
         args.push(os(&program));
         args.extend(line.args);
+        if self.temporary.is_empty() {
+            return Ok(CommandLine {
+                program: bwrap.to_path_buf(),
+                args,
+                env,
+                cwd,
+            });
+        }
+        // The helper outside the sandbox removes the folders made for it
+        // once the session has ended, however it ends.
+        let mut outer = vec![os(OUTER_FLAG)];
+        outer.extend(self.temporary.iter().map(os));
+        outer.extend([os("--"), os(bwrap)]);
+        outer.extend(args);
         Ok(CommandLine {
-            program: bwrap.to_path_buf(),
-            args,
+            program: helper,
+            args: outer,
             env,
             cwd,
         })

@@ -2,6 +2,10 @@
 source: crates/sandbox-linux/src/plan/tests.rs
 expression: root.show(&line.unwrap())
 ---
+--ovra-sandbox-outer
+ROOT/data/worktrees/app/t/w1/.claude
+--
+/usr/bin/bwrap
 --unshare-user
 --unshare-pid
 --unshare-ipc
