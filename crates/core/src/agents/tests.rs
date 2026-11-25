@@ -1082,6 +1082,17 @@ async fn the_projects_policy_decides_before_the_person_is_asked() {
         host.before_tool(&fetch).await,
         BeforeTool::Deny(_)
     ));
+    // A hook input without a call id is decided all the same.
+    let unnamed = json!({"tool_name": "WebFetch", "tool_input": {"url": "x"}});
+    assert!(matches!(
+        host.before_tool(&unnamed).await,
+        BeforeTool::Deny(_)
+    ));
+    let unnamed = json!({"tool_name": "Bash", "tool_input": {"command": "git push"}});
+    assert!(matches!(
+        host.before_tool(&unnamed).await,
+        BeforeTool::Ask(_)
+    ));
     let push = hook("t2", "Bash", json!({"command": "git push origin"}));
     assert!(
         matches!(host.before_tool(&push).await, BeforeTool::Ask(why) if why.contains("(Bash(git push))"))
@@ -1190,6 +1201,8 @@ async fn the_projects_policy_decides_before_the_person_is_asked() {
     assert_eq!(
         decided("p1"),
         [
+            // `ask`, the hook, and the hook without a call id.
+            ("WebFetch".to_owned(), false, rule("WebFetch")),
             ("WebFetch".to_owned(), false, rule("WebFetch")),
             ("WebFetch".to_owned(), false, rule("WebFetch")),
             ("Bash".to_owned(), false, DecidedBy::SessionEnded),

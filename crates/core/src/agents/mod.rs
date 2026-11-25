@@ -522,7 +522,9 @@ impl AgentHost {
     /// reach [`Self::ask`] unless the hook tells the CLI to ask.
     pub async fn before_tool(&self, hook_input: &serde_json::Value) -> BeforeTool {
         let field = |name: &str| hook_input.get(name).and_then(serde_json::Value::as_str);
-        let (Some(id), Some(name)) = (field("tool_use_id"), field("tool_name")) else {
+        // The policy decides whenever the tool is known; only the
+        // bookkeeping below needs the call's id.
+        let Some(name) = field("tool_name") else {
             return BeforeTool::Proceed;
         };
         let input = hook_input
@@ -562,10 +564,12 @@ impl AgentHost {
                 return BeforeTool::Deny(why);
             }
         }
-        self.sessions
-            .direct
-            .tool_started(&self.session, id, name, &input)
-            .await;
+        if let Some(id) = field("tool_use_id") {
+            self.sessions
+                .direct
+                .tool_started(&self.session, id, name, &input)
+                .await;
+        }
         verdict
     }
 
