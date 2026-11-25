@@ -150,7 +150,7 @@ fn sid_text(sid: &Sid) -> std::io::Result<String> {
     sid_text_raw(sid.as_ptr())
 }
 
-fn sid_text_raw(sid: windows_sys::Win32::Security::PSID) -> std::io::Result<String> {
+pub(crate) fn sid_text_raw(sid: windows_sys::Win32::Security::PSID) -> std::io::Result<String> {
     // SAFETY: the string is allocated by the API and freed here.
     unsafe {
         let mut text: *mut u16 = std::ptr::null_mut();
@@ -205,31 +205,14 @@ pub(crate) fn run(
     env: &[(OsString, OsString)],
     cwd: &Path,
 ) -> std::io::Result<u32> {
-    let mut line = quote(program.as_os_str());
-    for arg in args {
-        line.push(" ");
-        line.push(quote(arg));
-    }
-    let mut line = wide(&line);
-    let mut block: Vec<u16> = Vec::new();
-    for (name, value) in env {
-        let mut pair = name.clone();
-        pair.push("=");
-        pair.push(value);
-        block.extend(wide(&pair));
-    }
-    block.push(0);
+    let mut line = wide(&command_line(program, args));
+    let block = env_block(env);
     // SAFETY: buffers outlive the call; handles are owned by `Handle`.
     unsafe {
-        use windows_sys::Win32::System::Console::{
-            GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
-        };
         let mut startup: STARTUPINFOW = std::mem::zeroed();
         startup.cb = size_of::<STARTUPINFOW>() as u32;
         startup.dwFlags = STARTF_USESTDHANDLES;
-        startup.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
-        startup.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
-        startup.hStdError = GetStdHandle(STD_ERROR_HANDLE);
+        (startup.hStdInput, startup.hStdOutput, startup.hStdError) = std_handles();
         let mut info: PROCESS_INFORMATION = std::mem::zeroed();
         let program = wide(program.as_os_str());
         let cwd = wide(cwd.as_os_str());
@@ -259,6 +242,48 @@ pub(crate) fn run(
         let mut code = 0u32;
         GetExitCodeProcess(process.0, &mut code);
         Ok(code)
+    }
+}
+
+/// `program` and `args` as one command line.
+pub(crate) fn command_line(program: &Path, args: &[OsString]) -> OsString {
+    let mut line = quote(program.as_os_str());
+    for arg in args {
+        line.push(" ");
+        line.push(quote(arg));
+    }
+    line
+}
+
+/// `env` as the block `CreateProcess` takes: `NAME=value` strings, then
+/// an empty one.
+pub(crate) fn env_block(env: &[(OsString, OsString)]) -> Vec<u16> {
+    let mut block: Vec<u16> = Vec::new();
+    for (name, value) in env {
+        let mut pair = name.clone();
+        pair.push("=");
+        pair.push(value);
+        block.extend(wide(&pair));
+    }
+    if env.is_empty() {
+        block.push(0);
+    }
+    block.push(0);
+    block
+}
+
+/// This process's standard input, output and error.
+pub(crate) fn std_handles() -> (HANDLE, HANDLE, HANDLE) {
+    use windows_sys::Win32::System::Console::{
+        GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
+    };
+    // SAFETY: GetStdHandle has no preconditions.
+    unsafe {
+        (
+            GetStdHandle(STD_INPUT_HANDLE),
+            GetStdHandle(STD_OUTPUT_HANDLE),
+            GetStdHandle(STD_ERROR_HANDLE),
+        )
     }
 }
 
