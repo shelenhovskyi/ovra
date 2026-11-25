@@ -14,6 +14,7 @@ import type { PermissionsEvent, PermissionsRequest, PermissionsResponse } from "
 import type { PolicyEvent, PolicyRequest, PolicyResponse } from "./policy";
 import type { PrEvent, PrRequest, PrResponse, PrResponseFor } from "./pr";
 import type { ProjectsEvent, ProjectsRequest, ProjectsResponse } from "./projects";
+import type { ResourcesEvent } from "./resources";
 import type { ReviewEvent, ReviewRequest, ReviewResponse } from "./review";
 import type { SearchEvent, SearchRequest, SearchResponse } from "./search";
 import type { SecretsEvent, SecretsRequest, SecretsResponse } from "./secrets";
@@ -40,6 +41,7 @@ export type * from "./permissions";
 export type * from "./policy";
 export type * from "./pr";
 export type * from "./projects";
+export type * from "./resources";
 export type * from "./review";
 export type * from "./search";
 export type * from "./secrets";
@@ -106,7 +108,8 @@ export type CoreEvent =
   | LspEvent
   | ServersEvent
   | BrowserEvent
-  | PrEvent;
+  | PrEvent
+  | ResourcesEvent;
 
 export type ErrorCode = "bad_request" | "not_found" | "conflict" | "forbidden" | "unavailable" | "internal";
 

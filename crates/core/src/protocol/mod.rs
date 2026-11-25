@@ -19,6 +19,7 @@ pub mod permissions;
 pub mod policy;
 pub mod pr;
 pub mod projects;
+pub mod resources;
 pub mod review;
 pub mod search;
 pub mod secrets;
@@ -105,6 +106,7 @@ pub enum Event {
     Servers(servers::ServersEvent),
     Browser(browser::BrowserEvent),
     Pr(pr::PrEvent),
+    Resources(resources::ResourcesEvent),
 }
 
 /// An error returned instead of a [`Response`].
@@ -247,5 +249,11 @@ impl From<browser::BrowserEvent> for Event {
 impl From<pr::PrEvent> for Event {
     fn from(e: pr::PrEvent) -> Self {
         Self::Pr(e)
+    }
+}
+
+impl From<resources::ResourcesEvent> for Event {
+    fn from(e: resources::ResourcesEvent) -> Self {
+        Self::Resources(e)
     }
 }

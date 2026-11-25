@@ -36,6 +36,7 @@ use crate::protocol::orchestration::DiskUsage;
 use crate::protocol::policy::Policy;
 use crate::protocol::pr::{GhStatus, PrDraft, PrInfo, PrStatus};
 use crate::protocol::projects::{Project, ProjectId, ProjectState, ProjectStatePatch};
+use crate::protocol::resources::{SystemLoad, Usage};
 use crate::protocol::review::ChangeKind;
 use crate::protocol::search::{SearchId, SearchQuery};
 use crate::protocol::secrets::{SecretInfo, SecretStoreStatus, SecretValue};
@@ -707,6 +708,13 @@ pub trait DevServers: Send + Sync + Debug {
     /// Resolves once no pod of `work_dir` runs: its last server ended and
     /// its process exited. At once when none runs.
     fn pod_ended(&self, work_dir: PathBuf) -> BoxFuture<'_, ()>;
+    /// The pid of the process at the root of `work_dir`'s pod while one
+    /// runs, so its servers' memory and CPU can be counted. Services that
+    /// cannot tell say `None`.
+    fn pod_pid(&self, work_dir: &Path) -> Option<u32> {
+        let _ = work_dir;
+        None
+    }
 }
 
 /// How a session's browser reports to the core.
@@ -816,6 +824,12 @@ pub trait Browser: Send + Sync + Debug {
     fn close(&self, page: &PageId) -> BoxFuture<'_, Result<()>>;
     /// Ends the session's browser and its pages. Does nothing without one.
     fn end(&self, session: &SessionId);
+    /// The pid of the session's browser process while it runs, so its
+    /// memory and CPU can be counted. Services that cannot tell say `None`.
+    fn pid(&self, session: &SessionId) -> Option<u32> {
+        let _ = session;
+        None
+    }
     /// Turns the page's screencast on or off.
     fn screencast(&self, page: &PageId, on: bool) -> Result<()>;
     /// The person's input, for a page they took over.
@@ -844,6 +858,23 @@ pub trait Browser: Send + Sync + Debug {
     /// ancestor `up` levels above, with a new `pick_id`.
     fn pick_at(&self, page: &PageId, x: i32, y: i32, up: u32) -> BoxFuture<'_, Result<Pick>>;
     fn inspect(&self, page: &PageId, element: ElementRef) -> BoxFuture<'_, Result<Inspected>>;
+}
+
+/// One sample of the computer and of process trees.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ResourceSample {
+    pub system: SystemLoad,
+    /// One per root asked for, in order; `None` when that process is gone.
+    pub trees: Vec<Option<Usage>>,
+}
+
+/// Measures memory and CPU (`docs/specs/agent-resources.md`; implemented
+/// by `ovra-resources`). Blocking: the core calls it on a blocking thread.
+pub trait ResourceMonitor: Send + Sync + Debug {
+    /// The computer's load and, for each pid in `roots`, the tree of that
+    /// process and all its descendants. CPU is measured since the previous
+    /// call.
+    fn sample(&self, roots: &[u32]) -> ResourceSample;
 }
 
 /// The append-only audit log (`docs/specs/security.md`; stored by
