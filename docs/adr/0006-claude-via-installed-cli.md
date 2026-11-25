@@ -47,8 +47,18 @@ the CLI directly, without the SDK:
 - Authentication is whatever the user set up in their own Claude Code
   (subscription login, API key or cloud provider). Ovra never reads, stores,
   passes or proxies credentials. It never uses `--bare` (which ignores the
-  subscription login) and never changes `CLAUDE_CONFIG_DIR` (which would hide
-  the login).
+  subscription login) and never points `CLAUDE_CONFIG_DIR` at a folder of
+  its own (which would hide the login).
+  Amended 2026-11-25 (owner): people with more than one Claude account
+  (personal `~/.claude`, work `~/.claude-work`) add each as an account in
+  Ovra: a name and the configuration folder they already use with Claude
+  Code. A session of that account runs `claude` with `CLAUDE_CONFIG_DIR` set
+  to exactly that folder; the default account sets nothing. Ovra checks each
+  account with `claude auth status`, shows who pays per account and per
+  session, and still never reads anything inside the folder. Sign-in stays
+  Claude Code's own (`CLAUDE_CONFIG_DIR=<folder> claude auth login`). A
+  sandbox gives back only the session's account folder, never another
+  account's.
 - The environment is the user's own with one exception: when Ovra itself runs
   inside a Claude Code session (an IDE terminal, a tool call), the variables
   that session sets for its children would make our `claude` think it is

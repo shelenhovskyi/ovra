@@ -131,7 +131,8 @@ Ask the owner only before:
 - Never read, copy or pass on OAuth tokens or credentials
   (`~/.claude/.credentials.json`, the keychain, `CLAUDE_CODE_OAUTH_TOKEN`),
   never call Anthropic's API with them, never imitate Claude Code's headers.
-  Run the binary unmodified: no `--bare`, no `CLAUDE_CONFIG_DIR` changes.
+  Run the binary unmodified: no `--bare`; `CLAUDE_CONFIG_DIR` only for an
+  account the user added, set to that account's own folder.
 - Show where usage is billed and warn when `ANTHROPIC_API_KEY` is set.
 - Cap parallel agents (3 by default); agents start only from a person's action.
 - "Claude Code" is never part of a product, feature or panel name; plain

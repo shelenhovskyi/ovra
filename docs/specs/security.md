@@ -101,6 +101,16 @@ its changes on approve.
     is the backstop until a platform can do better.
   - On macOS, keychain access cannot be scoped to one item (4.B notes how
     it limits this).
+  - A session of an account with its own configuration folder
+    (`CLAUDE_CONFIG_DIR`, ADR 0006) gets that folder instead, with the same
+    rules, and its state file `<folder>/.claude.json` instead of
+    `~/.claude.json`; `~/.claude` and every other account's folder stay
+    hidden. The folder must exist, sit right in the home folder with a
+    name that starts with `.claude` (such as `~/.claude-work`) and hold
+    none of Ovra's data; otherwise the session does not start. No session
+    works in or writes anything under `~/.claude*`, whatever its account. `CLAUDE_CONFIG_DIR` is set to the folder's real path,
+    the only variable added to the allowlist for it. On Linux this is done;
+    the Windows sandbox does not support account folders yet.
 - **System and toolchains.**
   - The system's binaries and libraries are read-only.
   - Toolchain folders on `PATH` are readable. A `PATH` entry that is the
