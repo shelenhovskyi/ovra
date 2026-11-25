@@ -19,6 +19,8 @@ import {
   fileSummary,
   itemSummary,
   notCopiedHint,
+  PROTECTED_MARKER,
+  protectedHint,
   rejectHint,
   STATE_LABEL,
   sharedFiles,
@@ -51,6 +53,7 @@ let returnTo: HTMLElement | null = null;
 const item = $derived(inbox.items.find((i) => i.id === selectedId) ?? null);
 const file = $derived(item?.files.find((f) => f.path === selectedPath) ?? null);
 const shared = $derived(item ? sharedFiles(item, inbox.items) : new Set<string>());
+const protectedText = $derived(item ? protectedHint(item) : null);
 const busy = $derived(item ? inbox.busy.includes(item.id) : false);
 const outcome = $derived(inbox.outcome && inbox.outcome.id === item?.id ? inbox.outcome : null);
 const diffKey = $derived(item && file ? `${item.id}\n${file.path}\n${inbox.changes}` : null);
@@ -60,6 +63,15 @@ const diffKey = $derived(item && file ? `${item.id}\n${file.path}\n${inbox.chang
  */
 const diffShown = $derived(
   !item?.fingerprint || (diff !== null && diff.key === diffKey && diff.patch !== null && diff.fingerprint !== null),
+);
+/** What Approve's description points at: why it waits, and the protected paths it would apply. */
+const approveWhy = $derived(
+  [
+    commit && !commitMessage.trim() ? "inbox-commit-why" : diffShown ? null : "inbox-diff-why",
+    protectedText ? "inbox-protected" : null,
+  ]
+    .filter(Boolean)
+    .join(" ") || undefined,
 );
 
 $effect(() => () => inbox.dispose());
@@ -449,6 +461,9 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
               {#if item.state === "open"}
                 <div class="actions" role="group" aria-label="Decide on this review">
                   <p class="hint">{approveHint(item)}</p>
+                  {#if protectedText}
+                    <p class="protected" id="inbox-protected" data-testid="inbox-protected">{protectedText}</p>
+                  {/if}
                   <label class="check">
                     <input type="checkbox" bind:checked={commit} />
                     Commit the agent's files
@@ -474,11 +489,7 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                       type="button"
                       class="approve"
                       aria-disabled={busy || (commit && !commitMessage.trim()) || !diffShown}
-                      aria-describedby={commit && !commitMessage.trim()
-                        ? "inbox-commit-why"
-                        : diffShown
-                          ? undefined
-                          : "inbox-diff-why"}
+                      aria-describedby={approveWhy}
                       onclick={() => {
                         if (!busy) void approve(item);
                       }}>{commit ? "Approve and commit" : "Approve"}</button
@@ -625,7 +636,9 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                         <span class="name">{changed.path}</span>
                         <span class="meta">{fileSummary(changed)}</span>
                         {#each markers as marker}
-                          <span class="marker" data-testid="file-marker">{marker}</span>
+                          <span class="marker" class:protected={marker === PROTECTED_MARKER} data-testid="file-marker"
+                            >{marker}</span
+                          >
                         {/each}
                       </button>
                     </li>
@@ -900,6 +913,15 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
     .diff {
       min-height: 60vh;
     }
+  }
+  .marker.protected,
+  p.protected {
+    color: #ff8f8f;
+    font-weight: 600;
+  }
+  p.protected {
+    margin: 0;
+    font-size: 12px;
   }
   @media (forced-colors: active) {
     .entry[aria-current="true"] {

@@ -92,6 +92,26 @@ describe("Inbox", () => {
     expect(document.activeElement).toBe($("[data-testid=elsewhere]"));
   });
 
+  it("marks protected files and says so beside Approve before it is pressed", async () => {
+    const core = await setup([
+      review("r1", { files: [change(".claude/settings.json", { protected: true }), change("README.md")] }),
+    ]);
+    await open();
+    expect($("[data-file='.claude/settings.json'] .marker.protected")?.textContent).toBe(
+      "Protected: agent or tool configuration",
+    );
+    expect($("[data-file='README.md'] .marker")).toBeNull();
+    expect($("[data-item=r1]")?.textContent).toContain("2 files, 1 protected");
+    expect($("[data-testid=inbox-protected]")?.textContent).toContain(
+      "Changes agent configuration or code that tools run on their own: .claude/settings.json.",
+    );
+    expect(button(/^Approve$/)?.getAttribute("aria-describedby")).toBe("inbox-protected");
+    // Approve stays possible: one press, as for any other item.
+    button(/^Approve$/)?.click();
+    await settle();
+    expect(core.sent("review.approve").map((c) => c.params)).toEqual([{ id: "r1", commit: null }]);
+  });
+
   it("approves only on a press, and commits with the message given", async () => {
     const core = await setup([review("r1", { summary: "Fix the typo" })]);
     await open();

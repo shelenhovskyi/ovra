@@ -6,6 +6,7 @@ import {
   fileSummary,
   itemSummary,
   notCopiedHint,
+  protectedHint,
   rejectHint,
   sharedFiles,
 } from "./describe";
@@ -21,6 +22,28 @@ describe("inbox wording", () => {
     ]);
     expect(fileSummary(change("b", { kind: "renamed", from: "a", additions: 0, deletions: 0 }))).toBe(
       "renamed from a, +0 −0",
+    );
+  });
+
+  it("marks protected files first and lists them for approve", () => {
+    const item = review("r1", {
+      files: [
+        change("src/a.ts"),
+        change(".claude/settings.json", { protected: true }),
+        change("docs/CLAUDE.md", { protected: true, kind: "renamed", from: "CLAUDE.md" }),
+      ],
+    });
+    expect(fileMarkers(change("a", { protected: true, by: "outside" }))).toEqual([
+      "Protected: agent or tool configuration",
+      "Changed outside the agent",
+    ]);
+    expect(itemSummary(item)).toBe("3 files, 2 protected");
+    expect(protectedHint(item)).toBe(
+      "Changes agent configuration or code that tools run on their own: .claude/settings.json, docs/CLAUDE.md (from CLAUDE.md). Approve applies these too; check their diffs first.",
+    );
+    expect(protectedHint(review("r2"))).toBeNull();
+    expect(itemSummary(review("r3", { files: [change(".envrc", { by: "outside", protected: true })] }))).toBe(
+      "1 file, 1 protected, all changed outside the agent",
     );
   });
 

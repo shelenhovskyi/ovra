@@ -16,9 +16,13 @@ const KIND_LABEL: Record<ChangeKind, string> = {
   renamed: "renamed",
 };
 
+/** Marks a change to a protected path (docs/specs/security.md): approve applies it like any other file. */
+export const PROTECTED_MARKER = "Protected: agent or tool configuration";
+
 /** Markers shown next to a file; each one also reads out to screen readers. */
 export function fileMarkers(file: FileChange, shared = false, notCopied: ReviewState | null = null): string[] {
   const markers: string[] = [];
+  if (file.protected) markers.push(PROTECTED_MARKER);
   if (notCopied) {
     const why = file.blocked ? "it waited for the direct agent" : "your version changed";
     markers.push(notCopied === "approved" ? `Not copied (${why}); marked done` : `Not copied: ${why}`);
@@ -58,9 +62,11 @@ export function itemSummary(item: ReviewItem, shared = 0): string {
   const files = item.files.length === 1 ? "1 file" : `${item.files.length} files`;
   const outside = item.files.filter((f) => f.by !== "agent").length;
   const blocked = item.files.filter((f) => f.blocked).length;
-  if (item.files.length > 0 && item.files.every((f) => f.by === "outside"))
-    return `${files}, all changed outside the agent`;
+  const guarded = item.files.filter((f) => f.protected).length;
   const parts = [files];
+  if (guarded > 0) parts.push(`${guarded} protected`);
+  if (item.files.length > 0 && item.files.every((f) => f.by === "outside"))
+    return [...parts, "all changed outside the agent"].join(", ");
   if (outside > 0) parts.push(`${outside} changed outside the agent`);
   if (blocked > 0) parts.push(`${blocked} waiting for the direct agent`);
   if (shared > 0) parts.push(`${shared} also in another open review`);
@@ -76,6 +82,17 @@ export function approveHint(item: ReviewItem): string {
     ? "Approve copies the worker's changes into your project folder, except files that wait for the direct agent."
     : "Approve copies the worker's changes into your project folder.";
   return `${copies} A file you changed yourself since the worker started is not copied; you will see which.`;
+}
+
+/**
+ * Said beside Approve before it is pressed when the item changes protected
+ * paths: approve applies them too, so the person checks them first. Null
+ * when it changes none.
+ */
+export function protectedHint(item: ReviewItem): string | null {
+  const paths = item.files.filter((f) => f.protected).map((f) => (f.from ? `${f.path} (from ${f.from})` : f.path));
+  if (paths.length === 0) return null;
+  return `Changes agent configuration or code that tools run on their own: ${paths.join(", ")}. Approve applies these too; check their diffs first.`;
 }
 
 /** What a partly approved item left, and what the person can do about it. */
