@@ -209,9 +209,18 @@ subtree read-only. The backstop is outside the sandbox:
 
 - the review marks any change to a protected path, and approve never
   applies one without saying so (4.A adds this to the inbox). The marks
-  cover the `work_dir` list, in any case. Not marked yet, a follow-up:
-  the folder `core.hooksPath` names, nested `.git` folders and config
-  files inside the project that git includes;
+  cover the `work_dir` list, in any case, and also, though the sandbox
+  does not keep them read-only, `.envrc` and `.claude/` in any folder,
+  `.husky/`, `.gitattributes` in any folder, `.gitmodules`, `.lfsconfig`,
+  other agents' `.zed/`, `.cursor/`, `.gemini/` and `GEMINI.md`, and the
+  folder `core.hooksPath` names when it is inside the working tree;
+- what no diff shows: a review item also lists the repository's config,
+  `config.worktree`, `info/attributes`, `info/exclude` and hook files
+  (`core.hooksPath`, or `.git/hooks`) that changed since its session
+  started (`ReviewItem.git_changes`, SEC-5). Approve and reject never
+  touch them; an item with only such changes still shows. Not covered
+  yet: nested `.git` folders and config files inside the project that
+  git includes;
 - a change to agent configuration drops the project's trust (fingerprint,
   task 2.F).
 

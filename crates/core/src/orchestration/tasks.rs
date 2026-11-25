@@ -409,6 +409,12 @@ async fn create_worker(
         .join(name);
     let branch = format!("ovra/{}/{name}", task.id.0);
     let info = worktrees.create(root.clone(), dir, branch, base).await?;
+    // Before the worker runs: what its hooks and config were at its start.
+    let git = worktrees
+        .git_files(info.path.clone())
+        .await
+        .ok()
+        .map(|g| g.files);
     let new = NewSession {
         project: task.project.clone(),
         agent: AgentKind::Claude,
@@ -436,6 +442,7 @@ async fn create_worker(
     let workspace = Workspace {
         dir: info.path,
         base: info.base,
+        git,
     };
     Ok((worker, workspace))
 }

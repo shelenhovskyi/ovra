@@ -585,8 +585,21 @@ impl Direct {
 }
 
 /// Gives a direct session its review item, comparing `dir` with `base`.
-pub(crate) fn review_from(core: &crate::Core, session: &SessionId, dir: PathBuf, base: String) {
-    super::review::set_workspace(core, session, super::Workspace { dir, base });
+/// Called before the agent runs, so its hooks and config are as it found
+/// them.
+pub(crate) async fn review_from(
+    core: &crate::Core,
+    session: &SessionId,
+    dir: PathBuf,
+    base: String,
+) {
+    let git = core
+        .worktrees()
+        .git_files(dir.clone())
+        .await
+        .ok()
+        .map(|g| g.files);
+    super::review::set_workspace(core, session, super::Workspace { dir, base, git });
 }
 
 fn not_direct() -> ProtocolError {

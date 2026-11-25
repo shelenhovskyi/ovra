@@ -14,7 +14,7 @@ use crate::protocol::agents::{AgentStatus, MessageFrom, SessionId, SessionMode};
 use crate::protocol::audit::{AuditEvent, ReviewAction};
 use crate::protocol::projects::ProjectId;
 use crate::protocol::review::{
-    ChangeKind, ChangedBy, FileChange, ReviewEvent, ReviewId, ReviewItem, ReviewRequest,
+    ChangeKind, ChangedBy, FileChange, GitChange, ReviewEvent, ReviewId, ReviewItem, ReviewRequest,
     ReviewResponse, ReviewState,
 };
 use crate::protocol::{ErrorCode, OkResponse, ProtocolError, Response};
@@ -83,7 +83,10 @@ pub(crate) fn set_workspace(core: &Core, session: &SessionId, workspace: Workspa
         .rev()
         .find(|r| &r.session == session)
     {
-        entry.workspace = workspace;
+        // A resumed session keeps what its hooks and config were when it
+        // first started: what it changed since still shows.
+        let git = entry.workspace.git.take().or(workspace.git);
+        entry.workspace = Workspace { git, ..workspace };
         orchestration.save(&state);
         return;
     }
@@ -141,7 +144,8 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
             for entry in entries {
                 let item = item(core, &entry).await?;
                 let shown = entry.requested || entry.state != ReviewState::Open;
-                if shown || !item.files.is_empty() {
+                // A planted hook alone is a change to show.
+                if shown || !item.files.is_empty() || !item.git_changes.is_empty() {
                     items.push(item);
                 }
             }
@@ -327,7 +331,7 @@ fn update(core: &Core, id: &ReviewId, f: impl FnOnce(&mut Entry)) -> Result<Entr
 }
 
 pub(super) async fn item(core: &Core, entry: &Entry) -> Result<ReviewItem> {
-    let (files, fingerprint) = if entry.state != ReviewState::Open {
+    let (mut files, fingerprint) = if entry.state != ReviewState::Open {
         (entry.decided.clone(), None)
     } else if super::tasks::cleaned(core, &entry.session) {
         // Removed only once nothing in it changed (`clean_up`).
@@ -336,6 +340,13 @@ pub(super) async fn item(core: &Core, entry: &Entry) -> Result<ReviewItem> {
         let (files, fingerprint, _) = listed(core, entry, None).await?;
         (files, fingerprint)
     };
+    let (git_changes, hooks_in_tree) = git_changes(core, entry).await;
+    if let Some(hooks) = &hooks_in_tree {
+        for file in &mut files {
+            let paths = std::iter::once(&file.path).chain(&file.from);
+            file.protected |= paths.into_iter().any(|p| inside(p, hooks));
+        }
+    }
     Ok(ReviewItem {
         id: entry.id.clone(),
         project: entry.project.clone(),
@@ -350,8 +361,61 @@ pub(super) async fn item(core: &Core, entry: &Entry) -> Result<ReviewItem> {
         not_copied: entry.not_copied.clone(),
         can_undo_take: entry.taken.is_some(),
         fingerprint,
-        git_changes: Vec::new(),
+        git_changes,
     })
+}
+
+/// What changed in the repository's hooks and config since the session
+/// started, and the hooks folder if it is in the working tree. Read from
+/// the workspace, or from the project once a worker's worktree is gone:
+/// hooks and config are shared. Unknown means nothing to show.
+async fn git_changes(core: &Core, entry: &Entry) -> (Vec<GitChange>, Option<String>) {
+    let ws = &entry.workspace;
+    let Some(seen) = &ws.git else {
+        return (Vec::new(), None);
+    };
+    let worktrees = core.worktrees();
+    let now = match worktrees.git_files(ws.dir.clone()).await {
+        Ok(now) => now,
+        Err(_) => match core.root(&entry.project) {
+            Ok(root) => match worktrees.git_files(root).await {
+                Ok(now) => now,
+                Err(_) => return (Vec::new(), None),
+            },
+            Err(_) => return (Vec::new(), None),
+        },
+    };
+    let mut changes: Vec<GitChange> = now
+        .files
+        .iter()
+        .filter_map(|(path, version)| {
+            let kind = match seen.get(path) {
+                None => ChangeKind::Added,
+                Some(was) if was != version => ChangeKind::Modified,
+                Some(_) => return None,
+            };
+            Some(GitChange {
+                path: path.clone(),
+                kind,
+            })
+        })
+        .collect();
+    changes.extend(
+        seen.keys()
+            .filter(|p| !now.files.contains_key(*p))
+            .map(|path| GitChange {
+                path: path.clone(),
+                kind: ChangeKind::Deleted,
+            }),
+    );
+    changes.sort_by(|a, b| a.path.cmp(&b.path));
+    (changes, now.hooks_in_tree)
+}
+
+/// Whether `path` is `folder` or inside it, ignoring case.
+fn inside(path: &str, folder: &str) -> bool {
+    let (path, folder) = (path.to_lowercase(), folder.to_lowercase());
+    path == folder || path.starts_with(&format!("{folder}/"))
 }
 
 /// The entry's changed files as they are now.
