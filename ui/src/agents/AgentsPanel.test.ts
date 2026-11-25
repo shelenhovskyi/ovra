@@ -21,6 +21,7 @@ afterEach(() => {
   if (app) unmount(app);
   app = null;
   target.remove();
+  localStorage.clear();
 });
 
 async function settle() {
@@ -116,6 +117,10 @@ describe("AgentsPanel", () => {
     expect(core.sent("agents.start")).toEqual([]);
     expect(target.querySelector<HTMLInputElement>("input[value=split]")?.checked).toBe(true);
     expect(panel()?.querySelector("[data-testid=agents-empty]")).toBeNull();
+    // A reload offers the project's last mode again.
+    if (app) unmount(app);
+    await setup(core);
+    expect(target.querySelector<HTMLInputElement>("input[value=split]")?.checked).toBe(true);
   });
 
   it("starts a task whose coordinator splits the work among workers", async () => {
