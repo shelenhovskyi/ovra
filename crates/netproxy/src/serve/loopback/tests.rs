@@ -45,6 +45,8 @@ enum Pod {
     WebSocket,
     /// Keeps the head and anything after it; answers `400`.
     NoUpgrade,
+    /// The dial never finishes.
+    Hang,
 }
 
 async fn head_of(stream: &mut (impl AsyncRead + Unpin)) -> String {
@@ -64,6 +66,7 @@ async fn pod(pod: Pod, mut theirs: DuplexStream, heads: Arc<Mutex<Vec<String>>>)
     let answer: &[u8] = match pod {
         Pod::Http => b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok",
         Pod::NoUpgrade => b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n",
+        Pod::Hang => unreachable!(),
         Pod::WebSocket => {
             lock(&heads).push(head);
             let _ = theirs
@@ -152,6 +155,9 @@ impl Proxy {
                 let heads = heads.clone();
                 dials.fetch_add(1, Ordering::SeqCst);
                 Box::pin(async move {
+                    if let Pod::Hang = kind {
+                        std::future::pending::<()>().await;
+                    }
                     let (ours, theirs) = duplex(4096);
                     tokio::spawn(pod(kind, theirs, heads));
                     Ok(Box::new(ours) as PodConn)
@@ -192,6 +198,14 @@ impl Proxy {
             if heads.len() >= n {
                 return heads;
             }
+            tokio::task::yield_now().await;
+        }
+    }
+}
+
+impl Proxy {
+    async fn dialled(&self, n: usize) {
+        while self.dials.load(Ordering::SeqCst) < n {
             tokio::task::yield_now().await;
         }
     }
@@ -352,6 +366,53 @@ async fn every_request_outside_the_rule_is_refused_with_its_reason() {
     insta::assert_snapshot!(seen.join("\n"));
     assert_eq!(p.dials.load(Ordering::SeqCst), 0, "no pod was dialled");
     assert!(lock(&p.host.connected).is_empty(), "nor a host port");
+}
+
+#[tokio::test]
+async fn a_grant_revoked_or_replaced_while_the_dial_waits_is_stale() {
+    let mut p = proxy(Vec::new(), &[]);
+    let request = "GET http://localhost:5173/ HTTP/1.1\r\nHost: localhost:5173\r\n\r\n";
+    for (n, next) in [(1, None), (2, Some(2))] {
+        p.set(vec![p.grant(5173, 1, Pod::Hang)]);
+        let asked = p.ask(request);
+        let change = async {
+            p.dialled(n).await;
+            // Revoked, then a restart with a new generation.
+            p.set(
+                next.map(|g| p.grant(5173, g, Pod::Http))
+                    .into_iter()
+                    .collect(),
+            );
+        };
+        let ((head, _), ()) = tokio::join!(asked, change);
+        assert!(head.starts_with("HTTP/1.1 403"), "{head}");
+    }
+    assert_eq!(
+        p.refused(),
+        ["localhost:5173: stale grant", "localhost:5173: stale grant"]
+    );
+}
+
+#[tokio::test]
+async fn revoking_a_grant_ends_its_open_websocket() {
+    let p = granted();
+    let (head, mut stream) = p
+        .ask("GET http://localhost:8000/hmr HTTP/1.1\r\nHost: localhost:8000\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n")
+        .await;
+    assert!(head.starts_with("HTTP/1.1 101"), "{head}");
+    // Another server's grant changing leaves it open.
+    p.set(vec![
+        p.grant(5173, 2, Pod::Http),
+        p.grant(8000, 1, Pod::WebSocket),
+    ]);
+    let _ = stream.write_all(b"ping").await;
+    let mut buf = [0u8; 4];
+    let _ = stream.read_exact(&mut buf).await;
+    assert_eq!(&buf, b"ping");
+    p.set(vec![p.grant(5173, 2, Pod::Http)]);
+    let mut rest = Vec::new();
+    let _ = stream.read_to_end(&mut rest).await;
+    assert!(rest.is_empty(), "{rest:?}");
 }
 
 #[tokio::test]

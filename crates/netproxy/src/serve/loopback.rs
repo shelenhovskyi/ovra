@@ -7,9 +7,11 @@
 
 use std::collections::BTreeMap;
 use std::io;
+use std::sync::Arc;
 
 use ovra_core::services::LoopbackGrant;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::sync::watch;
 use tokio::time::timeout;
 
 use super::{
@@ -88,6 +90,19 @@ fn check(request: &Request, session: &SessionNet) -> Result<(LoopbackGrant, Stri
     Ok((grant, name.to_ascii_lowercase()))
 }
 
+/// Returns once the grant `port` had as `granted` is revoked or replaced.
+async fn stale(watch: &mut watch::Receiver<Arc<Grants>>, granted: &LoopbackGrant) {
+    loop {
+        let same = watch
+            .borrow_and_update()
+            .get(&granted.port)
+            .is_some_and(|g| g.generation == granted.generation && g.server == granted.server);
+        if !same || watch.changed().await.is_err() {
+            return;
+        }
+    }
+}
+
 pub(super) async fn serve(
     client: &mut impl Stream,
     mut request: Request,
@@ -95,6 +110,7 @@ pub(super) async fn serve(
     session: &SessionNet,
 ) -> io::Result<()> {
     let name = request.name();
+    let mut watch = session.grants.subscribe();
     let (grant, host) = match check(&request, session) {
         Ok(checked) => checked,
         Err(why) => {
@@ -103,7 +119,14 @@ pub(super) async fn serve(
         }
     };
     request.host = host;
-    let server = match timeout(DIAL_TIMEOUT, (grant.dial)()).await {
+    let opened = tokio::select! {
+        opened = timeout(DIAL_TIMEOUT, (grant.dial)()) => opened,
+        () = stale(&mut watch, &grant) => {
+            session.reporter.refused(&name, "stale grant");
+            return respond(client, 403, "stale grant").await;
+        }
+    };
+    let server = match opened {
         Ok(Ok(server)) => server,
         Ok(Err(e)) => {
             let why = format!("could not reach the server: {}", e.message);
@@ -111,7 +134,11 @@ pub(super) async fn serve(
         }
         Err(_) => return respond(client, 502, "reaching the server timed out").await,
     };
-    exchange(client, server, &request, &rest).await
+    // A revoked or replaced grant ends what it opened.
+    tokio::select! {
+        result = exchange(client, server, &request, &rest) => result,
+        () = stale(&mut watch, &grant) => Ok(()),
+    }
 }
 
 async fn exchange(
