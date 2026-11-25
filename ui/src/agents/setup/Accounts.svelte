@@ -7,7 +7,7 @@ import type { AccountState } from "../../lib/protocol";
 import { CoreError } from "../../lib/transport";
 import { useOvra } from "../../shell/context";
 import { accountStatus, accountsSummary, nameFromFolder } from "./account-texts";
-import { claudeAccounts, DEFAULT_ACCOUNT } from "./accounts.svelte";
+import { claudeAccounts, DEFAULT_ACCOUNT } from "./claude-accounts.svelte";
 
 /** `quiet`: the setup card is one line; with one account and none found,
  * nothing shows until the person opens the card. */

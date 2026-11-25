@@ -8,7 +8,7 @@ import { untrack } from "svelte";
 import type { ProjectId } from "../../lib/protocol";
 import { useOvra } from "../../shell/context";
 import { pickerLabel, pickerWarning } from "./account-texts";
-import { claudeAccounts } from "./accounts.svelte";
+import { claudeAccounts } from "./claude-accounts.svelte";
 
 let { project, account = $bindable(null) }: { project: ProjectId; account?: string | null } = $props();
 
