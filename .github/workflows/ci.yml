@@ -39,11 +39,6 @@ jobs:
               "=== $name ==="; Get-Content "C:\ovra-spike\$name.txt"; Get-Content "C:\ovra-spike\$name-err.txt"
             } catch { "=== $name FAILED: $_" }
           }
-          RunAsUser "user-no-rule"
-          New-NetFirewallRule -DisplayName ovra-spike-block -Direction Outbound -Action Block -LocalUser "O:LSD:(A;;CC;;;$sid)" | Out-Null
-          RunAsUser "user-block-all"
-          Remove-NetFirewallRule -DisplayName ovra-spike-block
-          New-NetFirewallRule -DisplayName ovra-spike-block2 -Direction Outbound -Action Block -LocalUser "O:LSD:(A;;CC;;;$sid)" -RemoteAddress @("0.0.0.0-126.255.255.255","128.0.0.0-255.255.255.255") | Out-Null
-          RunAsUser "user-block-non-loopback"
+          # user runs done in spike 1
           New-Item C:\ovra-spike\done.txt | Out-Null
           $p.WaitForExit(10000) | Out-Null

@@ -107,6 +107,7 @@ fn probe(a: &[String]) {
                 }
             }),
     );
+    probe2(&granted);
     line(
         "node_version",
         Command::new("node")
@@ -121,6 +122,63 @@ fn probe(a: &[String]) {
                 }
             }),
     );
+}
+
+fn run_piped(program: &str, args: &[&str], cwd: &Path) -> Result<String, String> {
+    use std::process::Stdio;
+    let out = Command::new(program)
+        .args(args)
+        .current_dir(cwd)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|e| e.to_string())?;
+    let text = format!(
+        "{} | {}",
+        String::from_utf8_lossy(&out.stdout).trim().replace('\n', " / "),
+        String::from_utf8_lossy(&out.stderr).trim().replace('\n', " / ")
+    );
+    if out.status.success() { Ok(text) } else { Err(format!("{} {text}", out.status)) }
+}
+
+fn probe2(granted: &Path) {
+    for name in ["NUL", r"\\.\NUL", r"\\?\GLOBALROOT\Device\Null"] {
+        for write in [false, true] {
+            let r = std::fs::OpenOptions::new().read(!write).write(write).open(name);
+            line(&format!("open {name} write={write}"), r.map(|_| "opened".into()).map_err(|e| e.to_string()));
+        }
+    }
+    let git = r"C:\Program Files\Git\cmd\git.exe";
+    let bash = r"C:\Program Files\Git\bin\bash.exe";
+    line("git_piped", run_piped(git, &["--version"], granted));
+    let repo = granted.join("repo");
+    let _ = std::fs::create_dir_all(&repo);
+    line("git_init", run_piped(git, &["init", "-q"], &repo));
+    let _ = std::fs::write(repo.join("a.txt"), "a");
+    line("git_status", run_piped(git, &["status", "--short"], &repo));
+    line("git_commit", run_piped(git, &["-c", "user.name=x", "-c", "user.email=x@x", "commit", "-qam", "x", "--allow-empty"], &repo));
+    line("bash_echo", run_piped(bash, &["-c", "echo hi; echo w > b.txt && cat b.txt; ls / | head -3; uname -a"], granted));
+    line("bash_nul", run_piped(bash, &["-c", "echo x > /dev/null && echo devnull-ok"], granted));
+    line("cmd_nul", run_piped("cmd.exe", &["/c", "echo x > NUL && echo nul-ok"], granted));
+    line("powershell", run_piped("powershell.exe", &["-NoProfile", "-Command", "Write-Output ps-ok"], granted));
+    let prot = granted.join("prot");
+    line("prot_read", std::fs::read_to_string(prot.join("file.txt")).map_err(|e| e.to_string()));
+    line("prot_write_existing", std::fs::write(prot.join("file.txt"), "x").map(|_| "written".into()).map_err(|e| e.to_string()));
+    line("prot_create", std::fs::write(prot.join("new.txt"), "x").map(|_| "created".into()).map_err(|e| e.to_string()));
+    line("prot_mkdir", std::fs::create_dir(prot.join("sub")).map(|_| "made".into()).map_err(|e| e.to_string()));
+    line("prot_delete_file", std::fs::remove_file(prot.join("file.txt")).map(|_| "deleted".into()).map_err(|e| e.to_string()));
+    line("prot_rename_dir", std::fs::rename(&prot, granted.join("prot2")).map(|_| "renamed".into()).map_err(|e| e.to_string()));
+    line("prot_rename_file_out", std::fs::rename(prot.join("file.txt"), granted.join("moved.txt")).map(|_| "moved".into()).map_err(|e| e.to_string()));
+    line("prot_icacls_remove_deny", run_piped("icacls.exe", &[prot.to_str().unwrap(), "/remove:d", "*S-1-15-2-1"], granted));
+    line("prot_icacls_reset", run_piped("icacls.exe", &[prot.to_str().unwrap(), "/reset"], granted));
+    let own = granted.join("own.txt");
+    let _ = std::fs::write(&own, "x");
+    line("own_icacls_grant", run_piped("icacls.exe", &[own.to_str().unwrap(), "/grant", "Everyone:F"], granted));
+    line("own_takeown", run_piped("takeown.exe", &["/f", prot.to_str().unwrap()], granted));
+    line("junction_to_home", run_piped("cmd.exe", &["/c", "mklink /J j C:\\Users && dir j"], granted));
+    line("delete_granted_dir_child_tree", run_piped("cmd.exe", &["/c", "rd /s /q prot"], granted));
+    line("prot_still_there", std::fs::read_to_string(prot.join("file.txt")).map_err(|e| e.to_string()));
 }
 
 /// Runs the listeners, writes the files and spawns the probe three ways.
@@ -281,10 +339,21 @@ mod appcontainer {
             println!("AppContainer SID {sid_str}");
             let g = Command::new("icacls")
                 .arg(granted)
-                .args(["/grant", &format!("*{sid_str}:(OI)(CI)F"), "/T"])
+                .args(["/grant", &format!("*{sid_str}:(OI)(CI)M"), "/T"])
                 .output()
                 .unwrap();
             println!("icacls: {}", String::from_utf8_lossy(&g.stdout).trim());
+            let prot = granted.join("prot");
+            std::fs::create_dir_all(&prot).unwrap();
+            std::fs::write(prot.join("file.txt"), "protected").unwrap();
+            let d = Command::new("icacls")
+                .arg(&prot)
+                .args(["/deny", &format!("*{sid_str}:(OI)(CI)(W,D,DC,WDAC,WO)")])
+                .output()
+                .unwrap();
+            println!("icacls deny: {} {}", String::from_utf8_lossy(&d.stdout).trim(), String::from_utf8_lossy(&d.stderr).trim());
+            let show = Command::new("icacls").arg(&prot).output().unwrap();
+            println!("{}", String::from_utf8_lossy(&show.stdout));
 
             let caps = SECURITY_CAPABILITIES {
                 AppContainerSid: sid,
