@@ -94,6 +94,51 @@ fn bash_auto_matches_whole_words_and_never_joined_commands() {
 }
 
 #[test]
+fn an_exact_bash_rule_matches_only_the_whole_command() {
+    let exact = |action| PolicyRule {
+        exact: true,
+        ..rule("Bash", Some("npm test"), action)
+    };
+    let proxy = sandboxed(SandboxNetwork::Proxy);
+    let decided = |policy: &Policy, command: &str| {
+        let input = json!({ "command": command });
+        decide(policy, "Bash", &input, Path::new(WORK), Some(&proxy)).map(|(a, _)| a)
+    };
+    let auto = Policy {
+        rules: vec![exact(PolicyAction::Auto)],
+    };
+    assert_eq!(decided(&auto, "npm test"), Some(PolicyAction::Auto));
+    assert_eq!(decided(&auto, "  npm   test "), Some(PolicyAction::Auto));
+    for command in ["npm test -- -u", "npm test x", "npm", "npm testx"] {
+        assert_eq!(decided(&auto, command), None, "{command:?}");
+    }
+    let deny = Policy {
+        rules: vec![exact(PolicyAction::Deny)],
+    };
+    assert_eq!(decided(&deny, "echo a; npm test"), Some(PolicyAction::Deny));
+    assert_eq!(decided(&deny, "npm test -- -u"), None);
+    // Exact means nothing without a Bash match.
+    assert!(check(&exact(PolicyAction::Auto)).is_ok());
+    for bad in [
+        PolicyRule {
+            exact: true,
+            ..rule("Bash", None, PolicyAction::Auto)
+        },
+        PolicyRule {
+            exact: true,
+            ..rule("Edit", Some("a.md"), PolicyAction::Auto)
+        },
+    ] {
+        assert!(check(&bad).is_err(), "{bad:?}");
+    }
+    // Stored rules without the field keep the prefix meaning.
+    let stored: PolicyRule =
+        serde_json::from_value(json!({"tool": "Bash", "match": "npm test", "action": "auto"}))
+            .unwrap_or_else(|e| panic!("{e}"));
+    assert!(!stored.exact);
+}
+
+#[test]
 fn file_globs_stay_inside_the_sessions_folder() {
     let proxy = sandboxed(SandboxNetwork::Blocked);
     let abs = |rel: &str| Path::new(WORK).join(rel).to_string_lossy().into_owned();
@@ -362,7 +407,10 @@ fn always_allow_offers_the_narrowest_rule_or_none() {
         .iter()
         .map(|(tool, input)| {
             let offered = always_rule(tool, &abs(input), Path::new(WORK), Some(&proxy));
-            let offered = offered.map_or("-".to_owned(), |r| text(&r));
+            let offered = offered.map_or("-".to_owned(), |r| {
+                let exact = if r.exact { " exactly" } else { "" };
+                format!("{}{exact}", text(&r))
+            });
             format!("{tool} {} => {offered}", input)
         })
         .collect();
@@ -465,6 +513,7 @@ async fn always_allow_adds_the_rule_answers_and_the_next_call_is_allowed() {
         .clone()
         .unwrap_or_else(|| panic!("no rule offered"));
     assert_eq!(text(&rule), "Bash(npm test)");
+    assert!(rule.exact, "an offered command rule is not a prefix");
     let deny = json!({"method": "permissions.answer", "params": {
         "id": request.id.0, "decision": "deny", "always": true}});
     assert_eq!(
@@ -489,6 +538,13 @@ async fn always_allow_adds_the_rule_answers_and_the_next_call_is_allowed() {
     // The next identical call is decided by the rule, without a request.
     let again = boxed.ask("Bash".into(), test.clone(), None, None).await;
     assert_eq!(again.decision, Decision::Allow);
+    // A longer command starting the same way is asked about.
+    let longer = json!({"command": "npm test -- --reporter x"});
+    let proxy = sandboxed(SandboxNetwork::Proxy);
+    assert_eq!(
+        decide(&kept, "Bash", &longer, Path::new(WORK), Some(&proxy)),
+        None
+    );
 
     // The log names who added which rule, for the session that asked.
     let entries = audit.list(&ProjectId("p1".into()), Default::default(), 100);

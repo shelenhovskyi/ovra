@@ -487,6 +487,10 @@ rules for each project:
   never match.
 - For `Bash`, `match` is a command prefix, matched on word boundaries
   (`npm test` matches `npm test -- -u`, not `npm testx`).
+  - With `"exact": true` it is the whole command instead: `npm test`
+    matches `npm test` (in any spacing), not `npm test -- -u`. Rules stored
+    without `exact` keep the prefix meaning. `policy.set` refuses `exact`
+    on any other rule.
   - A command that contains `;`, `&`, `|`, a backtick, `$(`, `>`, `<` or a
     newline never matches an `auto` rule.
   - A Bash `deny` rule is advisory: `env git push` or `git -C . push` gets
@@ -573,7 +577,8 @@ rules for each project:
   when no project rule decided the call, and the session runs in a sandbox
   whose network is not `Open` (elsewhere the rule would never count).
 - The scope is the narrowest rule for the call:
-  - `Bash`: the exact command, in single spaces. Not offered for joined
+  - `Bash`: the exact command, in single spaces, as an `exact` rule, so
+    it allows that command and nothing longer. Not offered for joined
     commands, commands longer than 200 characters, a first word that runs
     other commands (`env`, `sudo`, `xargs`, shells, ...) or sets a
     variable, or any word naming a path outside the folder (`/`, `~`, `$`,

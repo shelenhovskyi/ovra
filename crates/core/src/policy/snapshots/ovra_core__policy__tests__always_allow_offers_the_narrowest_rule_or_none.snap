@@ -2,9 +2,9 @@
 source: crates/core/src/policy/tests.rs
 expression: "lines.join(\"\\n\")"
 ---
-Bash {"command":"npm test"} => Bash(npm test)
-Bash {"command":"  cargo   test -p ovra-core "} => Bash(cargo test -p ovra-core)
-Bash {"command":"git commit -m \"fix typo\""} => Bash(git commit -m "fix typo")
+Bash {"command":"npm test"} => Bash(npm test) exactly
+Bash {"command":"  cargo   test -p ovra-core "} => Bash(cargo test -p ovra-core) exactly
+Bash {"command":"git commit -m \"fix typo\""} => Bash(git commit -m "fix typo") exactly
 Bash {"command":"npm test && curl x"} => -
 Bash {"command":"sh -c 'npm test'"} => -
 Bash {"command":"env npm test"} => -

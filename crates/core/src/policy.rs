@@ -115,6 +115,9 @@ fn check(rule: &PolicyRule) -> Result<(), ProtocolError> {
     if rule.tool.starts_with(crate::orchestration::IDE_TOOL_PREFIX) {
         return bad("Ovra's own tools follow their role's rules, not policies");
     }
+    if rule.exact && (rule.tool != "Bash" || rule.pattern.is_none()) {
+        return bad("only a Bash rule with a match can match the exact command");
+    }
     let Some(pattern) = &rule.pattern else {
         return Ok(());
     };
@@ -184,7 +187,8 @@ pub(crate) fn always_rule(
         tool: tool.to_owned(),
         pattern: Some(pattern),
         action: PolicyAction::Auto,
-        exact: false,
+        // The command offered, not every command it starts.
+        exact: tool == "Bash",
         from_approval: true,
     };
     let fits = check(&rule).is_ok() && matches(&rule, input, work_dir, PolicyAction::Auto);
@@ -323,13 +327,18 @@ fn matches(rule: &PolicyRule, input: &Value, work_dir: &Path, action: PolicyActi
         let Some(command) = input.get("command").and_then(Value::as_str) else {
             return false;
         };
+        let fits = |part: &str| {
+            if rule.exact {
+                words(part) == words(pattern)
+            } else {
+                starts_with_words(part, pattern)
+            }
+        };
         return if action == PolicyAction::Auto {
-            !SHELL_JOINS.iter().any(|j| command.contains(j)) && starts_with_words(command, pattern)
+            !SHELL_JOINS.iter().any(|j| command.contains(j)) && fits(command)
         } else {
             // A deny looks at every part of a joined command.
-            command
-                .split(['\n', ';', '&', '|'])
-                .any(|part| starts_with_words(part, pattern))
+            command.split(['\n', ';', '&', '|']).any(fits)
         };
     }
     if rule.tool == "WebFetch" {
@@ -381,9 +390,12 @@ fn url_host(url: &str) -> Option<String> {
 
 /// Whether `command` starts with the words of `prefix`, on a word boundary.
 fn starts_with_words(command: &str, prefix: &str) -> bool {
-    let words = |s: &str| s.split_whitespace().map(str::to_owned).collect::<Vec<_>>();
     let (command, prefix) = (words(command), words(prefix));
     !prefix.is_empty() && command.starts_with(&prefix)
+}
+
+fn words(text: &str) -> Vec<&str> {
+    text.split_whitespace().collect()
 }
 
 /// `path` relative to `work_dir`, with `/` separators, if it stays inside.
