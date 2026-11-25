@@ -1,6 +1,7 @@
 import { flushSync, mount, unmount } from "svelte";
 import { afterEach, describe, expect, it } from "vitest";
 import { listCommands } from "../keys/commands";
+import { closeContextMenu, contextMenu, type MenuItem } from "../menu/context-menu.svelte";
 import FileTree from "./FileTree.svelte";
 import { dirsFromPaths, FakeCore } from "./fake-core";
 
@@ -85,6 +86,39 @@ describe("file actions in the tree", () => {
     expect(t.opened).toEqual(["src/b/c.ts edit"]);
     expect(t.row("src/b/c.ts")?.getAttribute("aria-selected")).toBe("true");
     expect(t.row("/")).toBeNull();
+  });
+
+  it("opens a row's menu on right-click or Shift+F10 and the project's below the rows", async () => {
+    const t = await mountTree(["src/a.ts", "b.ts"]);
+    const labels = () =>
+      (contextMenu.open?.entries ?? []).map((e) => (e === "separator" ? "-" : `${e.label}${e.danger ? "!" : ""}`));
+    t.row("b.ts")?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2 }));
+    flushSync();
+    expect(t.row("b.ts")?.getAttribute("aria-selected")).toBe("true");
+    expect(labels()).toEqual([
+      "Open Containing Folder",
+      "Copy path",
+      "Copy relative path",
+      "-",
+      "New file…",
+      "New folder…",
+      "Rename…",
+      "Duplicate",
+      "-",
+      "Move to Trash…!",
+    ]);
+    const duplicate = contextMenu.open?.entries.find((e) => e !== "separator" && e.label === "Duplicate");
+    closeContextMenu(false);
+    await (duplicate as MenuItem).run();
+    await settle();
+    expect(t.input()?.value).toBe("b copy.ts");
+    t.press(t.input(), "Escape");
+
+    t.tree.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2 }));
+    expect(labels()).toEqual(["Reveal project folder", "Collapse all", "-", "New file…", "New folder…"]);
+    t.tree.dispatchEvent(new KeyboardEvent("keydown", { code: "F10", key: "F10", shiftKey: true, bubbles: true }));
+    expect(labels()[6]).toBe("Rename…");
+    closeContextMenu(false);
   });
 
   it("moves a dragged file into the folder under it, never a folder into itself", async () => {

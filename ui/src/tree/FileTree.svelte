@@ -7,10 +7,12 @@
 import { registerCommand } from "../keys/commands";
 import type { GitStatus, ProjectId } from "../lib/protocol";
 import type { Transport } from "../lib/transport";
+import { isMenuKey, openContextMenu } from "../menu/context-menu.svelte";
 import Icon from "../shell/Icon.svelte";
 import type { MainMode } from "../shell/workspace.svelte";
 import { FileActions } from "./actions.svelte";
 import { registerFileCommands } from "./commands";
+import { rootMenu, rowMenu } from "./menu";
 import { ancestorsOf, type Filter, parentOf, type Row, TreeModel, typeaheadMatch, visibleRange } from "./model";
 import NameInput from "./NameInput.svelte";
 import { baseName, keyAction, moveTarget, stemRange } from "./ops";
@@ -280,6 +282,40 @@ function ondragleave(e: DragEvent): void {
   if (!(e.relatedTarget instanceof Node && viewport?.contains(e.relatedTarget))) dropDir = null;
 }
 
+/** A right-click on a row (which it selects), below the rows or on the header. */
+function oncontextmenu(e: MouseEvent): void {
+  if (e.target instanceof HTMLInputElement) return; // the name field keeps its own menu
+  // The Menu key or Shift+F10 fires this too, on the focused tree: the active row's menu.
+  if (e.button !== 2 && e.target === viewport) {
+    e.preventDefault();
+    menuForActive();
+    return;
+  }
+  const el = e.target instanceof Element ? e.target.closest<HTMLElement>("[data-path]") : null;
+  const path = el?.dataset.path;
+  e.preventDefault();
+  if (path?.endsWith("/")) return; // the draft row
+  const at = { x: e.clientX, y: e.clientY, returnFocus: viewport ?? null };
+  if (!el || !path) {
+    openContextMenu(at, rootMenu(actions, collapseAll));
+    return;
+  }
+  selectPath(path);
+  openContextMenu(at, rowMenu(actions, { path, kind: el.hasAttribute("aria-expanded") ? "dir" : "file" }));
+}
+
+/** The active row's menu (the project's without one), under the row. */
+function menuForActive(): void {
+  const row = activeRow();
+  const box = (row ? document.getElementById(rowId(activeIndex)) : viewport)?.getBoundingClientRect();
+  const at = {
+    x: (box?.left ?? 0) + 24,
+    y: row ? (box?.bottom ?? 0) : (box?.top ?? 0) + 8,
+    returnFocus: viewport ?? null,
+  };
+  openContextMenu(at, row ? rowMenu(actions, row) : rootMenu(actions, collapseAll));
+}
+
 /** The active row, unless it is the draft of a new entry. */
 function activeRow(): Row | null {
   const row = rows[activeIndex];
@@ -382,6 +418,11 @@ function onkeydown(e: KeyboardEvent): void {
     e.preventDefault();
     return;
   }
+  if (isMenuKey(e)) {
+    e.preventDefault();
+    menuForActive();
+    return;
+  }
   switch (e.key) {
     case "ArrowDown":
       select(index < 0 ? 0 : Math.min(rows.length - 1, index + 1));
@@ -422,7 +463,7 @@ function onkeydown(e: KeyboardEvent): void {
 
 
 <div class="panel">
-  <div class="toolbar">
+  <div class="toolbar" {oncontextmenu} role="presentation">
     <span class="title" aria-hidden="true">Files</span>
     <button type="button" class="icon" onclick={collapseAll} aria-label="Collapse all" title="Collapse all folders">
       <Icon name="collapse-all" small />
@@ -467,6 +508,7 @@ function onkeydown(e: KeyboardEvent): void {
     {ondrop}
     {ondragend}
     {ondragleave}
+    {oncontextmenu}
     class:drop-root={dropDir === ""}
   >
     {#if error}

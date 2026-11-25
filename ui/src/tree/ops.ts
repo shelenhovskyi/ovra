@@ -52,15 +52,6 @@ export function copyName(name: string, isDir: boolean, siblings: string[]): stri
   }
 }
 
-/** `rel` under the project `root`, with the separator the root uses. */
-export function absolutePath(root: string, rel: string): string {
-  const windows = root.includes("\\") && !root.includes("/");
-  const sep = windows ? "\\" : "/";
-  const base = root.endsWith(sep) ? root.slice(0, -1) : root;
-  if (rel === "") return base;
-  return `${base}${sep}${windows ? rel.replaceAll("/", "\\") : rel}`;
-}
-
 /** Where `path` is after `from` moved to `to`, or null if the move did not touch it. */
 export function movedPath(path: string, from: string, to: string): string | null {
   if (path === from) return to;

@@ -3,10 +3,11 @@
 // the trash question; every change goes to the core (`fs.*`), and the tree
 // reloads the folders it touched instead of waiting for the watcher.
 
+import { absolutePath } from "../editor/context-menu";
 import type { EntryKind, ProjectId } from "../lib/protocol";
 import { CoreError, type Transport } from "../lib/transport";
 import { draftPath, joinPath, parentOf, type TreeModel } from "./model";
-import { absolutePath, baseName, copyName, moveTarget, nameProblem } from "./ops";
+import { baseName, copyName, moveTarget, nameProblem } from "./ops";
 
 const NOTICE_MS = 5000;
 

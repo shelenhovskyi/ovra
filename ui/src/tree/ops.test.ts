@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { absolutePath, copyName, keyAction, movedPath, moveTarget, nameProblem, revealLabel, stemRange } from "./ops";
+import { copyName, keyAction, movedPath, moveTarget, nameProblem, revealLabel, stemRange } from "./ops";
 
 const siblings = [
   { name: "src", kind: "dir" },
@@ -42,12 +42,6 @@ describe("names and paths", () => {
     expect(copyName("a.ts", false, ["a.ts"])).toBe("a copy.ts");
     expect(copyName("a.ts", false, ["a.ts", "a copy.ts", "A Copy 2.ts"])).toBe("a copy 3.ts");
     expect(copyName("lib.d", true, ["lib.d"])).toBe("lib.d copy");
-  });
-
-  it("joins the root with its own separator", () => {
-    expect(absolutePath("/home/me/app", "src/a.ts")).toBe("/home/me/app/src/a.ts");
-    expect(absolutePath("C:\\code\\app\\", "src/a.ts")).toBe("C:\\code\\app\\src\\a.ts");
-    expect(absolutePath("/home/me/app", "")).toBe("/home/me/app");
   });
 
   it("maps paths through a move and refuses moves into itself or in place", () => {
