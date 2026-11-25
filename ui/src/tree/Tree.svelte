@@ -3,7 +3,8 @@
 // Mod+O (the system's folder dialog) opens a folder from both; dropping a
 // folder onto the window opens it from the start screen only, so a drop on
 // the editor or a terminal never switches the project.
-import { untrack } from "svelte";
+import { tick, untrack } from "svelte";
+import { modeOf } from "../editor/open-files.svelte";
 import { registerCommand } from "../keys/commands";
 import { useOvra } from "../shell/context";
 import FileTree from "./FileTree.svelte";
@@ -20,6 +21,21 @@ const opener = new FolderOpener(transport, (project) => {
 $effect(() => {
   if (!opener.canPick) return;
   return registerCommand({ id: "tree.open_folder", title: "Open folder…", keys: "Mod+O", run: () => opener.pick() });
+});
+
+// Back to the files from Search or Git, as Mod+Shift+F and Mod+Shift+G go there.
+$effect(() => {
+  if (!workspace.project) return;
+  return registerCommand({
+    id: "tree.focus",
+    title: "Show files",
+    keys: "Mod+Shift+E",
+    run: async () => {
+      workspace.sidebar = "files";
+      await tick();
+      document.querySelector<HTMLElement>('[role="tree"]')?.focus();
+    },
+  });
 });
 
 $effect(() =>
@@ -52,7 +68,7 @@ $effect(() => {
       {transport}
       project={workspace.project.id}
       openPath={workspace.openPath}
-      onopen={(path) => workspace.openFile(path, workspace.mode)}
+      onopen={(path) => workspace.openFile(path, modeOf(path))}
       onreveal={() => (workspace.sidebar = "files")}
     />
   {/key}
