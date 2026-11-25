@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { listCommands, registerCommand } from "../keys/commands";
 import type { Project } from "../lib/protocol";
 import type { Transport } from "../lib/transport";
-import { registerPaletteCommands } from "./commands";
+import { focusStartScreen, registerPaletteCommands } from "./commands";
 import { type PaletteMode, palette } from "./mode.svelte";
 import { source } from "./sources";
 
@@ -56,5 +56,19 @@ describe("palette commands", () => {
     screen.remove();
     unregister();
     expect(listCommands()).toEqual([]);
+  });
+
+  it("leave focus alone when a dialog opened while the start screen loaded", async () => {
+    document.body.innerHTML =
+      '<div data-testid="project-list"><ul><li><button>demo</button></li></ul></div>' +
+      '<div role="dialog" aria-modal="true"><input aria-label="Type a command" /></div>';
+    const field = document.querySelector("input");
+    field?.focus();
+    await focusStartScreen();
+    expect(document.activeElement).toBe(field);
+    document.querySelector('[role="dialog"]')?.remove();
+    await focusStartScreen();
+    expect(document.activeElement?.textContent).toBe("demo");
+    document.body.innerHTML = "";
   });
 });

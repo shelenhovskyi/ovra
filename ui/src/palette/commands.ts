@@ -72,6 +72,8 @@ const PALETTE_KEYS = [
 /** Focuses the first project on the start screen, or its folder field when there are none; waits a few frames for the list. */
 export async function focusStartScreen(): Promise<void> {
   for (let frame = 0; frame < 30; frame++) {
+    // The person opened the palette or another dialog while the list loaded: focus is theirs now.
+    if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
     const screen = document.querySelector('[data-testid="project-list"]');
     const target =
       screen?.querySelector<HTMLElement>("ul button") ??
