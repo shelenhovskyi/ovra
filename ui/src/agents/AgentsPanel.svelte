@@ -71,6 +71,8 @@ const asked = new Set<SessionId>();
 
 const project = $derived(workspace.project);
 const list = $derived(project ? sessions.shown(project.id) : []);
+/** How many of the project's agents work, of how many may. */
+const capacity = $derived(project ? sessions.capacity.get(project.id) : undefined);
 /** "No sandbox" for the whole list, once under the header. */
 const unsandboxed = $derived(listWarning(list));
 const current = $derived(list.find((s) => s.id === selected) ?? null);
@@ -107,8 +109,18 @@ const fallback = $derived.by((): AccountState | undefined => {
 });
 /** The account a new task would start with is known to be signed out. */
 const blocked = $derived(accounts.signedOut(account ?? accounts.projectAccount));
+/** Every place is taken: One agent, here would be refused (Plan and split queues its workers). */
+const atCap = $derived(mode === "here" && capacity !== undefined && capacity.working >= capacity.limit);
 /** Why Start cannot work right now, said before the press instead of after it. */
-const startBlock = $derived(blocked ? "The account is signed out" : noGit ? "Plan and split needs git" : null);
+const startBlock = $derived(
+  blocked
+    ? "The account is signed out"
+    : noGit
+      ? "Plan and split needs git"
+      : atCap
+        ? `All ${capacity?.limit} agents are busy`
+        : null,
+);
 const usable = $derived(accounts.signedIn);
 /** Who pays for the next task, in two or three words; it opens Claude's setup. */
 const billing = $derived.by(() => {
@@ -196,9 +208,15 @@ const reviewHint = $derived(!hints.has("reviewed") && list.some((s) => chip(s)?.
 
 /** The task the person pressed Close on: it asks once before closing it with its workers. */
 let confirming = $state<SessionId | null>(null);
-const capacity = $derived(project ? sessions.capacity.get(project.id) : undefined);
 /** Planning coordinators take no place, so the count says them apart. */
 const planning = $derived(project ? sessions.planning(project.id) : 0);
+/** Agents in a place that wait for the person's answer; coordinators take none. */
+const needYou = $derived(
+  list.filter((s) => s.status.state === "waiting_for_approval" && sessions.roles.get(s.id)?.kind !== "coordinator")
+    .length,
+);
+/** Every place is held by an agent that waits for the person: the count says so instead of "3 of 3". */
+const allWait = $derived(capacity !== undefined && capacity.working > 0 && needYou >= capacity.working);
 
 $effect(() => {
   const id = project?.id;
@@ -568,6 +586,8 @@ const busyAgent = $derived(
   current !== null && (current.status.state === "working" || current.status.state === "waiting_for_approval"),
 );
 const canReply = $derived(current !== null && current.status.state === "idle");
+/** Running, or a task whose workers still run: a Done session has nothing to stop, Close ends it. */
+const stoppable = $derived(current !== null && !isEnded(current.status) && sessions.status(current.id) !== "Done");
 </script>
 
 {#snippet icon(path: string)}
@@ -595,8 +615,16 @@ const canReply = $derived(current !== null && current.status.state === "idle");
   <header class="head">
     <h2 id="agents-heading">Agents</h2>
     {#if capacity}
-      <span class="capacity" data-testid="agents-capacity" title="Agents working in this project, of how many may">
-        {capacity.working} of {capacity.limit}{capacity.queued > 0 ? ` · ${capacity.queued} queued` : ""}{planning
+      <span
+        class="capacity"
+        data-testid="agents-capacity"
+        title={allWait
+          ? `All ${capacity.working} agents wait for your answer`
+          : "Agents working in this project, of how many may"}
+      >
+        {allWait
+          ? `${needYou} ${needYou === 1 ? "needs" : "need"} you`
+          : `${capacity.working} of ${capacity.limit}`}{capacity.queued > 0 ? ` · ${capacity.queued} queued` : ""}{planning
           ? ` · ${planning} planning`
           : ""}
       </span>
@@ -636,10 +664,24 @@ const canReply = $derived(current !== null && current.status.state === "idle");
         <button type="button" class="quiet back" onclick={() => open(null)}>{@render icon("M15 18l-6-6 6-6")}Tasks</button>
         <span class="buttons">
           {#if busyAgent}
-            <button type="button" class="quiet" disabled={busy} onclick={() => interrupt(current.id)}>Interrupt</button>
+            <button
+              type="button"
+              class="quiet"
+              disabled={busy}
+              title="Stops this step; you can reply"
+              onclick={() => interrupt(current.id)}>Interrupt</button
+            >
           {/if}
-          {#if !isEnded(current.status)}
-            <button type="button" class="quiet" disabled={busy} onclick={() => stop(current.id)}>Stop</button>
+          {#if stoppable}
+            <button
+              type="button"
+              class="quiet"
+              disabled={busy}
+              title={sessions.roles.get(current.id)?.kind === "coordinator"
+                ? "Ends the task and its workers"
+                : "Ends the session"}
+              onclick={() => stop(current.id)}>Stop</button
+            >
           {/if}
           {#if closable(current)}
             <button
@@ -989,6 +1031,13 @@ const canReply = $derived(current !== null && current.status.state === "idle");
         <p class="blocked" role="note" data-testid="agent-needs-git">
           <span>Needs git: Plan and split works on copies of a git repository.</span>
           <button type="button" class="quiet" onclick={() => pickMode("here")}>Use One agent, here</button>
+        </p>
+      {:else if atCap}
+        <p class="blocked calm" role="note" data-testid="agent-at-cap">
+          <span
+            >All {capacity?.limit} agents are busy: one must finish first. Plan and split waits for a free one.</span
+          >
+          <button type="button" class="quiet" onclick={() => pickMode("split")}>Use Plan and split</button>
         </p>
       {/if}
       {#if startError}
@@ -1581,6 +1630,10 @@ const canReply = $derived(current !== null && current.status.state === "idle");
     color: var(--warn);
   }
   .fix {
+    color: var(--text-2);
+  }
+  /* Busy agents are no fault: the reason reads as plain text. */
+  .blocked.calm {
     color: var(--text-2);
   }
   .chips {

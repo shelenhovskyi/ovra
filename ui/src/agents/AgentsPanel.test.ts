@@ -614,6 +614,11 @@ describe("AgentsPanel", () => {
     const send = () => [...target.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Send");
     const button = (name: string) =>
       [...target.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === name);
+    // Both say what they do before the press.
+    expect([button("Interrupt")?.title, button("Stop")?.title]).toEqual([
+      "Stops this step; you can reply",
+      "Ends the session",
+    ]);
     button("Interrupt")?.click();
     await settle();
     expect(core.sent("agents.interrupt").map((c) => c.params)).toEqual([{ session: "s1" }]);
@@ -624,10 +629,15 @@ describe("AgentsPanel", () => {
     await settle();
     expect(send()?.disabled).toBe(false);
     expect(button("Interrupt")).toBeUndefined();
+    // Done: nothing to stop; Close is there.
+    expect(button("Stop")).toBeUndefined();
+    expect(button("Close")).toBeDefined();
     modEnter();
     await settle();
     expect(core.sent("agents.send").map((c) => c.params)).toEqual([{ session: "s1", text: "and the docs" }]);
-    [...target.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Stop")?.click();
+    core.status("s1", { state: "working" });
+    await settle();
+    button("Stop")?.click();
     await settle();
     expect(core.sent("agents.stop")).toHaveLength(1);
     core.status("s1", { state: "failed", message: "claude exited with code 1" });
@@ -801,6 +811,31 @@ describe("AgentsPanel", () => {
     await settle();
     expect(changes()).toBeNull();
     off();
+  });
+
+  it("says when every agent waits for the person, and why One agent, here cannot start at the cap", async () => {
+    const core = new FakeAgentCore();
+    for (const n of [1, 2, 3]) core.addSession("p1", `Task ${n}`, { state: "waiting_for_approval" });
+    core.capacity = { working: 3, limit: 3, queued: 0 };
+    await setup(core);
+    const count = () => target.querySelector("[data-testid=agents-capacity]");
+    expect(count()?.textContent?.trim()).toBe("3 need you");
+    expect(count()?.getAttribute("title")).toBe("All 3 agents wait for your answer");
+    type(target.querySelector("#agent-prompt"), "Fix the typo");
+    flushSync();
+    // Said before the press, not refused after it.
+    expect(startButton()?.disabled).toBe(true);
+    expect(startButton()?.title).toBe("All 3 agents are busy");
+    expect(target.querySelector("[data-testid=agent-at-cap]")?.textContent?.replace(/\s+/g, " ").trim()).toBe(
+      "All 3 agents are busy: one must finish first. Plan and split waits for a free one. Use Plan and split",
+    );
+    // Plan and split queues its workers.
+    button("Use Plan and split")?.click();
+    flushSync();
+    expect(startButton()?.disabled).toBe(false);
+    core.status("s1", { state: "working" });
+    await settle();
+    expect(count()?.textContent?.trim()).toBe("3 of 3");
   });
 
   it("unfolds a folded Agents column for New task, from its command and Mod+N", async () => {

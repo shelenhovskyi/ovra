@@ -64,7 +64,11 @@ test("a recorded Claude session runs through the real driver", async ({ page }) 
   await expect(transcript).toContainText(/Claude\s*Done\./);
   await expect(session.getByRole("status")).toHaveText("Done");
 
-  await session.getByRole("button", { name: "Stop" }).click();
+  // A Done session shows no Stop button; the palette still stops it.
+  await expect(session.getByRole("button", { name: "Stop" })).toHaveCount(0);
+  await page.keyboard.press("ControlOrMeta+Shift+P");
+  await page.getByRole("combobox", { name: "Type a command" }).fill("Stop the agent");
+  await page.keyboard.press("Enter");
   // A mismatch with the recording would make fake-claude exit 2: Failed.
   await expect(session.getByRole("status")).toHaveText("Stopped");
 });
