@@ -22,6 +22,7 @@ use crate::protocol::agents::{
     SessionMode, SetupState,
 };
 use crate::protocol::audit::{AuditEntry, AuditEvent};
+use crate::protocol::browser::{FrameMetadata, InputEvent, MouseButton, PageId, PageInfo, Pick};
 use crate::protocol::fs::{DirListing, FileContent, FileList};
 use crate::protocol::git::{
     Blame, BranchInfo, CommitInfo, Committed, FileDiff, GitFileText, GitRev, Hunk, RepoStatus,
@@ -552,6 +553,137 @@ pub trait DevServers: Send + Sync + Debug {
     /// A connection to `port` in the pod of `work_dir`, for the netproxy
     /// and the person's forward. Never to a host port.
     fn connect(&self, work_dir: PathBuf, port: u16) -> BoxFuture<'_, Result<PodConn>>;
+}
+
+/// How a session's browser reports to the core.
+pub trait BrowserSink: Send + Sync + Debug {
+    /// A screencast frame (JPEG, base64), while the page's screencast is on.
+    fn frame(&self, page: &PageId, jpeg: String, metadata: FrameMetadata);
+    /// A page opened, navigated or changed its title.
+    fn page(&self, info: PageInfo);
+    /// A page closed, by itself, by `close` or with its browser.
+    fn closed(&self, page: &PageId);
+    /// Whether the page may load `origin` (`scheme://host[:port]`), asked
+    /// before a navigation to an origin that is not a granted server.
+    fn navigation(&self, page: &PageId, origin: String) -> BoxFuture<'_, bool>;
+}
+
+/// What an agent does on a page. `target` is a ref of the page's latest
+/// [`Browser::snapshot`] (`e12`, `f2e7`); an older ref fails.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PageAction {
+    Navigate {
+        url: String,
+    },
+    Back,
+    Forward,
+    Reload,
+    Click {
+        target: String,
+        button: MouseButton,
+        double: bool,
+        /// Alt 1, Ctrl 2, Meta 4, Shift 8.
+        modifiers: u8,
+    },
+    Type {
+        target: String,
+        text: String,
+        submit: bool,
+    },
+    Press {
+        key: String,
+    },
+    /// Until `text` shows and `text_gone` is gone, or `timeout`.
+    WaitFor {
+        text: Option<String>,
+        text_gone: Option<String>,
+        timeout: Duration,
+    },
+}
+
+/// An element: a snapshot ref or a pick.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ElementRef {
+    Ref(String),
+    Pick(String),
+}
+
+/// One console message, numbered from 1 per page.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConsoleEntry {
+    pub n: u64,
+    /// `log`, `info`, `warning`, `error` or `debug`.
+    pub level: String,
+    pub text: String,
+}
+
+/// One request the page made, numbered from 1 per page.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NetworkEntry {
+    pub n: u64,
+    pub method: String,
+    pub url: String,
+    /// `None` while it runs or when it failed.
+    pub status: Option<u16>,
+    /// Why it failed (refused by the netproxy, for example).
+    pub error: Option<String>,
+}
+
+/// What `inspect` finds: the element as a pick (without a note) and a
+/// cropped PNG of it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Inspected {
+    pub element: Pick,
+    pub png: Vec<u8>,
+}
+
+/// A Chromium per agent session, in the session's sandbox and driven over
+/// a CDP pipe (ADR 0009; implemented by `ovra-browser`). Page content it
+/// returns is untrusted; the core wraps it before an agent sees it.
+pub trait Browser: Send + Sync + Debug {
+    fn status(&self) -> SandboxStatus;
+    /// Opens a page at `url`, first starting the session's browser in
+    /// `profile` with `sink` if it does not run. `size` is the viewport
+    /// in CSS pixels.
+    fn open(
+        &self,
+        session: SessionId,
+        profile: SandboxProfile,
+        url: String,
+        size: Option<(u32, u32)>,
+        sink: Arc<dyn BrowserSink>,
+    ) -> BoxFuture<'_, Result<PageInfo>>;
+    fn close(&self, page: &PageId) -> BoxFuture<'_, Result<()>>;
+    /// Ends the session's browser and its pages. Does nothing without one.
+    fn end(&self, session: &SessionId);
+    /// Turns the page's screencast on or off.
+    fn screencast(&self, page: &PageId, on: bool) -> Result<()>;
+    /// The person's input, for a page they took over.
+    fn input(&self, page: &PageId, event: InputEvent) -> BoxFuture<'_, Result<()>>;
+    /// The accessibility tree as text, one line per element with its ref,
+    /// below `target` if given and `depth` levels deep at most.
+    fn snapshot(
+        &self,
+        page: &PageId,
+        target: Option<String>,
+        depth: Option<u32>,
+    ) -> BoxFuture<'_, Result<String>>;
+    fn act(&self, page: &PageId, action: PageAction) -> BoxFuture<'_, Result<()>>;
+    /// Up to `limit` console messages numbered above `since`.
+    fn console(&self, page: &PageId, since: u64, limit: usize) -> Result<Vec<ConsoleEntry>>;
+    /// Up to `limit` requests numbered above `since`.
+    fn network(&self, page: &PageId, since: u64, limit: usize) -> Result<Vec<NetworkEntry>>;
+    /// A PNG of the viewport, the whole page, or one element.
+    fn screenshot(
+        &self,
+        page: &PageId,
+        target: Option<String>,
+        full_page: bool,
+    ) -> BoxFuture<'_, Result<Vec<u8>>>;
+    /// The element at `x`, `y` (CSS pixels of the viewport), or its
+    /// ancestor `up` levels above, with a new `pick_id`.
+    fn pick_at(&self, page: &PageId, x: i32, y: i32, up: u32) -> BoxFuture<'_, Result<Pick>>;
+    fn inspect(&self, page: &PageId, element: ElementRef) -> BoxFuture<'_, Result<Inspected>>;
 }
 
 /// The append-only audit log (`docs/specs/security.md`; stored by
@@ -1231,6 +1363,58 @@ impl DevServers for Unavailable {
     }
     fn stop(&self, _: &ServerId, _: Duration) {}
     fn connect(&self, _: PathBuf, _: u16) -> BoxFuture<'_, Result<PodConn>> {
+        self.later()
+    }
+}
+
+impl Browser for Unavailable {
+    fn status(&self) -> SandboxStatus {
+        DevServers::status(self)
+    }
+    fn open(
+        &self,
+        _: SessionId,
+        _: SandboxProfile,
+        _: String,
+        _: Option<(u32, u32)>,
+        _: Arc<dyn BrowserSink>,
+    ) -> BoxFuture<'_, Result<PageInfo>> {
+        self.later()
+    }
+    fn close(&self, _: &PageId) -> BoxFuture<'_, Result<()>> {
+        self.later()
+    }
+    fn end(&self, _: &SessionId) {}
+    fn screencast(&self, _: &PageId, _: bool) -> Result<()> {
+        self.err()
+    }
+    fn input(&self, _: &PageId, _: InputEvent) -> BoxFuture<'_, Result<()>> {
+        self.later()
+    }
+    fn snapshot(
+        &self,
+        _: &PageId,
+        _: Option<String>,
+        _: Option<u32>,
+    ) -> BoxFuture<'_, Result<String>> {
+        self.later()
+    }
+    fn act(&self, _: &PageId, _: PageAction) -> BoxFuture<'_, Result<()>> {
+        self.later()
+    }
+    fn console(&self, _: &PageId, _: u64, _: usize) -> Result<Vec<ConsoleEntry>> {
+        self.err()
+    }
+    fn network(&self, _: &PageId, _: u64, _: usize) -> Result<Vec<NetworkEntry>> {
+        self.err()
+    }
+    fn screenshot(&self, _: &PageId, _: Option<String>, _: bool) -> BoxFuture<'_, Result<Vec<u8>>> {
+        self.later()
+    }
+    fn pick_at(&self, _: &PageId, _: i32, _: i32, _: u32) -> BoxFuture<'_, Result<Pick>> {
+        self.later()
+    }
+    fn inspect(&self, _: &PageId, _: ElementRef) -> BoxFuture<'_, Result<Inspected>> {
         self.later()
     }
 }
