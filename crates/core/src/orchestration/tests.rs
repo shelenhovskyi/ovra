@@ -3017,4 +3017,8 @@ async fn a_turn_end_finds_an_overlap_and_a_discarded_worker_has_none() {
     let state = f.core.orchestration_state();
     let changed = state.lock().changed.get(&sid("s3")).cloned();
     assert_eq!(changed, Some(std::collections::BTreeSet::new()));
+    assert!(
+        state.lock().overlaps.is_empty(),
+        "its next overlap is told again"
+    );
 }

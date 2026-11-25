@@ -10,10 +10,11 @@
 
 use crate::protocol::agents::MessageFrom;
 
-/// Characters a model may read as the `<` of a tag.
-const OPENERS: [char; 9] = [
+/// Characters a model may read as the `<` of a tag. Best effort: no list
+/// of look-alikes is complete.
+pub(crate) const OPENERS: [char; 13] = [
     '<', '\u{FF1C}', '\u{FE64}', '\u{2039}', '\u{3008}', '\u{27E8}', '\u{2329}', '\u{276E}',
-    '\u{02C2}',
+    '\u{02C2}', '\u{1438}', '\u{276C}', '\u{2770}', '\u{FE3F}',
 ];
 
 /// `parts` as one text for the agent, each part marked by its author and
@@ -30,9 +31,9 @@ pub(crate) fn for_agent<'a>(parts: impl IntoIterator<Item = (&'a str, MessageFro
                 )
             }
             MessageFrom::Ovra => format!("<ovra-note>\n{text}\n</ovra-note>"),
-            // Saved before authors were recorded: resent only when the
-            // person resumes, so it is theirs to vouch for.
-            MessageFrom::Person | MessageFrom::Unknown => text.to_owned(),
+            MessageFrom::Person => text.to_owned(),
+            // Saved before authors were recorded: maybe not the person's.
+            MessageFrom::Unknown => escaped(text),
         })
         .collect::<Vec<_>>()
         .join("\n\n")

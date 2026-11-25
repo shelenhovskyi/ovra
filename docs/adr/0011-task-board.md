@@ -26,10 +26,12 @@ coordinator.
   Workers get them, in addition to `request_review` and `open_in_ui`.
 - The person writes and answers only through the UI, with a new protocol
   domain `board.*` (`protocol/board.rs`, `ui/src/lib/protocol/board.ts`).
-- Board entries reach an agent as a note in its next message, marked by the
-  core like every other author (`provenance.rs`): `<board-entry>` with the
-  author's name, which only the core writes and which is defused in all
-  agent text.
+- Board entries reach an agent as a note in its next message, inside a
+  `<board-entry>` mark with the author's name that only the core writes.
+  An entry's text and paths are agent-written, so every `<` in them is
+  escaped (`provenance::escaped`), as a coordinator's text is today; Ovra's
+  own entries follow the rules of Ovra's notes (no foreign text outside
+  `<untrusted>`, only plain file names).
 - The board grants nothing. Permission requests, review decisions, network
   allows and "Always allow" stay answerable only from the person's UI. An
   entry is text only, size-capped, rate-limited and counted in the task's
