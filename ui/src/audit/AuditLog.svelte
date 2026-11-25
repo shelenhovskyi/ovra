@@ -132,8 +132,8 @@ function who(session: string | null): string {
         <button type="button" class="close" aria-keyshortcuts="Escape" onclick={close}>Close</button>
       </header>
       <p class="muted note">
-        What agents did and who allowed it: session starts, tool decisions, trust, policy and review decisions. Entries
-        are only ever added. Inputs keep no file contents, and token-like text is removed.
+        A record of what agents did in this project and who allowed it: agent starts, tool calls, trust, policy and
+        review decisions. Entries are only ever added. Inputs keep no file contents, and token-like text is removed.
       </p>
       {#if trail.error}
         <p class="error" role="alert">The audit log could not be read: {trail.error}</p>

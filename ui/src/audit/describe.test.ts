@@ -26,7 +26,7 @@ group("describe", () => {
       by: { kind: "session_ended" },
     });
     expect(write.input).toBe("src/a.rs\nSHA-256 of what it writes: abc");
-    expect(write.detail).toBe("Refused because the session stopped or ended.");
+    expect(write.detail).toBe("Refused because the agent stopped or finished.");
     expect(
       line({
         kind: "tool_decided",
@@ -41,14 +41,16 @@ group("describe", () => {
   it("warns about sessions that ran without a sandbox", () => {
     const bare = line({ kind: "session_started", mode: "direct", trusted: false, sandbox: null });
     expect(bare).toMatchObject({ tone: "warn" });
-    expect(bare.detail).toBe("In the main checkout, without the project's agent settings, no sandbox.");
+    expect(bare.detail).toBe("In the project folder, without the project's agent settings, no sandbox.");
     const boxed = line({
       kind: "session_started",
       mode: "isolated",
       trusted: true,
       sandbox: { name: "bwrap", network: "proxy", gaps: [] },
     });
-    expect(boxed.detail).toBe("In its own worktree, with the project's agent settings, sandbox bwrap, network proxy.");
+    expect(boxed.detail).toBe(
+      "In its own copy of the project, with the project's agent settings, sandbox bwrap, network proxy.",
+    );
     expect(boxed.tone).toBe("plain");
   });
 
@@ -79,7 +81,7 @@ group("describe", () => {
     const by = { kind: "agent", session: "s1" } as const;
     expect(line({ kind: "server_started", server: "srv1", name: "web", generation: 2, by })).toMatchObject({
       title: "Server web started",
-      detail: "Run 2, started by session s1.",
+      detail: "Run 2, started by agent s1.",
     });
     expect(line({ kind: "server_stopped", server: "srv1", name: "web", generation: 2, code: null }).detail).toBe(
       "Run 2, ended by a signal.",
@@ -112,12 +114,12 @@ group("describe", () => {
     const refused = entry(5, { kind: "browser_navigation", origin: "https://x.test", allowed: false, by: "no_answer" });
     expect(describe(refused)).toMatchObject({
       title: "Browser may not open https://x.test",
-      detail: "The session's browser was refused because nobody answered in time.",
+      detail: "The agent's browser was refused because nobody answered in time.",
       tone: "refused",
     });
     expect(shows("network", true, refused)).toBe(true);
     const allowed = line({ kind: "browser_navigation", origin: "https://x.test", allowed: true, by: "person" });
-    expect(allowed.detail).toBe("The session's browser was allowed by a person.");
+    expect(allowed.detail).toBe("The agent's browser was allowed by a person.");
   });
 
   it("filters by kind and by refusals", () => {

@@ -6,7 +6,7 @@ import type { AuditEntry, AuditEvent, DecidedBy, NavigationBy, ReviewAction } fr
 export type Described = {
   /** What happened, e.g. "Allowed Bash". */
   title: string;
-  /** Who or what decided, and how the session ran. */
+  /** Who or what decided, and how the agent ran. */
   detail: string;
   /** The tool's input as the log keeps it, if any. */
   input: string | null;
@@ -18,7 +18,7 @@ export type Described = {
 export const FILTERS = {
   all: { label: "Everything", kinds: null },
   tools: { label: "Tool calls", kinds: ["tool_decided"] },
-  sessions: { label: "Sessions", kinds: ["session_started"] },
+  sessions: { label: "Agent starts", kinds: ["session_started"] },
   settings: { label: "Trust and policy", kinds: ["trust_changed", "policy_changed"] },
   reviews: { label: "Reviews", kinds: ["review_decided"] },
   network: { label: "Network and secrets", kinds: ["network_refused", "secret_used", "browser_navigation"] },
@@ -56,7 +56,7 @@ const REVIEW: Record<ReviewAction, string> = {
 const NAVIGATION_BY: Record<NavigationBy, string> = {
   person: "by a person",
   no_answer: "because nobody answered in time",
-  session_ended: "because the session ended",
+  session_ended: "because the agent stopped",
 };
 
 function decidedBy(by: DecidedBy): string {
@@ -68,7 +68,7 @@ function decidedBy(by: DecidedBy): string {
     case "role":
       return "by Ovra's rules for its own tools";
     case "session_ended":
-      return "because the session stopped or ended";
+      return "because the agent stopped or finished";
   }
 }
 
@@ -76,11 +76,11 @@ export function describe(entry: AuditEntry): Described {
   const event = entry.event;
   switch (event.kind) {
     case "session_started": {
-      const where = event.mode === "direct" ? "In the main checkout" : "In its own worktree";
+      const where = event.mode === "direct" ? "In the project folder" : "In its own copy of the project";
       const settings = event.trusted ? "with the project's agent settings" : "without the project's agent settings";
       const sandbox = event.sandbox ? `sandbox ${event.sandbox.name}, network ${event.sandbox.network}` : "no sandbox";
       return {
-        title: "Session started",
+        title: "Agent started",
         detail: `${where}, ${settings}, ${sandbox}.`,
         input: null,
         tone: event.sandbox ? "plain" : "warn",
@@ -139,7 +139,7 @@ export function describe(entry: AuditEntry): Described {
     case "server_started":
       return {
         title: `Server ${event.name} started`,
-        detail: `Run ${event.generation}, started ${event.by.kind === "person" ? "by a person" : `by session ${event.by.session}`}.`,
+        detail: `Run ${event.generation}, started ${event.by.kind === "person" ? "by a person" : `by agent ${event.by.session}`}.`,
         input: null,
         tone: "plain",
       };
@@ -153,14 +153,14 @@ export function describe(entry: AuditEntry): Described {
     case "loopback_granted":
       return {
         title: `Server reachable on localhost:${event.port}`,
-        detail: `The session may reach server ${event.server} (run ${event.generation}) while it runs.`,
+        detail: `The agent may reach server ${event.server} (run ${event.generation}) while it runs.`,
         input: null,
         tone: "plain",
       };
     case "loopback_revoked":
       return {
         title: `Server no longer reachable on localhost:${event.port}`,
-        detail: `Server ${event.server} (run ${event.generation}) stopped or the session ended.`,
+        detail: `Server ${event.server} (run ${event.generation}) stopped, or the agent did.`,
         input: null,
         tone: "plain",
       };
@@ -185,7 +185,7 @@ export function describe(entry: AuditEntry): Described {
       const verb = event.allowed ? "allowed" : "refused";
       return {
         title: `Browser ${event.allowed ? "may open" : "may not open"} ${event.origin}`,
-        detail: `The session's browser was ${verb} ${NAVIGATION_BY[event.by]}.`,
+        detail: `The agent's browser was ${verb} ${NAVIGATION_BY[event.by]}.`,
         input: null,
         tone: event.allowed ? "plain" : "refused",
       };

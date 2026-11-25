@@ -51,7 +51,7 @@ describe("AuditLog", () => {
     open?.click();
     await settle();
     expect(document.activeElement?.id).toBe("audit-title");
-    expect(titles()).toEqual(["Refused Bash", "Allowed Bash", "Session started"]);
+    expect(titles()).toEqual(["Refused Bash", "Allowed Bash", "Agent started"]);
     expect(target.querySelector("[data-testid=audit-entry]")?.className).toContain("refused");
 
     core.append(entry(4, { kind: "trust_changed", trusted: true, fingerprint: "9f2c" }));
