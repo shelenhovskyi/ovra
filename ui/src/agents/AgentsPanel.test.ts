@@ -183,10 +183,19 @@ describe("AgentsPanel", () => {
     core.capacity = { working: 3, limit: 3, queued: 1 };
     core.status(docs.id, { state: "queued" });
     await settle();
-    expect(target.querySelector("[data-testid=agents-capacity]")?.textContent).toBe("3 of 3, 1 waiting");
+    // The coordinator takes no place, but the count does not hide that it works.
+    const count = () => target.querySelector("[data-testid=agents-capacity]")?.textContent?.trim();
+    expect(count()).toBe("3 of 3, 1 waiting · 1 planning");
     expect(target.querySelectorAll(".sessions .state")[1]?.textContent).toBe("Waiting for a free agent");
     core.status("s1", { state: "idle" });
     await settle();
+    expect(count()).toBe("3 of 3, 1 waiting");
+    // A review asked for or decided changes the count without a change of state.
+    core.capacity = { working: 2, limit: 3, queued: 1 };
+    core.emit({ type: "review.changed", data: { project: "p1", id: "r1" } });
+    await settle();
+    expect(count()).toBe("2 of 3, 1 waiting");
+    core.capacity = { working: 3, limit: 3, queued: 1 };
     expect(target.querySelectorAll(".sessions .state")[0]?.textContent).toBe("Workers are waiting for a free agent");
     core.status(docs.id, { state: "working" });
     await settle();

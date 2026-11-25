@@ -105,6 +105,8 @@ const waiting = $derived.by(() => {
 /** The task the person pressed Close on: it asks once before closing it with its workers. */
 let confirming = $state<SessionId | null>(null);
 const capacity = $derived(project ? sessions.capacity.get(project.id) : undefined);
+/** Planning coordinators take no place, so the count says them apart. */
+const planning = $derived(project ? sessions.planning(project.id) : 0);
 
 $effect(() => {
   const id = project?.id;
@@ -398,7 +400,9 @@ const canReply = $derived(current !== null && current.status.state === "idle");
     <h2 id="agents-heading">Agents</h2>
     {#if capacity}
       <span class="capacity" data-testid="agents-capacity" title="Agents working in this project, of how many may">
-        {capacity.working} of {capacity.limit}{capacity.queued > 0 ? `, ${capacity.queued} waiting` : ""}
+        {capacity.working} of {capacity.limit}{capacity.queued > 0 ? `, ${capacity.queued} waiting` : ""}{planning
+          ? ` · ${planning} planning`
+          : ""}
       </span>
       <span class="slots" aria-hidden="true">
         {#each { length: capacity.limit } as _, n (n)}<i class:on={n < capacity.working}></i>{/each}

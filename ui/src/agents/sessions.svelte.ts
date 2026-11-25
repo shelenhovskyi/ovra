@@ -127,6 +127,15 @@ export class AgentSessions {
       .map(([session]) => session);
   }
 
+  /**
+   * Coordinators of `project` that plan or direct now: they work but take
+   * no place in `capacity` (the cap counts the agents that change files).
+   */
+  planning(project: ProjectId): number {
+    return this.inProject(project).filter((s) => this.roles.get(s.id)?.kind === "coordinator" && isBusy(s.status))
+      .length;
+  }
+
   /** Front ends without a count show none. */
   private async loadCapacity(project: ProjectId): Promise<void> {
     const call = (this.asked.get(project) ?? 0) + 1;
@@ -312,9 +321,14 @@ export class AgentSessions {
   private apply(event: CoreEvent): void {
     // Events were dropped: what is on screen may be missing or doubled.
     if (event.type === "info.resync") this.resync();
-    else if (event.type === "orchestration.changed") void this.loadTasks(event.data.project);
-    else if (event.type === "review.changed") {
-      if (this.loaded.has(event.data.project)) void this.loadReviews(event.data.project);
+    else if (event.type === "orchestration.changed") {
+      void this.loadTasks(event.data.project);
+      // A task that starts takes places before its workers have a state.
+      if (this.loaded.has(event.data.project)) void this.loadCapacity(event.data.project);
+    } else if (event.type === "review.changed") {
+      // A worker that asked for review stops counting, and counts again once it is decided.
+      if (this.loaded.has(event.data.project))
+        void Promise.all([this.loadReviews(event.data.project), this.loadCapacity(event.data.project)]);
     } else if (event.type === "agents.status") {
       const { session, project, status } = event.data;
       // Any change of state may change how many work.
