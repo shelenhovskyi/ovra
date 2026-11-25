@@ -85,7 +85,7 @@ const IDE_TOOLS = new Set([
 ]);
 
 /** Whether `tool` is one of Ovra's own tools, by its exact name. */
-export function isIdeTool(tool: string): boolean {
+function isIdeTool(tool: string): boolean {
   return tool.startsWith(IDE_PREFIX) && IDE_TOOLS.has(tool.slice(IDE_PREFIX.length));
 }
 
