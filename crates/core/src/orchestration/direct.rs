@@ -585,8 +585,10 @@ impl Direct {
         })
     }
 
-    /// The person saved `path` of `project` through Ovra (the editor): it is
-    /// changed outside the agent even if one of the agent's tools runs.
+    /// The person saved `path` of `project` through Ovra (the editor), or
+    /// created, moved, copied or trashed it (then it may be a folder, which
+    /// covers everything inside): it is changed outside the agent even if
+    /// one of the agent's tools runs.
     pub(crate) fn person_saved(&self, project: &ProjectId, path: &str) {
         for writer in lock(&self.writers).values() {
             if &writer.project == project {
@@ -692,7 +694,7 @@ struct Interval {
     pre: Option<String>,
     shell: bool,
     files: BTreeSet<String>,
-    /// Files the person saved through Ovra meanwhile.
+    /// Files and folders the person saved through Ovra meanwhile.
     saved: BTreeSet<String>,
 }
 
@@ -726,6 +728,11 @@ async fn between(
         return Ok(Vec::new());
     }
     worktrees.diff(dir, from.clone(), to.clone()).await
+}
+
+/// Whether the saved file or folder `saved` is or holds `path`.
+fn covers(saved: &str, path: &str) -> bool {
+    path == saved || path.starts_with(&format!("{saved}/"))
 }
 
 fn delta_paths(delta: &Delta) -> impl Iterator<Item = String> + '_ {
@@ -855,7 +862,9 @@ impl Tracker {
             let mine = open.shell || paths.iter().any(|p| open.files.contains(p));
             // Saved by the person meanwhile: maybe the agent's too, but
             // never the agent's alone.
-            let saved = paths.iter().any(|p| open.saved.contains(p));
+            let saved = paths
+                .iter()
+                .any(|p| open.saved.iter().any(|s| covers(s, p)));
             for path in paths {
                 if mine && saved {
                     self.agent.insert(path, true);

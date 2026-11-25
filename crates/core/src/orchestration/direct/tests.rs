@@ -588,6 +588,23 @@ async fn a_person_save_during_a_shell_call_makes_the_file_both() {
 }
 
 #[tokio::test]
+async fn a_folder_the_person_renames_during_a_shell_call_is_both() {
+    let h = Harness::start(&[("src/a.rs", "a\n"), ("srcx/b.rs", "b\n")]).await;
+    h.started("t1", "Bash", json!({"command": "make"})).await;
+    h.delete("src/a.rs");
+    h.put("lib/a.rs", "a\n");
+    h.direct.person_saved(&h.project, "src");
+    h.direct.person_saved(&h.project, "lib");
+    // Only the folder's own files: `srcx` is not inside `src`.
+    h.put("srcx/b.rs", "agent\n");
+    h.ended("t1").await;
+    assert_eq!(
+        h.by().await,
+        by(&[("lib/a.rs", Both), ("srcx/b.rs", Agent)])
+    );
+}
+
+#[tokio::test]
 async fn a_file_restore_skipped_is_reported_as_a_conflict() {
     let h = Harness::start(&[("a.rs", "a\n")]).await;
     h.agent_writes("t1", "a.rs", "agent\n").await;
