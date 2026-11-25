@@ -13,6 +13,11 @@ expression: tools
           "pattern": "^[a-z0-9][a-z0-9-]{0,39}$",
           "type": "string"
         },
+        "skip_setup": {
+          "default": false,
+          "description": "Start without the project's worktree setup steps, e.g. after they failed and the task does not need them.",
+          "type": "boolean"
+        },
         "task": {
           "description": "The worker's first prompt: what to do, what done means, which files it owns.",
           "maxLength": 20000,

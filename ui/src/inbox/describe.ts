@@ -29,6 +29,7 @@ function reasonFor(path: string): string | null {
   const last = parts[parts.length - 1] ?? "";
   if (last === ".envrc") return "runs commands when you enter the folder with direnv";
   if (top === ".mcp.json") return "tools the agent can start";
+  if (top === ".worktreeinclude") return "ignored files copied into every new worktree, such as .env";
   if (parts.includes(".claude")) return "the agent's settings and permissions";
   if (["claude.md", "claude.local.md", "agents.md", "gemini.md"].includes(last))
     return "instructions every agent reads";

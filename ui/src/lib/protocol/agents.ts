@@ -12,6 +12,8 @@ export type SessionMode = "direct" | "isolated";
 export type AgentStatus =
   /** The project has as many agents working as it may; it starts when one finishes. */
   | { state: "queued" }
+  /** A worker's worktree is prepared (`.worktreeinclude`, `.ovra/worktree.json`); counts as working. `Worker.setup` has the step. */
+  | { state: "preparing" }
   | { state: "starting" }
   | { state: "working" }
   | { state: "waiting_for_approval" }

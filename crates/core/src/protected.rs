@@ -7,7 +7,7 @@
 /// Paths under a session's `work_dir` that stay read-only: agent
 /// configuration and code that tools run on their own. `**/` matches any
 /// folder, `*` one name. A folder covers everything in it.
-pub const PROTECTED_IN_WORK_DIR: [&str; 10] = [
+pub const PROTECTED_IN_WORK_DIR: [&str; 11] = [
     ".claude",
     ".mcp.json",
     "**/CLAUDE.md",
@@ -17,8 +17,12 @@ pub const PROTECTED_IN_WORK_DIR: [&str; 10] = [
     ".idea",
     ".devcontainer",
     ".envrc",
-    // Ovra's own: `servers.json` holds the commands a server start runs.
+    // Ovra's own: `servers.json` holds the commands a server start runs,
+    // `worktree.json` the setup steps of new worktrees.
     ".ovra",
+    // The ignored files copied into every new worktree: an agent that
+    // could add `.env` to it would read the copy in its next worker.
+    ".worktreeinclude",
 ];
 
 /// Paths the review marks too although the sandbox does not keep them
@@ -177,6 +181,7 @@ mod tests {
             ".envrc",
             ".ovra/servers.json",
             ".OVRA",
+            ".worktreeinclude",
         ] {
             assert!(is_protected(path), "{path}");
         }
@@ -240,6 +245,7 @@ mod tests {
             "notes/.envrc.example",
             "sub/.ovra/servers.json",
             ".ovra.json",
+            "sub/.worktreeinclude",
         ] {
             assert!(!is_protected(path), "{path}");
         }

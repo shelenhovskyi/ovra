@@ -33,9 +33,18 @@ pub struct Output {
 }
 
 impl Core {
-    /// `spawn_agent`: starts a worker of the caller's task.
-    pub async fn spawn_agent(&self, caller: &ToolCaller, name: &str, task: &str) -> Result<Worker> {
+    /// `spawn_agent`: starts a worker of the caller's task; with
+    /// `skip_setup`, without the project's worktree setup steps.
+    pub async fn spawn_agent(
+        &self,
+        caller: &ToolCaller,
+        name: &str,
+        task: &str,
+        skip_setup: bool,
+    ) -> Result<Worker> {
         coordinator(caller)?;
+        // No setup runs yet (WS.C), so there is nothing to skip.
+        let _ = skip_setup;
         tasks::spawn(self, &caller.session, name.to_owned(), task.to_owned()).await
     }
 

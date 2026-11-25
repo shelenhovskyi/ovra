@@ -147,7 +147,7 @@ async fn a_coordinator_runs_a_worker_through_the_tools() {
         &core,
         boss.clone(),
         "spawn_agent",
-        json!({"task": "fix the login", "name": "fix-login"}),
+        json!({"task": "fix the login", "name": "fix-login", "skip_setup": true}),
     )
     .await;
     assert!(!error, "{spawned}");
@@ -245,6 +245,9 @@ async fn bad_arguments_and_refusals_are_tool_errors() {
     );
     let (text, error) = tool(&core, boss.clone(), "spawn_agent", json!({"task": "x"})).await;
     assert!(error && text.contains("missing field `name`"), "{text}");
+    let skip = json!({"task": "x", "name": "w", "skip_setup": "yes"});
+    let (text, error) = tool(&core, boss.clone(), "spawn_agent", skip).await;
+    assert!(error && text.contains("invalid type"), "{text}");
     let (text, error) = tool(
         &core,
         boss.clone(),

@@ -27,12 +27,15 @@ mod tests {
 
     #[test]
     fn transitions() {
-        use AgentStatus::{Idle, Queued, Starting, Stopped, WaitingForApproval, Working};
+        use AgentStatus::{
+            Idle, Preparing, Queued, Starting, Stopped, WaitingForApproval, Working,
+        };
         let failed = AgentStatus::Failed {
             message: "x".into(),
         };
         let all = [
             Queued,
+            Preparing,
             Starting,
             Working,
             WaitingForApproval,
@@ -58,6 +61,7 @@ mod tests {
             .collect();
         insta::assert_snapshot!(table.join("\n"), @r#"
         Queued -> Stopped, Failed { message: "x" }
+        Preparing -> Stopped, Failed { message: "x" }
         Starting -> Working, WaitingForApproval, Idle, Stopped, Failed { message: "x" }
         Working -> WaitingForApproval, Idle, Stopped, Failed { message: "x" }
         WaitingForApproval -> Working, Stopped, Failed { message: "x" }

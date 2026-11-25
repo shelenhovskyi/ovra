@@ -7,6 +7,8 @@ export function statusLabel(status: AgentStatus): string {
   switch (status.state) {
     case "queued":
       return "Waiting for a free agent";
+    case "preparing":
+      return "Preparing worktree";
     case "starting":
       return "Starting";
     case "working":

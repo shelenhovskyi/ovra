@@ -231,7 +231,10 @@ links and only to pod-init's (`docs/specs/servers-and-browser.md`).
 - Code that tools run on their own: `.vscode/`, `.idea/`, `.devcontainer/`
   and `.envrc`.
 - Ovra's own project settings: `.ovra/`, whose `servers.json` holds the
-  commands a server start runs (`docs/specs/servers-and-browser.md`).
+  commands a server start runs (`docs/specs/servers-and-browser.md`) and
+  `worktree.json` the setup steps of new worktrees, and `.worktreeinclude`,
+  which lists the ignored files copied into every new worktree
+  (`docs/specs/worktree-setup.md`).
 
 Known gaps on Linux, left to the backstop below:
 

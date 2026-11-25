@@ -192,7 +192,7 @@ async fn workers_start_in_their_own_worktrees_within_the_limit() {
     let boss = caller("s1", ToolRole::Coordinator);
     let worker = f
         .core
-        .spawn_agent(&boss, "fix-login", "fix the login")
+        .spawn_agent(&boss, "fix-login", "fix the login", false)
         .await;
     let worker = worker.unwrap_or_else(|e| panic!("{e}"));
     assert_eq!(worker.branch, "ovra/t1/fix-login");
@@ -222,29 +222,34 @@ async fn workers_start_in_their_own_worktrees_within_the_limit() {
 
     // One worker at a time; names are unique and branch-safe; workers and
     // strangers cannot start workers.
-    let full = f.core.spawn_agent(&boss, "other", "x").await;
+    let full = f.core.spawn_agent(&boss, "other", "x", false).await;
     assert_eq!(code(full), ErrorCode::Conflict);
     let me = caller("s2", ToolRole::Worker);
     assert_eq!(
-        code(f.core.spawn_agent(&me, "sub", "x").await),
+        code(f.core.spawn_agent(&me, "sub", "x", false).await),
         ErrorCode::Forbidden
     );
     let stranger = caller("s9", ToolRole::Coordinator);
     assert_eq!(
-        code(f.core.spawn_agent(&stranger, "sub", "x").await),
+        code(f.core.spawn_agent(&stranger, "sub", "x", false).await),
         ErrorCode::Forbidden
     );
 
     let mut rx = f.core.subscribe();
     assert!(f.core.stop_agent(&boss, &worker.session).is_ok());
     until(&mut rx, "s2", AgentStatus::Stopped).await;
-    let again = f.core.spawn_agent(&boss, "fix-login", "x").await;
+    let again = f.core.spawn_agent(&boss, "fix-login", "x", false).await;
     assert_eq!(code(again), ErrorCode::Conflict, "the name is taken");
     assert_eq!(
-        code(f.core.spawn_agent(&boss, "Bad_Name", "x").await),
+        code(f.core.spawn_agent(&boss, "Bad_Name", "x", false).await),
         ErrorCode::BadRequest
     );
-    assert!(f.core.spawn_agent(&boss, "second", "x").await.is_ok());
+    assert!(
+        f.core
+            .spawn_agent(&boss, "second", "x", false)
+            .await
+            .is_ok()
+    );
 
     let listed = f.core.list_agents(&boss).unwrap_or_default();
     let names: Vec<_> = listed
@@ -267,7 +272,7 @@ async fn the_budget_stops_new_workers() {
     let pushed = f.core.sessions().find(&sid("s1"), |s| s.push(spent));
     assert!(pushed.is_ok());
     let boss = caller("s1", ToolRole::Coordinator);
-    let err = f.core.spawn_agent(&boss, "w", "x").await.err();
+    let err = f.core.spawn_agent(&boss, "w", "x", false).await.err();
     assert_eq!(
         err.map(|e| e.message).as_deref(),
         Some("the task has spent $1.25, its budget of $1.00")
@@ -308,7 +313,7 @@ async fn ovra_tools_are_decided_by_role_without_asking() {
     start_task(&f.core, 1).await;
     until(&mut rx, "s1", AgentStatus::Idle).await;
     let boss = caller("s1", ToolRole::Coordinator);
-    assert!(f.core.spawn_agent(&boss, "w", "x").await.is_ok());
+    assert!(f.core.spawn_agent(&boss, "w", "x", false).await.is_ok());
     until(&mut rx, "s2", AgentStatus::Idle).await;
     ok(
         &f.core,
@@ -451,7 +456,7 @@ async fn a_workers_rename_moves_the_file_when_approved_and_back_when_rejected() 
     let mut rx = f.core.subscribe();
     start_task(&f.core, 3).await;
     let boss = caller("s1", ToolRole::Coordinator);
-    let worker = f.core.spawn_agent(&boss, "w", "x").await;
+    let worker = f.core.spawn_agent(&boss, "w", "x", false).await;
     let worker = worker.unwrap_or_else(|e| panic!("{e}"));
     until(&mut rx, "s2", AgentStatus::Idle).await;
 
@@ -497,7 +502,7 @@ async fn approving_a_worker_applies_its_files_to_the_main_checkout() {
     let mut rx = f.core.subscribe();
     start_task(&f.core, 3).await;
     let boss = caller("s1", ToolRole::Coordinator);
-    let worker = f.core.spawn_agent(&boss, "w", "x").await;
+    let worker = f.core.spawn_agent(&boss, "w", "x", false).await;
     let worker = worker.unwrap_or_else(|e| panic!("{e}"));
     assert!(reviews(&f.core).await.is_empty(), "no changes yet");
     until(&mut rx, "s2", AgentStatus::Idle).await;
@@ -636,7 +641,7 @@ async fn a_comment_after_a_reject_continues_the_worker_with_the_lost_diff() {
     let mut rx = f.core.subscribe();
     start_task(&f.core, 3).await;
     let boss = caller("s1", ToolRole::Coordinator);
-    let worker = f.core.spawn_agent(&boss, "w", "x").await;
+    let worker = f.core.spawn_agent(&boss, "w", "x", false).await;
     let worker = worker.unwrap_or_else(|e| panic!("{e}"));
     until(&mut rx, "s2", AgentStatus::Idle).await;
     f.wt.put(&worker.worktree, "a.rs", "wrong\n");
@@ -767,7 +772,7 @@ async fn ide_calls_reach_only_the_callers_own_workers() {
     let mut rx = f.core.subscribe();
     start_task(&f.core, 3).await;
     let boss = caller("s1", ToolRole::Coordinator);
-    let worker = f.core.spawn_agent(&boss, "w", "x").await;
+    let worker = f.core.spawn_agent(&boss, "w", "x", false).await;
     let worker = worker.unwrap_or_else(|e| panic!("{e}"));
     until(&mut rx, "s2", AgentStatus::Idle).await;
 
@@ -847,7 +852,7 @@ async fn tasks_and_open_reviews_survive_a_restart() {
     let mut rx = before.subscribe();
     start_task(&before, 3).await;
     let boss = caller("s1", ToolRole::Coordinator);
-    let worker = before.spawn_agent(&boss, "w", "x").await;
+    let worker = before.spawn_agent(&boss, "w", "x", false).await;
     let worker = worker.unwrap_or_else(|e| panic!("{e}"));
     until(&mut rx, "s2", AgentStatus::Idle).await;
     wt.put(&worker.worktree, "a.rs", "two\n");
@@ -965,7 +970,7 @@ async fn work_after_a_decision_opens_a_new_item_and_the_old_one_keeps_its_record
     let mut rx = f.core.subscribe();
     start_task(&f.core, 3).await;
     let boss = caller("s1", ToolRole::Coordinator);
-    let worker = f.core.spawn_agent(&boss, "w", "x").await;
+    let worker = f.core.spawn_agent(&boss, "w", "x", false).await;
     let worker = worker.unwrap_or_else(|e| panic!("{e}"));
     until(&mut rx, "s2", AgentStatus::Idle).await;
     f.wt.put(&worker.worktree, "a.rs", "two\n");
@@ -1000,7 +1005,7 @@ async fn snapshots_are_not_pruned_while_a_direct_session_runs() {
     let mut rx = f.core.subscribe();
     start_task(&f.core, 3).await;
     let boss = caller("s1", ToolRole::Coordinator);
-    let worker = f.core.spawn_agent(&boss, "w", "x").await;
+    let worker = f.core.spawn_agent(&boss, "w", "x", false).await;
     let worker = worker.unwrap_or_else(|e| panic!("{e}"));
     ok(
         &f.core,
@@ -1071,7 +1076,7 @@ async fn stopping_the_coordinator_stops_its_workers() {
     start_task(&f.core, 3).await;
     let boss = caller("s1", ToolRole::Coordinator);
     for name in ["a", "b"] {
-        let spawned = f.core.spawn_agent(&boss, name, "x").await;
+        let spawned = f.core.spawn_agent(&boss, name, "x", false).await;
         assert!(spawned.is_ok(), "{spawned:?}");
     }
     ok(
@@ -1112,7 +1117,7 @@ async fn the_coordinator_hears_when_a_worker_asks_for_review_or_stops() {
     let mut rx = f.core.subscribe();
     start_task(&f.core, 3).await;
     let boss = caller("s1", ToolRole::Coordinator);
-    let worker = f.core.spawn_agent(&boss, "w", "x").await;
+    let worker = f.core.spawn_agent(&boss, "w", "x", false).await;
     let worker = worker.unwrap_or_else(|e| panic!("{e}"));
     until(&mut rx, "s2", AgentStatus::Idle).await;
     f.wt.put(&worker.worktree, "b.rs", "new\n");
@@ -1162,7 +1167,10 @@ async fn messages_to_agents_say_who_wrote_them() {
     start_task(&f.core, 3).await;
     until(&mut rx, "s1", AgentStatus::Idle).await;
     let boss = caller("s1", ToolRole::Coordinator);
-    let worker = f.core.spawn_agent(&boss, "w", "write the notes").await;
+    let worker = f
+        .core
+        .spawn_agent(&boss, "w", "write the notes", false)
+        .await;
     let worker = worker.unwrap_or_else(|e| panic!("{e}"));
     until(&mut rx, "s2", AgentStatus::Idle).await;
     assert!(
@@ -1217,10 +1225,10 @@ async fn a_worker_waiting_for_review_frees_its_place() {
     let mut rx = f.core.subscribe();
     start_task(&f.core, 1).await;
     let boss = caller("s1", ToolRole::Coordinator);
-    let worker = f.core.spawn_agent(&boss, "w", "x").await;
+    let worker = f.core.spawn_agent(&boss, "w", "x", false).await;
     let worker = worker.unwrap_or_else(|e| panic!("{e}"));
     until(&mut rx, "s2", AgentStatus::Idle).await;
-    let full = f.core.spawn_agent(&boss, "v", "x").await;
+    let full = f.core.spawn_agent(&boss, "v", "x", false).await;
     assert_eq!(code(full), ErrorCode::Conflict, "the one place is taken");
     f.wt.put(&worker.worktree, "b.rs", "new\n");
     let asked = f
@@ -1228,7 +1236,7 @@ async fn a_worker_waiting_for_review_frees_its_place() {
         .request_review(&caller("s2", ToolRole::Worker), None, "done")
         .await;
     assert!(asked.is_ok(), "{asked:?}");
-    assert!(f.core.spawn_agent(&boss, "v", "x").await.is_ok());
+    assert!(f.core.spawn_agent(&boss, "v", "x", false).await.is_ok());
 }
 
 #[tokio::test]
@@ -1242,7 +1250,7 @@ async fn a_worker_loads_project_settings_only_if_its_copy_is_the_trusted_one() {
     .await;
     start_task(&f.core, 3).await;
     let boss = caller("s1", ToolRole::Coordinator);
-    let same = f.core.spawn_agent(&boss, "same", "x").await;
+    let same = f.core.spawn_agent(&boss, "same", "x", false).await;
     let same = same.unwrap_or_else(|e| panic!("{e}"));
     until(&mut rx, "s2", AgentStatus::Idle).await;
     // Another worker's copy was changed, say by that worker before a resume.
@@ -1257,7 +1265,12 @@ async fn a_worker_loads_project_settings_only_if_its_copy_is_the_trusted_one() {
     if let Ok(mut configs) = f.agent.configs.lock() {
         configs.insert(changed, edited);
     }
-    assert!(f.core.spawn_agent(&boss, "changed", "x").await.is_ok());
+    assert!(
+        f.core
+            .spawn_agent(&boss, "changed", "x", false)
+            .await
+            .is_ok()
+    );
     let trusted: Vec<(PathBuf, bool)> = f
         .agent
         .started
@@ -1284,7 +1297,7 @@ async fn work_is_approved_only_once_its_agent_stopped_changing_it() {
     let mut rx = f.core.subscribe();
     start_task(&f.core, 3).await;
     let boss = caller("s1", ToolRole::Coordinator);
-    let worker = f.core.spawn_agent(&boss, "w", "x").await;
+    let worker = f.core.spawn_agent(&boss, "w", "x", false).await;
     let worker = worker.unwrap_or_else(|e| panic!("{e}"));
     until(&mut rx, "s2", AgentStatus::WaitingForApproval).await;
     f.wt.put(&worker.worktree, "b.rs", "new\n");
@@ -1311,7 +1324,7 @@ async fn a_worker_that_could_not_start_is_listed_with_its_task_and_why() {
         .join("docs");
     f.wt.put(dir.clone(), "x", "y");
     let mut rx = f.core.subscribe();
-    let err = f.core.spawn_agent(&boss, "docs", "x").await.err();
+    let err = f.core.spawn_agent(&boss, "docs", "x", false).await.err();
     let reason = format!("{} already exists", dir.display());
     assert_eq!(err.map(|e| e.message), Some(reason.clone()));
     let changed = rx.try_recv().ok();
@@ -1342,7 +1355,7 @@ async fn a_worker_that_could_not_start_is_listed_with_its_task_and_why() {
         crate::services::Worktrees::remove(&*f.wt, PathBuf::from(ROOT), dir.clone(), Vec::new())
             .await;
     assert!(removed.is_ok());
-    assert!(f.core.spawn_agent(&boss, "docs", "x").await.is_ok());
+    assert!(f.core.spawn_agent(&boss, "docs", "x", false).await.is_ok());
     let Response::Orchestration(OrchestrationResponse::List(tasks)) = ok(&f.core, list).await
     else {
         panic!("not a list");
@@ -1358,14 +1371,14 @@ async fn a_task_starts_at_most_three_times_its_limit_of_workers() {
     start_task(&f.core, 1).await;
     let boss = caller("s1", ToolRole::Coordinator);
     for (n, name) in ["a", "b", "c"].into_iter().enumerate() {
-        let worker = f.core.spawn_agent(&boss, name, "x").await;
+        let worker = f.core.spawn_agent(&boss, name, "x", false).await;
         let worker = worker.unwrap_or_else(|e| panic!("{e}"));
         let session = format!("s{}", n + 2);
         until(&mut rx, &session, AgentStatus::Idle).await;
         assert!(f.core.stop_agent(&boss, &worker.session).is_ok());
         until(&mut rx, &session, AgentStatus::Stopped).await;
     }
-    let fourth = f.core.spawn_agent(&boss, "d", "x").await;
+    let fourth = f.core.spawn_agent(&boss, "d", "x", false).await;
     assert_eq!(
         fourth.err().map(|e| e.message),
         Some(
@@ -1382,10 +1395,10 @@ async fn an_ended_tasks_settled_worktrees_are_removed_and_the_rest_kept() {
     let mut rx = f.core.subscribe();
     start_task(&f.core, 3).await;
     let boss = caller("s1", ToolRole::Coordinator);
-    let done = f.core.spawn_agent(&boss, "done", "x").await;
+    let done = f.core.spawn_agent(&boss, "done", "x", false).await;
     let done = done.unwrap_or_else(|e| panic!("{e}"));
     until(&mut rx, "s2", AgentStatus::Idle).await;
-    let busy = f.core.spawn_agent(&boss, "busy", "x").await;
+    let busy = f.core.spawn_agent(&boss, "busy", "x", false).await;
     let busy = busy.unwrap_or_else(|e| panic!("{e}"));
     until(&mut rx, "s3", AgentStatus::Idle).await;
     f.wt.put(&done.worktree, "a.rs", "approved\n");
@@ -1437,7 +1450,7 @@ async fn a_partly_approved_worker_keeps_its_worktree_until_resolved() {
     let mut rx = f.core.subscribe();
     start_task(&f.core, 3).await;
     let boss = caller("s1", ToolRole::Coordinator);
-    let worker = f.core.spawn_agent(&boss, "w", "x").await;
+    let worker = f.core.spawn_agent(&boss, "w", "x", false).await;
     let worker = worker.unwrap_or_else(|e| panic!("{e}"));
     until(&mut rx, "s2", AgentStatus::Idle).await;
     f.wt.put(&worker.worktree, "b.rs", "new\n");
@@ -1511,7 +1524,7 @@ async fn a_restart_alone_does_not_end_a_task_or_remove_its_worktrees() {
     let mut rx = before.subscribe();
     start_task(&before, 3).await;
     let boss = caller("s1", ToolRole::Coordinator);
-    let worker = before.spawn_agent(&boss, "w", "x").await;
+    let worker = before.spawn_agent(&boss, "w", "x", false).await;
     let worker = worker.unwrap_or_else(|e| panic!("{e}"));
     until(&mut rx, "s2", AgentStatus::Idle).await;
     drop(before);
@@ -1533,7 +1546,7 @@ async fn a_coordinator_that_exits_unasked_leaves_its_task_running() {
     start_task(&f.core, 3).await;
     until(&mut rx, "s1", AgentStatus::Idle).await;
     let boss = caller("s1", ToolRole::Coordinator);
-    let worker = f.core.spawn_agent(&boss, "w", "x").await;
+    let worker = f.core.spawn_agent(&boss, "w", "x", false).await;
     let worker = worker.unwrap_or_else(|e| panic!("{e}"));
     until(&mut rx, "s2", AgentStatus::Idle).await;
     // The note that the worker stopped wakes the coordinator, which fails.
@@ -1570,7 +1583,7 @@ async fn a_worktree_git_will_not_remove_is_kept_and_says_why() {
     let mut rx = f.core.subscribe();
     start_task(&f.core, 3).await;
     let boss = caller("s1", ToolRole::Coordinator);
-    let worker = f.core.spawn_agent(&boss, "w", "x").await;
+    let worker = f.core.spawn_agent(&boss, "w", "x", false).await;
     let worker = worker.unwrap_or_else(|e| panic!("{e}"));
     until(&mut rx, "s2", AgentStatus::Idle).await;
     if let Ok(mut refuse) = f.wt.refuse_remove.lock() {
@@ -1612,7 +1625,7 @@ async fn a_second_workers_identical_file_counts_as_copied() {
     let boss = caller("s1", ToolRole::Coordinator);
     let mut trees = Vec::new();
     for (session, name) in [("s2", "lint"), ("s3", "docs")] {
-        let worker = f.core.spawn_agent(&boss, name, "x").await;
+        let worker = f.core.spawn_agent(&boss, name, "x", false).await;
         let worker = worker.unwrap_or_else(|e| panic!("{e}"));
         until(&mut rx, session, AgentStatus::Idle).await;
         f.wt.put(&worker.worktree, "NOTES.md", "Notes from a worker.\n");
@@ -1647,7 +1660,7 @@ async fn the_workers_version_can_be_copied_over_mine_and_back() {
     let mut rx = f.core.subscribe();
     start_task(&f.core, 3).await;
     let boss = caller("s1", ToolRole::Coordinator);
-    let worker = f.core.spawn_agent(&boss, "w", "x").await;
+    let worker = f.core.spawn_agent(&boss, "w", "x", false).await;
     let worker = worker.unwrap_or_else(|e| panic!("{e}"));
     until(&mut rx, "s2", AgentStatus::Idle).await;
     f.wt.put(&worker.worktree, "b.rs", "new\n");
@@ -1735,7 +1748,7 @@ async fn an_undone_replace_keeps_what_the_person_wrote_since() {
     let mut rx = f.core.subscribe();
     start_task(&f.core, 3).await;
     let boss = caller("s1", ToolRole::Coordinator);
-    let worker = f.core.spawn_agent(&boss, "w", "x").await;
+    let worker = f.core.spawn_agent(&boss, "w", "x", false).await;
     let worker = worker.unwrap_or_else(|e| panic!("{e}"));
     until(&mut rx, "s2", AgentStatus::Idle).await;
     f.wt.put(&worker.worktree, "b.rs", "new\n");
@@ -1800,7 +1813,7 @@ async fn new_work_ends_the_undo_of_a_replace() {
     let mut rx = f.core.subscribe();
     start_task(&f.core, 3).await;
     let boss = caller("s1", ToolRole::Coordinator);
-    let worker = f.core.spawn_agent(&boss, "w", "x").await;
+    let worker = f.core.spawn_agent(&boss, "w", "x", false).await;
     let worker = worker.unwrap_or_else(|e| panic!("{e}"));
     until(&mut rx, "s2", AgentStatus::Idle).await;
     f.wt.put(&worker.worktree, "b.rs", "new\n");
@@ -1834,7 +1847,7 @@ async fn approve_lands_only_the_files_the_person_reviewed() {
     let mut rx = f.core.subscribe();
     start_task(&f.core, 3).await;
     let boss = caller("s1", ToolRole::Coordinator);
-    let worker = f.core.spawn_agent(&boss, "w", "x").await;
+    let worker = f.core.spawn_agent(&boss, "w", "x", false).await;
     let worker = worker.unwrap_or_else(|e| panic!("{e}"));
     until(&mut rx, "s2", AgentStatus::Idle).await;
     f.wt.put(&worker.worktree, "a.rs", "reviewed\n");
@@ -1927,7 +1940,7 @@ impl DirectFx {
         let mut rx = core.subscribe();
         start_task(&core, 3).await;
         let boss = caller("s1", ToolRole::Coordinator);
-        let worker = core.spawn_agent(&boss, "w", "x").await;
+        let worker = core.spawn_agent(&boss, "w", "x", false).await;
         let worker = worker.unwrap_or_else(|e| panic!("{e}"));
         until(&mut rx, "s2", AgentStatus::Idle).await;
         ok(
@@ -2072,7 +2085,7 @@ async fn a_worker_item_lists_hooks_and_config_changed_since_it_started() {
     let mut rx = f.core.subscribe();
     start_task(&f.core, 3).await;
     let boss = caller("s1", ToolRole::Coordinator);
-    let worker = f.core.spawn_agent(&boss, "w", "x").await;
+    let worker = f.core.spawn_agent(&boss, "w", "x", false).await;
     let worker = worker.unwrap_or_else(|e| panic!("{e}"));
     until(&mut rx, "s2", AgentStatus::Idle).await;
     assert!(reviews(&f.core).await.is_empty(), "nothing changed yet");
@@ -2476,7 +2489,7 @@ async fn a_workers_rename_away_from_a_protected_path_is_left_out() {
     let mut rx = f.core.subscribe();
     start_task(&f.core, 3).await;
     let boss = caller("s1", ToolRole::Coordinator);
-    let worker = f.core.spawn_agent(&boss, "w", "x").await;
+    let worker = f.core.spawn_agent(&boss, "w", "x", false).await;
     let worker = worker.unwrap_or_else(|e| panic!("{e}"));
     until(&mut rx, "s2", AgentStatus::Idle).await;
     f.wt.delete(&worker.worktree, "CLAUDE.md");
@@ -2525,7 +2538,7 @@ async fn workers_run_with_their_coordinators_account() {
     .await;
     let boss = caller("s1", ToolRole::Coordinator);
     f.core
-        .spawn_agent(&boss, "fix-login", "fix the login")
+        .spawn_agent(&boss, "fix-login", "fix the login", false)
         .await
         .unwrap_or_else(|e| panic!("{e}"));
     let started = f.agent.started.lock().map(|s| s.clone());
@@ -2555,7 +2568,7 @@ async fn capacity_counts_the_agents_that_work_but_not_coordinators() {
     let mut direct_rx = f.core.subscribe();
     start_task(&f.core, 3).await;
     let boss = caller("s1", ToolRole::Coordinator);
-    let worker = f.core.spawn_agent(&boss, "one", "x").await;
+    let worker = f.core.spawn_agent(&boss, "one", "x", false).await;
     let worker = worker.unwrap_or_else(|e| panic!("{e}"));
     ok(
         &f.core,
@@ -2590,14 +2603,14 @@ async fn workers_past_the_projects_cap_wait_and_start_when_a_place_frees() {
     let a = caller("s1", ToolRole::Coordinator);
     let mut first = Vec::new();
     for name in ["one", "two", "three"] {
-        let worker = f.core.spawn_agent(&a, name, "x").await;
+        let worker = f.core.spawn_agent(&a, name, "x", false).await;
         first.push(worker.unwrap_or_else(|e| panic!("{e}")).session);
     }
     let b = start_task(&f.core, 3).await.coordinator;
     let b = caller(&b.0, ToolRole::Coordinator);
-    let waits = f.core.spawn_agent(&b, "four", "do four").await;
+    let waits = f.core.spawn_agent(&b, "four", "do four", false).await;
     let waits = waits.unwrap_or_else(|e| panic!("{e}")).session;
-    let later = f.core.spawn_agent(&b, "five", "do five").await;
+    let later = f.core.spawn_agent(&b, "five", "do five", false).await;
     let later = later.unwrap_or_else(|e| panic!("{e}")).session;
     let c = capacity(&f.core).await;
     assert_eq!((c.working, c.limit, c.queued), (3, 3, 2));
@@ -2655,7 +2668,7 @@ async fn a_persons_idle_session_holds_no_place_and_takes_replies_at_the_cap() {
     start_task(&f.core, 3).await;
     let boss = caller("s2", ToolRole::Coordinator);
     for name in ["one", "two", "three"] {
-        assert!(f.core.spawn_agent(&boss, name, "x").await.is_ok());
+        assert!(f.core.spawn_agent(&boss, name, "x", false).await.is_ok());
     }
     let c = capacity(&f.core).await;
     assert_eq!((c.working, c.queued), (3, 0));
@@ -2672,7 +2685,7 @@ async fn a_persons_start_and_a_workers_at_once_never_make_a_fourth_agent() {
     start_task(&f.core, 3).await;
     let boss = caller("s1", ToolRole::Coordinator);
     for name in ["one", "two"] {
-        assert!(f.core.spawn_agent(&boss, name, "x").await.is_ok());
+        assert!(f.core.spawn_agent(&boss, name, "x", false).await.is_ok());
     }
     // A start that fails after taking a place gives it back.
     let unknown = json!({"method": "agents.start", "params": {
@@ -2688,7 +2701,7 @@ async fn a_persons_start_and_a_workers_at_once_never_make_a_fourth_agent() {
         "project": "p1", "agent": "claude", "mode": "direct", "prompt": "fix it"}});
     let (direct, worker) = tokio::join!(
         call(&f.core, direct),
-        f.core.spawn_agent(&boss, "three", "x")
+        f.core.spawn_agent(&boss, "three", "x", false)
     );
     assert!(direct.is_ok());
     let worker = worker.unwrap_or_else(|e| panic!("{e}")).session;
@@ -2714,7 +2727,7 @@ async fn a_worker_spawned_while_its_task_stops_is_stopped_too() {
         )
         .await
     };
-    let (spawned, _) = tokio::join!(f.core.spawn_agent(&boss, "late", "x"), stop);
+    let (spawned, _) = tokio::join!(f.core.spawn_agent(&boss, "late", "x", false), stop);
     let worker = spawned.unwrap_or_else(|e| panic!("{e}")).session;
     let stopping = f
         .core
@@ -2723,7 +2736,7 @@ async fn a_worker_spawned_while_its_task_stops_is_stopped_too() {
     assert_eq!(stopping.ok(), Some(true));
     until(&mut rx, &worker.0, AgentStatus::Stopped).await;
     // Once stopping, the coordinator starts no more.
-    let refused = f.core.spawn_agent(&boss, "later", "x").await;
+    let refused = f.core.spawn_agent(&boss, "later", "x", false).await;
     assert_eq!(code(refused), ErrorCode::Conflict);
 }
 
@@ -2764,7 +2777,7 @@ async fn a_workers_review_follows_its_worktree_while_it_runs() {
     let mut rx = f.core.subscribe();
     start_task(&f.core, 3).await;
     let boss = caller("s1", ToolRole::Coordinator);
-    let worker = f.core.spawn_agent(&boss, "w", "x").await;
+    let worker = f.core.spawn_agent(&boss, "w", "x", false).await;
     let worker = worker.unwrap_or_else(|e| panic!("{e}"));
     until(&mut rx, "s2", AgentStatus::Idle).await;
     let item = reviews_of(&f.core, "s2");

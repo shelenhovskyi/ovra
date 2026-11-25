@@ -15,6 +15,11 @@
           "type": "string",
           "pattern": "^[a-z0-9][a-z0-9-]{0,39}$",
           "description": "Short label shown in the UI and used in the branch name, e.g. fix-login."
+        },
+        "skip_setup": {
+          "type": "boolean",
+          "default": false,
+          "description": "Start without the project's worktree setup steps, e.g. after they failed and the task does not need them."
         }
       },
       "required": ["task", "name"],

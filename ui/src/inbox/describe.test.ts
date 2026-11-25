@@ -40,6 +40,7 @@ describe("inbox wording", () => {
       protectedReason(change(path, { protected: true, from }));
     expect(reason(".envrc")).toBe("runs commands when you enter the folder with direnv");
     expect(reason(".mcp.json")).toBe("tools the agent can start");
+    expect(reason(".worktreeinclude")).toBe("ignored files copied into every new worktree, such as .env");
     expect(reason(".claude/settings.json")).toBe("the agent's settings and permissions");
     expect(reason("docs/CLAUDE.md")).toBe("instructions every agent reads");
     expect(reason("ui/AGENTS.md")).toBe("instructions every agent reads");

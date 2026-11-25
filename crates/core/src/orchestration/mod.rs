@@ -13,6 +13,7 @@ mod ide;
 mod policy;
 mod review;
 mod saved;
+mod setup;
 mod slots;
 mod tasks;
 mod watch;

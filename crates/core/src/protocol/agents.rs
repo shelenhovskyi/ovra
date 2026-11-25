@@ -34,6 +34,11 @@ pub enum AgentStatus {
     /// The project already has as many agents working as it may
     /// ([`AgentCapacity::limit`]); the agent starts when one finishes.
     Queued,
+    /// A worker's worktree is being prepared (`.worktreeinclude` and the
+    /// setup steps of `.ovra/worktree.json`, `docs/specs/worktree-setup.md`);
+    /// the agent starts when that is done. Counts as working for the cap.
+    /// `Worker::setup` has the step and its log.
+    Preparing,
     /// The agent process is starting.
     Starting,
     /// The agent is working on a turn.

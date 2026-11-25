@@ -23,6 +23,8 @@ pub(crate) struct Nothing {}
 struct Spawn {
     task: String,
     name: String,
+    #[serde(default)]
+    skip_setup: bool,
 }
 
 #[derive(Deserialize)]
@@ -77,9 +79,13 @@ pub(crate) async fn call(
 ) -> Result<String, String> {
     match name {
         "spawn_agent" => {
-            let Spawn { task, name } = parse(arguments)?;
+            let Spawn {
+                task,
+                name,
+                skip_setup,
+            } = parse(arguments)?;
             let worker = core
-                .spawn_agent(caller, &name, &task)
+                .spawn_agent(caller, &name, &task, skip_setup)
                 .await
                 .map_err(failed)?;
             Ok(text(&worker_json(&worker)))

@@ -103,7 +103,7 @@ async fn coordinator_and_worker(f: &Fx) -> PathBuf {
         "project": "p1", "prompt": "split", "limits": {"max_workers": 1, "budget_micro_usd": null}}}))
     .await;
     let boss = caller("s1", ToolRole::Coordinator);
-    let worker = f.core.spawn_agent(&boss, "w", "fix").await;
+    let worker = f.core.spawn_agent(&boss, "w", "fix", false).await;
     let worktree = PathBuf::from(worker.unwrap_or_else(|e| panic!("{e}")).worktree);
     let only_web = r#"{"servers": [{"name": "web", "command": ["pnpm", "dev"], "port": 5173}]}"#;
     f.fs.put(&worktree, ".ovra/servers.json", only_web);
