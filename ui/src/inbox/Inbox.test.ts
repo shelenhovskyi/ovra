@@ -31,7 +31,7 @@ async function settle() {
     flushSync();
     await Promise.resolve();
   }
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setImmediate(resolve));
   flushSync();
 }
 
