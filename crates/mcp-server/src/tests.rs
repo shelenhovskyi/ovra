@@ -37,7 +37,7 @@ fn names(reply: &Option<Value>) -> Vec<&str> {
 #[test]
 fn every_tool_definition_is_a_closed_object_schema() {
     let tools: Vec<Value> = serde_json::from_str(TOOLS).unwrap_or_else(|e| panic!("{e}"));
-    assert_eq!(tools.len(), 12);
+    assert_eq!(tools.len(), 19);
     for tool in &tools {
         let name = tool["name"].as_str().unwrap_or("");
         assert!(
@@ -70,7 +70,7 @@ async fn initialize_lists_and_calls_like_an_mcp_server() {
         names(&ask(ToolRole::Worker, list.clone()).await),
         SHARED_TOOLS
     );
-    assert_eq!(names(&ask(ToolRole::Coordinator, list).await).len(), 12);
+    assert_eq!(names(&ask(ToolRole::Coordinator, list).await).len(), 19);
 
     let call = |name: &str| {
         json!({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
@@ -512,3 +512,5 @@ async fn server_tools_refuse_long_waits_big_pages_and_unknown_servers() {
         assert!(error && text.contains(refusal), "{name}: {text}");
     }
 }
+
+mod browser;

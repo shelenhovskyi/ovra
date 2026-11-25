@@ -8,6 +8,7 @@
 //! a call of the core (`Core::spawn_agent` and its siblings), which checks
 //! the caller's role and its task's limits.
 
+mod browser;
 mod calls;
 mod servers;
 
@@ -24,7 +25,7 @@ const PROTOCOL_VERSIONS: [&str; 2] = ["2025-11-25", "2025-06-18"];
 const METHOD_NOT_FOUND: i64 = -32601;
 
 /// Tools every role may call; the coordinator may call all of them.
-const SHARED_TOOLS: [&str; 7] = [
+const SHARED_TOOLS: [&str; 14] = [
     "request_review",
     "open_in_ui",
     "server_list",
@@ -32,6 +33,13 @@ const SHARED_TOOLS: [&str; 7] = [
     "server_stop",
     "server_restart",
     "server_logs",
+    "browser_open",
+    "browser_navigate",
+    "browser_click",
+    "browser_type",
+    "browser_press_key",
+    "browser_wait_for",
+    "browser_close",
 ];
 
 /// The IDE tools server.
@@ -86,13 +94,20 @@ impl IdeServer {
                     .tools_for(caller.role)
                     .iter()
                     .any(|t| t["name"] == name);
-                let result = if known {
-                    calls::call(&core, caller, name, params["arguments"].clone()).await
-                } else {
+                let arguments = params["arguments"].clone();
+                let result = if !known {
                     Err(format!("unknown tool: {name}"))
+                } else if let Some(answer) =
+                    browser::call(&core, caller, name, arguments.clone()).await
+                {
+                    answer
+                } else {
+                    calls::call(&core, caller, name, arguments)
+                        .await
+                        .map(|text| vec![json!({"type": "text", "text": text})])
                 };
                 Ok(match result {
-                    Ok(text) => json!({"content": [{"type": "text", "text": text}]}),
+                    Ok(content) => json!({"content": content}),
                     Err(text) => {
                         json!({"content": [{"type": "text", "text": text}], "isError": true})
                     }

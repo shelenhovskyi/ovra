@@ -22,8 +22,9 @@ const COORDINATOR_TOOLS: [&str; 5] = [
 ];
 
 /// Tools every session with IDE tools may call; the `server_*` ones act
-/// on the caller's own work dir only.
-const SHARED_TOOLS: [&str; 7] = [
+/// on the caller's own work dir only, the `browser_*` ones on its own
+/// session's browser.
+const SHARED_TOOLS: [&str; 14] = [
     "request_review",
     "open_in_ui",
     "server_list",
@@ -31,6 +32,13 @@ const SHARED_TOOLS: [&str; 7] = [
     "server_stop",
     "server_restart",
     "server_logs",
+    "browser_open",
+    "browser_navigate",
+    "browser_click",
+    "browser_type",
+    "browser_press_key",
+    "browser_wait_for",
+    "browser_close",
 ];
 
 /// Decides a call of the IDE tool `name` (without the prefix) by `session`.
