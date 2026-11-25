@@ -61,20 +61,30 @@ describe("platform words and keys", () => {
     expect(revealLabel("linux")).toBe("Open Containing Folder");
   });
 
+  const key = (code: string, mods: Partial<KeyboardEvent> = {}) => ({
+    code,
+    ctrlKey: false,
+    metaKey: false,
+    altKey: false,
+    shiftKey: false,
+    ...mods,
+  });
+
   it("matches F2 and the trash keys on the physical key", () => {
-    const key = (code: string, mods: Partial<KeyboardEvent> = {}) => ({
-      code,
-      ctrlKey: false,
-      metaKey: false,
-      altKey: false,
-      shiftKey: false,
-      ...mods,
-    });
     expect(keyAction(key("F2"), false)).toBe("rename");
     expect(keyAction(key("F2", { shiftKey: true }), false)).toBeNull();
     expect(keyAction(key("Delete"), false)).toBe("trash");
     expect(keyAction(key("Backspace", { metaKey: true }), true)).toBe("trash");
     expect(keyAction(key("Backspace", { metaKey: true }), false)).toBeNull();
     expect(keyAction(key("Backspace"), true)).toBeNull();
+  });
+
+  it("reads Mod+X, Mod+C and Mod+V on the physical key, Cmd on Apple and Ctrl elsewhere", () => {
+    expect(keyAction(key("KeyX", { ctrlKey: true }), false)).toBe("cut");
+    expect(keyAction(key("KeyC", { metaKey: true }), true)).toBe("copy");
+    expect(keyAction(key("KeyV", { ctrlKey: true }), false)).toBe("paste");
+    expect(keyAction(key("KeyV", { ctrlKey: true }), true)).toBeNull();
+    expect(keyAction(key("KeyC", { ctrlKey: true, shiftKey: true }), false)).toBeNull();
+    expect(keyAction(key("KeyC"), false)).toBeNull();
   });
 });

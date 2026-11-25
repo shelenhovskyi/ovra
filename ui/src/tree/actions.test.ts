@@ -143,6 +143,36 @@ describe("FileActions", () => {
     expect(t.log.selected).toBe("lib/d.ts");
   });
 
+  it("copies and pastes, naming a clash as a copy, and puts the full paths on the system clipboard", async () => {
+    const t = await setup(["src/a.ts", "lib/a.ts", "b.ts"]);
+    await t.actions.copy(["src/a.ts", "b.ts", "src"]);
+    expect(t.copied).toEqual(["/work/app/b.ts\n/work/app/src"]);
+    await t.actions.paste("lib");
+    expect(t.paths()).toEqual(["lib", "lib/src", "lib/a.ts", "lib/b.ts", "src", "b.ts"]);
+    // A copy stays on the clipboard; pasting next to the originals makes copies.
+    await t.actions.paste("");
+    expect(t.paths().filter((p) => !p.startsWith("lib/"))).toEqual(["lib", "src", "src copy", "b copy.ts", "b.ts"]);
+    expect(t.log.selected).toBe("src copy");
+
+    await t.actions.paste("src");
+    expect(t.actions.notice).toBe("Cannot paste a folder into itself");
+  });
+
+  it("cuts and pastes as a move once, and Escape forgets the cut", async () => {
+    const t = await setup(["src/a.ts", "b.ts"]);
+    t.actions.cut(["b.ts"]);
+    expect(t.actions.dropCut()).toBe(true);
+    expect(t.actions.clip).toBeNull();
+
+    t.actions.cut(["b.ts"]);
+    await t.actions.paste("");
+    expect(t.actions.clip).not.toBeNull(); // nothing moved: still cut
+    await t.actions.paste("src");
+    expect(t.log.moved).toEqual(["b.ts -> src/b.ts"]);
+    expect(t.actions.clip).toBeNull();
+    expect(t.copied).toEqual([]);
+  });
+
   it("copies absolute and relative paths and reveals through the core", async () => {
     const t = await setup(["src/a.ts"]);
     await t.actions.copyPaths(["src/a.ts"], false);

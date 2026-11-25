@@ -1,7 +1,8 @@
 // What the person does to files in the tree: new file or folder, rename,
-// duplicate, trash, move, copy path, reveal. Holds the inline name edit and
-// the trash question; every change goes to the core (`fs.*`), and the tree
-// reloads the folders it touched instead of waiting for the watcher.
+// duplicate, trash, move, cut / copy / paste, copy path, reveal. Holds the
+// inline name edit, the trash question and Ovra's own file clipboard; every
+// change goes to the core (`fs.*`), and the tree reloads the folders it
+// touched instead of waiting for the watcher.
 
 import { absolutePath } from "../editor/context-menu";
 import type { EntryKind, ProjectId } from "../lib/protocol";
@@ -11,6 +12,11 @@ import { baseName, copyName, moveTarget, nameProblem } from "./ops";
 import { topLevel } from "./selection";
 
 const NOTICE_MS = 5000;
+
+/** Files cut or copied in the tree, waiting for Paste; kept inside Ovra. */
+export type Clip = { cut: boolean; paths: string[] };
+
+type Pair = { from: string; to: string };
 
 export type Edit = { kind: "new"; dir: string; entry: EntryKind } | { kind: "rename"; path: string; entry: EntryKind };
 
@@ -36,6 +42,7 @@ export class FileActions {
   problem = $state<string | null>(null);
   /** The paths waiting for a Move to Trash answer. */
   confirming = $state<string[] | null>(null);
+  clip = $state<Clip | null>(null);
   /** A failed action, shown briefly. */
   notice = $state<string | null>(null);
   private before: string | null = null;
@@ -186,28 +193,91 @@ export class FileActions {
   }
 
   /** Moves `paths` into the folder `dir` (`""` is the project folder); one already there stays. */
-  async move(paths: string[], dir: string): Promise<void> {
+  async move(paths: string[], dir: string): Promise<Pair[]> {
     const moves = topLevel(paths).flatMap((from) => {
       const to = moveTarget(from, dir);
       return to === null ? [] : [{ from, to }];
     });
-    if (moves.length === 0) return;
+    if (moves.length === 0) return [];
     const { transport, project, model } = this.host;
-    let last: string | null = null;
+    const done: Pair[] = [];
     try {
       for (const { from, to } of moves) {
         await transport.call({ method: "fs.rename", params: { project, from, to } });
         model.moved(from, to);
         this.host.moved?.(from, to);
-        last = to;
+        done.push({ from, to });
       }
     } catch (err) {
       this.fail(err);
     }
-    if (last === null) return;
+    if (done.length === 0) return done;
     for (const d of new Set([...moves.map((m) => parentOf(m.from)), dir])) await model.reload(d);
-    await model.reveal(last);
-    this.host.select(last);
+    await this.show(done.at(-1)?.to as string);
+    return done;
+  }
+
+  private async show(path: string): Promise<void> {
+    await this.host.model.reveal(path);
+    this.host.select(path);
+  }
+
+  /** Marks `paths` to move on the next Paste; the tree dims them until then. */
+  cut(paths: string[]): void {
+    this.clip = { cut: true, paths: topLevel(paths) };
+  }
+
+  /** Marks `paths` to copy on Paste, and puts their full paths on the system clipboard as text. */
+  async copy(paths: string[]): Promise<void> {
+    this.clip = { cut: false, paths: topLevel(paths) };
+    await this.copyPaths(this.clip.paths, false);
+  }
+
+  /** Forgets a cut (Escape); returns whether there was one. */
+  dropCut(): boolean {
+    if (!this.clip?.cut) return false;
+    this.clip = null;
+    return true;
+  }
+
+  /** Pastes into the folder `dir`: a cut moves there (once), a copy copies, renaming on a clash. */
+  async paste(dir: string): Promise<Pair[]> {
+    const clip = this.clip;
+    if (!clip) return [];
+    if (!clip.cut) return this.copyInto(clip.paths, dir);
+    const done = await this.move(clip.paths, dir);
+    if (done.length > 0) this.clip = null;
+    return done;
+  }
+
+  private async copyInto(paths: string[], dir: string): Promise<Pair[]> {
+    const { transport, project, model } = this.host;
+    const done: Pair[] = [];
+    try {
+      if (dir !== "") await model.expand(dir);
+      const siblings = model.entries(dir) ?? [];
+      const taken = siblings.map((e) => e.name);
+      for (const from of paths) {
+        if (dir === from || dir.startsWith(`${from}/`)) throw new Error("Cannot paste a folder into itself");
+        const name = baseName(from);
+        const isDir = this.kindOf(from) === "dir";
+        const free = taken.some((t) => t.toLowerCase() === name.toLowerCase()) ? copyName(name, isDir, taken) : name;
+        const to = joinPath(dir, free);
+        await transport.call({ method: "fs.copy", params: { project, from, to } });
+        taken.push(free);
+        done.push({ from, to });
+      }
+    } catch (err) {
+      this.fail(err);
+    }
+    if (done.length === 0) return done;
+    await model.reload(dir);
+    await this.show(done.at(-1)?.to as string);
+    return done;
+  }
+
+  private kindOf(path: string): EntryKind | undefined {
+    return this.host.model.entries(parentOf(path))?.find((e) => e.name === baseName(path))?.kind;
   }
 
   /** Copies the paths, one per line. */

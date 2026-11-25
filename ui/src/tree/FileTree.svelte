@@ -8,6 +8,11 @@ registerContextKeys(
     { keys: "Enter", title: "Open the file, or keep its tab when it is shown" },
     { keys: "F2", title: "Rename" },
     { keys: trashKeys(), title: "Move to the trash" },
+    { keys: "Shift+Up/Down", title: "Select a range of rows (Mod+click adds one)" },
+    { keys: "Mod+X", title: "Cut" },
+    { keys: "Mod+C", title: "Copy, also as paths for other apps" },
+    { keys: "Mod+V", title: "Paste into the folder" },
+    { keys: "Escape", title: "Clear the selection and the cut" },
     { keys: "Shift+F10", title: "Open the row's menu (also the Menu key)" },
   ].map((key) => ({ ...key, where: "Files" })),
 );
@@ -27,7 +32,7 @@ import EmptyState from "../shell/EmptyState.svelte";
 import Icon from "../shell/Icon.svelte";
 import type { MainMode } from "../shell/workspace.svelte";
 import { FileActions } from "./actions.svelte";
-import { registerFileCommands } from "./commands";
+import { folderFor, registerFileCommands } from "./commands";
 import { rootMenu, rowMenu, selectionMenu } from "./menu";
 import { ancestorsOf, type Filter, parentOf, type Row, TreeModel, typeaheadMatch, visibleRange } from "./model";
 import NameInput from "./NameInput.svelte";
@@ -223,6 +228,9 @@ let activeIndex = $derived(current === null ? -1 : rows.findIndex((r) => r.path 
 /** The selected paths: the picked rows, or else the active one. */
 let chosen = $derived(picked.length > 0 ? picked : current !== null && activeIndex >= 0 ? [current] : []);
 let chosenSet = $derived(new Set(chosen));
+/** Rows cut and not pasted yet: they look dimmed, and so does what is in a cut folder. */
+let cutPaths = $derived(actions.clip?.cut ? actions.clip.paths : []);
+const isCut = (path: string) => cutPaths.some((p) => path === p || path.startsWith(`${p}/`));
 /** Rendered rows: the window, plus the active row wherever it is, so `aria-activedescendant` always resolves. */
 let shown = $derived.by(() => {
   const indexes = [];
@@ -504,10 +512,14 @@ function onkeydown(e: KeyboardEvent): void {
   const index = activeIndex;
   const row = rows[index];
   const page = Math.max(1, Math.floor(height / ROW_HEIGHT) - 1);
-  const action = row && !row.draft ? keyAction(e) : null;
+  const action = e.target instanceof HTMLInputElement ? null : keyAction(e);
+  const real = row && !row.draft ? row : null;
   // Rename works on one row only.
-  if (action === "rename" && row && picked.length <= 1) actions.startRename(row.path);
-  else if (action === "trash" && row) actions.askTrash(chosen);
+  if (action === "rename" && real && picked.length <= 1) actions.startRename(real.path);
+  else if (action === "trash" && real) actions.askTrash(chosen);
+  else if (action === "cut" && real) actions.cut(chosen);
+  else if (action === "copy" && real) void actions.copy(chosen);
+  else if (action === "paste") void actions.paste(folderFor(real));
   if (action) {
     e.preventDefault();
     return;
@@ -525,7 +537,7 @@ function onkeydown(e: KeyboardEvent): void {
       (e.shiftKey ? extendTo : select)(Math.max(0, index - 1));
       break;
     case "Escape":
-      if (picked.length === 0) return;
+      if (!actions.dropCut() && picked.length === 0) return;
       picked = [];
       anchor = current;
       break;
@@ -645,6 +657,7 @@ function onkeydown(e: KeyboardEvent): void {
             class:selected={chosenSet.has(row.path)}
             class:active={index === activeIndex}
             class:ignored={row.ignored}
+            class:cut={isCut(row.path)}
             class:drop={dropDir === row.path}
             draggable={!row.draft && actions.edit === null}
             role="treeitem"
@@ -795,6 +808,10 @@ function onkeydown(e: KeyboardEvent): void {
   .viewport:focus-visible .row.active {
     outline: 2px solid var(--accent);
     outline-offset: -2px;
+  }
+  /* Cut and waiting for Paste. */
+  .row.cut > :not(.dot) {
+    opacity: 0.5;
   }
   .ignored .name {
     color: var(--text-2);

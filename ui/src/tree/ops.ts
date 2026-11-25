@@ -98,9 +98,15 @@ export function trashKeys(apple = isApple()): string {
 
 type Keys = Pick<KeyboardEvent, "code" | "ctrlKey" | "metaKey" | "altKey" | "shiftKey">;
 
+export type KeyAction = "rename" | "trash" | "cut" | "copy" | "paste";
+
+const CLIP_KEYS: Record<string, KeyAction> = { KeyX: "cut", KeyC: "copy", KeyV: "paste" };
+
 /** Which file action a key on the tree asks for, matched on the physical key. */
-export function keyAction(e: Keys, apple = isApple()): "rename" | "trash" | null {
+export function keyAction(e: Keys, apple = isApple()): KeyAction | null {
   const mods = e.ctrlKey || e.metaKey || e.altKey || e.shiftKey;
+  const mod = (apple ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey) && !e.altKey;
+  if (mod && !e.shiftKey && CLIP_KEYS[e.code]) return CLIP_KEYS[e.code] as KeyAction;
   if (e.code === "F2" && !mods) return "rename";
   if (apple && e.code === "Backspace" && e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) return "trash";
   if (e.code === "Delete" && !mods) return "trash";

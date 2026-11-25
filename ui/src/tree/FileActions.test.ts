@@ -100,6 +100,10 @@ describe("file actions in the tree", () => {
       "Copy path",
       "Copy relative path",
       "-",
+      "Cut",
+      "Copy",
+      "Paste",
+      "-",
       "New file…",
       "New folder…",
       "Rename…",
@@ -115,9 +119,9 @@ describe("file actions in the tree", () => {
     t.press(t.input(), "Escape");
 
     t.tree.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2 }));
-    expect(labels()).toEqual(["Reveal project folder", "Collapse all", "-", "New file…", "New folder…"]);
+    expect(labels()).toEqual(["Reveal project folder", "Collapse all", "-", "New file…", "New folder…", "Paste"]);
     t.tree.dispatchEvent(new KeyboardEvent("keydown", { code: "F10", key: "F10", shiftKey: true, bubbles: true }));
-    expect(labels()[6]).toBe("Rename…");
+    expect(labels()[10]).toBe("Rename…");
     closeContextMenu(false);
   });
 
@@ -192,8 +196,16 @@ describe("file actions in the tree", () => {
     expect(selectedPaths()).toEqual(["lib", "a.ts", "b.ts"]);
     t.row("a.ts")?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2 }));
     const labels = (contextMenu.open?.entries ?? []).map((e) => (e === "separator" ? "-" : e.label));
-    expect(labels).toEqual(["Copy paths", "Copy relative paths", "-", "Move to Trash…"]);
+    expect(labels).toEqual(["Copy paths", "Copy relative paths", "-", "Cut", "Copy", "-", "Move to Trash…"]);
     closeContextMenu(false);
+
+    // Mod+X dims what is cut, and what is in a cut folder, until Escape.
+    t.tree.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyX", key: "x", ctrlKey: true, bubbles: true }));
+    flushSync();
+    const dimmed = () => [...t.target.querySelectorAll(".cut")].map((el) => (el as HTMLElement).dataset.path);
+    expect(dimmed()).toEqual(["lib", "a.ts", "b.ts"]);
+    t.press(t.tree, "Escape");
+    expect(dimmed()).toEqual([]);
 
     // Dragging one of them moves the others too; nothing goes into a dragged folder.
     const drag = (type: string, path: string) => {
