@@ -10,6 +10,8 @@ import { registerCommand } from "../keys/commands";
 import type { AccountState, FileChange, SessionId, SessionInfo } from "../lib/protocol";
 import { CoreError } from "../lib/transport";
 import { useOvra } from "../shell/context";
+import Icon from "../shell/Icon.svelte";
+import { menuTarget } from "../shell/menu";
 import { signedOutError } from "./errors";
 import { listWarning, sandboxGaps, sandboxLine, sandboxState } from "./sandbox";
 import { agentSessions, openReviews, usageText } from "./sessions.svelte";
@@ -31,14 +33,13 @@ const sessions = agentSessions(transport);
 const picks = browserPicks(transport);
 const accounts = claudeAccounts(transport);
 
-/** `hint`: a few words under the options; `more`: the whole of it, on hover. */
-const MODES: { id: TaskMode; label: string; hint: string; more: string }[] = [
-  { id: "here", label: "One agent, here", hint: "Works in this folder", more: "Asks before risky steps." },
+/** `more`: what choosing it means, in the menu; the hint under the box adds the sandbox. */
+const MODES: { id: TaskMode; label: string; more: string }[] = [
+  { id: "here", label: "One agent, here", more: "Works in this folder. Asks before risky steps." },
   {
     id: "split",
     label: "Plan and split",
-    hint: "Up to 3 agents; you review",
-    more: "Each works on its own copy. You review before anything is merged.",
+    more: "Up to 3 agents, each on its own copy. You review before anything is merged.",
   },
 ];
 
@@ -75,7 +76,23 @@ const messages = $derived(current ? sessions.transcripts.get(current.id) : undef
 const chips = $derived(current ? picks.of(current.id) : []);
 const sandbox = $derived(current ? sandboxLine(sandboxState(current), isEnded(current.status)) : null);
 const gaps = $derived(current ? sandboxGaps(sandboxState(current), isEnded(current.status)) : null);
-const modeHint = $derived(MODES.find((m) => m.id === mode)?.hint);
+/** How the project's newest session that said so runs: the next one most likely runs the same way. */
+const sandboxWord = $derived.by(() => {
+  const known = [...list].reverse().find((s) => s.sandbox_reported || s.sandbox);
+  if (!known) return "";
+  return known.sandbox ? ", in a sandbox" : ", without a sandbox";
+});
+const modeHint = $derived(
+  mode === "here"
+    ? `Works in this folder${sandboxWord}. Asks before risky steps.`
+    : `Up to 3 agents on their own copies${sandboxWord}. You review first.`,
+);
+/** The mode menu is open. */
+let modeMenu = $state(false);
+let modeList = $state<HTMLElement>();
+/** Projects known not to be git repositories: Plan and split cannot run there. */
+let noRepo = $state<string | null>(null);
+const noGit = $derived(mode === "split" && project !== null && noRepo === project.id);
 /** The open session cannot go on: its account is signed out. */
 const signedOut = $derived(current ? signedOutError(current.status, messages) : null);
 /** A signed-in account to start over with, other than the one that failed. */
@@ -85,12 +102,62 @@ const fallback = $derived.by((): AccountState | undefined => {
 });
 /** The account a new task would start with is known to be signed out. */
 const blocked = $derived(accounts.signedOut(account ?? accounts.projectAccount));
+/** Why Start cannot work right now, said before the press instead of after it. */
+const startBlock = $derived(blocked ? "The account is signed out" : noGit ? "Plan and split needs git" : null);
 const usable = $derived(accounts.signedIn);
 /** Who pays for the next task, in two or three words; it opens Claude's setup. */
 const billing = $derived.by(() => {
-  const paid = accounts.state(account ?? accounts.preferred)?.setup.billing;
-  return paid ? billedShort(paid) : "Claude";
+  const state = accounts.state(account ?? accounts.preferred);
+  const paid = state?.setup.billing;
+  if (!paid) return "Ready";
+  const many = accounts.list.length > 1 && state ? `${state.account.name} · ` : "";
+  return `${many}${billedShort(paid)}`;
 });
+/** An API key bills the next task: the footer says it in the warning colour. */
+const billingKey = $derived(accounts.state(account ?? accounts.preferred)?.setup.billing?.kind === "api_key");
+
+// Whether the project is a git repository, asked once Plan and split is chosen.
+$effect(() => {
+  const id = project?.id;
+  if (!id || mode !== "split") return;
+  untrack(() => {
+    transport
+      .call({ method: "git.status", params: { project: id } })
+      .then((reply) => {
+        noRepo = reply.type === "git.no_repo" ? id : noRepo === id ? null : noRepo;
+      })
+      .catch(() => {});
+  });
+});
+
+async function toggleModes(open: boolean): Promise<void> {
+  modeMenu = open;
+  if (!open) return;
+  await tick();
+  modeList?.querySelector<HTMLElement>("[aria-checked=true]")?.focus();
+}
+
+function pickMode(id: TaskMode): void {
+  mode = id;
+  modeMenu = false;
+  if (project) rememberMode(project.id, id);
+  document.querySelector<HTMLElement>("[data-testid=agent-mode]")?.focus();
+}
+
+function onModeKey(event: KeyboardEvent): void {
+  const items = [...(modeList?.querySelectorAll<HTMLElement>("[role=menuitemradio]") ?? [])];
+  if (event.code === "Escape" || event.code === "Tab") {
+    if (event.code === "Escape") event.preventDefault();
+    modeMenu = false;
+    document.querySelector<HTMLElement>("[data-testid=agent-mode]")?.focus();
+    return;
+  }
+  const next = menuTarget(event, items);
+  if (next) {
+    event.preventDefault();
+    next.focus();
+  }
+}
 /** A direct session's own files once its turn is over; a worker's live in its worktree, so Reviews shows them. */
 const changed = $derived(
   current && current.mode === "direct" && sessions.roles.get(current.id)?.kind !== "worker" && !isBusy(current.status)
@@ -738,32 +805,70 @@ const canReply = $derived(current !== null && current.status.state === "idle");
         void start();
       }}
     >
-      <label for="agent-prompt" class="visually-hidden">What should Claude do?</label>
+      <label for="agent-prompt" class="label">Give Claude a task</label>
       <textarea
         id="agent-prompt"
         rows="2"
-        placeholder="What should Claude do?"
+        placeholder="Describe a change, or ask about the code"
         bind:this={promptField}
         bind:value={prompt}
         aria-describedby="agent-mode-hint"
         onkeydown={(event) => submitOnEnter(event, start)}
       ></textarea>
-      <fieldset class="modes">
-        <legend class="visually-hidden">How Claude works on it</legend>
-        {#each MODES as option (option.id)}
-          <label class="mode" title={`${option.hint}. ${option.more}`}>
-            <input
-              type="radio"
-              name="agent-mode"
-              value={option.id}
-              bind:group={mode}
-              aria-describedby="agent-mode-hint"
-              onchange={() => project && rememberMode(project.id, option.id)}
-            />
-            {option.label}
-          </label>
-        {/each}
-      </fieldset>
+      <div class="row">
+        <!-- How the task runs: a menu button whose options say what each one means. -->
+        <span class="mode-menu">
+          <button
+            type="button"
+            class="quiet"
+            aria-haspopup="menu"
+            aria-expanded={modeMenu}
+            aria-controls="agent-mode-menu"
+            data-testid="agent-mode"
+            onclick={() => toggleModes(!modeMenu)}
+            onkeydown={(event) => {
+              if (event.code === "ArrowDown" || event.code === "ArrowUp") {
+                event.preventDefault();
+                void toggleModes(true);
+              }
+            }}
+            >{MODES.find((m) => m.id === mode)?.label}<Icon name="chevron" small /></button
+          >
+          {#if modeMenu}
+            <div
+              class="menu"
+              id="agent-mode-menu"
+              role="menu"
+              tabindex="-1"
+              aria-label="How Claude works on it"
+              bind:this={modeList}
+              onkeydown={onModeKey}
+              onfocusout={(event) => {
+                const to = event.relatedTarget;
+                const toggle = document.querySelector("[data-testid=agent-mode]");
+                if (!(to instanceof Node && (modeList?.contains(to) || to === toggle))) modeMenu = false;
+              }}
+            >
+              {#each MODES as option (option.id)}
+                <button
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={mode === option.id}
+                  onclick={() => pickMode(option.id)}
+                  ><span class="name">{option.label}</span><span class="what">{option.more}</span></button
+                >
+              {/each}
+            </div>
+          {/if}
+        </span>
+        <AccountPicker project={project.id} bind:account />
+        <button
+          type="submit"
+          class="primary"
+          title={startBlock ?? (prompt.trim() ? "Enter starts · Shift+Enter: new line" : "Type a task first")}
+          disabled={busy || startBlock !== null || !prompt.trim()}>Start</button
+        >
+      </div>
       <p class="line" id="agent-mode-hint">{modeHint}</p>
       {#if blocked}
         <p class="blocked" role="note" data-testid="agent-account-blocked">
@@ -776,23 +881,12 @@ const canReply = $derived(current !== null && current.status.state === "idle");
             >
           {/if}
         </p>
+      {:else if noGit}
+        <p class="blocked" role="note" data-testid="agent-needs-git">
+          <span>Needs git: Plan and split works on copies of a git repository.</span>
+          <button type="button" class="quiet" onclick={() => pickMode("here")}>Use One agent, here</button>
+        </p>
       {/if}
-      <div class="row">
-        <AccountPicker project={project.id} bind:account />
-        <button
-          type="button"
-          class="quiet"
-          title="Claude: setup, accounts, billing"
-          aria-expanded={setupOpen}
-          onclick={() => (setupOpen ? (setupOpen = false) : openSetup())}>{billing}</button
-        >
-        <button
-          type="submit"
-          class="primary"
-          title={prompt.trim() ? "Enter starts · Shift+Enter: new line" : "Type a task first"}
-          disabled={busy || blocked || !prompt.trim()}>Start</button
-        >
-      </div>
       {#if startError}
         <p class="error" role="alert" data-testid="agent-start-error">
           {startError.text}{#if startError.setup}{" "}<button type="button" class="quiet fix" onclick={openSetup}
@@ -801,6 +895,18 @@ const canReply = $derived(current !== null && current.status.state === "idle");
         </p>
       {/if}
     </form>
+    <!-- Who pays for the next task, always in sight; it opens Claude's setup. -->
+    <p class="foot">
+      <button
+        type="button"
+        class="quiet"
+        class:warn={billingKey}
+        title="Claude: setup, accounts, billing"
+        aria-expanded={setupOpen}
+        data-testid="agents-footer"
+        onclick={() => (setupOpen ? (setupOpen = false) : openSetup())}>Claude · {billing}</button
+      >
+    </p>
   {/if}
 </section>
 
@@ -1280,41 +1386,66 @@ const canReply = $derived(current !== null && current.status.state === "idle");
   .compose .row .primary {
     margin-left: auto;
   }
-  .modes {
-    display: flex;
-    gap: 2px;
-    margin: 0;
-    padding: 2px;
-    border: none;
-    background: var(--s1);
-    border-radius: var(--radius-sm);
-  }
-  .mode {
-    flex: 1;
-    position: relative;
-    padding: 4px 8px;
-    text-align: center;
+  .label {
     font-size: 13px;
-    color: var(--text-2);
-    border-radius: 5px;
-    cursor: pointer;
-  }
-  .mode:has(input:checked) {
-    color: var(--text);
     font-weight: 500;
-    background: var(--s3);
+    color: var(--text-2);
   }
-  .mode:has(input:focus-visible) {
-    outline: 2px solid var(--accent);
-    outline-offset: 1px;
+  .mode-menu {
+    position: relative;
   }
-  /* The native radio keeps arrow keys and screen readers; the label is the button. */
-  .mode input {
+  .mode-menu > .quiet {
+    gap: 4px;
+  }
+  .menu {
     position: absolute;
-    opacity: 0;
-    inset: 0;
-    margin: 0;
-    cursor: pointer;
+    bottom: calc(100% + 4px);
+    left: 0;
+    z-index: 3;
+    width: max-content;
+    max-width: 280px;
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    background: var(--s4);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--card-shadow);
+  }
+  .menu button {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    padding: 6px 10px;
+    text-align: left;
+  }
+  .menu button:hover,
+  .menu button:focus-visible {
+    color: var(--accent-ink);
+    background: var(--accent);
+    outline: none;
+  }
+  .menu .name {
+    font-weight: 500;
+  }
+  .menu [aria-checked="true"] {
+    box-shadow: inset 3px 0 0 var(--accent);
+  }
+  .menu .what {
+    font-size: 13px;
+    opacity: 0.85;
+  }
+  .foot {
+    flex: none;
+    margin: -4px 8px 6px;
+  }
+  .foot .quiet {
+    height: 24px;
+    font-size: 12px;
+  }
+  .foot .warn {
+    color: var(--warn);
   }
   .blocked {
     display: flex;
@@ -1368,9 +1499,6 @@ const canReply = $derived(current !== null && current.status.state === "idle");
     .card,
     .pill {
       border: 1px solid CanvasText;
-    }
-    .mode:has(input:checked) {
-      border: 2px solid Highlight;
     }
     .close {
       opacity: 1;

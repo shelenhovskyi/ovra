@@ -59,6 +59,8 @@ export class FakeAgentCore implements Transport {
   trustedConfig = new Map<ProjectId, ProjectAgentConfig>();
   /** What `agents.capacity` answers. */
   capacity: AgentCapacity = { working: 0, limit: 3, queued: 0 };
+  /** `git.status` answers that the project is not a git repository. */
+  noRepo = false;
   /** Makes the next call of this method fail with this error. */
   failNext = new Map<Request["method"], CoreError>();
   private listeners = new Set<(event: CoreEvent) => void>();
@@ -195,6 +197,9 @@ export class FakeAgentCore implements Transport {
       }
       case "open.url":
         return { type: "ok" };
+      case "git.status":
+        if (this.noRepo) return { type: "git.no_repo" };
+        throw new CoreError({ code: "unavailable", message: "git.status is not faked" });
       case "review.list":
         return { type: "review.list", data: this.reviews.filter((r) => r.project === request.params.project) };
       case "permissions.pending":

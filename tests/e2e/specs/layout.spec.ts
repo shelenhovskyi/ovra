@@ -86,7 +86,7 @@ test("the window never scrolls, whatever a panel scrolls into view", async ({ pa
   await page.getByRole("treeitem", { name: /file-000\.txt/ }).click();
   await page.keyboard.press("End");
   await page.getByRole("treeitem", { name: /file-079\.txt/ }).click();
-  await page.getByRole("textbox", { name: "What should Claude do?" }).focus();
+  await page.getByRole("textbox", { name: "Give Claude a task" }).focus();
   await page.getByRole("treeitem", { name: /file-079\.txt/ }).focus();
   expect(await page.evaluate(() => document.scrollingElement?.scrollTop)).toBe(0);
   expect((await page.locator("header.title").boundingBox())?.y).toBe(0);

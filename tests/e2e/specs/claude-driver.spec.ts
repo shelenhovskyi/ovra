@@ -46,7 +46,7 @@ test("a recorded Claude session runs through the real driver", async ({ page }) 
 
   // The recording's prompts, word for word: fake-claude checks every line.
   await page
-    .getByRole("textbox", { name: "What should Claude do?" })
+    .getByRole("textbox", { name: "Give Claude a task" })
     .fill("Fix the typo in README.md with the Edit tool. Do not run commands and do not change anything else.");
   await page.getByRole("button", { name: "Start", exact: true }).click();
   await allow(page, /^Edit .*README\.md$/);

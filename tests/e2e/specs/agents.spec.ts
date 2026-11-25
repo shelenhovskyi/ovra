@@ -52,7 +52,7 @@ async function openGitProject(page: Page, prefix: string): Promise<string> {
 
 test("start an agent and answer its requests from the keyboard", async ({ page }) => {
   await openProject(page, "ovra-agents-keys-");
-  await page.getByRole("textbox", { name: "What should Claude do?" }).fill("Fix the typo");
+  await page.getByRole("textbox", { name: "Give Claude a task" }).fill("Fix the typo");
   await page.keyboard.press("ControlOrMeta+Enter");
 
   const approvals = page.getByTestId("approvals");
@@ -113,7 +113,7 @@ test("start an agent and answer its requests from the keyboard", async ({ page }
 test("a working agent's text streams in under a live row until the turn ends", async ({ page }) => {
   await openProject(page, "ovra-agents-stream-");
   // The fake agent stays mid-sentence for prompts that start with "Stream".
-  await page.getByRole("textbox", { name: "What should Claude do?" }).fill("Stream the notes");
+  await page.getByRole("textbox", { name: "Give Claude a task" }).fill("Stream the notes");
   await page.keyboard.press("ControlOrMeta+Enter");
 
   const transcript = page.getByTestId("transcript");
@@ -135,7 +135,7 @@ test("in a short window, Review shows the whole request and the title counts wha
   // About 200% zoom on a laptop: approvals sit under the main area.
   await page.setViewportSize({ width: 640, height: 400 });
   await openProject(page, "ovra-agents-short-");
-  await page.getByRole("textbox", { name: "What should Claude do?" }).fill("Fix the typo");
+  await page.getByRole("textbox", { name: "Give Claude a task" }).fill("Fix the typo");
   await page.keyboard.press("ControlOrMeta+Enter");
 
   const approvals = page.getByTestId("approvals");
@@ -168,7 +168,7 @@ test("in a short window, Review shows the whole request and the title counts wha
 
 test("reply to an agent, allow with the mouse and stop it while it waits", async ({ page }) => {
   await openProject(page, "ovra-agents-reply-");
-  await page.getByRole("textbox", { name: "What should Claude do?" }).fill("Tidy up");
+  await page.getByRole("textbox", { name: "Give Claude a task" }).fill("Tidy up");
   await page.getByRole("button", { name: "Start", exact: true }).click();
 
   const approvals = page.getByTestId("approvals");
@@ -233,8 +233,9 @@ test("a task's coordinator splits the work among three workers whose diffs wait 
   // Workers need a git repository for their worktrees.
   await openGitProject(page, "ovra-agents-task-");
 
-  await page.getByRole("textbox", { name: "What should Claude do?" }).fill("Write the notes");
-  await page.getByRole("radio", { name: "Plan and split" }).check();
+  await page.getByRole("textbox", { name: "Give Claude a task" }).fill("Write the notes");
+  await page.getByTestId("agent-mode").click();
+  await page.getByRole("menuitemradio", { name: /^Plan and split/ }).click();
   await page.getByRole("button", { name: "Start", exact: true }).click();
 
   // Each worker asks to write its notes; the person allows all three.
@@ -263,7 +264,7 @@ test("a task's coordinator splits the work among three workers whose diffs wait 
 
 test("a direct session's protected files and git hooks need a look before approve", async ({ page }) => {
   const dir = await openGitProject(page, "ovra-agents-protected-");
-  await page.getByRole("textbox", { name: "What should Claude do?" }).fill("Fix the typo");
+  await page.getByRole("textbox", { name: "Give Claude a task" }).fill("Fix the typo");
   await page.getByRole("button", { name: "Start", exact: true }).click();
   const approvals = page.getByTestId("approvals");
   for (const name of ["Run ls -la", "Edit README.md"]) {

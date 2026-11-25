@@ -50,14 +50,18 @@ const modEnter = () =>
     new KeyboardEvent("keydown", { code: "Enter", key: "Enter", ctrlKey: true, bubbles: true, cancelable: true }),
   );
 
-/** Picks how the next task runs, as a click on its option would. */
+/** Picks how the next task runs from the mode menu, as clicks would. */
 function choose(label: string) {
-  const option = [...target.querySelectorAll<HTMLLabelElement>(".modes label")].find(
-    (l) => l.textContent?.trim() === label,
+  target.querySelector<HTMLButtonElement>("[data-testid=agent-mode]")?.click();
+  flushSync();
+  const option = [...target.querySelectorAll<HTMLButtonElement>("[role=menuitemradio]")].find(
+    (b) => b.querySelector(".name")?.textContent === label,
   );
-  option?.querySelector("input")?.click();
+  option?.click();
   flushSync();
 }
+
+const modeLabel = () => target.querySelector("[data-testid=agent-mode]")?.textContent?.trim();
 
 const startButton = () =>
   [...target.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Start");
@@ -88,29 +92,34 @@ const button = (name: string) =>
   [...target.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent?.trim() === name);
 
 describe("AgentsPanel", () => {
-  it("offers one Start button and two plainly worded ways to work, one agent here by default", async () => {
+  it("offers one Start button and a mode menu that says what each way to work means", async () => {
     await setup();
-    const buttons = [...target.querySelectorAll("form.new button")].map((b) => b.textContent);
-    // Who pays (it opens Claude's setup), and Start.
-    expect(buttons).toEqual(["Claude plan", "Start"]);
-    expect(target.querySelector("label[for=agent-prompt]")?.textContent).toBe("What should Claude do?");
-    const options = () =>
-      [...target.querySelectorAll<HTMLInputElement>("input[name=agent-mode]")].map((i) => [
-        i.closest("label")?.textContent?.trim(),
-        i.checked,
-      ]);
+    const buttons = [...target.querySelectorAll("form.new button")].map((b) => b.textContent?.trim());
+    expect(buttons).toEqual(["One agent, here", "Start"]);
+    // Who pays, in the footer line (it opens Claude's setup).
+    expect(target.querySelector("[data-testid=agents-footer]")?.textContent).toBe("Claude · Claude plan");
+    expect(target.querySelector("label[for=agent-prompt]")?.textContent).toBe("Give Claude a task");
     const hint = () => target.querySelector("#agent-mode-hint")?.textContent;
-    expect(options()).toEqual([
-      ["One agent, here", true],
-      ["Plan and split", false],
+    expect(hint()).toBe("Works in this folder. Asks before risky steps.");
+    target.querySelector<HTMLButtonElement>("[data-testid=agent-mode]")?.click();
+    await settle();
+    const options = [...target.querySelectorAll("[role=menuitemradio]")].map((o) => [
+      o.textContent,
+      o.getAttribute("aria-checked"),
     ]);
-    expect(hint()).toBe("Works in this folder");
-    choose("Plan and split");
-    expect(options()).toEqual([
-      ["One agent, here", false],
-      ["Plan and split", true],
+    expect(options).toEqual([
+      ["One agent, hereWorks in this folder. Asks before risky steps.", "true"],
+      ["Plan and splitUp to 3 agents, each on its own copy. You review before anything is merged.", "false"],
     ]);
-    expect(hint()).toBe("Up to 3 agents; you review");
+    expect(document.activeElement?.getAttribute("aria-checked")).toBe("true");
+    // Arrow keys move in the menu; the pick closes it.
+    document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { code: "ArrowDown", bubbles: true }));
+    expect(document.activeElement?.textContent).toMatch(/^Plan and split/);
+    (document.activeElement as HTMLElement).click();
+    flushSync();
+    expect(target.querySelector("[role=menu]")).toBeNull();
+    expect(modeLabel()).toBe("Plan and split");
+    expect(hint()).toBe("Up to 3 agents on their own copies. You review first.");
     expect(panel()?.querySelector("[data-testid=agents-empty]")?.textContent?.trim()).toBe("No tasks yet.");
   });
 
@@ -123,12 +132,28 @@ describe("AgentsPanel", () => {
     expect(core.sent("orchestration.start")).toHaveLength(1);
     expect(core.sent("agents.start")).toEqual([]);
     back();
-    expect(target.querySelector<HTMLInputElement>("input[value=split]")?.checked).toBe(true);
+    expect(modeLabel()).toBe("Plan and split");
     expect(panel()?.querySelector("[data-testid=agents-empty]")).toBeNull();
     // A reload offers the project's last mode again.
     if (app) unmount(app);
     await setup(core);
-    expect(target.querySelector<HTMLInputElement>("input[value=split]")?.checked).toBe(true);
+    expect(modeLabel()).toBe("Plan and split");
+  });
+
+  it("disables Start with a reason when Plan and split has no git repository", async () => {
+    const core = new FakeAgentCore();
+    core.noRepo = true;
+    await setup(core);
+    type(target.querySelector("#agent-prompt"), "Write the notes");
+    choose("Plan and split");
+    await settle();
+    expect(target.querySelector("[data-testid=agent-needs-git]")?.textContent?.replace(/\s+/g, " ").trim()).toBe(
+      "Needs git: Plan and split works on copies of a git repository. Use One agent, here",
+    );
+    expect(startButton()?.disabled).toBe(true);
+    button("Use One agent, here")?.click();
+    flushSync();
+    expect(startButton()?.disabled).toBe(false);
   });
 
   it("starts on Enter, not on Shift+Enter or an Enter that ends an IME composition", async () => {

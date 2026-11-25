@@ -255,7 +255,7 @@ describe("ClaudeSetup", () => {
 
   it("opens from the start form's billing button, and hides the path field until Change", async () => {
     await show(new FakeAgentCore());
-    button(target, "Claude plan")?.click();
+    button(target, "Claude · Claude plan")?.click();
     await settle();
     expect(card()?.textContent?.replace(/\s+/g, " ").trim()).toMatch(
       /^Claude 2.1.331 is ready · uses your Claude plan Change/,
@@ -269,7 +269,7 @@ describe("ClaudeSetup", () => {
     flushSync();
     expect(card()?.querySelector("#claude-path")).toBeNull();
     // The same button closes it again.
-    button(target, "Claude plan")?.click();
+    button(target, "Claude · Claude plan")?.click();
     flushSync();
     expect(card()).toBeNull();
   });
@@ -277,7 +277,7 @@ describe("ClaudeSetup", () => {
   it("says who pays for usage and warns about an API key in the environment", async () => {
     const core = new FakeAgentCore();
     await show(core);
-    button(target, "Claude plan")?.click();
+    button(target, "Claude · Claude plan")?.click();
     await settle();
     expect(card()?.querySelector("[data-testid=claude-billing]")?.textContent).toBe("· uses your Claude plan");
     expect(paidShort(setup({ state: "ready" }, { billing: { kind: "cloud", provider: "vertex" } }))).toBe(

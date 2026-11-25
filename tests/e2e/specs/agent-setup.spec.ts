@@ -22,8 +22,8 @@ test("review what a project would load, trust it and stop trusting it", async ({
   await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
   await projects.getByRole("button", { name: "Open", exact: true }).click();
 
-  // Claude is ready: no setup card; the start form has a button for it.
-  await expect(page.getByRole("button", { name: "Claude", exact: true })).toBeVisible();
+  // Claude is ready: no setup card; one footer line under the start form says so.
+  await expect(page.getByTestId("agents-footer")).toHaveText("Claude · Ready");
   await expect(page.getByTestId("claude-setup")).toHaveCount(0);
   const trust = page.getByTestId("project-trust");
   await expect(trust.getByRole("heading")).toHaveText("This project has its own Claude settings");

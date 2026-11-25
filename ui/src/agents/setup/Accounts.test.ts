@@ -93,7 +93,7 @@ describe("accounts in the agents panel", () => {
     await show(new FakeAgentCore());
     // No card while Claude is ready: the way to add one shows once it is opened.
     expect(accounts()).toBeNull();
-    button("Claude plan")?.click();
+    target.querySelector<HTMLButtonElement>("[data-testid=agents-footer]")?.click();
     await settle();
     button("Change")?.click();
     await settle();
@@ -108,7 +108,7 @@ describe("accounts in the agents panel", () => {
     await show(core);
     // Found folders wait in Claude's setup, opened from the start form.
     expect(button("Add as Work")).toBeUndefined();
-    button("Claude plan")?.click();
+    target.querySelector<HTMLButtonElement>("[data-testid=agents-footer]")?.click();
     await settle();
     button("Add as Work")?.click();
     await settle();
@@ -156,7 +156,7 @@ describe("accounts in the agents panel", () => {
     await show(core);
     // New tasks start with Default, which is signed in: no setup card for Work.
     expect(target.querySelector("[data-testid=claude-setup]")).toBeNull();
-    button("Claude plan")?.click();
+    target.querySelector<HTMLButtonElement>("[data-testid=agents-footer]")?.click();
     await settle();
     expect(summary()).toBe("Accounts: Default, Work (not signed in)");
     // The project's account is signed out: a new task starts with a signed-in one.
@@ -178,7 +178,7 @@ describe("accounts in the agents panel", () => {
   it("adds a typed folder, says why the core refuses one, and renames", async () => {
     const core = new FakeAgentCore();
     await show(core);
-    button("Claude plan")?.click();
+    target.querySelector<HTMLButtonElement>("[data-testid=agents-footer]")?.click();
     await settle();
     button("Change")?.click();
     await settle();
