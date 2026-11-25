@@ -128,22 +128,24 @@ const status = $derived.by((): { text: string; ok: boolean } => {
   </aside>
   <main data-testid="main">
     <Tabs />
-    {#if gitDiff}
-      <div class="view"><GitDiff target={gitDiff} /></div>
-    {/if}
+    <!-- The selected tab: a git diff (a tab of its own) or the open file, which stays mounted under the diff. -->
     <div
       class="view"
       id="ovra-tabpanel"
       role="tabpanel"
       tabindex="-1"
-      aria-label={workspace.openPath ?? "No file open"}
-      hidden={!!gitDiff}
+      aria-label={gitDiff ? `Diff of ${gitDiff.path}` : (workspace.openPath ?? "No file open")}
     >
-      {#if workspace.mode === "edit"}
-        <Editor />
-      {:else}
-        <Viewer />
+      {#if gitDiff}
+        <GitDiff target={gitDiff} />
       {/if}
+      <div class="file" hidden={!!gitDiff}>
+        {#if workspace.mode === "edit"}
+          <Editor />
+        {:else}
+          <Viewer />
+        {/if}
+      </div>
     </div>
     <Terminals />
   </main>
@@ -269,8 +271,11 @@ const status = $derived.by((): { text: string; ok: boolean } => {
     flex: 1;
     min-height: 0;
   }
-  .view[hidden] {
+  .file[hidden] {
     display: none;
+  }
+  .file {
+    height: 100%;
   }
   footer {
     grid-area: footer;
