@@ -45,10 +45,18 @@ it("shows results grouped by file, highlights matches and opens the chosen one",
     "let needle = 1;",
   ]);
 
+  // One Tab stop for the results; ArrowDown from the box goes there, Escape comes back.
   const buttons = [...target.querySelectorAll<HTMLButtonElement>("button[data-result]")];
-  buttons[0]?.focus();
-  buttons[0]?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+  expect(buttons.map((b) => b.tabIndex)).toEqual([0, -1]);
+  input.focus();
+  input.dispatchEvent(new KeyboardEvent("keydown", { code: "ArrowDown", key: "ArrowDown", bubbles: true }));
+  expect(document.activeElement).toBe(buttons[0]);
+  buttons[0]?.dispatchEvent(new KeyboardEvent("keydown", { code: "ArrowDown", key: "ArrowDown", bubbles: true }));
   expect(document.activeElement).toBe(buttons[1]);
+  flushSync();
+  expect(buttons.map((b) => b.tabIndex)).toEqual([-1, 0]);
+  buttons[1]?.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", key: "Escape", bubbles: true }));
+  expect(document.activeElement).toBe(input);
   buttons[1]?.click();
   buttons[0]?.click();
   expect(opened).toEqual([

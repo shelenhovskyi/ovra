@@ -77,8 +77,21 @@ function toggle(option: "caseSensitive" | "wholeWord" | "regex"): void {
   changed();
 }
 
+/** The result that is the list's one Tab stop: the last one focused while it is shown, else the first. */
+let current = $state<string | null>(null);
+const resultKey = (path: string, match: LineMatch) => `${path}\n${match.line}`;
+const stop = $derived.by(() => {
+  const keys = visible.flatMap((file) => file.lines.map((match) => resultKey(file.path, match)));
+  return current !== null && keys.includes(current) ? current : (keys[0] ?? null);
+});
+
 function onQueryKeydown(event: KeyboardEvent): void {
-  if (event.key === "Enter") {
+  if (event.code === "ArrowDown") {
+    const first = results?.querySelector<HTMLButtonElement>("button[data-result][tabindex='0']");
+    if (!first) return;
+    event.preventDefault();
+    first.focus();
+  } else if (event.key === "Enter") {
     event.preventDefault();
     shownLines = PAGE;
     void model.run();
@@ -90,16 +103,21 @@ function onQueryKeydown(event: KeyboardEvent): void {
 
 /** Arrow keys move between results; Home and End go to the first and last. */
 function onResultsKeydown(event: KeyboardEvent): void {
-  if (!results || !["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+  if (event.code === "Escape") {
+    event.preventDefault();
+    input?.focus();
+    return;
+  }
+  if (!results || !["ArrowDown", "ArrowUp", "Home", "End"].includes(event.code)) return;
   const buttons = [...results.querySelectorAll<HTMLButtonElement>("button[data-result]")];
   if (!buttons.length) return;
   const at = buttons.indexOf(document.activeElement as HTMLButtonElement);
   const next =
-    event.key === "Home"
+    event.code === "Home"
       ? 0
-      : event.key === "End"
+      : event.code === "End"
         ? buttons.length - 1
-        : Math.min(Math.max(at + (event.key === "ArrowDown" ? 1 : -1), 0), buttons.length - 1);
+        : Math.min(Math.max(at + (event.code === "ArrowDown" ? 1 : -1), 0), buttons.length - 1);
   event.preventDefault();
   buttons[next]?.focus();
 }
@@ -143,6 +161,7 @@ const folder = (path: string) => path.slice(0, Math.max(path.lastIndexOf("/"), 0
       type="search"
       placeholder="Search in files"
       aria-label="Search text"
+      aria-describedby={visible.length > 0 ? "search-keys" : undefined}
       spellcheck="false"
       autocomplete="off"
       bind:this={input}
@@ -192,6 +211,9 @@ const folder = (path: string) => path.slice(0, Math.max(path.lastIndexOf("/"), 0
     </label>
   {/if}
   <p class="summary" class:error={model.status.kind === "error"} role="status" data-testid="search-summary">{summary}</p>
+  {#if visible.length > 0}
+    <p class="keys" id="search-keys">Down arrow: to the results. Escape: back here.</p>
+  {/if}
   <!-- Arrow keys move between the result buttons inside. -->
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <ul class="results" aria-label="Search results" bind:this={results} onkeydown={onResultsKeydown}>
@@ -211,6 +233,8 @@ const folder = (path: string) => path.slice(0, Math.max(path.lastIndexOf("/"), 0
                 type="button"
                 class="line"
                 data-result
+                tabindex={resultKey(file.path, match) === stop ? 0 : -1}
+                onfocus={() => (current = resultKey(file.path, match))}
                 aria-label={`${file.path} line ${match.line}: ${match.text.trim()}`}
                 onclick={() => open(file.path, match)}
               >
@@ -291,6 +315,15 @@ const folder = (path: string) => path.slice(0, Math.max(path.lastIndexOf("/"), 0
     font-size: 12px;
     color: #9a9aa6;
   }
+  .keys {
+    margin: 0;
+    font-size: 11px;
+    color: #9a9aa6;
+  }
+  input::placeholder {
+    /* 4.7:1 on the field. */
+    color: #8a8a96;
+  }
   .summary.error {
     color: #ff6b6b;
   }
@@ -358,7 +391,7 @@ const folder = (path: string) => path.slice(0, Math.max(path.lastIndexOf("/"), 0
     flex: none;
     min-width: 3ch;
     text-align: right;
-    color: #6f6f7a;
+    color: #8a8a96;
   }
   .text {
     overflow: hidden;
