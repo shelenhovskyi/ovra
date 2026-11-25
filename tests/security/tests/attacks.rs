@@ -884,10 +884,21 @@ fn a_bound_secret_never_enters_the_sandbox() {
             }
         });
     }
+    // The sandbox's bundle is the roots the netproxy trusts plus the
+    // session's CA. None of the machine's roots: nothing below depends on
+    // them, and each request parses the whole bundle again (several hundred
+    // roots where CA variables name extra bundles).
+    let no_roots = world.file("no-roots.pem", "");
     let mut proxy = Command::new(std::env::current_exe().unwrap())
         .args(["secret_proxy", "--exact", "--ignored", "--nocapture"])
         .env("OVRA_SECRET_PROXY", "1")
         .env("HTTPS_PROXY", format!("http://127.0.0.1:{up}"))
+        .env("SSL_CERT_FILE", &no_roots)
+        .env_remove("SSL_CERT_DIR")
+        .env_remove("NODE_EXTRA_CA_CERTS")
+        .env_remove("CURL_CA_BUNDLE")
+        .env_remove("REQUESTS_CA_BUNDLE")
+        .env_remove("GIT_SSL_CAINFO")
         .env_remove("HTTP_PROXY")
         .env_remove("http_proxy")
         .env_remove("https_proxy")
