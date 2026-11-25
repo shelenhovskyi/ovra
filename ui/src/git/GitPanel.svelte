@@ -72,8 +72,9 @@ function ago(seconds: number, now = Date.now() / 1000): string {
     <p class="hint">Loading git status…</p>
   {:else if model.state.kind === "no_repo"}
     <p data-testid="git-no-repo">This folder is not a git repository.</p>
-    <p class="hint">To start one, run <code>git init</code> in a terminal; this panel updates by itself.</p>
+    <p class="hint">To start one, run <code>git init</code> in a terminal, then check again.</p>
     <button type="button" onclick={openTerminal}>Open terminal</button>
+    <button type="button" onclick={() => model.refresh()}>Check again</button>
   {:else if model.state.kind === "error"}
     <p class="error" role="alert" data-testid="git-error">{model.state.message}</p>
     <button type="button" onclick={() => model.refresh()}>Try again</button>

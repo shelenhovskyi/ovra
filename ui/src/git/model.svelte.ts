@@ -110,8 +110,10 @@ export class GitModel {
     let wasOpen = true;
     this.offs = [
       transport.onEvent((event) => {
-        if (event.type === "info.resync" || (event.type === "fs.git_changed" && event.data.project === project))
-          this.changed();
+        // `fs.git_changed` only fires when the tree's badges change; staging
+        // in a terminal or editing a changed file again does not change them.
+        const mine = (event.type === "fs.git_changed" || event.type === "fs.changed") && event.data.project === project;
+        if (event.type === "info.resync" || mine) this.changed();
       }),
       transport.onStatus?.((status) => {
         if (status === "open" && !wasOpen) this.changed();

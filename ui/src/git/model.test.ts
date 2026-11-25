@@ -30,11 +30,13 @@ describe("GitModel", () => {
     });
   });
 
-  it("reloads once for a burst of git_changed events of its project only", async () => {
+  it("reloads once for a burst of git_changed and file events of its project only", async () => {
     const { core, model } = await loaded();
     core.calls = [];
     core.emit({ type: "fs.git_changed", data: { project: "other" } });
-    for (let i = 0; i < 5; i++) core.emit({ type: "fs.git_changed", data: { project: "p1" } });
+    core.emit({ type: "fs.changed", data: { project: "other", paths: ["a"] } });
+    for (let i = 0; i < 4; i++) core.emit({ type: "fs.git_changed", data: { project: "p1" } });
+    core.emit({ type: "fs.changed", data: { project: "p1", paths: ["a.ts"] } });
     await model.refresh();
     expect(core.methods()).toEqual(["git.status", "git.status"]);
     expect(model.version).toBe(5);

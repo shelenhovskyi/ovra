@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
@@ -10,13 +10,22 @@ function daemonUrl(): string {
   return raw;
 }
 
+/** Without the machine's global config, so its hooks or signing cannot interfere. */
+const GIT_ENV = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
+
 function git(dir: string, ...args: string[]): string {
-  return execFileSync("git", args, { cwd: dir, encoding: "utf8" });
+  return execFileSync("git", args, { cwd: dir, encoding: "utf8", env: GIT_ENV });
 }
+
+const made: string[] = [];
+test.afterAll(() => {
+  for (const dir of made) rmSync(dir, { recursive: true, force: true });
+});
 
 /** A repository with one commit on `main` and its own identity. */
 function repo(): string {
   const dir = mkdtempSync(join(tmpdir(), "ovra-git-"));
+  made.push(dir);
   git(dir, "init", "-q", "-b", "main");
   git(dir, "config", "user.name", "E2E");
   git(dir, "config", "user.email", "e2e@example.invalid");

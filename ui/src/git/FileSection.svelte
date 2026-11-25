@@ -67,7 +67,7 @@ function open(file: StatusFile): void {
   else onopen(file.path);
 }
 
-const all = $derived(files.map((f) => f.path));
+const all = $derived(files.flatMap((f) => (kind === "staged" && f.from ? [f.path, f.from] : [f.path])));
 </script>
 
 <section class="files" aria-labelledby={`git-${kind}-title`} data-testid={`git-${kind}`} bind:this={section}>
@@ -136,7 +136,7 @@ const all = $derived(files.map((f) => f.path));
               title="Unstage"
               aria-label={`Unstage ${file.path}`}
               aria-disabled={model.busy}
-              onclick={() => run("unstage", i, () => model.unstage([file.path]))}>−</button
+              onclick={() => run("unstage", i, () => model.unstage(file.from ? [file.path, file.from] : [file.path]))}>−</button
             >
           {:else}
             <button
