@@ -40,8 +40,8 @@ $effect(() =>
     run: async () => {
       const answer = await notifier.system.request();
       const text = {
-        granted: "System notifications are on: Ovra tells you when an agent needs you while it is in the background.",
-        denied: "System notifications are blocked. Allow them in the browser or system settings.",
+        granted: "System notifications on: Ovra tells you when an agent needs you.",
+        denied: "System notifications blocked. Allow them in system settings.",
         default: "System notifications stay off.",
         unsupported: "System notifications are not available here.",
       }[answer];
@@ -88,19 +88,23 @@ $effect(() => {
 
 {#snippet toast(item: Toast)}
   <div class="toast {item.level}" data-testid="toast">
+    <span class="dot" aria-hidden="true"></span>
     <p>{item.text}</p>
     <div class="actions">
       {#if item.action}
         {@const action = item.action}
         <button
           type="button"
+          class="act"
           onclick={() => {
             notifier.dismiss(item.id);
             action.run();
           }}>{action.label}</button
         >
       {/if}
-      <button type="button" aria-label="Dismiss notification" onclick={() => notifier.dismiss(item.id)}>×</button>
+      <button type="button" aria-label="Dismiss notification" onclick={() => notifier.dismiss(item.id)}
+        ><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg></button
+      >
     </div>
   </div>
 {/snippet}
@@ -122,8 +126,8 @@ $effect(() => {
     z-index: 10;
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    width: min(360px, calc(100vw - 32px));
+    gap: 8px;
+    width: min(380px, calc(100vw - 32px));
     pointer-events: none;
   }
   /* Under the header, over the main area. */
@@ -134,25 +138,31 @@ $effect(() => {
   .notifications > div {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 8px;
   }
   .toast {
     pointer-events: auto;
     display: flex;
-    align-items: flex-start;
-    gap: 8px;
-    padding: 8px 10px;
-    background: #24242c;
-    border: 1px solid #4a4a57;
-    border-left-width: 4px;
-    border-radius: 4px;
-    box-shadow: 0 4px 12px rgb(0 0 0 / 40%);
+    align-items: center;
+    gap: 10px;
+    padding: 8px 8px 8px 14px;
+    color: var(--text);
+    background: var(--s4);
+    border-radius: 10px;
+    box-shadow: var(--card-shadow);
   }
-  .attention {
-    border-left-color: #ffd36b;
+  .dot {
+    flex: none;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
   }
-  .error {
-    border-left-color: #ff8f8f;
+  .attention .dot {
+    background: var(--warn);
+  }
+  .error .dot {
+    background: var(--danger);
   }
   p {
     margin: 0;
@@ -161,20 +171,36 @@ $effect(() => {
   }
   .actions {
     display: flex;
-    gap: 4px;
+    align-items: center;
+    gap: 2px;
   }
   button {
+    display: grid;
+    place-items: center;
+    min-width: 28px;
     font: inherit;
-    padding: 2px 8px;
-    color: #e6e6e6;
-    background: #2a2a33;
-    border: 1px solid #4a4a57;
-    border-radius: 3px;
+    padding: 3px 8px;
+    color: var(--text-2);
+    background: transparent;
+    border: 0;
+    border-radius: var(--radius-sm);
     cursor: pointer;
   }
-  button:focus-visible {
-    outline: 2px solid #7aa2ff;
-    outline-offset: 1px;
+  button:hover {
+    color: var(--text);
+    background: var(--s3);
+  }
+  button.act {
+    color: var(--accent);
+    font-weight: 500;
+  }
+  svg {
+    width: 15px;
+    height: 15px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
   }
   @media (max-width: 900px) {
     .notifications {

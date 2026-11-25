@@ -78,9 +78,7 @@ describe("watchAgents", () => {
     core.status("s1", { state: "working" });
     core.status("s1", { state: "idle" });
     await vi.advanceTimersByTimeAsync(0);
-    expect(notifier.toasts.map((t) => [t.level, t.text])).toEqual([
-      ["info", "Fix the typo is done. Reply to ask for more."],
-    ]);
+    expect(notifier.toasts.map((t) => [t.level, t.text])).toEqual([["info", "Fix the typo is done."]]);
     core.status("s1", { state: "working" });
     core.status("s1", { state: "idle" });
     core.status("s1", { state: "failed", message: "crashed" });
@@ -135,7 +133,7 @@ describe("watchAgents", () => {
     core.status("s1", { state: "idle" });
     await vi.advanceTimersByTimeAsync(0);
     expect(notifier.toasts.map((t) => [t.text, t.action?.label])).toEqual([
-      ["Fix the typo is done and changed 1 file. Keep or undo it in Reviews.", "Review"],
+      ["Fix the typo is done: 1 file changed.", "Review"],
     ]);
   });
 
@@ -169,7 +167,7 @@ describe("watchAgents", () => {
     expect(await texts()).toEqual([]);
     core.status("s2", { state: "working" });
     core.status("s2", { state: "idle" });
-    expect(await texts()).toEqual(["Task: Add notes is done. Reply to ask for more."]);
+    expect(await texts()).toEqual(["Task: Add notes is done."]);
     // Its worker asked for review: the toast says so and opens Reviews.
     core.reviews = [
       {
@@ -201,7 +199,7 @@ describe("watchAgents", () => {
     ];
     core.status("s2", { state: "working" });
     core.status("s2", { state: "idle" });
-    expect(await texts()).toEqual(["Add notes: 1 change waits for your review"]);
+    expect(await texts()).toEqual(["Add notes: 1 change to review"]);
     expect(notifier.toasts[0]?.action?.label).toBe("Review");
     // On the task's workers' items, not the one chosen last.
     const asked = vi.fn();
