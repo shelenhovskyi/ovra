@@ -81,11 +81,18 @@ test("start an agent and answer its requests from the keyboard", async ({ page }
   await expect(run.getByRole("button", { name: "Allow" })).toHaveAttribute("aria-disabled", "false");
   await page.keyboard.press("y");
 
-  // Focus goes back to the reply box, and the next request is not focused
-  // when it arrives: typing must not answer it. The shortcut reaches it.
+  // Focus waits on the Approvals heading, not in the reply box, and the next
+  // request is not focused when it arrives: a second Y neither answers it
+  // nor types into the reply box, and says why. The shortcut reaches it.
   const edit = approvals.getByRole("group", { name: "Edit README.md" });
   await expect(edit).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "Reply to Claude" })).toBeFocused();
+  await expect(approvals.getByRole("heading", { name: /^Approvals/ })).toBeFocused();
+  await page.keyboard.press("y");
+  await expect(approvals.getByTestId("approvals-notice")).toHaveText(
+    "New request: press Alt+Shift+A to read it first.",
+  );
+  await expect(page.getByRole("textbox", { name: "Reply to Claude" })).toHaveValue("");
+  await expect(edit).toBeVisible();
   await page.keyboard.press("Alt+Shift+A");
   await expect(edit).toBeFocused();
   await arm(page);
