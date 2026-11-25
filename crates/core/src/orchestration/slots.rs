@@ -1,5 +1,5 @@
 //! One cap for the whole project (CLAUDE.md, ADR 0006 rules): at most
-//! [`MAX_WORKING`] agents work at once, whichever task they belong to. A
+//! [`limit`] agents work at once, whichever task they belong to. A
 //! worker beyond it waits `queued` and starts when a place frees; a person's
 //! start beyond it is refused. Both are checked and their place taken under
 //! the one lock, so starts at the same moment never pass the cap together.
@@ -7,22 +7,80 @@
 use super::{State, tasks};
 use crate::Core;
 use crate::agents;
-use crate::protocol::agents::{AgentCapacity, AgentStatus};
+use crate::protocol::agents::{AgentCapacity, AgentLimit, AgentStatus, AgentsEvent};
 use crate::protocol::projects::ProjectId;
+use crate::protocol::{ErrorCode, ProtocolError};
 use crate::services::ToolRole;
 
-/// Agents that may work at once in one project.
-pub(crate) const MAX_WORKING: usize = 3;
+/// Agents that may work at once in one project, unless the person chose
+/// another number in Settings, from [`MIN_LIMIT`] to [`MAX_LIMIT`].
+const DEFAULT_LIMIT: u32 = 3;
+const MIN_LIMIT: u32 = 1;
+/// Each agent is a `claude` process with its own worktree, using the
+/// person's plan limits; past this many, reviews pile up faster than anyone
+/// reads them.
+const MAX_LIMIT: u32 = 8;
+
+/// How many agents may work at once in one project now.
+pub(crate) fn limit(core: &Core) -> usize {
+    let state = core.orchestration_state();
+    if let Some(limit) = state.lock().limit {
+        return limit;
+    }
+    let chosen = core
+        .project_store()
+        .agent_settings()
+        .ok()
+        .and_then(|s| s.max_working)
+        .filter(|n| (MIN_LIMIT..=MAX_LIMIT).contains(n))
+        .unwrap_or(DEFAULT_LIMIT);
+    let chosen = usize::try_from(chosen).unwrap_or(1);
+    state.lock().limit = Some(chosen);
+    chosen
+}
+
+/// The limit and its range, as `agents.limit` answers.
+pub(crate) fn view(core: &Core) -> AgentLimit {
+    AgentLimit {
+        limit: u32::try_from(limit(core)).unwrap_or(DEFAULT_LIMIT),
+        default: DEFAULT_LIMIT,
+        min: MIN_LIMIT,
+        max: MAX_LIMIT,
+    }
+}
+
+/// `agents.set_limit`: saves the person's choice; a higher limit starts
+/// queued workers in every project.
+pub(crate) fn set_limit(core: &Core, limit: u32) -> Result<AgentLimit, ProtocolError> {
+    if !(MIN_LIMIT..=MAX_LIMIT).contains(&limit) {
+        return Err(ProtocolError::new(
+            ErrorCode::BadRequest,
+            format!("the limit must be between {MIN_LIMIT} and {MAX_LIMIT}"),
+        ));
+    }
+    let store = core.project_store();
+    let mut settings = store.agent_settings()?;
+    settings.max_working = (limit != DEFAULT_LIMIT).then_some(limit);
+    store.set_agent_settings(settings)?;
+    core.orchestration_state().lock().limit = usize::try_from(limit).ok();
+    let view = view(core);
+    core.emit(AgentsEvent::LimitChanged(view));
+    for project in store.list()? {
+        start_queued(core, &project.id);
+    }
+    Ok(view)
+}
 
 /// How many agents of `project` work and wait now.
 pub(crate) fn capacity(core: &Core, project: &ProjectId) -> AgentCapacity {
+    let limit = limit(core);
     let state = core.orchestration_state();
     let guard = state.lock();
     let (working, queued) = count(core, &guard, project);
     let n = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
     AgentCapacity {
         working: n(working),
-        limit: n(MAX_WORKING),
+        limit: n(limit),
         queued: n(queued),
     }
 }
@@ -66,10 +124,11 @@ pub(crate) struct Reservation {
 /// Takes a place in `project` for a person's start, or says how many
 /// agents work there if none is free.
 pub(crate) fn reserve(core: &Core, project: &ProjectId) -> Result<Reservation, usize> {
+    let limit = limit(core);
     let state = core.orchestration_state();
     let mut guard = state.lock();
     let working = count(core, &guard, project).0;
-    if working >= MAX_WORKING {
+    if working >= limit {
         return Err(working);
     }
     *guard.reserved.entry(project.clone()).or_default() += 1;
@@ -102,13 +161,14 @@ pub(super) fn start_queued(core: &Core, project: &ProjectId) {
     let Ok(runtime) = tokio::runtime::Handle::try_current() else {
         return;
     };
+    let limit = limit(core);
     loop {
         // Counted and taken under one lock, so two calls never both take
         // the last place.
         let next = {
             let state = core.orchestration_state();
             let guard = state.lock();
-            if count(core, &guard, project).0 >= MAX_WORKING {
+            if count(core, &guard, project).0 >= limit {
                 return;
             }
             core.sessions().dequeue(project)

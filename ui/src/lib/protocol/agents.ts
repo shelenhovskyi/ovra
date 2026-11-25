@@ -210,6 +210,9 @@ export type AgentsRequest =
   | { method: "agents.stop"; params: { session: SessionId } }
   | { method: "agents.transcript"; params: { session: SessionId } }
   | { method: "agents.capacity"; params: { project: ProjectId } }
+  | { method: "agents.limit" }
+  /** Refused (`bad_request`) outside `min`..`max`; queued workers start if it rose. */
+  | { method: "agents.set_limit"; params: { limit: number } }
   /** Newest first. */
   | { method: "agents.checkpoints"; params: { session: SessionId } }
   /** Refused (`conflict`) while a turn runs; `not_found` for a dropped turn. */
@@ -225,6 +228,7 @@ export type AgentsResponse =
   | { type: "agents.session"; data: SessionInfo }
   | { type: "agents.transcript"; data: AgentMessage[] }
   | { type: "agents.capacity"; data: AgentCapacity }
+  | { type: "agents.limit"; data: AgentLimit }
   | { type: "agents.checkpoints"; data: Checkpoint[] }
   | { type: "agents.went_back"; data: { restored: string[]; conflicts: string[]; can_undo: boolean } }
   | { type: "agents.undid_go_back"; data: { restored: string[]; conflicts: string[] } };
@@ -239,7 +243,17 @@ export type CheckpointResponseFor<M extends CheckpointMethod> = M extends "agent
     ? Extract<AgentsResponse, { type: "agents.went_back" }>
     : Extract<AgentsResponse, { type: "agents.undid_go_back" }>;
 
+/** How many agents may work at once in each project, and the range to choose from. */
+export interface AgentLimit {
+  limit: number;
+  default: number;
+  min: number;
+  max: number;
+}
+
 export type AgentsEvent =
+  /** The person changed the limit; ask for capacities again. */
+  | { type: "agents.limit_changed"; data: AgentLimit }
   | { type: "agents.message"; data: { session: SessionId; message: AgentMessage } }
   | { type: "agents.status"; data: { session: SessionId; project: ProjectId; status: AgentStatus } }
   /** The agent said who pays for the session (`SessionInfo.billing`). */

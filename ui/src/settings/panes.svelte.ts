@@ -66,7 +66,7 @@ export const PANES: Pane[] = [
     title: "Claude",
     line: "The Claude Code on this computer that runs your tasks, and who pays for them.",
     group: "ovra",
-    keywords: ["account", "billing", "path", "sign in"],
+    keywords: ["account", "billing", "path", "sign in", "agents at once", "parallel", "limit"],
   },
   {
     id: "notifications",

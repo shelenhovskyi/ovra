@@ -3,7 +3,7 @@ import { afterEach, expect, it } from "vitest";
 import { listCommands, registerCommand } from "../keys/commands";
 import { registerContextKeys } from "../keys/context-keys";
 import type { ConfigItem, CoreEvent, ProjectConfigReview, Request, Response } from "../lib/protocol";
-import type { Transport } from "../lib/transport";
+import { CoreError, type Transport } from "../lib/transport";
 import { mainView } from "../shell/main-view.svelte";
 import { Workspace } from "../shell/workspace.svelte";
 import { registerSettingsCommands } from "./commands";
@@ -199,4 +199,50 @@ it("shows only the open project's Claude settings, and re-reads them when they m
   emit({ type: "review.changed", data: { project: "p2", id: "r2" } });
   await settle();
   expect(asked.map((a) => a.project)).toEqual(["p1", "p1", "p2", "p2"]);
+});
+
+it("sets how many agents work at once and shows what the core kept", async () => {
+  const sent: number[] = [];
+  let limit = { limit: 3, default: 3, min: 1, max: 8 };
+  const core: Transport = {
+    call: ((request: Request) => {
+      if (request.method === "agents.limit") return Promise.resolve({ type: "agents.limit", data: limit });
+      if (request.method === "agents.set_limit") {
+        sent.push(request.params.limit);
+        if (request.params.limit > 8)
+          return Promise.reject(new CoreError({ code: "bad_request", message: "the limit must be between 1 and 8" }));
+        limit = { ...limit, limit: request.params.limit };
+        return Promise.resolve({ type: "agents.limit", data: limit });
+      }
+      return transport.call(request);
+    }) as Transport["call"],
+    onEvent: () => () => {},
+  };
+  const target = document.createElement("div");
+  document.body.append(target);
+  const app = mount(TestHost, { target, props: { transport: core, workspace: new Workspace() } });
+  cleanup.push(registerSettingsCommands(), () => {
+    unmount(app);
+    target.remove();
+  });
+  await listCommands()
+    .find((c) => c.id === "settings.claude")
+    ?.run();
+  await settle();
+  const field = () => target.querySelector<HTMLInputElement>("[data-testid=agent-limit] input");
+  expect(field()?.value).toBe("3");
+  expect(target.querySelector("[data-testid=agent-limit]")?.textContent).toContain("Claude plan's limits");
+  const change = async (value: string) => {
+    const input = field();
+    if (!input) throw new Error("no field");
+    input.value = value;
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    await settle();
+  };
+  await change("5");
+  expect(field()?.value).toBe("5");
+  await change("12");
+  expect(sent).toEqual([5, 12]);
+  expect(field()?.value).toBe("5");
+  expect(target.querySelector("[data-testid=agent-limit] [role=alert]")?.textContent).toContain("between 1 and 8");
 });

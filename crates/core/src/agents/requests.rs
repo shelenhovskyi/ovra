@@ -187,6 +187,16 @@ pub(crate) async fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Resp
             let capacity = crate::orchestration::capacity(&core, &project);
             Ok(Response::Agents(AgentsResponse::Capacity(capacity)))
         }
+        AgentsRequest::Limit | AgentsRequest::SetLimit { .. } => {
+            let core = sessions.core().ok_or_else(|| {
+                ProtocolError::new(ErrorCode::Unavailable, "Ovra is shutting down")
+            })?;
+            let limit = match request {
+                AgentsRequest::SetLimit { limit } => crate::orchestration::set_limit(&core, limit)?,
+                _ => crate::orchestration::limit(&core),
+            };
+            Ok(Response::Agents(AgentsResponse::Limit(limit)))
+        }
         AgentsRequest::Checkpoints { session }
         | AgentsRequest::GoBack { session, .. }
         | AgentsRequest::UndoGoBack { session } => {

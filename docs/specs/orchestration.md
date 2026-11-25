@@ -22,8 +22,12 @@ A task is one coordinator and its workers. Limits per task: at most
 millionths of a dollar across all its sessions; `spawn_agent` fails with a
 clear message past either.
 
-Across the whole project at most 3 agents work at once (owner decision of
-2026-11-25, ORCH-3): direct sessions and workers of every task. Coordinators
+Across the whole project at most 3 agents work at once by default (owner
+decision of 2026-11-25, ORCH-3): direct sessions and workers of every task.
+The person may choose 1 to 8 in Settings > Claude (`agents.set_limit`, kept
+in the agent settings); raising it starts waiting workers, and
+`agents.limit_changed` tells clients. Subagents an agent starts inside its
+own process are not counted. Coordinators
 do not count, since they only plan and wait for their workers, and neither
 does a worker that asked for review and waits idle, or a person's own
 session that waits idle for their reply (ORCH-11). A worker spawned past

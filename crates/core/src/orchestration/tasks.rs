@@ -392,6 +392,7 @@ pub(super) async fn spawn(
             "workers need a worktrees folder, which this front end does not set",
         ));
     };
+    let limit = slots::limit(core);
     let (entry, queued) = {
         let mut guard = state.lock();
         let asked = asked_for_review(&guard.reviews);
@@ -400,8 +401,7 @@ pub(super) async fn spawn(
             .iter()
             .find(|t| &t.coordinator == coordinator)
             .map(|t| t.project.clone());
-        let queued =
-            project.is_some_and(|p| slots::count(core, &guard, &p).0 >= slots::MAX_WORKING);
+        let queued = project.is_some_and(|p| slots::count(core, &guard, &p).0 >= limit);
         let entry = guard
             .tasks
             .iter_mut()

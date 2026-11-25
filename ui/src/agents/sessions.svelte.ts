@@ -358,6 +358,9 @@ export class AgentSessions {
       // A worker that asked for review stops counting, and counts again once it is decided.
       if (this.loaded.has(event.data.project))
         void Promise.all([this.loadReviews(event.data.project), this.loadCapacity(event.data.project)]);
+    } else if (event.type === "agents.limit_changed") {
+      // "2 of 3 working" names the limit.
+      for (const project of this.loaded) void this.loadCapacity(project);
     } else if (event.type === "agents.text_delta") {
       const { session, text } = event.data;
       this.partial.set(session, (this.partial.get(session) ?? "") + text);

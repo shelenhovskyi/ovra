@@ -14,6 +14,7 @@ import ServersPanel from "../servers/ServersPanel.svelte";
 import { useOvra } from "../shell/context";
 import ViewFrame from "../shell/ViewFrame.svelte";
 import { loadScreenReader } from "../terminal/prefs";
+import AgentLimitField from "./AgentLimitField.svelte";
 import ClaudePane from "./ClaudePane.svelte";
 import EditorPane from "./EditorPane.svelte";
 import { type PaneId, panesFor, settings } from "./panes.svelte";
@@ -163,6 +164,7 @@ function onListKeydown(event: KeyboardEvent): void {
           <EditorPane />
         {:else if pane.id === "claude"}
           <ClaudePane />
+          <AgentLimitField />
         {:else if pane.id === "rules"}
           <PolicyPanel />
         {:else if pane.id === "network"}

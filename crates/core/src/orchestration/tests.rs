@@ -2823,3 +2823,46 @@ fn reviews_of(core: &Core, session: &str) -> String {
         .map(|e| e.id.0)
         .unwrap_or_else(|| panic!("{session} has no item"))
 }
+
+#[tokio::test]
+async fn the_person_sets_how_many_agents_work_at_once() {
+    let f = fx(say()).await;
+    let mut rx = f.core.subscribe();
+    let limit = |r: Response| match r {
+        Response::Agents(AgentsResponse::Limit(l)) => (l.limit, l.default, l.min, l.max),
+        other => panic!("unexpected {other:?}"),
+    };
+    let asked = ok(&f.core, json!({"method": "agents.limit"})).await;
+    assert_eq!(limit(asked), (3, 3, 1, 8));
+    for wrong in [0, 9] {
+        let set = json!({"method": "agents.set_limit", "params": {"limit": wrong}});
+        assert_eq!(code(call(&f.core, set).await), ErrorCode::BadRequest);
+    }
+
+    // At 1, the second worker waits; raised to 2, it starts.
+    let set = json!({"method": "agents.set_limit", "params": {"limit": 1}});
+    assert_eq!(limit(ok(&f.core, set).await).0, 1);
+    start_task(&f.core, 3).await;
+    let boss = caller("s1", ToolRole::Coordinator);
+    let first = f.core.spawn_agent(&boss, "one", "x", false).await;
+    assert!(first.is_ok(), "{first:?}");
+    let second = f.core.spawn_agent(&boss, "two", "x", false).await;
+    let second = second.unwrap_or_else(|e| panic!("{e}")).session;
+    assert_eq!(status(&f.core, &second), AgentStatus::Queued);
+    assert_eq!(capacity(&f.core).await.limit, 1);
+    let set = json!({"method": "agents.set_limit", "params": {"limit": 2}});
+    ok(&f.core, set).await;
+    until(&mut rx, &second.0, AgentStatus::Idle).await;
+
+    // Kept in the agent settings, the default as none.
+    let saved = |core: &Core| {
+        core.project_store()
+            .agent_settings()
+            .ok()
+            .and_then(|s| s.max_working)
+    };
+    assert_eq!(saved(&f.core), Some(2));
+    let set = json!({"method": "agents.set_limit", "params": {"limit": 3}});
+    ok(&f.core, set).await;
+    assert_eq!(saved(&f.core), None);
+}

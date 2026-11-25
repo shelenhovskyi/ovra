@@ -287,6 +287,19 @@ pub struct AgentSettings {
     /// Each project's account ([`ClaudeAccount::id`]) for sessions started
     /// without one; a project not listed uses the default account.
     pub project_accounts: std::collections::BTreeMap<ProjectId, String>,
+    /// How many agents may work at once in one project
+    /// ([`AgentLimit`]); `None` is the default.
+    pub max_working: Option<u32>,
+}
+
+/// How many agents may work at once in each project, and the range the
+/// person may choose from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentLimit {
+    pub limit: u32,
+    pub default: u32,
+    pub min: u32,
+    pub max: u32,
 }
 
 impl AgentSettings {
@@ -514,6 +527,14 @@ pub enum AgentsRequest {
     /// How many of the project's agents work, of how many may.
     #[serde(rename = "agents.capacity")]
     Capacity { project: ProjectId },
+    /// How many agents may work at once in each project.
+    #[serde(rename = "agents.limit")]
+    Limit,
+    /// Sets how many agents may work at once in each project; refused
+    /// (`bad_request`) outside [`AgentLimit`]'s range. Queued workers start
+    /// if it rose. Answers `agents.limit` and sends `agents.limit_changed`.
+    #[serde(rename = "agents.set_limit")]
+    SetLimit { limit: u32 },
     /// The turns of a direct session that can be gone back to, newest first.
     #[serde(rename = "agents.checkpoints")]
     Checkpoints { session: SessionId },
@@ -546,6 +567,8 @@ pub enum AgentsResponse {
     Transcript(Vec<AgentMessage>),
     #[serde(rename = "agents.capacity")]
     Capacity(AgentCapacity),
+    #[serde(rename = "agents.limit")]
+    Limit(AgentLimit),
     #[serde(rename = "agents.checkpoints")]
     Checkpoints(Vec<Checkpoint>),
     #[serde(rename = "agents.went_back")]
@@ -569,6 +592,10 @@ pub enum AgentsResponse {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum AgentsEvent {
+    /// The person changed how many agents may work at once; clients ask
+    /// for capacities again.
+    #[serde(rename = "agents.limit_changed")]
+    LimitChanged(AgentLimit),
     #[serde(rename = "agents.message")]
     Message {
         session: SessionId,

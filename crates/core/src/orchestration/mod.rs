@@ -34,7 +34,7 @@ use crate::protocol::{ErrorCode, ProtocolError, Response};
 use crate::services::SessionStore;
 
 pub(crate) use saved::restore;
-pub(crate) use slots::{Reservation, capacity, reserve};
+pub(crate) use slots::{Reservation, capacity, reserve, set_limit, view as limit};
 pub(crate) use tasks::unless_cleaned;
 
 type Result<T> = std::result::Result<T, ProtocolError>;
@@ -73,6 +73,9 @@ struct State {
     /// Places a person's starts took while their sessions are set up
     /// ([`slots::reserve`]); not saved.
     reserved: BTreeMap<ProjectId, usize>,
+    /// How many agents may work at once ([`slots::limit`]), once read from
+    /// the settings; not saved here.
+    limit: Option<usize>,
 }
 
 impl Orchestration {

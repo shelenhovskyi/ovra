@@ -295,6 +295,11 @@ describe("AgentsPanel", () => {
     core.emit({ type: "review.changed", data: { project: "p1", id: "r1" } });
     await settle();
     expect(count()).toBe("2 of 3 · 1 queued");
+    // So does a new limit from Settings.
+    core.capacity = { working: 2, limit: 5, queued: 1 };
+    core.emit({ type: "agents.limit_changed", data: { limit: 5, default: 3, min: 1, max: 8 } });
+    await settle();
+    expect(count()).toBe("2 of 5 · 1 queued");
     core.capacity = { working: 3, limit: 3, queued: 1 };
     // Working sessions come before a task whose worker only waits.
     expect(target.querySelectorAll(".sessions .state")[1]?.textContent).toBe("Workers are waiting for a free agent");

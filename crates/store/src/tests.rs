@@ -124,6 +124,7 @@ fn contract(store: &dyn ProjectStore, folders: &Folders) {
             config_dir: Some("/home/me/.claude-work".into()),
         }],
         project_accounts: [(a.id.clone(), "account-1".into())].into(),
+        max_working: Some(5),
     };
     store
         .set_agent_settings(settings.clone())
