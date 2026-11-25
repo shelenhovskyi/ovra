@@ -10,6 +10,7 @@ import { browserPicks, pickLabel } from "../browser/picks.svelte";
 import { listCommands, registerCommand } from "../keys/commands";
 import type { AccountState, FileChange, SessionId, SessionInfo } from "../lib/protocol";
 import { CoreError } from "../lib/transport";
+import { isMenuKey, type MenuEntry, openContextMenu } from "../menu/context-menu.svelte";
 import { useOvra } from "../shell/context";
 import Icon from "../shell/Icon.svelte";
 import { menuTarget } from "../shell/menu";
@@ -96,6 +97,10 @@ const modeHint = $derived(
 );
 /** The mode menu is open. */
 let modeMenu = $state(false);
+/** Mod+Enter came with nothing typed: the field says what it needs. */
+let typeFirst = $state(false);
+/** The task row the list's one Tab stop is on; null: the first. */
+let rowFocus = $state<SessionId | null>(null);
 /** Focus is in the start box. */
 let startFocus = $state(false);
 /**
@@ -151,6 +156,10 @@ function checkGit(id: string): void {
     })
     .catch(() => {});
 }
+
+$effect(() => {
+  if (prompt.trim()) typeFirst = false;
+});
 
 // Asked once Plan and split is chosen.
 $effect(() => {
@@ -441,6 +450,8 @@ const ordered = $derived.by(() => {
     .sort((a, b) => a.rank - b.rank || a.at - b.at)
     .flatMap((g) => g.group);
 });
+/** The task row that takes Tab: the last one focused while it is listed, else the first. */
+const tabStop = $derived(ordered.some((s) => s.id === rowFocus) ? rowFocus : (ordered[0]?.id ?? null));
 
 /** How many of a task's workers are done (or wait for review), of how many; null without workers. */
 function progress(coordinator: SessionId): { done: number; total: number } | null {
@@ -590,6 +601,79 @@ function close(id: SessionId): Promise<void> {
 
 function copy(value: string): void {
   navigator.clipboard?.writeText(value).catch(() => {});
+}
+
+/**
+ * Mod+Enter starts the task from anywhere in the start box, the mode menu
+ * too (with the mode in focus there); the field handles its own Enter.
+ */
+function startOnModEnter(event: KeyboardEvent): void {
+  if (!(event.code === "Enter" || event.code === "NumpadEnter") || !(event.ctrlKey || event.metaKey)) return;
+  if (event.target === promptField) return;
+  event.preventDefault();
+  const option = event.target instanceof HTMLElement ? event.target.dataset.mode : undefined;
+  if (option === "here" || option === "split") pickMode(option);
+  if (!prompt.trim()) {
+    typeFirst = true;
+    promptField?.focus();
+  } else if (startBlock === null) void start();
+}
+
+/** Task rows that open a transcript, in screen order: the list's arrow keys move among them. */
+function rowButtons(list: Element | null): HTMLElement[] {
+  return [...(list?.querySelectorAll<HTMLElement>(".row-button[data-session]") ?? [])];
+}
+
+/** Closes a row's task and keeps focus in the list, on the row that takes its place. */
+async function closeRow(row: HTMLElement, id: SessionId): Promise<void> {
+  const list = row.closest(".sessions");
+  const at = rowButtons(list).indexOf(row);
+  await close(id);
+  await tick();
+  if (row.isConnected) return;
+  const left = rowButtons(list);
+  left[Math.min(at, left.length - 1)]?.focus();
+}
+
+/** Open, Stop and Close for a task row, from Shift+F10, the Menu key or a right click. */
+function rowMenu(event: KeyboardEvent | MouseEvent, s: SessionInfo): void {
+  const row = event.currentTarget instanceof HTMLElement ? event.currentTarget : null;
+  const coordinator = sessions.roles.get(s.id)?.kind === "coordinator";
+  const entries: MenuEntry[] = [
+    { label: "Open", run: () => open(s.id) },
+    "separator",
+    !isEnded(s.status) &&
+      sessions.status(s.id) !== "Done" &&
+      s.status.state !== "queued" && {
+        label: "Stop",
+        run: () => stop(s.id),
+      },
+    closable(s) && {
+      label: coordinator ? "Close…" : "Close",
+      keys: "Delete",
+      danger: true,
+      run: () => (row ? closeRow(row, s.id) : close(s.id)),
+    },
+  ];
+  openContextMenu(event, entries);
+}
+
+const ROW_MOVES = new Set(["ArrowDown", "ArrowUp", "Home", "End"]);
+
+function onRowKey(event: KeyboardEvent, s: SessionInfo): void {
+  const row = event.currentTarget as HTMLElement;
+  if (isMenuKey(event)) {
+    rowMenu(event, s);
+  } else if (event.code === "Delete" && !event.ctrlKey && !event.metaKey && !event.altKey) {
+    event.preventDefault();
+    if (closable(s) && !busy) void closeRow(row, s.id);
+  } else if (ROW_MOVES.has(event.code)) {
+    event.preventDefault();
+    const rows = rowButtons(row.closest(".sessions"));
+    const at = rows.indexOf(row);
+    const to = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: rows.length - 1 }[event.code] ?? at;
+    rows[Math.max(0, Math.min(to, rows.length - 1))]?.focus();
+  }
 }
 
 /** Enter submits, as in Claude's own apps; Shift+Enter is a new line, and Enter that ends an IME composition is not a send. */
@@ -887,11 +971,18 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
             {@const parts = role?.kind === "coordinator" ? progress(session.id) : null}
             {@const now = session.status.state === "working" ? step(session.id) : null}
             <li class:worker={role?.kind === "worker"}>
+              <!-- One Tab stop for the list (arrows move, Delete closes, Shift+F10 opens its menu). -->
               <button
                 type="button"
                 class="row-button"
                 data-state={tone(session)}
+                data-session={session.id}
                 title={rowTip(session)}
+                tabindex={session.id === tabStop ? 0 : -1}
+                aria-keyshortcuts={closable(session) ? "Delete Shift+F10" : "Shift+F10"}
+                onfocus={() => (rowFocus = session.id)}
+                onkeydown={(event) => onRowKey(event, session)}
+                oncontextmenu={(event) => rowMenu(event, session)}
                 onclick={() => open(session.id)}
               >
                 <span class="state-mark" aria-hidden="true"></span>
@@ -923,6 +1014,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
                   class="quiet close"
                   aria-label={`Close ${sessions.name(session.id)}`}
                   title="Close"
+                  tabindex={-1}
                   disabled={busy}
                   onclick={() => close(session.id)}>{@render icon("M6 6l12 12M18 6L6 18")}</button
                 >
@@ -957,7 +1049,9 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
       <ClaudeSetup open={setupOpen} />
       <ProjectTrust />
     </div>
-    <!-- While requests wait, the box is one line, so the list and the requests keep the room; focus opens it. -->
+    <!-- While requests wait, the box is one line, so the list and the requests keep the room; focus opens it.
+         Mod+Enter from any of its controls starts the task, as from the field. -->
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
     <form
       class="compose new"
       class:folded={foldStart}
@@ -965,6 +1059,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
         event.preventDefault();
         void start();
       }}
+      onkeydown={startOnModEnter}
       onfocusin={() => (startFocus = true)}
       onfocusout={(event) => {
         const to = event.relatedTarget;
@@ -1022,6 +1117,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
                 <button
                   type="button"
                   role="menuitemradio"
+                  data-mode={option.id}
                   aria-checked={mode === option.id}
                   onclick={() => pickMode(option.id)}
                   ><span class="name">{option.label}</span><span class="what">{option.more}</span></button
@@ -1039,6 +1135,9 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
         >
       </div>
       <p class="line" id="agent-mode-hint">{modeHint}</p>
+      {#if typeFirst}
+        <p class="line warn" role="status" data-testid="agent-type-first">Type a task first.</p>
+      {/if}
       {#if blocked}
         <p class="blocked" role="note" data-testid="agent-account-blocked">
           <span
@@ -1053,7 +1152,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
       {:else if noGit}
         <p class="blocked" role="note" data-testid="agent-needs-git">
           <span>Needs git: Plan and split works on copies of a git repository.</span>
-          <button type="button" class="quiet" onclick={() => project && setUpGit(project.id)}>Set up git</button>
+          <button type="button" class="quiet soft" onclick={() => project && setUpGit(project.id)}>Set up git</button>
         </p>
       {:else if atCap}
         <p class="blocked calm" role="note" data-testid="agent-at-cap">
@@ -1396,7 +1495,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
     opacity: 0;
   }
   .sessions li:hover .close,
-  .close:focus-visible {
+  .sessions li:focus-within .close {
     opacity: 1;
   }
   @media (hover: none) {
@@ -1661,6 +1760,11 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
     gap: 8px;
     font-size: 13px;
     color: var(--warn);
+  }
+  /* Its action keeps to one line; the reason wraps beside it. */
+  .blocked button {
+    flex: none;
+    white-space: nowrap;
   }
   .fix {
     color: var(--text-2);

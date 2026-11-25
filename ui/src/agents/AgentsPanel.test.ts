@@ -4,6 +4,7 @@ import { browserPicks } from "../browser/picks.svelte";
 import { handleOpenFor } from "../inbox/open";
 import { listCommands, registerCommand } from "../keys/commands";
 import type { FileChange, Pick, ReviewItem } from "../lib/protocol";
+import { closeContextMenu, contextMenu } from "../menu/context-menu.svelte";
 import { Workspace } from "../shell/workspace.svelte";
 import { FakeAgentCore } from "./fake-core";
 import TestHost from "./TestHost.svelte";
@@ -138,6 +139,67 @@ describe("AgentsPanel", () => {
     if (app) unmount(app);
     await setup(core);
     expect(modeLabel()).toBe("Plan and split");
+  });
+
+  it("starts from the mode picker with Mod+Enter, and asks for a task when the field is empty", async () => {
+    const core = await setup();
+    type(target.querySelector("#agent-prompt"), "Split this work");
+    // In the open menu: the option in focus is the mode it starts with.
+    target.querySelector<HTMLButtonElement>("[data-testid=agent-mode]")?.click();
+    await settle();
+    document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { code: "ArrowDown", bubbles: true }));
+    modEnter();
+    await settle();
+    expect(core.sent("orchestration.start")).toHaveLength(1);
+    back();
+    // On the mode button, with nothing typed: the field gets focus and says why.
+    target.querySelector<HTMLButtonElement>("[data-testid=agent-mode]")?.focus();
+    modEnter();
+    await settle();
+    expect(core.sent("orchestration.start")).toHaveLength(1);
+    expect(document.activeElement?.id).toBe("agent-prompt");
+    expect(target.querySelector("[data-testid=agent-type-first]")?.textContent).toBe("Type a task first.");
+    type(target.querySelector("#agent-prompt"), "N");
+    flushSync();
+    expect(target.querySelector("[data-testid=agent-type-first]")).toBeNull();
+  });
+
+  it("moves between task rows with arrows, closes with Delete and opens a menu with Shift+F10", async () => {
+    const core = new FakeAgentCore();
+    for (const title of ["First", "Second", "Third"]) core.addSession("p1", title, { state: "idle" });
+    await setup(core);
+    const rows = () => [...target.querySelectorAll<HTMLButtonElement>(".sessions .row-button")];
+    const key = (code: string, init: KeyboardEventInit = {}) =>
+      document.activeElement?.dispatchEvent(
+        new KeyboardEvent("keydown", { code, bubbles: true, cancelable: true, ...init }),
+      );
+    // One Tab stop for the list; Close is reached by Delete or the menu.
+    expect(rows().map((r) => r.tabIndex)).toEqual([0, -1, -1]);
+    expect([...target.querySelectorAll<HTMLButtonElement>(".sessions .close")].map((b) => b.tabIndex)).toEqual([
+      -1, -1, -1,
+    ]);
+    rows()[0]?.focus();
+    key("ArrowDown");
+    flushSync();
+    expect(document.activeElement).toBe(rows()[1]);
+    expect(rows().map((r) => r.tabIndex)).toEqual([-1, 0, -1]);
+    key("End");
+    expect(document.activeElement).toBe(rows()[2]);
+    key("ArrowUp");
+    expect(document.activeElement).toBe(rows()[1]);
+    key("F10", { shiftKey: true });
+    flushSync();
+    expect(contextMenu.open?.entries.map((e) => (e === "separator" ? e : e.label))).toEqual([
+      "Open",
+      "separator",
+      "Close",
+    ]);
+    closeContextMenu(false);
+    key("Delete");
+    await settle();
+    expect(rows().map((r) => r.querySelector(".title")?.textContent)).toEqual(["First", "Third"]);
+    // Focus stays in the list, on the row that took its place.
+    expect(document.activeElement).toBe(rows()[1]);
   });
 
   it("disables Start with a reason when Plan and split has no git repository", async () => {
