@@ -117,12 +117,40 @@ export class OpenFiles {
    * many tabs stayed open only because of unsaved text.
    */
   closeOthers(path: string | null): number {
-    const unsaved = this.files.filter((p) => p !== path && !this.isPinned(p) && this.buffers.isDirty(p));
-    const stays = (p: string) => p === path || this.isPinned(p) || unsaved.includes(p);
-    for (const p of this.files) if (!stays(p)) this.forget(p);
+    return this.closeSome(
+      this.files.filter((p) => p !== path),
+      path,
+    );
+  }
+
+  /** Closes the tabs after `path` the way `closeOthers` does; `path` becomes active if the active one closed. */
+  closeToTheRight(path: string): number {
+    const index = this.files.indexOf(path);
+    return index < 0 ? 0 : this.closeSome(this.files.slice(index + 1), path);
+  }
+
+  /** Closes every tab without unsaved text except the pinned ones. */
+  closeSaved(): void {
+    this.closeSome(
+      this.files.filter((p) => !this.buffers.isDirty(p)),
+      null,
+    );
+  }
+
+  /**
+   * Closes `candidates` but the pinned ones and those with unsaved text; an
+   * active tab that closes hands over to `next`, else the first one left.
+   * Returns how many stayed open only because of unsaved text.
+   */
+  private closeSome(candidates: string[], next: string | null): number {
+    const unpinned = candidates.filter((p) => !this.isPinned(p));
+    const unsaved = unpinned.filter((p) => this.buffers.isDirty(p));
+    const closing = unpinned.filter((p) => !unsaved.includes(p));
+    const stays = (p: string) => !closing.includes(p);
+    for (const p of closing) this.forget(p);
     this.files = this.files.filter(stays);
-    if (this.preview && !this.files.includes(this.preview)) this.preview = null;
-    if (this.active && !this.files.includes(this.active)) this.active = path ?? this.files[0] ?? null;
+    if (this.preview && !stays(this.preview)) this.preview = null;
+    if (this.active && !stays(this.active)) this.active = next ?? this.files[0] ?? null;
     void this.write();
     return unsaved.length;
   }
@@ -294,10 +322,27 @@ export async function answerClose(workspace: Target, answer: "save" | "discard" 
 
 /** Closes all tabs but `path` (or all with `null`) except pinned ones; unsaved ones stay and say so. */
 export function closeOtherTabs(workspace: Target, path: string | null): void {
+  closeTabsBy(workspace, (current) => current.closeOthers(path));
+}
+
+/** Closes the tabs to the right of `path` except pinned ones; unsaved ones stay and say so. */
+export function closeTabsToTheRight(workspace: Target, path: string): void {
+  closeTabsBy(workspace, (current) => current.closeToTheRight(path));
+}
+
+/** Closes the tabs without unsaved text, except pinned ones. */
+export function closeSavedTabs(workspace: Target): void {
+  closeTabsBy(workspace, (current) => {
+    current.closeSaved();
+    return 0;
+  });
+}
+
+function closeTabsBy(workspace: Target, close: (current: OpenFiles) => number): void {
   const current = tabs.current;
   if (!current) return;
   const before = current.active;
-  const unsaved = current.closeOthers(path);
+  const unsaved = close(current);
   tabs.notice = unsaved > 0 ? `${unsaved === 1 ? "A tab" : `${unsaved} tabs`} with unsaved changes stayed open.` : null;
   if (current.active !== before) show(workspace, current.active);
   void keepFocus(current.files.length === 0);

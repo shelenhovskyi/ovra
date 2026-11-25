@@ -19,13 +19,18 @@ function clipboard(): Clipboard | null {
   return typeof navigator !== "undefined" && navigator.clipboard ? navigator.clipboard : null;
 }
 
-/** Copy path, Copy relative path and Reveal in file tree, shared by the editor and the viewer. */
-export function pathEntries(root: string | null, path: string): MenuEntry[] {
+/**
+ * Copy path, Copy relative path and Reveal in file tree, shared by the
+ * editor, the viewer and the tabs. Reveal shows the open file; `show`, if
+ * given, opens `path` first.
+ */
+export function pathEntries(root: string | null, path: string, show?: () => Promise<void>): MenuEntry[] {
   const board = clipboard();
+  const reveal = commandItem("tree.reveal", "Reveal in file tree");
   return [
     board && root !== null && { label: "Copy path", run: () => board.writeText(absolutePath(root, path)) },
     board && { label: "Copy relative path", run: () => board.writeText(path) },
-    commandItem("tree.reveal", "Reveal in file tree"),
+    reveal && show ? { ...reveal, run: () => show().then(reveal.run) } : reveal,
   ];
 }
 

@@ -122,6 +122,21 @@ test("a single click previews in one tab, a double click keeps it, pinned tabs o
   await command("Close all tabs");
   await expect(tabs.getByRole("tab")).toHaveText(["c.txt"]);
 
+  // A tab's menu, from the keyboard and with a right click.
+  await row(/a\.txt/).dblclick();
+  await row(/b\.txt/).dblclick();
+  await tabs.getByRole("tab", { name: "a.txt", exact: true }).focus();
+  await page.keyboard.press("Shift+F10");
+  const menu = page.getByRole("menu");
+  await expect(menu.getByRole("menuitem", { name: "Pin tab" })).toBeVisible();
+  await menu.getByRole("menuitem", { name: "Close to the right" }).click();
+  await expect(tabs.getByRole("tab")).toHaveText(["c.txt", "a.txt"]);
+  await tabs.getByRole("tab", { name: "c.txt, pinned" }).click({ button: "right" });
+  await expect(menu.getByRole("menuitem", { name: "Unpin tab" })).toBeVisible();
+  await expect(menu.getByRole("menuitem", { name: "Close to the right" })).toBeVisible();
+  await menu.getByRole("menuitem", { name: "Close others" }).click();
+  await expect(tabs.getByRole("tab")).toHaveText(["c.txt"]);
+
   await page.reload();
   await expect(tabs.getByRole("tab", { name: "c.txt, pinned" })).toBeVisible();
 });

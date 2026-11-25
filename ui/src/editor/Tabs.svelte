@@ -9,13 +9,28 @@
 // a double click keeps it. Pinned tabs come first, show only their name and
 // trade the close button for an unpin one; others show a pin button on hover.
 // A git diff shown in the main area is the last tab, selected while it shows.
+// A tab's context menu (right click, Shift+F10, the Menu key): the file's
+// path and places first, then pinning, then the ways to close tabs.
 import { tick } from "svelte";
+import type { ProjectId } from "../lib/protocol";
+import { CoreError } from "../lib/transport";
+import { isMenuKey, openContextMenu } from "../menu/context-menu.svelte";
 import { useOvra } from "../shell/context";
 import Icon from "../shell/Icon.svelte";
+import { revealLabel } from "../tree/ops";
+import { pathEntries } from "./context-menu";
 import { tabLabels } from "./labels";
-import { answerClose, requestClose, show, tabs } from "./open-files.svelte";
+import {
+  answerClose,
+  closeOtherTabs,
+  closeSavedTabs,
+  closeTabsToTheRight,
+  requestClose,
+  show,
+  tabs,
+} from "./open-files.svelte";
 
-const { workspace } = useOvra();
+const { transport, workspace } = useOvra();
 
 let strip = $state<HTMLDivElement>();
 let dialog = $state<HTMLDialogElement>();
@@ -107,7 +122,50 @@ function select(path: string): void {
   void focusTab(path);
 }
 
+async function revealInOs(project: ProjectId, path: string): Promise<void> {
+  try {
+    await transport.call({ method: "open.reveal", params: { project, path } });
+  } catch (err) {
+    tabs.notice = err instanceof CoreError ? err.error.message : err instanceof Error ? err.message : String(err);
+  }
+}
+
+/** The menu of the tab for `path`; items that do not apply are left out (docs/design/components.md). */
+function menu(at: MouseEvent | KeyboardEvent, path: string): void {
+  const current = tabs.current;
+  if (!current) return;
+  const files = current.files;
+  const unpinned = (p: string) => !current.isPinned(p);
+  const after = files.slice(files.indexOf(path) + 1);
+  const project = workspace.project;
+  openContextMenu(at, [
+    ...pathEntries(project?.root ?? null, path, async () => {
+      show(workspace, path);
+      await tick();
+    }),
+    project && { label: revealLabel(), run: () => revealInOs(project.id, path) },
+    "separator",
+    { label: current.isPinned(path) ? "Unpin tab" : "Pin tab", run: () => togglePin(path) },
+    "separator",
+    { label: "Close", keys: path === current.active ? "Mod+W" : undefined, run: () => close(path) },
+    files.some((p) => p !== path && unpinned(p)) && {
+      label: "Close others",
+      run: () => closeOtherTabs(workspace, path),
+    },
+    after.some(unpinned) && { label: "Close to the right", run: () => closeTabsToTheRight(workspace, path) },
+    files.some((p) => unpinned(p) && !current.buffers.isDirty(p)) && {
+      label: "Close saved",
+      run: () => closeSavedTabs(workspace),
+    },
+    files.some(unpinned) && { label: "Close all", run: () => closeOtherTabs(workspace, null) },
+  ]);
+}
+
 function onkeydown(event: KeyboardEvent, path: string): void {
+  if (isMenuKey(event)) {
+    menu(event, path);
+    return;
+  }
   const files = tabs.current?.files ?? [];
   const index = files.indexOf(path);
   const target = {
@@ -208,6 +266,7 @@ function scrollToActive(): void {
           aria-label={`${label(path)}${pinned ? ", pinned" : ""}${preview ? ", preview" : ""}${dirty ? ", unsaved changes" : ""}`}
           tabindex={active || (!diff && !selected && path === files[0]) ? 0 : -1}
           onclick={() => select(path)}
+          oncontextmenu={(event) => menu(event, path)}
           ondblclick={() => tabs.current?.makePermanent(path)}
           onkeydown={(event) => onkeydown(event, path)}
         >
@@ -222,6 +281,7 @@ function scrollToActive(): void {
             tabindex="-1"
             aria-label={`Unpin ${label(path)}`}
             onclick={() => togglePin(path)}
+            oncontextmenu={(event) => menu(event, path)}
             ><span class="x"><Icon name="pin" small /></span>{#if dirty}<span class="dot"><Icon name="dot" small /></span
               >{/if}</button
           >
@@ -231,6 +291,7 @@ function scrollToActive(): void {
             class="pin"
             tabindex="-1"
             aria-label={`Pin ${label(path)}`}
+            oncontextmenu={(event) => menu(event, path)}
             onclick={() => togglePin(path)}><Icon name="pin" small /></button
           >
           <button
@@ -240,6 +301,7 @@ function scrollToActive(): void {
           tabindex="-1"
           aria-label={dirty ? `Close ${label(path)} (unsaved changes)` : `Close ${label(path)}`}
           onclick={() => close(path)}
+          oncontextmenu={(event) => menu(event, path)}
           ><span class="x"><Icon name="close" small /></span>{#if dirty}<span class="dot"><Icon name="dot" small /></span
             >{/if}</button
           >

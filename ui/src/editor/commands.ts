@@ -5,7 +5,15 @@ import type { Workspace } from "../shell/workspace.svelte";
 import { editorReady, goToChange, readBlame, showChangeAtCursor, toggleBlame } from "./git/extension";
 import type { LspAction } from "./lsp/actions";
 import { modeMemory } from "./mode-memory";
-import { closeOtherTabs, focusMain, requestClose, show, tabs } from "./open-files.svelte";
+import {
+  closeOtherTabs,
+  closeSavedTabs,
+  closeTabsToTheRight,
+  focusMain,
+  requestClose,
+  show,
+  tabs,
+} from "./open-files.svelte";
 import { runSearch, type SearchAction } from "./search";
 
 type Target = Pick<Workspace, "openPath" | "mode" | "openFile">;
@@ -137,6 +145,15 @@ export function registerEditorCommands(workspace: Target): () => void {
       title: "Close other tabs",
       run: () => closeOtherTabs(workspace, tabs.current?.active ?? null),
     }),
+    registerCommand({
+      id: "editor.close_tabs_to_the_right",
+      title: "Close tabs to the right",
+      run: () => {
+        const active = tabs.current?.active;
+        if (active) closeTabsToTheRight(workspace, active);
+      },
+    }),
+    registerCommand({ id: "editor.close_saved_tabs", title: "Close saved tabs", run: () => closeSavedTabs(workspace) }),
     registerCommand({
       id: "editor.close_all_tabs",
       title: "Close all tabs",

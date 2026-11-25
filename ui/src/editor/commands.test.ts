@@ -99,6 +99,31 @@ test("pin, close other tabs and close all tabs keep pinned and unsaved tabs, and
   unregister();
 });
 
+test("close tabs to the right and close saved tabs keep pinned and unsaved tabs", async () => {
+  const { drafts, files, workspace, unregister } = setup();
+  const open = async (path: string) => {
+    workspace.openFile(path);
+    await files.opened(path);
+    files.makePermanent(path);
+  };
+  for (const path of ["a", "b", "c", "d", "e"]) await open(path);
+  files.togglePin("e");
+  // The active tab closing hands over to the one the menu was opened on.
+  await open("d");
+  files.closeToTheRight("b");
+  expect([files.files, files.active]).toEqual([["e", "a", "b"], "b"]);
+  for (const path of ["c", "d"]) await open(path);
+  drafts.set("p1", "c", { text: "draft", mtime: 1 });
+  await run("editor.close_tabs_to_the_right");
+  expect(files.files).toEqual(["e", "a", "b", "c", "d"]);
+  await open("b");
+  await run("editor.close_tabs_to_the_right");
+  expect([files.files, tabs.notice]).toEqual([["e", "a", "b", "c"], "A tab with unsaved changes stayed open."]);
+  await run("editor.close_saved_tabs");
+  expect([files.files, workspace.openPath, tabs.notice]).toEqual([["e", "c"], "e", null]);
+  unregister();
+});
+
 test("unsavedText gives the viewer a draft or the buffer's unsaved text", async () => {
   const { core, drafts, files } = setup();
   drafts.set("p1", "draft.md", { text: "# draft", mtime: 1 });
