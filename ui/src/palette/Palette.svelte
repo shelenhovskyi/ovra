@@ -319,7 +319,7 @@ function onfocusout(event: FocusEvent): void {
     cursor: default;
   }
   li[aria-selected="true"] {
-    background: var(--accent-soft);
+    background: var(--sel-focus);
   }
   mark {
     background: none;
@@ -331,7 +331,7 @@ function onfocusout(event: FocusEvent): void {
     font: 500 12px / 1 var(--font);
     color: var(--text-2);
     background: var(--s3);
-    border-radius: 5px;
+    border-radius: var(--r-xs);
   }
   .title {
     min-width: 0;
