@@ -99,7 +99,8 @@ test("the editor's context menu finds in the file, and Ctrl+G goes to a line", a
   await page.keyboard.press("ControlOrMeta+End");
   await page.keyboard.press("Shift+Home");
   const facts = page.getByTestId("file-status");
-  await expect(facts).toHaveText(/Ln 2, Col 1\s+Rust\s+Spaces: 2\s+LF/);
+  // No indentation in the text: the tab size preference (4 by default) says.
+  await expect(facts).toHaveText(/Ln 2, Col 1\s+Rust\s+Spaces: 4\s+LF/);
   await page.keyboard.press("ArrowUp");
   await page.keyboard.press("Shift+End");
   await expect(facts.getByRole("button")).toHaveText("Ln 1, Col 13 (12 selected)");
