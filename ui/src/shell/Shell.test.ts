@@ -148,22 +148,30 @@ describe("Shell", () => {
     localStorage.clear();
   });
 
-  it("checks Claude again on the start screen when the window comes back", () => {
+  it("checks Claude again on the start screen when the window comes back, and warns of an API key", async () => {
     const transport = fakeTransport();
     const base = transport.call;
     let checks = 0;
     transport.call = ((r: Request) => {
       if (r.method !== "agents.setup") return base(r);
       checks++;
-      return Promise.resolve({ type: "agents.setup", data: READY });
+      // An API key set meanwhile: Claude is ready, but the key pays.
+      return Promise.resolve({ type: "agents.setup", data: { ...READY, api_key_in_env: checks > 1 } });
     }) as Transport["call"];
     const target = document.createElement("div");
     const app = mount(Shell, { target, props: { transport } });
-    flushSync();
+    const settled = async () => {
+      flushSync();
+      await new Promise((resolve) => setImmediate(resolve));
+      flushSync();
+    };
+    await settled();
     expect(checks).toBe(1);
+    expect(target.querySelector("[data-testid=claude-api-key]")).toBeNull();
     window.dispatchEvent(new FocusEvent("focus"));
-    flushSync();
+    await settled();
     expect(checks).toBe(2);
+    expect(target.querySelector("[data-testid=claude-api-key]")?.textContent).toContain("ANTHROPIC_API_KEY");
     unmount(app);
   });
 

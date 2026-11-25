@@ -1,6 +1,5 @@
 import { flushSync, mount, unmount } from "svelte";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { registerCommand } from "../keys/commands";
 import { mainView } from "../shell/main-view.svelte";
 import { Workspace } from "../shell/workspace.svelte";
 import { change, FakeReviewCore, review } from "./fake-review";
@@ -400,6 +399,15 @@ describe("Inbox", () => {
     expect($("[data-testid=inbox]")).not.toBeNull();
     expect($("#inbox-reject-hint")).toBeNull();
     expect(document.activeElement?.textContent).toBe("Reject…");
+    // Closing Reviews by its frame ends the step too: it is not waiting, armed, when the view comes back.
+    button(/^Reject…$/)?.click();
+    await settle();
+    mainView.close(false);
+    await settle();
+    expect($("[data-testid=inbox]")).toBeNull();
+    await open();
+    expect($("#inbox-reject-hint")).toBeNull();
+    expect(button(/^Reject the changes$/)).toBeUndefined();
     button(/^Reject…$/)?.click();
     await settle();
     button(/^Reject the changes$/)?.click();
@@ -551,6 +559,8 @@ describe("Inbox", () => {
     typed?.dispatchEvent(new Event("input", { bubbles: true }));
     press("Escape");
     await settle();
+    // With a draft in the field, Escape leaves the field only: the view stays.
+    expect($("[data-testid=inbox]")).not.toBeNull();
     expect(document.activeElement?.id).toBe("inbox-item-title");
     expect(field()?.value).toBe("please rename the file");
     $<HTMLButtonElement>("[data-item=r2]")?.click();
