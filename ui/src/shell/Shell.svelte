@@ -11,10 +11,8 @@ import Approvals from "../approvals/Approvals.svelte";
 import { approvalQueue } from "../approvals/queue.svelte";
 import AuditLog from "../audit/AuditLog.svelte";
 import BrowserPane from "../browser/BrowserPane.svelte";
-import Editor from "../editor/Editor.svelte";
 import FileStatus from "../editor/FileStatus.svelte";
 import { persistOpenFiles } from "../editor/open-files.svelte";
-import Tabs from "../editor/Tabs.svelte";
 import Git from "../git/Git.svelte";
 import GitDiff from "../git/GitDiff.svelte";
 import Inbox from "../inbox/Inbox.svelte";
@@ -36,11 +34,11 @@ import { registerSettingsCommands } from "../settings/commands";
 import Settings from "../settings/Settings.svelte";
 import Terminals from "../terminal/Terminals.svelte";
 import Tree from "../tree/Tree.svelte";
-import Viewer from "../viewers/Viewer.svelte";
 import { provideOvra } from "./context";
+import EditorGroup from "./EditorGroup.svelte";
 import Icon from "./Icon.svelte";
 import { rememberProject, restoreProject } from "./last-project";
-import { Layout, type Panel } from "./layout.svelte";
+import { Layout, MIN_WIDTH, type Panel } from "./layout.svelte";
 import { mainView, VIEW_TITLES } from "./main-view.svelte";
 import Rail from "./Rail.svelte";
 import Splitter from "./Splitter.svelte";
@@ -237,6 +235,29 @@ const grid = $derived.by(() => {
 
 const PANELS: Panel[] = ["side", "agents"];
 
+/** The handle between the editor groups. */
+const GROUP_HANDLE = 8;
+/** How wide the two editor groups are together, for their splitter. */
+let groupsWidth = $state(0);
+let groupsBox = $state<HTMLElement>();
+$effect(() => {
+  const box = groupsBox;
+  if (!box || typeof ResizeObserver === "undefined") return;
+  const observer = new ResizeObserver(() => {
+    groupsWidth = box.clientWidth;
+  });
+  observer.observe(box);
+  return () => observer.disconnect();
+});
+const groupsRoom = $derived(Math.max(0, groupsWidth - GROUP_HANDLE));
+/** The tracks of the tab row and the files while the main area is split; both use them, so tabs sit above their file. */
+const groupColumns = $derived(`minmax(0, ${layout.groups}fr) ${GROUP_HANDLE}px minmax(0, ${1 - layout.groups}fr)`);
+
+function resizeGroups(width: number): void {
+  if (groupsRoom <= 0) return;
+  layout.resizeGroups(Math.min(Math.max(width, MIN_WIDTH), groupsRoom - MIN_WIDTH) / groupsRoom);
+}
+
 function edge(panel: Panel): "left" | "right" {
   return layout.left === panel ? "left" : "right";
 }
@@ -329,9 +350,19 @@ async function showApprovals(): Promise<void> {
   <main data-testid="main" hidden={!workspace.project && !mainView.current}>
     <!-- The open files' tabs stay in sight under a view (Settings, Audit log,
          Reviews), which shows as one more tab: a file's tab brings it back. -->
-    <div class="tab-row" class:covered={!!mainView.current}>
+    <div
+      class="tab-row"
+      class:covered={!!mainView.current}
+      class:split={!!workspace.other}
+      style:--groups={groupColumns}
+    >
       <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-      <div class="tab-strip" onclickcapture={backToFiles}><Tabs /></div>
+      <div class="tab-strip" onclickcapture={backToFiles}><EditorGroup group={0} part="tabs" /></div>
+      {#if workspace.other}
+        <span aria-hidden="true"></span>
+        <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+        <div class="tab-strip" onclickcapture={backToFiles}><EditorGroup group={1} part="tabs" /></div>
+      {/if}
       {#if mainView.current}
         {@const title = VIEW_TITLES[mainView.current]}
         <div class="view-tab" data-testid="view-tab">
@@ -361,11 +392,27 @@ async function showApprovals(): Promise<void> {
       {#each gitDiff ? [gitDiff] : [] as target (target)}
         <GitDiff {target} />
       {/each}
-      <div class="file" hidden={!!gitDiff}>
-        {#if workspace.mode === "edit"}
-          <Editor />
-        {:else}
-          <Viewer />
+      <!-- One or two editor groups side by side, with a handle between them. -->
+      <div
+        class="file"
+        class:split={!!workspace.other}
+        hidden={!!gitDiff}
+        style:--groups={groupColumns}
+        bind:this={groupsBox}
+      >
+        <EditorGroup group={0} part="file" />
+        {#if workspace.other}
+          <div class="handle group-handle">
+            <Splitter
+              label="Resize editor groups"
+              width={Math.round(layout.groups * groupsRoom)}
+              max={Math.max(MIN_WIDTH, groupsRoom - MIN_WIDTH)}
+              edge="left"
+              onresize={resizeGroups}
+              onreset={() => layout.resizeGroups(0.5)}
+            />
+          </div>
+          <EditorGroup group={1} part="file" />
         {/if}
       </div>
     </div>
@@ -703,6 +750,16 @@ async function showApprovals(): Promise<void> {
   }
   .file {
     height: 100%;
+  }
+  .split {
+    display: grid;
+    grid-template-columns: var(--groups) auto;
+  }
+  .file.split {
+    grid-template-columns: var(--groups);
+  }
+  .group-handle {
+    background: var(--s2);
   }
   footer {
     grid-area: footer;

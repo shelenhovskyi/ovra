@@ -23,13 +23,16 @@ registerContextKeys(
 // trade the close button for an unpin one; others show a pin button on hover.
 // A git diff shown in the main area is the last tab, selected while it shows.
 // A tab's context menu (right click, Shift+F10, the Menu key): the file's
-// path and places first, then pinning, then the ways to close tabs.
+// path and places first, then pinning and the other editor group, then the
+// ways to close tabs. With two editor groups each has its own strip; a tab
+// can be dragged onto the other group (docs/specs/split-editor.md).
 import { tick } from "svelte";
 import type { ProjectId } from "../lib/protocol";
 import { CoreError } from "../lib/transport";
 import { isMenuKey, openContextMenu } from "../menu/context-menu.svelte";
 import { useOvra } from "../shell/context";
 import Icon from "../shell/Icon.svelte";
+import type { GroupIndex } from "../shell/workspace.svelte";
 import { revealLabel } from "../tree/ops";
 import { pathEntries } from "./context-menu";
 import { tabLabels } from "./labels";
@@ -38,12 +41,21 @@ import {
   closeOtherTabs,
   closeSavedTabs,
   closeTabsToTheRight,
+  dragging,
+  moveTab,
   requestClose,
   show,
+  splitRight,
   tabs,
 } from "./open-files.svelte";
 
+let { group = 0 }: { group?: GroupIndex } = $props();
+
 const { transport, workspace } = useOvra();
+/** This group's tabs. */
+const own = $derived(tabs.groups[group] ?? null);
+/** Commands act on the focused group: an action on one of these tabs focuses it first. */
+const focusHere = () => workspace.focusGroup(group);
 
 let strip = $state<HTMLDivElement>();
 let dialog = $state<HTMLDialogElement>();
@@ -67,7 +79,7 @@ $effect(() => {
 });
 
 $effect(() => {
-  void tabs.current?.files.length;
+  void own?.files.length;
   void tick().then(measure);
 });
 
@@ -77,7 +89,7 @@ function label(path: string): string {
 }
 
 function togglePin(path: string): void {
-  tabs.current?.togglePin(path);
+  own?.togglePin(path);
   void focusTab(path);
 }
 
@@ -86,10 +98,12 @@ function togglePin(path: string): void {
  * shortest trailing part of the folder that tells them apart (`src` in
  * `pkg-003/src`), shown muted. The full path is in the tooltip.
  */
-let labels = $derived(tabLabels(tabs.current?.files ?? []));
+let labels = $derived(tabLabels(own?.files ?? []));
 
 /** A git diff of this project shown in the main area: a tab of its own, after the files, selected while it shows. */
-const diff = $derived(workspace.gitDiff?.project === workspace.project?.id ? workspace.gitDiff : null);
+const diff = $derived(
+  workspace.focused && workspace.gitDiff?.project === workspace.project?.id ? workspace.gitDiff : null,
+);
 const diffName = $derived(diff ? diff.path.slice(diff.path.lastIndexOf("/") + 1) : "");
 
 function closeDiff(): void {
@@ -98,7 +112,7 @@ function closeDiff(): void {
 }
 
 function ondiffkeydown(event: KeyboardEvent): void {
-  const files = tabs.current?.files ?? [];
+  const files = own?.files ?? [];
   const target = { ArrowRight: files[0], Home: files[0], ArrowLeft: files.at(-1) }[event.key];
   if (target) {
     event.preventDefault();
@@ -123,9 +137,10 @@ function focusAfterClose(next: string | null | undefined): void {
 }
 
 function close(path: string): void {
-  const files = tabs.current?.files ?? [];
+  const files = own?.files ?? [];
   const index = files.indexOf(path);
-  const next = path === tabs.current?.active ? (files[index + 1] ?? files[index - 1]) : tabs.current?.active;
+  const next = path === own?.active ? (files[index + 1] ?? files[index - 1]) : own?.active;
+  focusHere();
   requestClose(workspace, path);
   if (!tabs.closing) focusAfterClose(next);
 }
@@ -145,9 +160,11 @@ async function revealInOs(project: ProjectId, path: string): Promise<void> {
 
 /** The menu of the tab for `path`; items that do not apply are left out (docs/design/components.md). */
 function menu(at: MouseEvent | KeyboardEvent, path: string): void {
-  const current = tabs.current;
+  const current = own;
   if (!current) return;
+  focusHere();
   const files = current.files;
+  const other: GroupIndex = group === 0 ? 1 : 0;
   const unpinned = (p: string) => !current.isPinned(p);
   const after = files.slice(files.indexOf(path) + 1);
   const project = workspace.project;
@@ -160,6 +177,18 @@ function menu(at: MouseEvent | KeyboardEvent, path: string): void {
     "separator",
     current.preview === path && { label: "Keep tab", run: () => current.makePermanent(path) },
     { label: current.isPinned(path) ? "Unpin tab" : "Pin tab", run: () => togglePin(path) },
+    !workspace.other && {
+      label: "Split right",
+      keys: "Mod+\\",
+      run: () => {
+        show(workspace, path);
+        splitRight(workspace);
+      },
+    },
+    (workspace.other || files.length > 1) && {
+      label: "Move to other group",
+      run: () => moveTab(workspace, path, other),
+    },
     "separator",
     { label: "Close", keys: path === current.active ? "Mod+W" : undefined, run: () => close(path) },
     files.some((p) => p !== path && unpinned(p)) && {
@@ -180,7 +209,7 @@ function onkeydown(event: KeyboardEvent, path: string): void {
     menu(event, path);
     return;
   }
-  const files = tabs.current?.files ?? [];
+  const files = own?.files ?? [];
   const index = files.indexOf(path);
   const target = {
     ArrowRight: files[(index + 1) % files.length],
@@ -206,8 +235,8 @@ async function answer(choice: "save" | "discard" | "cancel"): Promise<void> {
     // Never mind: back to where the person was, usually the text.
     await tick();
     back.focus();
-  } else if (choice === "cancel" || tabs.current?.files.includes(path ?? "")) void focusTab(path);
-  else focusAfterClose(tabs.current?.active);
+  } else if (choice === "cancel" || own?.files.includes(path ?? "")) void focusTab(path);
+  else focusAfterClose(own?.active);
 }
 
 // A real modal: the rest of the page is inert and Tab stays inside.
@@ -222,7 +251,7 @@ $effect(() => {
 // Saved some other way (Ctrl+S) while the question is open: nothing left to ask.
 $effect(() => {
   const path = tabs.closing;
-  if (path && !tabs.saving && tabs.current && !tabs.current.buffers.isDirty(path)) void answer("discard");
+  if (path && workspace.focused && !tabs.saving && own && !own.buffers.isDirty(path)) void answer("discard");
 });
 
 function ondialogkeydown(event: KeyboardEvent): void {
@@ -241,7 +270,7 @@ function ondialogkeydown(event: KeyboardEvent): void {
 }
 
 $effect(() => {
-  const active = tabs.current?.active;
+  const active = own?.active;
   if (active) void focusTab(null).then(() => scrollToActive());
 });
 
@@ -252,9 +281,9 @@ function scrollToActive(): void {
 }
 </script>
 
-{#if (tabs.current && tabs.current.files.length > 0) || diff}
-  {@const files = tabs.current?.files ?? []}
-  {@const selected = diff ? null : (tabs.current?.active ?? null)}
+{#if (own && own.files.length > 0) || diff}
+  {@const files = own?.files ?? []}
+  {@const selected = diff ? null : (own?.active ?? null)}
   <div
     class="tabs"
     class:more-start={more.start}
@@ -267,9 +296,9 @@ function scrollToActive(): void {
   >
     {#each files as path (path)}
       {@const active = path === selected}
-      {@const dirty = tabs.current?.buffers.isDirty(path) ?? false}
-      {@const pinned = tabs.current?.isPinned(path) ?? false}
-      {@const preview = tabs.current?.preview === path}
+      {@const dirty = own?.buffers.isDirty(path) ?? false}
+      {@const pinned = own?.isPinned(path) ?? false}
+      {@const preview = own?.preview === path}
       <div class="tab" class:active class:pinned class:preview title={preview ? `${path} (preview)` : path}>
         <button
           type="button"
@@ -281,7 +310,16 @@ function scrollToActive(): void {
           tabindex={active || (!diff && !selected && path === files[0]) ? 0 : -1}
           onclick={() => select(path)}
           oncontextmenu={(event) => menu(event, path)}
-          ondblclick={() => tabs.current?.makePermanent(path)}
+          ondblclick={() => own?.makePermanent(path)}
+          draggable="true"
+          ondragstart={(event) => {
+            dragging.tab = { group, path };
+            if (event.dataTransfer) {
+              event.dataTransfer.effectAllowed = "move";
+              event.dataTransfer.setData("text/plain", path);
+            }
+          }}
+          ondragend={() => (dragging.tab = null)}
           onkeydown={(event) => onkeydown(event, path)}
         >
           <span class="name">{labels.get(path)?.name}</span>
@@ -350,9 +388,10 @@ function scrollToActive(): void {
   </div>
 {/if}
 
-{#if tabs.notice}<p class="notice" role="alert">{tabs.notice}</p>{/if}
+<!-- The notice and the close question belong to the focused group, where commands act. -->
+{#if tabs.notice && workspace.focused}<p class="notice" role="alert">{tabs.notice}</p>{/if}
 
-{#if tabs.closing}
+{#if tabs.closing && workspace.focused}
   {@const closing = tabs.closing}
   <dialog
     class="confirm"

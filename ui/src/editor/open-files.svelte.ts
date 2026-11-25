@@ -347,10 +347,8 @@ type Target = Pick<
   "openPath" | "mode" | "openFile" | "other" | "group" | "focusGroup" | "split" | "closeGroup"
 >;
 
-/** The id of group `group`'s tab panel, which its tabs control. */
-export function panelId(group: GroupIndex): string {
-  return group === 0 ? "ovra-tabpanel" : "ovra-tabpanel-2";
-}
+/** The tab being dragged, so the other group can take it (an HTML drag does not say what it carries until the drop). */
+export const dragging = $state<{ tab: { group: GroupIndex; path: string } | null }>({ tab: null });
 
 /** Connects a new group to the others, so a tab both have keeps its buffer when one closes it. */
 function joined(files: OpenFiles): OpenFiles {
@@ -597,9 +595,14 @@ async function keepFocus(lastTab: boolean): Promise<void> {
  */
 export async function focusMain(): Promise<void> {
   await tick();
-  const panel = document.getElementById(panelId(tabs.focused()));
-  const candidates = [...(panel?.querySelectorAll<HTMLElement>(".cm-content, [data-panel] [tabindex='-1']") ?? [])];
-  const target = candidates.find((element) => element.offsetParent !== null) ?? panel;
+  const panel = document.getElementById("ovra-tabpanel");
+  // With two editor groups, the focused one's.
+  const group = panel?.querySelector<HTMLElement>("[data-focused]");
+  const scope = group && group.offsetParent !== null ? group : panel;
+  const shown = (selector: string) =>
+    [...(scope?.querySelectorAll<HTMLElement>(selector) ?? [])].find((element) => element.offsetParent !== null);
+  // The editor's text before its scroller, which is focusable too.
+  const target = shown(".cm-content") ?? shown("[data-panel] [tabindex='-1']") ?? panel;
   target?.focus();
 }
 

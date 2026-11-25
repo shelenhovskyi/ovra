@@ -62,8 +62,11 @@ $effect(() => {
   };
 });
 
+/** Shared by the groups: switching focus between them does not change it. */
+const projectBuffers = $derived(tabs.current?.buffers);
+
 $effect(() => {
-  const buffers = tabs.current?.buffers;
+  const buffers = projectBuffers;
   const path = workspace.openPath;
   if (!buffers || !path || !host) {
     buffer = null;
@@ -207,12 +210,12 @@ function openMenu(event: MouseEvent | KeyboardEvent): void {
     const pos = target.posAtCoords({ x: event.clientX, y: event.clientY });
     const { from, to } = target.state.selection.main;
     if (pos !== null && (pos < from || pos > to)) target.dispatch({ selection: { anchor: pos } });
-    openContextMenu(event, editorMenu(target, root, path));
+    openContextMenu(event, editorMenu(target, root, path, !workspace.other));
     return;
   }
   event.preventDefault();
   const at = target.coordsAtPos(target.state.selection.main.head);
-  const entries = editorMenu(target, root, path);
+  const entries = editorMenu(target, root, path, !workspace.other);
   openContextMenu({ x: at?.left ?? 0, y: at?.bottom ?? 0, returnFocus: target.contentDOM }, entries);
 }
 

@@ -42,6 +42,11 @@ describe("Layout", () => {
     expect(again.side).toEqual({ width: 1200, collapsed: false });
     expect(again.agents).toEqual({ width: MIN_WIDTH, collapsed: true });
     expect(again.swapped).toBe(true);
+    // The split between the editor groups, kept within bounds.
+    again.resizeGroups(0.3);
+    expect(new Layout(store).groups).toBe(0.3);
+    again.resizeGroups(2);
+    expect(again.groups).toBe(0.9);
     again.reset("side");
     expect(again.side.width).toBe(DEFAULT_WIDTH.side);
     again.resetAll();
@@ -49,6 +54,7 @@ describe("Layout", () => {
       side: { width: DEFAULT_WIDTH.side, collapsed: false },
       agents: { width: DEFAULT_WIDTH.agents, collapsed: false },
       swapped: false,
+      groups: 0.5,
     });
   });
 

@@ -65,7 +65,8 @@ const facts = {};
 $effect(() => {
   const view = shown && "view" in shown ? shown.view : null;
   const path = workspace.openPath;
-  if (view?.kind !== "text" || !path) return;
+  // With two editor groups, the focused one's file speaks for the status bar.
+  if (view?.kind !== "text" || !path || !workspace.focused) return;
   publishFacts(facts, {
     cursor: null,
     language: languageFor(path)?.name ?? "Plain text",

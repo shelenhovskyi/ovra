@@ -1,5 +1,6 @@
 // The window's layout: how wide the two side panels are (the rail's panel and
-// Agents), whether each is folded to a strip, and which side each sits on.
+// Agents), whether each is folded to a strip, and which side each sits on;
+// and the share of the main area the left editor group takes when split.
 // Kept in the page's storage like the last project; a broken or blocked
 // storage only costs the restore.
 
@@ -18,7 +19,11 @@ const STRIP = 48;
 
 const KEY = "ovra.layout";
 
-type Saved = { side: PanelState; agents: PanelState; swapped: boolean };
+/** The left editor group's share of the main area stays within these. */
+const MIN_GROUPS = 0.1;
+const MAX_GROUPS = 0.9;
+
+type Saved = { side: PanelState; agents: PanelState; swapped: boolean; groups?: number };
 type PanelState = { width: number; collapsed: boolean };
 
 function storage(): Storage | null {
@@ -47,6 +52,8 @@ export class Layout {
   agents = $state<PanelState>({ width: DEFAULT_WIDTH.agents, collapsed: false });
   /** Agents on the left, the rail's panel on the right. */
   swapped = $state(false);
+  /** The left editor group's share of the main area while it is split. */
+  groups = $state(0.5);
   /** The window's width, kept up to date by the shell: it bounds the panels. */
   viewport = $state(typeof window === "undefined" ? 1440 : window.innerWidth);
   readonly #store: Storage | null;
@@ -62,6 +69,7 @@ export class Layout {
     this.side = readPanel(saved.side, "side");
     this.agents = readPanel(saved.agents, "agents");
     this.swapped = saved.swapped === true;
+    if (typeof saved.groups === "number" && Number.isFinite(saved.groups)) this.resizeGroups(saved.groups, false);
   }
 
   /** The panel on the left of the main area. */
@@ -96,7 +104,14 @@ export class Layout {
     this.side = { width: DEFAULT_WIDTH.side, collapsed: false };
     this.agents = { width: DEFAULT_WIDTH.agents, collapsed: false };
     this.swapped = false;
+    this.groups = 0.5;
     this.#save();
+  }
+
+  /** Gives the left editor group `share` of the main area. */
+  resizeGroups(share: number, save = true): void {
+    this.groups = Math.min(MAX_GROUPS, Math.max(MIN_GROUPS, share));
+    if (save) this.#save();
   }
 
   setCollapsed(panel: Panel, collapsed: boolean): void {
@@ -111,7 +126,12 @@ export class Layout {
 
   #save(): void {
     try {
-      const saved: Saved = { side: { ...this.side }, agents: { ...this.agents }, swapped: this.swapped };
+      const saved: Saved = {
+        side: { ...this.side },
+        agents: { ...this.agents },
+        swapped: this.swapped,
+        groups: this.groups,
+      };
       this.#store?.setItem(KEY, JSON.stringify(saved));
     } catch {
       // A full or blocked storage only costs the restore.

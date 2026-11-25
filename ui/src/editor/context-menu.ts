@@ -34,7 +34,8 @@ export function pathEntries(root: string | null, path: string, show?: () => Prom
   ];
 }
 
-export function editorMenu(view: EditorView, root: string | null, path: string): MenuEntry[] {
+/** The editor's menu; with `canSplit` (one editor group), Split right too. */
+export function editorMenu(view: EditorView, root: string | null, path: string, canSplit = false): MenuEntry[] {
   const board = clipboard();
   const { state } = view;
   const selected = () => state.sliceDoc(state.selection.main.from, state.selection.main.to);
@@ -69,6 +70,7 @@ export function editorMenu(view: EditorView, root: string | null, path: string):
     { label: "Replace", keys: "Mod+Alt+F", run: search("replace") },
     { label: "Go to line", keys: "Ctrl+G", run: search("go_to_line") },
     commandItem("editor.go_to_symbol", "Go to symbol"),
+    canSplit && commandItem("editor.split_right", "Split right"),
     "separator",
     canRun(view, "definition") && commandItem("editor.lsp_definition", "Go to definition"),
     canRun(view, "references") && commandItem("editor.lsp_references", "Find references"),

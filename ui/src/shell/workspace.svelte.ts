@@ -93,12 +93,17 @@ export function groupView(workspace: Workspace, group: GroupIndex): Workspace {
     focused()
       ? { openPath: workspace.openPath, mode: workspace.mode }
       : (workspace.other ?? { openPath: null, mode: "view" });
+  // Derived, so a panel is told only when its own group's value changes, not on every focus change.
+  const isFocused = $derived(focused());
+  const openPath = $derived(shown().openPath);
+  const mode = $derived(shown().mode);
+  const reveal = $derived(isFocused ? workspace.reveal : null);
   return new Proxy(workspace, {
     get(target, prop) {
-      if (prop === "openPath") return shown().openPath;
-      if (prop === "mode") return shown().mode;
-      if (prop === "focused") return focused();
-      if (prop === "reveal") return focused() ? target.reveal : null;
+      if (prop === "openPath") return openPath;
+      if (prop === "mode") return mode;
+      if (prop === "focused") return isFocused;
+      if (prop === "reveal") return reveal;
       if (prop === "openFile")
         return (...args: Parameters<Workspace["openFile"]>) => {
           target.focusGroup(group);
