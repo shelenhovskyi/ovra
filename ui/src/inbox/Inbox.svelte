@@ -82,10 +82,14 @@ const includable = $derived(item?.mode === "isolated" ? item.files.filter((f) =>
 const includableUnseen = $derived(includable.filter((f) => unseen.includes(f)));
 /** A direct item's protected files are already on disk: Approve keeps them only once each was seen. */
 const directWaits = $derived(item?.mode === "direct" && unseen.length > 0);
-/** Before a replace, each protected file it would copy must have been seen too. */
-const takeUnseen = $derived(
-  item?.state === "partly_approved" ? unseen.filter((f) => !f.blocked && item.not_copied.includes(f.path)) : [],
+/** The protected files a replace could copy: whatever is left, including those that waited at approve. */
+const takeGuarded = $derived(
+  item?.state === "partly_approved"
+    ? item.files.filter((f) => f.protected && [f.path, f.from].some((p) => p && item.not_copied.includes(p)))
+    : [],
 );
+/** Before a replace, each protected file it would copy must have been seen too. */
+const takeUnseen = $derived(takeGuarded.filter((f) => unseen.includes(f)));
 /** What Approve's description points at: why it waits, and the protected paths it would apply. */
 const approveWhy = $derived(
   [
@@ -338,7 +342,8 @@ async function undoReject(review: ReviewItem): Promise<void> {
 
 async function take(review: ReviewItem): Promise<void> {
   if (takeUnseen.length > 0) return;
-  if ((await inbox.take(review.id)) && inbox.outcome) {
+  // Each protected file left was seen: replacing copies them too.
+  if ((await inbox.take(review.id, takeGuarded.length > 0)) && inbox.outcome) {
     announcement = outcomeText(inbox.outcome);
     await refocus();
   }

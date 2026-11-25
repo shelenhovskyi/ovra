@@ -77,8 +77,12 @@ export type ReviewRequest =
   | { method: "review.undo_reject"; params: { id: ReviewId } }
   /** The person is done with what a partly approved item did not copy: it becomes approved. */
   | { method: "review.resolve"; params: { id: ReviewId } }
-  /** Puts the worker's version over the person's for what a partly approved item left; files the worker changed since come back as conflicts. */
-  | { method: "review.take"; params: { id: ReviewId } }
+  /**
+   * Puts the worker's version over the person's for what a partly approved
+   * item left; files the worker changed since come back as conflicts.
+   * Protected files are copied only with `include_protected`.
+   */
+  | { method: "review.take"; params: { id: ReviewId; include_protected?: boolean } }
   /** Puts back the person's versions from just before the last take. */
   | { method: "review.undo_take"; params: { id: ReviewId } }
   /** The same session continues with the comment; a decided item stays decided. */

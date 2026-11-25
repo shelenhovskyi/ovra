@@ -267,8 +267,11 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
             audit(core, &resolved, ReviewAction::Approved);
             Ok(done((resolved, Vec::new(), Vec::new())))
         }
-        ReviewRequest::Take { id } => {
-            let outcome = take(core, &id).await?;
+        ReviewRequest::Take {
+            id,
+            include_protected,
+        } => {
+            let outcome = take(core, &id, include_protected).await?;
             audit(core, &outcome.0, ReviewAction::Taken);
             prune(core, &outcome.0.project).await;
             super::tasks::clean_up(core, &outcome.0.project).await;
@@ -769,8 +772,13 @@ fn busy(core: &Core, session: &SessionId) -> bool {
 /// `review.take`: the worker's version over the person's, for what a partly
 /// approved item left. Only what the person approved is copied: a file the
 /// worker changed since, or that the direct agent has changed and nobody
-/// decided yet, is skipped.
-async fn take(core: &Core, id: &ReviewId) -> Result<(ReviewItem, Vec<String>, Vec<String>)> {
+/// decided yet, is skipped, and so is a protected file unless
+/// `include_protected`: the person chose it, not the approve.
+async fn take(
+    core: &Core,
+    id: &ReviewId,
+    include_protected: bool,
+) -> Result<(ReviewItem, Vec<String>, Vec<String>)> {
     let entry = find(core, id)?;
     if entry.state != ReviewState::PartlyApproved {
         return Err(conflict(
@@ -791,10 +799,24 @@ async fn take(core: &Core, id: &ReviewId) -> Result<(ReviewItem, Vec<String>, Ve
         .iter()
         .cloned()
         .partition(|p| waits.contains(p));
+    // A protected file left by the approve may never have been looked at
+    // (it waited for the direct agent then): only the person's explicit
+    // choice copies it.
+    let (guarded, wanted): (Vec<String>, Vec<String>) = wanted
+        .into_iter()
+        .partition(|p| !include_protected && guarded(&entry.decided, p));
     if wanted.is_empty() {
-        return Err(conflict(
-            "the files left wait for the direct agent; decide its review first",
-        ));
+        return Err(if guarded.is_empty() {
+            conflict("the files left wait for the direct agent; decide its review first")
+        } else {
+            ProtocolError::new(
+                ErrorCode::BadRequest,
+                format!(
+                    "the files left are protected ({}); look at their diffs and replace with include_protected",
+                    guarded.join(", ")
+                ),
+            )
+        });
     }
     let ws = entry.workspace.clone();
     let worktrees = core.worktrees();
@@ -844,6 +866,15 @@ async fn take(core: &Core, id: &ReviewId) -> Result<(ReviewItem, Vec<String>, Ve
         e.taken = taken;
     })?;
     Ok((item(core, &entry).await?, skipped, written))
+}
+
+/// Whether `path`, left by an approve, is protected: one of the `decided`
+/// files with it as its path or old path was marked so, or the path itself is.
+fn guarded(decided: &[FileChange], path: &str) -> bool {
+    protected::changes(path, None)
+        || decided
+            .iter()
+            .any(|f| f.protected && (f.path == path || f.from.as_deref() == Some(path)))
 }
 
 /// `review.undo_take`: the person's versions from just before the last take.

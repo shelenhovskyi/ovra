@@ -156,7 +156,14 @@ pub enum ReviewRequest {
     /// agent). A file the worker changed since the approve is skipped and
     /// listed as a conflict. When nothing is left the item is approved.
     #[serde(rename = "review.take")]
-    Take { id: ReviewId },
+    Take {
+        id: ReviewId,
+        /// The person chose to copy the protected files left too. Without
+        /// it they stay not copied, and a take with nothing else left is
+        /// refused.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        include_protected: bool,
+    },
     /// Puts back the person's versions from just before the last
     /// `review.take`; the item is partly approved again.
     #[serde(rename = "review.undo_take")]

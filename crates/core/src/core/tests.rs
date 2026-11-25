@@ -509,6 +509,7 @@ fn every_request_round_trips() {
         serde_json::json!({"method": "review.comment", "params": {"id": "r1", "text": "also b"}}),
         serde_json::json!({"method": "review.resolve", "params": {"id": "r1"}}),
         serde_json::json!({"method": "review.take", "params": {"id": "r1"}}),
+        serde_json::json!({"method": "review.take", "params": {"id": "r1", "include_protected": true}}),
         serde_json::json!({"method": "review.undo_take", "params": {"id": "r1"}}),
         serde_json::json!({"method": "orchestration.start", "params": {"project": "p1", "prompt": "x", "limits": {"max_workers": 2, "budget_micro_usd": null}}}),
         serde_json::json!({"method": "orchestration.list", "params": {"project": "p1"}}),

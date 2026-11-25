@@ -216,6 +216,33 @@ describe("Inbox", () => {
     });
   });
 
+  it("replaces a protected file that waited at approve only after its diff was shown, and says so", async () => {
+    const core = await setup([
+      review("r3", {
+        session: "s3",
+        mode: "isolated",
+        state: "partly_approved",
+        files: [change(".mcp.json", { protected: true }), change(".envrc", { protected: true, blocked: true })],
+        not_copied: [".envrc", ".mcp.json"],
+      }),
+    ]);
+    // `.mcp.json` opens first, so its diff is seen; `.envrc` waited for the
+    // direct agent at approve, and nobody has looked at it yet.
+    await open();
+    expect($("[data-testid=inbox-take]")?.getAttribute("aria-disabled")).toBe("true");
+    expect($("[data-testid=inbox-take-why]")?.textContent).toContain(".envrc");
+    $<HTMLButtonElement>("[data-testid=inbox-take]")?.click();
+    await settle();
+    expect(core.sent("review.take")).toEqual([]);
+
+    $<HTMLButtonElement>("[data-file='.envrc']")?.click();
+    await settle();
+    expect($("[data-testid=inbox-take]")?.getAttribute("aria-disabled")).toBe("false");
+    $<HTMLButtonElement>("[data-testid=inbox-take]")?.click();
+    await settle();
+    expect(core.sent("review.take").map((c) => c.params)).toEqual([{ id: "r3", include_protected: true }]);
+  });
+
   it("approves only on a press, and commits with the message given", async () => {
     const core = await setup([review("r1", { summary: "Fix the typo" })]);
     await open();
