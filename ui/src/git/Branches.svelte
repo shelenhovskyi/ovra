@@ -2,6 +2,8 @@
 // The current branch, and a menu to switch to another local branch or
 // create one. Errors (an agent writes the checkout, changes would be
 // overwritten, a bad name) stay in the menu, next to what was pressed.
+// Up, Down, Home and End move between branches; typing on one goes to the
+// filter field above them, where Enter switches to the first match.
 import { tick, untrack } from "svelte";
 import type { RepoStatus } from "../lib/protocol";
 import { branchNameProblem, type GitModel } from "./model.svelte";
@@ -11,16 +13,23 @@ let { model, status }: { model: GitModel; status: RepoStatus } = $props();
 let open = $state(false);
 let creating = $state(false);
 let name = $state("");
+let filter = $state("");
 let toggleButton = $state<HTMLElement>();
 let menu = $state<HTMLElement>();
 
 const label = $derived(
-  status.branch ?? (status.head ? `Detached HEAD at ${status.head.slice(0, 7)}` : "Detached HEAD"),
+  status.branch ??
+    (status.head ? `No branch, at commit ${status.head.slice(0, 7)} (detached HEAD)` : "No branch (detached HEAD)"),
+);
+
+const shownBranches = $derived(
+  (model.branches ?? []).filter((b) => b.name.toLowerCase().includes(filter.trim().toLowerCase())),
 );
 
 async function show(): Promise<void> {
   open = !open;
   creating = false;
+  filter = "";
   if (!open) return;
   if (model.error?.scope === "branch") model.error = null;
   await model.loadBranches();
@@ -44,7 +53,7 @@ async function startCreate(): Promise<void> {
   creating = true;
   name = "";
   await tick();
-  menu?.querySelector<HTMLInputElement>("input")?.focus();
+  menu?.querySelector<HTMLInputElement>("form input")?.focus();
 }
 
 async function cancelCreate(): Promise<void> {
@@ -80,7 +89,38 @@ function onkeydown(event: KeyboardEvent): void {
   if (event.code !== "Escape") return;
   event.preventDefault();
   event.stopPropagation();
-  void close();
+  // Escape in a filled filter clears it first.
+  if (event.target instanceof HTMLInputElement && event.target.dataset.filter !== undefined && filter) filter = "";
+  else void close();
+}
+
+const branchButtons = () => [...(menu?.querySelectorAll<HTMLElement>("[data-branch]") ?? [])];
+
+/** Arrows, Home and End on a branch; a typed letter goes on in the filter. */
+function onbranchkeydown(event: KeyboardEvent, i: number): void {
+  if (event.ctrlKey || event.metaKey || event.altKey) return;
+  const last = branchButtons().length - 1;
+  const to = { ArrowDown: i + 1, ArrowUp: i - 1, Home: 0, End: last }[event.code];
+  if (to !== undefined) {
+    event.preventDefault();
+    if (to < 0) menu?.querySelector<HTMLElement>("[data-filter]")?.focus();
+    else branchButtons()[Math.min(to, last)]?.focus();
+  } else if (event.key.length === 1 && event.key !== " ") {
+    event.preventDefault();
+    filter += event.key;
+    menu?.querySelector<HTMLElement>("[data-filter]")?.focus();
+  }
+}
+
+function onfilterkeydown(event: KeyboardEvent): void {
+  const first = shownBranches[0];
+  if (event.code === "ArrowDown") {
+    event.preventDefault();
+    branchButtons()[0]?.focus();
+  } else if (event.code === "Enter" && first) {
+    event.preventDefault();
+    void switchTo(first.name, first.current);
+  }
 }
 </script>
 
@@ -120,11 +160,31 @@ function onkeydown(event: KeyboardEvent): void {
       {#if model.branches === null}
         <p class="hint">Loading branches…</p>
       {:else}
+        <label class="filter">
+          Filter branches
+          <input
+            type="text"
+            data-filter
+            spellcheck="false"
+            autocomplete="off"
+            bind:value={filter}
+            onkeydown={onfilterkeydown}
+          />
+        </label>
+        <p class="hint" role="status" data-testid="git-branch-matches">
+          {#if filter.trim()}
+            {shownBranches.length === 0
+              ? "No branch matches."
+              : `${shownBranches.length} of ${model.branches.length} branches. Enter switches to ${shownBranches[0]?.name}.`}
+          {/if}
+        </p>
         <ul>
-          {#each model.branches as branch (branch.name)}
+          {#each shownBranches as branch, i (branch.name)}
             <li>
               <button
                 type="button"
+                data-branch
+                onkeydown={(event) => onbranchkeydown(event, i)}
                 title={branch.commit ? `${branch.name}: ${branch.commit.summary}` : branch.name}
                 aria-current={branch.current}
                 aria-disabled={model.busy}
@@ -247,6 +307,9 @@ function onkeydown(event: KeyboardEvent): void {
     flex: none;
     color: #9a9aa6;
   }
+  .filter {
+    margin-bottom: 2px;
+  }
   label {
     display: flex;
     flex-direction: column;
@@ -288,6 +351,9 @@ function onkeydown(event: KeyboardEvent): void {
   }
   .error {
     color: #ff6b6b;
+  }
+  .hint:empty {
+    margin: 0;
   }
   .visually-hidden {
     position: absolute;

@@ -9,7 +9,7 @@ import { useOvra } from "../shell/context";
 import Branches from "./Branches.svelte";
 import CommitBox from "./CommitBox.svelte";
 import FileSection from "./FileSection.svelte";
-import { focusList, focusMessage, focusRow } from "./focus";
+import { diffOpened, focusList, focusMessage, focusRow } from "./focus";
 import { describePaths, fileLists, GitModel } from "./model.svelte";
 
 let { project }: { project: ProjectId } = $props();
@@ -39,6 +39,7 @@ function openTerminal(): void {
 }
 
 function showDiff(path: string, staged: boolean): void {
+  diffOpened({ project, path, staged });
   workspace.gitDiff = { project, path, staged };
 }
 
@@ -139,7 +140,9 @@ function ago(seconds: number, now = Date.now() / 1000): string {
       </p>
     {/if}
     <div class="remote">
-      <p class="hint">Push and pull run in your terminal.</p>
+      <p class="hint" data-testid="git-remote-hint">
+        Push and pull run in your terminal: open one, then type <code>git push</code> or <code>git pull</code>.
+      </p>
       <button type="button" onclick={openTerminal}>Open terminal</button>
     </div>
     <div class="log">
@@ -154,8 +157,9 @@ function ago(seconds: number, now = Date.now() / 1000): string {
         {:else}
           <ul aria-label="Recent commits" data-testid="git-log">
             {#each model.log as commit (commit.id)}
-              <li title={`${commit.id}\n${commit.author}\n${commit.summary}`}>
-                <span class="summary">{commit.summary}</span>
+              <!-- No title: it would read the full 40-character id before each summary. -->
+              <li>
+                <span class="summary" title={commit.summary}>{commit.summary}</span>
                 <span class="meta">{commit.id.slice(0, 7)} · {commit.author} · {ago(commit.time)}</span>
               </li>
             {/each}

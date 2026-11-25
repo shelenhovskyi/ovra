@@ -2,10 +2,12 @@
 // One list of the git panel: "Conflicts", "Staged changes" or "Changes".
 // A row shows its diff (a conflict opens its file); small buttons open the
 // file, stage, unstage or discard it. The list is one Tab stop: arrows,
-// Home and End move between rows, and keys named in each row's description
-// run its actions. Discard asks first, in the row, starting on Cancel.
+// Home and End move between rows, and keys named under the list (while a row
+// has focus) and in each row's description run its actions; a key that does
+// nothing on a row says why. Discard asks first, in the row, starting on Cancel.
 import { tick } from "svelte";
 import type { GitChange, StatusFile } from "../lib/protocol";
+import { rowOf } from "./focus";
 import { CHANGE_LABEL, CHANGE_LETTER, type GitModel } from "./model.svelte";
 
 type Kind = "conflicts" | "staged" | "changes";
@@ -36,12 +38,27 @@ let list = $state<HTMLElement>();
 let confirming = $state<string | null>(null);
 /** The row that is the list's Tab stop. */
 let current = $state<string | null>(null);
+/** A row or one of its buttons has focus: the keys show under the list. */
+let focused = $state(false);
 const stop = $derived(files.some((f) => f.path === current) ? current : (files[0]?.path ?? null));
 
 const KEYS: Record<Kind, string> = {
-  conflicts: "Enter: open the file. S: mark resolved.",
+  conflicts: "Enter or O: open the file. S: mark resolved.",
   staged: "Enter: show the diff. U: unstage. O: open the file.",
   changes: "Enter: show the diff. S: stage. Delete: discard. O: open the file.",
+};
+
+/** Why a row key does nothing in this list, said instead of silence. */
+const NO_KEY: Record<Kind, Partial<Record<string, string>>> = {
+  conflicts: {
+    KeyU: "This file is not staged: there is nothing to unstage.",
+    Delete: "Resolve the conflict in the editor (Enter), then mark it resolved (S).",
+  },
+  staged: {
+    KeyS: "This file is staged already.",
+    Delete: "Unstage the file first (U), then discard it under Changes.",
+  },
+  changes: { KeyU: "This file is not staged: there is nothing to unstage." },
 };
 
 const change = (file: StatusFile): GitChange => (kind === "staged" ? file.staged : file.unstaged) ?? "modified";
@@ -71,7 +88,7 @@ async function cancelDiscard(): Promise<void> {
   const path = confirming;
   confirming = null;
   await tick();
-  list?.querySelector<HTMLElement>(`[data-row][data-path="${CSS.escape(path ?? "")}"]`)?.focus();
+  if (path !== null) rowOf(list, path)?.focus();
 }
 
 /** The row's main action: its diff, or for a conflict its file in the editor. */
@@ -87,19 +104,23 @@ const unstage = (file: StatusFile, i: number) =>
 function onrowkeydown(event: KeyboardEvent, file: StatusFile, i: number): void {
   if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
   const to = { ArrowDown: i + 1, ArrowUp: i - 1, Home: 0, End: files.length - 1 }[event.code];
+  const code = event.code === "Backspace" ? "Delete" : event.code;
   const action = {
     KeyS: kind !== "staged" ? () => stage(file, i) : null,
     KeyU: kind === "staged" ? () => unstage(file, i) : null,
     Delete: kind === "changes" ? () => askDiscard(file.path) : null,
-    Backspace: kind === "changes" ? () => askDiscard(file.path) : null,
-    KeyO: kind !== "conflicts" && change(file) !== "deleted" ? () => onopen(file.path) : null,
-  }[event.code];
+    KeyO: change(file) !== "deleted" ? () => onopen(file.path) : null,
+  }[code];
+  const why = code === "KeyO" ? "This file is deleted: there is nothing to open." : NO_KEY[kind][code];
   if (to !== undefined) {
     event.preventDefault();
     rows()[Math.max(0, Math.min(to, files.length - 1))]?.focus();
   } else if (action) {
     event.preventDefault();
     if (!event.repeat) void action();
+  } else if (action === null && why) {
+    event.preventDefault();
+    model.notice = why;
   }
 }
 
@@ -120,10 +141,16 @@ const all = $derived(files.flatMap((f) => (kind === "staged" && f.from ? [f.path
     {/if}
   </div>
   {#if files.length === 0}
-    <p class="empty">{kind === "staged" ? "Nothing is staged." : "No changes."}</p>
+    <p class="empty">{kind === "staged"
+        ? "Nothing is staged. Staged changes (git calls this the index) go into the next commit."
+        : "No changes."}</p>
   {/if}
-  <p id={`git-${kind}-keys`} hidden>{KEYS[kind]}</p>
-  <ul aria-labelledby={`git-${kind}-title`} bind:this={list}>
+  <ul
+    aria-labelledby={`git-${kind}-title`}
+    bind:this={list}
+    onfocusin={() => (focused = true)}
+    onfocusout={(event) => (focused = !!list?.contains(event.relatedTarget as Node | null))}
+  >
     {#each files as file, i (file.path)}
       {@const what = change(file)}
       <li>
@@ -144,7 +171,7 @@ const all = $derived(files.flatMap((f) => (kind === "staged" && f.from ? [f.path
             <span class="letter {what}" aria-hidden="true">{CHANGE_LETTER[what]}</span>
             <span class="file">{name(file.path)}</span>
             <span class="folder">{folder(file.path)}</span>
-            <span class="visually-hidden">, {CHANGE_LABEL[what]}</span>
+            <span class="visually-hidden">, {CHANGE_LABEL[what]}{kind === "staged" ? ", staged" : ""}</span>
           </button>
           {#if kind !== "conflicts" && what !== "deleted"}
             <button
@@ -226,6 +253,7 @@ const all = $derived(files.flatMap((f) => (kind === "staged" && f.from ? [f.path
       </li>
     {/each}
   </ul>
+  <p id={`git-${kind}-keys`} class="keys" data-testid={`git-${kind}-keys`} hidden={!focused}>{KEYS[kind]}</p>
 </section>
 
 <style>
@@ -263,6 +291,11 @@ const all = $derived(files.flatMap((f) => (kind === "staged" && f.from ? [f.path
     align-items: center;
     min-width: 0;
   }
+  /* Targets of at least 24x24 px (WCAG 2.5.8). */
+  .name,
+  .icon {
+    min-height: 24px;
+  }
   button {
     font: inherit;
     color: #c8c8d0;
@@ -298,7 +331,7 @@ const all = $derived(files.flatMap((f) => (kind === "staged" && f.from ? [f.path
     align-items: baseline;
     flex: 1;
     min-width: 0;
-    padding: 1px 2px;
+    padding: 3px 2px;
     text-align: left;
     white-space: nowrap;
   }
@@ -334,7 +367,8 @@ const all = $derived(files.flatMap((f) => (kind === "staged" && f.from ? [f.path
   }
   .icon {
     flex: none;
-    width: 22px;
+    width: 24px;
+    height: 24px;
     padding: 0;
     font-family: ui-monospace, monospace;
   }
@@ -360,6 +394,11 @@ const all = $derived(files.flatMap((f) => (kind === "staged" && f.from ? [f.path
   }
   .buttons .danger {
     border-color: #b05a4a;
+  }
+  .keys {
+    margin: 2px 2px 0;
+    font-size: 11px;
+    color: #9a9aa6;
   }
   .empty {
     margin: 2px 0;

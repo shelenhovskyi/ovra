@@ -1,6 +1,6 @@
 <script lang="ts">
-// The commit box: a message, "Amend last commit" and Commit. Mod+Enter in
-// the message commits. Commit says why it waits; a hook's output is shown
+// The commit box: a message, "Amend last commit" and Commit. Mod+Enter
+// anywhere in the box commits. Commit says why it waits; a hook's output is shown
 // when the commit fails, and a short line names the commit when it is made.
 import { formatShortcut, isApple } from "../keys/shortcut";
 import type { RepoStatus } from "../lib/protocol";
@@ -14,7 +14,8 @@ let amend = $state(false);
 
 const staged = $derived(status.files.filter((f) => f.staged !== null && f.unstaged !== "conflicted").length);
 const why = $derived.by(() => {
-  if (!amend && staged === 0) return "Stage changes to commit them, or amend the last commit.";
+  if (!amend && staged === 0)
+    return status.head ? "Stage changes to commit them, or amend the last commit." : "Stage changes to commit them.";
   if (!text.trim() && !amend) return "Write a commit message.";
   return null;
 });
@@ -39,7 +40,8 @@ function onkeydown(event: KeyboardEvent): void {
 }
 </script>
 
-<div class="commit" role="group" aria-label="Commit">
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+<div class="commit" role="group" aria-label="Commit" {onkeydown}>
   <label class="message">
     <span>Commit message</span>
     <textarea
@@ -48,7 +50,6 @@ function onkeydown(event: KeyboardEvent): void {
       placeholder={`${shortcut} commits`}
       aria-keyshortcuts={isApple() ? "Meta+Enter" : "Control+Enter"}
       bind:value={text}
-      {onkeydown}
     ></textarea>
   </label>
   {#if status.head}

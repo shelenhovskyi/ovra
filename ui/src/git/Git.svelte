@@ -4,7 +4,7 @@
 import { tick } from "svelte";
 import { registerCommand } from "../keys/commands";
 import { useOvra } from "../shell/context";
-import { focusMessage, focusRow } from "./focus";
+import { focusDiffRow, focusMessage } from "./focus";
 import GitPanel from "./GitPanel.svelte";
 import { fileLists, type GitModel, gitModel } from "./model.svelte";
 
@@ -36,7 +36,7 @@ $effect(() => {
         await showPanel();
         // Back from a diff: its row, to go on with the next file.
         const diff = workspace.gitDiff;
-        if (!diff || diff.project !== workspace.project?.id || !focusRow(diff.path, diff.staged)) focusPanel();
+        if (!diff || diff.project !== workspace.project?.id || !focusDiffRow(diff)) focusPanel();
       },
     }),
     registerCommand({

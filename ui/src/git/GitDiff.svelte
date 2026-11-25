@@ -13,7 +13,7 @@ import { inBrowserTab, isApple, liveKeys, matchesShortcut, parseShortcut } from 
 import type { FileDiff, Hunk } from "../lib/protocol";
 import { useOvra } from "../shell/context";
 import type { GitDiffTarget } from "../shell/workspace.svelte";
-import { focusRow } from "./focus";
+import { focusDiffRow } from "./focus";
 import { gitModel, message } from "./model.svelte";
 
 let { target }: { target: GitDiffTarget } = $props();
@@ -128,7 +128,7 @@ $effect(() => () => {
   void tick().then(() => {
     const active = document.activeElement;
     if (!closed || (active && active !== document.body && active.isConnected)) return;
-    if (!focusRow(closed.path, closed.staged)) void focusMain();
+    if (!focusDiffRow(closed)) void focusMain();
   });
 });
 
@@ -179,6 +179,8 @@ function numbered(hunk: Hunk): { text: string; kind: string; old: number | null;
   });
 }
 
+const sentence = (text: string) => `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
+
 const range = (hunk: Hunk) =>
   hunk.new_lines === 0
     ? `removed after line ${hunk.new_start}`
@@ -220,13 +222,12 @@ const range = (hunk: Hunk) =>
     {/if}
     <div class="hunks">
       {#each visible as hunk, i (i)}
-        <section class="hunk" aria-label={`Hunk ${i + 1} of ${hunks.length}, ${range(hunk)}`}>
+        <!-- A group, not a section: a region landmark per hunk would crowd the landmark list. -->
+        <div class="hunk" role="group" aria-label={`Hunk ${i + 1} of ${hunks.length}, ${range(hunk)}`}>
           <div class="hunk-head">
-            <code
-              >@@ -{hunk.old_start},{hunk.old_lines} +{hunk.new_start},{hunk.new_lines} @@{hunk.header
-                ? ` ${hunk.header}`
-                : ""}</code
-            >
+            <h3 title={`@@ -${hunk.old_start},${hunk.old_lines} +${hunk.new_start},${hunk.new_lines} @@`}>
+              {sentence(range(hunk))}{#if hunk.header}{" "}<code>{hunk.header}</code>{/if}
+            </h3>
             {#if !noHunks}
               <button
                 type="button"
@@ -246,7 +247,7 @@ const range = (hunk: Hunk) =>
               </div>
             {/each}
           </div>
-        </section>
+        </div>
       {/each}
       {#if hiddenLines > 0}
         <button type="button" class="more" onclick={() => (shownLines += PAGE)}
@@ -341,13 +342,23 @@ const range = (hunk: Hunk) =>
     padding: 4px 12px;
     background: #1c2230;
   }
-  .hunk-head code {
+  .hunk-head h3 {
+    display: flex;
+    gap: 8px;
     flex: 1;
+    min-width: 0;
+    margin: 0;
+    overflow: hidden;
+    font-size: 12px;
+    font-weight: normal;
+    white-space: nowrap;
+    color: #9fb3d9;
+  }
+  .hunk-head code {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
-    white-space: nowrap;
-    color: #9fb3d9;
+    color: #9a9aa6;
   }
   .lines {
     font-family: ui-monospace, monospace;
@@ -362,7 +373,8 @@ const range = (hunk: Hunk) =>
     width: 5ch;
     padding-right: 6px;
     text-align: right;
-    color: #6f6f7a;
+    /* 6.5:1 on the background, about 5.4:1 on a removed line. */
+    color: #9a9aa6;
   }
   .text {
     padding-left: 4px;
