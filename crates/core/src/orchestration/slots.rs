@@ -30,7 +30,8 @@ pub(crate) fn capacity(core: &Core, project: &ProjectId) -> AgentCapacity {
 /// Coordinators do not count: they only plan and wait for their workers,
 /// and counting them would let three tasks block each other's workers for
 /// good. A worker that asked for review and waits idle for the person does
-/// no work either; a message wakes it again.
+/// no work either, nor does a person's own session that waits idle for
+/// their reply; a message wakes either again, even at the cap.
 pub(super) fn count(core: &Core, state: &State, project: &ProjectId) -> (usize, usize) {
     let asked = tasks::asked_for_review(&state.reviews);
     let (mut working, mut queued) = (0, 0);
@@ -40,7 +41,7 @@ pub(super) fn count(core: &Core, state: &State, project: &ProjectId) -> (usize, 
         }
         match status {
             AgentStatus::Queued => queued += 1,
-            AgentStatus::Idle if asked.contains(&id) => {}
+            AgentStatus::Idle if role.is_none() || asked.contains(&id) => {}
             _ => working += 1,
         }
     }

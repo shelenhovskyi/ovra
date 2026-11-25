@@ -25,9 +25,11 @@ clear message past either.
 Across the whole project at most 3 agents work at once (owner decision of
 2026-11-25, ORCH-3): direct sessions and workers of every task. Coordinators
 do not count, since they only plan and wait for their workers, and neither
-does a worker that asked for review and waits idle. A worker spawned past
+does a worker that asked for review and waits idle, or a person's own
+session that waits idle for their reply (ORCH-11). A worker spawned past
 the cap waits `queued` in its worktree and starts, oldest first, when a place
-frees; a person's start or resume past it is refused with a clear message.
+frees; a person's start or resume past it is refused with a clear message,
+but a reply to their idle session (`agents.send`) is not.
 `agents.capacity` reports the count ("2 of 3 agents working").
 
 ## Roles

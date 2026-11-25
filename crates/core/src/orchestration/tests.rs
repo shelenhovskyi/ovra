@@ -2460,6 +2460,7 @@ async fn capacity(core: &Core) -> AgentCapacity {
 async fn capacity_counts_the_agents_that_work_but_not_coordinators() {
     let f = fx(say()).await;
     let mut rx = f.core.subscribe();
+    let mut direct_rx = f.core.subscribe();
     start_task(&f.core, 3).await;
     let boss = caller("s1", ToolRole::Coordinator);
     let worker = f.core.spawn_agent(&boss, "one", "x").await;
@@ -2477,7 +2478,9 @@ async fn capacity_counts_the_agents_that_work_but_not_coordinators() {
     until(&mut rx, &worker.session.0, AgentStatus::Idle).await;
     let me = caller(&worker.session.0, ToolRole::Worker);
     assert!(f.core.request_review(&me, None, "done").await.is_ok());
-    assert_eq!(capacity(&f.core).await.working, 1);
+    // Nor does the direct session, idle by now (says "on it" at once).
+    until(&mut direct_rx, "s3", AgentStatus::Idle).await;
+    assert_eq!(capacity(&f.core).await.working, 0);
 }
 
 fn status(core: &Core, session: &SessionId) -> AgentStatus {
@@ -2542,4 +2545,31 @@ async fn workers_past_the_projects_cap_wait_and_start_when_a_place_frees() {
     assert_eq!(status(&f.core, &later), AgentStatus::Stopped);
     let c = capacity(&f.core).await;
     assert_eq!((c.working, c.queued), (3, 0));
+}
+
+#[tokio::test]
+async fn a_persons_idle_session_holds_no_place_and_takes_replies_at_the_cap() {
+    let f = fx(say()).await;
+    let mut rx = f.core.subscribe();
+    let direct = json!({"method": "agents.start", "params": {
+        "project": "p1", "agent": "claude", "mode": "direct", "prompt": "fix it"}});
+    let Response::Agents(AgentsResponse::Session(direct)) = ok(&f.core, direct).await else {
+        panic!("no session");
+    };
+    until(&mut rx, &direct.id.0, AgentStatus::Idle).await;
+    assert_eq!(capacity(&f.core).await.working, 0);
+
+    // Three workers all start next to it.
+    start_task(&f.core, 3).await;
+    let boss = caller("s2", ToolRole::Coordinator);
+    for name in ["one", "two", "three"] {
+        assert!(f.core.spawn_agent(&boss, name, "x").await.is_ok());
+    }
+    let c = capacity(&f.core).await;
+    assert_eq!((c.working, c.queued), (3, 0));
+
+    // The person's reply to their own session is not refused.
+    let reply = json!({"method": "agents.send", "params": {
+        "session": direct.id.0, "text": "and the other typo"}});
+    ok(&f.core, reply).await;
 }
