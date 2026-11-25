@@ -9,18 +9,22 @@ import { tick, untrack } from "svelte";
 import { agentSessions } from "../agents/sessions.svelte";
 import { registerCommand } from "../keys/commands";
 import { formatShortcut, inBrowserTab, isApple, liveKeys, matchesShortcut, parseShortcut } from "../keys/shortcut";
-import type { ReviewId, ReviewItem } from "../lib/protocol";
+import type { FileChange, ReviewId, ReviewItem } from "../lib/protocol";
 import { useOvra } from "../shell/context";
 import PatchView from "../viewers/PatchView.svelte";
 import {
   approveHint,
   defaultCommitMessage,
   fileMarkers,
+  fileName,
   fileSummary,
   itemSummary,
+  itemTitle,
   notCopiedHint,
   PROTECTED_MARKER,
   protectedHint,
+  protectedReason,
+  protectedTag,
   rejectHint,
   STATE_LABEL,
   sharedFiles,
@@ -47,6 +51,10 @@ let announcement = $state("");
 let staleDiff = $state(false);
 /** An agent asked for a review since the inbox was last open. */
 let asked = $state(false);
+/** Protected files whose diff was on screen since the inbox opened, by `seenKey`. */
+let seen = $state<string[]>([]);
+/** The person ticked "Also apply protected files" for a worker's item. */
+let includeProtected = $state(false);
 let dialog = $state<HTMLElement>();
 let returnTo: HTMLElement | null = null;
 
@@ -64,11 +72,23 @@ const diffKey = $derived(item && file ? `${item.id}\n${file.path}\n${inbox.chang
 const diffShown = $derived(
   !item?.fingerprint || (diff !== null && diff.key === diffKey && diff.patch !== null && diff.fingerprint !== null),
 );
+/** Protected files of the item whose diff the person has not seen in this version. */
+const unseen = $derived(item ? item.files.filter((f) => f.protected && !seen.includes(seenKey(item, f))) : []);
+/** A worker's protected files that approve could copy: those not waiting for the direct agent. */
+const includable = $derived(item?.mode === "isolated" ? item.files.filter((f) => f.protected && !f.blocked) : []);
+const includableUnseen = $derived(includable.filter((f) => unseen.includes(f)));
+/** A direct item's protected files are already on disk: Approve keeps them only once each was seen. */
+const directWaits = $derived(item?.mode === "direct" && unseen.length > 0);
+/** Before a replace, each protected file it would copy must have been seen too. */
+const takeUnseen = $derived(
+  item?.state === "partly_approved" ? unseen.filter((f) => !f.blocked && item.not_copied.includes(f.path)) : [],
+);
 /** What Approve's description points at: why it waits, and the protected paths it would apply. */
 const approveWhy = $derived(
   [
     commit && !commitMessage.trim() ? "inbox-commit-why" : diffShown ? null : "inbox-diff-why",
     protectedText ? "inbox-protected" : null,
+    directWaits ? "inbox-protected-why" : null,
   ]
     .filter(Boolean)
     .join(" ") || undefined,
@@ -138,12 +158,33 @@ $effect(() => {
   };
 });
 
+// A protected file counts as seen once its diff, read from the version of
+// the files the list shows, is on screen.
+$effect(() => {
+  if (!item || !file?.protected || !diff || diff.key !== diffKey || diff.patch === null) return;
+  if (item.fingerprint && diff.fingerprint !== item.fingerprint) return;
+  const key = seenKey(item, file);
+  untrack(() => {
+    if (!seen.includes(key)) seen = [...seen, key];
+  });
+});
+
+/**
+ * Which version of a file was seen: a worker's files by the fingerprint of
+ * all of them, any file by its change, so a later change needs a new look.
+ */
+function seenKey(review: ReviewItem, f: FileChange): string {
+  return [review.id, review.fingerprint ?? "", f.path, f.from ?? "", f.kind, f.additions, f.deletions].join("\n");
+}
+
 function select(id: ReviewId | null): void {
   if (id === selectedId) return;
   selectedId = id;
   staleDiff = false;
   const next = inbox.items.find((i) => i.id === id);
-  selectedPath = next?.files[0]?.path ?? null;
+  // The riskiest file first: its diff is what the person sees.
+  selectedPath = (next?.files.find((f) => f.protected) ?? next?.files[0])?.path ?? null;
+  includeProtected = false;
   commit = false;
   commitMessage = next ? defaultCommitMessage(next) : "";
   confirmingReject = false;
@@ -155,6 +196,9 @@ async function show(): Promise<void> {
   returnTo = active instanceof HTMLElement ? active : null;
   opened = true;
   asked = false;
+  // Seen means seen in this sitting, not some earlier one.
+  seen = [];
+  includeProtected = false;
   // Never show a list older than the moment the person looks at it.
   void inbox.reload();
   await tick();
@@ -178,8 +222,7 @@ function toggle(): void {
 }
 
 function sessionLabel(review: ReviewItem): string {
-  const name = sessions.name(review.session);
-  return `${review.mode === "direct" ? "Direct agent" : "Worker"}: ${name}`;
+  return itemTitle(review, sessions.name(review.session));
 }
 
 /** Arrow keys move focus (and the choice) within a list of buttons. */
@@ -254,6 +297,7 @@ async function approve(review: ReviewItem): Promise<void> {
   // The diff on screen must be of the files approve would land: if it was
   // read from another version of the worker's files, show both anew first.
   if (review.fingerprint && !diffShown) return;
+  if (directWaits) return;
   const shown = diff?.fingerprint ?? null;
   if (review.fingerprint && shown !== review.fingerprint) {
     staleDiff = true;
@@ -261,7 +305,13 @@ async function approve(review: ReviewItem): Promise<void> {
     return;
   }
   staleDiff = false;
-  if ((await inbox.approve(review.id, message)) && inbox.outcome) {
+  // A direct item's protected files are kept once each was seen; a worker's
+  // are copied only if the person ticked the box after seeing each.
+  const included =
+    review.mode === "direct"
+      ? review.files.some((f) => f.protected)
+      : includeProtected && includable.length > 0 && includableUnseen.length === 0;
+  if ((await inbox.approve(review.id, message, included)) && inbox.outcome) {
     announcement = outcomeText(inbox.outcome);
     await refocus();
   }
@@ -283,6 +333,7 @@ async function undoReject(review: ReviewItem): Promise<void> {
 }
 
 async function take(review: ReviewItem): Promise<void> {
+  if (takeUnseen.length > 0) return;
   if ((await inbox.take(review.id)) && inbox.outcome) {
     announcement = outcomeText(inbox.outcome);
     await refocus();
@@ -317,11 +368,20 @@ function outcomeText(outcome: Outcome): string {
   const of = inbox.items.find((i) => i.id === outcome.id);
   const worker = of?.mode === "isolated";
   const files = outcome.conflicts.join(", ");
+  // A worker's protected files that approve left out, named as such.
+  const guarded = (path: string) => of?.files.some((f) => f.protected && !f.blocked && f.path === path) ?? false;
+  const leftOut = outcome.conflicts.filter(guarded);
+  const others = outcome.conflicts.filter((p) => !guarded(p));
   const left =
     outcome.conflicts.length === 0
       ? ""
       : worker && outcome.action === "approved"
-        ? ` Not copied: ${files}.`
+        ? [
+            others.length > 0 ? ` Not copied: ${others.join(", ")}.` : "",
+            leftOut.length > 0
+              ? ` Not copied, as files that can run code or change agent rules: ${leftOut.join(", ")}.`
+              : "",
+          ].join("")
         : ` Kept as you changed them: ${files}.`;
   if (outcome.action === "resolved") return "Marked done. The files stay as they are now.";
   if (outcome.action === "taken") {
@@ -352,7 +412,7 @@ function outcomeText(outcome: Outcome): string {
     return `Reject undone.${back}${left}`;
   }
   if (outcome.restored.length === 0) {
-    return `Rejected, but nothing was restored: no file here is known to be the agent's alone, so all of them stay as they are.${left}`;
+    return `Rejected, but nothing was restored: no file here was changed only by the agent's file tools, so all of them stay as they are.${left}`;
   }
   if (worker) return `Rejected. Discarded from the worker's copy: ${outcome.restored.join(", ")}.${left}`;
   return `Rejected. Restored: ${outcome.restored.join(", ")}.${left}`;
@@ -437,6 +497,9 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                     <span class="name">{sessionLabel(review)}</span>
                     <span class="state {review.state}">{STATE_LABEL[review.state]}</span>
                     <span class="meta">{itemSummary(review, sharedFiles(review, inbox.items).size)}</span>
+                    {#if protectedTag(review)}
+                      <span class="marker protected" data-testid="item-protected">{protectedTag(review)}</span>
+                    {/if}
                   </button>
                 </li>
               {/each}
@@ -464,6 +527,31 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                   {#if protectedText}
                     <p class="protected" id="inbox-protected" data-testid="inbox-protected">{protectedText}</p>
                   {/if}
+                  {#if directWaits}
+                    <p class="hint" id="inbox-protected-why" data-testid="inbox-protected-why">
+                      Approve waits until you have looked at the diff of each of these: {unseen
+                        .map(fileName)
+                        .join(", ")}. Select each one in the list of changed files.
+                    </p>
+                  {/if}
+                  {#if includable.length > 0}
+                    <label class="check">
+                      <input
+                        type="checkbox"
+                        data-testid="inbox-include-protected"
+                        checked={includeProtected && includableUnseen.length === 0}
+                        onchange={(e) => (includeProtected = e.currentTarget.checked)}
+                        disabled={includableUnseen.length > 0}
+                        aria-describedby={includableUnseen.length > 0 ? "inbox-include-why" : undefined}
+                      />
+                      Also apply protected files: {includable.map(fileName).join(", ")}
+                    </label>
+                    {#if includableUnseen.length > 0}
+                      <p class="hint" id="inbox-include-why" data-testid="inbox-include-why">
+                        To include them, look at the diff of each first: {includableUnseen.map(fileName).join(", ")}.
+                      </p>
+                    {/if}
+                  {/if}
                   <label class="check">
                     <input type="checkbox" bind:checked={commit} />
                     Commit the agent's files
@@ -488,7 +576,7 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                     <button
                       type="button"
                       class="approve"
-                      aria-disabled={busy || (commit && !commitMessage.trim()) || !diffShown}
+                      aria-disabled={busy || (commit && !commitMessage.trim()) || !diffShown || directWaits}
                       aria-describedby={approveWhy}
                       onclick={() => {
                         if (!busy) void approve(item);
@@ -531,11 +619,18 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
               {#if item.state === "partly_approved"}
                 <div class="actions" role="group" aria-label="Files that were not copied">
                   <p class="hint" data-testid="inbox-not-copied">{notCopiedHint(item)}</p>
+                  {#if takeUnseen.length > 0}
+                    <p class="hint" id="inbox-take-why" data-testid="inbox-take-why">
+                      Replacing waits until you have looked at the diff of each file that can run code or change agent
+                      rules: {takeUnseen.map(fileName).join(", ")}.
+                    </p>
+                  {/if}
                   <div class="buttons">
                     <button
                       type="button"
                       data-testid="inbox-take"
-                      aria-disabled={busy}
+                      aria-disabled={busy || takeUnseen.length > 0}
+                      aria-describedby={takeUnseen.length > 0 ? "inbox-take-why" : undefined}
                       onclick={() => {
                         if (!busy) void take(item);
                       }}>Replace mine with the worker's version</button
@@ -636,10 +731,16 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                         <span class="name">{changed.path}</span>
                         <span class="meta">{fileSummary(changed)}</span>
                         {#each markers as marker}
-                          <span class="marker" class:protected={marker === PROTECTED_MARKER} data-testid="file-marker"
-                            >{marker}</span
+                          <span
+                            class="marker"
+                            class:protected={marker === PROTECTED_MARKER}
+                            title={marker === PROTECTED_MARKER ? protectedReason(changed) : undefined}
+                            data-testid="file-marker">{marker}</span
                           >
                         {/each}
+                        {#if changed.protected}
+                          <span class="meta" data-testid="file-reason">{protectedReason(changed)}</span>
+                        {/if}
                       </button>
                     </li>
                   {/each}

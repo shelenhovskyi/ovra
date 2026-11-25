@@ -76,7 +76,7 @@ describe("Inbox", () => {
     expect(document.activeElement?.getAttribute("data-item")).toBe("r1");
     expect($("[data-testid=inbox-diff]")?.textContent).toContain("the readme");
     expect([...target.querySelectorAll("[data-testid=file-marker]")].map((m) => m.textContent)).toEqual([
-      "Changed outside the agent",
+      "Not changed by the agent's file tools",
     ]);
 
     press("ArrowDown");
@@ -92,30 +92,98 @@ describe("Inbox", () => {
     expect(document.activeElement).toBe($("[data-testid=elsewhere]"));
   });
 
-  it("marks protected files and says so beside Approve before it is pressed", async () => {
+  it("keeps a direct item's protected files only after each one's diff was shown", async () => {
     const core = await setup([
-      review("r1", { files: [change(".claude/settings.json", { protected: true }), change("README.md")] }),
+      review("r1", {
+        files: [
+          change("README.md"),
+          change(".claude/settings.json", { protected: true }),
+          change(".envrc", { protected: true, by: "outside" }),
+        ],
+      }),
     ]);
     await open();
+    // The first protected file is what opens, so its diff is on screen.
+    expect($("[data-file='.claude/settings.json']")?.getAttribute("aria-current")).toBe("true");
     expect($("[data-file='.claude/settings.json'] .marker.protected")?.textContent).toBe(
-      "Protected: agent or tool configuration",
+      "Can run code or change agent rules",
+    );
+    expect($("[data-file='.envrc'] [data-testid=file-reason]")?.textContent).toBe(
+      "runs commands when you enter the folder with direnv",
     );
     expect($("[data-file='README.md'] .marker")).toBeNull();
-    expect($("[data-item=r1]")?.textContent).toContain("2 files, 1 protected");
-    expect($("[data-testid=inbox-protected]")?.textContent).toContain(
-      "already in your project folder: .claude/settings.json. Approve keeps them",
+    expect($("[data-item=r1] [data-testid=item-protected]")?.textContent).toBe(
+      "2 files can run code or change agent rules",
     );
-    expect(button(/^Approve$/)?.getAttribute("aria-describedby")).toBe("inbox-protected");
-    // With a commit but no message, Approve says both why it waits and what it keeps.
-    $<HTMLInputElement>("[data-testid=inbox] input[type=checkbox]")?.click();
-    flushSync();
-    expect(button(/^Approve and commit$/)?.getAttribute("aria-describedby")).toBe("inbox-commit-why inbox-protected");
-    $<HTMLInputElement>("[data-testid=inbox] input[type=checkbox]")?.click();
-    flushSync();
-    // Approve stays possible: one press, as for any other item.
+    expect($("[data-testid=inbox-protected]")?.textContent).toContain(
+      "Reject leaves .envrc as it is: changed outside the agent's file tools",
+    );
+    expect($("[data-testid=inbox-protected-why]")?.textContent).toContain("each of these: .envrc.");
+    expect(button(/^Approve$/)?.getAttribute("aria-disabled")).toBe("true");
+    expect(button(/^Approve$/)?.getAttribute("aria-describedby")).toBe("inbox-protected inbox-protected-why");
     button(/^Approve$/)?.click();
     await settle();
-    expect(core.sent("review.approve").map((c) => c.params)).toEqual([{ id: "r1", commit: null }]);
+    expect(core.sent("review.approve")).toEqual([]);
+
+    $<HTMLButtonElement>("[data-file='.envrc']")?.click();
+    await settle();
+    expect($("[data-testid=inbox-protected-why]")).toBeNull();
+    expect(button(/^Approve$/)?.getAttribute("aria-disabled")).toBe("false");
+    expect(button(/^Approve$/)?.getAttribute("aria-describedby")).toBe("inbox-protected");
+    button(/^Approve$/)?.click();
+    await settle();
+    expect(core.sent("review.approve").map((c) => c.params)).toEqual([
+      { id: "r1", commit: null, include_protected: true },
+    ]);
+  });
+
+  const guarded = () => [
+    change("NOTES.md"),
+    change(".envrc", { protected: true }),
+    change(".mcp.json", { protected: true }),
+  ];
+  const include = () => $<HTMLInputElement>("[data-testid=inbox-include-protected]");
+
+  it("leaves a worker's protected files out unless included", async () => {
+    const core = await setup([review("r1", { session: "s2", mode: "isolated", fingerprint: "f1", files: guarded() })]);
+    await open();
+    expect(include()?.disabled).toBe(true);
+    expect(include()?.parentElement?.textContent).toContain("Also apply protected files: .envrc, .mcp.json");
+    expect($("[data-testid=inbox-include-why]")?.textContent).toContain("look at the diff of each first: .mcp.json.");
+    // Approve without them: they are not copied, and the outcome says so.
+    button(/^Approve$/)?.click();
+    await settle();
+    expect(core.sent("review.approve").map((c) => c.params)).toEqual([{ id: "r1", commit: null, fingerprint: "f1" }]);
+    expect($("[data-testid=inbox-outcome]")?.textContent).toContain(
+      "Not copied, as files that can run code or change agent rules: .envrc, .mcp.json.",
+    );
+    expect($("[data-testid=inbox-not-copied]")?.textContent).toContain(
+      "because they can run code or change agent rules: .envrc, .mcp.json",
+    );
+    // Replacing them with the worker's version waits for a look at each too.
+    expect($("[data-testid=inbox-take]")?.getAttribute("aria-disabled")).toBe("true");
+    expect($("[data-testid=inbox-take-why]")?.textContent).toContain(".mcp.json");
+    $<HTMLButtonElement>("[data-testid=inbox-take]")?.click();
+    await settle();
+    expect(core.sent("review.take")).toEqual([]);
+  });
+
+  it("includes a worker's protected files once each one's diff was shown", async () => {
+    const core = await setup([review("r2", { session: "s3", mode: "isolated", fingerprint: "f2", files: guarded() })]);
+    await open();
+    $<HTMLButtonElement>("[data-file='.mcp.json']")?.click();
+    await settle();
+    expect(include()?.disabled).toBe(false);
+    include()?.click();
+    flushSync();
+    button(/^Approve$/)?.click();
+    await settle();
+    expect(core.sent("review.approve")[0]?.params).toEqual({
+      id: "r2",
+      commit: null,
+      fingerprint: "f2",
+      include_protected: true,
+    });
   });
 
   it("approves only on a press, and commits with the message given", async () => {
@@ -190,7 +258,9 @@ describe("Inbox", () => {
     expect(core.sent("review.reject")).toEqual([]);
     // The step starts on the safe choice; Escape leaves the step, not the inbox.
     expect(document.activeElement?.textContent).toBe("Keep reviewing");
-    expect($("#inbox-reject-hint")?.textContent).toContain("Changes made outside the agent stay as they are");
+    expect($("#inbox-reject-hint")?.textContent).toContain(
+      "Files changed any other way (by you, another program or the agent's commands) stay as they are",
+    );
     press("Escape");
     await settle();
     expect($("[data-testid=inbox]")).not.toBeNull();
@@ -312,7 +382,7 @@ describe("Inbox", () => {
     button(/^Reject the changes$/)?.click();
     await settle();
     expect($("[data-testid=inbox-outcome]")?.textContent?.trim()).toBe(
-      "Rejected, but nothing was restored: no file here is known to be the agent's alone, so all of them stay as they are.",
+      "Rejected, but nothing was restored: no file here was changed only by the agent's file tools, so all of them stay as they are.",
     );
     // The pressed button is gone; focus lands on the undo instead of the page.
     expect(document.activeElement?.textContent).toBe("Undo reject");

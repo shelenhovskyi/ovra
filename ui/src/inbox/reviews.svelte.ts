@@ -109,11 +109,17 @@ export class ReviewInbox {
    * Keeps the changes; with `commit`, the core commits the agent's files with
    * that message. A worker's item goes with the fingerprint of the files shown
    * here, so the core refuses if they changed since the person looked.
+   * Protected files land only with `includeProtected`: the person chose so.
    */
-  approve(id: ReviewId, commit: string | null): Promise<boolean> {
+  approve(id: ReviewId, commit: string | null, includeProtected = false): Promise<boolean> {
     const fingerprint = this.items.find((i) => i.id === id)?.fingerprint ?? null;
     return this.act(id, async () => {
-      const params = fingerprint ? { id, commit, fingerprint } : { id, commit };
+      const params = {
+        id,
+        commit,
+        ...(fingerprint ? { fingerprint } : {}),
+        ...(includeProtected ? { include_protected: true } : {}),
+      };
       const { data } = await this.transport.call({ method: "review.approve", params });
       this.settle("approved", data, commit);
     });
