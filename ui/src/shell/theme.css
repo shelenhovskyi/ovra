@@ -3,7 +3,9 @@
    Surfaces: --page < --s0 (rail, title bar) < --s1 (side panels) < --s2 (editor)
    < --s3 (hover, inputs) < --s4 (raised: tooltips, menus). No hairlines:
    areas are told apart by tone. Text: --text, --text-2 (secondary), --text-3
-   (hints; large text or icons only, it is under 4.5:1 on some surfaces). */
+   (icons and large text only: 3:1, not 4.5:1). --text, --text-2, --accent,
+   --warn, --ok, --danger and --com keep 4.5:1 on every surface and on the
+   -soft fills over --s1 and --s2; theme.test.ts checks it. */
 :root {
   --page: #0a0c0f;
   --s0: #111318;
@@ -22,6 +24,7 @@
   --warn-soft: rgba(226, 179, 96, 0.13);
   --ok: #78c597;
   --ok-soft: rgba(120, 197, 151, 0.12);
+  --danger-soft: rgba(236, 123, 123, 0.14);
   --danger: #ec7b7b;
   --shadow: 0 30px 80px -20px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.05);
   --card-shadow: 0 24px 60px -12px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.06);
@@ -29,49 +32,59 @@
   --ty: #72cfc4;
   --str: #a9d391;
   --num: #e3b07a;
-  --com: #59636f;
+  --com: #87909c;
   --fn: #cfd8f0;
   --attr: #d59ad0;
 }
 
 @media (prefers-color-scheme: light) {
   :root {
-    --page: #e6e9ee;
-    --s0: #eef1f4;
-    --s1: #f4f6f8;
-    --s2: #fbfcfd;
-    --s3: #e8ebef;
-    --s4: #dde1e7;
+    --page: #dce1e7;
+    --s0: #e3e7ec;
+    --s1: #eef1f4;
+    --s2: #ffffff;
+    --s3: #e4e8ed;
+    --s4: #dce1e7;
     --scrim: rgba(225, 229, 235, 0.6);
     --text: #171a20;
-    --text-2: #576170;
-    --text-3: #8b94a1;
-    --accent: #0b80a8;
-    --accent-soft: rgba(11, 128, 168, 0.1);
+    --text-2: #535d6b;
+    --text-3: #788190;
+    --accent: #006a8e;
+    --accent-soft: rgba(0, 106, 142, 0.1);
     --accent-ink: #ffffff;
-    --warn: #a96d0c;
+    --warn: #7f5300;
     --warn-soft: rgba(196, 135, 30, 0.13);
-    --ok: #23885a;
+    --ok: #1b6c47;
     --ok-soft: rgba(35, 136, 90, 0.1);
-    --danger: #c93c3c;
+    --danger-soft: rgba(201, 60, 60, 0.14);
+    --danger: #b02a2a;
     --shadow: 0 30px 70px -24px rgba(30, 40, 60, 0.35), 0 0 0 1px rgba(20, 30, 50, 0.07);
     --card-shadow: 0 24px 60px -16px rgba(30, 40, 60, 0.35), 0 0 0 1px rgba(20, 30, 50, 0.08);
     --kw: #2f5fc4;
     --ty: #0f7d72;
     --str: #3f7d23;
     --num: #a5610f;
-    --com: #98a0aa;
+    --com: #626b77;
     --fn: #1f2633;
     --attr: #9a3a95;
   }
 }
 
 :root {
-  --font: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  --radius: 8px;
+  --font: -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  /* Radii: chips and key caps, controls, panels, cards and dialogs. */
+  --radius-xs: 4px;
   --radius-sm: 6px;
+  --radius: 8px;
+  --radius-lg: 12px;
+  /* Control heights: quiet and inline buttons, primary buttons and inputs. */
+  --control-h-sm: 28px;
+  --control-h: 32px;
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none' stroke='%23888' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5'/%3E%3C/svg%3E");
   color-scheme: dark;
+  accent-color: var(--accent);
+  scrollbar-color: var(--s4) transparent;
 }
 @media (prefers-color-scheme: light) {
   :root {
@@ -112,6 +125,90 @@ body {
 }
 :where(code, kbd, pre, samp) {
   font-family: var(--mono);
+}
+/* Controls take the text font, not the browser's 13.33 px one. */
+:where(button, input, select, textarea) {
+  font: inherit;
+}
+::selection {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+/* Selects look like the inputs: a --s3 field with a chevron. Panels restyle
+   their selects' background and padding, so the chevron and its room are
+   kept with !important (scoped panel styles outrank any plain selector). */
+:where(select) {
+  appearance: none;
+  min-height: var(--control-h-sm);
+  padding: 0 10px;
+  color: var(--text);
+  background-color: var(--s3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+}
+select {
+  /* biome-ignore lint/complexity/noImportantStyles: panels set their own background and padding on selects. */
+  padding-inline-end: 28px !important;
+  /* biome-ignore lint/complexity/noImportantStyles: panels set their own background and padding on selects. */
+  background-image: var(--chevron) !important;
+  /* biome-ignore lint/complexity/noImportantStyles: panels set their own background and padding on selects. */
+  background-repeat: no-repeat !important;
+  /* biome-ignore lint/complexity/noImportantStyles: panels set their own background and padding on selects. */
+  background-position: right 10px center !important;
+}
+:where(select:hover) {
+  background-color: var(--s4);
+}
+@media (forced-colors: active) {
+  select {
+    appearance: auto;
+    /* biome-ignore lint/complexity/noImportantStyles: undoes the chevron above. */
+    background-image: none !important;
+  }
+}
+:where(input[type="checkbox"], input[type="radio"]) {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+/* Syntax colours for code shown outside the editor too (tree-sitter capture
+   classes `tok-<capture>`, see languages/README.md). */
+.tok-comment {
+  color: var(--com);
+  font-style: italic;
+}
+.tok-string {
+  color: var(--str);
+}
+.tok-keyword,
+.tok-variable-builtin,
+.tok-string-special-key {
+  color: var(--kw);
+}
+.tok-property,
+.tok-function,
+.tok-constructor {
+  color: var(--fn);
+}
+.tok-escape,
+.tok-string-escape,
+.tok-number,
+.tok-constant,
+.tok-boolean {
+  color: var(--num);
+}
+.tok-function-macro,
+.tok-attribute,
+.tok-label {
+  color: var(--attr);
+}
+.tok-type,
+.tok-tag {
+  color: var(--ty);
+}
+.tok-operator,
+.tok-punctuation-delimiter,
+.tok-punctuation-bracket {
+  color: var(--text-2);
 }
 /* Narrow windows (about 400% zoom) stack the panels; the page scrolls down. */
 @media (max-width: 600px) {

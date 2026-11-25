@@ -1,6 +1,6 @@
 // Editor colours from the theme tokens (ui/src/shell/theme.css), so the dark
-// and light themes both follow the system, including the tree-sitter capture
-// classes (`tok-<capture>`, see languages/README.md).
+// and light themes both follow the system. The tree-sitter capture classes
+// (`tok-<capture>`) are styled in theme.css, shared with the viewers.
 
 import { EditorView } from "@codemirror/view";
 
@@ -12,6 +12,8 @@ const tint = (percent: number) => `color-mix(in srgb, var(--accent) ${percent}%,
 export const theme = EditorView.theme(
   {
     "&": { height: "100%", color: "var(--text)", backgroundColor: "var(--s2)" },
+    // The panel shows focus; CodeMirror's dotted outline would draw a hairline.
+    "&.cm-focused": { outline: "none" },
     ".cm-scroller": { fontFamily: "var(--mono)", fontSize: "13.5px", lineHeight: "1.65" },
     ".cm-content": { caretColor: "var(--text)" },
     ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--text)" },
@@ -49,16 +51,6 @@ export const theme = EditorView.theme(
       backgroundColor: "var(--s3)",
       color: "var(--text)",
     },
-    ".tok-comment": { color: "var(--com)", fontStyle: "italic" },
-    ".tok-keyword, .tok-variable-builtin": { color: "var(--kw)" },
-    ".tok-string": { color: "var(--str)" },
-    ".tok-string-special-key": { color: "var(--kw)" },
-    ".tok-property, .tok-function, .tok-constructor": { color: "var(--fn)" },
-    ".tok-escape, .tok-string-escape": { color: "var(--num)" },
-    ".tok-number, .tok-constant, .tok-boolean": { color: "var(--num)" },
-    ".tok-function-macro, .tok-attribute, .tok-label": { color: "var(--attr)" },
-    ".tok-type, .tok-tag": { color: "var(--ty)" },
-    ".tok-operator, .tok-punctuation-delimiter, .tok-punctuation-bracket": { color: "var(--text-2)" },
   },
   { dark },
 );

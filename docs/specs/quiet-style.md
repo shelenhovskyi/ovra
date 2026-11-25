@@ -24,8 +24,15 @@ tone instead of lines, and chrome that appears only when needed.
   `--s3`, menus and tooltips on `--s4` with `--card-shadow`. No 1 px borders
   between areas; a border only where a control needs an edge to be found.
 - **Type.** 14 px body, 13 px secondary, 12 px only for key caps and badges.
-  `--font` for text, `--mono` for code and paths. Weight 600 for titles, 500
-  for active items. No text under 12 px.
+  `--font` for text, `--mono` for code and paths, both the system's own fonts
+  (`--font`: -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI";
+  `--mono`: ui-monospace, "SF Mono", Menlo, Consolas); no bundled fonts.
+  Weight 600 for titles, 500 for active items. No text under 12 px.
+- **Shape.** Radii `--radius-xs` (chips, key caps), `--radius-sm` (controls),
+  `--radius` (panels), `--radius-lg` (cards, dialogs); control heights
+  `--control-h-sm` (quiet and inline) and `--control-h` (primary, inputs).
+- **Code** shows the syntax colours wherever it appears: editor, viewer,
+  diffs, search results, Markdown code blocks.
 - **Few words.** Labels are 1-3 words; a sentence only where a person must
   decide something. Explanations sit behind a "Details" disclosure.
   Security facts (approvals, trust, no-sandbox, billing account, risky

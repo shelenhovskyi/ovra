@@ -498,7 +498,7 @@ function onkeydown(e: KeyboardEvent): void {
     outline-offset: -2px;
   }
   .ignored .name {
-    color: var(--text-3);
+    color: var(--text-2);
     font-style: italic;
   }
   .twisty {
