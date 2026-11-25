@@ -2,6 +2,7 @@
 // Agent sessions of the open project: start one, pick one, read its
 // transcript, reply and stop. Ctrl+Enter (Cmd+Enter) sends from a text field.
 import { untrack } from "svelte";
+import { browserPicks, pickLabel } from "../browser/picks.svelte";
 import { registerCommand } from "../keys/commands";
 import { formatShortcut, isApple } from "../keys/shortcut";
 import type { SessionId } from "../lib/protocol";
@@ -17,6 +18,7 @@ import Transcript from "./Transcript.svelte";
 
 const { transport, workspace } = useOvra();
 const sessions = agentSessions(transport);
+const picks = browserPicks(transport);
 const modEnter = formatShortcut("Mod+Enter", isApple());
 
 let selected = $state<SessionId | null>(null);
@@ -30,6 +32,8 @@ const project = $derived(workspace.project);
 const list = $derived(project ? sessions.grouped(project.id) : []);
 const current = $derived(list.find((s) => s.id === selected) ?? null);
 const messages = $derived(current ? sessions.transcripts.get(current.id) : undefined);
+/** Elements picked in the session's browser, sent with the next reply. */
+const chips = $derived(current ? picks.of(current.id) : []);
 const sandbox = $derived(current ? sandboxLine(sandboxState(current), isEnded(current.status)) : null);
 const gaps = $derived(current ? sandboxGaps(sandboxState(current), isEnded(current.status)) : null);
 
@@ -121,6 +125,8 @@ function send(): Promise<void> {
   const body = reply.trim();
   if (!id || !body) return Promise.resolve();
   return run(async () => {
+    // The session's next message carries the picks.
+    await picks.attach(id);
     await sessions.send(id, body);
     reply = "";
   });
@@ -265,6 +271,20 @@ const canReply = $derived(current !== null && current.status.state === "idle");
               bind:value={reply}
               onkeydown={(event) => submitOnModEnter(event, send)}
             ></textarea>
+            {#if chips.length > 0}
+              <ul class="chips" aria-label="Picked elements, sent with the reply">
+                {#each chips as { pick } (pick.pick_id)}
+                  <li class="chip" data-testid="pick-chip" title={pick.note || pick.selector}>
+                    <span>{pickLabel(pick)}</span>
+                    <button
+                      type="button"
+                      aria-label={`Remove ${pickLabel(pick)}`}
+                      onclick={() => picks.remove(current.id, pick.pick_id)}>×</button
+                    >
+                  </li>
+                {/each}
+              </ul>
+            {/if}
             <div class="row">
               <span class="hint">{canReply ? `${modEnter} sends.` : "Claude is busy; reply when it waits for you."}</span>
               <button type="submit" disabled={busy || !canReply || !reply.trim()}>Send</button>
@@ -434,6 +454,35 @@ const canReply = $derived(current !== null && current.status.state === "idle");
   }
   .reply {
     margin-top: 8px;
+  }
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .chip {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 100%;
+    padding: 0 0 0 8px;
+    font-size: 12px;
+    background: #1f2b1f;
+    border: 1px solid #3f6b3f;
+    border-radius: 10px;
+  }
+  .chip span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .chip button {
+    padding: 0 6px;
+    border: none;
+    background: transparent;
   }
   .error {
     color: #ff8f8f;

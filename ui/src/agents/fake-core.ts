@@ -123,6 +123,7 @@ export class FakeAgentCore implements Transport {
       case "agents.transcript":
         return { type: "agents.transcript", data: this.transcripts.get(request.params.session) ?? [] };
       case "agents.send":
+      case "browser.attach":
       case "agents.stop":
       case "agents.interrupt":
         return { type: "ok" };

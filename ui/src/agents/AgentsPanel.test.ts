@@ -1,5 +1,7 @@
 import { flushSync, mount, unmount } from "svelte";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { browserPicks } from "../browser/picks.svelte";
+import type { Pick } from "../lib/protocol";
 import { Workspace } from "../shell/workspace.svelte";
 import { FakeAgentCore } from "./fake-core";
 import TestHost from "./TestHost.svelte";
@@ -282,6 +284,44 @@ describe("AgentsPanel", () => {
     await settle();
     expect(panel()?.querySelector("[role=status]")?.textContent).toBe("Failed: claude exited with code 1");
     expect(target.querySelector("#agent-reply")).toBeNull();
+  });
+
+  it("shows the elements picked in the session's browser and attaches them to the reply", async () => {
+    const core = new FakeAgentCore();
+    core.addSession("p1", "Fix the header", { state: "idle" });
+    await setup(core);
+    const pick = (tag: string, locator: string): Pick => ({
+      pick_id: `pk-${tag}`,
+      url: "http://localhost:5173/",
+      selector: `header > ${tag}`,
+      locator,
+      tag,
+      text: "",
+      html: "",
+      rect: { x: 0, y: 0, width: 10, height: 10 },
+    });
+    const picks = browserPicks(core);
+    picks.add("s1", "pg1", pick("button", 'button "Save"'));
+    picks.add("s1", "pg1", pick("h1", 'heading "Welcome"'));
+    picks.note("s1", "pk-button", "make it blue");
+    await settle();
+    const chips = () => [...target.querySelectorAll("[data-testid=pick-chip] span")].map((c) => c.textContent);
+    expect(chips()).toEqual(['button "Save"', 'heading "Welcome"']);
+    target.querySelector<HTMLButtonElement>("button[aria-label='Remove heading \"Welcome\"']")?.click();
+    await settle();
+    expect(chips()).toEqual(['button "Save"']);
+    type(target.querySelector("#agent-reply"), "this one");
+    modEnter();
+    await settle();
+    // The picks go first: the session's next message carries them.
+    expect(core.calls.filter((c) => c.method === "browser.attach" || c.method === "agents.send")).toEqual([
+      {
+        method: "browser.attach",
+        params: { page: "pg1", picks: [{ ...pick("button", 'button "Save"'), note: "make it blue" }] },
+      },
+      { method: "agents.send", params: { session: "s1", text: "this one" } },
+    ]);
+    expect(chips()).toEqual([]);
   });
 
   it("resumes an ended session that can be resumed", async () => {
