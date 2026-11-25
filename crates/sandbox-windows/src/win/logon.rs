@@ -5,9 +5,8 @@ use std::path::Path;
 
 use windows_sys::Win32::Security::{LookupAccountNameW, SID_NAME_USE};
 use windows_sys::Win32::System::Threading::{
-    CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT, CreateProcessWithLogonW, GetExitCodeProcess,
-    INFINITE, LOGON_WITH_PROFILE, PROCESS_INFORMATION, ResumeThread, STARTF_USESTDHANDLES,
-    STARTUPINFOW, WaitForSingleObject,
+    CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT, CreateProcessWithLogonW, LOGON_WITH_PROFILE,
+    PROCESS_INFORMATION, STARTF_USESTDHANDLES, STARTUPINFOW,
 };
 
 use super::token::{Handle, command_line, env_block, sid_text_raw, std_handles};
@@ -85,13 +84,7 @@ pub(crate) fn run_as(
                 format!("starting the session as the sandbox user: {error}"),
             ));
         }
-        let process = Handle(info.hProcess);
-        let thread = Handle(info.hThread);
-        super::job::assign(process.0)?;
-        ResumeThread(thread.0);
-        WaitForSingleObject(process.0, INFINITE);
-        let mut code = 1u32;
-        GetExitCodeProcess(process.0, &mut code);
-        Ok(code)
+        let (process, thread) = (Handle(info.hProcess), Handle(info.hThread));
+        super::token::finish(&process, &thread)
     }
 }
