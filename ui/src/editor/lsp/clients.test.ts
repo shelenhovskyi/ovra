@@ -3,6 +3,7 @@ import { jumpToDefinition, LSPPlugin, renameSymbol } from "@codemirror/lsp-clien
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { afterEach, beforeAll, expect, test, vi } from "vitest";
+import { languageServers } from "../../lsp/servers.svelte";
 import { type Buffer, Buffers } from "../buffers.svelte";
 import { Drafts } from "../drafts.svelte";
 import { MemoryStorage } from "../fake-core";
@@ -103,6 +104,17 @@ test("starts a server only for a trusted project with the server installed", asy
   expect(core.got("s1", "textDocument/didOpen")[0]?.params).toMatchObject({
     textDocument: { uri: "ovra:///src/c.tsx", languageId: "typescriptreact", text: "<p/>;\n" },
   });
+});
+
+test("a server that is known but missing or not allowed asks the footer for a hint", async () => {
+  const { core, show } = setup();
+  const status = languageServers(core);
+  core.trusted = true;
+  await show("main.rs"); // rust-analyzer is known but not installed
+  await until(() => expect(status.needed).toContain("rust"));
+  await show("notes.txt"); // no server is known for plain text
+  await settle();
+  expect(status.needed).not.toContain("text");
 });
 
 test("diagnostics from the server reach the view", async () => {

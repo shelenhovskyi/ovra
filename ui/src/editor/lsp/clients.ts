@@ -9,6 +9,7 @@ import { LSPClient, languageServerExtensions } from "@codemirror/lsp-client";
 import { type EditorView, ViewPlugin } from "@codemirror/view";
 import type { LspStatus, ProjectId, ServerId, ServerInfo } from "../../lib/protocol";
 import type { Transport } from "../../lib/transport";
+import { languageServers } from "../../lsp/servers.svelte";
 import type { Buffer } from "../buffers.svelte";
 import { ServerChannel } from "./channel";
 import { safeHref, sanitizeHtml } from "./sanitize";
@@ -114,6 +115,9 @@ export class LanguageClients {
     await this.stopping;
     const status = await this.lspStatus();
     const known = status?.known.find((k) => k.language === language);
+    // A known server that cannot start gets the footer's hint.
+    if (status && known && (!status.trusted || !known.path))
+      languageServers(this.options.transport).needServer(language);
     if (!status?.trusted || !known?.path || this.closed) return null;
     let info = await this.startServer(language);
     if (info && status.servers.some((s) => s.id === info?.id)) {
