@@ -87,6 +87,32 @@ describe("file actions in the tree", () => {
     expect(t.row("/")).toBeNull();
   });
 
+  it("moves a dragged file into the folder under it, never a folder into itself", async () => {
+    const t = await mountTree(["lib/x.ts", "src/inner/y.ts", "a.ts"]);
+    const drag = (type: string, path: string | null) => {
+      (path === null ? t.tree : t.row(path))?.dispatchEvent(new Event(type, { bubbles: true, cancelable: true }));
+      flushSync();
+    };
+    drag("dragstart", "src");
+    drag("dragover", "src");
+    expect(t.target.querySelector(".drop, .drop-root")).toBeNull();
+    drag("dragend", "src");
+
+    drag("dragstart", "a.ts");
+    drag("dragover", "lib");
+    expect(t.row("lib")?.classList.contains("drop")).toBe(true);
+    drag("drop", "lib");
+    await settle();
+    expect(t.row("lib/a.ts")?.getAttribute("aria-selected")).toBe("true");
+
+    drag("dragstart", "lib/a.ts");
+    drag("dragover", null);
+    expect(t.tree.classList.contains("drop-root")).toBe(true);
+    drag("drop", null);
+    await settle();
+    expect(t.row("a.ts")).not.toBeNull();
+  });
+
   it("asks before Delete moves a file to the trash", async () => {
     const t = await mountTree(["a.ts", "b.ts"]);
     t.press(t.tree, "ArrowDown");

@@ -13,7 +13,7 @@ import { FileActions } from "./actions.svelte";
 import { registerFileCommands } from "./commands";
 import { ancestorsOf, type Filter, parentOf, type Row, TreeModel, typeaheadMatch, visibleRange } from "./model";
 import NameInput from "./NameInput.svelte";
-import { baseName, keyAction, stemRange } from "./ops";
+import { baseName, keyAction, moveTarget, stemRange } from "./ops";
 import { ExpandedSaver, loadExpanded } from "./persist";
 import TrashConfirm from "./TrashConfirm.svelte";
 import WatchLimitNotice from "./WatchLimitNotice.svelte";
@@ -230,6 +230,56 @@ function describe(row: Row): string {
   return parts.join(", ");
 }
 
+/** The path being dragged inside the tree, and the folder it would drop into (`""` is the project folder). */
+let dragging: string | null = null;
+let dropDir = $state<string | null>(null);
+const DRAG_TYPE = "application/x-ovra-path";
+
+/** The folder a drop on `target` moves into: the row's folder, or the project folder below the rows. */
+function dropDirAt(target: EventTarget | null): string | null {
+  const el = target instanceof Element ? target.closest<HTMLElement>("[data-path]") : null;
+  const path = el?.dataset.path;
+  if (path?.endsWith("/")) return null; // the draft row
+  const dir = !el || !path ? "" : el.hasAttribute("aria-expanded") ? path : parentOf(path);
+  return dragging !== null && moveTarget(dragging, dir) !== null ? dir : null;
+}
+
+function ondragstart(e: DragEvent): void {
+  const path = e.target instanceof Element ? e.target.closest<HTMLElement>("[data-path]")?.dataset.path : undefined;
+  if (!path) return;
+  dragging = path;
+  e.dataTransfer?.setData(DRAG_TYPE, path);
+  if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+}
+
+// Drops from outside the tree (files from the system) are not taken yet.
+function ondragover(e: DragEvent): void {
+  if (dragging === null) return;
+  dropDir = dropDirAt(e.target);
+  if (dropDir === null) return;
+  e.preventDefault();
+  if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+}
+
+function ondrop(e: DragEvent): void {
+  const from = dragging;
+  if (from === null) return;
+  e.preventDefault();
+  const dir = dropDirAt(e.target);
+  ondragend();
+  if (dir !== null) void actions.move(from, dir);
+}
+
+/** The drag ended, dropped or not (Escape cancels it). */
+function ondragend(): void {
+  dragging = null;
+  dropDir = null;
+}
+
+function ondragleave(e: DragEvent): void {
+  if (!(e.relatedTarget instanceof Node && viewport?.contains(e.relatedTarget))) dropDir = null;
+}
+
 /** The active row, unless it is the draft of a new entry. */
 function activeRow(): Row | null {
   const row = rows[activeIndex];
@@ -412,6 +462,12 @@ function onkeydown(e: KeyboardEvent): void {
     onscroll={(e) => (scrollTop = e.currentTarget.scrollTop)}
     {onkeydown}
     {onfocus}
+    {ondragstart}
+    {ondragover}
+    {ondrop}
+    {ondragend}
+    {ondragleave}
+    class:drop-root={dropDir === ""}
   >
     {#if error}
       <p class="note error" role="alert">{error}</p>
@@ -431,6 +487,8 @@ function onkeydown(e: KeyboardEvent): void {
             class="row"
             class:selected={index === activeIndex}
             class:ignored={row.ignored}
+            class:drop={dropDir === row.path}
+            draggable={!row.draft && actions.edit === null}
             role="treeitem"
             aria-label={row.draft ? (row.kind === "dir" ? "New folder" : "New file") : row.name}
             tabindex="-1"
@@ -565,6 +623,11 @@ function onkeydown(e: KeyboardEvent): void {
     background: var(--s3);
     color: var(--text);
     font-weight: 500;
+  }
+  /* Where a dragged file or folder would land. */
+  .viewport .row.drop,
+  .viewport.drop-root {
+    background: var(--accent-soft);
   }
   .viewport:focus-visible .row.selected {
     outline: 2px solid var(--accent);
