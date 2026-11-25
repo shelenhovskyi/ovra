@@ -282,7 +282,7 @@ describe("ProjectTrust", () => {
     core.call = ((request: Parameters<typeof call>[0]) => {
       core.call = call;
       const answer = call(request);
-      return new Promise((resolve) => {
+      return new Promise<unknown>((resolve) => {
         release = () => resolve(answer);
       });
     }) as typeof core.call;
