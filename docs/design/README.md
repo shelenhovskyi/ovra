@@ -75,12 +75,15 @@ Taken as the reasonable default (reversible; see each page):
 - Reviews says "Keep changes" and "Discard…" (confirmed by "Discard the
   changes"), never Approve or Reject (owner, 2026-11-25). The protocol keeps
   `review.approve` and `review.reject`.
+- "Always allow `npm test` here" (owner, 2026-11-25): a quiet action under
+  the answers, with the same wait and checks as Allow once and no key. It
+  writes the narrowest `auto` rule the core offers (`docs/specs/security.md`,
+  "Always allow"), marked "From an approval" in Settings > Rules. Its code
+  still needs a human security review.
 
 Open for the owner:
 
-- "Always allow `npm test` here" on an approval would write a policy rule.
-  That loosens security, so it waits for the owner and a human security
-  review.
-- Window translucency (Tauri `windowEffects`) for the title bar and rail.
+- Window translucency (Tauri `windowEffects`) for the title bar and rail
+  (postponed by the owner, 2026-11-25).
 - Streaming replies need a CLI flag and a new protocol event; that lands as
   its own small task first.

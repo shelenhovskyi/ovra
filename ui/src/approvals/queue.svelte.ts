@@ -62,12 +62,15 @@ export class ApprovalQueue {
     this.revealer?.(id);
   }
 
-  /** Answers one request; `false` if it was not sent (already answering, or failed). */
-  async answer(id: PermissionId, decision: Decision, note?: string): Promise<boolean> {
+  /**
+   * Answers one request; `false` if it was not sent (already answering, or failed). `always` also
+   * adds the rule the request offers to its project's policy.
+   */
+  async answer(id: PermissionId, decision: Decision, note?: string, always = false): Promise<boolean> {
     if (this.answering.has(id) || !this.pending.some((r) => r.id === id)) return false;
     this.answering.add(id);
     try {
-      const params = note ? { id, decision, message: note } : { id, decision };
+      const params = { id, decision, ...(note ? { message: note } : {}), ...(always ? { always } : {}) };
       await this.transport.call({ method: "permissions.answer", params });
       this.remove(id);
       this.error = null;

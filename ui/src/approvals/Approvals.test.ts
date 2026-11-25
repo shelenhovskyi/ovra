@@ -947,3 +947,48 @@ describe("Approvals", () => {
     expect(section?.classList.contains("idle")).toBe(false);
   });
 });
+
+describe("Always allow", () => {
+  const rule = { tool: "Bash", match: "npm test", action: "auto", from_approval: true } as const;
+  const always = () => cards()[0]?.querySelector<HTMLButtonElement>("[data-testid=approval-always]");
+
+  it("adds the offered rule after the same wait and checks as Allow once, with no key of its own", async () => {
+    const core = await setup();
+    outOfSight = true;
+    core.ask({ ...bash("perm1", "npm test"), always: rule });
+    await settle();
+    expect(words(always() ?? undefined)).toBe("Always allow npm test here");
+    expect(always()?.querySelector("code")?.textContent).toBe("npm test");
+    expect(always()?.hasAttribute("aria-keyshortcuts")).toBe(false);
+    always()?.click();
+    await settle(ARM_MS);
+    expect(answers(core)).toEqual([]);
+    // Armed, but the details were never in sight: the press shows them first.
+    expect(always()?.getAttribute("aria-disabled")).toBe("true");
+    always()?.click();
+    await settle();
+    expect(answers(core)).toEqual([]);
+    comeIntoSight();
+    await settle(ARM_MS);
+    expect(always()?.getAttribute("aria-disabled")).toBe("false");
+    // Return never allows, not even always.
+    always()?.dispatchEvent(new KeyboardEvent("keydown", { code: "Enter", bubbles: true, cancelable: true }));
+    always()?.click();
+    await settle();
+    expect(answers(core)).toEqual([{ id: "perm1", decision: "allow", always: true }]);
+  });
+
+  it("is not offered when the core offers no rule or a path is not inside the folder", async () => {
+    const core = await setup();
+    core.ask(bash("perm1", "rm -rf .claude"));
+    core.ask({
+      ...bash("perm2"),
+      tool: "Edit",
+      input: { file_path: "/etc/hosts", old_string: "a", new_string: "b" },
+      always: { tool: "Edit", match: "hosts", action: "auto", from_approval: true },
+    });
+    await showRest();
+    expect(cards()).toHaveLength(2);
+    expect(target.querySelector("[data-testid=approval-always]")).toBeNull();
+  });
+});

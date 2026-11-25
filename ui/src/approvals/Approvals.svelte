@@ -45,7 +45,7 @@ import { typed } from "../shell/menu";
 import { cardBody } from "./body";
 import { describeTool } from "./describe";
 import { ARM_MS, approvalQueue, HOLD_MS } from "./queue.svelte";
-import { pathScopes, sameFolder } from "./scope";
+import { type PathScope, pathScopes, sameFolder } from "./scope";
 
 const { transport, workspace } = useOvra();
 const queue = approvalQueue(transport);
@@ -358,6 +358,7 @@ async function answer(
   decision: Decision,
   message?: string,
   byPointer = false,
+  always = false,
 ): Promise<void> {
   if (!armed(request.id)) return;
   // Nothing is allowed unseen: the first press shows what it would allow.
@@ -377,7 +378,7 @@ async function answer(
   notice = "";
   const focused = list?.contains(document.activeElement) ?? false;
   quiet();
-  const sent = await queue.answer(request.id, decision, message);
+  const sent = await queue.answer(request.id, decision, message, always);
   if (!sent) return;
   answeredAt = Date.now();
   hints.mark("answered");
@@ -408,15 +409,15 @@ async function answer(
   }
 }
 
-/** Answers from a click; one too early says why instead of doing nothing. */
-function answerByClick(event: MouseEvent, request: PermissionRequest, decision: Decision): void {
+/** Answers from a click; one too early says why instead of doing nothing. `always` adds the offered rule. */
+function answerByClick(event: MouseEvent, request: PermissionRequest, decision: Decision, always = false): void {
   if (!armed(request.id)) {
     said = { id: request.id, text: EARLY };
     void revealNote(request.id);
     return;
   }
   // `detail` is 0 for a click from Enter or Space on the button.
-  void answer(request, decision, undefined, event.detail > 0);
+  void answer(request, decision, undefined, event.detail > 0, always);
 }
 
 /** Keeps a card's Allow button (and its fill) in sight; if that moved the buttons, they wait again. */
@@ -465,7 +466,7 @@ function onKeydown(event: KeyboardEvent, request: PermissionRequest): void {
   // Return never allows, not even on a focused Allow button: Space, a click or Y do.
   if (
     event.target instanceof HTMLButtonElement &&
-    event.target.classList.contains("allow") &&
+    (event.target.classList.contains("allow") || event.target.classList.contains("always")) &&
     (event.code === "Enter" || event.code === "NumpadEnter")
   ) {
     event.preventDefault();
@@ -643,6 +644,16 @@ function shared(requests: PermissionRequest[]): { warnings: string[]; sandboxed:
   };
 }
 
+/**
+ * The rule "Always allow" would add, as the core offers it; never for a path the card cannot place
+ * inside the folder (the core checks this too).
+ */
+function alwaysOf(request: PermissionRequest, scopes: PathScope[]): string | null {
+  const rule = request.always;
+  if (!rule?.match || scopes.some((s) => s.scope !== "inside")) return null;
+  return rule.match;
+}
+
 /** Tools whose object is code or a path: it shows in a mono pill after the verb. */
 const MONO = new Set(["Bash", "Edit", "MultiEdit", "NotebookEdit", "Write", "Read", "Glob", "Grep", "WebFetch"]);
 
@@ -759,6 +770,7 @@ function verbAndObject(tool: string, action: string): { verb: string; object: st
       {@const scopes = pathScopes(request.input, folder.path)}
       {@const parts = cardBody(request.tool, request.input, summary)}
       {@const named = scopes.find((s) => s.path === what.object)}
+      {@const always = alwaysOf(request, scopes)}
       {@const gaps = gapsOf(request.session)}
       {@const role = sessions.roles.get(request.session)}
       {@const agentNote = request.title && !repeats(request.title, request, summary.action) ? request.title : null}
@@ -877,6 +889,17 @@ function verbAndObject(tool: string, action: string): { verb: string; object: st
             <button type="button" class="quiet" aria-keyshortcuts="Shift+N" onclick={() => openDeny(request)}
               >Deny with a message…</button
             >
+            {#if always}
+              <!-- Writes a rule (Settings > Rules): the same wait and checks as Allow once, no key of its own. -->
+              <button
+                type="button"
+                class="quiet always"
+                aria-disabled={!allowable(request.id)}
+                data-testid="approval-always"
+                onclick={(event) => answerByClick(event, request, "allow", true)}
+                >Always allow <code>{always}</code> here</button
+              >
+            {/if}
             <!-- Why a press did not answer: the fill says "not yet" on screen, this says it to screen readers. -->
             <span class="wait" class:sr-only={said?.text === EARLY} aria-live="polite" data-testid="approval-wait"
               >{said?.id === request.id && (said.text !== EARLY || !ready) ? said.text : ""}</span
@@ -1300,6 +1323,9 @@ function verbAndObject(tool: string, action: string): { verb: string; object: st
   .after .quiet {
     margin-left: -6px;
     font-size: 13px;
+  }
+  .always code {
+    font: 12px / 1.3 var(--mono);
   }
   .wait:empty {
     display: none;

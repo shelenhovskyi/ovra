@@ -234,6 +234,7 @@ function onPaneKeydown(event: KeyboardEvent): void {
               <div class="line">
                 <code>{ruleText(rule)}</code>
                 <span class="action">{ACTIONS[rule.action]}</span>
+                {#if rule.from_approval}<span class="origin" data-testid="policy-from-approval">From an approval</span>{/if}
                 <button type="button" aria-label={`Edit ${ruleText(rule)} ${rule.action}`} aria-describedby={about} onclick={() => void edit(index, rule)}>Edit</button>
                 <button type="button" aria-label={`Remove ${ruleText(rule)} ${rule.action}`} aria-describedby={about} onclick={() => void remove(index)}>Remove</button>
               </div>
@@ -396,6 +397,10 @@ function onPaneKeydown(event: KeyboardEvent): void {
     font-weight: 500;
     color: var(--text-2);
     background: var(--s3);
+  }
+  .origin {
+    font-size: 13px;
+    color: var(--text-2);
   }
   .deny .action {
     color: var(--danger);

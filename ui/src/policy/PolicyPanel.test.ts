@@ -31,7 +31,7 @@ let workspace: Workspace;
 async function setup() {
   const core = new FakePolicyCore();
   core.rules.set("p1", [
-    { tool: "Bash", match: "npm test", action: "auto" },
+    { tool: "Bash", match: "npm test", action: "auto", from_approval: true },
     { tool: "WebFetch", action: "deny" },
   ]);
   workspace = new Workspace();
@@ -63,6 +63,9 @@ describe("PolicyPanel", () => {
       expect.stringMatching(/^WebFetch\s+Deny/),
       expect.stringMatching(/^Bash\(npm test\)\s+Auto/),
     ]);
+    const marked = [...target.querySelectorAll("[data-testid=policy-from-approval]")];
+    expect(marked.map((el) => el.closest("li")?.querySelector("code")?.textContent)).toEqual(["Bash(npm test)"]);
+    expect(marked[0]?.textContent).toBe("From an approval");
     const notes = [...target.querySelectorAll("[data-testid=policy-caveat]")].map((el) => el.textContent).join(" ");
     expect(notes).toMatch(/Only this tool is refused; others such as Bash can do the same/);
     expect(notes).toMatch(
