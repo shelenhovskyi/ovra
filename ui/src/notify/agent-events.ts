@@ -4,6 +4,7 @@
 // sessions (its coordinator and workers) finish together: one notification
 // when none of them works any more, never one per session while others run.
 
+import { failedLabel } from "../agents/errors";
 import { agentSessions, openReviews } from "../agents/sessions.svelte";
 import { describeTool } from "../approvals/describe";
 import type { AgentStatus, PermissionId, PermissionRequest, ProjectId, SessionId, Task } from "../lib/protocol";
@@ -38,8 +39,24 @@ export function watchAgents(transport: Transport, notifier: Notifier, review: (i
       // Its title may come with the list; what it changed, with its review.
       await sessions.named(project, session);
       await sessions.loadReviews(project);
+      if (!sessions.transcripts.has(session)) await sessions.loadTranscript(session).catch(() => {});
       // It may have started again, or failed, meanwhile.
       if (state(session) !== "idle") return;
+      // A turn that ended in an error is not done, though claude ends it like any other.
+      const info = sessions.byId.get(session);
+      const transcript = sessions.transcripts.get(session);
+      if (info && failedLabel(info.status, transcript) !== null) {
+        const error = [...(transcript ?? [])].reverse().find((m) => m.kind === "error");
+        notifier.notify(
+          {
+            key: `session:${session}`,
+            level: "error",
+            text: `${name(session)} stopped${error?.kind === "error" ? `: ${error.message}` : "."}`,
+          },
+          "Agent stopped",
+        );
+        return;
+      }
       const changed = sessions.changes(session).length;
       notifier.notify({
         key: `session:${session}`,
@@ -114,8 +131,11 @@ export function watchAgents(transport: Transport, notifier: Notifier, review: (i
         const before = last.get(session);
         last.set(session, status.state);
         const task = sessions.roles.get(session)?.task;
-        // Work again: an earlier "finished" is no longer true.
-        if (task && busy(session)) notifier.dismissKey(`task:${task}`);
+        // Work again (or ask again): an earlier "done" or "stopped" is no longer true.
+        if (busy(session)) {
+          notifier.dismissKey(`session:${session}`);
+          if (task) notifier.dismissKey(`task:${task}`);
+        }
         if (status.state === "idle" && (before === "working" || before === "waiting_for_approval")) {
           void finished(project, session);
         } else if (status.state === "failed") {

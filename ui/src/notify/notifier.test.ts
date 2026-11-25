@@ -94,6 +94,32 @@ describe("watchAgents", () => {
     expect(notifier.toasts.map((t) => [t.level, t.text])).toEqual([["error", "Fix the typo failed: crashed"]]);
   });
 
+  it("takes back a done toast when the session works again, and never calls a failed turn done", async () => {
+    const core = new FakeAgentCore();
+    core.addSession("p1", "Fix the typo", { state: "working" });
+    const notifier = new Notifier(system(false, true).api);
+    watchAgents(core, notifier, vi.fn());
+    const toasts = async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      return notifier.toasts.map((t) => [t.level, t.text]);
+    };
+    core.status("s1", { state: "starting" });
+    core.status("s1", { state: "working" });
+    core.status("s1", { state: "idle" });
+    expect(await toasts()).toEqual([["info", "Fix the typo is done."]]);
+    // A reply: it asks again. "Done" is no longer true.
+    core.status("s1", { state: "working" });
+    expect(await toasts()).toEqual([]);
+    core.status("s1", { state: "waiting_for_approval" });
+    core.status("s1", { state: "working" });
+    // The turn ends with an error, as claude ends any turn.
+    core.message("s1", { kind: "error", message: "Reached the turn limit." });
+    core.status("s1", { state: "idle" });
+    expect(await toasts()).toEqual([["error", "Fix the typo stopped: Reached the turn limit."]]);
+    core.status("s1", { state: "working" });
+    expect(await toasts()).toEqual([]);
+  });
+
   it("gives no toast for a request answered before its name was known", async () => {
     const core = new FakeAgentCore();
     const notifier = new Notifier(system(false, true).api);
