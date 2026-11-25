@@ -38,6 +38,41 @@ pub enum FsRequest {
         text: String,
         expected_mtime_ms: Option<u64>,
     },
+    /// Creates an empty file, or an empty directory with `dir`, and any
+    /// missing parent directories. Fails with `conflict` if `path` exists.
+    #[serde(rename = "fs.create")]
+    Create {
+        project: ProjectId,
+        path: String,
+        #[serde(default)]
+        dir: bool,
+    },
+    /// Renames or moves a file or directory; a symlink is moved, not
+    /// followed. Missing parents of `to` are created. Fails with `conflict`
+    /// if `to` exists and with `bad_request` for moving a directory into
+    /// itself.
+    #[serde(rename = "fs.rename")]
+    Rename {
+        project: ProjectId,
+        from: String,
+        to: String,
+    },
+    /// Copies a file or a directory tree to `to`, which must not exist
+    /// (`conflict`). Symlinks are copied as links, never followed.
+    #[serde(rename = "fs.copy")]
+    Copy {
+        project: ProjectId,
+        from: String,
+        to: String,
+    },
+    /// Moves files and directories to the system trash, where the person can
+    /// restore them. Nothing is deleted for good. Stops at the first path
+    /// that fails; the ones before it are already in the trash.
+    #[serde(rename = "fs.trash")]
+    Trash {
+        project: ProjectId,
+        paths: Vec<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

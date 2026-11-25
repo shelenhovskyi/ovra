@@ -18,4 +18,8 @@ pub enum OpenRequest {
     /// are accepted.
     #[serde(rename = "open.url")]
     Url { url: String },
+    /// Shows a project file or directory in the system file manager
+    /// (Finder, Explorer, ...); `""` shows the project folder.
+    #[serde(rename = "open.reveal")]
+    Reveal { project: ProjectId, path: String },
 }

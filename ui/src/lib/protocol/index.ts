@@ -131,7 +131,16 @@ export type ResponseFor<R extends Request> = R extends { method: "info.get" }
                 ? Extract<Response, { type: "fs.written" }>
                 : R extends { method: "fs.list_files" }
                   ? Extract<Response, { type: "fs.files" }>
-                  : R extends { method: "open.external" | "open.url" }
+                  : R extends {
+                        method:
+                          | "open.external"
+                          | "open.url"
+                          | "open.reveal"
+                          | "fs.create"
+                          | "fs.rename"
+                          | "fs.copy"
+                          | "fs.trash";
+                      }
                     ? { type: "ok" }
                     : R extends { method: "terminals.open" }
                       ? Extract<Response, { type: "terminals.opened" }>

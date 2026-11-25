@@ -12,7 +12,19 @@ export type FsRequest =
   | {
       method: "fs.write_file";
       params: { project: ProjectId; path: string; text: string; expected_mtime_ms: number | null };
-    };
+    }
+  /**
+   * The next four answer `{ type: "ok" }`. None takes the root or anything in
+   * a `.git` folder. `fs.create` makes an empty file (or folder with `dir`)
+   * and missing parents; `conflict` if `path` exists.
+   */
+  | { method: "fs.create"; params: { project: ProjectId; path: string; dir?: boolean } }
+  /** Renames or moves; missing parents of `to` are made; `conflict` if `to` exists. */
+  | { method: "fs.rename"; params: { project: ProjectId; from: string; to: string } }
+  /** Copies a file or folder to `to`, which must not exist; links stay links. */
+  | { method: "fs.copy"; params: { project: ProjectId; from: string; to: string } }
+  /** Moves to the system trash, in order, stopping at the first failure. */
+  | { method: "fs.trash"; params: { project: ProjectId; paths: string[] } };
 
 export type EntryKind = "file" | "dir" | "symlink";
 

@@ -44,6 +44,14 @@ impl Opener for SystemOpener {
         let handler = system_handler(Platform::current(), url.as_ref());
         launch_first(&[handler], spawn_detached)
     }
+
+    // Lands in its own commit.
+    fn reveal(&self, _: &Path, _: &RelPath) -> Result<()> {
+        Err(ProtocolError::new(
+            ErrorCode::Unavailable,
+            "reveal is not available yet",
+        ))
+    }
 }
 
 /// The regular file `path` under `root` with symlinks resolved, refused when

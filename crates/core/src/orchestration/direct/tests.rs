@@ -989,6 +989,33 @@ mod through_the_core {
             self.0.put(root, path.as_str(), &text);
             Box::pin(async { Ok(1) })
         }
+        fn create(
+            &self,
+            _: PathBuf,
+            _: RelPath,
+            _: bool,
+        ) -> crate::services::BoxFuture<'_, Result<()>> {
+            no()
+        }
+        fn rename(
+            &self,
+            _: PathBuf,
+            _: RelPath,
+            _: RelPath,
+        ) -> crate::services::BoxFuture<'_, Result<()>> {
+            no()
+        }
+        fn copy(
+            &self,
+            _: PathBuf,
+            _: RelPath,
+            _: RelPath,
+        ) -> crate::services::BoxFuture<'_, Result<()>> {
+            no()
+        }
+        fn trash(&self, _: PathBuf, _: Vec<RelPath>) -> crate::services::BoxFuture<'_, Result<()>> {
+            no()
+        }
         fn watch(&self, _: ProjectId, _: PathBuf, _: crate::services::EventSink) -> Result<()> {
             Ok(())
         }

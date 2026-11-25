@@ -64,6 +64,13 @@ impl FsIndex {
     }
 }
 
+fn not_yet() -> ProtocolError {
+    ProtocolError::new(
+        ErrorCode::Unavailable,
+        "file operations are not available yet",
+    )
+}
+
 fn blocking<T: Send + 'static>(
     work: impl FnOnce() -> Result<T> + Send + 'static,
 ) -> BoxFuture<'static, Result<T>> {
@@ -129,6 +136,23 @@ impl FsService for FsIndex {
         expected_mtime_ms: Option<u64>,
     ) -> BoxFuture<'_, Result<u64>> {
         blocking(move || files::write(&root, &path, &text, expected_mtime_ms))
+    }
+
+    // File operations land in their own commit; until then they are unavailable.
+    fn create(&self, _: PathBuf, _: RelPath, _: bool) -> BoxFuture<'_, Result<()>> {
+        blocking(|| Err(not_yet()))
+    }
+
+    fn rename(&self, _: PathBuf, _: RelPath, _: RelPath) -> BoxFuture<'_, Result<()>> {
+        blocking(|| Err(not_yet()))
+    }
+
+    fn copy(&self, _: PathBuf, _: RelPath, _: RelPath) -> BoxFuture<'_, Result<()>> {
+        blocking(|| Err(not_yet()))
+    }
+
+    fn trash(&self, _: PathBuf, _: Vec<RelPath>) -> BoxFuture<'_, Result<()>> {
+        blocking(|| Err(not_yet()))
     }
 
     fn search(

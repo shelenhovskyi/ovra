@@ -365,7 +365,7 @@ impl Core {
                 mode: self.inner.mode.clone(),
             }))),
             Request::Projects(r) => self.projects(r, held).await,
-            Request::Fs(r) => self.fs(r).await.map(Response::Fs),
+            Request::Fs(r) => self.fs(r).await,
             Request::Open(r) => self.open(r).map(|()| Response::Ok(OkResponse::Ok)),
             Request::Terminals(r) => self.terminals(r),
             Request::Agents(r) => agents::handle_agents(&self.agents_ctx(), r).await,
@@ -590,9 +590,9 @@ impl Core {
         Ok(PathBuf::from(self.inner.projects.get(project)?.root))
     }
 
-    async fn fs(&self, request: FsRequest) -> Result<FsResponse, ProtocolError> {
+    async fn fs(&self, request: FsRequest) -> Result<Response, ProtocolError> {
         let fs = &self.inner.fs;
-        match request {
+        let response = match request {
             FsRequest::ListDir { project, path } => {
                 let (root, path) = (self.root(&project)?, RelPath::parse(&path)?);
                 fs.list_dir(root, path).await.map(FsResponse::Dir)
@@ -630,6 +630,53 @@ impl Core {
                 self.inner.sessions.direct.person_saved(&project, &saved);
                 Ok(FsResponse::Written { mtime_ms: written })
             }
+            FsRequest::Create { project, path, dir } => {
+                let (root, path) = (self.root(&project)?, editable(&path)?);
+                fs.create(root, path.clone(), dir).await?;
+                self.person_changed(&project, [&path]);
+                return Ok(Response::Ok(OkResponse::Ok));
+            }
+            FsRequest::Rename { project, from, to } => {
+                let root = self.root(&project)?;
+                let (from, to) = (editable(&from)?, editable(&to)?);
+                not_into_itself(&from, &to)?;
+                fs.rename(root, from.clone(), to.clone()).await?;
+                self.person_changed(&project, [&from, &to]);
+                return Ok(Response::Ok(OkResponse::Ok));
+            }
+            FsRequest::Copy { project, from, to } => {
+                let root = self.root(&project)?;
+                let (from, to) = (editable(&from)?, editable(&to)?);
+                not_into_itself(&from, &to)?;
+                fs.copy(root, from, to.clone()).await?;
+                self.person_changed(&project, [&to]);
+                return Ok(Response::Ok(OkResponse::Ok));
+            }
+            FsRequest::Trash { project, paths } => {
+                let root = self.root(&project)?;
+                let paths = paths
+                    .iter()
+                    .map(|p| editable(p))
+                    .collect::<Result<Vec<_>, _>>()?;
+                fs.trash(root, paths.clone()).await?;
+                self.person_changed(&project, &paths);
+                return Ok(Response::Ok(OkResponse::Ok));
+            }
+        };
+        response.map(Response::Fs)
+    }
+
+    /// The person changed these paths: never the direct agent's alone.
+    fn person_changed<'a>(
+        &self,
+        project: &ProjectId,
+        paths: impl IntoIterator<Item = &'a RelPath>,
+    ) {
+        for path in paths {
+            self.inner
+                .sessions
+                .direct
+                .person_saved(project, path.as_str());
         }
     }
 
@@ -650,8 +697,45 @@ impl Core {
                 check_web_url(&url)?;
                 self.inner.opener.open_url(&url)
             }
+            OpenRequest::Reveal { project, path } => {
+                let (root, path) = (self.root(&project)?, RelPath::parse(&path)?);
+                self.inner.opener.reveal(&root, &path)
+            }
         }
     }
+}
+
+fn not_into_itself(from: &RelPath, to: &RelPath) -> Result<(), ProtocolError> {
+    if to.as_str().starts_with(&format!("{from}/")) {
+        return Err(ProtocolError::new(
+            ErrorCode::BadRequest,
+            "cannot put a folder inside itself",
+        ));
+    }
+    Ok(())
+}
+
+/// A path the person may create, move, copy or trash: not the project root
+/// and nothing in a `.git` folder, which belongs to git.
+fn editable(raw: &str) -> Result<RelPath, ProtocolError> {
+    let path = RelPath::parse(raw)?;
+    if path.is_root() {
+        return Err(ProtocolError::new(
+            ErrorCode::BadRequest,
+            "name a file or folder",
+        ));
+    }
+    if path
+        .as_str()
+        .split('/')
+        .any(|segment| segment.eq_ignore_ascii_case(".git"))
+    {
+        return Err(ProtocolError::new(
+            ErrorCode::Forbidden,
+            format!("{path} is inside .git"),
+        ));
+    }
+    Ok(path)
 }
 
 /// Only web pages may leave the IDE: no `file:`, `javascript:` or custom

@@ -1,7 +1,7 @@
 //! In-memory fakes of every service, for tests in this and other crates
 //! (enable the `fakes` feature in `[dev-dependencies]`).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -209,6 +209,10 @@ impl ProjectStore for MemoryProjects {
 #[derive(Debug, Default)]
 pub struct MemoryFs {
     files: Mutex<BTreeMap<(PathBuf, String), (String, u64)>>,
+    /// Directories made by `create`; others exist only through their files.
+    dirs: Mutex<BTreeSet<(PathBuf, String)>>,
+    /// Everything `trash` moved away, as `path` under `root`.
+    pub trashed: Mutex<Vec<PathBuf>>,
     clock: Mutex<u64>,
     /// Projects currently watched, with the sink they emit to.
     pub watched: Mutex<Vec<(ProjectId, EventSink)>>,
@@ -230,6 +234,61 @@ impl MemoryFs {
         let mut clock = lock(&self.clock);
         *clock += 1;
         *clock
+    }
+
+    /// Whether a file or directory is at `path`.
+    fn exists(&self, root: &Path, path: &RelPath) -> bool {
+        let inside = |p: &String| p == path.as_str() || p.starts_with(&format!("{path}/"));
+        lock(&self.files)
+            .keys()
+            .any(|(r, p)| r == root && inside(p))
+            || lock(&self.dirs).iter().any(|(r, p)| r == root && inside(p))
+    }
+
+    /// Copies (or with `keep: false` moves) everything at `from` to `to`.
+    fn carry(&self, root: &Path, from: &RelPath, to: &RelPath, keep: bool) -> Result<()> {
+        if !self.exists(root, from) {
+            return Err(not_found(from));
+        }
+        if self.exists(root, to) {
+            return Err(ProtocolError::new(
+                ErrorCode::Conflict,
+                format!("{to} exists"),
+            ));
+        }
+        let moved = |p: &String| {
+            if p == from.as_str() {
+                Some(to.to_string())
+            } else {
+                p.strip_prefix(&format!("{from}/"))
+                    .map(|rest| format!("{to}/{rest}"))
+            }
+        };
+        let mut files = lock(&self.files);
+        let picked: Vec<_> = files
+            .iter()
+            .filter(|((r, _), _)| r == root)
+            .filter_map(|((_, p), v)| moved(p).map(|n| (p.clone(), n, v.clone())))
+            .collect();
+        for (old, new, value) in picked {
+            if !keep {
+                files.remove(&(root.to_path_buf(), old));
+            }
+            files.insert((root.to_path_buf(), new), value);
+        }
+        let mut dirs = lock(&self.dirs);
+        let picked: Vec<_> = dirs
+            .iter()
+            .filter(|(r, _)| r == root)
+            .filter_map(|(_, p)| moved(p).map(|n| (p.clone(), n)))
+            .collect();
+        for (old, new) in picked {
+            if !keep {
+                dirs.remove(&(root.to_path_buf(), old));
+            }
+            dirs.insert((root.to_path_buf(), new));
+        }
+        Ok(())
     }
 
     pub fn watched_ids(&self) -> Vec<ProjectId> {
@@ -261,7 +320,13 @@ impl FsService for MemoryFs {
                     }
                 }
             }
-            if entries.is_empty() && !path.is_root() {
+            for (r, p) in lock(&self.dirs).iter() {
+                if let Some(rest) = p.strip_prefix(&prefix).filter(|_| *r == root) {
+                    let name = rest.split('/').next().unwrap_or(rest);
+                    entries.insert(name.to_owned(), EntryKind::Dir);
+                }
+            }
+            if entries.is_empty() && !path.is_root() && !self.exists(&root, &path) {
                 return Err(not_found(&path));
             }
             let mut entries: Vec<DirEntry> = entries
@@ -343,6 +408,47 @@ impl FsService for MemoryFs {
             let mtime = self.tick();
             lock(&self.files).insert(key, (text, mtime));
             Ok(mtime)
+        })
+    }
+
+    fn create(&self, root: PathBuf, path: RelPath, dir: bool) -> BoxFuture<'_, Result<()>> {
+        Box::pin(async move {
+            if self.exists(&root, &path) {
+                return Err(ProtocolError::new(
+                    ErrorCode::Conflict,
+                    format!("{path} exists"),
+                ));
+            }
+            if dir {
+                lock(&self.dirs).insert((root, path.to_string()));
+            } else {
+                let mtime = self.tick();
+                lock(&self.files).insert((root, path.to_string()), (String::new(), mtime));
+            }
+            Ok(())
+        })
+    }
+
+    fn rename(&self, root: PathBuf, from: RelPath, to: RelPath) -> BoxFuture<'_, Result<()>> {
+        Box::pin(async move { self.carry(&root, &from, &to, false) })
+    }
+
+    fn copy(&self, root: PathBuf, from: RelPath, to: RelPath) -> BoxFuture<'_, Result<()>> {
+        Box::pin(async move { self.carry(&root, &from, &to, true) })
+    }
+
+    fn trash(&self, root: PathBuf, paths: Vec<RelPath>) -> BoxFuture<'_, Result<()>> {
+        Box::pin(async move {
+            for path in paths {
+                if !self.exists(&root, &path) {
+                    return Err(not_found(&path));
+                }
+                let inside = |p: &String| p == path.as_str() || p.starts_with(&format!("{path}/"));
+                lock(&self.files).retain(|(r, p), _| *r != root || !inside(p));
+                lock(&self.dirs).retain(|(r, p)| *r != root || !inside(p));
+                lock(&self.trashed).push(path.under(&root));
+            }
+            Ok(())
         })
     }
 
@@ -672,6 +778,7 @@ fn no_secret(name: &str) -> ProtocolError {
 pub struct RecordingOpener {
     pub opened: Mutex<Vec<(PathBuf, Option<u32>)>>,
     pub urls: Mutex<Vec<String>>,
+    pub revealed: Mutex<Vec<PathBuf>>,
 }
 
 impl Opener for RecordingOpener {
@@ -681,6 +788,10 @@ impl Opener for RecordingOpener {
     }
     fn open_url(&self, url: &str) -> Result<()> {
         lock(&self.urls).push(url.to_owned());
+        Ok(())
+    }
+    fn reveal(&self, root: &Path, path: &RelPath) -> Result<()> {
+        lock(&self.revealed).push(path.under(root));
         Ok(())
     }
 }

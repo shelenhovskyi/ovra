@@ -227,6 +227,98 @@ async fn write_conflicts_when_file_changed() {
 }
 
 #[tokio::test]
+async fn files_are_created_moved_copied_and_trashed() {
+    let f = fixture();
+    let root = Path::new(crate::test_path!("/w"));
+    let p = add(&f.core, crate::test_path!("/w")).await;
+    let run = |json: serde_json::Value| {
+        let mut json = json;
+        json["params"]["project"] = serde_json::json!(p.id.clone());
+        f.core.handle(req(json))
+    };
+    let ok =
+        |r: Result<Response, ProtocolError>| assert_eq!(r.ok(), Some(Response::Ok(OkResponse::Ok)));
+    ok(run(serde_json::json!({"method": "fs.create", "params": {"path": "src/a.rs"}})).await);
+    ok(
+        run(serde_json::json!({"method": "fs.create", "params": {"path": "empty", "dir": true}}))
+            .await,
+    );
+    let again =
+        run(serde_json::json!({"method": "fs.create", "params": {"path": "src/a.rs"}})).await;
+    assert_eq!(again.err().map(|e| e.code), Some(ErrorCode::Conflict));
+    ok(run(serde_json::json!({"method": "fs.copy", "params": {"from": "src", "to": "lib"}})).await);
+    ok(run(serde_json::json!({"method": "fs.rename", "params": {"from": "lib/a.rs", "to": "empty/b.rs"}})).await);
+    ok(run(serde_json::json!({"method": "fs.trash", "params": {"paths": ["src"]}})).await);
+    let Ok(Response::Fs(FsResponse::Files(files))) =
+        run(serde_json::json!({"method": "fs.list_files", "params": {}})).await
+    else {
+        panic!("no file list");
+    };
+    assert_eq!(files.paths, ["empty/b.rs"]);
+    assert_eq!(*f.fs.trashed.lock().expect("lock"), [root.join("src")]);
+}
+
+#[tokio::test]
+async fn file_operations_leave_the_root_and_git_alone() {
+    let f = fixture();
+    let p = add(&f.core, crate::test_path!("/w")).await;
+    f.fs.put(Path::new(crate::test_path!("/w")), "src/a.rs", "");
+    let code = |json: serde_json::Value| {
+        let mut json = json;
+        json["params"]["project"] = serde_json::json!(p.id.clone());
+        let reply = f.core.handle(req(json));
+        async move { reply.await.err().map(|e| e.code) }
+    };
+    let cases = [
+        (
+            serde_json::json!({"method": "fs.trash", "params": {"paths": [""]}}),
+            ErrorCode::BadRequest,
+        ),
+        (
+            serde_json::json!({"method": "fs.trash", "params": {"paths": [".git/config"]}}),
+            ErrorCode::Forbidden,
+        ),
+        (
+            serde_json::json!({"method": "fs.create", "params": {"path": "sub/.GIT/hooks/x"}}),
+            ErrorCode::Forbidden,
+        ),
+        (
+            serde_json::json!({"method": "fs.rename", "params": {"from": "src", "to": ".git"}}),
+            ErrorCode::Forbidden,
+        ),
+        (
+            serde_json::json!({"method": "fs.rename", "params": {"from": "src", "to": "src/in"}}),
+            ErrorCode::BadRequest,
+        ),
+        (
+            serde_json::json!({"method": "fs.copy", "params": {"from": "src", "to": "../x"}}),
+            ErrorCode::Forbidden,
+        ),
+    ];
+    for (json, expected) in cases {
+        assert_eq!(code(json.clone()).await, Some(expected), "{json}");
+    }
+}
+
+#[tokio::test]
+async fn reveal_passes_the_root_and_the_path() {
+    let f = fixture();
+    let p = add(&f.core, crate::test_path!("/w")).await;
+    let r = f
+        .core
+        .handle(Request::Open(OpenRequest::Reveal {
+            project: p.id,
+            path: "src".into(),
+        }))
+        .await;
+    assert!(r.is_ok(), "{r:?}");
+    assert_eq!(
+        *f.opener.revealed.lock().expect("lock"),
+        [Path::new(crate::test_path!("/w")).join("src")]
+    );
+}
+
+#[tokio::test]
 async fn open_external_passes_the_root_and_the_path() {
     let f = fixture();
     let p = add(&f.core, crate::test_path!("/w")).await;
@@ -473,7 +565,12 @@ fn every_request_round_trips() {
         serde_json::json!({"method": "fs.list_files", "params": {"project": "p1", "offset": 2, "limit": 10}}),
         serde_json::json!({"method": "fs.write_file", "params": {"project": "p1", "path": "a", "text": "", "expected_mtime_ms": null}}),
         serde_json::json!({"method": "open.external", "params": {"project": "p1", "path": "a", "line": 1}}),
+        serde_json::json!({"method": "fs.create", "params": {"project": "p1", "path": "a", "dir": true}}),
+        serde_json::json!({"method": "fs.rename", "params": {"project": "p1", "from": "a", "to": "b"}}),
+        serde_json::json!({"method": "fs.copy", "params": {"project": "p1", "from": "a", "to": "b"}}),
+        serde_json::json!({"method": "fs.trash", "params": {"project": "p1", "paths": ["a", "b"]}}),
         serde_json::json!({"method": "open.url", "params": {"url": "https://example.com"}}),
+        serde_json::json!({"method": "open.reveal", "params": {"project": "p1", "path": ""}}),
         serde_json::json!({"method": "terminals.open", "params": {"project": "p1", "size": {"cols": 80, "rows": 24}}}),
         serde_json::json!({"method": "terminals.input", "params": {"id": "t1", "data": "ls\r"}}),
         serde_json::json!({"method": "terminals.resize", "params": {"id": "t1", "size": {"cols": 100, "rows": 30}}}),

@@ -110,6 +110,18 @@ pub trait FsService: Send + Sync + Debug {
         text: String,
         expected_mtime_ms: Option<u64>,
     ) -> BoxFuture<'_, Result<u64>>;
+    /// `fs.create`: an empty file or directory, with missing parents.
+    /// Fails with `conflict` if `path` exists.
+    fn create(&self, root: PathBuf, path: RelPath, dir: bool) -> BoxFuture<'_, Result<()>>;
+    /// `fs.rename`: moves `from` to `to` (which must not exist), creating
+    /// missing parents. Neither may resolve outside `root` through a
+    /// symlinked parent; `from` itself is moved as a link.
+    fn rename(&self, root: PathBuf, from: RelPath, to: RelPath) -> BoxFuture<'_, Result<()>>;
+    /// `fs.copy`: copies a file or tree to `to` (which must not exist);
+    /// symlinks are copied as links.
+    fn copy(&self, root: PathBuf, from: RelPath, to: RelPath) -> BoxFuture<'_, Result<()>>;
+    /// `fs.trash`: moves each path to the system trash, in order.
+    fn trash(&self, root: PathBuf, paths: Vec<RelPath>) -> BoxFuture<'_, Result<()>>;
     /// Starts searching the contents of the files `list_files` lists and
     /// returns at once. Results go to `sink` as `search.results` events,
     /// then one `search.done`. Fails with `bad_request`, emitting nothing,
@@ -160,6 +172,10 @@ pub trait Opener: Send + Sync + Debug {
     /// Opens a web page in the system browser. The core passes only
     /// `http://` and `https://` URLs.
     fn open_url(&self, url: &str) -> Result<()>;
+    /// Shows `path` under `root` in the system file manager. Like
+    /// [`Opener::open_in_editor`], a path that resolves outside `root` is
+    /// refused.
+    fn reveal(&self, root: &Path, path: &RelPath) -> Result<()>;
 }
 
 /// Shells in pseudo-terminals (implemented by `ovra-pty`).
@@ -1224,6 +1240,18 @@ impl FsService for Unavailable {
     ) -> BoxFuture<'_, Result<u64>> {
         Box::pin(async move { self.err() })
     }
+    fn create(&self, _: PathBuf, _: RelPath, _: bool) -> BoxFuture<'_, Result<()>> {
+        Box::pin(async move { self.err() })
+    }
+    fn rename(&self, _: PathBuf, _: RelPath, _: RelPath) -> BoxFuture<'_, Result<()>> {
+        Box::pin(async move { self.err() })
+    }
+    fn copy(&self, _: PathBuf, _: RelPath, _: RelPath) -> BoxFuture<'_, Result<()>> {
+        Box::pin(async move { self.err() })
+    }
+    fn trash(&self, _: PathBuf, _: Vec<RelPath>) -> BoxFuture<'_, Result<()>> {
+        Box::pin(async move { self.err() })
+    }
     fn watch(&self, _: ProjectId, _: PathBuf, _: EventSink) -> Result<()> {
         self.err()
     }
@@ -1235,6 +1263,9 @@ impl Opener for Unavailable {
         self.err()
     }
     fn open_url(&self, _: &str) -> Result<()> {
+        self.err()
+    }
+    fn reveal(&self, _: &Path, _: &RelPath) -> Result<()> {
         self.err()
     }
 }
