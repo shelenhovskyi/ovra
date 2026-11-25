@@ -169,14 +169,14 @@ they could write.
 
 ## Changes by area
 
-| Step | Area                                                   | What                                                                                                                             |
-| ---- | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
-| WS.0 | protocol, `services.rs`, `protected.rs`                | `AgentStatus::Preparing`, setup progress and disk fields, `skip_setup`; `Worktrees::include` and `usage`; `.worktreeinclude` protected |
-| WS.A | `crates/worktree`                                      | include copy (clones, caps, no links), lock and unlock, size walk, removal that accepts unchanged copies                          |
-| WS.B | `crates/servers`                                       | run setup steps once in the work dir's pod, with timeout and log                                                                 |
-| WS.C | `crates/core/src/orchestration`                        | read `.ovra/worktree.json`, preparing state, port blocks, low-disk queueing, leftovers list                                       |
-| WS.D | `crates/sandbox-linux`                                 | cache key by project; `OVRA_PORT` and the two root variables on the sandbox's own line                                           |
-| WS.E | `ui/src/agents`                                        | preparing row with log, Retry and Start anyway, sizes, leftovers                                                                 |
+| Step | Area                                    | What                                                                                                                                   |
+| ---- | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| WS.0 | protocol, `services.rs`, `protected.rs` | `AgentStatus::Preparing`, setup progress and disk fields, `skip_setup`; `Worktrees::include` and `usage`; `.worktreeinclude` protected |
+| WS.A | `crates/worktree`                       | include copy (clones, caps, no links), lock and unlock, size walk, removal that accepts unchanged copies                               |
+| WS.B | `crates/servers`                        | run setup steps once in the work dir's pod, with timeout and log                                                                       |
+| WS.C | `crates/core/src/orchestration`         | read `.ovra/worktree.json`, preparing state, port blocks, low-disk queueing, leftovers list                                            |
+| WS.D | `crates/sandbox-linux`                  | cache key by project; `OVRA_PORT` and the two root variables on the sandbox's own line                                                 |
+| WS.E | `ui/src/agents`                         | preparing row with log, Retry and Start anyway, sizes, leftovers                                                                       |
 
 WS.0 lands first; WS.A to WS.D can then run in parallel; WS.E last.
 

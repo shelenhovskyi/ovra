@@ -138,13 +138,13 @@ stops and says so instead of overwriting.
   and can be cancelled from the dialog, so a hanging credential prompt or
   gpg never blocks the core.
 
-| Step | Area                                  | What                                                        |
-| ---- | ------------------------------------- | ----------------------------------------------------------- |
-| PR.0 | `services.rs`, protocol, crate graph  | `Forge` trait and fake, `Worktrees::pick`, `pr.*`, stub crate |
-| PR.A | `crates/forge`                        | `gh` and `git` processes, timeouts, URL scrubbing           |
-| PR.B | `crates/worktree`                     | `pick` with `merge-tree` and `commit-tree`                  |
-| PR.C | `crates/core/src/orchestration`       | `published` state, polling, send log, audit lines           |
-| PR.D | `ui/src/inbox`                        | dialog, chip, checks list, Update, Send log                 |
+| Step | Area                                 | What                                                          |
+| ---- | ------------------------------------ | ------------------------------------------------------------- |
+| PR.0 | `services.rs`, protocol, crate graph | `Forge` trait and fake, `Worktrees::pick`, `pr.*`, stub crate |
+| PR.A | `crates/forge`                       | `gh` and `git` processes, timeouts, URL scrubbing             |
+| PR.B | `crates/worktree`                    | `pick` with `merge-tree` and `commit-tree`                    |
+| PR.C | `crates/core/src/orchestration`      | `published` state, polling, send log, audit lines             |
+| PR.D | `ui/src/inbox`                       | dialog, chip, checks list, Update, Send log                   |
 
 `crates/forge` is security code (it handles the person's credentials) and
 needs a separate human review.

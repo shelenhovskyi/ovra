@@ -113,12 +113,12 @@ No new `Worktrees` method: `snapshot`, `diff` and `restore` cover it.
 
 ## Changes by area
 
-| Step | Area                                   | What                                                                  |
-| ---- | -------------------------------------- | --------------------------------------------------------------------- |
-| CP.0 | protocol (Rust and TS)                 | the three methods and two `SessionInfo` fields                        |
-| CP.A | `crates/core` (agents, `direct.rs`)    | snapshots at turn edges, retention, go back, undo, the note to the agent |
-| CP.B | `ui/src/agents`                        | "Go back to here" on messages, confirmation, undone turns, Undo       |
-| CP.C | `tests/e2e`                            | one flow on the fake agent                                            |
+| Step | Area                                | What                                                                     |
+| ---- | ----------------------------------- | ------------------------------------------------------------------------ |
+| CP.0 | protocol (Rust and TS)              | the three methods and two `SessionInfo` fields                           |
+| CP.A | `crates/core` (agents, `direct.rs`) | snapshots at turn edges, retention, go back, undo, the note to the agent |
+| CP.B | `ui/src/agents`                     | "Go back to here" on messages, confirmation, undone turns, Undo          |
+| CP.C | `tests/e2e`                         | one flow on the fake agent                                               |
 
 ## Tests
 
