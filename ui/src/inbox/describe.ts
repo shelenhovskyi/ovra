@@ -49,7 +49,12 @@ export function protectedReason(file: FileChange): string {
 }
 
 /** Markers shown next to a file; each one also reads out to screen readers. */
-export function fileMarkers(file: FileChange, shared = false, notCopied: ReviewState | null = null): string[] {
+export function fileMarkers(
+  file: FileChange,
+  shared = false,
+  notCopied: ReviewState | null = null,
+  keptFrom: string | null = null,
+): string[] {
   const markers: string[] = [];
   if (file.protected) markers.push(PROTECTED_MARKER);
   if (notCopied) {
@@ -57,7 +62,9 @@ export function fileMarkers(file: FileChange, shared = false, notCopied: ReviewS
       ? "it waited for the direct agent"
       : file.protected
         ? "left out as protected, or your version changed"
-        : "your version changed";
+        : keptFrom
+          ? `you kept ${keptFrom}'s version`
+          : "your version changed";
     markers.push(notCopied === "approved" ? `Not copied (${why}); marked done` : `Not copied: ${why}`);
   }
   // A direct agent's commands write files too: "outside" says only that its
@@ -84,6 +91,55 @@ export function sharedFiles(item: ReviewItem, items: readonly ReviewItem[]): Set
   }
   for (const f of item.files) if (f.by !== "outside" && others.has(f.path)) shared.add(f.path);
   return shared;
+}
+
+/** A worker's own name, without its task: `docs` of `docs · Fix login`. */
+export function workerName(name: string): string {
+  const at = name.indexOf(" · ");
+  return at > 0 ? name.slice(0, at) : name;
+}
+
+/**
+ * Said before Keep on an open item whose files other open items changed
+ * too: who else wrote them, and that only the version kept first is
+ * copied. Null without shared files.
+ */
+export function sharedHint(
+  item: ReviewItem,
+  items: readonly ReviewItem[],
+  nameOf: (i: ReviewItem) => string,
+): string | null {
+  const shared = sharedFiles(item, items);
+  if (shared.size === 0) return null;
+  const others = items.filter(
+    (o) => o.id !== item.id && o.state === "open" && o.files.some((f) => f.by !== "outside" && shared.has(f.path)),
+  );
+  const who = others.map((o) => workerName(nameOf(o)));
+  const names = who.length > 1 ? `${who.slice(0, -1).join(", ")} and ${who.at(-1)}` : (who[0] ?? "");
+  const files = [...shared].join(", ");
+  return `${names} also changed ${files}. Only the version you keep first is copied; a later one that differs is left for you to choose, and one that is the same counts as copied.`;
+}
+
+/**
+ * For each file a worker's item did not copy because another worker's
+ * version of it was already kept: that item. Only the person's own
+ * changes since are "your version changed".
+ */
+export function keptElsewhere(item: ReviewItem, items: readonly ReviewItem[]): Map<string, ReviewItem> {
+  const kept = new Map<string, ReviewItem>();
+  if (item.mode !== "isolated") return kept;
+  for (const path of item.not_copied) {
+    const other = items.find(
+      (o) =>
+        o.id !== item.id &&
+        o.mode === "isolated" &&
+        (o.state === "approved" || o.state === "partly_approved") &&
+        !o.not_copied.includes(path) &&
+        o.files.some((f) => f.path === path && f.by !== "outside"),
+    );
+    if (other) kept.set(path, other);
+  }
+  return kept;
 }
 
 /** `src/a.ts, modified, +3 −1` and, for a rename, where it came from. */
@@ -142,7 +198,12 @@ export function gitWarning(item: ReviewItem): string | null {
 
 /** An item's title: the kind of session and its name, without saying "Worker" twice. */
 export function itemTitle(item: ReviewItem, name: string): string {
-  if (item.mode === "isolated") return /^worker\b/i.test(name) ? name : `Worker: ${name}`;
+  if (item.mode === "isolated") {
+    // A task's worker is named with its task (`docs · Fix login`).
+    const at = name.indexOf(" · ");
+    if (at > 0) return `${name.slice(0, at)} (task: ${name.slice(at + 3)})`;
+    return /^worker\b/i.test(name) ? name : `Worker: ${name}`;
+  }
   return `Direct agent: ${name}`;
 }
 
@@ -193,16 +254,26 @@ export function protectedHint(item: ReviewItem): string | null {
   return `These can run code or change agent rules: ${described}. Keep changes leaves them out of your project folder unless you include them.${wait}`;
 }
 
-/** What a partly approved item left, and what the person can do about it. */
-export function notCopiedHint(item: ReviewItem): string {
+/**
+ * What a partly approved item left, and what the person can do about it.
+ * `keptFrom` names, by path, the worker whose version was kept first.
+ */
+export function notCopiedHint(item: ReviewItem, keptFrom: ReadonlyMap<string, string> = new Map()): string {
   // `not_copied` names both paths of a rename.
   const paths = (f: FileChange) => (f.from ? [f.path, f.from] : [f.path]);
   const blocked = new Set(item.files.filter((f) => f.blocked).flatMap(paths));
   const guarded = new Set(item.files.filter((f) => f.protected).flatMap(paths));
   const waited = item.not_copied.filter((p) => blocked.has(p));
   const left = item.not_copied.filter((p) => !blocked.has(p) && guarded.has(p));
-  const changed = item.not_copied.filter((p) => !blocked.has(p) && !guarded.has(p));
+  const rest = item.not_copied.filter((p) => !blocked.has(p) && !guarded.has(p));
+  const changed = rest.filter((p) => !keptFrom.has(p));
+  const byWorker = new Map<string, string[]>();
+  for (const p of rest) {
+    const who = keptFrom.get(p);
+    if (who) byWorker.set(who, [...(byWorker.get(who) ?? []), p]);
+  }
   const why = [
+    ...[...byWorker].map(([who, files]) => `because you kept ${who}'s different version first: ${files.join(", ")}`),
     changed.length > 0 ? `because your version changed since the worker started: ${changed.join(", ")}` : "",
     waited.length > 0 ? `because the direct agent had changed them too: ${waited.join(", ")}` : "",
     left.length > 0 ? `because they can run code or change agent rules: ${left.join(", ")}` : "",
