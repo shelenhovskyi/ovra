@@ -141,6 +141,12 @@ agents' environment allowlist without the names that say where Claude
 usage is billed or which cloud provider it uses. The user's package caches
 (`~/.cargo/registry`, `~/.npm`, ...) are readable, never writable.
 
+Without a sandbox a server still gets only that environment allowlist
+plus `PATH` (and on Windows the names processes need there, such as
+`SystemRoot`, `ComSpec`, `PATHEXT`, `TEMP` and `APPDATA`), then its own
+line: `KEPT` in `crates/lsp/src/env.rs`. Ovra's tokens and keys
+(`GITHUB_TOKEN`, `ANTHROPIC_API_KEY`, ...) never reach it.
+
 On Linux (`wrap_server` in `crates/sandbox-linux`, see `security.md`) the
 sandbox refuses a profile whose network is not `Blocked`, a project or
 `read` folder that holds the home folder, a `read` path inside Ovra's

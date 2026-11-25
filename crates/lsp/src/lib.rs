@@ -5,6 +5,7 @@
 //! Contract: `ovra_core::services::LanguageServers`; fake:
 //! `ovra_core::fakes::FakeLanguageServers`.
 
+mod env;
 mod frame;
 mod known;
 mod process;
@@ -95,7 +96,11 @@ impl LanguageServers for Servers {
                     })?;
                     (line, Some(name))
                 }
-                SandboxStatus::Unavailable { .. } => (line, None),
+                // Without a sandbox, only the names it needs.
+                SandboxStatus::Unavailable { .. } => {
+                    let outer = std::env::vars_os().map(|(name, _)| name);
+                    (env::unsandboxed(line, outer, cfg!(windows)), None)
+                }
             };
             let process = process::spawn(&line, &def.name, host)?;
             Ok(StartedServer {
