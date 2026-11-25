@@ -1,6 +1,6 @@
 import { flushSync, mount, unmount } from "svelte";
-import { describe, expect, it, vi } from "vitest";
-import { registerCommand } from "../keys/commands";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { listCommands, registerCommand } from "../keys/commands";
 import type { Request } from "../lib/protocol";
 import { FrameRouter, type Transport } from "../lib/transport";
 import Shell from "./Shell.svelte";
@@ -123,22 +123,33 @@ describe("Shell", () => {
     const key = (el: Element | null, code: string) =>
       el?.dispatchEvent(new KeyboardEvent("keydown", { code, bubbles: true, cancelable: true }));
 
-    function mountShell() {
-      const target = document.body.appendChild(document.createElement("div"));
-      const app = mount(Shell, { target, props: { transport: fakeTransport() } });
+    // One shell for the menu's tests, mounted once: each test starts with the
+    // menu closed, and afterEach closes it again.
+    let target: HTMLElement;
+    let app: Record<string, unknown>;
+    beforeAll(() => {
+      target = document.body.appendChild(document.createElement("div"));
+      app = mount(Shell, { target, props: { transport: fakeTransport() } });
       flushSync();
+    });
+    afterEach(() => {
+      document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+      flushSync();
+    });
+    afterAll(() => {
+      unmount(app);
+      target.remove();
+    });
+
+    function shell() {
       const more = target.querySelector<HTMLButtonElement>("[data-testid=more]");
       const menu = () => target.querySelector("[role=menu]");
       const items = () => [...target.querySelectorAll<HTMLElement>("[role^=menuitem]")];
-      const done = () => {
-        unmount(app);
-        target.remove();
-      };
-      return { target, more, menu, items, done };
+      return { target, more, menu, items };
     }
 
     it("keeps Reviews in the header and the other panels behind More, each explained", () => {
-      const { target, more, menu, items, done } = mountShell();
+      const { target, more, menu, items } = shell();
       const actions = target.querySelector("header .actions");
       expect(
         [...(actions?.querySelectorAll(":scope > button, :scope > .more > button") ?? [])].map(
@@ -179,11 +190,10 @@ describe("Shell", () => {
         "open-browser",
         "open-swap",
       ]);
-      done();
     });
 
     it("moves with the arrow keys and closes on Escape, focus back on More", async () => {
-      const { more, menu, items, done } = mountShell();
+      const { more, menu, items } = shell();
       key(more, "ArrowDown");
       await new Promise((resolve) => setImmediate(resolve)); // the menu renders, then focus moves
 
@@ -203,22 +213,20 @@ describe("Shell", () => {
       flushSync();
       expect(menu()).toBeNull();
       expect(document.activeElement).toBe(more);
-      done();
     });
 
     it("closes on a press outside", () => {
-      const { more, menu, done } = mountShell();
+      const { more, menu } = shell();
       more?.click();
       flushSync();
       expect(menu()).not.toBeNull();
       document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
       flushSync();
       expect(menu()).toBeNull();
-      done();
     });
 
     it("opens a panel's dialog, which gives focus back to More when it closes", async () => {
-      const { target, more, items, done } = mountShell();
+      const { target, more, items } = shell();
       more?.click();
       flushSync();
       items()[1]?.click();
@@ -231,11 +239,12 @@ describe("Shell", () => {
       flushSync();
       expect(target.querySelector("[aria-labelledby=audit-title]")).toBeNull();
       expect(document.activeElement).toBe(more);
-      done();
     });
 
     it("opens the terminal, a mouse way that stays once a file is open", () => {
-      const { more, items, done } = mountShell();
+      const { more, items } = shell();
+      // The shell's own terminal command comes back afterwards, for the tests after this one.
+      const own = listCommands().find((c) => c.id === "terminal.toggle");
       const run = vi.fn();
       const off = registerCommand({ id: "terminal.toggle", title: "Toggle terminal", run });
       more?.click();
@@ -243,11 +252,11 @@ describe("Shell", () => {
       items()[0]?.click();
       expect(run).toHaveBeenCalledOnce();
       off();
-      done();
+      if (own) registerCommand(own);
     });
 
     it("toggles the agent browser and shows that it is open", () => {
-      const { target, more, items, done } = mountShell();
+      const { target, more, items } = shell();
       more?.click();
       flushSync();
       items()[5]?.click();
@@ -256,7 +265,9 @@ describe("Shell", () => {
       more?.click();
       flushSync();
       expect(items()[5]?.getAttribute("aria-checked")).toBe("true");
-      done();
+      items()[5]?.click();
+      flushSync();
+      expect(target.querySelector("[data-testid=browser]")).toBeNull();
     });
   });
 });
