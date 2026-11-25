@@ -228,7 +228,7 @@ export function usageText(usage: TurnUsage, billing: Billing | null): string {
   const cost = !dollars
     ? ""
     : billing?.kind === "subscription"
-      ? `, about ${dollars} at API prices (not charged on your plan)`
+      ? `, about ${dollars} at API prices (your plan's limits, not this amount)`
       : `, ${dollars}`;
   return `${usage.input_tokens.toLocaleString("en")} tokens in, ${usage.output_tokens.toLocaleString("en")} out${cost}`;
 }

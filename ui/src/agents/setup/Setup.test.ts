@@ -116,7 +116,7 @@ describe("ClaudeSetup", () => {
       warning:
         "Usage may be billed to the API key in ANTHROPIC_API_KEY, at API prices, not to your Claude plan. To use your plan, unset it and restart Ovra.",
     });
-    expect(advice(keyed).detail).toBe("Sessions use your own Claude sign-in.");
+    expect(advice(keyed).detail).toBeNull();
     const keyBilled = setup({ state: "ready" }, { billing: { kind: "api_key" }, api_key_in_env: true });
     expect(billingText(keyBilled).warning).toMatch(/^Usage is billed to the API key in ANTHROPIC_API_KEY/);
     const cloud = setup({ state: "ready" }, { billing: { kind: "cloud", provider: "bedrock" }, api_key_in_env: true });
@@ -131,7 +131,7 @@ describe("ClaudeSetup", () => {
     core.setup = setup({ state: "ready" }, { api_key_in_env: true });
     await show(core);
     expect(card()?.textContent).not.toContain("plan's limits");
-    expect(card()?.textContent).not.toContain("sign-in and plan");
+    expect(card()?.textContent).not.toContain("sign-in");
     expect(card()?.querySelector("[data-testid=claude-api-key]")?.textContent).toContain("not to your Claude plan");
   });
 

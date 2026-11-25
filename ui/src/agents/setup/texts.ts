@@ -54,8 +54,8 @@ function keyBills(setup: AgentSetup): boolean {
 export type SetupAdvice = {
   /** One line for the card's heading. */
   title: string;
-  /** What to do, in plain words. */
-  detail: string;
+  /** What to do, in plain words; `null` when the billing warning says it all. */
+  detail: string | null;
   /** A command to run in a terminal, if one fixes it. */
   command?: string;
   /** Whether to show the install commands. */
@@ -69,9 +69,8 @@ export function advice(setup: AgentSetup): SetupAdvice {
     case "ready":
       return {
         title: `Claude${version} is ready`,
-        detail: keyBills(setup)
-          ? "Sessions use your own Claude sign-in."
-          : "Sessions use your own Claude sign-in and plan.",
+        // With the key paying, the sign-in line would only distract from the warning.
+        detail: keyBills(setup) ? null : "Sessions use your own Claude sign-in and plan.",
       };
     case "not_found":
       return {

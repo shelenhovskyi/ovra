@@ -65,7 +65,9 @@ function openDocs(): void {
     <button type="button" disabled={busy} onclick={check}>Check again</button>
   </div>
   {#if tip}
-    <p class="detail">{tip.detail}</p>
+    {#if tip.detail}
+      <p class="detail">{tip.detail}</p>
+    {/if}
     {#if tip.command}
       <p class="command"><code>{tip.command}</code></p>
     {/if}

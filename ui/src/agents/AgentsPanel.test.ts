@@ -202,7 +202,7 @@ describe("AgentsPanel", () => {
     info.usage = { input_tokens: 64044, output_tokens: 372, cost_micro_usd: 2400 };
     core.transcripts.set("s1", [{ kind: "turn_end", usage: info.usage }]);
     await setup(core);
-    const estimate = "64,044 tokens in, 372 out, about $0.0024 at API prices (not charged on your plan)";
+    const estimate = "64,044 tokens in, 372 out, about $0.0024 at API prices (your plan's limits, not this amount)";
     expect(panel()?.querySelector("[data-testid=agent-usage]")?.textContent).toBe(`Total: ${estimate}`);
     expect(transcript()).toEqual([`Turn ended: ${estimate}`]);
   });
