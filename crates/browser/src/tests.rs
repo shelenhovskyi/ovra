@@ -50,17 +50,23 @@ impl Sink {
 /// What the scripted Chromium was sent, shared with the test.
 type Sents = Arc<Mutex<Vec<Sent>>>;
 
-#[derive(Debug, Default)]
+type Inject = tokio::sync::mpsc::UnboundedReceiver<Value>;
+
+#[derive(Debug, Default, Clone)]
 struct Script {
     sent: Sents,
     /// Ends the peer when set: the browser "crashes".
     crash: Arc<tokio::sync::Notify>,
+    /// Makes a page open a popup while `Target.createTarget` runs.
+    popup: Arc<AtomicBool>,
+    /// Messages the peer writes when the test says so.
+    inject: Arc<Mutex<Option<Inject>>>,
 }
 
 impl Launch for Script {
     fn launch(&self, _: &SandboxProfile, _: &std::path::Path) -> Result<Launched> {
         let (reader, writer, peer) = pair();
-        tokio::spawn(chrome(peer, self.sent.clone(), self.crash.clone()));
+        tokio::spawn(chrome(peer, self.clone()));
         Ok(Launched {
             reader: Box::new(reader),
             writer: Box::new(writer),
@@ -72,20 +78,40 @@ impl Launch for Script {
 
 /// A Chromium that knows one page: the tree of the snapshot tests, a
 /// button at backend node 17, a text that reads "Ready" on the third look.
-async fn chrome(mut peer: Peer, sent: Sents, crash: Arc<tokio::sync::Notify>) {
+async fn chrome(mut peer: Peer, script: Script) {
+    let Script {
+        sent, crash, popup, ..
+    } = &script;
+    let mut inject = lock(&script.inject).take();
     let mut navigation: Option<(u64, String)> = None;
     let (mut targets, mut looks) = (0, 0);
     loop {
+        let injected = async {
+            match &mut inject {
+                Some(inject) => inject.recv().await,
+                None => std::future::pending().await,
+            }
+        };
         let message = tokio::select! {
             m = peer.next() => m,
             () = crash.notified() => None,
+            Some(v) = injected => {
+                peer.write(v).await;
+                continue;
+            }
         };
         let Some(m) = message else { return };
-        lock(&sent).push(m.clone());
+        lock(sent).push(m.clone());
         let s = m.session.as_deref();
         let answer = match m.method.as_str() {
             "Target.createTarget" => {
                 targets += 1;
+                // Before the answer, as Chromium does: the client cannot
+                // know yet whether the target is its own.
+                if popup.load(Ordering::Relaxed) {
+                    peer.write(attached(&format!("P{targets}"), "page")).await;
+                }
+                peer.write(attached(&format!("T{targets}"), "page")).await;
                 json!({ "targetId": format!("T{targets}") })
             }
             "Target.attachToTarget" => {
@@ -168,6 +194,15 @@ async fn chrome(mut peer: Peer, sent: Sents, crash: Arc<tokio::sync::Notify>) {
     }
 }
 
+/// The browser-level event of a new target waiting for the debugger, on
+/// the session `A` + its id.
+fn attached(target: &str, kind: &str) -> Value {
+    json!({"method": "Target.attachedToTarget", "params": {
+        "sessionId": format!("A{target}"), "waitingForDebugger": true,
+        "targetInfo": {"targetId": target, "type": kind, "openerId": ""},
+    }})
+}
+
 fn profile() -> SandboxProfile {
     SandboxProfile {
         work_dir: "/w".into(),
@@ -184,11 +219,19 @@ struct Setup {
     sink: Arc<Sink>,
     sent: Sents,
     crash: Arc<tokio::sync::Notify>,
+    popup: Arc<AtomicBool>,
+    inject: tokio::sync::mpsc::UnboundedSender<Value>,
 }
 
 fn setup() -> Setup {
     let script = Script::default();
-    let (sent, crash) = (script.sent.clone(), script.crash.clone());
+    let (inject, injected) = tokio::sync::mpsc::unbounded_channel();
+    *lock(&script.inject) = Some(injected);
+    let (sent, crash, popup) = (
+        script.sent.clone(),
+        script.crash.clone(),
+        script.popup.clone(),
+    );
     let status = SandboxStatus::Available {
         name: "script".into(),
         gaps: Vec::new(),
@@ -198,6 +241,8 @@ fn setup() -> Setup {
         sink: Arc::default(),
         sent,
         crash,
+        popup,
+        inject,
     }
 }
 
@@ -217,6 +262,24 @@ impl Setup {
             .filter(|m| of.iter().any(|o| m.method.starts_with(o)))
             .map(|m| format!("{} {}", m.method, m.params))
             .collect()
+    }
+
+    /// Waits until a command sent so far, as `session method params`,
+    /// contains `needle`; all of them, without taking them.
+    async fn until(&self, needle: &str) -> Vec<String> {
+        loop {
+            let sent: Vec<String> = lock(&self.sent)
+                .iter()
+                .map(|m| {
+                    let session = m.session.as_deref().unwrap_or_default();
+                    format!("{session} {} {}", m.method, m.params)
+                })
+                .collect();
+            if sent.iter().any(|m| m.contains(needle)) {
+                return sent;
+            }
+            tokio::task::yield_now().await;
+        }
     }
 }
 
@@ -277,6 +340,39 @@ async fn open_asks_the_sink_and_a_refused_origin_is_blocked() {
     assert_eq!(
         s.browser.console(&page.id, 0, 10).err().map(|e| e.code),
         Some(ErrorCode::NotFound)
+    );
+}
+
+#[tokio::test]
+async fn only_pages_open_made_run_and_the_rest_close_before_they_load() {
+    let s = setup();
+    // A popup the page opens while `open` still waits for its target.
+    s.popup.store(true, Ordering::Relaxed);
+    s.open("s1", "http://localhost:5173/").await.expect("open");
+    let sent = s.until(r#""P1""#).await;
+    let auto =
+        r#" Target.setAutoAttach {"autoAttach":true,"flatten":true,"waitForDebuggerOnStart":true}"#;
+    assert!(sent.iter().any(|m| m == auto), "{sent:?}");
+    // A `noopener` popup or a `target=_blank` link: no opener at all.
+    for (target, kind) in [("T7", "page"), ("W1", "service_worker")] {
+        let _ = s.inject.send(attached(target, kind));
+    }
+    s.until(r#""T7""#).await;
+    let mut decided: Vec<String> = s
+        .until("AW1 ")
+        .await
+        .into_iter()
+        .filter(|m| m.contains("Target.closeTarget") || m.contains("runIfWaiting"))
+        .collect();
+    decided.sort();
+    assert_eq!(
+        decided,
+        [
+            r#" Target.closeTarget {"targetId":"P1"}"#,
+            r#" Target.closeTarget {"targetId":"T7"}"#,
+            "AT1 Runtime.runIfWaitingForDebugger {}",
+            "AW1 Runtime.runIfWaitingForDebugger {}",
+        ]
     );
 }
 

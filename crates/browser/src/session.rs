@@ -1,7 +1,7 @@
 //! One agent session's running browser: its pipe, its process, its pages,
 //! and the task that hands its events to them.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::Duration;
@@ -12,7 +12,7 @@ use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::{BrowserSink, Result};
 use serde_json::{Value, json};
 use tokio::process::Child;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 
 use crate::cdp::{Cdp, Event};
 use crate::launch::Launched;
@@ -30,6 +30,10 @@ pub(crate) struct Session {
     cdp: Cdp,
     sink: Arc<dyn BrowserSink>,
     pages: Mutex<Vec<Arc<Page>>>,
+    /// The targets `open` made: the only pages allowed to run.
+    own: Arc<Mutex<HashSet<String>>>,
+    /// How many `Target.createTarget` calls still wait for their target.
+    creating: watch::Sender<usize>,
     child: Mutex<Option<Child>>,
     /// The fresh profile, removed once the browser is gone.
     profile_dir: Mutex<Option<PathBuf>>,
@@ -52,19 +56,26 @@ impl Session {
             cdp,
             sink,
             pages: Mutex::default(),
+            own: Arc::default(),
+            creating: watch::channel(0).0,
             child: Mutex::new(launched.child),
             profile_dir: Mutex::new(profile_dir),
         });
         tokio::spawn(dispatch(Arc::downgrade(&session), events, sessions.clone()));
-        let discover = session
-            .cdp
-            .call(
-                None,
-                "Target.setDiscoverTargets",
-                json!({ "discover": true }),
-            )
-            .await;
-        if let Err(e) = discover {
+        // Every new page waits for the debugger, so one the page opens
+        // itself is closed before it runs (`Session::attached`).
+        let attach = json!({"autoAttach": true, "waitForDebuggerOnStart": true, "flatten": true});
+        let mut ready = Ok(Value::Null);
+        for (method, params) in [
+            ("Target.setDiscoverTargets", json!({ "discover": true })),
+            ("Target.setAutoAttach", attach),
+        ] {
+            ready = session.cdp.call(None, method, params).await;
+            if ready.is_err() {
+                break;
+            }
+        }
+        if let Err(e) = ready {
             session.kill();
             let said = match stderr {
                 Some(lines) => tokio::time::timeout(Duration::from_secs(1), lines)
@@ -101,11 +112,17 @@ impl Session {
 
     /// Opens a page at `url` with a viewport of `size`.
     pub(crate) async fn open(&self, id: PageId, url: &str, size: (u32, u32)) -> Result<PageInfo> {
+        self.creating.send_modify(|n| *n += 1);
         let created = self
             .cdp
             .call(None, "Target.createTarget", json!({ "url": "about:blank" }))
-            .await?;
-        let target = text(&created, "targetId")?;
+            .await
+            .and_then(|created| text(&created, "targetId"));
+        if let Ok(target) = &created {
+            lock(&self.own).insert(target.clone());
+        }
+        self.creating.send_modify(|n| *n -= 1);
+        let target = created?;
         let attach = json!({ "targetId": target, "flatten": true });
         let attached = self.cdp.call(None, "Target.attachToTarget", attach).await?;
         let page = Arc::new(Page::new(
@@ -222,15 +239,45 @@ impl Session {
                     self.sink.closed(&page.id);
                 }
             }
-            // A page the page opened: not watched, so not kept.
-            "Target.targetCreated"
-                if info["type"] == "page"
-                    && info["openerId"].as_str().is_some_and(|o| !o.is_empty()) =>
-            {
-                let close = json!({ "targetId": info["targetId"] });
-                self.cdp.send(None, "Target.closeTarget", close);
-            }
+            "Target.attachedToTarget" => self.attached(&event.params),
             _ => {}
+        }
+    }
+
+    /// A new target, waiting for the debugger. A page `open` did not make
+    /// (a popup, `noopener` or not, a `target=_blank` link) is not watched,
+    /// so it is closed before it runs or sends a request; whether it is
+    /// one of ours is known once no `Target.createTarget` is waiting.
+    /// Service and shared workers run: they navigate nothing.
+    fn attached(&self, params: &Value) {
+        let info = &params["targetInfo"];
+        let (Some(target), Some(session)) =
+            (info["targetId"].as_str(), params["sessionId"].as_str())
+        else {
+            return;
+        };
+        let (cdp, session) = (self.cdp.clone(), session.to_owned());
+        let run = move || cdp.send(Some(&session), "Runtime.runIfWaitingForDebugger", json!({}));
+        if info["type"] != "page" {
+            run();
+            return;
+        }
+        let (cdp, own, target) = (self.cdp.clone(), self.own.clone(), target.to_owned());
+        let decide = move || {
+            if lock(&own).contains(&target) {
+                run();
+            } else {
+                cdp.send(None, "Target.closeTarget", json!({ "targetId": target }));
+            }
+        };
+        let mut creating = self.creating.subscribe();
+        if *creating.borrow() == 0 {
+            decide();
+        } else {
+            tokio::spawn(async move {
+                let _ = creating.wait_for(|n| *n == 0).await;
+                decide();
+            });
         }
     }
 }
