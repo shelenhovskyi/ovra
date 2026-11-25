@@ -1,10 +1,21 @@
 import { flushSync, mount, unmount } from "svelte";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AgentSetup } from "../../lib/protocol";
+import { CoreError } from "../../lib/transport";
 import { Workspace } from "../../shell/workspace.svelte";
 import { FakeAgentCore } from "../fake-core";
 import TestHost from "../TestHost.svelte";
-import { advice, billingText, changes, paidText } from "./texts";
+import {
+  advice,
+  billingText,
+  changeSummary,
+  changes,
+  countText,
+  paidShort,
+  paidText,
+  summary,
+  warnings,
+} from "./texts";
 
 let app: Record<string, unknown> | null = null;
 let target: HTMLElement;
@@ -55,13 +66,23 @@ describe("setup advice", () => {
   it("says what to do in every state", () => {
     expect(advice(setup({ state: "ready" })).title).toBe("Claude 2.1.331 is ready");
     expect(advice(setup({ state: "not_found" }, { version: null })).install).toBe(true);
-    expect(advice(setup({ state: "not_found" }, { path: "/opt/c" })).detail).toContain("Nothing was found at /opt/c");
+    expect(advice(setup({ state: "not_found" }, { version: null })).detail).toContain(
+      "Signing in to the Claude desktop app or claude.ai does not sign in the claude command line program",
+    );
+    expect(advice(setup({ state: "not_found" }, { path: "/opt/c" }))).toEqual({
+      title: "Claude was not found",
+      detail: "There is no program at /opt/c.",
+      findAutomatically: true,
+    });
     expect(advice(setup({ state: "outdated", minimum: "2.1.331" }, { version: "2.0.0" }))).toMatchObject({
       title: "Claude 2.0.0 is too old",
       command: "claude update",
     });
     expect(advice(setup({ state: "too_new", below: "3.0.0" })).detail).toContain("Update Ovra");
-    expect(advice(setup({ state: "signed_out" })).command).toBe("claude auth login");
+    expect(advice(setup({ state: "signed_out" }))).toMatchObject({
+      command: "claude auth login",
+      detail: expect.stringMatching(/^Run claude once in a terminal and sign in there.*desktop app or claude\.ai/),
+    });
     expect(advice(setup({ state: "broken", message: "boom" })).detail).toBe("boom");
   });
 });
@@ -88,6 +109,53 @@ describe("config changes", () => {
       { path: ".claude/agents", kind: "agents", added: ["new"], removed: ["old"] },
     ]);
     expect(changes(after, { fingerprint: "c", items: [] }).map((c) => c.removed.length)).toEqual([1, 1, 1]);
+    const diff = changes(before, after);
+    expect(changeSummary(diff)).toBe("2 added, 1 removed");
+    expect(
+      warnings(
+        diff.map((c) => ({ kind: c.kind, entries: c.added })),
+        true,
+      ),
+    ).toEqual({
+      broad: null,
+      code: "1 new hook runs commands on your computer.",
+    });
+  });
+});
+
+describe("trust summary", () => {
+  const rules = Array.from({ length: 8 }, (_, n) => `Bash(python3 tool/app${n}.py:*)`);
+  const items = [
+    { path: ".claude/skills", kind: "skills" as const, entries: ["a", "b"] },
+    { path: ".claude/settings.json", kind: "allow_rules" as const, entries: [...rules, "… and 1 more"] },
+    { path: ".claude/settings.json", kind: "hooks" as const, entries: ["Stop: ./x.sh"] },
+    { path: ".claude/settings.json", kind: "broad_allow_rules" as const, entries: ["Bash(*)", "Edit"] },
+    { path: ".claude/settings.local.json", kind: "broad_allow_rules" as const, entries: ["Write", "mcp__xcode"] },
+  ];
+
+  it("counts by kind in plain words, riskiest first", () => {
+    expect(summary(items)).toBe(
+      "4 unlimited permissions · 1 hook that runs code · 9 actions Claude may take without asking · 2 skills",
+    );
+    expect(countText("plugins", 1)).toBe("1 plugin that can run code");
+    expect(summary([{ path: "s.json", kind: "unreadable", entries: ["bad JSON"] }])).toBe("1 file Ovra could not read");
+    expect(changeSummary([])).toBe("");
+  });
+
+  it("names broad rules and counts what runs code", () => {
+    expect(warnings(items)).toEqual({
+      broad: "Claude will use Bash(*), Edit, Write and 1 more without asking you.",
+      code: "1 hook runs commands on your computer.",
+    });
+    const code = [
+      { kind: "hooks" as const, entries: ["a", "b"] },
+      { kind: "plugins" as const, entries: ["p"] },
+    ];
+    expect(warnings(code).code).toBe("2 hooks and 1 plugin run commands on your computer.");
+    expect(warnings([{ kind: "broad_allow_rules", entries: ["Bash(*)"] }]).broad).toBe(
+      "Claude will use Bash(*) without asking you.",
+    );
+    expect(warnings([])).toEqual({ broad: null, code: null });
   });
 });
 
@@ -95,15 +163,29 @@ describe("ClaudeSetup", () => {
   it("shows a ready Claude in one line and hides the path field", async () => {
     await show(new FakeAgentCore());
     expect(card()?.querySelector("h3")?.textContent).toBe("Claude 2.1.331 is ready");
+    expect(card()?.textContent?.replace(/\s+/g, " ").trim()).toBe(
+      "Claude 2.1.331 is ready · uses your Claude plan Change",
+    );
     expect(card()?.querySelector("#claude-path")).toBeNull();
-    button(card(), "Change path")?.click();
+    button(card(), "Change")?.click();
     flushSync();
     expect(card()?.querySelector("#claude-path")).not.toBeNull();
+    expect(card()?.querySelector("[data-testid=claude-executable]")?.textContent).toBe("Using /usr/bin/claude");
+    button(card(), "Cancel")?.click();
+    flushSync();
+    expect(card()?.querySelector("#claude-path")).toBeNull();
   });
 
   it("says who pays for usage and warns about an API key in the environment", async () => {
     const core = new FakeAgentCore();
     await show(core);
+    expect(card()?.querySelector("[data-testid=claude-billing]")?.textContent).toBe("· uses your Claude plan");
+    expect(paidShort(setup({ state: "ready" }, { billing: { kind: "cloud", provider: "vertex" } }))).toBe(
+      "billed to Google Vertex AI",
+    );
+    expect(paidShort(setup({ state: "ready" }, { api_key_in_env: true }))).toBeNull();
+    button(card(), "Change")?.click();
+    flushSync();
     expect(card()?.querySelector("[data-testid=claude-billing]")?.textContent).toBe(
       "Usage counts against your Claude plan's limits.",
     );
@@ -145,6 +227,9 @@ describe("ClaudeSetup", () => {
     );
     button(card(), "Installation guide")?.click();
     expect(core.sent("open.url")).toHaveLength(1);
+    expect(card()?.querySelector("#claude-path")).toBeNull();
+    button(card(), "Choose a path")?.click();
+    flushSync();
     const field = card()?.querySelector<HTMLInputElement>("#claude-path");
     if (!field) throw new Error("no path field");
     field.value = " /opt/claude/claude.cmd ";
@@ -152,9 +237,37 @@ describe("ClaudeSetup", () => {
     card()?.querySelector("form")?.requestSubmit();
     await settle();
     expect(core.sent("agents.set_path").map((c) => c.params.path)).toEqual(["/opt/claude/claude.cmd"]);
-    button(card(), "Search automatically")?.click();
+    button(card(), "Find automatically")?.click();
     await settle();
     expect(core.sent("agents.set_path").map((c) => c.params.path)).toEqual(["/opt/claude/claude.cmd", null]);
+  });
+
+  it("offers to search when the saved path leads nowhere, and shows a refused path by the field", async () => {
+    const core = new FakeAgentCore();
+    core.setup = setup(
+      { state: "not_found" },
+      { path: "/home/me/.local/bin/claude-work", executable: null, version: null },
+    );
+    await show(core);
+    expect(card()?.querySelector("h3")?.textContent).toBe("Claude was not found");
+    expect(card()?.textContent).toContain("There is no program at /home/me/.local/bin/claude-work.");
+    expect(card()?.querySelector("[aria-label='Install commands']")).toBeNull();
+    expect(button(card(), "Find automatically")?.classList.contains("primary")).toBe(true);
+    button(card(), "Choose another path")?.click();
+    flushSync();
+    core.failNext.set(
+      "agents.set_path",
+      new CoreError({ code: "bad_request", message: "there is no file at /x; shell aliases cannot be used" }),
+    );
+    card()?.querySelector("form")?.requestSubmit();
+    await settle();
+    const refused = card()?.querySelector("[data-testid=claude-path-error]");
+    expect(refused?.textContent).toContain("shell aliases");
+    expect(card()?.querySelector("#claude-path")?.getAttribute("aria-describedby")).toBe("claude-path-error");
+    button(card(), "Find automatically")?.click();
+    await settle();
+    expect(core.sent("agents.set_path").map((c) => c.params.path)).toEqual(["/home/me/.local/bin/claude-work", null]);
+    expect(card()?.querySelector("[data-testid=claude-path-error]")).toBeNull();
   });
 
   it("asks a signed-out user to sign in and checks again", async () => {
@@ -162,6 +275,7 @@ describe("ClaudeSetup", () => {
     core.setup = setup({ state: "signed_out" });
     await show(core);
     expect(card()?.textContent).toContain("claude auth login");
+    expect(card()?.textContent).toContain("Signing in to the Claude desktop app or claude.ai does not sign in");
     core.setup = setup({ state: "ready" });
     button(card(), "Check again")?.click();
     await settle();

@@ -1,23 +1,28 @@
 <script lang="ts">
 // Onboarding: is the user's Claude installed, supported and signed in? Says
 // how to fix it when not, and lets the user choose the executable's path.
+// Once Claude is ready the card is one line; "Change" opens the rest.
 import { untrack } from "svelte";
 import type { AgentSetup } from "../../lib/protocol";
 import { CoreError } from "../../lib/transport";
 import { useOvra } from "../../shell/context";
-import { advice, billingText, INSTALL_COMMANDS, SETUP_DOCS } from "./texts";
+import { advice, billingText, INSTALL_COMMANDS, paidShort, SETUP_DOCS } from "./texts";
 
 const { transport } = useOvra();
 
 let setup = $state<AgentSetup | null>(null);
 let error = $state<string | null>(null);
+// A path the core refused (no file there, say), shown under the field.
+let pathError = $state<string | null>(null);
 let busy = $state(false);
 let editing = $state(false);
 let path = $state("");
 
 const tip = $derived(setup ? advice(setup) : null);
 const ready = $derived(setup?.state.state === "ready");
+const compact = $derived(ready && !editing);
 const billing = $derived(setup && ready ? billingText(setup) : null);
+const paid = $derived(setup && ready ? paidShort(setup) : null);
 
 $effect(() => {
   untrack(() => void check());
@@ -28,15 +33,21 @@ function text(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-async function run(action: () => Promise<AgentSetup>): Promise<void> {
+async function run(
+  action: () => Promise<AgentSetup>,
+  onError = (message: string): void => {
+    error = message;
+  },
+): Promise<void> {
   if (busy) return;
   busy = true;
   error = null;
+  pathError = null;
   try {
     setup = await action();
     path = setup.path ?? "";
   } catch (err) {
-    error = text(err);
+    onError(text(err));
   } finally {
     busy = false;
   }
@@ -47,11 +58,17 @@ function check(): Promise<void> {
 }
 
 function savePath(value: string | null): Promise<void> {
-  return run(async () => {
-    const saved = await transport.call({ method: "agents.set_path", params: { agent: "claude", path: value } });
-    if (saved.data.state.state === "ready") editing = false;
-    return saved.data;
-  });
+  return run(
+    async () => {
+      const saved = await transport.call({ method: "agents.set_path", params: { agent: "claude", path: value } });
+      if (saved.data.state.state === "ready") editing = false;
+      return saved.data;
+    },
+    (message) => {
+      if (value === null) error = message;
+      else pathError = message;
+    },
+  );
 }
 
 function openDocs(): void {
@@ -59,12 +76,27 @@ function openDocs(): void {
 }
 </script>
 
-<section class="setup" class:problem={setup && !ready} aria-labelledby="claude-setup-heading" data-testid="claude-setup">
-  <div class="row">
-    <h3 id="claude-setup-heading">{tip?.title ?? "Checking Claude…"}</h3>
-    <button type="button" disabled={busy} onclick={check}>Check again</button>
-  </div>
-  {#if tip}
+<section
+  class="setup"
+  class:problem={setup && !ready}
+  aria-labelledby="claude-setup-heading"
+  data-testid="claude-setup"
+>
+  {#if compact}
+    <div class="row">
+      <div class="line">
+        <h3 id="claude-setup-heading">{tip?.title}</h3>
+        {#if paid}<span class="detail" data-testid="claude-billing"> · {paid}</span>{/if}
+      </div>
+      <button type="button" class="link" onclick={() => (editing = true)}>Change</button>
+    </div>
+  {:else}
+    <div class="row">
+      <h3 id="claude-setup-heading">{tip?.title ?? "Checking Claude…"}</h3>
+      <button type="button" disabled={busy} onclick={check}>Check again</button>
+    </div>
+  {/if}
+  {#if tip && !compact}
     {#if tip.detail}
       <p class="detail">{tip.detail}</p>
     {/if}
@@ -85,14 +117,19 @@ function openDocs(): void {
     {#if billing?.paid}
       <p class="detail" data-testid="claude-billing">{billing.paid}</p>
     {/if}
-    {#if billing?.warning}
-      <p class="warning" role="note" data-testid="claude-api-key">{billing.warning}</p>
-    {/if}
+  {/if}
+  {#if billing?.warning}
+    <p class="warning" role="note" data-testid="claude-api-key">{billing.warning}</p>
   {/if}
   {#if error}
     <p class="error" role="alert">{error}</p>
   {/if}
-  {#if editing || (setup && !ready)}
+  {#if tip?.findAutomatically && !editing}
+    <div class="row start">
+      <button type="button" class="primary" disabled={busy} onclick={() => savePath(null)}>Find automatically</button>
+      <button type="button" class="link" onclick={() => (editing = true)}>Choose another path</button>
+    </div>
+  {:else if editing}
     <form
       onsubmit={(event) => {
         event.preventDefault();
@@ -105,17 +142,25 @@ function openDocs(): void {
         bind:value={path}
         spellcheck="false"
         autocomplete="off"
+        aria-invalid={pathError !== null}
+        aria-describedby={pathError ? "claude-path-error" : undefined}
         placeholder="Empty: search PATH and the usual install folders"
       />
+      {#if pathError}
+        <p class="error" id="claude-path-error" role="alert" data-testid="claude-path-error">{pathError}</p>
+      {/if}
       <div class="row">
-        {#if setup?.path}
-          <button type="button" disabled={busy} onclick={() => savePath(null)}>Search automatically</button>
-        {/if}
-        <button type="submit" disabled={busy}>Save path</button>
+        <button type="button" class="link" onclick={() => ((editing = false), (pathError = null))}>Cancel</button>
+        <span class="actions">
+          {#if setup?.path}
+            <button type="button" disabled={busy} onclick={() => savePath(null)}>Find automatically</button>
+          {/if}
+          <button type="submit" disabled={busy}>Save path</button>
+        </span>
       </div>
     </form>
-  {:else if setup}
-    <button type="button" class="link" onclick={() => (editing = true)}>Change path</button>
+  {:else if setup && !ready}
+    <button type="button" class="link" onclick={() => (editing = true)}>Choose a path</button>
   {/if}
 </section>
 
@@ -137,14 +182,21 @@ function openDocs(): void {
     margin: 0;
     font-size: 12px;
   }
+  .line h3 {
+    display: inline;
+  }
   .row {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 8px;
   }
-  form .row {
-    justify-content: flex-end;
+  .row.start {
+    justify-content: flex-start;
+  }
+  .actions {
+    display: flex;
+    gap: 6px;
   }
   p,
   ul {
@@ -185,6 +237,9 @@ function openDocs(): void {
     border-radius: 3px;
     padding: 2px 4px;
   }
+  input[aria-invalid="true"] {
+    border-color: #ff8f8f;
+  }
   button {
     font: inherit;
     padding: 2px 8px;
@@ -193,6 +248,9 @@ function openDocs(): void {
     border: 1px solid #4a4a57;
     border-radius: 3px;
     cursor: pointer;
+  }
+  button.primary {
+    border-color: #7aa2ff;
   }
   button.link {
     align-self: flex-start;
