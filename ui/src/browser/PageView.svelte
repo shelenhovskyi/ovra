@@ -44,7 +44,7 @@ const alt = $derived(`${page.title || "Untitled page"}, ${page.url}`);
 const pickKeys = formatShortcut(PICK_KEYS, isApple());
 const modeText = $derived(
   picker.active
-    ? "Picking: point at an element. Up and Down arrows choose its parent or child, click picks it, Shift+click picks more, Escape stops."
+    ? "Picking: point at an element or press an arrow key to start at the centre. Up and Down choose its parent or child, click or Enter picks it, Shift+click or Shift+Enter picks more, Escape stops."
     : controlling
       ? "You are controlling the page. Shift+Escape gives it back."
       : control
@@ -244,11 +244,19 @@ function onMouseUp(event: MouseEvent): void {
     send({ kind: "mouse_up", ...at, button, clicks: Math.max(1, event.detail), modifiers: modifiers(event) });
 }
 
-async function onClick(event: MouseEvent): Promise<void> {
+function onClick(event: MouseEvent): void {
   if (!picker.active) return;
   const at = pointAt(event);
-  if (!at) return;
-  const more = event.shiftKey;
+  if (at) void pickAt(at, event.shiftKey);
+}
+
+/** The middle of the page, where picking by keyboard starts. */
+function centre(): { x: number; y: number } | null {
+  return meta ? { x: Math.round(meta.width / 2), y: Math.round(meta.height / 2) } : null;
+}
+
+/** Picks the element at `at`; `more` keeps pick mode on. */
+async function pickAt(at: { x: number; y: number }, more: boolean): Promise<void> {
   const scroll = { x: meta?.scroll_x ?? 0, y: meta?.scroll_y ?? 0 };
   const pick = await picker.take(at);
   if (!pick) return;
@@ -287,9 +295,14 @@ function typed(event: KeyboardEvent): string | null {
 
 function onKeyDown(event: KeyboardEvent): void {
   if (picker.active) {
-    if (event.code === "ArrowUp") picker.parent();
+    const at = picker.point ?? centre();
+    const arrow = event.code === "ArrowUp" || event.code === "ArrowDown";
+    if (arrow && !picker.point && at) picker.hover(at);
+    else if (event.code === "ArrowUp") picker.parent();
     else if (event.code === "ArrowDown") picker.child();
-    else if (event.code === "Escape") picker.stop();
+    else if (event.code === "Enter" || event.code === "NumpadEnter") {
+      if (at) void pickAt(at, event.shiftKey);
+    } else if (event.code === "Escape") picker.stop();
     else return;
     event.preventDefault();
     return;
@@ -362,7 +375,7 @@ $effect(() => {
     onmousemove={onMouseMove}
     onmousedown={onMouseDown}
     onmouseup={onMouseUp}
-    onclick={(event) => void onClick(event)}
+    onclick={onClick}
     oncontextmenu={(event) => (control || picker.active) && event.preventDefault()}
     onkeydown={onKeyDown}
     onkeyup={onKeyUp}

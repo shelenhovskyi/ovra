@@ -295,6 +295,44 @@ describe("the agent browser", () => {
     expect(button("Pick")?.getAttribute("aria-pressed")).toBe("false");
   });
 
+  it("picks without a mouse: arrows start at the page's centre, Enter picks", async () => {
+    const core = await setup();
+    key("keydown", { code: "KeyP", key: "P", altKey: true, shiftKey: true });
+    await settle();
+    expect(document.activeElement).toBe(stage());
+    expect($("[data-testid=browser-mode]")?.textContent).toContain("Enter picks");
+    // The first arrow shows the element at the centre, the next one its parent.
+    key("keydown", { code: "ArrowUp", key: "ArrowUp" });
+    await settle();
+    expect(core.sent("browser.pick")).toEqual([{ page: "pg1", x: 640, y: 360, up: 0 }]);
+    expect($("[data-testid=browser-hover-box]")?.textContent).toContain('button "button"');
+    key("keydown", { code: "ArrowUp", key: "ArrowUp" });
+    await settle();
+    expect(core.sent("browser.pick").at(-1)?.up).toBe(1);
+    // Shift+Enter picks and keeps picking; Enter picks and stops.
+    key("keydown", { code: "Enter", key: "Enter", shiftKey: true });
+    await settle();
+    expect(button("Pick")?.getAttribute("aria-pressed")).toBe("true");
+    key("keydown", { code: "ArrowDown", key: "ArrowDown" });
+    await settle();
+    key("keydown", { code: "Enter", key: "Enter" });
+    await settle();
+    expect(button("Pick")?.getAttribute("aria-pressed")).toBe("false");
+    // Enter before any arrow picks the element at the centre.
+    core.element = (_x, _y, up) => pickOf("a", up);
+    key("keydown", { code: "KeyP", key: "P", altKey: true, shiftKey: true });
+    await settle();
+    key("keydown", { code: "NumpadEnter", key: "Enter" });
+    await settle();
+    expect(
+      browserPicks(core)
+        .of("s1")
+        .map((p) => p.pick.tag),
+    ).toEqual(["div1", "button", "a"]);
+    expect(core.sent("browser.pick").at(-1)).toEqual({ page: "pg1", x: 640, y: 360, up: 0 });
+    expect(inputs(core)).toEqual([]);
+  });
+
   it("stops hit tests when the pane hides in pick mode", async () => {
     const core = await setup();
     button("Pick")?.click();

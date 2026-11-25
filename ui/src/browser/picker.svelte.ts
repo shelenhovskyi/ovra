@@ -26,6 +26,11 @@ export class Picker {
     private readonly page: PageId,
   ) {}
 
+  /** The page point pick mode looks at: the pointer's, or where the keyboard started. */
+  get point(): Point | null {
+    return this.at;
+  }
+
   start(): void {
     this.active = true;
   }
