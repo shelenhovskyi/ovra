@@ -8,9 +8,11 @@ use crate::fakes::{
     FakeBrowser, FakeDevServers, FakeNetProxy, MemoryAudit, MemoryFs, MemoryProjects,
     ScriptedAgent, Step,
 };
-use crate::protocol::agents::{SandboxNetwork, SandboxReport};
+use crate::protocol::agents::{AgentStatus, AgentsEvent, SandboxNetwork, SandboxReport};
 use crate::protocol::audit::{AuditEvent, AuditRange};
-use crate::protocol::browser::{BrowserEvent, BrowserResponse, PageId, PageInfo};
+use crate::protocol::browser::{
+    BrowserAvailability, BrowserEvent, BrowserRefusal, BrowserResponse, PageId, PageInfo,
+};
 use crate::protocol::projects::ProjectId;
 use crate::protocol::servers::{ServerStatus, ServersResponse};
 use crate::protocol::{ErrorCode, Event, ProtocolError, Request, Response};
@@ -225,6 +227,62 @@ async fn only_a_session_behind_its_netproxy_gets_a_browser() {
     let open =
         json!({"method": "browser.open", "params": {"session": "s1", "url": "http://x.test/"}});
     assert_eq!(code(call(&unwired, open).await), ErrorCode::Unavailable);
+}
+
+#[tokio::test]
+async fn status_says_why_a_session_gets_no_browser() {
+    async fn status(core: &Core) -> Result<BrowserAvailability, ProtocolError> {
+        let ask = json!({"method": "browser.status", "params": {"session": "s1"}});
+        match call(core, ask).await? {
+            Response::Browser(BrowserResponse::Status(status)) => Ok(status),
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+    let refusal = |s: Result<BrowserAvailability, ProtocolError>| match s {
+        Ok(BrowserAvailability::Refused { code, .. }) => Some(code),
+        _ => None,
+    };
+    let f = fx(true).await;
+    assert_eq!(status(&f.core).await, Ok(BrowserAvailability::Available));
+    *super::lock(&f.browser.missing) = Some(BrowserRefusal::NoSandbox);
+    assert_eq!(
+        refusal(status(&f.core).await),
+        Some(BrowserRefusal::NoSandbox)
+    );
+    let mut rx = f.core.subscribe();
+    let stop = json!({"method": "agents.stop", "params": {"session": "s1"}});
+    ok(&f.core, stop).await;
+    let stopped = |event| match event {
+        Event::Agents(AgentsEvent::Status {
+            status: AgentStatus::Stopped,
+            ..
+        }) => Some(()),
+        _ => None,
+    };
+    next(&mut rx, stopped).await;
+    // An ended session says so first: nothing else would help it.
+    assert_eq!(
+        refusal(status(&f.core).await),
+        Some(BrowserRefusal::SessionEnded)
+    );
+    assert!(
+        super::lock(&f.browser.started).is_empty(),
+        "asking starts nothing"
+    );
+
+    let f = fx(false).await;
+    assert_eq!(
+        refusal(status(&f.core).await),
+        Some(BrowserRefusal::NotSandboxed)
+    );
+    *super::lock(&f.browser.missing) = Some(BrowserRefusal::NoChromium);
+    // No browser here at all comes before this session's sandbox.
+    assert_eq!(
+        refusal(status(&f.core).await),
+        Some(BrowserRefusal::NoChromium)
+    );
+    let unknown = json!({"method": "browser.status", "params": {"session": "s9"}});
+    assert_eq!(code(call(&f.core, unknown).await), ErrorCode::NotFound);
 }
 
 #[tokio::test]
