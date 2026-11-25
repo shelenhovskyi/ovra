@@ -66,6 +66,10 @@ test("side panels resize, fold and swap, and the layout survives a reload", asyn
   await expect(agents.getByRole("button", { name: /^Show Agents/ })).toBeVisible();
   await page.keyboard.press("Alt+ControlOrMeta+0");
   await expect(agentsToggle).toHaveAttribute("aria-pressed", "true");
+  // The rail's bottom: Terminal and Settings, which lists the settings in the palette.
+  await rail.getByRole("button", { name: "Settings" }).click();
+  await expect(page.getByRole("dialog", { name: "Command palette" })).toBeVisible();
+  await page.keyboard.press("Escape");
 
   await page.reload();
   await expect(files).toHaveAttribute("aria-pressed", "false");

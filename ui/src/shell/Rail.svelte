@@ -1,6 +1,6 @@
 <script lang="ts">
 // The icon rail beside the rail's panel: what that panel shows (Files,
-// Search, Git), and the terminal at the bottom. Pressing the shown view
+// Search, Git), and Terminal and Settings at the bottom. Pressing the shown view
 // again folds the panel; another view unfolds it. The shell moves the rail
 // to the right edge when the panel goes there, and hides it on the start
 // screen. Reviews and More are in the title bar.
@@ -52,6 +52,9 @@ function run(id: string): void {
     <span class="grow"></span>
     <button type="button" class="rail-button tip" data-tip="Terminal" aria-label="Terminal" onclick={() => run("terminal.toggle")}
       ><Icon name="terminal" /></button
+    >
+    <button type="button" class="rail-button tip" data-tip="Settings" aria-label="Settings" onclick={() => run("palette.settings")}
+      ><Icon name="settings" /></button
     >
   {/if}
 </nav>

@@ -60,8 +60,8 @@ tone instead of lines, and chrome that appears only when needed.
   (Alt+Mod+0) and More. A "1 waiting" chip shows while Agents is folded and a
   request waits. The start screen keeps only the Ovra mark and More.
 - **Icon rail** on the edge of its panel's side (the far left unless the
-  panels are swapped): Files, Search, Git; Terminal at the bottom (Settings
-  joins it with the settings view). Hidden on the start screen.
+  panels are swapped): Files, Search, Git; Terminal and Settings (Mod+,) at
+  the bottom. Hidden on the start screen.
 - **Side panels** (the rail's panel, and Agents) resize by dragging a handle
   from 160 px to 60% of the window, leaving the main area 320 px (arrow keys
   on a focused handle, double-click resets), fold (the rail's panel to
