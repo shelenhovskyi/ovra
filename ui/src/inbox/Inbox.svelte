@@ -311,7 +311,9 @@ function sessionLabel(review: ReviewItem): string {
 
 /** Arrow keys move focus (and the choice) within a list of buttons. */
 function moveIn(event: KeyboardEvent, selector: string, pick: (el: HTMLElement) => void): void {
-  if (event.code !== "ArrowDown" && event.code !== "ArrowUp" && event.code !== "Home" && event.code !== "End") return;
+  // Left and right too: a narrow view lays the items out in a row.
+  const step = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[event.code];
+  if (step === undefined && event.code !== "Home" && event.code !== "End") return;
   const all = [...(dialog?.querySelectorAll<HTMLElement>(selector) ?? [])];
   const at = all.indexOf(event.target as HTMLElement);
   if (at < 0) return;
@@ -321,7 +323,7 @@ function moveIn(event: KeyboardEvent, selector: string, pick: (el: HTMLElement) 
       ? 0
       : event.code === "End"
         ? all.length - 1
-        : Math.max(0, Math.min(all.length - 1, at + (event.code === "ArrowDown" ? 1 : -1)));
+        : Math.max(0, Math.min(all.length - 1, at + (step ?? 0)));
   const target = all[next];
   if (!target) return;
   pick(target);
@@ -377,9 +379,25 @@ async function approve(review: ReviewItem): Promise<void> {
     // The note on what was not copied is not read out by itself.
     const now = inbox.items.find((i) => i.id === review.id);
     const left = now?.state === "partly_approved" ? ` ${notCopiedHint(now, keptFrom)}` : "";
-    announcement = `${outcomeText(inbox.outcome)}${left}`;
-    await refocus();
+    const next = now?.state === "approved" && inbox.outcome.conflicts.length === 0 ? nextWaiting(review.id) : null;
+    if (!next) {
+      announcement = `${outcomeText(inbox.outcome)}${left}`;
+      await refocus();
+      return;
+    }
+    // Done with this one: on to the next that waits, as approvals move to the next card.
+    announcement = `Kept ${shortTitle(review, sessions.name(review.session))}.${outcomeText(inbox.outcome).slice("Kept.".length)}`;
+    select(next.id);
+    await tick();
+    dialog?.querySelector<HTMLElement>(`[data-item="${next.id}"]`)?.focus();
   }
+}
+
+/** The waiting item after `id` in the list, else the first one before it. */
+function nextWaiting(id: ReviewId): ReviewItem | null {
+  const at = inbox.items.findIndex((i) => i.id === id);
+  const waits = (i: ReviewItem) => i.id !== id && inbox.waiting.includes(i);
+  return inbox.items.slice(at + 1).find(waits) ?? inbox.items.slice(0, at).find(waits) ?? null;
 }
 
 async function reject(review: ReviewItem): Promise<void> {
@@ -538,7 +556,9 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                   >
                     <span class="name">{shortTitle(review, sessions.name(review.session))}</span>
                     <span class="meta"
-                      ><span class="state {review.state}">{STATE_LABEL[review.state]}</span> · {itemSummary(review)}</span
+                      ><span class="state {review.state}">{STATE_LABEL[review.state]}</span><span class="count"
+                        > · {itemSummary(review)}</span
+                      ></span
                     >
                     {#if protectedTag(review)}
                       <span class="marker protected" data-testid="item-protected">{protectedTag(review)}</span>
@@ -565,7 +585,8 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                 {#if gitText}
                   <p class="protected" id="inbox-git" role="note" data-testid="inbox-git">{gitText}</p>
                 {/if}
-                {#if outcome}
+                <!-- A plain "Kept." would only repeat the state beside the title. -->
+                {#if outcome && outcomeText(outcome) !== "Kept."}
                   <p class="outcome" data-testid="inbox-outcome">
                     {outcomeText(outcome)}
                   </p>
@@ -1101,7 +1122,9 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
     clip-path: inset(50%);
     white-space: nowrap;
   }
-  /* A narrow main area: the diff goes under the decision, which keeps the width. */
+  /* A narrow main area: one column that keeps the width, the diff right
+     under the title and summary, so what Keep changes keeps is in sight
+     above it; the comment to the agent comes last. */
   @container (max-width: 860px) {
     .detail {
       display: flex;
@@ -1109,21 +1132,57 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
       overflow: auto;
     }
     .decide {
-      flex: none;
-      overflow: visible;
+      display: contents;
+    }
+    .item-head {
+      order: 0;
     }
     .diff {
       flex: none;
-      height: 60vh;
+      order: 1;
+      height: 45vh;
+      min-height: 160px;
+      margin-top: 12px;
+      border-radius: 10px 10px 0 0;
+    }
+    .actions {
+      order: 2;
+    }
+    .files {
+      order: 3;
+    }
+    .comment {
+      order: 4;
+      padding-bottom: 12px;
     }
   }
+  /* Narrower still: the items become one compact row above the item, each its name and state. */
   @container (max-width: 560px) {
     .body {
       grid-template-columns: minmax(0, 1fr);
       grid-template-rows: auto minmax(0, 1fr);
     }
-    nav {
-      max-height: 25vh;
+    nav ul {
+      display: flex;
+      gap: 4px;
+      overflow-x: auto;
+      padding: 4px 12px;
+      scrollbar-width: thin;
+    }
+    nav li {
+      flex: none;
+    }
+    /* Protected files and git changes keep their marker: shorter, never hidden. */
+    nav .group,
+    nav .count {
+      display: none;
+    }
+    nav .entry {
+      flex-direction: row;
+      align-items: baseline;
+      gap: 6px;
+      max-width: 180px;
+      padding: 4px 10px;
     }
   }
   .marker.protected,

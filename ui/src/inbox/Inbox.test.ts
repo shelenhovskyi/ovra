@@ -347,6 +347,34 @@ describe("Inbox", () => {
     expect(document.activeElement?.id).toBe("inbox-item-title");
   });
 
+  it("moves on to the next waiting item after Keep changes, focus too, and says Kept once", async () => {
+    const core = await setup([review("r1"), review("r2", { session: "s2" })]);
+    await open();
+    expect(document.activeElement?.getAttribute("data-item")).toBe("r1");
+    // Left and right move too, for the narrow view's row of items.
+    press("ArrowRight");
+    flushSync();
+    expect(document.activeElement?.getAttribute("data-item")).toBe("r2");
+    press("ArrowLeft");
+    await settle();
+    expect(document.activeElement?.getAttribute("data-item")).toBe("r1");
+    button(/^Keep changes$/)?.click();
+    await settle();
+    expect(core.sent("review.approve").map((c) => c.params.id)).toEqual(["r1"]);
+    expect($("[data-item][aria-current=true]")?.getAttribute("data-item")).toBe("r2");
+    expect(document.activeElement?.getAttribute("data-item")).toBe("r2");
+    expect($("[data-item=r1]")?.textContent).toContain("Kept");
+    expect($("[data-testid=inbox-outcome]")).toBeNull();
+    expect($("[role=status]")?.textContent).toMatch(/^Kept /);
+
+    // The last one stays, its state said beside its title only.
+    button(/^Keep changes$/)?.click();
+    await settle();
+    expect($("[data-item][aria-current=true]")?.getAttribute("data-item")).toBe("r2");
+    expect($("[data-testid=inbox-outcome]")).toBeNull();
+    expect(document.activeElement?.id).toBe("inbox-item-title");
+  });
+
   it("does not approve a worker's files when the diff on screen is older than them", async () => {
     const core = await setup([review("r1", { mode: "isolated", fingerprint: "f2" })]);
     await open();
