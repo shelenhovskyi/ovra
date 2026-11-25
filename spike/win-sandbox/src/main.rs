@@ -345,6 +345,8 @@ mod appcontainer {
                 .output()
                 .unwrap();
             println!("icacls: {}", String::from_utf8_lossy(&g.stdout).trim());
+            let pt = Command::new("icacls").arg(granted.join("port.txt")).output().unwrap();
+            println!("port.txt after grant: {}", String::from_utf8_lossy(&pt.stdout));
             let prot = granted.join("prot");
             std::fs::create_dir_all(&prot).unwrap();
             std::fs::write(prot.join("file.txt"), "protected").unwrap();
