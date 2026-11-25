@@ -69,7 +69,7 @@ async function mountSwitcher(
 describe("ProjectSwitcher", () => {
   it("is a menu button listing the other recent projects, a folder opener and Close project", async () => {
     const { button, items, target } = await mountSwitcher();
-    expect(button()?.textContent).toMatch(/Project\s+demo-app/);
+    expect(button()?.textContent).toMatch(/^\s*demo-app\s*$/);
     expect(button()?.getAttribute("aria-haspopup")).toBe("menu");
     button()?.click();
     await settle();

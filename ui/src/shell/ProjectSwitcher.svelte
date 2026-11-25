@@ -11,6 +11,7 @@ import { formatShortcut, inBrowserTab, isApple, liveKeys } from "../keys/shortcu
 import type { Project } from "../lib/protocol";
 import { FolderOpener } from "../tree/folder-opener.svelte";
 import { useOvra } from "./context";
+import Icon from "./Icon.svelte";
 import { menuTarget } from "./menu";
 import { folderDialogCommand, openAnotherFolder } from "./open-folder";
 
@@ -156,9 +157,8 @@ $effect(() => {
     onclick={() => (open ? close(false) : void show("first"))}
     onkeydown={onButtonKeydown}
   >
-    <span class="muted">Project</span>
-    {project.name}
-    <span class="caret" aria-hidden="true">▾</span>
+    <span class="label">{project.name}</span>
+    <Icon name="chevron" small />
   </button>
   {#if open && typing}
     <!-- Escape from the field or a button cancels. -->
@@ -234,59 +234,57 @@ $effect(() => {
   }
   button {
     font: inherit;
-    color: #e6e6e6;
+    color: var(--text);
     cursor: pointer;
   }
   .project {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     max-width: 100%;
+    height: 30px;
+    padding: 0 8px;
+    font-weight: 600;
+    background: transparent;
+    border: 0;
+    border-radius: 7px;
+  }
+  .project .label {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    padding: 2px 6px;
-    font-weight: 600;
-    background: transparent;
-    border: 1px solid transparent;
-    border-radius: 3px;
+  }
+  .project :global(svg) {
+    color: var(--text-3);
   }
   .project:hover,
   .project[aria-expanded="true"] {
-    background: #2a2a33;
-    border-color: #4a4a57;
-  }
-  button:focus-visible {
-    outline: 2px solid #7aa2ff;
-    outline-offset: 1px;
-  }
-  .muted,
-  .caret {
-    font-weight: normal;
-    color: #9a9aa6;
+    background: var(--s3);
   }
   .menu {
     position: fixed;
     z-index: 100;
-    min-width: 280px;
+    min-width: 300px;
     max-width: min(480px, calc(100vw - 16px));
-    padding: 4px;
-    background: #1e1e24;
-    border: 1px solid #4a4a57;
-    border-radius: 4px;
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+    padding: 6px;
+    background: var(--s4);
+    border-radius: var(--radius);
+    box-shadow: var(--card-shadow);
   }
   .menu [role="menuitem"] {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
     width: 100%;
-    padding: 6px 8px;
+    padding: 7px 10px;
     text-align: left;
     background: transparent;
     border: none;
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
   }
   .menu [role="menuitem"]:hover,
   .menu [role="menuitem"]:focus {
-    background: #2a2a33;
+    background: var(--s3);
   }
   .menu [role="menuitem"]:disabled {
     cursor: progress;
@@ -299,43 +297,39 @@ $effect(() => {
   kbd {
     margin-left: auto;
     padding-left: 16px;
-    font: inherit;
-    font-size: 12px;
-    color: #9a9aa6;
+    font: 500 12px var(--font);
+    color: var(--text-2);
   }
   .heading {
-    margin: 4px 8px 2px;
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: #9a9aa6;
+    margin: 6px 10px 4px;
+    font-size: 13px;
+    color: var(--text-2);
   }
   .path {
     max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 12px;
-    color: #9a9aa6;
+    font: 13px var(--mono);
+    color: var(--text-2);
   }
   [role="separator"] {
-    margin: 4px 0;
-    border-top: 1px solid #2a2a31;
+    height: 6px;
   }
   .error {
-    margin: 4px 8px;
-    color: #ff6b6b;
+    margin: 4px 10px;
+    color: var(--danger);
   }
   .folder {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    padding: 8px;
+    gap: 6px;
+    padding: 12px;
   }
   .folder label,
   .hint {
-    font-size: 12px;
-    color: #b4b4c0;
+    font-size: 13px;
+    color: var(--text-2);
   }
   .folder .error,
   .hint {
@@ -343,19 +337,16 @@ $effect(() => {
     overflow-wrap: anywhere;
   }
   .folder input {
-    font: inherit;
+    height: 32px;
+    padding: 0 10px;
+    font: 13px var(--mono);
     color: inherit;
-    background: #121216;
-    border: 1px solid #4a4a57;
-    border-radius: 3px;
-    padding: 3px 6px;
+    background: var(--s3);
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
   }
   .folder input[aria-invalid="true"] {
-    border-color: #ff8f8f;
-  }
-  .folder input:focus-visible {
-    outline: 2px solid #7aa2ff;
-    outline-offset: 1px;
+    border-color: var(--danger);
   }
   .actions {
     display: flex;
@@ -363,16 +354,30 @@ $effect(() => {
     gap: 6px;
   }
   .actions button {
-    padding: 2px 10px;
-    background: #2a2a33;
-    border: 1px solid #4a4a57;
-    border-radius: 3px;
+    height: 30px;
+    padding: 0 12px;
+    font-weight: 500;
+    color: var(--text-2);
+    background: transparent;
+    border: 0;
+    border-radius: var(--radius-sm);
   }
-  .actions .primary {
-    border-color: #7aa2ff;
+  .actions button:hover {
+    color: var(--text);
+    background: var(--s3);
+  }
+  .actions .primary,
+  .actions .primary:hover {
+    color: var(--accent-ink);
+    background: var(--accent);
   }
   .actions button:disabled {
     opacity: 0.55;
     cursor: default;
+  }
+  @media (forced-colors: active) {
+    .menu {
+      border: 1px solid CanvasText;
+    }
   }
 </style>

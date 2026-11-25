@@ -236,33 +236,34 @@ function onfocusout(event: FocusEvent): void {
     justify-content: center;
     align-items: flex-start;
     padding-top: 12vh;
-    background: rgb(0 0 0 / 0.35);
+    background: var(--scrim);
     z-index: 100;
   }
   .palette {
     width: min(600px, calc(100vw - 32px));
-    background: #1e1e24;
-    border: 1px solid #34343d;
-    border-radius: 8px;
-    box-shadow: 0 12px 40px rgb(0 0 0 / 0.5);
+    padding: 6px;
+    background: var(--s2);
+    border-radius: 12px;
+    box-shadow: var(--card-shadow);
     overflow: hidden;
   }
   input {
     box-sizing: border-box;
     width: 100%;
-    padding: 10px 12px;
+    height: 42px;
+    padding: 0 12px;
     border: 0;
-    border-bottom: 1px solid #2a2a31;
-    background: transparent;
+    border-radius: var(--radius);
+    background: var(--s3);
     color: inherit;
     font: inherit;
-    font-size: 14px;
+    font-size: 15px;
     outline: none;
   }
   ul {
     max-height: 50vh;
     margin: 0;
-    padding: 4px 0;
+    padding: 6px 0 0;
     overflow-y: auto;
     list-style: none;
   }
@@ -271,21 +272,25 @@ function onfocusout(event: FocusEvent): void {
     justify-content: space-between;
     align-items: center;
     gap: 12px;
+    min-height: 36px;
     padding: 6px 12px;
+    border-radius: var(--radius-sm);
     cursor: pointer;
   }
   li[aria-selected="true"] {
-    background: #2d3a5c;
+    background: var(--accent-soft);
   }
   mark {
     background: none;
-    color: #7aa2ff;
+    color: var(--accent);
     font-weight: 600;
   }
   kbd {
-    font: inherit;
-    font-size: 11px;
-    color: #9a9aa6;
+    padding: 3px 6px;
+    font: 500 12px / 1 var(--font);
+    color: var(--text-2);
+    background: var(--s3);
+    border-radius: 5px;
   }
   .title {
     min-width: 0;
@@ -295,8 +300,8 @@ function onfocusout(event: FocusEvent): void {
   }
   .detail {
     margin-left: 8px;
-    color: #9a9aa6;
-    font-size: 12px;
+    color: var(--text-2);
+    font-size: 13px;
   }
   .visually-hidden {
     position: absolute;
@@ -310,6 +315,9 @@ function onfocusout(event: FocusEvent): void {
   /* Forced colours (Windows High Contrast) drop backgrounds and text colours,
      so the selection gets a system-coloured outline and matches an underline. */
   @media (forced-colors: active) {
+    .palette {
+      border: 1px solid CanvasText;
+    }
     li[aria-selected="true"] {
       outline: 2px solid Highlight;
       outline-offset: -2px;
@@ -328,17 +336,16 @@ function onfocusout(event: FocusEvent): void {
     }
   }
   .empty.error {
-    color: #ff8f8f;
+    color: var(--danger);
   }
   .more {
     margin: 0;
-    padding: 6px 12px;
-    border-top: 1px solid #2a2a31;
-    color: #9a9aa6;
-    font-size: 12px;
+    padding: 8px 12px 4px;
+    color: var(--text-2);
+    font-size: 13px;
   }
   .empty {
-    color: #9a9aa6;
+    color: var(--text-2);
     cursor: default;
   }
 </style>
