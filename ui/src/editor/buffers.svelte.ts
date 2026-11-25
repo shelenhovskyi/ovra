@@ -26,6 +26,7 @@ import type { HighlightClient, HighlightedDoc } from "./highlight/client";
 import { treeSitterHighlighting } from "./highlight/extension";
 import type { LanguageSource } from "./highlight/protocol";
 import { type Language, languageFor, languageSource } from "./languages";
+import { editorPrefs } from "./prefs.svelte";
 import { theme } from "./theme";
 
 /**
@@ -128,6 +129,8 @@ export class Buffer {
   private serverExtension: Extension = [];
   /** The text box's name, which says the path. */
   private readonly label = new Compartment();
+  /** Line wrapping, as `editorPrefs.wordWrap` says. */
+  private readonly wrap = new Compartment();
 
   constructor(
     private readonly options: Options,
@@ -178,6 +181,13 @@ export class Buffer {
     if (also) specs.push(also(state));
     if (this.view) this.view.dispatch(...specs);
     else this.state = state.update(...specs).state;
+  }
+
+  /** Follows the editor preferences (word wrap) as they are now. */
+  applyPrefs(): void {
+    const effects = this.wrap.reconfigure(wrapExtension());
+    if (this.view) this.view.dispatch({ effects });
+    else if (this.state) this.state = this.state.update({ effects }).state;
   }
 
   /**
@@ -390,6 +400,7 @@ export class Buffer {
       }),
       // Named, so a screen reader says which file the text box edits.
       this.label.of(this.labelExtension()),
+      this.wrap.of(wrapExtension()),
       theme,
       this.highlight ? treeSitterHighlighting(this.highlight) : [],
       this.server.of(this.serverExtension),
@@ -511,6 +522,10 @@ export class Buffers {
     this.unsubscribe();
     this.unsubscribeStatus();
   }
+}
+
+function wrapExtension(): Extension {
+  return editorPrefs.wordWrap ? EditorView.lineWrapping : [];
 }
 
 function message(err: unknown): string {

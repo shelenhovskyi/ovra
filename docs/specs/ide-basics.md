@@ -89,9 +89,9 @@ remembered View or Edit per file type). This list only adds the menu.
 | Go to symbol in file (Mod+Shift+O)                                           | yes     | yes | yes       | yes    | no                          | P1                     |
 | Format document (LSP), format on save                                        | yes     | yes | yes       | yes    | no                          | P1                     |
 | Breadcrumbs (path and symbol)                                                | yes     | yes | yes       | yes    | no                          | P1                     |
-| Word wrap toggle                                                             | yes     | yes | yes       | yes    | no                          | P1                     |
+| Word wrap toggle                                                             | yes     | yes | yes       | yes    | yes (Alt+Z)                 | done                   |
 | Auto save (after delay / on focus change)                                    | yes     | yes | yes       | yes    | no                          | P1                     |
-| Font size zoom (Mod+= / Mod+-)                                               | yes     | yes | yes       | yes    | no                          | P1                     |
+| Font size zoom (Mod+= / Mod+-)                                               | yes     | yes | yes       | yes    | yes                         | done                   |
 | Comment line (Mod+/)                                                         | yes     | yes | yes       | yes    | check                       | P1                     |
 | Code folding                                                                 | yes     | yes | yes       | yes    | no                          | P1                     |
 | Change language mode of a file                                               | yes     | yes | yes       | yes    | no                          | P2                     |

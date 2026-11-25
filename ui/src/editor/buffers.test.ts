@@ -1,9 +1,11 @@
+import { undoDepth } from "@codemirror/commands";
 import { EditorView } from "@codemirror/view";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { type Buffer, Buffers } from "./buffers.svelte";
 import { Drafts } from "./drafts.svelte";
 import { FakeCore, MemoryStorage } from "./fake-core";
 import type { HighlightClient } from "./highlight/client";
+import { editorPrefs } from "./prefs.svelte";
 
 // jsdom has no layout; CodeMirror measures text ranges when it draws the selection.
 beforeAll(() => {
@@ -51,6 +53,21 @@ describe("Buffer", () => {
     core.put("src/a.txt", "hello");
     await show("src/a.txt");
     expect(view.contentDOM.getAttribute("aria-label")).toBe("Edit src/a.txt");
+  });
+
+  test("wraps lines while word wrap is on, keeping the text and its undo history", async () => {
+    const { core, view, show, type } = setup();
+    core.put("a.txt", "hello");
+    const a = await show("a.txt");
+    type("!");
+    const wrapped = () => view.contentDOM.classList.contains("cm-lineWrapping");
+    expect(wrapped()).toBe(false);
+    editorPrefs.wordWrap = true;
+    a.applyPrefs();
+    expect([wrapped(), a.text, undoDepth(view.state)]).toEqual([true, "hello!", 1]);
+    editorPrefs.wordWrap = false;
+    a.applyPrefs();
+    expect(wrapped()).toBe(false);
   });
 
   test("undo history and unsaved text survive switching to another tab and back", async () => {

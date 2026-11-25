@@ -16,6 +16,7 @@ import {
   show,
   tabs,
 } from "./open-files.svelte";
+import { editorPrefs } from "./prefs.svelte";
 import { runSearch, type SearchAction } from "./search";
 
 type Target = Pick<Workspace, "openPath" | "mode" | "openFile">;
@@ -126,6 +127,36 @@ export function registerEditorCommands(workspace: Target): () => void {
       title: "Reopen closed tab",
       keys: "Mod+Shift+T",
       run: () => reopenClosedTab(workspace),
+    }),
+    // Mod+0 is the sidebar's, so resetting has no default key.
+    registerCommand({
+      id: "editor.zoom_in",
+      title: "Zoom in file text",
+      keys: "Mod+=",
+      keywords: ["font", "size", "larger"],
+      run: () => editorPrefs.zoom(1),
+    }),
+    registerCommand({
+      id: "editor.zoom_out",
+      title: "Zoom out file text",
+      keys: "Mod+-",
+      keywords: ["font", "size", "smaller"],
+      run: () => editorPrefs.zoom(-1),
+    }),
+    registerCommand({
+      id: "editor.zoom_reset",
+      title: "Reset file text size",
+      keywords: ["font", "zoom"],
+      run: () => editorPrefs.zoom(0),
+    }),
+    registerCommand({
+      id: "editor.toggle_word_wrap",
+      title: "Toggle word wrap",
+      keys: "Alt+Z",
+      keywords: ["wrap", "lines"],
+      run: () => {
+        editorPrefs.wordWrap = !editorPrefs.wordWrap;
+      },
     }),
     registerCommand({ id: "editor.next_tab", title: "Next tab", keys: "Ctrl+Tab", run: step(1) }),
     registerCommand({ id: "editor.previous_tab", title: "Previous tab", keys: "Ctrl+Shift+Tab", run: step(-1) }),

@@ -14,7 +14,8 @@ export const theme = EditorView.theme(
     "&": { height: "100%", color: "var(--text)", backgroundColor: "var(--s2)" },
     // The panel shows focus; CodeMirror's dotted outline would draw a hairline.
     "&.cm-focused": { outline: "none" },
-    ".cm-scroller": { fontFamily: "var(--mono)", fontSize: "13.5px", lineHeight: "1.65" },
+    // The size is the person's (editor/prefs.svelte.ts), set on the editor by Editor.svelte.
+    ".cm-scroller": { fontFamily: "var(--mono)", fontSize: "var(--editor-font-size, 13.5px)", lineHeight: "1.65" },
     ".cm-content": { caretColor: "var(--text)" },
     ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--text)" },
     // Line numbers keep 4.5:1 (--text-2), the active one at full strength.

@@ -22,6 +22,7 @@ import type { Buffer } from "./buffers.svelte";
 import { toggle } from "./commands";
 import { editorMenu } from "./context-menu";
 import { answerClose, tabs } from "./open-files.svelte";
+import { editorPrefs } from "./prefs.svelte";
 import { showView } from "./search";
 
 const { workspace } = useOvra();
@@ -79,6 +80,16 @@ $effect(() => {
     // Nothing typed before the next buffer arrives may land in this one.
     view?.setState(EditorState.create());
   };
+});
+
+// The shown buffer follows word wrap; a new text size needs a fresh measure.
+$effect(() => {
+  // Reads editorPrefs.wordWrap, so a toggle runs this again.
+  shown?.applyPrefs();
+});
+$effect(() => {
+  void editorPrefs.fontSize;
+  view?.requestMeasure();
 });
 
 // A search result (or anything else) asked for a spot in the shown file.
@@ -194,6 +205,7 @@ function discard(path: string): void {
   <div
     class="host"
     class:hidden={buffer?.status !== "ready"}
+    style:--editor-font-size="{editorPrefs.fontSize}px"
     bind:this={host}
     oncontextmenu={openMenu}
     onkeydown={(event) => isMenuKey(event) && openMenu(event)}
