@@ -12,8 +12,10 @@ describe("renderMarkdown", () => {
   });
 
   it("escapes raw HTML instead of rendering it", () => {
-    const html = renderMarkdown('<script>alert(1)</script>\n\n<img src=x onerror="alert(1)"> <b>bold</b>');
-    expect(html).not.toMatch(/<script|<img|<b>/);
+    const html = renderMarkdown(
+      '<script>alert(1)</script>\n\n<SCRIPT>alert(2)</SCRIPT>\n\n<img src=x onerror="alert(1)"> <b>bold</b>',
+    );
+    expect(html).not.toMatch(/<script|<img|<b>/i);
     expect(html).toContain("&lt;script&gt;");
   });
 
