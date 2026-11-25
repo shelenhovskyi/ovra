@@ -132,6 +132,39 @@ fn trash_checks_every_path_before_trashing_any() {
 }
 
 #[test]
+fn a_path_inside_another_is_trashed_with_it() {
+    let (_tmp, root, _) = project();
+    fs::write(root.join("src2"), "not inside src").expect("write");
+    let (fake, seen) = recording();
+    let paths = [rel("src/a.txt"), rel("src"), rel("src"), rel("src2")];
+    trash(&root, &paths, &fake).expect("trash");
+    let real = fs::canonicalize(&root).expect("canonical");
+    assert_eq!(
+        *seen.lock().expect("lock"),
+        [real.join("src"), real.join("src2")]
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn an_item_on_another_drive_than_the_home_trash_is_refused() {
+    let (tmp, root, _) = project();
+    let (fake, seen) = recording();
+    // `/proc` is always its own file system.
+    let elsewhere = fake.clone().with_home(PathBuf::from("/proc/Trash"));
+    let refused = trash(&root, &[rel("src/a.txt")], &elsewhere);
+    let err = refused.expect_err("other drive");
+    assert_eq!(err.code, ErrorCode::Unavailable);
+    assert!(err.message.contains("cannot move to Trash on this drive"));
+    assert!(seen.lock().expect("lock").is_empty());
+
+    // A home trash not made yet counts by the folder that would hold it.
+    let here = fake.with_home(tmp.path().join("data/Trash"));
+    trash(&root, &[rel("src/a.txt")], &here).expect("same drive");
+    assert_eq!(seen.lock().expect("lock").len(), 1);
+}
+
+#[test]
 fn a_failing_trash_is_an_internal_error_and_stops() {
     let (_tmp, root, _) = project();
     let calls = Arc::new(Mutex::new(0));

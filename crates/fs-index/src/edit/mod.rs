@@ -31,23 +31,101 @@ type TrashFn = dyn Fn(&Path) -> std::result::Result<(), String> + Send + Sync;
 /// Moves one absolute path to the system trash. Tests swap it for a fake,
 /// so they never touch the real trash.
 #[derive(Clone)]
-pub(crate) struct Trash(Arc<TrashFn>);
+pub(crate) struct Trash {
+    delete: Arc<TrashFn>,
+    /// The home trash folder (freedesktop). An item on another drive is
+    /// refused: `trash` would create `.Trash-$uid` at that drive's top,
+    /// which may be the project itself.
+    home: Option<PathBuf>,
+}
 
 impl Trash {
     #[cfg(test)]
     pub(crate) fn fake(
         f: impl Fn(&Path) -> std::result::Result<(), String> + Send + Sync + 'static,
     ) -> Self {
-        Self(Arc::new(f))
+        Self {
+            delete: Arc::new(f),
+            home: None,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_home(self, home: PathBuf) -> Self {
+        Self {
+            home: Some(home),
+            ..self
+        }
     }
 }
 
 impl Default for Trash {
     fn default() -> Self {
-        // `trash` resolves only the parent, so a symlink itself is trashed.
-        Self(Arc::new(|path| {
-            trash::delete(path).map_err(|e| e.to_string())
-        }))
+        Self {
+            delete: Arc::new(system_trash),
+            home: home_trash(),
+        }
+    }
+}
+
+/// `trash` resolves only the parent, so a symlink itself is trashed. On
+/// macOS it goes through `NSFileManager`, not a Finder script that may ask
+/// for permission.
+#[cfg(target_os = "macos")]
+fn system_trash(path: &Path) -> std::result::Result<(), String> {
+    use trash::macos::{DeleteMethod, TrashContextExtMacos};
+    let mut context = trash::TrashContext::default();
+    context.set_delete_method(DeleteMethod::NsFileManager);
+    context.delete(path).map_err(|e| e.to_string())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn system_trash(path: &Path) -> std::result::Result<(), String> {
+    trash::delete(path).map_err(|e| e.to_string())
+}
+
+/// `$XDG_DATA_HOME/Trash`, else `~/.local/share/Trash`.
+#[cfg(all(unix, not(target_os = "macos")))]
+fn home_trash() -> Option<PathBuf> {
+    let data = std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .or_else(|| Some(PathBuf::from(std::env::var_os("HOME")?).join(".local/share")))?;
+    Some(data.join("Trash"))
+}
+
+#[cfg(not(all(unix, not(target_os = "macos"))))]
+fn home_trash() -> Option<PathBuf> {
+    None
+}
+
+/// The device `path` is on; with `follow`, a link's target's.
+#[cfg(unix)]
+fn device(path: &Path, follow: bool) -> Option<u64> {
+    use std::os::unix::fs::MetadataExt;
+    let meta = if follow {
+        fs::metadata(path)
+    } else {
+        fs::symlink_metadata(path)
+    };
+    meta.ok().map(|m| m.dev())
+}
+
+#[cfg(not(unix))]
+fn device(_: &Path, _: bool) -> Option<u64> {
+    None
+}
+
+/// Refuses an item that is not on the home trash's drive (the trash
+/// folder, or the nearest folder above it that exists).
+fn on_home_drive(home: &Path, path: &RelPath, full: &Path) -> Result<()> {
+    let home = home.ancestors().find_map(|p| device(p, true));
+    match (home, device(full, false)) {
+        (Some(home), Some(item)) if home != item => Err(ProtocolError::new(
+            ErrorCode::Unavailable,
+            format!("{path}: cannot move to Trash on this drive"),
+        )),
+        _ => Ok(()),
     }
 }
 
@@ -306,14 +384,22 @@ fn copy_link(from: &Path, _: &Path) -> io::Result<()> {
 }
 
 /// Checks every path, then trashes them in order, stopping at the first
-/// failure.
+/// failure. A path inside (or equal to) another one is trashed with it.
 pub(crate) fn trash(root: &Path, paths: &[RelPath], trash: &Trash) -> Result<()> {
-    let found = paths
-        .iter()
-        .map(|path| existing(root, path))
-        .collect::<Result<Vec<_>>>()?;
-    for (path, full) in paths.iter().zip(&found) {
-        (trash.0)(full).map_err(|e| {
+    let mut found: Vec<(&RelPath, PathBuf)> = Vec::new();
+    for path in paths {
+        let full = existing(root, path)?;
+        if let Some(home) = &trash.home {
+            on_home_drive(home, path, &full)?;
+        }
+        if found.iter().any(|(_, kept)| full.starts_with(kept)) {
+            continue;
+        }
+        found.retain(|(_, kept)| !kept.starts_with(&full));
+        found.push((path, full));
+    }
+    for (path, full) in &found {
+        (trash.delete)(full).map_err(|e| {
             ProtocolError::new(
                 ErrorCode::Internal,
                 format!("cannot move {path} to the trash: {e}"),
