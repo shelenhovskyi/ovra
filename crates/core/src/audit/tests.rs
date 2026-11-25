@@ -400,6 +400,52 @@ mod inputs {
     }
 
     #[test]
+    fn encoded_secret_values_are_removed_too() {
+        let known = [SecretValue::new("p@ss \"w/rd\"")];
+        for encoded in [
+            r#"p@ss \"w/rd\""#,
+            r#"p@ss \"w\/rd\""#,
+            "p%40ss%20%22w%2Frd%22",
+            "p%40ss%20%22w%2frd%22",
+        ] {
+            let command = format!("curl -d '{{\"k\":\"{encoded}\"}}' https://x?v={encoded}");
+            let kept = input("Bash", &json!({ "command": command }), Some(&known));
+            let AuditInput::Json { text } = kept else {
+                panic!("unexpected {kept:?}")
+            };
+            assert!(!text.contains("ss"), "{encoded}: {text}");
+            assert_eq!(text.matches(REDACTED).count(), 2, "{text}");
+        }
+    }
+
+    #[test]
+    fn a_short_value_in_a_huge_input_is_removed_within_the_cut() {
+        let known = [SecretValue::new("b"), SecretValue::new("value-at-the-cut")];
+        // Ten megabytes of one-byte matches merge into one place.
+        let kept = text_with("Bash", json!({ "command": "b".repeat(10 << 20) }), &known);
+        assert_eq!(kept, json!({ "command": REDACTED }).to_string());
+        // A value that starts before the cut goes whole; one cut at the
+        // end of what is read shows no prefix.
+        for at in [2 * MAX_INPUT_BYTES - 4, 2 * MAX_INPUT_BYTES + 4] {
+            let value = format!("{}value-at-the-cut tail", "-".repeat(at));
+            let kept = text_with("Bash", json!({ "command": value }), &known);
+            assert!(
+                !kept.contains("value-at"),
+                "{at}: {}",
+                &kept[kept.len() - 40..]
+            );
+            assert!(kept.len() <= MAX_INPUT_BYTES, "{}", kept.len());
+        }
+    }
+
+    fn text_with(tool: &str, value: serde_json::Value, known: &[SecretValue]) -> String {
+        match input(tool, &value, Some(known)) {
+            AuditInput::Json { text } => text,
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    #[test]
     fn unreadable_secrets_keep_nothing_the_agent_wrote_but_a_hash() {
         let kept = input("Bash", &json!({"command": "ls"}), None);
         assert_eq!(
@@ -408,6 +454,10 @@ mod inputs {
                 text: REDACTED.into()
             }
         );
+        // Only the names of Claude's own tools stay: an MCP tool's could
+        // hold a value.
+        assert_eq!(cut_name("Bash", None), "Bash");
+        assert_eq!(cut_name("mcp__srv__known-value", None), REDACTED);
         let file = input("Write", &json!({"file_path": "a", "content": "y"}), None);
         assert_eq!(
             file,

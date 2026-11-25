@@ -17,6 +17,29 @@ pub(crate) const MAX_INPUT_BYTES: usize = 4096;
 
 pub(crate) const REDACTED: &str = "[redacted]";
 
+/// Claude's own tools, whose names are kept even when the secrets' values
+/// cannot be read.
+const BUILT_IN_TOOLS: [&str; 18] = [
+    "Bash",
+    "BashOutput",
+    "Edit",
+    "ExitPlanMode",
+    "Glob",
+    "Grep",
+    "KillShell",
+    "LS",
+    "MultiEdit",
+    "NotebookEdit",
+    "NotebookRead",
+    "Read",
+    "SlashCommand",
+    "Task",
+    "TodoWrite",
+    "WebFetch",
+    "WebSearch",
+    "Write",
+];
+
 /// File tools: their path field and the field with what they write.
 const FILE_TOOLS: [(&str, &str, &str); 4] = [
     ("Write", "file_path", "content"),
@@ -67,11 +90,12 @@ const SECRET_FIELD_ENDS: [&str; 10] = [
 /// `known` holds the values of the project's secrets; `None` when they
 /// could not be read, and then nothing the agent wrote is kept but a hash.
 pub(crate) fn input(tool: &str, input: &Value, known: Option<&[SecretValue]>) -> AuditInput {
+    let known = known.map(Known::new);
     if let Some((_, path, content)) = FILE_TOOLS.iter().find(|(name, ..)| *name == tool) {
         let path = input.get(*path).and_then(Value::as_str).unwrap_or("");
         return AuditInput::File {
-            path: match known {
-                Some(known) => cut(redact_text(clip(&redact_known(path, known)))),
+            path: match &known {
+                Some(known) => cut(redact_string(path, known)),
                 None => REDACTED.to_owned(),
             },
             sha256: input.get(*content).map(|content| match content {
@@ -86,16 +110,27 @@ pub(crate) fn input(tool: &str, input: &Value, known: Option<&[SecretValue]>) ->
         };
     };
     let mut kept = input.clone();
-    redact(&mut kept, known);
+    redact(&mut kept, &known);
     AuditInput::Json {
         text: cut(kept.to_string()),
     }
 }
 
 /// A tool name as kept: agents choose them, so they are redacted and cut
-/// like any text.
+/// like any text. Without the secrets' values only the names of Claude's
+/// own tools are kept: any other (an MCP tool's) could hold one.
 pub(crate) fn cut_name(tool: &str, known: Option<&[SecretValue]>) -> String {
-    cut(redact_text(clip(&redact_known(tool, known.unwrap_or(&[])))))
+    match known {
+        Some(known) => cut(redact_string(tool, &Known::new(known))),
+        None if BUILT_IN_TOOLS.contains(&tool) => tool.to_owned(),
+        None => REDACTED.to_owned(),
+    }
+}
+
+/// A string without the known values, header values and token-like words,
+/// cut to what the entry could show.
+fn redact_string(text: &str, known: &Known) -> String {
+    redact_text(clip(&redact_known(text, known)))
 }
 
 fn sha256(bytes: &[u8]) -> String {
@@ -107,9 +142,9 @@ fn sha256(bytes: &[u8]) -> String {
         })
 }
 
-fn redact(value: &mut Value, known: &[SecretValue]) {
+fn redact(value: &mut Value, known: &Known) {
     match value {
-        Value::String(text) => *text = redact_text(clip(&redact_known(text, known))),
+        Value::String(text) => *text = redact_string(text, known),
         Value::Array(items) => items.iter_mut().for_each(|item| redact(item, known)),
         Value::Object(fields) => {
             *fields = std::mem::take(fields)
@@ -120,7 +155,7 @@ fn redact(value: &mut Value, known: &[SecretValue]) {
                     } else {
                         redact(&mut field, known);
                     }
-                    (redact_text(clip(&redact_known(&name, known))), field)
+                    (redact_string(&name, known), field)
                 })
                 .collect();
         }
@@ -139,27 +174,96 @@ fn secret_field(name: &str) -> bool {
         || SECRET_FIELD_ENDS.iter().any(|end| name.ends_with(end))
 }
 
-/// `text` without any of the `known` values. Every place one occurs is
-/// marked first, so values that overlap each other are removed whole.
-fn redact_known(text: &str, known: &[SecretValue]) -> String {
-    let mut covered: Vec<(usize, usize)> = Vec::new();
-    for value in known.iter().map(SecretValue::expose) {
-        if value.is_empty() {
-            continue;
+/// The project's secret values in every form looked for: as they are,
+/// JSON-escaped (a JSON body inside a command) and percent-encoded (a URL
+/// or form body), in upper- and lower-case hex.
+pub(crate) struct Known {
+    forms: Vec<String>,
+    longest: usize,
+}
+
+impl Known {
+    pub(crate) fn new(values: &[SecretValue]) -> Self {
+        let mut forms: Vec<String> = Vec::new();
+        for value in values.iter().map(SecretValue::expose) {
+            if value.is_empty() {
+                continue;
+            }
+            let json = serde_json::to_string(value).unwrap_or_default();
+            let json = json[1..json.len().max(2) - 1].to_owned();
+            let slashes = json.replace('/', "\\/");
+            for form in [
+                value.to_owned(),
+                json,
+                slashes,
+                percent(value, true),
+                percent(value, false),
+            ] {
+                if !form.is_empty() && !forms.contains(&form) {
+                    forms.push(form);
+                }
+            }
         }
+        let longest = forms.iter().map(String::len).max().unwrap_or(0);
+        Self { forms, longest }
+    }
+}
+
+/// `value` with every byte but `A-Z a-z 0-9 - . _ ~` as `%XX`.
+fn percent(value: &str, upper: bool) -> String {
+    value.bytes().fold(String::new(), |mut out, b| {
+        if b.is_ascii_alphanumeric() || b"-._~".contains(&b) {
+            out.push(char::from(b));
+        } else if upper {
+            let _ = write!(out, "%{b:02X}");
+        } else {
+            let _ = write!(out, "%{b:02x}");
+        }
+        out
+    })
+}
+
+/// The largest char boundary of `text` at or before `at`.
+fn floor(text: &str, at: usize) -> usize {
+    let mut at = at.min(text.len());
+    while !text.is_char_boundary(at) {
+        at -= 1;
+    }
+    at
+}
+
+/// `text` without any of the `known` values, and without what [`clip`]
+/// would drop anyway.
+///
+/// Only the part a value starting before the clip can reach is searched,
+/// and overlapping places merge as they are found, so a short value in a
+/// huge input costs no more than in a small one. A value that starts
+/// before the clip goes whole; text past it is dropped, back to a word
+/// boundary, so no value cut there shows its start.
+fn redact_known(text: &str, known: &Known) -> String {
+    let limit = floor(text, 2 * MAX_INPUT_BYTES);
+    let scan = &text[..floor(text, limit + known.longest)];
+    let mut covered: Vec<(usize, usize)> = Vec::new();
+    for value in &known.forms {
+        let mut run: Option<(usize, usize)> = None;
         let mut from = 0;
-        while let Some(at) = text[from..].find(value) {
+        while let Some(at) = scan.get(from..).and_then(|rest| rest.find(value.as_str())) {
             let start = from + at;
-            covered.push((start, start + value.len()));
+            if start >= limit {
+                break;
+            }
+            let end = start + value.len();
+            match &mut run {
+                Some((_, run_end)) if start <= *run_end => *run_end = (*run_end).max(end),
+                _ => covered.extend(run.replace((start, end))),
+            }
             // The next char, so a value that overlaps itself is found again.
             from = start + text[start..].chars().next().map_or(1, char::len_utf8);
         }
-    }
-    if covered.is_empty() {
-        return text.to_owned();
+        covered.extend(run);
     }
     covered.sort_unstable();
-    let mut out = String::with_capacity(text.len());
+    let mut out = String::with_capacity(limit.min(text.len()));
     let mut copied = 0;
     let mut covered = covered.into_iter().peekable();
     while let Some((start, mut end)) = covered.next() {
@@ -174,7 +278,16 @@ fn redact_known(text: &str, known: &[SecretValue]) -> String {
         out.push_str(REDACTED);
         copied = end;
     }
-    out.push_str(&text[copied..]);
+    if copied < limit {
+        let rest = &text[copied..limit];
+        if limit < text.len() {
+            // Cut: drop the word cut in half, as `clip` does.
+            let keep = rest.len() - rest.bytes().rev().take_while(|b| token_byte(*b)).count();
+            out.push_str(&rest[..keep]);
+        } else {
+            out.push_str(rest);
+        }
+    }
     out
 }
 

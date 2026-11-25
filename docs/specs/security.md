@@ -530,13 +530,19 @@ pub enum ReviewAction { Approved, PartlyApproved, Rejected, UndoneReject, Taken,
   and a SHA-256 of the content, never the content.
 - For anything else, it records the input as JSON, cut to 4 KiB, with these
   removed first:
-  - values the secrets broker knows;
+  - values the secrets broker knows, as they are, JSON-escaped and
+    percent-encoded;
   - strings that look like tokens: `sk-`, `ghp_`, `gho_`, `github_pat_`,
     `xox`, `AKIA` and JWTs;
   - the values of `Authorization` and `Cookie` headers.
+- Tool names are agent-chosen too: they get the same treatment.
 - If the secrets' values cannot be read (a locked keychain), nothing the
-  agent wrote is kept: the input is `[redacted]`, and a file tool keeps
-  only its hash.
+  agent wrote is kept: the input is `[redacted]`, a file tool keeps only
+  its hash, and any tool name but Claude's built-in tools (`Bash`, `Read`,
+  `WebFetch`, ...) is `[redacted]`, since an MCP tool's could hold a value.
+- Known limit: a value in another encoding (base64, hex, split across
+  strings, partly escaped) is not recognised, unless it also looks like a
+  token.
 - The core reads a project's values once and keeps them in memory until
   its secrets change (`secrets.set`, `secrets.remove`, removing the
   project). A read that takes longer than 5 s counts as unreadable.
