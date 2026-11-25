@@ -274,19 +274,41 @@ describe("Approvals", () => {
     elsewhere?.focus();
     press("KeyA", { altKey: true, shiftKey: true });
     await settle(ARM_MS);
-    press("KeyY");
+    // Held until the answer is sent: focus waits on the heading, so a
+    // repeating Y types nothing where the person was.
+    hold("KeyY");
     await settle();
+    expect(answers(core)).toEqual([{ id: "perm1", decision: "allow" }]);
     expect(document.activeElement?.id).toBe("approvals-heading");
+    release("KeyY");
+    // Up: focus goes back where it was, never to the page itself.
+    expect(document.activeElement).toBe(elsewhere);
     core.ask(bash("perm2"));
     await settle(ARM_MS);
-    expect(document.activeElement?.id).toBe("approvals-heading");
+    expect(document.activeElement).toBe(elsewhere);
     for (const code of ["KeyC", "KeyA", "KeyR", "KeyR", "KeyY", "Space", "KeyA", "KeyN", "KeyD"]) press(code);
     await settle(ARM_MS);
     expect(answers(core)).toEqual([{ id: "perm1", decision: "allow" }]);
-    press("ArrowDown");
+    press("KeyA", { altKey: true, shiftKey: true });
+    await settle();
     expect(document.activeElement).toBe(cards()[0]);
     press("Escape");
     expect(document.activeElement).toBe(elsewhere);
+  });
+
+  it("without a place to go back to, keeps focus on the heading after the last answer", async () => {
+    const core = await setup();
+    core.ask(bash("perm1"));
+    await settle(ARM_MS);
+    cards()[0]?.focus();
+    press("KeyY");
+    await settle();
+    expect(answers(core)).toEqual([{ id: "perm1", decision: "allow" }]);
+    expect(document.activeElement?.id).toBe("approvals-heading");
+    core.ask(bash("perm2"));
+    await settle(ARM_MS);
+    press("ArrowDown");
+    expect(document.activeElement).toBe(cards()[0]);
   });
 
   it("ignores Y and N typed in a text field", async () => {

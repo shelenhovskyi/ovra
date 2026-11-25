@@ -41,6 +41,8 @@ let now = $state(Date.now());
 let quietFrom = $state(0);
 /** A key answered and has not been released yet. */
 let keyHeld = $state(false);
+/** The last request was answered by key: focus goes back where it was once that key is up, so a held key types nothing there. */
+let giveBack = false;
 let denying = $state<string | null>(null);
 let note = $state("");
 let list = $state<HTMLElement>();
@@ -156,6 +158,10 @@ $effect(() => {
     // The next card arms ARM_MS after the key that answered comes up.
     if (keyHeld) quiet();
     keyHeld = false;
+    if (giveBack) {
+      giveBack = false;
+      if (document.activeElement === heading) leave();
+    }
   };
   window.addEventListener("keyup", release);
   // A key released in another window sends no keyup here; held keys only repeat, which is ignored.
@@ -320,11 +326,18 @@ async function answer(
   const onScreen = [...before.slice(index + 1), ...before.slice(0, index).reverse()];
   const next = onScreen.map(card).find((c) => c !== undefined);
   if (next) next.focus();
-  // With nothing seen left, a pointer answer gives focus back, so the empty
-  // section does not stay over the agents; keys stay on the heading. A
-  // request that arrives later is never focused on its own: typing must not land on it.
+  // With nothing seen left, focus goes back to where the person was, so the
+  // empty section does not stay over the agents; after a key, only once
+  // that key is up. Without a place to go back to, keys stay on the
+  // heading. A request that arrives later is never focused on its own:
+  // typing must not land on it.
   else if (byPointer) leave();
-  else heading?.focus();
+  else {
+    heading?.focus();
+    if (!returnTo?.isConnected) return;
+    if (keyHeld) giveBack = true;
+    else leave();
+  }
 }
 
 /** Answers from a click; one too early says why instead of doing nothing. */

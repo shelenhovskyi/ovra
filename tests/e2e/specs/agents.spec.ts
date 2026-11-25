@@ -83,11 +83,12 @@ test("start an agent and answer its requests from the keyboard", async ({ page }
   await expect(run.getByRole("button", { name: "Allow" })).toHaveAttribute("aria-disabled", "false");
   await page.keyboard.press("y");
 
-  // The next request is not focused when it arrives: typing must not answer it.
+  // Focus goes back to the reply box, and the next request is not focused
+  // when it arrives: typing must not answer it. The shortcut reaches it.
   const edit = approvals.getByRole("group", { name: "Edit README.md" });
   await expect(edit).toBeVisible();
-  await expect(approvals.getByRole("heading", { name: /Approvals/ })).toBeFocused();
-  await page.keyboard.press("ArrowDown");
+  await expect(page.getByRole("textbox", { name: "Reply to Claude" })).toBeFocused();
+  await page.keyboard.press("Alt+Shift+A");
   await expect(edit).toBeFocused();
   await arm(page);
   await expect(edit.getByRole("button", { name: "Allow" })).toHaveAttribute("aria-disabled", "false");
@@ -161,7 +162,7 @@ test("in a short window, the shortcut shows the whole request and the title coun
 
   const edit = approvals.getByRole("group", { name: "Edit README.md" });
   await expect(edit).toBeVisible();
-  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Alt+Shift+A");
   await expect(edit).toBeFocused();
   await arm(page);
   await page.keyboard.press("n");
@@ -180,7 +181,8 @@ test("at 1024x700 the request's answers are in sight and not covered", async ({ 
   // The command once, in mono; nothing repeats it.
   await expect(run).toContainText("List files");
   await expect(run).not.toContainText(/\bcommand\b|\bdescription\b/);
-  // The group head is one line.
+  // The group head is one line (once the project list is in: until then it warns it cannot check paths).
+  await expect(approvals.getByTestId("approval-unknown-project")).toHaveCount(0);
   expect((await approvals.locator(".who").boundingBox())?.height).toBeLessThan(28);
   for (const name of ["Deny", "Allow once", "Deny with a message…"]) {
     const button = run.getByRole("button", { name, exact: name === "Deny" });
