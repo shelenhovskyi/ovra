@@ -304,7 +304,12 @@ fn start(core: &Core, project: &ProjectId, most: usize) -> usize {
             if count(core, &guard, project).0 >= limit {
                 return started;
             }
-            core.sessions().dequeue(project)
+            let oldest = core
+                .sessions()
+                .active(project)
+                .into_iter()
+                .find(|(_, status, ..)| *status == AgentStatus::Queued);
+            oldest.and_then(|(id, ..)| Some((id.clone(), core.sessions().take_waiting(&id)?)))
         };
         let Some((id, parts)) = next else {
             return started;

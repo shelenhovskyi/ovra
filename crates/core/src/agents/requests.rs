@@ -130,6 +130,7 @@ pub(crate) async fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Resp
                 from: MessageFrom::Person,
                 account,
                 queued: false,
+                preparing: false,
             };
             let info = start(ctx, new).await?;
             Ok(Response::Agents(AgentsResponse::Session(info)))
@@ -238,6 +239,9 @@ pub(crate) struct NewSession {
     pub(crate) account: Option<String>,
     /// Waits `queued` for [`start_queued`] instead of starting now.
     pub(crate) queued: bool,
+    /// Waits `preparing` while its worktree is set up, then
+    /// [`start_queued`] starts it; overrides `queued`.
+    pub(crate) preparing: bool,
 }
 
 /// Starts a session and returns it as it is now.
@@ -266,7 +270,10 @@ pub(crate) async fn start(ctx: &Ctx<'_>, new: NewSession) -> Result<SessionInfo>
     let id = ctx.sessions.next_id();
     let base = baseline(ctx, &new.project, &id, new.mode, &launch).await?;
     let parts = vec![(new.prompt.clone(), new.from)];
-    let (status, queued) = if new.queued {
+    let waits = new.queued || new.preparing;
+    let (status, queued) = if new.preparing {
+        (AgentStatus::Preparing, Some(parts.clone()))
+    } else if new.queued {
         (AgentStatus::Queued, Some(parts.clone()))
     } else {
         (AgentStatus::Starting, None)
@@ -291,7 +298,7 @@ pub(crate) async fn start(ctx: &Ctx<'_>, new: NewSession) -> Result<SessionInfo>
     // role, and its first message if it waits.
     ctx.sessions.insert(info, launch.clone(), queued);
     drop(place);
-    if new.queued {
+    if waits {
         // Told before anything can start it.
         ctx.sink.emit(AgentsEvent::Status {
             session: id.clone(),
@@ -303,15 +310,15 @@ pub(crate) async fn start(ctx: &Ctx<'_>, new: NewSession) -> Result<SessionInfo>
         }
     }
     review_from(ctx, &id, &launch, base).await;
-    if new.queued {
+    if waits {
         return ctx.sessions.find(&id, |s| s.info());
     }
     let target = trusted_in(ctx, target, &launch.cwd).await;
     run(ctx, &id, target, launch, parts, None).await
 }
 
-/// Starts the queued session `id`, which [`Sessions::dequeue`] moved to
-/// `starting`, with `parts`, its first message.
+/// Starts the waiting session `id`, which [`Sessions::take_waiting`] moved
+/// to `starting`, with `parts`, its first message.
 pub(crate) async fn start_queued(
     ctx: &Ctx<'_>,
     id: SessionId,
@@ -723,6 +730,11 @@ pub(crate) fn send(ctx: &Ctx<'_>, session: SessionId, parts: Parts) -> Result<()
         None if info.status == AgentStatus::Queued => {
             return Err(conflict(
                 "the agent waits for a free place and starts when another agent finishes",
+            ));
+        }
+        None if info.status == AgentStatus::Preparing => {
+            return Err(conflict(
+                "the agent's worktree is being prepared; it starts when that is done",
             ));
         }
         None => return Err(conflict("the session has ended")),

@@ -31,6 +31,12 @@ pub struct FakeDevServers {
     /// How the next `setup` ends; `None` is [`SetupEnd::Done`]. Each step
     /// up to the one it names is reported as started.
     pub setup_end: Mutex<Option<SetupEnd>>,
+    /// Lines the last step reported reports as its output.
+    pub setup_output: Mutex<Vec<String>>,
+    /// While held, `setup` reports its steps and then waits for
+    /// [`FakeDevServers::finish_setup`] before it ends.
+    pub hold_setup: std::sync::atomic::AtomicBool,
+    setup_done: tokio::sync::Notify,
     queued: Mutex<BTreeMap<(PathBuf, u16), Vec<PodConn>>>,
     held: Mutex<BTreeSet<PathBuf>>,
     /// Bumped whenever a server or a held pod ends.
@@ -70,6 +76,11 @@ impl FakeDevServers {
     /// process that is slow to exit would, until [`Self::release_pod`].
     pub fn hold_pod(&self, work_dir: impl Into<PathBuf>) {
         lock(&self.held).insert(work_dir.into());
+    }
+
+    /// Lets one held `setup` end.
+    pub fn finish_setup(&self) {
+        self.setup_done.notify_one();
     }
 
     pub fn release_pod(&self, work_dir: &std::path::Path) {
@@ -178,8 +189,18 @@ impl DevServers for FakeDevServers {
         for index in 0..last.min(steps.len()) {
             sink.step(index);
         }
+        let output = std::mem::take(&mut *lock(&self.setup_output));
+        if last > 0 && !output.is_empty() {
+            sink.output(last.min(steps.len()) - 1, output);
+        }
         lock(&self.setups).push((pod.clone(), steps));
-        Box::pin(async move { Ok(end) })
+        let held = self.hold_setup.load(std::sync::atomic::Ordering::SeqCst);
+        Box::pin(async move {
+            if held {
+                self.setup_done.notified().await;
+            }
+            Ok(end)
+        })
     }
 
     fn pod_ended(&self, work_dir: PathBuf) -> BoxFuture<'_, ()> {
@@ -284,13 +305,15 @@ mod tests {
     }
 
     #[derive(Debug, Default)]
-    struct Steps(Mutex<Vec<usize>>);
+    struct Steps(Mutex<Vec<usize>>, Mutex<Vec<(usize, String)>>);
 
     impl SetupSink for Steps {
         fn step(&self, index: usize) {
             lock(&self.0).push(index);
         }
-        fn output(&self, _: usize, _: Vec<String>) {}
+        fn output(&self, index: usize, lines: Vec<String>) {
+            lock(&self.1).extend(lines.into_iter().map(|l| (index, l)));
+        }
     }
 
     #[tokio::test]
@@ -314,11 +337,22 @@ mod tests {
             reason: None,
         };
         *lock(&servers.setup_end) = Some(failed.clone());
+        *lock(&servers.setup_output) = vec!["ERR".into()];
         let sink = Arc::new(Steps::default());
-        let end = servers.setup(&pod("/wt"), steps, sink.clone()).await;
+        let end = servers
+            .setup(&pod("/wt"), steps.clone(), sink.clone())
+            .await;
         assert_eq!(end.ok(), Some(failed));
         assert_eq!(*lock(&sink.0), [0, 1]);
+        assert_eq!(*lock(&sink.1), [(1, "ERR".to_owned())]);
         assert_eq!(lock(&servers.setups).len(), 2);
+
+        servers
+            .hold_setup
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        let held = servers.setup(&pod("/wt"), steps, sink.clone());
+        servers.finish_setup();
+        assert_eq!(held.await.ok(), Some(SetupEnd::Done));
     }
 
     #[tokio::test]

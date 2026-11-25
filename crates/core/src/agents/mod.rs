@@ -67,7 +67,8 @@ struct Session {
     /// The network of this run's agent: its browser goes through the same
     /// netproxy.
     network: Option<ProfileNetwork>,
-    /// The first message of a `queued` session, until it starts.
+    /// The first message of a `queued` or `preparing` session, until it
+    /// starts.
     queued: Option<Parts>,
     /// The pid of this run's agent process, as the runtime reported it.
     pid: Option<u32>,
@@ -310,19 +311,35 @@ impl Sessions {
             .collect()
     }
 
-    /// Moves the oldest `queued` session of `project` to `starting`, without
-    /// telling anyone yet, and hands over its first message.
-    pub(crate) fn dequeue(&self, project: &ProjectId) -> Option<(SessionId, Parts)> {
+    /// Moves the session `id` between `queued` and `preparing` (`to`),
+    /// keeping its first message, without telling anyone yet. False if it
+    /// is in neither state.
+    #[expect(dead_code, reason = "used by worktree setup (WS.C)")]
+    pub(crate) fn wait(&self, id: &SessionId, to: AgentStatus) -> bool {
         let mut list = lock(&self.list);
-        let session = list
-            .iter_mut()
-            .find(|s| &s.info.project == project && s.info.status == AgentStatus::Queued)?;
+        let Some(session) = list.iter_mut().find(|s| &s.info.id == id) else {
+            return false;
+        };
+        let waiting = |s: &AgentStatus| matches!(s, AgentStatus::Queued | AgentStatus::Preparing);
+        if !waiting(&session.info.status) || !waiting(&to) {
+            return false;
+        }
+        session.info.status = to;
+        let _ = self.store.save(&session.stored());
+        true
+    }
+
+    /// Moves the `queued` or `preparing` session `id` to `starting`,
+    /// without telling anyone yet, and hands over its first message.
+    pub(crate) fn take_waiting(&self, id: &SessionId) -> Option<Parts> {
+        let mut list = lock(&self.list);
+        let session = list.iter_mut().find(|s| {
+            &s.info.id == id
+                && matches!(s.info.status, AgentStatus::Queued | AgentStatus::Preparing)
+        })?;
         session.info.status = AgentStatus::Starting;
         let _ = self.store.save(&session.stored());
-        Some((
-            session.info.id.clone(),
-            session.queued.take().unwrap_or_default(),
-        ))
+        Some(session.queued.take().unwrap_or_default())
     }
 
     /// Sessions of `project` that have not ended.

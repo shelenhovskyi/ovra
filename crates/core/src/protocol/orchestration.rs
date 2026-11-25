@@ -47,6 +47,11 @@ pub struct Worker {
     /// Its worktree's size on disk; `None` until it was counted.
     #[serde(default)]
     pub disk: Option<DiskUsage>,
+    /// Why it waits `queued` although a place may be free, in words for
+    /// people: the data folder's volume has too little free space for its
+    /// worktree, which is not made yet.
+    #[serde(default)]
+    pub waiting: Option<String>,
 }
 
 /// Where a worktree's setup steps (`.ovra/worktree.json`) are.
@@ -72,6 +77,16 @@ pub struct DiskUsage {
     /// the size is an upper bound ("up to"). `false`: counting stopped at its
     /// time limit, so the size is a lower bound ("more than").
     pub complete: bool,
+}
+
+/// A folder under Ovra's worktrees folder for a project that no task knows
+/// (a crash, an older version): kept until the person removes it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Leftover {
+    /// Absolute path.
+    pub path: String,
+    /// `None` when it could not be counted.
+    pub disk: Option<DiskUsage>,
 }
 
 /// A worker the coordinator asked for that could not start.
@@ -123,6 +138,21 @@ pub enum OrchestrationRequest {
     /// Stops the coordinator and every worker. Answers `ok`.
     #[serde(rename = "orchestration.stop")]
     Stop { task: TaskId },
+    /// The person's Retry (or with `skip_setup`, Start anyway) for a worker
+    /// whose worktree setup failed. Answers `ok`.
+    #[serde(rename = "orchestration.retry_setup")]
+    RetrySetup {
+        session: SessionId,
+        #[serde(default)]
+        skip_setup: bool,
+    },
+    /// The project's leftover worktrees.
+    #[serde(rename = "orchestration.leftovers")]
+    Leftovers { project: ProjectId },
+    /// Removes one leftover worktree, by its `Leftover::path`; only the
+    /// person asks. Answers `ok`.
+    #[serde(rename = "orchestration.remove_leftover")]
+    RemoveLeftover { project: ProjectId, path: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -132,6 +162,8 @@ pub enum OrchestrationResponse {
     Task(Task),
     #[serde(rename = "orchestration.list")]
     List(Vec<Task>),
+    #[serde(rename = "orchestration.leftovers")]
+    Leftovers(Vec<Leftover>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -170,6 +202,7 @@ mod tests {
             bytes: 4096,
             complete: false,
         };
+        assert_eq!(worker.waiting, None);
         let worker = Worker {
             setup: Some(setup),
             disk: Some(disk),
@@ -180,6 +213,31 @@ mod tests {
         assert_eq!(
             json["disk"],
             serde_json::json!({"bytes": 4096, "complete": false})
+        );
+    }
+
+    #[test]
+    fn retry_setup_skips_only_when_asked() {
+        let parse = |json: serde_json::Value| {
+            serde_json::from_value::<OrchestrationRequest>(json).unwrap_or_else(|e| panic!("{e}"))
+        };
+        let retry = parse(serde_json::json!({
+            "method": "orchestration.retry_setup", "params": {"session": "s2"}}));
+        assert_eq!(
+            retry,
+            OrchestrationRequest::RetrySetup {
+                session: SessionId("s2".into()),
+                skip_setup: false
+            }
+        );
+        let leftovers = OrchestrationResponse::Leftovers(vec![Leftover {
+            path: "/data/worktrees/p1/t1/w".into(),
+            disk: None,
+        }]);
+        assert_eq!(
+            serde_json::to_value(&leftovers).unwrap_or_default(),
+            serde_json::json!({"type": "orchestration.leftovers",
+                "data": [{"path": "/data/worktrees/p1/t1/w", "disk": null}]})
         );
     }
 }

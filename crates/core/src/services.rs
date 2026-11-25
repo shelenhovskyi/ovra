@@ -1155,6 +1155,18 @@ pub trait Worktrees: Send + Sync + Debug {
     fn lock(&self, root: PathBuf, dir: PathBuf, reason: String) -> BoxFuture<'_, Result<()>>;
     /// Undoes [`Worktrees::lock`]; an unlocked worktree is fine.
     fn unlock(&self, root: PathBuf, dir: PathBuf) -> BoxFuture<'_, Result<()>>;
+    /// Bytes free for Ovra on the volume that holds `dir`, which exists;
+    /// a new worktree waits while it is low (`docs/specs/worktree-setup.md`).
+    /// `Unavailable` where it cannot be asked, which waits for nothing.
+    fn free_space(&self, dir: PathBuf) -> BoxFuture<'_, Result<u64>> {
+        let _ = dir;
+        Box::pin(async {
+            Err(ProtocolError::new(
+                ErrorCode::Unavailable,
+                "free disk space is not known here",
+            ))
+        })
+    }
     /// Lets go of every snapshot of the repository at `root` (its main
     /// checkout and its worktrees) except those in `keep`, so that git can
     /// collect them. The core calls it when reviews no longer need them.

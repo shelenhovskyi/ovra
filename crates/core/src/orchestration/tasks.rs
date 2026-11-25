@@ -112,6 +112,12 @@ pub(super) async fn handle(core: &Core, request: OrchestrationRequest) -> Result
             }
             Ok(Response::Ok(OkResponse::Ok))
         }
+        OrchestrationRequest::RetrySetup { .. }
+        | OrchestrationRequest::Leftovers { .. }
+        | OrchestrationRequest::RemoveLeftover { .. } => Err(ProtocolError::new(
+            ErrorCode::Unavailable,
+            "worktree setup is not available yet",
+        )),
     }
 }
 
@@ -152,6 +158,7 @@ async fn start(
         from: MessageFrom::Person,
         account: None,
         queued: false,
+        preparing: false,
     };
     let coordinator = agents::start(&core.agents_ctx(), new).await?.id;
     let entry = {
@@ -525,6 +532,7 @@ async fn create_worker(
         from: MessageFrom::Coordinator,
         account: Some(account),
         queued,
+        preparing: false,
     };
     let session = match agents::start(&core.agents_ctx(), new).await {
         Ok(session) => session.id,
@@ -542,6 +550,7 @@ async fn create_worker(
         kept: None,
         setup: None,
         disk: None,
+        waiting: None,
     };
     let workspace = Workspace {
         dir: info.path,
