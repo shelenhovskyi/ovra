@@ -12,6 +12,7 @@ use axum::extract::{Query, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
+use futures_util::stream::FuturesUnordered;
 use futures_util::{SinkExt, StreamExt};
 use ovra_core::Core;
 use ovra_core::protocol::Event;
@@ -97,17 +98,24 @@ async fn serve(socket: WebSocket, core: Core) {
     {
         return;
     }
+    // Requests run side by side, as Tauri's calls do: one that waits for
+    // the person (a navigation the browser asks about) must not hold up
+    // the events and the answer it waits for. Replies carry their ids.
+    let client = &client;
+    let mut running = FuturesUnordered::new();
     loop {
         tokio::select! {
             incoming = rx.next() => match incoming {
                 Some(Ok(Message::Text(text))) => {
-                    let reply = dispatch(&client, &text).await;
-                    if tx.send(Message::Text(reply.into())).await.is_err() {
-                        break;
-                    }
+                    running.push(async move { dispatch(client, &text).await });
                 }
                 Some(Ok(Message::Close(_))) | None | Some(Err(_)) => break,
                 Some(Ok(_)) => {}
+            },
+            Some(reply) = running.next(), if !running.is_empty() => {
+                if tx.send(Message::Text(reply.into())).await.is_err() {
+                    break;
+                }
             },
             event = Core::next_event(&mut events) => match event {
                 Some(event) => {
