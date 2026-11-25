@@ -71,6 +71,27 @@ const MIN_TOKEN_TAIL: usize = 8;
 /// [`redact_headers`]).
 const SECRET_HEADERS: [&str; 2] = ["authorization", "cookie"];
 
+/// Common header names: one after a secret header's name and a comma is the
+/// next name in a list, not its value.
+const HEADER_NAMES: [&str; 16] = [
+    "accept",
+    "accept-encoding",
+    "accept-language",
+    "authorization",
+    "cache-control",
+    "content-length",
+    "content-type",
+    "cookie",
+    "host",
+    "origin",
+    "proxy-authorization",
+    "referer",
+    "set-cookie",
+    "user-agent",
+    "x-api-key",
+    "x-requested-with",
+];
+
 /// Field names whose value is never kept, whatever it is: compared in
 /// lower case without `-` and `_`, by their end (`accessToken`,
 /// `x-api-key`, `client_secret`, ...).
@@ -302,8 +323,9 @@ pub(crate) fn redact_text(text: &str) -> String {
 /// The name may be quoted, also with escaped quotes (`\"Cookie\"`, as in a
 /// JSON body inside a shell command), and closed by `]` (`h["Cookie"] = `).
 /// It is separated from its value by `:`, `=`, `=>` or, after a quoted
-/// name, `,` (`set("Cookie", ...)`). Inside a quoted value an escaped quote
-/// does not close it.
+/// name, `,` (`set("Cookie", ...)`), unless what follows the comma is
+/// another header name. The value may start on the next line (YAML).
+/// Inside a quoted value an escaped quote does not close it.
 fn redact_headers(text: &str) -> String {
     // ASCII lower-casing keeps every byte where it was.
     let lower = text.to_ascii_lowercase();
@@ -331,8 +353,10 @@ fn redact_headers(text: &str) -> String {
         .min()
     {
         let mut i = start + len;
+        let mut listed = false;
         let quoted = quote(&mut i).is_some();
-        if quoted && bytes.get(i) == Some(&b']') {
+        // `h["Cookie"] = `, and Ruby's `h[:authorization] = `.
+        if bytes.get(i) == Some(&b']') {
             i += 1;
         }
         blank(&mut i);
@@ -345,13 +369,33 @@ fn redact_headers(text: &str) -> String {
                     1
                 }
             }
-            Some(b',') if quoted => i += 1,
+            Some(b',') if quoted => {
+                listed = true;
+                i += 1;
+            }
             _ => {
                 at = start + len;
                 continue;
             }
         }
         blank(&mut i);
+        // A YAML value on the next line, maybe after a block indicator
+        // (`|`, `>-`, ...): one line break and the indentation go.
+        let mut next = i;
+        if matches!(bytes.get(next), Some(b'|' | b'>')) {
+            next += 1;
+            while matches!(bytes.get(next), Some(b'-' | b'+' | b'0'..=b'9')) {
+                next += 1;
+            }
+            blank(&mut next);
+        }
+        if bytes.get(next) == Some(&b'\r') {
+            next += 1;
+        }
+        if bytes.get(next) == Some(&b'\n') {
+            i = next + 1;
+            blank(&mut i);
+        }
         let (value, end) = match quote(&mut i) {
             Some((quote, escaped)) => {
                 let value = i;
@@ -376,7 +420,9 @@ fn redact_headers(text: &str) -> String {
                 (i, end)
             }
         };
-        if end > value {
+        // The next name in a list of names (`["authorization", "accept"]`).
+        let name = listed && HEADER_NAMES.contains(&&lower[value..end]);
+        if end > value && !name {
             out.push_str(&text[copied..value]);
             out.push_str(REDACTED);
             copied = end;

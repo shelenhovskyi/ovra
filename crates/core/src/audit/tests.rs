@@ -340,6 +340,27 @@ mod inputs {
     }
 
     #[test]
+    fn header_values_on_the_next_line_are_removed() {
+        header_value_is_gone("headers:\n  Authorization:\n    Bearer abc123 tail\n");
+        header_value_is_gone("headers:\n  Cookie: |\n    abc123 tail\n");
+        header_value_is_gone("headers:\r\n  cookie: >-\r\n    abc123 tail\r\n");
+    }
+
+    #[test]
+    fn header_values_after_a_ruby_symbol_are_removed() {
+        header_value_is_gone(r#"ruby -e 'req.headers[:authorization] = "Bearer abc123 tail"'"#);
+    }
+
+    #[test]
+    fn a_list_of_header_names_is_kept() {
+        let kept = text(
+            "Bash",
+            json!({"command": r#"node -e 'allow(["authorization", "content-type"])'"#}),
+        );
+        assert!(kept.contains("content-type"), "{kept}");
+    }
+
+    #[test]
     fn header_values_after_a_fat_arrow_are_removed() {
         header_value_is_gone(r#"ruby -e 'get(u, {"Authorization" => "Bearer abc123 tail"})'"#);
         header_value_is_gone(r#"php -r "['Cookie'=>'abc123 tail'];""#);
