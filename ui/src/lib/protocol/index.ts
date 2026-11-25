@@ -2,6 +2,7 @@
 
 import type { AgentsEvent, AgentsRequest, AgentsResponse } from "./agents";
 import type { AuditLogEvent, AuditRequest, AuditResponse } from "./audit";
+import type { BrowserEvent, BrowserRequest, BrowserResponse, BrowserResponseFor } from "./browser";
 import type { FsEvent, FsRequest, FsResponse } from "./fs";
 import type { GitRequest, GitResponse, GitResponseFor } from "./git";
 import type { InfoEvent, InfoRequest, InfoResponse } from "./info";
@@ -20,6 +21,7 @@ import type { TerminalsEvent, TerminalsRequest, TerminalsResponse } from "./term
 
 export type * from "./agents";
 export type * from "./audit";
+export type * from "./browser";
 export type * from "./fs";
 export type * from "./git";
 // `review.ts` has its own `GitChange` (a review item's changed git file); the
@@ -60,7 +62,8 @@ export type Request =
   | NetproxyRequest
   | GitRequest
   | LspRequest
-  | ServersRequest;
+  | ServersRequest
+  | BrowserRequest;
 
 export type Response =
   | InfoResponse
@@ -79,6 +82,7 @@ export type Response =
   | GitResponse
   | LspResponse
   | ServersResponse
+  | BrowserResponse
   | { type: "ok" };
 
 export type CoreEvent =
@@ -96,7 +100,8 @@ export type CoreEvent =
   | AuditLogEvent
   | NetproxyEvent
   | LspEvent
-  | ServersEvent;
+  | ServersEvent
+  | BrowserEvent;
 
 export type ErrorCode = "bad_request" | "not_found" | "conflict" | "forbidden" | "unavailable" | "internal";
 
@@ -201,4 +206,6 @@ type PhaseThreeResponseFor<R extends Request> = R extends { method: "review.list
                               ? { type: "ok" }
                               : R extends ServersRequest
                                 ? ServersResponseFor<R["method"]>
-                                : never;
+                                : R extends BrowserRequest
+                                  ? BrowserResponseFor<R["method"]>
+                                  : never;

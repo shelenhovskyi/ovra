@@ -355,10 +355,14 @@ impl Core {
             Request::Netproxy(r) => crate::netproxy::handle(self, r),
             Request::Git(r) => crate::git::handle(self, r).await,
             Request::Lsp(r) => crate::lsp::handle(self, r).await,
-            // Until the core implements them (task S.D).
+            // Until the core implements them (tasks S.D and B.B).
             Request::Servers(_) => Err(ProtocolError::new(
                 ErrorCode::Unavailable,
                 "servers are not available in this build",
+            )),
+            Request::Browser(_) => Err(ProtocolError::new(
+                ErrorCode::Unavailable,
+                "the agent browser is not available in this build",
             )),
         }
     }

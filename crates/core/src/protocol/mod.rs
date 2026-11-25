@@ -7,6 +7,7 @@
 
 pub mod agents;
 pub mod audit;
+pub mod browser;
 pub mod fs;
 pub mod git;
 pub mod info;
@@ -46,6 +47,7 @@ pub enum Request {
     Git(git::GitRequest),
     Lsp(lsp::LspRequest),
     Servers(servers::ServersRequest),
+    Browser(browser::BrowserRequest),
 }
 
 /// The core's answer to a [`Request`]. Wire form: `{"type": "<domain>.<name>", "data": ...}`.
@@ -68,6 +70,7 @@ pub enum Response {
     Git(git::GitResponse),
     Lsp(lsp::LspResponse),
     Servers(servers::ServersResponse),
+    Browser(browser::BrowserResponse),
     /// The request succeeded and has nothing to return.
     Ok(OkResponse),
 }
@@ -97,6 +100,7 @@ pub enum Event {
     Netproxy(netproxy::NetproxyEvent),
     Lsp(lsp::LspEvent),
     Servers(servers::ServersEvent),
+    Browser(browser::BrowserEvent),
 }
 
 /// An error returned instead of a [`Response`].
@@ -227,5 +231,11 @@ impl From<lsp::LspEvent> for Event {
 impl From<servers::ServersEvent> for Event {
     fn from(e: servers::ServersEvent) -> Self {
         Self::Servers(e)
+    }
+}
+
+impl From<browser::BrowserEvent> for Event {
+    fn from(e: browser::BrowserEvent) -> Self {
+        Self::Browser(e)
     }
 }

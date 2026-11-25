@@ -75,7 +75,10 @@ async fn unwired_services_are_unavailable() {
 #[tokio::test]
 async fn servers_and_the_browser_are_unavailable_for_now() {
     let core = Core::new("test");
-    for json in [serde_json::json!({"method": "servers.list", "params": {"project": "p1"}})] {
+    for json in [
+        serde_json::json!({"method": "servers.list", "params": {"project": "p1"}}),
+        serde_json::json!({"method": "browser.close", "params": {"page": "pg1"}}),
+    ] {
         let reply = core.handle(req(json)).await;
         assert_eq!(reply.err().map(|e| e.code), Some(ErrorCode::Unavailable));
     }
