@@ -80,7 +80,7 @@ describe("policy rules", () => {
     expect(matchHint("Bash")).toMatch(/command prefix.*An Auto rule with Exact command matches only npm test itself/);
     expect(matchHint("Edit")).toMatch(/glob/);
     expect(matchHint("webfetch")).toMatch(
-      /^One host.*Deny and Ask also cover its subdomains.*Auto covers that host only/,
+      /^One host.*Deny and Ask also cover its subdomains.*Auto covers that host only\. With a deny rule present, URLs Ovra cannot read, including private addresses.*, are denied too\.$/,
     );
     expect(matchHint("Grep")).toBe("Grep takes no match: the rule covers every call.");
     expect(matchHint("")).toMatch(
