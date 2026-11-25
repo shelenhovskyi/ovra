@@ -497,8 +497,7 @@ function onDialogKeydown(event: KeyboardEvent): void {
   }
   button,
   input,
-  select,
-  textarea {
+  select {
     font: inherit;
     padding: 5px 10px;
     color: var(--text);
@@ -536,8 +535,7 @@ function onDialogKeydown(event: KeyboardEvent): void {
     }
     button,
     input,
-    select,
-    textarea {
+    select {
       border: 1px solid ButtonText;
     }
   }

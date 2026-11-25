@@ -266,8 +266,7 @@ function who(session: string | null): string {
   }
   button,
   input,
-  select,
-  textarea {
+  select {
     font: inherit;
     padding: 5px 10px;
     color: var(--text);
@@ -282,10 +281,6 @@ function who(session: string | null): string {
   button:hover {
     color: var(--text);
     background: var(--s4);
-  }
-  button.primary {
-    color: var(--accent-ink);
-    background: var(--accent);
   }
   button:disabled,
   input:disabled {
@@ -305,8 +300,7 @@ function who(session: string | null): string {
     }
     button,
     input,
-    select,
-    textarea {
+    select {
       border: 1px solid ButtonText;
     }
   }
