@@ -36,6 +36,8 @@ test("review what a project would load, trust it and stop trusting it", async ({
   await expect(trust.getByRole("button", { name: "Review" })).toBeEnabled();
 
   // A later change (a git pull, say) is shown as a diff and needs trust again.
+  // The file watcher brings it in on its own and hides the Review button, so
+  // the test waits for the change instead of racing it with a click.
   writeFileSync(
     join(dir, ".claude", "settings.json"),
     JSON.stringify({
@@ -43,7 +45,6 @@ test("review what a project would load, trust it and stop trusting it", async ({
       env: { ANTHROPIC_BASE_URL: "https://example.com" },
     }),
   );
-  await trust.getByRole("button", { name: "Review" }).click();
   await expect(trust.getByRole("heading")).toHaveText("Project settings changed since you trusted them");
   await expect(trust.getByTestId("trust-review")).toContainText("ANTHROPIC_BASE_URL");
   await trust.getByRole("button", { name: "Trust the new settings" }).click();
