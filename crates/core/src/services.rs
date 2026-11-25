@@ -9,7 +9,9 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::broadcast;
 
 pub use crate::agents::AgentHost;
@@ -31,6 +33,7 @@ use crate::protocol::projects::{Project, ProjectId, ProjectState, ProjectStatePa
 use crate::protocol::review::ChangeKind;
 use crate::protocol::search::{SearchId, SearchQuery};
 use crate::protocol::secrets::{SecretInfo, SecretStoreStatus, SecretValue};
+use crate::protocol::servers::{ServerId, ServerReady, ServerStatus};
 use crate::protocol::terminals::{TermSize, TerminalId};
 use crate::protocol::{ErrorCode, Event, ProtocolError};
 
@@ -220,6 +223,13 @@ pub struct SandboxProfile {
     pub read: Vec<PathBuf>,
     /// More folders it may write.
     pub write: Vec<PathBuf>,
+    /// Ports inside the sandbox that its helper makes reachable from
+    /// outside as `<port>.sock` in the pod's folder (a server pod, ADR 0008).
+    pub expose: Vec<u16>,
+    /// Ports its helper listens on at `127.0.0.1` inside the sandbox and
+    /// forwards to the netproxy with `OVRA-LOCAL <port>` (an agent's
+    /// sandbox, for the servers of its work dir).
+    pub forward: Vec<u16>,
     pub network: ProfileNetwork,
 }
 
@@ -485,6 +495,63 @@ impl NetReporter {
             reason: reason.to_owned(),
         });
     }
+}
+
+/// The sandbox one work dir's servers share (ADR 0008).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PodSpec {
+    pub project: ProjectId,
+    /// The main checkout or a worker's worktree: one pod each.
+    pub work_dir: PathBuf,
+    /// The agent's profile for `work_dir`, with the pod's own netproxy and
+    /// every defined port in `expose`.
+    pub profile: SandboxProfile,
+}
+
+/// One start of a defined server.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DevServerSpec {
+    pub id: ServerId,
+    pub generation: u64,
+    /// Built by the core from the definition, with `PORT` and `HOST` set.
+    pub line: CommandLine,
+    pub port: u16,
+    /// `None`: ready when `port` accepts a connection.
+    pub ready: Option<ServerReady>,
+}
+
+/// How running servers report to the core. Every report names the start
+/// it is about, so a late one from an old generation can be dropped.
+pub trait ServerSink: Send + Sync + Debug {
+    /// New lines of output: stdout and stderr merged, ANSI kept, without
+    /// line endings.
+    fn output(&self, id: &ServerId, generation: u64, lines: Vec<String>);
+    /// `Ready` once its check passes, then `Exited` or `Failed`.
+    fn status(&self, id: &ServerId, generation: u64, status: ServerStatus);
+}
+
+/// A connection to a port in a pod, both ways.
+pub trait PodStream: AsyncRead + AsyncWrite + Unpin + Send {}
+
+impl<T: AsyncRead + AsyncWrite + Unpin + Send> PodStream for T {}
+
+pub type PodConn = Box<dyn PodStream>;
+
+/// Dev servers in sandbox pods (`docs/specs/servers-and-browser.md`;
+/// implemented by `ovra-servers`). The core keeps definitions, states,
+/// logs and grants; the service keeps processes and pods.
+pub trait DevServers: Send + Sync + Debug {
+    fn status(&self) -> SandboxStatus;
+    /// Starts `server` in the pod of `pod.work_dir`, making the pod if
+    /// needed, and returns at once; it reports through `sink`.
+    fn start(&self, pod: &PodSpec, server: DevServerSpec, sink: Arc<dyn ServerSink>) -> Result<()>;
+    /// SIGTERM to its process group, SIGKILL after `grace`; the end is
+    /// reported through its sink. The pod ends with its last server.
+    /// Does nothing for a server that is not running.
+    fn stop(&self, id: &ServerId, grace: Duration);
+    /// A connection to `port` in the pod of `work_dir`, for the netproxy
+    /// and the person's forward. Never to a host port.
+    fn connect(&self, work_dir: PathBuf, port: u16) -> BoxFuture<'_, Result<PodConn>>;
 }
 
 /// The append-only audit log (`docs/specs/security.md`; stored by
@@ -1150,5 +1217,20 @@ impl LanguageServers for Unavailable {
     }
     fn start(&self, _: ServerSpec, _: ServerHost) -> BoxFuture<'_, Result<StartedServer>> {
         Box::pin(async move { self.err() })
+    }
+}
+
+impl DevServers for Unavailable {
+    fn status(&self) -> SandboxStatus {
+        SandboxStatus::Unavailable {
+            reason: format!("{} is not available in this build", self.0),
+        }
+    }
+    fn start(&self, _: &PodSpec, _: DevServerSpec, _: Arc<dyn ServerSink>) -> Result<()> {
+        self.err()
+    }
+    fn stop(&self, _: &ServerId, _: Duration) {}
+    fn connect(&self, _: PathBuf, _: u16) -> BoxFuture<'_, Result<PodConn>> {
+        self.later()
     }
 }

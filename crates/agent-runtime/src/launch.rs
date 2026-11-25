@@ -289,6 +289,8 @@ mod tests {
                 work_dir: "/work".into(),
                 read: Vec::new(),
                 write: Vec::new(),
+                expose: Vec::new(),
+                forward: Vec::new(),
                 network: ovra_core::services::ProfileNetwork::Open,
             },
         };

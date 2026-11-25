@@ -296,6 +296,8 @@ fn profile(
             SessionMode::Direct => Vec::new(),
         },
         write: Vec::new(),
+        expose: Vec::new(),
+        forward: Vec::new(),
         network,
     }
 }

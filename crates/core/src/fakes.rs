@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 mod git;
 mod lsp;
+mod servers;
 mod worktrees;
 
 /// An absolute path for tests on every OS, as a `&'static str`: the Unix
@@ -26,6 +27,7 @@ macro_rules! test_path {
 
 pub use git::MemoryGit;
 pub use lsp::{FakeLanguageServers, FakeServer, HostRecord};
+pub use servers::{FakeDevServers, FakeDevServer};
 pub use worktrees::MemoryWorktrees;
 
 use crate::path::RelPath;

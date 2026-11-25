@@ -104,6 +104,8 @@ fn profile(work_dir: &Path, network: ProfileNetwork) -> SandboxProfile {
         work_dir: work_dir.to_path_buf(),
         read: Vec::new(),
         write: Vec::new(),
+        expose: Vec::new(),
+        forward: Vec::new(),
         network,
     }
 }

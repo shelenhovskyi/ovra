@@ -106,6 +106,8 @@ mod tests {
             work_dir: "/w".into(),
             read: Vec::new(),
             write: Vec::new(),
+            expose: Vec::new(),
+            forward: Vec::new(),
             network: ProfileNetwork::Open,
         };
         let wrapped = sandbox.wrap(&profile, line.clone());

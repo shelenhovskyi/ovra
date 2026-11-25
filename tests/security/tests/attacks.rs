@@ -139,6 +139,8 @@ impl World {
             work_dir: self.project.clone(),
             read: Vec::new(),
             write: Vec::new(),
+            expose: Vec::new(),
+            forward: Vec::new(),
             network,
         }
     }

@@ -188,6 +188,8 @@ impl Bubblewrap {
             work_dir: work.clone(),
             read: Vec::new(),
             write: Vec::new(),
+            expose: Vec::new(),
+            forward: Vec::new(),
             network: ovra_core::services::ProfileNetwork::Blocked,
         };
         let line = CommandLine {
@@ -344,6 +346,8 @@ mod tests {
             work_dir: "/".into(),
             read: Vec::new(),
             write: Vec::new(),
+            expose: Vec::new(),
+            forward: Vec::new(),
             network: ProfileNetwork::Blocked,
         };
         let server = ServerProfile {
