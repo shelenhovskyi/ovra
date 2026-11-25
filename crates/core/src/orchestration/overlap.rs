@@ -138,12 +138,12 @@ pub(super) async fn check(core: &Core, session: &SessionId) {
 }
 
 /// The person discarded `session`'s work: it changes nothing any more
-/// until its next look.
+/// until its next look, and new work of it that overlaps is told again.
 pub(super) fn discarded(core: &Core, session: &SessionId) {
-    core.orchestration_state()
-        .lock()
-        .changed
-        .insert(session.clone(), BTreeSet::new());
+    let state = core.orchestration_state();
+    let mut state = state.lock();
+    state.changed.insert(session.clone(), BTreeSet::new());
+    state.overlaps.retain(|(a, b)| a != session && b != session);
 }
 
 fn working(core: &Core, session: &SessionId) -> bool {

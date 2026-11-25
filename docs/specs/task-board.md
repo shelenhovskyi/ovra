@@ -92,8 +92,11 @@ coordinator?
 ## Security
 
 - The author is set by the core, and the `<board-entry author="...">` mark
-  is written by the core and defused in all agent text (`provenance.rs`),
-  as `<coordinator-message>` and `<ovra-note>` are today.
+  is written by the core. An entry's text, and the paths of a claim, are
+  agent-written: every `<` and look-alike in them is escaped
+  (`provenance::escaped`) before another agent reads them, as a
+  coordinator's text is today. `ovra` entries follow the rules of Ovra's
+  notes: foreign text only inside `<untrusted>`, only plain file names.
 - No tool answers a permission request, decides a review, allows a site or
   changes a policy, and no entry changes them.
 - An approval card for a tool call that an agent asked for within its
