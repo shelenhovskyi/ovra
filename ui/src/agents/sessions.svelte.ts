@@ -14,6 +14,7 @@ import type {
   TurnUsage,
 } from "../lib/protocol";
 import type { Transport } from "../lib/transport";
+import { isBusy, statusLabel } from "./status";
 
 /** A session's part in a task, if it has one. */
 export type SessionRole =
@@ -81,13 +82,45 @@ export class AgentSessions {
     }
   }
 
-  /** A session's name for people: workers by their name, coordinators as the task. */
+  /**
+   * A session's name for people: coordinators as the task, workers by
+   * their name and their task's (`docs · Fix login`), so the workers of two
+   * tasks differ.
+   */
   name(id: SessionId): string {
     const role = this.roles.get(id);
     const base = sessionName(this.byId.get(id), id);
-    if (role?.kind === "worker") return `Worker ${role.name}`;
+    if (role?.kind === "worker") {
+      const task = this.byId.get(role.coordinator)?.title;
+      return task ? `${role.name} · ${task}` : `Worker ${role.name}`;
+    }
     if (role?.kind === "coordinator") return `Task: ${base}`;
     return base;
+  }
+
+  /**
+   * Resolves once `name(id)` says what the core knows: a session that just
+   * started may not have its title, or a worker its task, yet. A message
+   * built now then names it like the Tasks list does.
+   */
+  async named(project: ProjectId, id: SessionId): Promise<void> {
+    const info = this.byId.get(id);
+    if (info?.title && (info.mode === "direct" || this.roles.has(id))) return;
+    await this.load(project).catch(() => {});
+  }
+
+  /** What `id` does now, in words; a coordinator that waits while its workers run says so. */
+  status(id: SessionId): string {
+    const info = this.byId.get(id);
+    if (!info) return "";
+    const role = this.roles.get(id);
+    if (role?.kind === "coordinator" && info.status.state === "idle") {
+      const working = [...this.roles].some(
+        ([session, r]) => r.kind === "worker" && r.coordinator === id && isBusy(this.byId.get(session)?.status ?? null),
+      );
+      if (working) return "Workers are on it";
+    }
+    return statusLabel(info.status);
   }
 
   /** Sessions of `project` with each task's workers right after their coordinator. */

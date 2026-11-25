@@ -151,11 +151,20 @@ describe("AgentsPanel", () => {
     const rows = [...target.querySelectorAll(".sessions button")];
     expect(rows.map((b) => b.querySelector(".title")?.textContent)).toEqual([
       "Task: Write the notes",
-      "Worker docs",
+      // With its task's name, so the workers of two tasks differ.
+      "docs · Write the notes",
       "A plain session",
     ]);
     expect(rows[1]?.classList.contains("worker")).toBe(true);
     expect(rows[1]?.getAttribute("title")).toBe("Branch ovra/t1/docs");
+    // A coordinator that waits while its worker runs is not done.
+    const state = () => [...target.querySelectorAll(".sessions .state")].map((s) => s.textContent);
+    core.status("s1", { state: "idle" });
+    await settle();
+    expect(state()).toEqual(["Workers are on it", "Working", "Starting"]);
+    core.status(docs.id, { state: "idle" });
+    await settle();
+    expect(state()).toEqual(["Done, you can reply", "Done, you can reply", "Starting"]);
   });
 
   it("starts a session in the open project and streams its transcript", async () => {

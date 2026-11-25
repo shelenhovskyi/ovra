@@ -54,7 +54,7 @@ test("a recorded Claude session runs through the real driver", async ({ page }) 
   const transcript = page.getByTestId("transcript");
   await expect(transcript).toContainText(/I fixed the typo in `?README\.md`? line 3/);
   const session = page.getByTestId("agent-session");
-  await expect(session.getByRole("status")).toHaveText("Waiting for you");
+  await expect(session.getByRole("status")).toHaveText("Done, you can reply");
 
   await session
     .getByRole("textbox", { name: "Reply to Claude" })
@@ -62,7 +62,7 @@ test("a recorded Claude session runs through the real driver", async ({ page }) 
   await session.getByRole("button", { name: "Send" }).click();
   await allow(page, /^Run echo ok > done\.txt$/);
   await expect(transcript).toContainText(/Claude\s*Done\./);
-  await expect(session.getByRole("status")).toHaveText("Waiting for you");
+  await expect(session.getByRole("status")).toHaveText("Done, you can reply");
 
   await session.getByRole("button", { name: "Stop" }).click();
   // A mismatch with the recording would make fake-claude exit 2: Failed.

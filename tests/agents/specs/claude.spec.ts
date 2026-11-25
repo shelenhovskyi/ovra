@@ -69,7 +69,7 @@ async function denyWithMessage(page: Page, name: RegExp, message: string): Promi
 }
 
 async function waitingForYou(session: Locator): Promise<void> {
-  await expect(session.getByRole("status")).toHaveText("Waiting for you");
+  await expect(session.getByRole("status")).toHaveText("Done, you can reply");
 }
 
 async function reply(session: Locator, text: string): Promise<void> {

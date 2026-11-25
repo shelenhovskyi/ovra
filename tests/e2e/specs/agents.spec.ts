@@ -87,7 +87,7 @@ test("start an agent and answer its requests from the keyboard", async ({ page }
   await page.keyboard.press("ControlOrMeta+Enter");
 
   const session = page.getByTestId("agent-session");
-  await expect(session.getByRole("status")).toHaveText("Waiting for you");
+  await expect(session.getByRole("status")).toHaveText("Done, you can reply");
   await expect(approvals).toContainText("Nothing waits for your approval.");
   const transcript = page.getByTestId("transcript");
   await expect(transcript).toContainText(/Tool output \(1 line\)\s*done/);
@@ -137,7 +137,7 @@ test("reply to an agent, allow with the mouse and stop it while it waits", async
     await card.getByRole("button", { name: "Allow" }).click();
   }
   const session = page.getByTestId("agent-session");
-  await expect(session.getByRole("status")).toHaveText("Waiting for you");
+  await expect(session.getByRole("status")).toHaveText("Done, you can reply");
 
   await session.getByRole("textbox", { name: "Reply to Claude" }).fill("Check the status too");
   await session.getByRole("button", { name: "Send" }).click();
@@ -213,7 +213,7 @@ test("a direct session's protected files and git hooks need a look before approv
     await expect(deny).toHaveAttribute("aria-disabled", "false");
     await deny.click();
   }
-  await expect(page.getByTestId("agent-session").getByRole("status")).toHaveText("Waiting for you");
+  await expect(page.getByTestId("agent-session").getByRole("status")).toHaveText("Done, you can reply");
 
   // Not the agent's file tools: the person (here the test) writes these.
   writeFileSync(join(dir, ".envrc"), "echo hi\n");

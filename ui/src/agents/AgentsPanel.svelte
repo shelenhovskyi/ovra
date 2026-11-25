@@ -16,7 +16,7 @@ import { claudeAccounts } from "./setup/accounts.svelte";
 import ClaudeSetup from "./setup/ClaudeSetup.svelte";
 import ProjectTrust from "./setup/ProjectTrust.svelte";
 import { paidText } from "./setup/texts";
-import { isEnded, statusLabel } from "./status";
+import { isEnded } from "./status";
 import Transcript from "./Transcript.svelte";
 
 const { transport, workspace } = useOvra();
@@ -284,7 +284,7 @@ const canReply = $derived(current !== null && current.status.state === "idle");
               {#if badge}
                 <span class="badge" class:unsandboxed={badge.warning} data-testid="agent-sandbox-badge">{badge.text}</span>
               {/if}
-              <span class="state" data-state={session.status.state}>{statusLabel(session.status)}</span>
+              <span class="state" data-state={session.status.state}>{sessions.status(session.id)}</span>
             </button>
           </li>
         {/each}
@@ -303,7 +303,7 @@ const canReply = $derived(current !== null && current.status.state === "idle");
             {/if}
           </div>
         </div>
-        <p class="status" role="status">{statusLabel(current.status)}</p>
+        <p class="status" role="status">{sessions.status(current.id)}</p>
         {#if current.usage.input_tokens + current.usage.output_tokens > 0}
           <p class="status" data-testid="agent-usage">Total: {usageText(current.usage, current.billing)}</p>
         {/if}
