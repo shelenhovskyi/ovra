@@ -96,8 +96,11 @@ spec.
   top of the project is made empty and read-only while a session runs, and
   removed again (if still empty) once the project's last sandbox is over;
   until then it shows in git status. A `CLAUDE.md` or `AGENTS.md` in a
-  subfolder, new or not, can still be created. The review marks changes to
-  protected paths; in direct mode there is no review.
+  subfolder, new or not, can still be created, and so can a placeholder
+  once someone outside removes or replaces it while the session runs
+  (`git clean`, an editor's save by rename): that detaches the bind. The
+  review marks changes to protected paths and leaves the empty
+  placeholders out.
 - **Channels out through allowed hosts.** Without TLS inspection a tunnel
   to an allowed host can carry anything: a broad entry such as
   `github.com`, domain fronting through a shared CDN address, or
@@ -109,7 +112,8 @@ spec.
   (not fully qualified, so `/etc/hosts`, search domains and the system's
   other name sources apply, as for a proxy on this machine) and refuses a
   loopback, private or link-local answer; a proxy on another machine with
-  its own names is still not covered. `localhost` and names under it are
+  its own names is still not covered, and neither is a name whose DNS
+  answers the user's proxy differently later (rebinding). `localhost` and names under it are
   always loopback: refused, and never sent to the user's proxy (fixed in
   4.F).
 - **Package caches** (`~/.cargo/registry`, `~/.npm`, ...) are private to

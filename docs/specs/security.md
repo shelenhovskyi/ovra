@@ -262,7 +262,10 @@ A missing `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, `.mcp.json` or
 read-only the same way, for agents, pods and the browser alike, and
 removed by the same last helper if it is still an empty file. While a
 session runs it shows in git status (the owner chose this over leaving
-the files creatable, 2026-11-25). One in a subfolder can still be
+the files creatable, 2026-11-25); reviews leave such an added empty file
+out. Removing or replacing it from outside while a session runs (`git
+clean`, a save by rename) detaches the bind, as for any protected path,
+and the agent can then create it. One in a subfolder can still be
 created; the review backstop below covers it.
 
 An agent that needs one of these changed says so in its summary, and the
