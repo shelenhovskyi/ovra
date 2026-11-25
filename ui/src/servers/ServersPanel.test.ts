@@ -18,6 +18,7 @@ beforeEach(() => {
 
 afterEach(() => {
   serversDock.shown = false;
+  serversDock.everywhere = true;
   serversDock.workDir = null;
   mainView.close(false);
   if (app) unmount(app);
@@ -221,7 +222,7 @@ describe("Servers pane and dock tab", () => {
     expect($("[data-testid=server-def]")).toBeNull();
   });
 
-  it("lists servers of a worker's worktree", async () => {
+  it("lists every folder's servers, or one folder's", async () => {
     const core = new FakeServersCore();
     core.sessions = [
       {
@@ -251,12 +252,21 @@ describe("Servers pane and dock tab", () => {
           }
         : orchestration(request)) as typeof core.call;
     await open(core);
-    expect($("[data-testid=server]")).toBeNull();
+    // At first the tab shows every folder's servers, each saying where it runs.
+    expect(core.calls).toContainEqual({ method: "servers.overview", params: { project: "p1" } });
+    expect($("[data-testid=server]")?.textContent).toContain("in Worker docs");
     const select = $<HTMLSelectElement>("[data-testid=servers] [data-testid=servers-work-dir]");
-    expect([...(select?.options ?? [])].map((o) => o.textContent)).toEqual(["Project folder", "Worker docs"]);
-    if (select) select.selectedIndex = 1;
-    select?.dispatchEvent(new Event("change", { bubbles: true }));
-    await settle();
+    const options = [...(select?.options ?? [])].map((o) => o.textContent);
+    expect(options).toEqual(["All folders", "Project folder", "Worker docs"]);
+    const pick = async (index: number) => {
+      if (select) select.selectedIndex = index;
+      select?.dispatchEvent(new Event("change", { bubbles: true }));
+      await settle();
+    };
+    await pick(1);
+    expect(core.calls).toContainEqual({ method: "servers.list", params: { project: "p1", work_dir: null } });
+    expect($("[data-testid=server]")).toBeNull();
+    await pick(2);
     expect(core.calls).toContainEqual({ method: "servers.list", params: { project: "p1", work_dir: "w1" } });
     expect($("[data-testid=server]")?.textContent).toContain("in Worker docs");
   });
