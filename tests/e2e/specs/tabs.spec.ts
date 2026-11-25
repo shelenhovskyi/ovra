@@ -65,7 +65,7 @@ test("tabs switch with the keyboard, keep undo and focus, and ask before closing
   await tabs.getByRole("button", { name: "Close a.txt (unsaved changes)" }).click();
   await question.getByRole("button", { name: "Save", exact: true }).click();
   await expect(tabs.getByRole("tab")).toHaveText(["b.txt"]);
-  expect(readFileSync(join(dir, "a.txt"), "utf8")).toBe("edited alpha\n");
+  await expect.poll(() => readFileSync(join(dir, "a.txt"), "utf8")).toBe("edited alpha\n");
   await expect(page.getByTestId("editor-path")).toHaveText("b.txt");
 
   // Ctrl+S while the question is open saves and closes it.
@@ -75,7 +75,8 @@ test("tabs switch with the keyboard, keep undo and focus, and ask before closing
   await expect(question.or(page.getByRole("dialog"))).toBeVisible();
   await page.keyboard.press("ControlOrMeta+S");
   await expect(page.getByRole("dialog")).toBeHidden();
-  expect(readFileSync(join(dir, "b.txt"), "utf8")).toContain("more ");
+  // The question closes as the save starts; the file is written a moment later.
+  await expect.poll(() => readFileSync(join(dir, "b.txt"), "utf8")).toContain("more ");
 
   // With the last tab gone, focus goes to the file tree, not the page body.
   await expect(tabs).toBeHidden();
