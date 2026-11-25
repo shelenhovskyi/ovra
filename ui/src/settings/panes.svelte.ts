@@ -42,14 +42,14 @@ export const PANES: Pane[] = [
   {
     id: "network",
     title: "Network",
-    line: "What sandboxed agents may reach, and tokens they use without seeing them.",
+    line: "Hosts agents may reach through Ovra's proxy, and tokens it adds for them.",
     group: "project",
     keywords: ["proxy", "token", "hosts", "secrets"],
   },
   {
     id: "servers",
     title: "Servers",
-    line: "Dev servers run in the sandbox, where agents can open your app.",
+    line: "Commands that start your app, so you and agents can open it.",
     group: "project",
     keywords: ["dev servers", "ports"],
   },

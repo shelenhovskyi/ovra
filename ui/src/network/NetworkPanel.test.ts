@@ -65,6 +65,11 @@ function submit(form: HTMLFormElement | null | undefined) {
   form?.dispatchEvent(new SubmitEvent("submit", { bubbles: true, cancelable: true }));
 }
 
+function addSecret() {
+  $<HTMLButtonElement>("[data-testid=add-secret]")?.click();
+  flushSync();
+}
+
 const hosts = () => [...target.querySelectorAll("[data-testid=allowed-host] code")].map((el) => el.textContent);
 
 describe("NetworkPanel", () => {
@@ -97,6 +102,7 @@ describe("NetworkPanel", () => {
 
   it("sends a secret's value to the core once, clears it and offers to allow its host", async () => {
     const core = await open();
+    addSecret();
     type("[data-testid=secret-name]", "github");
     type("[data-testid=secret-host]", "api.github.com");
     type("[data-testid=secret-value]", "ghp_example");
@@ -120,16 +126,17 @@ describe("NetworkPanel", () => {
     expect(core.secrets).toEqual([]);
   });
 
-  it("disables the form when the keychain is unavailable and shows why", async () => {
+  it("says the keychain is unreachable only once a secret is being added, and why", async () => {
     const core = new FakeAccessCore();
     core.store = { state: "unavailable", reason: "zbus error: Failed to connect (os error 2)" };
     await open(core);
+    expect($("[data-testid=store-unavailable]")).toBeNull();
+    addSecret();
     const note = $("[data-testid=store-unavailable]");
     expect(note?.querySelector("p")?.textContent?.trim()).toMatch(/^Secrets can't be saved: the system keychain/);
     expect(note?.querySelector("p")?.textContent).not.toContain("zbus");
     expect($("details [data-testid=store-reason]")?.textContent).toBe("zbus error: Failed to connect (os error 2)");
-    expect($<HTMLFieldSetElement>("form[aria-label='Add a secret'] fieldset")?.disabled).toBe(true);
-    expect($("[data-testid=secret-off]")?.textContent?.trim()).toBe("Saving needs the system keychain.");
+    expect($("form[aria-label='Add a secret']")).toBeNull();
 
     core.store = { state: "available", name: "Secret Service" };
     $<HTMLButtonElement>("[data-testid=store-retry]")?.click();
@@ -137,6 +144,7 @@ describe("NetworkPanel", () => {
     expect($("[data-testid=store-unavailable]")).toBeNull();
     expect($<HTMLFieldSetElement>("form[aria-label='Add a secret'] fieldset")?.disabled).toBe(false);
     expect($("[data-testid=secret-off]")).toBeNull();
+    expect($("[data-testid=store-available]")?.textContent).toContain("Kept in Secret Service");
   });
 
   it("follows changes made elsewhere and forgets a typed token when the pane closes", async () => {
@@ -146,10 +154,12 @@ describe("NetworkPanel", () => {
     await settle();
     expect(hosts()).toEqual(["pypi.org"]);
 
+    addSecret();
     type("[data-testid=secret-value]", "typed");
     if (app) unmount(app);
     app = mount(TestHost, { target, props: { transport: core, workspace } });
     await settle();
+    addSecret();
     expect($<HTMLInputElement>("[data-testid=secret-value]")?.value).toBe("");
   });
 
@@ -167,16 +177,21 @@ describe("NetworkPanel", () => {
     expect(core.hosts).toEqual([{ host: "pypi.org" }]);
   });
 
-  it("warns while a live session of the project runs without the sandbox", async () => {
+  it("says No sandbox in the session's words when the project's agents run without one", async () => {
     const core = new FakeAccessCore();
     core.sessions = [session("s1", { name: "bubblewrap", network: "proxy", gaps: [] })];
     await open(core);
     expect($("[data-testid=unsandboxed]")).toBeNull();
-    unmount(app ?? {});
-    app = null;
-    core.sessions = [session("s1", { name: "bubblewrap", network: "proxy", gaps: [] }), session("s2", null)];
-    await open(core);
-    expect($("[data-testid=unsandboxed]")?.textContent).toMatch(/One agent in this project runs\s+without.*keychain/s);
+    const says =
+      "No sandbox: Claude can change anything you can: these hosts don't limit it, and it can read stored secrets.";
+    for (const s2 of [session("s2", null), { ...session("s2", null), status: { state: "stopped" } as const }]) {
+      unmount(app ?? {});
+      app = null;
+      // A live one, and an ended one: the next session most likely runs the same way.
+      core.sessions = [session("s1", { name: "bubblewrap", network: "proxy", gaps: [] }), s2];
+      await open(core);
+      expect($("[data-testid=unsandboxed]")?.textContent?.trim()).toBe(says);
+    }
     unmount(app ?? {});
     app = null;
     const failing = new FakeAccessCore();
@@ -206,16 +221,19 @@ describe("NetworkPanel", () => {
 
   it("clears what was typed when another project opens", async () => {
     await open();
+    addSecret();
     type("[data-testid=secret-value]", "for-p1");
     type("[data-testid=secret-name]", "github");
     workspace.project = { id: "p2", name: "other", root: "/other", last_opened_ms: null, trusted: false };
     await settle();
+    addSecret();
     expect($<HTMLInputElement>("[data-testid=secret-value]")?.value).toBe("");
     expect($<HTMLInputElement>("[data-testid=secret-name]")?.value).toBe("");
   });
 
   it("does not offer the token to the browser's password store", async () => {
     await open();
+    addSecret();
     const input = $<HTMLInputElement>("[data-testid=secret-value]");
     expect(input?.type).toBe("text");
     expect(input?.autocomplete).toBe("off");

@@ -3,8 +3,10 @@
 // project's agents may reach and the tokens the netproxy adds for them. A
 // token's value is typed here, sent to the core once and never shown again.
 import { untrack } from "svelte";
+import { NO_SANDBOX } from "../agents/sandbox";
 import { agentSessions } from "../agents/sessions.svelte";
 import type { AllowedHost, SessionInfo } from "../lib/protocol";
+import { projectSandbox } from "../settings/sandbox";
 import { useOvra } from "../shell/context";
 import { message, ProjectAccess } from "./access.svelte";
 import { hostLabel, parseHost, reaches } from "./hosts";
@@ -32,6 +34,10 @@ const storeReady = $derived(access.store?.state === "available");
 const exposed = $derived(workspace.project ? sessions.inProject(workspace.project.id).filter(unprotected) : []);
 // Without a sandbox a session can also read the keychain like any program the person runs.
 const bare = $derived(exposed.filter((s) => s.sandbox === null).length);
+/** How agents run here, as the session says it: also known after they ended. */
+const sandbox = $derived(workspace.project ? projectSandbox(sessions.inProject(workspace.project.id)) : null);
+/** The person is adding a secret: only then the form, and whether the keychain can keep it. */
+let addingSecret = $state(false);
 // What the sandbox of the project's live sessions does not cover, each once.
 const gaps = $derived(
   workspace.project
@@ -77,6 +83,7 @@ function unprotected(session: SessionInfo): boolean {
 }
 
 function clearForm(): void {
+  addingSecret = false;
   newHost = "";
   hostError = null;
   name = "";
@@ -168,23 +175,23 @@ async function removeSecret(secretName: string): Promise<void> {
     {#if access.error}
       <p class="error" role="alert">Could not read the project's network settings: {access.error}</p>
     {/if}
-    {#if exposed.length > 0}
+    <!-- The session's own words for no sandbox, and what that means here, in one line. -->
+    {#if bare > 0 || sandbox === "none"}
       <p class="warn note" role="note" data-testid="unsandboxed">
-        {exposed.length === 1 ? "One agent in this project runs" : `${exposed.length} agents in this project run`}
-        {bare > 0 ? "without Ovra's sandbox" : "with an open network"}. These hosts do not limit
-        {exposed.length === 1 ? "it" : "them"}{bare > 0
-          ? ", and an agent without the sandbox can read stored secrets from the keychain like any program you run"
-          : ""}.
+        {NO_SANDBOX}: these hosts don't limit it, and it can read stored secrets.
+      </p>
+    {:else if exposed.length > 0}
+      <p class="warn note" role="note" data-testid="unsandboxed">
+        Network not limited: these hosts don't limit {exposed.length === 1 ? "one agent" : `${exposed.length} agents`}
+        here.
       </p>
     {:else if sessionsError}
-      <p class="warn note" role="note" data-testid="unsandboxed">
-        Could not check whether this project's agents run in the sandbox.
-      </p>
+      <p class="warn note" role="note" data-testid="unsandboxed">Could not check whether agents here run in a sandbox.</p>
     {/if}
     <div class="body">
       <section aria-labelledby="hosts-title">
         <h3 id="hosts-title">Allowed hosts</h3>
-        <p class="muted">Only these, through Ovra's proxy. Everything else is refused and logged.</p>
+        <p class="muted">Sandboxed agents reach only these; the rest is refused and logged.</p>
         {#if gaps.length > 0}
           <p class="muted" data-testid="sandbox-gaps">The sandbox also does not cover: {gaps.join(", ")}.</p>
         {/if}
@@ -244,26 +251,7 @@ async function removeSecret(secretName: string): Promise<void> {
 
       <section aria-labelledby="secrets-title">
         <h3 id="secrets-title">Secrets</h3>
-        <p class="muted">
-          The proxy adds a token for one host; only sandboxed agents get it, and never see it. They can still do
-          anything it allows there: keep its scope narrow.
-        </p>
-        {#if access.store?.state === "unavailable"}
-          <div class="warn" role="note" data-testid="store-unavailable">
-            <p>
-              Secrets can't be saved: the system keychain is not reachable. Ovra never keeps secrets in a file.
-            </p>
-            <button type="button" data-testid="store-retry" onclick={() => void access.reload()}>
-              {access.loading ? "Checking…" : "Check again"}
-            </button>
-            <details>
-              <summary>Details</summary>
-              <code data-testid="store-reason">{access.store.reason}</code>
-            </details>
-          </div>
-        {:else if access.store?.state === "available"}
-          <p class="muted" data-testid="store-available">Values are kept in {access.store.name}.</p>
-        {/if}
+        <p class="muted">The proxy adds a token for one host. Agents use it without seeing it: keep its scope narrow.</p>
         {#if access.secrets.length > 0}
           <ul aria-label="Secrets">
             {#each access.secrets as secret (secret.name)}
@@ -285,6 +273,22 @@ async function removeSecret(secretName: string): Promise<void> {
             {/each}
           </ul>
         {/if}
+        {#if !addingSecret}
+          <button type="button" data-testid="add-secret" onclick={() => (addingSecret = true)}>Add secret…</button>
+        {:else if access.store?.state === "unavailable"}
+          <div class="warn" role="note" data-testid="store-unavailable">
+            <p>
+              Secrets can't be saved: the system keychain is not reachable. Ovra never keeps secrets in a file.
+            </p>
+            <button type="button" data-testid="store-retry" onclick={() => void access.reload()}>
+              {access.loading ? "Checking…" : "Check again"}
+            </button>
+            <details>
+              <summary>Details</summary>
+              <code data-testid="store-reason">{access.store.reason}</code>
+            </details>
+          </div>
+        {:else}
         <form class="secret-form" onsubmit={addSecret} aria-label="Add a secret">
           <fieldset disabled={!storeReady}>
             <label>Name <input bind:value={name} placeholder="github" autocomplete="off" data-testid="secret-name" /></label>
@@ -307,15 +311,15 @@ async function removeSecret(secretName: string): Promise<void> {
             >
             <button type="submit" class="primary" aria-describedby={storeReady ? undefined : "secret-off"}>Save secret</button>
             {#if !storeReady}
-              <span class="muted off" id="secret-off" data-testid="secret-off">
-                {access.store ? "Saving needs the system keychain." : "Checking the keychain…"}
-              </span>
+              <span class="muted off" id="secret-off" data-testid="secret-off">Checking the keychain…</span>
             {/if}
           </fieldset>
         </form>
-        <p class="muted" id="secret-value-note">
-          Kept in the keychain, never shown again. The same name replaces it.
+        <p class="muted" id="secret-value-note" data-testid="store-available">
+          Kept in {access.store?.state === "available" ? access.store.name : "the keychain"}, never shown again; the
+          same name replaces it.
         </p>
+        {/if}
         {#if secretError}
           <p class="error" role="alert">{secretError}</p>
         {/if}
