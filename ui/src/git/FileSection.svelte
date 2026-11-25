@@ -1,12 +1,14 @@
 <script lang="ts">
 // One list of the git panel: "Conflicts", "Staged changes" or "Changes".
-// A row shows its diff (a conflict opens its file); small buttons open the
-// file, stage, unstage or discard it. The list is one Tab stop: arrows,
+// A row shows its diff (a conflict opens its file); its hover slot stages,
+// unstages or opens it, and its context menu (right click, Shift+F10, the
+// Menu key) has every action, Discard last. The list is one Tab stop: arrows,
 // Home and End move between rows, and keys named under the list (while a row
 // has focus) and in each row's description run its actions; a key that does
 // nothing on a row says why. Discard asks first, in the row, starting on Cancel.
 import { tick } from "svelte";
 import type { GitChange, StatusFile } from "../lib/protocol";
+import { isMenuKey, type MenuEntry, openContextMenu } from "../menu/context-menu.svelte";
 import Icon from "../shell/Icon.svelte";
 import { rowOf } from "./focus";
 import { CHANGE_LABEL, CHANGE_LETTER, type GitModel } from "./model.svelte";
@@ -102,7 +104,38 @@ const stage = (file: StatusFile, i: number) => run(i, () => model.stage([file.pa
 const unstage = (file: StatusFile, i: number) =>
   run(i, () => model.unstage(file.from ? [file.path, file.from] : [file.path]));
 
+/** The row's menu: show and open first, then stage or unstage, Discard last. */
+function rowMenu(file: StatusFile, i: number): MenuEntry[] {
+  const what = change(file);
+  return [
+    kind !== "conflicts" && { label: "Show diff", run: () => primary(file) },
+    what !== "deleted" && { label: "Open file", keys: "O", run: () => onopen(file.path) },
+    "separator",
+    kind === "changes" && { label: "Stage", keys: "S", disabled: model.busy, run: () => stage(file, i) },
+    kind === "conflicts" && { label: "Mark resolved", keys: "S", disabled: model.busy, run: () => stage(file, i) },
+    kind === "staged" && { label: "Unstage", keys: "U", disabled: model.busy, run: () => unstage(file, i) },
+    "separator",
+    kind === "changes" && {
+      label: "Discard changes…",
+      keys: "Delete",
+      danger: true,
+      disabled: model.busy,
+      run: () => askDiscard(file.path),
+    },
+  ];
+}
+
+function menu(event: MouseEvent | KeyboardEvent, file: StatusFile, i: number): void {
+  const row = rowOf(list, file.path);
+  row?.focus();
+  openContextMenu(event, rowMenu(file, i));
+}
+
 function onrowkeydown(event: KeyboardEvent, file: StatusFile, i: number): void {
+  if (isMenuKey(event)) {
+    menu(event, file, i);
+    return;
+  }
   if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
   const to = { ArrowDown: i + 1, ArrowUp: i - 1, Home: 0, End: files.length - 1 }[event.code];
   const code = event.code === "Backspace" ? "Delete" : event.code;
@@ -155,7 +188,12 @@ const all = $derived(files.flatMap((f) => (kind === "staged" && f.from ? [f.path
     {#each files as file, i (file.path)}
       {@const what = change(file)}
       <li>
-        <div class="row">
+        <div
+          class="row"
+          class:selected={file.path === shownDiff}
+          role="presentation"
+          oncontextmenu={(event) => menu(event, file, i)}
+        >
           <button
             type="button"
             class="name"
@@ -169,55 +207,45 @@ const all = $derived(files.flatMap((f) => (kind === "staged" && f.from ? [f.path
             onclick={() => primary(file)}
             onkeydown={(event) => onrowkeydown(event, file, i)}
           >
-            <span class="letter {what}" aria-hidden="true">{CHANGE_LETTER[what]}</span>
             <span class="file">{name(file.path)}</span>
             <span class="folder">{folder(file.path)}</span>
             <span class="visually-hidden">, {CHANGE_LABEL[what]}{kind === "staged" ? ", staged" : ""}</span>
           </button>
-          {#if kind !== "conflicts" && what !== "deleted"}
-            <button
-              type="button"
-              class="icon"
-              tabindex="-1"
-              title="Open file (O)"
-              aria-label={`Open ${file.path}`}
-              onclick={() => onopen(file.path)}><Icon name="external" small /></button
-            >
-          {/if}
-          {#if kind === "staged"}
-            <button
-              type="button"
-              class="icon"
-              tabindex="-1"
-              title="Unstage (U)"
-              aria-label={`Unstage ${file.path}`}
-              aria-disabled={model.busy}
-              onclick={() => unstage(file, i)}><Icon name="minus" small /></button
-            >
-          {:else}
-            <button
-              type="button"
-              class="icon"
-              tabindex="-1"
-              title={kind === "conflicts" ? "Mark resolved (S)" : "Stage (S)"}
-              aria-label={kind === "conflicts" ? `Mark ${file.path} resolved (stage)` : `Stage ${file.path}`}
-              aria-disabled={model.busy}
-              onclick={() => stage(file, i)}><Icon name={kind === "conflicts" ? "check" : "plus"} small /></button
-            >
-          {/if}
-          {#if kind === "changes"}
-            <!-- Last and set apart: one slip from Stage must not reach it. -->
-            <button
-              type="button"
-              class="icon discard"
-              tabindex="-1"
-              title="Discard changes… (Delete)"
-              aria-label={`Discard changes to ${file.path}…`}
-              aria-expanded={confirming === file.path}
-              aria-disabled={model.busy}
-              onclick={() => askDiscard(file.path)}><Icon name="discard" small /></button
-            >
-          {/if}
+          <span class="dot {what}" aria-hidden="true" title={`${CHANGE_LETTER[what]}: ${CHANGE_LABEL[what]}`}></span>
+          <!-- The hover slot: always laid out, so showing it moves nothing. Discard is in the menu, never here. -->
+          <span class="slot" data-testid="git-row-actions">
+            {#if kind === "staged"}
+              <button
+                type="button"
+                class="icon"
+                tabindex="-1"
+                title="Unstage (U)"
+                aria-label={`Unstage ${file.path}`}
+                aria-disabled={model.busy}
+                onclick={() => unstage(file, i)}><Icon name="minus" small /></button
+              >
+            {:else}
+              <button
+                type="button"
+                class="icon"
+                tabindex="-1"
+                title={kind === "conflicts" ? "Mark resolved (S)" : "Stage (S)"}
+                aria-label={kind === "conflicts" ? `Mark ${file.path} resolved (stage)` : `Stage ${file.path}`}
+                aria-disabled={model.busy}
+                onclick={() => stage(file, i)}><Icon name={kind === "conflicts" ? "check" : "plus"} small /></button
+              >
+            {/if}
+            {#if kind !== "conflicts" && what !== "deleted"}
+              <button
+                type="button"
+                class="icon"
+                tabindex="-1"
+                title="Open file (O)"
+                aria-label={`Open ${file.path}`}
+                onclick={() => onopen(file.path)}><Icon name="external" small /></button
+              >
+            {/if}
+          </span>
         </div>
         {#if confirming === file.path}
           <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
@@ -287,39 +315,35 @@ const all = $derived(files.flatMap((f) => (kind === "staged" && f.from ? [f.path
     padding: 0;
     list-style: none;
   }
+  /* A 28 px row with a 4 px inset, so the selection (the shown diff) reads as a pill. */
   .row {
     display: flex;
     align-items: center;
+    gap: var(--sp-1);
     min-width: 0;
+    height: var(--row);
+    margin: 0 var(--sp-1);
+    padding-right: var(--sp-1);
+    border-radius: var(--r-xs);
+    color: var(--text-2);
   }
-  /* Targets of at least 24x24 px (WCAG 2.5.8). */
-  .name,
-  .icon {
-    min-height: 24px;
+  .row:hover {
+    background: var(--s3);
+  }
+  .row.selected {
+    color: var(--text);
+    background: var(--sel);
+  }
+  ul:focus-within .row.selected {
+    background: var(--sel-focus);
   }
   button {
     font: inherit;
-    color: var(--text-2);
+    color: inherit;
     background: transparent;
     border: 1px solid transparent;
-    border-radius: var(--radius-sm);
-    cursor: pointer;
-  }
-  button:hover,
-  .name[aria-current="true"] {
-    color: var(--text);
-    background: var(--s3);
-  }
-  .name[aria-current="true"] {
-    font-weight: 500;
-  }
-  /* Row actions stay muted until the row is pointed at or focused. */
-  .row .icon {
-    opacity: 0.55;
-  }
-  .row:hover .icon,
-  .row:focus-within .icon {
-    opacity: 1;
+    border-radius: var(--r-xs);
+    cursor: default;
   }
   button:focus-visible {
     outline: 2px solid var(--accent);
@@ -327,38 +351,48 @@ const all = $derived(files.flatMap((f) => (kind === "staged" && f.from ? [f.path
   }
   button[aria-disabled="true"] {
     opacity: 0.6;
-    cursor: default;
   }
   .head button {
     flex: none;
+    min-height: var(--ctl-sm);
     padding: 0 8px;
     font-size: 13px;
+    color: var(--text-2);
+    border-radius: var(--r-sm);
+  }
+  .head button:hover {
+    color: var(--text);
+    background: var(--s3);
   }
   .name {
     display: flex;
-    gap: 4px;
-    align-items: baseline;
+    gap: 6px;
+    align-items: center;
+    align-self: stretch;
     flex: 1;
     min-width: 0;
-    padding: 4px 6px;
+    padding: 0 6px;
     text-align: left;
     white-space: nowrap;
   }
-  .letter {
+  .row.selected .name {
+    font-weight: 500;
+  }
+  /* Git status as a 6 px dot: the letter in its tooltip, the word in the row's name. */
+  .dot {
     flex: none;
-    width: 1.2ch;
-    font-family: var(--mono);
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--warn);
+    width: 6px;
+    height: 6px;
+    border-radius: var(--r-pill);
+    background: var(--warn);
   }
-  .letter.added,
-  .letter.untracked {
-    color: var(--ok);
+  .dot.added,
+  .dot.untracked {
+    background: var(--ok);
   }
-  .letter.deleted,
-  .letter.conflicted {
-    color: var(--danger);
+  .dot.deleted,
+  .dot.conflicted {
+    background: var(--danger);
   }
   .file {
     flex: none;
@@ -374,23 +408,39 @@ const all = $derived(files.flatMap((f) => (kind === "staged" && f.from ? [f.path
     font-size: 13px;
     color: var(--text-2);
   }
+  /* The hover slot: two 24 px actions and a 4 px gap, reserved even while
+     hidden. Shown on hover, while the row has focus and on the selected row. */
+  .slot {
+    flex: none;
+    display: flex;
+    gap: var(--sp-1);
+    width: calc(2 * var(--ctl-sm) + var(--sp-1));
+    opacity: 0;
+  }
+  .row:hover .slot,
+  .row:focus-within .slot,
+  .row.selected .slot {
+    opacity: 1;
+  }
+  @media (hover: none), (forced-colors: active) {
+    .slot {
+      opacity: 1;
+    }
+  }
+  /* Targets of at least 24x24 px (WCAG 2.5.8). */
   .icon {
     flex: none;
-    width: 24px;
-    height: 24px;
+    width: var(--ctl-sm);
+    height: var(--ctl-sm);
     padding: 0;
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    color: var(--text-2);
   }
-  /* Apart from Stage, and in the warning colour once pointed at. */
-  .discard {
-    margin-left: 6px;
-  }
-  .discard:hover,
-  .discard:focus-visible {
-    color: var(--danger);
-    background: color-mix(in srgb, var(--danger) 14%, transparent);
+  .icon:hover {
+    color: var(--text);
+    background: var(--s4);
   }
   .confirm {
     margin: 2px 0 6px;

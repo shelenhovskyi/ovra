@@ -66,12 +66,17 @@ test("stage a file and one hunk, commit, and switch to a new branch", async ({ p
   await expect(panel.getByTestId("git-branch")).toHaveAccessibleName("Branch: main");
   const changes = panel.getByTestId("git-changes");
   await expect(changes.getByRole("button", { name: "Stage new.txt" })).toBeVisible();
+  // A row's hover slot also shows while the row has focus, for keyboard users.
+  const row = changes.locator('[data-row][data-path="notes.txt"]');
+  const slot = row.locator("xpath=..").getByTestId("git-row-actions");
+  await expect(slot).toHaveCSS("opacity", "0");
+  await row.focus();
+  await expect(slot).toHaveCSS("opacity", "1");
 
   await changes.getByRole("button", { name: "Stage new.txt" }).click();
   await expect(panel.getByTestId("git-staged").getByRole("button", { name: "Unstage new.txt" })).toBeVisible();
 
   // A row shows its diff as the selected tab. Only the first of the two hunks of notes.txt.
-  const row = changes.locator('[data-row][data-path="notes.txt"]');
   await row.click();
   await expect(page.getByRole("tab", { name: "notes.txt (diff)", selected: true })).toBeVisible();
   const diff = page.getByRole("tabpanel", { name: "Diff of notes.txt" }).getByTestId("git-diff");

@@ -3,6 +3,7 @@ import { afterAll, afterEach, beforeAll, expect, it } from "vitest";
 import { listCommands, registerCommand } from "../keys/commands";
 import type { Hunk } from "../lib/protocol";
 import { CoreError, type Transport } from "../lib/transport";
+import { closeContextMenu, contextMenu } from "../menu/context-menu.svelte";
 import { Workspace } from "../shell/workspace.svelte";
 import { changed, FakeGitCore, repo } from "./fake-git";
 import TestHost from "./TestHost.svelte";
@@ -94,10 +95,10 @@ it("shows the branch and the lists, stages and unstages files and opens them", a
 
   expect(text("[data-testid=git-branch]")).toBe("Branch: main");
   expect(text(".upstream")).toBe("origin/main 2 ahead");
-  expect(names("conflicts")).toEqual(["! c.ts , conflicted"]);
+  expect(names("conflicts")).toEqual(["c.ts , conflicted"]);
   // A file in both lists has two rows with different names: one reads "staged".
-  expect(names("staged")).toEqual(["M a.ts src , modified, staged"]);
-  expect(names("changes")).toEqual(["M b.ts src , modified", "U new.md , untracked"]);
+  expect(names("staged")).toEqual(["a.ts src , modified, staged"]);
+  expect(names("changes")).toEqual(["b.ts src , modified", "new.md , untracked"]);
   expect(text("[data-testid=git-truncated]")).toBe("3 more changed files are not shown.");
 
   click("[aria-label='Stage src/b.ts']");
@@ -147,17 +148,21 @@ it("discards only after a confirmation and offers Undo until the next discard", 
   const core = new FakeGitCore();
   core.status = repo({ files: [changed("new.md", { unstaged: "untracked" }), changed("b.ts")] });
   await setup(core);
-  // Drawn icons, with Discard last, away from Stage.
-  const row = $("[data-testid=git-changes] [data-path='new.md']")?.parentElement;
-  const actions = [...(row?.querySelectorAll<HTMLButtonElement>("button.icon") ?? [])];
-  expect(actions.map((b) => b.getAttribute("aria-label"))).toEqual([
-    "Open new.md",
-    "Stage new.md",
-    "Discard changes to new.md…",
-  ]);
+  // The hover slot holds two drawn icons, Stage first; Discard is never there.
+  const button = $("[data-testid=git-changes] [data-path='new.md']");
+  const actions = [...(button?.parentElement?.querySelectorAll<HTMLButtonElement>("button.icon") ?? [])];
+  expect(actions.map((b) => b.getAttribute("aria-label"))).toEqual(["Stage new.md", "Open new.md"]);
   expect(actions.every((b) => b.querySelector("svg") && b.textContent?.trim() === "")).toBe(true);
+  expect(button?.parentElement?.querySelector(".dot")?.getAttribute("title")).toBe("U: untracked");
 
-  click("[aria-label='Discard changes to new.md…']");
+  // The row's menu: show and open, then stage, Discard last; a right click focuses the row.
+  button?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 5, clientY: 5 }));
+  const entries = () => contextMenu.open?.entries.map((e) => (e === "separator" ? "|" : e.label));
+  expect(entries()).toEqual(["Show diff", "Open file", "|", "Stage", "|", "Discard changes…"]);
+  expect(focusedRow()).toBe("new.md");
+  const discard = contextMenu.open?.entries.at(-1);
+  closeContextMenu(false);
+  if (discard !== "separator") void discard?.run();
   await settle();
   expect(text(".confirm p")).toContain("The file is deleted.");
   expect(document.activeElement?.textContent).toBe("Cancel");
@@ -167,11 +172,11 @@ it("discards only after a confirmation and offers Undo until the next discard", 
   expect(focusedRow()).toBe("new.md");
   expect(core.methods()).not.toContain("git.discard");
 
-  click("[aria-label='Discard changes to new.md…']");
-  flushSync();
+  press("Delete");
+  await settle();
   click("[data-testid=git-confirm-discard]");
   await settle();
-  expect(names("changes")).toEqual(["M b.ts , modified"]);
+  expect(names("changes")).toEqual(["b.ts , modified"]);
   click("[data-testid=git-undo-discard]");
   await settle();
   expect(core.calls.find((c) => c.method === "git.undo_discard")?.params).toEqual({
@@ -182,6 +187,11 @@ it("discards only after a confirmation and offers Undo until the next discard", 
   expect(names("changes")).toHaveLength(2);
   expect($("[data-testid=git-undo-discard]")).toBeNull();
   expect(focusedRow()).toBe("new.md");
+
+  // Shift+F10 opens the focused row's menu too.
+  press("F10", { shiftKey: true });
+  expect(entries()).toEqual(["Show diff", "Open file", "|", "Stage", "|", "Discard changes…"]);
+  closeContextMenu(false);
 });
 
 it("commits with Mod+Enter, says why it waits and shows a hook's output", async () => {
