@@ -104,12 +104,15 @@ function openDocs(): void {
   {:else}
     <div class="row">
       <h3 id="claude-setup-heading">{tip?.title ?? "Could not check Claude"}</h3>
-      <button type="button" disabled={busy} onclick={check}>Check again</button>
+      <button type="button" class:primary={!tip?.findAutomatically} disabled={busy} onclick={check}>Check again</button>
     </div>
   {/if}
   {#if tip && !compact}
     {#if tip.detail}
-      <p class="detail">{tip.detail}</p>
+      <details class="how">
+        <summary>How to fix</summary>
+        <p class="detail">{tip.detail}</p>
+      </details>
     {/if}
     {#if tip.command}
       <p class="command"><code>{tip.command}</code></p>
@@ -178,28 +181,36 @@ function openDocs(): void {
 
 <style>
   .setup {
-    margin: 0 12px 8px;
-    padding: 6px 8px;
-    border: 1px solid #2a2a31;
-    border-radius: 3px;
+    padding: 12px;
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    font-size: 12px;
+    gap: 8px;
+    font-size: 13px;
+    background: var(--s2);
+    border-radius: var(--radius);
   }
-  .setup.problem {
-    border-color: #ffd36b;
+  /* Ready: one quiet line, no card. */
+  .setup:not(.problem) {
+    padding: 4px 8px;
+    background: none;
   }
   h3 {
     margin: 0;
-    font-size: 12px;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .problem h3 {
+    color: var(--warn);
   }
   .line h3 {
     display: inline;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-2);
   }
   h3.pending {
-    font-weight: normal;
-    color: #9a9aa6;
+    font-weight: 400;
+    color: var(--text-2);
   }
   .row {
     display: flex;
@@ -220,78 +231,84 @@ function openDocs(): void {
   }
   .detail,
   label,
-  .install span {
-    color: #b4b4c0;
+  .install span,
+  summary {
+    color: var(--text-2);
     overflow-wrap: anywhere;
+  }
+  summary {
+    width: fit-content;
+    cursor: pointer;
   }
   .install {
     list-style: none;
     padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 6px;
   }
   .install li {
     display: flex;
     flex-direction: column;
   }
   code {
+    padding: 4px 8px;
+    background: var(--s3);
+    border-radius: var(--radius-sm);
     user-select: all;
     overflow-wrap: anywhere;
-    font-family: ui-monospace, monospace;
   }
   form {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 6px;
   }
   input {
+    height: 32px;
+    padding: 0 8px;
     font: inherit;
-    color: inherit;
-    background: #121216;
-    border: 1px solid #4a4a57;
-    border-radius: 3px;
-    padding: 2px 4px;
+    color: var(--text);
+    background: var(--s3);
+    border: none;
+    border-radius: var(--radius-sm);
   }
   input[aria-invalid="true"] {
-    border-color: #ff8f8f;
+    box-shadow: inset 0 0 0 1px var(--danger);
   }
   button {
+    height: 28px;
+    padding: 0 10px;
     font: inherit;
-    padding: 2px 8px;
-    color: #e6e6e6;
-    background: #2a2a33;
-    border: 1px solid #4a4a57;
-    border-radius: 3px;
+    color: var(--text-2);
+    background: none;
+    border: none;
+    border-radius: var(--radius-sm);
     cursor: pointer;
   }
+  button:not(.primary):hover:not(:disabled) {
+    color: var(--text);
+    background: var(--s3);
+  }
   button.primary {
-    border-color: #7aa2ff;
+    font-weight: 500;
+    color: var(--accent-ink);
+    background: var(--accent);
   }
   button.link {
     align-self: flex-start;
-    padding: 0;
-    background: none;
-    border: none;
-    color: #9db8ff;
-    text-decoration: underline;
+    padding: 0 4px;
   }
   button:disabled {
-    opacity: 0.55;
+    opacity: 0.5;
     cursor: default;
   }
-  button:focus-visible,
-  input:focus-visible {
-    outline: 2px solid #7aa2ff;
-    outline-offset: 1px;
-  }
   .error {
-    color: #ff8f8f;
+    color: var(--danger);
   }
   .warning {
     /* Who pays is what this card must get right (ADR 0006): it stands out. */
     font-weight: 600;
-    color: #ffd36b;
+    color: var(--warn);
   }
   @media (forced-colors: active) {
     .setup.problem {
@@ -299,3 +316,4 @@ function openDocs(): void {
     }
   }
 </style>
+

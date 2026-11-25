@@ -158,7 +158,7 @@ describe("accounts in the agents panel", () => {
     await show(core);
     button("Change")?.click();
     await settle();
-    button("Use another Claude account (work, personal)")?.click();
+    button("Use another Claude account")?.click();
     await settle();
     type("#account-name", "Work");
     type("#account-folder", "~/.claude-work");

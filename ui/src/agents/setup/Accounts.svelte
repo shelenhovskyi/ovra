@@ -85,12 +85,12 @@ function startRename(state: AccountState): void {
       </div>
     {:else}
       <button type="button" class="link" onclick={() => (adding = true)}
-        >Use another Claude account (work, personal)</button
+        >Use another Claude account</button
       >
     {/if}
     {#each found as dir (dir)}
       <p class="found" data-testid="claude-account-found">
-        <span class="detail">Found another account's folder: {dir}</span>
+        <span class="detail">Account found <code>{dir}</code></span>
         <button type="button" disabled={busy} onclick={() => void add(nameFromFolder(dir), dir)}
           >Add as {nameFromFolder(dir)}</button
         >
@@ -197,13 +197,13 @@ function startRename(state: AccountState): void {
   .accounts {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    border-top: 1px solid #2a2a31;
-    padding-top: 4px;
+    gap: 8px;
+    font-size: 13px;
   }
   h4 {
     margin: 0;
-    font-size: 12px;
+    font-size: 13px;
+    font-weight: 600;
   }
   ul {
     list-style: none;
@@ -211,11 +211,18 @@ function startRename(state: AccountState): void {
     padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 8px;
   }
   li {
     display: flex;
     flex-direction: column;
+    gap: 2px;
+    padding: 8px;
+    background: var(--s3);
+    border-radius: var(--radius-sm);
+  }
+  strong {
+    font-weight: 500;
   }
   .row {
     display: flex;
@@ -228,7 +235,7 @@ function startRename(state: AccountState): void {
   }
   .buttons {
     display: flex;
-    gap: 8px;
+    gap: 4px;
   }
   p {
     margin: 0;
@@ -238,24 +245,27 @@ function startRename(state: AccountState): void {
     align-items: center;
     justify-content: space-between;
     gap: 8px;
+    padding: 8px 10px;
+    background: var(--s2);
+    border-radius: var(--radius);
   }
   .detail,
   label {
-    color: #b4b4c0;
+    color: var(--text-2);
     overflow-wrap: anywhere;
   }
   .detail.problem {
-    color: #ffd36b;
+    color: var(--warn);
   }
   code {
+    font-size: 13px;
     user-select: all;
     overflow-wrap: anywhere;
-    font-family: ui-monospace, monospace;
   }
   form {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 6px;
   }
   form.inline {
     flex-direction: row;
@@ -273,40 +283,49 @@ function startRename(state: AccountState): void {
     clip-path: inset(50%);
   }
   input {
+    height: 32px;
+    padding: 0 8px;
     font: inherit;
-    color: inherit;
-    background: #121216;
-    border: 1px solid #4a4a57;
-    border-radius: 3px;
-    padding: 2px 4px;
+    color: var(--text);
+    background: var(--s3);
+    border: none;
+    border-radius: var(--radius-sm);
   }
   button {
+    height: 28px;
+    padding: 0 10px;
     font: inherit;
-    padding: 2px 8px;
-    color: #e6e6e6;
-    background: #2a2a33;
-    border: 1px solid #4a4a57;
-    border-radius: 3px;
+    color: var(--text-2);
+    background: none;
+    border: none;
+    border-radius: var(--radius-sm);
     cursor: pointer;
+  }
+  button:hover:not(:disabled) {
+    color: var(--text);
+    background: var(--s3);
+  }
+  .found button {
+    flex: none;
+    color: var(--text);
+    background: var(--s3);
   }
   button.link {
     align-self: flex-start;
-    padding: 0;
-    background: none;
-    border: none;
-    color: #9db8ff;
-    text-decoration: underline;
+    padding: 0 4px;
   }
   button:disabled {
-    opacity: 0.55;
+    opacity: 0.5;
     cursor: default;
   }
-  button:focus-visible,
-  input:focus-visible {
-    outline: 2px solid #7aa2ff;
-    outline-offset: 1px;
-  }
   .error {
-    color: #ff8f8f;
+    color: var(--danger);
+  }
+  @media (forced-colors: active) {
+    input,
+    .found {
+      border: 1px solid CanvasText;
+    }
   }
 </style>
+

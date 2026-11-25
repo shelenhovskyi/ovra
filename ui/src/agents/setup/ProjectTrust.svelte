@@ -367,26 +367,31 @@ function trust(trusted: boolean): Promise<void> {
 
 <style>
   .trust {
-    margin: 0 12px 8px;
-    padding: 6px 8px;
-    border: 1px solid #2a2a31;
-    border-radius: 3px;
+    padding: 12px;
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    font-size: 12px;
+    gap: 6px;
+    font-size: 13px;
+    background: var(--s2);
+    border-radius: var(--radius);
   }
+  /* Nothing to decide: one quiet line, no card. */
   .trust.quiet {
-    border-color: transparent;
-    padding-block: 2px;
-    color: #9a9aa8;
+    padding: 4px 8px;
+    background: none;
+    color: var(--text-2);
   }
   h3 {
     margin: 0;
-    font-size: 12px;
+    font-size: 14px;
+    font-weight: 600;
   }
   .quiet h3 {
-    font-weight: normal;
+    font-size: 13px;
+    font-weight: 500;
+  }
+  .changed h3 {
+    color: var(--warn);
   }
   .row {
     display: flex;
@@ -404,37 +409,33 @@ function trust(trusted: boolean): Promise<void> {
   }
   .detail,
   .path {
-    color: #b4b4c0;
+    color: var(--text-2);
   }
+  /* Security facts stay visible, set apart by colour and the "⚠" shape. */
   .warning,
   strong {
-    color: #ffd36b;
-    font-weight: 600;
+    color: var(--warn);
+    font-weight: 500;
   }
   h3:focus {
     outline: none;
   }
   h3:focus-visible {
-    outline: 2px solid #7aa2ff;
+    outline: 2px solid var(--accent);
     outline-offset: 1px;
-  }
-  button[aria-disabled="true"] {
-    opacity: 0.55;
-    cursor: default;
   }
   .wait {
     margin: 0;
-    font-size: 12px;
-    color: #ffd36b;
+    font-size: 13px;
+    color: var(--warn);
   }
   strong {
     margin-left: 4px;
-    font-weight: 600;
   }
   .details {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 6px;
     max-height: 40vh;
     overflow: auto;
   }
@@ -451,50 +452,49 @@ function trust(trusted: boolean): Promise<void> {
     padding-left: 8px;
   }
   code {
-    font-family: ui-monospace, monospace;
-    font-size: 11px;
+    font-size: 12px;
     overflow-wrap: anywhere;
   }
   button {
+    height: 28px;
+    padding: 0 10px;
     font: inherit;
-    padding: 2px 8px;
-    color: #e6e6e6;
-    background: #2a2a33;
-    border: 1px solid #4a4a57;
-    border-radius: 3px;
+    color: var(--text-2);
+    background: none;
+    border: none;
+    border-radius: var(--radius-sm);
     cursor: pointer;
   }
+  button:not(.primary):hover:not(:disabled) {
+    color: var(--text);
+    background: var(--s3);
+  }
   button.primary {
-    border-color: #7aa2ff;
+    font-weight: 500;
+    color: var(--accent-ink);
+    background: var(--accent);
   }
   button.link {
     align-self: flex-start;
-    padding: 0;
-    background: none;
-    border: none;
-    color: #9db8ff;
-    text-decoration: underline;
+    padding: 0 4px;
   }
-  button:disabled {
-    opacity: 0.55;
+  .quiet button.link.primary {
+    height: 24px;
+    padding: 0 8px;
+  }
+  button:disabled,
+  button[aria-disabled="true"] {
+    opacity: 0.5;
     cursor: default;
   }
-  button:focus-visible,
-  summary:focus-visible {
-    outline: 2px solid #7aa2ff;
-    outline-offset: 1px;
-  }
   .error {
-    color: #ff8f8f;
-  }
-  .trust.changed {
-    border-color: #ffd36b;
+    color: var(--danger);
   }
   .added .sign {
-    color: #8fd18f;
+    color: var(--ok);
   }
   .removed .sign {
-    color: #ff8f8f;
+    color: var(--danger);
   }
   .removed code {
     text-decoration: line-through;
@@ -505,3 +505,4 @@ function trust(trusted: boolean): Promise<void> {
     }
   }
 </style>
+
