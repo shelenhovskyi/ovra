@@ -296,6 +296,14 @@ async fn dropping_the_servers_ends_their_pods() {
 }
 
 #[tokio::test]
+async fn no_server_may_take_the_sandbox_bridge_port() {
+    let s = setup();
+    let started = s.start("srv", "exit 0", 3128, None);
+    assert_eq!(started.err().map(|e| e.code), Some(ErrorCode::BadRequest));
+    assert_eq!(entries(s.data.path()), Vec::<PathBuf>::new());
+}
+
+#[tokio::test]
 async fn nothing_runs_without_a_sandbox() {
     let s = setup_with(Identity(false));
     assert!(matches!(

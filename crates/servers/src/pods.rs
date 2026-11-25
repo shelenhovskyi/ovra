@@ -30,6 +30,10 @@ const ASK_TIMEOUT: Duration = Duration::from_secs(2);
 /// How long a pod whose control closed may take to end on its own.
 const LET_END: Duration = Duration::from_millis(500);
 
+/// The sandbox's own netproxy bridge inside every sandbox; no server may
+/// take it (`Sandbox::wrap` refuses it for the pod's first ports).
+const BRIDGE_PORT: u16 = 3128;
+
 pub(crate) struct Pods {
     sandbox: Arc<dyn Sandbox>,
     dir: PathBuf,
@@ -141,6 +145,10 @@ impl Pods {
                 ErrorCode::Unavailable,
                 format!("servers run only in a sandbox: {reason}"),
             ));
+        }
+        if server.port == BRIDGE_PORT {
+            let message = format!("port {BRIDGE_PORT} is the sandbox's own; pick another");
+            return Err(ProtocolError::new(ErrorCode::BadRequest, message));
         }
         let runtime = Handle::try_current().map_err(|e| internal(e.to_string()))?;
         let mut state = lock(&self.state);
