@@ -234,7 +234,7 @@ describe("ServersPanel", () => {
     expect(lines.map((l) => l.textContent)).toEqual(["VITE starting", "<b>not bold</b>", "ready in 300 ms"]);
     const vite = lines[0]?.querySelector<HTMLElement>("span");
     expect(vite?.textContent).toBe("VITE");
-    expect(vite?.style.color).toBe("rgb(126, 231, 135)");
+    expect(vite?.style.color).toBe("var(--ok)");
     expect(target.querySelector("[data-testid=server-log] b")).toBeNull();
   });
 

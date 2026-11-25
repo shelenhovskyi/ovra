@@ -4,7 +4,7 @@
 import { tick, untrack } from "svelte";
 import type { DevServerId as ServerId } from "../lib/protocol";
 import { useOvra } from "../shell/context";
-import { PALETTE, parseAnsi } from "./ansi";
+import { fillColour, parseAnsi, textColour } from "./ansi";
 import { MAX_LINES, ServerLog } from "./log.svelte";
 
 let { id, name }: { id: ServerId; name: string } = $props();
@@ -51,8 +51,8 @@ function onScroll(): void {
     {#each log.lines as line (line.n)}
       <div class="line">{#each parseAnsi(line.text) as run, i (i)}<span
             class:bold={run.bold}
-            style:color={run.fg === undefined ? null : PALETTE[run.fg]}
-            style:background={run.bg === undefined ? null : PALETTE[run.bg]}
+            style:color={run.fg === undefined ? null : textColour(run.fg)}
+            style:background={run.bg === undefined ? null : fillColour(run.bg)}
             >{run.text}</span
           >{/each}</div>
     {/each}

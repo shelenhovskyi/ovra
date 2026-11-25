@@ -13,25 +13,37 @@ export type Run = {
 
 type Style = Omit<Run, "text">;
 
-/** The 16 terminal colours, readable on the log's dark background. */
-export const PALETTE = [
-  "#6e6e7a",
-  "#ff7b72",
-  "#7ee787",
-  "#e3b341",
-  "#79c0ff",
-  "#d2a8ff",
-  "#56d4dd",
-  "#c9d1d9",
-  "#8b949e",
-  "#ffa198",
-  "#a5f3a5",
-  "#f2cc60",
-  "#a5d6ff",
-  "#e2c5ff",
-  "#b3f0ff",
-  "#ffffff",
+// Text colours map to theme tokens, so both themes keep them readable; the
+// bright variants look like the normal ones. Black and white follow the
+// theme's text, so "white" output stays visible on a light background.
+const TEXT = [
+  "var(--text-2)",
+  "var(--danger)",
+  "var(--ok)",
+  "var(--warn)",
+  "var(--kw)",
+  "var(--attr)",
+  "var(--ty)",
+  "var(--text)",
 ] as const;
+
+/** Backgrounds are the soft fills, so the default text stays readable on them. */
+const FILL = [
+  "var(--s4)",
+  "var(--danger-soft)",
+  "var(--ok-soft)",
+  "var(--warn-soft)",
+  "var(--accent-soft)",
+  "var(--accent-soft)",
+  "var(--accent-soft)",
+  "var(--s3)",
+] as const;
+
+/** The CSS colour of terminal colour `n` (0-15) as text. */
+export const textColour = (n: number): string => TEXT[n % 8] ?? "inherit";
+
+/** The CSS colour of terminal colour `n` (0-15) as a background. */
+export const fillColour = (n: number): string => FILL[n % 8] ?? "transparent";
 
 // CSI ... final byte, OSC ... BEL or ST, and lone two-byte escapes.
 // biome-ignore lint/suspicious/noControlCharactersInRegex: matching terminal escapes is the point.
