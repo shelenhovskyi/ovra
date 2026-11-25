@@ -28,6 +28,18 @@ const NEEDS: Partial<Record<LspAction, [capability: string, what: string]>> = {
   hover: ["hoverProvider", "describe the symbol here"],
 };
 
+/** Whether a server with `capabilities` can do `action`; capabilities not known yet count as yes. */
+export function supports(capabilities: Record<string, unknown> | null, action: LspAction): boolean {
+  const need = NEEDS[action];
+  return !need || !capabilities || Boolean(capabilities[need[0]]);
+}
+
+/** Whether a language server serves `view` and can do `action`, for menus that leave out what does not apply. */
+export function canRun(view: EditorView, action: LspAction): boolean {
+  const plugin = LSPPlugin.get(view);
+  return plugin !== null && supports(plugin.client.serverCapabilities as Record<string, unknown> | null, action);
+}
+
 /** Runs `action` in `view`; returns false only when no language server is attached. */
 export function runAction(view: EditorView, action: LspAction, context: Context): boolean {
   const plugin = LSPPlugin.get(view);
@@ -35,8 +47,7 @@ export function runAction(view: EditorView, action: LspAction, context: Context)
   if (action === "next_problem") return nextDiagnostic(view);
   if (!plugin) return false;
   const need = NEEDS[action];
-  const capabilities = plugin.client.serverCapabilities as Record<string, unknown> | null;
-  if (need && capabilities && !capabilities[need[0]]) {
+  if (need && !supports(plugin.client.serverCapabilities as Record<string, unknown> | null, action)) {
     context.note(`${context.serverName(plugin)} cannot ${need[1]}.`);
     return true;
   }

@@ -87,7 +87,7 @@ remembered View or Edit per file type). This list only adds the menu.
 | Go to definition, references, rename (LSP)                                   | yes     | yes | yes       | yes    | yes (ADR 0007)              | done                   |
 | Diagnostics (LSP)                                                            | yes     | yes | yes       | yes    | yes                         | done                   |
 | Go to symbol in file (Mod+Shift+O)                                           | yes     | yes | yes       | yes    | yes                         | done                   |
-| Format document (LSP), format on save                                        | yes     | yes | yes       | yes    | no                          | P1                     |
+| Format document (LSP), format on save                                        | yes     | yes | yes       | yes    | format yes, on save no      | P1 (on save)           |
 | Breadcrumbs (path and symbol)                                                | yes     | yes | yes       | yes    | no                          | P1                     |
 | Word wrap toggle                                                             | yes     | yes | yes       | yes    | yes (Alt+Z)                 | done                   |
 | Auto save (after delay / on focus change)                                    | yes     | yes | yes       | yes    | no                          | P1                     |

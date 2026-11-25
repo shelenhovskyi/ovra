@@ -2,9 +2,9 @@
 // server serves the file, and the file's path.
 
 import { selectAll } from "@codemirror/commands";
-import { LSPPlugin } from "@codemirror/lsp-client";
 import type { EditorView } from "@codemirror/view";
 import { commandItem, type MenuEntry } from "../menu/context-menu.svelte";
+import { canRun } from "./lsp/actions";
 import { runSearch } from "./search";
 
 /** `path` under the project's `root`, written the way the root is (backslashes on Windows). */
@@ -39,7 +39,6 @@ export function editorMenu(view: EditorView, root: string | null, path: string):
   const { state } = view;
   const selected = () => state.sliceDoc(state.selection.main.from, state.selection.main.to);
   const empty = state.selection.main.empty;
-  const lsp = LSPPlugin.get(view) !== null;
   const search = (action: Parameters<typeof runSearch>[0]) => () => runSearch(action, view);
   return [
     // Items that do not apply are left out (docs/design/components.md).
@@ -71,9 +70,10 @@ export function editorMenu(view: EditorView, root: string | null, path: string):
     { label: "Go to line", keys: "Ctrl+G", run: search("go_to_line") },
     commandItem("editor.go_to_symbol", "Go to symbol"),
     "separator",
-    lsp && commandItem("editor.lsp_definition", "Go to definition"),
-    lsp && commandItem("editor.lsp_references", "Find references"),
-    lsp && commandItem("editor.lsp_rename", "Rename symbol"),
+    canRun(view, "definition") && commandItem("editor.lsp_definition", "Go to definition"),
+    canRun(view, "references") && commandItem("editor.lsp_references", "Find references"),
+    canRun(view, "rename") && !state.readOnly && commandItem("editor.lsp_rename", "Rename symbol"),
+    canRun(view, "format") && !state.readOnly && commandItem("editor.lsp_format", "Format document"),
     "separator",
     ...pathEntries(root, path),
   ];
