@@ -18,7 +18,7 @@ use ovra_sandbox_linux::{Bubblewrap, HELPER_FLAG, Protected, Setup};
 const HELPER: &str = env!("CARGO_BIN_EXE_ovra-sandbox-helper");
 
 const PROTECTED: Protected = Protected {
-    work_dir: &[".claude", "**/CLAUDE.md", ".envrc"],
+    work_dir: &[".claude", "**/CLAUDE.md", ".envrc", ".vscode"],
 };
 
 struct Dir(PathBuf);
@@ -255,6 +255,7 @@ fn a_direct_session_writes_its_project_and_nothing_else() {
         make missing included git config: echo x >> local.gitconfig
         write this project memory: echo x > {home}/.claude/projects/{key}/memory/m.md
         write project agent settings: echo x >> .claude/settings.json
+        make editor tasks: mkdir -p .vscode && echo x > .vscode/tasks.json
         write a nested CLAUDE.md: echo x >> src/CLAUDE.md
         move the git folder away: mv .git .git-old
         move a CLAUDE.md folder away: mv src src-old

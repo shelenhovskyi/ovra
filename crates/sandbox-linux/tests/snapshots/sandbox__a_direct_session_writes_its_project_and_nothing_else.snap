@@ -28,6 +28,7 @@ write included git config: no
 make missing included git config: no
 write this project memory: no
 write project agent settings: no
+make editor tasks: no
 write a nested CLAUDE.md: no
 move the git folder away: no
 move a CLAUDE.md folder away: no

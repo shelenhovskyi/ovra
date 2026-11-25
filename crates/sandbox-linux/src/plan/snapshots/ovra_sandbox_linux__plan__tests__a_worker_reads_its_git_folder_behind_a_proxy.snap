@@ -40,8 +40,10 @@ expression: root.show(&line.unwrap())
 --bind ROOT/home/.claude/history.jsonl
 --ro-bind ROOT/projects/app/.git
 --bind ROOT/data/worktrees/app/t/w1
+--ro-bind ROOT/data/worktrees/app/t/w1/.claude
 --ro-bind ROOT/data/worktrees/app/t/w1/.git
 --ro-bind ROOT/data/proxy/w1.sock
+--ro-bind ROOT/data/proxy/ca.pem
 --ro-bind ROOT/bin/ovra
 --ro-bind /usr/bin/dash
 --chdir ROOT/data/worktrees/app/t/w1
@@ -131,8 +133,6 @@ GOOGLE_CLOUD_PROJECT
 --env
 SSL_CERT_FILE
 --env
-SSL_CERT_DIR
---env
 NODE_EXTRA_CA_CERTS
 --env
 CARGO_HOME
@@ -155,6 +155,12 @@ https_proxy
 --env
 NODE_USE_ENV_PROXY
 --env
+REQUESTS_CA_BUNDLE
+--env
+CURL_CA_BUNDLE
+--env
+GIT_SSL_CAINFO
+--env
 PATH
 --env
 TMPDIR
@@ -171,6 +177,12 @@ env no_proxy = None
 env ALL_PROXY = None
 env all_proxy = None
 env NODE_USE_ENV_PROXY = Some("1")
+env SSL_CERT_FILE = Some("ROOT/data/proxy/ca.pem")
+env NODE_EXTRA_CA_CERTS = Some("ROOT/data/proxy/ca.pem")
+env REQUESTS_CA_BUNDLE = Some("ROOT/data/proxy/ca.pem")
+env CURL_CA_BUNDLE = Some("ROOT/data/proxy/ca.pem")
+env GIT_SSL_CAINFO = Some("ROOT/data/proxy/ca.pem")
+env SSL_CERT_DIR = None
 env PATH = Some("/usr/bin")
 env TMPDIR = Some("/tmp")
 env GITHUB_TOKEN = None

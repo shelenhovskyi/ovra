@@ -99,6 +99,22 @@ const ENV_KEPT: [&str; 36] = [
     "OVRA_FAKE_CLAUDE_FIXTURE",
 ];
 
+/// Where TLS clients look for a CA bundle: OpenSSL and rustls, Node,
+/// Python requests, curl, git.
+const CA_BUNDLE_VARS: [&str; 5] = [
+    "SSL_CERT_FILE",
+    "NODE_EXTRA_CA_CERTS",
+    "REQUESTS_CA_BUNDLE",
+    "CURL_CA_BUNDLE",
+    "GIT_SSL_CAINFO",
+];
+
+/// Protected folders made empty in the session's folder when missing, so
+/// the agent cannot create them (`.claude/settings.json` hooks, editor
+/// tasks) for the user's own tools to run later. Git does not show an
+/// empty folder. Missing protected files are left to the review.
+const FOLDERS_MADE: [&str; 4] = [".claude", ".vscode", ".idea", ".devcontainer"];
+
 /// Package caches builds write, relative to the home folder. Each session
 /// gets its project's own copy (empty at first), bound where the cache is
 /// if that cache or its parent exists: one shared with the user's own
@@ -261,8 +277,11 @@ impl Plan {
                 plan.mounts.push(Mount::Tmpfs(hidden));
             }
         }
-        if let ProfileNetwork::Proxy { address, .. } = &profile.network {
+        if let ProfileNetwork::Proxy { address, ca_bundle } = &profile.network {
             plan.mounts.push(Mount::Ro(real(Path::new(address))?));
+            if let Some(bundle) = ca_bundle {
+                plan.mounts.push(Mount::Ro(real(bundle)?));
+            }
         }
         Ok(plan)
     }
@@ -559,7 +578,7 @@ impl Plan {
             args.extend([os("--rw"), os(path)]);
         }
         let mut env = line.env;
-        if let ProfileNetwork::Proxy { address, .. } = &self.network {
+        if let ProfileNetwork::Proxy { address, ca_bundle } = &self.network {
             args.extend([os("--bridge"), os(real(Path::new(address))?)]);
             args.push(os(PROXY_PORT.to_string()));
             let proxy = os(format!("http://127.0.0.1:{PROXY_PORT}"));
@@ -570,6 +589,16 @@ impl Plan {
                 env.push((os(name), None));
             }
             env.push((os("NODE_USE_ENV_PROXY"), Some(os("1"))));
+            // The proxy adds secrets under its own CA: every TLS client
+            // trusts the bundle that holds it, and no folder of roots that
+            // would be read instead.
+            if let Some(bundle) = ca_bundle {
+                let bundle = os(real(bundle)?);
+                for name in CA_BUNDLE_VARS {
+                    env.push((os(name), Some(bundle.clone())));
+                }
+                env.push((os("SSL_CERT_DIR"), None));
+            }
         }
         env.push((os("PATH"), Some(self.path.clone())));
         env.push((os("TMPDIR"), Some(os("/tmp"))));
@@ -683,7 +712,11 @@ fn protected_paths(
     }
     found.push(work_dir.join(".git"));
     walk(work_dir, &deep, hidden, &mut found)?;
-    let mut made = Vec::new();
+    let mut made: Vec<(PathBuf, bool)> = FOLDERS_MADE
+        .iter()
+        .filter(|name| setup.protected.work_dir.contains(name))
+        .map(|name| (work_dir.join(name), true))
+        .collect();
     if let Some(hooks) = hooks_path(work_dir, home) {
         made.push((hooks, true));
     }
