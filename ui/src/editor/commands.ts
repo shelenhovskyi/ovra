@@ -2,6 +2,7 @@
 
 import { toggleComment } from "@codemirror/commands";
 import { registerCommand } from "../keys/commands";
+import { formatShortcut, inBrowserTab, isApple, liveKeys } from "../keys/shortcut";
 import { showList } from "../palette/mode.svelte";
 import type { Workspace } from "../shell/workspace.svelte";
 import { foldCommands } from "./folding";
@@ -77,7 +78,7 @@ export async function toggle(workspace: Target): Promise<void> {
  * first (the markers live there), and the action waits for its changes. A
  * file that cannot be edited says why instead, as Mod+E does.
  */
-function inEditor(workspace: Target, action: () => unknown): () => Promise<void> {
+function inEditor(workspace: Target, action: () => unknown, switched?: string): () => Promise<void> {
   // A function, so the check after `toggle` is not narrowed away.
   const editing = () => workspace.mode === "edit";
   return async () => {
@@ -85,6 +86,9 @@ function inEditor(workspace: Target, action: () => unknown): () => Promise<void>
       const ready = editorReady();
       await toggle(workspace);
       if (!editing()) return;
+      // Said when the person asked only to look, not to edit.
+      if (switched)
+        tabs.notice = `${switched} View (${formatShortcut(liveKeys("Mod+E", inBrowserTab()), isApple())}) goes back.`;
       await ready;
     }
     await action();
@@ -320,7 +324,12 @@ export function registerEditorCommands(workspace: Target): () => void {
       }),
     }),
     ...SEARCH_ACTIONS.map(([action, title, keys]) =>
-      registerCommand({ id: `editor.${action}`, title, keys, run: inEditor(workspace, () => runSearch(action)) }),
+      registerCommand({
+        id: `editor.${action}`,
+        title,
+        keys,
+        run: inEditor(workspace, () => runSearch(action), "Switched to Edit."),
+      }),
     ),
   ];
   return () => {

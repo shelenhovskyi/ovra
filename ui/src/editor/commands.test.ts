@@ -162,6 +162,22 @@ test("editor.save in view mode saves unsaved text and otherwise does nothing", a
   unregister();
 });
 
+test("find in view mode switches to editing and says so", async () => {
+  const { core, files, workspace, unregister } = setup();
+  core.put("a.rs", "fn a() {}");
+  workspace.openFile("a.rs");
+  const done = run("editor.find");
+  const buffer = files.buffers.open("a.rs");
+  await buffer.loaded;
+  const view = new EditorView({ parent: document.body });
+  buffer.attach(view);
+  await done;
+  expect([workspace.mode, tabs.notice]).toEqual(["edit", "Switched to Edit. View (Ctrl+E) goes back."]);
+  buffer.detach();
+  view.destroy();
+  unregister();
+});
+
 test("git change commands in view mode switch the file to editing and then act", async () => {
   const { core, files, workspace, unregister } = setup();
   core.put("a.rs", "fn a() {}");

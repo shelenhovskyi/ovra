@@ -14,7 +14,7 @@ import { clearFacts, detectIndent, lineEndingOf, publishFacts } from "../editor/
 import { formatShortcut, inBrowserTab, isApple, liveKeys } from "../keys/shortcut";
 import { CoreError } from "../lib/transport";
 import { languageServers } from "../lsp/servers.svelte";
-import { isMenuKey, openContextMenu } from "../menu/context-menu.svelte";
+import { commandItem, isMenuKey, openContextMenu } from "../menu/context-menu.svelte";
 import { useOvra } from "../shell/context";
 import ImageView from "./ImageView.svelte";
 import Lines from "./Lines.svelte";
@@ -126,7 +126,10 @@ function ontyping(event: KeyboardEvent): void {
     : "This file cannot be edited here.";
 }
 
-/** Copy, Select all and the file's path; Shift+F10 or the ContextMenu key open it too. */
+/**
+ * Copy, Select all, Find and Go to line (in Edit, as the editor's own menu
+ * has them) and the file's path; Shift+F10 or the ContextMenu key open it too.
+ */
 function openMenu(event: MouseEvent | KeyboardEvent): void {
   const path = workspace.openPath;
   const area = content;
@@ -136,6 +139,9 @@ function openMenu(event: MouseEvent | KeyboardEvent): void {
   openContextMenu(event, [
     board && text !== "" && { label: "Copy", keys: "Mod+C", run: () => board.writeText(text) },
     { label: "Select all", keys: "Mod+A", run: () => window.getSelection()?.selectAllChildren(area) },
+    "separator",
+    editable && commandItem("editor.find", "Find"),
+    editable && commandItem("editor.go_to_line", "Go to line"),
     "separator",
     ...pathEntries(workspace.project?.root ?? null, path),
   ]);
