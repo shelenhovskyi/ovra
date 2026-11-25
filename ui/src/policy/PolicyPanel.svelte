@@ -489,14 +489,17 @@ function onDialogKeydown(event: KeyboardEvent): void {
   .body {
     flex: 1;
     overflow: auto;
-    padding: 0 12px 12px;
+    padding: 8px 12px 12px;
+  }
+  .intro {
+    margin: 0 0 8px;
   }
   .muted {
     color: #b4b4c0;
     font-size: 12px;
   }
   .note {
-    margin: 6px 12px;
+    margin: 8px 12px;
   }
   .error {
     color: #ff8f8f;

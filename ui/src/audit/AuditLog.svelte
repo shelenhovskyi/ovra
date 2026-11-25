@@ -135,8 +135,8 @@ function who(session: string | null): string {
         <button type="button" class="close" aria-keyshortcuts="Escape" onclick={close}>Close</button>
       </header>
       <p class="muted note">
-        A record of what agents did in this project and who allowed it: agent starts, tool calls, trust, policy and
-        review decisions. Entries are only ever added. Inputs keep no file contents, and token-like text is removed.
+        What agents did in this project and who allowed it. Entries are only ever added; they keep no file contents
+        and no token-like text.
       </p>
       {#if trail.error}
         <p class="error" role="alert">The audit log could not be read: {trail.error}</p>
@@ -261,7 +261,7 @@ function who(session: string | null): string {
     font-size: 12px;
   }
   .note {
-    margin: 6px 12px;
+    margin: 8px 12px;
   }
   .error {
     color: #ff8f8f;
