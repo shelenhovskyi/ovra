@@ -282,7 +282,7 @@ function scrollToActive(): void {
             aria-label={`Unpin ${label(path)}`}
             onclick={() => togglePin(path)}
             oncontextmenu={(event) => menu(event, path)}
-            ><span class="x"><Icon name="pin" small /></span>{#if dirty}<span class="dot"><Icon name="dot" small /></span
+            ><span class="x"><Icon name="pin" small /></span>{#if dirty}<span class="dot"></span
               >{/if}</button
           >
         {:else}
@@ -302,7 +302,7 @@ function scrollToActive(): void {
           aria-label={dirty ? `Close ${label(path)} (unsaved changes)` : `Close ${label(path)}`}
           onclick={() => close(path)}
           oncontextmenu={(event) => menu(event, path)}
-          ><span class="x"><Icon name="close" small /></span>{#if dirty}<span class="dot"><Icon name="dot" small /></span
+          ><span class="x"><Icon name="close" small /></span>{#if dirty}<span class="dot"></span
             >{/if}</button
           >
         {/if}
@@ -399,7 +399,7 @@ function scrollToActive(): void {
     flex-shrink: 0;
     height: 32px;
     box-sizing: border-box;
-    border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+    border-radius: var(--r-md) var(--r-md) 0 0;
     color: var(--text-2);
   }
   .tab.preview .name {
@@ -477,16 +477,27 @@ function scrollToActive(): void {
   .close > span {
     display: grid;
   }
-  /* Unsaved: an accent dot, which turns into the close icon on hover. */
-  .dot {
-    color: var(--accent);
+  /* Unsaved: a 6 px dot in the close slot, which turns into the close
+     button while the tab is pointed at or the button has focus. */
+  .close > .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: var(--r-pill);
+    background: var(--text-2);
   }
   .close.dirty .x,
-  .close.dirty:hover .dot {
+  .tab:hover .close.dirty .dot,
+  .close.dirty:focus-visible .dot {
     display: none;
   }
-  .close.dirty:hover .x {
+  .tab:hover .close.dirty .x,
+  .close.dirty:focus-visible .x {
     display: grid;
+  }
+  @media (forced-colors: active) {
+    .close > .dot {
+      background: CanvasText;
+    }
   }
   .close:hover,
   .pin:hover {
