@@ -404,8 +404,13 @@ function onfocus(): void {
   if (current === null && rows.length > 0) selected = rows[0]?.path ?? null;
 }
 
+/** Keys pressed on their own while typing a prefix (a capital, a dead key, an input method). */
+const TYPING_KEYS = new Set(["Shift", "CapsLock", "AltGraph", "Dead", "Process", "Compose"]);
+
+const typesText = (e: KeyboardEvent) => e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey;
+
 function typeahead(e: KeyboardEvent): boolean {
-  if (e.key.length !== 1 || e.ctrlKey || e.metaKey || e.altKey) return false;
+  if (!typesText(e)) return false;
   const now = Date.now();
   const fresh = now - typed.at > TYPEAHEAD_RESET_MS;
   if (fresh && e.key === " ") return false;
@@ -418,6 +423,8 @@ function typeahead(e: KeyboardEvent): boolean {
 }
 
 function onkeydown(e: KeyboardEvent): void {
+  // Any key that types nothing ends the prefix (the ARIA tree pattern), so "car Enter rea" finds README.
+  if (!typesText(e) && !TYPING_KEYS.has(e.key)) typed = { text: "", at: 0 };
   const index = activeIndex;
   const row = rows[index];
   const page = Math.max(1, Math.floor(height / ROW_HEIGHT) - 1);

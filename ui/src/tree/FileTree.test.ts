@@ -207,6 +207,19 @@ describe("FileTree", () => {
     expect(t.row("cherry.ts").getAttribute("aria-selected")).toBe("true");
   });
 
+  it("starts a new typed prefix after Enter or any other key that types nothing", async () => {
+    const t = mountTree(new FakeCore(dirsFromPaths(["Cargo.toml", "README.md", "src.rs"])));
+    await settle();
+    for (const k of ["c", "a", "r", "Enter", "r", "e"]) t.key(k);
+    expect(t.opened).toEqual(["Cargo.toml"]);
+    expect(t.row("README.md").getAttribute("aria-selected")).toBe("true");
+    for (const k of ["s", "ArrowUp", "c"]) t.key(k);
+    expect(t.row("Cargo.toml").getAttribute("aria-selected")).toBe("true");
+    // Shift alone, as for a capital letter, keeps the prefix.
+    for (const k of ["Home", "s", "Shift", "R"]) t.key(k);
+    expect(t.row("src.rs").getAttribute("aria-selected")).toBe("true");
+  });
+
   it("keeps the open file's preview tab on Enter", async () => {
     const t = mountTree(new FakeCore(dirsFromPaths(["a.ts", "b.ts"])), "a.ts");
     await settle();
