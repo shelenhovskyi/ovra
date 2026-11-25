@@ -26,7 +26,9 @@ jobs:
       - run: just build-headless
       - run: pnpm --filter @ovra/e2e exec playwright install chromium
       - name: e2e
-        run: pnpm --filter @ovra/e2e exec playwright test --reporter=list --trace off specs/claude-driver.spec.ts specs/git.spec.ts
+        env:
+          OVRA_E2E_SCREENSHOTS: "1"
+        run: pnpm --filter @ovra/e2e exec playwright test --reporter=list --trace off specs/claude-driver.spec.ts specs/git.spec.ts --repeat-each 3
       - if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

@@ -13,5 +13,5 @@ export default defineConfig({
   timeout: 10_000,
   globalTimeout: 120_000,
   reporter: [process.env.CI ? ["github"] : ["list"], ["json", { outputFile: "test-results/report.json" }]],
-  use: { trace: "off" },
+  use: { trace: "off", screenshot: process.env.OVRA_E2E_SCREENSHOTS ? "only-on-failure" : "off" },
 });
