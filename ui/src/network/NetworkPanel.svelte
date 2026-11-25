@@ -36,6 +36,9 @@ const storeReady = $derived(access.store?.state === "available");
 // Sessions this page does not protect: the allowlist does not limit them and
 // they can read the keychain like any program the person runs.
 const exposed = $derived(workspace.project ? sessions.inProject(workspace.project.id).filter(unprotected) : []);
+// Without a sandbox a session can also read the keychain like any program the person runs.
+const bare = $derived(exposed.filter((s) => s.sandbox === null).length);
+let sessionsError = $state(false);
 const unreachable = $derived(
   new Set(access.allowlist ? access.secrets.filter((s) => !reaches([...base, ...own], s.host)).map((s) => s.name) : []),
 );
@@ -51,7 +54,11 @@ $effect(() => {
   untrack(() => {
     clearForm();
     void access.show(project);
-    if (project) sessions.load(project).catch(() => {});
+    sessionsError = false;
+    if (project)
+      sessions.load(project).catch(() => {
+        sessionsError = true;
+      });
   });
 });
 
@@ -227,8 +234,14 @@ function onDialogKeydown(event: KeyboardEvent): void {
         {#if exposed.length > 0}
           <p class="warn note" role="note" data-testid="unsandboxed">
             {exposed.length === 1 ? "One session of this project runs" : `${exposed.length} sessions of this project run`}
-            without Ovra's sandbox. These hosts do not limit it, and it can read stored secrets from the keychain like any
-            program you run.
+            {bare > 0 ? "without Ovra's sandbox" : "with an open network"}. These hosts do not limit
+            {exposed.length === 1 ? "it" : "them"}{bare > 0
+              ? ", and a session without the sandbox can read stored secrets from the keychain like any program you run"
+              : ""}.
+          </p>
+        {:else if sessionsError}
+          <p class="warn note" role="note" data-testid="unsandboxed">
+            Could not check whether this project's sessions run in the sandbox.
           </p>
         {/if}
         <div class="body">

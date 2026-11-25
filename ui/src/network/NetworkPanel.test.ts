@@ -169,7 +169,15 @@ describe("NetworkPanel", () => {
     app = null;
     core.sessions = [session("s1", { name: "bubblewrap", network: "proxy" }), session("s2", null)];
     await open(core);
-    expect($("[data-testid=unsandboxed]")?.textContent).toMatch(/One session of this project runs\s+without/);
+    expect($("[data-testid=unsandboxed]")?.textContent).toMatch(
+      /One session of this project runs\s+without.*keychain/s,
+    );
+    unmount(app ?? {});
+    app = null;
+    const failing = new FakeAccessCore();
+    failing.refuse.set("agents.list", "core went away");
+    await open(failing);
+    expect($("[data-testid=unsandboxed]")?.textContent).toContain("Could not check");
   });
 
   it("keeps Tab inside the dialog, from the heading and past a disabled form", async () => {
