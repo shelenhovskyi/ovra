@@ -1,9 +1,10 @@
 //! The real Chromium, opt-in: `just browser-live [path]`, or
 //! `OVRA_BROWSER_LIVE=<chromium> cargo test -p ovra-browser --test live -- --ignored`
 //! (no path: the browser on `PATH`).
-//! It runs without the Ovra sandbox (a pass-through one), against a page
+//! It runs without the Ovra sandbox (a pass-through one), against pages
 //! served on loopback, to prove the pipe, the screencast, input, snapshots
-//! and picks against the browser itself.
+//! and picks against the browser itself, that popups are closed before
+//! they load, and that a cross-site frame's navigations are held.
 
 use std::io::{BufRead as _, BufReader, Write as _};
 use std::net::TcpListener;
@@ -22,7 +23,15 @@ const PAGE: &str = r#"<!doctype html><title>Live</title>
 <main><h1>Agent browser</h1>
 <button id="save" class="btn primary" data-source="src/Save.tsx:12" style="color: rgb(255, 0, 0)"
   onclick="this.textContent = 'Saved'; console.log('clicked', 1)">Save</button>
-<input aria-label="Email"></main>"#;
+<input aria-label="Email">
+<button onclick="window.open('/popup', '_blank', 'noopener'); this.textContent = 'Opened'">Popup</button>
+<a href="/tab" target="_blank">Tab</a></main>"#;
+
+/// A frame of the other origin (`localhost`, where the page is
+/// `127.0.0.1`: another site, so another process) that navigates itself.
+const HOST: &str =
+    r#"<!doctype html><title>Host</title><iframe src="http://localhost:PORT/inner"></iframe>"#;
+const INNER: &str = r#"<!doctype html><script>onload = () => { location.href = '/next' }</script>"#;
 
 #[derive(Debug)]
 struct PassThrough;
@@ -43,6 +52,8 @@ impl Sandbox for PassThrough {
 struct Sink {
     frames: Mutex<Vec<FrameMetadata>>,
     asked: Mutex<Vec<String>>,
+    /// An origin allowed the first time only.
+    once: Mutex<Option<String>>,
 }
 
 impl BrowserSink for Sink {
@@ -53,33 +64,44 @@ impl BrowserSink for Sink {
     fn page(&self, _: PageInfo) {}
     fn closed(&self, _: &PageId) {}
     fn navigation(&self, _: &PageId, origin: String) -> BoxFuture<'_, bool> {
-        self.asked.lock().expect("asked").push(origin);
-        Box::pin(async { true })
+        let mut asked = self.asked.lock().expect("asked");
+        let again = asked.contains(&origin);
+        let allow = !(again && self.once.lock().expect("once").as_ref() == Some(&origin));
+        asked.push(origin);
+        Box::pin(async move { allow })
     }
 }
 
-/// Serves [`PAGE`] to every request on a loopback port.
-fn serve() -> u16 {
+type Served = Arc<Mutex<Vec<String>>>;
+
+/// Serves `page(path)` to every request on a loopback port; the paths
+/// asked for, in order.
+fn serve(page: impl Fn(&str) -> String + Send + 'static) -> (u16, Served) {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
     let port = listener.local_addr().expect("addr").port();
+    let served = Served::default();
+    let paths = served.clone();
     std::thread::spawn(move || {
         for stream in listener.incoming().flatten() {
             let mut reader = BufReader::new(stream);
             let mut line = String::new();
+            let _ = reader.read_line(&mut line);
+            let path = line.split(' ').nth(1).unwrap_or("/").to_owned();
             while reader.read_line(&mut line).is_ok_and(|n| n > 2) {
                 line.clear();
             }
-            let body = PAGE.as_bytes();
+            let body = page(&path);
+            paths.lock().expect("paths").push(path);
             let head = format!(
                 "HTTP/1.1 200 OK\r\ncontent-type: text/html\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
                 body.len()
             );
             let mut stream = reader.into_inner();
             let _ = stream.write_all(head.as_bytes());
-            let _ = stream.write_all(body);
+            let _ = stream.write_all(body.as_bytes());
         }
     });
-    port
+    (port, served)
 }
 
 async fn until(what: &str, mut done: impl FnMut() -> bool) {
@@ -107,7 +129,15 @@ async fn the_real_chromium_over_the_pipe() {
         network: ProfileNetwork::Blocked,
     };
     let sink = Arc::new(Sink::default());
-    let url = format!("http://127.0.0.1:{}/", serve());
+    let (other, other_served) = serve(|path| match path {
+        "/inner" => INNER.to_owned(),
+        _ => "next".to_owned(),
+    });
+    let (port, served) = serve(move |path| match path {
+        "/host" => HOST.replace("PORT", &other.to_string()),
+        _ => PAGE.to_owned(),
+    });
+    let url = format!("http://127.0.0.1:{port}/");
     let session = SessionId("live".into());
     let started = std::time::Instant::now();
     let sink_dyn: Arc<dyn BrowserSink> = sink.clone();
@@ -205,6 +235,55 @@ async fn the_real_chromium_over_the_pipe() {
         .await
         .expect("screenshot");
     assert!(shot.starts_with(b"\x89PNG"));
+
+    // Popups, `noopener` or a `target=_blank` link, are closed before
+    // they send a request.
+    let snapshot = browser.snapshot(&page, None, None).await.expect("snapshot");
+    for name in ["button \"Popup\"", "link \"Tab\""] {
+        let target = snapshot
+            .lines()
+            .find(|l| l.contains(name))
+            .and_then(|l| l.split("[ref=").nth(1))
+            .map(|r| r.trim_end_matches(']').to_owned())
+            .expect("a ref");
+        let click = PageAction::Click {
+            target,
+            button: MouseButton::Left,
+            double: false,
+            modifiers: 0,
+        };
+        browser.act(&page, click).await.expect("click");
+    }
+    let opened = PageAction::WaitFor {
+        text: Some("Opened".into()),
+        text_gone: None,
+        timeout: Duration::from_secs(5),
+    };
+    browser.act(&page, opened).await.expect("opened");
+    // What is absent can only be waited for: a popup that ran would have
+    // asked for its page by now.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let paths = served.lock().expect("paths").clone();
+    assert!(
+        !paths.iter().any(|p| p == "/popup" || p == "/tab"),
+        "{paths:?}"
+    );
+
+    // A cross-site frame that navigates itself is asked about again:
+    // allowed once, refused the second time, so `/next` never loads.
+    let other_origin = format!("http://localhost:{other}");
+    *sink.once.lock().expect("once") = Some(other_origin.clone());
+    let host = PageAction::Navigate {
+        url: format!("{url}host"),
+    };
+    browser.act(&page, host).await.expect("host");
+    let asked = |sink: &Sink| {
+        let asked = sink.asked.lock().expect("asked");
+        asked.iter().filter(|o| **o == other_origin).count()
+    };
+    until("second ask for the frame", || asked(&sink) >= 2).await;
+    let paths = other_served.lock().expect("paths").clone();
+    assert_eq!(paths, ["/inner"]);
     browser.end(&session);
     eprintln!(
         "{} frames; all done in {:?}",
