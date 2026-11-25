@@ -86,6 +86,16 @@ through its own netproxy (`crates/netproxy`), which lets through only the
 hosts `claude` needs and the project's allowlist, and never loopback or
 private addresses. See `docs/specs/security.md`.
 
+## Language servers (ADR 0007)
+
+The editor's LSP client talks to language servers over the same frames
+(`lsp.send`, `lsp.message`). Servers start only for trusted projects, run
+through the `Sandbox` with the project read-only (`Sandbox::wrap_server`),
+and are found on `PATH`, never shipped. `crates/lsp` runs the processes;
+the core filters messages both ways (`crates/core/src/lsp/`): it maps the
+UI's `ovra:///` URIs to files under the root and answers the server's
+requests itself. See `docs/specs/lsp.md`.
+
 ## Planned crates
 
 Added only when a phase needs them: `acp-client`, `ext-host`, `sandbox-linux`,

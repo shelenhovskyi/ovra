@@ -46,6 +46,8 @@ Before every push: `just test && just e2e && just lint` must pass.
   re-exported here) and the sandbox for this OS.
 - `crates/sandbox-linux` - the Linux sandbox: bubblewrap, plus a helper (the
   daemon or app itself, `helper_if_asked`) that applies Landlock and seccomp.
+- `crates/lsp` - `LanguageServers`: language servers found on `PATH`, run
+  through the sandbox (ADR 0007); the core filters their messages.
 - `crates/mcp-server` - `IdeTools`: Ovra's MCP tools for agents
   (`src/tools.json` changes need human review).
 - `crates/transport` - JSON frames and the WebSocket endpoint (`ws` feature).

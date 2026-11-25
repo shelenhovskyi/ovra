@@ -22,3 +22,5 @@
 - **Trusted project** - a project whose own Claude configuration (`.claude/`
   settings, hooks, agents, commands, skills) the user let load; untrusted
   projects run `claude` with `--setting-sources user` (ADR 0006).
+- **Language server** - a process that answers editor questions about one
+  language (LSP); runs only for trusted projects, in the sandbox (ADR 0007).
