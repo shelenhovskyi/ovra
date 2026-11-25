@@ -155,16 +155,19 @@ WebClient and BITS for it), a follow-up.
 **WFP follow-up (draft).** What Windows Filtering Platform filters can
 close, and what they cannot:
 
-- _Loopback, closable._ The firewall exempts loopback, WFP does not.
-  Setup adds persistent filters in Ovra's own sublayer at
-  `ALE_AUTH_CONNECT_V4/V6`: for `FWPM_CONDITION_ALE_USER_ID` matching the
-  sandbox user and a loopback remote address, block, except remote ports
-  in one range that setup reserves (`netsh int ipv4 add
-  excludedportrange`, so no ephemeral socket lands there). The Windows
-  netproxy binds its sessions' ports in that range. Filters are persistent
-  because adding one needs an administrator, and sessions start without
-  one; removal deletes the sublayer. Another program of the person's can
-  still listen in the range on purpose; that is the remaining gap.
+- _Loopback, closable at a cost._ The firewall exempts loopback, WFP
+  does not. Measured on Windows CI (`wfp_spike.rs` on the spike branch): a
+  filter at `ALE_AUTH_CONNECT_V4` on `FWPM_CONDITION_ALE_USER_ID` (the
+  sandbox user) and the loopback flag blocks the sandbox's connections to
+  the person's 127.0.0.1 services, and a higher-weight permit on the
+  remote port keeps the netproxy reachable. But the connect layer cannot
+  see who listens, so the same filter also blocks the sandbox's
+  connections to its own listeners (`WSAEACCES`): an agent's test that
+  starts a local server and calls it fails. Matching the connecting user
+  on the accept side (`FWPM_CONDITION_ALE_REMOTE_USER_ID` at
+  `ALE_AUTH_RECV_ACCEPT_V4`) does not match loopback connections at all.
+  Adding filters needs an administrator, so they would be persistent,
+  made at setup, with the netproxy binding in a port range setup reserves.
 - _DNS, not closable this way._ Lookups go to the DNS Client service over
   local RPC, and the service sends them as itself, so no filter sees the
   sandbox user. The netproxy resolves names itself, so agents need no DNS;
@@ -174,9 +177,8 @@ close, and what they cannot:
   sandbox user. Stopping WebClient and BITS would change the whole
   machine. They stay listed gaps.
 
-A Windows CI spike checks the loopback filters first (a listener as the
-person on a port outside the range and one inside it, the probe as the
-sandbox user connecting to each) before the netproxy changes.
+Owner question 3 below: close loopback and lose agents' own local
+servers, or keep it open as a listed gap.
 
 **What is not isolated.** The token's restricting SIDs are checked only
 for what Windows counts as writing, which leaves out reading. So a session
@@ -224,3 +226,9 @@ Windows port of their fake agent.
    filters close them: DNS through the system resolver, other 127.0.0.1
    services, and SMB, WebDAV and BITS, which Windows sends from its own
    services. Reads across projects are a second known limit.
+3. Loopback: close it with WFP filters, at the cost that an agent's own
+   local servers (a test that starts one and calls it) stop working on
+   Windows, or keep it open as a listed gap. Recommended: keep it open for
+   now; the sandbox user still cannot write the person's files or reach
+   the internet, and a local service is reachable only if it accepts
+   unauthenticated loopback callers.
