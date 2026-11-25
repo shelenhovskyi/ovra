@@ -141,6 +141,38 @@ test("a single click previews in one tab, a double click keeps it, pinned tabs o
   await expect(tabs.getByRole("tab", { name: "c.txt, pinned" })).toBeVisible();
 });
 
+test("the keyboard keeps a preview tab, and a focused tab shows its actions", async ({ page }) => {
+  const dir = project({ "a.txt": "a\n", "b.txt": "b\n" });
+  await open(page, dir);
+  const tabs = page.getByRole("tablist", { name: "Open files" });
+  const tree = page.getByRole("tree", { name: "Files" });
+  await expect(page.getByRole("treeitem", { name: /a\.txt/ })).toBeVisible();
+  await tree.focus();
+  await page.keyboard.press("Enter");
+  await expect(tabs.getByRole("tab", { name: "a.txt, preview" })).toBeVisible();
+  // Enter on the file already shown keeps it, as a double click does.
+  await tree.focus();
+  await page.keyboard.press("Enter");
+  await expect(tabs.getByRole("tab", { name: "a.txt", exact: true })).toBeVisible();
+  await tree.focus();
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Enter");
+  await expect(tabs.getByRole("tab")).toHaveText(["a.txt", "b.txt"]);
+  await page.keyboard.press("ControlOrMeta+Shift+P");
+  await page.getByRole("combobox", { name: "Type a command" }).fill("Keep tab");
+  await page.keyboard.press("Enter");
+  await expect(tabs.getByRole("tab", { name: "b.txt", exact: true })).toBeVisible();
+
+  // A focused tab shows Pin and Close with the pointer away, as a hovered one does.
+  await page.mouse.move(0, 0);
+  await tabs.getByRole("tab", { name: "b.txt", exact: true }).focus();
+  await page.keyboard.press("ArrowLeft");
+  await expect(tabs.getByRole("tab", { name: "a.txt", exact: true })).toBeFocused();
+  await expect(tabs.getByRole("button", { name: "Pin a.txt" })).toHaveCSS("opacity", "1");
+  await expect(tabs.getByRole("button", { name: "Close a.txt" })).toHaveCSS("opacity", "1");
+  await expect(tabs.getByRole("button", { name: "Pin b.txt" })).toHaveCSS("opacity", "0");
+});
+
 test("Edit sits in the file's bar and switches modes, and focus follows into the viewer", async ({ page }) => {
   const dir = project({ "sub/notes.txt": "hello\n" });
   await open(page, dir);

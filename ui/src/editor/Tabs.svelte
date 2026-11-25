@@ -459,19 +459,19 @@ function scrollToActive(): void {
     color: var(--text-2);
     opacity: 0;
   }
-  /* Pin on demand: only on the pointed-at tab, before its close button. */
+  /* Pin on demand: only on the pointed-at or keyboard-focused tab, before its close button. */
   .pin {
     margin-right: 0;
   }
   .tab:hover .pin,
-  .pin:focus-visible,
+  .tab:has(:focus-visible) .pin,
   .tab.pinned .close {
     opacity: 1;
   }
-  /* Chrome on demand: the close button shows on the active or pointed-at tab. */
+  /* Chrome on demand: the close button shows on the active, pointed-at or keyboard-focused tab. */
   .tab.active .close,
   .tab:hover .close,
-  .close:focus-visible,
+  .tab:has(:focus-visible) .close,
   .close.dirty {
     opacity: 1;
   }
@@ -479,7 +479,7 @@ function scrollToActive(): void {
     display: grid;
   }
   /* Unsaved: a 6 px dot in the close slot, which turns into the close
-     button while the tab is pointed at or the button has focus. */
+     button while the tab is pointed at or has keyboard focus. */
   .close > .dot {
     width: 6px;
     height: 6px;
@@ -488,11 +488,11 @@ function scrollToActive(): void {
   }
   .close.dirty .x,
   .tab:hover .close.dirty .dot,
-  .close.dirty:focus-visible .dot {
+  .tab:has(:focus-visible) .close.dirty .dot {
     display: none;
   }
   .tab:hover .close.dirty .x,
-  .close.dirty:focus-visible .x {
+  .tab:has(:focus-visible) .close.dirty .x {
     display: grid;
   }
   @media (forced-colors: active) {
