@@ -19,7 +19,7 @@ export function isAuthFailure(text: string): boolean {
 }
 
 /** The error the last turn ended with, if it failed; an interrupt is none. */
-export function turnError(messages: AgentMessage[] | undefined): string | null {
+function turnError(messages: AgentMessage[] | undefined): string | null {
   for (let i = (messages?.length ?? 0) - 1; i >= 0; i--) {
     const message = messages?.[i];
     if (message?.kind === "error") return message.message.trim() === INTERRUPTED ? null : message.message;
