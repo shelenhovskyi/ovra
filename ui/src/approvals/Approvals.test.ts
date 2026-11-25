@@ -131,9 +131,9 @@ describe("Approvals", () => {
     });
     core.ask(bash("perm1"));
     await settle();
-    expect(cards()[0]?.querySelector(".session")?.textContent?.replace(/\s+/g, " ")).toContain("Worker docs in demo");
+    expect(cards()[0]?.querySelector(".session")?.textContent?.replace(/\s+/g, " ")).toContain("Worker docs · demo");
     expect(cards()[0]?.querySelector("[data-testid=approval-worker-copy]")?.textContent).toBe(
-      "Works in its own copy of the project, on branch ovra/t1/docs.",
+      "Own copy, branch ovra/t1/docs",
     );
   });
 
@@ -146,10 +146,10 @@ describe("Approvals", () => {
     expect(warning()).toBeNull();
     core.sandboxed("s1", null);
     await settle();
-    expect(warning()?.textContent?.trim()).toBe("No sandbox: what you allow can reach anything your user can.");
+    expect(warning()?.textContent?.trim()).toBe("No sandbox: it can reach anything you can.");
     core.sandboxed("s1", { name: "bubblewrap", network: "open", gaps: [] });
     await settle();
-    expect(warning()?.textContent?.trim()).toBe("Sandboxed, but its network is not limited.");
+    expect(warning()?.textContent?.trim()).toBe("Sandboxed, but network is open.");
     core.sandboxed("s1", { name: "bubblewrap", network: "proxy", gaps: [] });
     await settle();
     expect(warning()).toBeNull();
@@ -184,12 +184,12 @@ describe("Approvals", () => {
     await settle();
     const card = cards()[0];
     expect(card?.querySelector("h3")?.textContent).toBe("Run ls -la");
-    expect(card?.textContent?.replace(/\s+/g, " ")).toContain("Fix the typo in demo asks to use Bash");
+    expect(card?.textContent?.replace(/\s+/g, " ")).toContain("Fix the typo · demo");
     expect(card?.querySelector("[data-testid=approval-reason]")).toBeNull();
     core.ask({ ...bash("perm2"), reason: { text: "Path is outside allowed working directories", kind: "rule" } });
     await settle();
     expect(cards()[1]?.querySelector("[data-testid=approval-reason]")?.textContent?.trim()).toBe(
-      "Why it asks: Path is outside allowed working directories",
+      "Path is outside allowed working directories",
     );
     expect(document.activeElement).toBe(elsewhere);
     press("KeyY");
@@ -291,7 +291,7 @@ describe("Approvals", () => {
     await settle();
     const other = cards().map((c) => c.querySelector("[data-testid=approval-other-project]") !== null);
     expect(other).toEqual([false, true]);
-    expect(cards()[1]?.textContent?.replace(/\s+/g, " ")).toContain("Elsewhere task in other asks to use Bash");
+    expect(cards()[1]?.textContent?.replace(/\s+/g, " ")).toContain("Elsewhere task · other");
   });
 
   it("answers one request per key press, however long the key is held", async () => {
@@ -365,10 +365,7 @@ describe("Approvals", () => {
     core.ask({ ...bash("perm2"), tool: "Read", input: { file_path: "/demo/../etc/passwd" } });
     await settle();
     const scopes = cards().map((c) => c.querySelector("[data-testid=approval-scope]")?.textContent?.trim());
-    expect(scopes).toEqual([
-      "Inside the project folder: README.md (/demo/README.md)",
-      "⚠ Outside the project folder: /demo/../etc/passwd",
-    ]);
+    expect(scopes).toEqual(["In the project: README.md", "⚠ Outside the project: /demo/../etc/passwd"]);
   });
 
   it("judges paths from the agent's own folder and warns about an unknown project", async () => {
@@ -380,13 +377,10 @@ describe("Approvals", () => {
       cards().map((c) => c.querySelector(`[data-testid=${testid}]`)?.textContent?.replace(/\s+/g, " ").trim());
     // A worker's worktree is its folder: the main checkout is outside it.
     expect(lines("approval-scope")).toEqual([
-      "⚠ Outside the agent's working folder: /demo/src/a.rs",
-      "⚠ Cannot tell whether this is inside a project: /demo/a",
+      "⚠ Outside the agent's folder: /demo/src/a.rs",
+      "⚠ Cannot tell if in a project: /demo/a",
     ]);
-    expect(lines("approval-unknown-project")).toEqual([
-      undefined,
-      "⚠ Project unknown: Ovra cannot tell whether these paths are inside a project.",
-    ]);
+    expect(lines("approval-unknown-project")).toEqual([undefined, "⚠ Unknown project: paths cannot be checked"]);
     expect(cards()[1]?.querySelector("[data-testid=approval-other-project]")).not.toBeNull();
     // The core does not know p9: asking again for every card would flood it.
     const asked = core.sent("projects.list").length;

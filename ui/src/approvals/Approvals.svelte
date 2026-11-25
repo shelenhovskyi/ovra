@@ -20,6 +20,7 @@ import type { Attachment } from "svelte/attachments";
 import { SvelteMap, SvelteSet } from "svelte/reactivity";
 import { sandboxGaps, sandboxState } from "../agents/sandbox";
 import { agentSessions } from "../agents/sessions.svelte";
+import { claudeAccounts } from "../agents/setup/claude-accounts.svelte";
 import { registerCommand } from "../keys/commands";
 import type { Decision, PermissionId, PermissionRequest, Project, ProjectId, SessionId } from "../lib/protocol";
 import { useOvra } from "../shell/context";
@@ -31,6 +32,7 @@ import { pathScopes, sameFolder } from "./scope";
 const { transport, workspace } = useOvra();
 const queue = approvalQueue(transport);
 const sessions = agentSessions(transport);
+const accounts = claudeAccounts(transport);
 
 let now = $state(Date.now());
 /** The last answer or the last time a request left the list. */
@@ -382,7 +384,7 @@ function folderOf(request: PermissionRequest, project: Project | undefined): { p
   const path = request.cwd ?? project?.root ?? null;
   if (path === null) return { path, name: "a project" };
   const own = project !== undefined && sameFolder(path, project.root);
-  return { path, name: own ? "the project folder" : "the agent's working folder" };
+  return { path, name: own ? "the project" : "the agent's folder" };
 }
 
 /** A warning when the runtime said the session runs without a sandbox, or
@@ -390,9 +392,8 @@ function folderOf(request: PermissionRequest, project: Project | undefined): { p
 function sandboxWarning(session: SessionId): string | null {
   const info = sessions.byId.get(session);
   const state = info ? sandboxState(info) : null;
-  if (state?.kind === "none") return "No sandbox: what you allow can reach anything your user can.";
-  if (state?.kind === "sandboxed" && state.report.network === "open")
-    return "Sandboxed, but its network is not limited.";
+  if (state?.kind === "none") return "No sandbox: it can reach anything you can.";
+  if (state?.kind === "sandboxed" && state.report.network === "open") return "Sandboxed, but network is open.";
   return null;
 }
 
@@ -406,13 +407,41 @@ function gapsOf(session: SessionId): string | null {
 function workerCopy(session: SessionId): string {
   const role = sessions.roles.get(session);
   const branch = role?.kind === "worker" ? role.branch : "";
-  return `Works in its own copy of the project, on branch ${branch}.`;
+  return `Own copy, branch ${branch}`;
+}
+
+/** "Sandboxed" once the runtime said so; warnings above say the rest. */
+function sandboxFact(session: SessionId): string | null {
+  const info = sessions.byId.get(session);
+  return info && sandboxState(info).kind === "sandboxed" ? "Sandboxed" : null;
+}
+
+const PROVIDERS: Record<string, string> = { bedrock: "Bedrock", vertex: "Vertex AI", foundry: "Foundry" };
+
+/** Who pays for what is allowed, in a few words; an API key is a warning. */
+function billedTo(session: SessionId): { text: string; key: boolean } | null {
+  const info = sessions.byId.get(session);
+  const billing = info?.billing;
+  if (!info || !billing) return null;
+  const payer =
+    billing.kind === "subscription"
+      ? "Claude plan"
+      : billing.kind === "api_key"
+        ? "API key"
+        : (PROVIDERS[billing.provider] ?? (billing.provider || "cloud account"));
+  const account = accounts.list.length > 1 ? ` (${accounts.name(info.account)})` : "";
+  return { text: `Billed to ${payer}${account}`, key: billing.kind === "api_key" };
 }
 </script>
 
+{#snippet icon(d: string)}
+  <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path {d} /></svg>
+{/snippet}
+
 <!-- Nothing to say: the section takes no space and is out of sight (screen
      readers still find it). Focus in it (the shortcut, the last answer) shows
-     it over the agents, so nothing below moves when focus leaves again. -->
+     it over the agents, so nothing below moves when focus leaves again.
+     While a request has focus, a scrim dims the rest of the window. -->
 <section
   class="approvals"
   class:idle
@@ -453,9 +482,9 @@ function workerCopy(session: SessionId): string {
   {/if}
   {#if queue.pending.length === 0}
     <p class="empty">Nothing waits for your approval.</p>
-  {:else if !collapsed}
-    <p class="hint" id="approvals-keys">On a request: Y allows, N denies, Shift+N denies with a message.</p>
   {/if}
+  <!-- The keys show on the buttons; screen readers hear them with each request. -->
+  <p class="sr-only" id="approvals-keys">Y allows, N denies, Shift+N denies with a message.</p>
   <ul bind:this={list} id="approvals-list" hidden={collapsed}>
     {#if !collapsed}
     {#each queue.pending as request (request.id)}
@@ -466,6 +495,10 @@ function workerCopy(session: SessionId): string {
       {@const folder = folderOf(request, project)}
       {@const sandboxNote = sandboxWarning(request.session)}
       {@const gaps = gapsOf(request.session)}
+      {@const worker = sessions.roles.get(request.session)?.kind === "worker"}
+      {@const sandboxed = sandboxFact(request.session)}
+      {@const billed = billedTo(request.session)}
+      {@const agentNote = request.title && !repeats(request.title, request, summary.action) ? request.title : null}
       <li>
         <!-- A focusable group is how the keys reach one request (Y, N, arrows). -->
         <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
@@ -489,51 +522,35 @@ function workerCopy(session: SessionId): string {
         >
           <!-- Who asks and how it is sandboxed: Allow needs it in sight too. -->
           <div class="who" {@attach watch(headSeen, request.id)}>
-          <p class="session" id="{domId}-session">
-            {sessions.name(request.session)} in {project?.name ?? "an unknown project"}
-            asks to use {request.tool}
-          </p>
-          {#if sessions.roles.get(request.session)?.kind === "worker"}
-            <p class="where" data-testid="approval-worker-copy">{workerCopy(request.session)}</p>
-          {/if}
-          {#if sandboxNote}
-            <p class="other" data-testid="approval-unsandboxed">{sandboxNote}</p>
-          {/if}
+            <p class="session" id="{domId}-session">
+              <span class="dot" aria-hidden="true"></span>{sessions.name(request.session)} · {project?.name ??
+                "unknown project"}
+            </p>
+            {#if sandboxNote}
+              <p class="flag" data-testid="approval-unsandboxed">{sandboxNote}</p>
+            {/if}
           </div>
-          {#if gaps}
-            <!-- Short on the card; the list opens on request. -->
-            <details class="gaps" data-testid="approval-sandbox-gaps">
-              <summary>Sandbox has gaps</summary>
-              <p>{gaps}</p>
-            </details>
-          {/if}
           <h3 id="{domId}-action" {@attach summary.details.length === 0 && watch(seen, request.id)}>{summary.action}</h3>
+          {#if request.reason}
+            <p class="line" data-testid="approval-reason">{request.reason.text}</p>
+          {/if}
           {#if request.project !== workspace.project?.id}
-            <p class="other" data-testid="approval-other-project">Not the project open in this window</p>
+            <p class="flag" data-testid="approval-other-project">Not this window's project</p>
           {/if}
           {#if !project}
-            <p class="scope outside" data-testid="approval-unknown-project">
-              ⚠ Project unknown: Ovra cannot tell whether these paths are inside a project.
-            </p>
+            <p class="flag" data-testid="approval-unknown-project">⚠ Unknown project: paths cannot be checked</p>
           {/if}
           {#each pathScopes(request.input, folder.path) as scope}
-            <p class="scope" class:outside={scope.scope !== "inside"} data-testid="approval-scope">
-              {#if scope.scope === "inside"}Inside {folder.name}: {scope.relative}{#if scope.relative !== scope.path}{" "}<span
-                    class="raw">({scope.path})</span
-                  >{/if}{:else if scope.scope === "outside"}⚠ Outside {folder.name}: {scope.path}{:else}⚠ Cannot tell
-                whether this is inside {folder.name}: {scope.path}{/if}
-            </p>
+            {#if scope.scope === "inside"}
+              <p class="line" data-testid="approval-scope" title={scope.path}>In {folder.name}: {scope.relative}</p>
+            {:else}
+              <p class="flag" data-testid="approval-scope">
+                {scope.scope === "outside" ? "⚠ Outside" : "⚠ Cannot tell if in"}{" "}{folder.name}: {scope.path}
+              </p>
+            {/if}
           {/each}
           {#if request.tool === "Bash"}
-            <p class="scope" data-testid="approval-scope">Shell commands are not checked for paths: read the command.</p>
-          {/if}
-          {#if request.reason}
-            <p class="title" data-testid="approval-reason">
-              Why it asks: {request.reason.text}
-            </p>
-          {/if}
-          {#if request.title && !repeats(request.title, request, summary.action)}
-            <p class="title">Agent's note: {request.title}</p>
+            <p class="line" data-testid="approval-scope">Paths in commands are not checked.</p>
           {/if}
           {#if isOpen(request.id)}
             <dl {@attach watch(seen, request.id)}>
@@ -543,9 +560,18 @@ function workerCopy(session: SessionId): string {
               {/each}
             </dl>
           {:else if summary.details.length > 0}
-            <button type="button" class="more" data-testid="approval-details" onclick={() => expand(request.id)}
+            <button type="button" class="quiet more" data-testid="approval-details" onclick={() => expand(request.id)}
               >Show details</button
             >
+          {/if}
+          {#if gaps || worker || agentNote}
+            <!-- Context, not the request itself: one click away. -->
+            <details class="extra" data-testid={gaps ? "approval-sandbox-gaps" : "approval-extra"}>
+              <summary>{@render icon("m9 6 6 6-6 6")}{gaps ? "Sandbox has gaps" : "Details"}</summary>
+              {#if gaps}<p>{gaps}</p>{/if}
+              {#if worker}<p data-testid="approval-worker-copy">{workerCopy(request.session)}</p>{/if}
+              {#if agentNote}<p>Agent's note: {agentNote}</p>{/if}
+            </details>
           {/if}
           <div class="actions">
             <button
@@ -563,7 +589,9 @@ function workerCopy(session: SessionId): string {
               title={ready ? undefined : EARLY}
               onclick={(event) => answerByClick(event, request, "deny")}>Deny <kbd aria-hidden="true">N</kbd></button
             >
-            <button type="button" aria-keyshortcuts="Shift+N" onclick={() => openDeny(request)}>Deny with message…</button>
+            <button type="button" class="quiet" aria-keyshortcuts="Shift+N" onclick={() => openDeny(request)}
+              >Deny with message…</button
+            >
             <!-- Next to the buttons it explains. An early note goes once the
                  request is ready; the other stays until the next press. -->
             <span class="wait" aria-live="polite" data-testid="approval-wait"
@@ -581,9 +609,17 @@ function workerCopy(session: SessionId): string {
               <textarea id="{domId}-note" rows="2" bind:value={note}></textarea>
               <div class="actions">
                 <button type="submit" aria-disabled={!ready} aria-keyshortcuts="Control+Enter">Send denial</button>
-                <button type="button" onclick={() => (denying = null)}>Cancel</button>
+                <button type="button" class="quiet" onclick={() => (denying = null)}>Cancel</button>
               </div>
             </form>
+          {/if}
+          {#if sandboxed || billed}
+            <p class="foot">
+              {#if sandboxed}<span>{@render icon("M12 3 5 6v6c0 4 3 7 7 9 4-2 7-5 7-9V6z")}{sandboxed}</span>{/if}
+              {#if billed}<span class:key={billed.key} data-testid="approval-billing"
+                  >{@render icon("M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm-7 9a7 7 0 0 1 14 0")}{billed.text}</span
+                >{/if}
+            </p>
           {/if}
         </div>
       </li>
@@ -601,13 +637,24 @@ function workerCopy(session: SessionId): string {
     min-height: 0;
     display: flex;
     flex-direction: column;
-    padding: 8px 12px;
-    border-bottom: 1px solid #2a2a31;
+    padding: 10px 12px;
   }
   /* While something waits, it keeps room for a request even in a short
      column (the stacked layout): a 26 px strip shows only who asks. */
   .approvals:not(.idle) {
     min-height: min(100%, 220px);
+  }
+  /* A request in focus is the one thing to decide: the rest of the window dims. */
+  .approvals:not(.idle):has(.card:focus-within) {
+    position: relative;
+    z-index: 5;
+  }
+  .approvals:not(.idle):has(.card:focus-within)::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background: var(--scrim);
   }
   .body {
     flex: 0 1 auto;
@@ -618,7 +665,6 @@ function workerCopy(session: SessionId): string {
   .approvals.idle {
     position: relative;
     padding: 0;
-    border: 0;
   }
   .idle .body {
     position: absolute;
@@ -626,13 +672,14 @@ function workerCopy(session: SessionId): string {
     left: 0;
     right: 0;
     z-index: 1;
-    padding: 8px 12px;
-    background: #16161a;
-    border-bottom: 1px solid #2a2a31;
-    box-shadow: 0 4px 8px rgb(0 0 0 / 40%);
+    padding: 10px 12px;
+    background: var(--s4);
+    box-shadow: var(--card-shadow);
   }
   /* Visually hidden, like .visually-hidden elsewhere. */
-  .idle:not(:focus-within) .body {
+  .idle:not(:focus-within) .body,
+  .sr-only {
+    position: absolute;
     width: 1px;
     height: 1px;
     padding: 0;
@@ -645,27 +692,21 @@ function workerCopy(session: SessionId): string {
     align-items: baseline;
     justify-content: space-between;
     gap: 8px;
-    margin: 0 0 6px;
+    margin: 0 0 8px;
   }
   h2 {
     margin: 0;
-    font-size: 13px;
+    font-size: 14px;
+    font-weight: 600;
   }
-  .toggle,
-  .more {
-    padding: 1px 8px;
-    font-size: 12px;
-  }
-  .more {
-    margin: 0 0 8px;
+  .count {
+    color: var(--warn);
+    font-weight: 500;
   }
   /* A 24 px target that does not make the heading row (and so the column
      above the request) taller: the request's details stay in sight. */
   .toggle {
     margin-block: -3px;
-  }
-  .count {
-    color: #ffd36b;
   }
   ul {
     list-style: none;
@@ -673,160 +714,261 @@ function workerCopy(session: SessionId): string {
     padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 10px;
     min-height: 0;
     overflow: auto;
   }
   .card {
-    padding: 8px;
-    border: 1px solid #ffd36b;
-    border-radius: 4px;
-    background: #1f1f26;
+    padding: 14px 14px 12px;
+    border-radius: 12px;
+    background: var(--s2);
+    box-shadow: var(--card-shadow);
   }
-  .card:focus-visible,
-  h2:focus-visible {
-    outline: 2px solid #7aa2ff;
-    outline-offset: 2px;
-  }
-  h3 {
-    margin: 2px 0 6px;
-    font-size: 13px;
-    overflow-wrap: anywhere;
-  }
-  .session,
-  .title,
-  .hint,
-  .empty {
-    margin: 0;
-    color: #b4b4c0;
-    font-size: 12px;
-  }
-  .hint {
-    margin-bottom: 6px;
-  }
-  .scope {
-    margin: 0 0 6px;
-    font-size: 12px;
-    overflow-wrap: anywhere;
-  }
-  /* Muted, not the warning colour: every Linux card has gaps, and yellow
-     on every card would teach people to skip the real warnings. */
-  .gaps {
-    margin: 0 0 6px;
-    font-size: 12px;
-    color: #b4b4c0;
-  }
-  .gaps summary {
-    cursor: pointer;
-  }
-  .gaps p {
-    margin: 2px 0 0;
-  }
-  .other {
-    margin: 0 0 6px;
-    font-size: 12px;
-    font-weight: 600;
-    color: #ffd36b;
-  }
-  .wait:empty {
-    display: none;
-  }
-  .wait {
-    flex: 1 1 12em;
-    align-self: center;
-    font-size: 12px;
-    color: #ffd36b;
+  /* Inside: the list's scrolling would clip a ring outside the card. */
+  .card:focus-visible {
+    outline-offset: -2px;
   }
   /* Who asks stays in sight while a tall request scrolls under it. */
   .who {
     position: sticky;
     top: 0;
     z-index: 1;
-    background: #1f1f26;
+    background: var(--s2);
   }
-  .notice {
+  .session {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     margin: 0;
-    font-size: 12px;
-    color: #ffd36b;
+    color: var(--text-2);
+    font-size: 13px;
   }
-  .raw {
-    color: #b4b4c0;
+  .dot {
+    flex: none;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--warn);
   }
-  .scope.outside {
+  h3 {
+    margin: 8px 0 4px;
+    font-size: 16px;
     font-weight: 600;
-    color: #ffb86b;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+  }
+  p {
+    margin: 0;
+  }
+  .line,
+  .empty,
+  .notice:not(:empty) {
+    margin: 0 0 4px;
+    color: var(--text-2);
+    font-size: 13px;
+    overflow-wrap: anywhere;
+  }
+  .notice:not(:empty) {
+    color: var(--warn);
+  }
+  /* Risk: what reaches past the sandbox or the project. */
+  .flag {
+    display: block;
+    width: fit-content;
+    max-width: 100%;
+    margin: 6px 0 4px;
+    padding: 4px 9px;
+    border-radius: var(--radius);
+    background: var(--warn-soft);
+    color: var(--warn);
+    font-size: 13px;
+    font-weight: 500;
+    overflow-wrap: anywhere;
   }
   dl {
-    margin: 0 0 8px;
+    display: grid;
+    gap: 2px;
+    margin: 10px 0 0;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: var(--s1);
   }
   dt {
-    color: #b4b4c0;
-    font-size: 11px;
+    color: var(--text-2);
+    font-size: 12px;
   }
   dd {
-    margin: 0 0 4px;
+    margin: 0 0 6px;
+  }
+  dd:last-child {
+    margin: 0;
   }
   pre {
     margin: 0;
-    padding: 4px 6px;
     max-height: 160px;
     overflow: auto;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
-    background: #121216;
-    border-radius: 3px;
-    font-size: 12px;
+    font-size: 13px;
+  }
+  /* Muted: every Linux card has gaps, and the warning colour on every card
+     would teach people to skip the real warnings. */
+  .extra {
+    margin: 8px 0 0;
+    color: var(--text-2);
+    font-size: 13px;
+  }
+  .extra summary {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 6px;
+    margin-left: -6px;
+    border-radius: var(--radius-sm);
+    list-style: none;
+    cursor: pointer;
+  }
+  .extra summary::-webkit-details-marker {
+    display: none;
+  }
+  .extra summary:hover {
+    color: var(--text);
+    background: var(--s3);
+  }
+  .extra[open] summary .icon {
+    transform: rotate(90deg);
+  }
+  .extra p {
+    margin: 4px 0 0;
   }
   .actions {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
+    align-items: center;
+    gap: 8px;
+    margin-top: 14px;
+  }
+  .wait:empty {
+    display: none;
+  }
+  .wait {
+    flex: 1 1 12em;
+    color: var(--warn);
+    font-size: 13px;
   }
   button {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
     font: inherit;
-    padding: 3px 10px;
-    color: #e6e6e6;
-    background: #2a2a33;
-    border: 1px solid #4a4a57;
-    border-radius: 3px;
+    font-weight: 500;
+    padding: 5px 12px;
+    color: var(--text);
+    background: var(--s3);
+    border: 0;
+    border-radius: var(--radius);
     cursor: pointer;
   }
+  button:hover {
+    background: var(--s4);
+  }
   button.allow {
-    border-color: #6bd18a;
+    background: var(--accent);
+    color: var(--accent-ink);
+  }
+  button.allow:hover {
+    filter: brightness(1.08);
+  }
+  button.quiet,
+  .toggle {
+    background: transparent;
+    color: var(--text-2);
+    font-weight: 400;
+  }
+  button.quiet:hover,
+  .toggle:hover {
+    background: var(--s3);
+    color: var(--text);
+  }
+  .toggle,
+  .more {
+    padding: 1px 8px;
+    font-size: 13px;
+  }
+  .more {
+    margin-top: 6px;
   }
   button[aria-disabled="true"] {
     opacity: 0.55;
     cursor: default;
   }
-  button:focus-visible {
-    outline: 2px solid #7aa2ff;
-    outline-offset: 1px;
-  }
   kbd {
-    font: inherit;
-    font-size: 11px;
-    color: #b4b4c0;
+    padding: 1px 5px;
+    border-radius: 5px;
+    background: color-mix(in srgb, currentColor 14%, transparent);
+    font: 500 12px / 1.3 var(--font);
   }
   form {
-    margin-top: 8px;
+    margin-top: 10px;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 6px;
+  }
+  label {
+    color: var(--text-2);
+    font-size: 13px;
   }
   textarea {
     font: inherit;
     color: inherit;
-    background: #121216;
-    border: 1px solid #4a4a57;
-    border-radius: 3px;
+    padding: 6px 8px;
+    background: var(--s3);
+    border: 0;
+    border-radius: var(--radius);
+  }
+  form .actions {
+    margin-top: 0;
+  }
+  .foot {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 4px 12px;
+    margin-top: 12px;
+    padding-top: 10px;
+    box-shadow: 0 -1px 0 var(--s3);
+    color: var(--text-2);
+    font-size: 13px;
+  }
+  .foot span {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .foot .key {
+    color: var(--warn);
+  }
+  .icon {
+    flex: none;
+    width: 15px;
+    height: 15px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
   }
   .error {
-    color: #ff8f8f;
+    color: var(--danger);
     margin: 0 0 6px;
   }
   @media (forced-colors: active) {
-    .card {
+    .card,
+    .flag {
       border: 1px solid CanvasText;
+    }
+    button {
+      border: 1px solid ButtonText;
     }
     button[aria-disabled="true"] {
       color: GrayText;
