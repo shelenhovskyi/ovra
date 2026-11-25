@@ -64,7 +64,9 @@ const startButton = () =>
 
 const panel = () => target.querySelector<HTMLElement>("[data-testid=agents-panel]");
 const transcript = () =>
-  [...target.querySelectorAll("[data-testid=transcript] li")].map((li) => li.textContent?.replace(/\s+/g, " ").trim());
+  [...target.querySelectorAll("[data-testid=transcript] > li:not(.live)")].map((li) =>
+    li.textContent?.replace(/\s+/g, " ").trim(),
+  );
 
 /** Opens the transcript of the session whose row title is `title`. */
 function selectRow(title: string) {

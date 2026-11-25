@@ -532,7 +532,13 @@ const canReply = $derived(current !== null && current.status.state === "idle");
           </div>
         {/if}
       </div>
-      <Transcript messages={messages ?? []} billing={current.billing} {workerName} />
+      <Transcript
+        messages={messages ?? []}
+        billing={current.billing}
+        {workerName}
+        status={current.status}
+        partial={sessions.partial.get(current.id) ?? ""}
+      />
       {#if !isEnded(current.status) && !signedOut}
         <form
           class="compose"

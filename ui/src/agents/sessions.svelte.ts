@@ -51,6 +51,8 @@ export class AgentSessions {
   private readonly waitingReview = new SvelteSet<SessionId>();
   /** How many of each loaded project's agents work, of how many may. */
   readonly capacity = new SvelteMap<ProjectId, AgentCapacity>();
+  /** The text each session's agent is writing now (`agents.text_delta`), until its message comes. */
+  readonly partial = new SvelteMap<SessionId, string>();
   /**
    * Sessions the person closed: hidden from the list, remembered in this
    * browser per project. The core keeps them (it has no way to forget one).
@@ -329,10 +331,14 @@ export class AgentSessions {
       // A worker that asked for review stops counting, and counts again once it is decided.
       if (this.loaded.has(event.data.project))
         void Promise.all([this.loadReviews(event.data.project), this.loadCapacity(event.data.project)]);
+    } else if (event.type === "agents.text_delta") {
+      const { session, text } = event.data;
+      this.partial.set(session, (this.partial.get(session) ?? "") + text);
     } else if (event.type === "agents.status") {
       const { session, project, status } = event.data;
       // Any change of state may change how many work.
       if (this.loaded.has(project)) void this.loadCapacity(project);
+      if (status.state !== "working") this.partial.delete(session);
       const known = this.byId.get(session);
       // A turn ended: what it changed is in the session's review item now.
       if (known && status.state === "idle") void this.loadReviews(project);
@@ -371,6 +377,9 @@ export class AgentSessions {
       if (known) this.byId.set(event.data.session, { ...known, sandbox: event.data.sandbox, sandbox_reported: true });
     } else if (event.type === "agents.message") {
       const { session, message } = event.data;
+      // The complete message replaces the text that streamed in.
+      if (message.kind === "assistant_text" ? !message.parent : message.kind === "turn_end" || message.kind === "error")
+        this.partial.delete(session);
       const transcript = this.transcripts.get(session);
       if (transcript) this.transcripts.set(session, [...transcript, message]);
       const known = this.byId.get(session);
@@ -381,6 +390,7 @@ export class AgentSessions {
 
   private resync(): void {
     this.transcripts.clear();
+    this.partial.clear();
     for (const project of this.loaded) void this.load(project).catch(() => {});
   }
 }

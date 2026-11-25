@@ -4,8 +4,9 @@
 // tool output; outputs are folded, since they are mostly written for the
 // model.
 import { describeTool, isIdeTool } from "../approvals/describe";
-import type { AgentMessage, Billing, MessageFrom } from "../lib/protocol";
+import type { AgentMessage, AgentStatus, Billing, MessageFrom } from "../lib/protocol";
 import { isAuthFailure, withoutEchoes } from "./errors";
+import LiveActivity from "./LiveActivity.svelte";
 import { usageText } from "./sessions.svelte";
 import { ideResult } from "./tool-results";
 
@@ -13,15 +14,21 @@ import { ideResult } from "./tool-results";
  * `billing`: who pays for the session, which says what its cost means.
  * `workerName`: a task's worker by its session id, so tool lines name
  * workers as the person knows them instead of by id.
+ * `status` and `partial` (the text Claude is writing) show at the end what
+ * a working session does now.
  */
 let {
   messages,
   billing = null,
   workerName = () => undefined,
+  status = null,
+  partial = "",
 }: {
   messages: AgentMessage[];
   billing?: Billing | null;
   workerName?: (session: string) => string | undefined;
+  status?: AgentStatus | null;
+  partial?: string;
 } = $props();
 
 /** Who wrote what an agent was sent: never "You" for text the person did not write. */
@@ -121,14 +128,15 @@ const spoken = $derived.by(() => {
   return "";
 });
 
-// Follow new messages while the view is scrolled to the end.
+// Follow new messages, and the text that streams in, while the view is
+// scrolled to the end.
 let atEnd = true;
 $effect.pre(() => {
-  void messages.length;
+  void [messages.length, partial, status];
   if (box) atEnd = box.scrollHeight - box.scrollTop - box.clientHeight < 24;
 });
 $effect(() => {
-  void messages.length;
+  void [messages.length, partial, status];
   if (box && atEnd) box.scrollTop = box.scrollHeight;
 });
 </script>
@@ -194,6 +202,7 @@ $effect(() => {
       {/if}
     </li>
   {/each}
+  {#if status}<LiveActivity {status} {messages} {partial} />{/if}
 </ol>
 
 <style>
