@@ -19,7 +19,9 @@ test("UI connects to the headless core", async ({ page }) => {
 test("the shell shows its panels", async ({ page }) => {
   await page.goto(daemonUrl().href);
   await expect(page.getByTestId("sidebar")).toContainText("File tree");
-  await expect(page.getByTestId("main")).toContainText("Open a project to see its files here.");
+  // On the start screen the project list takes the main area's place.
+  await expect(page.getByTestId("main")).toBeHidden();
+  await expect(page.getByTestId("agents")).toBeVisible();
 });
 
 test("with no file open, the main area offers the next steps", async ({ page }) => {
