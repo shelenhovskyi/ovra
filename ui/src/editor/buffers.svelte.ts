@@ -413,6 +413,11 @@ export class Buffers {
       : null;
   }
 
+  /** Paths of loaded buffers with unsaved text. */
+  unsavedPaths(): string[] {
+    return [...this.buffers.values()].filter((b) => b.dirty).map((b) => b.path);
+  }
+
   /** Forgets `path`, including its unsaved text. */
   discard(path: string): void {
     const buffer = this.buffers.get(path);

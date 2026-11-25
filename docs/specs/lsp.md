@@ -133,6 +133,8 @@ makes on disk still reach them.
   file gets its edits or none does: not when one of them has unsaved
   text (the server did not see it), lies outside the project, cannot be
   edited, or the edits do not fit it, nor when more than 50 files change.
+  A rename is also refused while any file of the server's language has
+  unsaved text the server is not shown (it reads that file from disk).
 
 ## Sandbox profile
 

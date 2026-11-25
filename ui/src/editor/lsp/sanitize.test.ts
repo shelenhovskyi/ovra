@@ -21,7 +21,13 @@ test("drops event handlers and every attribute but class and a safe href, which 
   );
   expect(sanitizeHtml('<span class="tok-c" title="t" data-x="1">s</span>')).toBe('<span class="tok-c">s</span>');
   expect(sanitizeHtml('<a href="https://docs.rs/x" target="_blank" onmouseover="x()">d</a>')).toBe(
-    '<a href="https://docs.rs/x" title="https://docs.rs/x">d</a>',
+    '<a href="https://docs.rs/x" title="https://docs.rs/x">d</a> (docs.rs)',
+  );
+  expect(sanitizeHtml('<a href="https://evil.example/login">Trust project</a>')).toBe(
+    '<a href="https://evil.example/login" title="https://evil.example/login">Trust project</a> (evil.example)',
+  );
+  expect(sanitizeHtml('<a href="https://docs.rs/x">https://docs.rs/x</a>')).toBe(
+    '<a href="https://docs.rs/x" title="https://docs.rs/x">https://docs.rs/x</a>',
   );
 });
 
@@ -37,7 +43,7 @@ test("links keep only http and https targets", () => {
   ];
   for (const href of unsafe) expect(sanitizeHtml(`<a href="${href}">x</a>`)).toBe("<a>x</a>");
   expect(sanitizeHtml('<a href="http://example.com/a?b=1&amp;c=2">x</a>')).toBe(
-    '<a href="http://example.com/a?b=1&amp;c=2" title="http://example.com/a?b=1&amp;c=2">x</a>',
+    '<a href="http://example.com/a?b=1&amp;c=2" title="http://example.com/a?b=1&amp;c=2">x</a> (example.com)',
   );
 });
 

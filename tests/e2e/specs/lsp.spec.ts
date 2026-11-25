@@ -78,7 +78,7 @@ test("references and rename reach files that are not open; renamed files wait un
   const name = page.locator(".cm-lsp-rename-panel input");
   await name.fill("hello");
   await name.press("Enter");
-  await expect(page.getByRole("alert")).toContainText("Not saved yet: review other.rs");
+  await expect(page.getByRole("alert")).toContainText("none saved yet: this file, other.rs");
   await expect(editor.locator(".cm-content")).toContainText("fn hello()");
   // other.rs got a tab with the edit, unsaved; nothing was written yet.
   await page.getByRole("tab", { name: /other\.rs/ }).click();

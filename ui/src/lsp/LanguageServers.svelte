@@ -4,6 +4,7 @@
 // panel with each server, whether it is sandboxed, why it failed, a Stop
 // button, and the servers that are not installed. Escape closes it.
 import { tick, untrack } from "svelte";
+import { serverLanguageFor } from "../editor/lsp/clients";
 import { focusMain } from "../editor/open-files.svelte";
 import { listCommands } from "../keys/commands";
 import { runCommand } from "../keys/keybindings";
@@ -22,14 +23,22 @@ let stopped = $state<string | null>(null);
 
 const servers = $derived(lsp.servers);
 const untrusted = $derived(lsp.status?.trusted === false);
-const attention = $derived(servers.some((s) => s.sandbox === null || s.state === "failed") || lsp.hints.length > 0);
+// The shown file's language decides what the item names.
+const shownLanguage = $derived(workspace.openPath ? serverLanguageFor(workspace.openPath) : null);
+// Without a file of a served language on screen, a missing server counts while none runs.
+const shownHint = $derived(
+  shownLanguage ? lsp.hints.find((k) => k.language === shownLanguage) : servers.length === 0 ? lsp.hints[0] : undefined,
+);
+const shownServer = $derived(servers.find((s) => s.language === shownLanguage));
+const attention = $derived(servers.some((s) => s.sandbox === null || s.state === "failed") || shownHint !== undefined);
 const visible = $derived(servers.length > 0 || lsp.hints.length > 0 || (untrusted && lsp.needed.size > 0));
 const label = $derived.by(() => {
+  if (untrusted) return "Language servers off";
+  if (shownHint) return `${shownHint.name} not installed`;
+  if (shownServer) return servers.length > 1 ? `${shownServer.name} +${servers.length - 1}` : shownServer.name;
   if (servers.length === 1) return servers[0]?.name ?? "";
   if (servers.length > 1) return `${servers.length} language servers`;
-  if (untrusted) return "Language servers off";
-  const hint = lsp.hints[0];
-  return hint ? `${hint.name} not installed` : "Language servers";
+  return "Language servers";
 });
 // Needed ones first: those are what the person just ran into.
 const missing = $derived([...lsp.hints, ...lsp.missing.filter((k) => !lsp.hints.includes(k))]);
@@ -73,7 +82,7 @@ async function stop(server: ServerInfo): Promise<void> {
   try {
     await lsp.stop(server.id);
     stopError = null;
-    stopped = `Stopped ${server.name}. It starts again when you edit a ${server.language} file.`;
+    stopped = `Stopped ${server.name}. It starts again the next time you open a ${server.language} file.`;
   } catch (err) {
     stopError = `Could not stop ${server.name}: ${err instanceof Error ? err.message : String(err)}`;
   }

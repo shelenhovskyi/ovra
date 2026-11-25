@@ -75,5 +75,10 @@ function copy(from: Node, to: Element): void {
     }
     to.appendChild(clean);
     copy(node, clean);
+    // A link's text can claim anything: name the site it opens unless the text does.
+    if (href) {
+      const host = new URL(href).host;
+      if (!(clean.textContent ?? "").includes(host)) to.appendChild(doc.createTextNode(` (${host})`));
+    }
   }
 }

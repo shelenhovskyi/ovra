@@ -31,6 +31,12 @@ const LANGUAGES: Record<string, { server: string; languageId: string }> = {
   typescript: { server: "typescript", languageId: "typescript" },
 };
 
+/** The server language for `path` (`typescript` for a `.tsx` file), or null. */
+export function serverLanguageFor(path: string): string | null {
+  const language = languageFor(path);
+  return (language && LANGUAGES[language.id]?.server) ?? null;
+}
+
 /** The installed server that would serve `path` in a trusted project, or null. */
 export function serverFor(path: string, status: Pick<LspStatus, "trusted" | "known"> | null): KnownServer | null {
   const language = languageFor(path);
@@ -320,12 +326,29 @@ export class LanguageClients {
     const workspace = client.workspace as BufferWorkspace;
     const open = new Set(workspace.open().map((file) => file.uri));
     const changes = edit?.changes ?? {};
-    if (Object.entries(changes).every(([uri, edits]) => edits.length === 0 || open.has(uri))) return edit;
     const { buffers, keep, note } = this.options;
+    // Files the server reads from disk while they hold other text: it renamed
+    // without seeing it, so the rename would miss what is only there.
+    const hidden = this.unsavedHidden(client);
+    if (hidden.length > 0) {
+      note(`Rename not applied: save or revert ${hidden.join(", ")} first; the server only sees saved text there.`);
+      return null;
+    }
+    if (Object.entries(changes).every(([uri, edits]) => edits.length === 0 || open.has(uri))) return edit;
     void renameAcross(changes, { workspace, buffers, keep, note }).catch((err: unknown) =>
       note(`Rename not applied: ${err instanceof Error ? err.message : String(err)}`),
     );
     return null;
+  }
+
+  /** Files of `client`'s language with unsaved text that the server is not shown. */
+  private unsavedHidden(client: LSPClient): string[] {
+    const language = [...this.servers.values()].find((s) => s.client === client)?.language;
+    const open = new Set((client.workspace as BufferWorkspace).open().map((file) => pathOf(file.uri)));
+    return this.options.buffers.unsavedPaths().filter((path) => {
+      const editor = languageFor(path);
+      return !open.has(path) && editor !== null && LANGUAGES[editor.id]?.server === language;
+    });
   }
 
   /**
@@ -354,7 +377,11 @@ export class LanguageClients {
           const text = texts[i];
           if (typeof text === "string") workspace.peek(uri, Text.of(text.split(/\r\n?|\n/)));
         }
-        if (LSPPlugin.get(view) === plugin) findReferences(view);
+        if (LSPPlugin.get(view) !== plugin) return;
+        findReferences(view);
+        const hidden = this.unsavedHidden(plugin.client);
+        if (hidden.length > 0)
+          this.options.note(`Not listed: references only in the unsaved text of ${hidden.join(", ")}.`);
       })
       .catch((err: unknown) => plugin.reportError("Finding references failed", err));
     return true;

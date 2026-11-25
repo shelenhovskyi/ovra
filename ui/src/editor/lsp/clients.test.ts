@@ -238,12 +238,14 @@ test("a rename that changes files that are not open edits their buffers, unsaved
   expect(b?.text).toBe("export const y = 2;\n  z;\n");
   expect(b?.dirty).toBe(true);
   expect(kept).toEqual(["src/b.ts"]);
-  expect(notes.at(-1)).toContain("Not saved yet: review src/b.ts in their tabs");
+  expect(notes.at(-1)).toBe(
+    "Renamed in 2 files, none saved yet: this file, src/b.ts. Review each tab, then save, or undo there (Mod+Z).",
+  );
   // Unsaved text the server never saw: refused.
   rename();
   await until(() =>
     expect(notes.at(-1)).toBe(
-      "Rename not applied: src/b.ts has unsaved changes. Save or revert it, then rename again.",
+      "Rename not applied: save or revert src/b.ts first; the server only sees saved text there.",
     ),
   );
   expect(b?.text).toBe("export const y = 2;\n  z;\n");

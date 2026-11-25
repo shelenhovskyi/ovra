@@ -33,7 +33,7 @@ async function mountWith(core: FakeLspCore) {
   workspace.project = { id: "p1", name: "demo", root: "/demo", last_opened_ms: null, trusted: core.trusted };
   app = mount(TestHost, { target, props: { transport: core, workspace } });
   await settle();
-  return core;
+  return workspace;
 }
 
 const $ = <T extends HTMLElement>(selector: string) => target.querySelector<T>(selector);
@@ -78,6 +78,23 @@ describe("LanguageServers", () => {
     expect(document.activeElement).toBe(item());
   });
 
+  it("names the server of the shown file, or the missing one it needs", async () => {
+    const core = new FakeLspCore();
+    core.servers = [server("a"), server("t", { language: "typescript", name: "tsserver" })];
+    core.known = [{ language: "python", name: "pyright", path: null, install: "pip install pyright" }];
+    const workspace = await mountWith(core);
+    workspace.openPath = "src/app.ts";
+    flushSync();
+    expect(item()?.textContent?.trim()).toBe("tsserver +1");
+    languageServers(core).needServer("python");
+    workspace.openPath = "main.py";
+    flushSync();
+    expect(item()?.textContent?.trim()).toBe("!pyright not installed");
+    workspace.openPath = "main.rs";
+    flushSync();
+    expect(item()?.textContent?.trim()).toBe("rust-analyzer +1");
+  });
+
   it("warns only about a server without a sandbox", async () => {
     const core = new FakeLspCore();
     core.servers = [server("a"), server("t", { language: "typescript", name: "tsserver", sandbox: null })];
@@ -117,7 +134,9 @@ describe("LanguageServers", () => {
       "rust-analyzer",
     ]);
     expect(document.activeElement?.id).toBe("lsp-title");
-    expect($("[role=status]")?.textContent).toBe("Stopped tsserver. It starts again when you edit a typescript file.");
+    expect($("[role=status]")?.textContent).toBe(
+      "Stopped tsserver. It starts again the next time you open a typescript file.",
+    );
   });
 
   it("closes when a click lands elsewhere, without taking focus", async () => {

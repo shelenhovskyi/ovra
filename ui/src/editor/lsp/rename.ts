@@ -84,9 +84,10 @@ export async function renameAcross(changes: Record<string, unknown[]>, options: 
     if (target.path !== null) options.keep(target.path);
   }
   const others = planned.flatMap(([t]) => (t.path === null ? [] : [t.path]));
+  const shown = planned.flatMap(([t]) => (t.path === null ? ["this file"] : []));
   if (others.length > 0) {
     note(
-      `Renamed in ${planned.length} files. Not saved yet: review ${others.join(", ")} in their tabs, then save, or undo there (Mod+Z).`,
+      `Renamed in ${planned.length} files, none saved yet: ${[...shown, ...others].join(", ")}. Review each tab, then save, or undo there (Mod+Z).`,
     );
   }
 }
