@@ -128,6 +128,11 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 impl DevServerState {
+    /// The root process of `work_dir`'s pod while one runs.
+    pub(crate) fn pod_pid(&self, work_dir: &std::path::Path) -> Option<u32> {
+        self.dev.pod_pid(work_dir)
+    }
+
     pub(crate) fn new(dev: Arc<dyn DevServers>, net: Option<Arc<dyn NetProxy>>) -> Self {
         Self {
             dev,

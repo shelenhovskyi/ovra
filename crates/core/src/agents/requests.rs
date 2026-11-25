@@ -286,6 +286,9 @@ pub(crate) async fn start(ctx: &Ctx<'_>, new: NewSession) -> Result<SessionInfo>
             project: new.project,
             status,
         });
+        if let Some(core) = ctx.sessions.core() {
+            crate::resources::wake(&core);
+        }
     }
     review_from(ctx, &id, &launch, base).await;
     if new.queued {
@@ -542,6 +545,7 @@ async fn run(
         status: AgentStatus::Starting,
     });
     if let Some(core) = sessions.core() {
+        crate::resources::wake(&core);
         crate::orchestration::on_status(&core, id, &AgentStatus::Starting);
     }
     let host = AgentHost::new(

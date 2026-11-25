@@ -76,6 +76,11 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 impl BrowserState {
+    /// The session's browser process while it runs.
+    pub(crate) fn pid(&self, session: &SessionId) -> Option<u32> {
+        self.browser.pid(session)
+    }
+
     pub(crate) fn new(browser: Arc<dyn Browser>) -> Self {
         Self {
             browser,

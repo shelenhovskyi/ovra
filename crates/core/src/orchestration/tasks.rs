@@ -401,7 +401,10 @@ pub(super) async fn spawn(
             .iter()
             .find(|t| &t.coordinator == coordinator)
             .map(|t| t.project.clone());
-        let queued = project.is_some_and(|p| slots::count(core, &guard, &p).0 >= limit);
+        // While the computer is short of memory or CPU, it waits too.
+        let queued = project.is_some_and(|p| {
+            slots::count(core, &guard, &p).0 >= limit || crate::resources::holds_back(core)
+        });
         let entry = guard
             .tasks
             .iter_mut()

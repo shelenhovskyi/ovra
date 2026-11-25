@@ -21,8 +21,8 @@ use crate::search::{self, Searches};
 use crate::servers::DevServerState;
 use crate::services::{
     AgentRuntime, AuditLog, Browser, DevServers, EventSink, Forge, FsService, GitService, IdeTools,
-    LanguageServers, NetProxy, Opener, ProjectStore, Secrets, SessionStore, TerminalService,
-    Unavailable, Worktrees,
+    LanguageServers, NetProxy, Opener, ProjectStore, ResourceMonitor, Secrets, SessionStore,
+    TerminalService, Unavailable, Worktrees,
 };
 
 const EVENT_CAPACITY: usize = 1024;
@@ -48,6 +48,7 @@ pub struct CoreBuilder {
     dev_servers: Arc<dyn DevServers>,
     browser: Arc<dyn Browser>,
     forge: Arc<dyn Forge>,
+    resources: Option<Arc<dyn ResourceMonitor>>,
 }
 
 impl CoreBuilder {
@@ -150,6 +151,13 @@ impl CoreBuilder {
         self
     }
 
+    /// Measures agents' memory and CPU and holds queued workers back while
+    /// the computer is short of either (`docs/specs/agent-resources.md`).
+    pub fn resources(mut self, monitor: Arc<dyn ResourceMonitor>) -> Self {
+        self.resources = Some(monitor);
+        self
+    }
+
     pub fn build(self) -> Core {
         let (events, _) = broadcast::channel(EVENT_CAPACITY);
         let kept = self.sessions.clone();
@@ -164,6 +172,7 @@ impl CoreBuilder {
                 dev_servers: DevServerState::new(self.dev_servers, self.netproxy.clone()),
                 browser: crate::browser::BrowserState::new(self.browser),
                 forge: self.forge,
+                resources: crate::resources::Resources::new(self.resources),
                 sessions: Arc::new(Sessions::new(
                     self.sessions,
                     self.worktrees.clone(),
@@ -227,6 +236,7 @@ struct Inner {
     dev_servers: DevServerState,
     browser: crate::browser::BrowserState,
     forge: Arc<dyn Forge>,
+    resources: crate::resources::Resources,
 }
 
 /// A [`Core`] that does not keep it alive; sessions hold one so their IDE
@@ -307,6 +317,7 @@ impl Core {
             dev_servers: Arc::new(Unavailable("servers")),
             browser: Arc::new(Unavailable("the agent browser")),
             forge: Arc::new(Unavailable("pull requests")),
+            resources: None,
         }
     }
 
@@ -461,6 +472,10 @@ impl Core {
 
     pub(crate) fn dev_servers(&self) -> &DevServerState {
         &self.inner.dev_servers
+    }
+
+    pub(crate) fn resources(&self) -> &crate::resources::Resources {
+        &self.inner.resources
     }
 
     pub(crate) fn browser_state(&self) -> &crate::browser::BrowserState {

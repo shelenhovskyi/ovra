@@ -34,7 +34,9 @@ use crate::protocol::{ErrorCode, ProtocolError, Response};
 use crate::services::SessionStore;
 
 pub(crate) use saved::restore;
-pub(crate) use slots::{Reservation, capacity, reserve, set_limit, view as limit};
+pub(crate) use slots::{
+    Reservation, capacity, reserve, set_limit, start_next_queued, view as limit,
+};
 pub(crate) use tasks::unless_cleaned;
 
 type Result<T> = std::result::Result<T, ProtocolError>;

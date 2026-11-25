@@ -69,6 +69,19 @@ struct Session {
     network: Option<ProfileNetwork>,
     /// The first message of a `queued` session, until it starts.
     queued: Option<Parts>,
+    /// The pid of this run's agent process, as the runtime reported it.
+    pid: Option<u32>,
+}
+
+/// A session that has not ended, as the resource monitor sees it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Running {
+    pub(crate) id: SessionId,
+    pub(crate) project: ProjectId,
+    pub(crate) mode: SessionMode,
+    pub(crate) cwd: Option<PathBuf>,
+    pub(crate) pid: Option<u32>,
+    pub(crate) queued: bool,
 }
 
 /// Where a session works and which IDE tools it gets; kept to resume it the
@@ -135,6 +148,7 @@ impl Sessions {
                 run: 0,
                 network: None,
                 queued: None,
+                pid: None,
             };
             if !session.info.status.is_ended() {
                 session.info.status = AgentStatus::Stopped;
@@ -185,6 +199,7 @@ impl Sessions {
             run: 0,
             network: None,
             queued,
+            pid: None,
         };
         let _ = self.store.save(&session.stored());
         list.push(session);
@@ -274,6 +289,23 @@ impl Sessions {
             .map(|s| {
                 let role = s.launch.as_ref().and_then(|l| l.tools);
                 (s.info.id.clone(), s.info.status.clone(), role)
+            })
+            .collect()
+    }
+
+    /// Every session that has not ended, of every project, for the
+    /// resource monitor.
+    pub(crate) fn not_ended(&self) -> Vec<Running> {
+        lock(&self.list)
+            .iter()
+            .filter(|s| !s.info.status.is_ended())
+            .map(|s| Running {
+                id: s.info.id.clone(),
+                project: s.info.project.clone(),
+                mode: s.info.mode,
+                cwd: s.launch.as_ref().map(|l| l.cwd.clone()),
+                pid: s.pid,
+                queued: s.info.status == AgentStatus::Queued,
             })
             .collect()
     }
@@ -415,6 +447,7 @@ impl SessionView<'_> {
         }
         if status.is_ended() {
             self.session.process = None;
+            self.session.pid = None;
         }
         self.session.info.status = status;
         self.save();
@@ -497,6 +530,20 @@ impl AgentHost {
         let _ = self
             .sessions
             .find(&self.session, |s| s.set_agent_session(id));
+    }
+
+    /// The runtime started the agent's process as `pid` (the sandbox's own
+    /// process when it wraps the agent), so that its memory and CPU can be
+    /// counted with every command it runs. Reported after every spawn.
+    pub fn process(&self, pid: u32) {
+        let _ = self.sessions.find(&self.session, |s| {
+            if !s.session.info.status.is_ended() {
+                s.session.pid = Some(pid);
+            }
+        });
+        if let Some(core) = self.sessions.core() {
+            crate::resources::sample_now(&core);
+        }
     }
 
     /// The agent said who pays for the session's usage.
@@ -734,6 +781,7 @@ impl AgentHost {
                 status: status.clone(),
             });
             if let Some(core) = self.sessions.core() {
+                crate::resources::wake(&core);
                 crate::orchestration::on_status(&core, &self.session, &status);
                 if status.is_ended() {
                     crate::servers::session_ended(&core, &self.session, run);

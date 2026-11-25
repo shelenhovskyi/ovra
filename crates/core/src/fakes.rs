@@ -1026,6 +1026,16 @@ impl ScriptedAgent {
     }
 }
 
+/// The pid [`ScriptedAgent`] reports for a session: 1000 plus its number
+/// (`s3` runs as 1003).
+pub fn fake_pid(session: &SessionId) -> u32 {
+    1000 + session
+        .0
+        .trim_start_matches('s')
+        .parse::<u32>()
+        .unwrap_or(0)
+}
+
 impl AgentRuntime for ScriptedAgent {
     fn start(&self, spec: AgentSpec, host: AgentHost) -> Result<Box<dyn RunningAgent>> {
         let own = spec
@@ -1035,6 +1045,7 @@ impl AgentRuntime for ScriptedAgent {
         host.agent_session(own);
         // Like the real runtime, which reports after each spawn.
         host.sandboxed(lock(&self.sandbox).clone());
+        host.process(fake_pid(&spec.session));
         let turns = self
             .roles
             .iter()
@@ -1237,5 +1248,47 @@ impl RunningAgent for ScriptedProcess {
     fn stop(&self) {
         self.interrupted.stop();
         let _ = self.tx.send(None);
+    }
+}
+
+/// A [`ResourceMonitor`](crate::services::ResourceMonitor) that reports
+/// what a test set: the machine's load and the usage of each root pid.
+#[derive(Debug, Default)]
+pub struct FakeResources {
+    system: Mutex<crate::protocol::resources::SystemLoad>,
+    trees: Mutex<BTreeMap<u32, crate::protocol::resources::Usage>>,
+    asked: Mutex<Vec<Vec<u32>>>,
+}
+
+impl FakeResources {
+    /// A machine with `total` bytes of memory, `available` of them free,
+    /// and its CPU `cpu_percent` busy.
+    pub fn set_system(&self, total: u64, available: u64, cpu_percent: u32) {
+        *lock(&self.system) = crate::protocol::resources::SystemLoad {
+            memory_total_bytes: total,
+            memory_available_bytes: available,
+            cpu_percent,
+        };
+    }
+
+    /// The tree rooted at `pid` takes `usage`.
+    pub fn set_tree(&self, pid: u32, usage: crate::protocol::resources::Usage) {
+        lock(&self.trees).insert(pid, usage);
+    }
+
+    /// The roots of every sample so far.
+    pub fn asked(&self) -> Vec<Vec<u32>> {
+        lock(&self.asked).clone()
+    }
+}
+
+impl crate::services::ResourceMonitor for FakeResources {
+    fn sample(&self, roots: &[u32]) -> crate::services::ResourceSample {
+        lock(&self.asked).push(roots.to_vec());
+        let trees = lock(&self.trees);
+        crate::services::ResourceSample {
+            system: *lock(&self.system),
+            trees: roots.iter().map(|pid| trees.get(pid).copied()).collect(),
+        }
     }
 }

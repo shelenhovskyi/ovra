@@ -10,6 +10,7 @@ use crate::agents;
 use crate::protocol::agents::{AgentCapacity, AgentLimit, AgentStatus, AgentsEvent};
 use crate::protocol::projects::ProjectId;
 use crate::protocol::{ErrorCode, ProtocolError};
+use crate::resources;
 use crate::services::ToolRole;
 
 /// Agents that may work at once in one project, unless the person chose
@@ -166,29 +167,48 @@ impl Drop for Reservation {
 
 /// Starts queued workers of `project`, oldest first, while there is room.
 /// Each was asked for by the coordinator of a task a person started.
+/// None starts while the computer is short of memory or CPU
+/// ([`resources::holds_back`]).
 pub(super) fn start_queued(core: &Core, project: &ProjectId) {
-    let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+    if resources::holds_back(core) {
         return;
+    }
+    start(core, project, usize::MAX);
+}
+
+/// Starts the oldest queued worker of `project` if there is room: after a
+/// shortage of memory or CPU ended, one per sample. Whether one started.
+pub(crate) fn start_next_queued(core: &Core, project: &ProjectId) -> bool {
+    start(core, project, 1) > 0
+}
+
+/// Starts up to `most` queued workers; how many started.
+fn start(core: &Core, project: &ProjectId, most: usize) -> usize {
+    let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+        return 0;
     };
     let limit = limit(core);
-    loop {
+    let mut started = 0;
+    for _ in 0..most {
         // Counted and taken under one lock, so two calls never both take
         // the last place.
         let next = {
             let state = core.orchestration_state();
             let guard = state.lock();
             if count(core, &guard, project).0 >= limit {
-                return;
+                return started;
             }
             core.sessions().dequeue(project)
         };
         let Some((id, parts)) = next else {
-            return;
+            return started;
         };
         let core = core.clone();
         runtime.spawn(async move {
             // A start that fails shows as the session's failure.
             let _ = agents::start_queued(&core.agents_ctx(), id, parts).await;
         });
+        started += 1;
     }
+    started
 }
