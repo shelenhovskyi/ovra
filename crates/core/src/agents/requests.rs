@@ -302,6 +302,7 @@ pub(crate) fn profile(
     forward: Vec<u16>,
 ) -> SandboxProfile {
     SandboxProfile {
+        kind: crate::services::ProfileKind::Agent,
         work_dir: cwd.to_path_buf(),
         read: match mode {
             SessionMode::Isolated => vec![PathBuf::from(&project.root).join(".git")],

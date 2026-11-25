@@ -165,6 +165,7 @@ async fn a_page_opens_behind_the_agents_netproxy_and_reports_to_every_front_end(
     assert_eq!(session.0, "s1");
     assert_eq!(profile.network, agent.network);
     assert!(matches!(profile.network, ProfileNetwork::Proxy { .. }));
+    assert_eq!(profile.kind, crate::services::ProfileKind::Browser);
     let seen = std::iter::once(&profile.work_dir)
         .chain(&profile.read)
         .chain(&profile.write);

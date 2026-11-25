@@ -1,0 +1,115 @@
+---
+source: crates/sandbox-linux/src/plan/tests.rs
+expression: shown
+---
+--ovra-sandbox-outer
+ROOT/data/sandbox-made/-ROOT-tmp-ovra-browser-1
+--
+/usr/bin/bwrap
+--unshare-user
+--unshare-pid
+--unshare-ipc
+--unshare-uts
+--unshare-cgroup-try
+--die-with-parent
+--new-session
+--cap-drop ALL
+--unshare-net
+--ro-bind /
+--dev /dev
+--proc /proc
+--tmpfs /tmp
+--tmpfs /var/tmp
+--tmpfs /run
+--tmpfs /mnt
+--tmpfs /media
+--tmpfs ROOT/home
+--bind ROOT/tmp/ovra-browser-1
+--ro-bind ROOT/tmp/ovra-browser-1/.claude
+--ro-bind ROOT/data/proxy/s.sock
+--ro-bind ROOT/bin/ovra
+--ro-bind /usr/bin/dash
+--chdir ROOT/tmp/ovra-browser-1
+--
+ROOT/bin/ovra
+--ovra-sandbox-helper
+--landlock require
+--rw /tmp
+--rw /dev
+--rw ROOT/home
+--rw ROOT/tmp/ovra-browser-1
+--bridge
+ROOT/data/proxy/s.sock
+3128
+--env
+HOME
+--env
+USER
+--env
+LOGNAME
+--env
+SHELL
+--env
+LANG
+--env
+LANGUAGE
+--env
+LC_ALL
+--env
+LC_CTYPE
+--env
+TZ
+--env
+TERM
+--env
+COLORTERM
+--env
+NO_COLOR
+--env
+SSL_CERT_FILE
+--env
+SSL_CERT_DIR
+--env
+NODE_EXTRA_CA_CERTS
+--env
+CARGO_HOME
+--env
+RUSTUP_HOME
+--env
+NVM_DIR
+--env
+GOPATH
+--env
+HTTP_PROXY
+--env
+HTTPS_PROXY
+--env
+http_proxy
+--env
+https_proxy
+--env
+NODE_USE_ENV_PROXY
+--env
+PATH
+--env
+TMPDIR
+--
+/usr/bin/dash
+-p
+env CLAUDECODE = None
+env HTTP_PROXY = Some("http://127.0.0.1:3128")
+env HTTPS_PROXY = Some("http://127.0.0.1:3128")
+env http_proxy = Some("http://127.0.0.1:3128")
+env https_proxy = Some("http://127.0.0.1:3128")
+env NO_PROXY = None
+env no_proxy = None
+env ALL_PROXY = None
+env all_proxy = None
+env NODE_USE_ENV_PROXY = Some("1")
+env PATH = Some("")
+env TMPDIR = Some("/tmp")
+env GITHUB_TOKEN = None
+env SSH_AUTH_SOCK = None
+env CLAUDE_CODE_OAUTH_TOKEN = None
+env ANTHROPIC_API_KEY = None
+env AWS_REGION = None

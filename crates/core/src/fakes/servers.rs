@@ -162,6 +162,7 @@ mod tests {
             project: ProjectId("p1".into()),
             work_dir: work_dir.into(),
             profile: SandboxProfile {
+                kind: crate::services::ProfileKind::Pod,
                 work_dir: work_dir.into(),
                 read: Vec::new(),
                 write: Vec::new(),

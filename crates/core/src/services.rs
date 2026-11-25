@@ -232,6 +232,23 @@ pub struct SandboxProfile {
     /// sandbox, for the servers of its work dir).
     pub forward: Vec<u16>,
     pub network: ProfileNetwork,
+    /// Whom the sandbox is for, which decides what of the person's own
+    /// state it gets back.
+    pub kind: ProfileKind,
+}
+
+/// Whom a sandbox is for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProfileKind {
+    /// An agent session: `claude`'s settings, login and transcripts come
+    /// back, and the variables it needs.
+    Agent,
+    /// A server pod (ADR 0008; `expose` names its ports): none of
+    /// `claude`'s state, no Claude or cloud-provider variables.
+    Pod,
+    /// The agent browser (ADR 0009): its profile folder alone, none of
+    /// `claude`'s state or the home folder's tools and caches.
+    Browser,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

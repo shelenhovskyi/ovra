@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use ovra_core::protocol::{ErrorCode, ProtocolError};
-use ovra_core::services::{CommandLine, ProfileNetwork, Result, SandboxProfile};
+use ovra_core::services::{CommandLine, ProfileKind, ProfileNetwork, Result, SandboxProfile};
 
 use crate::helper::Landlock;
 use crate::helper::OUTER_FLAG;
@@ -230,6 +230,11 @@ enum Kind {
     /// project's code, not `claude`: they get no login, no transcripts and
     /// no Claude or cloud-provider variables.
     Pod,
+    /// The agent browser: a pod's sandbox without the home folder's tools,
+    /// git settings and caches; Chromium needs only its profile folder.
+    /// It runs web pages with Chromium's own sandbox off, so it gets
+    /// nothing of the person's that it does not need.
+    Browser,
     /// A language server: [`server::SERVER_ENV_KEPT`], the line's own
     /// variables over the plan's, and the project as its working folder.
     Server { project: PathBuf },
@@ -274,10 +279,10 @@ impl Plan {
             path: OsString::new(),
             temporary: Vec::new(),
             record: None,
-            kind: if profile.expose.is_empty() {
-                Kind::Agent
-            } else {
-                Kind::Pod
+            kind: match profile.kind {
+                ProfileKind::Agent => Kind::Agent,
+                ProfileKind::Pod => Kind::Pod,
+                ProfileKind::Browser => Kind::Browser,
             },
         };
         plan.hide(setup, &home);
@@ -406,6 +411,9 @@ impl Plan {
     fn home_back(&mut self, setup: &Setup, home: &Path, work_dir: &Path, shown: &[PathBuf]) {
         if self.kind == Kind::Agent {
             self.claude_back(home, work_dir);
+        }
+        if self.kind == Kind::Browser {
+            return;
         }
         self.home_read(setup, home, shown);
         self.cover_secrets(home);
@@ -618,7 +626,7 @@ impl Plan {
         let program = real(&line.program)?;
         let helper = real(helper)?;
         let cwd = match &self.kind {
-            Kind::Agent | Kind::Pod => real(&line.cwd)?,
+            Kind::Agent | Kind::Pod | Kind::Browser => real(&line.cwd)?,
             Kind::Server { project } => project.clone(),
         };
         let mut args: Vec<OsString> = [
@@ -676,7 +684,7 @@ impl Plan {
         // A server's line points its caches and temporary files into its
         // cache folder: its variables come last, so they win.
         let (mut env, last) = match self.kind {
-            Kind::Agent | Kind::Pod => (line.env, Vec::new()),
+            Kind::Agent | Kind::Pod | Kind::Browser => (line.env, Vec::new()),
             Kind::Server { .. } => (Vec::new(), line.env),
         };
         if let ProfileNetwork::Proxy { address, ca_bundle } = &self.network {
@@ -748,7 +756,7 @@ impl Plan {
     fn env_kept(&self) -> &'static [&'static str] {
         match self.kind {
             Kind::Agent => &ENV_KEPT,
-            Kind::Pod | Kind::Server { .. } => &server::SERVER_ENV_KEPT,
+            Kind::Pod | Kind::Browser | Kind::Server { .. } => &server::SERVER_ENV_KEPT,
         }
     }
 
@@ -781,6 +789,9 @@ impl Plan {
 /// namespace and make Unix sockets in its writable folders.
 fn ports(profile: &SandboxProfile) -> Result<Vec<u16>> {
     let proxy = matches!(profile.network, ProfileNetwork::Proxy { .. });
+    if !profile.expose.is_empty() && profile.kind != ProfileKind::Pod {
+        return Err(invalid("only a server pod exposes ports"));
+    }
     if !profile.expose.is_empty() && matches!(profile.network, ProfileNetwork::Open) {
         return Err(invalid(
             "a server pod needs a network of its own: the sandbox cannot run one with an open network",

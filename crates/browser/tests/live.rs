@@ -121,6 +121,7 @@ async fn the_real_chromium_over_the_pipe() {
     assert!(matches!(browser.status(), SandboxStatus::Available { .. }));
     let work = std::env::temp_dir();
     let profile = SandboxProfile {
+        kind: ovra_core::services::ProfileKind::Browser,
         work_dir: work,
         read: Vec::new(),
         write: Vec::new(),

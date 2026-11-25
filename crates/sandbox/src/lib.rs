@@ -112,6 +112,7 @@ mod tests {
             cwd: "/w".into(),
         };
         let profile = SandboxProfile {
+            kind: ovra_core::services::ProfileKind::Agent,
             work_dir: "/w".into(),
             read: Vec::new(),
             write: Vec::new(),

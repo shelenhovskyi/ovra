@@ -260,7 +260,7 @@ async fn a_ready_server_is_granted_to_the_sessions_of_its_work_dir_only() {
                     (
                         s.pod.work_dir.clone(),
                         s.pod.profile.expose.clone(),
-                        format!("{:?}", s.pod.profile.network),
+                        format!("{:?} {:?}", s.pod.profile.network, s.pod.profile.kind),
                     )
                 })
                 .collect()
@@ -269,6 +269,10 @@ async fn a_ready_server_is_granted_to_the_sessions_of_its_work_dir_only() {
     assert_eq!(pods[0].0, PathBuf::from(ROOT));
     assert_eq!(pods[0].1, [5173, 8080]);
     assert!(pods[0].2.contains("fake-proxy:pod-1"), "{}", pods[0].2);
+    assert!(
+        pods[0].2.ends_with(" Pod"),
+        "a pod gets none of claude's state"
+    );
     assert_eq!(pods[1].0, worktree);
     assert!(pods[1].2.contains("fake-proxy:pod-2"), "{}", pods[1].2);
     let line = f.dev.running.lock().map(|r| r[&web.id].spec.line.clone());

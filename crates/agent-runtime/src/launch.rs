@@ -286,6 +286,7 @@ mod tests {
             trusted: false,
             resume: None,
             sandbox: ovra_core::services::SandboxProfile {
+                kind: ovra_core::services::ProfileKind::Agent,
                 work_dir: "/work".into(),
                 read: Vec::new(),
                 write: Vec::new(),

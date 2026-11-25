@@ -97,6 +97,7 @@ impl Setup {
             project: ProjectId("p1".into()),
             work_dir: self.work.path().into(),
             profile: SandboxProfile {
+                kind: ovra_core::services::ProfileKind::Pod,
                 work_dir: self.work.path().into(),
                 read: Vec::new(),
                 write: Vec::new(),

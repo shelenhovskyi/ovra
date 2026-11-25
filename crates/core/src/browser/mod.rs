@@ -209,6 +209,7 @@ fn profile(core: &Core, session: &SessionId) -> Result<SandboxProfile> {
     );
     match network {
         Some(network @ ProfileNetwork::Proxy { .. }) if proxied => Ok(SandboxProfile {
+            kind: crate::services::ProfileKind::Browser,
             work_dir: PathBuf::new(),
             read: Vec::new(),
             write: Vec::new(),

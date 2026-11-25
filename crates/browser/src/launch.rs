@@ -245,6 +245,7 @@ mod tests {
             sandbox: Arc::new(FakeSandbox::available()),
         };
         let mut profile = SandboxProfile {
+            kind: ovra_core::services::ProfileKind::Browser,
             work_dir: "/w".into(),
             read: Vec::new(),
             write: vec!["/t/profile".into()],

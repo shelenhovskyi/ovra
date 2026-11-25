@@ -137,6 +137,7 @@ impl World {
 
     fn profile(&self, network: ProfileNetwork) -> SandboxProfile {
         SandboxProfile {
+            kind: ovra_core::services::ProfileKind::Agent,
             work_dir: self.project.clone(),
             read: Vec::new(),
             write: Vec::new(),

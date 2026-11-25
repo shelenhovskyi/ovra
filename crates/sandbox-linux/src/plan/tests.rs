@@ -117,6 +117,7 @@ impl Drop for Root {
 
 fn profile(work_dir: &Path) -> SandboxProfile {
     SandboxProfile {
+        kind: ovra_core::services::ProfileKind::Agent,
         work_dir: work_dir.to_path_buf(),
         read: Vec::new(),
         write: Vec::new(),
@@ -384,6 +385,7 @@ fn a_server_pod_listens_in_its_own_network_and_writes_its_pod_folder() {
     let mut profile = proxied(&root, &project);
     profile.write.push(pod.clone());
     profile.expose = vec![5173, 8080];
+    profile.kind = ProfileKind::Pod;
     let plan = Plan::new(&setup, &profile).unwrap();
     let mut outer_env = Root::outer_env();
     outer_env
@@ -407,6 +409,53 @@ fn a_server_pod_listens_in_its_own_network_and_writes_its_pod_folder() {
     assert!(project.join(".claude").is_dir());
     assert!(plan.temporary.is_empty());
     assert!(plan.record.is_some());
+}
+
+#[test]
+fn the_agent_browser_gets_its_profile_folder_and_none_of_claudes_state() {
+    let root = Root::new("browser");
+    let folder = root.dir("tmp/ovra-browser-1");
+    let setup = root.setup("/usr/bin");
+    // Claude's login and state, and the home folder's tools: none of it is
+    // shown to a browser that runs web pages without its own sandbox.
+    root.file("home/.claude/.credentials.json");
+    root.file("home/.claude/history.jsonl");
+    root.file("home/.claude.json");
+    root.file("home/.gitconfig");
+    root.dir("home/.cargo/bin");
+    let mut profile = proxied(&root, &folder);
+    profile.kind = ProfileKind::Browser;
+    let plan = Plan::new(&setup, &profile).unwrap();
+    let mut outer_env = Root::outer_env();
+    outer_env
+        .extend(["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "AWS_REGION"].map(OsString::from));
+    let line = plan.line(
+        Path::new("/usr/bin/bwrap"),
+        &setup.helper,
+        Landlock::Require,
+        line(Path::new("/bin/sh"), &folder),
+        &outer_env,
+    );
+    let shown = root.show(&line.unwrap());
+    insta::assert_snapshot!(shown);
+    // The profile folder's own protected `.claude` is an empty placeholder;
+    // `= None` lines are variables the line removes.
+    let kept: String = shown.lines().filter(|l| !l.ends_with("= None")).collect();
+    for hidden in [
+        "home/.claude",
+        ".claude.json",
+        ".gitconfig",
+        "home/.cargo",
+        "ANTHROPIC",
+        "CLAUDE_CODE_OAUTH",
+        "AWS_",
+    ] {
+        assert!(
+            !kept.contains(hidden),
+            "{hidden} reaches the browser:\n{shown}"
+        );
+    }
+    assert!(!root.0.join("home/.claude/projects").exists());
 }
 
 #[test]
@@ -443,6 +492,10 @@ fn ports_a_sandbox_cannot_keep_to_itself_are_refused() {
     assert!(refused(&open).contains("needs the session's netproxy"));
     let mut pod = profile(&project);
     pod.expose = vec![5173];
+    pod.network = ProfileNetwork::Blocked;
+    assert_eq!(refused(&pod), "only a server pod exposes ports");
+    pod.network = ProfileNetwork::Open;
+    pod.kind = ProfileKind::Pod;
     assert!(refused(&pod).contains("needs a network of its own"));
     pod.network = ProfileNetwork::Blocked;
     assert!(Plan::new(&setup, &pod).is_ok());
@@ -453,6 +506,7 @@ fn ports_a_sandbox_cannot_keep_to_itself_are_refused() {
     assert!(refused(&proxy).contains("port 0"));
     proxy.forward = vec![5173];
     proxy.expose = vec![5173];
+    proxy.kind = ProfileKind::Pod;
     assert!(refused(&proxy).contains("both exposed and forwarded"));
 }
 

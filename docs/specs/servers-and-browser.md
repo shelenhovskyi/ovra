@@ -253,7 +253,12 @@ started per agent session:
   renderer exploit gets what that profile allows, since Chromium runs
   with `--no-sandbox`. The core passes `Browser::open` this profile with
   an empty `work_dir` placeholder; the service makes the folder and puts
-  it there, so a service that does not cannot start a browser.
+  it there, so a service that does not cannot start a browser. Its
+  `kind` is `ProfileKind::Browser`: unlike an agent's sandbox it gets
+  none of `claude`'s state (`~/.claude`, `~/.claude.json`), none of the
+  home folder's tools, settings or caches, and only the variables a pod
+  keeps (no Claude or cloud-provider ones). Pods are `ProfileKind::Pod`,
+  and only a pod may expose ports.
   `--proxy-server` points at the forwarded proxy port,
   `--proxy-bypass-list=<-loopback>` so loopback goes through it too, QUIC
   off, WebRTC limited to proxied TCP;

@@ -102,6 +102,7 @@ fn sandbox_on(home: &Path, hidden: Vec<PathBuf>, path: &str) -> Option<Bubblewra
 
 fn profile(work_dir: &Path, network: ProfileNetwork) -> SandboxProfile {
     SandboxProfile {
+        kind: ovra_core::services::ProfileKind::Agent,
         work_dir: work_dir.to_path_buf(),
         read: Vec::new(),
         write: Vec::new(),
@@ -486,6 +487,7 @@ fn a_server_pod_cannot_reach_the_hosts_loopback() {
     let mut pod_profile = profile(&work, ProfileNetwork::Blocked);
     pod_profile.write.push(pod.clone());
     pod_profile.expose = vec![port];
+    pod_profile.kind = ovra_core::services::ProfileKind::Pod;
     let login = root.file("home/.claude/.credentials.json", "secret");
     let state = root.file("home/.claude.json", "{}");
     let checks = format!(
