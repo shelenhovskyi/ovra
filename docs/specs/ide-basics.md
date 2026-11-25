@@ -1,7 +1,7 @@
 # Basic IDE features
 
-Status: P0 in progress (asked for by the owner on 2026-11-25). P1 and P2 are
-a backlog; each item lands as its own small task.
+Status: P0 done on 2026-11-25 (asked for by the owner that day). P1 and P2
+are a backlog; each item lands as its own small task.
 
 Ovra is agent-first, but a person still opens, reads, fixes and moves files
 by hand between agent turns. When the everyday moves of VS Code, Zed,
