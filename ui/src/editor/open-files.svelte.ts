@@ -650,13 +650,26 @@ export function persistOpenFiles(transport: Transport, workspace: Workspace): ()
       });
       files.lsp = lsp;
       let live = true;
+      let groups = [files];
       const ready = () => {
         if (!live) return;
-        tabs.current = files;
+        tabs.groups = groups;
         void files.opened(workspace.openPath);
       };
-      files.restore().then(({ active_file: active }) => {
-        if (live && active && workspace.openPath === null) workspace.openFile(active);
+      files.restore().then((state) => {
+        if (!live) return;
+        const active = state.active_file;
+        if (active && workspace.openPath === null) workspace.openFile(active);
+        // A split main area comes back with the left group focused.
+        const second = state.second_group;
+        if (second && second.open_files.length > 0) {
+          const right = joined(files.sibling(1));
+          joined(files);
+          right.apply(second);
+          right.active = right.active && right.files.includes(right.active) ? right.active : (right.files[0] ?? null);
+          groups = [files, right];
+          workspace.other = { openPath: right.active, mode: right.active ? modeIn(right, right.active) : "view" };
+        }
         ready();
       }, ready);
       // Unsaved text goes to drafts before the page goes away; only ask if that failed.

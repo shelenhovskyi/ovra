@@ -22,7 +22,8 @@ group beside the first, and nothing more.
   view). Saving from either saves the file.
 - Opening a file (tree, palette, search, agent links) opens it in the
   focused group. Dragging a tab onto the other group moves it there.
-- Mod+1 and Mod+2 focus a group. The splitter between them resizes and
+- Mod+1 and Mod+2 focus a group (in a browser tab, which keeps Mod+digit
+  and on Linux Alt+digit for its own tabs, Mod+Alt+1 and Mod+Alt+2). The splitter between them resizes and
   remembers its ratio, as the side panels do (`ui/src/shell/layout.svelte.ts`).
 - The groups and their tabs are restored on reopen, like the open files are
   today.
@@ -32,16 +33,21 @@ group beside the first, and nothing more.
 1. **Workspace state** (hot spot, own commit first): `Workspace` gains
    `group: 0 | 1` (the focused group) and keeps `openPath` and `mode` as the
    focused group's file and mode, so every panel that reads them keeps
-   working. A small `groups` field holds the other group's `openPath` and
-   `mode`.
+   working. A small `other` field holds the other group's `openPath` and
+   `mode` (null with one group); `groupView` gives the panels inside a group
+   the workspace as that group sees it.
 2. **Project state protocol** (hot spot, own commit): `projects.set_state`
-   gets an optional `second_group: { open_files, active_file }`; an older
+   gets an optional `second_group: { open_files, active_file, pinned_files }`,
+   written whole; one without open files closes the group, and an older
    state without it opens one group. Rust and TS change together.
 3. **Editor area**: `OpenFiles` becomes one instance per group;
    `Buffers` stays one per project and hands a second, mirrored view to a
    group that shows a file the other group shows.
 4. **Commands**: `editor.split_right`, `editor.focus_group_1`,
    `editor.focus_group_2`, `editor.move_tab_to_other_group`.
+
+A git diff still covers the whole main area while it shows; its tab sits in
+the focused group's strip.
 
 ## Not in this spec
 

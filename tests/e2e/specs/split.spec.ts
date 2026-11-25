@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "../test";
 
-test("split right shows one text in two groups; an edit on the right saves, and the group closes with its last tab", async ({
+test("split right shows one text in two groups; an edit on the right saves, a reload keeps both, and a group closes with its last tab", async ({
   page,
 }) => {
   const dir = mkdtempSync(join(tmpdir(), "ovra-split-"));
@@ -43,6 +43,12 @@ test("split right shows one text in two groups; an edit on the right saves, and 
   await page.getByRole("treeitem", { name: /b\.txt/ }).click();
   await expect(strips.first().getByRole("tab", { name: /b\.txt/ })).toHaveAttribute("aria-selected", "true");
   await expect(right.locator(".cm-content")).toContainText("gamma");
+
+  // Both groups come back after a reload.
+  await page.reload();
+  await expect(strips).toHaveCount(2);
+  await expect(strips.first().getByRole("tab")).toHaveText(["a.txt", "b.txt"]);
+  await expect(strips.nth(1).getByRole("tab")).toHaveText(["a.txt"]);
 
   // Closing the right group's only tab closes the group.
   await strips.nth(1).getByRole("button", { name: "Close a.txt" }).click();

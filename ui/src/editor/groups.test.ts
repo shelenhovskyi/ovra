@@ -1,12 +1,25 @@
 // Two editor groups (docs/specs/split-editor.md): opening, moving and
 // closing tabs between them, and what the project state keeps of them.
 
-import { afterEach, expect, test } from "vitest";
+import { flushSync } from "svelte";
+import { afterEach, expect, test, vi } from "vitest";
+import type { Project } from "../lib/protocol";
 import { Workspace } from "../shell/workspace.svelte";
 import { Buffers } from "./buffers.svelte";
 import { Drafts } from "./drafts.svelte";
 import { FakeCore, MemoryStorage } from "./fake-core";
-import { forgetTabs, moveTab, OpenFiles, renameTabs, requestClose, splitRight, tabs } from "./open-files.svelte";
+import {
+  forgetTabs,
+  moveTab,
+  OpenFiles,
+  persistOpenFiles,
+  renameTabs,
+  requestClose,
+  splitRight,
+  tabs,
+} from "./open-files.svelte";
+
+const project: Project = { id: "p1", name: "p", root: "/p", last_opened_ms: null, trusted: false };
 
 afterEach(() => {
   tabs.current = null;
@@ -115,4 +128,34 @@ test("renames and deletions reach the tabs of both groups", async () => {
     "src/a.ts",
     null,
   ]);
+});
+
+test("a split main area comes back on reopen, and an older state opens one group", async () => {
+  const core = new FakeCore();
+  core.state = {
+    open_files: ["a.ts"],
+    active_file: "a.ts",
+    expanded_dirs: [],
+    second_group: { open_files: ["b.ts", "c.ts"], active_file: "gone.ts", pinned_files: ["c.ts"] },
+  };
+  const workspace = new Workspace();
+  const stop = persistOpenFiles(core, workspace);
+  workspace.project = project;
+  flushSync();
+  await vi.waitFor(() => expect(tabs.groups).toHaveLength(2));
+  const right = tabs.groups[1];
+  expect([workspace.group, workspace.openPath, workspace.other]).toEqual([
+    0,
+    "a.ts",
+    { openPath: "c.ts", mode: "view" },
+  ]);
+  expect([right?.files, right?.pinned, right?.slot]).toEqual([["c.ts", "b.ts"], ["c.ts"], 1]);
+  // Another project, saved before the split editor, opens with one group.
+  core.state = { open_files: ["x.ts"], active_file: "x.ts", expanded_dirs: [] };
+  workspace.openPath = null;
+  workspace.project = { ...project, id: "p2" };
+  flushSync();
+  await vi.waitFor(() => expect(workspace.openPath).toBe("x.ts"));
+  expect([tabs.groups.length, workspace.other]).toEqual([1, null]);
+  stop();
 });
