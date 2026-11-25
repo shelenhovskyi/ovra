@@ -3517,6 +3517,7 @@ version = "0.1.0"
 dependencies = [
  "ovra-core",
  "ovra-sandbox-linux",
+ "ovra-sandbox-windows",
 ]
 
 [[package]]
@@ -3529,6 +3530,13 @@ dependencies = [
  "ovra-core",
  "rustix",
  "seccompiler",
+]
+
+[[package]]
+name = "ovra-sandbox-windows"
+version = "0.1.0"
+dependencies = [
+ "ovra-core",
 ]
 
 [[package]]
