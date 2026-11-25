@@ -56,6 +56,14 @@ export function focus(): void {
   input?.select();
 }
 
+/** Searches only files matching `include`, filters shown, and focuses the search text. */
+export function limitTo(include: string): void {
+  model.include = include;
+  showFilters = true;
+  changed();
+  focus();
+}
+
 /** Shows the Replace field and focuses it. */
 export async function focusReplace(): Promise<void> {
   showReplace = true;

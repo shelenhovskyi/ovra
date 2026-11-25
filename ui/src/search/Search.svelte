@@ -5,6 +5,7 @@ import { tick, untrack } from "svelte";
 import { tabs } from "../editor/open-files.svelte";
 import { registerCommand } from "../keys/commands";
 import { useOvra } from "../shell/context";
+import { handleFindInFolder } from "./find-in";
 import SearchPanel from "./SearchPanel.svelte";
 
 const { transport, workspace } = useOvra();
@@ -23,6 +24,13 @@ async function showReplace(): Promise<void> {
   await panel?.focusReplace();
 }
 
+async function findIn(include: string): Promise<void> {
+  workspace.sidebar = "search";
+  await tick();
+  panel?.limitTo(include);
+}
+
+$effect(() => handleFindInFolder(findIn));
 $effect(() => registerCommand({ id: "search.show", title: "Search in files", keys: "Mod+Shift+F", run: show }));
 $effect(() =>
   registerCommand({ id: "search.replace", title: "Replace in files", keys: "Mod+Shift+H", run: showReplace }),
