@@ -1,6 +1,7 @@
 # Checkpoints: go back to an earlier turn
 
-Status: draft for the owner (2026-11-25), task 7 of `docs/roadmap-next.md`.
+Status: approved by the owner on 2026-11-25 with the recommended option of
+every decision below; task 7 of `docs/roadmap-next.md`.
 Builds on ADR 0005 (direct mode) and `docs/specs/orchestration.md`
 ("How direct mode tells them apart"). Research: improvement report 1.4 in
 the project files.

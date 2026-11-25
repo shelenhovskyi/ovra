@@ -1,8 +1,8 @@
 # Pull requests through the person's `gh`
 
-Status: draft for the owner (2026-11-25), task 7 of `docs/roadmap-next.md`.
-Needs an ADR (0010) once approved: it adds a crate boundary and a rule for
-the person's GitHub credentials, the same rule ADR 0006 sets for `claude`.
+Status: approved by the owner on 2026-11-25 with the recommended option of
+every decision below; task 7 of `docs/roadmap-next.md`.
+The crate boundary and the credentials rule are ADR 0010.
 Research: `research/git-lsp-gaps.md` (PR flow) in the project files.
 
 ## Problem

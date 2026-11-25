@@ -1,6 +1,7 @@
 # Worktree setup
 
-Status: draft for the owner (2026-11-25), task 7 of `docs/roadmap-next.md`.
+Status: approved by the owner on 2026-11-25 with the recommended option of
+every decision below; task 7 of `docs/roadmap-next.md`.
 Builds on `docs/specs/orchestration.md`, `docs/specs/security.md` and
 `docs/specs/servers-and-browser.md`. Research: improvement report 1.5 and
 `research/git-lsp-gaps.md` (setup scripts) in the project files.
