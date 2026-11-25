@@ -189,6 +189,7 @@ fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 /// A new folder in `dir` only this user can open.
 fn new_folder(dir: &Path) -> Result<PathBuf> {
     let folder = dir.join(random_name());
+    #[cfg_attr(not(unix), allow(unused_mut))]
     let mut builder = std::fs::DirBuilder::new();
     #[cfg(unix)]
     std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
@@ -202,6 +203,7 @@ fn new_folder(dir: &Path) -> Result<PathBuf> {
 /// paths are limited to about 100 bytes.
 fn private_dir() -> Result<PathBuf> {
     let tmp = std::env::temp_dir();
+    #[cfg_attr(not(unix), allow(unused_mut))]
     let mut builder = std::fs::DirBuilder::new();
     #[cfg(unix)]
     std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
