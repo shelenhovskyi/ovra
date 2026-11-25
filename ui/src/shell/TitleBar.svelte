@@ -113,7 +113,7 @@ function search(): void {
   }
   /* The desktop app's overlay title bar: room for the window's traffic lights. */
   :global([data-chrome="overlay"]) .title {
-    padding-left: 78px;
+    padding-left: 88px;
   }
   .mark {
     display: flex;
