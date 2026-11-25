@@ -1,5 +1,7 @@
 import { flushSync, mount, unmount } from "svelte";
 import { afterEach, describe, expect, it } from "vitest";
+import { registerCommand } from "../keys/commands";
+import { formatShortcut, isApple, liveKeys } from "../keys/shortcut";
 import type { CoreEvent, FileBody, Request } from "../lib/protocol";
 import { CoreError, type Transport } from "../lib/transport";
 import { Workspace } from "../shell/workspace.svelte";
@@ -86,6 +88,37 @@ describe("Viewer", () => {
     workspace.project = null;
     flushSync();
     expect(target.textContent).toContain("Open a project to see its files here.");
+  });
+
+  it("offers the next steps, with their keys, when no file is open", async () => {
+    const ran: string[] = [];
+    const off = [
+      registerCommand({ id: "agents.new_session", title: "New task", run: () => void ran.push("task") }),
+      registerCommand({
+        id: "palette.go_to_file",
+        title: "Go to file",
+        keys: "Mod+P",
+        run: () => void ran.push("file"),
+      }),
+      registerCommand({ id: "search.show", title: "Search", keys: "Mod+Shift+F", run: () => void ran.push("search") }),
+    ];
+    try {
+      const { target } = show({}, null);
+      await settle();
+      const buttons = [...target.querySelectorAll<HTMLButtonElement>("[data-testid=start] button")];
+      // No terminal command is registered here, so that action is left out.
+      expect(buttons.map((b) => b.querySelector(".label")?.textContent)).toEqual([
+        "Give Claude a task",
+        "Find a file",
+        "Search in files",
+      ]);
+      expect(buttons[1]?.querySelector("kbd")?.textContent).toBe(formatShortcut(liveKeys("Mod+P", true), isApple()));
+      expect(buttons[0]?.querySelector("kbd")).toBeNull();
+      for (const button of buttons) button.click();
+      expect(ran).toEqual(["task", "file", "search"]);
+    } finally {
+      for (const unregister of off) unregister();
+    }
   });
 
   it("shows plain text escaped", async () => {

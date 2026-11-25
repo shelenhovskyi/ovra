@@ -8,6 +8,7 @@ import Lines from "./Lines.svelte";
 import { formatSize, type Loaded, loadView, touches } from "./load";
 import MarkdownView from "./MarkdownView.svelte";
 import PatchView from "./PatchView.svelte";
+import StartPanel from "./StartPanel.svelte";
 
 const { transport, workspace } = useOvra();
 
@@ -88,7 +89,7 @@ async function openExternal() {
   {#if !workspace.project}
     <p class="note">Open a project to see its files here.</p>
   {:else if !workspace.openPath}
-    <p class="note">Open a file from the tree on the left.</p>
+    <StartPanel />
   {:else}
     <div class="bar">
       <span class="path" title={workspace.openPath}>{workspace.openPath}</span>
