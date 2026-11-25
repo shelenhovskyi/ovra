@@ -42,6 +42,13 @@ test("terminals open from the keyboard, run commands in tabs and hide without en
   // Typing `exit` ends the shell; the tab stays and says so.
   await page.keyboard.type("exit\n");
   await expect(tabs.getByRole("tab", { name: /Terminal 2/ })).toHaveText("Terminal 2 (exited)");
+
+  // Restart brings a new shell into the same tab; Shift+Tab leaves the terminal for its tab.
+  await second.getByRole("button", { name: "Restart" }).click();
+  await expect(tabs.getByRole("tab", { name: "Terminal 2" })).toHaveText("Terminal 2");
+  await expect(second.getByRole("textbox", { name: "Terminal input" })).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(tabs.getByRole("tab", { name: "Terminal 2" })).toBeFocused();
 });
 
 test("a terminal redraws output it missed from the core's scrollback", async ({ page }) => {
