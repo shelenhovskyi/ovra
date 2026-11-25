@@ -49,6 +49,12 @@ export class GitFile {
     for (const listener of this.listeners) listener();
   }
 
+  /** The file now lives at `path`: asks again under the new name. */
+  moveTo(path: string): void {
+    this.options.path = path;
+    this.changed();
+  }
+
   /** Calls `listener` whenever cached data was dropped; returns a function that stops. */
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener);

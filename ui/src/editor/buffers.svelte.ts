@@ -74,6 +74,8 @@ export class Buffer {
   deleted = $state(false);
   /** The text is too large or has too long a line: no highlighting (see `isHeavy`). */
   heavy = $state(false);
+  /** Where the file is; a rename or move of it changes this (`moveTo`). */
+  path = $state("");
   readonly language: Language | null;
   readonly loaded: Promise<void>;
   /** Git change markers and blame of this file. */
@@ -90,11 +92,14 @@ export class Buffer {
   /** The language server's editor extension, if one serves this buffer. */
   private readonly server = new Compartment();
   private serverExtension: Extension = [];
+  /** The text box's name, which says the path. */
+  private readonly label = new Compartment();
 
   constructor(
     private readonly options: Options,
-    readonly path: string,
+    path: string,
   ) {
+    this.path = path;
     this.language = languageFor(path);
     this.git = new GitFile({ transport: options.transport, project: options.project, path });
     this.loaded = this.load();
@@ -139,6 +144,22 @@ export class Buffer {
     if (also) specs.push(also(state));
     if (this.view) this.view.dispatch(...specs);
     else this.state = state.update(...specs).state;
+  }
+
+  /**
+   * The file was renamed or moved to `path`: text, undo history and unsaved
+   * edits stay, the draft moves along. The language stays as it was.
+   */
+  moveTo(path: string): void {
+    if (this.draftTimer) clearTimeout(this.draftTimer);
+    this.draftTimer = null;
+    this.options.drafts.remove(this.options.project, this.path);
+    this.path = path;
+    this.git.moveTo(path);
+    this.flushDraft();
+    const effects = this.label.reconfigure(this.labelExtension());
+    if (this.view) this.view.dispatch({ effects });
+    else if (this.state) this.state = this.state.update({ effects }).state;
   }
 
   /**
@@ -318,6 +339,10 @@ export class Buffer {
     });
   }
 
+  private labelExtension(): Extension {
+    return EditorView.contentAttributes.of({ "aria-label": `Edit ${this.path}` });
+  }
+
   private extensions(): Extension[] {
     return [
       lineNumbers(),
@@ -345,7 +370,7 @@ export class Buffer {
         if (update.docChanged) this.changed();
       }),
       // Named, so a screen reader says which file the text box edits.
-      EditorView.contentAttributes.of({ "aria-label": `Edit ${this.path}` }),
+      this.label.of(this.labelExtension()),
       theme,
       this.highlight ? treeSitterHighlighting(this.highlight) : [],
       this.server.of(this.serverExtension),
@@ -420,6 +445,30 @@ export class Buffers {
   /** Paths of loaded buffers with unsaved text. */
   unsavedPaths(): string[] {
     return [...this.buffers.values()].filter((b) => b.dirty).map((b) => b.path);
+  }
+
+  /**
+   * The file at `from` is now at `to`: its buffer (or only its draft) moves
+   * along; returns the moved buffer. A clean buffer whose language changes
+   * with the name is dropped instead, so it opens fresh in the new one.
+   */
+  rename(from: string, to: string): Buffer | null {
+    const buffer = this.buffers.get(from);
+    const { drafts, project } = this.options;
+    if (!buffer) {
+      const draft = drafts.get(project, from);
+      drafts.remove(project, from);
+      if (draft) drafts.set(project, to, draft);
+      return null;
+    }
+    this.buffers.delete(from);
+    if (!buffer.dirty && languageFor(to)?.id !== buffer.language?.id) {
+      buffer.dispose();
+      return null;
+    }
+    buffer.moveTo(to);
+    this.buffers.set(to, buffer);
+    return buffer;
   }
 
   /** Forgets `path`, including its unsaved text. */

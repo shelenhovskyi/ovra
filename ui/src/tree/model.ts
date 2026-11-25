@@ -161,6 +161,16 @@ export class TreeModel {
     this.rebuild();
   }
 
+  /** `from` was renamed or moved to `to`: folders open in it stay open at the new path. */
+  moved(from: string, to: string): void {
+    if (from === "") return;
+    for (const key of [...this.expanded]) {
+      if (!isInside(key, from)) continue;
+      this.expanded.delete(key);
+      this.expanded.add(to + key.slice(from.length));
+    }
+  }
+
   collapseAll(): void {
     this.expanded = new Set([""]);
     this.expandedBeforeFilter = null;

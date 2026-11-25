@@ -19,6 +19,12 @@ import { modeMemory } from "./mode-memory";
 /** Beyond this many tabs, the leftmost inactive unpinned tab without unsaved text is closed. */
 const MAX_OPEN_FILES = 20;
 
+/** Where `path` is once `from` moved to `to`, or null if it is not `from` or inside it. */
+function movedPath(path: string, from: string, to: string): string | null {
+  if (path === from) return to;
+  return path.startsWith(`${from}/`) ? to + path.slice(from.length) : null;
+}
+
 export class OpenFiles {
   /** Tab order; the pinned tabs come first. */
   files = $state<string[]>([]);
@@ -145,6 +151,53 @@ export class OpenFiles {
     return this.active;
   }
 
+  /**
+   * `from` (a file, or a folder with everything in it) was renamed or moved
+   * to `to`: its tabs follow in place, keeping pin, preview, mode and buffer.
+   */
+  renamePath(from: string, to: string): void {
+    const next = (path: string) => movedPath(path, from, to) ?? path;
+    if (this.files.every((path) => next(path) === path)) return;
+    for (const path of this.files) {
+      const target = next(path);
+      if (target === path) continue;
+      const buffer = this.buffers.rename(path, target);
+      if (buffer) this.lsp?.moved(buffer);
+      const mode = this.modes.get(path);
+      this.modes.delete(path);
+      if (mode) this.modes.set(target, mode);
+    }
+    this.files = this.files.map(next);
+    this.pinned = this.pinned.map(next);
+    if (this.preview) this.preview = next(this.preview);
+    if (this.active) this.active = next(this.active);
+    void this.write();
+  }
+
+  /**
+   * `paths` (files or folders) are gone: their tabs close, except those with
+   * unsaved text, which stay and show that the file was deleted. Returns the
+   * file to show next.
+   */
+  forgetPaths(paths: string[]): string | null {
+    const gone = (path: string) => paths.some((dir) => movedPath(path, dir, dir) !== null);
+    const closing = this.files.filter((path) => gone(path) && !this.buffers.isDirty(path));
+    for (const path of this.files)
+      if (gone(path) && !closing.includes(path)) void this.buffers.get(path)?.diskChanged();
+    if (closing.length === 0) return this.active;
+    const stays = (path: string) => !closing.includes(path);
+    if (this.active && !stays(this.active)) {
+      const index = this.files.indexOf(this.active);
+      this.active = this.files.slice(index + 1).find(stays) ?? this.files.slice(0, index).reverse().find(stays) ?? null;
+    }
+    for (const path of closing) this.forget(path);
+    this.files = this.files.filter(stays);
+    this.pinned = this.pinned.filter(stays);
+    if (this.preview && !stays(this.preview)) this.preview = null;
+    void this.write();
+    return this.active;
+  }
+
   /** The tab `offset` places away from the active one, wrapping around. */
   neighbour(offset: number): string | null {
     if (this.files.length === 0) return null;
@@ -247,6 +300,24 @@ export function closeOtherTabs(workspace: Target, path: string | null): void {
   const unsaved = current.closeOthers(path);
   tabs.notice = unsaved > 0 ? `${unsaved === 1 ? "A tab" : `${unsaved} tabs`} with unsaved changes stayed open.` : null;
   if (current.active !== before) show(workspace, current.active);
+  void keepFocus(current.files.length === 0);
+}
+
+/** `from` was renamed or moved to `to`: its tabs follow, and the main area keeps showing the file. */
+export function renameTabs(workspace: Target, from: string, to: string): void {
+  tabs.current?.renamePath(from, to);
+  const shown = workspace.openPath === null ? null : movedPath(workspace.openPath, from, to);
+  if (shown) workspace.openPath = shown;
+}
+
+/** `paths` went to the Trash: their tabs close, except unsaved ones, which say the file was deleted. */
+export function forgetTabs(workspace: Target, paths: string[]): void {
+  const current = tabs.current;
+  if (!current) return;
+  const before = current.active;
+  const next = current.forgetPaths(paths);
+  if (next === before) return;
+  show(workspace, next);
   void keepFocus(current.files.length === 0);
 }
 

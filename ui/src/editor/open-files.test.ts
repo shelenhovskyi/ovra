@@ -235,3 +235,50 @@ test("typing in the preview tab keeps it; a kind of file opens the way it was la
   expect(modeOf("b.zz")).toBe("edit");
   stop();
 });
+
+test("a rename moves its tabs in place with their buffers, drafts, pins, preview and modes", async () => {
+  const { core, drafts, buffers, files } = setup();
+  core.state = { open_files: ["src/a.ts", "b.ts", "src/lib/c.ts", "src.ts"], active_file: "b.ts", expanded_dirs: [] };
+  core.put("src/a.ts", "a");
+  drafts.set("p1", "src/lib/c.ts", { text: "unsaved c", mtime: 1 });
+  await files.restore();
+  files.togglePin("src/a.ts");
+  await files.opened("new.ts");
+  files.modes.set("src/a.ts", "edit");
+  const a = buffers.open("src/a.ts");
+  await a.loaded;
+  a.edit({ changes: { from: 1, insert: "!" } });
+
+  files.renamePath("src", "app");
+  expect(files.files).toEqual(["app/a.ts", "b.ts", "app/lib/c.ts", "src.ts", "new.ts"]);
+  expect([files.pinned, files.active, files.preview]).toEqual([["app/a.ts"], "new.ts", "new.ts"]);
+  // The same buffer, so its undo history comes along too.
+  expect([buffers.get("app/a.ts"), a.path, a.text, a.dirty, files.modes.get("app/a.ts")]).toEqual([
+    a,
+    "app/a.ts",
+    "a!",
+    true,
+    "edit",
+  ]);
+  expect([drafts.has("p1", "src/a.ts"), drafts.get("p1", "app/a.ts")?.text]).toEqual([false, "a!"]);
+  expect([drafts.has("p1", "src/lib/c.ts"), drafts.get("p1", "app/lib/c.ts")?.text]).toEqual([false, "unsaved c"]);
+  files.renamePath("new.ts", "renamed.ts");
+  expect([files.active, files.preview]).toEqual(["renamed.ts", "renamed.ts"]);
+  await files.opened("renamed.ts");
+  expect(core.state.open_files.at(-1)).toBe("renamed.ts");
+});
+
+test("trashed paths close their tabs; unsaved ones stay and say the file was deleted", async () => {
+  const { core, buffers, files } = setup();
+  core.state = { open_files: ["a", "src/b", "src/c", "d"], active_file: "src/b", expanded_dirs: [] };
+  core.put("src/c", "c");
+  await files.restore();
+  const c = buffers.open("src/c");
+  await c.loaded;
+  c.edit({ changes: { from: 0, insert: "x" } });
+  core.files.delete("src/c");
+
+  expect(files.forgetPaths(["src", "a"])).toBe("src/c");
+  expect(files.files).toEqual(["src/c", "d"]);
+  await vi.waitFor(() => expect([c.deleted, c.dirty]).toEqual([true, true]));
+});

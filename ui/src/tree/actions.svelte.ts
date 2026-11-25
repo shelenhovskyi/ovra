@@ -126,6 +126,7 @@ export class FileActions {
     const to = joinPath(parentOf(from), name);
     const { transport, project, model } = this.host;
     await transport.call({ method: "fs.rename", params: { project, from, to } });
+    model.moved(from, to);
     this.end();
     await model.reload(parentOf(from));
     this.host.select(to);
@@ -190,6 +191,7 @@ export class FileActions {
     const { transport, project, model } = this.host;
     try {
       await transport.call({ method: "fs.rename", params: { project, from, to } });
+      model.moved(from, to);
       await model.reload(parentOf(from));
       await model.reload(dir);
       await model.reveal(to);

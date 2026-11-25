@@ -4,12 +4,11 @@
 // folder onto the window opens it from the start screen only, so a drop on
 // the editor or a terminal never switches the project.
 import { tick, untrack } from "svelte";
-import { modeOf, requestClose, tabs } from "../editor/open-files.svelte";
+import { forgetTabs, modeOf, renameTabs, tabs } from "../editor/open-files.svelte";
 import { registerCommand } from "../keys/commands";
 import { useOvra } from "../shell/context";
 import FileTree from "./FileTree.svelte";
 import { FolderOpener } from "./folder-opener.svelte";
-import { isWithin, movedPath } from "./ops";
 import ProjectList from "./ProjectList.svelte";
 
 const { transport, workspace } = useOvra();
@@ -45,31 +44,6 @@ $effect(() =>
   }),
 );
 
-// TODO(tabs): until the tabs can follow a path themselves (`renamePath`,
-// `forgetPaths` in open-files), a moved file's tab is closed and reopened
-// at its new path and a trashed file's tab closes. Tabs with unsaved text
-// stay as they are, so nothing typed is lost.
-function moved(from: string, to: string): void {
-  const current = tabs.current;
-  if (!current) return;
-  for (const path of [...current.files]) {
-    const next = movedPath(path, from, to);
-    if (!next || current.buffers.isDirty(path)) continue;
-    const shown = path === workspace.openPath;
-    const mode = workspace.mode;
-    requestClose(workspace, path);
-    if (shown) workspace.openFile(next, mode);
-    else current.keep(next);
-  }
-}
-
-function trashed(paths: string[]): void {
-  const current = tabs.current;
-  for (const path of [...(current?.files ?? [])]) {
-    if (paths.some((p) => isWithin(path, p)) && !current?.buffers.isDirty(path)) requestClose(workspace, path);
-  }
-}
-
 // A failed Mod+O with a project on screen shows here, in the files view.
 $effect(() => {
   if (opener.error && workspace.project) untrack(() => (workspace.sidebar = "files"));
@@ -98,8 +72,8 @@ $effect(() => {
       onopen={(path, mode) => workspace.openFile(path, mode ?? modeOf(path))}
       onkeep={(path) => tabs.current?.makePermanent(path)}
       onreveal={() => (workspace.sidebar = "files")}
-      onmoved={moved}
-      ontrashed={trashed}
+      onmoved={(from, to) => renameTabs(workspace, from, to)}
+      ontrashed={(paths) => forgetTabs(workspace, paths)}
     />
   {/key}
 {:else}

@@ -120,6 +120,14 @@ export class LanguageClients {
     if (ready) void this.connect(buffer);
   }
 
+  /** `buffer` was renamed or moved: its server forgets the old path, and the shown buffer connects again. */
+  moved(buffer: Buffer): void {
+    for (const server of this.servers.values()) {
+      if (server.buffers.delete(buffer)) buffer.setLanguageServer([], (state) => setDiagnostics(state, []));
+    }
+    if (this.shown?.buffer === buffer && buffer.status === "ready") void this.connect(buffer);
+  }
+
   /** The editor stopped showing `buffer`. */
   hiding(buffer: Buffer): void {
     if (this.shown?.buffer === buffer) this.shown = null;

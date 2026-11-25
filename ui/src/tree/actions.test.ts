@@ -79,6 +79,14 @@ describe("FileActions", () => {
     await t.actions.commit("b.ts");
     expect(t.paths()).toEqual(["src", "src/b.ts"]);
     expect(t.log.moved).toEqual(["src/a.ts -> src/b.ts"]);
+
+    // A renamed folder stays open, and so do the open folders in it.
+    const u = await setup(["src/lib/c.ts"]);
+    await u.model.expand("src");
+    await u.model.expand("src/lib");
+    u.actions.startRename("src");
+    await u.actions.commit("app");
+    expect(u.model.expandedDirs()).toEqual(["app", "app/lib"]);
   });
 
   it("duplicates as a free copy name and starts renaming it", async () => {

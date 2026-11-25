@@ -79,10 +79,15 @@ test("new file from a row's menu, F2 rename in place and drag to move", async ({
   await rename.press("Enter");
   const renamed = tree.getByRole("treeitem", { name: "t.md" });
   await expect(renamed).toBeVisible();
+  // The open file's tab follows the rename and the move.
+  const tab = page.getByRole("tablist", { name: "Open files" }).getByRole("tab");
+  await expect(tab).toHaveText(["t.md"]);
 
   // Dragging a file onto a folder moves it there.
   await renamed.dragTo(tree.getByRole("treeitem", { name: "docs" }));
   await expect(tree.getByRole("treeitem", { name: "t.md" })).toHaveAttribute("aria-level", "2");
   expect(existsSync(join(dir, "docs", "t.md"))).toBe(true);
   expect(existsSync(join(dir, "notes.md"))).toBe(false);
+  await expect(tab).toHaveText(["t.md"]);
+  await expect(tab).toHaveAttribute("data-path", "docs/t.md");
 });
