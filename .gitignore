@@ -10,3 +10,4 @@ playwright-report/
 .claude/settings.local.json
 .ovra-data/
 .claude/worktrees/
+*.snap.new

@@ -90,7 +90,9 @@ mod tests {
 
     #[test]
     fn the_names_kept_are_the_linux_sandboxs_plus_path() {
-        // Read as text: this crate cannot depend on the sandbox's.
+        // Read as text, a test only: this crate cannot depend on the
+        // sandbox's, so the crate graph does not see this. The list holds
+        // names only; a quote in a comment there would break the parse.
         let source = include_str!("../../sandbox-linux/src/plan/server.rs");
         let list = source
             .split_once("SERVER_ENV_KEPT: [&str; ")

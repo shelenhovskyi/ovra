@@ -710,7 +710,7 @@ fn a_language_server_reads_the_project_and_writes_only_its_cache() {
         UnixListener::bind_addr(&addr).unwrap()
     };
     // Something on the host listening on a socket file the sandbox shows.
-    let socket = world.home.join("ide.sock");
+    let socket = world.project.join("ide.sock");
     let _socket = UnixListener::bind(&socket).unwrap();
     let checks = format!(
         "read the project: grep -q hello README.md

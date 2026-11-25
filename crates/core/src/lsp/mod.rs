@@ -207,6 +207,8 @@ async fn start(
     let started = match started {
         Ok(started) => started,
         Err(e) => {
+            // The service may have made the cache folder before it failed.
+            forget_if_gone(core, &project);
             if let Some(entry) = state.servers.remove(&id) {
                 drop(state);
                 let mut info = entry.info;
@@ -223,11 +225,7 @@ async fn start(
         // It ended, or was stopped, before it was ready.
         drop(state);
         process.stop();
-        // Stopped with its project: the service made its cache folder
-        // after it forgot the project's.
-        if !core.project_store().get(&project).is_ok_and(|p| p.trusted) {
-            core.language_servers().forget(&project);
-        }
+        forget_if_gone(core, &project);
         return Err(ProtocolError::new(
             ErrorCode::Internal,
             "the language server ended as it started",
@@ -243,6 +241,15 @@ async fn start(
         server: info.clone(),
     });
     Ok(info)
+}
+
+/// Forgets `project`'s caches again if it was removed or lost its trust
+/// while a server started: the service may have made the server's cache
+/// folder after the core had it forget the project's.
+fn forget_if_gone(core: &Core, project: &ProjectId) {
+    if !core.project_store().get(project).is_ok_and(|p| p.trusted) {
+        core.language_servers().forget(project);
+    }
 }
 
 fn send(core: &Core, server: &ServerId, mut message: Value) -> Result<(), ProtocolError> {

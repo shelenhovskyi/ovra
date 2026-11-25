@@ -149,7 +149,12 @@ fn plain(name: &str) -> bool {
     // Letters, digits and `-_.+` only: no separator, and no `C:` that
     // would make `join` leave the caches folder on Windows.
     let allowed = |c: char| c.is_ascii_alphanumeric() || "-_.+".contains(c);
-    !name.is_empty() && name != "." && name != ".." && name.chars().all(allowed)
+    // Never a name a forgotten folder has, which a sweep deletes.
+    !name.is_empty()
+        && name != "."
+        && name != ".."
+        && !name.starts_with(FORGOTTEN)
+        && name.chars().all(allowed)
 }
 
 /// Makes `path` a folder of its own: kept if it is one, else whatever is
@@ -172,19 +177,18 @@ fn forget(caches: &Path, project: &ProjectId) -> std::io::Result<()> {
         return Ok(());
     }
     let folder = caches.join(&project.0);
-    let meta = match std::fs::symlink_metadata(&folder) {
-        Ok(meta) => meta,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+    match std::fs::symlink_metadata(&folder) {
+        Ok(meta) if meta.is_dir() => {
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_nanos());
+            let aside = caches.join(format!("{FORGOTTEN}{}-{nanos}", project.0));
+            std::fs::rename(&folder, &aside)?;
+        }
+        Ok(_) => std::fs::remove_file(&folder)?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => return Err(e),
-    };
-    if !meta.is_dir() {
-        return std::fs::remove_file(&folder);
     }
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_nanos());
-    let aside = caches.join(format!("{FORGOTTEN}{}-{nanos}", project.0));
-    std::fs::rename(&folder, &aside)?;
     let caches = caches.to_path_buf();
     match tokio::runtime::Handle::try_current() {
         Ok(runtime) => {
@@ -201,10 +205,16 @@ const FORGOTTEN: &str = ".forgotten-";
 /// Deletes every folder moved aside, also those an earlier sweep left
 /// because a stopping server still wrote into them.
 fn sweep(caches: &Path) -> std::io::Result<()> {
+    let entries = match std::fs::read_dir(caches) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e),
+    };
     let mut result = Ok(());
-    for entry in std::fs::read_dir(caches)? {
+    for entry in entries {
         let entry = entry?;
-        if entry.file_name().to_string_lossy().starts_with(FORGOTTEN) {
+        let folder = entry.file_type().is_ok_and(|t| t.is_dir());
+        if folder && entry.file_name().to_string_lossy().starts_with(FORGOTTEN) {
             // `remove_dir_all` removes links, never what they point at.
             if let Err(e) = std::fs::remove_dir_all(entry.path()) {
                 result = Err(e);
@@ -428,10 +438,13 @@ mod tests {
         assert_eq!(left, ["p2"]);
         // Nothing to forget is fine.
         forget(&caches, &ProjectId("p9".into())).expect("forget");
-        // What an earlier sweep left goes with the next one.
+        // What an earlier sweep left goes with the next one, even when
+        // the project forgotten then has no folder.
         std::fs::create_dir_all(caches.join(".forgotten-p3-1/target")).expect("mkdir");
-        cache_dir(&caches, &spec("rust")).expect("cache");
         forget(&caches, &ProjectId("p1".into())).expect("forget");
+        let mut hidden = spec("rust");
+        hidden.project = ProjectId(".forgotten-p2-1".into());
+        assert!(cache_dir(&caches, &hidden).is_err());
         let left: Vec<_> = std::fs::read_dir(&caches)
             .expect("list")
             .map(|e| e.expect("entry").file_name())
