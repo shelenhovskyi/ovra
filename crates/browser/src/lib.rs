@@ -15,6 +15,8 @@ use ovra_core::services::{
     Result, SandboxProfile, SandboxStatus,
 };
 
+mod cdp;
+
 const NOT_YET: &str = "the agent browser is not built yet";
 
 /// The real agent browser.

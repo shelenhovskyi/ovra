@@ -3408,7 +3408,11 @@ dependencies = [
 name = "ovra-browser"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
+ "insta",
  "ovra-core",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
