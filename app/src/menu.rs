@@ -145,7 +145,7 @@ pub(crate) const MENU_BAR: &[Group] = &[
             run("inbox.toggle", "Reviews", "Mod+Shift+R"),
             run("browser.toggle", "Agent Browser", "Mod+Shift+B"),
             run("servers.toggle", "Servers", "Mod+Alt+S"),
-            run_unbound("audit.toggle", "Audit Log"),
+            run("audit.toggle", "Audit Log", "Alt+Mod+L"),
         ],
     },
     Group {
