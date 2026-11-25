@@ -377,6 +377,55 @@ async fn only_pages_open_made_run_and_the_rest_close_before_they_load() {
 }
 
 #[tokio::test]
+async fn frames_in_other_processes_hold_their_documents_before_they_run() {
+    let s = setup();
+    s.open("s1", "http://localhost:5173/").await.expect("open");
+    s.sink.take();
+    let below = |session: &str, child: &str, kind: &str| {
+        json!({"method": "Target.attachedToTarget", "sessionId": session, "params": {
+            "sessionId": child, "waitingForDebugger": true,
+            "targetInfo": {"targetId": format!("I{child}"), "type": kind},
+        }})
+    };
+    let paused = |session: &str, url: &str| {
+        json!({"method": "Fetch.requestPaused", "sessionId": session, "params": {
+            "requestId": "r9", "resourceType": "Document", "request": {"url": url},
+        }})
+    };
+    // A cross-site frame, a frame inside it, and a worker of the page.
+    for event in [
+        below("S1", "F1", "iframe"),
+        below("F1", "F2", "iframe"),
+        below("S1", "D1", "worker"),
+    ] {
+        let _ = s.inject.send(event);
+    }
+    s.until("F2 Runtime.runIfWaitingForDebugger").await;
+    s.until("D1 Runtime.runIfWaitingForDebugger").await;
+    let _ = s.inject.send(paused("F2", "https://other.example/x"));
+    s.until("F2 Fetch.continueRequest").await;
+    s.sink.refuse.store(true, Ordering::Relaxed);
+    let _ = s.inject.send(paused("F1", "https://third.example/"));
+    let sent = s.until("F1 Fetch.failRequest").await;
+    let s1 = r#"S1 Target.setAutoAttach {"autoAttach":true,"flatten":true,"waitForDebuggerOnStart":true}"#;
+    assert!(sent.iter().any(|m| m == s1), "{sent:?}");
+    // In order for each session; the sessions themselves interleave.
+    let mut frames: Vec<&String> = sent
+        .iter()
+        .filter(|m| ["F1 ", "F2 ", "D1 "].iter().any(|f| m.starts_with(f)))
+        .collect();
+    frames.sort_by_key(|m| &m[..2]);
+    insta::assert_debug_snapshot!(frames);
+    assert_eq!(
+        s.sink.take(),
+        [
+            "ask pg1 https://other.example",
+            "ask pg1 https://third.example"
+        ]
+    );
+}
+
+#[tokio::test]
 async fn the_person_is_asked_about_the_origin_that_loads() {
     let s = setup();
     let page = s.open("s1", "http://localhost:5173/").await.expect("open");

@@ -1,6 +1,6 @@
 //! One page of a session's browser, driven through its CDP session.
 
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
@@ -32,6 +32,18 @@ const FRAME_GAP: Duration = Duration::from_millis(100);
 const POLL: Duration = Duration::from_millis(100);
 /// Picks kept per page for `inspect`; the overlay picks on every hover.
 const PICKS_KEPT: usize = 100;
+
+/// Every target below a page, auto-attached and waiting for the debugger.
+fn auto_attach() -> Value {
+    json!({"autoAttach": true, "waitForDebuggerOnStart": true, "flatten": true})
+}
+
+/// Holds every document request of a target until the sink allows it.
+fn hold_documents() -> Value {
+    let document =
+        json!({"urlPattern": "*", "resourceType": "Document", "requestStage": "Request"});
+    json!({ "patterns": [document] })
+}
 
 /// The page's text, read in Ovra's isolated world.
 const TEXT: &str = "document.body ? document.body.innerText : ''";
@@ -69,6 +81,9 @@ pub(crate) struct Page {
     pub(crate) cdp_session: String,
     cdp: Cdp,
     state: Mutex<State>,
+    /// The CDP sessions of its frames in other processes (site isolation)
+    /// and of the frames below those.
+    frames: Mutex<HashSet<String>>,
     /// Loads and same-document navigations of the main frame, counted.
     loads: watch::Sender<u64>,
 }
@@ -88,6 +103,7 @@ impl Page {
             cdp_session,
             cdp,
             state: Mutex::default(),
+            frames: Mutex::default(),
             loads: watch::channel(0).0,
         }
     }
@@ -98,6 +114,11 @@ impl Page {
 
     fn send(&self, method: &str, params: Value) {
         self.cdp.send(Some(&self.cdp_session), method, params);
+    }
+
+    /// Whether `session` is the page's or one of its frames'.
+    pub(crate) fn owns(&self, session: &str) -> bool {
+        self.cdp_session == session || lock(&self.frames).contains(session)
     }
 
     pub(crate) fn info(&self) -> PageInfo {
@@ -129,15 +150,13 @@ impl Page {
     }
 
     /// Enables what the page reports, sizes its viewport and holds every
-    /// document request until the sink allows its origin.
+    /// document request, its frames' too, until the sink allows its origin.
     pub(crate) async fn prepare(&self, size: (u32, u32)) -> Result<()> {
         for domain in ["Page", "Runtime", "Log", "Network", "DOM"] {
             self.call(&format!("{domain}.enable"), json!({})).await?;
         }
-        let document =
-            json!({"urlPattern": "*", "resourceType": "Document", "requestStage": "Request"});
-        self.call("Fetch.enable", json!({ "patterns": [document] }))
-            .await?;
+        self.call("Fetch.enable", hold_documents()).await?;
+        self.call("Target.setAutoAttach", auto_attach()).await?;
         let metrics =
             json!({"width": size.0, "height": size.1, "deviceScaleFactor": 1, "mobile": false});
         self.call("Emulation.setDeviceMetricsOverride", metrics)
@@ -148,30 +167,18 @@ impl Page {
     /// Handles an event of this page's CDP session.
     pub(crate) fn event(self: &Arc<Self>, event: &Event, sink: &Arc<dyn BrowserSink>) {
         let params = &event.params;
+        let session = event.session.as_deref().unwrap_or(&self.cdp_session);
         match event.method.as_str() {
-            "Page.screencastFrame" => self.frame(params, sink),
-            "Fetch.requestPaused" => {
-                let (page, sink) = (self.clone(), sink.clone());
-                let request = params["requestId"].as_str().unwrap_or_default().to_owned();
-                let url = params["request"]["url"]
-                    .as_str()
-                    .unwrap_or_default()
-                    .to_owned();
-                tokio::spawn(async move {
-                    // What is not http or https is never asked about.
-                    let allowed = match origin(&url) {
-                        Some(origin) => sink.navigation(&page.id, origin).await,
-                        None => false,
-                    };
-                    if allowed {
-                        page.send("Fetch.continueRequest", json!({ "requestId": request }));
-                    } else {
-                        let failed =
-                            json!({"requestId": request, "errorReason": "BlockedByClient"});
-                        page.send("Fetch.failRequest", failed);
-                    }
-                });
+            "Fetch.requestPaused" => self.paused(session, params, sink),
+            "Target.attachedToTarget" => self.attached(params),
+            "Target.detachedFromTarget" => {
+                if let Some(gone) = params["sessionId"].as_str() {
+                    lock(&self.frames).remove(gone);
+                }
             }
+            // Of a frame only its requests and targets matter.
+            _ if session != self.cdp_session => {}
+            "Page.screencastFrame" => self.frame(params, sink),
             "Page.loadEventFired" => self.loaded(),
             "Page.navigatedWithinDocument" if params["frameId"] == json!(self.target) => {
                 self.loaded()
@@ -185,6 +192,62 @@ impl Page {
             }
             method => lock(&self.state).logs.event(method, params),
         }
+    }
+
+    /// A held document request, of the page or one of its frames on
+    /// `session`: it goes on only if the sink allows its origin.
+    fn paused(self: &Arc<Self>, session: &str, params: &Value, sink: &Arc<dyn BrowserSink>) {
+        let (page, sink, session) = (self.clone(), sink.clone(), session.to_owned());
+        let request = params["requestId"].as_str().unwrap_or_default().to_owned();
+        let url = params["request"]["url"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
+        tokio::spawn(async move {
+            // What is not http or https is never asked about.
+            let allowed = match origin(&url) {
+                Some(origin) => sink.navigation(&page.id, origin).await,
+                None => false,
+            };
+            let (method, params) = if allowed {
+                ("Fetch.continueRequest", json!({ "requestId": request }))
+            } else {
+                let failed = json!({"requestId": request, "errorReason": "BlockedByClient"});
+                ("Fetch.failRequest", failed)
+            };
+            page.cdp.send(Some(&session), method, params);
+        });
+    }
+
+    /// A target below the page, waiting for the debugger. A frame in
+    /// another process (or a prerendered page) has its document requests
+    /// held, as the page's are, before it runs; if that fails it stays
+    /// paused. Workers run: they navigate nothing.
+    fn attached(&self, params: &Value) {
+        let Some(child) = params["sessionId"].as_str().map(str::to_owned) else {
+            return;
+        };
+        let kind = params["targetInfo"]["type"].as_str().unwrap_or_default();
+        let cdp = self.cdp.clone();
+        let run = |cdp: &Cdp, child: &str| {
+            cdp.send(Some(child), "Runtime.runIfWaitingForDebugger", json!({}));
+        };
+        if kind.ends_with("worker") || kind.ends_with("worklet") {
+            run(&cdp, &child);
+            return;
+        }
+        lock(&self.frames).insert(child.clone());
+        tokio::spawn(async move {
+            for (method, params) in [
+                ("Fetch.enable", hold_documents()),
+                ("Target.setAutoAttach", auto_attach()),
+            ] {
+                if cdp.call(Some(&child), method, params).await.is_err() {
+                    return;
+                }
+            }
+            run(&cdp, &child);
+        });
     }
 
     fn loaded(&self) {

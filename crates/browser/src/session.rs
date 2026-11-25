@@ -205,7 +205,7 @@ impl Session {
         if let Some(cdp_session) = &event.session {
             let page = lock(&self.pages)
                 .iter()
-                .find(|p| p.cdp_session == *cdp_session)
+                .find(|p| p.owns(cdp_session))
                 .cloned();
             if let Some(page) = page {
                 page.event(event, &self.sink);
