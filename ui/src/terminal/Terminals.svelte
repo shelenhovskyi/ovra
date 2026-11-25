@@ -8,6 +8,7 @@ import { registerCommand } from "../keys/commands";
 import { formatShortcut, inBrowserTab, isApple, liveKeys } from "../keys/shortcut";
 import { useOvra } from "../shell/context";
 import Icon from "../shell/Icon.svelte";
+import { handleOpenTerminalIn } from "./open-in";
 import { loadScreenReader, saveScreenReader } from "./prefs";
 import { exitNotice, LOST_NOTICE, type TerminalSession, TerminalSessions } from "./sessions.svelte";
 import TerminalView from "./TerminalView.svelte";
@@ -64,14 +65,15 @@ function hide(): void {
   returnFocus = null;
 }
 
-async function newTerminal(): Promise<void> {
+/** Opens a new tab, its shell in the project-relative folder `cwd` (the project root when left out). */
+async function newTerminal(cwd?: string): Promise<void> {
   if (!project) {
     open = true;
     return;
   }
   rememberFocus();
   open = true;
-  sessions.add(project.id);
+  sessions.add(project.id, cwd);
   await focusActive();
 }
 
@@ -143,6 +145,7 @@ function status(session: TerminalSession): string {
 }
 
 $effect(() => sessions.listen());
+$effect(() => handleOpenTerminalIn(newTerminal));
 
 $effect(() => {
   const unregister = [
@@ -156,7 +159,7 @@ $effect(() => {
         return focusActive();
       },
     }),
-    registerCommand({ id: "terminal.new", title: "New terminal", keys: NEW_KEYS, run: newTerminal }),
+    registerCommand({ id: "terminal.new", title: "New terminal", keys: NEW_KEYS, run: () => newTerminal() }),
     registerCommand({
       id: "terminal.close",
       title: "Close terminal",
@@ -211,7 +214,7 @@ $effect(() => {
         disabled={!project}
         aria-label="New terminal"
         title="New terminal ({label(NEW_KEYS)})"
-        onclick={newTerminal}>+</button
+        onclick={() => newTerminal()}>+</button
       >
       <button
         type="button"
@@ -240,7 +243,7 @@ $effect(() => {
     {:else if tabs.length === 0}
       <p class="empty">
         No terminals.
-        <button type="button" class="link" onclick={newTerminal}>New terminal</button>
+        <button type="button" class="link" onclick={() => newTerminal()}>New terminal</button>
         ({label(NEW_KEYS)})
       </p>
     {/if}

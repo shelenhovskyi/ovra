@@ -53,6 +53,21 @@ describe("TerminalSessions", () => {
     expect(core.open.get("t1")?.size).toEqual({ cols: 100, rows: 30 });
   });
 
+  it("starts the shell in the tab's folder, also after a restart", async () => {
+    const { core, sessions } = setup();
+    const session = sessions.add("p1", "src/ui");
+    await sessions.start(session, SIZE);
+    const fresh = sessions.restart(session);
+    if (fresh) await sessions.start(fresh, SIZE);
+    await sessions.start(sessions.add("p1"), SIZE);
+    const opens = core.calls.filter((call) => call.method === "terminals.open").map((call) => call.params);
+    expect(opens).toEqual([
+      { project: "p1", size: SIZE, cwd: "src/ui" },
+      { project: "p1", size: SIZE, cwd: "src/ui" },
+      { project: "p1", size: SIZE },
+    ]);
+  });
+
   it("sends what was typed while the shell was starting once it runs", async () => {
     const { core, sessions } = setup();
     const session = sessions.add("p1");

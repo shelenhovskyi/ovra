@@ -41,6 +41,8 @@ export class TerminalSession {
     readonly key: number,
     readonly project: ProjectId,
     readonly title: string,
+    /** Project-relative folder the shell starts in; the project root when undefined. */
+    readonly cwd?: string,
   ) {}
 
   get id(): TerminalId | null {
@@ -108,11 +110,11 @@ export class TerminalSessions {
     this.activeKeys[session.project] = session.key;
   }
 
-  /** Adds a tab in `project` and makes it active; its view calls `start`. */
-  add(project: ProjectId): TerminalSession {
+  /** Adds a tab in `project` (its shell starting in `cwd`) and makes it active; its view calls `start`. */
+  add(project: ProjectId, cwd?: string): TerminalSession {
     const count = this.of(project).length === 0 ? 1 : (this.numbers[project] ?? 0) + 1;
     this.numbers[project] = count;
-    const session = new TerminalSession(this.nextKey++, project, `Terminal ${count}`);
+    const session = new TerminalSession(this.nextKey++, project, `Terminal ${count}`, cwd || undefined);
     this.sessions.push(session);
     this.activate(session);
     return session;
@@ -124,7 +126,7 @@ export class TerminalSessions {
     try {
       const { data } = await this.transport.call({
         method: "terminals.open",
-        params: { project: session.project, size },
+        params: session.cwd ? { project: session.project, size, cwd: session.cwd } : { project: session.project, size },
       });
       if (!this.sessions.includes(session)) {
         // Closed while starting: end the shell nobody will see.
@@ -174,7 +176,7 @@ export class TerminalSessions {
   restart(session: TerminalSession): TerminalSession | undefined {
     const index = this.sessions.indexOf(session);
     if (index < 0) return undefined;
-    const fresh = new TerminalSession(this.nextKey++, session.project, session.title);
+    const fresh = new TerminalSession(this.nextKey++, session.project, session.title, session.cwd);
     this.sessions[index] = fresh;
     this.activate(fresh);
     this.forget(session);
