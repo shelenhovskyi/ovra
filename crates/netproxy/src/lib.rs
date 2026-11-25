@@ -134,16 +134,17 @@ impl NetProxies {
         let secrets: Vec<SecretInfo> = secrets
             .into_iter()
             .filter(|s| {
-                !self
-                    .base
-                    .iter()
-                    .any(|r| r.host == inject::binding(&s.host).0)
+                inject::binding(&s.host)
+                    .is_some_and(|(host, _)| !self.base.iter().any(|r| r.host == host))
             })
             .collect();
         if secrets.is_empty() {
             return Ok(None);
         }
-        let mut hosts: Vec<String> = secrets.iter().map(|s| inject::binding(&s.host).0).collect();
+        let mut hosts: Vec<String> = secrets
+            .iter()
+            .filter_map(|s| inject::binding(&s.host).map(|(host, _)| host))
+            .collect();
         hosts.sort();
         hosts.dedup();
         let roots = match self.roots.get() {

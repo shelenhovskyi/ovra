@@ -163,8 +163,9 @@ the header, so it terminates TLS for that host only:
    that permit only the session's bound hosts and exclude every IP address
    (`0.0.0.0/0`, `::/0`), so even a stolen key cannot sign for another
    name. A dNSName constraint also permits subdomains; the proxy itself
-   issues leaves for bound hosts only. Keys and cached values are zeroized
-   when dropped. The CA is never added to the system's trust store.
+   issues leaves for bound hosts only. The CA key lives only in the
+   proxy's memory (rcgen does not wipe it on drop); the request head that
+   held a value is wiped after it is sent. The CA is never added to the system's trust store.
    Bound hosts are fixed when the proxy starts: a secret set or removed
    mid-session applies to the next session. Binding a host does not add it
    to the allowlist; the person adds it there too.
@@ -189,16 +190,20 @@ the header, so it terminates TLS for that host only:
    connection and logs `NetworkRefused`.
 5. **Parsing strictly.** Request smuggling would put the header into the
    body of the next request, where the agent can read it back (a gist, an
-   issue). So the proxy parses each request with a strict HTTP/1.1 server
-   parser (`hyper`) and writes a new request upstream; it never forwards
+   issue). So the proxy parses each request with a strict parser
+   (`httparse` plus the checks below) and writes a new request upstream; it never forwards
    raw bytes. It serves one request per tunnel and sends `Connection: close`
    upstream; whatever the agent sends after that request is dropped. It
    accepts only HTTP/1.1 with an origin-form target, and refuses: `Content-Length` together with
    `Transfer-Encoding`, more than one `Content-Length`, any
    `Transfer-Encoding` but `chunked`, folded header lines, bare LF line
-   ends, `Upgrade` and `101` answers, `CONNECT` inside the tunnel, an
-   absolute-form target for another authority, and a missing or repeated
-   `Host` or a `Host` that names another host. 4.F adds a smuggling attack.
+   ends, `Upgrade`, `CONNECT` inside the tunnel, any target that is not
+   origin-form, and a missing or repeated
+   `Host` or a `Host` that names another host. The answer is relayed one
+   way only after the body, so a `101` cannot open a channel. `Expect` is
+   dropped, because the proxy reads the body without waiting. A body that
+   stops arriving ends the tunnel after the idle timeout, and reading a
+   value times out too. 4.F adds a smuggling attack.
 6. **Adding the header.** On each request the proxy removes every header of
    the bound name (case-insensitively) that the agent sent, adds
    `<header>: <prefix><value>` with the value from `Secrets::value`, and

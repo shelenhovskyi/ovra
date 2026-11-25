@@ -182,7 +182,7 @@ async fn handle(client: &mut impl Stream, shared: &Shared, session: &SessionNet)
 }
 
 /// Returns once nothing moved for `period`.
-async fn idle(moved: &AtomicBool, period: Duration) {
+pub(crate) async fn idle(moved: &AtomicBool, period: Duration) {
     loop {
         tokio::time::sleep(period).await;
         if !moved.swap(false, Ordering::Relaxed) {

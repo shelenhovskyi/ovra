@@ -6,12 +6,17 @@
 //! passed on, so no smuggled request can carry the header.
 
 use std::io;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::task::{Context, Poll};
 
 use ovra_core::protocol::projects::ProjectId;
 use ovra_core::protocol::secrets::{SecretInfo, SecretValue};
 use ovra_core::services::{NetReporter, Secrets};
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::io::{
+    AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader, ReadBuf,
+};
 use tokio::time::timeout;
 use tokio_rustls::rustls::ClientConfig;
 use tokio_rustls::rustls::pki_types::ServerName;
@@ -20,7 +25,7 @@ use zeroize::Zeroize;
 
 use crate::ca::SessionCa;
 use crate::dial::{Conn, Stream};
-use crate::serve::{HEAD_TIMEOUT, IDLE_TIMEOUT, read_head, relay_one_way, respond};
+use crate::serve::{HEAD_TIMEOUT, IDLE_TIMEOUT, idle, read_head, relay_one_way, respond};
 
 const MAX_HEADERS: usize = 64;
 /// A chunk-size line: hex digits, perhaps an extension, CRLF.
@@ -42,17 +47,18 @@ impl Bound {
     pub(crate) fn for_host(&self, host: &str, port: u16) -> Vec<SecretInfo> {
         self.secrets
             .iter()
-            .filter(|s| binding(&s.host) == (host.to_owned(), port))
+            .filter(|s| binding(&s.host) == Some((host.to_owned(), port)))
             .cloned()
             .collect()
     }
 }
 
-/// A checked binding's host and port.
-pub(crate) fn binding(host: &str) -> (String, u16) {
+/// A binding's host and port; `None` for a port that does not parse, so
+/// such a binding is never used.
+pub(crate) fn binding(host: &str) -> Option<(String, u16)> {
     match host.split_once(':') {
-        Some((name, port)) => (name.to_owned(), port.parse().unwrap_or(443)),
-        None => (host.to_owned(), 443),
+        Some((name, port)) => Some((name.to_owned(), port.parse().ok()?)),
+        None => Some((host.to_owned(), 443)),
     }
 }
 
@@ -73,7 +79,7 @@ pub(crate) struct Checked {
 
 /// Headers never passed on: this hop's, and the framing the proxy writes
 /// itself.
-const DROPPED: [&str; 8] = [
+const DROPPED: [&str; 9] = [
     "host",
     "connection",
     "keep-alive",
@@ -82,6 +88,8 @@ const DROPPED: [&str; 8] = [
     "upgrade",
     "content-length",
     "transfer-encoding",
+    // The proxy reads the body without waiting for `100 Continue`.
+    "expect",
 ];
 
 /// Parses one request head for `host` (`port`) strictly, refusing every
@@ -250,7 +258,14 @@ pub(crate) async fn serve(
         Err(_) => return respond(&mut tls, 502, "TLS to the host timed out").await,
     };
     let mut upstream = upstream;
-    let mut head = checked.head;
+    // Sized up front so it never moves, leaving no copy of a value behind.
+    let extra: usize = secrets
+        .iter()
+        .zip(&values)
+        .map(|(s, v)| s.header.len() + s.prefix.len() + v.expose().len() + 4)
+        .sum();
+    let mut head = Vec::with_capacity(checked.head.len() + extra + 2);
+    head.extend_from_slice(&checked.head);
     for (secret, value) in secrets.iter().zip(&values) {
         head.extend_from_slice(secret.header.as_bytes());
         head.extend_from_slice(b": ");
@@ -267,10 +282,22 @@ pub(crate) async fn serve(
         reporter.secret_used(&secret.name, &secret.host);
     }
     let (tls_read, mut tls_write) = tokio::io::split(tls);
-    let mut body = BufReader::new(std::io::Cursor::new(rest).chain(tls_read));
-    let sent = match checked.body {
-        Body::Length(n) => copy_exact(&mut body, &mut upstream, n).await,
-        Body::Chunked => copy_chunked(&mut body, &mut upstream).await,
+    let moved = AtomicBool::new(false);
+    let watched = Watched {
+        inner: tls_read,
+        moved: &moved,
+    };
+    let mut body = BufReader::new(std::io::Cursor::new(rest).chain(watched));
+    let copy = async {
+        match checked.body {
+            Body::Length(n) => copy_exact(&mut body, &mut upstream, n).await,
+            Body::Chunked => copy_chunked(&mut body, &mut upstream).await,
+        }
+    };
+    // A body that stops arriving ends the tunnel, as an idle one does.
+    let sent = tokio::select! {
+        sent = copy => sent,
+        () = idle(&moved, IDLE_TIMEOUT) => return Ok(()),
     };
     if let Err(e) = sent {
         if e.kind() == io::ErrorKind::InvalidData {
@@ -283,6 +310,27 @@ pub(crate) async fn serve(
     relay_one_way(&mut upstream, &mut tls_write, IDLE_TIMEOUT).await
 }
 
+/// A reader that notes when bytes arrive, for the idle timeout.
+struct Watched<'a, R> {
+    inner: R,
+    moved: &'a AtomicBool,
+}
+
+impl<R: AsyncRead + Unpin> AsyncRead for Watched<'_, R> {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        let before = buf.filled().len();
+        let polled = Pin::new(&mut self.inner).poll_read(cx, buf);
+        if buf.filled().len() > before {
+            self.moved.store(true, Ordering::Relaxed);
+        }
+        polled
+    }
+}
+
 /// Reads the values on a blocking thread: the keychain may block.
 async fn values(bound: &Bound, secrets: &[SecretInfo]) -> Result<Vec<SecretValue>, String> {
     let store = bound.store.clone();
@@ -293,8 +341,11 @@ async fn values(bound: &Bound, secrets: &[SecretInfo]) -> Result<Vec<SecretValue
             .iter()
             .map(|name| store.value(&project, name))
             .collect::<Result<Vec<_>, _>>()
-    })
-    .await;
+    });
+    // A keychain waiting on a prompt must not hold the tunnel.
+    let Ok(read) = timeout(HEAD_TIMEOUT, read).await else {
+        return Err("reading a secret from the keychain timed out".into());
+    };
     match read {
         Ok(Ok(values)) => Ok(values),
         Ok(Err(e)) => Err(format!(

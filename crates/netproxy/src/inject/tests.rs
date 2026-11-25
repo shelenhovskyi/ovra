@@ -125,6 +125,8 @@ struct Host {
     tls: Arc<ServerConfig>,
     received: Arc<Mutex<Vec<String>>>,
     connects: Arc<Mutex<u32>>,
+    /// Plain HTTP: keeps the raw request head instead of speaking TLS.
+    plain: bool,
 }
 
 impl Dial for Host {
@@ -137,6 +139,27 @@ impl Dial for Host {
             *self.connects.lock().unwrap_or_else(|e| e.into_inner()) += 1;
             let (ours, theirs) = duplex(64 * 1024);
             let (tls, received) = (self.tls.clone(), self.received.clone());
+            if self.plain {
+                tokio::spawn(async move {
+                    let mut theirs = theirs;
+                    let mut got = Vec::new();
+                    let mut byte = [0u8; 1];
+                    while !got.ends_with(b"\r\n\r\n") {
+                        if theirs.read(&mut byte).await.unwrap_or(0) == 0 {
+                            break;
+                        }
+                        got.push(byte[0]);
+                    }
+                    received
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .push(String::from_utf8_lossy(&got).into_owned());
+                    let _ = theirs
+                        .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+                        .await;
+                });
+                return Ok(Box::new(ours) as Conn);
+            }
             tokio::spawn(async move {
                 let Ok(mut stream) = TlsAcceptor::from(tls).accept(theirs).await else {
                     return;
@@ -223,11 +246,18 @@ struct Setup {
 }
 
 fn setup(secrets: Arc<MemorySecrets>) -> Setup {
+    setup_with(secrets, true, false)
+}
+
+/// `trusted`: Ovra's roots hold the host's CA. `plain`: the host speaks
+/// plain HTTP.
+fn setup_with(secrets: Arc<MemorySecrets>, trusted: bool, plain: bool) -> Setup {
     let (host_ca, host_config) = host_tls();
     let host = Arc::new(Host {
         tls: host_config,
         received: Arc::default(),
         connects: Arc::default(),
+        plain,
     });
     let ca = SessionCa::new(&[HOST.to_owned()]).unwrap_or_else(|e| panic!("{e}"));
     // The agent trusts only what the sandbox's bundle holds: the session CA.
@@ -245,7 +275,7 @@ fn setup(secrets: Arc<MemorySecrets>) -> Setup {
         secrets: vec![gh()],
         project: ProjectId("p1".into()),
         store: secrets,
-        client: Roots::of(vec![host_ca])
+        client: Roots::of(if trusted { vec![host_ca] } else { Vec::new() })
             .client()
             .unwrap_or_else(|e| panic!("{e}")),
     };
@@ -365,4 +395,95 @@ async fn a_smuggling_head_is_answered_by_the_proxy_and_never_sent() {
     assert!(answer.starts_with("HTTP/1.1 400"), "{answer}");
     assert!(!answer.contains("ghp_value"));
     assert!(received(&setup).is_empty());
+}
+
+fn stored() -> Arc<MemorySecrets> {
+    let secrets = Arc::new(MemorySecrets::default());
+    secrets
+        .set(&ProjectId("p1".into()), gh(), SecretValue::new("ghp_value"))
+        .unwrap_or_else(|e| panic!("{e}"));
+    secrets
+}
+
+#[tokio::test]
+async fn a_host_ovra_cannot_verify_gets_nothing_and_the_refusal_is_reported() {
+    let setup = setup_with(stored(), false, false);
+    let mut events = setup._core.subscribe();
+    let answer = ask(&setup, b"GET / HTTP/1.1\r\nHost: api.example.com\r\n\r\n").await;
+    assert!(answer.starts_with("HTTP/1.1 502"), "{answer}");
+    assert!(!answer.contains("ghp_value"));
+    assert!(received(&setup).is_empty());
+    assert!(matches!(
+        events.try_recv(),
+        Ok(ovra_core::protocol::Event::Netproxy(
+            ovra_core::protocol::netproxy::NetproxyEvent::Refused { .. }
+        ))
+    ));
+}
+
+#[tokio::test]
+async fn the_session_ca_cannot_vouch_for_another_name() {
+    let ca = SessionCa::new(&[HOST.to_owned()]).unwrap_or_else(|e| panic!("{e}"));
+    let other = ca
+        .server_for("evil.example")
+        .unwrap_or_else(|e| panic!("{e}"));
+    let mut roots = RootCertStore::empty();
+    let session_ca =
+        CertificateDer::from_pem_slice(ca.pem().as_bytes()).unwrap_or_else(|e| panic!("{e}"));
+    roots.add(session_ca).unwrap_or_else(|e| panic!("{e}"));
+    let client = ClientConfig::builder_with_provider(provider())
+        .with_safe_default_protocol_versions()
+        .map(|b| b.with_root_certificates(roots).with_no_client_auth())
+        .unwrap_or_else(|e| panic!("{e}"));
+    let (agent, server) = duplex(64 * 1024);
+    tokio::spawn(async move {
+        let _ = TlsAcceptor::from(other).accept(server).await;
+    });
+    let name = ServerName::try_from("evil.example").unwrap_or_else(|e| panic!("{e}"));
+    let made = TlsConnector::from(Arc::new(client))
+        .connect(name, agent)
+        .await;
+    let err = made.err().map(|e| e.to_string()).unwrap_or_default();
+    assert!(
+        !err.is_empty(),
+        "the name constraints let another name through"
+    );
+}
+
+#[tokio::test]
+async fn plain_http_and_other_ports_never_carry_the_secret() {
+    let setup = setup_with(stored(), true, true);
+    let bound = setup
+        .net
+        .bound
+        .as_ref()
+        .unwrap_or_else(|| panic!("no secrets"));
+    assert_eq!(bound.for_host(HOST, 443).len(), 1);
+    assert!(bound.for_host(HOST, 8443).is_empty());
+    assert!(bound.for_host(HOST, 80).is_empty());
+
+    let (mut agent, proxy) = duplex(64 * 1024);
+    tokio::spawn(serve(proxy, setup.shared.clone(), setup.net.clone()));
+    agent
+        .write_all(b"GET http://api.example.com/x HTTP/1.1\r\nHost: api.example.com\r\n\r\n")
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    let mut answer = Vec::new();
+    let _ = agent.read_to_end(&mut answer).await;
+    let got = received(&setup);
+    assert_eq!(got.len(), 1, "{got:?}");
+    assert!(got[0].starts_with("GET /x HTTP/1.1"), "{got:?}");
+    assert!(!got[0].contains("ghp_value") && !got[0].contains("Authorization"));
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_body_that_stops_arriving_ends_the_tunnel() {
+    let setup = setup(stored());
+    // Ten bytes promised, two sent, then nothing: the idle timeout closes it.
+    let answer = ask(
+        &setup,
+        b"POST / HTTP/1.1\r\nHost: api.example.com\r\nContent-Length: 10\r\n\r\nhi",
+    )
+    .await;
+    assert!(answer.is_empty(), "{answer}");
 }

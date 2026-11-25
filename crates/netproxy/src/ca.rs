@@ -75,6 +75,7 @@ impl SessionCa {
         let now = OffsetDateTime::now_utc();
         let mut params =
             CertificateParams::new(vec![host.to_owned()]).map_err(|e| e.to_string())?;
+        params.distinguished_name = DistinguishedName::new();
         params.is_ca = IsCa::ExplicitNoCa;
         params.key_usages = vec![KeyUsagePurpose::DigitalSignature];
         params.extended_key_usages = vec![ExtendedKeyUsagePurpose::ServerAuth];
