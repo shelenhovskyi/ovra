@@ -41,6 +41,10 @@ function repo(): string {
 async function open(page: Page, dir: string): Promise<void> {
   await page.goto(daemonUrl());
   const projects = page.getByTestId("project-list");
+  // Without a project the git shortcut goes to where a folder is opened.
+  await expect(projects.getByRole("textbox", { name: "Open a folder" })).toBeVisible();
+  await page.keyboard.press("Alt+Shift+G");
+  await expect(projects.getByRole("textbox", { name: "Open a folder" })).toBeFocused();
   await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
   await projects.getByRole("button", { name: "Open", exact: true }).click();
   await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();

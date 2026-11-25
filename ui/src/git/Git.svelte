@@ -33,6 +33,11 @@ $effect(() => {
       title: "Git: open panel",
       keys: "Mod+Shift+G",
       run: async () => {
+        // Without a project there is no git to show: go where one is opened.
+        if (!workspace.project) {
+          document.getElementById("project-root")?.focus();
+          return;
+        }
         await showPanel();
         // Back from a diff: its row, to go on with the next file.
         const diff = workspace.gitDiff;
