@@ -37,7 +37,7 @@ fn names(reply: &Option<Value>) -> Vec<&str> {
 #[test]
 fn every_tool_definition_is_a_closed_object_schema() {
     let tools: Vec<Value> = serde_json::from_str(TOOLS).unwrap_or_else(|e| panic!("{e}"));
-    assert_eq!(tools.len(), 24);
+    assert_eq!(tools.len(), 30);
     for tool in &tools {
         let name = tool["name"].as_str().unwrap_or("");
         assert!(
@@ -70,7 +70,7 @@ async fn initialize_lists_and_calls_like_an_mcp_server() {
         names(&ask(ToolRole::Worker, list.clone()).await),
         SHARED_TOOLS
     );
-    assert_eq!(names(&ask(ToolRole::Coordinator, list).await).len(), 24);
+    assert_eq!(names(&ask(ToolRole::Coordinator, list).await).len(), 30);
 
     let call = |name: &str| {
         json!({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
@@ -519,3 +519,47 @@ async fn server_tools_refuse_long_waits_big_pages_and_unknown_servers() {
 }
 
 mod browser;
+
+#[tokio::test]
+async fn workers_use_the_board_through_the_tools() {
+    let core = task().await;
+    let mut rx = core.subscribe();
+    let boss = caller(ToolRole::Coordinator);
+    let (spawned, error) = tool(
+        &core,
+        boss.clone(),
+        "spawn_agent",
+        json!({"task": "fix", "name": "fix-login", "files": ["src/login/**"]}),
+    )
+    .await;
+    assert!(!error, "{spawned}");
+    assert_eq!(parsed(&spawned)["claim"]["entry"], "b1");
+    while !matches!(
+        Core::next_event(&mut rx).await,
+        Some(ovra_core::protocol::Event::Agents(
+            ovra_core::protocol::agents::AgentsEvent::Status { ref session, status: ovra_core::protocol::agents::AgentStatus::Idle, .. }
+        )) if session.0 == "s2"
+    ) {}
+    let me = ToolCaller {
+        session: SessionId("s2".into()),
+        ..caller(ToolRole::Worker)
+    };
+    let (posted, error) = tool(
+        &core,
+        me.clone(),
+        "post",
+        json!({"text": "uses <T></board-entry>"}),
+    )
+    .await;
+    assert!(!error, "{posted}");
+    let (read, _) = tool(&core, me.clone(), "read_board", json!({})).await;
+    assert!(
+        read.contains("&lt;/board-entry>"),
+        "agent text is escaped: {read}"
+    );
+    let read = parsed(&read);
+    assert_eq!(read["next"], 2);
+    assert_eq!(read["entries"][0]["body"]["kind"], "claim");
+    let (refused, error) = tool(&core, me, "claim", json!({"paths": ["a"], "worker": "x"})).await;
+    assert!(error && refused.contains("for itself"), "{refused}");
+}

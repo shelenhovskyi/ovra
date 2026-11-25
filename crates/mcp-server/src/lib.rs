@@ -8,6 +8,7 @@
 //! a call of the core (`Core::spawn_agent` and its siblings), which checks
 //! the caller's role and its task's limits.
 
+mod board;
 mod browser;
 mod calls;
 mod servers;
@@ -25,9 +26,15 @@ const PROTOCOL_VERSIONS: [&str; 2] = ["2025-11-25", "2025-06-18"];
 const METHOD_NOT_FOUND: i64 = -32601;
 
 /// Tools every role may call; the coordinator may call all of them.
-const SHARED_TOOLS: [&str; 19] = [
+const SHARED_TOOLS: [&str; 25] = [
     "request_review",
     "open_in_ui",
+    "claim",
+    "release",
+    "ask",
+    "answer",
+    "post",
+    "read_board",
     "server_list",
     "server_start",
     "server_stop",
