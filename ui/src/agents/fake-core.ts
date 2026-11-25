@@ -14,6 +14,7 @@ import type {
   ProjectId,
   Request,
   ResponseFor,
+  ReviewItem,
   SandboxReport,
   SessionId,
   SessionInfo,
@@ -28,6 +29,8 @@ export class FakeAgentCore implements Transport {
   pending: PermissionRequest[] = [];
   /** Tasks `orchestration.start` made; a test adds their workers. */
   tasks: Task[] = [];
+  /** What `review.list` answers, newest first. */
+  reviews: ReviewItem[] = [];
   /** What `projects.list` answers. */
   projects: Project[] = [{ id: "p1", name: "demo", root: "/demo", last_opened_ms: null, trusted: false }];
   /** What `agents.setup` answers; `agents.set_path` records the path in it. */
@@ -186,6 +189,8 @@ export class FakeAgentCore implements Transport {
       }
       case "open.url":
         return { type: "ok" };
+      case "review.list":
+        return { type: "review.list", data: this.reviews.filter((r) => r.project === request.params.project) };
       case "permissions.pending":
         return { type: "permissions.pending", data: [...this.pending] };
       case "permissions.answer": {

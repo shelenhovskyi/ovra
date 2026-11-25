@@ -1,13 +1,15 @@
 import { flushSync, mount, unmount } from "svelte";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { browserPicks } from "../browser/picks.svelte";
-import type { Pick } from "../lib/protocol";
+import { registerCommand } from "../keys/commands";
+import type { FileChange, Pick, ReviewItem } from "../lib/protocol";
 import { Workspace } from "../shell/workspace.svelte";
 import { FakeAgentCore } from "./fake-core";
 import TestHost from "./TestHost.svelte";
 
 let app: Record<string, unknown> | null = null;
 let target: HTMLElement;
+let workspace: Workspace;
 
 beforeEach(() => {
   target = document.createElement("div");
@@ -27,7 +29,7 @@ async function settle() {
 }
 
 async function setup(core = new FakeAgentCore()) {
-  const workspace = new Workspace();
+  workspace = new Workspace();
   workspace.project = { id: "p1", name: "demo", root: "/demo", last_opened_ms: null, trusted: false };
   app = mount(TestHost, { target, props: { transport: core, workspace } });
   await settle();
@@ -500,4 +502,89 @@ describe("AgentsPanel", () => {
       "Could not start: another agent already works in this project's main checkout",
     );
   });
+
+  it("lists what a direct session changed once its turn is over, each file one press from its diff", async () => {
+    const core = new FakeAgentCore();
+    core.addSession("p1", "Fix the typo", { state: "working" });
+    core.reviews = [
+      review("s1", [file("README.md", "agent"), file("notes.txt", "outside"), file("new.md", "agent", "added")]),
+    ];
+    const toggle = vi.fn();
+    const off = registerCommand({ id: "inbox.toggle", title: "Review inbox", run: toggle });
+    await setup(core);
+    const changes = () => target.querySelector("[data-testid=agent-changes]");
+    expect(changes()).toBeNull();
+    core.status("s1", { state: "idle" });
+    await settle();
+    expect(changes()?.querySelector("h4")?.textContent).toBe("Changed files (2)");
+    const files = [...(changes()?.querySelectorAll<HTMLButtonElement>("button.file") ?? [])];
+    expect(files.map((b) => b.textContent)).toEqual(["README.md", "new.md"]);
+    files[0]?.click();
+    expect(workspace.gitDiff).toEqual({ project: "p1", path: "README.md", staged: false });
+    // Git has no diff for a file it does not track yet: it opens instead.
+    files[1]?.click();
+    expect([workspace.gitDiff, workspace.openPath]).toEqual([null, "new.md"]);
+    [...(changes()?.querySelectorAll("button") ?? [])].find((b) => b.textContent === "Review")?.click();
+    expect(toggle).toHaveBeenCalledOnce();
+    // Kept in Reviews: nothing waits any more.
+    core.reviews = [{ ...review("s1", []), state: "approved" }];
+    core.emit({ type: "review.changed", data: { project: "p1", id: "r1" } });
+    await settle();
+    expect(changes()).toBeNull();
+    off();
+  });
+
+  it("says how many of a split task's changes wait in Reviews", async () => {
+    const core = new FakeAgentCore();
+    core.addSession("p1", "Write the notes", { state: "idle" });
+    core.addSession("p1", "Write the docs notes.", { state: "idle" });
+    core.addSession("p1", "Write the test notes.", { state: "idle" });
+    const worker = (session: string, name: string) => ({
+      session,
+      name,
+      branch: `ovra/t1/${name}`,
+      worktree: `/wt/${name}`,
+      kept: null,
+    });
+    core.tasks.push({
+      id: "t1",
+      project: "p1",
+      coordinator: "s1",
+      workers: [worker("s2", "docs"), worker("s3", "tests")],
+      limits: { max_workers: 3, budget_micro_usd: null },
+      spent_micro_usd: 0,
+    });
+    core.reviews = [review("s3", [file("NOTES.md", "agent")]), review("s2", [file("NOTES.md", "agent")])];
+    await setup(core);
+    selectRow("Task: Write the notes");
+    await settle();
+    expect(target.querySelector("[data-testid=agent-reviews]")?.textContent?.replace(/\s+/g, " ").trim()).toBe(
+      "2 changes wait for your review. Review",
+    );
+    // A worker's files are in its own worktree: no diff of the project folder.
+    selectRow("docs · Write the notes");
+    expect(target.querySelector("[data-testid=agent-changes]")).toBeNull();
+  });
 });
+
+function file(path: string, by: FileChange["by"], kind: FileChange["kind"] = "modified"): FileChange {
+  return { path, kind, from: null, by, additions: 1, deletions: 1, blocked: false, protected: false };
+}
+
+function review(session: string, files: FileChange[]): ReviewItem {
+  return {
+    id: `r${session}`,
+    project: "p1",
+    session,
+    mode: "direct",
+    state: "open",
+    summary: null,
+    files,
+    can_undo: false,
+    not_copied: [],
+    can_undo_take: false,
+    fingerprint: null,
+    git_changes: [],
+    git_unchecked: false,
+  };
+}

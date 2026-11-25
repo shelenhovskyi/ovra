@@ -3,11 +3,14 @@
 // notifications (`agentSessions(transport)`).
 
 import { SvelteMap } from "svelte/reactivity";
+import { listCommands } from "../keys/commands";
 import type {
   AgentMessage,
   Billing,
   CoreEvent,
+  FileChange,
   ProjectId,
+  ReviewItem,
   SessionId,
   SessionInfo,
   TaskId,
@@ -36,6 +39,8 @@ export class AgentSessions {
   readonly byId = new SvelteMap<SessionId, SessionInfo>();
   /** Transcripts of sessions watched since they started or since `loadTranscript`. */
   readonly transcripts = new SvelteMap<SessionId, AgentMessage[]>();
+  /** Each session's newest review item: what its agent changed, kept or not. */
+  readonly reviews = new SvelteMap<SessionId, ReviewItem>();
   private readonly loaded = new Set<ProjectId>();
 
   constructor(private readonly transport: Transport) {
@@ -58,7 +63,34 @@ export class AgentSessions {
     const { data } = await this.transport.call({ method: "agents.list", params: { project } });
     this.loaded.add(project);
     for (const info of data) this.byId.set(info.id, info);
-    await this.loadTasks(project);
+    await Promise.all([this.loadTasks(project), this.loadReviews(project)]);
+  }
+
+  /** Each session's newest review item. Front ends without reviews have none. */
+  async loadReviews(project: ProjectId): Promise<void> {
+    let items: ReviewItem[];
+    try {
+      ({ data: items } = await this.transport.call({ method: "review.list", params: { project } }));
+    } catch {
+      return;
+    }
+    for (const [session, item] of this.reviews) if (item.project === project) this.reviews.delete(session);
+    // Newest first: the first item of a session is its current one.
+    for (const item of items) if (!this.reviews.has(item.session)) this.reviews.set(item.session, item);
+  }
+
+  /** The files `id`'s agent changed that wait for the person's review. */
+  changes(id: SessionId): FileChange[] {
+    const item = this.reviews.get(id);
+    return item && waits(item) ? item.files.filter((f) => f.by !== "outside") : [];
+  }
+
+  /** How many of the task's workers have changes waiting for review. */
+  waitingInTask(coordinator: SessionId): number {
+    return [...this.roles].filter(([session, role]) => {
+      const item = this.reviews.get(session);
+      return role.kind === "worker" && role.coordinator === coordinator && item !== undefined && waits(item);
+    }).length;
   }
 
   /** Who coordinates and who works in the project's tasks. Front ends without tasks have none. */
@@ -192,9 +224,13 @@ export class AgentSessions {
     // Events were dropped: what is on screen may be missing or doubled.
     if (event.type === "info.resync") this.resync();
     else if (event.type === "orchestration.changed") void this.loadTasks(event.data.project);
-    else if (event.type === "agents.status") {
+    else if (event.type === "review.changed") {
+      if (this.loaded.has(event.data.project)) void this.loadReviews(event.data.project);
+    } else if (event.type === "agents.status") {
       const { session, project, status } = event.data;
       const known = this.byId.get(session);
+      // A turn ended: what it changed is in the session's review item now.
+      if (known && status.state === "idle") void this.loadReviews(project);
       if (known) {
         // A restart clears the sandbox report without an event of its own.
         const fresh = status.state === "starting" ? { sandbox: null, sandbox_reported: false } : {};
@@ -266,6 +302,21 @@ export function usageText(usage: TurnUsage, billing: Billing | null): string {
       ? `, about ${dollars} at API prices (your plan's limits, not this amount)`
       : `, ${dollars}`;
   return `${usage.input_tokens.toLocaleString("en")} tokens in, ${usage.output_tokens.toLocaleString("en")} out${cost}`;
+}
+
+/** Whether a review item waits for the person, as the inbox counts it. */
+function waits(item: ReviewItem): boolean {
+  return (
+    item.state === "partly_approved" ||
+    (item.state === "open" && (item.git_changes.length > 0 || item.files.some((f) => f.by !== "outside")))
+  );
+}
+
+/** Opens the review inbox through its command. */
+export function openReviews(): void {
+  void listCommands()
+    .find((c) => c.id === "inbox.toggle")
+    ?.run();
 }
 
 const instances = new WeakMap<Transport, AgentSessions>();

@@ -6,17 +6,17 @@ import { untrack } from "svelte";
 import { browserPicks, pickLabel } from "../browser/picks.svelte";
 import { registerCommand } from "../keys/commands";
 import { formatShortcut, isApple } from "../keys/shortcut";
-import type { SessionId } from "../lib/protocol";
+import type { FileChange, SessionId } from "../lib/protocol";
 import { CoreError } from "../lib/transport";
 import { useOvra } from "../shell/context";
 import { sandboxBadge, sandboxGaps, sandboxLine, sandboxState } from "./sandbox";
-import { agentSessions, usageText } from "./sessions.svelte";
+import { agentSessions, openReviews, usageText } from "./sessions.svelte";
 import AccountPicker from "./setup/AccountPicker.svelte";
 import { claudeAccounts } from "./setup/accounts.svelte";
 import ClaudeSetup from "./setup/ClaudeSetup.svelte";
 import ProjectTrust from "./setup/ProjectTrust.svelte";
 import { paidText } from "./setup/texts";
-import { isEnded } from "./status";
+import { isBusy, isEnded } from "./status";
 import Transcript from "./Transcript.svelte";
 
 const { transport, workspace } = useOvra();
@@ -64,6 +64,16 @@ const chips = $derived(current ? picks.of(current.id) : []);
 const sandbox = $derived(current ? sandboxLine(sandboxState(current), isEnded(current.status)) : null);
 const gaps = $derived(current ? sandboxGaps(sandboxState(current), isEnded(current.status)) : null);
 const modeHint = $derived(MODES.find((m) => m.id === mode)?.hint);
+/** A direct session's own files once its turn is over; a worker's live in its worktree, so Reviews shows them. */
+const changed = $derived(
+  current && current.mode === "direct" && sessions.roles.get(current.id)?.kind !== "worker" && !isBusy(current.status)
+    ? sessions.changes(current.id)
+    : [],
+);
+/** A task's workers whose changes wait in Reviews. */
+const waiting = $derived(
+  current && sessions.roles.get(current.id)?.kind === "coordinator" ? sessions.waitingInTask(current.id) : 0,
+);
 
 $effect(() => {
   const id = project?.id;
@@ -118,6 +128,20 @@ $effect(() => {
     for (const unregister of off) unregister();
   };
 });
+
+/** An added file has no diff to show yet (git does not track it): it opens instead. */
+function showChange(file: FileChange): void {
+  const id = project?.id;
+  if (!id) return;
+  if (file.kind === "added") workspace.openFile(file.path);
+  else workspace.gitDiff = { project: id, path: file.path, staged: false };
+}
+
+function changeText(file: FileChange): string {
+  if (file.kind === "added") return "new";
+  if (file.kind === "deleted") return "deleted";
+  return `+${file.additions} -${file.deletions}`;
+}
 
 function workerName(id: SessionId): string | undefined {
   const role = sessions.roles.get(id);
@@ -322,6 +346,30 @@ const canReply = $derived(current !== null && current.status.state === "idle");
           <p class="status" data-testid="agent-sandbox-gaps">{gaps}</p>
         {/if}
         <Transcript messages={messages ?? []} billing={current.billing} {workerName} />
+        {#if changed.length > 0}
+          <!-- One agent here changes the folder itself: what it changed, each
+               file's diff one press away, and where to keep or undo it. -->
+          <section class="outcome" aria-labelledby="agent-changes-heading" data-testid="agent-changes">
+            <h4 id="agent-changes-heading">Changed files ({changed.length})</h4>
+            <ul aria-labelledby="agent-changes-heading">
+              {#each changed as file (file.path)}
+                <li>
+                  <button type="button" class="file" onclick={() => showChange(file)}>{file.path}</button>
+                  <span class="hint">{changeText(file)}</span>
+                </li>
+              {/each}
+            </ul>
+            <div class="row">
+              <span class="hint">Already in your folder. Keep or undo them in Reviews.</span>
+              <button type="button" onclick={openReviews}>Review</button>
+            </div>
+          </section>
+        {:else if waiting > 0}
+          <div class="outcome row" data-testid="agent-reviews">
+            <span>{waiting === 1 ? "1 change waits" : `${waiting} changes wait`} for your review.</span>
+            <button type="button" onclick={openReviews}>Review</button>
+          </div>
+        {/if}
         {#if !isEnded(current.status)}
           <form
             class="reply"
@@ -529,6 +577,37 @@ const canReply = $derived(current !== null && current.status.state === "idle");
   }
   .reply {
     margin-top: 8px;
+  }
+  .outcome {
+    margin: 8px 12px 0;
+    padding: 6px 8px;
+    font-size: 12px;
+    background: #1b1b21;
+    border: 1px solid #4a4a57;
+    border-radius: 3px;
+  }
+  .outcome h4 {
+    margin: 0 0 4px;
+    font-size: 12px;
+  }
+  .outcome ul {
+    list-style: none;
+    margin: 0 0 4px;
+    padding: 0;
+  }
+  .outcome li {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .outcome button.file {
+    padding: 1px 4px;
+    color: #9db8ff;
+    background: transparent;
+    border-color: transparent;
+    text-decoration: underline;
+    overflow-wrap: anywhere;
+    text-align: left;
   }
   .chips {
     display: flex;
