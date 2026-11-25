@@ -259,7 +259,7 @@ async function removeSecret(secretName: string): Promise<void> {
 
       <section aria-labelledby="secrets-title">
         <h3 id="secrets-title">Secrets</h3>
-        <p class="muted">The proxy adds a token for one host. Agents use it without seeing it: keep its scope narrow.</p>
+        <p class="muted">The proxy adds a token for one host; sandboxed agents use it without seeing it. Keep its scope narrow.</p>
         {#if access.secrets.length > 0}
           <ul aria-label="Secrets">
             {#each access.secrets as secret (secret.name)}
