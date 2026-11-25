@@ -59,6 +59,9 @@ the CLI directly, without the SDK:
   `CLAUDE_AGENT_SDK_VERSION` (`crates/agent-runtime/src/launch.rs`). Every
   other variable stays, including the user's configuration (`ANTHROPIC_*`,
   `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, proxies, CA bundles).
+  Amended 2026-11-25 (owner): a sandboxed session gets only an allowlist of
+  variables, named one by one (`docs/specs/security.md`, "Environment"), so
+  tokens and agent sockets in the user's environment do not reach it.
 - The binary is run as published, unmodified. Ovra finds it on `PATH` (or a
   path the user sets), checks its version against a tested range and tells
   the user how to install, update or sign in when needed.

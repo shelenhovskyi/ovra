@@ -1,8 +1,8 @@
 # Agent security (phase 4)
 
 Status: task 4.0; the netproxy (4.C) is built as described below. Reviewed twice by an independent reviewer agent in place
-of the owner (owner's rule, 2026-11-24). The environment change below
-amends ADR 0006 and waits for the owner. Builds on ADR 0005 (direct mode), ADR 0006
+of the owner (owner's rule, 2026-11-24). The owner approved the environment
+allowlist below on 2026-11-25; it amends ADR 0006. Builds on ADR 0005 (direct mode), ADR 0006
 (Claude through the user's `claude` CLI) and `docs/specs/orchestration.md`.
 
 Phase 4 has five parts. 4.0 defines the contracts between them:
@@ -123,11 +123,11 @@ its changes on approve.
     session's own worktree;
   - on Linux, `/run/user/<uid>`, because D-Bus reaches the keyring there;
   - agent sockets such as `SSH_AUTH_SOCK` and the gpg agent.
-- **Environment (needs the owner).** ADR 0006 keeps every variable but
-  three. A sandbox should instead start from an allowlist, so that
-  `SSH_AUTH_SOCK`, `GITHUB_TOKEN`, `GH_TOKEN`, `AWS_*` and `NPM_TOKEN` do
-  not pass. This amends ADR 0006 and waits for the owner. Until then the
-  environment stays as ADR 0006 says. If the owner agrees:
+- **Environment (owner approved, 2026-11-25).** Outside a sandbox ADR 0006
+  keeps every variable but the nested-session markers. A sandboxed session
+  instead starts from an allowlist, so that `SSH_AUTH_SOCK`,
+  `GITHUB_TOKEN`, `GH_TOKEN`, `AWS_*` and `NPM_TOKEN` do not pass. This
+  amends ADR 0006:
   - the list names variables one by one, never by prefix (a
     `CLAUDE_CODE_*` prefix would pass `CLAUDE_CODE_OAUTH_TOKEN`);
   - it includes `PATH`, `HOME`, `LANG`, `TERM`, `ANTHROPIC_API_KEY`,
