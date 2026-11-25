@@ -5,9 +5,10 @@
 
 use std::time::Duration;
 
+use base64::Engine as _;
 use ovra_core::Core;
 use ovra_core::protocol::browser::{MouseButton, PageId, PageInfo};
-use ovra_core::services::{PageAction, ToolCaller};
+use ovra_core::services::{ElementRef, PageAction, ToolCaller};
 use ovra_core::untrusted::untrusted;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -16,6 +17,10 @@ use crate::calls::{failed, parse, text};
 
 /// The longest `browser_wait_for`.
 const MAX_WAIT_MS: u64 = 30_000;
+/// The most entries `browser_console` and `browser_network` return, and
+/// how many without a `limit`.
+const MAX_ENTRIES: usize = 500;
+const DEFAULT_ENTRIES: usize = 100;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -95,6 +100,53 @@ struct WaitFor {
     timeout_ms: u64,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Snapshot {
+    page_id: String,
+    #[serde(rename = "ref")]
+    target: Option<String>,
+    depth: Option<u32>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Console {
+    page_id: String,
+    level: Option<String>,
+    #[serde(default)]
+    since: u64,
+    limit: Option<usize>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Network {
+    page_id: String,
+    #[serde(default)]
+    since: u64,
+    limit: Option<usize>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Screenshot {
+    page_id: String,
+    #[serde(rename = "ref")]
+    target: Option<String>,
+    #[serde(default)]
+    full_page: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Inspect {
+    page_id: Option<String>,
+    #[serde(rename = "ref")]
+    target: Option<String>,
+    pick_id: Option<String>,
+}
+
 /// Runs the browser tool `name`: the MCP content of its answer, or the
 /// text of a tool error. `None` when there is no such tool.
 pub(crate) async fn call(
@@ -110,6 +162,11 @@ pub(crate) async fn call(
             act(core, caller, name, arguments).await
         }
         "browser_close" => close(core, caller, arguments).await,
+        "browser_snapshot" => snapshot(core, caller, arguments).await,
+        "browser_console" => console(core, caller, arguments),
+        "browser_network" => network(core, caller, arguments),
+        "browser_screenshot" => screenshot(core, caller, arguments).await,
+        "browser_inspect" => inspect(core, caller, arguments).await,
         _ => return None,
     };
     Some(answer)
@@ -211,6 +268,119 @@ async fn close(core: &Core, caller: &ToolCaller, arguments: Value) -> Result<Vec
     Ok(vec![text_block(format!("Closed {}.", page.0))])
 }
 
+async fn snapshot(
+    core: &Core,
+    caller: &ToolCaller,
+    arguments: Value,
+) -> Result<Vec<Value>, String> {
+    let args: Snapshot = parse(arguments)?;
+    let page = PageId(args.page_id);
+    let info = core.browser_page(caller, &page).map_err(failed)?;
+    let tree = core
+        .browser_snapshot(caller, &page, args.target, args.depth)
+        .await
+        .map_err(failed)?;
+    let answer = json!({"page_id": page, "snapshot": untrusted(&origin(&info.url), &tree)});
+    Ok(content(&answer))
+}
+
+fn console(core: &Core, caller: &ToolCaller, arguments: Value) -> Result<Vec<Value>, String> {
+    let args: Console = parse(arguments)?;
+    let page = PageId(args.page_id);
+    let found = core
+        .browser_console(caller, &page, args.since, limit(args.limit)?)
+        .map_err(failed)?;
+    let next = found.last().map_or(args.since, |e| e.n);
+    let level = args.level.as_deref();
+    let lines: Vec<String> = found
+        .iter()
+        .filter(|e| level.is_none_or(|l| e.level == l))
+        .map(|e| format!("{} [{}] {}", e.n, e.level, e.text))
+        .collect();
+    entries(core, caller, &page, "messages", &lines, next)
+}
+
+fn network(core: &Core, caller: &ToolCaller, arguments: Value) -> Result<Vec<Value>, String> {
+    let args: Network = parse(arguments)?;
+    let page = PageId(args.page_id);
+    let found = core
+        .browser_network(caller, &page, args.since, limit(args.limit)?)
+        .map_err(failed)?;
+    let next = found.last().map_or(args.since, |e| e.n);
+    let lines: Vec<String> = found
+        .iter()
+        .map(|e| {
+            let outcome = match (e.status, &e.error) {
+                (_, Some(error)) => format!("failed: {error}"),
+                (Some(status), None) => status.to_string(),
+                (None, None) => "running".to_owned(),
+            };
+            format!("{} {} {} {outcome}", e.n, e.method, e.url)
+        })
+        .collect();
+    entries(core, caller, &page, "requests", &lines, next)
+}
+
+fn limit(limit: Option<usize>) -> Result<usize, String> {
+    let limit = limit.unwrap_or(DEFAULT_ENTRIES);
+    if (1..=MAX_ENTRIES).contains(&limit) {
+        Ok(limit)
+    } else {
+        Err(format!("limit is 1 to {MAX_ENTRIES}"))
+    }
+}
+
+/// Console or network lines, one per entry, as data from the page.
+fn entries(
+    core: &Core,
+    caller: &ToolCaller,
+    page: &PageId,
+    key: &str,
+    lines: &[String],
+    next: u64,
+) -> Result<Vec<Value>, String> {
+    let info = core.browser_page(caller, page).map_err(failed)?;
+    let wrapped = untrusted(&origin(&info.url), &lines.join("\n"));
+    Ok(content(&json!({ key: wrapped, "next": next })))
+}
+
+async fn screenshot(
+    core: &Core,
+    caller: &ToolCaller,
+    arguments: Value,
+) -> Result<Vec<Value>, String> {
+    let args: Screenshot = parse(arguments)?;
+    let page = PageId(args.page_id);
+    let png = core
+        .browser_screenshot(caller, &page, args.target, args.full_page)
+        .await
+        .map_err(failed)?;
+    Ok(vec![image_block(&png)])
+}
+
+async fn inspect(core: &Core, caller: &ToolCaller, arguments: Value) -> Result<Vec<Value>, String> {
+    let args: Inspect = parse(arguments)?;
+    let element = match (args.target, args.pick_id) {
+        (Some(target), None) => ElementRef::Ref(target),
+        (None, Some(pick)) => ElementRef::Pick(pick),
+        _ => return Err("name exactly one of ref or pick_id".to_owned()),
+    };
+    if matches!(element, ElementRef::Ref(_)) && args.page_id.is_none() {
+        return Err("a ref needs its page_id".to_owned());
+    }
+    let found = core
+        .browser_inspect(caller, args.page_id.map(PageId), element)
+        .await
+        .map_err(failed)?;
+    let shown = serde_json::to_string_pretty(&found.element).unwrap_or_default();
+    let wrapped = untrusted(&origin(&found.element.url), &shown);
+    let mut answer = content(&json!({ "element": wrapped }));
+    if !found.png.is_empty() {
+        answer.push(image_block(&found.png));
+    }
+    Ok(answer)
+}
+
 /// `scheme://host[:port]` of the page: the origin its content is from.
 pub(crate) fn origin(url: &str) -> String {
     let start = url.find("://").map_or(0, |i| i + 3);
@@ -232,4 +402,10 @@ fn content(value: &Value) -> Vec<Value> {
 
 fn text_block(text: String) -> Value {
     json!({"type": "text", "text": text})
+}
+
+/// A PNG as MCP image content.
+fn image_block(png: &[u8]) -> Value {
+    let data = base64::engine::general_purpose::STANDARD.encode(png);
+    json!({"type": "image", "data": data, "mimeType": "image/png"})
 }
