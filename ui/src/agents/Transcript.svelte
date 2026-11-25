@@ -3,14 +3,16 @@
 // readers hear only what Claude says (a separate live region), not every
 // tool output. What the person wrote, what Claude says and errors stay in
 // full; each tool call is a one-line step that opens for its details, and
-// steps in a row fold into one group (`steps.ts`).
-import { describeTool, isIdeTool } from "../approvals/describe";
+// reads and searches in a row fold into one group (`steps.ts`). It follows
+// new messages only while scrolled to within 60 px of the end.
+import { untrack } from "svelte";
+import { describeTool } from "../approvals/describe";
 import type { AgentMessage, AgentStatus, Billing, MessageFrom } from "../lib/protocol";
 import Icon from "../shell/Icon.svelte";
 import { isAuthFailure, withoutEchoes } from "./errors";
 import LiveActivity from "./LiveActivity.svelte";
 import { usageText } from "./sessions.svelte";
-import { entries, type Step, stepIcon, stepLabel } from "./steps";
+import { entries, foldLabel, type Step, stepIcon, stepLabel, stepMeta, turnCost, verbAndObject } from "./steps";
 import { ideResult } from "./tool-results";
 
 /**
@@ -18,7 +20,8 @@ import { ideResult } from "./tool-results";
  * `workerName`: a task's worker by its session id, so tool lines name
  * workers as the person knows them instead of by id.
  * `status` and `partial` (the text Claude is writing) show at the end what
- * a working session does now.
+ * a working session does now. `onretry`, when given, puts Retry on an error
+ * that ended the last turn.
  */
 let {
   messages,
@@ -26,12 +29,14 @@ let {
   workerName = () => undefined,
   status = null,
   partial = "",
+  onretry,
 }: {
   messages: AgentMessage[];
   billing?: Billing | null;
   workerName?: (session: string) => string | undefined;
   status?: AgentStatus | null;
   partial?: string;
+  onretry?: () => void;
 } = $props();
 
 /** Who wrote what an agent was sent: never "You" for text the person did not write. */
@@ -98,17 +103,28 @@ const spoken = $derived.by(() => {
   return "";
 });
 
-// Follow new messages, and the text that streams in, while the view is
-// scrolled to the end.
-let atEnd = true;
-$effect.pre(() => {
-  void [messages.length, partial, status];
-  if (box) atEnd = box.scrollHeight - box.scrollTop - box.clientHeight < 24;
-});
+/** Scrolled further than this from the end, new messages no longer pull the view down. */
+const FOLLOW_PX = 60;
+/** The person scrolled up to read: "Jump to latest" brings the view back. */
+let detached = $state(false);
+
+function onscroll(): void {
+  if (box) detached = box.scrollHeight - box.scrollTop - box.clientHeight > FOLLOW_PX;
+}
+
+function jump(): void {
+  if (box) box.scrollTop = box.scrollHeight;
+  detached = false;
+}
+
+// Follow new messages, and the text that streams in, unless scrolled away.
 $effect(() => {
   void [messages.length, partial, status];
-  if (box && atEnd) box.scrollTop = box.scrollHeight;
+  if (box && !untrack(() => detached)) box.scrollTop = box.scrollHeight;
 });
+
+/** The last entry, when it is an error that ended the turn: it gets Retry. */
+const lastError = $derived(shown.at(-1)?.kind === "message" && shown.at(-1));
 </script>
 
 {#snippet card(step: Step)}
@@ -117,17 +133,20 @@ $effect(() => {
   {@const denied = failed && (step.result?.output.startsWith(REJECTED) ?? false)}
   {@const summary = step.use ? describe(step.use.name, step.use.input) : null}
   {@const plain = step.use && step.result && !failed ? ideResult(step.use.name, step.result.output) : null}
+  {@const parts = verbAndObject(step, stepLabel(step, summary?.action ?? ""))}
+  {@const meta = failed ? "" : stepMeta(step)}
   <details class="step" class:failed={failed && !denied} class:sub={sub !== ""}>
     <summary title={step.use?.name}>
       <Icon name={stepIcon(step)} small />
       <span class="label"
-        >{sub}{denied
-          ? summary
+        >{sub}{#if denied}{summary
             ? `Not run: ${summary.action}`
-            : "Not run: you denied it or interrupted the turn"
-          : stepLabel(step, summary?.action ?? "")}</span
+            : "Not run: you denied it or interrupted the turn"}{:else}{parts.verb}{#if parts.object}{" "}<code
+              class="object">{parts.object}</code
+            >{/if}{/if}</span
       >
       {#if failed && !denied}<span class="flag">failed</span>{/if}
+      {#if meta}<span class="meta">{meta}</span>{/if}
     </summary>
     <div class="body">
       {#if summary}
@@ -145,17 +164,27 @@ $effect(() => {
 {/snippet}
 
 <p class="spoken" aria-live="polite">{spoken}</p>
-<!-- Focusable so arrow keys and Page Up/Down scroll it. -->
+<div class="frame">
+<!-- Focusable so arrow keys and Page Up/Down scroll it. A log, but not a
+     live one: the line above speaks Claude's text, not every tool output. -->
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-<ol class="transcript" aria-label="Transcript" tabindex="0" bind:this={box} data-testid="transcript">
+<ol
+  class="transcript"
+  role="log"
+  aria-live="off"
+  aria-label="Transcript"
+  tabindex="0"
+  bind:this={box}
+  {onscroll}
+  data-testid="transcript"
+>
   {#each shown as entry, i (i)}
     {#if entry.kind === "steps" && entry.steps.length === 1 && entry.steps[0]}
       <li class="steps">{@render card(entry.steps[0])}</li>
     {:else if entry.kind === "steps"}
-      {@const failed = entry.steps.filter((s) => s.result?.is_error).length}
       <li class="steps">
         <details class="group">
-          <summary>{entry.steps.length} steps{failed ? ` · ${failed} failed or not run` : ""}</summary>
+          <summary>{foldLabel(entry.steps)}</summary>
           <div class="cards">
             {#each entry.steps as step, n (n)}{@render card(step)}{/each}
           </div>
@@ -182,19 +211,83 @@ $effect(() => {
           <span class="who">{sub}Claude</span>
           <p>{message.text}</p>
         {:else if message.kind === "turn_end"}
-          <span class="who">Turn ended: {usageText(message.usage, billing)}</span>
+          <!-- A thin divider, not a row: the full numbers on hover. -->
+          <span class="divider" title={usageText(message.usage, billing)}>Turn ended · {turnCost(message.usage, billing)}</span>
         {:else if message.kind === "error"}
           <!-- A sign-in problem is explained once, above the transcript. -->
           <span class="who">Error</span>
           <p>{isAuthFailure(message.message) ? "Account signed out" : message.message}</p>
+          {#if onretry && lastError === entry && !isAuthFailure(message.message)}
+            <button type="button" class="retry" onclick={onretry}>Retry</button>
+          {/if}
         {/if}
       </li>
     {/if}
   {/each}
   {#if status}<LiveActivity {status} {messages} {partial} />{/if}
 </ol>
+{#if detached}
+  <button type="button" class="jump" data-testid="jump-to-latest" onclick={jump}>Jump to latest</button>
+{/if}
+</div>
 
 <style>
+  .frame {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .jump {
+    position: absolute;
+    left: 50%;
+    bottom: 12px;
+    transform: translateX(-50%);
+    height: 28px;
+    padding: 0 12px;
+    font: inherit;
+    font-size: 13px;
+    color: var(--text);
+    background: var(--s4);
+    border: none;
+    border-radius: 14px;
+    box-shadow: var(--card-shadow);
+  }
+  .divider {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--text-2);
+  }
+  .divider::before,
+  .divider::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--s3);
+  }
+  .object {
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  .meta {
+    flex: none;
+    margin-left: auto;
+    font-variant-numeric: tabular-nums;
+  }
+  .retry {
+    margin-top: 8px;
+    height: 28px;
+    padding: 0 12px;
+    font: inherit;
+    font-size: 13px;
+    color: var(--text);
+    background: var(--s3);
+    border: none;
+    border-radius: var(--radius-sm);
+  }
   .transcript {
     list-style: none;
     margin: 0;

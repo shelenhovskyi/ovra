@@ -1,9 +1,10 @@
 // A transcript as people read it: what they wrote, what Claude said and what
-// needs them stay in full; tool calls fold into one-line steps, and steps in
-// a row into one group.
+// needs them stay in full; each tool call is one step with its result, and
+// reads and searches in a row fold into one group. Edits, commands and
+// failures always keep a step of their own.
 
 import { describeTool } from "../approvals/describe";
-import type { AgentMessage, AgentStatus } from "../lib/protocol";
+import type { AgentMessage, AgentStatus, Billing, TurnUsage } from "../lib/protocol";
 import type { IconName } from "../shell/icons";
 
 type ToolUse = Extract<AgentMessage, { kind: "tool_use" }>;
@@ -14,13 +15,18 @@ export type Step = { use: ToolUse | null; result: ToolResult | null };
 
 type Entry = { kind: "message"; message: AgentMessage } | { kind: "steps"; steps: Step[] };
 
-/** Messages in order, with each tool call and its result as one step and steps in a row together. */
+/** Tools that only look: in a row they fold into one line. */
+const LOOKS = new Set(["Read", "Glob", "Grep", "WebSearch", "LS"]);
+const looks = (step: Step): boolean =>
+  step.use !== null && LOOKS.has(step.use.name) && !step.result?.is_error && !step.use.parent;
+
+/** Messages in order, each tool call merged with its result (by `tool_use_id`); reads and searches in a row together. */
 export function entries(messages: AgentMessage[]): Entry[] {
-  const out: Entry[] = [];
+  const flat: ({ kind: "message"; message: AgentMessage } | { kind: "step"; step: Step })[] = [];
   const open = new Map<string, Step>();
   for (const message of messages) {
     if (message.kind !== "tool_use" && message.kind !== "tool_result") {
-      out.push({ kind: "message", message });
+      flat.push({ kind: "message", message });
       continue;
     }
     const pending = message.kind === "tool_result" ? open.get(message.tool_use_id) : undefined;
@@ -30,11 +36,75 @@ export function entries(messages: AgentMessage[]): Entry[] {
     }
     const step: Step = message.kind === "tool_use" ? { use: message, result: null } : { use: null, result: message };
     if (message.kind === "tool_use") open.set(message.id, step);
+    flat.push({ kind: "step", step });
+  }
+  // Only now are results known: a read that failed keeps its own step.
+  const out: Entry[] = [];
+  for (const item of flat) {
+    if (item.kind === "message") {
+      out.push(item);
+      continue;
+    }
     const last = out.at(-1);
-    if (last?.kind === "steps") last.steps.push(step);
-    else out.push({ kind: "steps", steps: [step] });
+    if (looks(item.step) && last?.kind === "steps" && last.steps.every(looks)) last.steps.push(item.step);
+    else out.push({ kind: "steps", steps: [item.step] });
   }
   return out;
+}
+
+/** `Read 6 files, searched 2 times`, for a fold of reads and searches. */
+export function foldLabel(steps: Step[]): string {
+  const reads = steps.filter((s) => s.use?.name === "Read").length;
+  const searches = steps.length - reads;
+  const parts = [
+    reads > 0 ? `read ${reads} ${reads === 1 ? "file" : "files"}` : "",
+    searches > 0 ? `searched ${searches === 1 ? "once" : `${searches} times`}` : "",
+  ].filter(Boolean);
+  const text = parts.join(", ");
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** A step's label as a verb and the thing it acted on (`Ran` + `npm test`); the object is empty for other tools. */
+export function verbAndObject(step: Step, label: string): { verb: string; object: string } {
+  const plain = { verb: label, object: "" };
+  if (
+    !step.use ||
+    !["Bash", "Edit", "MultiEdit", "NotebookEdit", "Write", "Read", "Glob", "Grep", "WebFetch"].includes(step.use.name)
+  )
+    return plain;
+  const two = /^(Found|Find) files /.exec(label);
+  const at = two ? two[0].length - 1 : label.indexOf(" ");
+  return at < 0 ? plain : { verb: label.slice(0, at), object: label.slice(at + 1) };
+}
+
+const lineCount = (text: unknown): number => (typeof text === "string" && text !== "" ? text.split("\n").length : 0);
+
+/** A step's numbers, right-aligned on its line: lines added and removed by an edit or a write. */
+export function stepMeta(step: Step): string {
+  const input = (step.use?.input ?? {}) as Record<string, unknown>;
+  switch (step.use?.name) {
+    case "Edit":
+      return `+${lineCount(input.new_string)} −${lineCount(input.old_string)}`;
+    case "Write":
+      return `+${lineCount(input.content)}`;
+    default:
+      return "";
+  }
+}
+
+/**
+ * What a turn cost, in a few words for its end line: tokens on a Claude
+ * plan (where dollars are only an estimate), dollars on an API key or a
+ * cloud account.
+ */
+export function turnCost(usage: TurnUsage, billing: Billing | null): string {
+  const paid = billing !== null && billing.kind !== "subscription" && usage.cost_micro_usd !== null;
+  if (paid) {
+    const dollars = (usage.cost_micro_usd ?? 0) / 1_000_000;
+    return dollars < 0.01 ? "under $0.01" : `$${dollars.toFixed(2)}`;
+  }
+  const tokens = usage.input_tokens + usage.output_tokens;
+  return tokens < 1000 ? `${tokens} tokens` : `${(tokens / 1000).toFixed(1)}k tokens`;
 }
 
 /** The first word of a tool's summary, as done. */

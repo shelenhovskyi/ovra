@@ -99,12 +99,13 @@ test("start an agent and answer its requests from the keyboard", async ({ page }
   const header = await agents.getByRole("heading", { name: "Agents", exact: true }).boundingBox();
   expect((band?.y ?? 0) + (band?.height ?? 0)).toBeLessThanOrEqual(header?.y ?? 0);
   const transcript = page.getByTestId("transcript");
-  // The two steps are one folded line that opens to one line each.
-  const steps = transcript.getByText("2 steps · 1 failed or not run");
-  await expect(steps).toBeVisible();
-  await expect(transcript.getByText("Ran ls -la")).toBeHidden();
-  await steps.click();
-  await expect(transcript.getByText("Ran ls -la")).toBeVisible();
+  // A command and an edit each get one folded card: verb, mono object, result inside.
+  const ran = transcript.locator(".step summary", { hasText: "Ran ls -la" });
+  await expect(ran).toBeVisible();
+  await expect(ran.locator("code")).toHaveText("ls -la");
+  await expect(transcript.getByTestId("tool-detail").first()).toBeHidden();
+  await ran.click();
+  await expect(transcript.getByTestId("tool-detail").first()).toBeVisible();
   await expect(transcript.locator(".step.failed summary")).toHaveText(/Edit README\.md\s*failed/);
   await expect(transcript).toContainText(/Claude\s*Done\./);
 });

@@ -363,6 +363,22 @@ function resume(): Promise<void> {
   });
 }
 
+/** What the person last asked, to ask again after a turn that ended in an error. */
+const lastAsk = $derived.by(() => {
+  const found = [...(messages ?? [])].reverse().find((m) => m.kind === "user_text" && m.from === "person");
+  return found?.kind === "user_text" ? found.text : null;
+});
+
+/** Retry on the error that ended the turn: the last request again, as a reply or by resuming. */
+const retryTurn = $derived.by(() => {
+  const id = current?.id;
+  const body = lastAsk;
+  if (!id || !body || signedOut || busy) return undefined;
+  if (canReply) return () => void run(() => sessions.send(id, body));
+  if (current?.resumable) return () => void run(() => sessions.resume(id, body));
+  return undefined;
+});
+
 function interrupt(id: SessionId): Promise<void> {
   return run(() => sessions.interrupt(id));
 }
@@ -574,6 +590,7 @@ const canReply = $derived(current !== null && current.status.state === "idle");
         {workerName}
         status={current.status}
         partial={sessions.partial.get(current.id) ?? ""}
+        onretry={retryTurn}
       />
       {#if !isEnded(current.status) && !signedOut}
         <form
