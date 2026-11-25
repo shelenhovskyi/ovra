@@ -14,7 +14,7 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 use std::time::{Duration, Instant, SystemTime};
 
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher as _};
@@ -69,7 +69,8 @@ const MAX_PATHS: usize = 512;
 /// held while `git status` runs, so at most one runs per project.
 #[derive(Debug)]
 pub(crate) struct GitCache {
-    repo: Option<Repo>,
+    /// Set once: at the start, or when the folder becomes a repository.
+    repo: OnceLock<Repo>,
     status: Mutex<Option<Statuses>>,
     /// When the index and HEAD last changed: staging, committing or
     /// switching can leave the statuses the tree shows as they were, but
@@ -81,12 +82,20 @@ pub(crate) struct GitCache {
 
 impl GitCache {
     pub(crate) fn new(repo: Option<Repo>) -> Self {
-        Self {
-            repo,
+        let cache = Self {
+            repo: OnceLock::new(),
             status: Mutex::new(None),
             stamp: Mutex::new(None),
             runs: AtomicUsize::new(0),
+        };
+        if let Some(repo) = repo {
+            let _ = cache.repo.set(repo);
         }
+        cache
+    }
+
+    fn repo(&self) -> Option<&Repo> {
+        self.repo.get()
     }
 
     fn lock(&self) -> MutexGuard<'_, Option<Statuses>> {
@@ -99,7 +108,7 @@ impl GitCache {
     }
 
     pub(crate) fn current(&self) -> Option<Statuses> {
-        let repo = self.repo.as_ref()?;
+        let repo = self.repo()?;
         let mut status = self.lock();
         if status.is_none() {
             *self.stamp.lock().unwrap_or_else(PoisonError::into_inner) = Some(stamp(repo));
@@ -110,7 +119,7 @@ impl GitCache {
 
     /// Re-reads the status; true if it or the index or HEAD changed.
     pub(crate) fn refresh(&self) -> bool {
-        let Some(repo) = &self.repo else {
+        let Some(repo) = self.repo() else {
             return false;
         };
         let stamp = Some(stamp(repo));
@@ -196,7 +205,7 @@ impl Watch {
         let root = crate::resolve::root(&given_root)?;
         let git = Arc::new(GitCache::new(Repo::discover(&root)));
         let stopped = Arc::new(AtomicBool::new(false));
-        let git_tx = match git.repo {
+        let git_tx = match git.repo() {
             Some(_) => Some(spawn_git_refresher(
                 project.clone(),
                 sink.clone(),
@@ -225,16 +234,14 @@ impl Watch {
             watch_budget: AtomicUsize::new(timing.watch_limit),
         });
         dirs.add(&root);
-        if let Some(repo) = &git.repo {
-            // Best effort (it also fails once the watch limit is reached):
-            // without it, commits and checkouts surface on the next
-            // worktree change.
-            let _ = lock(&dirs.watcher).watch(&repo.git_dir, RecursiveMode::NonRecursive);
+        if let Some(repo) = git.repo() {
+            dirs.watch_git_dir(&repo.git_dir);
         }
         let worker = Worker {
             project: project.clone(),
             root,
             sink: sink.clone(),
+            git: Arc::clone(&git),
             git_tx,
             files: Arc::new(SharedFiles::default()),
             dirs: Arc::clone(&dirs),
@@ -304,6 +311,7 @@ struct Worker {
     project: ProjectId,
     root: PathBuf,
     sink: EventSink,
+    git: Arc<GitCache>,
     /// Asks for a git status refresh; `None` outside a repository.
     git_tx: Option<mpsc::Sender<()>>,
     files: Arc<SharedFiles>,
@@ -396,6 +404,13 @@ impl Dirs {
             return Err(notify::Error::new(notify::ErrorKind::MaxFilesWatch));
         }
         lock(&self.watcher).watch(dir, RecursiveMode::NonRecursive)
+    }
+
+    /// Watches the git directory for `index` and `HEAD`. Best effort (it
+    /// also fails once the watch limit is reached): without it, commits and
+    /// checkouts surface on the next worktree change.
+    fn watch_git_dir(&self, git_dir: &Path) {
+        let _ = lock(&self.watcher).watch(git_dir, RecursiveMode::NonRecursive);
     }
 
     fn contains(&self, dir: &Path) -> bool {
@@ -575,11 +590,15 @@ impl Worker {
         let mut changed = BTreeSet::new();
         let mut set = SetChange::default();
         let mut visible = HashMap::new();
+        let dot_git = self.root.join(".git");
+        let mut git_appeared = false;
         for event in batch.into_iter().filter_map(std::result::Result::ok) {
             if matches!(event.kind, EventKind::Access(_)) {
                 continue;
             }
             for path in event.paths {
+                git_appeared |= self.git_tx.is_none()
+                    && (path == dot_git || path.parent() == Some(dot_git.as_path()));
                 // Ignored directories are not watched, so their files do not
                 // count even where the OS reports them (macOS).
                 let watched = path.parent().is_some_and(|p| self.dirs.contains(p));
@@ -590,6 +609,9 @@ impl Worker {
                     self.update(path, rel, &mut set, &mut visible);
                 }
             }
+        }
+        if git_appeared {
+            self.find_repo(&dot_git);
         }
         // Changes inside `.git` (commits, checkouts) count too.
         if let Some(git) = &self.git_tx {
@@ -625,6 +647,37 @@ impl Worker {
                 added: set.added.into_iter().collect(),
                 removed: set.removed.into_iter().collect(),
                 version,
+            });
+        }
+    }
+
+    /// Looks for the repository once `.git` appeared in a folder that had
+    /// none ("Set up git"), and keeps its status fresh from then on. Until
+    /// git has written enough of it, `.git` itself is watched, so its next
+    /// change looks again.
+    fn find_repo(&mut self, dot_git: &Path) {
+        if dot_git.is_dir() {
+            self.dirs.watch_git_dir(dot_git);
+        }
+        let Some(repo) = Repo::discover(&self.root) else {
+            return;
+        };
+        self.dirs.watch_git_dir(&repo.git_dir);
+        if self.git.repo.set(repo).is_err() {
+            return;
+        }
+        let refresher = spawn_git_refresher(
+            self.project.clone(),
+            self.sink.clone(),
+            Arc::clone(&self.git),
+            Arc::clone(&self.stopped),
+            self.timing,
+        );
+        self.git_tx = refresher.ok();
+        // The tree had no status at all: tell clients to list again.
+        if !self.stopped.load(Ordering::SeqCst) {
+            self.sink.emit(FsEvent::GitChanged {
+                project: self.project.clone(),
             });
         }
     }

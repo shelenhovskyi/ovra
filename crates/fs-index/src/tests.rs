@@ -495,6 +495,46 @@ async fn watcher_reports_git_changes_and_stops_on_unwatch() {
     }
 }
 
+/// "Set up git" in a watched folder: the tree gets status without a restart,
+/// also before the first commit.
+#[tokio::test]
+async fn watcher_finds_a_repository_set_up_after_it_started() {
+    let tmp = dir();
+    let root = tmp.path();
+    put(root, "a.txt", "one");
+    let core = Core::new("test");
+    let mut rx = core.subscribe();
+    let fs = FsIndex::fast();
+    let p = ProjectId("p".into());
+    fs.watch(p.clone(), root.to_path_buf(), core.sink())
+        .expect("watch");
+    ready(&mut rx, "p").await;
+    let listed = list(&fs, root, "").await.expect("list");
+    assert_eq!(listed.entries[0].git, None);
+
+    git(root, &["init", "-q"]);
+    while next_fs(&mut rx).await != (FsEvent::GitChanged { project: p.clone() }) {}
+    let listed = list(&fs, root, "").await.expect("list");
+    let a = listed
+        .entries
+        .iter()
+        .find(|e| e.name == "a.txt")
+        .expect("a.txt");
+    assert_eq!(a.git, Some(ovra_core::protocol::fs::GitStatus::Untracked));
+
+    // Its status then stays fresh, as in a repository found at the start.
+    put(root, "b.txt", "two");
+    git(root, &["add", "b.txt"]);
+    while next_fs(&mut rx).await != (FsEvent::GitChanged { project: p.clone() }) {}
+    let listed = list(&fs, root, "").await.expect("list");
+    let b = listed
+        .entries
+        .iter()
+        .find(|e| e.name == "b.txt")
+        .expect("b.txt");
+    assert_eq!(b.git, Some(ovra_core::protocol::fs::GitStatus::Added));
+}
+
 #[tokio::test]
 async fn git_refresher_folds_a_burst_of_changes_into_one_status_run() {
     let tmp = dir();
