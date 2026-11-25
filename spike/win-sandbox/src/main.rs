@@ -107,7 +107,9 @@ fn probe(a: &[String]) {
                 }
             }),
     );
-    probe2(&granted);
+    if a.get(5).map(String::as_str) != Some("base") {
+        probe2(&granted);
+    }
     line(
         "node_version",
         Command::new("node")
@@ -216,7 +218,7 @@ fn host() {
     };
 
     println!("=== baseline (unsandboxed) ===");
-    let out = Command::new(&exe).args(probe_args(&granted)).output().unwrap();
+    let out = Command::new(&exe).args(probe_args(&granted)).arg("base").output().unwrap();
     print!("{}", String::from_utf8_lossy(&out.stdout));
 
     println!("=== AppContainer, no capabilities ===");
@@ -339,7 +341,7 @@ mod appcontainer {
             println!("AppContainer SID {sid_str}");
             let g = Command::new("icacls")
                 .arg(granted)
-                .args(["/grant", &format!("*{sid_str}:(OI)(CI)M"), "/T"])
+                .args(["/grant", &format!("*{sid_str}:(OI)(CI)M")])
                 .output()
                 .unwrap();
             println!("icacls: {}", String::from_utf8_lossy(&g.stdout).trim());
