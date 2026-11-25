@@ -1,0 +1,9 @@
+---
+source: crates/browser/src/logs.rs
+expression: network
+---
+[
+    "1 GET http://a/ Some(302) None",
+    "2 GET http://a/home Some(200) None",
+    "3 POST https://x.example/api None Some(\"net::ERR_TUNNEL_CONNECTION_FAILED\")",
+]

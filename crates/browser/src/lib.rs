@@ -18,6 +18,7 @@ use ovra_core::services::{
 mod cdp;
 mod input;
 mod launch;
+mod logs;
 mod snapshot;
 
 const NOT_YET: &str = "the agent browser is not built yet";
