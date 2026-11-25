@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { describeTool } from "../approvals/describe";
 import type { AgentMessage } from "../lib/protocol";
-import { elapsed, entries, foldLabel, inFolder, liveStep, stepLabel, stepMeta, turnCost } from "./steps";
+import { elapsed, entries, foldLabel, inFolder, liveStep, noteLine, stepLabel, stepMeta, turnCost } from "./steps";
 
 const use = (id: string, name: string, input: unknown): AgentMessage => ({ kind: "tool_use", id, name, input });
 const result = (id: string, is_error = false): AgentMessage => ({
@@ -90,5 +90,15 @@ describe("paths in steps", () => {
     expect(inFolder("ls", "/a")).toBe("ls");
     const edit = use("t1", "Edit", { file_path: "/w/src/x.ts", old_string: "a", new_string: "b" });
     expect(liveStep(working, [edit], false, "/w")).toBe("Editing src/x.ts");
+  });
+});
+
+describe("notes", () => {
+  it("says what the person did to a worker's work in Reviews' words", () => {
+    // The core's notes to the coordinator, worded as the core words them.
+    expect(noteLine("Worker lint had its work approved by the person.")).toBe("You kept lint");
+    expect(noteLine("Worker lint had its work rejected by the person; its changes were discarded.")).toBe(
+      "You discarded lint",
+    );
   });
 });

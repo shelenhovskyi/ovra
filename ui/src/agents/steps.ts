@@ -35,7 +35,7 @@ const named = (names: string[]): string =>
 const BY_PERSON: [RegExp, string][] = [
   [/^had its work approved by the person, except /, "You kept part of"],
   [/^had its work approved by the person/, "You kept"],
-  [/^had its work rejected by the person/, "You rejected"],
+  [/^had its work rejected by the person/, "You discarded"],
 ];
 
 type Said = { name: string; what: string; you: string | null };
