@@ -61,6 +61,13 @@ export class OpenFiles {
     return this.write();
   }
 
+  /** Adds a tab for `path` at the end without showing it, as a rename does for the files it changed. */
+  keep(path: string): void {
+    if (this.files.includes(path)) return;
+    this.files = [...this.files, path];
+    void this.write();
+  }
+
   /** Removes a tab and its buffer; returns the file to show next. */
   close(path: string): string | null {
     const index = this.files.indexOf(path);
@@ -197,6 +204,8 @@ export function persistOpenFiles(transport: Transport, workspace: Workspace): ()
         note: (text) => {
           tabs.notice = text;
         },
+        buffers,
+        keep: (path) => files.keep(path),
       });
       files.lsp = lsp;
       let live = true;

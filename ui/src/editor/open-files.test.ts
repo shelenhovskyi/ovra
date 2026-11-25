@@ -33,6 +33,17 @@ test("writes only its own fields and keeps the tab order", async () => {
   expect(core.state).toEqual({ open_files: ["a.rs", "b.rs"], active_file: null, expanded_dirs: ["docs"] });
 });
 
+test("keep adds a tab at the end without making it active", async () => {
+  const { core, files } = setup();
+  core.state = { open_files: ["a"], active_file: "a", expanded_dirs: [] };
+  await files.restore();
+  files.keep("b");
+  files.keep("a");
+  await files.opened("a");
+  expect(core.state.open_files).toEqual(["a", "b"]);
+  expect(files.active).toBe("a");
+});
+
 test("closing the active tab activates its right neighbour, else its left", async () => {
   const { core, files } = setup();
   core.state = { open_files: ["a", "b", "c"], active_file: "b", expanded_dirs: [] };

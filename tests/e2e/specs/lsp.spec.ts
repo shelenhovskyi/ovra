@@ -1,10 +1,10 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 
 /** Opens a fresh project holding `files`, trusts it and shows `main.rs` in the viewer. */
-async function trustedProject(page: Page, files: Record<string, string>): Promise<void> {
+async function trustedProject(page: Page, files: Record<string, string>): Promise<string> {
   const url = process.env.OVRA_URL;
   if (!url) throw new Error("OVRA_URL is not set; globalSetup did not run");
   const dir = mkdtempSync(join(tmpdir(), "ovra-lsp-"));
@@ -19,6 +19,7 @@ async function trustedProject(page: Page, files: Record<string, string>): Promis
   await trust.getByTestId("trust-review").getByRole("button", { name: "Trust project" }).click();
   await expect(trust.getByRole("heading")).toHaveText("Project settings: trusted");
   await page.getByRole("treeitem", { name: /main\.rs/ }).click();
+  return dir;
 }
 
 // The daemon's fake mode gives rust files the fake language server
@@ -47,8 +48,8 @@ test("a trusted project's rust file gets diagnostics and hover from its language
   await expect(editor.locator(".cm-lintRange-error")).toHaveCount(0);
 });
 
-test("references reach files that are not open; a rename that would change them is refused", async ({ page }) => {
-  await trustedProject(page, {
+test("references and rename reach files that are not open; renamed files wait unsaved", async ({ page }) => {
+  const dir = await trustedProject(page, {
     "main.rs": "fn greet() {}\nfn main() { greet(); }\n",
     "other.rs": "use crate::greet;\n",
   });
@@ -77,8 +78,12 @@ test("references reach files that are not open; a rename that would change them 
   const name = page.locator(".cm-lsp-rename-panel input");
   await name.fill("hello");
   await name.press("Enter");
-  await expect(page.getByRole("alert")).toContainText("Rename not applied: it would also change other.rs");
-  await expect(editor.locator(".cm-content")).toContainText("fn greet()");
+  await expect(page.getByRole("alert")).toContainText("Not saved yet: review other.rs");
+  await expect(editor.locator(".cm-content")).toContainText("fn hello()");
+  // other.rs got a tab with the edit, unsaved; nothing was written yet.
+  await page.getByRole("tab", { name: /other\.rs/ }).click();
+  await expect(editor.locator(".cm-content")).toContainText("use crate::hello;");
+  expect(readFileSync(join(dir, "other.rs"), "utf8")).toBe("use crate::greet;\n");
   // Servers are capped per daemon, which every test shares.
   await page.getByRole("button", { name: /fake-lsp/ }).click();
   await page.getByRole("button", { name: "Stop fake-lsp" }).click();

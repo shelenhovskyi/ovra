@@ -59,19 +59,22 @@ function setup(core = new FakeLspCore()) {
     clients.showing(buffer, view);
     return buffer;
   };
+  const kept: string[] = [];
   const clients = new LanguageClients({
     transport: core,
     project: "p1",
     name: "p",
     open: (path) => void show(path),
     note: (text) => notes.push(text),
+    buffers,
+    keep: (path) => kept.push(path),
   });
   cleanups.push(() => {
     clients.close();
     buffers.close();
     view.destroy();
   });
-  return { core, view, notes, show };
+  return { core, view, notes, show, buffers, kept };
 }
 
 const until = (check: () => void) => vi.waitFor(check, { interval: 1, timeout: 500 });
@@ -204,30 +207,46 @@ test("after a resync the server is stopped and started again for the shown file"
   expect(core.got("s2", "initialize")).toHaveLength(1);
 });
 
-test("a rename that would change files that are not open is not applied", async () => {
-  const { core, view, notes, show } = setup();
-  const edit = (line: number) => ({
-    range: { start: { line, character: 0 }, end: { line, character: 1 } },
+test("a rename that changes files that are not open edits their buffers, unsaved, or no file at all", async () => {
+  const { core, view, notes, show, buffers, kept } = setup();
+  const edit = (line: number, character = 0) => ({
+    range: { start: { line, character }, end: { line, character: character + 1 } },
     newText: "z",
   });
-  core.answers["textDocument/rename"] = { changes: { [A]: [edit(1)], "ovra:///src/b.ts": [edit(0)] } };
+  const B = "ovra:///src/b.ts";
   await show("src/a b.ts");
   await until(() => expect(core.got("s1", "textDocument/didOpen")).toHaveLength(1));
-  const rename = (name: string) => {
+  const rename = () => {
     view.dispatch({ selection: { anchor: 13 } });
     renameSymbol(view);
     const form = view.dom.querySelector<HTMLFormElement>(".cm-lsp-rename-panel form");
     const input = form?.querySelector<HTMLInputElement>("input[name=name]");
     if (!form || !input) throw new Error("no rename form");
-    input.value = name;
+    input.value = "z";
     form.requestSubmit();
   };
-  rename("z");
-  await until(() => expect(notes).toEqual([expect.stringContaining("would also change src/b.ts")]));
+  // An edit past the end of b.ts: nothing changes anywhere.
+  core.answers["textDocument/rename"] = { changes: { [A]: [edit(1)], [B]: [edit(9)] } };
+  rename();
+  await until(() => expect(notes).toEqual(["Rename not applied: the server's edits do not fit src/b.ts."]));
   expect(view.state.doc.toString()).toBe("const x = 1;\nx;\n");
-  core.answers["textDocument/rename"] = { changes: { [A]: [edit(1)] } };
-  rename("z");
+  expect(buffers.get("src/b.ts")).toBeUndefined();
+  core.answers["textDocument/rename"] = { changes: { [A]: [edit(1)], [B]: [edit(1, 2)], "file:///etc/x": [] } };
+  rename();
   await until(() => expect(view.state.doc.toString()).toBe("const x = 1;\nz;\n"));
+  const b = buffers.get("src/b.ts");
+  expect(b?.text).toBe("export const y = 2;\n  z;\n");
+  expect(b?.dirty).toBe(true);
+  expect(kept).toEqual(["src/b.ts"]);
+  expect(notes.at(-1)).toContain("Not saved yet: review src/b.ts in their tabs");
+  // Unsaved text the server never saw: refused.
+  rename();
+  await until(() =>
+    expect(notes.at(-1)).toBe(
+      "Rename not applied: src/b.ts has unsaved changes. Save or revert it, then rename again.",
+    ),
+  );
+  expect(b?.text).toBe("export const y = 2;\n  z;\n");
 });
 
 test("references list files the editor does not show, read from disk, and open them on a pick", async () => {

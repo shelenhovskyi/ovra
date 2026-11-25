@@ -11,10 +11,11 @@ import { EditorView, keymap, ViewPlugin } from "@codemirror/view";
 import type { KnownServer, LspStatus, ProjectId, ServerId, ServerInfo } from "../../lib/protocol";
 import type { Transport } from "../../lib/transport";
 import { languageServers } from "../../lsp/servers.svelte";
-import type { Buffer } from "../buffers.svelte";
+import type { Buffer, Buffers } from "../buffers.svelte";
 import { languageFor } from "../languages";
 import { actionKeys, keyboardHover, type LspAction, runAction } from "./actions";
 import { ServerChannel } from "./channel";
+import { renameAcross } from "./rename";
 import { safeHref, sanitizeHtml } from "./sanitize";
 import { pathOf, ROOT_URI, uriOf } from "./uris";
 import { BufferWorkspace } from "./workspace";
@@ -53,6 +54,10 @@ type Options = {
   open: (path: string) => void;
   /** Tells the person something short, such as why a jump did nothing. */
   note: (text: string) => void;
+  /** The project's buffers, where a rename changes files the editor does not show. */
+  buffers: Buffers;
+  /** Adds a tab for a file without showing it. */
+  keep: (path: string) => void;
 };
 
 type Server = { language: string; info: ServerInfo; client: LSPClient; channel: ServerChannel; buffers: Set<Buffer> };
@@ -307,17 +312,18 @@ export class LanguageClients {
 
   /**
    * The editor holds one file open at a time, and the library applies a
-   * rename only to open files: a rename that would change other files is
-   * not applied at all, so it never leaves the code half renamed.
+   * rename only to open files: a rename that also changes other files is
+   * taken from the library and applied by `renameAcross`, to every file or
+   * to none, as unsaved edits the person reviews.
    */
   private renamed(client: LSPClient, edit: WorkspaceEdit): WorkspaceEdit {
-    const open = new Set((client.workspace as BufferWorkspace).open().map((file) => file.uri));
-    const others = Object.entries(edit?.changes ?? {})
-      .filter(([uri, edits]) => edits.length > 0 && !open.has(uri))
-      .map(([uri]) => pathOf(uri) ?? outsideName(uri));
-    if (others.length === 0) return edit;
-    this.options.note(
-      `Rename not applied: it would also change ${others.join(", ")}, which only works in one file for now.`,
+    const workspace = client.workspace as BufferWorkspace;
+    const open = new Set(workspace.open().map((file) => file.uri));
+    const changes = edit?.changes ?? {};
+    if (Object.entries(changes).every(([uri, edits]) => edits.length === 0 || open.has(uri))) return edit;
+    const { buffers, keep, note } = this.options;
+    void renameAcross(changes, { workspace, buffers, keep, note }).catch((err: unknown) =>
+      note(`Rename not applied: ${err instanceof Error ? err.message : String(err)}`),
     );
     return null;
   }

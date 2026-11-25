@@ -100,6 +100,11 @@ export class Buffer {
     this.loaded = this.load();
   }
 
+  /** The current document, or null before the file is loaded. */
+  get doc(): Text | null {
+    return this.current?.doc ?? null;
+  }
+
   /** The current text, or null before the file is loaded. */
   get text(): string | null {
     return this.current?.doc.toString() ?? null;
@@ -134,6 +139,22 @@ export class Buffer {
     if (also) specs.push(also(state));
     if (this.view) this.view.dispatch(...specs);
     else this.state = state.update(...specs).state;
+  }
+
+  /**
+   * Changes the text as an edit the person can undo, shown or not; it stays
+   * unsaved until saved. False if the buffer is not loaded.
+   */
+  edit(spec: TransactionSpec): boolean {
+    const state = this.current;
+    if (!state || this.status !== "ready") return false;
+    if (this.view) {
+      this.view.dispatch(spec);
+    } else {
+      this.state = state.update(spec).state;
+      this.changed();
+    }
+    return true;
   }
 
   /** Writes the text; with `overwrite`, even if the file changed on disk. */

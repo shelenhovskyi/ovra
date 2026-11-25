@@ -127,9 +127,12 @@ makes on disk still reach them.
 - Find references (Shift+F12) lists references in files the editor does
   not show by reading up to 50 of them from disk; the server is not told
   they were opened until the person picks one.
-- A rename that would change a file the editor does not show is not
-  applied at all, and the editor says which files it would change, so
-  code is never left half renamed.
+- A rename that changes files the editor does not show writes nothing to
+  disk: each such file gets the edits in its buffer as one change that
+  undo takes back, and opens as an unsaved tab to review and save. Every
+  file gets its edits or none does: not when one of them has unsaved
+  text (the server did not see it), lies outside the project, cannot be
+  edited, or the edits do not fit it, nor when more than 50 files change.
 
 ## Sandbox profile
 
