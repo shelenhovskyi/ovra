@@ -14,8 +14,7 @@ import { useOvra } from "./context";
 import Icon from "./Icon.svelte";
 import ProjectSwitcher from "./ProjectSwitcher.svelte";
 
-// Mod+K. The palette it opens lists files (projects on the start screen), not
-// commands, so the field says "Go to file" rather than "Search or run".
+// Mod+K: "Search or run", files (projects on the start screen) and commands.
 const SEARCH = "palette.search";
 
 const { transport, workspace } = useOvra();
@@ -84,7 +83,7 @@ function search(): void {
   </div>
   <button type="button" class="search" data-testid="search-field" aria-keyshortcuts={keys} onclick={search}>
     <Icon name="search" small />
-    <span class="label">{workspace.project ? "Go to file" : "Open a project"}</span>
+    <span class="label">{workspace.project ? "Search or run" : "Open a project"}</span>
     {#if keys}<kbd aria-hidden="true">{formatShortcut(keys, isApple())}</kbd>{/if}
   </button>
   <span class="end" data-tauri-drag-region></span>

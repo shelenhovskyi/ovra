@@ -8,6 +8,7 @@ import { folderDialogCommand, openAnotherFolder } from "../shell/open-folder";
 import type { Workspace } from "../shell/workspace.svelte";
 import { projectFiles } from "./files";
 import { type PaletteMode, palette } from "./mode.svelte";
+import { idleRows, recentIds } from "./search";
 
 export type Entry = {
   id: string;
@@ -16,6 +17,12 @@ export type Entry = {
   /** Shown dimmed after the label, not matched. */
   detail?: string;
   keys?: string;
+  /** Shown dimmed before the label: Git, View, Settings. */
+  category?: string;
+  /** Matched at word starts, after the ranked rows: synonyms and the category. */
+  keywords?: string[];
+  /** The section it is listed under: Files, Commands, Recent. */
+  group?: string;
   run: () => void | Promise<void>;
 };
 
@@ -23,12 +30,35 @@ export type Source = {
   name: string;
   placeholder: string;
   empty: string;
-  /** Rows shown at most; ranking still covers every entry. */
+  /** Rows shown at most, per group; ranking still covers every entry. */
   limit: number;
   entries: () => Entry[] | Promise<Entry[]>;
+  /** What an empty query shows instead of every entry. */
+  idle?: (entries: Entry[]) => Entry[];
+  /** A leading `>` keeps only the commands. */
+  prefix?: boolean;
 };
 
 type Target = Pick<Workspace, "project" | "openPath" | "mode" | "openFile" | "paletteOpen">;
+
+/** What an empty "Search or run" suggests while a project is open, when registered. */
+const SUGGESTED = ["approvals.focus", "inbox.toggle", "agents.new_session"];
+
+/** The category of a command that names none, by its id's area. */
+const AREAS: Record<string, string> = {
+  agents: "Agents",
+  approvals: "Agents",
+  browser: "Agents",
+  inbox: "Agents",
+  editor: "Editor",
+  git: "Git",
+  layout: "View",
+  palette: "View",
+  projects: "Project",
+  search: "Search",
+  terminal: "Terminal",
+  tree: "Files",
+};
 
 /** Opens `project` in the window, leaving the file to the project's saved state. */
 async function openProject(transport: Transport, workspace: Target, project: Project): Promise<void> {
@@ -44,14 +74,70 @@ function openFolder(workspace: Target): Promise<void> | void {
   workspace.paletteOpen = true;
 }
 
-function commands(keep: (command: Command) => boolean = () => true): Entry[] {
+function commands(keep: (command: Command) => boolean = () => true, group?: string): Entry[] {
   return listCommands()
     .filter(keep)
-    .map((c) => ({ id: c.id, label: c.title, keys: c.keys, run: c.run }));
+    .map((c) => {
+      const category = c.category ?? AREAS[c.id.split(".")[0] ?? ""];
+      return {
+        id: `command:${c.id}`,
+        label: c.title,
+        keys: c.keys,
+        // "Git: commit" names its category already.
+        category: category && !/^[\w ]+: /.test(c.title) ? category : undefined,
+        keywords: [...(c.keywords ?? []), ...(category ? [category] : [])],
+        group,
+        run: c.run,
+      };
+    });
+}
+
+async function files(transport: Transport, workspace: Target, project: Project, group?: string): Promise<Entry[]> {
+  return (await projectFiles(transport, project.id)).map((path) => ({
+    id: `file:${path}`,
+    label: path,
+    group,
+    // An open file comes back in the mode its tab had; a new one keeps
+    // the current mode, so going to a file while editing keeps editing.
+    run: () => workspace.openFile(path, modeOf(path, workspace.mode)),
+  }));
+}
+
+async function projects(transport: Transport, workspace: Target, group?: string): Promise<Entry[]> {
+  return [
+    ...(await transport.call({ method: "projects.list" })).data.map((p) => ({
+      id: `project:${p.id}`,
+      label: p.name,
+      detail: p.root,
+      group,
+      run: () => openProject(transport, workspace, p),
+    })),
+    // A folder that is not a project yet: the system's dialog, else a path asked
+    // for here, so the open project stays until the new one opens.
+    { id: "palette.open_folder", label: "Open a folder…", group, run: () => openFolder(workspace) },
+  ];
 }
 
 export function source(mode: PaletteMode, transport: Transport, workspace: Target): Source {
   switch (mode) {
+    case "search": {
+      const project = workspace.project;
+      const what = project ? "files" : "projects";
+      return {
+        name: "Search or run",
+        placeholder: `Search ${what}, or type > for commands`,
+        empty: `No matching ${what} or commands`,
+        limit: 10,
+        prefix: true,
+        entries: async () => [
+          ...(project
+            ? await files(transport, workspace, project, "Files")
+            : await projects(transport, workspace, "Projects")),
+          ...commands(undefined, "Commands"),
+        ],
+        idle: (entries) => idleRows(entries, recentIds(), project ? SUGGESTED.map((id) => `command:${id}`) : null),
+      };
+    }
     case "commands":
       return {
         name: "Commands",
@@ -83,16 +169,7 @@ export function source(mode: PaletteMode, transport: Transport, workspace: Targe
         placeholder: project ? `Go to file in ${project.name}` : "Open a project first",
         empty: "No matching files",
         limit: 50,
-        entries: async () =>
-          project
-            ? (await projectFiles(transport, project.id)).map((path) => ({
-                id: path,
-                label: path,
-                // An open file comes back in the mode its tab had; a new one keeps
-                // the current mode, so going to a file while editing keeps editing.
-                run: () => workspace.openFile(path, modeOf(path, workspace.mode)),
-              }))
-            : [],
+        entries: async () => (project ? files(transport, workspace, project) : []),
       };
     }
     case "folder":
@@ -111,17 +188,7 @@ export function source(mode: PaletteMode, transport: Transport, workspace: Targe
         placeholder: "Switch to project",
         empty: "No matching projects",
         limit: 200,
-        entries: async () => [
-          ...(await transport.call({ method: "projects.list" })).data.map((p) => ({
-            id: p.id,
-            label: p.name,
-            detail: p.root,
-            run: () => openProject(transport, workspace, p),
-          })),
-          // A folder that is not a project yet: the system's dialog, else a path asked
-          // for here, so the open project stays until the new one opens.
-          { id: "palette.open_folder", label: "Open a folder…", run: () => openFolder(workspace) },
-        ],
+        entries: () => projects(transport, workspace),
       };
   }
 }

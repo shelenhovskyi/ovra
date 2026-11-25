@@ -10,6 +10,7 @@ import { FolderOpener } from "../tree/folder-opener.svelte";
 import { type Ranked, segments } from "./fuzzy";
 import { palette } from "./mode.svelte";
 import { createRanker, type Ranker } from "./ranker";
+import { keywordMatches, noteRecent } from "./search";
 import { type Entry, source } from "./sources";
 
 const { transport, workspace } = useOvra();
@@ -28,8 +29,10 @@ const folder =
 const apple = isApple();
 const browser = inBrowserTab();
 
-let entries = $state<Entry[] | null>(null);
-let ranker = $state<Ranker | null>(null);
+type Pool = { group: string | undefined; entries: Entry[]; ranker: Ranker };
+
+let entries = $state.raw<Entry[] | null>(null);
+let pools = $state.raw<Pool[] | null>(null);
 let failure = $state<string | null>(null);
 let query = $state("");
 let selected = $state(0);
@@ -56,7 +59,12 @@ $effect(() => {
     (loaded) => {
       if (!live) return;
       entries = loaded;
-      ranker = createRanker(loaded.map((e) => e.label));
+      // One ranker per group, so many files never push the commands out of the rows.
+      const groups = [...new Set(loaded.map((e) => e.group))];
+      pools = groups.map((group) => {
+        const members = loaded.filter((e) => e.group === group);
+        return { group, entries: members, ranker: createRanker(members.map((e) => e.label)) };
+      });
     },
     (error: unknown) => {
       if (live) failure = error instanceof Error ? error.message : String(error);
@@ -68,22 +76,49 @@ $effect(() => {
 });
 
 $effect(() => {
-  const current = ranker;
-  return () => current?.dispose();
+  const current = pools;
+  return () => {
+    for (const pool of current ?? []) pool.ranker.dispose();
+  };
 });
 
+/** Rows for `wanted` from each group, ranked, then the entries only a keyword matches. */
+async function rankPools(current: Pool[], wanted: string): Promise<{ rows: Ranked<Entry>[]; matches: number }> {
+  const idle = from.idle;
+  if (idle && entries && wanted.trim() === "") {
+    const rows = idle(entries).map((item) => ({ item, positions: [] }));
+    return { rows, matches: rows.length };
+  }
+  const commandsOnly = from.prefix === true && wanted.startsWith(">");
+  const text = commandsOnly ? wanted.slice(1).trim() : wanted;
+  const ranked = await Promise.all(
+    current
+      .filter((pool) => !commandsOnly || pool.group === "Commands")
+      .map(async (pool) => {
+        const result = await pool.ranker.rank(text, from.limit);
+        const rows = result.rows.flatMap(({ index, positions }) => {
+          const item = pool.entries[index];
+          return item ? [{ item, positions }] : [];
+        });
+        const extra = keywordMatches(pool.entries, text, new Set(rows.map((row) => row.item.id)));
+        const room = Math.max(0, from.limit - rows.length);
+        return {
+          rows: [...rows, ...extra.slice(0, room).map((item) => ({ item, positions: [] }))],
+          matches: result.matches + extra.length,
+        };
+      }),
+  );
+  return { rows: ranked.flatMap((r) => r.rows), matches: ranked.reduce((sum, r) => sum + r.matches, 0) };
+}
+
 $effect(() => {
-  const current = ranker;
-  const loaded = entries;
+  const current = pools;
   const wanted = query;
-  if (!current || !loaded) return;
+  if (!current) return;
   let live = true;
-  void current.rank(wanted, from.limit).then((result) => {
+  void rankPools(current, wanted).then((result) => {
     if (!live) return;
-    items = result.rows.flatMap(({ index, positions }) => {
-      const item = loaded[index];
-      return item ? [{ item, positions }] : [];
-    });
+    items = result.rows;
     matches = result.matches;
     rankedQuery = wanted;
     if (enterPending) {
@@ -118,6 +153,7 @@ function run(item: Ranked<Entry> | undefined): void {
   close();
   // Run once the palette is gone, so a command can open it again in another mode.
   const { id, label, run } = item.item;
+  noteRecent(id);
   void tick().then(() => runCommand({ id, title: label, run }));
 }
 
@@ -195,6 +231,9 @@ function onfocusout(event: FocusEvent): void {
     />
     <ul id="palette-list" role="listbox" aria-label={from.name} bind:this={list}>
       {#each items as item, index (item.item.id)}
+        {#if item.item.group && item.item.group !== items[index - 1]?.item.group}
+          <li class="group" role="presentation">{item.item.group}</li>
+        {/if}
         <li
           id="palette-item-{index}"
           data-index={index}
@@ -206,6 +245,7 @@ function onfocusout(event: FocusEvent): void {
           onkeydown={() => {}}
         >
           <span class="title">
+            {#if item.item.category}<span class="category">{item.item.category}</span>{/if}
             {#each segments(item.item.label, item.positions) as part}
               {#if part.hit}<mark>{part.text}</mark>{:else}{part.text}{/if}
             {/each}
@@ -235,15 +275,16 @@ function onfocusout(event: FocusEvent): void {
     display: flex;
     justify-content: center;
     align-items: flex-start;
-    padding-top: 12vh;
+    padding-top: 18vh;
     background: var(--scrim);
     z-index: 100;
   }
   .palette {
-    width: min(600px, calc(100vw - 32px));
-    padding: 6px;
-    background: var(--s2);
-    border-radius: 12px;
+    width: min(640px, calc(100vw - 32px));
+    padding: var(--sp-2);
+    background: var(--menu);
+    backdrop-filter: var(--menu-blur);
+    border-radius: var(--r-xl);
     box-shadow: var(--card-shadow);
     overflow: hidden;
   }
@@ -253,7 +294,7 @@ function onfocusout(event: FocusEvent): void {
     height: 42px;
     padding: 0 12px;
     border: 0;
-    border-radius: var(--radius);
+    border-radius: var(--r-md);
     background: var(--s3);
     color: inherit;
     font: inherit;
@@ -274,8 +315,8 @@ function onfocusout(event: FocusEvent): void {
     gap: 12px;
     min-height: 36px;
     padding: 6px 12px;
-    border-radius: var(--radius-sm);
-    cursor: pointer;
+    border-radius: var(--r-md);
+    cursor: default;
   }
   li[aria-selected="true"] {
     background: var(--accent-soft);
@@ -302,6 +343,20 @@ function onfocusout(event: FocusEvent): void {
     margin-left: 8px;
     color: var(--text-2);
     font-size: 13px;
+  }
+  .category {
+    display: inline-block;
+    min-width: 64px;
+    margin-right: 8px;
+    font: var(--t-small);
+    color: var(--text-2);
+  }
+  .group {
+    min-height: 0;
+    padding: 8px 12px 4px;
+    font: var(--t-caption);
+    font-weight: 600;
+    color: var(--text-2);
   }
   .visually-hidden {
     position: absolute;

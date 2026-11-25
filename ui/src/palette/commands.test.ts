@@ -33,7 +33,7 @@ describe("palette commands", () => {
     expect(palette.mode).toBe("files");
     palette.mode = "commands";
     await run("palette.search");
-    expect(palette.mode).toBe("files");
+    expect(palette.mode).toBe("search");
     await run("palette.show");
     expect(palette.mode).toBe("commands");
     // Settings lists the commands that open one, Keyboard shortcuts those with keys.
@@ -45,7 +45,7 @@ describe("palette commands", () => {
         (e) => e.label,
       );
     expect(await labels("settings")).toEqual(["Rules"]);
-    expect(await labels("shortcuts")).toEqual(["Go to file", "Open settings", "Quick open", "Show all commands"]);
+    expect(await labels("shortcuts")).toEqual(["Go to file", "Open settings", "Search or run", "Show all commands"]);
     off();
 
     // The start screen, as the tree shows it once the project is closed.

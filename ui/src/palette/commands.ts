@@ -17,15 +17,21 @@ export function registerPaletteCommands(workspace: Target): () => void {
   const goToFile = () => show(workspace.project ? "files" : "projects")();
   const unregister = [
     registerCommand({ id: "palette.show", title: "Show all commands", keys: "Mod+Shift+P", run: show("commands") }),
+    registerCommand({ id: "palette.go_to_file", title: "Go to file", keys: "Mod+P", category: "File", run: goToFile }),
+    // The title bar's search field: files (projects without one open) and commands.
     registerCommand({
-      id: "palette.go_to_file",
-      title: "Go to file",
-      keys: "Mod+P",
-      run: goToFile,
+      id: "palette.search",
+      title: "Search or run",
+      keys: "Mod+K",
+      keywords: ["quick open"],
+      run: show("search"),
     }),
-    // The title bar's search field: the same list, on the key the field shows.
-    registerCommand({ id: "palette.search", title: "Quick open", keys: "Mod+K", run: goToFile }),
-    registerCommand({ id: "palette.switch_project", title: "Switch project", run: show("projects") }),
+    registerCommand({
+      id: "palette.switch_project",
+      title: "Switch project",
+      category: "Project",
+      run: show("projects"),
+    }),
     registerCommand({
       id: "palette.settings",
       title: "Open settings",
@@ -44,6 +50,7 @@ export function registerPaletteCommands(workspace: Target): () => void {
     registerCommand({
       id: "palette.close_project",
       title: "Close project",
+      category: "Project",
       run: async () => {
         workspace.openPath = null;
         workspace.project = null;

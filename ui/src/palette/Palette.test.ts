@@ -247,6 +247,40 @@ describe("Palette", async () => {
     expect(workspace.paletteOpen).toBe(false);
   });
 
+  it("searches files and commands, suggests on an empty query and keeps commands after >", async () => {
+    localStorage.clear();
+    cleanups.push(registerCommand({ id: "inbox.toggle", title: "Review inbox", run: () => {} }));
+    cleanups.push(
+      registerCommand({
+        id: "network.toggle",
+        title: "Network",
+        category: "Settings",
+        keywords: ["proxy"],
+        run: () => {},
+      }),
+    );
+    const paths = ["README.md", "net.md"];
+    const core: Transport = {
+      call: (() =>
+        Promise.resolve({ type: "fs.files", data: { paths, total: paths.length, version: 1 } })) as Transport["call"],
+      onEvent: () => () => {},
+    };
+    const project = { id: "search-1", name: "demo", root: "/demo", last_opened_ms: null, trusted: false };
+    const { target, input } = await open("search", core, project);
+    expect(input.placeholder).toBe("Search files, or type > for commands");
+    const rows = () => [...target.querySelectorAll("li")].map((li) => li.textContent?.replace(/\s+/g, " ").trim());
+    expect(rows()).toEqual(["Suggested", "Agents Review inbox"]);
+
+    await type(input, "net");
+    expect(rows()).toEqual(["Files", "net.md", "Commands", "Settings Network"]);
+    await type(input, ">net");
+    expect(rows()).toEqual(["Commands", "Settings Network"]);
+    await type(input, "proxy");
+    expect(rows()).toEqual(["Commands", "Settings Network"]);
+    key(input, "Enter");
+    expect(JSON.parse(localStorage.getItem("ovra.palette.recent") ?? "[]")).toEqual(["command:network.toggle"]);
+  });
+
   it("shows why the list could not load", async () => {
     const { target } = await open("projects");
     expect(target.textContent).toContain("unused");
