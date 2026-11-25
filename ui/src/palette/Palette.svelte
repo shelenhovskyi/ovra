@@ -136,9 +136,16 @@ $effect(() => {
   const previous = document.activeElement;
   input?.focus();
   return () => {
-    if (previous instanceof HTMLElement && previous.isConnected && previous !== document.body) previous.focus();
-    // Opened with focus nowhere, on the start screen: back to its first project rather than the page.
-    else if (!workspace.project) void focusStartScreen();
+    // A command may have opened something that took focus, or switched the
+    // palette to another mode (the effect runs again): leave focus there.
+    queueMicrotask(() => {
+      if (workspace.paletteOpen) return;
+      const now = document.activeElement;
+      if (now && now !== document.body && now.isConnected) return;
+      if (previous instanceof HTMLElement && previous.isConnected && previous !== document.body) previous.focus();
+      // Opened with focus nowhere, on the start screen: back to its first project rather than the page.
+      else if (!workspace.project) void focusStartScreen();
+    });
   };
 });
 
