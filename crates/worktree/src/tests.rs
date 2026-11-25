@@ -987,7 +987,7 @@ async fn apply_leaves_git_folders_and_odd_names_alone() {
     let w = GitWorktrees::new();
     let (base, worker) = repo.worker(&w).await;
     // Renamed in case only: on a case-insensitive disk the deletion of the
-    // old name would remove the file just written.
+    // old name must not remove the file just written, or the person's.
     fs::remove_file(worker.join("readme.md")).unwrap_or_else(|e| panic!("{e}"));
     put(&worker, "README.md", "new\n");
     let tree = w.look(worker).await.unwrap_or_else(|e| panic!("{e:?}"));
@@ -998,26 +998,36 @@ async fn apply_leaves_git_folders_and_odd_names_alone() {
     }
     let conflicts = w.apply(tree, base, root.clone(), rels(&paths)).await;
     let conflicts = conflicts.unwrap_or_else(|e| panic!("{e:?}"));
-    let mut want = vec![".git/config", "readme.md"];
+    let mut want = vec![".git/config"];
     if cfg!(unix) {
         want.insert(0, "\"quoted");
         want.push("sub/Git~1/x");
     }
-    // On a case-insensitive disk README.md is the person's readme.md, so it
-    // conflicts too; elsewhere it is written.
-    let written = !conflicts.iter().any(|c| c == "README.md");
+    eprintln!("DIAG conflicts={conflicts:?} files={:?} readme={:?} README={:?}", fs::read_dir(root).map(|d| d.filter_map(|e| e.ok().map(|e| e.file_name())).collect::<Vec<_>>()).ok(), read(root, "readme.md"), read(root, "README.md"));
+    let case = |c: &&str| c.eq_ignore_ascii_case("readme.md");
     let rest: Vec<&str> = conflicts
         .iter()
         .map(String::as_str)
-        .filter(|c| *c != "README.md")
+        .filter(|c| !case(c))
         .collect();
     assert_eq!(rest, want);
     assert!(root.join(".git").join("config").is_file());
-    // On a case-insensitive disk README.md is readme.md: whether or not it
-    // was written, the file is never deleted.
-    assert!(read(root, "readme.md").is_some(), "readme.md was deleted");
-    if written {
+    let text = read(root, "readme.md").or_else(|| read(root, "README.md"));
+    if cfg!(target_os = "linux") {
+        // Two files here: README.md is written, and the deletion of
+        // readme.md, which another disk would see as the same file, is left
+        // to the person.
+        let named: Vec<&str> = conflicts.iter().map(String::as_str).filter(case).collect();
+        assert_eq!(named, ["readme.md"]);
         assert_eq!(read(root, "README.md").as_deref(), Some("new\n"));
+        assert_eq!(read(root, "readme.md").as_deref(), Some("old\n"));
+    } else {
+        // One file: git there (`core.ignorecase`) keeps the old name with
+        // the new text, or leaves it to the person. Never neither.
+        assert!(
+            matches!(text.as_deref(), Some("new\n" | "old\n")),
+            "readme.md is gone: {conflicts:?}"
+        );
     }
 }
 

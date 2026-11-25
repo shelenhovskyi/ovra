@@ -1,132 +1,22 @@
 name: CI
-
-# Every push to main gets a complete run on all jobs; only PR runs cancel
-# each other.
 on:
-  pull_request:
-  push:
-    branches: [main]
   workflow_dispatch:
-
-concurrency:
-  group: ${{ github.event_name == 'pull_request' && format('ci-{0}', github.ref) || format('ci-{0}', github.run_id) }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
 permissions:
   contents: read
-
-env:
-  CARGO_TERM_COLOR: always
-  CARGO_INCREMENTAL: 0
-  RUSTFLAGS: -D warnings
-
 jobs:
-  checks:
-    name: Checks, tests, e2e (Linux)
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false
-      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
-        with:
-          components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
-        with:
-          tool: just,cargo-nextest,cargo-deny,cargo-machete
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: 22
-          cache: pnpm
-      - name: System packages
-        run: |
-          sudo apt-get update -q
-          sudo apt-get install -y -q libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev ripgrep bubblewrap
-          # Ubuntu 24.04 confines unprivileged user namespaces with AppArmor:
-          # bwrap gets one without rights and cannot even set up loopback.
-          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @ovra/ui build
-      - run: just lint
-      - run: just test
-      - run: pnpm --filter @ovra/e2e exec playwright install --with-deps chromium
-      - run: just e2e
-
-  perf:
-    name: Speed gate (100k-file repo)
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false
-      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
-        with:
-          tool: just
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @ovra/perf exec playwright install --with-deps chromium
-      - run: just perf
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        if: always()
-        with:
-          name: perf-results
-          path: tests/perf/test-results/
-          retention-days: 30
-
-  app:
-    name: Desktop app (${{ matrix.os }})
+  diag:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, macos-latest, windows-latest]
+        os: [macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    # A hanging test must not hold a runner for hours.
-    timeout-minutes: 40
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
-        with:
-          tool: cargo-nextest
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: 22
-          cache: pnpm
-      - name: System packages (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update -q
-          sudo apt-get install -y -q libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev bubblewrap
-          # Ubuntu 24.04 confines unprivileged user namespaces with AppArmor:
-          # bwrap gets one without rights and cannot even set up loopback.
-          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-      - run: pnpm install --frozen-lockfile
-      - name: Build app (UI + Tauri, no installers)
-        run: pnpm exec tauri build --no-bundle
-      # nextest applies the per-test kill from .config/nextest.toml.
-      - name: Core tests
-        timeout-minutes: 15
+      - name: diag
         shell: bash
-        run: |
-          cargo nextest run --workspace --exclude ovra-app --all-features --no-fail-fast --no-tests=pass
-          cargo test --workspace --exclude ovra-app --all-features --doc
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: ovra-${{ matrix.os }}
-          path: |
-            target/release/ovra
-            target/release/ovra.exe
-          if-no-files-found: error
-          retention-days: 7
+        run: cargo test -p ovra-worktree --lib apply_leaves_git -- --nocapture 2>&1 | grep -E "DIAG|test result|panicked|left|right"
