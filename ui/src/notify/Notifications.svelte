@@ -4,6 +4,7 @@
 // politely. The approvals toast steps aside while an approval card is on
 // screen; while a modal covers the window, a banner over it says that
 // approvals wait, so a request is never hidden.
+import { untrack } from "svelte";
 import { approvalQueue } from "../approvals/queue.svelte";
 import { registerCommand } from "../keys/commands";
 import type { PermissionId } from "../lib/protocol";
@@ -55,7 +56,8 @@ $effect(() =>
 
 /** Bumped when what is on screen may have changed (focus moved, as it does when a modal opens or closes; a resize), so the checks below run again. */
 let looked = $state(0);
-const look = () => looked++;
+// Untracked: focus events fire inside other components' effects (a dialog focusing its field), which must not come to depend on this.
+const look = () => untrack(() => looked++);
 
 /** An approval card is in sight: no toast for approvals then, and no banner. */
 function cardInSight(): boolean {
