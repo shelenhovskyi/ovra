@@ -66,6 +66,9 @@ it("shows results grouped by file, highlights matches and opens the chosen one",
     ["src/a.rs", { line: 2, from: 4, to: 10 }],
     ["b.md", { line: 7, from: 127, to: 133 }],
   ]);
+  // The opened result stays selected.
+  flushSync();
+  expect(buttons.map((b) => b.getAttribute("aria-current"))).toEqual(["true", null]);
 
   const matchCase = target.querySelector<HTMLButtonElement>("button[aria-label='Match case']");
   matchCase?.click();

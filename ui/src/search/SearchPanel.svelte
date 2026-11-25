@@ -186,7 +186,11 @@ function parts(match: LineMatch): { text: string; hit: boolean; from: number }[]
   return out;
 }
 
+/** The result last opened: the list's selection. */
+let opened = $state<string | null>(null);
+
 function open(path: string, match: LineMatch): void {
+  opened = resultKey(path, match);
   const [from, to] = match.ranges[0] ?? [0, 0];
   onopen(path, { line: match.line, from: from + match.column, to: to + match.column });
 }
@@ -284,6 +288,7 @@ const folder = (path: string) => path.slice(0, Math.max(path.lastIndexOf("/"), 0
                 class="line"
                 data-result
                 tabindex={resultKey(file.path, match) === stop ? 0 : -1}
+                aria-current={resultKey(file.path, match) === opened ? "true" : undefined}
                 onfocus={() => (current = resultKey(file.path, match))}
                 aria-label={`${file.path} line ${match.line}: ${match.text.trim()}`}
                 onclick={() => open(file.path, match)}
@@ -400,8 +405,9 @@ const folder = (path: string) => path.slice(0, Math.max(path.lastIndexOf("/"), 0
   .file-name {
     display: flex;
     gap: 8px;
-    align-items: baseline;
-    padding: 6px 4px 2px;
+    align-items: center;
+    min-height: var(--row);
+    padding: 0 4px;
     white-space: nowrap;
     overflow: hidden;
   }
@@ -424,23 +430,33 @@ const folder = (path: string) => path.slice(0, Math.max(path.lastIndexOf("/"), 0
     color: var(--text-2);
     background: var(--s3);
   }
+  /* A 28 px row; the opened result is the selection pill. */
   .line {
     display: flex;
+    align-items: center;
     gap: 8px;
     width: 100%;
-    padding: 3px 4px 3px 8px;
+    min-height: var(--row);
+    padding: 0 4px 0 8px;
     font: 13px var(--mono);
     text-align: left;
     color: var(--text-2);
     background: transparent;
     border: none;
-    border-radius: var(--radius-sm);
-    cursor: pointer;
+    border-radius: var(--r-xs);
+    cursor: default;
   }
   .line:hover,
   .line:focus-visible {
     color: var(--text);
     background: var(--s3);
+  }
+  .line[aria-current="true"] {
+    color: var(--text);
+    background: var(--sel);
+  }
+  .results:focus-within .line[aria-current="true"] {
+    background: var(--sel-focus);
   }
   .line:focus-visible {
     outline: 2px solid var(--accent);
