@@ -22,6 +22,7 @@ mod policy;
 mod pr;
 pub mod protected;
 pub mod protocol;
+pub mod provenance;
 mod resources;
 mod search;
 mod secrets;

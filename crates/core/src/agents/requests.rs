@@ -426,7 +426,8 @@ async fn review_from(ctx: &Ctx<'_>, id: &SessionId, launch: &Launch, base: Optio
 }
 
 /// A message to an agent in parts, each with who wrote it: the agent gets
-/// them as one text, the transcript shows each part with its author.
+/// them as one text with each author marked (`provenance`), the transcript
+/// shows each part with its author.
 pub(crate) type Parts = Vec<(String, MessageFrom)>;
 
 fn joined(parts: &Parts) -> Result<String> {
@@ -436,7 +437,9 @@ fn joined(parts: &Parts) -> Result<String> {
         .collect::<Vec<_>>()
         .join("\n\n");
     check_text(&text)?;
-    Ok(text)
+    Ok(crate::provenance::for_agent(
+        parts.iter().map(|(text, from)| (text.as_str(), *from)),
+    ))
 }
 
 /// Resumes the ended session `session` with `parts` as its next prompt.
