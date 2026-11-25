@@ -478,16 +478,43 @@ mod restricted {
 
     fn icacls(path: &Path, args: &[&str]) {
         let o = Command::new("icacls").arg(path).args(args).output().unwrap();
-        println!("icacls {} {:?}: {}{}", path.display(), args, String::from_utf8_lossy(&o.stdout).trim(), String::from_utf8_lossy(&o.stderr).trim());
+        println!("icacls {}: {}{}", path.display(), String::from_utf8_lossy(&o.stdout).trim(), String::from_utf8_lossy(&o.stderr).trim());
+    }
+
+    /// Adds one inheritable ACE for `sid` (mode 1 grant, 3 deny).
+    fn ace(path: &Path, sid_str: &str, mask: u32, mode: i32) {
+        unsafe {
+            let pw = wide(&path.display().to_string());
+            let mut old: *mut ACL = std::ptr::null_mut();
+            let mut sd: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
+            let r = GetNamedSecurityInfoW(pw.as_ptr(), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, std::ptr::null_mut(), std::ptr::null_mut(), &mut old, std::ptr::null_mut(), &mut sd);
+            let ea = EXPLICIT_ACCESS_W {
+                grfAccessPermissions: mask,
+                grfAccessMode: mode,
+                grfInheritance: 3,
+                Trustee: TRUSTEE_W {
+                    pMultipleTrustee: std::ptr::null_mut(),
+                    MultipleTrusteeOperation: 0,
+                    TrusteeForm: TRUSTEE_IS_SID,
+                    TrusteeType: TRUSTEE_IS_UNKNOWN,
+                    ptstrName: sid(sid_str) as *mut u16,
+                },
+            };
+            let mut new: *mut ACL = std::ptr::null_mut();
+            let r2 = SetEntriesInAclW(1, &ea, old, &mut new);
+            let r3 = SetNamedSecurityInfoW(pw.as_ptr() as *mut u16, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, std::ptr::null_mut(), std::ptr::null_mut(), new, std::ptr::null());
+            println!("ace {} mask {mask:#x} mode {mode}: get {r} set-entries {r2} set {r3}", path.display());
+        }
     }
 
     pub fn run(exe: &Path, args: &[String], granted: &Path, home_granted: &Path, with_logon: bool) {
-        icacls(granted, &["/grant", &format!("*{SYNTH}:(OI)(CI)M")]);
-        icacls(home_granted, &["/grant", &format!("*{SYNTH}:(OI)(CI)RX")]);
+        ace(granted, SYNTH, 0x1301BF, 1);
+        ace(home_granted, SYNTH, 0x1200A9, 1);
         let prot = granted.join("prot");
         std::fs::create_dir_all(&prot).unwrap();
         std::fs::write(prot.join("file.txt"), "protected").unwrap();
-        icacls(&prot, &["/deny", &format!("*{SYNTH}:(OI)(CI)(W,D,DC,WDAC,WO)")]);
+        ace(&prot, SYNTH, 0xD0156, 3);
+        icacls(&prot, &[]);
         unsafe {
             let mut tok: HANDLE = std::ptr::null_mut();
             OpenProcessToken(GetCurrentProcess(), TOKEN_ALL_ACCESS, &mut tok);
@@ -508,7 +535,8 @@ mod restricted {
             }
             let entries: Vec<SID_AND_ATTRIBUTES> = sids.iter().map(|s| SID_AND_ATTRIBUTES { Sid: *s, Attributes: 0 }).collect();
             let mut rt: HANDLE = std::ptr::null_mut();
-            let ok = CreateRestrictedToken(tok, DISABLE_MAX_PRIVILEGE, 0, std::ptr::null(), 0, std::ptr::null(), entries.len() as u32, entries.as_ptr(), &mut rt);
+            let admins = [SID_AND_ATTRIBUTES { Sid: sid("S-1-5-32-544"), Attributes: 0 }];
+            let ok = CreateRestrictedToken(tok, DISABLE_MAX_PRIVILEGE, 1, admins.as_ptr(), 0, std::ptr::null(), entries.len() as u32, entries.as_ptr(), &mut rt);
             println!("CreateRestrictedToken ok={ok} err={}", GetLastError());
             // Default DACL: the sandbox's own objects open for the synthetic SID.
             let sddl = wide(&format!("D:(A;;GA;;;{SYNTH})(A;;GA;;;SY)(A;;GA;;;OW)"));
@@ -521,6 +549,9 @@ mod restricted {
             let dd = TOKEN_DEFAULT_DACL { DefaultDacl: dacl };
             let ok2 = SetTokenInformation(rt, TokenDefaultDacl, &dd as *const _ as _, size_of::<TOKEN_DEFAULT_DACL>() as u32);
             println!("SetTokenInformation(DefaultDacl) ok={ok2}");
+            let tml = TOKEN_MANDATORY_LABEL { Label: SID_AND_ATTRIBUTES { Sid: sid("S-1-16-8192"), Attributes: 0x20 } };
+            let ok3 = SetTokenInformation(rt, TokenIntegrityLevel, &tml as *const _ as _, size_of::<TOKEN_MANDATORY_LABEL>() as u32);
+            println!("medium integrity ok={ok3}");
             let out = granted.join("rt-out.txt");
             let _ = std::fs::remove_file(&out);
             let mut cmd = format!("cmd.exe /c \"\"{}\"", exe.display());
