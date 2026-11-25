@@ -11,9 +11,10 @@
 //   buttons look disabled exactly as long as they are;
 // - one key press answers at most one request: auto-repeat is ignored and the
 //   next answer needs the key released first;
-// - nothing is allowed unseen: Allow counts only once most of the request's
-//   details (or its action, without details) have been in sight; before that
-//   a press scrolls them into view and waits again.
+// - nothing is allowed unseen: Allow counts only once the card's head (who
+//   asks, and any sandbox warning) and most of the request's details (or its
+//   action, without details) have been in sight; before that a press scrolls
+//   the missing part into view and waits again.
 import { tick, untrack } from "svelte";
 import type { Attachment } from "svelte/attachments";
 import { SvelteMap, SvelteSet } from "svelte/reactivity";
@@ -49,6 +50,8 @@ const opened = new SvelteSet<PermissionId>();
 let notice = $state("");
 /** Requests whose details have been in sight, so Allow may count. */
 const seen = new SvelteSet<PermissionId>();
+/** Requests whose head (who asks, sandbox warnings) has been in sight. */
+const headSeen = new SvelteSet<PermissionId>();
 /** A note on one card: why a press did not answer. */
 let said = $state<{ id: PermissionId; text: string } | null>(null);
 const projects = new SvelteMap<ProjectId, Project>();
@@ -62,7 +65,7 @@ const armedAt = (id: string): number => Math.max(queue.arrived.get(id) ?? 0, qui
 /** The one test for both the look of the buttons and whether a press counts. */
 const armed = (id: string): boolean => !keyHeld && now >= armedAt(id) && !queue.answering.has(id);
 /** Allow also needs the details to have been in sight. */
-const allowable = (id: PermissionId): boolean => armed(id) && seen.has(id);
+const allowable = (id: PermissionId): boolean => armed(id) && seen.has(id) && headSeen.has(id);
 
 const EARLY = "Ready in a moment — read the request first.";
 const UNSEEN = "Scrolled to the request: read it, then allow.";
@@ -70,8 +73,8 @@ const UNSEEN = "Scrolled to the request: read it, then allow.";
 const SEEN_RATIO = 0.75;
 const SEEN_PX = 120;
 
-/** Marks a request as seen once the element (its details) is in sight. */
-function watch(id: PermissionId): Attachment<HTMLElement> {
+/** Adds a request to `into` once the element (its details or its head) is in sight. */
+function watch(into: SvelteSet<PermissionId>, id: PermissionId): Attachment<HTMLElement> {
   return (element) => {
     // No observer, no way to tell: the request is never counted as seen.
     if (typeof IntersectionObserver === "undefined") return;
@@ -79,7 +82,7 @@ function watch(id: PermissionId): Attachment<HTMLElement> {
       (entries) => {
         for (const entry of entries) {
           if (!entry.isIntersecting) continue;
-          if (entry.intersectionRatio >= SEEN_RATIO || entry.intersectionRect.height >= SEEN_PX) seen.add(id);
+          if (entry.intersectionRatio >= SEEN_RATIO || entry.intersectionRect.height >= SEEN_PX) into.add(id);
         }
       },
       { threshold: [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1] },
@@ -89,9 +92,10 @@ function watch(id: PermissionId): Attachment<HTMLElement> {
   };
 }
 
-/** Scrolls a card into view, then its details: in a short column those matter more than its first lines. */
+/** Scrolls a card into view from its top, then its details; in a short
+ * column its head stays in sight above them (it sticks to the top). */
 function scrollToDetails(target: HTMLElement): void {
-  target.scrollIntoView?.({ block: "nearest" });
+  target.scrollIntoView?.({ block: "start" });
   target.querySelector("dl")?.scrollIntoView?.({ block: "nearest" });
 }
 
@@ -123,7 +127,7 @@ $effect(() => {
   untrack(() => {
     if (shown.some((id, i) => ids[i] !== id)) quiet();
     for (const id of opened) if (!ids.includes(id)) opened.delete(id);
-    for (const id of seen) if (!ids.includes(id)) seen.delete(id);
+    for (const set of [seen, headSeen]) for (const id of set) if (!ids.includes(id)) set.delete(id);
     if (said && !ids.includes(said.id)) said = null;
   });
   shown = ids;
@@ -223,10 +227,11 @@ function leave(): void {
   returnTo = null;
 }
 
-/** Scrolls a request's details into view; what moved under the pointer waits again. */
-function showDetails(request: PermissionRequest): void {
+/** Scrolls what was not in sight yet into view; what moved under the pointer waits again. */
+function showUnseen(request: PermissionRequest): void {
   const target = card(request.id);
-  if (target) scrollToDetails(target);
+  if (target && !seen.has(request.id)) scrollToDetails(target);
+  else target?.scrollIntoView?.({ block: "start" });
   said = { id: request.id, text: UNSEEN };
   quiet();
 }
@@ -243,8 +248,8 @@ async function answer(
     expand(request.id);
     return;
   }
-  if (decision === "allow" && !seen.has(request.id)) {
-    showDetails(request);
+  if (decision === "allow" && !(seen.has(request.id) && headSeen.has(request.id))) {
+    showUnseen(request);
     return;
   }
   said = null;
@@ -277,10 +282,22 @@ async function answer(
 function answerByClick(event: MouseEvent, request: PermissionRequest, decision: Decision): void {
   if (!armed(request.id)) {
     said = { id: request.id, text: EARLY };
+    void revealNote(request.id);
     return;
   }
   // `detail` is 0 for a click from Enter or Space on the button.
   void answer(request, decision, undefined, event.detail > 0);
+}
+
+/** Keeps a card's note in sight; if that moved its buttons, they wait again. */
+async function revealNote(id: PermissionId): Promise<void> {
+  await tick();
+  const wait = card(id)?.querySelector<HTMLElement>("[data-testid=approval-wait]");
+  const row = wait?.parentElement;
+  if (!wait || !row) return;
+  const before = row.getBoundingClientRect().top;
+  wait.scrollIntoView?.({ block: "nearest" });
+  if (row.getBoundingClientRect().top !== before) quiet();
 }
 
 /** Answers from a key press: at most one answer per press. */
@@ -453,6 +470,8 @@ function workerCopy(session: SessionId): string {
           onkeydown={(event) => onKeydown(event, request)}
           onfocusin={() => expand(request.id)}
         >
+          <!-- Who asks and how it is sandboxed: Allow needs it in sight too. -->
+          <div class="who" {@attach watch(headSeen, request.id)}>
           <p class="session" id="{domId}-session">
             {sessions.name(request.session)} in {project?.name ?? "an unknown project"}
             asks to use {request.tool}
@@ -463,6 +482,7 @@ function workerCopy(session: SessionId): string {
           {#if sandboxNote}
             <p class="other" data-testid="approval-unsandboxed">{sandboxNote}</p>
           {/if}
+          </div>
           {#if gaps}
             <!-- Short on the card; the list opens on request. -->
             <details class="gaps" data-testid="approval-sandbox-gaps">
@@ -470,7 +490,7 @@ function workerCopy(session: SessionId): string {
               <p>{gaps}</p>
             </details>
           {/if}
-          <h3 id="{domId}-action" {@attach summary.details.length === 0 && watch(request.id)}>{summary.action}</h3>
+          <h3 id="{domId}-action" {@attach summary.details.length === 0 && watch(seen, request.id)}>{summary.action}</h3>
           {#if request.project !== workspace.project?.id}
             <p class="other" data-testid="approval-other-project">Not the project open in this window</p>
           {/if}
@@ -499,7 +519,7 @@ function workerCopy(session: SessionId): string {
             <p class="title">Agent's note: {request.title}</p>
           {/if}
           {#if isOpen(request.id)}
-            <dl {@attach watch(request.id)}>
+            <dl {@attach watch(seen, request.id)}>
               {#each summary.details as detail}
                 <dt>{detail.label}</dt>
                 <dd><pre>{detail.text}</pre></dd>
@@ -527,11 +547,12 @@ function workerCopy(session: SessionId): string {
               onclick={(event) => answerByClick(event, request, "deny")}>Deny <kbd aria-hidden="true">N</kbd></button
             >
             <button type="button" aria-keyshortcuts="Shift+N" onclick={() => openDeny(request)}>Deny with message…</button>
+            <!-- Next to the buttons it explains. An early note goes once the
+                 request is ready; the other stays until the next press. -->
+            <span class="wait" aria-live="polite" data-testid="approval-wait"
+              >{said?.id === request.id && (said.text !== EARLY || !ready) ? said.text : ""}</span
+            >
           </div>
-          <!-- An early note goes once the request is ready; the other stays until the next press. -->
-          <p class="wait" aria-live="polite" data-testid="approval-wait">
-            {said?.id === request.id && (said.text !== EARLY || !ready) ? said.text : ""}
-          </p>
           {#if denying === request.id}
             <form
               onsubmit={(event) => {
@@ -689,9 +710,17 @@ function workerCopy(session: SessionId): string {
     display: none;
   }
   .wait {
-    margin: 6px 0 0;
+    flex: 1 1 12em;
+    align-self: center;
     font-size: 12px;
     color: #ffd36b;
+  }
+  /* Who asks stays in sight while a tall request scrolls under it. */
+  .who {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: #1f1f26;
   }
   .notice {
     margin: 0;
