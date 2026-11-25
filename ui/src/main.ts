@@ -1,4 +1,5 @@
 import { mount } from "svelte";
+import "./shell/theme.css";
 import { connect } from "./lib/transport";
 import Shell from "./shell/Shell.svelte";
 

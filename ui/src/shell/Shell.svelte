@@ -209,32 +209,6 @@ const status = $derived.by((): { text: string; ok: boolean } => {
 </div>
 
 <style>
-  :global(html, body) {
-    margin: 0;
-    height: 100%;
-    font-family: system-ui, sans-serif;
-    font-size: 13px;
-    background: #16161a;
-    color: #e6e6e6;
-  }
-  :global(#app) {
-    height: 100%;
-  }
-  /* App-wide defaults; an area's own rule wins over these. Placeholders:
-     6.5:1 on #16161a, 5.1:1 on #2a2a33 (the browser's grey is 3-4:1). */
-  :global(::placeholder) {
-    color: #9a9aa6;
-    opacity: 1;
-  }
-  /* One focus ring for every control that draws none of its own. */
-  :global(:focus-visible) {
-    outline: 2px solid #7aa2ff;
-    outline-offset: 1px;
-  }
-  /* Targets at least 24 px tall (WCAG 2.5.8); `:where` keeps it overridable. */
-  :global(:where(button, summary)) {
-    min-height: 24px;
-  }
   .shell {
     display: grid;
     height: 100%;
