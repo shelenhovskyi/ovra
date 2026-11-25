@@ -61,6 +61,10 @@ export class AgentSessions {
    * browser per project. The core keeps them (it has no way to forget one).
    */
   readonly closed = new SvelteSet<SessionId>();
+  /** Tool calls the person denied, by session, tool and input (`callKey`), while this window watched. */
+  private readonly deniedCalls = new SvelteSet<string>();
+  /** Requests seen asking, until their answer comes: what each one asked to run. */
+  private readonly asking = new Map<string, string>();
   private readonly loaded = new Set<ProjectId>();
   /** The latest `agents.capacity` call per project: older replies are stale. */
   private readonly asked = new Map<ProjectId, number>();
@@ -112,6 +116,14 @@ export class AgentSessions {
   /** Whether any of `id`'s review items waits for the person, as the inbox counts it. */
   waitsForReview(id: SessionId): boolean {
     return this.waitingReview.has(id);
+  }
+
+  /**
+   * Whether the person denied `session`'s call of `tool` with `input`: the
+   * agent may get their message rather than the CLI's words for a denial.
+   */
+  denied(session: SessionId, tool: string, input: unknown): boolean {
+    return this.deniedCalls.has(callKey(session, tool, input));
   }
 
   /** The files `id`'s agent changed that wait for the person's review. */
@@ -331,7 +343,14 @@ export class AgentSessions {
   private apply(event: CoreEvent): void {
     // Events were dropped: what is on screen may be missing or doubled.
     if (event.type === "info.resync") this.resync();
-    else if (event.type === "orchestration.changed") {
+    else if (event.type === "permissions.requested") {
+      const { id, session, tool, input } = event.data;
+      this.asking.set(id, callKey(session, tool, input));
+    } else if (event.type === "permissions.resolved") {
+      const call = this.asking.get(event.data.id);
+      this.asking.delete(event.data.id);
+      if (call && event.data.decision === "deny") this.deniedCalls.add(call);
+    } else if (event.type === "orchestration.changed") {
       void this.loadTasks(event.data.project);
       // A task that starts takes places before its workers have a state.
       if (this.loaded.has(event.data.project)) void this.loadCapacity(event.data.project);
@@ -401,6 +420,11 @@ export class AgentSessions {
     this.partial.clear();
     for (const project of this.loaded) void this.load(project).catch(() => {});
   }
+}
+
+/** One tool call of one session: the permission request and the transcript's call carry the same input. */
+function callKey(session: SessionId, tool: string, input: unknown): string {
+  return `${session}\n${tool}\n${JSON.stringify(input)}`;
 }
 
 const NO_USAGE: TurnUsage = { input_tokens: 0, output_tokens: 0, cost_micro_usd: null };

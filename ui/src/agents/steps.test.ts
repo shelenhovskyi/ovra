@@ -24,13 +24,9 @@ describe("steps", () => {
       result("lost"),
     ]);
     // A command and a failed search each keep a card of their own.
-    expect(shown.map((e) => (e.kind === "message" ? e.message.kind : e.steps.length))).toEqual([
-      "assistant_text",
-      1,
-      1,
-      "assistant_text",
-      1,
-    ]);
+    expect(
+      shown.map((e) => (e.kind === "steps" ? e.steps.length : e.kind === "message" ? e.message.kind : "notes")),
+    ).toEqual(["assistant_text", 1, 1, "assistant_text", 1]);
     const looks = entries([
       use("r1", "Read", { file_path: "a.ts" }),
       use("r2", "Grep", { pattern: "x" }),

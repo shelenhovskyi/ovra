@@ -800,6 +800,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
         status={current.status}
         partial={sessions.partial.get(current.id) ?? ""}
         onretry={retryTurn}
+        denied={(use) => sessions.denied(current.id, use.name, use.input)}
       />
       {#if !isEnded(current.status) && !signedOut}
         <form

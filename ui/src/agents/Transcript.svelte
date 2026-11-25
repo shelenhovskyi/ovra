@@ -16,6 +16,7 @@ import {
   entries,
   foldLabel,
   inFolder,
+  notesLabel,
   type Step,
   stepIcon,
   stepLabel,
@@ -32,7 +33,8 @@ import { ideResult } from "./tool-results";
  * `status` and `partial` (the text Claude is writing) show at the end what
  * a working session does now. `onretry`, when given, puts Retry on an error
  * that ended the last turn. `root`: the session's folder; files in it show
- * relative to it.
+ * relative to it. `denied` tells a step the person denied from one that
+ * failed, whatever the agent was told.
  */
 let {
   messages,
@@ -42,6 +44,7 @@ let {
   status = null,
   partial = "",
   onretry,
+  denied: answeredNo = () => false,
 }: {
   messages: AgentMessage[];
   billing?: Billing | null;
@@ -50,6 +53,8 @@ let {
   status?: AgentStatus | null;
   partial?: string;
   onretry?: () => void;
+  /** Whether the person's own answer denied this call (known while this window watched it). */
+  denied?: (use: { name: string; input: unknown }) => boolean;
 } = $props();
 
 /** Who wrote what an agent was sent: never "You" for text the person did not write. */
@@ -76,16 +81,6 @@ function describe(tool: string, given: unknown) {
   const fields = typeof input === "object" && input !== null ? (input as Record<string, unknown>) : null;
   const name = typeof fields?.agent_id === "string" ? workerName(fields.agent_id) : undefined;
   return describeTool(tool, name ? { ...fields, agent_id: name } : input);
-}
-
-/**
- * Ovra's note to an agent: its first line is for the person, the rest
- * (ids, tool hints, a diff) for the agent, shown folded.
- */
-function note(text: string): { line: string; rest: string } {
-  const plain = text.startsWith("Ovra: ") ? text.slice("Ovra: ".length) : text;
-  const end = plain.indexOf("\n");
-  return end < 0 ? { line: plain, rest: "" } : { line: plain.slice(0, end), rest: plain.slice(end + 1).trim() };
 }
 
 /** The file a step works on, in full, for its tooltip. */
@@ -163,7 +158,8 @@ const lastError = $derived.by(() => {
 {#snippet card(step: Step)}
   {@const sub = step.use?.parent || step.result?.parent ? "Subagent: " : ""}
   {@const failed = step.result?.is_error ?? false}
-  {@const denied = failed && (step.result?.output.startsWith(REJECTED) ?? false)}
+  {@const said = failed && step.use !== null && answeredNo(step.use)}
+  {@const denied = said || (failed && (step.result?.output.startsWith(REJECTED) ?? false))}
   {@const summary = step.use ? describe(step.use.name, step.use.input) : null}
   {@const plain = step.use && step.result && !failed ? ideResult(step.use.name, step.result.output) : null}
   {@const parts = verbAndObject(step, stepLabel(step, summary?.action ?? ""))}
@@ -172,15 +168,15 @@ const lastError = $derived.by(() => {
   <details class="step" class:failed={failed && !denied} class:sub={sub !== ""}>
     <summary title={file ?? step.use?.name}>
       <Icon name={stepIcon(step)} small />
-      {#if denied}
-        <span class="label"
-          >{sub}{summary ? `Not run: ${summary.action}` : "Not run: you denied it or interrupted the turn"}</span
-        >
+      {#if denied && !summary}
+        <span class="label">{sub}Not run: you denied it or interrupted the turn</span>
       {:else}
         <span class="label" class:verb={parts.object !== ""}>{sub}{parts.verb}</span>
         <!-- A file is cut from the left, so its name stays in sight. -->
         {#if parts.object}<code class="object" class:path={file !== null}><bdi>{parts.object}</bdi></code>{/if}
       {/if}
+      <!-- The person's own No is no failure; the CLI's words alone may also mean an interrupt. -->
+      {#if denied && summary}<span class="flag quiet">{said ? "Denied" : "Not run"}</span>{/if}
       {#if failed && !denied}<span class="flag">failed</span>{/if}
       {#if meta}<span class="meta">{meta}</span>{/if}
     </summary>
@@ -190,9 +186,15 @@ const lastError = $derived.by(() => {
           <p class="detail" data-testid="tool-detail"><span class="label">{capital(detail.label)}:</span> {detail.text}</p>
         {/each}
       {/if}
-      {#if plain}<p>{plain}</p>{/if}
-      {#if step.result?.output && !denied}
-        <p class="detail">{plain ? "What Claude got" : `Output, ${lines(step.result.output)}`}:</p>
+      {#if plain && step.result}
+        <!-- Ovra's tool answered the agent in JSON with ids: the sentence, the raw answer folded. -->
+        <p>{plain}</p>
+        <details class="raw">
+          <summary class="detail">What Claude got</summary>
+          <pre>{clip(step.result.output)}</pre>
+        </details>
+      {:else if step.result?.output && !denied}
+        <p class="detail">Output, {lines(step.result.output)}:</p>
         <pre>{clip(step.result.output)}</pre>
       {/if}
     </div>
@@ -226,21 +228,31 @@ const lastError = $derived.by(() => {
           </div>
         </details>
       </li>
+    {:else if entry.kind === "notes"}
+      <!-- What Ovra told the agent: one quiet line; what the agent read, folded. -->
+      <li class="notes">
+        {#if entry.notes.length === 1 && !entry.notes[0]?.rest}
+          <span class="line">{notesLabel(entry.notes)}</span>
+        {:else}
+          <details class="group">
+            <summary>{notesLabel(entry.notes)}</summary>
+            <div class="cards">
+              {#each entry.notes as { line, rest }, n (n)}
+                {#if entry.notes.length > 1}<p>{line}</p>{/if}
+                {#if rest}
+                  <p class="detail">Message sent to Claude:</p>
+                  <pre>{clip(rest)}</pre>
+                {/if}
+              {/each}
+            </div>
+          </details>
+        {/if}
+      </li>
     {:else}
       {@const message = entry.message}
       {@const sub = "parent" in message && message.parent ? "Subagent " : ""}
       <li class={message.kind} class:sub={sub !== ""}>
-        {#if message.kind === "user_text" && message.from === "ovra"}
-          {@const { line, rest } = note(message.text)}
-          <span class="who">{FROM.ovra}</span>
-          <p>{line}</p>
-          {#if rest}
-            <details>
-              <summary class="who">What Claude was told</summary>
-              <pre>{clip(rest)}</pre>
-            </details>
-          {/if}
-        {:else if message.kind === "user_text"}
+        {#if message.kind === "user_text"}
           <span class="who">{FROM[message.from]}</span>
           <p>{message.text}</p>
         {:else if message.kind === "assistant_text"}
@@ -381,6 +393,7 @@ const lastError = $derived.by(() => {
   }
   /* Steps are quiet one-liners: what Claude says is the text to read. */
   .steps,
+  .notes,
   .turn_end {
     font-size: 13px;
     color: var(--text-2);
@@ -423,6 +436,12 @@ const lastError = $derived.by(() => {
   .flag {
     flex: none;
     color: var(--danger);
+  }
+  .flag.quiet {
+    color: var(--text-2);
+  }
+  .raw > summary {
+    width: fit-content;
   }
   .body {
     margin: 4px 0 4px 23px;

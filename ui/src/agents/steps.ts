@@ -13,14 +13,48 @@ type ToolResult = Extract<AgentMessage, { kind: "tool_result" }>;
 /** One tool call and its result, either of which may be missing. */
 export type Step = { use: ToolUse | null; result: ToolResult | null };
 
-type Entry = { kind: "message"; message: AgentMessage } | { kind: "steps"; steps: Step[] };
+/** Ovra's note to an agent: its first line is for the person, the rest (ids, tool hints, a diff) for the agent. */
+export type Note = { line: string; rest: string };
+
+type Entry =
+  | { kind: "message"; message: AgentMessage }
+  | { kind: "steps"; steps: Step[] }
+  /** Ovra's notes in a row: one quiet line. */
+  | { kind: "notes"; notes: Note[] };
+
+function note(text: string): Note {
+  const plain = text.startsWith("Ovra: ") ? text.slice("Ovra: ".length) : text;
+  const end = plain.indexOf("\n");
+  return end < 0 ? { line: plain, rest: "" } : { line: plain.slice(0, end), rest: plain.slice(end + 1).trim() };
+}
+
+const named = (names: string[]): string =>
+  names.length < 2 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+
+/**
+ * Ovra's notes in a row as one line: `Workers docs, tests and lint asked
+ * for review` when they say the same of several workers, else each note's
+ * line.
+ */
+export function notesLabel(notes: Note[]): string {
+  const lines = notes.map((n) => n.line.replace(/\.$/, ""));
+  const parts = lines.map((line) => /^Worker (\S+) (.+)$/.exec(line));
+  const what = parts[0]?.[2];
+  if (notes.length > 1 && parts.every((p) => p && p[2] === what))
+    return `Workers ${named(parts.map((p) => p?.[1] ?? ""))} ${what}`;
+  return lines.map((line) => line.charAt(0).toUpperCase() + line.slice(1)).join(" · ");
+}
 
 /** Tools that only look: in a row they fold into one line. */
 const LOOKS = new Set(["Read", "Glob", "Grep", "WebSearch", "LS"]);
 const looks = (step: Step): boolean =>
   step.use !== null && LOOKS.has(step.use.name) && !step.result?.is_error && !step.use.parent;
 
-/** Messages in order, each tool call merged with its result (by `tool_use_id`); reads and searches in a row together. */
+/**
+ * Messages in order, each tool call merged with its result (by
+ * `tool_use_id`); reads and searches in a row together, and Ovra's notes in
+ * a row together.
+ */
 export function entries(messages: AgentMessage[]): Entry[] {
   const flat: ({ kind: "message"; message: AgentMessage } | { kind: "step"; step: Step })[] = [];
   const open = new Map<string, Step>();
@@ -41,11 +75,16 @@ export function entries(messages: AgentMessage[]): Entry[] {
   // Only now are results known: a read that failed keeps its own step.
   const out: Entry[] = [];
   for (const item of flat) {
+    const last = out.at(-1);
+    if (item.kind === "message" && item.message.kind === "user_text" && item.message.from === "ovra") {
+      if (last?.kind === "notes") last.notes.push(note(item.message.text));
+      else out.push({ kind: "notes", notes: [note(item.message.text)] });
+      continue;
+    }
     if (item.kind === "message") {
       out.push(item);
       continue;
     }
-    const last = out.at(-1);
     if (looks(item.step) && last?.kind === "steps" && last.steps.every(looks)) last.steps.push(item.step);
     else out.push({ kind: "steps", steps: [item.step] });
   }

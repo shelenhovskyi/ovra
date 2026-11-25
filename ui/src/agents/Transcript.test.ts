@@ -84,6 +84,72 @@ it("names files relative to the session's folder, with the whole path on hover",
   expect(summary?.querySelector("code")?.classList.contains("path")).toBe(true);
 });
 
+it("folds Ovra's notes in a row into one quiet line, and a tool's raw answer behind its plain one", () => {
+  const note = (name: string) => ({
+    kind: "user_text" as const,
+    text: `Ovra: Worker ${name} asked for review.\nFor the coordinator: its agent_id is s-${name}.`,
+    from: "ovra" as const,
+  });
+  app = mount(Transcript, {
+    target: document.body,
+    props: {
+      messages: [
+        { kind: "tool_use", id: "t1", name: "mcp__ovra__spawn_agent", input: { name: "docs", task: "Write docs." } },
+        {
+          kind: "tool_result",
+          tool_use_id: "t1",
+          output: '{"agent_id":"s2","branch":"ovra/t1/docs","name":"docs","worktree":"/wt/docs"}',
+          is_error: false,
+        },
+        note("docs"),
+        note("tests"),
+        note("lint"),
+        { kind: "assistant_text", text: "All three are done." },
+        { kind: "user_text", text: "Ovra: Worker docs stopped.", from: "ovra" },
+        { kind: "user_text", text: "Ovra: Worker lint failed: claude exited.", from: "ovra" },
+      ],
+    },
+  });
+  flushSync();
+  const items = [...document.querySelectorAll("[data-testid=transcript] > li")];
+  // No grey cards: one quiet line for each run of notes.
+  expect(items.map((li) => li.className.split(" ")[0])).toEqual(["steps", "notes", "assistant_text", "notes"]);
+  expect(items[1]?.querySelector("summary")?.textContent).toBe("Workers docs, tests and lint asked for review");
+  expect(items[3]?.querySelector("summary")?.textContent).toBe(
+    "Worker docs stopped · Worker lint failed: claude exited",
+  );
+  expect(items[1]?.querySelector("details")?.hasAttribute("open")).toBe(false);
+  // The spawn result's JSON is folded under its plain sentence.
+  const body = items[0]?.querySelector(".body");
+  expect(body?.querySelector("p:not(.detail)")?.textContent).toBe(
+    "Worker docs started on its own copy of the project (branch ovra/t1/docs)",
+  );
+  const raw = body?.querySelector("details");
+  expect(raw?.querySelector("summary")?.textContent).toBe("What Claude got");
+  expect(raw?.hasAttribute("open")).toBe(false);
+});
+
+it("says Not run for a refusal it only knows from the CLI's words, and not failed", () => {
+  app = mount(Transcript, {
+    target: document.body,
+    props: {
+      messages: [
+        { kind: "tool_use", id: "t1", name: "Bash", input: { command: "rm -rf build" } },
+        {
+          kind: "tool_result",
+          tool_use_id: "t1",
+          output: "The user doesn't want to proceed with this tool use.",
+          is_error: true,
+        },
+      ],
+    },
+  });
+  flushSync();
+  const step = document.querySelector(".step");
+  expect(step?.querySelector("summary")?.textContent?.replace(/\s+/g, " ").trim()).toBe("Run rm -rf build Not run");
+  expect(step?.classList.contains("failed")).toBe(false);
+});
+
 it("offers no Retry on an error that later messages answered", () => {
   app = mount(Transcript, {
     target: document.body,

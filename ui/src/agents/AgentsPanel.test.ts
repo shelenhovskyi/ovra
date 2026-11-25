@@ -569,13 +569,14 @@ describe("AgentsPanel", () => {
     // Plain lines for the person; ids and tool names only behind a fold.
     expect(transcript()).toEqual([
       "Coordinator Write the notes",
-      "Ovra Worker docs stopped. What Claude was told For the coordinator: its agent_id is s2. Check with list_agents.",
+      // Ovra's note: one quiet line; what the coordinator read, folded.
+      "Worker docs stopped Message sent to Claude: For the coordinator: its agent_id is s2. Check with list_agents.",
       "You Thanks",
       "Sender not recorded Saved long ago",
       // One folded card per call; a worker's task only inside.
       "Message worker docs Text: Also add tests. Then ask for review.",
       "Started worker docs Task: Write the notes. " +
-        'Worker docs started on its own copy of the project (branch ovra/t1/docs) What Claude got: {"agent_id":"s2","branch":"ovra/t1/docs","name":"docs","worktree":"/wt/docs"}',
+        'Worker docs started on its own copy of the project (branch ovra/t1/docs) What Claude got {"agent_id":"s2","branch":"ovra/t1/docs","name":"docs","worktree":"/wt/docs"}',
       "Message a worker Text: x",
     ]);
     const labels = [...target.querySelectorAll("[data-testid=transcript] .step > summary")].map((s) =>
@@ -583,7 +584,7 @@ describe("AgentsPanel", () => {
     );
     expect(labels).toEqual(["Message worker docs", "Started worker docs", "Message a worker"]);
     expect(target.querySelector("[data-testid=transcript] details.step")?.hasAttribute("open")).toBe(false);
-    expect(target.querySelector("[data-testid=transcript] li.user_text details")?.hasAttribute("open")).toBe(false);
+    expect(target.querySelector("[data-testid=transcript] li.notes details")?.hasAttribute("open")).toBe(false);
     // Its worker asked for review: the task says so, next to a way there.
     core.reviews = [{ ...review("s2", [file("NOTES.md", "agent")]), mode: "isolated" }];
     core.emit({ type: "review.changed", data: { project: "p1", id: "rs2" } });
@@ -734,6 +735,25 @@ describe("AgentsPanel", () => {
     await settle();
     await settle();
     expect(transcript()).toEqual(["You Earlier task", "Claude Missed"]);
+  });
+
+  it("marks a step the person denied with a message as Denied, from the answer itself", async () => {
+    const core = new FakeAgentCore();
+    core.addSession("p1", "Fix the typo", { state: "working" });
+    core.transcripts.set("s1", []);
+    await setup(core);
+    selectRow("Fix the typo");
+    await settle();
+    const input = { file_path: "/demo/README.md", old_string: "teh", new_string: "the" };
+    core.message("s1", { kind: "tool_use", id: "t1", name: "Edit", input });
+    core.ask({ id: "perm1", session: "s1", project: "p1", tool: "Edit", input, title: null });
+    core.emit({ type: "permissions.resolved", data: { id: "perm1", decision: "deny" } });
+    // The agent got the person's message, not the CLI's words for a denial.
+    core.message("s1", { kind: "tool_result", tool_use_id: "t1", output: "Only touch the docs", is_error: true });
+    await settle();
+    const step = target.querySelector("[data-testid=transcript] .step");
+    expect(step?.querySelector("summary")?.textContent?.replace(/\s+/g, " ").trim()).toBe("Edit README.md Denied");
+    expect(step?.classList.contains("failed")).toBe(false);
   });
 
   it("says next to the form when Claude fails right after starting, and points to the setup", async () => {
