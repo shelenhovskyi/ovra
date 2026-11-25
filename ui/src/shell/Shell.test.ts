@@ -1,6 +1,5 @@
 import { flushSync, mount, unmount } from "svelte";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { listCommands, registerCommand } from "../keys/commands";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { Request } from "../lib/protocol";
 import { FrameRouter, type Transport } from "../lib/transport";
 import Shell from "./Shell.svelte";
@@ -177,23 +176,17 @@ describe("Shell", () => {
         document.getElementById(item.getAttribute("aria-describedby") ?? "")?.textContent,
       ]);
       expect(described).toEqual([
-        ["Toggle terminal", "Ctrl+`", "A shell in the project folder, under the open file"],
+        ["Settings…", "Ctrl+,", "Rules, network and secrets"],
         ["Audit log", null, "Everything agents did, and who approved it"],
-        ["Project policies", null, "Rules for what agents may do in this project"],
-        ["Network and secrets", null, "Which websites agents may reach, and secrets"],
-        ["Show servers", "Ctrl+Alt+S", "Your project's dev servers, run for agents"],
         ["Agent browser", "Ctrl+Shift+B", "The web browser an agent uses"],
-        ["Swap side panels", null, "Agents and files change sides"],
+        ["Keyboard shortcuts", null, "Every command with a shortcut"],
       ]);
-      expect(items()[4]?.getAttribute("aria-keyshortcuts")).toBe("Mod+Alt+S");
+      expect(items()[0]?.getAttribute("aria-keyshortcuts")).toBe("Mod+,");
       expect(items().map((item) => item.dataset.testid)).toEqual([
-        "open-terminal",
+        "open-settings",
         "open-audit",
-        "open-policy",
-        "open-network",
-        "open-servers",
         "open-browser",
-        "open-swap",
+        "open-shortcuts",
       ]);
     });
 
@@ -204,16 +197,16 @@ describe("Shell", () => {
 
       expect(document.activeElement).toBe(items()[0]);
       key(document.activeElement, "ArrowUp");
-      expect(document.activeElement).toBe(items()[6]);
+      expect(document.activeElement).toBe(items()[3]);
       key(document.activeElement, "ArrowDown");
       expect(document.activeElement).toBe(items()[0]);
       key(document.activeElement, "End");
-      expect(document.activeElement).toBe(items()[6]);
-      // First-letter typeahead: P is Project policies, A goes on to Agent browser.
-      key(document.activeElement, "KeyP");
-      expect(document.activeElement).toBe(items()[2]);
+      expect(document.activeElement).toBe(items()[3]);
+      // First-letter typeahead: A is Audit log, A again goes on to Agent browser.
       key(document.activeElement, "KeyA");
-      expect(document.activeElement).toBe(items()[5]);
+      expect(document.activeElement).toBe(items()[1]);
+      key(document.activeElement, "KeyA");
+      expect(document.activeElement).toBe(items()[2]);
       key(document.activeElement, "Escape");
       flushSync();
       expect(menu()).toBeNull();
@@ -246,31 +239,30 @@ describe("Shell", () => {
       expect(document.activeElement).toBe(more);
     });
 
-    it("opens the terminal, a mouse way that stays once a file is open", () => {
-      const { more, items } = shell();
-      // The shell's own terminal command comes back afterwards, for the tests after this one.
-      const own = listCommands().find((c) => c.id === "terminal.toggle");
-      const run = vi.fn();
-      const off = registerCommand({ id: "terminal.toggle", title: "Toggle terminal", run });
+    it("opens the settings list from Settings…", async () => {
+      const { target, more, items } = shell();
       more?.click();
       flushSync();
       items()[0]?.click();
-      expect(run).toHaveBeenCalledOnce();
-      off();
-      if (own) registerCommand(own);
+      await new Promise((resolve) => setImmediate(resolve));
+      flushSync();
+      const search = target.querySelector<HTMLInputElement>("[role=dialog] input");
+      expect(search?.placeholder).toBe("Search settings");
+      search?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      flushSync();
     });
 
     it("toggles the agent browser and shows that it is open", () => {
       const { target, more, items } = shell();
       more?.click();
       flushSync();
-      items()[5]?.click();
+      items()[2]?.click();
       flushSync();
       expect(target.querySelector("[data-testid=browser]")).not.toBeNull();
       more?.click();
       flushSync();
-      expect(items()[5]?.getAttribute("aria-checked")).toBe("true");
-      items()[5]?.click();
+      expect(items()[2]?.getAttribute("aria-checked")).toBe("true");
+      items()[2]?.click();
       flushSync();
       expect(target.querySelector("[data-testid=browser]")).toBeNull();
     });

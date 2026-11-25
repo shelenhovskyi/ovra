@@ -1,9 +1,9 @@
 <script lang="ts">
-// The rail's "More" menu: the terminal and the panels a newcomer rarely needs, each
-// with its shortcut and, as a tooltip, what it is for. An item runs the panel's own
-// command and carries its name, so the menu, the palette and the shortcuts
-// open the same dialog under the same name. Arrow keys, Home, End and a first
-// letter move between items; Escape closes and gives focus back to the button.
+// The rail's "More" menu: names only (Settings…, Audit log, Agent browser, Keyboard
+// shortcuts), each with its shortcut and, as a tooltip, what it is for. An item runs
+// the command of the same name, so the menu, the palette and the shortcuts open the
+// same thing; the rest is in the palette and Settings. Arrow keys, Home, End and a
+// first letter move between items; Escape closes and gives focus back to the button.
 import { tick } from "svelte";
 import { sessionBrowsers } from "../browser/browser.svelte";
 import { type Command, listCommands } from "../keys/commands";
@@ -12,16 +12,13 @@ import { useOvra } from "./context";
 import Icon from "./Icon.svelte";
 import { menuTarget } from "./menu";
 
-const ITEMS = [
-  // The start panel's "Open a terminal" goes once a file is open; this stays.
-  { command: "terminal.toggle", id: "terminal", about: "A shell in the project folder, under the open file" },
+/** `name` where the menu says it shorter than the palette ("Open settings"). */
+const ITEMS: { command: string; id: string; about: string; name?: string }[] = [
+  { command: "palette.settings", id: "settings", name: "Settings…", about: "Rules, network and secrets" },
   { command: "audit.toggle", id: "audit", about: "Everything agents did, and who approved it" },
-  { command: "policy.toggle", id: "policy", about: "Rules for what agents may do in this project" },
-  { command: "network.toggle", id: "network", about: "Which websites agents may reach, and secrets" },
-  { command: "servers.toggle", id: "servers", about: "Your project's dev servers, run for agents" },
   { command: "browser.toggle", id: "browser", about: "The web browser an agent uses" },
-  { command: "layout.swap", id: "swap", about: "Agents and files change sides" },
-] as const;
+  { command: "palette.shortcuts", id: "shortcuts", about: "Every command with a shortcut" },
+];
 
 const { transport } = useOvra();
 const browsers = sessionBrowsers(transport);
@@ -40,7 +37,9 @@ const entries = $derived(
     const command = commands.find((c) => c.id === item.command);
     if (!command) return [];
     const keys = command.keys ? liveKeys(command.keys, inBrowserTab()) : undefined;
-    return [{ ...item, name: command.title, keys, shown: keys ? formatShortcut(keys, isApple()) : undefined }];
+    return [
+      { ...item, name: item.name ?? command.title, keys, shown: keys ? formatShortcut(keys, isApple()) : undefined },
+    ];
   }),
 );
 
@@ -169,15 +168,16 @@ $effect(() => {
   button {
     font: inherit;
     color: var(--text);
-    cursor: pointer;
+    cursor: default;
   }
   .menu {
     position: fixed;
     z-index: 100;
     min-width: 240px;
     padding: 6px;
-    background: var(--s4);
-    border-radius: var(--radius);
+    background: var(--menu);
+    backdrop-filter: var(--menu-blur);
+    border-radius: var(--r-lg);
     box-shadow: var(--card-shadow);
   }
   .menu button {
