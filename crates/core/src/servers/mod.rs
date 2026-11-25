@@ -33,7 +33,7 @@ use crate::protocol::servers::{
 use crate::protocol::{ErrorCode, OkResponse, ProtocolError, Response};
 use crate::services::{DevServerSpec, DevServers, NetProxy, SandboxStatus, ServerSink};
 
-pub(crate) use grants::{forward, granted_ports, session_ended, session_started};
+pub(crate) use grants::{forward, granted_ports, session_started};
 pub(crate) use pods::allowlist_changed;
 
 type Result<T> = std::result::Result<T, ProtocolError>;
@@ -367,6 +367,49 @@ fn stop(core: &Core, id: &ServerId, grace: Duration) -> Result<()> {
     servers.changed.send_modify(|n| *n += 1);
     servers.dev.stop(id, grace);
     Ok(())
+}
+
+/// A session's `run` ended: its grants go, and so do the servers of its
+/// worktree if it is a worker. Those of the main checkout belong to nobody.
+pub(crate) fn session_ended(core: &Core, session: &SessionId, run: u64) {
+    grants::session_ended(core, session, run);
+    // Unless a resume started the next run meanwhile.
+    let ended = core
+        .sessions()
+        .find(session, |s| s.run() == run && s.status().is_ended());
+    if ended == Ok(true) {
+        stop_worktree(core, session);
+    }
+}
+
+/// Asks every running server in the worktree of the worker `session` to
+/// end; returns their ids.
+fn stop_worktree(core: &Core, session: &SessionId) -> Vec<ServerId> {
+    let ids: Vec<ServerId> = core
+        .dev_servers()
+        .lock()
+        .servers
+        .iter()
+        .filter(|e| e.place.session.as_ref() == Some(session) && e.running())
+        .map(|e| e.id.clone())
+        .collect();
+    for id in &ids {
+        let _ = stop(core, id, DEFAULT_GRACE);
+    }
+    ids
+}
+
+/// Ends the servers of a worker's worktree before its changes are applied,
+/// so nothing writes it meanwhile. False if one still runs after its grace.
+pub(crate) async fn worktree_stopped(core: &Core, session: &SessionId) -> bool {
+    for id in stop_worktree(core, session) {
+        let limit = DEFAULT_GRACE + STOP_SLACK;
+        match wait(core, &id, limit, |e| !e.running()).await {
+            Ok(info) if !ended(&info.status) => return false,
+            _ => {}
+        }
+    }
+    true
 }
 
 /// Stop, wait for the end, then start with a new generation.

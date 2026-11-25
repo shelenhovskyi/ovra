@@ -788,6 +788,7 @@ async fn approve(
         return Ok((item(core, &entry).await?, outcome.conflicts));
     }
     let root = core.root(&entry.project)?;
+    servers_stopped(core, &entry.session).await?;
     let ws = entry.workspace.clone();
     let worktrees = core.worktrees();
     // Only what the person reviewed may land: everything below reads and
@@ -881,6 +882,17 @@ async fn approve(
 }
 
 /// Whether `session` is at work: neither idle nor ended.
+/// Ends the servers of a worker's worktree before its files are copied:
+/// they run commands that write it.
+async fn servers_stopped(core: &Core, session: &SessionId) -> Result<()> {
+    if crate::servers::worktree_stopped(core, session).await {
+        return Ok(());
+    }
+    Err(conflict(
+        "the worker's servers did not stop; try again once they have",
+    ))
+}
+
 fn busy(core: &Core, session: &SessionId) -> bool {
     core.sessions()
         .find(session, |s| {
@@ -938,6 +950,7 @@ async fn take(
             )
         });
     }
+    servers_stopped(core, &entry.session).await?;
     let ws = entry.workspace.clone();
     let worktrees = core.worktrees();
     // Since the approve the base is the worktree as the person approved it.

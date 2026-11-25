@@ -514,6 +514,31 @@ async fn a_late_end_of_an_earlier_run_leaves_the_resumed_runs_grants() {
 }
 
 #[tokio::test]
+async fn a_workers_servers_end_before_its_changes_land_and_with_it() {
+    let f = fx().await;
+    coordinator_and_worker(&f).await;
+    let main = person_starts(&f, "web").await;
+    let own = starts_in(&f, "web", Some("s2")).await;
+    let own = own.unwrap_or_else(|e| panic!("{e}"));
+    f.dev.report(&own.id, ServerStatus::Ready);
+    let worker = SessionId("s2".into());
+    assert!(crate::servers::worktree_stopped(&f.core, &worker).await);
+    let stopped = || {
+        let stopped = f.dev.stopped.lock().map(|s| s.clone()).unwrap_or_default();
+        stopped.into_iter().map(|(id, _)| id.0).collect::<Vec<_>>()
+    };
+    assert_eq!(stopped(), std::slice::from_ref(&own.id.0));
+    starts_in(&f, "web", Some("s2"))
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    stop_session(&f, "s2").await;
+    assert_eq!(stopped(), [own.id.0.clone(), own.id.0.clone()]);
+    // The main checkout's server belongs to nobody: it runs on.
+    let running = f.dev.running.lock().map(|r| r.contains_key(&main.id));
+    assert_eq!(running.ok(), Some(true));
+}
+
+#[tokio::test]
 async fn a_dial_reaches_only_the_generation_it_was_granted_for() {
     let f = fx().await;
     let web = person_starts(&f, "web").await;

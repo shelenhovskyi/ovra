@@ -80,7 +80,7 @@ pub(crate) fn session_started(core: &Core, session: &SessionId) {
 
 /// Forgets the grants of a session's ended `run`; its netproxy stopped with
 /// it. Those of a later run stay.
-pub(crate) fn session_ended(core: &Core, session: &SessionId, run: u64) {
+pub(super) fn session_ended(core: &Core, session: &SessionId, run: u64) {
     let Ok(project) = core.sessions().find(session, |s| s.info().project) else {
         return;
     };
@@ -104,7 +104,10 @@ pub(crate) fn session_ended(core: &Core, session: &SessionId, run: u64) {
 /// The ports of the servers `session` may reach now.
 pub(crate) fn granted_ports(core: &Core, session: &SessionId) -> Vec<u16> {
     let state = core.dev_servers().lock();
-    let granted = state.granted.get(session).map(Vec::as_slice);
+    let granted = state
+        .granted
+        .get(session)
+        .map(|given| given.grants.as_slice());
     granted.unwrap_or_default().iter().map(|g| g.1).collect()
 }
 

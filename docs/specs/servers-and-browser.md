@@ -95,8 +95,12 @@ The person defines servers in `.ovra/servers.json` in the project:
 - A pod starts with its first server and ends with its last. Stop sends
   SIGTERM to the server's process group, SIGKILL after `grace_ms`
   (default 5000). Ending a pod kills its PID namespace, so no process
-  survives it. A pod ends when Ovra quits; the session or person that
-  started a server does not own it.
+  survives it. A pod ends when Ovra quits. In the main checkout the
+  session or person that started a server does not own it. A worker's
+  pod does not outlive the worker: every server of its worktree is
+  stopped when the worker's session ends, and before its review is
+  approved or its files are copied over the person's (`review.take`), so
+  nothing writes the worktree while its changes land.
 - **Pod-init.** A pod's first process is Ovra itself in pod mode
   (`<ovra> --ovra-pod <pod dir>`, `ovra_servers::pod_init_if_asked`). It
   prints `ovra-pod: listening` once `<pod dir>/control.sock` listens,
