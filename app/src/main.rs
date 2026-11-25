@@ -48,6 +48,24 @@ async fn ovra_pick_folder(window: tauri::WebviewWindow) -> Result<Option<String>
         .map_err(|_| "Ovra cannot open folders whose path is not valid Unicode yet.".to_owned())
 }
 
+/// Tells the UI, before it starts, that the window draws its content under
+/// the title bar (`titleBarStyle: Overlay`, macOS only), so the title bar
+/// leaves room for the traffic lights. The UI never asks which OS it runs on.
+fn window_chrome<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
+    let script = if cfg!(target_os = "macos") {
+        "(() => {
+          const set = () => document.documentElement.setAttribute('data-chrome', 'overlay');
+          if (document.documentElement) set();
+          else document.addEventListener('readystatechange', set, { once: true });
+        })();"
+    } else {
+        ""
+    };
+    tauri::plugin::Builder::new("ovra-chrome")
+        .js_init_script(script)
+        .build()
+}
+
 /// The pods' folder (`ovra_servers::servers_dir`), removed when the app
 /// exits.
 struct ServersDir(std::path::PathBuf);
@@ -62,6 +80,7 @@ fn main() {
         .plugin(tauri_plugin_notification::init())
         // Folder dialogs, opened from Rust only (`ovra_pick_folder`).
         .plugin(tauri_plugin_dialog::init())
+        .plugin(window_chrome())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
