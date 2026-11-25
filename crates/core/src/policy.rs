@@ -9,7 +9,8 @@ use serde_json::Value;
 
 use crate::Core;
 use crate::protocol::agents::{SandboxNetwork, SandboxReport};
-use crate::protocol::audit::AuditEvent;
+use crate::protocol::audit::{AuditEvent, DecidedBy};
+use crate::protocol::permissions::{Decision, PermissionId};
 use crate::protocol::policy::{
     Policy, PolicyAction, PolicyEvent, PolicyRequest, PolicyResponse, PolicyRule,
 };
@@ -214,6 +215,61 @@ fn command_scope(command: &str) -> Option<String> {
     }
     let scope = words.join(" ");
     (scope.len() <= MAX_ALWAYS_COMMAND).then_some(scope)
+}
+
+/// "Always allow" on the pending request `id`: adds the rule it offers to
+/// its project's policy, unless a project rule now asks about or refuses
+/// the call. The caller then answers the request.
+pub(crate) fn add_from_approval(
+    core: &Core,
+    id: &PermissionId,
+    decision: Decision,
+) -> Result<(), ProtocolError> {
+    let bad = |why: &str| Err(ProtocolError::new(ErrorCode::BadRequest, why));
+    if decision != Decision::Allow {
+        return bad("only an allow can add a rule");
+    }
+    let pending = core.sessions().permissions.pending();
+    let Some(request) = pending.into_iter().find(|r| &r.id == id) else {
+        return Err(ProtocolError::new(
+            ErrorCode::NotFound,
+            format!("permission request {} is not pending", id.0),
+        ));
+    };
+    let (Some(rule), Some(cwd)) = (request.always, request.cwd) else {
+        return bad("this request offers no rule to always allow");
+    };
+    let store = core.project_store();
+    let _setting = SETTING
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut policy = store.policy(&request.project)?;
+    // Without a sandbox only deny and ask rules decide.
+    if decide(
+        &policy,
+        &request.tool,
+        &request.input,
+        Path::new(&cwd),
+        None,
+    )
+    .is_some()
+    {
+        return bad("a project rule now asks about this call; nothing was added");
+    }
+    if policy.rules.contains(&rule) {
+        return Ok(());
+    }
+    policy.rules.push(rule.clone());
+    store.set_policy(&request.project, &policy)?;
+    let event = AuditEvent::RuleAdded {
+        rule,
+        by: DecidedBy::Person,
+    };
+    crate::audit::record(core, &request.project, Some(&request.session), event);
+    core.emit(PolicyEvent::Changed {
+        project: request.project,
+    });
+    Ok(())
 }
 
 /// A rule as people read it: `Bash(npm test)`, or `WebFetch` for every call.

@@ -376,3 +376,210 @@ fn always_allow_offers_the_narrowest_rule_or_none() {
         None
     );
 }
+
+#[tokio::test]
+async fn always_allow_adds_the_rule_answers_and_the_next_call_is_allowed() {
+    use std::sync::Arc;
+
+    use crate::Core;
+    use crate::agents::AgentHost;
+    use crate::fakes::{MemoryAudit, MemoryProjects, ScriptedAgent, Step};
+    use crate::protocol::agents::SessionId;
+    use crate::protocol::audit::{AuditEvent, DecidedBy};
+    use crate::protocol::permissions::{Decision, PermissionsEvent};
+    use crate::protocol::policy::{PolicyEvent, PolicyResponse};
+    use crate::protocol::projects::ProjectId;
+    use crate::protocol::{ErrorCode, Event, Request, Response};
+    use crate::services::AuditLog;
+
+    let audit = Arc::new(MemoryAudit::default());
+    let core = Core::builder("test")
+        .projects(Arc::new(MemoryProjects::default()))
+        .agents(Arc::new(ScriptedAgent::new(vec![vec![Step::Say("hi")]])))
+        .audit(audit.clone())
+        .build();
+    let call = |json: serde_json::Value| {
+        let core = core.clone();
+        async move {
+            let request: Request = serde_json::from_value(json).unwrap_or_else(|e| panic!("{e}"));
+            core.handle(request).await
+        }
+    };
+    let root = crate::test_path!("/w");
+    assert!(
+        call(json!({"method": "projects.add", "params": {"root": root}}))
+            .await
+            .is_ok()
+    );
+    let start = json!({"method": "agents.start", "params": {
+        "project": "p1", "agent": "claude", "mode": "direct", "prompt": "x"}});
+    assert!(call(start).await.is_ok());
+    let boxed = AgentHost::new(
+        SessionId("s1".into()),
+        ProjectId("p1".into()),
+        core.inner_sessions(),
+        core.sink(),
+    );
+    boxed.sandboxed(None);
+
+    let mut rx = core.subscribe();
+    let test = json!({"command": "npm test"});
+    let asking = |host: AgentHost| {
+        let test = test.clone();
+        tokio::spawn(async move { host.ask("Bash".into(), test, None, None).await })
+    };
+    let requested = |rx: &mut tokio::sync::broadcast::Receiver<Event>| {
+        let mut rx = rx.resubscribe();
+        async move {
+            loop {
+                if let Some(Event::Permissions(PermissionsEvent::Requested(r))) =
+                    Core::next_event(&mut rx).await
+                {
+                    return r;
+                }
+            }
+        }
+    };
+    // Without a sandbox nothing is offered, and asking for it is refused.
+    let waiting = requested(&mut rx);
+    let unsandboxed = asking(boxed.clone());
+    let request = waiting.await;
+    assert_eq!(request.always, None);
+    let answer = |id: &str| {
+        json!({"method": "permissions.answer", "params": {
+        "id": id, "decision": "allow", "always": true}})
+    };
+    assert_eq!(
+        call(answer(&request.id.0)).await.err().map(|e| e.code),
+        Some(ErrorCode::BadRequest)
+    );
+    unsandboxed.abort();
+    boxed.sandboxed(Some(sandboxed(SandboxNetwork::Proxy)));
+
+    let waiting = requested(&mut rx);
+    let sandboxed_call = asking(boxed.clone());
+    let request = waiting.await;
+    let rule = request
+        .always
+        .clone()
+        .unwrap_or_else(|| panic!("no rule offered"));
+    assert_eq!(text(&rule), "Bash(npm test)");
+    let deny = json!({"method": "permissions.answer", "params": {
+        "id": request.id.0, "decision": "deny", "always": true}});
+    assert_eq!(
+        call(deny).await.err().map(|e| e.code),
+        Some(ErrorCode::BadRequest)
+    );
+    let mut events = rx.resubscribe();
+    assert!(call(answer(&request.id.0)).await.is_ok());
+    let allowed = sandboxed_call.await.unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(allowed.decision, Decision::Allow);
+    let changed = std::iter::from_fn(|| events.try_recv().ok())
+        .any(|e| matches!(e, Event::Policy(PolicyEvent::Changed { .. })));
+    assert!(changed, "the new rule was not announced");
+    let Ok(Response::Policy(PolicyResponse::Policy(kept))) =
+        call(json!({"method": "policy.get", "params": {"project": "p1"}})).await
+    else {
+        panic!("no policy");
+    };
+    assert_eq!(kept.rules, vec![rule.clone()]);
+    assert!(kept.rules[0].from_approval);
+
+    // The next identical call is decided by the rule, without a request.
+    let again = boxed.ask("Bash".into(), test.clone(), None, None).await;
+    assert_eq!(again.decision, Decision::Allow);
+
+    // The log names who added which rule, for the session that asked.
+    let entries = audit.list(&ProjectId("p1".into()), Default::default(), 100);
+    let entries = entries.unwrap_or_default();
+    let added: Vec<_> = entries
+        .iter()
+        .filter_map(|e| match &e.event {
+            AuditEvent::RuleAdded { rule, by } => {
+                Some((e.session.clone(), rule.clone(), by.clone()))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        added,
+        vec![(Some(SessionId("s1".into())), rule, DecidedBy::Person)]
+    );
+    let by_rule = entries.iter().any(|e| {
+        matches!(&e.event, AuditEvent::ToolDecided { by: DecidedBy::Policy { rule }, .. }
+            if rule == "Bash(npm test)")
+    });
+    assert!(by_rule, "the second call was not decided by the rule");
+}
+
+#[tokio::test]
+async fn always_allow_is_refused_once_a_rule_asks_about_the_call() {
+    use std::sync::Arc;
+
+    use crate::Core;
+    use crate::agents::AgentHost;
+    use crate::fakes::{MemoryProjects, ScriptedAgent, Step};
+    use crate::protocol::agents::SessionId;
+    use crate::protocol::permissions::PermissionsEvent;
+    use crate::protocol::projects::ProjectId;
+    use crate::protocol::{ErrorCode, Event, Request};
+
+    let core = Core::builder("test")
+        .projects(Arc::new(MemoryProjects::default()))
+        .agents(Arc::new(ScriptedAgent::new(vec![vec![Step::Say("hi")]])))
+        .build();
+    let call = |json: serde_json::Value| {
+        let core = core.clone();
+        async move {
+            let request: Request = serde_json::from_value(json).unwrap_or_else(|e| panic!("{e}"));
+            core.handle(request).await
+        }
+    };
+    let root = crate::test_path!("/w");
+    assert!(
+        call(json!({"method": "projects.add", "params": {"root": root}}))
+            .await
+            .is_ok()
+    );
+    let start = json!({"method": "agents.start", "params": {
+        "project": "p1", "agent": "claude", "mode": "direct", "prompt": "x"}});
+    assert!(call(start).await.is_ok());
+    let host = AgentHost::new(
+        SessionId("s1".into()),
+        ProjectId("p1".into()),
+        core.inner_sessions(),
+        core.sink(),
+    );
+    host.sandboxed(Some(sandboxed(SandboxNetwork::Blocked)));
+    let mut rx = core.subscribe();
+    let asking = tokio::spawn({
+        let host = host.clone();
+        async move {
+            host.ask("Bash".into(), json!({"command": "npm test"}), None, None)
+                .await
+        }
+    });
+    let request = loop {
+        if let Some(Event::Permissions(PermissionsEvent::Requested(r))) =
+            Core::next_event(&mut rx).await
+        {
+            break r;
+        }
+    };
+    assert!(request.always.is_some());
+    let set = json!({"method": "policy.set", "params": {"project": "p1", "policy": {"rules": [
+        {"tool": "Bash", "match": "npm", "action": "ask"}]}}});
+    assert!(call(set).await.is_ok());
+    let always = json!({"method": "permissions.answer", "params": {
+        "id": request.id.0, "decision": "allow", "always": true}});
+    assert_eq!(
+        call(always).await.err().map(|e| e.code),
+        Some(ErrorCode::BadRequest)
+    );
+    let policy = call(json!({"method": "policy.get", "params": {"project": "p1"}})).await;
+    assert!(
+        format!("{policy:?}").matches("tool").count() == 1,
+        "{policy:?}"
+    );
+    asking.abort();
+}

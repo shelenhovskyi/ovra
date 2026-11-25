@@ -585,6 +585,13 @@ rules for each project:
     names or hosts where anyone can receive data (the netproxy's broad
     list).
   - Nothing else.
+- `permissions.answer { always: true }` adds the rule (marked
+  `from_approval`) under the same lock as `policy.set`, records
+  `RuleAdded { rule, by: Person }` for the asking session, announces
+  `policy.changed`, then answers allow. It refuses with `bad_request` when
+  the request offers no rule or a deny or ask rule matches the call by then.
+- Agents cannot reach it: it is a client method, not an IDE tool. The rule
+  shows in Settings > Rules, where Remove takes it out.
 
 ## Audit log
 
@@ -604,6 +611,7 @@ pub enum AuditEvent {
     ToolDecided { tool: String, input: AuditInput, allowed: bool, by: DecidedBy },
     TrustChanged { trusted: bool, fingerprint: Option<String> },
     PolicyChanged { policy: Policy },
+    RuleAdded { rule: PolicyRule, by: DecidedBy },
     ReviewDecided { review: ReviewId, action: ReviewAction },
     NetworkRefused { host: String, reason: String },
     SecretUsed { name: String, host: String },

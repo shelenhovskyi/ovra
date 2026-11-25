@@ -727,10 +727,6 @@ pub(crate) fn permissions(ctx: &Ctx<'_>, request: PermissionsRequest) -> Result<
         PermissionsRequest::Pending => Ok(Response::Permissions(PermissionsResponse::Pending(
             permissions.pending(),
         ))),
-        PermissionsRequest::Answer { always: true, .. } => Err(ProtocolError::new(
-            ErrorCode::BadRequest,
-            "this request offers no rule to always allow",
-        )),
         PermissionsRequest::Answer { id, answer, .. } => {
             let decision = answer.decision;
             if !permissions.answer(&id, answer) {
