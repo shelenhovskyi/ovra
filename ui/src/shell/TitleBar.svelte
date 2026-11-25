@@ -1,10 +1,13 @@
 <script lang="ts">
-// The window's top row: project, branch and a search field that opens the
-// palette (Reviews and More sit in the rail). In the desktop app on macOS it is the title bar
-// itself (`data-chrome="overlay"` on the root, set by the app): the traffic
-// lights sit on its left and its empty space drags the window.
+// The window's top row, in three groups (docs/design/components.md): the
+// sidebar toggle, project and branch; a search field that opens the palette;
+// Reviews, the Agents toggle and More. The start screen keeps only the Ovra
+// mark and More. In the desktop app on macOS it is the title bar itself
+// (`data-chrome="overlay"` on the root, set by the app): the traffic lights
+// sit on its left and its empty space drags the window.
 import AuditLog from "../audit/AuditLog.svelte";
 import BrowserButton from "../browser/BrowserButton.svelte";
+import Inbox from "../inbox/Inbox.svelte";
 import { listCommands } from "../keys/commands";
 import { formatShortcut, inBrowserTab, isApple, liveKeys } from "../keys/shortcut";
 import NetworkPanel from "../network/NetworkPanel.svelte";
@@ -12,20 +15,45 @@ import PolicyPanel from "../policy/PolicyPanel.svelte";
 import ServersPanel from "../servers/ServersPanel.svelte";
 import { useOvra } from "./context";
 import Icon from "./Icon.svelte";
+import type { Layout, Panel } from "./layout.svelte";
+import MoreMenu from "./MoreMenu.svelte";
 import ProjectSwitcher from "./ProjectSwitcher.svelte";
+import { hush } from "./tips";
 
-// Mod+K: "Search or run", files (projects on the start screen) and commands.
+let {
+  layout,
+  shown,
+  waiting,
+  toggle,
+  showApprovals,
+}: {
+  layout: Layout;
+  /** Whether each side panel is on screen. */
+  shown: Record<Panel, boolean>;
+  /** Requests that wait for a person while Agents is hidden. */
+  waiting: number;
+  toggle: (panel: Panel) => void;
+  showApprovals: () => void;
+} = $props();
+
+// Mod+K: "Search or run", files and commands.
 const SEARCH = "palette.search";
+const TOGGLES: Record<Panel, { name: string; command: string }> = {
+  side: { name: "Sidebar", command: "layout.toggle_side" },
+  agents: { name: "Agents", command: "layout.toggle_agents" },
+};
 
 const { transport, workspace } = useOvra();
 
 let branch = $state<string | null>(null);
-/** The palette's live shortcut, read once the commands are registered. */
-let keys = $state<string | undefined>();
+/** The live shortcut of each command, read once the panels registered theirs. */
+let keys = $state<Record<string, string>>({});
 
 $effect(() => {
-  const command = listCommands().find((c) => c.id === SEARCH);
-  keys = command?.keys ? liveKeys(command.keys, inBrowserTab()) : undefined;
+  void workspace.project;
+  const live: Record<string, string> = {};
+  for (const command of listCommands()) if (command.keys) live[command.id] = liveKeys(command.keys, inBrowserTab());
+  keys = live;
 });
 
 // The branch of the open project, again whenever git says something changed.
@@ -56,16 +84,41 @@ $effect(() => {
   };
 });
 
-function search(): void {
+function run(id: string): void {
   void listCommands()
-    .find((c) => c.id === SEARCH)
+    .find((c) => c.id === id)
     ?.run();
+}
+
+/** The branch menu is the Git panel's: show the panel, then the menu. */
+function switchBranch(): void {
+  if (!shown.side) toggle("side");
+  run("git.switch_branch");
+}
+
+function tip(panel: Panel): string {
+  const { name, command } = TOGGLES[panel];
+  const shortcut = keys[command] ? ` ${formatShortcut(keys[command], isApple())}` : "";
+  return `${shown[panel] ? "Hide" : "Show"} ${name}${shortcut}`;
 }
 </script>
 
-<header class="title" data-tauri-drag-region>
-  <div class="start" data-tauri-drag-region>
-    <h1 class="mark">
+{#snippet panelToggle(panel: Panel)}
+  <button
+    type="button"
+    class="tool tip"
+    data-tip={tip(panel)}
+    aria-label={TOGGLES[panel].name}
+    aria-pressed={shown[panel]}
+    onclick={() => toggle(panel)}><Icon name={layout.left === panel ? "panel-left" : "panel-right"} /></button
+  >
+{/snippet}
+
+<!-- The press only hides a tooltip; the buttons inside do the work. -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<header class="title" data-tauri-drag-region onpointerdown={hush}>
+  <div class="lead" data-tauri-drag-region>
+    <h1 class="mark" class:visually-hidden={!!workspace.project}>
       <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
         <circle class="ring" cx="12" cy="12" r="7.5" />
         <circle class="dot" cx="12" cy="12" r="2.2" />
@@ -73,20 +126,41 @@ function search(): void {
       <span class="visually-hidden">Ovra</span>
     </h1>
     {#if workspace.project}
+      {@render panelToggle("side")}
       <ProjectSwitcher project={workspace.project} />
       {#if branch}
-        <span class="branch" title="Branch"><Icon name="branch" small /><span class="name">{branch}</span></span>
+        <button type="button" class="branch" title="Switch branch" onclick={switchBranch}
+          ><Icon name="branch" small /><span class="name">{branch}</span><span class="visually-hidden">
+            (switch branch)</span
+          ></button
+        >
       {/if}
-    {:else}
-      <span class="none" data-testid="project-name">No project open</span>
     {/if}
   </div>
-  <button type="button" class="search" data-testid="search-field" aria-keyshortcuts={keys} onclick={search}>
-    <Icon name="search" small />
-    <span class="label">{workspace.project ? "Search or run" : "Open a project"}</span>
-    {#if keys}<kbd aria-hidden="true">{formatShortcut(keys, isApple())}</kbd>{/if}
-  </button>
-  <span class="end" data-tauri-drag-region></span>
+  {#if workspace.project}
+    <button type="button" class="search" data-testid="search-field" aria-keyshortcuts={keys[SEARCH]} onclick={() => run(SEARCH)}>
+      <Icon name="search" small />
+      <span class="label">Search or run</span>
+      {#if keys[SEARCH]}<kbd aria-hidden="true">{formatShortcut(keys[SEARCH], isApple())}</kbd>{/if}
+    </button>
+  {:else}
+    <span data-tauri-drag-region></span>
+  {/if}
+  <div class="trail" data-tauri-drag-region>
+    {#if waiting > 0}
+      <button
+        type="button"
+        class="waiting"
+        data-testid="approvals-waiting"
+        aria-label={`${waiting} waiting for approval, show Agents`}
+        onclick={showApprovals}>{waiting} waiting</button
+      >
+    {/if}
+    <!-- Mounted with or without a project: its shortcut and dialog work everywhere. -->
+    <span class="reviews" hidden={!workspace.project}><Inbox /></span>
+    {#if workspace.project}{@render panelToggle("agents")}{/if}
+    <MoreMenu />
+  </div>
   <!-- Opened from the "More" menu, the palette or their shortcuts. -->
   <AuditLog trigger={false} />
   <PolicyPanel trigger={false} />
@@ -104,7 +178,7 @@ function search(): void {
     gap: 16px;
     min-width: 0;
     height: 100%;
-    padding: 0 10px 0 16px;
+    padding: 0 8px 0 12px;
     user-select: none;
   }
   /* The desktop app's overlay title bar: room for the window's traffic lights.
@@ -115,7 +189,7 @@ function search(): void {
   }
   .mark {
     display: flex;
-    margin: 0;
+    margin: 0 0 0 4px;
   }
   .mark svg {
     width: 18px;
@@ -129,31 +203,128 @@ function search(): void {
   .dot {
     fill: var(--text);
   }
-  .none {
+  .lead,
+  .trail {
+    display: flex;
+    align-items: center;
+    align-self: stretch;
+    gap: 4px;
+    min-width: 0;
+  }
+  .trail {
+    justify-content: flex-end;
+  }
+  .reviews[hidden] {
+    display: none;
+  }
+  /* Title-bar items, Reviews' and More's included (they carry the rail's class):
+     borderless 28 px squares. */
+  .tool,
+  .trail :global(.rail-button) {
+    position: relative;
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
     color: var(--text-2);
+    background: none;
+    border: 0;
+    border-radius: 7px;
+    cursor: pointer;
+  }
+  .tool:hover,
+  .trail :global(.rail-button:hover),
+  .trail :global(.rail-button[aria-expanded="true"]) {
+    color: var(--text);
+    background: var(--s3);
+  }
+  .tool[aria-pressed="false"] {
+    color: var(--text-3);
+  }
+  .trail :global(.rail-badge) {
+    position: absolute;
+    top: -3px;
+    right: -5px;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    font: 600 12px / 16px var(--font);
+    text-align: center;
+    color: var(--accent-ink);
+    background: var(--accent);
+    border-radius: 8px;
+  }
+  .waiting {
+    height: 24px;
+    padding: 0 10px;
+    font: 500 13px var(--font);
+    color: var(--warn);
+    background: var(--warn-soft);
+    border: 0;
+    border-radius: 12px;
+    cursor: pointer;
+  }
+  .waiting:hover {
+    filter: brightness(1.1);
+  }
+  /* Tooltips below the button, after a short hover or on keyboard focus; a press hides it. */
+  .title :global(.tip::after) {
+    content: attr(data-tip);
+    position: absolute;
+    top: calc(100% + 6px);
+    z-index: 50;
+    padding: 4px 9px;
+    font: 400 13px var(--font);
+    white-space: nowrap;
+    color: var(--text);
+    background: var(--s4);
+    border-radius: 6px;
+    box-shadow: var(--card-shadow);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.12s;
+  }
+  .lead :global(.tip::after) {
+    left: 0;
+  }
+  .trail :global(.tip::after) {
+    right: 0;
+  }
+  .title :global(.tip:hover::after) {
+    opacity: 1;
+    transition-delay: 0.6s;
+  }
+  .title :global(.tip:focus-visible::after) {
+    opacity: 1;
+  }
+  .title :global(.tip[data-hush]::after) {
+    opacity: 0;
+    transition: none;
   }
   .branch {
     display: inline-flex;
     align-items: center;
     gap: 6px;
     min-width: 0;
+    height: 28px;
+    padding: 0 8px;
     color: var(--text-2);
+    background: none;
+    border: 0;
+    border-radius: 7px;
+    cursor: pointer;
+  }
+  .branch:hover {
+    color: var(--text);
+    background: var(--s3);
   }
   .branch .name {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     font: 13px var(--mono);
-  }
-  .start,
-  .end {
-    display: flex;
-    align-items: center;
-    align-self: stretch;
-    min-width: 0;
-  }
-  .start {
-    gap: 10px;
   }
   .search {
     display: flex;
@@ -196,9 +367,18 @@ function search(): void {
     clip-path: inset(50%);
     white-space: nowrap;
   }
+  @media (prefers-reduced-motion: reduce) {
+    .title :global(.tip::after) {
+      transition: none;
+    }
+  }
   @media (forced-colors: active) {
     .search {
       border: 1px solid ButtonText;
+    }
+    .tool[aria-pressed="true"] {
+      outline: 2px solid Highlight;
+      outline-offset: -2px;
     }
   }
 </style>

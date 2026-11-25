@@ -103,7 +103,7 @@ test("the project name switches projects, opens another folder and survives a re
   await expect(projects).toBeVisible();
   await page.reload();
   await expect(projects).toBeVisible();
-  await expect(name).toHaveText("No project open");
+  await expect(name).toBeHidden();
 });
 
 test("a wrong token is refused", async ({ page }) => {

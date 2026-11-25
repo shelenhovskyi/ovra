@@ -45,19 +45,27 @@ test("side panels resize, fold and swap, and the layout survives a reload", asyn
   await expect(handle).toHaveAttribute("aria-valuenow", "316");
   expect(Math.round((await sidebar.boundingBox())?.width ?? 0)).toBe(316);
 
-  // Swap sides: the rail goes with Files. Then fold Files: no strip, the
-  // rail unfolds it. (Agents is not folded here: it unfolds while any
-  // project's request waits, and other specs make some.)
+  // Swap sides from the palette: the rail goes with Files. Then fold Files
+  // with the title bar's toggle: no strip, the rail unfolds it. Agents folds
+  // on Alt+Mod+0 and comes back the same way.
   const agents = page.getByTestId("agents");
   const rail = page.getByRole("navigation", { name: "Views" });
   const files = rail.getByRole("button", { name: "Files", exact: true });
-  await sidebar.getByRole("button", { name: "Move Files to the other side" }).click();
+  await page.keyboard.press("ControlOrMeta+Shift+P");
+  await page.getByRole("combobox", { name: "Type a command" }).fill("Swap side panels");
+  await page.keyboard.press("Enter");
   expect((await agents.boundingBox())?.x ?? 0).toBeLessThan((await sidebar.boundingBox())?.x ?? 0);
   expect((await rail.boundingBox())?.x ?? 0).toBeGreaterThan((await sidebar.boundingBox())?.x ?? 0);
-  await sidebar.getByRole("button", { name: "Collapse Files" }).click();
+  const title = page.locator("header.title");
+  await title.getByRole("button", { name: "Sidebar", pressed: true }).click();
   await expect(files).toHaveAttribute("aria-pressed", "false");
-  await expect(files).toBeFocused();
   expect(Math.round((await sidebar.boundingBox())?.width ?? 0)).toBe(0);
+  const agentsToggle = title.getByRole("button", { name: "Agents", exact: true });
+  await page.keyboard.press("Alt+ControlOrMeta+0");
+  await expect(agentsToggle).toHaveAttribute("aria-pressed", "false");
+  await expect(agents.getByRole("button", { name: /^Show Agents/ })).toBeVisible();
+  await page.keyboard.press("Alt+ControlOrMeta+0");
+  await expect(agentsToggle).toHaveAttribute("aria-pressed", "true");
 
   await page.reload();
   await expect(files).toHaveAttribute("aria-pressed", "false");

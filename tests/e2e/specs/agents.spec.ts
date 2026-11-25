@@ -67,19 +67,10 @@ test("start an agent and answer its requests from the keyboard", async ({ page }
   // The task opens, ready for a reply; nothing moves focus to the request.
   await expect(page.getByRole("textbox", { name: "Reply to Claude" })).toBeFocused();
   // In a 1280x720 window the request, the header and the reply box all fit:
-  // Send is not cut off, and the header is one line with room for its buttons.
+  // Send is not cut off, and the header is one line.
   const agents = page.getByTestId("agents");
   await expect(agents.getByRole("button", { name: "Send" })).toBeInViewport({ ratio: 1 });
-  const box = async (name: string) =>
-    (await agents.getByRole("button", { name }).boundingBox()) ?? { x: 0, y: 0, width: 0, height: 0 };
-  const [capacity, newTask, swap] = await Promise.all([
-    page.getByTestId("agents-capacity").boundingBox(),
-    box("New task"),
-    box("Move Agents to the other side"),
-  ]);
-  expect(capacity?.height).toBeLessThan(24);
-  expect(swap.x).toBeGreaterThanOrEqual(newTask.x + newTask.width);
-  expect(Math.abs(swap.y - newTask.y)).toBeLessThan(4);
+  expect((await page.getByTestId("agents-capacity").boundingBox())?.height).toBeLessThan(24);
 
   await page.keyboard.press("Alt+Shift+A");
   await expect(run).toBeFocused();

@@ -1,5 +1,6 @@
 import { flushSync, mount, unmount } from "svelte";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { listCommands } from "../keys/commands";
 import type { Request } from "../lib/protocol";
 import { FrameRouter, type Transport } from "../lib/transport";
 import Shell from "./Shell.svelte";
@@ -102,6 +103,48 @@ describe("Shell", () => {
     localStorage.clear();
   });
 
+  it("folds Agents while a request waits, and says so in the title bar until a new one comes", async () => {
+    const request = { id: "r1", session: "s1", project: "p1", tool: "Bash", input: {}, title: null };
+    const listeners: ((event: unknown) => void)[] = [];
+    const transport = fakeTransport();
+    const base = transport.call;
+    transport.call = ((r: Request) =>
+      r.method === "permissions.pending"
+        ? Promise.resolve({ type: "permissions.pending", data: [request] })
+        : base(r)) as Transport["call"];
+    transport.onEvent = (listener) => {
+      listeners.push(listener as (event: unknown) => void);
+      return () => {};
+    };
+    const target = document.createElement("div");
+    const app = mount(Shell, { target, props: { transport } });
+    flushSync();
+    await new Promise((resolve) => setImmediate(resolve));
+    flushSync();
+    const agents = () => target.querySelector("[data-testid=agents] > .body");
+    const chip = () => target.querySelector<HTMLButtonElement>("[data-testid=approvals-waiting]");
+    expect(agents()?.hasAttribute("hidden")).toBe(false);
+    expect(chip()).toBeNull();
+
+    await listCommands()
+      .find((c) => c.id === "layout.toggle_agents")
+      ?.run();
+    flushSync();
+    expect(agents()?.hasAttribute("hidden")).toBe(true);
+    expect(chip()?.textContent).toBe("1 waiting");
+    expect(target.querySelector(".strip button")?.getAttribute("aria-label")).toBe(
+      "Show Agents, 1 waiting for approval",
+    );
+
+    // A new request brings the column back.
+    for (const listener of listeners) listener({ type: "permissions.requested", data: { ...request, id: "r2" } });
+    flushSync();
+    expect(agents()?.hasAttribute("hidden")).toBe(false);
+    expect(chip()).toBeNull();
+    unmount(app);
+    localStorage.clear();
+  });
+
   it("explains a refused address instead of retrying", async () => {
     const router = new FrameRouter(() => {}, "connecting");
     const target = document.createElement("div");
@@ -147,13 +190,13 @@ describe("Shell", () => {
       return { target, more, menu, items };
     }
 
-    it("keeps Reviews and More in the rail and the other panels behind More, each explained", () => {
+    it("keeps only More in the start screen's title bar and the other panels behind it, each explained", () => {
       const { target, more, menu, items } = shell();
-      const rail = target.querySelector("nav[aria-label=Views]");
-      expect([...(rail?.querySelectorAll("button") ?? [])].map((b) => b.getAttribute("aria-label"))).toEqual([
-        "Reviews",
-        "More",
-      ]);
+      // No project: no rail, no search field, no panel toggles; Reviews stays mounted for its shortcut.
+      expect(target.querySelector("nav[aria-label=Views] button")).toBeNull();
+      const title = target.querySelector("header.title");
+      const shown = [...(title?.querySelectorAll("button") ?? [])].filter((b) => !b.closest("[hidden]"));
+      expect(shown.map((b) => b.getAttribute("aria-label"))).toEqual(["More"]);
       // A press hides the tooltip until the pointer leaves.
       more?.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
       expect(more?.hasAttribute("data-hush")).toBe(true);
@@ -161,7 +204,6 @@ describe("Shell", () => {
       expect(more?.hasAttribute("data-hush")).toBe(false);
 
       expect(target.querySelector("[data-testid=open-audit], [data-testid=open-browser]")).toBeNull();
-      expect(target.querySelector("[data-testid=project-name]")?.textContent).toBe("No project open");
       expect(more?.getAttribute("aria-haspopup")).toBe("menu");
       expect(more?.getAttribute("aria-expanded")).toBe("false");
 

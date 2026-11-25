@@ -4,7 +4,7 @@
 // quiet status bar. The side panels resize, fold to a strip and swap sides
 // (layout.svelte.ts). The window itself never scrolls: every frame area
 // clips, and the panels inside scroll on their own.
-import { untrack } from "svelte";
+import { tick, untrack } from "svelte";
 import AgentsPanel from "../agents/AgentsPanel.svelte";
 import { agentSessions } from "../agents/sessions.svelte";
 import ClaudeSetup from "../agents/setup/ClaudeSetup.svelte";
@@ -16,7 +16,7 @@ import { persistOpenFiles } from "../editor/open-files.svelte";
 import Tabs from "../editor/Tabs.svelte";
 import Git from "../git/Git.svelte";
 import GitDiff from "../git/GitDiff.svelte";
-import { registerCommand } from "../keys/commands";
+import { listCommands, registerCommand } from "../keys/commands";
 import Keybindings from "../keys/Keybindings.svelte";
 import type { CoreInfo } from "../lib/protocol";
 import type { ConnectionStatus, Transport } from "../lib/transport";
@@ -129,18 +129,43 @@ const status = $derived.by((): { text: string; ok: boolean } => {
   return { text: "Connecting…", ok: true };
 });
 
-$effect(() => registerCommand({ id: "layout.swap", title: "Swap side panels", run: () => layout.swap() }));
-$effect(() =>
-  registerCommand({ id: "layout.reset", title: "Reset layout", category: "View", run: () => layout.resetAll() }),
-);
+$effect(() => {
+  const off = [
+    registerCommand({ id: "layout.swap", title: "Swap side panels", category: "View", run: () => layout.swap() }),
+    registerCommand({ id: "layout.reset", title: "Reset layout", category: "View", run: () => layout.resetAll() }),
+    registerCommand({
+      id: "layout.toggle_side",
+      title: "Show or hide the sidebar",
+      category: "View",
+      keywords: ["collapse", "panel"],
+      keys: "Mod+0",
+      run: () => toggle("side"),
+    }),
+    registerCommand({
+      id: "layout.toggle_agents",
+      title: "Show or hide Agents",
+      category: "View",
+      keywords: ["collapse", "panel"],
+      keys: "Alt+Mod+0",
+      run: () => toggle("agents"),
+    }),
+  ];
+  return () => {
+    for (const unregister of off) unregister();
+  };
+});
 
 const view = $derived(VIEWS[workspace.sidebar]);
 const capacity = $derived(workspace.project ? sessions.capacity.get(workspace.project.id) : undefined);
-/** Folded panels. Agents unfolds while a request waits for a person, so approvals stay in sight. */
+/** The requests that waited when the person folded Agents; a new one unfolds it again. */
+let seenWhenFolded = $state<string[]>([]);
+/** Folded panels. Agents unfolds when a new request waits for a person, so approvals come into sight. */
 const folded = $derived({
   side: !!workspace.project && layout.side.collapsed,
-  agents: layout.agents.collapsed && approvals.pending.length === 0,
+  agents: layout.agents.collapsed && approvals.pending.every((r) => seenWhenFolded.includes(r.id)),
 });
+/** Requests waiting while Agents is folded: the title bar and the strip say how many. */
+const waiting = $derived(folded.agents ? approvals.pending.length : 0);
 
 /** The start screen has no Agents column, unless a request of an earlier project waits there. */
 const solo = $derived(!workspace.project && approvals.pending.length === 0);
@@ -184,48 +209,47 @@ function edge(panel: Panel): "left" | "right" {
   return layout.left === panel ? "left" : "right";
 }
 
-/** Folds `panel`. The rail's panel leaves no strip, so focus goes to the rail button that unfolds it. */
-function fold(panel: Panel, name: string): void {
-  layout.setCollapsed(panel, true);
-  if (panel === "side") document.querySelector<HTMLElement>(`nav[aria-label="Views"] [aria-label="${name}"]`)?.focus();
+/**
+ * Folds or unfolds `panel`. Focus inside a panel that folds goes to what
+ * unfolds it: the rail's button for the rail's panel, the Agents strip.
+ */
+async function toggle(panel: Panel): Promise<void> {
+  const fold = !folded[panel];
+  const area = document.querySelector(panel === "side" ? "[data-testid=sidebar]" : "[data-testid=agents]");
+  const inside = !!area?.contains(document.activeElement);
+  if (panel === "agents") seenWhenFolded = fold ? approvals.pending.map((r) => r.id) : [];
+  layout.setCollapsed(panel, fold);
+  if (!fold || !inside) return;
+  await tick();
+  const back =
+    panel === "side"
+      ? document.querySelector<HTMLElement>(`nav[aria-label="Views"] [aria-label="${view.name}"]`)
+      : document.querySelector<HTMLElement>("[data-testid=agents] .strip button");
+  back?.focus();
+}
+
+/** Shows Agents and moves to the first waiting request. */
+async function showApprovals(): Promise<void> {
+  if (folded.agents) await toggle("agents");
+  await tick();
+  void listCommands()
+    .find((c) => c.id === "approvals.focus")
+    ?.run();
 }
 </script>
-
-{#snippet controls(panel: Panel, name: string)}
-  <span class="controls">
-    <button
-      type="button"
-      title="Move to the other side"
-      aria-label={`Move ${name} to the other side`}
-      onclick={() => layout.swap()}><Icon name="swap" small /></button
-    >
-    <button
-      type="button"
-      title="Collapse"
-      aria-label={`Collapse ${name}`}
-      onclick={() => fold(panel, name)}><Icon name="panel-left" small /></button
-
-    >
-  </span>
-{/snippet}
-
-{#snippet agentsControls()}
-  {@render controls("agents", "Agents")}
-{/snippet}
 
 <svelte:window bind:innerWidth={layout.viewport} />
 <Keybindings />
 <div class="shell" class:start={!workspace.project} class:solo class:rail-right={layout.swapped} style={grid}>
-  <div class="title-area"><TitleBar /></div>
+  <div class="title-area">
+    <TitleBar {layout} shown={{ side: !folded.side, agents: !folded.agents }} {waiting} {toggle} {showApprovals} />
+  </div>
   <div class="rail-area"><Rail {layout} /></div>
   <aside class="panel side" data-testid="sidebar" aria-label={workspace.project ? view.name : "Projects"}>
-    <div class="body" class:own-head={workspace.sidebar === "files"} hidden={folded.side}>
+    <div class="body" hidden={folded.side}>
       <!-- The file tree draws its own header; Search and Git get one here. -->
-      {#if workspace.project}
-        <div class="head">
-          {#if workspace.sidebar !== "files"}<span class="name">{view.name}</span>{/if}
-          {@render controls("side", view.name)}
-        </div>
+      {#if workspace.project && workspace.sidebar !== "files"}
+        <div class="head"><span class="name">{view.name}</span></div>
       {/if}
       <div class="sidebar-view" hidden={!!workspace.project && workspace.sidebar !== "files"}><Tree /></div>
       <div class="sidebar-view" hidden={!workspace.project || workspace.sidebar !== "search"}><Search /></div>
@@ -284,20 +308,26 @@ function fold(panel: Panel, name: string): void {
         <button
           type="button"
           title="Show Agents"
-          aria-label={capacity?.working ? `Show Agents, ${capacity.working} working` : "Show Agents"}
-          onclick={() => layout.setCollapsed("agents", false)}
-          ><Icon name="agent" />{#if capacity?.working}<span class="badge" aria-hidden="true">{capacity.working}</span
-            >{/if}</button
+          aria-label={[
+            "Show Agents",
+            capacity?.working ? `${capacity.working} working` : "",
+            waiting ? `${waiting} waiting for approval` : "",
+          ]
+            .filter(Boolean)
+            .join(", ")}
+          onclick={() => void toggle("agents")}
+          ><Icon name="agent" />{#if waiting}<span class="badge warn" aria-hidden="true">{waiting}</span
+            >{:else if capacity?.working}<span class="badge" aria-hidden="true">{capacity.working}</span>{/if}</button
         >
       </div>
     {/if}
     <!-- One column, top to bottom: approvals (bounded, they scroll themselves),
          then Agents, whose list or transcript scrolls above a reply box that
-         stays in sight. Agents draws its own header and puts the swap and
-         collapse buttons in it. -->
+         stays in sight. Agents draws its own header; folding and swapping
+         are the title bar's and the palette's. -->
     <div class="body column" hidden={folded.agents}>
       <Approvals />
-      <AgentsPanel controls={agentsControls} />
+      <AgentsPanel />
     </div>
   </aside>
   <!-- The connection on the left; what runs for the open project on the right. -->
@@ -345,8 +375,10 @@ function fold(panel: Panel, name: string): void {
   }
   .title-area {
     grid-area: title;
+    z-index: 2;
     min-width: 0;
-    overflow: clip;
+    /* Sideways only: the title bar's tooltips hang below it. */
+    overflow-x: clip;
   }
   .rail-area {
     grid-area: rail;
@@ -419,20 +451,6 @@ function fold(panel: Panel, name: string): void {
     padding: 8px 8px 4px 16px;
     font-weight: 600;
   }
-  /* Chrome on demand: the panel's own buttons are faint until the header is pointed at or focused. */
-  .controls {
-    display: flex;
-    flex: none;
-    gap: 2px;
-    margin-left: auto;
-  }
-  .controls button {
-    color: var(--text-3);
-  }
-  :where(.head:hover, .own-head:hover, .column:hover) .controls button,
-  .controls:focus-within button {
-    color: var(--text-2);
-  }
   /* Nothing in the column may be taller than the column. */
   .column {
     overflow: clip;
@@ -459,23 +477,9 @@ function fold(panel: Panel, name: string): void {
     white-space: normal;
     box-shadow: none;
   }
-  .own-head {
-    position: relative;
-  }
-  .own-head > .head {
-    position: absolute;
-    top: 0;
-    right: 0;
-    z-index: 1;
-    padding-left: 0;
-  }
-  .own-head :global(.toolbar) {
-    padding-right: 72px;
-  }
   .strip button {
     color: var(--text-2);
   }
-  .controls button,
   .strip button {
     position: relative;
     display: grid;
@@ -486,11 +490,6 @@ function fold(panel: Panel, name: string): void {
     border-radius: 7px;
     cursor: pointer;
   }
-  .controls button {
-    width: 26px;
-    height: 26px;
-  }
-  .controls button:hover,
   .strip button:hover {
     color: var(--text);
     background: var(--s3);
@@ -515,6 +514,10 @@ function fold(panel: Panel, name: string): void {
     color: var(--accent-ink);
     background: var(--accent);
     border-radius: 8px;
+  }
+  .badge.warn {
+    color: var(--s0);
+    background: var(--warn);
   }
   .sidebar-view {
     flex: 1;
