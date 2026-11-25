@@ -733,6 +733,7 @@ impl AgentHost {
 /// What the project's policy says about a tool call before it runs
 /// ([`AgentHost::before_tool`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[must_use = "a deny or ask from the project's policy must reach the CLI"]
 pub enum BeforeTool {
     /// No deny or ask rule matches: the CLI decides as usual.
     Proceed,

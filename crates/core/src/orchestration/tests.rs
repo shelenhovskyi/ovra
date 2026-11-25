@@ -1851,8 +1851,11 @@ impl DirectFx {
             .clone()
             .unwrap_or_else(|| panic!("no direct session"));
         let input = json!({"file_path": PathBuf::from(ROOT).join(path), "content": text});
-        host.before_tool(&json!({"tool_use_id": path, "tool_name": "Write", "tool_input": input}))
-            .await;
+        let hook = json!({"tool_use_id": path, "tool_name": "Write", "tool_input": input});
+        assert_eq!(
+            host.before_tool(&hook).await,
+            crate::agents::BeforeTool::Proceed
+        );
         self.wt.put(ROOT, path, text);
         host.message(AgentMessage::ToolResult {
             tool_use_id: path.to_owned(),

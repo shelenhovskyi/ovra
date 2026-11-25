@@ -796,11 +796,14 @@ mod through_the_core {
         let s1 = host.session().clone();
 
         let input = json!({"command": "cargo fmt"});
-        host.before_tool(&json!({
+        let hook = json!({
             "hook_event_name": "PreToolUse", "tool_use_id": "t1",
             "tool_name": "Bash", "tool_input": input,
-        }))
-        .await;
+        });
+        assert_eq!(
+            host.before_tool(&hook).await,
+            crate::agents::BeforeTool::Proceed
+        );
         let asking = tokio::spawn({
             let host = host.clone();
             async move { host.ask("Bash".into(), input, None, None).await }
@@ -1039,10 +1042,13 @@ mod through_the_core {
     }
 
     async fn bash(host: &AgentHost, id: &str, during: impl std::future::Future<Output = ()>) {
-        host.before_tool(&json!({
+        let hook = json!({
             "tool_use_id": id, "tool_name": "Bash", "tool_input": {"command": "cargo build"},
-        }))
-        .await;
+        });
+        assert_eq!(
+            host.before_tool(&hook).await,
+            crate::agents::BeforeTool::Proceed
+        );
         during.await;
         host.message(crate::protocol::agents::AgentMessage::ToolResult {
             tool_use_id: id.into(),
