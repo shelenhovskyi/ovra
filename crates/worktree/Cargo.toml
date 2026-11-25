@@ -9,6 +9,7 @@ publish = false
 
 [dependencies]
 ovra-core.workspace = true
+sha2 = "0.10"
 tokio = { workspace = true, features = ["rt"] }
 
 [target.'cfg(unix)'.dependencies]

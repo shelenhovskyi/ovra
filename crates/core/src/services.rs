@@ -593,6 +593,12 @@ pub trait Worktrees: Send + Sync + Debug {
     /// The working tree of `dir` as it is now, for `diff` and `patches`
     /// right away. Unlike a snapshot it is not kept: `git gc` may drop it.
     fn look(&self, dir: PathBuf) -> BoxFuture<'_, Result<String>>;
+    /// The files of `dir`'s repository that run code or change what git
+    /// does and that no review diff shows: its config, `info/attributes`
+    /// and `info/exclude`, and the hooks folder (`core.hooksPath`, or
+    /// `.git/hooks`). Compared at review time with what they were when the
+    /// session started (SEC-5).
+    fn git_files(&self, dir: PathBuf) -> BoxFuture<'_, Result<GitFiles>>;
     /// Files that differ between two commits (snapshots) or looks of the
     /// repository at `dir`; the working tree is not read.
     fn diff(&self, dir: PathBuf, from: String, to: String) -> BoxFuture<'_, Result<Vec<Delta>>>;
@@ -663,6 +669,19 @@ pub trait Worktrees: Send + Sync + Debug {
         branch: String,
         base: String,
     ) -> BoxFuture<'_, Result<()>>;
+}
+
+/// What [`Worktrees::git_files`] found.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GitFiles {
+    /// The hooks folder relative to the top of the working tree, when
+    /// `core.hooksPath` points inside it (`.husky`): its files are in the
+    /// diff and marked protected.
+    pub hooks_in_tree: Option<String>,
+    /// A version of each file (its content, mode or link target), by the
+    /// name the review shows: `.git/config`, `.git/hooks/pre-commit`, or
+    /// the path itself for a hooks folder outside the repository.
+    pub files: BTreeMap<String, String>,
 }
 
 /// What [`Worktrees::take`] did.
@@ -982,6 +1001,9 @@ impl Worktrees for Unavailable {
         Box::pin(async move { self.err() })
     }
     fn look(&self, _: PathBuf) -> BoxFuture<'_, Result<String>> {
+        Box::pin(async move { self.err() })
+    }
+    fn git_files(&self, _: PathBuf) -> BoxFuture<'_, Result<GitFiles>> {
         Box::pin(async move { self.err() })
     }
     fn diff(&self, _: PathBuf, _: String, _: String) -> BoxFuture<'_, Result<Vec<Delta>>> {

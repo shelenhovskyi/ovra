@@ -12,6 +12,7 @@ mod diff;
 mod direct;
 mod files;
 mod git;
+mod gitfiles;
 mod repo;
 #[cfg(test)]
 mod tests;
@@ -23,7 +24,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use ovra_core::path::RelPath;
 use ovra_core::protocol::{ErrorCode, ProtocolError};
-use ovra_core::services::{BoxFuture, Delta, Result, Taken, WorktreeInfo, Worktrees};
+use ovra_core::services::{BoxFuture, Delta, GitFiles, Result, Taken, WorktreeInfo, Worktrees};
 
 use crate::git::Git;
 pub use crate::repo::GitRepo;
@@ -298,6 +299,10 @@ impl Worktrees for GitWorktrees {
 
     fn look(&self, dir: PathBuf) -> BoxFuture<'_, Result<String>> {
         blocking(move || git::working_tree(&dir))
+    }
+
+    fn git_files(&self, dir: PathBuf) -> BoxFuture<'_, Result<GitFiles>> {
+        blocking(move || gitfiles::git_files(&dir))
     }
 
     fn restore(

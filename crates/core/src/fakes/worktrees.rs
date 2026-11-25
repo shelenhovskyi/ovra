@@ -8,7 +8,7 @@ use super::{lock, not_found};
 use crate::path::RelPath;
 use crate::protocol::review::ChangeKind;
 use crate::protocol::{ErrorCode, ProtocolError};
-use crate::services::{BoxFuture, Delta, Result, Taken, WorktreeInfo, Worktrees};
+use crate::services::{BoxFuture, Delta, GitFiles, Result, Taken, WorktreeInfo, Worktrees};
 
 type Files = BTreeMap<String, String>;
 
@@ -27,6 +27,8 @@ pub struct MemoryWorktrees {
     /// When set, `remove` refuses with this reason, as the real one does
     /// for a worktree that holds ignored files.
     pub refuse_remove: Mutex<Option<String>>,
+    /// What `git_files` reports, by directory; empty by default.
+    pub git_files: Mutex<BTreeMap<PathBuf, GitFiles>>,
 }
 
 impl MemoryWorktrees {
@@ -191,6 +193,11 @@ impl Worktrees for MemoryWorktrees {
 
     fn look(&self, dir: PathBuf) -> BoxFuture<'_, Result<String>> {
         self.snapshot(dir)
+    }
+
+    fn git_files(&self, dir: PathBuf) -> BoxFuture<'_, Result<GitFiles>> {
+        let files = lock(&self.git_files).get(&dir).cloned().unwrap_or_default();
+        Box::pin(async move { Ok(files) })
     }
 
     fn patches(
