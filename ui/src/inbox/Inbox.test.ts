@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { registerCommand } from "../keys/commands";
 import { Workspace } from "../shell/workspace.svelte";
 import { change, FakeReviewCore, review } from "./fake-review";
+import { openInboxFor } from "./open";
 import TestHost from "./TestHost.svelte";
 
 // jsdom has no ResizeObserver, which the diff's `bind:clientHeight` uses.
@@ -557,6 +558,14 @@ describe("Inbox", () => {
     await settle();
     expect($("[data-item][aria-current='true']")?.getAttribute("data-item")).toBe("r2");
     expect($("[data-testid=inbox] [role=status]")?.textContent).toContain("An agent asks you to look at");
+  });
+
+  it("opens on the first waiting item of the sessions a Review press names", async () => {
+    await setup([review("r1"), review("r2", { session: "s2" }), review("r3", { session: "s3" })]);
+    $("[data-testid=elsewhere]")?.focus();
+    expect(openInboxFor(["s4", "s3", "s2"])).toBe(true);
+    await settle();
+    expect(document.activeElement?.getAttribute("data-item")).toBe("r3");
   });
 
   it("says when nothing waits", async () => {

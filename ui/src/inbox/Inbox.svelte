@@ -11,7 +11,7 @@ import { approvalQueue } from "../approvals/queue.svelte";
 import { listCommands, registerCommand } from "../keys/commands";
 import { runCommand } from "../keys/keybindings";
 import { formatShortcut, inBrowserTab, isApple, liveKeys, matchesShortcut, parseShortcut } from "../keys/shortcut";
-import type { FileChange, ReviewId, ReviewItem } from "../lib/protocol";
+import type { FileChange, ReviewId, ReviewItem, SessionId } from "../lib/protocol";
 import { useOvra } from "../shell/context";
 import PatchView from "../viewers/PatchView.svelte";
 import {
@@ -33,6 +33,7 @@ import {
   STATE_LABEL,
   sharedFiles,
 } from "./describe";
+import { handleOpenFor } from "./open";
 import { message as errorText, type Outcome, ReviewInbox } from "./reviews.svelte";
 
 const KEYS = "Mod+Shift+R";
@@ -115,6 +116,9 @@ $effect(() => {
 });
 
 $effect(() => registerCommand({ id: "inbox.toggle", title: "Review inbox", keys: KEYS, run: toggle }));
+
+// A person's Review press for a session or task opens on its waiting item.
+$effect(() => handleOpenFor((wanted) => void showFor(wanted)));
 
 // An agent asked to show a review (`open_in_ui`): choose it and say so on the
 // button, but never open the dialog or move focus on an agent's behalf. While
@@ -228,6 +232,14 @@ async function show(): Promise<void> {
     dialog?.querySelector<HTMLElement>("[data-item]") ??
     dialog?.querySelector<HTMLElement>("h2");
   target?.focus();
+}
+
+/** Opens on the waiting item of the first of `wanted` that has one. */
+async function showFor(wanted: SessionId[]): Promise<void> {
+  await inbox.reload();
+  const found = wanted.map((s) => inbox.waiting.find((i) => i.session === s)).find((i) => i !== undefined);
+  if (found) select(found.id);
+  if (!opened) await show();
 }
 
 function close(): void {
