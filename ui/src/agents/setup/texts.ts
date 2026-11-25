@@ -265,6 +265,8 @@ export type Warnings = {
   broad: string | null;
   /** What runs commands on the user's computer, counted. */
   code: string | null;
+  /** Files Ovra could not read: whatever they hold may still load. */
+  unreadable: string | null;
 };
 
 /**
@@ -277,6 +279,9 @@ export function warnings(items: { kind: ConfigKind; entries: string[] }[], fresh
   const more = count("broad_allow_rules", rules) - count("broad_allow_rules", shown);
   const named = list(more > 0 ? [...shown.filter((r) => !CUT.test(r)), `${more} more`] : shown);
   const code = tally(items.filter((item) => runsCode(item.kind)));
+  const unread = items
+    .filter((item) => item.kind === "unreadable")
+    .reduce((sum, item) => sum + count(item.kind, item.entries), 0);
   const total = code.reduce((sum, [, n]) => sum + n, 0);
   const parts = code.map(([kind, n]) => {
     const [one, many] = CODE_NOUNS[kind] ?? ["item", "items"];
@@ -285,6 +290,10 @@ export function warnings(items: { kind: ConfigKind; entries: string[] }[], fresh
   return {
     broad: rules.length > 0 ? `Claude will use ${named} without asking you.` : null,
     code: total > 0 ? `${list(parts)} ${total === 1 ? "runs" : "run"} commands on your computer.` : null,
+    unreadable:
+      unread > 0
+        ? `Ovra could not read ${plural(unread, fresh ? "new file" : "file", fresh ? "new files" : "files")} of these settings; whatever ${unread === 1 ? "it holds" : "they hold"}, hooks too, may load once you trust it.`
+        : null,
   };
 }
 

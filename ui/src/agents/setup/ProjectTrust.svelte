@@ -45,7 +45,8 @@ const changed = $derived(
 );
 const diff = $derived(changed && review?.trusted ? changes(review.trusted, review.current) : []);
 const items = $derived(review?.current.items ?? []);
-const empty = $derived(!changed && items.length === 0);
+// Unknown until the settings were read: a failed read is not "no settings".
+const empty = $derived(review !== null && !changed && items.length === 0);
 // What the user is asked about: what was added when the settings changed, all of it otherwise.
 const risk = $derived(
   changed
@@ -153,7 +154,7 @@ function trust(trusted: boolean): Promise<void> {
   const id = project?.id;
   // The settings the card shows: the core refuses them if they changed meanwhile.
   const fingerprint = review?.current.fingerprint;
-  if (!id || busy) return Promise.resolve();
+  if (!id || busy || (trusted && !fingerprint)) return Promise.resolve();
   busy = true;
   error = null;
   return (async () => {
@@ -184,7 +185,9 @@ function trust(trusted: boolean): Promise<void> {
     data-testid="project-trust"
     bind:this={section}
   >
-    {#if empty}
+    {#if !review}
+      <h3 id="trust-heading">Project settings</h3>
+    {:else if empty}
       <div class="row">
         <h3 id="trust-heading">{heading}</h3>
         <button type="button" class="link" class:primary={!project.trusted} disabled={busy} onclick={() => trust(!project.trusted)}>
@@ -207,6 +210,14 @@ function trust(trusted: boolean): Promise<void> {
       {/if}
       {#if risk.code}
         <p class="warning" role="note" data-testid="trust-runs-code">{risk.code}</p>
+      {/if}
+      {#if risk.unreadable}
+        <p class="warning" role="note" data-testid="trust-unreadable">{risk.unreadable}</p>
+      {/if}
+      {#if !project.trusted && !sandbox}
+        <p class="warning" role="note" data-testid="trust-no-sandbox">
+          Language servers will run this project's code without a sandbox on this computer.
+        </p>
       {/if}
       <div class="row">
         <button

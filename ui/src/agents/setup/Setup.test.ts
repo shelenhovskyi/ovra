@@ -119,6 +119,7 @@ describe("config changes", () => {
     ).toEqual({
       broad: null,
       code: "1 new hook runs commands on your computer.",
+      unreadable: null,
     });
   });
 });
@@ -144,6 +145,7 @@ describe("trust summary", () => {
     expect(warnings(items)).toEqual({
       broad: "Claude will use Bash(*), Edit, Write and 1 more without asking you.",
       code: "1 hook runs commands on your computer.",
+      unreadable: null,
     });
     const code = [
       { kind: "hooks" as const, entries: ["a", "b"] },
@@ -153,7 +155,12 @@ describe("trust summary", () => {
     expect(warnings([{ kind: "broad_allow_rules", entries: ["Bash(*)"] }]).broad).toBe(
       "Claude will use Bash(*) without asking you.",
     );
-    expect(warnings([])).toEqual({ broad: null, code: null });
+    expect(warnings([])).toEqual({ broad: null, code: null, unreadable: null });
+    // A file Ovra could not read may still hold hooks: it is warned about, not only counted.
+    expect(warnings([{ kind: "unreadable", entries: ["too large"] }]).unreadable).toBe(
+      "Ovra could not read 1 file of these settings; whatever it holds, hooks too, may load once you trust it.",
+    );
+    expect(warnings([{ kind: "unreadable", entries: ["bad JSON"] }], true).unreadable).toContain("1 new file");
   });
 });
 
@@ -286,6 +293,27 @@ describe("ProjectTrust", () => {
   const heading = () => trustCard()?.querySelector("h3")?.textContent;
   const testid = (id: string) => trustCard()?.querySelector(`[data-testid=${id}]`)?.textContent ?? null;
 
+  it("warns about a settings file it could not read, and offers no trust when the settings are unknown", async () => {
+    const core = new FakeAgentCore();
+    core.config = {
+      fingerprint: "f1",
+      items: [{ path: ".claude/settings.json", kind: "unreadable", entries: ["too large"] }],
+    };
+    await show(core);
+    expect(testid("trust-unreadable")).toContain("Ovra could not read 1 file");
+
+    if (app) unmount(app);
+    const failing = new FakeAgentCore();
+    failing.failNext.set(
+      "agents.project_config",
+      new CoreError({ code: "internal", message: "could not read .claude" }),
+    );
+    await show(failing);
+    expect(heading()).toBe("Project settings");
+    expect(trustCard()?.textContent).toContain("could not read .claude");
+    expect(button(trustCard(), "Trust project")).toBeUndefined();
+  });
+
   it("sums up what would load, warns, and trusts only on a click with what it showed", async () => {
     const core = new FakeAgentCore();
     core.config = {
@@ -301,6 +329,8 @@ describe("ProjectTrust", () => {
     expect(testid("trust-summary")).toBe("2 broad permissions · 1 hook that runs code · 1 custom subagent");
     expect(testid("broad-rules")).toBe("Claude will use Bash(*) and Edit without asking you.");
     expect(testid("trust-runs-code")).toBe("1 hook runs commands on your computer.");
+    // No sandbox here (the fake reports none): said before the Trust button, not only in the details.
+    expect(testid("trust-no-sandbox")).toContain("without a sandbox");
     // The lists wait behind "Show details".
     expect(trustCard()?.textContent).not.toContain("./check.sh");
     expect(core.sent("projects.trust")).toEqual([]);
