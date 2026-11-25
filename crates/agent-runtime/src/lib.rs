@@ -93,9 +93,24 @@ impl AgentRuntime for ClaudeCli {
         self.launch(spec, host, conversation)
     }
 
-    fn setup(&self, path: Option<PathBuf>) -> BoxFuture<'_, AgentSetup> {
+    fn setup(
+        &self,
+        path: Option<PathBuf>,
+        config_dir: Option<PathBuf>,
+    ) -> BoxFuture<'_, AgentSetup> {
         let chosen = path.or_else(|| self.executable.clone());
-        Box::pin(async move { detect::setup(chosen, &detect::Env::current()).await })
+        Box::pin(async move {
+            detect::setup(chosen, config_dir.as_deref(), &detect::Env::current()).await
+        })
+    }
+
+    fn config_dirs(&self) -> BoxFuture<'_, Vec<PathBuf>> {
+        Box::pin(async move {
+            let env = detect::Env::current();
+            tokio::task::spawn_blocking(move || detect::config_dirs(&env))
+                .await
+                .unwrap_or_default()
+        })
     }
 
     fn project_config(&self, root: PathBuf) -> BoxFuture<'_, Result<ProjectAgentConfig>> {
@@ -128,6 +143,7 @@ async fn session(
         &executable,
         launch::args(&conversation, spec.trusted, spec.tools),
         &spec.cwd,
+        spec.config_dir.as_deref(),
     );
     // An available sandbox that cannot wrap the session fails it: it never
     // runs unsandboxed instead.

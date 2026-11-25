@@ -2,6 +2,7 @@
 //! runtimes report through. Runtimes themselves live behind
 //! [`AgentRuntime`](crate::services::AgentRuntime).
 
+mod accounts;
 mod net;
 mod permissions;
 mod requests;

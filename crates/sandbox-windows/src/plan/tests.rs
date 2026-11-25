@@ -121,6 +121,7 @@ fn a_direct_session_behind_a_proxy() {
     root.dir("sys/bin");
     let profile = SandboxProfile {
         kind: ovra_core::services::ProfileKind::Agent,
+        claude_dir: None,
         work_dir: work.clone(),
         read: Vec::new(),
         write: Vec::new(),
@@ -148,6 +149,7 @@ fn a_worker_reads_its_git_folder() {
     let setup = root.setup(&["sys/bin"]);
     let profile = SandboxProfile {
         kind: ovra_core::services::ProfileKind::Agent,
+        claude_dir: None,
         work_dir: work.clone(),
         read: vec![main_git],
         write: Vec::new(),
@@ -169,6 +171,7 @@ fn folders_holding_the_home_folder_or_ovras_data_are_refused() {
     for work in [root.0.clone(), root.dir("home"), root.dir("home/.claude/x")] {
         let profile = SandboxProfile {
             kind: ovra_core::services::ProfileKind::Agent,
+            claude_dir: None,
             work_dir: work.clone(),
             read: Vec::new(),
             write: Vec::new(),
@@ -195,6 +198,7 @@ fn a_protected_path_that_is_a_link_refuses_the_session() {
     let setup = root.setup(&["sys/bin"]);
     let profile = SandboxProfile {
         kind: ovra_core::services::ProfileKind::Agent,
+        claude_dir: None,
         work_dir: work,
         read: Vec::new(),
         write: Vec::new(),
@@ -214,6 +218,7 @@ fn variable_names_match_without_case() {
     let setup = root.setup(&["sys/bin"]);
     let profile = SandboxProfile {
         kind: ovra_core::services::ProfileKind::Agent,
+        claude_dir: None,
         work_dir: work.clone(),
         read: Vec::new(),
         write: Vec::new(),
@@ -264,6 +269,7 @@ fn a_helper_installed_in_the_home_folder_can_be_started() {
     setup.helper = root.file("home/AppData/Local/Programs/Ovra/ovra.exe");
     let profile = SandboxProfile {
         kind: ovra_core::services::ProfileKind::Agent,
+        claude_dir: None,
         work_dir: work,
         read: Vec::new(),
         write: Vec::new(),
@@ -285,6 +291,7 @@ fn secret_folders_stay_hidden_whatever_the_case_of_their_name() {
     let setup = root.setup(&["home/.SSH/bin", "sys/bin"]);
     let profile = SandboxProfile {
         kind: ovra_core::services::ProfileKind::Agent,
+        claude_dir: None,
         work_dir: work,
         read: Vec::new(),
         write: Vec::new(),
@@ -297,6 +304,7 @@ fn secret_folders_stay_hidden_whatever_the_case_of_their_name() {
     let home_claude = root.dir("home/.Claude/x");
     let profile = SandboxProfile {
         kind: ovra_core::services::ProfileKind::Agent,
+        claude_dir: None,
         work_dir: home_claude,
         read: Vec::new(),
         write: Vec::new(),
@@ -315,6 +323,7 @@ fn server_pods_are_refused_and_forwards_left_out() {
     let setup = root.setup(&["sys/bin"]);
     let mut profile = SandboxProfile {
         kind: ovra_core::services::ProfileKind::Agent,
+        claude_dir: None,
         work_dir: work,
         read: Vec::new(),
         write: Vec::new(),
@@ -326,4 +335,24 @@ fn server_pods_are_refused_and_forwards_left_out() {
     profile.expose = vec![5173];
     let err = Plan::new(&setup, &profile, &claude).unwrap_err();
     assert!(err.to_string().contains("server pods"), "{err}");
+}
+
+#[test]
+fn an_account_with_its_own_folder_is_refused() {
+    let root = Root::new("account");
+    let work = root.dir("projects/app");
+    let claude = root.file("sys/bin/claude.exe");
+    let setup = root.setup(&["sys/bin"]);
+    let profile = SandboxProfile {
+        kind: ovra_core::services::ProfileKind::Agent,
+        claude_dir: Some(root.dir("home/.claude-work")),
+        work_dir: work,
+        read: Vec::new(),
+        write: Vec::new(),
+        expose: Vec::new(),
+        forward: Vec::new(),
+        network: ProfileNetwork::Blocked,
+    };
+    let err = Plan::new(&setup, &profile, &claude).unwrap_err();
+    assert!(err.to_string().contains("account"), "{err}");
 }

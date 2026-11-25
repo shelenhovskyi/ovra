@@ -149,6 +149,7 @@ mod tests {
                 billing: None,
                 sandbox: None,
                 sandbox_reported: false,
+                account: None,
             },
             agent_session: None,
         }

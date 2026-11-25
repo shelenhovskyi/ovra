@@ -601,6 +601,72 @@ echo '{"type":"result","subtype":"success","usage":{"input_tokens":1,"output_tok
     }
 
     #[tokio::test]
+    async fn each_account_is_checked_and_run_in_its_own_folder() {
+        use ovra_core::protocol::agents::{Billing, SetupState};
+        let dir = Dir::new("accounts");
+        // Answers `auth status` from the account's folder, if it has one.
+        let claude = dir.0.join("claude");
+        let script = format!(
+            "#!/bin/sh\nif [ \"$1\" = --version ]; then echo '2.1.400'; exit 0; fi\n\
+             if [ \"$1\" = auth ]; then cat \"${{CLAUDE_CONFIG_DIR:-$0.default}}/auth\"; exit 0; fi\n\
+             echo \"${{CLAUDE_CONFIG_DIR:-none}}\" > \"$0.config\"\n{ONE_TURN}\ncat > /dev/null\n"
+        );
+        std::fs::write(&claude, script).unwrap_or_else(|e| panic!("{e}"));
+        std::fs::set_permissions(&claude, std::fs::Permissions::from_mode(0o755))
+            .unwrap_or_else(|e| panic!("{e}"));
+        let default = dir.0.join("claude.default");
+        let work = dir.0.join(".claude-work");
+        for (folder, auth) in [
+            (&default, r#"{"loggedIn": true, "authMethod": "claude.ai"}"#),
+            (&work, r#"{"loggedIn": true, "authMethod": "api_key"}"#),
+        ] {
+            std::fs::create_dir_all(folder).unwrap_or_else(|e| panic!("{e}"));
+            std::fs::write(folder.join("auth"), auth).unwrap_or_else(|e| panic!("{e}"));
+        }
+        let core = core_with(Arc::new(ClaudeCli::new(Some(claude), unsandboxed())));
+        let save = |name: &str, folder: &std::path::Path| {
+            json!({"method": "agents.save_account", "params": {"account": {
+                "id": "", "name": name, "config_dir": folder}}})
+        };
+        call(&core, save("Work", &work)).await;
+        let overview = call(&core, save("New", &dir.0.join(".claude-new"))).await;
+        let Response::Agents(AgentsResponse::Accounts(overview)) = overview else {
+            panic!("unexpected {overview:?}");
+        };
+        let states: Vec<_> = overview
+            .accounts
+            .iter()
+            .map(|a| (a.setup.state.clone(), a.setup.billing.clone()))
+            .collect();
+        assert_eq!(
+            states,
+            [
+                (SetupState::Ready, Some(Billing::Subscription)),
+                (SetupState::Ready, Some(Billing::ApiKey)),
+                (SetupState::SignedOut, None),
+            ]
+        );
+        // The folder that does not exist yet was not made by asking.
+        assert!(!dir.0.join(".claude-new").exists());
+
+        let mut rx = core.subscribe();
+        call(
+            &core,
+            json!({"method": "projects.add", "params": {"root": dir.0}}),
+        )
+        .await;
+        call(
+            &core,
+            json!({"method": "agents.start", "params": {
+                "project": "p1", "agent": "claude", "mode": "direct", "prompt": "hi",
+                "account": "account-1"}}),
+        )
+        .await;
+        wait_idle(&mut rx).await;
+        assert_eq!(dir.read("claude.config").trim(), work.to_string_lossy());
+    }
+
+    #[tokio::test]
     async fn a_trusted_project_loads_its_own_settings() {
         let dir = Dir::new("trusted");
         let claude = dir.claude("2.1.331", &format!("{ONE_TURN}\ncat > /dev/null"));

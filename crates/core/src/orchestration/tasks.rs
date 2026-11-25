@@ -132,6 +132,7 @@ async fn start(
         cwd: None,
         tools: Some(ToolRole::Coordinator),
         from: MessageFrom::Person,
+        account: None,
     };
     let coordinator = agents::start(&core.agents_ctx(), new).await?.id;
     let entry = {
@@ -415,6 +416,14 @@ async fn create_worker(
         .await
         .ok()
         .map(|g| g.files);
+    // Workers bill the account their coordinator runs with.
+    let account = core
+        .agents_ctx()
+        .sessions
+        .find(&task.coordinator, |s| s.info().account)
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| crate::protocol::agents::DEFAULT_ACCOUNT.to_owned());
     let new = NewSession {
         project: task.project.clone(),
         agent: AgentKind::Claude,
@@ -423,6 +432,7 @@ async fn create_worker(
         cwd: Some(info.path.clone()),
         tools: Some(ToolRole::Worker),
         from: MessageFrom::Coordinator,
+        account: Some(account),
     };
     let session = match agents::start(&core.agents_ctx(), new).await {
         Ok(session) => session.id,

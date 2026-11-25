@@ -41,6 +41,7 @@ const session = (id: string, sandbox: SessionInfo["sandbox"]): SessionInfo => ({
   billing: null,
   sandbox,
   sandbox_reported: true,
+  account: null,
 });
 
 async function open(core = new FakeAccessCore()) {

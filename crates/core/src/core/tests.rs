@@ -488,7 +488,12 @@ fn every_request_round_trips() {
         serde_json::json!({"method": "secrets.set", "params": {"project": "p1", "secret": {
             "name": "gh", "host": "api.github.com", "header": "Authorization", "prefix": "Bearer "}, "value": "v"}}),
         serde_json::json!({"method": "secrets.remove", "params": {"project": "p1", "name": "gh"}}),
-        serde_json::json!({"method": "agents.start", "params": {"project": "p1", "agent": "claude", "mode": "direct", "prompt": "hi"}}),
+        serde_json::json!({"method": "agents.start", "params": {"project": "p1", "agent": "claude", "mode": "direct", "prompt": "hi", "account": null}}),
+        serde_json::json!({"method": "agents.start", "params": {"project": "p1", "agent": "claude", "mode": "direct", "prompt": "hi", "account": "account-1"}}),
+        serde_json::json!({"method": "agents.accounts", "params": {"project": "p1"}}),
+        serde_json::json!({"method": "agents.save_account", "params": {"account": {"id": "", "name": "Work", "config_dir": "/home/me/.claude-work"}}}),
+        serde_json::json!({"method": "agents.remove_account", "params": {"id": "account-1"}}),
+        serde_json::json!({"method": "agents.set_project_account", "params": {"project": "p1", "account": null}}),
         serde_json::json!({"method": "agents.send", "params": {"session": "s1", "text": "more"}}),
         serde_json::json!({"method": "agents.stop", "params": {"session": "s1"}}),
         serde_json::json!({"method": "agents.transcript", "params": {"session": "s1"}}),

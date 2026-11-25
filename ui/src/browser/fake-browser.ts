@@ -107,5 +107,6 @@ function session(id: SessionId): SessionInfo {
     billing: null,
     sandbox: null,
     sandbox_reported: false,
+    account: null,
   };
 }

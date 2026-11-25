@@ -3,11 +3,13 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use super::accounts;
 use super::transcript::MAX_TEXT_BYTES;
 use super::{AgentHost, Launch, Sessions};
 use crate::protocol::agents::{
-    AgentKind, AgentMessage, AgentStatus, AgentsEvent, AgentsRequest, AgentsResponse, MessageFrom,
-    ProjectConfigReview, SessionId, SessionInfo, SessionMode, SetupState, TurnUsage,
+    AgentKind, AgentMessage, AgentStatus, AgentsEvent, AgentsRequest, AgentsResponse,
+    DEFAULT_ACCOUNT, MessageFrom, ProjectConfigReview, SessionId, SessionInfo, SessionMode,
+    SetupState, TurnUsage,
 };
 use crate::protocol::audit::DecidedBy;
 use crate::protocol::permissions::{
@@ -38,7 +40,7 @@ pub(crate) async fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Resp
     match request {
         AgentsRequest::Setup { agent: _ } => {
             let path = ctx.projects.agent_settings()?.claude_path;
-            let setup = ctx.runtime.setup(path.map(PathBuf::from)).await;
+            let setup = ctx.runtime.setup(path.map(PathBuf::from), None).await;
             Ok(Response::Agents(AgentsResponse::Setup(setup)))
         }
         AgentsRequest::SetPath { agent: _, path } => {
@@ -49,7 +51,10 @@ pub(crate) async fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Resp
                     "the path must be absolute",
                 ));
             }
-            let setup = ctx.runtime.setup(path.clone().map(PathBuf::from)).await;
+            let setup = ctx
+                .runtime
+                .setup(path.clone().map(PathBuf::from), None)
+                .await;
             // A path that leads nowhere is not saved: it would only make every
             // later session fail (a typo, or the name of a shell alias).
             if let (Some(path), SetupState::NotFound) = (&path, &setup.state) {
@@ -67,6 +72,31 @@ pub(crate) async fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Resp
             ctx.projects.set_agent_settings(settings)?;
             Ok(Response::Agents(AgentsResponse::Setup(setup)))
         }
+        AgentsRequest::Accounts { project } => {
+            let overview = accounts::overview(ctx, project.as_ref()).await?;
+            Ok(Response::Agents(AgentsResponse::Accounts(overview)))
+        }
+        AgentsRequest::SaveAccount { account } => {
+            let mut settings = ctx.projects.agent_settings()?;
+            accounts::save(&mut settings, account)?;
+            ctx.projects.set_agent_settings(settings)?;
+            let overview = accounts::overview(ctx, None).await?;
+            Ok(Response::Agents(AgentsResponse::Accounts(overview)))
+        }
+        AgentsRequest::RemoveAccount { id } => {
+            let mut settings = ctx.projects.agent_settings()?;
+            accounts::remove(&mut settings, &id)?;
+            ctx.projects.set_agent_settings(settings)?;
+            let overview = accounts::overview(ctx, None).await?;
+            Ok(Response::Agents(AgentsResponse::Accounts(overview)))
+        }
+        AgentsRequest::SetProjectAccount { project, account } => {
+            ctx.projects.get(&project)?;
+            let mut settings = ctx.projects.agent_settings()?;
+            accounts::set_project(&mut settings, &project, account)?;
+            ctx.projects.set_agent_settings(settings)?;
+            Ok(OK)
+        }
         AgentsRequest::ProjectConfig { project } => {
             let review = review(ctx, &project).await?;
             Ok(Response::Agents(AgentsResponse::ProjectConfig(review)))
@@ -82,6 +112,7 @@ pub(crate) async fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Resp
             agent,
             mode,
             prompt,
+            account,
         } => {
             if mode == SessionMode::Isolated {
                 return Err(ProtocolError::new(
@@ -97,6 +128,7 @@ pub(crate) async fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Resp
                 cwd: None,
                 tools: None,
                 from: MessageFrom::Person,
+                account,
             };
             let info = start(ctx, new).await?;
             Ok(Response::Agents(AgentsResponse::Session(info)))
@@ -160,12 +192,22 @@ pub(crate) struct NewSession {
     pub(crate) tools: Option<ToolRole>,
     /// Who wrote `prompt`.
     pub(crate) from: MessageFrom,
+    /// The Claude account ([`crate::protocol::agents::ClaudeAccount::id`]);
+    /// `None` uses the project's.
+    pub(crate) account: Option<String>,
 }
 
 /// Starts a session and returns it as it is now.
 pub(crate) async fn start(ctx: &Ctx<'_>, new: NewSession) -> Result<SessionInfo> {
     check_text(&new.prompt)?;
-    let target = prepare(ctx, &new.project, new.mode, new.tools).await?;
+    let target = prepare(
+        ctx,
+        &new.project,
+        new.mode,
+        new.tools,
+        new.account.as_deref(),
+    )
+    .await?;
     let launch = Launch {
         cwd: new
             .cwd
@@ -186,6 +228,7 @@ pub(crate) async fn start(ctx: &Ctx<'_>, new: NewSession) -> Result<SessionInfo>
         billing: None,
         sandbox: None,
         sandbox_reported: false,
+        account: target.account.id.clone(),
     });
     review_from(ctx, &id, &launch, base).await;
     let target = trusted_in(ctx, target, &launch.cwd).await;
@@ -195,18 +238,21 @@ pub(crate) async fn start(ctx: &Ctx<'_>, new: NewSession) -> Result<SessionInfo>
 /// The project a session may start in, with what the runtime needs to know.
 struct Target {
     project: Project,
-    executable: Option<String>,
+    account: accounts::Chosen,
     trusted: bool,
 }
 
+/// `account`: the session's own ([`NewSession::account`]); a resume passes
+/// the one it ran with, which must still exist.
 async fn prepare(
     ctx: &Ctx<'_>,
     project: &ProjectId,
     mode: SessionMode,
     tools: Option<ToolRole>,
+    account: Option<&str>,
 ) -> Result<Target> {
     let target = ctx.projects.get(project)?;
-    let executable = ctx.projects.agent_settings()?.claude_path;
+    let account = accounts::choose(&ctx.projects.agent_settings()?, project, account)?;
     // Settings that changed since the user trusted them (or cannot be read)
     // do not load until the user reviews them again.
     let trusted = target.trusted && review(ctx, project).await.is_ok_and(|r| r.applies());
@@ -220,7 +266,7 @@ async fn prepare(
     }
     Ok(Target {
         project: target,
-        executable,
+        account,
         trusted,
     })
 }
@@ -285,7 +331,20 @@ pub(crate) async fn resume(ctx: &Ctx<'_>, session: SessionId, parts: Parts) -> R
         ));
     }
     let tools = launch.as_ref().and_then(|l| l.tools);
-    let target = prepare(ctx, &info.project, info.mode, tools).await?;
+    // Its conversation lives in its account's folder: no other account
+    // can continue it.
+    let account = info.account.as_deref().unwrap_or(DEFAULT_ACCOUNT);
+    if ctx
+        .projects
+        .agent_settings()?
+        .account(Some(account))
+        .is_none()
+    {
+        return Err(conflict(
+            "this session's Claude account was removed; add it again to continue the session",
+        ));
+    }
+    let target = prepare(ctx, &info.project, info.mode, tools, Some(account)).await?;
     let launch = launch.unwrap_or(Launch {
         cwd: PathBuf::from(&target.project.root),
         tools: None,
@@ -306,15 +365,18 @@ pub(crate) async fn resume(ctx: &Ctx<'_>, session: SessionId, parts: Parts) -> R
 /// What a session may touch in a sandbox. A worker reads its main
 /// repository's git folder, which its worktree's history lives in.
 /// `forward`: the ports of its work dir's servers (ADR 0008).
+/// `claude_dir`: the account's configuration folder, if it has one.
 pub(crate) fn profile(
     project: &Project,
     mode: SessionMode,
     cwd: &Path,
     network: ProfileNetwork,
     forward: Vec<u16>,
+    claude_dir: Option<PathBuf>,
 ) -> SandboxProfile {
     SandboxProfile {
         kind: crate::services::ProfileKind::Agent,
+        claude_dir,
         work_dir: cwd.to_path_buf(),
         read: match mode {
             SessionMode::Isolated => vec![PathBuf::from(&project.root).join(".git")],
@@ -394,7 +456,15 @@ async fn run(
     if let Some(core) = &core {
         crate::servers::session_started(core, id);
     }
-    let sandbox = profile(&target.project, mode, &launch.cwd, network, forward);
+    let config_dir = target.account.config_dir.map(PathBuf::from);
+    let sandbox = profile(
+        &target.project,
+        mode,
+        &launch.cwd,
+        network,
+        forward,
+        config_dir.clone(),
+    );
     sessions.find(id, |s| s.set_network(sandbox.network.clone()))?;
     let spec = AgentSpec {
         session: id.clone(),
@@ -403,7 +473,8 @@ async fn run(
         cwd: launch.cwd,
         tools: launch.tools,
         prompt,
-        executable: target.executable.map(PathBuf::from),
+        executable: target.account.executable.map(PathBuf::from),
+        config_dir,
         trusted: target.trusted,
         resume,
         sandbox,

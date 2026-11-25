@@ -122,6 +122,7 @@ async fn the_real_chromium_over_the_pipe() {
     let work = std::env::temp_dir();
     let profile = SandboxProfile {
         kind: ovra_core::services::ProfileKind::Browser,
+        claude_dir: None,
         work_dir: work,
         read: Vec::new(),
         write: Vec::new(),

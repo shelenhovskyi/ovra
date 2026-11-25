@@ -2402,3 +2402,39 @@ async fn a_workers_rename_away_from_a_protected_path_is_left_out() {
     assert_eq!(main.get("CLAUDE.md").map(String::as_str), Some("rules\n"));
     assert_eq!(main.get("notes.md"), None);
 }
+
+#[tokio::test]
+async fn workers_run_with_their_coordinators_account() {
+    let f = fx(say()).await;
+    let work = crate::test_path!("/home/me/.claude-work");
+    ok(
+        &f.core,
+        json!({"method": "agents.save_account", "params": {"account": {
+            "id": "", "name": "Work", "config_dir": work}}}),
+    )
+    .await;
+    ok(
+        &f.core,
+        json!({"method": "agents.set_project_account", "params": {"project": "p1", "account": "account-1"}}),
+    )
+    .await;
+    start_task(&f.core, 1).await;
+    // The project's account changes while the task runs: workers stay with
+    // the coordinator's.
+    ok(
+        &f.core,
+        json!({"method": "agents.set_project_account", "params": {"project": "p1", "account": null}}),
+    )
+    .await;
+    let boss = caller("s1", ToolRole::Coordinator);
+    f.core
+        .spawn_agent(&boss, "fix-login", "fix the login")
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    let started = f.agent.started.lock().map(|s| s.clone());
+    let started = started.unwrap_or_else(|e| panic!("{e}"));
+    for spec in &started[..2] {
+        assert_eq!(spec.config_dir.as_deref(), Some(std::path::Path::new(work)));
+        assert_eq!(spec.sandbox.claude_dir, spec.config_dir);
+    }
+}

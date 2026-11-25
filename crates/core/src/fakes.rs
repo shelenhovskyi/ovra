@@ -861,6 +861,8 @@ pub struct ScriptedAgent {
     pub configs: Mutex<BTreeMap<PathBuf, ProjectAgentConfig>>,
     /// The sandbox it reports after each spawn (`None`: without one).
     pub sandbox: Mutex<Option<SandboxReport>>,
+    /// The other accounts' folders it finds (`AgentRuntime::config_dirs`).
+    pub config_dirs: Mutex<Vec<PathBuf>>,
 }
 
 /// Writes a file for an allowed `Write` step: the absolute path and text.
@@ -960,6 +962,10 @@ impl AgentRuntime for ScriptedAgent {
             let config = lock(&self.configs).get(&root).cloned();
             Ok(config.unwrap_or_else(|| lock(&self.config).clone()))
         })
+    }
+
+    fn config_dirs(&self) -> BoxFuture<'_, Vec<PathBuf>> {
+        Box::pin(async move { lock(&self.config_dirs).clone() })
     }
 }
 

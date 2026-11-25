@@ -246,6 +246,7 @@ mod tests {
         };
         let mut profile = SandboxProfile {
             kind: ovra_core::services::ProfileKind::Browser,
+            claude_dir: None,
             work_dir: "/w".into(),
             read: Vec::new(),
             write: vec!["/t/profile".into()],

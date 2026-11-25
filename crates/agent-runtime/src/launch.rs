@@ -27,26 +27,43 @@ pub(crate) const NESTED_SESSION_VARS: [&str; 9] = [
     "CLAUDE_AGENT_SDK_VERSION",
 ];
 
+/// Where `claude` keeps its settings, login and transcripts. Set only for
+/// an account the user added with its own folder (ADR 0006).
+pub(crate) const CONFIG_DIR_VAR: &str = "CLAUDE_CONFIG_DIR";
+
 /// A command for `claude` with the user's environment minus
-/// [`NESTED_SESSION_VARS`].
-pub(crate) fn command(executable: &Path) -> Command {
+/// [`NESTED_SESSION_VARS`], in the account's folder `config_dir` if given.
+pub(crate) fn command(executable: &Path, config_dir: Option<&Path>) -> Command {
     let mut command = Command::new(executable);
     for name in NESTED_SESSION_VARS {
         command.env_remove(name);
+    }
+    if let Some(dir) = config_dir {
+        command.env(CONFIG_DIR_VAR, dir);
     }
     command
 }
 
 /// The session's command line before a sandbox wraps it: `args` for
-/// `executable` in `cwd`, minus [`NESTED_SESSION_VARS`].
-pub(crate) fn line(executable: &Path, args: Vec<OsString>, cwd: &Path) -> CommandLine {
+/// `executable` in `cwd`, minus [`NESTED_SESSION_VARS`], in the account's
+/// folder `config_dir` if given.
+pub(crate) fn line(
+    executable: &Path,
+    args: Vec<OsString>,
+    cwd: &Path,
+    config_dir: Option<&Path>,
+) -> CommandLine {
+    let mut env: Vec<(OsString, Option<OsString>)> = NESTED_SESSION_VARS
+        .iter()
+        .map(|name| (OsString::from(name), None))
+        .collect();
+    if let Some(dir) = config_dir {
+        env.push((CONFIG_DIR_VAR.into(), Some(dir.as_os_str().to_owned())));
+    }
     CommandLine {
         program: executable.to_path_buf(),
         args,
-        env: NESTED_SESSION_VARS
-            .iter()
-            .map(|name| (OsString::from(name), None))
-            .collect(),
+        env,
         cwd: cwd.to_path_buf(),
     }
 }
@@ -93,8 +110,9 @@ impl Conversation {
 }
 
 /// The arguments for one session. Ovra never passes `--bare` (it ignores the
-/// subscription login) and never touches `CLAUDE_CONFIG_DIR` or credentials;
-/// the environment is inherited except for [`NESTED_SESSION_VARS`] (ADR 0006).
+/// subscription login) and never touches credentials; the environment is
+/// inherited except for [`NESTED_SESSION_VARS`], and `CLAUDE_CONFIG_DIR` is
+/// set only to the folder of an account the user added (ADR 0006).
 /// What a coordinator and a worker are told about their role, after Claude
 /// Code's own system prompt.
 const COORDINATOR_PROMPT: &str = include_str!("../../../agents/roles/coordinator.md");
@@ -169,7 +187,7 @@ mod tests {
 
     #[test]
     fn nested_session_markers_are_removed_and_configuration_is_kept() {
-        let command = command(Path::new("claude"));
+        let command = command(Path::new("claude"), None);
         let envs: Vec<_> = command.as_std().get_envs().collect();
         let removed: Vec<_> = envs
             .iter()
@@ -190,7 +208,12 @@ mod tests {
 
     #[test]
     fn a_wrapped_line_still_removes_the_nested_session_markers() {
-        let mut wrapped = line(Path::new("claude"), vec!["-p".into()], Path::new("/w"));
+        let mut wrapped = line(
+            Path::new("claude"),
+            vec!["-p".into()],
+            Path::new("/w"),
+            None,
+        );
         wrapped.program = "sandbox-run".into();
         wrapped.args.insert(0, "claude".into());
         wrapped
@@ -206,6 +229,39 @@ mod tests {
             assert!(envs.contains(&(name.as_ref(), None)), "{name}");
         }
         assert!(envs.contains(&("HTTPS_PROXY".as_ref(), Some("http://127.0.0.1:9".as_ref()))));
+    }
+
+    #[test]
+    fn an_accounts_folder_is_given_to_claude_and_nothing_else_changes() {
+        let dir = Path::new("/home/me/.claude-work");
+        let envs = |command: &Command| -> Vec<(OsString, Option<OsString>)> {
+            command
+                .as_std()
+                .get_envs()
+                .map(|(n, v)| (n.to_owned(), v.map(ToOwned::to_owned)))
+                .collect()
+        };
+        let set = (
+            OsString::from(CONFIG_DIR_VAR),
+            Some(dir.as_os_str().to_owned()),
+        );
+        assert!(envs(&command(Path::new("claude"), Some(dir))).contains(&set));
+        assert!(
+            !envs(&command(Path::new("claude"), None))
+                .iter()
+                .any(|(n, _)| n == CONFIG_DIR_VAR)
+        );
+        let spawned = spawnable(&line(
+            Path::new("claude"),
+            Vec::new(),
+            Path::new("/w"),
+            Some(dir),
+        ));
+        let all = envs(&spawned);
+        assert!(all.contains(&set));
+        assert_eq!(all.len(), NESTED_SESSION_VARS.len() + 1);
+        let default = line(Path::new("claude"), Vec::new(), Path::new("/w"), None);
+        assert!(!default.env.iter().any(|(n, _)| n == CONFIG_DIR_VAR));
     }
 
     fn line_text(conversation: &Conversation, trusted: bool) -> String {
@@ -283,10 +339,12 @@ mod tests {
             tools: None,
             prompt: "go".into(),
             executable: None,
+            config_dir: None,
             trusted: false,
             resume: None,
             sandbox: ovra_core::services::SandboxProfile {
                 kind: ovra_core::services::ProfileKind::Agent,
+                claude_dir: None,
                 work_dir: "/work".into(),
                 read: Vec::new(),
                 write: Vec::new(),

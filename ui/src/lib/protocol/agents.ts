@@ -35,6 +35,8 @@ export type SessionInfo = {
   sandbox: SandboxReport | null;
   /** Whether the runtime reported how it runs the current process: false while it starts. Sessions saved before the field read as false; a set `sandbox` counts as reported. */
   sandbox_reported: boolean;
+  /** The Claude account it runs with (`ClaudeAccount.id`); null for the default account. */
+  account: string | null;
 };
 
 /** How the runtime actually ran a session. */
@@ -90,6 +92,27 @@ export type SetupState =
   | { state: "signed_out" }
   | { state: "broken"; message: string };
 
+/** A Claude account: a Claude Code configuration folder with its own sign-in, given to claude as CLAUDE_CONFIG_DIR. */
+export type ClaudeAccount = {
+  /** Chosen by the core when added (send ""); `"default"` for the default account, which runs claude as the user set it up. */
+  id: string;
+  name: string;
+  /** Full path of its configuration folder; null (the default account only): Claude Code's own folder. */
+  config_dir: string | null;
+};
+
+/** One account and whether it is ready to run sessions. */
+export type AccountState = { account: ClaudeAccount; setup: AgentSetup };
+
+export type AccountsOverview = {
+  /** The default account first. */
+  accounts: AccountState[];
+  /** Configuration folders found on this computer that no account uses yet: suggestions only. */
+  found: string[];
+  /** The asked project's account; null for the default one or when no project was asked about. */
+  project_account: string | null;
+};
+
 /** The project's own agent configuration, which loads only once the project is trusted. */
 export type ProjectAgentConfig = {
   /** Changes with anything that would load, even contents the items do not show. */
@@ -131,11 +154,25 @@ export type AgentsRequest =
   | { method: "agents.setup"; params: { agent: AgentKind } }
   /** `path: null` clears the chosen executable. Answers `agents.setup`. */
   | { method: "agents.set_path"; params: { agent: AgentKind; path: string | null } }
+  | { method: "agents.accounts"; params: { project: ProjectId | null } }
+  /** `id: ""` adds an account. Answers `agents.accounts`. */
+  | { method: "agents.save_account"; params: { account: ClaudeAccount } }
+  /** Projects that used it go back to the default account. Answers `agents.accounts`. */
+  | { method: "agents.remove_account"; params: { id: string } }
+  /** `account: null` goes back to the default account. Answers `ok`. */
+  | { method: "agents.set_project_account"; params: { project: ProjectId; account: string | null } }
   | { method: "agents.project_config"; params: { project: ProjectId } }
   | { method: "agents.list"; params: { project: ProjectId } }
   | {
       method: "agents.start";
-      params: { project: ProjectId; agent: AgentKind; mode: SessionMode; prompt: string };
+      /** `account`: a `ClaudeAccount.id`; null or left out uses the project's. */
+      params: {
+        project: ProjectId;
+        agent: AgentKind;
+        mode: SessionMode;
+        prompt: string;
+        account?: string | null;
+      };
     }
   | { method: "agents.send"; params: { session: SessionId; text: string } }
   | { method: "agents.resume"; params: { session: SessionId; prompt: string } }
@@ -145,6 +182,7 @@ export type AgentsRequest =
 
 export type AgentsResponse =
   | { type: "agents.setup"; data: AgentSetup }
+  | { type: "agents.accounts"; data: AccountsOverview }
   | { type: "agents.project_config"; data: ProjectConfigReview }
   | { type: "agents.list"; data: SessionInfo[] }
   | { type: "agents.session"; data: SessionInfo }

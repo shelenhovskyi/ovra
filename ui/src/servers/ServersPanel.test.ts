@@ -140,6 +140,7 @@ describe("ServersPanel", () => {
         billing: null,
         sandbox: null,
         sandbox_reported: false,
+        account: null,
       },
     ];
     core.servers = [server({ work_dir: "w1" })];

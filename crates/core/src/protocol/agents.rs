@@ -80,6 +80,10 @@ pub struct SessionInfo {
     /// a `sandbox` that is set counts as reported.
     #[serde(default)]
     pub sandbox_reported: bool,
+    /// The Claude account it runs with ([`ClaudeAccount::id`]); `None` for
+    /// the default account, and for sessions saved before accounts existed.
+    #[serde(default)]
+    pub account: Option<String>,
 }
 
 /// Tokens and cost of one turn, as the agent reports them, or their sum.
@@ -227,6 +231,92 @@ pub enum SetupState {
 pub struct AgentSettings {
     /// Absolute path of the `claude` executable; `None` searches for it.
     pub claude_path: Option<String>,
+    /// The Claude accounts the user added. The default account is
+    /// [`ClaudeAccount::default_account`] unless an entry with its id
+    /// renames it.
+    pub accounts: Vec<ClaudeAccount>,
+    /// Each project's account ([`ClaudeAccount::id`]) for sessions started
+    /// without one; a project not listed uses the default account.
+    pub project_accounts: std::collections::BTreeMap<ProjectId, String>,
+}
+
+impl AgentSettings {
+    /// Every account, the default one first.
+    pub fn all_accounts(&self) -> Vec<ClaudeAccount> {
+        let default = self
+            .accounts
+            .iter()
+            .find(|a| a.id == DEFAULT_ACCOUNT)
+            .cloned()
+            .unwrap_or_else(ClaudeAccount::default_account);
+        std::iter::once(default)
+            .chain(
+                self.accounts
+                    .iter()
+                    .filter(|a| a.id != DEFAULT_ACCOUNT)
+                    .cloned(),
+            )
+            .collect()
+    }
+
+    /// The account `id`, or the default account for `None`.
+    pub fn account(&self, id: Option<&str>) -> Option<ClaudeAccount> {
+        let id = id.unwrap_or(DEFAULT_ACCOUNT);
+        self.all_accounts().into_iter().find(|a| a.id == id)
+    }
+}
+
+/// The id of the account that runs `claude` as the user set it up, without
+/// a configuration folder of Ovra's choosing.
+pub const DEFAULT_ACCOUNT: &str = "default";
+
+/// A Claude account: a Claude Code configuration folder with its own
+/// sign-in, settings and transcripts. `claude` gets the folder as
+/// `CLAUDE_CONFIG_DIR` (ADR 0006); Ovra never reads what is inside.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClaudeAccount {
+    /// Chosen by the core when the account is added; [`DEFAULT_ACCOUNT`]
+    /// for the default one.
+    pub id: String,
+    /// The user's name for it, such as `Work`.
+    pub name: String,
+    /// Absolute path of its configuration folder, such as
+    /// `/Users/me/.claude-work`; `None` (the default account only): Claude
+    /// Code's own choice, `~/.claude` unless the user's environment says.
+    #[serde(default)]
+    pub config_dir: Option<String>,
+}
+
+impl ClaudeAccount {
+    pub fn default_account() -> Self {
+        Self {
+            id: DEFAULT_ACCOUNT.to_owned(),
+            name: "Default".to_owned(),
+            config_dir: None,
+        }
+    }
+}
+
+/// One account and whether it is ready to run sessions.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AccountState {
+    pub account: ClaudeAccount,
+    /// Its `claude`, checked with its folder: found, supported, signed in,
+    /// and who pays.
+    pub setup: AgentSetup,
+}
+
+/// The accounts, with what the user may want to add.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AccountsOverview {
+    /// The default account first.
+    pub accounts: Vec<AccountState>,
+    /// Configuration folders found on this computer (`~/.claude-*`) that
+    /// no account uses yet: suggestions only.
+    pub found: Vec<String>,
+    /// The asked project's account; `None` for the default one or when no
+    /// project was asked about.
+    pub project_account: Option<String>,
 }
 
 /// The project's own agent configuration, which loads only once the user
@@ -317,6 +407,27 @@ pub enum AgentsRequest {
         agent: AgentKind,
         path: Option<String>,
     },
+    /// The Claude accounts, each checked, and `project`'s account.
+    #[serde(rename = "agents.accounts")]
+    Accounts {
+        #[serde(default)]
+        project: Option<ProjectId>,
+    },
+    /// Adds an account (an empty `id`) or changes one, then answers
+    /// `agents.accounts`. The default account keeps its folder.
+    #[serde(rename = "agents.save_account")]
+    SaveAccount { account: ClaudeAccount },
+    /// Removes an account; projects that used it go back to the default
+    /// one. Answers `agents.accounts`.
+    #[serde(rename = "agents.remove_account")]
+    RemoveAccount { id: String },
+    /// Sets (or with `null` clears) the account `project`'s sessions start
+    /// with when none is chosen. Answers `ok`.
+    #[serde(rename = "agents.set_project_account")]
+    SetProjectAccount {
+        project: ProjectId,
+        account: Option<String>,
+    },
     /// What trusting the project would load.
     #[serde(rename = "agents.project_config")]
     ProjectConfig { project: ProjectId },
@@ -330,6 +441,9 @@ pub enum AgentsRequest {
         agent: AgentKind,
         mode: SessionMode,
         prompt: String,
+        /// The Claude account; `None` uses the project's.
+        #[serde(default)]
+        account: Option<String>,
     },
     /// Sends the next message. Answers `ok`.
     #[serde(rename = "agents.send")]
@@ -355,6 +469,8 @@ pub enum AgentsRequest {
 pub enum AgentsResponse {
     #[serde(rename = "agents.setup")]
     Setup(AgentSetup),
+    #[serde(rename = "agents.accounts")]
+    Accounts(AccountsOverview),
     #[serde(rename = "agents.project_config")]
     ProjectConfig(ProjectConfigReview),
     #[serde(rename = "agents.list")]

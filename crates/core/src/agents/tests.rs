@@ -1224,3 +1224,112 @@ async fn the_projects_policy_decides_before_the_person_is_asked() {
         ]
     );
 }
+
+async fn accounts(core: &Core, project: Option<&str>) -> crate::protocol::agents::AccountsOverview {
+    match ok(
+        core,
+        json!({"method": "agents.accounts", "params": {"project": project}}),
+    )
+    .await
+    {
+        Response::Agents(AgentsResponse::Accounts(overview)) => overview,
+        other => panic!("unexpected {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn sessions_run_with_their_accounts_folder_and_resume_only_with_it() {
+    let agent = Arc::new(ScriptedAgent::new(vec![vec![], vec![]]));
+    let work = std::path::PathBuf::from(crate::test_path!("/home/me/.claude-work"));
+    let other = std::path::PathBuf::from(crate::test_path!("/home/me/.claude-other"));
+    *agent
+        .config_dirs
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = vec![work.clone(), other.clone()];
+    let core = Core::builder("test")
+        .projects(Arc::new(MemoryProjects::default()))
+        .agents(agent.clone())
+        .build();
+    project(&core).await;
+    let mut rx = core.subscribe();
+
+    let fresh = accounts(&core, Some("p1")).await;
+    assert_eq!(fresh.accounts.len(), 1);
+    assert_eq!(fresh.accounts[0].account.id, "default");
+    assert_eq!(fresh.found.len(), 2);
+    let added = ok(
+        &core,
+        json!({"method": "agents.save_account", "params": {"account": {
+            "id": "", "name": "Work", "config_dir": work}}}),
+    )
+    .await;
+    let Response::Agents(AgentsResponse::Accounts(added)) = added else {
+        panic!("unexpected {added:?}");
+    };
+    assert_eq!(added.accounts[1].account.id, "account-1");
+    assert_eq!(added.accounts[1].setup.state, SetupState::Ready);
+    // A folder in use is no longer suggested.
+    assert_eq!(added.found, [other.to_string_lossy()]);
+
+    // The project's account, unless the person picks another.
+    ok(
+        &core,
+        json!({"method": "agents.set_project_account", "params": {"project": "p1", "account": "account-1"}}),
+    )
+    .await;
+    assert_eq!(
+        accounts(&core, Some("p1")).await.project_account.as_deref(),
+        Some("account-1")
+    );
+    let session = ok(&core, start("go")).await;
+    let Response::Agents(AgentsResponse::Session(session)) = session else {
+        panic!("unexpected {session:?}");
+    };
+    assert_eq!(session.account.as_deref(), Some("account-1"));
+    until(&mut rx, AgentStatus::Idle).await;
+    let picked = json!({"method": "agents.start", "params": {
+        "project": "p1", "agent": "claude", "mode": "direct", "prompt": "two", "account": "default"}});
+    // One direct writer at a time: stop the first before the second.
+    ok(
+        &core,
+        json!({"method": "agents.stop", "params": {"session": "s1"}}),
+    )
+    .await;
+    until(&mut rx, AgentStatus::Stopped).await;
+    ok(&core, picked).await;
+    until(&mut rx, AgentStatus::Idle).await;
+    let started = agent.started.lock().map(|s| s.clone()).unwrap_or_default();
+    assert_eq!(started[0].config_dir.as_deref(), Some(work.as_path()));
+    assert_eq!(
+        started[0].sandbox.claude_dir.as_deref(),
+        Some(work.as_path())
+    );
+    assert_eq!(started[1].config_dir, None);
+    assert_eq!(started[1].sandbox.claude_dir, None);
+    let unknown = json!({"method": "agents.start", "params": {
+        "project": "p1", "agent": "claude", "mode": "direct", "prompt": "x", "account": "gone"}});
+    assert_eq!(code(&core, unknown).await, ErrorCode::NotFound);
+
+    // Removing the account: the project goes back to the default, and the
+    // session that ran with it cannot be continued with another one.
+    ok(
+        &core,
+        json!({"method": "agents.stop", "params": {"session": "s2"}}),
+    )
+    .await;
+    until(&mut rx, AgentStatus::Stopped).await;
+    ok(
+        &core,
+        json!({"method": "agents.remove_account", "params": {"id": "account-1"}}),
+    )
+    .await;
+    assert_eq!(accounts(&core, Some("p1")).await.project_account, None);
+    let resume = json!({"method": "agents.resume", "params": {"session": "s1", "prompt": "more"}});
+    let refused = call(&core, resume).await.err();
+    assert!(
+        refused
+            .as_ref()
+            .is_some_and(|e| e.code == ErrorCode::Conflict && e.message.contains("account")),
+        "{refused:?}"
+    );
+}

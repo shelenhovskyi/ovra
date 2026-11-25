@@ -206,6 +206,12 @@ impl Plan {
         if !profile.expose.is_empty() {
             return Err(invalid("the Windows sandbox cannot run server pods yet"));
         }
+        // It would show `~/.claude` instead of the account's folder.
+        if profile.claude_dir.is_some() {
+            return Err(invalid(
+                "the Windows sandbox cannot run a Claude account with its own folder yet; use the default account",
+            ));
+        }
         let mut plan = Self {
             grants: Vec::new(),
             denied: Vec::new(),

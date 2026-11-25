@@ -189,10 +189,14 @@ pub(crate) fn find(chosen: Option<&Path>, env: &Env) -> Result<PathBuf, Problem>
         .ok_or(Problem::NotFound(None))
 }
 
-/// Runs `executable` with `args` and returns its stdout and whether it
-/// exited successfully.
-async fn ask(executable: &Path, args: &[&str]) -> Result<(String, bool), Problem> {
-    let run = crate::launch::command(executable)
+/// Runs `executable` with `args` (in the account folder `config_dir`, if
+/// given) and returns its stdout and whether it exited successfully.
+async fn ask(
+    executable: &Path,
+    args: &[&str],
+    config_dir: Option<&Path>,
+) -> Result<(String, bool), Problem> {
+    let run = crate::launch::command(executable, config_dir)
         .args(args)
         .stdin(std::process::Stdio::null())
         .kill_on_drop(true)
@@ -220,7 +224,7 @@ async fn ask(executable: &Path, args: &[&str]) -> Result<(String, bool), Problem
 
 /// Runs `claude --version` and checks the result against the tested range.
 pub(crate) async fn check_version(executable: &Path) -> Result<Version, Problem> {
-    match ask(executable, &["--version"]).await? {
+    match ask(executable, &["--version"], None).await? {
         (stdout, true) => check(&stdout),
         (stdout, false) => Err(Problem::Broken(format!(
             "{} --version failed: {}",
@@ -251,8 +255,13 @@ fn billing(output: &str) -> Option<Billing> {
     }
 }
 
-/// The whole onboarding check.
-pub(crate) async fn setup(chosen: Option<PathBuf>, env: &Env) -> AgentSetup {
+/// The whole onboarding check, for the account whose folder is
+/// `config_dir` (`None`: the default account).
+pub(crate) async fn setup(
+    chosen: Option<PathBuf>,
+    config_dir: Option<&Path>,
+    env: &Env,
+) -> AgentSetup {
     let mut setup = AgentSetup {
         path: chosen.as_ref().map(|p| p.to_string_lossy().into_owned()),
         executable: None,
@@ -279,9 +288,15 @@ pub(crate) async fn setup(chosen: Option<PathBuf>, env: &Env) -> AgentSetup {
             return setup;
         }
     }
+    // A folder that does not exist yet has no sign-in; asking `claude`
+    // could make it.
+    if config_dir.is_some_and(|dir| !dir.is_dir()) {
+        setup.state = SetupState::SignedOut;
+        return setup;
+    }
     // An answer that cannot be read does not block: a session that is
     // really signed out fails with Claude's own message.
-    if let Ok((stdout, _)) = ask(&executable, &["auth", "status", "--json"]).await {
+    if let Ok((stdout, _)) = ask(&executable, &["auth", "status", "--json"], config_dir).await {
         if signed_in(&stdout) == Some(false) {
             setup.state = SetupState::SignedOut;
         } else {
@@ -291,9 +306,72 @@ pub(crate) async fn setup(chosen: Option<PathBuf>, env: &Env) -> AgentSetup {
     setup
 }
 
+/// Folders in the home folder that look like another account's Claude
+/// Code configuration (`~/.claude-work`, `~/.claude.personal`): a name that
+/// starts with `.claude` and holds what `claude` writes there. `~/.claude`
+/// itself is the default account's. Names only; nothing inside is read.
+pub(crate) fn config_dirs(env: &Env) -> Vec<PathBuf> {
+    let Some(entries) = env.home.as_deref().and_then(|h| std::fs::read_dir(h).ok()) else {
+        return Vec::new();
+    };
+    let mut found: Vec<PathBuf> = entries
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            name.starts_with(".claude")
+                && name != ".claude"
+                && entry.file_type().is_ok_and(|t| t.is_dir())
+        })
+        .map(|entry| entry.path())
+        .filter(|dir| {
+            [
+                ".claude.json",
+                "settings.json",
+                "projects",
+                ".credentials.json",
+            ]
+            .iter()
+            .any(|marker| dir.join(marker).exists())
+        })
+        .collect();
+    found.sort();
+    found
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn other_accounts_folders_are_found_by_name_and_contents() {
+        let home = tempfile::TempDir::new().unwrap_or_else(|e| panic!("{e}"));
+        let make = |dir: &str, marker: Option<&str>| {
+            let dir = home.path().join(dir);
+            std::fs::create_dir_all(&dir).unwrap_or_else(|e| panic!("{e}"));
+            if let Some(marker) = marker {
+                std::fs::write(dir.join(marker), "{}").unwrap_or_else(|e| panic!("{e}"));
+            }
+        };
+        make(".claude", Some("settings.json"));
+        make(".claude-work", Some(".claude.json"));
+        make(".claude-team", None);
+        make(".claude-team/projects", None);
+        make(".claude-empty", None);
+        make(".claudette", Some("settings.json"));
+        make("claude-work", Some(".claude.json"));
+        std::fs::write(home.path().join(".claude.json"), "{}").unwrap_or_else(|e| panic!("{e}"));
+        let env = Env {
+            home: Some(home.path().to_owned()),
+            ..Env::default()
+        };
+        let names: Vec<_> = config_dirs(&env)
+            .iter()
+            .filter_map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+            .collect();
+        assert_eq!(names, [".claude-team", ".claude-work", ".claudette"]);
+        assert!(config_dirs(&Env::default()).is_empty());
+    }
 
     #[test]
     fn versions_in_the_tested_range_pass() {

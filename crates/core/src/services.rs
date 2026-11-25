@@ -188,6 +188,10 @@ pub struct AgentSpec {
     pub prompt: String,
     /// The executable the user chose for this agent, if any.
     pub executable: Option<PathBuf>,
+    /// The configuration folder of the session's Claude account, given to
+    /// `claude` as `CLAUDE_CONFIG_DIR`; `None` for the default account,
+    /// which runs with the user's own setup (ADR 0006).
+    pub config_dir: Option<PathBuf>,
     /// Ovra's IDE tools for the session, offered as the in-process MCP
     /// server `ovra` (`docs/specs/orchestration.md`); `None` for none.
     pub tools: Option<ToolRole>,
@@ -235,6 +239,10 @@ pub struct SandboxProfile {
     /// Whom the sandbox is for, which decides what of the person's own
     /// state it gets back.
     pub kind: ProfileKind,
+    /// An agent session's `claude` configuration folder when its account
+    /// has one: the sandbox gives back this folder instead of `~/.claude`
+    /// and `~/.claude.json`, and no other account's.
+    pub claude_dir: Option<PathBuf>,
 }
 
 /// Whom a sandbox is for.
@@ -787,8 +795,15 @@ pub trait AgentRuntime: Send + Sync + Debug {
     /// background and reports through `host` until it ends.
     fn start(&self, spec: AgentSpec, host: AgentHost) -> Result<Box<dyn RunningAgent>>;
     /// Checks that the agent can run here; `path` is the executable the user
-    /// chose. Runtimes that need nothing installed are always ready.
-    fn setup(&self, path: Option<PathBuf>) -> BoxFuture<'_, AgentSetup> {
+    /// chose, `config_dir` the account's configuration folder (`None`: the
+    /// default account). Runtimes that need nothing installed are always
+    /// ready.
+    fn setup(
+        &self,
+        path: Option<PathBuf>,
+        config_dir: Option<PathBuf>,
+    ) -> BoxFuture<'_, AgentSetup> {
+        let _ = config_dir;
         Box::pin(async move {
             AgentSetup {
                 path: path.map(|p| p.to_string_lossy().into_owned()),
@@ -804,6 +819,11 @@ pub trait AgentRuntime: Send + Sync + Debug {
     /// per-project configuration find nothing.
     fn project_config(&self, _root: PathBuf) -> BoxFuture<'_, Result<ProjectAgentConfig>> {
         Box::pin(async { Ok(ProjectAgentConfig::default()) })
+    }
+    /// Configuration folders of other accounts found on this computer, as
+    /// suggestions. Runtimes without accounts find none.
+    fn config_dirs(&self) -> BoxFuture<'_, Vec<PathBuf>> {
+        Box::pin(async { Vec::new() })
     }
 }
 
@@ -1270,7 +1290,7 @@ impl AgentRuntime for Unavailable {
     fn start(&self, _: AgentSpec, _: AgentHost) -> Result<Box<dyn RunningAgent>> {
         self.err()
     }
-    fn setup(&self, path: Option<PathBuf>) -> BoxFuture<'_, AgentSetup> {
+    fn setup(&self, path: Option<PathBuf>, _: Option<PathBuf>) -> BoxFuture<'_, AgentSetup> {
         Box::pin(async move {
             AgentSetup {
                 path: path.map(|p| p.to_string_lossy().into_owned()),

@@ -117,6 +117,12 @@ fn contract(store: &dyn ProjectStore, folders: &Folders) {
     assert_eq!(store.agent_settings(), Ok(AgentSettings::default()));
     let settings = AgentSettings {
         claude_path: Some("/opt/claude".into()),
+        accounts: vec![ovra_core::protocol::agents::ClaudeAccount {
+            id: "account-1".into(),
+            name: "Work".into(),
+            config_dir: Some("/home/me/.claude-work".into()),
+        }],
+        project_accounts: [(a.id.clone(), "account-1".into())].into(),
     };
     store
         .set_agent_settings(settings.clone())
@@ -166,6 +172,7 @@ fn projects_and_order_survive_a_restart() {
         store
             .set_agent_settings(AgentSettings {
                 claude_path: Some("/opt/claude".into()),
+                ..AgentSettings::default()
             })
             .expect("save settings");
         store.touch(&a.id).expect("touch a");
