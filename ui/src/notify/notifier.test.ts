@@ -44,7 +44,7 @@ describe("Notifier", () => {
 });
 
 describe("watchAgents", () => {
-  it("notifies about approvals, finished turns and failures", () => {
+  it("notifies about approvals, finished turns and failures", async () => {
     const core = new FakeAgentCore();
     core.addSession("p1", "Fix the typo", { state: "working" });
     const back = system(true, false);
@@ -54,7 +54,11 @@ describe("watchAgents", () => {
     core.emit({ type: "agents.status", data: { session: "s1", project: "p1", status: { state: "starting" } } });
 
     core.ask({ id: "perm1", session: "s1", project: "p1", tool: "Bash", input: { command: "ls" }, title: null });
-    expect(notifier.toasts.map((t) => [t.level, t.text])).toEqual([["attention", "Session s1 needs approval: Run ls"]]);
+    await vi.advanceTimersByTimeAsync(0);
+    // Named as the Tasks list names it once its title is known, never "Session s1".
+    expect(notifier.toasts.map((t) => [t.level, t.text])).toEqual([
+      ["attention", "Fix the typo needs approval: Run ls"],
+    ]);
     back.shown[0]?.click();
     expect(review).toHaveBeenCalledExactlyOnceWith("perm1");
     core.emit({ type: "permissions.resolved", data: { id: "perm1", decision: "allow" } });
@@ -64,8 +68,66 @@ describe("watchAgents", () => {
 
     core.status("s1", { state: "working" });
     core.status("s1", { state: "idle" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(notifier.toasts.map((t) => [t.level, t.text])).toEqual([
+      ["info", "Fix the typo is done. Reply to ask for more."],
+    ]);
+    core.status("s1", { state: "working" });
+    core.status("s1", { state: "idle" });
     core.status("s1", { state: "failed", message: "crashed" });
-    expect(notifier.toasts.map((t) => [t.level, t.text])).toEqual([["error", "Session s1 failed: crashed"]]);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(notifier.toasts.map((t) => [t.level, t.text])).toEqual([["error", "Fix the typo failed: crashed"]]);
+  });
+
+  it("gives no toast for a request answered before its name was known", async () => {
+    const core = new FakeAgentCore();
+    const notifier = new Notifier(system(false, true).api);
+    watchAgents(core, notifier, vi.fn());
+    core.ask({ id: "perm1", session: "s9", project: "p1", tool: "Bash", input: { command: "ls" }, title: null });
+    core.emit({ type: "permissions.resolved", data: { id: "perm1", decision: "allow" } });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(notifier.toasts).toEqual([]);
+  });
+
+  it("says what a direct session changed and offers Reviews", async () => {
+    const core = new FakeAgentCore();
+    core.addSession("p1", "Fix the typo", { state: "working" });
+    core.reviews = [
+      {
+        id: "r1",
+        project: "p1",
+        session: "s1",
+        mode: "direct",
+        state: "open",
+        summary: null,
+        files: [
+          {
+            path: "README.md",
+            kind: "modified",
+            from: null,
+            by: "agent",
+            additions: 1,
+            deletions: 1,
+            blocked: false,
+            protected: false,
+          },
+        ],
+        can_undo: false,
+        not_copied: [],
+        can_undo_take: false,
+        fingerprint: null,
+        git_changes: [],
+        git_unchecked: false,
+      },
+    ];
+    const notifier = new Notifier(system(false, true).api);
+    watchAgents(core, notifier, vi.fn());
+    core.status("s1", { state: "working" });
+    core.status("s1", { state: "idle" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(notifier.toasts.map((t) => [t.text, t.action?.label])).toEqual([
+      ["Fix the typo is done and changed 1 file. Keep or undo it in Reviews.", "Review"],
+    ]);
   });
 
   it("says a task finished only when none of its agents works", async () => {
@@ -92,7 +154,40 @@ describe("watchAgents", () => {
     core.status("s1", { state: "idle" });
     expect(await texts()).toEqual([]);
     core.status("s2", { state: "idle" });
-    expect(await texts()).toEqual(["Task: Add notes finished: none of its agents is working"]);
+    expect(await texts()).toEqual(["Task: Add notes is done. Reply to ask for more."]);
+    // Its worker asked for review: the toast says so and opens Reviews.
+    core.reviews = [
+      {
+        id: "r1",
+        project: "p1",
+        session: "s2",
+        mode: "isolated",
+        state: "open",
+        summary: "Wrote notes",
+        files: [
+          {
+            path: "NOTES.md",
+            kind: "added",
+            from: null,
+            by: "agent",
+            additions: 1,
+            deletions: 0,
+            blocked: false,
+            protected: false,
+          },
+        ],
+        can_undo: false,
+        not_copied: [],
+        can_undo_take: false,
+        fingerprint: null,
+        git_changes: [],
+        git_unchecked: false,
+      },
+    ];
+    core.status("s2", { state: "working" });
+    core.status("s2", { state: "idle" });
+    expect(await texts()).toEqual(["Task: Add notes: 1 change waits for your review"]);
+    expect(notifier.toasts[0]?.action?.label).toBe("Review");
     // Work starts again: the toast no longer holds.
     core.status("s2", { state: "working" });
     expect(await texts()).toEqual([]);
