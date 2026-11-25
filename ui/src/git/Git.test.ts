@@ -99,6 +99,8 @@ it("shows the branch and the lists, stages and unstages files and opens them", a
   // A file in both lists has two rows with different names: one reads "staged".
   expect(names("staged")).toEqual(["a.ts src , modified, staged"]);
   expect(names("changes")).toEqual(["b.ts src , modified", "new.md , untracked"]);
+  // The letter in the row's tooltip, besides the dot's colour.
+  expect($("[data-testid=git-changes] [data-path='new.md']")?.title).toBe("new.md (U: untracked)");
   expect(text("[data-testid=git-truncated]")).toBe("3 more changed files are not shown.");
 
   click("[aria-label='Stage src/b.ts']");

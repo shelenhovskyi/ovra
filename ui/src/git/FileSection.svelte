@@ -200,7 +200,7 @@ const all = $derived(files.flatMap((f) => (kind === "staged" && f.from ? [f.path
             data-row
             data-path={file.path}
             tabindex={file.path === stop ? 0 : -1}
-            title={file.from ? `${file.from} → ${file.path}` : file.path}
+            title={`${file.from ? `${file.from} → ${file.path}` : file.path} (${CHANGE_LETTER[what]}: ${CHANGE_LABEL[what]})`}
             aria-current={file.path === shownDiff ? "true" : undefined}
             aria-describedby={`git-${kind}-keys`}
             onfocus={() => (current = file.path)}
@@ -350,6 +350,14 @@ const all = $derived(files.flatMap((f) => (kind === "staged" && f.from ? [f.path
     outline: 2px solid var(--accent);
     outline-offset: -2px;
   }
+  /* A focused row rings as a whole, with its dot and actions, not just its name. */
+  .row:has(.name:focus-visible) {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
+  .row .name:focus-visible {
+    outline: none;
+  }
   button[aria-disabled="true"] {
     opacity: 0.6;
   }
@@ -379,7 +387,7 @@ const all = $derived(files.flatMap((f) => (kind === "staged" && f.from ? [f.path
   .row.selected .name {
     font-weight: 500;
   }
-  /* Git status as a 6 px dot: the letter in its tooltip, the word in the row's name. */
+  /* Git status as a 6 px dot: the letter in its and the row's tooltip, the word in the row's name. */
   .dot {
     flex: none;
     width: 6px;

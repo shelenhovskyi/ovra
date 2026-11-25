@@ -174,7 +174,9 @@ describe("FileTree", () => {
     t.row("gone.ts").click();
     expect(t.opened).toEqual([]);
     expect(description(t.row("new.ts"))).toBe("renamed, from old/name.ts");
-    expect(t.row("new.ts").title).toBe("new.ts (renamed, from old/name.ts)");
+    // The letter in the tooltip, besides the dot's colour.
+    expect(t.row("new.ts").title).toBe("new.ts (R: renamed, from old/name.ts)");
+    expect(t.row("gone.ts").title).toBe("gone.ts (D: deleted)");
   });
 
   it("keeps a selection when its row goes away: parent on collapse, neighbour on delete", async () => {

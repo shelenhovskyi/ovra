@@ -72,6 +72,9 @@ test("stage a file and one hunk, commit, and switch to a new branch", async ({ p
   await expect(slot).toHaveCSS("opacity", "0");
   await row.focus();
   await expect(slot).toHaveCSS("opacity", "1");
+  // The focus ring goes round the whole row: name, dot and actions.
+  await expect(row.locator("xpath=..")).toHaveCSS("outline-style", "solid");
+  await expect(row).toHaveCSS("outline-style", "none");
 
   await changes.getByRole("button", { name: "Stage new.txt" }).click();
   await expect(panel.getByTestId("git-staged").getByRole("button", { name: "Unstage new.txt" })).toBeVisible();

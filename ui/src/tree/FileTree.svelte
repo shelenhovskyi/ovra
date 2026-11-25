@@ -236,6 +236,14 @@ function describe(row: Row): string {
   return parts.join(", ");
 }
 
+/** The row's path and description; a file's git letter leads, so the dot's colour is not the only sign. */
+function tooltip(row: Row): string {
+  const description = describe(row);
+  if (!description) return row.path;
+  const letter = row.git && row.kind !== "dir" ? `${GIT_LETTER[row.git]}: ` : "";
+  return `${row.path} (${letter}${description})`;
+}
+
 /** The path being dragged inside the tree, and the folder it would drop into (`""` is the project folder). */
 let dragging: string | null = null;
 let dropDir = $state<string | null>(null);
@@ -575,7 +583,7 @@ function onkeydown(e: KeyboardEvent): void {
             data-path={row.path}
             data-git={row.git ?? undefined}
             data-ignored={row.ignored || undefined}
-            title={describe(row) ? `${row.path} (${describe(row)})` : row.path}
+            title={tooltip(row)}
             style:top="{index * ROW_HEIGHT}px"
             style:padding-left="{10 + row.depth * 16}px"
             onclick={() => activate(row)}
