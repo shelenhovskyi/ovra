@@ -39,5 +39,6 @@ describe("keys in a focused terminal", () => {
     command("test.toggle", "Ctrl+`");
     expect(isCommandKey(press("`", "Backquote", { ctrl: true }), false, false)).toBe(true);
     expect(isCommandKey(press("\u0451", "Backquote", { ctrl: true }), true, true)).toBe(true);
+    expect(isCommandKey(press("'", "Backquote", { ctrl: true }), false, true)).toBe(true);
   });
 });

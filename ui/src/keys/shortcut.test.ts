@@ -69,4 +69,16 @@ describe("shortcuts", () => {
     expect(formatShortcut("Alt+]", true)).toBe("\u2325]");
     expect(formatShortcut("Alt+]", false)).toBe("Alt+]");
   });
+
+  it("matches punctuation by physical key when the layout types other ASCII there", () => {
+    const toggle = parseShortcut("Ctrl+`", false);
+    const slash = parseShortcut("Mod+/", false);
+    const letter = parseShortcut("Mod+M", false);
+    if (!toggle || !slash || !letter) throw new Error("parse failed");
+    // Ukrainian: Backquote types an apostrophe. Russian: Slash types a full stop.
+    expect(matchesShortcut(press("'", "Backquote", { ctrl: true }), toggle)).toBe(true);
+    expect(matchesShortcut(press(".", "Slash", { ctrl: true }), slash)).toBe(true);
+    // A Latin letter on a punctuation key (AZERTY's M on Semicolon) stays a letter.
+    expect(matchesShortcut(press("m", "Semicolon", { ctrl: true }), letter)).toBe(true);
+  });
 });
