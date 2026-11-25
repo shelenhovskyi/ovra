@@ -538,6 +538,24 @@ async fn create_worker(
     Ok((worker, workspace))
 }
 
+/// Runs [`clean_up`] again once the worker's worktree is idle.
+fn retry_when_idle(core: &Core, project: &ProjectId, session: &SessionId) {
+    let (Some(idle), Ok(runtime)) = (
+        crate::servers::when_idle(core, session),
+        tokio::runtime::Handle::try_current(),
+    ) else {
+        return;
+    };
+    let (weak, project) = (core.downgrade(), project.clone());
+    let again: crate::services::BoxFuture<'static, ()> = Box::pin(async move {
+        idle.await;
+        if let Some(core) = weak.upgrade() {
+            clean_up(&core, &project).await;
+        }
+    });
+    runtime.spawn(again);
+}
+
 /// Removes the worktrees of an ended task's workers once nothing in them
 /// waits for the person: the worker ended, no item of it is partly approved
 /// and its worktree has no change its review has not decided (the decided
@@ -573,11 +591,14 @@ pub(super) async fn clean_up(core: &Core, project: &ProjectId) {
         let dir = PathBuf::from(&worker.worktree);
         let worktrees = core.worktrees();
         let settled = match review::settled(core, &worker.session).await {
-            // Its pod holds the worktree until it ended; retried next time.
-            Some(base) if crate::servers::worktree_stopped(core, &worker.session).await => {
-                Some(base)
+            Some(base) if crate::servers::worktree_idle(core, &worker.session).await => Some(base),
+            // A server or pod still holds the worktree: tried again once
+            // it ended, without making anyone wait.
+            Some(_) => {
+                retry_when_idle(core, project, &worker.session);
+                None
             }
-            _ => None,
+            None => None,
         };
         let (removed, kept) = match settled {
             None => (false, None),

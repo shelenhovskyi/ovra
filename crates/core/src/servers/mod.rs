@@ -56,6 +56,8 @@ pub(crate) struct DevServerState {
     starting: tokio::sync::Mutex<()>,
     /// Bumped on every status change, for those who wait for one.
     changed: watch::Sender<u64>,
+    /// Workers whose clean-up waits for their worktree to go idle.
+    waiting: Mutex<std::collections::BTreeSet<SessionId>>,
 }
 
 #[derive(Debug, Default)]
@@ -133,6 +135,7 @@ impl DevServerState {
             state: Mutex::new(State::default()),
             starting: tokio::sync::Mutex::new(()),
             changed: watch::Sender::new(0),
+            waiting: Mutex::default(),
         }
     }
 
@@ -427,20 +430,75 @@ pub(crate) async fn worktree_stopped(core: &Core, session: &SessionId) -> bool {
         }
     }
     let servers = core.dev_servers();
-    let dirs: std::collections::BTreeSet<PathBuf> = servers
-        .lock()
-        .servers
-        .iter()
-        .filter(|e| e.place.session.as_ref() == Some(session))
-        .map(|e| e.place.dir.clone())
-        .collect();
-    for dir in dirs {
+    for dir in worktree_dirs(core, session).1 {
         let ended = servers.dev.pod_ended(dir);
         if tokio::time::timeout(STOP_SLACK, ended).await.is_err() {
             return false;
         }
     }
     true
+}
+
+/// Whether the work dirs of the worker `session` ever had servers, any
+/// still runs, and those dirs.
+fn worktree_dirs(core: &Core, session: &SessionId) -> (bool, Vec<PathBuf>) {
+    let state = core.dev_servers().lock();
+    let mine = state
+        .servers
+        .iter()
+        .filter(|e| e.place.session.as_ref() == Some(session));
+    let running = mine.clone().any(Entry::running);
+    let dirs: std::collections::BTreeSet<PathBuf> = mine.map(|e| e.place.dir.clone()).collect();
+    (running, dirs.into_iter().collect())
+}
+
+/// Whether nothing runs in the worker's worktree, its pods' processes
+/// included; checked without waiting, for those that must not block.
+pub(crate) async fn worktree_idle(core: &Core, session: &SessionId) -> bool {
+    let (running, dirs) = worktree_dirs(core, session);
+    if running {
+        return false;
+    }
+    let dev = &core.dev_servers().dev;
+    let ended = async {
+        for dir in dirs {
+            dev.pod_ended(dir).await;
+        }
+    };
+    // A timeout polls its future once before its clock.
+    tokio::time::timeout(Duration::ZERO, ended).await.is_ok()
+}
+
+/// Resolves once the worker's worktree is idle: its servers stopped and
+/// its pods' processes ended, however long that takes. `None` when
+/// another caller already waits for it. Holds the core only weakly.
+pub(crate) fn when_idle(
+    core: &Core,
+    session: &SessionId,
+) -> Option<impl std::future::Future<Output = ()> + Send + 'static> {
+    let servers = core.dev_servers();
+    if !lock(&servers.waiting).insert(session.clone()) {
+        return None;
+    }
+    let (weak, session) = (core.downgrade(), session.clone());
+    Some(async move {
+        let dirs = match weak.upgrade() {
+            Some(core) => {
+                worktree_stopped(&core, &session).await;
+                worktree_dirs(&core, &session).1
+            }
+            None => return,
+        };
+        let dev = weak.upgrade().map(|core| core.dev_servers().dev.clone());
+        if let Some(dev) = dev {
+            for dir in dirs {
+                dev.pod_ended(dir).await;
+            }
+        }
+        if let Some(core) = weak.upgrade() {
+            lock(&core.dev_servers().waiting).remove(&session);
+        }
+    })
 }
 
 /// Stop, wait for the end, then start with a new generation.
