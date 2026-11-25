@@ -1,6 +1,7 @@
 import { toggleComment, undoDepth } from "@codemirror/commands";
 import { EditorView } from "@codemirror/view";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
+import { AUTO_SAVE_DELAY_MS, AutoSaver } from "./autosave";
 import { type Buffer, Buffers } from "./buffers.svelte";
 import { Drafts } from "./drafts.svelte";
 import { FakeCore, MemoryStorage } from "./fake-core";
@@ -18,10 +19,10 @@ afterEach(() => {
   for (const view of views.splice(0)) view.destroy();
 });
 
-function setup(highlighter: HighlightClient | null = null, storage = new MemoryStorage()) {
+function setup(highlighter: HighlightClient | null = null, storage = new MemoryStorage(), autoSave?: AutoSaver) {
   const core = new FakeCore();
   const drafts = new Drafts(storage);
-  const buffers = new Buffers({ transport: core, project: "p1", drafts, highlighter: () => highlighter });
+  const buffers = new Buffers({ transport: core, project: "p1", drafts, highlighter: () => highlighter, autoSave });
   const view = new EditorView({ parent: document.body.appendChild(document.createElement("div")) });
   views.push(view);
   /** Opens `path` in the view, as the editor does when its tab is active. */
@@ -128,6 +129,27 @@ describe("Buffer", () => {
     const { undo } = await import("@codemirror/commands");
     expect(undo(view)).toBe(false);
     expect(a.dirty).toBe(false);
+  });
+
+  test("auto save writes through the normal save and stops at a conflict", async () => {
+    const { core, show, type } = setup(null, new MemoryStorage(), new AutoSaver(() => "after_delay"));
+    core.put("a.txt", "base");
+    const a = await show("a.txt");
+    vi.useFakeTimers();
+    try {
+      type("!");
+      await vi.advanceTimersByTimeAsync(AUTO_SAVE_DELAY_MS);
+      expect(core.writes).toEqual([{ path: "a.txt", text: "base!", expected: 101 }]);
+      core.put("a.txt", "theirs");
+      type("?");
+      await a.diskChanged();
+      expect(a.conflict).toBe(true);
+      type("?");
+      await vi.advanceTimersByTimeAsync(AUTO_SAVE_DELAY_MS);
+      expect([core.writes.length, a.conflict]).toEqual([1, true]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test("an outside change to unsaved text is a conflict, in the background too", async () => {

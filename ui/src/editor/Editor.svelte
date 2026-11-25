@@ -23,6 +23,7 @@ import { useOvra } from "../shell/context";
 import type { TextSpot } from "../shell/workspace.svelte";
 import type { Buffer } from "./buffers.svelte";
 import { toggle } from "./commands";
+import { AutoSaver, autoSaver } from "./autosave";
 import { editorMenu } from "./context-menu";
 import { answerClose, tabs } from "./open-files.svelte";
 import { editorPrefs } from "./prefs.svelte";
@@ -93,6 +94,8 @@ $effect(() => {
     showView(null);
     lsp?.hiding(next);
     next.detach();
+    // Another tab or mode takes the editor: focus left this file.
+    autoSaver.left([next]);
     // Nothing typed before the next buffer arrives may land in this one.
     view?.setState(EditorState.create());
   };
@@ -157,6 +160,16 @@ function focusUnlessInTabs(): void {
   if (!document.activeElement?.closest('[role="tablist"], dialog')) view?.focus();
 }
 
+/** Whether auto save is on and may write the open buffer (not while a conflict or an error is shown). */
+const autoSaving = $derived(!!buffer && editorPrefs.autoSave !== "off" && AutoSaver.ready(buffer));
+
+/** The window lost focus: auto save on focus change writes every buffer with unsaved text. */
+function leaveWindow(): void {
+  const buffers = tabs.current?.buffers;
+  if (!buffers) return;
+  autoSaver.left(buffers.unsavedPaths().flatMap((path) => buffers.get(path) ?? []));
+}
+
 async function save(overwrite = false): Promise<void> {
   await buffer?.save(overwrite);
   view?.focus();
@@ -193,12 +206,17 @@ function discard(path: string): void {
 }
 </script>
 
+<svelte:window onblur={leaveWindow} />
+
 <div class="editor" data-panel="Editor">
   {#if buffer}
     <div class="bar">
       <span class="path" data-testid="editor-path">{buffer.path}</span>
       {#if buffer.dirty}
-        <span class="dirty" title="Unsaved changes" data-testid="editor-dirty">●<span class="visually-hidden">Unsaved changes</span></span>
+        {@const label = autoSaving ? "Unsaved changes, saved automatically" : "Unsaved changes"}
+        <span class="dirty" class:auto={autoSaving} title={label} data-testid="editor-dirty"
+          >●<span class="visually-hidden">{label}</span></span
+        >
       {/if}
       <span class="language" data-testid="editor-language"
         >{buffer.heavy ? "Plain text (large file)" : (buffer.language?.name ?? "Plain text")}</span
@@ -274,6 +292,10 @@ function discard(path: string): void {
   }
   .dirty {
     color: var(--accent);
+  }
+  /* Auto save will take care of it: no call to act. */
+  .dirty.auto {
+    color: var(--text-2);
   }
   .language {
     margin-left: auto;

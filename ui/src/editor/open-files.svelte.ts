@@ -11,6 +11,7 @@ import type { ProjectId, ProjectStatePatch } from "../lib/protocol";
 import { CoreError, type Transport } from "../lib/transport";
 import type { MainMode, Workspace } from "../shell/workspace.svelte";
 import { movedPath } from "../tree/ops";
+import { autoSaver } from "./autosave";
 import { Buffers } from "./buffers.svelte";
 import { drafts } from "./drafts.svelte";
 import { highlighter } from "./highlight/highlighter";
@@ -478,7 +479,7 @@ export function persistOpenFiles(transport: Transport, workspace: Workspace): ()
       tabs.current = null;
       tabs.closing = null;
       if (!project) return;
-      const buffers = new Buffers({ transport, project, drafts, highlighter });
+      const buffers = new Buffers({ transport, project, drafts, highlighter, autoSave: autoSaver });
       const files = new OpenFiles(transport, project, buffers);
       const lsp = new LanguageClients({
         transport,

@@ -27,6 +27,7 @@ import { drawSelection, EditorView, highlightActiveLine, type KeyBinding, keymap
 import { SvelteMap } from "svelte/reactivity";
 import type { FileContent, ProjectId } from "../lib/protocol";
 import { CoreError, type Transport } from "../lib/transport";
+import type { AutoSaver } from "./autosave";
 import type { Drafts } from "./drafts.svelte";
 import { gitExtension } from "./git/extension";
 import { GitFile } from "./git/file";
@@ -113,6 +114,8 @@ type Options = {
   drafts: Drafts;
   /** The highlight worker, or null to show plain text. */
   highlighter: () => HighlightClient | null;
+  /** Told of every change, to save on its own as the preferences say. */
+  autoSave?: AutoSaver;
 };
 
 export class Buffer {
@@ -311,6 +314,7 @@ export class Buffer {
   dispose(): void {
     this.disposed = true;
     if (this.draftTimer) clearTimeout(this.draftTimer);
+    this.options.autoSave?.cancel(this);
     this.options.drafts.remove(this.options.project, this.path);
     this.highlight?.close();
   }
@@ -370,6 +374,7 @@ export class Buffer {
     this.unsaved = this.dirty && doc ? doc.toString() : null;
     if (this.draftTimer) clearTimeout(this.draftTimer);
     this.draftTimer = null;
+    this.options.autoSave?.edited(this);
     if (this.dirty) this.draftTimer = setTimeout(() => this.flushDraft(), DRAFT_DELAY_MS);
     else this.options.drafts.remove(this.options.project, this.path);
   }
