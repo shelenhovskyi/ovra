@@ -5,12 +5,16 @@
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { untrack } from "svelte";
+import { formatShortcut, inBrowserTab, isApple, liveKeys } from "../keys/shortcut";
 import { useOvra } from "../shell/context";
 import type { TextSpot } from "../shell/workspace.svelte";
 import type { Buffer } from "./buffers.svelte";
+import { toggle } from "./commands";
 import { answerClose, tabs } from "./open-files.svelte";
 
 const { workspace } = useOvra();
+const viewKeys = formatShortcut(liveKeys("Mod+E", inBrowserTab()), isApple());
+const saveKeys = formatShortcut("Mod+S", isApple());
 
 let host = $state<HTMLDivElement>();
 let view: EditorView | null = null;
@@ -116,8 +120,17 @@ function discard(path: string): void {
       <span class="language" data-testid="editor-language"
         >{buffer.heavy ? "Plain text (large file, highlighting off)" : (buffer.language?.name ?? "Plain text")}</span
       >
+      <button type="button" title="Back to the read-only view ({viewKeys})" onclick={() => toggle(workspace)}
+        >View <kbd>{viewKeys}</kbd></button
+      >
       {#if buffer.status === "ready"}
-        <button type="button" onclick={() => save()} disabled={!buffer.dirty}>Save</button>
+        <button
+          type="button"
+          class="primary"
+          title={buffer.dirty ? `Save (${saveKeys})` : "No unsaved changes"}
+          onclick={() => save()}
+          disabled={!buffer.dirty}>Save</button
+        >
       {/if}
     </div>
     {#if buffer.deleted}
@@ -166,6 +179,42 @@ function discard(path: string): void {
   .language {
     margin-left: auto;
   }
+  button {
+    padding: 1px 8px;
+    font: inherit;
+    font-size: 12px;
+    color: #e6e6e6;
+    background: none;
+    border: 1px solid #4a4a57;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  button:hover:not(:disabled) {
+    background: #2a2a31;
+  }
+  button:focus-visible {
+    outline: 2px solid #7aa2ff;
+    outline-offset: 1px;
+  }
+  .primary {
+    background: #2f3d5c;
+    border-color: #4a6bb0;
+  }
+  .primary:hover:not(:disabled) {
+    background: #3a4b70;
+  }
+  /* Disabled stays readable (#b4b4c0 on the bar, 8.8:1); the flat border says it is off. */
+  button:disabled {
+    color: #b4b4c0;
+    background: none;
+    border-color: #2a2a31;
+    cursor: default;
+  }
+  kbd {
+    font: inherit;
+    font-size: 11px;
+    color: #9a9aa6;
+  }
   .notice {
     display: flex;
     flex-wrap: wrap;
@@ -177,7 +226,7 @@ function discard(path: string): void {
   }
   .message {
     padding: 12px;
-    color: #6f6f7a;
+    color: #9a9aa6;
   }
   .host {
     flex: 1;

@@ -8,9 +8,10 @@ export const theme = EditorView.theme(
     "&": { height: "100%", color: "#e6e6e6", backgroundColor: "#16161a" },
     ".cm-scroller": { fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace", lineHeight: "1.5" },
     ".cm-content": { caretColor: "#e6e6e6" },
-    ".cm-gutters": { backgroundColor: "#16161a", color: "#5a5a66", border: "none" },
+    // Line numbers at 5.3:1, the active one brighter.
+    ".cm-gutters": { backgroundColor: "#16161a", color: "#8a8a96", border: "none" },
     ".cm-activeLine": { backgroundColor: "#1d1d23" },
-    ".cm-activeLineGutter": { backgroundColor: "#1d1d23", color: "#9a9aa6" },
+    ".cm-activeLineGutter": { backgroundColor: "#1d1d23", color: "#d0d0d8" },
     "&.cm-focused .cm-selectionBackground, .cm-selectionBackground": { backgroundColor: "#2f3a55" },
     ".cm-selectionMatch": { backgroundColor: "#2a2f3d" },
     ".tok-comment": { color: "#6a737d", fontStyle: "italic" },

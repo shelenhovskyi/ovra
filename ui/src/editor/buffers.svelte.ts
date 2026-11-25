@@ -342,6 +342,8 @@ export class Buffer {
       EditorView.updateListener.of((update) => {
         if (update.docChanged) this.changed();
       }),
+      // Named, so a screen reader says which file the text box edits.
+      EditorView.contentAttributes.of({ "aria-label": `Edit ${this.path}` }),
       theme,
       this.highlight ? treeSitterHighlighting(this.highlight) : [],
       this.server.of(this.serverExtension),

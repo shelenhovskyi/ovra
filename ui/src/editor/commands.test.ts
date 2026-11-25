@@ -57,16 +57,17 @@ test("editor.toggle on a binary file stays in view mode and says why", async () 
   unregister();
 });
 
-test("tab commands switch, wrap around and close, keeping the mode", async () => {
+test("tab commands switch, wrap around and close, each tab in its own mode", async () => {
   const { files, workspace, unregister } = setup();
   for (const path of ["a", "b", "c"]) void files.opened(path);
   workspace.openFile("c", "edit");
+  files.modes.set("c", "edit");
 
   await run("editor.next_tab");
-  expect([workspace.openPath, workspace.mode]).toEqual(["a", "edit"]);
+  expect([workspace.openPath, workspace.mode]).toEqual(["a", "view"]);
   void files.opened("a");
   await run("editor.previous_tab");
-  expect(workspace.openPath).toBe("c");
+  expect([workspace.openPath, workspace.mode]).toEqual(["c", "edit"]);
   void files.opened("c");
 
   await run("editor.close_tab");

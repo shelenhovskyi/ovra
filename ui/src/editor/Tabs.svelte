@@ -2,25 +2,42 @@
 // Tabs for the open files of the project, above the main area. One Tab stop
 // for the strip; arrows, Home and End move between tabs, Delete closes one.
 // Closing a tab with unsaved text asks Save / Don't save / Cancel in a
-// modal dialog. The Edit / View button switches the open file's mode.
+// modal dialog; Cancel puts focus back where it was. Edit / View lives in
+// the file's own bar, so it never scrolls away with the tabs. The strip fades
+// at an edge that has more tabs beyond it.
 // A git diff shown in the main area is the last tab, selected while it shows.
 import { tick } from "svelte";
-import { languageServers } from "../lsp/servers.svelte";
 import { useOvra } from "../shell/context";
-import { toggle } from "./commands";
 import { tabLabels } from "./labels";
-import { serverFor } from "./lsp/clients";
 import { answerClose, requestClose, show, tabs } from "./open-files.svelte";
 
-const { workspace, transport } = useOvra();
-const lsp = languageServers(transport);
-// The viewer has no language features: say where they are.
-const lspHint = $derived(
-  workspace.mode === "view" && workspace.openPath ? serverFor(workspace.openPath, lsp.status)?.name : undefined,
-);
+const { workspace } = useOvra();
 
 let strip = $state<HTMLDivElement>();
 let dialog = $state<HTMLDialogElement>();
+/** What had focus before the close question, for Cancel. */
+let beforeQuestion: HTMLElement | null = null;
+/** Whether more tabs are hidden past the left or right edge of the strip. */
+let more = $state({ start: false, end: false });
+
+function measure(): void {
+  if (!strip) return;
+  const { scrollLeft, scrollWidth, clientWidth } = strip;
+  more = { start: scrollLeft > 1, end: scrollLeft + clientWidth < scrollWidth - 1 };
+}
+
+$effect(() => {
+  const target = strip;
+  if (!target || typeof ResizeObserver === "undefined") return;
+  const observer = new ResizeObserver(measure);
+  observer.observe(target);
+  return () => observer.disconnect();
+});
+
+$effect(() => {
+  void tabs.current?.files.length;
+  void tick().then(measure);
+});
 
 function label(path: string): string {
   const entry = labels.get(path);
@@ -101,14 +118,21 @@ function onkeydown(event: KeyboardEvent, path: string): void {
 
 async function answer(choice: "save" | "discard" | "cancel"): Promise<void> {
   const path = tabs.closing;
+  const back = beforeQuestion;
+  beforeQuestion = null;
   await answerClose(workspace, choice);
-  if (choice === "cancel" || tabs.current?.files.includes(path ?? "")) void focusTab(path);
+  if (choice === "cancel" && back?.isConnected && !strip?.contains(back)) {
+    // Never mind: back to where the person was, usually the text.
+    await tick();
+    back.focus();
+  } else if (choice === "cancel" || tabs.current?.files.includes(path ?? "")) void focusTab(path);
   else focusAfterClose(tabs.current?.active);
 }
 
 // A real modal: the rest of the page is inert and Tab stays inside.
 $effect(() => {
   if (tabs.closing && dialog && !dialog.open) {
+    beforeQuestion = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     dialog.showModal();
     dialog.querySelector<HTMLButtonElement>("button")?.focus();
   }
@@ -150,7 +174,16 @@ function scrollToActive(): void {
 {#if (tabs.current && tabs.current.files.length > 0) || diff}
   {@const files = tabs.current?.files ?? []}
   {@const selected = diff ? null : (tabs.current?.active ?? null)}
-  <div class="tabs" role="tablist" aria-label="Open files" data-testid="tabs" bind:this={strip}>
+  <div
+    class="tabs"
+    class:more-start={more.start}
+    class:more-end={more.end}
+    role="tablist"
+    aria-label="Open files"
+    data-testid="tabs"
+    bind:this={strip}
+    onscroll={measure}
+  >
     {#each files as path (path)}
       {@const active = path === selected}
       {@const dirty = tabs.current?.buffers.isDirty(path) ?? false}
@@ -204,12 +237,6 @@ function scrollToActive(): void {
         ></button>
       </div>
     {/if}
-    {#if workspace.openPath && !diff}
-      {#if lspHint}<span class="lsp-hint" data-testid="lsp-edit-hint">{lspHint} in Edit</span>{/if}
-      <button type="button" class="mode" onclick={() => toggle(workspace)}>
-        {workspace.mode === "edit" ? "View" : "Edit"}
-      </button>
-    {/if}
   </div>
 {/if}
 
@@ -244,6 +271,24 @@ function scrollToActive(): void {
     border-bottom: 1px solid #2a2a31;
     background: #121215;
     scrollbar-width: thin;
+    --fade-start: 0px;
+    --fade-end: 0px;
+  }
+  .more-start,
+  .more-end {
+    mask-image: linear-gradient(
+      to right,
+      transparent,
+      #000 var(--fade-start),
+      #000 calc(100% - var(--fade-end)),
+      transparent
+    );
+  }
+  .more-start {
+    --fade-start: 32px;
+  }
+  .more-end {
+    --fade-end: 32px;
   }
   .tab {
     display: flex;
@@ -285,15 +330,7 @@ function scrollToActive(): void {
   .hint {
     min-width: 0;
     font-size: 11px;
-    color: #6f6f7a;
-  }
-  .lsp-hint {
-    align-self: center;
-    margin-left: auto;
-    padding: 0 6px;
-    font-size: 11px;
-    color: #b4b4c0;
-    white-space: nowrap;
+    color: #9a9aa6;
   }
   .close {
     width: 20px;
@@ -325,18 +362,6 @@ function scrollToActive(): void {
     padding: 6px 12px;
     background: #2a2a3a;
     color: #e6e6e6;
-  }
-  .mode {
-    margin-left: auto;
-    flex-shrink: 0;
-    padding: 4px 12px;
-    color: #82aaff;
-  }
-  .lsp-hint + .mode {
-    margin-left: 0;
-  }
-  .mode:hover {
-    background: #2a2a31;
   }
   .confirm {
     padding: 16px;

@@ -46,6 +46,13 @@ describe("Buffer", () => {
     expect(a.dirty).toBe(false);
   });
 
+  test("names the text box after its file", async () => {
+    const { core, view, show } = setup();
+    core.put("src/a.txt", "hello");
+    await show("src/a.txt");
+    expect(view.contentDOM.getAttribute("aria-label")).toBe("Edit src/a.txt");
+  });
+
   test("undo history and unsaved text survive switching to another tab and back", async () => {
     const { core, view, show, type } = setup();
     core.put("a.txt", "one");
