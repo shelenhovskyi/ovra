@@ -1,0 +1,36 @@
+name: Mac debug (temporary)
+on:
+  push:
+    branches: [claude/project-thread-x2b5w2]
+permissions:
+  contents: read
+jobs:
+  mac:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: just,cargo-nextest
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Rust tests and budget
+        continue-on-error: true
+        run: |
+          cargo nextest run --workspace --exclude ovra-app --all-features --no-tests=pass
+          python3 scripts/check_test_budgets.py rust
+      - run: just build-headless
+      - run: pnpm --filter @ovra/e2e exec playwright install chromium
+      - name: e2e
+        run: pnpm --filter @ovra/e2e exec playwright test --reporter=list --trace off
+      - if: always()
+        run: python3 scripts/check_test_budgets.py e2e || true
