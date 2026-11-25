@@ -7,6 +7,7 @@
 
 pub mod agents;
 pub mod audit;
+pub mod board;
 pub mod browser;
 pub mod context;
 pub mod fs;
@@ -43,6 +44,7 @@ pub enum Request {
     Permissions(permissions::PermissionsRequest),
     Review(review::ReviewRequest),
     Orchestration(orchestration::OrchestrationRequest),
+    Board(board::BoardRequest),
     Search(search::SearchRequest),
     Policy(policy::PolicyRequest),
     Secrets(secrets::SecretsRequest),
@@ -69,6 +71,7 @@ pub enum Response {
     Permissions(permissions::PermissionsResponse),
     Review(review::ReviewResponse),
     Orchestration(orchestration::OrchestrationResponse),
+    Board(board::BoardResponse),
     Search(search::SearchResponse),
     Policy(policy::PolicyResponse),
     Secrets(secrets::SecretsResponse),
@@ -103,6 +106,7 @@ pub enum Event {
     Permissions(permissions::PermissionsEvent),
     Review(review::ReviewEvent),
     Orchestration(orchestration::OrchestrationEvent),
+    Board(board::BoardEvent),
     Search(search::SearchEvent),
     Policy(policy::PolicyEvent),
     Secrets(secrets::SecretsEvent),
@@ -196,6 +200,12 @@ impl From<permissions::PermissionsEvent> for Event {
 impl From<review::ReviewEvent> for Event {
     fn from(e: review::ReviewEvent) -> Self {
         Self::Review(e)
+    }
+}
+
+impl From<board::BoardEvent> for Event {
+    fn from(e: board::BoardEvent) -> Self {
+        Self::Board(e)
     }
 }
 

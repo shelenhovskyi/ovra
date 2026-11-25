@@ -868,6 +868,7 @@ async fn tasks_and_open_reviews_survive_a_restart() {
             .await
             .is_ok()
     );
+    assert!(before.board_post(&me, "a.rs is mine").is_ok());
     drop(before);
 
     let agent = Arc::new(ScriptedAgent::new(say()));
@@ -875,6 +876,15 @@ async fn tasks_and_open_reviews_survive_a_restart() {
     let mut rx = after.subscribe();
     let items = reviews(&after).await;
     assert_eq!(items.len(), 1);
+    let board = ok(
+        &after,
+        json!({"method": "board.list", "params": {"task": "t1"}}),
+    )
+    .await;
+    assert!(
+        matches!(&board, Response::Board(crate::protocol::board::BoardResponse::Entries { entries, .. }) if entries.len() == 1),
+        "the board is kept: {board:?}"
+    );
     assert_eq!(items[0].summary.as_deref(), Some("changed a.rs"));
     assert_eq!(items[0].files.len(), 1);
     let tasks = ok(
@@ -3021,4 +3031,157 @@ async fn a_turn_end_finds_an_overlap_and_a_discarded_worker_has_none() {
         state.lock().overlaps.is_empty(),
         "its next overlap is told again"
     );
+}
+
+/// A task with workers `lint` (s2) and `docs` (s3), all idle.
+async fn board_fx() -> (Fx, broadcast::Receiver<Event>) {
+    let f = fx(say()).await;
+    let mut rx = f.core.subscribe();
+    start_task(&f.core, 3).await;
+    until(&mut rx, "s1", AgentStatus::Idle).await;
+    let boss = caller("s1", ToolRole::Coordinator);
+    for (session, name) in [("s2", "lint"), ("s3", "docs")] {
+        let worker = f.core.spawn_agent(&boss, name, "x", false).await;
+        assert!(worker.is_ok(), "{worker:?}");
+        until(&mut rx, session, AgentStatus::Idle).await;
+    }
+    (f, rx)
+}
+
+fn board_notes(messages: Vec<AgentMessage>) -> Vec<String> {
+    messages
+        .into_iter()
+        .filter_map(|m| match m {
+            AgentMessage::UserText {
+                text,
+                from: MessageFrom::Ovra,
+            } if text.starts_with("Ovra: New on your task's board.") => Some(text),
+            _ => None,
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn claims_that_meet_are_told_and_an_idle_worker_is_not_woken() {
+    let (f, _rx) = board_fx().await;
+    let lint = caller("s2", ToolRole::Worker);
+    let docs = caller("s3", ToolRole::Worker);
+    let first = f
+        .core
+        .board_claim(&lint, None, &["src/**".into()], "lint fixes");
+    let first = first.unwrap_or_else(|e| panic!("{e}"));
+    assert!(first.overlaps.is_empty());
+    let second = f.core.board_claim(&docs, None, &["src/a.rs".into()], "");
+    let second = second.unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(second.overlaps, [("lint".to_owned(), "src/**".to_owned())]);
+    // The coordinator is woken for the overlap; idle lint is not.
+    let boss = board_notes(transcript(&f.core, "s1").await);
+    assert_eq!(boss.len(), 1, "{boss:?}");
+    assert!(boss[0].contains("<board-entry id=\"b1\" author=\"worker:lint\" kind=\"claim\""));
+    assert!(boss[0].contains("<board-entry id=\"b2\" author=\"worker:docs\" kind=\"claim\""));
+    assert!(board_notes(transcript(&f.core, "s2").await).is_empty());
+    // A worker claims for itself only; paths stay inside the project.
+    assert_eq!(
+        code(f.core.board_claim(&docs, Some("lint"), &["x".into()], "")),
+        ErrorCode::Forbidden
+    );
+    assert_eq!(
+        code(f.core.board_claim(&docs, None, &["../x".into()], "")),
+        ErrorCode::Forbidden
+    );
+    // Released claims no longer meet.
+    assert!(
+        f.core
+            .board_release(&lint, None, &["src/**".into()])
+            .is_ok()
+    );
+    let third = f.core.board_claim(&docs, None, &["src/b.rs".into()], "");
+    assert_eq!(third.map(|c| c.overlaps.len()).ok(), Some(0));
+}
+
+#[tokio::test]
+async fn the_person_answers_questions_on_the_board_and_only_they_do() {
+    let (f, _rx) = board_fx().await;
+    let lint = caller("s2", ToolRole::Worker);
+    let docs = caller("s3", ToolRole::Worker);
+    let (asked, later) = f
+        .core
+        .board_ask(&lint, "person", "Keep the old flag?")
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(later, None);
+    let (to_docs, later) = f
+        .core
+        .board_ask(&lint, "docs", "Do you touch README?")
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert!(later.is_some_and(|l| l.starts_with("Worker docs waits")));
+    assert!(
+        board_notes(transcript(&f.core, "s3").await).is_empty(),
+        "an idle worker is not woken"
+    );
+    let list = ok(
+        &f.core,
+        json!({"method": "board.list", "params": {"task": "t1"}}),
+    )
+    .await;
+    let Response::Board(crate::protocol::board::BoardResponse::Entries {
+        entries,
+        next,
+        open_for_person,
+    }) = list
+    else {
+        panic!("unexpected {list:?}");
+    };
+    assert_eq!((entries.len(), next), (2, 2));
+    assert_eq!(open_for_person, std::slice::from_ref(&asked.id));
+    // A worker cannot answer for the person, nor answer its own question.
+    assert_eq!(
+        code(f.core.board_answer(&docs, &asked.id, "yes")),
+        ErrorCode::Forbidden
+    );
+    let answer = json!({"method": "board.answer", "params": {"task": "t1", "question": asked.id, "text": "Yes"}});
+    ok(&f.core, answer.clone()).await;
+    assert_eq!(code(call(&f.core, answer).await), ErrorCode::Conflict);
+    assert!(f.core.board_answer(&docs, &to_docs.id, "No").is_ok());
+    let (all, _) = f
+        .core
+        .board_read(&docs, 0)
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(
+        all[2].author,
+        crate::protocol::board::Author::Person,
+        "the UI's answer is the person's"
+    );
+}
+
+#[tokio::test]
+async fn a_question_wakes_the_coordinator_and_talk_has_limits() {
+    let (f, _rx) = board_fx().await;
+    let lint = caller("s2", ToolRole::Worker);
+    let docs = caller("s3", ToolRole::Worker);
+    let asked = f.core.board_ask(&lint, "coordinator", "Split README?");
+    assert!(asked.is_ok(), "{asked:?}");
+    let boss = board_notes(transcript(&f.core, "s1").await);
+    assert_eq!(boss.len(), 1, "{boss:?}");
+    assert!(boss[0].contains("kind=\"question\" to=\"coordinator\">\nSplit README?\n"));
+    // Two workers asking each other back and forth go through the coordinator.
+    let mut last = None;
+    for round in 0..3 {
+        let (q, _) = f
+            .core
+            .board_ask(&lint, "docs", "again?")
+            .unwrap_or_else(|e| panic!("round {round}: {e}"));
+        let answered = f.core.board_answer(&docs, &q.id, "yes");
+        assert!(answered.is_ok(), "{answered:?}");
+        last = Some(q.id);
+    }
+    assert!(last.is_some());
+    assert_eq!(
+        code(f.core.board_ask(&lint, "docs", "again?")),
+        ErrorCode::Conflict
+    );
+    // And one agent writes at most ten entries a minute: docs wrote three.
+    for _ in 0..7 {
+        assert!(f.core.board_post(&docs, "note").is_ok());
+    }
+    assert_eq!(code(f.core.board_post(&docs, "note")), ErrorCode::Conflict);
 }

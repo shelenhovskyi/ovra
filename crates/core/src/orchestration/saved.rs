@@ -2,14 +2,16 @@
 //! [`SessionStore`]. Sessions are kept by the store already; this keeps
 //! which task each belongs to and what its review compares.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use super::{State, review, tasks};
+use super::{State, board, review, tasks};
 use crate::Core;
 use crate::agents::Launch;
 use crate::protocol::agents::SessionId;
+use crate::protocol::orchestration::TaskId;
 use crate::services::{SessionStore, ToolRole};
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -19,6 +21,7 @@ struct Saved {
     tasks_made: u64,
     reviews: Vec<review::Entry>,
     reviews_made: u64,
+    boards: BTreeMap<TaskId, board::Board>,
 }
 
 /// What was saved; nothing if it is missing or cannot be read.
@@ -34,6 +37,7 @@ pub(super) fn load(store: &dyn SessionStore) -> State {
         tasks_made: saved.tasks_made,
         reviews: saved.reviews,
         reviews_made: saved.reviews_made,
+        boards: saved.boards,
         ..State::default()
     }
 }
@@ -45,12 +49,14 @@ pub(super) fn save(store: &dyn SessionStore, state: &State) {
         tasks_made: u64,
         reviews: &'a [review::Entry],
         reviews_made: u64,
+        boards: &'a BTreeMap<TaskId, board::Board>,
     }
     let saved = Ref {
         tasks: &state.tasks,
         tasks_made: state.tasks_made,
         reviews: &state.reviews,
         reviews_made: state.reviews_made,
+        boards: &state.boards,
     };
     if let Ok(json) = serde_json::to_string(&saved) {
         let _ = store.save_orchestration(&json);

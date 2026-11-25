@@ -216,7 +216,7 @@ async fn start(
     Ok(view(core, &entry))
 }
 
-fn find(core: &Core, task: &TaskId) -> Result<Entry> {
+pub(super) fn find(core: &Core, task: &TaskId) -> Result<Entry> {
     core.orchestration_state()
         .lock()
         .tasks

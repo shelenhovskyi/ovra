@@ -8,6 +8,7 @@
 //! lock, never the other way round; sessions call in here only without
 //! holding theirs.
 
+mod board;
 pub(crate) mod direct;
 mod ide;
 mod overlap;
@@ -77,6 +78,8 @@ struct State {
     holds: BTreeSet<SessionId>,
     /// Workers whose worktree is watched while they run ([`watch`]).
     watches: BTreeSet<SessionId>,
+    /// Each task's board ([`board`]).
+    boards: BTreeMap<crate::protocol::orchestration::TaskId, board::Board>,
     /// Each worker's changed paths as [`overlap`] last saw them; not saved.
     changed: BTreeMap<SessionId, BTreeSet<String>>,
     /// Worker pairs [`overlap`] already told of; not saved.
@@ -127,6 +130,13 @@ pub(crate) async fn pull_request(
     request: crate::protocol::pr::PrRequest,
 ) -> Result<Response> {
     publish::handle(core, request).await
+}
+
+pub(crate) fn board(
+    core: &Core,
+    request: crate::protocol::board::BoardRequest,
+) -> Result<Response> {
+    board::handle(core, request)
 }
 
 pub(crate) async fn orchestration(core: &Core, request: OrchestrationRequest) -> Result<Response> {

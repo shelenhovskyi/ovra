@@ -2,6 +2,7 @@
 
 import type { AgentsEvent, AgentsRequest, AgentsResponse, CheckpointMethod, CheckpointResponseFor } from "./agents";
 import type { AuditLogEvent, AuditRequest, AuditResponse } from "./audit";
+import type { BoardEvent, BoardRequest, BoardResponse, BoardResponseFor } from "./board";
 import type { BrowserEvent, BrowserRequest, BrowserResponse, BrowserResponseFor } from "./browser";
 import type { ContextRequest, ContextResponse } from "./context";
 import type { FsEvent, FsRequest, FsResponse } from "./fs";
@@ -25,6 +26,7 @@ import type { TerminalsEvent, TerminalsRequest, TerminalsResponse } from "./term
 
 export type * from "./agents";
 export type * from "./audit";
+export type * from "./board";
 export type * from "./browser";
 export type * from "./context";
 export type * from "./fs";
@@ -74,7 +76,8 @@ export type Request =
   | BrowserRequest
   | PrRequest
   | PowerRequest
-  | ContextRequest;
+  | ContextRequest
+  | BoardRequest;
 
 export type Response =
   | InfoResponse
@@ -97,6 +100,7 @@ export type Response =
   | PrResponse
   | PowerResponse
   | ContextResponse
+  | BoardResponse
   | { type: "ok" };
 
 export type CoreEvent =
@@ -118,7 +122,8 @@ export type CoreEvent =
   | BrowserEvent
   | PrEvent
   | ResourcesEvent
-  | PowerEvent;
+  | PowerEvent
+  | BoardEvent;
 
 export type ErrorCode = "bad_request" | "not_found" | "conflict" | "forbidden" | "unavailable" | "internal";
 
@@ -259,4 +264,6 @@ type PhaseThreeResponseFor<R extends Request> = R extends { method: "review.list
                                           ? PowerResponse
                                           : R extends ContextRequest
                                             ? ContextResponse
-                                            : never;
+                                            : R extends BoardRequest
+                                              ? BoardResponseFor<R["method"]>
+                                              : never;

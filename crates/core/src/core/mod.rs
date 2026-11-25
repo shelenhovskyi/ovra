@@ -410,6 +410,7 @@ impl Core {
             Request::Permissions(r) => agents::handle_permissions(&self.agents_ctx(), r),
             Request::Review(r) => orchestration::review(self, r).await,
             Request::Orchestration(r) => orchestration::orchestration(self, r).await,
+            Request::Board(r) => orchestration::board(self, r),
             Request::Search(r) => search::handle(self, r),
             Request::Policy(r) => crate::policy::handle(self, r),
             Request::Secrets(r) => crate::secrets::handle(self, r).await,
