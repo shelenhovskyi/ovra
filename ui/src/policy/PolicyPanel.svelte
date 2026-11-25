@@ -8,7 +8,7 @@ import { registerCommand } from "../keys/commands";
 import type { PolicyAction, PolicyRule } from "../lib/protocol";
 import { useOvra } from "../shell/context";
 import { ProjectPolicy, reason } from "./policy.svelte";
-import { ACTIONS, byPrecedence, caveats, formRule, KNOWN_TOOLS, matchHint, ruleText } from "./rules";
+import { ACTIONS, byPrecedence, caveats, formRule, KNOWN_TOOLS, matchHint, ruleText, toolWarning } from "./rules";
 
 const { transport, workspace } = useOvra();
 const policy = new ProjectPolicy(transport);
@@ -28,6 +28,7 @@ let busy = $state(false);
 
 const rows = $derived(byPrecedence(policy.rules ?? []));
 const preview = $derived(formRule(tool, match, action));
+const warning = $derived(toolWarning(tool));
 
 $effect(() => () => policy.dispose());
 $effect(() => registerCommand({ id: "policy.toggle", title: "Project policies", run: toggle }));
@@ -205,15 +206,16 @@ function onDialogKeydown(event: KeyboardEvent): void {
       {:else}
         <div class="body">
           <p class="muted">
-            Rules decide an agent's tool call before you are asked. Deny rules are checked first, then ask, then auto;
-            a call no rule matches is asked about.
+            Rules decide an agent's tool call before you are asked. Deny rules are checked first, then ask, then auto.
+            Your own Claude settings are checked too; deny and ask rules override them; auto never skips more than they
+            allow.
           </p>
           {#if policy.error}
             <p class="error" role="alert">Could not read the project's policy: {policy.error}</p>
           {/if}
           {#if rows.length === 0 && !policy.error}
             <p class="muted" data-testid="policy-empty">
-              {policy.rules === null ? "Loading…" : "No rules yet: every call is asked about."}
+              {policy.rules === null ? "Loading…" : "No rules yet: what your Claude settings do not allow is asked about."}
             </p>
           {:else if rows.length > 0}
             <ol aria-label="Rules, in the order they are checked">
@@ -249,6 +251,7 @@ function onDialogKeydown(event: KeyboardEvent): void {
                   placeholder="Bash"
                   autocomplete="off"
                   spellcheck="false"
+                  aria-describedby={warning ? "policy-tool-warning" : undefined}
                   data-testid="policy-tool"
                 />
               </label>
@@ -282,6 +285,9 @@ function onDialogKeydown(event: KeyboardEvent): void {
               {/if}
             </fieldset>
           </form>
+          {#if warning}
+            <p class="warning" id="policy-tool-warning" data-testid="policy-tool-warning">{warning}</p>
+          {/if}
           <p class="muted" id="policy-match-hint">{matchHint(tool)}</p>
           {#if formError}
             <p class="error" role="alert" data-testid="policy-error">{formError}</p>
@@ -361,6 +367,11 @@ function onDialogKeydown(event: KeyboardEvent): void {
   }
   .error {
     color: #ff8f8f;
+    margin: 6px 0;
+  }
+  .warning {
+    color: #ffd36b;
+    font-size: 12px;
     margin: 6px 0;
   }
   ol {

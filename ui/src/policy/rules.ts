@@ -26,18 +26,37 @@ export function matchHint(tool: string): string {
   return "Only Bash and the file tools take a match. Leave it empty to match every call.";
 }
 
+/** Why a tool name may never match, or null: names are matched exactly. */
+export function toolWarning(tool: string): string | null {
+  const name = tool.trim();
+  if (name === "" || KNOWN_TOOLS.includes(name) || name.startsWith("mcp__")) return null;
+  const known = KNOWN_TOOLS.find((t) => t.toLowerCase() === name.toLowerCase());
+  if (known) return `Tool names match exactly: ${name} never matches ${known}. Write ${known}.`;
+  return `Ovra does not know a tool named ${name}, so this rule may never match. Check the spelling.`;
+}
+
+/** Where Bash and file deny rules stop holding. */
+const BOUNDARY =
+  "It holds only in a sandboxed session: the sandbox and its network proxy are the boundary, and without a sandbox nothing holds.";
+
 /** What a rule does not promise, in plain words. */
 export function caveats(rule: PolicyRule): string[] {
   const notes: string[] = [];
-  if (rule.action === "deny" && rule.tool === "Bash") {
-    notes.push(
-      "Advisory: the same command written another way, such as env git push, gets past it. The sandbox is the boundary that holds.",
-    );
-  }
-  if (rule.action === "deny" && FILE_TOOLS.includes(rule.tool)) {
-    notes.push(
-      "Advisory: Grep, Glob or cat in Bash still reach these files. The sandbox's protected and hidden paths are the boundary that holds.",
-    );
+  const warning = toolWarning(rule.tool);
+  if (warning) notes.push(warning);
+  if (rule.action === "deny") {
+    if (rule.tool === "Bash") {
+      // A deny with no match refuses every command, however it is written.
+      if (rule.match !== undefined) {
+        notes.push(
+          `Advisory: the same command written another way, such as env ${rule.match}, gets past it. ${BOUNDARY}`,
+        );
+      }
+    } else if (FILE_TOOLS.includes(rule.tool)) {
+      notes.push(`Advisory: Grep, Glob or cat in Bash still reach these files. ${BOUNDARY}`);
+    } else {
+      notes.push("Only this tool is refused; others such as Bash can do the same.");
+    }
   }
   if (rule.action === "auto") {
     notes.push("Applies only in a sandboxed session whose network is limited. Otherwise Ovra still asks.");

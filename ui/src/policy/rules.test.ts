@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { byPrecedence, caveats, formRule, matchHint, ruleText } from "./rules";
+import { byPrecedence, caveats, formRule, matchHint, ruleText, toolWarning } from "./rules";
 
 describe("policy rules", () => {
   it("reads like the core writes them", () => {
@@ -14,12 +14,15 @@ describe("policy rules", () => {
 
   it("says what deny and auto rules do not promise", () => {
     expect(caveats({ tool: "Bash", match: "git push", action: "deny" })).toEqual([
-      expect.stringMatching(/^Advisory: .*env git push.*sandbox is the boundary/),
+      expect.stringMatching(/^Advisory: .*env git push.*only in a sandboxed session.*without a sandbox nothing holds/),
     ]);
+    expect(caveats({ tool: "Bash", action: "deny" })).toEqual([]);
     expect(caveats({ tool: "Read", match: "secrets/**", action: "deny" })).toEqual([
-      expect.stringMatching(/^Advisory: Grep, Glob or cat/),
+      expect.stringMatching(/^Advisory: Grep, Glob or cat.*without a sandbox nothing holds/),
     ]);
-    expect(caveats({ tool: "WebFetch", action: "deny" })).toEqual([]);
+    expect(caveats({ tool: "WebFetch", action: "deny" })).toEqual([
+      "Only this tool is refused; others such as Bash can do the same.",
+    ]);
     expect(caveats({ tool: "Edit", match: "docs/**", action: "auto" })).toEqual([
       "Applies only in a sandboxed session whose network is limited. Otherwise Ovra still asks.",
     ]);
@@ -43,5 +46,14 @@ describe("policy rules", () => {
     expect(matchHint("Bash")).toMatch(/command prefix/);
     expect(matchHint("Edit")).toMatch(/glob/);
     expect(matchHint("WebFetch")).toMatch(/Only Bash and the file tools/);
+  });
+
+  it("warns about tool names that may never match, more strongly for a wrong case", () => {
+    expect(toolWarning("Bash")).toBeNull();
+    expect(toolWarning("mcp__github__create_issue")).toBeNull();
+    expect(toolWarning("")).toBeNull();
+    expect(toolWarning("bash")).toBe("Tool names match exactly: bash never matches Bash. Write Bash.");
+    expect(toolWarning("Shell")).toMatch(/does not know a tool named Shell/);
+    expect(caveats({ tool: "webfetch", action: "deny" })[0]).toMatch(/never matches WebFetch/);
   });
 });

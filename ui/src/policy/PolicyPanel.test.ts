@@ -71,7 +71,8 @@ describe("PolicyPanel", () => {
       expect.stringMatching(/^WebFetch\s+Deny/),
       expect.stringMatching(/^Bash\(npm test\)\s+Auto/),
     ]);
-    const notes = $("[data-testid=policy-caveat]")?.textContent ?? "";
+    const notes = [...target.querySelectorAll("[data-testid=policy-caveat]")].map((el) => el.textContent).join(" ");
+    expect(notes).toMatch(/Only this tool is refused; others such as Bash can do the same/);
     expect(notes).toMatch(/only in a sandboxed session whose network is limited\. Otherwise Ovra still asks/);
     expect(notes).toMatch(/npm test also runs .*the agent can edit those/);
 
