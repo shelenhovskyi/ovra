@@ -300,36 +300,91 @@ fn bridge(args: Vec<OsString>) -> String {
         };
         match TcpListener::bind((Ipv4Addr::LOCALHOST, port)) {
             // The first port is the proxy's own: no preamble.
-            Ok(listener) => listeners.push((listener, (n > 0).then_some(port))),
+            Ok(listener) => listeners.push((listener, port, (n > 0).then_some(port))),
             Err(e) => return format!("port {port}: {e}"),
         }
     }
     println!("ready");
     let _ = std::io::stdout().flush();
     let socket = PathBuf::from(socket);
-    let threads: Vec<_> = listeners
-        .into_iter()
-        .map(|(listener, local)| {
-            let socket = socket.clone();
-            std::thread::spawn(move || accept(&listener, &socket, local))
-        })
-        .collect();
-    // Each runs until its listener fails; the bridge stops with the first.
-    if let Some(proxy) = threads.into_iter().next() {
-        let _ = proxy.join();
+    let (ended, first) = std::sync::mpsc::channel();
+    for (listener, port, local) in listeners {
+        let socket = socket.clone();
+        let ended = Ended(ended.clone(), port);
+        std::thread::spawn(move || {
+            let _ended = ended;
+            accept(&listener, &socket, local);
+        });
     }
-    "the listener closed".into()
+    // Each runs until its listener fails; the bridge stops with the first,
+    // so no port is lost without the sandbox noticing.
+    match first.recv() {
+        Ok(port) => format!("the listener on port {port} closed"),
+        Err(_) => "the listeners closed".into(),
+    }
+}
+
+/// Tells the bridge that a listener's thread ended, however it ended.
+#[derive(Debug)]
+struct Ended(std::sync::mpsc::Sender<u16>, u16);
+
+impl Drop for Ended {
+    fn drop(&mut self) {
+        let _ = self.0.send(self.1);
+    }
 }
 
 /// Relays every connection `listener` accepts to `socket`, opening each
-/// with `OVRA-LOCAL <port>` when `local` is a server's port.
+/// with `OVRA-LOCAL <port>` when `local` is a server's port. Returns when
+/// the listener fails for good.
 fn accept(listener: &TcpListener, socket: &Path, local: Option<u16>) {
+    let mut wait = Backoff::default();
     for client in listener.incoming() {
-        let Ok(client) = client else { continue };
+        let client = match client {
+            Ok(client) => client,
+            Err(error) => match wait.after(&error) {
+                Some(pause) => {
+                    std::thread::sleep(pause);
+                    continue;
+                }
+                None => return,
+            },
+        };
+        wait = Backoff::default();
         let socket = socket.to_path_buf();
         std::thread::spawn(move || {
             let _ = relay(client, &socket, local);
         });
+    }
+}
+
+/// How long to wait before accepting again after an error, so that one
+/// that repeats (`EMFILE` while every file descriptor is taken) does not
+/// spin.
+#[derive(Debug, Default)]
+struct Backoff(u32);
+
+impl Backoff {
+    const FIRST: std::time::Duration = std::time::Duration::from_millis(10);
+    const MAX: std::time::Duration = std::time::Duration::from_secs(1);
+
+    /// The pause after `error`, twice the last one up to [`Self::MAX`];
+    /// `None` when the listener cannot recover from it.
+    fn after(&mut self, error: &std::io::Error) -> Option<std::time::Duration> {
+        let passing = [libc::EMFILE, libc::ENFILE, libc::ENOBUFS, libc::ENOMEM];
+        let recovers = error.raw_os_error().is_some_and(|e| passing.contains(&e))
+            || matches!(
+                error.kind(),
+                std::io::ErrorKind::ConnectionAborted | std::io::ErrorKind::Interrupted
+            );
+        if !recovers {
+            return None;
+        }
+        let pause = Self::FIRST
+            .saturating_mul(1 << self.0.min(7))
+            .min(Self::MAX);
+        self.0 += 1;
+        Some(pause)
     }
 }
 
@@ -471,6 +526,35 @@ mod tests {
             );
         }
         assert!(refused(&["--bridge", "/s", "3128", "--forward"]).contains("needs a value"));
+    }
+
+    #[test]
+    fn accepting_backs_off_on_errors_that_pass_and_stops_on_others() {
+        use std::io::{Error, ErrorKind};
+        let mut wait = Backoff::default();
+        let full = Error::from_raw_os_error(libc::EMFILE);
+        let pauses: Vec<u128> = (0..9)
+            .filter_map(|_| wait.after(&full))
+            .map(|p| p.as_millis())
+            .collect();
+        assert_eq!(pauses, [10, 20, 40, 80, 160, 320, 640, 1000, 1000]);
+        assert!(wait.after(&ErrorKind::ConnectionAborted.into()).is_some());
+        assert_eq!(wait.after(&Error::from_raw_os_error(libc::EBADF)), None);
+        assert_eq!(wait.after(&Error::from_raw_os_error(libc::EINVAL)), None);
+    }
+
+    #[test]
+    fn a_listener_that_ends_ends_the_bridge() {
+        let (ended, first) = std::sync::mpsc::channel();
+        let quiet = Ended(ended.clone(), 3128);
+        let failing = Ended(ended, 5173);
+        let thread = std::thread::spawn(move || {
+            let _ended = failing;
+            panic!("the listener failed");
+        });
+        assert!(thread.join().is_err());
+        assert_eq!(first.recv().ok(), Some(5173));
+        drop(quiet);
     }
 
     #[test]

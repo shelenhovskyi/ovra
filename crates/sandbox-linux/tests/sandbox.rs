@@ -503,21 +503,14 @@ fn a_server_pod_cannot_reach_the_hosts_loopback() {
          read the claude login: no\nread the claude state: no\n"
     );
     // Its servers listen inside it, and its supervisor on Unix sockets in
-    // its folder; a shell cannot listen, Python can where it is installed.
-    if !Path::new("/usr/bin/python3").exists() {
-        eprintln!("skipped the listeners: no /usr/bin/python3");
-        return;
-    }
-    let listen = format!(
-        "import socket\n\
-         t = socket.socket(); t.bind(('127.0.0.1', {port})); t.listen()\n\
-         u = socket.socket(socket.AF_UNIX); u.bind('{}/{port}.sock'); u.listen()\n\
-         print('listening')",
-        pod.display()
-    );
+    // its folder; a shell cannot listen, the test helper can.
     let line = CommandLine {
-        program: "/usr/bin/python3".into(),
-        args: vec!["-I".into(), "-c".into(), listen.into()],
+        program: HELPER.into(),
+        args: vec![
+            "--listen".into(),
+            port.to_string().into(),
+            pod.join(format!("{port}.sock")).into(),
+        ],
         env: Vec::new(),
         cwd: work.clone(),
     };
