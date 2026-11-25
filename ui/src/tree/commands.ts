@@ -34,16 +34,16 @@ export function registerFileCommands(
     registerCommand({ id: "tree.new_folder", title: "New folder…", run: create("dir") }),
     registerCommand({ id: "tree.rename", title: "Rename file…", run: on((row) => actions.startRename(row.path)) }),
     registerCommand({ id: "tree.duplicate", title: "Duplicate file", run: on((row) => actions.duplicate(row.path)) }),
-    registerCommand({ id: "tree.trash", title: "Move file to Trash", run: on((row) => actions.askTrash(row.path)) }),
+    registerCommand({ id: "tree.trash", title: "Move file to Trash", run: on((row) => actions.askTrash([row.path])) }),
     registerCommand({
       id: "tree.copy_path",
       title: "Copy file path",
-      run: on((row) => actions.copyPath(row.path, false)),
+      run: on((row) => actions.copyPaths([row.path], false)),
     }),
     registerCommand({
       id: "tree.copy_relative_path",
       title: "Copy relative file path",
-      run: on((row) => actions.copyPath(row.path, true)),
+      run: on((row) => actions.copyPaths([row.path], true)),
     }),
     registerCommand({
       id: "tree.reveal_in_os",

@@ -34,6 +34,13 @@ export function nameProblem(
   return same.kind === "dir" ? null : `“${same.name}” is a file`;
 }
 
+/** The one question before `paths` go to the trash. */
+export function trashQuestion(paths: string[]): string {
+  return paths.length === 1
+    ? `Move “${baseName(paths[0] as string)}” to Trash?`
+    : `Move ${paths.length} items to Trash?`;
+}
+
 /** The part of `name` a rename selects first: all but the extension of a file. */
 export function stemRange(name: string, isDir: boolean): [number, number] {
   const dot = name.lastIndexOf(".");

@@ -28,11 +28,12 @@ import Icon from "../shell/Icon.svelte";
 import type { MainMode } from "../shell/workspace.svelte";
 import { FileActions } from "./actions.svelte";
 import { registerFileCommands } from "./commands";
-import { rootMenu, rowMenu } from "./menu";
+import { rootMenu, rowMenu, selectionMenu } from "./menu";
 import { ancestorsOf, type Filter, parentOf, type Row, TreeModel, typeaheadMatch, visibleRange } from "./model";
 import NameInput from "./NameInput.svelte";
-import { baseName, keyAction, moveTarget, stemRange } from "./ops";
+import { keyAction, moveTarget, stemRange, trashQuestion } from "./ops";
 import { ExpandedSaver, loadExpanded } from "./persist";
+import { clickKind, rangeOf, toggled, topLevel } from "./selection";
 import TrashConfirm from "./TrashConfirm.svelte";
 import WatchLimitNotice from "./WatchLimitNotice.svelte";
 
@@ -85,6 +86,10 @@ let filter = $state<Filter>("all");
 let unwatched = $state(0);
 /** Path of the active row; survives rebuilds. */
 let selected = $state<string | null>(null);
+/** Rows chosen with Mod or Shift, in the order chosen; empty when only the active row is selected. */
+let picked = $state.raw<string[]>([]);
+/** Where a Shift range starts. */
+let anchor: string | null = null;
 let scrollTop = $state(0);
 let height = $state(0);
 let viewport: HTMLDivElement | undefined = $state();
@@ -124,6 +129,10 @@ function update(next: Row[]): void {
     const movedTo = fallback(prev, next, selected);
     lost = { path: selected, movedTo };
     selected = movedTo;
+  }
+  if (picked.length > 0) {
+    const present = new Set(next.map((r) => r.path));
+    picked = picked.filter((p) => present.has(p));
   }
   rows = next;
   error = model.error;
@@ -211,6 +220,9 @@ $effect(() => {
 let range = $derived(visibleRange(scrollTop, height, ROW_HEIGHT, rows.length, OVERSCAN));
 let current = $derived(selected ?? openPath);
 let activeIndex = $derived(current === null ? -1 : rows.findIndex((r) => r.path === current));
+/** The selected paths: the picked rows, or else the active one. */
+let chosen = $derived(picked.length > 0 ? picked : current !== null && activeIndex >= 0 ? [current] : []);
+let chosenSet = $derived(new Set(chosen));
 /** Rendered rows: the window, plus the active row wherever it is, so `aria-activedescendant` always resolves. */
 let shown = $derived.by(() => {
   const indexes = [];
@@ -259,8 +271,8 @@ function tooltip(row: Row): string {
   return `${row.path} (${letter}${description})`;
 }
 
-/** The path being dragged inside the tree, and the folder it would drop into (`""` is the project folder). */
-let dragging: string | null = null;
+/** The paths being dragged inside the tree, and the folder they would drop into (`""` is the project folder). */
+let dragging: string[] | null = null;
 let dropDir = $state<string | null>(null);
 const DRAG_TYPE = "application/x-ovra-path";
 
@@ -270,14 +282,17 @@ function dropDirAt(target: EventTarget | null): string | null {
   const path = el?.dataset.path;
   if (path?.endsWith("/")) return null; // the draft row
   const dir = !el || !path ? "" : el.hasAttribute("aria-expanded") ? path : parentOf(path);
-  return dragging !== null && moveTarget(dragging, dir) !== null ? dir : null;
+  if (dragging === null) return null;
+  // Not into one of the dragged folders, and somewhere at least one of them is not already.
+  if (dragging.some((p) => dir === p || dir.startsWith(`${p}/`))) return null;
+  return dragging.some((p) => moveTarget(p, dir) !== null) ? dir : null;
 }
 
 function ondragstart(e: DragEvent): void {
   const path = e.target instanceof Element ? e.target.closest<HTMLElement>("[data-path]")?.dataset.path : undefined;
   if (!path) return;
-  dragging = path;
-  e.dataTransfer?.setData(DRAG_TYPE, path);
+  dragging = picked.length > 1 && chosenSet.has(path) ? topLevel(picked) : [path];
+  e.dataTransfer?.setData(DRAG_TYPE, dragging.join("\n"));
   if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
 }
 
@@ -327,6 +342,10 @@ function oncontextmenu(e: MouseEvent): void {
     openContextMenu(at, rootMenu(actions, collapseAll));
     return;
   }
+  if (picked.length > 1 && chosenSet.has(path)) {
+    openContextMenu(at, selectionMenu(actions, picked));
+    return;
+  }
   selectPath(path);
   openContextMenu(at, rowMenu(actions, { path, kind: el.hasAttribute("aria-expanded") ? "dir" : "file" }));
 }
@@ -340,7 +359,8 @@ function menuForActive(): void {
     y: row ? (box?.bottom ?? 0) : (box?.top ?? 0) + 8,
     returnFocus: viewport ?? null,
   };
-  openContextMenu(at, row ? rowMenu(actions, row) : rootMenu(actions, collapseAll));
+  if (picked.length > 1) openContextMenu(at, selectionMenu(actions, picked));
+  else openContextMenu(at, row ? rowMenu(actions, row) : rootMenu(actions, collapseAll));
 }
 
 /** The active row, unless it is the draft of a new entry. */
@@ -354,6 +374,7 @@ function selectPath(path: string | null): void {
   const index = path === null ? -1 : rows.findIndex((r) => r.path === path);
   if (index >= 0) select(index);
   else selected = path;
+  picked = [];
   lost = null;
   viewport?.focus();
 }
@@ -361,6 +382,8 @@ function selectPath(path: string | null): void {
 function activate(row: Row): void {
   if (row.draft) return;
   selected = row.path;
+  picked = [];
+  anchor = row.path;
   lost = null;
   viewport?.focus(); // a click focuses the row itself; focus belongs on the tree
   if (row.kind === "dir") void model.toggle(row.path);
@@ -368,10 +391,40 @@ function activate(row: Row): void {
   else if (row.git !== "deleted") onopen(row.path);
 }
 
+/** A click with Mod toggles the row, with Shift takes the range to it; a plain one opens it. */
+function onrowclick(e: MouseEvent, row: Row): void {
+  if (row.draft) return;
+  const kind = clickKind(e);
+  if (kind === "single") return activate(row);
+  if (kind === "toggle") {
+    picked = toggled(chosen, row.path);
+    anchor = row.path;
+  } else {
+    const from = anchor ?? current ?? row.path;
+    picked = rangeOf(rows, from, row.path);
+    anchor = from;
+  }
+  selected = row.path;
+  lost = null;
+  viewport?.focus();
+}
+
+/** Shift+Arrow: moves the active row and selects the range from the anchor to it. */
+function extendTo(index: number): void {
+  const row = rows[index];
+  if (!row) return;
+  const from = anchor ?? current ?? row.path;
+  select(index);
+  anchor = from;
+  picked = rangeOf(rows, from, row.path);
+}
+
 function select(index: number, center = false): void {
   const row = rows[index];
   if (!row) return;
   selected = row.path;
+  picked = [];
+  anchor = row.path;
   lost = null;
   if (!viewport) return;
   const top = index * ROW_HEIGHT;
@@ -452,8 +505,9 @@ function onkeydown(e: KeyboardEvent): void {
   const row = rows[index];
   const page = Math.max(1, Math.floor(height / ROW_HEIGHT) - 1);
   const action = row && !row.draft ? keyAction(e) : null;
-  if (action === "rename" && row) actions.startRename(row.path);
-  else if (action === "trash" && row) actions.askTrash(row.path);
+  // Rename works on one row only.
+  if (action === "rename" && row && picked.length <= 1) actions.startRename(row.path);
+  else if (action === "trash" && row) actions.askTrash(chosen);
   if (action) {
     e.preventDefault();
     return;
@@ -465,10 +519,15 @@ function onkeydown(e: KeyboardEvent): void {
   }
   switch (e.key) {
     case "ArrowDown":
-      select(index < 0 ? 0 : Math.min(rows.length - 1, index + 1));
+      (e.shiftKey ? extendTo : select)(index < 0 ? 0 : Math.min(rows.length - 1, index + 1));
       break;
     case "ArrowUp":
-      select(Math.max(0, index - 1));
+      (e.shiftKey ? extendTo : select)(Math.max(0, index - 1));
+      break;
+    case "Escape":
+      if (picked.length === 0) return;
+      picked = [];
+      anchor = current;
       break;
     case "PageDown":
       select(Math.min(rows.length - 1, Math.max(0, index) + page));
@@ -527,7 +586,7 @@ function onkeydown(e: KeyboardEvent): void {
   <WatchLimitNotice {unwatched} />
   {#if actions.confirming !== null}
     <TrashConfirm
-      name={baseName(actions.confirming)}
+      question={trashQuestion(actions.confirming)}
       onconfirm={() => void actions.confirmTrash()}
       oncancel={() => actions.cancelTrash()}
     />
@@ -552,6 +611,7 @@ function onkeydown(e: KeyboardEvent): void {
     class="viewport"
     role="tree"
     aria-label="Files"
+    aria-multiselectable="true"
     aria-activedescendant={activeIndex >= 0 ? rowId(activeIndex) : undefined}
     tabindex="0"
     data-testid="file-tree"
@@ -582,7 +642,8 @@ function onkeydown(e: KeyboardEvent): void {
           <div
             id={rowId(index)}
             class="row"
-            class:selected={index === activeIndex}
+            class:selected={chosenSet.has(row.path)}
+            class:active={index === activeIndex}
             class:ignored={row.ignored}
             class:drop={dropDir === row.path}
             draggable={!row.draft && actions.edit === null}
@@ -592,7 +653,7 @@ function onkeydown(e: KeyboardEvent): void {
             aria-describedby={describe(row) ? `${rowId(index)}-d` : undefined}
             aria-level={row.depth + 1}
             aria-expanded={row.kind === "dir" ? row.expanded : undefined}
-            aria-selected={index === activeIndex}
+            aria-selected={chosenSet.has(row.path)}
             aria-posinset={row.posinset}
             aria-setsize={row.setsize}
             data-path={row.path}
@@ -601,7 +662,7 @@ function onkeydown(e: KeyboardEvent): void {
             title={tooltip(row)}
             style:top="{index * ROW_HEIGHT}px"
             style:padding-left="{10 + row.depth * 16}px"
-            onclick={() => activate(row)}
+            onclick={(e) => onrowclick(e, row)}
             ondblclick={() => row.kind !== "dir" && row.git !== "deleted" && onkeep?.(row.path)}
           >
             <span class="twisty" class:open={row.expanded} aria-hidden="true"
@@ -731,7 +792,7 @@ function onkeydown(e: KeyboardEvent): void {
   .viewport.drop-root {
     background: var(--accent-soft);
   }
-  .viewport:focus-visible .row.selected {
+  .viewport:focus-visible .row.active {
     outline: 2px solid var(--accent);
     outline-offset: -2px;
   }

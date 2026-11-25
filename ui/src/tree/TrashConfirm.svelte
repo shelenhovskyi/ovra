@@ -1,7 +1,7 @@
 <script lang="ts">
 // Asks before a file or folder goes to the trash. Move to Trash has focus, so
 // Enter answers as the menu item asked; Escape cancels.
-let { name, onconfirm, oncancel }: { name: string; onconfirm: () => void; oncancel: () => void } = $props();
+let { question, onconfirm, oncancel }: { question: string; onconfirm: () => void; oncancel: () => void } = $props();
 
 let confirm: HTMLButtonElement | undefined = $state();
 
@@ -18,7 +18,7 @@ function onkeydown(e: KeyboardEvent): void {
 </script>
 
 <div class="confirm" role="alertdialog" aria-label="Move to Trash" tabindex="-1" {onkeydown}>
-  <p>Move “{name}” to Trash?</p>
+  <p>{question}</p>
   <div class="buttons">
     <button type="button" class="danger" bind:this={confirm} onclick={onconfirm}>Move to Trash</button>
     <button type="button" class="quiet" onclick={oncancel}>Cancel</button>

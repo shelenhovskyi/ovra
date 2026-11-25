@@ -98,41 +98,57 @@ describe("FileActions", () => {
 
   it("trashes only after the answer, and shows a failure briefly", async () => {
     const t = await setup(["src/a.ts", "b.ts"]);
-    t.actions.askTrash("src");
-    expect(t.actions.confirming).toBe("src");
+    t.actions.askTrash(["src"]);
+    expect(t.actions.confirming).toEqual(["src"]);
     t.actions.cancelTrash();
     expect(t.paths()).toEqual(["src", "b.ts"]);
 
-    t.actions.askTrash("src");
+    t.actions.askTrash(["src"]);
     await t.actions.confirmTrash();
     expect(t.paths()).toEqual(["b.ts"]);
     expect(t.log.trashed).toEqual(["src"]);
 
-    t.actions.askTrash("gone.ts");
+    t.actions.askTrash(["gone.ts"]);
     await t.actions.confirmTrash();
     expect(t.actions.notice).toBe("gone.ts not found");
   });
 
   it("moves into a folder, refuses a folder into itself, and reports a clash", async () => {
     const t = await setup(["src/inner/x.ts", "lib/a.ts", "a.ts"]);
-    await t.actions.move("src", "src/inner");
+    await t.actions.move(["src"], "src/inner");
     expect(t.core.calls.some((c) => c.method === "fs.rename")).toBe(false);
 
-    await t.actions.move("a.ts", "lib");
+    await t.actions.move(["a.ts"], "lib");
     expect(t.core.calls.filter((c) => c.method === "fs.rename")).toHaveLength(1);
     expect(t.actions.notice).toBe("lib/a.ts exists");
 
-    await t.actions.move("lib/a.ts", "src");
+    await t.actions.move(["lib/a.ts"], "src");
     expect(t.log).toMatchObject({ selected: "src/a.ts", moved: ["lib/a.ts -> src/a.ts"] });
     expect(t.paths()).toContain("src/a.ts");
   });
 
+  it("trashes several at once and moves several, skipping what is inside another or already there", async () => {
+    const t = await setup(["src/a.ts", "lib/b.ts", "c.ts", "d.ts"]);
+    t.actions.askTrash(["src/a.ts", "src", "c.ts"]);
+    expect(t.actions.confirming).toEqual(["src", "c.ts"]);
+    await t.actions.confirmTrash();
+    expect(t.paths()).toEqual(["lib", "d.ts"]);
+    expect(t.log.trashed).toEqual(["src", "c.ts"]);
+
+    await t.model.expand("lib");
+    await t.actions.move(["lib/b.ts", "d.ts", "lib"], "lib");
+    expect(t.core.calls.filter((c) => c.method === "fs.rename")).toEqual([
+      { method: "fs.rename", params: { project: "p1", from: "d.ts", to: "lib/d.ts" } },
+    ]);
+    expect(t.log.selected).toBe("lib/d.ts");
+  });
+
   it("copies absolute and relative paths and reveals through the core", async () => {
     const t = await setup(["src/a.ts"]);
-    await t.actions.copyPath("src/a.ts", false);
-    await t.actions.copyPath("src/a.ts", true);
+    await t.actions.copyPaths(["src/a.ts"], false);
+    await t.actions.copyPaths(["src/a.ts", "b.ts"], true);
     await t.actions.reveal("");
-    expect(t.copied).toEqual(["/work/app/src/a.ts", "src/a.ts"]);
+    expect(t.copied).toEqual(["/work/app/src/a.ts", "src/a.ts\nb.ts"]);
     expect(t.core.revealed).toEqual([""]);
   });
 });

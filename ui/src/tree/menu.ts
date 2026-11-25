@@ -13,15 +13,25 @@ export function rowMenu(actions: FileActions, row: Pick<Row, "path" | "kind">): 
   const dir = folderFor(row);
   return [
     { label: revealLabel(), run: () => actions.reveal(row.path) },
-    { label: "Copy path", run: () => actions.copyPath(row.path, false) },
-    { label: "Copy relative path", run: () => actions.copyPath(row.path, true) },
+    { label: "Copy path", run: () => actions.copyPaths([row.path], false) },
+    { label: "Copy relative path", run: () => actions.copyPaths([row.path], true) },
     "separator",
     { label: "New file…", run: () => actions.startNew(dir, "file") },
     { label: "New folder…", run: () => actions.startNew(dir, "dir") },
     { label: "Rename…", keys: "F2", run: () => actions.startRename(row.path) },
     { label: "Duplicate", run: () => actions.duplicate(row.path) },
     "separator",
-    { label: "Move to Trash…", keys: trashKeys(), danger: true, run: () => actions.askTrash(row.path) },
+    { label: "Move to Trash…", keys: trashKeys(), danger: true, run: () => actions.askTrash([row.path]) },
+  ];
+}
+
+/** The menu of several selected rows: what works on all of them at once. */
+export function selectionMenu(actions: FileActions, paths: string[]): MenuEntry[] {
+  return [
+    { label: "Copy paths", run: () => actions.copyPaths(paths, false) },
+    { label: "Copy relative paths", run: () => actions.copyPaths(paths, true) },
+    "separator",
+    { label: "Move to Trash…", keys: trashKeys(), danger: true, run: () => actions.askTrash(paths) },
   ];
 }
 

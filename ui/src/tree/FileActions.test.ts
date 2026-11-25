@@ -163,4 +163,56 @@ describe("file actions in the tree", () => {
     expect(t.row("a.ts")).toBeNull();
     expect(t.core.calls.find((c) => c.method === "fs.trash")?.params).toEqual({ project: "p1", paths: ["a.ts"] });
   });
+
+  it("selects several rows with Ctrl+click, Shift+click and Shift+Arrow, and acts on all of them", async () => {
+    const t = await mountTree(["lib/x.ts", "a.ts", "b.ts", "c.ts"]);
+    const click = (path: string, mods: MouseEventInit = {}) => {
+      t.row(path)?.dispatchEvent(new MouseEvent("click", { bubbles: true, ...mods }));
+      flushSync();
+    };
+    const selectedPaths = () =>
+      [...t.target.querySelectorAll("[aria-selected=true]")].map((el) => (el as HTMLElement).dataset.path);
+    expect(t.tree.getAttribute("aria-multiselectable")).toBe("true");
+    click("a.ts");
+    click("c.ts", { ctrlKey: true });
+    expect(selectedPaths()).toEqual(["a.ts", "c.ts"]);
+    expect(t.opened).toEqual(["a.ts "]);
+    click("lib", { shiftKey: true });
+    expect(selectedPaths()).toEqual(["lib", "a.ts", "b.ts", "c.ts"]);
+    t.press(t.tree, "Escape");
+    expect(selectedPaths()).toEqual(["lib"]);
+
+    t.tree.dispatchEvent(
+      new KeyboardEvent("keydown", { code: "ArrowDown", key: "ArrowDown", shiftKey: true, bubbles: true }),
+    );
+    t.tree.dispatchEvent(
+      new KeyboardEvent("keydown", { code: "ArrowDown", key: "ArrowDown", shiftKey: true, bubbles: true }),
+    );
+    flushSync();
+    expect(selectedPaths()).toEqual(["lib", "a.ts", "b.ts"]);
+    t.row("a.ts")?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2 }));
+    const labels = (contextMenu.open?.entries ?? []).map((e) => (e === "separator" ? "-" : e.label));
+    expect(labels).toEqual(["Copy paths", "Copy relative paths", "-", "Move to Trash…"]);
+    closeContextMenu(false);
+
+    // Dragging one of them moves the others too; nothing goes into a dragged folder.
+    const drag = (type: string, path: string) => {
+      t.row(path)?.dispatchEvent(new Event(type, { bubbles: true, cancelable: true }));
+      flushSync();
+    };
+    click("a.ts");
+    click("b.ts", { ctrlKey: true });
+    drag("dragstart", "a.ts");
+    drag("drop", "lib");
+    await settle();
+    expect(t.core.calls.filter((c) => c.method === "fs.rename").map((c) => c.params)).toEqual([
+      { project: "p1", from: "a.ts", to: "lib/a.ts" },
+      { project: "p1", from: "b.ts", to: "lib/b.ts" },
+    ]);
+
+    click("lib/a.ts");
+    click("c.ts", { shiftKey: true });
+    t.press(t.tree, "Delete");
+    expect(t.target.querySelector("[role=alertdialog]")?.textContent).toContain("Move 4 items to Trash?");
+  });
 });

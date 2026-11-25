@@ -8,6 +8,7 @@ import type { EntryKind, ProjectId } from "../lib/protocol";
 import { CoreError, type Transport } from "../lib/transport";
 import { draftPath, joinPath, parentOf, type TreeModel } from "./model";
 import { baseName, copyName, moveTarget, nameProblem } from "./ops";
+import { topLevel } from "./selection";
 
 const NOTICE_MS = 5000;
 
@@ -33,8 +34,8 @@ export class FileActions {
   edit = $state<Edit | null>(null);
   /** Why the typed name cannot be used, shown under the input. */
   problem = $state<string | null>(null);
-  /** The path waiting for a Move to Trash answer. */
-  confirming = $state<string | null>(null);
+  /** The paths waiting for a Move to Trash answer. */
+  confirming = $state<string[] | null>(null);
   /** A failed action, shown briefly. */
   notice = $state<string | null>(null);
   private before: string | null = null;
@@ -157,21 +158,21 @@ export class FileActions {
     }
   }
 
-  /** Asks before moving `path` to the trash. */
-  askTrash(path: string): void {
+  /** Asks before moving `paths` to the trash; a folder takes what is selected in it along. */
+  askTrash(paths: string[]): void {
     this.cancel(false);
-    this.confirming = path;
+    this.confirming = topLevel(paths);
   }
 
   async confirmTrash(): Promise<void> {
-    const path = this.confirming;
+    const paths = this.confirming;
     this.confirming = null;
-    if (path === null) return;
+    if (paths === null) return;
     const { transport, project, model } = this.host;
     try {
-      await transport.call({ method: "fs.trash", params: { project, paths: [path] } });
-      await model.reload(parentOf(path));
-      this.host.trashed?.([path]);
+      await transport.call({ method: "fs.trash", params: { project, paths } });
+      for (const dir of new Set(paths.map(parentOf))) await model.reload(dir);
+      this.host.trashed?.(paths);
     } catch (err) {
       this.fail(err);
     }
@@ -179,31 +180,39 @@ export class FileActions {
   }
 
   cancelTrash(): void {
-    const path = this.confirming;
+    const paths = this.confirming;
     this.confirming = null;
-    this.host.select(path);
+    this.host.select(paths?.[0] ?? null);
   }
 
-  /** Moves `from` into the folder `dir` (`""` is the project folder). */
-  async move(from: string, dir: string): Promise<void> {
-    const to = moveTarget(from, dir);
-    if (to === null) return;
+  /** Moves `paths` into the folder `dir` (`""` is the project folder); one already there stays. */
+  async move(paths: string[], dir: string): Promise<void> {
+    const moves = topLevel(paths).flatMap((from) => {
+      const to = moveTarget(from, dir);
+      return to === null ? [] : [{ from, to }];
+    });
+    if (moves.length === 0) return;
     const { transport, project, model } = this.host;
+    let last: string | null = null;
     try {
-      await transport.call({ method: "fs.rename", params: { project, from, to } });
-      model.moved(from, to);
-      await model.reload(parentOf(from));
-      await model.reload(dir);
-      await model.reveal(to);
-      this.host.select(to);
-      this.host.moved?.(from, to);
+      for (const { from, to } of moves) {
+        await transport.call({ method: "fs.rename", params: { project, from, to } });
+        model.moved(from, to);
+        this.host.moved?.(from, to);
+        last = to;
+      }
     } catch (err) {
       this.fail(err);
     }
+    if (last === null) return;
+    for (const d of new Set([...moves.map((m) => parentOf(m.from)), dir])) await model.reload(d);
+    await model.reveal(last);
+    this.host.select(last);
   }
 
-  async copyPath(path: string, relative: boolean): Promise<void> {
-    const text = relative ? path : absolutePath(this.host.root(), path);
+  /** Copies the paths, one per line. */
+  async copyPaths(paths: string[], relative: boolean): Promise<void> {
+    const text = paths.map((path) => (relative ? path : absolutePath(this.host.root(), path))).join("\n");
     const copy = this.host.copy ?? ((t: string) => navigator.clipboard.writeText(t));
     try {
       await copy(text);
