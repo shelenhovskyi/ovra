@@ -300,7 +300,7 @@ function edge(panel: Panel): "left" | "right" {
     overflow: clip;
     background: var(--s0);
     grid-template-columns: var(--tracks);
-    grid-template-rows: 44px minmax(0, 1fr) 28px;
+    grid-template-rows: 36px minmax(0, 1fr) 28px;
     grid-template-areas:
       "title title title title title title"
       var(--row)
@@ -540,7 +540,7 @@ function edge(panel: Panel): "left" | "right" {
     .shell.start {
       grid-template-columns: 52px minmax(0, 220px) minmax(0, 1fr);
       /* Both rows give way in a short window, so nothing falls under the window's edge. */
-      grid-template-rows: 44px minmax(0, 1fr) minmax(0, 50%) 28px;
+      grid-template-rows: 36px minmax(0, 1fr) minmax(0, 50%) 28px;
       grid-template-areas:
         "title title title"
         "rail side main"
@@ -567,7 +567,7 @@ function edge(panel: Panel): "left" | "right" {
       overflow-x: clip;
       overflow-y: visible;
       grid-template-columns: minmax(0, 1fr);
-      grid-template-rows: 44px 44px minmax(320px, 70vh) minmax(200px, 40vh) minmax(200px, 40vh) 28px;
+      grid-template-rows: 36px 44px minmax(320px, 70vh) minmax(200px, 40vh) minmax(200px, 40vh) 28px;
       grid-template-areas:
         "title"
         "rail"

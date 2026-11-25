@@ -113,9 +113,9 @@ function search(): void {
   }
   /* The desktop app's overlay title bar: room for the window's traffic lights.
      Their position is in app/tauri.conf.json: tao centres the buttons in a
-     box "button + y" tall, so y = this bar's height (44 px) - 14 = 30. */
+     box "button + y" tall, so y = this bar's height (36 px) - 14 = 22. */
   :global([data-chrome="overlay"]) .title {
-    padding-left: 88px;
+    padding-left: 80px;
   }
   .mark {
     display: flex;
