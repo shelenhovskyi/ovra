@@ -11,6 +11,7 @@
 import { tick, untrack } from "svelte";
 import { agentSessions } from "../agents/sessions.svelte";
 import { registerCommand } from "../keys/commands";
+import { registerContextKeys } from "../keys/context-keys";
 import { formatShortcut, isApple } from "../keys/shortcut";
 import type { FileChange, ReviewId, ReviewItem, SessionId } from "../lib/protocol";
 import { useOvra } from "../shell/context";
@@ -156,6 +157,13 @@ $effect(() => {
 
 $effect(() =>
   registerCommand({ id: "inbox.toggle", title: "Reviews", keys: REVIEWS_KEYS, keywords: ["inbox"], run: toggle }),
+);
+$effect(() =>
+  registerContextKeys([
+    { keys: "Up/Down", title: "Previous or next item or file", where: "Reviews" },
+    { keys: "Mod+Enter", title: "Send the comment", where: "Reviews" },
+    { keys: "Escape", title: "Leave the comment or the reject step", where: "Reviews" },
+  ]),
 );
 
 // Closed by its frame (the close button, Escape): the reject step is over.

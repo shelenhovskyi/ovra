@@ -3,6 +3,7 @@
 
 import { tick } from "svelte";
 import { registerCommand } from "../keys/commands";
+import { registerContextKeys } from "../keys/context-keys";
 import type { Workspace } from "../shell/workspace.svelte";
 import { type PaletteMode, palette } from "./mode.svelte";
 
@@ -51,11 +52,22 @@ export function registerPaletteCommands(workspace: Target): () => void {
         await focusStartScreen();
       },
     }),
+    registerContextKeys(PALETTE_KEYS),
   ];
   return () => {
     for (const off of unregister) off();
   };
 }
+
+/** What the palette's own keys do, for Settings > Keyboard. */
+const PALETTE_KEYS = [
+  { keys: "Up/Down", title: "Previous or next result" },
+  { keys: "Ctrl+N", title: "Next result (also Ctrl+J)" },
+  { keys: "Ctrl+P", title: "Previous result (also Ctrl+K)" },
+  { keys: "PageUp/PageDown", title: "Move by a page" },
+  { keys: "Enter", title: "Run or open the result" },
+  { keys: "Escape", title: "Close" },
+].map((key) => ({ ...key, where: "Search or run" }));
 
 /** Focuses the first project on the start screen, or its folder field when there are none; waits a few frames for the list. */
 export async function focusStartScreen(): Promise<void> {

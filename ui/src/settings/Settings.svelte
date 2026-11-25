@@ -5,6 +5,7 @@
 // one column of fields. Arrow keys move in the list.
 import { untrack } from "svelte";
 import { listCommands } from "../keys/commands";
+import { listContextKeys } from "../keys/context-keys";
 import { formatShortcut, inBrowserTab, isApple, liveKeys } from "../keys/shortcut";
 import type { CoreInfo } from "../lib/protocol";
 import NetworkPanel from "../network/NetworkPanel.svelte";
@@ -18,6 +19,8 @@ import { type PaneId, panesFor, settings } from "./panes.svelte";
 import TrustPane from "./TrustPane.svelte";
 
 const { transport, workspace } = useOvra();
+/** The Keyboard pane's group for the commands' shortcuts. */
+const EVERYWHERE = "Everywhere";
 
 // The project panes change one project: its name says which.
 const GROUPS = $derived([
@@ -42,21 +45,54 @@ $effect(() =>
   }),
 );
 
-const shortcuts = $derived.by(() => {
+/** What the Keyboard pane's filter keeps: words of a title, a key, or a place. */
+let keyFilter = $state("");
+
+/**
+ * Every key, grouped by where it works: the commands' shortcuts work
+ * everywhere, then the keys panels declared for one place, by place.
+ */
+const keyGroups = $derived.by(() => {
   void pane;
-  return listCommands().flatMap((c) =>
-    c.keys
-      ? [
-          {
-            id: c.id,
-            title: c.title,
-            binding: c.keys,
-            keys: formatShortcut(liveKeys(c.keys, inBrowserTab()), isApple()),
-          },
-        ]
-      : [],
+  const apple = isApple();
+  const rows = [
+    ...listCommands().flatMap((c) =>
+      c.keys
+        ? [
+            {
+              id: c.id,
+              title: c.title,
+              binding: c.keys,
+              keys: formatShortcut(liveKeys(c.keys, inBrowserTab()), apple),
+              where: EVERYWHERE,
+            },
+          ]
+        : [],
+    ),
+    ...listContextKeys().map((k, i) => ({
+      id: `${k.where}:${i}`,
+      title: k.title,
+      binding: k.keys,
+      keys: formatShortcut(k.keys, apple),
+      where: k.where,
+    })),
+  ];
+  const wanted = keyFilter.trim().toLowerCase();
+  const kept = wanted
+    ? rows.filter((r) => [r.title, r.keys, r.where].some((text) => text.toLowerCase().includes(wanted)))
+    : rows;
+  const places = [...new Set(kept.map((r) => r.where))].sort((a, b) =>
+    a === EVERYWHERE ? -1 : b === EVERYWHERE ? 1 : a.localeCompare(b),
   );
+  return places.map((where) => ({ where, rows: kept.filter((r) => r.where === where) }));
 });
+
+/** Escape in a filter with text clears it; the next one leaves Settings. */
+function onFilterKeydown(event: KeyboardEvent): void {
+  if (event.code !== "Escape" || !keyFilter) return;
+  event.preventDefault();
+  keyFilter = "";
+}
 
 function notificationPermission(): NotificationPermission | "unsupported" {
   return typeof Notification === "undefined" ? "unsupported" : Notification.permission;
@@ -144,13 +180,32 @@ function onListKeydown(event: KeyboardEvent): void {
           {/if}
           <p class="note">Shown only while Ovra is in the background. Inside the window, toasts say the same.</p>
         {:else if pane.id === "keyboard"}
-          <table aria-label="Keyboard shortcuts">
-            <tbody>
-              {#each shortcuts as shortcut (shortcut.id)}
-                <tr data-command={shortcut.id} data-keys={shortcut.binding}><td>{shortcut.title}</td><td><kbd>{shortcut.keys}</kbd></td></tr>
-              {/each}
-            </tbody>
-          </table>
+          <input
+            type="search"
+            class="filter"
+            bind:value={keyFilter}
+            placeholder="Filter"
+            aria-label="Filter shortcuts"
+            autocomplete="off"
+            spellcheck="false"
+            onkeydown={onFilterKeydown}
+            data-testid="keys-filter"
+          />
+          {#each keyGroups as group, i (group.where)}
+            <h4 class="keys-group" id={`settings-keys-${i}`}>{group.where}</h4>
+            <table aria-labelledby={`settings-keys-${i}`}>
+              <tbody>
+                {#each group.rows as shortcut (shortcut.id)}
+                  <tr data-command={shortcut.id} data-keys={shortcut.binding}
+                    ><td>{shortcut.title}</td><td><kbd>{shortcut.keys}</kbd></td></tr
+                  >
+                {/each}
+              </tbody>
+            </table>
+          {:else}
+            <p class="note">No shortcut matches “{keyFilter.trim()}”.</p>
+          {/each}
+          <p class="note">Letters follow your Latin layout; on other layouts and for punctuation, the key's place counts.</p>
         {:else if pane.id === "accessibility"}
           <label class="check">
             <input
@@ -270,6 +325,24 @@ function onListKeydown(event: KeyboardEvent): void {
     width: 100%;
     max-width: 480px;
     border-collapse: collapse;
+  }
+  .filter {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 480px;
+    height: var(--ctl);
+    padding: 0 var(--sp-3);
+    font: inherit;
+    color: var(--text);
+    background: var(--s3);
+    border: 0;
+    border-radius: var(--r-md);
+  }
+  .keys-group {
+    margin: var(--sp-4) 0 var(--sp-1);
+    font: var(--t-small);
+    font-weight: 600;
+    color: var(--text-2);
   }
   td {
     height: var(--row);

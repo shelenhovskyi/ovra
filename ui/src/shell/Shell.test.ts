@@ -1,6 +1,7 @@
 import { flushSync, mount, unmount } from "svelte";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { listCommands } from "../keys/commands";
+import { listContextKeys } from "../keys/context-keys";
 import type { Request } from "../lib/protocol";
 import { FrameRouter, type Transport } from "../lib/transport";
 import Shell from "./Shell.svelte";
@@ -129,6 +130,12 @@ describe("Shell", () => {
       target.querySelector<HTMLButtonElement>(`nav[aria-label=Views] [aria-label=${name}]`);
     const viewTab = () => target.querySelector("[data-testid=view-tab]");
     expect(rail("Files")?.getAttribute("aria-pressed")).toBe("true");
+    // Settings > Keyboard lists the panels' own keys too.
+    expect(
+      listContextKeys()
+        .filter((k) => k.where === "Approvals")
+        .map((k) => k.keys),
+    ).toContain("Y");
 
     rail("Settings")?.click();
     flushSync();
@@ -300,7 +307,7 @@ describe("Shell", () => {
       ]);
       expect(described).toEqual([
         ["Settings…", "Ctrl+,", "Rules, network, Claude and more"],
-        ["Audit log", null, "Everything agents did, and who approved it"],
+        ["Audit log", "Ctrl+Alt+L", "Everything agents did, and who approved it"],
         ["Agent browser", "Ctrl+Shift+B", "The web browser an agent uses"],
         ["Keyboard shortcuts", null, "Every command with a shortcut"],
       ]);

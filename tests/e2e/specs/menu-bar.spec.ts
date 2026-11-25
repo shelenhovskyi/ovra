@@ -27,7 +27,7 @@ test("the menu bar shows the shortcuts the commands have", async ({ page }) => {
 
   await page.keyboard.press("ControlOrMeta+Comma");
   await page.locator("[data-pane=keyboard]").click();
-  const table = page.getByRole("table", { name: "Keyboard shortcuts" });
+  const table = page.getByRole("table", { name: "Everywhere" });
   await expect(table).toBeVisible();
   const rows = await table
     .locator("tr[data-command]")

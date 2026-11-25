@@ -70,7 +70,7 @@ export const PANES: Pane[] = [
   {
     id: "keyboard",
     title: "Keyboard",
-    line: "Every command with a shortcut. Shortcuts follow the key's place, so they work on any layout.",
+    line: "Every shortcut, by where it works.",
     group: "ovra",
     keywords: ["shortcuts", "keybindings", "hotkeys"],
   },

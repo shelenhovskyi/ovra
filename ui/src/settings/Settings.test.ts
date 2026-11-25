@@ -1,6 +1,7 @@
 import { flushSync, mount, unmount } from "svelte";
 import { afterEach, expect, it } from "vitest";
 import { listCommands, registerCommand } from "../keys/commands";
+import { registerContextKeys } from "../keys/context-keys";
 import type { ConfigItem, CoreEvent, ProjectConfigReview, Request, Response } from "../lib/protocol";
 import type { Transport } from "../lib/transport";
 import { mainView } from "../shell/main-view.svelte";
@@ -75,6 +76,50 @@ it("opens on a pane from its command, moves with the arrow keys and reopens on t
   await run("settings.open");
   flushSync();
   expect(pane()).toBeNull();
+});
+
+it("lists every key by where it works, keys of one place too, and filters them", async () => {
+  const target = document.body.appendChild(document.createElement("div"));
+  const app = mount(TestHost, { target, props: { transport, workspace: new Workspace() } });
+  cleanup.push(
+    registerSettingsCommands(),
+    registerContextKeys([
+      { keys: "Y", title: "Allow once", where: "Approvals" },
+      { keys: "S", title: "Stage", where: "Git" },
+    ]),
+    () => {
+      unmount(app);
+      target.remove();
+    },
+  );
+  await listCommands()
+    .find((c) => c.id === "settings.keyboard")
+    ?.run();
+  await settle();
+  const groups = () =>
+    [...target.querySelectorAll("table")].map((table) => [
+      document.getElementById(table.getAttribute("aria-labelledby") ?? "")?.textContent,
+      [...table.querySelectorAll("tr")].map((row) => row.textContent),
+    ]);
+  expect(groups()).toEqual([
+    ["Everywhere", ["Open settingsCtrl+,"]],
+    ["Approvals", ["Allow onceY"]],
+    ["Git", ["StageS"]],
+  ]);
+  expect(target.querySelector("section.pane")?.textContent).toContain("Letters follow your Latin layout");
+
+  const filter = target.querySelector<HTMLInputElement>("[data-testid=keys-filter]");
+  if (!filter) throw new Error("no filter");
+  filter.value = "git";
+  filter.dispatchEvent(new Event("input", { bubbles: true }));
+  flushSync();
+  expect(groups()).toEqual([["Git", ["StageS"]]]);
+  // The first Escape clears the filter and keeps Settings open.
+  filter.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true, cancelable: true }));
+  flushSync();
+  expect(filter.value).toBe("");
+  expect(mainView.current).toBe("settings");
+  expect(groups()).toHaveLength(3);
 });
 
 it("shows only the open project's Claude settings, and re-reads them when they may have changed", async () => {

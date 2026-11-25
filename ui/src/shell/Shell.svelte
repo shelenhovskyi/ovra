@@ -19,6 +19,7 @@ import GitDiff from "../git/GitDiff.svelte";
 import Inbox from "../inbox/Inbox.svelte";
 import { ReviewInbox } from "../inbox/reviews.svelte";
 import { listCommands, registerCommand } from "../keys/commands";
+import { registerContextKeys } from "../keys/context-keys";
 import Keybindings from "../keys/Keybindings.svelte";
 import type { CoreInfo } from "../lib/protocol";
 import type { ConnectionStatus, Transport } from "../lib/transport";
@@ -36,6 +37,7 @@ import Terminals from "../terminal/Terminals.svelte";
 import Tree from "../tree/Tree.svelte";
 import Viewer from "../viewers/Viewer.svelte";
 import { provideOvra } from "./context";
+import { PANEL_KEYS, SHELL_KEYS } from "./context-keys";
 import Icon from "./Icon.svelte";
 import { rememberProject, restoreProject } from "./last-project";
 import { Layout, type Panel } from "./layout.svelte";
@@ -172,8 +174,12 @@ $effect(() => {
       title: "Audit log",
       category: "View",
       keywords: ["history"],
+      // The menu bar's key (docs/design/patterns.md).
+      keys: "Alt+Mod+L",
       run: () => mainView.toggle("audit"),
     }),
+    registerContextKeys(SHELL_KEYS),
+    registerContextKeys(PANEL_KEYS),
   ];
   return () => {
     for (const unregister of off) unregister();
