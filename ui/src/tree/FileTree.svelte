@@ -35,6 +35,7 @@ import Icon from "../shell/Icon.svelte";
 import type { MainMode } from "../shell/workspace.svelte";
 import { FileActions } from "./actions.svelte";
 import { folderFor, registerFileCommands } from "./commands";
+import { HoverExpander } from "./hover-expand";
 import { rootMenu, rowMenu, selectionMenu } from "./menu";
 import { ancestorsOf, type Filter, parentOf, type Row, TreeModel, typeaheadMatch, visibleRange } from "./model";
 import NameInput from "./NameInput.svelte";
@@ -285,6 +286,8 @@ function tooltip(row: Row): string {
 let dragging: string[] | null = null;
 let dropDir = $state<string | null>(null);
 const DRAG_TYPE = "application/x-ovra-path";
+const hoverExpand = new HoverExpander((path) => void model.expand(path));
+$effect(() => () => hoverExpand.cancel());
 
 /** The folder a drop on `target` moves into: the row's folder, or the project folder below the rows. */
 function dropDirAt(target: EventTarget | null): string | null {
@@ -310,6 +313,9 @@ function ondragstart(e: DragEvent): void {
 function ondragover(e: DragEvent): void {
   if (dragging === null) return;
   dropDir = dropDirAt(e.target);
+  const el = e.target instanceof Element ? e.target.closest<HTMLElement>("[data-path]") : null;
+  const collapsed = el?.getAttribute("aria-expanded") === "false" && el.dataset.path === dropDir;
+  hoverExpand.over(collapsed ? dropDir : null);
   if (dropDir === null) return;
   e.preventDefault();
   if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
@@ -328,10 +334,13 @@ function ondrop(e: DragEvent): void {
 function ondragend(): void {
   dragging = null;
   dropDir = null;
+  hoverExpand.cancel();
 }
 
 function ondragleave(e: DragEvent): void {
-  if (!(e.relatedTarget instanceof Node && viewport?.contains(e.relatedTarget))) dropDir = null;
+  if (e.relatedTarget instanceof Node && viewport?.contains(e.relatedTarget)) return;
+  dropDir = null;
+  hoverExpand.cancel();
 }
 
 /** A right-click on a row (which it selects), below the rows or on the header. */

@@ -1,9 +1,10 @@
 import { flushSync, mount, unmount } from "svelte";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { listCommands } from "../keys/commands";
 import { closeContextMenu, contextMenu, type MenuItem } from "../menu/context-menu.svelte";
 import FileTree from "./FileTree.svelte";
 import { dirsFromPaths, FakeCore } from "./fake-core";
+import { HOVER_EXPAND_MS } from "./hover-expand";
 
 globalThis.ResizeObserver ??= class {
   observe() {}
@@ -134,7 +135,7 @@ describe("file actions in the tree", () => {
     closeContextMenu(false);
   });
 
-  it("moves a dragged file into the folder under it, never a folder into itself", async () => {
+  it("moves a dragged file into the folder under it, never a folder into itself, and opens a folder it rests on", async () => {
     const t = await mountTree(["lib/x.ts", "src/inner/y.ts", "a.ts"]);
     const drag = (type: string, path: string | null) => {
       (path === null ? t.tree : t.row(path))?.dispatchEvent(new Event(type, { bubbles: true, cancelable: true }));
@@ -158,6 +159,17 @@ describe("file actions in the tree", () => {
     drag("drop", null);
     await settle();
     expect(t.row("a.ts")).not.toBeNull();
+
+    // Resting on a collapsed folder opens it.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    drag("dragstart", "a.ts");
+    drag("dragover", "src");
+    drag("dragover", "src");
+    vi.advanceTimersByTime(HOVER_EXPAND_MS);
+    vi.useRealTimers();
+    await settle();
+    expect(t.row("src")?.getAttribute("aria-expanded")).toBe("true");
+    drag("dragend", "a.ts");
   });
 
   it("asks before Delete moves a file to the trash", async () => {
