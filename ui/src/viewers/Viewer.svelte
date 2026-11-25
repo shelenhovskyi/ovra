@@ -3,6 +3,9 @@
 // The bar above the file has Edit, so it is always in sight; typing into the
 // view says that it is read-only and how to edit.
 import { toggle } from "../editor/commands";
+import Code from "../editor/highlight/Code.svelte";
+import { highlightLines, type Segment } from "../editor/highlight/static";
+import { languageFor } from "../editor/languages";
 import { serverFor } from "../editor/lsp/clients";
 import { unsavedText } from "../editor/open-files.svelte";
 import { formatShortcut, inBrowserTab, isApple, liveKeys } from "../keys/shortcut";
@@ -22,6 +25,9 @@ const lsp = languageServers(transport);
 const lspHint = $derived(workspace.openPath ? serverFor(workspace.openPath, lsp.status)?.name : undefined);
 const editKeys = formatShortcut(liveKeys("Mod+E", inBrowserTab()), isApple());
 
+/** The editor's line height: 13.5 px at 1.65 (editor/theme.ts). */
+const ROW = 13.5 * 1.65;
+
 let loaded = $state<Loaded | null>(null);
 // Unsaved editor text wins over the file on disk, so the preview matches what will be saved.
 let unsaved = $derived(
@@ -32,6 +38,22 @@ let shown = $derived.by(() => {
   const { view } = loaded;
   const textual = view.kind === "markdown" || view.kind === "patch" || view.kind === "text";
   return unsaved !== null && textual ? { ...loaded, view: { ...view, text: unsaved } } : loaded;
+});
+const textLines = $derived(
+  shown && "view" in shown && shown.view.kind === "text" ? shown.view.text.split(/\r?\n/) : [],
+);
+/** Highlighted `textLines`, once the worker has answered for them. */
+let painted = $state.raw<{ lines: string[]; segments: Segment[][] } | null>(null);
+$effect(() => {
+  const lines = textLines;
+  const language = workspace.openPath ? languageFor(workspace.openPath) : null;
+  let live = true;
+  void highlightLines(language, lines).then((segments) => {
+    if (live) painted = segments && { lines, segments };
+  });
+  return () => {
+    live = false;
+  };
 });
 let notice = $state("");
 let root = $state<HTMLElement | null>(null);
@@ -152,11 +174,16 @@ async function openExternal() {
       {:else if shown.view.kind === "patch"}
         <PatchView text={shown.view.text} />
       {:else if shown.view.kind === "text"}
-        <Lines items={shown.view.text.split(/\r?\n/)} label="File text" testid="text-view">
-          {#snippet row(line)}
-            <div class="text-line">{line}</div>
-          {/snippet}
-        </Lines>
+        <!-- Line height, gutter and padding match the editor's, so View and Edit line up. -->
+        <div class="code" style:--digits={String(textLines.length).length}>
+          <Lines items={textLines} label="File text" testid="text-view" rowHeight={ROW}>
+            {#snippet row(line, i)}
+              <div class="text-line" data-line={i + 1}>
+                <Code text={line} segments={painted?.lines === textLines ? painted.segments[i] : null} />
+              </div>
+            {/snippet}
+          </Lines>
+        </div>
       {:else if shown.view.kind === "binary"}
         <p class="note">
           Binary file ({shown.view.mime}, {formatSize(shown.size)}): not shown.
@@ -249,8 +276,26 @@ async function openExternal() {
   .error {
     color: var(--danger);
   }
+  .code {
+    height: 100%;
+  }
+  .code :global(.viewport) {
+    padding-top: 4px;
+    font-size: 13.5px;
+  }
   .text-line {
-    padding: 0 16px;
+    padding-right: 16px;
+  }
+  /* The editor's gutters: line numbers (16 px before, 12 after), git markers (8 px), then 6 px. */
+  .text-line::before {
+    content: attr(data-line) / "";
+    display: inline-block;
+    box-sizing: content-box;
+    min-width: calc(var(--digits) * 1ch);
+    padding: 0 26px 0 16px;
+    text-align: right;
+    color: var(--text-2);
+    user-select: none;
   }
   @media (forced-colors: active) {
     button {

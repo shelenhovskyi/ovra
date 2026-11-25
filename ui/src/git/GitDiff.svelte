@@ -7,6 +7,9 @@
 // close it, next / previous tab go to the file tabs, and closing puts focus
 // back on the panel row it was opened from.
 import { tick, untrack } from "svelte";
+import Code from "../editor/highlight/Code.svelte";
+import { highlightLines, type Segment } from "../editor/highlight/static";
+import { languageFor } from "../editor/languages";
 import { focusMain, show, tabs } from "../editor/open-files.svelte";
 import { listCommands } from "../keys/commands";
 import { inBrowserTab, isApple, liveKeys, matchesShortcut, parseShortcut } from "../keys/shortcut";
@@ -65,6 +68,27 @@ const visible = $derived.by(() => {
     lines += hunk.lines.length;
   }
   return out;
+});
+/** The rendered hunks' lines, numbered. */
+const hunkLines = $derived(visible.map(numbered));
+/** Syntax colour of `hunkLines`, all hunks highlighted as one text once the worker answers. */
+let painted = $state.raw<{ lines: Line[][]; segments: Segment[][][] } | null>(null);
+$effect(() => {
+  const lines = hunkLines;
+  let live = true;
+  const texts = lines.flatMap((hunk) => hunk.map((line) => (line.kind === "note" ? "" : line.text)));
+  void highlightLines(languageFor(target.path), texts).then((flat) => {
+    if (!live) return;
+    let at = 0;
+    const segments = lines.map((hunk) => {
+      at += hunk.length;
+      return flat?.slice(at - hunk.length, at) ?? [];
+    });
+    painted = flat && { lines, segments };
+  });
+  return () => {
+    live = false;
+  };
 });
 const hiddenLines = $derived(hunks.slice(visible.length).reduce((sum, h) => sum + h.lines.length, 0));
 
@@ -290,12 +314,16 @@ const range = (hunk: Hunk) =>
             {/if}
           </div>
           <div class="lines">
-            {#each numbered(hunk) as line, j (j)}
+            {#each hunkLines[i] ?? [] as line, j (j)}
               <div class="line {line.kind}">
                 <span class="num" aria-hidden="true">{line.old ?? ""}</span>
                 <span class="num" aria-hidden="true">{line.new ?? ""}</span>
                 {#if line.said}<span class="visually-hidden">{line.said}</span>{/if}
-                <span class="text"><span class="sign" aria-hidden="true">{line.sign}</span>{line.text}</span>
+                <span class="text"><span class="sign" aria-hidden="true">{line.sign}</span><Code
+                    text={line.text}
+                    segments={painted?.lines === hunkLines && line.kind !== "note" ? painted.segments[i]?.[j] : null}
+                  /></span
+                >
               </div>
             {/each}
           </div>
@@ -442,7 +470,7 @@ const range = (hunk: Hunk) =>
     background: var(--ok-soft);
   }
   .removed {
-    background: color-mix(in srgb, var(--danger) 14%, transparent);
+    background: var(--danger-soft);
   }
   .note {
     color: var(--text-2);

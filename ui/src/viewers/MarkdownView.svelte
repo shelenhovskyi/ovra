@@ -1,4 +1,5 @@
 <script lang="ts">
+import { highlightLines, languageNamed } from "../editor/highlight/static";
 import { useOvra } from "../shell/context";
 import { resolveLink } from "./links";
 import { exists, loadView } from "./load";
@@ -28,6 +29,32 @@ $effect(() => {
     if (link.kind !== "file") continue;
     void loadView(transport, project, link.path).then((result) => {
       if (root?.contains(img) && "view" in result && result.view.kind === "image") img.src = result.view.src;
+    });
+  }
+});
+
+// Code blocks with a known language get the editor's colours. The text is
+// set through textContent, never as HTML.
+$effect(() => {
+  void html;
+  if (!root) return;
+  for (const code of root.querySelectorAll<HTMLElement>("pre > code[class^='language-']")) {
+    const language = languageNamed(code.className.slice("language-".length).split(" ")[0] ?? "");
+    const lines = (code.textContent ?? "").replace(/\n$/, "").split("\n");
+    void highlightLines(language, lines).then((painted) => {
+      if (!painted || !root?.contains(code)) return;
+      code.replaceChildren(
+        ...painted.flatMap((segments, i) => [
+          ...(i > 0 ? ["\n"] : []),
+          ...segments.map(({ text, cls }) => {
+            if (!cls) return text;
+            const span = document.createElement("span");
+            span.className = cls;
+            span.textContent = text;
+            return span;
+          }),
+        ]),
+      );
     });
   }
 });
@@ -82,10 +109,11 @@ async function openWeb(url: string) {
     font-size: 13px;
     background: var(--s3);
     padding: 1px 5px;
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
   }
+  /* --s1, not --s3: comments in code keep 4.5:1 on it. */
   .markdown :global(pre) {
-    background: var(--s3);
+    background: var(--s1);
     padding: 12px 14px;
     border-radius: var(--radius);
     overflow: auto;

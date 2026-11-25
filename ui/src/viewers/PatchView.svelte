@@ -1,6 +1,9 @@
 <script lang="ts">
+import Code from "../editor/highlight/Code.svelte";
+import { highlightLines, type Segment } from "../editor/highlight/static";
+import { languageFor } from "../editor/languages";
 import Lines from "./Lines.svelte";
-import { changeStarts, fileName, fileStats, parsePatch, patchRows } from "./patch";
+import { changeStarts, fileName, fileStats, type PatchLine, parsePatch, patchRows } from "./patch";
 
 let { text }: { text: string } = $props();
 
@@ -12,6 +15,31 @@ const total = $derived(
     removed: 0,
   }),
 );
+/** Syntax colour per line, each file highlighted as one text once the worker answers. */
+let painted = $state.raw(new WeakMap<PatchLine, Segment[]>());
+$effect(() => {
+  const shown = files;
+  let live = true;
+  const next = new WeakMap<PatchLine, Segment[]>();
+  void Promise.all(
+    shown.map(async (file) => {
+      const lines = file.hunks.flatMap((hunk) => hunk.lines.filter((line) => line.kind !== "note"));
+      const segments = await highlightLines(
+        languageFor(fileName(file)),
+        lines.map((line) => line.text),
+      );
+      lines.forEach((line, i) => {
+        const found = segments?.[i];
+        if (found) next.set(line, found);
+      });
+    }),
+  ).then(() => {
+    if (live) painted = next;
+  });
+  return () => {
+    live = false;
+  };
+});
 let collapsed = $state(new Set<number>());
 const rows = $derived(patchRows(files, collapsed));
 const rawLines = $derived(text.split(/\r?\n/));
@@ -131,7 +159,7 @@ const SIGN = { context: " ", added: "+", removed: "-" } as const;
             <span class="no">{"new" in item ? item.new : ""}</span>
             <span class="sign" aria-hidden="true">{SIGN[item.kind]}</span>
             <span class="visually-hidden">{LABEL[item.kind]} line {"new" in item ? item.new : item.old}:</span>
-            <span class="code">{item.text}</span>
+            <span class="code"><Code text={item.text} segments={painted.get(item)} /></span>
           </div>
         {/if}
       {/snippet}
@@ -230,7 +258,7 @@ const SIGN = { context: " ", added: "+", removed: "-" } as const;
     border-left-color: var(--ok);
   }
   .removed {
-    background: color-mix(in srgb, var(--danger) 14%, transparent);
+    background: var(--danger-soft);
     border-left-color: var(--danger);
   }
   .current {
@@ -240,7 +268,7 @@ const SIGN = { context: " ", added: "+", removed: "-" } as const;
   .badge {
     padding: 0 4px;
     border: 1px solid currentColor;
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
     font-size: 12px;
     font-weight: 400;
   }

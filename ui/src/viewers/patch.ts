@@ -1,6 +1,6 @@
 // Parses unified diffs (`git diff`, `diff -u`) into files, hunks and numbered lines.
 
-type PatchLine =
+export type PatchLine =
   | { kind: "context"; text: string; old: number; new: number }
   | { kind: "added"; text: string; new: number }
   | { kind: "removed"; text: string; old: number }

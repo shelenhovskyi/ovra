@@ -2,6 +2,9 @@
 // Project-wide content search: a query with case, word and regex toggles and
 // include/exclude globs; results grouped by file. Choosing a result opens the
 // file in the editor with the match selected.
+import Code from "../editor/highlight/Code.svelte";
+import { highlightLines, type Segment, sliceSegments } from "../editor/highlight/static";
+import { languageFor } from "../editor/languages";
 import type { FileMatches, LineMatch, ProjectId } from "../lib/protocol";
 import type { Transport } from "../lib/transport";
 import type { TextSpot } from "../shell/workspace.svelte";
@@ -122,6 +125,31 @@ function onResultsKeydown(event: KeyboardEvent): void {
   buttons[next]?.focus();
 }
 
+/** Syntax colour of result lines by path, line and text; each file's lines are highlighted as one text. */
+let painted = $state.raw(new Map<string, Segment[]>());
+const paintKey = (path: string, match: LineMatch) => `${path}\n${match.line}\n${match.text}`;
+const asked = new Set<string>();
+$effect(() => {
+  for (const file of visible) {
+    const keys = file.lines.map((match) => paintKey(file.path, match));
+    const all = keys.join("\n");
+    if (asked.has(all)) continue;
+    asked.add(all);
+    void highlightLines(
+      languageFor(file.path),
+      file.lines.map((match) => match.text),
+    ).then((lines) => {
+      if (!lines) return;
+      const next = new Map(painted);
+      keys.forEach((key, i) => {
+        const segments = lines[i];
+        if (segments) next.set(key, segments);
+      });
+      painted = next;
+    });
+  }
+});
+
 /** Characters kept before the first match when a line is shortened for the narrow sidebar. */
 const LEAD = 12;
 
@@ -129,20 +157,20 @@ const LEAD = 12;
  * The line's text cut into plain and matched parts. Indentation is dropped, and a
  * line whose first match starts far in begins shortly before it, after "…".
  */
-function parts(match: LineMatch): { text: string; hit: boolean }[] {
+function parts(match: LineMatch): { text: string; hit: boolean; from: number }[] {
   const first = match.ranges[0]?.[0] ?? 0;
   const indent = match.text.length - match.text.trimStart().length;
   const start = Math.min(first, first - indent > 2 * LEAD ? first - LEAD : indent);
-  const out: { text: string; hit: boolean }[] = [];
-  if (start > indent || match.column > 0) out.push({ text: "…", hit: false });
+  const out: { text: string; hit: boolean; from: number }[] = [];
+  if (start > indent || match.column > 0) out.push({ text: "…", hit: false, from: -1 });
   let at = start;
   for (const [from, to] of match.ranges) {
     if (to <= at) continue;
-    if (from > at) out.push({ text: match.text.slice(at, from), hit: false });
-    out.push({ text: match.text.slice(Math.max(from, at), to), hit: true });
+    if (from > at) out.push({ text: match.text.slice(at, from), hit: false, from: at });
+    out.push({ text: match.text.slice(Math.max(from, at), to), hit: true, from: Math.max(from, at) });
     at = to;
   }
-  if (at < match.text.length) out.push({ text: match.text.slice(at), hit: false });
+  if (at < match.text.length) out.push({ text: match.text.slice(at), hit: false, from: at });
   return out;
 }
 
@@ -228,6 +256,7 @@ const folder = (path: string) => path.slice(0, Math.max(path.lastIndexOf("/"), 0
         </div>
         <ul>
           {#each file.lines as match (match.line)}
+            {@const line = painted.get(paintKey(file.path, match))}
             <li>
               <button
                 type="button"
@@ -240,8 +269,12 @@ const folder = (path: string) => path.slice(0, Math.max(path.lastIndexOf("/"), 0
               >
                 <span class="num" aria-hidden="true">{match.line}</span>
                 <span class="text" aria-hidden="true"
-                  >{#each parts(match) as part, i (i)}{#if part.hit}<mark>{part.text}</mark
-                      >{:else}{part.text}{/if}{/each}</span
+                  >{#each parts(match) as part, i (i)}{@const code = line && part.from >= 0
+                      ? sliceSegments(line, part.from, part.from + part.text.length)
+                      : null}{#if part.hit}<mark><Code text={part.text} segments={code} /></mark>{:else}<Code
+                        text={part.text}
+                        segments={code}
+                      />{/if}{/each}</span
                 >
               </button>
             </li>
