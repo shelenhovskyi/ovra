@@ -20,7 +20,7 @@ describe("Shell", () => {
     const target = document.createElement("div");
     const app = mount(Shell, { target, props: { transport: fakeTransport() } });
     flushSync(); // run effects: the shell asks the core for info.get
-    await new Promise((resolve) => setTimeout(resolve)); // let the reply resolve
+    await new Promise((resolve) => setImmediate(resolve)); // let the reply resolve
     flushSync();
     expect(target.querySelector("[data-testid=sidebar]")?.textContent).toContain("File tree");
     expect(target.querySelector("[data-testid=status]")?.textContent).toBe("Connected to ovra 0.0.0 (test)");
@@ -65,7 +65,7 @@ describe("Shell", () => {
     const app = mount(Shell, { target, props: { transport: router } });
     flushSync();
     router.setStatus("closed");
-    await new Promise((resolve) => setTimeout(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
     flushSync();
     expect(target.querySelector("[role=status]")?.textContent).toBe("Core unavailable: could not connect, retrying…");
     router.setStatus("connecting");
@@ -80,7 +80,7 @@ describe("Shell", () => {
     const app = mount(Shell, { target, props: { transport: router } });
     flushSync();
     router.setStatus("refused");
-    await new Promise((resolve) => setTimeout(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
     flushSync();
     expect(target.querySelector("[role=status]")?.textContent).toBe(
       "Core unavailable: it no longer accepts this address",
