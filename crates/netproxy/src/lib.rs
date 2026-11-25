@@ -204,7 +204,7 @@ fn new_folder(dir: &Path) -> Result<PathBuf> {
 /// A new folder only this user can open, with a short path: Unix socket
 /// paths are limited to about 100 bytes.
 fn private_dir() -> Result<PathBuf> {
-    let tmp = std::env::temp_dir();
+    let tmp = socket_base(std::env::temp_dir());
     #[cfg_attr(not(unix), allow(unused_mut))]
     let mut builder = std::fs::DirBuilder::new();
     #[cfg(unix)]
@@ -218,6 +218,27 @@ fn private_dir() -> Result<PathBuf> {
         }
     }
     Err(internal("no free folder for the netproxy's sockets".into()))
+}
+
+/// The longest Unix socket path every Unix takes: macOS has 104 bytes for
+/// it, the closing NUL included (Linux 108).
+#[cfg(unix)]
+const MAX_SOCKET_PATH: usize = 103;
+
+/// What a session's socket path adds to the temporary folder:
+/// `/ovra-net-<name>/<name>/p.sock`.
+#[cfg(unix)]
+const SOCKET_SUFFIX: usize = "/ovra-net-".len() + 16 + 1 + 16 + "/p.sock".len();
+
+/// The folder for the sockets' folder: the temporary folder, or `/tmp` when
+/// a socket path under the temporary folder would be too long to bind (a
+/// deep `TMPDIR`, as some tools set). The folder is private either way.
+fn socket_base(tmp: PathBuf) -> PathBuf {
+    #[cfg(unix)]
+    if tmp.as_os_str().len() + SOCKET_SUFFIX > MAX_SOCKET_PATH {
+        return PathBuf::from("/tmp");
+    }
+    tmp
 }
 
 /// 64 random bits as hex: a folder name nobody can guess or take first.

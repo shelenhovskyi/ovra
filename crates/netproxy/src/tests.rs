@@ -850,3 +850,17 @@ async fn a_session_with_secrets_gets_a_private_bundle_and_never_binds_claudes_ho
     proxies.stop(&SessionId("s2".into()));
     assert!(!bundle.exists(), "the bundle goes with the proxy");
 }
+
+#[cfg(unix)]
+#[test]
+fn a_deep_temporary_folder_still_gets_sockets_that_bind() {
+    use std::path::{Path, PathBuf};
+    // macOS's own TMPDIR fits and is kept.
+    let mac = PathBuf::from("/var/folders/zz/zyxvpxvq6csfxvn_n0000000000000/T/");
+    assert_eq!(crate::socket_base(mac.clone()), mac);
+    // The longest that fits: 53 bytes, and 50 for the socket's own part.
+    let longest = PathBuf::from(format!("/{}", "a".repeat(52)));
+    assert_eq!(crate::socket_base(longest.clone()), longest);
+    let deeper = PathBuf::from(format!("/{}", "a".repeat(53)));
+    assert_eq!(crate::socket_base(deeper), Path::new("/tmp"));
+}
