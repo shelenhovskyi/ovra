@@ -1,0 +1,11 @@
+---
+source: tests/security/tests/attacks.rs
+expression: changed
+---
+[
+    "data/sandbox-caches/<project>/-cargo-registry/src",
+    "data/sandbox-caches/<project>/-cargo-registry/src/evil",
+    "data/sandbox-caches/<project>/-cargo-registry/src/evil/build.rs",
+    "project/CLAUDE.local.md",
+    "project/new.txt",
+]

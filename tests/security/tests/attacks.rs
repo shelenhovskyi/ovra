@@ -1,0 +1,681 @@
+//! Attack tests (task 4.F, `docs/specs/security.md`): the real Linux
+//! sandbox and a real netproxy around shell scripts that play a hostile
+//! agent. Each script line is one attack and prints `yes` if it worked.
+//! The threat model these tests check is in `tests/security/README.md`.
+//!
+//! The sandbox is built as `ovra_sandbox::for_this_os` builds it, but with
+//! a home folder of the test's own, full of planted secrets. Without a
+//! working bubblewrap the tests say so and pass, except in CI or where
+//! bubblewrap is installed: there the sandbox must work.
+
+#![cfg(target_os = "linux")]
+#![allow(clippy::unwrap_used)]
+
+use std::fs;
+use std::net::TcpListener;
+use std::os::unix::net::UnixListener;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Output, Stdio};
+
+use ovra_core::Core;
+use ovra_core::protocol::Event;
+use ovra_core::protocol::agents::SessionId;
+use ovra_core::protocol::netproxy::{AllowedHost, Allowlist, NetproxyEvent};
+use ovra_core::protocol::projects::ProjectId;
+use ovra_core::services::{
+    CommandLine, NetProxy, NetReporter, ProfileNetwork, Sandbox, SandboxProfile, SandboxStatus,
+};
+use ovra_netproxy::NetProxies;
+use ovra_sandbox_linux::{Bubblewrap, Protected, Setup};
+
+/// The sandbox helper, as the daemon is, plus the probes in `src/main.rs`.
+const AGENT: &str = env!("CARGO_BIN_EXE_ovra-security-agent");
+
+/// Every planted secret holds this, so one search finds any of them.
+const SECRET: &str = "ovra-planted-secret";
+
+/// A test's own folder: a home full of secrets, Ovra's data folder and a
+/// project, all removed at the end.
+struct World {
+    root: PathBuf,
+    home: PathBuf,
+    data: PathBuf,
+    project: PathBuf,
+}
+
+impl World {
+    fn new(name: &str) -> Self {
+        // Outside the temporary folder, which the sandbox hides as a whole:
+        // the home and data folders must be hidden on their own.
+        let root = Path::new(env!("CARGO_TARGET_TMPDIR"))
+            .join(format!("ovra-security-{}-{name}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let root = fs::canonicalize(root).unwrap();
+        let world = Self {
+            home: root.join("home"),
+            data: root.join("data"),
+            project: root.join("project"),
+            root,
+        };
+        for (path, text) in [
+            // Secret stores the spec names.
+            ("home/.ssh/id_ed25519", SECRET),
+            ("home/.aws/credentials", SECRET),
+            ("home/.gnupg/private-keys-v1.d/key.key", SECRET),
+            ("home/.config/gh/hosts.yml", SECRET),
+            ("home/.netrc", SECRET),
+            ("home/.docker/config.json", SECRET),
+            ("home/.kube/config", SECRET),
+            ("home/.config/git/credentials", SECRET),
+            ("home/.git-credentials", SECRET),
+            ("home/.cargo/credentials.toml", SECRET),
+            ("home/.npmrc", SECRET),
+            ("home/.mozilla/firefox/default/logins.json", SECRET),
+            ("home/.local/share/keyrings/login.keyring", SECRET),
+            // What the agent may read, and must not change.
+            ("home/.gitconfig", "[user]\n\tname = t\n"),
+            ("home/.config/git/config", ""),
+            ("home/.claude/settings.json", "{}"),
+            ("home/.claude/CLAUDE.md", "rules"),
+            ("home/.claude/hooks/hook.sh", "true"),
+            ("home/.claude/agents/a.md", "agent"),
+            ("home/.claude/commands/c.md", "command"),
+            ("home/.claude/skills/s/SKILL.md", "skill"),
+            ("home/.claude/plugins/p.json", "{}"),
+            ("home/.claude.json", "{\"mcpServers\":{}}"),
+            ("home/.claude/history.jsonl", ""),
+            ("home/.claude/.credentials.json", "login"),
+            ("home/.bashrc", "# rc"),
+            ("home/.profile", "# profile"),
+            ("home/.cargo/config.toml", ""),
+            ("home/.cargo/registry/index/.keep", ""),
+            // Ovra's own data folder: store, trust, policies, audit.
+            ("data/store.db", SECRET),
+            ("project/README.md", "hello"),
+        ] {
+            world.file(path, text);
+        }
+        world
+    }
+
+    fn file(&self, path: &str, text: &str) -> PathBuf {
+        let path = self.root.join(path);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, text).unwrap();
+        path
+    }
+
+    /// The sandbox as `for_this_os` makes it, or `None` (and why) where
+    /// bubblewrap cannot run.
+    fn sandbox(&self) -> Option<Bubblewrap> {
+        let sandbox = Bubblewrap::detect(Setup {
+            helper: AGENT.into(),
+            home: self.home.clone(),
+            path: "/usr/local/bin:/usr/bin:/bin".into(),
+            toolchains: vec![self.home.join(".cargo")],
+            hidden: vec![self.data.clone(), std::env::temp_dir()],
+            caches: self.data.join("sandbox-caches"),
+            protected: Protected {
+                work_dir: &ovra_sandbox::PROTECTED_IN_WORK_DIR,
+            },
+        });
+        match sandbox.status() {
+            SandboxStatus::Available { .. } => Some(sandbox),
+            SandboxStatus::Unavailable { reason } => {
+                assert!(
+                    std::env::var_os("CI").is_none() && !Path::new("/usr/bin/bwrap").exists(),
+                    "no sandbox where bubblewrap is installed: {reason}"
+                );
+                eprintln!("skipped: {reason}");
+                None
+            }
+        }
+    }
+
+    fn profile(&self, network: ProfileNetwork) -> SandboxProfile {
+        SandboxProfile {
+            work_dir: self.project.clone(),
+            read: Vec::new(),
+            write: Vec::new(),
+            network,
+        }
+    }
+
+    /// Everything under the world: files with their content, folders, and
+    /// links with their target, to compare before and after an attack.
+    fn files(&self) -> Vec<(PathBuf, Vec<u8>)> {
+        let mut files = Vec::new();
+        let mut stack = vec![self.root.clone()];
+        while let Some(dir) = stack.pop() {
+            for entry in fs::read_dir(dir).unwrap() {
+                let path = entry.unwrap().path();
+                let meta = fs::symlink_metadata(&path).unwrap();
+                if meta.is_dir() {
+                    files.push((path.clone(), b"folder".to_vec()));
+                    stack.push(path);
+                } else if meta.is_symlink() {
+                    let target = fs::read_link(&path).unwrap();
+                    files.push((path, target.into_os_string().into_encoded_bytes()));
+                } else {
+                    files.push((path.clone(), fs::read(&path).unwrap()));
+                }
+            }
+        }
+        files.sort();
+        files
+    }
+}
+
+impl Drop for World {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.root);
+    }
+}
+
+/// Runs `script` with bash inside `profile` as the agent's process would
+/// run; returns what it printed. `env` is added to the environment the
+/// sandbox is started from.
+fn run(
+    sandbox: &Bubblewrap,
+    profile: &SandboxProfile,
+    script: &str,
+    env: &[(&str, &str)],
+) -> String {
+    let line = CommandLine {
+        program: "/bin/bash".into(),
+        args: vec!["-c".into(), script.into()],
+        env: Vec::new(),
+        cwd: profile.work_dir.clone(),
+    };
+    let line = sandbox.wrap(profile, line).unwrap();
+    output(spawn(&line, env))
+}
+
+/// Runs `script` the same way without a sandbox: the control that shows
+/// each attack would work if nothing stopped it.
+fn outside(cwd: &Path, script: &str, env: &[(&str, &str)]) -> String {
+    let line = CommandLine {
+        program: "/bin/bash".into(),
+        args: vec!["-c".into(), script.into()],
+        env: Vec::new(),
+        cwd: cwd.to_path_buf(),
+    };
+    output(spawn(&line, env))
+}
+
+fn output(out: Output) -> String {
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8(out.stdout).unwrap()
+}
+
+fn spawn(line: &CommandLine, env: &[(&str, &str)]) -> Output {
+    let mut command = Command::new(&line.program);
+    command.args(&line.args).current_dir(&line.cwd);
+    command.envs(env.iter().copied());
+    for (name, value) in &line.env {
+        match value {
+            Some(value) => command.env(name, value),
+            None => command.env_remove(name),
+        };
+    }
+    command.stdin(Stdio::null()).output().unwrap()
+}
+
+/// Each line of `attacks` is `name: command`; prints `name: yes` if the
+/// command succeeded, else `name: no`.
+fn attacks(attacks: &str) -> String {
+    attacks
+        .lines()
+        .filter_map(|l| l.trim().split_once(": "))
+        .map(|(name, command)| {
+            format!("if ({command}) >/dev/null 2>&1; then echo '{name}: yes'; else echo '{name}: no'; fi\n")
+        })
+        .collect()
+}
+
+/// The names of `lines` that worked.
+fn worked(out: &str) -> Vec<&str> {
+    out.lines()
+        .filter_map(|l| l.strip_suffix(": yes"))
+        .collect()
+}
+
+/// The names of `lines` that did not work.
+fn failed(out: &str) -> Vec<&str> {
+    out.lines().filter_map(|l| l.strip_suffix(": no")).collect()
+}
+
+fn root_user() -> bool {
+    std::os::unix::fs::MetadataExt::uid(&fs::metadata("/proc/self").unwrap()) == 0
+}
+
+#[test]
+fn an_agent_finds_no_secret_of_the_user_or_of_ovra() {
+    let world = World::new("secrets");
+    // A link the hostile repository brought along.
+    std::os::unix::fs::symlink(
+        world.home.join(".ssh/id_ed25519"),
+        world.project.join("key"),
+    )
+    .unwrap();
+    std::os::unix::fs::symlink(&world.data, world.project.join("data")).unwrap();
+    let Some(sandbox) = world.sandbox() else {
+        return;
+    };
+    // A process of the user's that holds a secret, as Ovra itself does.
+    let mut holder = Command::new("cat")
+        .env("OVRA_HOLDER", SECRET)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .spawn()
+        .unwrap();
+    let checks = format!(
+        "read ssh keys: cat {home}/.ssh/id_ed25519
+        list ssh: ls -A {home}/.ssh | grep -q .
+        read aws: cat {home}/.aws/credentials
+        read gpg: ls -A {home}/.gnupg | grep -q .
+        read gh: cat {home}/.config/gh/hosts.yml
+        read netrc: cat {home}/.netrc
+        read docker: cat {home}/.docker/config.json
+        read kube: cat {home}/.kube/config
+        read git credentials: grep -q {SECRET} {home}/.config/git/credentials
+        read git credential store: cat {home}/.git-credentials
+        read cargo credentials: grep -q {SECRET} {home}/.cargo/credentials.toml
+        read npmrc: cat {home}/.npmrc
+        read browser profiles: ls -A {home}/.mozilla | grep -q .
+        read the keyring: ls -A {home}/.local/share/keyrings | grep -q .
+        read ovra data: cat {data}/store.db
+        read through a planted link: cat key
+        list ovra data through a planted link: ls -A data/ | grep -q .
+        find a secret anywhere it could be: grep -rqs {SECRET} {root} {home} /tmp /var/tmp /run /mnt /media
+        find a secret in the environment: env | grep -q {SECRET}
+        find a secret in any process environment: grep -qs {SECRET} /proc/*/environ
+        signal the holder process: kill -0 {holder}",
+        home = world.home.display(),
+        data = world.data.display(),
+        root = world.root.display(),
+        holder = holder.id(),
+    );
+    // What Ovra's own environment may hold: none of it gets in.
+    let env = [
+        ("GITHUB_TOKEN", SECRET),
+        ("GH_TOKEN", SECRET),
+        ("NPM_TOKEN", SECRET),
+        ("AWS_ACCESS_KEY_ID", SECRET),
+        ("AWS_SECRET_ACCESS_KEY", SECRET),
+        ("CLAUDE_CODE_OAUTH_TOKEN", SECRET),
+        ("SSH_AUTH_SOCK", SECRET),
+        ("GPG_AGENT_INFO", SECRET),
+        ("DBUS_SESSION_BUS_ADDRESS", SECRET),
+    ];
+    let script = attacks(&checks);
+    let out = run(
+        &sandbox,
+        &world.profile(ProfileNetwork::Blocked),
+        &script,
+        &env,
+    );
+    let control = outside(&world.project, &script, &env);
+    holder.kill().unwrap();
+    let _ = holder.wait();
+    assert_eq!(worked(&out), Vec::<&str>::new(), "{out}");
+    assert_eq!(failed(&control), Vec::<&str>::new(), "{control}");
+}
+
+#[test]
+fn a_hostile_repository_cannot_widen_what_later_runs_outside_the_sandbox() {
+    let world = World::new("widen");
+    let project = &world.project;
+    let git = |args: &[&str]| {
+        let out = Command::new("git")
+            .args(["-c", "init.defaultBranch=main"])
+            .args(args)
+            .current_dir(project)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    };
+    git(&["init", "-q"]);
+    git(&["config", "core.hooksPath", ".husky"]);
+    for (path, text) in [
+        ("project/.husky/pre-commit", "true"),
+        ("project/.claude/settings.json", "{}"),
+        ("project/.mcp.json", "{}"),
+        ("project/CLAUDE.md", "rules"),
+        ("project/src/AGENTS.md", "rules"),
+        ("project/.vscode/tasks.json", "{}"),
+        ("project/.envrc", ""),
+        ("project/.devcontainer/devcontainer.json", "{}"),
+    ] {
+        world.file(path, text);
+    }
+    let Some(sandbox) = world.sandbox() else {
+        return;
+    };
+    let key: String = project
+        .to_string_lossy()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect();
+    let profile = world.profile(ProfileNetwork::Blocked);
+    // Planning makes the folders it binds (empty protected folders, the
+    // private caches): wrap once first, so only the attacks change files.
+    let noop = CommandLine {
+        program: "/bin/true".into(),
+        args: Vec::new(),
+        env: Vec::new(),
+        cwd: project.clone(),
+    };
+    sandbox.wrap(&profile, noop).unwrap();
+    let before = world.files();
+    let checks = format!(
+        "write the project: echo x > new.txt
+        write a git hook: echo x > .git/hooks/pre-commit
+        set core.fsmonitor: git config core.fsmonitor ./x
+        set core.hooksPath elsewhere: echo '[core] hooksPath = /tmp' >> .git/config
+        write the hooks path: echo x >> .husky/pre-commit
+        replace the hooks path: mv .husky .husky-old
+        allow every tool for the project: echo '{{\"permissions\":{{\"allow\":[\"Bash\"]}}}}' > .claude/settings.json
+        add a project MCP server: echo '{{\"mcpServers\":{{\"x\":{{\"command\":\"./x\"}}}}}}' > .mcp.json
+        write CLAUDE.md: echo x >> CLAUDE.md
+        add a CLAUDE.local.md: echo x > CLAUDE.local.md
+        write a nested AGENTS.md: echo x >> src/AGENTS.md
+        add a folder-open task: echo x >> .vscode/tasks.json
+        write .envrc: echo x >> .envrc
+        write the dev container: echo x >> .devcontainer/devcontainer.json
+        make a missing .idea folder: mkdir -p .idea && echo x > .idea/workspace.xml
+        poison the cargo cache: mkdir -p {home}/.cargo/registry/src/evil && echo x > {home}/.cargo/registry/src/evil/build.rs
+        write user settings: echo x > {home}/.claude/settings.json
+        write user CLAUDE.md: echo x >> {home}/.claude/CLAUDE.md
+        add a user hook: echo x > {home}/.claude/hooks/new.sh
+        add a user agent: echo x > {home}/.claude/agents/new.md
+        add a user command: echo x > {home}/.claude/commands/new.md
+        add a user skill: mkdir -p {home}/.claude/skills/new && echo x > {home}/.claude/skills/new/SKILL.md
+        add a plugin: echo x > {home}/.claude/plugins/new.json
+        write this project memory: echo x > {home}/.claude/projects/{key}/memory/m.md
+        write the shell rc: echo x >> {home}/.bashrc
+        write the login profile: echo x >> {home}/.profile
+        add a git alias for the user: echo x >> {home}/.gitconfig
+        add a systemd user unit: mkdir -p {home}/.config/systemd/user && echo x > {home}/.config/systemd/user/x.service
+        write cargo config: echo x >> {home}/.cargo/config.toml
+        change ovra data: echo x >> {data}/store.db
+        delete CLAUDE.md: rm CLAUDE.md
+        delete the git hooks: rm -r .git/hooks
+        replace the folder of an AGENTS.md: mv src src-old && mkdir src && echo x > src/AGENTS.md",
+        home = world.home.display(),
+        data = world.data.display(),
+    );
+    let script = attacks(&checks);
+    let out = run(&sandbox, &profile, &script, &[]);
+    // A `yes` outside the project wrote to the sandbox's own empty home
+    // folder, which is gone with it; the comparison below proves that.
+    insta::assert_snapshot!(out);
+    let after = world.files();
+    let changed: Vec<String> = after
+        .iter()
+        .filter(|f| !before.contains(f))
+        .chain(before.iter().filter(|f| !after.contains(f)))
+        .map(|(path, _)| {
+            let path = path
+                .strip_prefix(&world.root)
+                .unwrap()
+                .display()
+                .to_string();
+            path.replace(&key, "<project>")
+        })
+        .collect();
+    // Known gap (`docs/specs/security.md`): a protected file that does not
+    // exist yet, here `CLAUDE.local.md`, can be created; the review is the
+    // backstop. The poisoned cache is the project's private one.
+    insta::assert_debug_snapshot!("changed_on_the_host", changed);
+    // The control: without the sandbox every attack works.
+    let control = outside(project, &script, &[]);
+    assert_eq!(failed(&control), Vec::<&str>::new(), "{control}");
+}
+
+#[test]
+fn rights_cannot_be_gained_inside_the_sandbox() {
+    let world = World::new("rights");
+    let Some(sandbox) = world.sandbox() else {
+        return;
+    };
+    let checks =
+        "keep a capability: ! grep -q '^CapEff:[[:space:]]*0000000000000000$' /proc/self/status
+        gain rights through setuid: ! grep -q '^NoNewPrivs:[[:space:]]*1$' /proc/self/status
+        start a user namespace: unshare -U true
+        mount a file system: mkdir -p /tmp/m && mount -t tmpfs none /tmp/m
+        write a sysctl: echo 1 > /proc/sys/kernel/sysrq
+        write the system: test -d /usr/local/bin && echo x > /usr/local/bin/ovra-x";
+    let out = run(
+        &sandbox,
+        &world.profile(ProfileNetwork::Blocked),
+        &attacks(checks),
+        &[],
+    );
+    assert_eq!(worked(&out), Vec::<&str>::new(), "{out}");
+    // The control needs the rights a normal user lacks; `mount` and the
+    // sysctl are left out, as they would change this machine.
+    if root_user() {
+        let control = outside(
+            &world.project,
+            &attacks(&checks.lines().take(3).collect::<Vec<_>>().join("\n")),
+            &[],
+        );
+        assert_eq!(failed(&control), Vec::<&str>::new(), "{control}");
+    }
+}
+
+#[test]
+fn nothing_the_agent_starts_outlives_its_session() {
+    let world = World::new("outlive");
+    let Some(sandbox) = world.sandbox() else {
+        return;
+    };
+    let marker = format!("ovra-outlive-{}", std::process::id());
+    // The script returns only once both are running under the marker.
+    let script = format!(
+        "setsid bash -c 'exec -a {marker} sleep 600' </dev/null >/dev/null 2>&1 &
+        nohup bash -c 'exec -a {marker} sleep 600' </dev/null >/dev/null 2>&1 &
+        until [ \"$(pgrep -fc '^{marker} ')\" -ge 2 ]; do :; done"
+    );
+    run(
+        &sandbox,
+        &world.profile(ProfileNetwork::Blocked),
+        &script,
+        &[],
+    );
+    let alive = || {
+        fs::read_dir("/proc")
+            .unwrap()
+            .filter_map(Result::ok)
+            .any(|p| {
+                fs::read(p.path().join("cmdline")).is_ok_and(|c| c.starts_with(marker.as_bytes()))
+            })
+    };
+    // bubblewrap returns with the agent's exit status; the kernel ends the
+    // rest of the namespace right after, so wait for that, with a bound.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    while alive() && std::time::Instant::now() < deadline {
+        std::thread::yield_now();
+    }
+    if alive() {
+        let _ = Command::new("pkill").args(["-f", &marker]).status();
+        panic!("a process of the session is still running");
+    }
+}
+
+/// A refused request's host and reason, as the core receives them.
+fn refusals(events: &mut tokio::sync::broadcast::Receiver<Event>) -> Vec<String> {
+    let mut seen = Vec::new();
+    while let Ok(event) = events.try_recv() {
+        if let Event::Netproxy(NetproxyEvent::Refused { host, reason, .. }) = event {
+            seen.push(format!("{host}: {reason}"));
+        }
+    }
+    seen
+}
+
+#[test]
+fn the_netproxy_is_the_only_way_out_and_holds() {
+    let world = World::new("network");
+    let Some(sandbox) = world.sandbox() else {
+        return;
+    };
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .enable_all()
+        .build()
+        .unwrap();
+    // No secret is bound here; 4.D's delivery gets its own attacks.
+    let secrets = std::sync::Arc::new(ovra_core::fakes::MemorySecrets::default());
+    let proxies = NetProxies::from_env(secrets).unwrap();
+    let core = Core::new("test");
+    let mut events = core.subscribe();
+    let reporter = |s: &SessionId| NetReporter::new(ProjectId("p1".into()), s.clone(), core.sink());
+    let (ours, theirs) = (SessionId("s1".into()), SessionId("s2".into()));
+    // A careless project allowlist: names and addresses that lead back
+    // inside. The proxy still refuses what they resolve to.
+    let allow = Allowlist {
+        hosts: ["localhost", "169.254.169.254", "127.0.0.1", "::1"]
+            .into_iter()
+            .map(|h| AllowedHost {
+                host: h.into(),
+                port: None,
+            })
+            .collect(),
+    };
+    let address = rt
+        .block_on(proxies.start(ours.clone(), allow, reporter(&ours), Vec::new()))
+        .unwrap()
+        .address;
+    let other = rt
+        .block_on(proxies.start(
+            theirs.clone(),
+            Allowlist::default(),
+            reporter(&theirs),
+            Vec::new(),
+        ))
+        .unwrap()
+        .address;
+    // Ovra's own daemon and other local services, outside the sandbox.
+    let daemon = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = daemon.local_addr().unwrap().port();
+    let abstract_name = format!("ovra-security-{}", std::process::id());
+    let _abstract = {
+        use std::os::linux::net::SocketAddrExt as _;
+        let addr = std::os::unix::net::SocketAddr::from_abstract_name(&abstract_name).unwrap();
+        UnixListener::bind_addr(&addr).unwrap()
+    };
+    let socket_dir = Path::new(&other).parent().unwrap().parent().unwrap();
+    let ask = |name: &str, request: &str| {
+        format!(
+            "exec 3<>/dev/tcp/127.0.0.1/${{HTTPS_PROXY##*:}} && printf '{request}\\r\\n\\r\\n' >&3 && echo \"{name}: $(head -n1 <&3 | tr -d '\\r')\"; exec 3<&-\n"
+        )
+    };
+    let mut script = attacks(&format!(
+        "reach the daemon directly: echo > /dev/tcp/127.0.0.1/{port}
+        reach the metadata service directly: echo > /dev/tcp/169.254.169.254/80
+        reach the internet directly: echo > /dev/tcp/1.1.1.1/443
+        reach the internet over IPv6: echo > /dev/tcp/2606:4700:4700::1111/443
+        reach an abstract socket: {AGENT} connect-abstract {abstract_name}
+        use the proxy of another session: {AGENT} connect-unix {other}
+        find the folder of another session: ls {socket_dir} | grep -qx {other_folder}
+        use the own proxy directly: {AGENT} connect-unix {address}",
+        socket_dir = socket_dir.display(),
+        other_folder = Path::new(&other)
+            .parent()
+            .unwrap()
+            .file_name()
+            .unwrap()
+            .display(),
+    ));
+    for (name, request) in [
+        (
+            "tunnel to a host not listed",
+            "CONNECT evil.example.com:443 HTTP/1.1\\r\\nHost: evil.example.com:443".to_owned(),
+        ),
+        (
+            "plain request to a host not listed",
+            "GET http://evil.example.com/ HTTP/1.1\\r\\nHost: evil.example.com".to_owned(),
+        ),
+        (
+            "tunnel to the daemon",
+            format!("CONNECT 127.0.0.1:{port} HTTP/1.1\\r\\nHost: 127.0.0.1:{port}"),
+        ),
+        (
+            "tunnel to a listed loopback address",
+            "CONNECT 127.0.0.1:443 HTTP/1.1\\r\\nHost: 127.0.0.1:443".to_owned(),
+        ),
+        (
+            "tunnel to a listed localhost",
+            "CONNECT localhost:443 HTTP/1.1\\r\\nHost: localhost:443".to_owned(),
+        ),
+        (
+            "metadata through a listed address",
+            "GET http://169.254.169.254/latest/meta-data/ HTTP/1.1\\r\\nHost: 169.254.169.254"
+                .to_owned(),
+        ),
+        (
+            "tunnel to IPv6 loopback",
+            "CONNECT [::1]:443 HTTP/1.1\\r\\nHost: [::1]:443".to_owned(),
+        ),
+        (
+            "tunnel to a base host on another port",
+            "CONNECT api.anthropic.com:22 HTTP/1.1\\r\\nHost: api.anthropic.com:22".to_owned(),
+        ),
+    ] {
+        script.push_str(&ask(name, &request));
+    }
+    let profile = world.profile(ProfileNetwork::Proxy {
+        address: address.clone(),
+        ca_bundle: None,
+    });
+    let out = run(&sandbox, &profile, &script, &[]);
+    let out = out.replace(&port.to_string(), "<port>");
+    insta::assert_snapshot!("network", out);
+    let refused: Vec<String> = refusals(&mut events)
+        .into_iter()
+        .map(|h| h.replace(&port.to_string(), "<port>"))
+        .collect();
+    insta::assert_debug_snapshot!("refused", refused);
+    proxies.stop(&ours);
+    proxies.stop(&theirs);
+}
+
+#[test]
+fn the_known_limits_are_what_the_threat_model_says() {
+    let world = World::new("limits");
+    let Some(sandbox) = world.sandbox() else {
+        return;
+    };
+    let key: String = world
+        .project
+        .to_string_lossy()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect();
+    let checks = format!(
+        "read the login of claude: grep -q login {home}/.claude/.credentials.json
+        add an MCP server to .claude.json: echo '{{\"mcpServers\":{{\"x\":{{\"command\":\"/bin/x\"}}}}}}' > {home}/.claude.json
+        change a transcript a resume reads: echo x > {home}/.claude/projects/{key}/s.jsonl",
+        home = world.home.display(),
+    );
+    let out = run(
+        &sandbox,
+        &world.profile(ProfileNetwork::Blocked),
+        &attacks(&checks),
+        &[],
+    );
+    insta::assert_snapshot!(out);
+}

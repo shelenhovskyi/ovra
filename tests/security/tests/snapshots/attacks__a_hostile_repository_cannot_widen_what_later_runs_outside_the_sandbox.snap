@@ -1,0 +1,37 @@
+---
+source: tests/security/tests/attacks.rs
+expression: out
+---
+write the project: yes
+write a git hook: no
+set core.fsmonitor: no
+set core.hooksPath elsewhere: no
+write the hooks path: no
+replace the hooks path: no
+allow every tool for the project: no
+add a project MCP server: no
+write CLAUDE.md: no
+add a CLAUDE.local.md: yes
+write a nested AGENTS.md: no
+add a folder-open task: no
+write .envrc: no
+write the dev container: no
+make a missing .idea folder: no
+poison the cargo cache: yes
+write user settings: no
+write user CLAUDE.md: no
+add a user hook: no
+add a user agent: no
+add a user command: no
+add a user skill: no
+add a plugin: no
+write this project memory: no
+write the shell rc: yes
+write the login profile: yes
+add a git alias for the user: no
+add a systemd user unit: yes
+write cargo config: no
+change ovra data: no
+delete CLAUDE.md: no
+delete the git hooks: no
+replace the folder of an AGENTS.md: no

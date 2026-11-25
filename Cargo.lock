@@ -3539,7 +3539,12 @@ dependencies = [
 name = "ovra-security-tests"
 version = "0.1.0"
 dependencies = [
+ "insta",
+ "ovra-core",
+ "ovra-netproxy",
  "ovra-sandbox",
+ "ovra-sandbox-linux",
+ "tokio",
 ]
 
 [[package]]

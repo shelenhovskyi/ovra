@@ -1,0 +1,20 @@
+---
+source: tests/security/tests/attacks.rs
+expression: out
+---
+reach the daemon directly: no
+reach the metadata service directly: no
+reach the internet directly: no
+reach the internet over IPv6: no
+reach an abstract socket: no
+use the proxy of another session: no
+find the folder of another session: no
+use the own proxy directly: yes
+tunnel to a host not listed: HTTP/1.1 403 Forbidden
+plain request to a host not listed: HTTP/1.1 403 Forbidden
+tunnel to the daemon: HTTP/1.1 403 Forbidden
+tunnel to a listed loopback address: HTTP/1.1 403 Forbidden
+tunnel to a listed localhost: HTTP/1.1 403 Forbidden
+metadata through a listed address: HTTP/1.1 403 Forbidden
+tunnel to IPv6 loopback: HTTP/1.1 403 Forbidden
+tunnel to a base host on another port: HTTP/1.1 403 Forbidden

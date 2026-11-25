@@ -1,0 +1,7 @@
+---
+source: tests/security/tests/attacks.rs
+expression: out
+---
+read the login of claude: yes
+add an MCP server to .claude.json: yes
+change a transcript a resume reads: yes
