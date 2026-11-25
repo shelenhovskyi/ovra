@@ -9,8 +9,13 @@ expression: changed
     "data/sandbox-made/<project>",
     "project/new.txt",
     "data/sandbox-made/<project>",
+    "project/.codex",
+    "project/.cursor",
+    "project/.gemini",
     "project/.idea",
+    "project/.opencode",
     "project/.ovra",
+    "project/.zed",
     "project/AGENTS.md",
     "project/CLAUDE.local.md",
 ]

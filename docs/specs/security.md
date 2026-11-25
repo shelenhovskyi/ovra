@@ -228,8 +228,16 @@ links and only to pod-init's (`docs/specs/servers-and-browser.md`).
     runs git there unsandboxed.
 - Agent configuration: `.claude/`, `.mcp.json`, every `CLAUDE.md`,
   `CLAUDE.local.md` and `AGENTS.md`.
-- Code that tools run on their own: `.vscode/`, `.idea/`, `.devcontainer/`
-  and `.envrc`.
+- Other agents' configuration, which they load when the person runs them
+  outside Ovra (`docs/research/provider-agnostic.md`): `.codex/`,
+  `.gemini/`, `.cursor/`, `.opencode/`, `opencode.json`, `opencode.jsonc`
+  and `.aider.conf.yml`. Only names directly in the work dir: a path
+  below a folder that is a link (`.github/`) could be moved away with it.
+  Other agents' instruction files are only marked in review (below),
+  because they are often links to `AGENTS.md` and a protected link
+  refuses the session.
+- Code that tools run on their own: `.vscode/`, `.idea/`, `.zed/`,
+  `.devcontainer/` and `.envrc`.
 - Ovra's own project settings: `.ovra/`, whose `servers.json` holds the
   commands a server start runs (`docs/specs/servers-and-browser.md`) and
   `worktree.json` the setup steps of new worktrees, and `.worktreeinclude`,
@@ -249,7 +257,8 @@ Known gaps on Linux, left to the backstop below:
 - a bind mount of the home folder outside `/mnt`, `/media`, `/sysroot` and
   `/.snapshots` (for example `/srv`) stays readable;
 - a `CLAUDE.md`, `CLAUDE.local.md` or `AGENTS.md` that does not exist yet
-  in a subfolder (new or not) can be created.
+  in a subfolder (new or not), and a missing `opencode.json`,
+  `opencode.jsonc` or `.aider.conf.yml`, can be created.
 
 The sandbox status lists these gaps and the UI shows them; that list must
 change with this one.
@@ -258,8 +267,9 @@ Ovra's own git calls (fs-index, worktree) should pass
 `--ignore-submodules=all` so a missed submodule cannot run a filter in
 them; that is a follow-up in those areas.
 
-On Linux a missing `.claude/`, `.vscode/`, `.idea/`, `.devcontainer/` or
-`.ovra/` is made as an empty folder and bound read-only, so the agent cannot
+On Linux a missing `.claude/`, `.codex/`, `.gemini/`, `.cursor/`,
+`.opencode/`, `.vscode/`, `.idea/`, `.zed/`, `.devcontainer/` or `.ovra/`
+is made as an empty folder and bound read-only, so the agent cannot
 create one for the user's own tools to load later. Linux lets a process
 remove a folder that is a mount point only in another mount namespace,
 which detaches the bind there, so a folder an agent's session made is
@@ -296,11 +306,18 @@ subtree read-only. The backstop is outside the sandbox:
   the person's version with what a partial approve left (`review.take`)
   needs the same choice. The inbox offers it only once each protected
   file's diff has been shown. The marks cover the `work_dir` list, in any
-  case, and also, though the sandbox
-  does not keep them read-only, `.envrc` and `.claude/` in any folder,
-  `.husky/`, `.gitattributes` in any folder, `.gitmodules`, `.lfsconfig`,
-  other agents' `.zed/`, `.cursor/`, `.gemini/` and `GEMINI.md`, and the
-  folder `core.hooksPath` names when it is inside the working tree;
+  case, and also, though the sandbox does not keep them read-only:
+  `.envrc`, `.claude/`, `.codex/`, `.gemini/`, `.cursor/`,
+  `opencode.json(c)` and `.gitattributes` in any folder; `.husky/`,
+  `.gitmodules`, `.lfsconfig`; other agents' instruction files
+  (`GEMINI.md`, `AGENTS.override.md` and `QWEN.md` in any folder,
+  `.cursorrules`, `.goosehints`, `.github/copilot-instructions.md`,
+  `.github/instructions|agents|prompts|chatmodes|hooks/`, `.agents/`);
+  the configuration of agents Ovra does not know well yet (`.qwen`,
+  `.kiro`, `.windsurf`, `.windsurfrules`, `.amazonq`, `.roo`,
+  `.roomodes`, `.kilocode`, `.clinerules`, `.continue`, `.crush`,
+  `crush.json`, `.factory`, `.junie`); and the folder `core.hooksPath`
+  names when it is inside the working tree;
 - what no diff shows: a review item also lists what changed, by anyone,
   since its session started (`ReviewItem.git_changes`, SEC-5): every
   config file git reads for the project (its own, `config.worktree`,

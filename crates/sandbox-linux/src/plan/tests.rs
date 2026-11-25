@@ -706,3 +706,13 @@ fn a_research_session_sees_the_project_read_only_and_makes_nothing_in_it() {
     assert!(!project.join(".mcp.json").exists());
     assert!(plan.temporary.is_empty());
 }
+
+#[test]
+fn every_folder_made_is_on_the_protected_list() {
+    for name in super::FOLDERS_MADE {
+        assert!(
+            ovra_core::protected::PROTECTED_IN_WORK_DIR.contains(&name),
+            "{name} is made only when it is protected"
+        );
+    }
+}

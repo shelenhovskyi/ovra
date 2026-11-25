@@ -113,12 +113,23 @@ const CA_BUNDLE_VARS: [&str; 5] = [
 ];
 
 /// Protected folders made empty in the session's folder when missing, so
-/// the agent cannot create them (`.claude/settings.json` hooks, editor
-/// tasks, `.ovra/servers.json` commands) for the user's own tools to run
-/// later. Those an agent's session made are removed again once the last
-/// sandbox of the work dir has ended ([`crate::made`]); those a pod made
-/// stay.
-const FOLDERS_MADE: [&str; 5] = [".claude", ".vscode", ".idea", ".devcontainer", ".ovra"];
+/// the agent cannot create them (`.claude/settings.json` hooks, other
+/// agents' MCP servers and hooks, editor tasks, `.ovra/servers.json`
+/// commands) for the user's own tools to run later. Those an agent's
+/// session made are removed again once the last sandbox of the work dir
+/// has ended ([`crate::made`]); those a pod made stay.
+const FOLDERS_MADE: [&str; 10] = [
+    ".claude",
+    ".codex",
+    ".gemini",
+    ".cursor",
+    ".opencode",
+    ".vscode",
+    ".idea",
+    ".zed",
+    ".devcontainer",
+    ".ovra",
+];
 
 /// Protected files made empty at the top of the session's folder when
 /// missing, for the same reason: agent instructions, MCP servers and

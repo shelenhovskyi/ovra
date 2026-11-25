@@ -18,7 +18,18 @@ use ovra_sandbox_linux::{Bubblewrap, HELPER_FLAG, Protected, Setup};
 const HELPER: &str = env!("CARGO_BIN_EXE_ovra-sandbox-helper");
 
 const PROTECTED: Protected = Protected {
-    work_dir: &[".claude", "**/CLAUDE.md", ".envrc", ".vscode", ".idea"],
+    work_dir: &[
+        ".claude",
+        "**/CLAUDE.md",
+        ".envrc",
+        ".vscode",
+        ".idea",
+        ".codex",
+        ".gemini",
+        ".cursor",
+        ".opencode",
+        ".zed",
+    ],
 };
 
 struct Dir(PathBuf);
@@ -681,15 +692,26 @@ fn folders_made_for_a_session_go_away_when_it_ends() {
     };
     let profile = profile(&project, ProfileNetwork::Blocked);
     let checks = "made for the session: test -d .vscode
-        write into it: echo x > .vscode/tasks.json";
+        write into it: echo x > .vscode/tasks.json
+        made for another agent: test -d .codex
+        write into its config: echo x > .codex/config.toml";
     assert_eq!(
         run(&sandbox, &profile, &script(checks)),
-        "made for the session: yes\nwrite into it: no\n"
+        "made for the session: yes\nwrite into it: no\nmade for another agent: yes\nwrite into its config: no\n"
     );
     // The cleaner removes them one by one; a folder still there when the
     // next session plans counts as the user's.
     let all_gone = || {
-        for made in [".claude", ".vscode", ".idea", ".devcontainer"] {
+        for made in [
+            ".claude",
+            ".codex",
+            ".gemini",
+            ".cursor",
+            ".opencode",
+            ".vscode",
+            ".idea",
+            ".zed",
+        ] {
             assert!(gone(&project.join(made)), "{made}");
         }
     };

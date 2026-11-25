@@ -454,9 +454,10 @@ fn a_hostile_repository_cannot_widen_what_later_runs_outside_the_sandbox() {
             path.replace(&key, "<project>")
         })
         .collect();
-    // The poisoned cache is the project's private one. The empty `.idea`,
-    // `.ovra`, `CLAUDE.local.md` and `AGENTS.md` planning made are gone
-    // with the record's entries.
+    // The poisoned cache is the project's private one. The empty folders
+    // (`.idea`, `.ovra`, other agents' `.codex`, `.gemini`, ...) and files
+    // (`CLAUDE.local.md`, `AGENTS.md`) planning made are gone with the
+    // record's entries.
     insta::assert_debug_snapshot!("changed_on_the_host", changed);
     // The control: without the sandbox every attack works.
     let control = outside(project, &script, &[]);

@@ -7,14 +7,26 @@
 /// Paths under a session's `work_dir` that stay read-only: agent
 /// configuration and code that tools run on their own. `**/` matches any
 /// folder, `*` one name. A folder covers everything in it.
-pub const PROTECTED_IN_WORK_DIR: [&str; 11] = [
+pub const PROTECTED_IN_WORK_DIR: [&str; 19] = [
     ".claude",
     ".mcp.json",
     "**/CLAUDE.md",
     "**/CLAUDE.local.md",
     "**/AGENTS.md",
+    // Other agents' project configuration: MCP server commands, hooks and
+    // settings they load when the person later runs them outside Ovra's
+    // sandbox. Only names whose parent is the work dir itself: a protected
+    // path below a folder that is a link could be moved away with it.
+    ".codex",
+    ".gemini",
+    ".cursor",
+    ".opencode",
+    "opencode.json",
+    "opencode.jsonc",
+    ".aider.conf.yml",
     ".vscode",
     ".idea",
+    ".zed",
     ".devcontainer",
     ".envrc",
     // Ovra's own: `servers.json` holds the commands a server start runs,
@@ -27,20 +39,50 @@ pub const PROTECTED_IN_WORK_DIR: [&str; 11] = [
 
 /// Paths the review marks too although the sandbox does not keep them
 /// read-only: code that tools run on their own wherever it is (direnv
-/// loads an `.envrc` in any folder, Claude Code a nested `.claude/`), git
-/// hooks managers and attributes, and other agents' configuration
-/// (SEC-5).
-const MARKED_IN_REVIEW: [&str; 10] = [
+/// loads an `.envrc` in any folder, Claude Code a nested `.claude/`,
+/// Codex a nested `.codex/`, opencode an `opencode.json` up to the git
+/// root), git hooks managers and attributes (SEC-5), other agents'
+/// instruction files (a rules file is often a link to `AGENTS.md`, which
+/// the sandbox cannot keep read-only, so it would refuse the session),
+/// and the configuration of agents Ovra does not know well yet.
+const MARKED_IN_REVIEW: [&str; 37] = [
     "**/.envrc",
     "**/.claude",
+    "**/.codex",
+    "**/.gemini",
+    "**/.cursor",
+    "**/opencode.json",
+    "**/opencode.jsonc",
     ".husky",
     "**/.gitattributes",
     ".gitmodules",
     ".lfsconfig",
-    ".zed",
-    ".cursor",
-    ".gemini",
     "**/GEMINI.md",
+    "**/AGENTS.override.md",
+    "**/QWEN.md",
+    ".cursorrules",
+    ".goosehints",
+    ".github/copilot-instructions.md",
+    ".github/instructions",
+    ".github/agents",
+    ".github/prompts",
+    ".github/chatmodes",
+    ".github/hooks",
+    ".agents",
+    ".qwen",
+    ".kiro",
+    ".windsurf",
+    ".windsurfrules",
+    ".amazonq",
+    ".roo",
+    ".roomodes",
+    ".kilocode",
+    ".clinerules",
+    ".continue",
+    ".crush",
+    "crush.json",
+    ".factory",
+    ".junie",
 ];
 
 /// Whether `path` (relative, `/`-separated, as in a review) is a protected
@@ -185,6 +227,48 @@ mod tests {
         ] {
             assert!(is_protected(path), "{path}");
         }
+    }
+
+    #[test]
+    fn other_agents_configuration_is_protected() {
+        for path in [
+            ".codex/config.toml",
+            ".gemini/settings.json",
+            ".cursor/rules/style.mdc",
+            ".cursor/mcp.json",
+            ".opencode/agent/a.md",
+            "opencode.json",
+            "opencode.jsonc",
+            ".aider.conf.yml",
+            ".zed/settings.json",
+        ] {
+            assert!(is_protected(path), "{path}");
+        }
+    }
+
+    #[test]
+    fn other_agents_nested_config_and_instructions_are_marked_only() {
+        for path in [
+            "sub/.codex/config.toml",
+            "sub/.gemini/settings.json",
+            "sub/.cursor/rules/a.mdc",
+            "docs/opencode.json",
+            "GEMINI.md",
+            "docs/GEMINI.md",
+            "src/AGENTS.override.md",
+            ".cursorrules",
+            ".goosehints",
+            ".github/copilot-instructions.md",
+            ".github/instructions/rust.instructions.md",
+            ".github/agents/reviewer.md",
+            ".github/hooks/pre.json",
+            ".kiro/hooks/x.json",
+            ".windsurf/rules/a.md",
+        ] {
+            assert!(!is_protected(path), "{path}");
+            assert!(changes(path, None), "{path}");
+        }
+        assert!(!changes(".github/workflows/ci.yml", None));
     }
 
     #[test]

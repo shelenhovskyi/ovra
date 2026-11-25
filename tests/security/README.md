@@ -96,7 +96,10 @@ spec.
   top of the project is made empty and read-only while a session runs, and
   removed again (if still empty) once the project's last sandbox is over;
   until then it shows in git status. A `CLAUDE.md` or `AGENTS.md` in a
-  subfolder, new or not, can still be created, and so can a placeholder
+  subfolder, new or not, and a missing `opencode.json` or
+  `.aider.conf.yml`, can still be created, other agents' instruction
+  files (`GEMINI.md`, `.github/copilot-instructions.md`, ...) are only
+  marked in review, and so can a placeholder
   once someone outside removes or replaces it while the session runs
   (`git clean`, an editor's save by rename): that detaches the bind. The
   review marks changes to protected paths and leaves the empty
