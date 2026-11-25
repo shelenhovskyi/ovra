@@ -187,6 +187,7 @@ const SIGN = { context: " ", added: "+", removed: "-" } as const;
   }
   .summary button,
   .summary select {
+    min-height: var(--control-h-sm);
     padding: 2px 10px;
     font: inherit;
     color: var(--text-2);

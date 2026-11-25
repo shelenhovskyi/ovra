@@ -445,7 +445,7 @@ function onDialogKeydown(event: KeyboardEvent): void {
     min-width: 0;
     min-height: 0;
     background: var(--s2);
-    border-radius: 14px;
+    border-radius: var(--radius-lg);
     box-shadow: var(--card-shadow);
   }
   header {

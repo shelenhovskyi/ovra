@@ -382,6 +382,7 @@ const range = (hunk: Hunk) =>
     gap: 4px;
   }
   button {
+    min-height: var(--control-h-sm);
     padding: 2px 10px;
     font: inherit;
     font-size: 13px;

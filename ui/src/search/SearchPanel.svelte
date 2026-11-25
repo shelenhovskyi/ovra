@@ -395,7 +395,7 @@ const folder = (path: string) => path.slice(0, Math.max(path.lastIndexOf("/"), 0
   .count {
     padding: 0 7px;
     font-size: 12px;
-    border-radius: 9px;
+    border-radius: var(--radius-lg);
     color: var(--text-2);
     background: var(--s3);
   }
@@ -435,7 +435,7 @@ const folder = (path: string) => path.slice(0, Math.max(path.lastIndexOf("/"), 0
   mark {
     color: var(--text);
     background: var(--warn-soft);
-    border-radius: 3px;
+    border-radius: var(--radius-xs);
   }
   .more {
     padding: 4px 8px;

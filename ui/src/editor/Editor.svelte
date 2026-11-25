@@ -189,6 +189,7 @@ function discard(path: string): void {
     white-space: nowrap;
   }
   button {
+    min-height: var(--control-h-sm);
     padding: 2px 10px;
     font: inherit;
     color: var(--text-2);
