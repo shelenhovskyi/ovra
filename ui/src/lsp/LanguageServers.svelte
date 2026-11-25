@@ -33,7 +33,7 @@ const shownServer = $derived(servers.find((s) => s.language === shownLanguage));
 const attention = $derived(servers.some((s) => s.sandbox === null || s.state === "failed") || shownHint !== undefined);
 const visible = $derived(servers.length > 0 || lsp.hints.length > 0 || (untrusted && lsp.needed.size > 0));
 const label = $derived.by(() => {
-  if (untrusted) return "Language servers off";
+  if (untrusted) return "Code intelligence: off";
   if (shownHint) return `${shownHint.name} not installed`;
   if (shownServer) return servers.length > 1 ? `${shownServer.name} +${servers.length - 1}` : shownServer.name;
   if (servers.length === 1) return servers[0]?.name ?? "";
@@ -143,6 +143,10 @@ function onKeydown(event: KeyboardEvent): void {
     >
       {#if attention}<span class="mark" aria-hidden="true">!</span>{/if}{label}
     </button>
+    <!-- Trusting the project is what turns the servers on. -->
+    {#if untrusted && trustCommand()}
+      <button type="button" class="item turn-on" data-testid="lsp-turn-on" onclick={reviewTrust}>Turn on</button>
+    {/if}
     {#if opened}
       <div
         id="lsp-panel"
@@ -244,6 +248,9 @@ function onKeydown(event: KeyboardEvent): void {
   }
   .item:hover {
     background: var(--s3);
+  }
+  .turn-on {
+    color: var(--accent);
   }
   h2:focus-visible {
     outline: 2px solid var(--accent);

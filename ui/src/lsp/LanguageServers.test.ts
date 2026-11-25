@@ -159,10 +159,14 @@ describe("LanguageServers", () => {
     await mountWith(core);
     languageServers(core).needServer("rust");
     flushSync();
+    // "Turn on" beside the item goes straight there.
+    $<HTMLButtonElement>("[data-testid=lsp-turn-on]")?.click();
+    await settle();
+    expect(asked).toBe(1);
     await openPanel();
     [...target.querySelectorAll("button")].find((b) => b.textContent === "Review and trust…")?.click();
     await settle();
-    expect(asked).toBe(1);
+    expect(asked).toBe(2);
     expect($("[data-testid=lsp-panel]")).toBeNull();
     off();
   });
@@ -175,7 +179,7 @@ describe("LanguageServers", () => {
     expect(item()).toBeNull();
     languageServers(core).needServer("rust");
     flushSync();
-    expect(item()?.textContent?.trim()).toBe("Language servers off");
+    expect(item()?.textContent?.trim()).toBe("Code intelligence: off");
     await openPanel();
     expect($("[data-testid=lsp-untrusted]")?.textContent?.trim()).toBe(
       "Language servers run this project's code, so they start only in trusted projects.",

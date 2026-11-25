@@ -26,6 +26,8 @@ describe("Shell", () => {
     expect(target.querySelector("[data-testid=sidebar]")?.textContent).toContain("File tree");
     const status = target.querySelector("[data-testid=status]");
     expect(status?.textContent).toBe("Connected");
+    // Said to screen readers only: a working connection needs nothing from a person.
+    expect(status?.classList.contains("quiet")).toBe(true);
     // The version is for whoever needs it, not the first thing a person reads.
     expect(status?.getAttribute("title")).toBe("ovra 0.0.0 (test)");
     unmount(app);
@@ -54,6 +56,7 @@ describe("Shell", () => {
 
     router.setStatus("closed");
     expect(await status()).toBe("Connection to core lost, reconnecting…");
+    expect(target.querySelector("[data-testid=status]")?.classList.contains("quiet")).toBe(false);
     router.setStatus("connecting");
     expect(await status()).toBe("Connection to core lost, reconnecting…");
 

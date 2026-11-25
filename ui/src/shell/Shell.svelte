@@ -330,13 +330,16 @@ async function showApprovals(): Promise<void> {
       <AgentsPanel />
     </div>
   </aside>
-  <!-- The connection on the left; what runs for the open project on the right. -->
+  <!-- Only what needs a person: the connection when it is lost (screen
+       readers still hear it come and go), and on the right what runs for the
+       open project. -->
   <footer>
     <span
       class="status"
       data-testid="status"
       role="status"
       class:error={!status.ok}
+      class:quiet={status.ok}
       title={info ? `${info.name} ${info.version} (${info.mode})` : undefined}>{status.text}</span
     >
     <span class="footer-end"><LanguageServers /></span>
@@ -583,6 +586,13 @@ async function showApprovals(): Promise<void> {
   }
   .status.error {
     color: var(--danger);
+  }
+  .status.quiet {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
   }
   .status.error::before {
     background: var(--danger);
