@@ -9,6 +9,7 @@ import type { PageId, PageInfo, SessionId } from "../lib/protocol";
 import { CoreError } from "../lib/transport";
 import { useOvra } from "../shell/context";
 import { type NavigationAsk, sessionBrowsers } from "./browser.svelte";
+import PageView from "./PageView.svelte";
 
 const { transport, workspace } = useOvra();
 const browsers = sessionBrowsers(transport);
@@ -196,7 +197,9 @@ function hide(): void {
       {/if}
       {#if page}
         {#key page.id}
-          <div class="tabpanel" role="tabpanel" aria-label={page.title || page.url}></div>
+          <div class="tabpanel" role="tabpanel" aria-label={page.title || page.url}>
+            <PageView {page} />
+          </div>
         {/key}
       {:else}
         <p class="muted">No pages open. The agent opens pages with its browser tools, or open one above.</p>

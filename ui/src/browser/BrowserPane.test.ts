@@ -113,6 +113,43 @@ describe("the agent browser", () => {
     expect(tabs().map((t) => t.textContent)).toEqual(["Home"]);
   });
 
+  it("draws the newest frame scaled to fit and hides with its shortcut", async () => {
+    const core = await setup(new FakeBrowserCore(), { frame: false });
+    expect($("[data-testid=browser-canvas]")?.getAttribute("aria-label")).toBe("Home, http://localhost:5173/");
+    seen?.([{ isIntersecting: true }]);
+    for (const jpeg of ["one", "two", "three"])
+      core.emit({ type: "browser.frame", data: { page: "pg1", jpeg: btoa(jpeg), metadata: META } });
+    core.emit({ type: "browser.frame", data: { page: "other", jpeg: btoa("x"), metadata: META } });
+    await settle();
+    // The first decodes at once; of the two that came meanwhile only the newest.
+    expect(decode).toHaveBeenCalledTimes(2);
+    // 1280 by 720 in a 640 by 600 box: half size, centred.
+    expect(ctx.drawImage).toHaveBeenLastCalledWith(expect.anything(), 0, 120, 640, 360);
+    key("keydown", { code: "KeyB", key: "b", ctrlKey: true, shiftKey: true });
+    await settle();
+    expect($("[data-testid=browser]")).toBeNull();
+    expect(document.activeElement).toBe($("[data-testid=open-browser]"));
+  });
+
+  it("asks for frames only while the page can be seen", async () => {
+    const core = await setup(new FakeBrowserCore(), { frame: false });
+    const casts = () => core.sent("browser.screencast").map((p) => p.on);
+    expect(casts()).toEqual([]);
+    seen?.([{ isIntersecting: true }]);
+    await settle();
+    expect(casts()).toEqual([true]);
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    document.dispatchEvent(new Event("visibilitychange"));
+    await settle();
+    expect(casts()).toEqual([true, false]);
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    document.dispatchEvent(new Event("visibilitychange"));
+    await settle();
+    button("Hide")?.click();
+    await settle();
+    expect(casts()).toEqual([true, false, true, false]);
+  });
+
   it("asks the person before an agent opens another origin", async () => {
     const core = await setup();
     button("Hide")?.click();
