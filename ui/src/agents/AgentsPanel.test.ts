@@ -187,18 +187,19 @@ describe("AgentsPanel", () => {
     await settle();
     // The coordinator takes no place, but the count does not hide that it works.
     const count = () => target.querySelector("[data-testid=agents-capacity]")?.textContent?.trim();
-    expect(count()).toBe("3 of 3, 1 waiting · 1 planning");
+    expect(count()).toBe("3 of 3 · 1 queued · 1 planning");
     expect(target.querySelectorAll(".sessions .state")[1]?.textContent).toBe("Waiting for a free agent");
     core.status("s1", { state: "idle" });
     await settle();
-    expect(count()).toBe("3 of 3, 1 waiting");
+    expect(count()).toBe("3 of 3 · 1 queued");
     // A review asked for or decided changes the count without a change of state.
     core.capacity = { working: 2, limit: 3, queued: 1 };
     core.emit({ type: "review.changed", data: { project: "p1", id: "r1" } });
     await settle();
-    expect(count()).toBe("2 of 3, 1 waiting");
+    expect(count()).toBe("2 of 3 · 1 queued");
     core.capacity = { working: 3, limit: 3, queued: 1 };
-    expect(target.querySelectorAll(".sessions .state")[0]?.textContent).toBe("Workers are waiting for a free agent");
+    // Working sessions come before a task whose worker only waits.
+    expect(target.querySelectorAll(".sessions .state")[1]?.textContent).toBe("Workers are waiting for a free agent");
     core.status(docs.id, { state: "working" });
     await settle();
     const rows = [...target.querySelectorAll(".sessions .row-button")];
@@ -221,7 +222,7 @@ describe("AgentsPanel", () => {
     expect(state()).toEqual(["Workers are on it", "Working", "Starting"]);
     core.status(docs.id, { state: "idle" });
     await settle();
-    expect(state()).toEqual(["Done", "Done", "Starting"]);
+    expect(state()).toEqual(["Starting", "Done", "Done"]);
   });
 
   it("closes a task with its workers after asking once; finished workers stay Done", async () => {
@@ -253,7 +254,7 @@ describe("AgentsPanel", () => {
     const rows = () =>
       [...target.querySelectorAll(".sessions .row-button")].map((b) => b.textContent?.replace(/\s+/g, " ").trim());
     expect(rows()).toEqual([
-      "Task: Write the notes Done Review",
+      "Task: Write the notes Done 2 of 2 done Review",
       "docs · Write the notes Done",
       "lint · Write the notes Done Review",
     ]);
@@ -267,6 +268,34 @@ describe("AgentsPanel", () => {
     await settle();
     expect(core.sent("agents.stop").map((c) => c.params)).toEqual([{ session: "s1" }]);
     expect(rows()).toEqual([]);
+  });
+
+  it("keeps a task Done when it is stopped after all its workers finished", async () => {
+    const core = new FakeAgentCore();
+    const end = { kind: "turn_end" as const, usage: { input_tokens: 1, output_tokens: 1, cost_micro_usd: null } };
+    core.addSession("p1", "Write the notes", { state: "stopped" });
+    core.addSession("p1", "docs notes", { state: "stopped" });
+    core.addSession("p1", "Still working", { state: "working" });
+    for (const id of ["s1", "s2"]) core.transcripts.set(id, [end]);
+    core.tasks.push({
+      id: "t1",
+      project: "p1",
+      coordinator: "s1",
+      workers: [{ session: "s2", name: "docs", branch: "ovra/t1/docs", worktree: "/wt/docs", kept: null }],
+      limits: { max_workers: 3, budget_micro_usd: null },
+      spent_micro_usd: 0,
+    });
+    await setup(core);
+    const rows = [...target.querySelectorAll(".sessions .row-button")].map((b) =>
+      b.textContent?.replace(/\s+/g, " ").trim(),
+    );
+    // Working first; the stopped task stays Done, with its workers' bar full.
+    expect(rows).toEqual([
+      "Still working Working",
+      "Task: Write the notes Done 1 of 1 done",
+      "docs · Write the notes Done",
+    ]);
+    expect(target.querySelector("[role=progressbar]")?.getAttribute("aria-valuenow")).toBe("1");
   });
 
   it("never calls a task done when its workers failed, and says why one did not start", async () => {
@@ -285,7 +314,7 @@ describe("AgentsPanel", () => {
     await setup(core);
     const rows = [...target.querySelectorAll(".sessions li")].map((li) => li.textContent?.replace(/\s+/g, " ").trim());
     expect(rows).toEqual([
-      "Task: Write the notes Failed: 2 of 2 workers",
+      "Task: Write the notes Failed: 2 of 2 workers 0 of 2 done",
       "lint Did not start: the worktree could not be made",
       "docs · Write the notes Failed: claude was not found",
     ]);
@@ -337,7 +366,7 @@ describe("AgentsPanel", () => {
     core.addSession("p1", "Earlier task", { state: "stopped" });
     await setup(core);
     const line = () => panel()?.querySelector("[data-testid=agent-sandbox]");
-    const badges = () => [...target.querySelectorAll("[data-testid=agent-sandbox-badge]")].map((b) => b.textContent);
+    const once = () => target.querySelector("[data-testid=agents-no-sandbox]")?.textContent;
     // Saved before Ovra recorded the report: nothing to say.
     selectRow("Earlier task");
     expect(line()).toBeNull();
@@ -351,7 +380,8 @@ describe("AgentsPanel", () => {
     expect(line()?.textContent).toBe("No sandbox: the agent can read and change anything your user can.");
     expect(line()?.classList.contains("warn")).toBe(true);
     back();
-    expect(badges()).toEqual(["No sandbox"]);
+    // Said once under the header, not on every row.
+    expect(once()).toBe("No sandbox: agents can reach anything you can");
     selectRow("Fix the typo");
     core.sandboxed("s2", { name: "bubblewrap, Landlock, seccomp", network: "proxy", gaps: [] });
     await settle();

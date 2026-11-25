@@ -222,6 +222,13 @@ export class AgentSessions {
     // Stopping a worker that had finished (its task was stopped) does not undo its work.
     if (role?.kind === "worker" && info.status.state === "stopped" && transcript?.at(-1)?.kind === "turn_end")
       return failedLabel(info.status, transcript) ?? "Done";
+    // Nor a task whose workers all finished: Done stays Done.
+    if (role?.kind === "coordinator" && info.status.state === "stopped" && transcript?.at(-1)?.kind === "turn_end") {
+      const workers = this.workers(id);
+      const missed = this.failedStarts.get(id)?.length ?? 0;
+      if (workers.length > 0 && missed === 0 && workers.every((w) => this.status(w) === "Done"))
+        return failedLabel(info.status, transcript) ?? "Done";
+    }
     return failedLabel(info.status, transcript) ?? statusLabel(info.status);
   }
 

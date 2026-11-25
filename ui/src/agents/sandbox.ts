@@ -52,11 +52,14 @@ export function sandboxGaps(state: SandboxState, ended: boolean): string | null 
   return `${ended ? "Did not cover" : "Not covered"}: ${state.report.gaps.join(", ")}.`;
 }
 
-/** A word or two for the session list, where there is no room for a sentence. */
-export function sandboxBadge(state: SandboxState): { text: string; warning: boolean } | null {
-  if (state.kind === "none") return { text: "No sandbox", warning: true };
-  if (state.kind !== "sandboxed") return null;
-  return state.report.network === "open"
-    ? { text: "Sandboxed, open network", warning: true }
-    : { text: "Sandboxed", warning: false };
+/**
+ * One warning line for the whole task list, said once instead of on every
+ * row: whether any session that still runs has no sandbox, or an open network.
+ */
+export function listWarning(sessions: SessionInfo[]): string | null {
+  const states = sessions.filter((s) => !isEnded(s.status)).map(sandboxState);
+  if (states.some((s) => s.kind === "none")) return "No sandbox: agents can reach anything you can";
+  if (states.some((s) => s.kind === "sandboxed" && s.report.network === "open"))
+    return "Sandboxed, network not limited";
+  return null;
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SessionInfo } from "../lib/protocol";
-import { sandboxBadge, sandboxGaps, sandboxLine, sandboxState } from "./sandbox";
+import { listWarning, sandboxGaps, sandboxLine, sandboxState } from "./sandbox";
 
 const info = (extra: Partial<SessionInfo>): SessionInfo => ({
   id: "s1",
@@ -26,19 +26,23 @@ describe("sandbox words", () => {
     // Saved before the flag existed, with a report: still sandboxed, in the past.
     const old = info({ status: { state: "stopped" }, sandbox: { name: "bwrap", network: "blocked", gaps: [] } });
     expect(sandboxLine(sandboxState(old), true)?.text).toBe("Ran in a sandbox (bwrap), no network.");
-    expect(sandboxBadge(sandboxState(old))).toEqual({ text: "Sandboxed", warning: false });
     expect(sandboxLine({ kind: "none" }, true)).toEqual({
       text: "Ran without a sandbox: the agent could read and change anything your user can.",
       warning: true,
     });
     expect(sandboxLine({ kind: "unknown" }, true)).toBeNull();
-    expect(sandboxBadge({ kind: "pending" })).toBeNull();
+    // Said once for the list; ended sessions and pending ones say nothing.
+    expect(listWarning([old, info({})])).toBeNull();
+    expect(listWarning([old, info({ sandbox_reported: true })])).toBe("No sandbox: agents can reach anything you can");
   });
 
   it("warns about an open network even inside a sandbox", () => {
     const open = sandboxState(info({ sandbox: { name: "x", network: "open", gaps: [] }, sandbox_reported: true }));
     expect(sandboxLine(open, false)).toEqual({ text: "Runs in a sandbox (x), network not limited.", warning: true });
-    expect(sandboxBadge(open)).toEqual({ text: "Sandboxed, open network", warning: true });
+    expect(listWarning([info({ sandbox: { name: "x", network: "open", gaps: [] }, sandbox_reported: true })])).toBe(
+      "Sandboxed, network not limited",
+    );
+    expect(open.kind).toBe("sandboxed");
   });
 
   it("lists what the sandbox does not cover, and nothing without gaps or a sandbox", () => {

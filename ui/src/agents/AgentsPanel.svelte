@@ -11,7 +11,7 @@ import type { AccountState, FileChange, SessionId, SessionInfo } from "../lib/pr
 import { CoreError } from "../lib/transport";
 import { useOvra } from "../shell/context";
 import { signedOutError } from "./errors";
-import { sandboxBadge, sandboxGaps, sandboxLine, sandboxState } from "./sandbox";
+import { listWarning, sandboxGaps, sandboxLine, sandboxState } from "./sandbox";
 import { agentSessions, openReviews, usageText } from "./sessions.svelte";
 import AccountPicker from "./setup/AccountPicker.svelte";
 import { signInCommand } from "./setup/account-texts";
@@ -67,6 +67,8 @@ const asked = new Set<SessionId>();
 
 const project = $derived(workspace.project);
 const list = $derived(project ? sessions.shown(project.id) : []);
+/** "No sandbox" for the whole list, once under the header. */
+const unsandboxed = $derived(listWarning(list));
 const current = $derived(list.find((s) => s.id === selected) ?? null);
 const messages = $derived(current ? sessions.transcripts.get(current.id) : undefined);
 /** Elements picked in the session's browser, sent with the next reply. */
@@ -232,6 +234,37 @@ function chip(s: SessionInfo): { text: string; tone: "warn" | "ok" } | null {
   if (!isBusy(s.status) && (sessions.waitsForReview(s.id) || sessions.waitingInTask(s.id) > 0))
     return { text: "Review", tone: "ok" };
   return null;
+}
+
+/** Needs the person first, then working, then queued, then the rest. */
+function rank(s: SessionInfo): number {
+  if (chip(s)) return 0;
+  if (isBusy(s.status)) return 1;
+  return s.status.state === "queued" ? 2 : 3;
+}
+
+/** Tasks in the order "needs you" first; a task's workers stay under it, in their order. */
+const ordered = $derived.by(() => {
+  const groups: SessionInfo[][] = [];
+  for (const s of list) {
+    const role = sessions.roles.get(s.id);
+    const last = groups.at(-1);
+    if (role?.kind === "worker" && last?.[0]?.id === role.coordinator) last.push(s);
+    else groups.push([s]);
+  }
+  return groups
+    .map((group, at) => ({ group, at, rank: Math.min(...group.map(rank)) }))
+    .sort((a, b) => a.rank - b.rank || a.at - b.at)
+    .flatMap((g) => g.group);
+});
+
+/** How many of a task's workers are done (or wait for review), of how many; null without workers. */
+function progress(coordinator: SessionId): { done: number; total: number } | null {
+  const workers = sessions.workers(coordinator);
+  const total = workers.length + (sessions.failedStarts.get(coordinator)?.length ?? 0);
+  if (total === 0) return null;
+  const done = workers.filter((w) => sessions.waitsForReview(w) || sessions.status(w) === "Done").length;
+  return { done, total };
 }
 
 /** A session that is done or failed can be closed; one in a turn first needs a stop. */
@@ -400,7 +433,7 @@ const canReply = $derived(current !== null && current.status.state === "idle");
     <h2 id="agents-heading">Agents</h2>
     {#if capacity}
       <span class="capacity" data-testid="agents-capacity" title="Agents working in this project, of how many may">
-        {capacity.working} of {capacity.limit}{capacity.queued > 0 ? `, ${capacity.queued} waiting` : ""}{planning
+        {capacity.working} of {capacity.limit}{capacity.queued > 0 ? ` · ${capacity.queued} queued` : ""}{planning
           ? ` · ${planning} planning`
           : ""}
       </span>
@@ -421,6 +454,9 @@ const canReply = $derived(current !== null && current.status.state === "idle");
       {@render controls?.()}
     </span>
   </header>
+  {#if unsandboxed && !current}
+    <p class="no-sandbox" role="note" data-testid="agents-no-sandbox">{unsandboxed}</p>
+  {/if}
 
   {#if !project}
     <p class="intro">Open a project to start an agent.</p>
@@ -604,10 +640,10 @@ const canReply = $derived(current !== null && current.status.state === "idle");
         <p class="intro" data-testid="agents-empty">No tasks yet.</p>
       {:else}
         <ul class="sessions" aria-label="Tasks">
-          {#each list as session (session.id)}
+          {#each ordered as session (session.id)}
             {@const role = sessions.roles.get(session.id)}
-            {@const badge = sandboxBadge(sandboxState(session))}
             {@const action = chip(session)}
+            {@const parts = role?.kind === "coordinator" ? progress(session.id) : null}
             {@const now = session.status.state === "working" ? step(session.id) : null}
             <li class:worker={role?.kind === "worker"}>
               <button
@@ -625,11 +661,22 @@ const canReply = $derived(current !== null && current.status.state === "idle");
                   <span class="state">{#if now}<span class="visually-hidden">Working: </span>{now}{:else}{sessions.status(
                         session.id,
                       )}{/if}</span>
+                  {#if parts}
+                    <span class="progress" data-testid="agent-task-progress">
+                      <span
+                        class="bar"
+                        role="progressbar"
+                        aria-label="Workers done"
+                        aria-valuemin={0}
+                        aria-valuemax={parts.total}
+                        aria-valuenow={parts.done}
+                        ><i style:width="{(100 * parts.done) / parts.total}%"></i></span
+                      >
+                      {parts.done} of {parts.total} done
+                    </span>
+                  {/if}
                 </span>
                 {#if action}<span class="pill {action.tone}">{action.text}</span>{/if}
-                {#if badge?.warning}
-                  <span class="pill warn" data-testid="agent-sandbox-badge">{badge.text}</span>
-                {/if}
               </button>
               {#if closable(session)}
                 <button
@@ -909,10 +956,6 @@ const canReply = $derived(current !== null && current.status.state === "idle");
     text-align: left;
     border-radius: 10px;
   }
-  .row-button .pill + .pill {
-    grid-column: 3;
-    margin-top: 4px;
-  }
   .state-mark {
     width: 9px;
     height: 9px;
@@ -938,6 +981,15 @@ const canReply = $derived(current !== null && current.status.state === "idle");
   }
   [data-state="failed"] .state-mark {
     background: var(--danger);
+  }
+  /* Every state has its own shape too: a ring while queued, a square once stopped. */
+  [data-state="queued"] .state-mark {
+    background: none;
+    box-shadow: inset 0 0 0 2px var(--text-3);
+  }
+  [data-state="stopped"] .state-mark {
+    border-radius: 2px;
+    background: var(--text-3);
   }
   @keyframes spin {
     to {
@@ -992,8 +1044,35 @@ const canReply = $derived(current !== null && current.status.state === "idle");
     color: var(--ok);
     background: var(--ok-soft);
   }
-  /* Close has its own column, so it never covers a badge; muted like the
-     rest of the chrome, at full strength on hover or focus. */
+  .no-sandbox {
+    flex: none;
+    padding: 0 16px 6px;
+    font-size: 13px;
+    color: var(--warn);
+  }
+  .progress {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 2px;
+    font-size: 13px;
+    color: var(--text-2);
+  }
+  .bar {
+    flex: 1;
+    max-width: 120px;
+    height: 4px;
+    overflow: hidden;
+    border-radius: 2px;
+    background: var(--s4);
+  }
+  .bar i {
+    display: block;
+    height: 100%;
+    background: var(--ok);
+  }
+  /* Close has its own column, so it never covers a pill; it shows on
+     hover or focus (always without hover). */
   .close,
   .close-space {
     flex: none;
@@ -1003,11 +1082,16 @@ const canReply = $derived(current !== null && current.status.state === "idle");
   .close {
     padding: 0;
     justify-content: center;
-    opacity: 0.6;
+    opacity: 0;
   }
   .sessions li:hover .close,
   .close:focus-visible {
     opacity: 1;
+  }
+  @media (hover: none) {
+    .close {
+      opacity: 1;
+    }
   }
   .confirm {
     margin: 0 8px 8px;
