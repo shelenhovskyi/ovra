@@ -18,6 +18,7 @@ mod pick;
 mod repo;
 #[cfg(test)]
 mod tests;
+mod usage;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -58,15 +59,6 @@ impl GitWorktrees {
     pub fn new() -> Self {
         Self::default()
     }
-}
-
-/// A part of the contract this crate does not implement yet.
-fn not_yet<T: Send + 'static>(what: &str) -> BoxFuture<'static, Result<T>> {
-    let err = ProtocolError::new(
-        ErrorCode::Unavailable,
-        format!("{what} is not available in this build"),
-    );
-    Box::pin(async move { Err(err) })
 }
 
 fn hold(lock: &Mutex<()>) -> MutexGuard<'_, ()> {
@@ -192,10 +184,12 @@ fn create(root: &Path, dir: &Path, branch: &str, base: &str) -> Result<WorktreeI
 
 /// Ignored files outside ignored folders: hand-made files such as `.env`
 /// that no snapshot holds. Ignored folders (`target/`, `node_modules/`) are
-/// build output and may go.
+/// build output and may go. A folder that only holds ignored files
+/// (`config/` with a `.env`) is not an ignored folder: `matching` names
+/// its files.
 fn ignored_files(dir: &Path) -> Result<Vec<String>> {
     let out = Git::new(dir, "status")
-        .args(["--porcelain=v1", "-z", "--ignored=traditional"])
+        .args(["--porcelain=v1", "-z", "--ignored=matching"])
         .args(["--untracked-files=normal"])
         .run()?;
     Ok(git::fields(&out)
@@ -204,9 +198,36 @@ fn ignored_files(dir: &Path) -> Result<Vec<String>> {
         .collect())
 }
 
-fn remove(root: &Path, dir: &Path) -> Result<()> {
+/// Whether the file at `path` in `dir` is still the one Ovra copied in: a
+/// regular file of the same size and content.
+fn unchanged(dir: &Path, path: &str, included: &[IncludedFile]) -> bool {
+    let Some(copied) = included.iter().find(|c| c.path == path) else {
+        return false;
+    };
+    let path = dir.join(path);
+    let same_size = std::fs::symlink_metadata(&path)
+        .is_ok_and(|meta| meta.is_file() && meta.len() == copied.bytes);
+    // Never through a link or into a FIFO swapped in since the look.
+    #[cfg(unix)]
+    let file = {
+        use rustix::fs::{Mode, OFlags};
+        let flags = OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC;
+        rustix::fs::open(&path, flags, Mode::empty())
+            .map(std::fs::File::from)
+            .map_err(std::io::Error::from)
+    };
+    #[cfg(not(unix))]
+    let file = std::fs::File::open(&path);
+    same_size
+        && file
+            .and_then(|mut file| include::hash(&mut file))
+            .is_ok_and(|hash| hash == copied.hash)
+}
+
+fn remove(root: &Path, dir: &Path, included: &[IncludedFile]) -> Result<()> {
     if dir.exists() {
-        let ignored = ignored_files(dir)?;
+        let mut ignored = ignored_files(dir)?;
+        ignored.retain(|path| !unchanged(dir, path, included));
         if !ignored.is_empty() {
             return Err(ProtocolError::new(
                 ErrorCode::Conflict,
@@ -393,10 +414,9 @@ impl Worktrees for GitWorktrees {
         &self,
         root: PathBuf,
         dir: PathBuf,
-        // Not yet: every ignored file outside ignored folders blocks (WS.A).
-        _included: Vec<IncludedFile>,
+        included: Vec<IncludedFile>,
     ) -> BoxFuture<'_, Result<()>> {
-        blocking(move || remove(&root, &dir))
+        blocking(move || remove(&root, &dir, &included))
     }
 
     fn pick(
@@ -415,8 +435,8 @@ impl Worktrees for GitWorktrees {
         blocking(move || include::include(&root, &dir))
     }
 
-    fn usage(&self, _: PathBuf, _: Duration) -> BoxFuture<'_, Result<DiskUsage>> {
-        not_yet("counting a worktree's size")
+    fn usage(&self, dir: PathBuf, budget: Duration) -> BoxFuture<'_, Result<DiskUsage>> {
+        blocking(move || Ok(usage::usage(&dir, budget)))
     }
 
     fn lock(&self, root: PathBuf, dir: PathBuf, reason: String) -> BoxFuture<'_, Result<()>> {

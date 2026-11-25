@@ -442,7 +442,7 @@ mod tests {
     use std::io;
     use std::os::unix::fs::symlink;
 
-    use ovra_core::services::Included;
+    use ovra_core::services::{Included, Worktrees as _};
 
     use super::{NO_CLONE, SYMLINK, copy_in};
     use crate::GitWorktrees;
@@ -556,6 +556,28 @@ mod tests {
         let over = "over the 256 MiB for plain copies";
         assert_eq!(skipped(&included), [("sub/.env", over)]);
         assert!(!wt.join("sub/.env").exists());
+    }
+
+    #[tokio::test]
+    async fn copies_block_removal_only_once_changed() {
+        let (repo, wt) = setup(".env\n").await;
+        let included = copy_in(&repo.root, &wt, 1 << 20, no_clone);
+        let included = included.unwrap_or_else(|e| panic!("{e:?}"));
+        assert_eq!(copied(&included), [(".env", 8), ("sub/.env", 6)]);
+        // Same size, other content.
+        crate::tests::put(&wt, "sub/.env", "SUB=2\n");
+        let w = GitWorktrees::new();
+        let remove = || w.remove(repo.root.clone(), wt.clone(), included.copied.clone());
+        let refused = remove().await.err().map(|e| e.message);
+        assert!(
+            refused.as_ref().is_some_and(|m| m.ends_with(": sub/.env")),
+            "{refused:?}"
+        );
+
+        crate::tests::put(&wt, "sub/.env", "SUB=1\n");
+        let removed = remove().await;
+        assert!(removed.is_ok(), "{removed:?}");
+        assert!(!wt.exists());
     }
 
     #[test]
