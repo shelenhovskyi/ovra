@@ -5,9 +5,9 @@ expression: refused
 [
     "evil.example.com:443: the host is not in the project's allowlist",
     "evil.example.com:80: the host is not in the project's allowlist",
-    "127.0.0.1:<port>: port <port> is not allowed for this host",
-    "127.0.0.1:443: the host resolves to a loopback, private or link-local address",
-    "localhost:443: the host resolves to a loopback, private or link-local address",
+    "127.0.0.1:<port>: connect to loopback",
+    "127.0.0.1:443: connect to loopback",
+    "localhost:443: connect to loopback",
     "169.254.169.254:80: the host resolves to a loopback, private or link-local address",
     "[::1]:443: the host resolves to a loopback, private or link-local address",
     "api.anthropic.com:22: port 22 is not allowed for this host",
