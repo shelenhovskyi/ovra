@@ -14,6 +14,7 @@ import { Buffers } from "./buffers.svelte";
 import { drafts } from "./drafts.svelte";
 import { highlighter } from "./highlight/highlighter";
 import { LanguageClients } from "./lsp/clients";
+import { modeMemory } from "./mode-memory";
 
 /** Beyond this many tabs, the leftmost inactive unpinned tab without unsaved text is closed. */
 const MAX_OPEN_FILES = 20;
@@ -282,9 +283,12 @@ export async function focusMain(): Promise<void> {
   target?.focus();
 }
 
-/** The mode `path` was last shown in, as its tab remembers it; a file without a tab opens in `fresh`. */
+/**
+ * The mode `path` was last shown in, as its tab remembers it; a file without
+ * a tab opens the way its kind was last switched to, else in `fresh`.
+ */
 export function modeOf(path: string, fresh: MainMode = "view"): MainMode {
-  return tabs.current?.modes.get(path) ?? fresh;
+  return tabs.current?.modes.get(path) ?? modeMemory.get(path) ?? fresh;
 }
 
 /** Shows the file at `path` (or nothing) in the mode its tab remembers, unless one is given. */

@@ -5,6 +5,7 @@ import { Workspace } from "../shell/workspace.svelte";
 import { Buffers } from "./buffers.svelte";
 import { Drafts } from "./drafts.svelte";
 import { FakeCore, MemoryStorage } from "./fake-core";
+import { modeMemory } from "./mode-memory";
 import { answerClose, modeOf, OpenFiles, persistOpenFiles, requestClose, show, tabs } from "./open-files.svelte";
 
 const project: Project = { id: "p1", name: "p", root: "/p", last_opened_ms: null, trusted: false };
@@ -212,7 +213,7 @@ test("pinned tabs come first and stay through close others and close all", async
   expect(files.pinned).toEqual([]);
 });
 
-test("typing in the preview tab keeps it", async () => {
+test("typing in the preview tab keeps it; a kind of file opens the way it was last switched to", async () => {
   const core = new FakeCore();
   core.put("a.zz", "one");
   const workspace = new Workspace();
@@ -229,5 +230,8 @@ test("typing in the preview tab keeps it", async () => {
   a.dirty = true;
   flushSync();
   expect(files.preview).toBeNull();
+  expect(modeOf("b.zz")).toBe("view");
+  modeMemory.set("x.zz", "edit");
+  expect(modeOf("b.zz")).toBe("edit");
   stop();
 });

@@ -4,17 +4,22 @@ import { registerCommand } from "../keys/commands";
 import type { Workspace } from "../shell/workspace.svelte";
 import { editorReady, goToChange, readBlame, showChangeAtCursor, toggleBlame } from "./git/extension";
 import type { LspAction } from "./lsp/actions";
+import { modeMemory } from "./mode-memory";
 import { closeOtherTabs, focusMain, requestClose, show, tabs } from "./open-files.svelte";
 import { runSearch, type SearchAction } from "./search";
 
 type Target = Pick<Workspace, "openPath" | "mode" | "openFile">;
 
-/** Switches between viewing and editing; files that cannot be edited say why instead. */
+/**
+ * Switches between viewing and editing; files that cannot be edited say why
+ * instead. Files of the same kind open in the chosen mode from then on.
+ */
 export async function toggle(workspace: Target): Promise<void> {
   const path = workspace.openPath;
   if (!path) return;
   if (workspace.mode === "edit") {
     workspace.mode = "view";
+    modeMemory.set(path, "view");
     await focusMain();
     return;
   }
@@ -34,6 +39,7 @@ export async function toggle(workspace: Target): Promise<void> {
     return;
   }
   workspace.mode = "edit";
+  modeMemory.set(path, "edit");
 }
 
 /**
