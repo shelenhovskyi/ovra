@@ -20,6 +20,8 @@ import { SvelteMap } from "svelte/reactivity";
 import type { FileContent, ProjectId } from "../lib/protocol";
 import { CoreError, type Transport } from "../lib/transport";
 import type { Drafts } from "./drafts.svelte";
+import { gitExtension } from "./git/extension";
+import { GitFile } from "./git/file";
 import type { HighlightClient, HighlightedDoc } from "./highlight/client";
 import { treeSitterHighlighting } from "./highlight/extension";
 import type { LanguageSource } from "./highlight/protocol";
@@ -74,6 +76,8 @@ export class Buffer {
   heavy = $state(false);
   readonly language: Language | null;
   readonly loaded: Promise<void>;
+  /** Git change markers and blame of this file. */
+  readonly git: GitFile;
 
   private state: EditorState | null = null;
   private view: EditorView | null = null;
@@ -92,6 +96,7 @@ export class Buffer {
     readonly path: string,
   ) {
     this.language = languageFor(path);
+    this.git = new GitFile({ transport: options.transport, project: options.project, path });
     this.loaded = this.load();
   }
 
@@ -152,6 +157,7 @@ export class Buffer {
       this.deleted = false;
       this.error = null;
       this.changed();
+      this.git.changed();
       return true;
     } catch (err) {
       if (err instanceof CoreError && err.code === "conflict") {
@@ -246,6 +252,7 @@ export class Buffer {
       this.state = state;
     }
     this.changed();
+    this.git.changed();
   }
 
   /** Updates `dirty` and schedules or drops the draft. */
@@ -317,6 +324,7 @@ export class Buffer {
       theme,
       this.highlight ? treeSitterHighlighting(this.highlight) : [],
       this.server.of(this.serverExtension),
+      gitExtension({ file: this.git, dirty: () => this.dirty, saved: () => this.saved }),
     ];
   }
 }
@@ -340,6 +348,8 @@ export class Buffers {
         this.recheck();
       } else if (event.type === "fs.changed" && event.data.project === options.project) {
         for (const path of event.data.paths) void this.buffers.get(path)?.diskChanged();
+      } else if (event.type === "fs.git_changed" && event.data.project === options.project) {
+        for (const buffer of this.buffers.values()) buffer.git.changed();
       }
     });
   }

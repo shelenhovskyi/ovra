@@ -1,12 +1,15 @@
-import { describe, expect, test } from "vitest";
-import type { Blame, CoreEvent, Hunk, Request } from "../../lib/protocol";
+import { history, undo } from "@codemirror/commands";
+import { EditorState, Text } from "@codemirror/state";
+import { EditorView } from "@codemirror/view";
+import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
+import type { CoreEvent, Hunk, Request } from "../../lib/protocol";
 import { CoreError, type Transport } from "../../lib/transport";
+import { gitExtension, showChangeAtCursor } from "./extension";
 import { GitFile, pickHunk } from "./file";
 
 class FakeGit implements Transport {
   index: { text: string | null; exists: boolean } = { text: "a\nb\nc\n", exists: true };
   hunks: Hunk[] = [];
-  blame: Blame = { ranges: [], commits: {} };
   failures = new Map<string, CoreError>();
   calls: Request[] = [];
 
@@ -23,8 +26,6 @@ class FakeGit implements Transport {
           type: "git.diff",
           data: { path: "f", from: null, binary: false, hunks: this.hunks, truncated: false },
         };
-      case "git.blame":
-        return { type: "git.blame", data: this.blame };
       default:
         return { type: "ok" };
     }
@@ -86,5 +87,72 @@ describe("GitFile", () => {
     expect(await file.stage({ oldStart: 2, oldCount: 1, newStart: 2, newCount: 1 })).toBe(
       "The file changed since its diff was read. Try again.",
     );
+  });
+});
+
+describe("git extension", () => {
+  beforeAll(() => {
+    Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
+    Range.prototype.getBoundingClientRect = () => new DOMRect();
+  });
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.UTC(2026, 10, 25));
+  });
+  let view: EditorView | null = null;
+  afterEach(() => {
+    view?.destroy();
+    vi.useRealTimers();
+  });
+
+  function setup(doc: string, dirty = false) {
+    const core = new FakeGit();
+    const file = new GitFile({ transport: core, project: "p1", path: "f" });
+    const saved = Text.of(core.index.text?.split("\n") ?? [""]);
+    const extensions = [history(), gitExtension({ file, dirty: () => dirty, saved: () => saved })];
+    view = new EditorView({ state: EditorState.create({ doc, extensions }), parent: document.body });
+    const created = view;
+    const markers = () =>
+      [...created.dom.querySelectorAll<HTMLElement>("[data-testid=git-marker]")].map((m) => m.dataset.change);
+    return { core, file, view: created, markers };
+  }
+
+  test("marks changes against the index after a pause; untracked files get none", async () => {
+    const { file, core, view, markers } = setup("a\nB\nc\nd\n");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(markers()).toEqual(["modified", "added"]);
+    expect(view.dom.querySelector("[data-change=added]")?.getAttribute("aria-label")).toBe(
+      "Added lines, click for actions",
+    );
+    view.dispatch({ changes: { from: 2, to: 3, insert: "b" } });
+    await vi.advanceTimersByTimeAsync(150);
+    expect(markers()).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(50);
+    expect(markers()).toEqual(["added"]);
+    core.index = { text: null, exists: false };
+    file.changed();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(markers()).toEqual([]);
+  });
+
+  test("Revert hunk puts the index lines back as an undoable edit; Escape closes the popup", async () => {
+    const { view } = setup("a\nB\nX\nc\n");
+    await vi.advanceTimersByTimeAsync(0);
+    view.dispatch({ selection: { anchor: 3 } });
+    showChangeAtCursor();
+    const popup = view.dom.querySelector<HTMLElement>("[data-testid=git-change-popup]");
+    expect(popup?.querySelector("pre")?.textContent).toBe("b");
+    expect(document.activeElement?.textContent).toBe("Stage hunk");
+    [...(popup?.querySelectorAll("button") ?? [])].find((b) => b.textContent === "Revert hunk")?.click();
+    expect(view.state.doc.toString()).toBe("a\nb\nc\n");
+    expect(view.dom.querySelector("[data-testid=git-change-popup]")).toBeNull();
+    undo(view);
+    expect(view.state.doc.toString()).toBe("a\nB\nX\nc\n");
+    await vi.advanceTimersByTimeAsync(200);
+    showChangeAtCursor();
+    const again = view.dom.querySelector<HTMLElement>("[data-testid=git-change-popup]");
+    again?.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true }));
+    expect(view.dom.querySelector("[data-testid=git-change-popup]")).toBeNull();
+    expect(view.hasFocus).toBe(true);
   });
 });
