@@ -32,6 +32,7 @@ use ovra_core::services::{
 };
 
 mod helper;
+mod made;
 mod plan;
 mod seccomp;
 
@@ -201,6 +202,8 @@ impl Bubblewrap {
             path: "/usr/bin:/bin".into(),
             toolchains: Vec::new(),
             hidden: Vec::new(),
+            // The probe's record goes with its folder.
+            data_dir: empty.join("data"),
             ..self.setup.clone()
         };
         let profile = SandboxProfile {

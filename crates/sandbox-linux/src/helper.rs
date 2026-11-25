@@ -77,12 +77,16 @@ pub fn helper_if_asked() {
             std::process::exit(126);
         }
         Some(flag) if flag == CLEANER_FLAG => {
+            let Some(record) = args.next() else {
+                std::process::exit(2);
+            };
+            let Ok(held) = crate::made::hold(Path::new(&record)) else {
+                std::process::exit(1);
+            };
+            println!("held");
             // End of file: the session and everything in it are gone.
             let _ = std::io::copy(&mut std::io::stdin(), &mut std::io::sink());
-            for folder in args {
-                // Only an empty folder, and never through a link.
-                let _ = std::fs::remove_dir(folder);
-            }
+            let _ = crate::made::clean(held);
             std::process::exit(0);
         }
         Some(flag) if flag == BRIDGE_FLAG => {
@@ -158,18 +162,18 @@ fn parse(args: Vec<OsString>) -> Result<Args, String> {
     Ok(parsed)
 }
 
-/// Starts a cleaner that removes `folders` once the last holder of a pipe
-/// is gone, then becomes bubblewrap, which hands the pipe to every process
-/// in the sandbox. A session that is killed still closes it. Returns only
-/// if something failed.
+/// Starts a cleaner that holds the work dir's record (`made.rs`) until the
+/// last holder of a pipe is gone, then becomes bubblewrap, which hands the
+/// pipe to every process in the sandbox. A session that is killed still
+/// closes it. Returns only if something failed: bubblewrap does not start
+/// unless the cleaner holds the record.
 fn outer(args: Vec<OsString>) -> String {
-    let Some(at) = args.iter().position(|a| a == "--") else {
+    let [record, dashes, program, rest @ ..] = args.as_slice() else {
         return "no command".into();
     };
-    let (folders, command) = args.split_at(at);
-    let Some((program, rest)) = command[1..].split_first() else {
+    if dashes != "--" {
         return "no command".into();
-    };
+    }
     // Close-on-exec while the cleaner starts, so it does not hold the pipe
     // open itself.
     let (read, write) = match rustix::pipe::pipe_with(rustix::pipe::PipeFlags::CLOEXEC) {
@@ -179,16 +183,25 @@ fn outer(args: Vec<OsString>) -> String {
     let cleaner = std::env::current_exe().and_then(|exe| {
         Command::new(exe)
             .arg(CLEANER_FLAG)
-            .args(folders)
+            .arg(record)
             .stdin(Stdio::from(read))
-            .stdout(Stdio::null())
+            .stdout(Stdio::piped())
             .stderr(Stdio::null())
             // Not stopped with the session's process group.
             .process_group(0)
             .spawn()
     });
-    if let Err(e) = cleaner {
-        return format!("the cleaner did not start: {e}");
+    let mut cleaner = match cleaner {
+        Ok(cleaner) => cleaner,
+        Err(e) => return format!("the cleaner did not start: {e}"),
+    };
+    // One line once it holds the record; nothing if it could not.
+    let mut held = String::new();
+    if let Some(out) = cleaner.stdout.take() {
+        let _ = BufReader::new(out).read_line(&mut held);
+    }
+    if held != "held\n" {
+        return format!("the cleaner could not hold {}", Path::new(record).display());
     }
     if let Err(e) = rustix::io::fcntl_setfd(&write, rustix::io::FdFlags::empty()) {
         return format!("cannot pass the pipe on: {e}");

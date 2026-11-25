@@ -3,7 +3,7 @@ source: crates/sandbox-linux/src/plan/tests.rs
 expression: root.show(&line.unwrap())
 ---
 --ovra-sandbox-outer
-ROOT/projects/app/.claude
+ROOT/data/sandbox-made/-ROOT-projects-app
 --
 /usr/bin/bwrap
 --unshare-user

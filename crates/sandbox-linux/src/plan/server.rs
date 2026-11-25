@@ -141,6 +141,7 @@ impl Plan {
             forward: Vec::new(),
             path: OsString::new(),
             temporary: Vec::new(),
+            record: None,
             kind: Kind::Server {
                 project: project.clone(),
             },

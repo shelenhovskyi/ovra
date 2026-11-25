@@ -115,8 +115,9 @@ const CA_BUNDLE_VARS: [&str; 5] = [
 /// Protected folders made empty in the session's folder when missing, so
 /// the agent cannot create them (`.claude/settings.json` hooks, editor
 /// tasks, `.ovra/servers.json` commands) for the user's own tools to run
-/// later. They are removed again when the session ends. Missing protected
-/// files are left to the review.
+/// later. Those an agent's session made are removed again once the last
+/// sandbox of the work dir has ended ([`crate::made`]); those a pod made
+/// stay. Missing protected files are left to the review.
 const FOLDERS_MADE: [&str; 5] = [".claude", ".vscode", ".idea", ".devcontainer", ".ovra"];
 
 /// Package caches builds write, relative to the home folder. Each session
@@ -209,9 +210,12 @@ pub(crate) struct Plan {
     /// netproxy with `OVRA-LOCAL <port>`.
     forward: Vec<u16>,
     path: OsString,
-    /// Folders of [`FOLDERS_MADE`] this plan made: removed again once
-    /// the session and everything it started are gone.
+    /// Folders of [`FOLDERS_MADE`] an agent's plan made: removed again once
+    /// every sandbox of the work dir and everything they started are gone.
     temporary: Vec<PathBuf>,
+    /// The work dir's record of those folders, held shared while the
+    /// sandbox runs (agents and pods; [`crate::made`]).
+    record: Option<PathBuf>,
     kind: Kind,
 }
 
@@ -269,6 +273,7 @@ impl Plan {
             forward: ports(profile)?,
             path: OsString::new(),
             temporary: Vec::new(),
+            record: None,
             kind: if profile.expose.is_empty() {
                 Kind::Agent
             } else {
@@ -297,16 +302,33 @@ impl Plan {
         plan.rw(work_dir.clone());
         let mut hidden: Vec<PathBuf> = setup.hidden.iter().filter_map(|h| real(h).ok()).collect();
         hidden.sort_by_key(|h| h.components().count());
+        // Held while folders are made and recorded, so no cleaner of an
+        // ended sandbox removes them meanwhile.
+        let record = crate::made::record_of(&setup.data_dir, &project_key(&work_dir));
+        let held = crate::made::hold(&record).map_err(|e| {
+            invalid(format!(
+                "cannot keep track of the folders made for the sandbox in {}: {e}",
+                record.display()
+            ))
+        })?;
         let missing: Vec<PathBuf> = FOLDERS_MADE
             .iter()
             .map(|name| work_dir.join(name))
             .filter(|path| fs::symlink_metadata(path).is_err())
             .collect();
         let protected = protected_paths(setup, &work_dir, &home, &hidden)?;
-        plan.temporary = missing
-            .into_iter()
-            .filter(|path| fs::symlink_metadata(path).is_ok_and(|m| m.is_dir()))
-            .collect();
+        // A pod's folders stay: removing them could drop the bind under an
+        // agent's session that started meanwhile.
+        if plan.kind == Kind::Agent {
+            plan.temporary = missing
+                .into_iter()
+                .filter(|path| fs::symlink_metadata(path).is_ok_and(|m| m.is_dir()))
+                .collect();
+            crate::made::add(&held, &plan.temporary)
+                .map_err(|e| invalid(format!("cannot record {}: {e}", record.display())))?;
+        }
+        drop(held);
+        plan.record = Some(record);
         plan.protect(protected);
         let before = plan.mounts.len();
         // Ovra's data folder inside a folder bound above (a project that
@@ -701,18 +723,17 @@ impl Plan {
         args.push(os("--"));
         args.push(os(&program));
         args.extend(line.args);
-        if self.temporary.is_empty() {
+        let Some(record) = &self.record else {
             return Ok(CommandLine {
                 program: bwrap.to_path_buf(),
                 args,
                 env,
                 cwd,
             });
-        }
-        // The helper outside the sandbox removes the folders made for it
-        // once the session has ended, however it ends.
-        let mut outer = vec![os(OUTER_FLAG)];
-        outer.extend(self.temporary.iter().map(os));
+        };
+        // The helper outside the sandbox holds the work dir's record while
+        // the session runs, and cleans up once it has ended, however it ends.
+        let mut outer = vec![os(OUTER_FLAG), os(record)];
         outer.extend([os("--"), os(bwrap)]);
         outer.extend(args);
         Ok(CommandLine {

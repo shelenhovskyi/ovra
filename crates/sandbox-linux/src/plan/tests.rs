@@ -160,7 +160,7 @@ fn a_direct_session_in_a_repository() {
         &Root::outer_env(),
     );
     let line = line.unwrap();
-    assert_eq!(line.program, Path::new("/usr/bin/bwrap"));
+    assert_eq!(line.program, setup.helper);
     insta::assert_snapshot!(root.show(&line));
     // The whole git folder is read-only: nothing in it needs making.
     assert!(!project.join(".git/hooks").exists());
@@ -403,6 +403,10 @@ fn a_server_pod_listens_in_its_own_network_and_writes_its_pod_folder() {
     insta::assert_snapshot!(root.show(&line.unwrap()));
     // `claude`'s folder is neither made nor bound for a pod.
     assert!(!root.0.join("home/.claude/projects").exists());
+    // The protected folders it made stay: an agent may have bound them since.
+    assert!(project.join(".claude").is_dir());
+    assert!(plan.temporary.is_empty());
+    assert!(plan.record.is_some());
 }
 
 #[test]

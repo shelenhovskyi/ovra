@@ -726,3 +726,98 @@ fn folders_made_for_a_session_go_away_when_it_ends() {
     run(&sandbox, &profile, "true");
     assert!(project.join(".idea").is_dir());
 }
+
+/// Starts `script` in `profile` with its stdin and stdout piped and waits
+/// until it prints its first line, `up`.
+fn start(
+    sandbox: &Bubblewrap,
+    profile: &SandboxProfile,
+    script: &str,
+) -> (
+    std::process::Child,
+    std::io::BufReader<std::process::ChildStdout>,
+) {
+    let line = CommandLine {
+        program: "/bin/sh".into(),
+        args: vec!["-c".into(), script.into()],
+        env: Vec::new(),
+        cwd: profile.work_dir.clone(),
+    };
+    let line = sandbox.wrap(profile, line).unwrap();
+    let mut command = Command::new(&line.program);
+    command.args(&line.args).current_dir(&line.cwd);
+    for (name, value) in &line.env {
+        match value {
+            Some(value) => command.env(name, value),
+            None => command.env_remove(name),
+        };
+    }
+    let mut child = command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut out = std::io::BufReader::new(child.stdout.take().unwrap());
+    let mut up = String::new();
+    std::io::BufRead::read_line(&mut out, &mut up).unwrap();
+    assert_eq!(up, "up\n");
+    (child, out)
+}
+
+#[test]
+fn a_protected_folder_stays_bound_when_another_session_ends() {
+    let root = Dir::new("shared");
+    let home = root.0.join("home");
+    let project = root.0.join("project");
+    fs::create_dir_all(&home).unwrap();
+    fs::create_dir_all(&project).unwrap();
+    let Some(sandbox) = sandbox(&home, Vec::new()) else {
+        return;
+    };
+    let profile = profile(&project, ProfileNetwork::Blocked);
+    // The first session makes the folders; the second finds them.
+    let (mut first, _) = start(&sandbox, &profile, "echo up; read x");
+    let (mut second, mut out) = start(
+        &sandbox,
+        &profile,
+        "echo up; read x; mkdir -p .vscode 2>/dev/null
+        if echo x > .vscode/tasks.json 2>/dev/null; then echo wrote; else echo refused; fi",
+    );
+    drop(first.stdin.take());
+    first.wait().unwrap();
+    // The first session's cleaner is done; the folder had to stay.
+    assert!(cleaners_down_to(&root.0, 1));
+    assert!(project.join(".vscode").is_dir());
+    second.stdin.take().unwrap().write_all(b"go\n").unwrap();
+    let mut answer = String::new();
+    std::io::BufRead::read_line(&mut out, &mut answer).unwrap();
+    second.wait().unwrap();
+    assert_eq!(answer, "refused\n");
+    assert!(!project.join(".vscode/tasks.json").exists());
+    // The last one out removes what the first one made.
+    assert!(gone(&project.join(".vscode")));
+}
+
+/// Waits until at most `n` cleaners hold a record under `root`.
+fn cleaners_down_to(root: &Path, n: usize) -> bool {
+    let root = root.as_os_str().as_encoded_bytes();
+    let start = std::time::Instant::now();
+    loop {
+        let running = fs::read_dir("/proc")
+            .unwrap()
+            .filter_map(|entry| fs::read(entry.ok()?.path().join("cmdline")).ok())
+            .filter(|cmdline| {
+                let mut args = cmdline.split(|b| *b == 0);
+                args.any(|a| a == b"--ovra-sandbox-cleaner")
+                    && args.next().is_some_and(|record| record.starts_with(root))
+            })
+            .count();
+        if running <= n {
+            return true;
+        }
+        if start.elapsed() > std::time::Duration::from_secs(2) {
+            return false;
+        }
+        std::thread::yield_now();
+    }
+}

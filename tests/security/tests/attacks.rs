@@ -427,6 +427,14 @@ fn a_hostile_repository_cannot_widen_what_later_runs_outside_the_sandbox() {
     // A `yes` outside the project wrote to the sandbox's own empty home
     // folder, which is gone with it; the comparison below proves that.
     insta::assert_snapshot!(out);
+    // The last sandbox of the project is over: its cleaner removes the
+    // folders planning made (the record says which), then empties the record.
+    let record = world.data.join("sandbox-made").join(&key);
+    let start = std::time::Instant::now();
+    while fs::metadata(&record).is_ok_and(|m| m.len() > 0) {
+        assert!(start.elapsed() < std::time::Duration::from_secs(2));
+        std::thread::yield_now();
+    }
     let after = world.files();
     let changed: Vec<String> = after
         .iter()
@@ -443,7 +451,9 @@ fn a_hostile_repository_cannot_widen_what_later_runs_outside_the_sandbox() {
         .collect();
     // Known gap (`docs/specs/security.md`): a protected file that does not
     // exist yet, here `CLAUDE.local.md`, can be created; the review is the
-    // backstop. The poisoned cache is the project's private one.
+    // backstop. The poisoned cache is the project's private one. The
+    // empty `.idea` and `.ovra` planning made are gone with the record's
+    // entries.
     insta::assert_debug_snapshot!("changed_on_the_host", changed);
     // The control: without the sandbox every attack works.
     let control = outside(project, &script, &[]);

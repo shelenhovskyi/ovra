@@ -237,11 +237,15 @@ them; that is a follow-up in those areas.
 
 On Linux a missing `.claude/`, `.vscode/`, `.idea/`, `.devcontainer/` or
 `.ovra/` is made as an empty folder and bound read-only, so the agent cannot
-create one for the user's own tools to load later. A helper outside the
-sandbox removes it again once the session and every process in it are
-gone, also when the session is killed; a folder that is no longer empty
-stays. A
-missing protected file (`.mcp.json`, `.envrc`, `CLAUDE.md` and the like)
+create one for the user's own tools to load later. Linux lets a process
+remove a folder that is a mount point only in another mount namespace,
+which detaches the bind there, so a folder an agent's session made is
+removed only once every sandbox of that work dir (sessions and server
+pods) and every process in them are gone, also when they are killed: each
+holds a shared lock on the work dir's record in Ovra's data folder, and
+the helper outside the sandbox that ends last removes what the record
+lists. A folder that is no longer empty stays, and so do those a pod made.
+A missing protected file (`.mcp.json`, `.envrc`, `CLAUDE.md` and the like)
 can still be created; the review backstop below covers it.
 
 An agent that needs one of these changed says so in its summary, and the
