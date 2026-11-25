@@ -1,6 +1,14 @@
 //! The git panel's operations on a project's main checkout
 //! (`docs/specs/git-panel.md`). Contract: `ovra_core::services::GitService`;
 //! fake: `ovra_core::fakes::MemoryGit`.
+//!
+//! Paths come in relative to the project, which may be a folder inside the
+//! repository: git runs in the project folder, so pathspecs mean the same
+//! there, and paths git prints from the top are translated back.
+
+mod status;
+#[cfg(test)]
+mod tests;
 
 use std::path::PathBuf;
 
@@ -10,6 +18,8 @@ use ovra_core::protocol::git::{
 };
 use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::{BoxFuture, GitService, Result};
+
+use crate::blocking;
 
 /// The git panel through the `git` command line.
 #[derive(Debug, Default)]
@@ -25,14 +35,14 @@ fn later<T: Send + 'static>() -> BoxFuture<'static, Result<T>> {
     Box::pin(async {
         Err(ProtocolError::new(
             ErrorCode::Unavailable,
-            "the git panel is not implemented yet",
+            "this part of the git panel is not implemented yet",
         ))
     })
 }
 
 impl GitService for GitRepo {
-    fn status(&self, _: PathBuf) -> BoxFuture<'_, Result<Option<RepoStatus>>> {
-        later()
+    fn status(&self, root: PathBuf) -> BoxFuture<'_, Result<Option<RepoStatus>>> {
+        blocking(move || status::status(&root))
     }
     fn stage(&self, _: PathBuf, _: Vec<RelPath>) -> BoxFuture<'_, Result<()>> {
         later()
@@ -69,16 +79,5 @@ impl GitService for GitRepo {
     }
     fn log(&self, _: PathBuf, _: u32) -> BoxFuture<'_, Result<Vec<CommitInfo>>> {
         later()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn the_stub_says_it_is_not_there_yet() {
-        let status = GitRepo::new().status(PathBuf::from("/")).await;
-        assert_eq!(status.map_err(|e| e.code), Err(ErrorCode::Unavailable));
     }
 }
