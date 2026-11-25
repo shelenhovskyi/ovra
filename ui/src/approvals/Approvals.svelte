@@ -644,6 +644,9 @@ function shared(requests: PermissionRequest[]): { warnings: string[]; sandboxed:
   };
 }
 
+/** Beside "Always allow" for a command: the rule covers the command, not what it runs. */
+const ALWAYS_BASH_NOTE = "Runs what this project's scripts say; the sandbox still applies.";
+
 /**
  * The rule "Always allow" would add, as the core offers it; never for a path the card cannot place
  * inside the folder (the core checks this too).
@@ -895,10 +898,17 @@ function verbAndObject(tool: string, action: string): { verb: string; object: st
                 type="button"
                 class="quiet always"
                 aria-disabled={!allowable(request.id)}
+                aria-describedby={request.tool === "Bash" ? `approval-always-note-${request.id}` : undefined}
                 data-testid="approval-always"
                 onclick={(event) => answerByClick(event, request, "allow", true)}
                 >Always allow <code>{always}</code> here</button
               >
+              {#if request.tool === "Bash"}
+                <!-- The command is exact, but what it runs is not: npm test runs package.json's scripts. -->
+                <span class="always-note" id={`approval-always-note-${request.id}`} data-testid="approval-always-note"
+                  >{ALWAYS_BASH_NOTE}</span
+                >
+              {/if}
             {/if}
             <!-- Why a press did not answer: the fill says "not yet" on screen, this says it to screen readers. -->
             <span class="wait" class:sr-only={said?.text === EARLY} aria-live="polite" data-testid="approval-wait"
@@ -1329,6 +1339,10 @@ function verbAndObject(tool: string, action: string): { verb: string; object: st
   }
   .wait:empty {
     display: none;
+  }
+  .always-note {
+    color: var(--text-2);
+    font-size: 13px;
   }
   .wait {
     flex: 1 1 12em;

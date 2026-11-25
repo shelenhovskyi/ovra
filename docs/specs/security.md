@@ -620,6 +620,8 @@ rules for each project:
     for Allow once or Deny.
   - A rule with the same tool, match, action and `exact` already in the
     policy, wherever it came from, is not added again.
+- For a Bash rule the card says beside the action: "Runs what this
+  project's scripts say; the sandbox still applies."
 - Agents cannot reach it: it is a client method, not an IDE tool. The rule
   shows in Settings > Rules, marked "exactly" and "From an approval", where
   Remove takes it out. A person can add an exact Bash rule there too

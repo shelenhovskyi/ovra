@@ -949,7 +949,7 @@ describe("Approvals", () => {
 });
 
 describe("Always allow", () => {
-  const rule = { tool: "Bash", match: "npm test", action: "auto", from_approval: true } as const;
+  const rule = { tool: "Bash", match: "npm test", action: "auto", exact: true, from_approval: true } as const;
   const always = () => cards()[0]?.querySelector<HTMLButtonElement>("[data-testid=approval-always]");
 
   it("adds the offered rule after the same wait and checks as Allow once, with no key of its own", async () => {
@@ -960,6 +960,10 @@ describe("Always allow", () => {
     expect(words(always() ?? undefined)).toBe("Always allow npm test here");
     expect(always()?.querySelector("code")?.textContent).toBe("npm test");
     expect(always()?.hasAttribute("aria-keyshortcuts")).toBe(false);
+    // What the command runs is not exact: one short line says so.
+    const note = cards()[0]?.querySelector("[data-testid=approval-always-note]");
+    expect(note?.textContent).toBe("Runs what this project's scripts say; the sandbox still applies.");
+    expect(always()?.getAttribute("aria-describedby")).toBe(note?.id);
     always()?.click();
     await settle(ARM_MS);
     expect(answers(core)).toEqual([]);
@@ -976,6 +980,20 @@ describe("Always allow", () => {
     always()?.click();
     await settle();
     expect(answers(core)).toEqual([{ id: "perm1", decision: "allow", always: true }]);
+  });
+
+  it("says nothing about scripts for a file rule", async () => {
+    const core = await setup();
+    core.ask({
+      ...bash("perm1"),
+      tool: "Edit",
+      input: { file_path: "/demo/src/a.ts", old_string: "a", new_string: "b" },
+      always: { tool: "Edit", match: "src/a.ts", action: "auto", from_approval: true },
+    });
+    await settle();
+    expect(words(always() ?? undefined)).toBe("Always allow src/a.ts here");
+    expect(target.querySelector("[data-testid=approval-always-note]")).toBeNull();
+    expect(always()?.hasAttribute("aria-describedby")).toBe(false);
   });
 
   it("is not offered when the core offers no rule or a path is not inside the folder", async () => {
