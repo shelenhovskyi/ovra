@@ -22,6 +22,8 @@ export type FileChange = {
   deletions: number;
   /** A worker's file the direct session also changed: it waits for that session's review. */
   blocked: boolean;
+  /** The file, or the old path of a rename, is a protected path (agent configuration, tool folders); approve applies it too. */
+  protected: boolean;
 };
 
 export type ReviewItem = {

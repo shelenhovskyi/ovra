@@ -9,6 +9,7 @@ use super::{Result, Workspace, conflict, not_found};
 use crate::Core;
 use crate::agents;
 use crate::path::RelPath;
+use crate::protected;
 use crate::protocol::agents::{AgentStatus, MessageFrom, SessionId, SessionMode};
 use crate::protocol::audit::{AuditEvent, ReviewAction};
 use crate::protocol::projects::ProjectId;
@@ -393,6 +394,7 @@ async fn listed(core: &Core, entry: &Entry, at: Option<&String>) -> Result<Liste
         .into_iter()
         .map(|d| FileChange {
             blocked: waits(&d, &touched),
+            protected: protected::changes(&d.path, d.from.as_deref()),
             // Nobody but the worker writes its worktree. A direct session
             // no longer tracked (decided) vouches for nothing.
             by: if entry.mode == SessionMode::Direct {

@@ -10,20 +10,9 @@ use std::sync::Arc;
 
 use ovra_core::services::{CommandLine, Result, Sandbox, SandboxProfile, SandboxStatus};
 
-/// Paths under a session's `work_dir` that stay read-only: agent
-/// configuration and code that tools run on their own. `**/` matches any
-/// folder, `*` one name.
-pub const PROTECTED_IN_WORK_DIR: [&str; 9] = [
-    ".claude",
-    ".mcp.json",
-    "**/CLAUDE.md",
-    "**/CLAUDE.local.md",
-    "**/AGENTS.md",
-    ".vscode",
-    ".idea",
-    ".devcontainer",
-    ".envrc",
-];
+/// Paths under a session's `work_dir` that stay read-only. The list lives in
+/// the core, which the review marks changes to them with.
+pub use ovra_core::protected::PROTECTED_IN_WORK_DIR;
 
 /// Paths under the repository's git folder that stay read-only. The folder
 /// `core.hooksPath` names is protected too; the platform reads it.

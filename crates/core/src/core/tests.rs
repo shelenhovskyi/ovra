@@ -384,6 +384,29 @@ fn wire_format_is_stable() {
 }
 
 #[test]
+fn a_protected_file_change_round_trips() {
+    use crate::protocol::review::{FileChange, ReviewResponse};
+    let json = serde_json::json!({"type": "review.list", "data": [{
+        "id": "r1", "project": "p1", "session": "s1", "mode": "isolated", "state": "open",
+        "summary": null, "can_undo": false, "not_copied": [], "can_undo_take": false,
+        "fingerprint": "f1",
+        "files": [{"path": ".claude/settings.json", "kind": "modified", "from": null,
+            "by": "agent", "additions": 1, "deletions": 0, "blocked": false, "protected": true}]}]});
+    let parsed: ReviewResponse = serde_json::from_value(json.clone()).expect("review.list");
+    let ReviewResponse::List(items) = &parsed else {
+        panic!("unexpected {parsed:?}");
+    };
+    assert!(items[0].files[0].protected);
+    assert_eq!(serde_json::to_value(&parsed).ok(), Some(json));
+    // A record written before the field reads as not protected.
+    let old: FileChange = serde_json::from_value(serde_json::json!({"path": "a.rs",
+        "kind": "added", "from": null, "by": "agent", "additions": 1, "deletions": 0,
+        "blocked": false}))
+    .expect("file change");
+    assert!(!old.protected);
+}
+
+#[test]
 fn every_request_round_trips() {
     let requests = [
         serde_json::json!({"method": "info.get"}),

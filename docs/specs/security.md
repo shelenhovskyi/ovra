@@ -220,7 +220,9 @@ the machine. The threat model in 4.F records this.
 
 **Crate.** `crates/sandbox` holds what all platforms share:
 
-- the protected-path list;
+- the protected-path list (the `work_dir` part is defined in
+  `ovra-core`, `protected.rs`, so the review marks the same paths, and
+  re-exported here);
 - `Unsandboxed`, which is `Unavailable` and returns the line unchanged;
 - `for_this_os()`, which picks the platform crate or falls back to
   `Unsandboxed`.

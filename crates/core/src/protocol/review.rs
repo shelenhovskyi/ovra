@@ -54,6 +54,11 @@ pub struct FileChange {
     /// Set for a worker's file that the direct session also changed: it
     /// waits until that session is approved or rejected.
     pub blocked: bool,
+    /// The file, or the old path of a rename, is a protected path
+    /// (`docs/specs/security.md`): agent configuration or code that tools
+    /// run on their own. Approve applies it too, so the inbox says so.
+    #[serde(default)]
+    pub protected: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

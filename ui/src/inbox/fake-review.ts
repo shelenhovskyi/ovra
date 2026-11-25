@@ -12,6 +12,7 @@ export const change = (path: string, extra: Partial<FileChange> = {}): FileChang
   additions: 1,
   deletions: 1,
   blocked: false,
+  protected: false,
   ...extra,
 });
 

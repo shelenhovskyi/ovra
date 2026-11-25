@@ -34,6 +34,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use serde_json::Value;
 
 use crate::path::RelPath;
+use crate::protected;
 use crate::protocol::agents::SessionId;
 use crate::protocol::projects::ProjectId;
 use crate::protocol::review::{ChangedBy, FileChange};
@@ -873,6 +874,7 @@ impl Tracker {
                     ChangedBy::Both
                 };
                 FileChange {
+                    protected: protected::changes(&delta.path, delta.from.as_deref()),
                     path: delta.path,
                     kind: delta.kind,
                     from: delta.from,

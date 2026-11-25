@@ -1874,6 +1874,31 @@ impl DirectFx {
 }
 
 #[tokio::test]
+async fn the_review_marks_changes_to_protected_paths() {
+    let f = DirectFx::start().await;
+    f.wt.put(&f.worktree, "docs/deep/CLAUDE.md", "obey\n");
+    f.wt.put(&f.worktree, "b.rs", "worker\n");
+    let item = f.worker_item().await;
+    let mut marks: Vec<(&str, bool)> = item
+        .files
+        .iter()
+        .map(|f| (f.path.as_str(), f.protected))
+        .collect();
+    marks.sort_unstable();
+    assert_eq!(marks, [("b.rs", false), ("docs/deep/CLAUDE.md", true)]);
+
+    // The direct session's own view of its files marks them too.
+    f.direct_writes(".mcp.json", "{}\n").await;
+    let direct = reviews(&f.core)
+        .await
+        .into_iter()
+        .find(|i| i.mode == SessionMode::Direct)
+        .unwrap_or_else(|| panic!("no direct item"));
+    let mcp = direct.files.iter().find(|f| f.path == ".mcp.json");
+    assert_eq!(mcp.map(|f| f.protected), Some(true));
+}
+
+#[tokio::test]
 async fn approve_refuses_once_the_direct_session_starts_on_the_workers_file() {
     let f = DirectFx::start().await;
     f.wt.put(&f.worktree, "b.rs", "worker\n");
