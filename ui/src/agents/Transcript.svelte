@@ -6,6 +6,7 @@
 import { describeTool, isIdeTool } from "../approvals/describe";
 import type { AgentMessage, Billing, MessageFrom } from "../lib/protocol";
 import { usageText } from "./sessions.svelte";
+import { ideResult } from "./tool-results";
 
 /**
  * `billing`: who pays for the session, which says what its cost means.
@@ -86,6 +87,14 @@ function note(text: string): { line: string; rest: string } {
 
 const capital = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 
+/** What a step sent, without what its line already says in full ("Start worker docs: Write the notes."). */
+function sent(action: string, details: { label: string; text: string }[]) {
+  return details.filter((d) => d.text.includes("\n") || !action.endsWith(`: ${d.text.trim()}`));
+}
+
+/** Each tool call's tool by its id, so its result can be told in words. */
+const tools = $derived(new Map(messages.flatMap((m) => (m.kind === "tool_use" ? [[m.id, m.name] as const] : []))));
+
 /** Without usage (a fake agent, say) a turn's end line would say nothing. */
 const shown = $derived(
   messages.filter((m) => m.kind !== "turn_end" || m.usage.input_tokens + m.usage.output_tokens > 0),
@@ -150,13 +159,20 @@ $effect(() => {
         {#if isIdeTool(message.name)}
           <!-- What was sent in full: a worker's task and a coordinator's
                messages are what the person checks. -->
-          {#each summary.details as detail}
+          {#each sent(summary.action, summary.details) as detail}
             <p class="sent" data-testid="tool-detail"><span class="label">{capital(detail.label)}:</span> {detail.text}</p>
           {/each}
         {/if}
       {:else if message.kind === "tool_result"}
+        {@const plain = message.is_error ? null : ideResult(tools.get(message.tool_use_id) ?? "", message.output)}
         {#if message.is_error && message.output.startsWith(REJECTED)}
           <span class="who">{sub}Not run: you denied it or interrupted the turn</span>
+        {:else if plain}
+          <span class="who">{sub}{plain}</span>
+          <details>
+            <summary class="who">What Claude got</summary>
+            <pre>{clip(message.output)}</pre>
+          </details>
         {:else if message.output}
           <details>
             <summary class="who">{sub}{message.is_error ? "Tool failed" : "Tool output"} ({lines(message.output)})</summary>

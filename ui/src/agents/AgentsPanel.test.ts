@@ -362,6 +362,12 @@ describe("AgentsPanel", () => {
       },
       { kind: "tool_use", id: "t2", name: "mcp__ovra__spawn_agent", input: { name: "docs", task: "Write the notes." } },
       {
+        kind: "tool_result",
+        tool_use_id: "t2",
+        output: '{"agent_id":"s2","branch":"ovra/t1/docs","name":"docs","worktree":"/wt/docs"}',
+        is_error: false,
+      },
+      {
         kind: "tool_use",
         id: "t3",
         name: "mcp__ovra__send_message",
@@ -378,7 +384,8 @@ describe("AgentsPanel", () => {
       "You Thanks",
       "Sender not recorded Saved long ago",
       "Task step Message worker docs Text: Also add tests. Then ask for review.",
-      "Task step Start worker docs: Write the notes. Task: Write the notes.",
+      "Task step Start worker docs: Write the notes.",
+      'Worker docs started on its own copy of the project (branch ovra/t1/docs) What Claude got {"agent_id":"s2","branch":"ovra/t1/docs","name":"docs","worktree":"/wt/docs"}',
       "Task step Message a worker Text: x",
     ]);
     expect(target.querySelector("[data-testid=transcript] li.user_text details")?.hasAttribute("open")).toBe(false);
