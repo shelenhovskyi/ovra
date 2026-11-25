@@ -111,7 +111,9 @@ test("start an agent and answer its requests from the keyboard", async ({ page }
   await expect(transcript.getByTestId("tool-detail").first()).toBeHidden();
   await ran.click();
   await expect(transcript.getByTestId("tool-detail").first()).toBeVisible();
-  await expect(transcript.locator(".step.failed summary")).toHaveText(/Edit README\.md\s*failed/);
+  // Denied with a message: the agent got the message, yet the step says Denied, not failed.
+  await expect(transcript.locator(".step summary", { hasText: "Denied" })).toHaveText(/Edit README\.md\s*Denied/);
+  await expect(transcript.locator(".step.failed")).toHaveCount(0);
 });
 
 test("a working agent's text streams in under a live row until the turn ends", async ({ page }) => {
