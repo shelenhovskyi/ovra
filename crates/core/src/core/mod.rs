@@ -13,7 +13,7 @@ use crate::protocol::info::{CoreInfo, InfoEvent, InfoRequest, InfoResponse};
 use crate::protocol::open::OpenRequest;
 use crate::protocol::permissions::PermissionsRequest;
 use crate::protocol::projects::{
-    ProjectId, ProjectStatePatch, ProjectsEvent, ProjectsRequest, ProjectsResponse,
+    EditorGroup, ProjectId, ProjectStatePatch, ProjectsEvent, ProjectsRequest, ProjectsResponse,
 };
 use crate::protocol::terminals::{TerminalsRequest, TerminalsResponse};
 use crate::protocol::{ErrorCode, Event, OkResponse, ProtocolError, Request, Response};
@@ -813,6 +813,16 @@ fn checked_patch(patch: ProjectStatePatch) -> Result<ProjectStatePatch, Protocol
             .transpose()?,
         expanded_dirs: patch.expanded_dirs.map(all).transpose()?,
         pinned_files: patch.pinned_files.map(all).transpose()?,
+        second_group: patch
+            .second_group
+            .map(|group| {
+                Ok::<_, ProtocolError>(EditorGroup {
+                    open_files: all(group.open_files)?,
+                    active_file: group.active_file.map(norm).transpose()?,
+                    pinned_files: all(group.pinned_files)?,
+                })
+            })
+            .transpose()?,
     })
 }
 

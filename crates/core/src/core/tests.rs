@@ -14,7 +14,7 @@ use crate::protocol::orchestration::{OrchestrationEvent, ShowTarget};
 use crate::protocol::permissions::{
     PermissionId, PermissionReason, PermissionRequest, PermissionsEvent,
 };
-use crate::protocol::projects::{Project, ProjectState};
+use crate::protocol::projects::{EditorGroup, Project, ProjectState};
 use crate::protocol::review::{ReviewEvent, ReviewId};
 use crate::protocol::terminals::{TerminalId, TerminalsEvent, TerminalsResponse};
 
@@ -140,6 +140,7 @@ async fn project_state_is_saved_normalized_and_kept_inside() {
             active_file: active.map(str::to_owned),
             expanded_dirs: dirs.iter().map(|s| (*s).to_owned()).collect(),
             pinned_files: Vec::new(),
+            second_group: None,
         })))
     };
     assert_eq!(get(p.id.clone()).await, state(&[], None, &[]));
@@ -169,6 +170,37 @@ async fn project_state_is_saved_normalized_and_kept_inside() {
     assert!(escape.is_err(), "{escape:?}");
     let escape = set(serde_json::json!({"pinned_files": ["../b/secret"]})).await;
     assert!(escape.is_err(), "{escape:?}");
+    let escape = set(serde_json::json!({"second_group": {"open_files": ["../b/secret"]}})).await;
+    assert!(escape.is_err(), "{escape:?}");
+    let escape =
+        set(serde_json::json!({"second_group": {"open_files": [], "active_file": "/etc/passwd"}}))
+            .await;
+    assert!(escape.is_err(), "{escape:?}");
+
+    // The second editor group: saved whole and normalized; without open files it closes.
+    set(serde_json::json!({"second_group": {"open_files": ["./b.rs"], "active_file": "b.rs"}}))
+        .await
+        .expect("save second group");
+    let second = |state: Result<Response, ProtocolError>| match state {
+        Ok(Response::Projects(ProjectsResponse::State(state))) => state.second_group,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(
+        second(get(p.id.clone()).await),
+        Some(EditorGroup {
+            open_files: vec!["b.rs".into()],
+            active_file: Some("b.rs".into()),
+            pinned_files: vec![],
+        })
+    );
+    set(serde_json::json!({"open_files": ["a.rs"]}))
+        .await
+        .expect("save first group");
+    assert!(second(get(p.id.clone()).await).is_some());
+    set(serde_json::json!({"second_group": {"open_files": []}}))
+        .await
+        .expect("close second group");
+    assert_eq!(second(get(p.id.clone()).await), None);
     let unknown = get(ProjectId("nope".into())).await;
     assert_eq!(unknown.err().map(|e| e.code), Some(ErrorCode::NotFound));
 }
@@ -442,6 +474,11 @@ fn wire_format_is_stable() {
                 active_file: Some("a.rs".into()),
                 expanded_dirs: vec!["src".into()],
                 pinned_files: vec!["a.rs".into()],
+                second_group: Some(EditorGroup {
+                    open_files: vec!["b.rs".into()],
+                    active_file: Some("b.rs".into()),
+                    pinned_files: vec![],
+                }),
             })),
         ],
         "events": [

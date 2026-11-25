@@ -21,11 +21,21 @@ export type ProjectState = {
    * predate it stay valid; the core always sends it.
    */
   pinned_files?: string[];
+  /** The editor group on the right, if the main area was split; absent with one group. */
+  second_group?: EditorGroup;
+};
+
+/** The tabs of the second editor group, as `ProjectState` keeps the first's. */
+export type EditorGroup = {
+  open_files: string[];
+  active_file: string | null;
+  pinned_files: string[];
 };
 
 /**
  * Only the fields present are written, so panels save their own part without
  * overwriting each other's. `active_file: null` clears it; leaving it out keeps it.
+ * `second_group` is written whole; one without open files closes the group.
  */
 export type ProjectStatePatch = Partial<ProjectState>;
 

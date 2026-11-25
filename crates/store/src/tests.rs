@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use ovra_core::Core;
 use ovra_core::fakes::{MemoryFs, MemoryProjects};
-use ovra_core::protocol::projects::{ProjectsRequest, ProjectsResponse};
+use ovra_core::protocol::projects::{EditorGroup, ProjectsRequest, ProjectsResponse};
 use ovra_core::protocol::{Request, Response};
 use tempfile::TempDir;
 
@@ -210,6 +210,7 @@ fn sample_state() -> ProjectState {
         active_file: Some("README.md".into()),
         expanded_dirs: vec!["src".into()],
         pinned_files: vec!["README.md".into()],
+        second_group: None,
     }
 }
 
@@ -219,6 +220,7 @@ fn full(state: ProjectState) -> ProjectStatePatch {
         active_file: Some(state.active_file),
         expanded_dirs: Some(state.expanded_dirs),
         pinned_files: Some(state.pinned_files),
+        second_group: state.second_group,
     }
 }
 
@@ -255,6 +257,47 @@ fn saved_state_tolerates_missing_and_unknown_fields() {
     let state = store.state(&a.id).expect("state");
     assert_eq!(state.open_files, ["a.rs"]);
     assert_eq!(state.active_file, None);
+    // A state saved before the split editor opens one group.
+    assert_eq!(state.second_group, None);
+}
+
+#[test]
+fn the_second_editor_group_is_kept_and_closed() {
+    let (data, folders) = (TempDir::new().expect("temp dir"), Folders::new());
+    let a = {
+        let store = Store::open(data.path()).expect("open");
+        let a = store.add(&folders.path("a")).expect("add a");
+        let group = EditorGroup {
+            open_files: vec!["b.rs".into(), "c.rs".into()],
+            active_file: Some("c.rs".into()),
+            pinned_files: vec!["b.rs".into()],
+        };
+        let patch = ProjectStatePatch {
+            second_group: Some(group),
+            ..full(sample_state())
+        };
+        store.update_state(&a.id, patch).expect("save state");
+        a
+    };
+    // Reopened: both groups come back.
+    let store = Store::open(data.path()).expect("reopen");
+    let state = store.state(&a.id).expect("state");
+    assert_eq!(state.open_files, sample_state().open_files);
+    let second = state.second_group.expect("second group");
+    assert_eq!(
+        (second.open_files, second.active_file, second.pinned_files),
+        (
+            vec!["b.rs".to_owned(), "c.rs".to_owned()],
+            Some("c.rs".to_owned()),
+            vec!["b.rs".to_owned()]
+        )
+    );
+    let close = ProjectStatePatch {
+        second_group: Some(EditorGroup::default()),
+        ..ProjectStatePatch::default()
+    };
+    store.update_state(&a.id, close).expect("close group");
+    assert_eq!(store.state(&a.id), Ok(sample_state()));
 }
 
 #[test]

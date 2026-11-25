@@ -37,6 +37,18 @@ pub struct ProjectState {
     /// Pinned tabs, a subset of `open_files`; they sit first and stay open
     /// when others are closed.
     pub pinned_files: Vec<String>,
+    /// The editor group on the right, if the main area was split.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub second_group: Option<EditorGroup>,
+}
+
+/// The tabs of the second editor group, as [`ProjectState`] keeps the first's.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EditorGroup {
+    pub open_files: Vec<String>,
+    pub active_file: Option<String>,
+    pub pinned_files: Vec<String>,
 }
 
 /// A partial [`ProjectState`]: only the fields present are written, so panels
@@ -56,6 +68,9 @@ pub struct ProjectStatePatch {
     pub expanded_dirs: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pinned_files: Option<Vec<String>>,
+    /// The second editor group as a whole; one without open files closes it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub second_group: Option<EditorGroup>,
 }
 
 impl ProjectStatePatch {
@@ -72,6 +87,9 @@ impl ProjectStatePatch {
         }
         if let Some(pinned_files) = self.pinned_files {
             state.pinned_files = pinned_files;
+        }
+        if let Some(group) = self.second_group {
+            state.second_group = (!group.open_files.is_empty()).then_some(group);
         }
     }
 }

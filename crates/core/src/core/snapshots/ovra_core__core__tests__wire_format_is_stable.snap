@@ -239,7 +239,14 @@ expression: samples
         ],
         "pinned_files": [
           "a.rs"
-        ]
+        ],
+        "second_group": {
+          "active_file": "b.rs",
+          "open_files": [
+            "b.rs"
+          ],
+          "pinned_files": []
+        }
       },
       "type": "projects.state"
     }
