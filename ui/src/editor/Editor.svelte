@@ -11,9 +11,10 @@ registerContextKeys(
 </script>
 
 <script lang="ts">
-// The editor for workspace.openPath (main area in "edit" mode). One view
-// shows the active tab's buffer; buffers keep their own text, undo history
-// and selection while they are not shown.
+// The editor for workspace.openPath (an editor group in "edit" mode). One
+// view shows the active tab's buffer; buffers keep their own text, undo
+// history and selection while they are not shown. In the focused group it
+// reports to the status bar, the find commands and the language server.
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { untrack } from "svelte";
@@ -27,7 +28,7 @@ import { AutoSaver, autoSaver } from "./autosave";
 import { editorMenu } from "./context-menu";
 import { answerClose, tabs } from "./open-files.svelte";
 import { editorPrefs } from "./prefs.svelte";
-import { showView } from "./search";
+import { hideView, showView } from "./search";
 import { clearFacts, cursorOf, detectIndent, type FileFacts, publishFacts } from "./status.svelte";
 
 const { workspace } = useOvra();
@@ -49,12 +50,12 @@ $effect(() => {
     parent: host,
     dispatchTransactions: (transactions, target) => {
       target.update(transactions);
-      if (shownView === target) publish(target, transactions.some((t) => t.docChanged));
+      if (shownView === target && workspace.focused) publish(target, transactions.some((t) => t.docChanged));
     },
   });
   view = created;
   return () => {
-    buffer?.detach();
+    buffer?.detach(created);
     created.destroy();
     view = null;
     clearFacts(facts);
@@ -68,7 +69,6 @@ $effect(() => {
     buffer = null;
     return;
   }
-  const lsp = tabs.current?.lsp;
   const next = buffers.open(path);
   buffer = next;
   let live = true;
@@ -76,24 +76,19 @@ $effect(() => {
     const target = view;
     if (!live || !target) return;
     next.attach(target);
-    if (entering) target.focus();
-    else focusUnlessInTabs();
+    if (workspace.focused) {
+      if (entering) target.focus();
+      else focusUnlessInTabs();
+    }
     entering = false;
     shown = next;
     shownView = target;
-    publish(target, true);
-    showView(target);
-    // Showing a file is what starts its language server (ADR 0007).
-    untrack(() => lsp?.showing(next, target));
   });
   return () => {
     live = false;
     shown = null;
     shownView = null;
-    clearFacts(facts);
-    showView(null);
-    lsp?.hiding(next);
-    next.detach();
+    next.detach(view);
     // Another tab or mode takes the editor: focus left this file.
     autoSaver.left([next]);
     // Nothing typed before the next buffer arrives may land in this one.
@@ -101,9 +96,29 @@ $effect(() => {
   };
 });
 
+// The focused group's editor is the one the status bar, the find commands and the language server see.
+$effect(() => {
+  const target = shownView;
+  const next = shown;
+  const lsp = tabs.current?.lsp;
+  if (!target || !next || !workspace.focused) return;
+  untrack(() => {
+    publish(target, true);
+    showView(target);
+    // Showing a file is what starts its language server (ADR 0007).
+    lsp?.showing(next, target);
+  });
+  return () => {
+    clearFacts(facts);
+    hideView(target);
+    lsp?.hiding(next, target);
+  };
+});
+
 /** The status bar's facts (status.svelte.ts); the indentation is read again only when the text changes. */
 const facts = {};
-let shownView: EditorView | null = null;
+/** The view, once it shows `shown`. */
+let shownView = $state.raw<EditorView | null>(null);
 let indent = "";
 /** What Tab inserts, for a text with no indentation to go by. */
 const ownIndent = () => (editorPrefs.insertSpaces ? `Spaces: ${editorPrefs.tabSize}` : "Tab");
@@ -166,7 +181,8 @@ const autoSaving = $derived(!!buffer && editorPrefs.autoSave !== "off" && AutoSa
 /** The window lost focus: auto save on focus change writes every buffer with unsaved text. */
 function leaveWindow(): void {
   const buffers = tabs.current?.buffers;
-  if (!buffers) return;
+  // One editor speaks for all buffers.
+  if (!buffers || !workspace.focused) return;
   autoSaver.left(buffers.unsavedPaths().flatMap((path) => buffers.get(path) ?? []));
 }
 

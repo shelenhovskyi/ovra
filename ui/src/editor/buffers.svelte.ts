@@ -3,7 +3,10 @@
 // area shows the viewer, so nothing typed is lost by switching. Saving uses
 // `expected_mtime_ms`, outside changes to a buffer with unsaved edits become
 // a conflict instead of replacing them, and unsaved text is mirrored to
-// drafts so it survives a reload.
+// drafts so it survives a reload. A buffer shown in both editor groups at
+// once has a second, mirrored view: its own state with the same text, whose
+// changes go to the buffer's state and back, and whose undo is the buffer's
+// (CodeMirror's split-view pattern).
 
 import {
   defaultKeymap,
@@ -12,15 +15,20 @@ import {
   indentLess,
   indentMore,
   insertNewlineAndIndent,
+  redo,
   toggleBlockComment,
+  undo,
 } from "@codemirror/commands";
 import { findPrevious, gotoLine, highlightSelectionMatches, searchKeymap } from "@codemirror/search";
 import {
+  Annotation,
   Compartment,
   EditorSelection,
   EditorState,
   type Extension,
+  Prec,
   type Text,
+  Transaction,
   type TransactionSpec,
 } from "@codemirror/state";
 import { drawSelection, EditorView, highlightActiveLine, type KeyBinding, keymap, lineNumbers } from "@codemirror/view";
@@ -82,6 +90,9 @@ export function editorKeymap(save: () => void): KeyBinding[] {
   ];
 }
 
+/** Marks changes copied from the other view of a buffer, so they are not copied back. */
+const mirrored = Annotation.define<boolean>();
+
 type BufferStatus = "loading" | "ready" | "binary" | "too_large" | "failed";
 
 /** Unsaved text is written to drafts this long after the last keystroke. */
@@ -141,6 +152,8 @@ export class Buffer {
 
   private state: EditorState | null = null;
   private view: EditorView | null = null;
+  /** A second view of the text while another editor group shows this buffer too. */
+  private mirror: EditorView | null = null;
   private saved: Text | null = null;
   private mtime = 0;
   private source: LanguageSource | null = null;
@@ -179,17 +192,36 @@ export class Buffer {
     return this.view?.state ?? this.state;
   }
 
-  /** Shows this buffer in `view`, with its own history and selection. */
+  /**
+   * Shows this buffer in `view`, with its own history and selection. While
+   * another view shows it, `view` becomes a mirror of that one.
+   */
   attach(view: EditorView): void {
+    if (this.view && this.view !== view) {
+      view.setState(this.mirrorState());
+      this.mirror = view;
+      return;
+    }
     if (!this.state) return;
     view.setState(this.state);
     this.view = view;
   }
 
-  /** Takes the state back from the view, which is about to show something else. */
-  detach(): void {
-    if (this.view) this.state = this.view.state;
+  /**
+   * Takes the state back from `view` (or the buffer's own view), which is
+   * about to show something else; a mirror left behind takes the state over.
+   */
+  detach(view: EditorView | null = this.view): void {
+    if (view && view === this.mirror) {
+      this.mirror = null;
+      return;
+    }
+    if (!view || view !== this.view) return;
+    this.state = view.state;
     this.view = null;
+    const mirror = this.mirror;
+    this.mirror = null;
+    if (mirror) this.attach(mirror);
   }
 
   /**
@@ -209,6 +241,7 @@ export class Buffer {
   /** Follows the editor preferences (word wrap, tab size) as they are now. */
   applyPrefs(): void {
     const effects = this.prefs.reconfigure(prefsExtension());
+    this.mirror?.dispatch({ effects });
     if (this.view) this.view.dispatch({ effects });
     else if (this.state) this.state = this.state.update({ effects }).state;
   }
@@ -225,6 +258,7 @@ export class Buffer {
     this.git.moveTo(path);
     this.flushDraft();
     const effects = this.label.reconfigure(this.labelExtension());
+    this.mirror?.dispatch({ effects });
     if (this.view) this.view.dispatch({ effects });
     else if (this.state) this.state = this.state.update({ effects }).state;
   }
@@ -363,6 +397,11 @@ export class Buffer {
     } else {
       this.state = state;
     }
+    if (this.mirror) {
+      const scroll = this.mirror.scrollDOM.scrollTop;
+      this.mirror.setState(this.mirrorState());
+      this.mirror.scrollDOM.scrollTop = scroll;
+    }
     this.changed();
     this.git.changed();
   }
@@ -414,24 +453,55 @@ export class Buffer {
     return EditorView.contentAttributes.of({ "aria-label": `Edit ${this.path}` });
   }
 
-  private extensions(): Extension[] {
+  /** A state for a mirror: the text and selection of the buffer's view, without history of its own. */
+  private mirrorState(): EditorState {
+    const state = this.current as EditorState;
+    return EditorState.create({ doc: state.doc, selection: state.selection, extensions: this.extensions(true) });
+  }
+
+  /** Copies the changes of `update` to the other view showing this buffer, if there is one. */
+  private copyChanges(from: EditorView, transactions: readonly Transaction[]): void {
+    const to = from === this.view ? this.mirror : from === this.mirror ? this.view : null;
+    if (!to) return;
+    for (const tr of transactions) {
+      if (tr.changes.empty || tr.annotation(mirrored)) continue;
+      const userEvent = tr.annotation(Transaction.userEvent);
+      const annotations = [mirrored.of(true), ...(userEvent ? [Transaction.userEvent.of(userEvent)] : [])];
+      to.dispatch({ changes: tr.changes, annotations });
+    }
+  }
+
+  /** The extensions of the buffer's own state, or with `mirror` of a mirror's, whose undo is the buffer's. */
+  private extensions(mirror = false): Extension[] {
+    const viaBuffer = (command: typeof undo) => () => !!this.view && command(this.view);
     return [
       lineNumbers(),
-      history(),
+      mirror
+        ? Prec.high(
+            keymap.of([
+              { key: "Mod-z", run: viaBuffer(undo), preventDefault: true },
+              { key: "Mod-y", mac: "Mod-Shift-z", run: viaBuffer(redo), preventDefault: true },
+              { linux: "Ctrl-Shift-z", run: viaBuffer(redo), preventDefault: true },
+            ]),
+          )
+        : history(),
       drawSelection(),
       highlightActiveLine(),
       this.heavy ? [] : highlightSelectionMatches(),
       keymap.of(editorKeymap(() => void this.save())),
       EditorView.updateListener.of((update) => {
-        if (update.docChanged) this.changed();
+        if (!update.docChanged) return;
+        if (!mirror) this.changed();
+        this.copyChanges(update.view, update.transactions);
       }),
       // Named, so a screen reader says which file the text box edits.
       this.label.of(this.labelExtension()),
       this.prefs.of(prefsExtension()),
       commentData(this.language),
       theme,
-      this.highlight ? treeSitterHighlighting(this.highlight) : [],
-      this.server.of(this.serverExtension),
+      this.highlight ? treeSitterHighlighting(this.highlight, { edits: !mirror }) : [],
+      // Language features live in the buffer's own view.
+      mirror ? [] : this.server.of(this.serverExtension),
       gitExtension({ file: this.git, dirty: () => this.dirty, saved: () => this.saved }),
     ];
   }

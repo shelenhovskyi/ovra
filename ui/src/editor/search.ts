@@ -13,6 +13,11 @@ export function showView(view: EditorView | null): void {
   shown = view;
 }
 
+/** `view` no longer shows a file; another editor may have taken its place already. */
+export function hideView(view: EditorView): void {
+  if (shown === view) shown = null;
+}
+
 /** The view the editor shows, or null. */
 export function shownView(): EditorView | null {
   return shown;

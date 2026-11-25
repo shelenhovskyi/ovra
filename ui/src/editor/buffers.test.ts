@@ -1,5 +1,5 @@
-import { toggleComment, undoDepth } from "@codemirror/commands";
-import { EditorView } from "@codemirror/view";
+import { toggleComment, undo, undoDepth } from "@codemirror/commands";
+import { EditorView, runScopeHandlers } from "@codemirror/view";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { AUTO_SAVE_DELAY_MS, AutoSaver } from "./autosave";
 import { type Buffer, Buffers } from "./buffers.svelte";
@@ -113,6 +113,35 @@ describe("Buffer", () => {
     const { undo } = await import("@codemirror/commands");
     undo(view);
     expect([a.text, a.dirty]).toEqual(["one", false]);
+  });
+
+  test("a buffer shown in two views is one text with one undo, whichever view edits", async () => {
+    const { core, view, show, type } = setup();
+    core.put("a.txt", "one");
+    const a = await show("a.txt");
+    const second = new EditorView({ parent: document.body.appendChild(document.createElement("div")) });
+    views.push(second);
+    a.attach(second);
+    expect(second.state.doc.toString()).toBe("one");
+    type(" two");
+    expect([second.state.doc.toString(), a.dirty]).toEqual(["one two", true]);
+    second.dispatch({ changes: { from: 0, insert: "zero " }, userEvent: "input.type" });
+    expect([view.state.doc.toString(), a.text]).toEqual(["zero one two", "zero one two"]);
+    // Undo from the second view undoes in the buffer, newest edit first.
+    const undoKey = new KeyboardEvent("keydown", { key: "z", code: "KeyZ", ctrlKey: true });
+    expect(runScopeHandlers(second, undoKey, "editor")).toBe(true);
+    expect([view.state.doc.toString(), second.state.doc.toString()]).toEqual(["one two", "one two"]);
+    undo(view);
+    expect([second.state.doc.toString(), a.dirty]).toEqual(["one", false]);
+    expect(await a.save()).toBe(true);
+    // The first view hides the file: the second takes the buffer's state over, undo and all.
+    second.dispatch({ changes: { from: 3, insert: "!" } });
+    a.detach(view);
+    expect([second.state.doc.toString(), undoDepth(second.state)]).toEqual(["one!", 1]);
+    second.dispatch({ changes: { from: 4, insert: "?" } });
+    expect([a.text, a.dirty]).toEqual(["one!?", true]);
+    a.detach(second);
+    expect(a.text).toBe("one!?");
   });
 
   test("an outside change replaces clean text, keeping the cursor, and resets undo", async () => {

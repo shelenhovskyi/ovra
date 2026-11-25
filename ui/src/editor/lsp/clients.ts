@@ -128,9 +128,9 @@ export class LanguageClients {
     if (this.shown?.buffer === buffer && buffer.status === "ready") void this.connect(buffer);
   }
 
-  /** The editor stopped showing `buffer`. */
-  hiding(buffer: Buffer): void {
-    if (this.shown?.buffer === buffer) this.shown = null;
+  /** The editor stopped showing `buffer` (in `view`, if given; another view may show it now). */
+  hiding(buffer: Buffer, view?: EditorView): void {
+    if (this.shown?.buffer === buffer && (!view || this.shown.view === view)) this.shown = null;
   }
 
   /** Runs a language-server action in the shown file, or says why it cannot. */

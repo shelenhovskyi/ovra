@@ -52,7 +52,12 @@ function toChanges(changes: ChangeSet): TextChange[] {
   return out;
 }
 
-export function treeSitterHighlighting(doc: HighlightedDoc) {
+/**
+ * Highlighting from `doc`. With `edits: false` (the mirrored second view of a
+ * buffer) the view only paints: the buffer's own view tells `doc` about
+ * changes, and this one asks for spans once it has.
+ */
+export function treeSitterHighlighting(doc: HighlightedDoc, { edits = true } = {}) {
   const plugin = ViewPlugin.define((view) => {
     let version = 0;
     let destroyed = false;
@@ -77,9 +82,10 @@ export function treeSitterHighlighting(doc: HighlightedDoc) {
       update(update: ViewUpdate) {
         if (update.docChanged) {
           version++;
-          doc.edit(toChanges(update.changes));
+          if (edits) doc.edit(toChanges(update.changes));
+          else queueMicrotask(() => destroyed || request());
         }
-        if (update.docChanged || update.viewportChanged) request();
+        if (update.viewportChanged || (update.docChanged && edits)) request();
       },
       destroy() {
         // The document belongs to the buffer, which outlives this view.
