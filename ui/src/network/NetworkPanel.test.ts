@@ -137,6 +137,9 @@ describe("NetworkPanel", () => {
     expect(note?.querySelector("p")?.textContent).not.toContain("zbus");
     expect($("details [data-testid=store-reason]")?.textContent).toBe("zbus error: Failed to connect (os error 2)");
     expect($("form[aria-label='Add a secret']")).toBeNull();
+    // The pressed button went: focus is on what the person can do next.
+    await settle();
+    expect(document.activeElement).toBe($("[data-testid=store-retry]"));
 
     core.store = { state: "available", name: "Secret Service" };
     $<HTMLButtonElement>("[data-testid=store-retry]")?.click();

@@ -2,7 +2,7 @@
 // Network and secrets, the Network pane of Settings: the hosts the open
 // project's agents may reach and the tokens the netproxy adds for them. A
 // token's value is typed here, sent to the core once and never shown again.
-import { untrack } from "svelte";
+import { tick, untrack } from "svelte";
 import { NO_SANDBOX } from "../agents/sandbox";
 import { agentSessions } from "../agents/sessions.svelte";
 import type { AllowedHost, SessionInfo } from "../lib/protocol";
@@ -38,6 +38,14 @@ const bare = $derived(exposed.filter((s) => s.sandbox === null).length);
 const sandbox = $derived(workspace.project ? projectSandbox(sessions.inProject(workspace.project.id)) : null);
 /** The person is adding a secret: only then the form, and whether the keychain can keep it. */
 let addingSecret = $state(false);
+let root = $state<HTMLElement>();
+
+/** The pressed button goes: focus moves on to the form's first field, or to Check again without a keychain. */
+async function openSecretForm(): Promise<void> {
+  addingSecret = true;
+  await tick();
+  root?.querySelector<HTMLElement>("[data-testid=secret-name], [data-testid=store-retry]")?.focus();
+}
 // What the sandbox of the project's live sessions does not cover, each once.
 const gaps = $derived(
   workspace.project
@@ -170,7 +178,7 @@ async function removeSecret(secretName: string): Promise<void> {
 }
 </script>
 
-<div class="network" data-testid="network">
+<div class="network" data-testid="network" bind:this={root}>
   {#if workspace.project}
     {#if access.error}
       <p class="error" role="alert">Could not read the project's network settings: {access.error}</p>
@@ -274,7 +282,7 @@ async function removeSecret(secretName: string): Promise<void> {
           </ul>
         {/if}
         {#if !addingSecret}
-          <button type="button" data-testid="add-secret" onclick={() => (addingSecret = true)}>Add secret…</button>
+          <button type="button" data-testid="add-secret" onclick={() => void openSecretForm()}>Add secret…</button>
         {:else if access.store?.state === "unavailable"}
           <div class="warn" role="note" data-testid="store-unavailable">
             <p>

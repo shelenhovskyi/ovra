@@ -24,7 +24,8 @@ test("a project's allowed hosts are added in Settings and kept", async ({ page }
   await dialog.getByTestId("add-host").fill("registry.npmjs.org");
   await dialog.getByRole("button", { name: "Allow", exact: true }).click();
   await expect(dialog.getByTestId("allowed-host")).toHaveText(/registry\.npmjs\.org/);
-  // Whether a keychain exists depends on the machine; either way the dialog says so.
+  // Whether a keychain exists depends on the machine; either way the pane says so once a secret is added.
+  await dialog.getByRole("button", { name: "Add secret…" }).click();
   await expect(dialog.getByTestId("store-available").or(dialog.getByTestId("store-unavailable"))).toBeVisible();
 
   await page.keyboard.press("Escape");
