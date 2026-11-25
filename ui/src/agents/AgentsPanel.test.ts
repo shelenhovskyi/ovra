@@ -167,7 +167,11 @@ describe("AgentsPanel", () => {
       "A plain session",
     ]);
     expect(rows[1]?.classList.contains("worker")).toBe(true);
-    expect(rows[1]?.getAttribute("title")).toBe("Branch ovra/t1/docs");
+    // The whole name shows on hover, should it be cut after two lines.
+    expect(rows.slice(0, 2).map((b) => b.getAttribute("title"))).toEqual([
+      "Task: Write the notes",
+      "docs · Write the notes. Branch ovra/t1/docs",
+    ]);
     // A coordinator that waits while its worker runs is not done.
     const state = () => [...target.querySelectorAll(".sessions .state")].map((s) => s.textContent);
     core.status("s1", { state: "idle" });

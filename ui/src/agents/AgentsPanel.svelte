@@ -269,8 +269,8 @@ const canReply = $derived(current !== null && current.status.state === "idle");
             class:worker={role?.kind === "worker"}
             aria-current={session.id === current?.id ? "true" : undefined}
             title={role?.kind === "worker"
-              ? `Branch ${role.branch}${role.kept ? `. Its folder was kept: ${role.kept}` : ""}`
-              : undefined}
+              ? `${sessions.name(session.id)}. Branch ${role.branch}${role.kept ? `. Its folder was kept: ${role.kept}` : ""}`
+              : sessions.name(session.id)}
             onclick={() => (selected = session.id)}
           >
             <span class="title">{sessions.name(session.id)}</span>
@@ -553,8 +553,11 @@ const canReply = $derived(current !== null && current.status.state === "idle");
   .sessions button {
     width: 100%;
     display: flex;
+    /* A long name takes its own line or two and the state goes under it,
+       so names that differ at their end do not look the same. */
+    flex-wrap: wrap;
     justify-content: space-between;
-    gap: 8px;
+    gap: 2px 8px;
     text-align: left;
     background: transparent;
     border-color: transparent;
@@ -568,9 +571,13 @@ const canReply = $derived(current !== null && current.status.state === "idle");
     border-color: #7aa2ff;
   }
   .title {
+    min-width: 0;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
   }
   .state {
     flex: none;
