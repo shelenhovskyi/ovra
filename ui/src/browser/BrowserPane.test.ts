@@ -189,17 +189,60 @@ describe("the agent browser", () => {
       { kind: "key_down", key: "b", code: "KeyB", text: null, modifiers: 10 },
       { kind: "key_up", key: "a", code: "KeyA", modifiers: 0 },
     ]);
-    // Focus elsewhere pauses control; Shift+Escape ends it.
+    // Focus elsewhere pauses control and lets go of the keys still down; Shift+Escape ends it.
     stage().blur();
     await settle();
     mouse("mousemove", 10, 200);
-    expect(inputs(core)).toHaveLength(7);
+    expect(inputs(core).slice(7)).toEqual([{ kind: "key_up", key: "b", code: "KeyB", modifiers: 0 }]);
     expect($("[data-testid=browser-mode]")?.textContent).toBe("Click the page to control it again.");
     stage().focus();
     key("keydown", { code: "Escape", key: "Escape", shiftKey: true });
     await settle();
-    expect(inputs(core)).toHaveLength(7);
+    expect(inputs(core)).toHaveLength(8);
     expect(button("Take over")?.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("releases the keys it pressed in the page when control ends", async () => {
+    const core = await setup();
+    button("Take over")?.click();
+    await settle();
+    key("keydown", { code: "ShiftLeft", key: "Shift", shiftKey: true });
+    key("keydown", { code: "Escape", key: "Escape", shiftKey: true });
+    await settle();
+    expect(inputs(core).slice(-1)).toEqual([{ kind: "key_up", key: "Shift", code: "ShiftLeft", modifiers: 0 }]);
+    key("keyup", { code: "ShiftLeft", key: "Shift" });
+    await settle();
+    expect(inputs(core)).toHaveLength(2);
+    // Focus leaving the page mid-chord releases the keys too; Alt chords type nothing.
+    button("Give back")?.click();
+    button("Take over")?.click();
+    await settle();
+    key("keydown", { code: "ControlLeft", key: "Control", ctrlKey: true });
+    key("keydown", { code: "KeyP", key: "P", altKey: true, shiftKey: true });
+    stage().blur();
+    await settle();
+    expect(inputs(core).slice(2)).toEqual([
+      { kind: "key_down", key: "Control", code: "ControlLeft", text: null, modifiers: 2 },
+      { kind: "key_down", key: "P", code: "KeyP", text: null, modifiers: 9 },
+      { kind: "key_up", key: "P", code: "KeyP", modifiers: 2 },
+      { kind: "key_up", key: "Control", code: "ControlLeft", modifiers: 0 },
+    ]);
+  });
+
+  it("survives its page closing with the session and shows the next one", async () => {
+    const core = await setup();
+    const errors: unknown[] = [];
+    const onError = (event: ErrorEvent) => errors.push(event.error);
+    window.addEventListener("error", onError);
+    core.pages("s1", []);
+    await settle();
+    window.removeEventListener("error", onError);
+    expect(errors).toEqual([]);
+    expect(core.sent("browser.screencast").at(-1)).toEqual({ page: "pg1", on: false });
+    expect(target.textContent).toContain("No pages open");
+    core.pages("s1", [{ ...PAGE, id: "pg2" }]);
+    await settle();
+    expect(stage()).not.toBeNull();
   });
 
   it("picks elements with an overlay of its own, Arrow Up and Down, and notes", async () => {

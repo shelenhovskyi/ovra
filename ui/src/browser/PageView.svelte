@@ -22,9 +22,11 @@ const BUTTONS: (MouseButton | undefined)[] = ["left", "middle", "right"];
 const { transport } = useOvra();
 const browsers = sessionBrowsers(transport);
 const picks = browserPicks(transport);
-// The pane mounts a new view for every page.
+// The pane mounts a new view for every page, and its cleanups run after the
+// pane's page is gone: they use the id and session it had.
 // svelte-ignore state_referenced_locally
-const picker = new Picker(transport, page.id);
+const { id, session } = page;
+const picker = new Picker(transport, id);
 $effect(() => () => picker.stop());
 
 let stage = $state<HTMLElement>();
@@ -57,7 +59,7 @@ let bitmap: ImageBitmap | null = null;
 
 $effect(() =>
   transport.onEvent((event) => {
-    if (event.type !== "browser.frame" || event.data.page !== page.id) return;
+    if (event.type !== "browser.frame" || event.data.page !== id) return;
     next = event.data;
     if (!decoding) void decode();
   }),
@@ -144,7 +146,7 @@ let casting = false;
 function screencast(on: boolean): void {
   if (casting === on) return;
   casting = on;
-  const params = { page: page.id, on };
+  const params = { page: id, on };
   browsers.guard(() => transport.call({ method: "browser.screencast", params })).catch(() => {});
 }
 
@@ -164,7 +166,7 @@ $effect(() =>
 );
 
 function input(event: InputEvent): Promise<unknown> {
-  return browsers.guard(() => transport.call({ method: "browser.input", params: { page: page.id, event } }));
+  return browsers.guard(() => transport.call({ method: "browser.input", params: { page: id, event } }));
 }
 
 function send(event: InputEvent): void {
@@ -250,7 +252,7 @@ async function onClick(event: MouseEvent): Promise<void> {
   const scroll = { x: meta?.scroll_x ?? 0, y: meta?.scroll_y ?? 0 };
   const pick = await picker.take(at);
   if (!pick) return;
-  picks.add(page.session, page.id, pick, scroll);
+  picks.add(session, id, pick, scroll);
   if (!more) picker.stop();
 }
 
@@ -276,9 +278,9 @@ $effect(() => {
   return () => el.removeEventListener("wheel", onWheel);
 });
 
-/** What a key types, as CDP wants it: Enter types a carriage return. */
+/** What a key types, as CDP wants it: Enter types a carriage return. Option types on Apple keyboards only. */
 function typed(event: KeyboardEvent): string | null {
-  if (event.ctrlKey || event.metaKey) return null;
+  if (event.ctrlKey || event.metaKey || (event.altKey && !isApple())) return null;
   if (event.key === "Enter") return "\r";
   return [...event.key].length === 1 ? event.key : null;
 }
@@ -300,13 +302,32 @@ function onKeyDown(event: KeyboardEvent): void {
     return;
   }
   send({ kind: "key_down", key: event.key, code: event.code, text: typed(event), modifiers: modifiers(event) });
+  held.set(event.code, event.key);
 }
 
 function onKeyUp(event: KeyboardEvent): void {
-  if (!controlling || event.isComposing) return;
+  if (event.isComposing || !held.has(event.code)) return;
   event.preventDefault();
+  held.delete(event.code);
   send({ kind: "key_up", key: event.key, code: event.code, modifiers: modifiers(event) });
 }
+
+/** Keys pressed in the page and not released there yet: `code` to `key`. */
+const held = new Map<string, string>();
+const MODIFIER_BITS: Record<string, number> = { Alt: 1, Control: 2, Meta: 4, Shift: 8 };
+
+/** Releases every held key, newest first, so the page never keeps Shift down after control ends. */
+function release(): void {
+  for (const [code, key] of [...held].reverse()) {
+    held.delete(code);
+    const still = [...held.values()].reduce((bits, k) => bits | (MODIFIER_BITS[k] ?? 0), 0);
+    send({ kind: "key_up", key, code, modifiers: still });
+  }
+}
+
+$effect(() => {
+  if (!controlling) untrack(release);
+});
 </script>
 
 <div class="page-view">
