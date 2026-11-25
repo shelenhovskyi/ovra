@@ -4,6 +4,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use ovra_core::services::CommandLine;
+
 /// The control socket's file name in the pod's folder.
 pub(crate) const CONTROL: &str = "control.sock";
 
@@ -60,6 +62,34 @@ pub(crate) enum Event {
     Exited { id: String, code: Option<i32> },
     /// It never ran.
     Failed { id: String, reason: String },
+}
+
+impl Spawn {
+    /// The spawn of `line`. The control protocol is JSON, so every part of
+    /// it must be UTF-8.
+    pub(crate) fn new(id: String, line: &CommandLine, port: u16) -> Result<Self, String> {
+        let text = |s: &std::ffi::OsStr| {
+            s.to_str()
+                .map(str::to_owned)
+                .ok_or_else(|| format!("not UTF-8: {}", s.to_string_lossy()))
+        };
+        let mut argv = vec![text(line.program.as_os_str())?];
+        for arg in &line.args {
+            argv.push(text(arg)?);
+        }
+        let env = line
+            .env
+            .iter()
+            .map(|(k, v)| Ok((text(k)?, v.as_deref().map(text).transpose()?)))
+            .collect::<Result<_, String>>()?;
+        Ok(Self {
+            id,
+            argv,
+            env,
+            cwd: text(line.cwd.as_os_str())?,
+            port,
+        })
+    }
 }
 
 /// One message as a line, with its `\n`.
@@ -155,6 +185,23 @@ mod tests {
             let line = encode(&request);
             assert_eq!(serde_json::from_slice(&line).ok(), Some(request));
         }
+    }
+
+    #[test]
+    fn a_command_line_becomes_a_spawn_if_it_is_utf8() {
+        use std::os::unix::ffi::OsStringExt as _;
+        let mut line = CommandLine {
+            program: "pnpm".into(),
+            args: vec!["dev".into()],
+            env: vec![("PORT".into(), Some("5173".into())), ("CI".into(), None)],
+            cwd: "/w/ui".into(),
+        };
+        let spawn = Spawn::new("3".into(), &line, 5173).expect("utf-8");
+        assert_eq!(spawn.argv, ["pnpm", "dev"]);
+        assert_eq!(spawn.env[1], ("CI".into(), None));
+        assert_eq!(spawn.cwd, "/w/ui");
+        line.args.push(std::ffi::OsString::from_vec(vec![0xff]));
+        assert!(Spawn::new("1".into(), &line, 3000).is_err());
     }
 
     #[test]

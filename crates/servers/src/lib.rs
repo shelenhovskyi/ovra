@@ -2,25 +2,30 @@
 //! (`docs/specs/servers-and-browser.md`, ADR 0008).
 //! Contract: `ovra_core::services::DevServers`.
 //!
-//! Pod mode ([`pod_init_if_asked`]) is built; until `PodServers` drives
-//! pods, every server answers `unavailable`.
+//! A pod is this program itself in pod mode ([`pod_init_if_asked`]),
+//! started through the `Sandbox` with the pod's profile. Ovra drives it
+//! over `<pod dir>/control.sock` (`control`); each server port is reached
+//! through `<pod dir>/<port>.sock`, never through a host port. Without a
+//! sandbox (or a Unix system) nothing runs.
 
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
 use ovra_core::protocol::servers::ServerId;
-use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::{
-    BoxFuture, DevServerSpec, DevServers, PodConn, PodSpec, Result, SandboxStatus, ServerSink,
+    BoxFuture, DevServerSpec, DevServers, PodConn, PodSpec, Result, Sandbox, SandboxStatus,
+    ServerSink,
 };
 
 #[cfg(unix)]
 mod control;
 #[cfg(unix)]
 mod init;
-
-const NOT_YET: &str = "managed servers are not built yet";
+#[cfg(unix)]
+mod pods;
+#[cfg(unix)]
+mod ready;
 
 /// If this process was started as a server pod, runs it and never
 /// returns. Otherwise returns at once. Call it first in `main`, before any
@@ -31,85 +36,81 @@ pub fn pod_init_if_asked() {
 }
 
 /// The real dev servers.
-#[derive(Debug, Default)]
-pub struct PodServers {}
+#[derive(Debug)]
+pub struct PodServers {
+    #[cfg(unix)]
+    pods: pods::Pods,
+}
 
 impl PodServers {
-    pub fn new() -> Self {
-        Self {}
+    /// Servers in pods made by `sandbox`, with each pod's folder in `dir`
+    /// (keep it short: Unix socket paths are limited to about 100 bytes).
+    pub fn new(sandbox: Arc<dyn Sandbox>, dir: PathBuf) -> Self {
+        #[cfg(not(unix))]
+        let _ = (sandbox, dir);
+        Self {
+            #[cfg(unix)]
+            pods: pods::Pods::new(sandbox, dir),
+        }
+    }
+
+    /// The program that calls [`pod_init_if_asked`] first thing; by
+    /// default this process's own executable.
+    #[cfg_attr(not(unix), allow(unused_mut))]
+    pub fn program(mut self, program: PathBuf) -> Self {
+        #[cfg(unix)]
+        {
+            self.pods.program = program;
+        }
+        #[cfg(not(unix))]
+        let _ = program;
+        self
     }
 }
 
-fn unavailable<T>() -> Result<T> {
-    Err(ProtocolError::new(ErrorCode::Unavailable, NOT_YET))
+#[cfg(unix)]
+impl DevServers for PodServers {
+    fn status(&self) -> SandboxStatus {
+        self.pods.status()
+    }
+
+    fn start(&self, pod: &PodSpec, server: DevServerSpec, sink: Arc<dyn ServerSink>) -> Result<()> {
+        self.pods.start(pod, server, sink)
+    }
+
+    fn stop(&self, id: &ServerId, grace: Duration) {
+        self.pods.stop(id, grace);
+    }
+
+    fn connect(&self, work_dir: PathBuf, port: u16) -> BoxFuture<'_, Result<PodConn>> {
+        Box::pin(self.pods.connect(work_dir, port))
+    }
 }
 
+#[cfg(not(unix))]
+const NO_PODS: &str = "managed servers need a sandbox, and this system has none yet";
+
+#[cfg(not(unix))]
 impl DevServers for PodServers {
     fn status(&self) -> SandboxStatus {
         SandboxStatus::Unavailable {
-            reason: NOT_YET.into(),
+            reason: NO_PODS.into(),
         }
     }
 
     fn start(&self, _: &PodSpec, _: DevServerSpec, _: Arc<dyn ServerSink>) -> Result<()> {
-        unavailable()
+        Err(unavailable())
     }
 
     fn stop(&self, _: &ServerId, _: Duration) {}
 
     fn connect(&self, _: PathBuf, _: u16) -> BoxFuture<'_, Result<PodConn>> {
-        Box::pin(async { unavailable() })
+        Box::pin(async { Err(unavailable()) })
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use ovra_core::protocol::projects::ProjectId;
-    use ovra_core::protocol::servers::ServerStatus;
-    use ovra_core::services::{CommandLine, ProfileNetwork, SandboxProfile};
-
-    use super::*;
-
-    #[derive(Debug)]
-    struct Ignore;
-
-    impl ServerSink for Ignore {
-        fn output(&self, _: &ServerId, _: u64, _: Vec<String>) {}
-        fn status(&self, _: &ServerId, _: u64, _: ServerStatus) {}
-    }
-
-    #[test]
-    fn every_start_answers_unavailable() {
-        let servers = PodServers::new();
-        assert!(matches!(
-            servers.status(),
-            SandboxStatus::Unavailable { .. }
-        ));
-        let pod = PodSpec {
-            project: ProjectId("p1".into()),
-            work_dir: "/w".into(),
-            profile: SandboxProfile {
-                work_dir: "/w".into(),
-                read: Vec::new(),
-                write: Vec::new(),
-                expose: vec![5173],
-                forward: Vec::new(),
-                network: ProfileNetwork::Blocked,
-            },
-        };
-        let server = DevServerSpec {
-            id: ServerId("srv1".into()),
-            generation: 1,
-            line: CommandLine {
-                program: "pnpm".into(),
-                args: vec!["dev".into()],
-                env: Vec::new(),
-                cwd: "/w".into(),
-            },
-            port: 5173,
-            ready: None,
-        };
-        let started = servers.start(&pod, server, Arc::new(Ignore));
-        assert_eq!(started.err().map(|e| e.code), Some(ErrorCode::Unavailable));
-    }
+#[cfg(not(unix))]
+fn unavailable() -> ovra_core::protocol::ProtocolError {
+    use ovra_core::protocol::{ErrorCode, ProtocolError};
+    ProtocolError::new(ErrorCode::Unavailable, NO_PODS)
 }
