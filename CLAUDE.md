@@ -41,6 +41,10 @@ Before every push: `just test && just e2e && just lint` must pass.
 - `crates/worktree` - `Worktrees`: git worktrees, snapshots and review diffs.
 - `crates/netproxy` - `NetProxy`: per-session HTTP proxies with a host
   allowlist, the sandbox's only way out.
+- `crates/servers` - `DevServers`: the project's dev servers in sandbox pods,
+  one per work dir (ADR 0008).
+- `crates/browser` - `Browser`: a sandboxed Chromium per agent session, driven
+  over a CDP pipe (ADR 0009).
 - `crates/sandbox` - `Sandbox`: the protected paths every platform shares (the
   `work_dir` list is defined in `ovra-core`, `src/protected.rs`, and
   re-exported here) and the sandbox for this OS.

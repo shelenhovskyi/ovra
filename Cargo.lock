@@ -3404,6 +3404,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ovra-browser"
+version = "0.1.0"
+dependencies = [
+ "ovra-core",
+]
+
+[[package]]
 name = "ovra-core"
 version = "0.1.0"
 dependencies = [
@@ -3558,6 +3565,13 @@ dependencies = [
  "ovra-sandbox",
  "ovra-sandbox-linux",
  "tokio",
+]
+
+[[package]]
+name = "ovra-servers"
+version = "0.1.0"
+dependencies = [
+ "ovra-core",
 ]
 
 [[package]]

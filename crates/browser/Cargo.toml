@@ -1,0 +1,14 @@
+[package]
+name = "ovra-browser"
+description = "The agent browser: a sandboxed Chromium driven over a CDP pipe (implements ovra_core::services::Browser)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+ovra-core.workspace = true
+
+[lints]
+workspace = true
