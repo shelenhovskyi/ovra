@@ -44,8 +44,8 @@ const MIN_TOKEN_TAIL: usize = 8;
 
 /// Header names whose value is cut out of any text, compared in lower case
 /// (`cookie` also covers `Set-Cookie`, `authorization` also
-/// `Proxy-Authorization`), when a `:` or `=` follows them, also after a
-/// closing quote (`"Authorization": "..."`, `Authorization:"..."`).
+/// `Proxy-Authorization`), when a separator follows them (see
+/// [`redact_headers`]).
 const SECRET_HEADERS: [&str; 2] = ["authorization", "cookie"];
 
 /// Field names whose value is never kept, whatever it is: compared in
@@ -185,6 +185,12 @@ pub(crate) fn redact_text(text: &str) -> String {
 
 /// Cuts the value after each secret header name: a quoted value up to its
 /// closing quote, any other up to the end of the line or a quote.
+///
+/// The name may be quoted, also with escaped quotes (`\"Cookie\"`, as in a
+/// JSON body inside a shell command), and closed by `]` (`h["Cookie"] = `).
+/// It is separated from its value by `:`, `=`, `=>` or, after a quoted
+/// name, `,` (`set("Cookie", ...)`). Inside a quoted value an escaped quote
+/// does not close it.
 fn redact_headers(text: &str) -> String {
     // ASCII lower-casing keeps every byte where it was.
     let lower = text.to_ascii_lowercase();
@@ -193,6 +199,15 @@ fn redact_headers(text: &str) -> String {
         while matches!(bytes.get(*i), Some(b' ' | b'\t')) {
             *i += 1;
         }
+    };
+    // An opening or closing quote at `i`, maybe escaped: the quote and
+    // whether it was.
+    let quote = |i: &mut usize| {
+        let escaped = bytes.get(*i) == Some(&b'\\');
+        let at = *i + usize::from(escaped);
+        let quote = *bytes.get(at).filter(|b| matches!(b, b'"' | b'\''))?;
+        *i = at + 1;
+        Some((quote, escaped))
     };
     let mut out = String::with_capacity(text.len());
     let mut copied = 0;
@@ -203,26 +218,44 @@ fn redact_headers(text: &str) -> String {
         .min()
     {
         let mut i = start + len;
-        if matches!(bytes.get(i), Some(b'"' | b'\'')) {
+        let quoted = quote(&mut i).is_some();
+        if quoted && bytes.get(i) == Some(&b']') {
             i += 1;
         }
         blank(&mut i);
-        if !matches!(bytes.get(i), Some(b':' | b'=')) {
-            at = start + len;
-            continue;
-        }
-        i += 1;
-        blank(&mut i);
-        let (value, end) = match bytes.get(i) {
-            Some(&quote @ (b'"' | b'\'')) => {
-                let value = i + 1;
-                let end = bytes[value..]
-                    .iter()
-                    .position(|b| *b == quote)
-                    .map_or(bytes.len(), |n| value + n);
-                (value, end)
+        match bytes.get(i) {
+            Some(b':') => i += 1,
+            Some(b'=') => {
+                i += if bytes.get(i + 1) == Some(&b'>') {
+                    2
+                } else {
+                    1
+                }
             }
+            Some(b',') if quoted => i += 1,
             _ => {
+                at = start + len;
+                continue;
+            }
+        }
+        blank(&mut i);
+        let (value, end) = match quote(&mut i) {
+            Some((quote, escaped)) => {
+                let value = i;
+                // The first quote that is not escaped, or, in a value that
+                // opened with an escaped one, the first quote at all.
+                let end = (value..bytes.len())
+                    .find(|&n| bytes[n] == quote && (escaped || bytes[n - 1] != b'\\'))
+                    .map_or(bytes.len(), |n| {
+                        if escaped && bytes[n - 1] == b'\\' {
+                            n - 1
+                        } else {
+                            n
+                        }
+                    });
+                (value, end.max(value))
+            }
+            None => {
                 let end = bytes[i..]
                     .iter()
                     .position(|b| matches!(b, b'"' | b'\'' | b'\r' | b'\n'))

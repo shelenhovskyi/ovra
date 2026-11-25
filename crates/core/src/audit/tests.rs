@@ -304,6 +304,48 @@ mod inputs {
         assert!(kept.contains(r#""max_tokens":5"#), "{kept}");
     }
 
+    /// Each command keeps `abc123` (and what follows it) out of the log.
+    fn header_value_is_gone(command: &str) {
+        let kept = text("Bash", json!({ "command": command }));
+        assert!(!kept.contains("abc123"), "{kept}");
+        assert!(!kept.contains("tail"), "{kept}");
+        assert!(kept.contains(REDACTED), "{kept}");
+    }
+
+    #[test]
+    fn header_values_behind_escaped_quotes_are_removed() {
+        header_value_is_gone(
+            r#"python -c "requests.get(u, headers={\"Authorization\": \"Bearer abc123 tail\"})""#,
+        );
+        header_value_is_gone(r#"curl -d "{\"Cookie\":\"abc123 tail\"}" u"#);
+        // An escaped quote inside a quoted value does not end it.
+        header_value_is_gone(r#"curl -H 'Authorization: "Bearer ab\"c123 tail"' u"#);
+        header_value_is_gone(r#"node -e 'h = {"cookie": "a\"bc123 tail"}'"#);
+    }
+
+    #[test]
+    fn header_values_after_a_comma_after_the_name_are_removed() {
+        header_value_is_gone(r#"node -e 'req.headers.set("Authorization", "Bearer abc123 tail")'"#);
+        header_value_is_gone(r#"node -e "headers.append('Cookie','abc123 tail')""#);
+        header_value_is_gone(r#"python -c 'h = [("authorization", "abc123 tail")]'"#);
+        // Without a quoted name, a comma is just prose.
+        let kept = text("Bash", json!({"command": "echo cookie, fine"}));
+        assert!(kept.contains("cookie, fine"), "{kept}");
+    }
+
+    #[test]
+    fn header_values_after_a_bracket_after_the_name_are_removed() {
+        header_value_is_gone(r#"node -e 'headers["Authorization"] = "Bearer abc123 tail"'"#);
+        header_value_is_gone(r#"php -r "\$h[\"Cookie\"]=\"abc123 tail\";""#);
+    }
+
+    #[test]
+    fn header_values_after_a_fat_arrow_are_removed() {
+        header_value_is_gone(r#"ruby -e 'get(u, {"Authorization" => "Bearer abc123 tail"})'"#);
+        header_value_is_gone(r#"php -r "['Cookie'=>'abc123 tail'];""#);
+        header_value_is_gone(r#"perl -e 'my %h = (Authorization => "abc123 tail");'"#);
+    }
+
     #[test]
     fn long_inputs_are_cut_without_leaking_a_token_cut_in_half() {
         let token = "ghp_0123456789abcdefABCDEF";
