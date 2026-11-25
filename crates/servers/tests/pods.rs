@@ -27,6 +27,7 @@ impl Sandbox for Identity {
         if self.0 {
             SandboxStatus::Available {
                 name: "identity".into(),
+                gaps: Vec::new(),
             }
         } else {
             SandboxStatus::Unavailable {
