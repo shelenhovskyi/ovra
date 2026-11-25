@@ -12,7 +12,8 @@ use crate::protocol::orchestration::DiskUsage;
 use crate::protocol::review::ChangeKind;
 use crate::protocol::{ErrorCode, ProtocolError};
 use crate::services::{
-    BoxFuture, Delta, GitFiles, Included, IncludedFile, Result, Taken, WorktreeInfo, Worktrees,
+    BoxFuture, CommitAuthor, Delta, GitFiles, Included, IncludedFile, Picked, Result, Taken,
+    WorktreeInfo, Worktrees,
 };
 
 type Files = BTreeMap<String, String>;
@@ -405,6 +406,47 @@ impl Worktrees for MemoryWorktrees {
         })
     }
 
+    fn pick(
+        &self,
+        _root: PathBuf,
+        base: String,
+        start: String,
+        reviewed: String,
+        _message: String,
+        _author: Option<CommitAuthor>,
+    ) -> BoxFuture<'_, Result<Picked>> {
+        Box::pin(async move {
+            let (mut tree, start, reviewed) = (
+                self.commit_files(&base)?,
+                self.commit_files(&start)?,
+                self.commit_files(&reviewed)?,
+            );
+            let ours = tree.clone();
+            let mut conflicts = Vec::new();
+            let paths: std::collections::BTreeSet<&String> =
+                start.keys().chain(reviewed.keys()).collect();
+            for path in paths {
+                let (was, now, there) = (start.get(path), reviewed.get(path), ours.get(path));
+                if was == now || there == now {
+                    continue;
+                }
+                if there != was {
+                    conflicts.push(path.clone());
+                    continue;
+                }
+                match now {
+                    Some(text) => tree.insert(path.clone(), text.clone()),
+                    None => tree.remove(path),
+                };
+            }
+            if conflicts.is_empty() {
+                Ok(Picked::Commit(self.record(tree)))
+            } else {
+                Ok(Picked::Conflicts(conflicts))
+            }
+        })
+    }
+
     fn include(&self, root: PathBuf, dir: PathBuf) -> BoxFuture<'_, Result<Included>> {
         Box::pin(async move {
             let included = lock(&self.to_include).clone();
@@ -519,6 +561,40 @@ mod tests {
                 .await
                 .is_ok()
         );
+    }
+
+    #[tokio::test]
+    async fn a_pick_keeps_the_workers_changes_and_drops_what_both_sides_hold() {
+        let w = MemoryWorktrees::default();
+        // The person's checkout: committed `a`, uncommitted `mine`.
+        w.put("/main", "a", "1\n");
+        let base = w.snapshot("/main".into()).await.unwrap_or_default();
+        w.put("/main", "mine", "draft\n");
+        let start = w.snapshot("/main".into()).await.unwrap_or_default();
+        w.put("/main", "b", "worker\n");
+        w.delete("/main", "a");
+        let reviewed = w.snapshot("/main".into()).await.unwrap_or_default();
+        let pick = |base: &str| {
+            w.pick(
+                "/main".into(),
+                base.into(),
+                start.clone(),
+                reviewed.clone(),
+                "m".into(),
+                None,
+            )
+        };
+        let Ok(Picked::Commit(id)) = pick(&base).await else {
+            panic!("no commit");
+        };
+        let files = w.commit_files(&id).unwrap_or_default();
+        assert_eq!(files.keys().collect::<Vec<_>>(), ["b"]);
+
+        // The base changed `a` too: a conflict, and nothing is committed.
+        w.put("/other", "a", "2\n");
+        let moved = w.snapshot("/other".into()).await.unwrap_or_default();
+        let conflicts = pick(&moved).await;
+        assert_eq!(conflicts.ok(), Some(Picked::Conflicts(vec!["a".into()])));
     }
 
     #[tokio::test]

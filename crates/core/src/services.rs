@@ -34,6 +34,7 @@ use crate::protocol::lsp::KnownServer;
 use crate::protocol::netproxy::{Allowlist, NetproxyEvent};
 use crate::protocol::orchestration::DiskUsage;
 use crate::protocol::policy::Policy;
+use crate::protocol::pr::{GhStatus, PrDraft, PrInfo, PrStatus};
 use crate::protocol::projects::{Project, ProjectId, ProjectState, ProjectStatePatch};
 use crate::protocol::review::ChangeKind;
 use crate::protocol::search::{SearchId, SearchQuery};
@@ -1104,6 +1105,22 @@ pub trait Worktrees: Send + Sync + Debug {
     /// checkout and its worktrees) except those in `keep`, so that git can
     /// collect them. The core calls it when reviews no longer need them.
     fn prune_snapshots(&self, root: PathBuf, keep: Vec<String>) -> BoxFuture<'_, Result<()>>;
+    /// Commits the changes from `start` to `reviewed` on top of `base`
+    /// (commits of the repository at `root`) without a working tree: a
+    /// three-way merge with `start` as the merge base, so what both hold
+    /// (the person's uncommitted work in a worker's start snapshot) drops
+    /// out. The commit has `base` as its only parent, `message`, and
+    /// `author` (`None`: the person's `user.name` and `user.email`); no
+    /// hooks run, and it is signed when the person's config says so.
+    fn pick(
+        &self,
+        root: PathBuf,
+        base: String,
+        start: String,
+        reviewed: String,
+        message: String,
+        author: Option<CommitAuthor>,
+    ) -> BoxFuture<'_, Result<Picked>>;
     /// Deletes a worker's `branch` in the repository at `root`. Refused
     /// (`Conflict`) while it has commits that are neither in `base` nor in
     /// HEAD. A branch that is already gone is fine.
@@ -1156,6 +1173,23 @@ pub struct SkippedInclude {
     pub reason: String,
 }
 
+/// Who a [`Worktrees::pick`] commit is by.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommitAuthor {
+    pub name: String,
+    pub email: String,
+}
+
+/// What [`Worktrees::pick`] made.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Picked {
+    /// The new commit's id.
+    Commit(String),
+    /// Nothing was committed: these files (relative to the repository's
+    /// top) changed on both sides.
+    Conflicts(Vec<String>),
+}
+
 /// What [`Worktrees::take`] did.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Taken {
@@ -1166,6 +1200,37 @@ pub struct Taken {
     pub after: String,
     /// Paths left as they were.
     pub skipped: Vec<String>,
+}
+
+/// Pushes and pull requests with the person's installed `gh` and `git`
+/// (implemented by `ovra-forge`; ADR 0010, `docs/specs/pr-flow.md`). The
+/// only service that starts processes using the person's GitHub login: it
+/// never reads their credentials, passes remotes by name and removes the
+/// user part of any URL in what it reports. `root` is the project root.
+pub trait Forge: Send + Sync + Debug {
+    /// Whether `gh` is installed and signed in for `remote`'s host.
+    fn status(&self, root: PathBuf, remote: String) -> BoxFuture<'_, Result<GhStatus>>;
+    /// `git fetch <remote> <branch>`; returns the commit it is at.
+    fn fetch(&self, root: PathBuf, remote: String, branch: String)
+    -> BoxFuture<'_, Result<String>>;
+    /// Pushes `commit` to `refs/heads/<branch>` on `remote`, never forced
+    /// and without hooks. Refused (`Conflict`) unless the remote branch is
+    /// at `expect` now (`None`: it does not exist yet).
+    fn push(
+        &self,
+        root: PathBuf,
+        remote: String,
+        commit: String,
+        branch: String,
+        expect: Option<String>,
+    ) -> BoxFuture<'_, Result<()>>;
+    /// `gh pr create` from a pushed branch.
+    fn create(&self, root: PathBuf, draft: PrDraft) -> BoxFuture<'_, Result<PrInfo>>;
+    /// `gh pr view`: state and checks of pull request `number`.
+    fn view(&self, root: PathBuf, number: u64) -> BoxFuture<'_, Result<PrStatus>>;
+    /// The failed steps' log of workflow run `run`: its last 200 lines, at
+    /// most 32 KiB.
+    fn failed_log(&self, root: PathBuf, run: u64) -> BoxFuture<'_, Result<String>>;
 }
 
 /// The git panel's operations on a project's main checkout (implemented by
@@ -1536,6 +1601,45 @@ impl Worktrees for Unavailable {
     }
     fn delete_branch(&self, _: PathBuf, _: String, _: String) -> BoxFuture<'_, Result<()>> {
         Box::pin(async move { self.err() })
+    }
+    fn pick(
+        &self,
+        _: PathBuf,
+        _: String,
+        _: String,
+        _: String,
+        _: String,
+        _: Option<CommitAuthor>,
+    ) -> BoxFuture<'_, Result<Picked>> {
+        self.later()
+    }
+}
+
+impl Forge for Unavailable {
+    fn status(&self, _: PathBuf, _: String) -> BoxFuture<'_, Result<GhStatus>> {
+        self.later()
+    }
+    fn fetch(&self, _: PathBuf, _: String, _: String) -> BoxFuture<'_, Result<String>> {
+        self.later()
+    }
+    fn push(
+        &self,
+        _: PathBuf,
+        _: String,
+        _: String,
+        _: String,
+        _: Option<String>,
+    ) -> BoxFuture<'_, Result<()>> {
+        self.later()
+    }
+    fn create(&self, _: PathBuf, _: PrDraft) -> BoxFuture<'_, Result<PrInfo>> {
+        self.later()
+    }
+    fn view(&self, _: PathBuf, _: u64) -> BoxFuture<'_, Result<PrStatus>> {
+        self.later()
+    }
+    fn failed_log(&self, _: PathBuf, _: u64) -> BoxFuture<'_, Result<String>> {
+        self.later()
     }
 }
 

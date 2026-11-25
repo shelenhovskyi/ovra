@@ -26,7 +26,8 @@ use ovra_core::path::RelPath;
 use ovra_core::protocol::orchestration::DiskUsage;
 use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::{
-    BoxFuture, Delta, GitFiles, Included, IncludedFile, Result, Taken, WorktreeInfo, Worktrees,
+    BoxFuture, CommitAuthor, Delta, GitFiles, Included, IncludedFile, Picked, Result, Taken,
+    WorktreeInfo, Worktrees,
 };
 
 use crate::git::Git;
@@ -353,6 +354,18 @@ impl Worktrees for GitWorktrees {
         _included: Vec<IncludedFile>,
     ) -> BoxFuture<'_, Result<()>> {
         blocking(move || remove(&root, &dir))
+    }
+
+    fn pick(
+        &self,
+        _: PathBuf,
+        _: String,
+        _: String,
+        _: String,
+        _: String,
+        _: Option<CommitAuthor>,
+    ) -> BoxFuture<'_, Result<Picked>> {
+        not_yet("committing a reviewed worker for a pull request")
     }
 
     fn include(&self, _: PathBuf, _: PathBuf) -> BoxFuture<'_, Result<Included>> {

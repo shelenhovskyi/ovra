@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 mod browser;
+mod forge;
 mod git;
 mod lsp;
 mod servers;
@@ -27,6 +28,7 @@ macro_rules! test_path {
 }
 
 pub use browser::{FAKE_PNG, FakeBrowser, FakePage};
+pub use forge::MemoryForge;
 pub use git::MemoryGit;
 pub use lsp::{FakeLanguageServers, FakeServer, HostRecord};
 pub use servers::{FakeDevServer, FakeDevServers};

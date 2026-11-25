@@ -20,7 +20,7 @@ use crate::protocol::{ErrorCode, Event, OkResponse, ProtocolError, Request, Resp
 use crate::search::{self, Searches};
 use crate::servers::DevServerState;
 use crate::services::{
-    AgentRuntime, AuditLog, Browser, DevServers, EventSink, FsService, GitService, IdeTools,
+    AgentRuntime, AuditLog, Browser, DevServers, EventSink, Forge, FsService, GitService, IdeTools,
     LanguageServers, NetProxy, Opener, ProjectStore, Secrets, SessionStore, TerminalService,
     Unavailable, Worktrees,
 };
@@ -47,6 +47,7 @@ pub struct CoreBuilder {
     lsp: Arc<dyn LanguageServers>,
     dev_servers: Arc<dyn DevServers>,
     browser: Arc<dyn Browser>,
+    forge: Arc<dyn Forge>,
 }
 
 impl CoreBuilder {
@@ -143,6 +144,12 @@ impl CoreBuilder {
         self
     }
 
+    /// Pushes and pull requests through the person's `gh` (ADR 0010).
+    pub fn forge(mut self, forge: Arc<dyn Forge>) -> Self {
+        self.forge = forge;
+        self
+    }
+
     pub fn build(self) -> Core {
         let (events, _) = broadcast::channel(EVENT_CAPACITY);
         let kept = self.sessions.clone();
@@ -156,6 +163,7 @@ impl CoreBuilder {
                 agents: self.agents,
                 dev_servers: DevServerState::new(self.dev_servers, self.netproxy.clone()),
                 browser: crate::browser::BrowserState::new(self.browser),
+                forge: self.forge,
                 sessions: Arc::new(Sessions::new(
                     self.sessions,
                     self.worktrees.clone(),
@@ -218,6 +226,7 @@ struct Inner {
     audit_state: crate::audit::State,
     dev_servers: DevServerState,
     browser: crate::browser::BrowserState,
+    forge: Arc<dyn Forge>,
 }
 
 /// A [`Core`] that does not keep it alive; sessions hold one so their IDE
@@ -297,6 +306,7 @@ impl Core {
             lsp: Arc::new(Unavailable("language servers")),
             dev_servers: Arc::new(Unavailable("servers")),
             browser: Arc::new(Unavailable("the agent browser")),
+            forge: Arc::new(Unavailable("pull requests")),
         }
     }
 
@@ -388,10 +398,7 @@ impl Core {
             Request::Lsp(r) => crate::lsp::handle(self, r).await,
             Request::Servers(r) => crate::servers::handle(self, r).await,
             Request::Browser(r) => crate::browser::handle(self, r).await,
-            Request::Pr(_) => Err(ProtocolError::new(
-                ErrorCode::Unavailable,
-                "pull requests are not available yet",
-            )),
+            Request::Pr(r) => crate::pr::handle(self, r).await,
         }
     }
 
@@ -446,6 +453,10 @@ impl Core {
 
     pub(crate) fn audit_state(&self) -> &crate::audit::State {
         &self.inner.audit_state
+    }
+
+    pub(crate) fn forge(&self) -> &dyn Forge {
+        self.inner.forge.as_ref()
     }
 
     pub(crate) fn dev_servers(&self) -> &DevServerState {

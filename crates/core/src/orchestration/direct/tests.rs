@@ -13,7 +13,9 @@ use crate::fakes::MemoryWorktrees;
 use crate::orchestration::review::Guard;
 use crate::protocol::orchestration::DiskUsage;
 use crate::protocol::review::ChangeKind;
-use crate::services::{BoxFuture, GitFiles, Included, IncludedFile, WorktreeInfo};
+use crate::services::{
+    BoxFuture, CommitAuthor, GitFiles, Included, IncludedFile, Picked, WorktreeInfo,
+};
 
 const DIR: &str = crate::test_path!("/p");
 
@@ -126,6 +128,17 @@ impl Worktrees for Trees {
     }
     fn include(&self, root: PathBuf, dir: PathBuf) -> BoxFuture<'_, Result<Included>> {
         self.mem.include(root, dir)
+    }
+    fn pick(
+        &self,
+        root: PathBuf,
+        base: String,
+        start: String,
+        reviewed: String,
+        message: String,
+        author: Option<CommitAuthor>,
+    ) -> BoxFuture<'_, Result<Picked>> {
+        self.mem.pick(root, base, start, reviewed, message, author)
     }
     fn usage(&self, dir: PathBuf, budget: Duration) -> BoxFuture<'_, Result<DiskUsage>> {
         self.mem.usage(dir, budget)
