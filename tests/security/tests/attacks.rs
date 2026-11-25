@@ -766,7 +766,11 @@ fn a_language_server_reads_the_project_and_writes_only_its_cache() {
         .collect();
     assert_eq!(changed, [cache.join("out"), cache.join("tmp/t")]);
     // The control: without the sandbox every attack works.
-    let control = outside(&world.project, &attacks(&checks), &env);
+    // With the line's TMPDIR, as the sandbox runs it: unset, `$TMPDIR/t`
+    // would be `/t`, which only root can write.
+    let tmp = cache.join("tmp").to_string_lossy().into_owned();
+    let control_env = [env.as_slice(), &[("TMPDIR", tmp.as_str())]].concat();
+    let control = outside(&world.project, &attacks(&checks), &control_env);
     assert_eq!(failed(&control), Vec::<&str>::new(), "{control}");
 }
 
