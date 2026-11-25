@@ -3385,6 +3385,7 @@ dependencies = [
 name = "ovra-app"
 version = "0.1.0"
 dependencies = [
+ "insta",
  "ovra-agent-runtime",
  "ovra-browser",
  "ovra-core",

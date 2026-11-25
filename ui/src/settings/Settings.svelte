@@ -45,7 +45,16 @@ $effect(() =>
 const shortcuts = $derived.by(() => {
   void pane;
   return listCommands().flatMap((c) =>
-    c.keys ? [{ id: c.id, title: c.title, keys: formatShortcut(liveKeys(c.keys, inBrowserTab()), isApple()) }] : [],
+    c.keys
+      ? [
+          {
+            id: c.id,
+            title: c.title,
+            binding: c.keys,
+            keys: formatShortcut(liveKeys(c.keys, inBrowserTab()), isApple()),
+          },
+        ]
+      : [],
   );
 });
 
@@ -138,7 +147,7 @@ function onListKeydown(event: KeyboardEvent): void {
           <table aria-label="Keyboard shortcuts">
             <tbody>
               {#each shortcuts as shortcut (shortcut.id)}
-                <tr><td>{shortcut.title}</td><td><kbd>{shortcut.keys}</kbd></td></tr>
+                <tr data-command={shortcut.id} data-keys={shortcut.binding}><td>{shortcut.title}</td><td><kbd>{shortcut.keys}</kbd></td></tr>
               {/each}
             </tbody>
           </table>

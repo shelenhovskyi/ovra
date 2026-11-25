@@ -1,0 +1,62 @@
+---
+source: app/src/menu.rs
+expression: outline()
+---
+Ovra
+  (About)
+  ---
+  Settings…            CmdOrCtrl+, -> settings.open
+  ---
+  (Services)
+  ---
+  (Hide)
+  (HideOthers)
+  (ShowAll)
+  ---
+  (Quit)
+File
+  New Task             CmdOrCtrl+N -> agents.new_session
+  Open Folder…         CmdOrCtrl+O -> tree.open_folder
+  Open Recent… -> palette.switch_project
+  ---
+  Save                 CmdOrCtrl+S -> editor.save
+  Close Tab            CmdOrCtrl+W -> editor.close_tab
+Edit
+  (Undo)
+  (Redo)
+  ---
+  (Cut)
+  (Copy)
+  (Paste)
+  (SelectAll)
+  ---
+  Find                 CmdOrCtrl+F -> editor.find
+  Find in Files        CmdOrCtrl+Shift+F -> search.show
+View
+  Search or Run…       CmdOrCtrl+K -> palette.search
+  ---
+  Files                CmdOrCtrl+Shift+E -> tree.focus
+  Git                  Ctrl+Shift+G -> git.show
+  ---
+  Show/Hide Sidebar    CmdOrCtrl+0 -> layout.toggle_side
+  Show/Hide Agents     Alt+CmdOrCtrl+0 -> layout.toggle_agents
+  Swap Side Panels -> layout.swap
+  ---
+  Terminal             Ctrl+` -> terminal.toggle
+  ---
+  (Fullscreen)
+Agents
+  New Task -> agents.new_session
+  ---
+  Go to Approvals      CmdOrCtrl+Shift+A -> approvals.focus
+  Reviews              CmdOrCtrl+Shift+R -> inbox.toggle
+  Agent Browser        CmdOrCtrl+Shift+B -> browser.toggle
+  Servers              CmdOrCtrl+Alt+S -> servers.toggle
+  Audit Log -> audit.toggle
+Window
+  (Minimize)
+  (Zoom)
+  ---
+  (BringAllToFront)
+Help
+  Keyboard Shortcuts -> palette.shortcuts

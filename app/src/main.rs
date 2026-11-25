@@ -3,6 +3,8 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod menu;
+
 use std::sync::Arc;
 
 use ovra_agent_runtime::ClaudeCli;
@@ -77,7 +79,14 @@ fn main() {
     ovra_servers::pod_init_if_asked();
     // Started from the Finder or a launcher, the app lacks the user's PATH.
     ovra_sandbox::use_login_path();
-    let result = tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // On macOS the menu bar runs the UI's commands; elsewhere there is none.
+    let builder = if cfg!(target_os = "macos") {
+        builder.menu(menu::build).on_menu_event(menu::forward)
+    } else {
+        builder
+    };
+    let result = builder
         // Provides window.Notification to the UI for system notifications.
         .plugin(tauri_plugin_notification::init())
         // Folder dialogs, opened from Rust only (`ovra_pick_folder`).
