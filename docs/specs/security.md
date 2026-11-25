@@ -515,10 +515,17 @@ rules for each project:
   - A file `ask` rule is advisory the same way: Bash commands like `cat`
     still reach the file without a question. The UI says so beside it.
 - For `WebFetch`, `match` is one host, written as the netproxy allowlist
-  writes it (lower case, no scheme, port or wildcard). It matches a call
-  whose `http` or `https` URL names exactly that host; subdomains do not
-  match, and a URL with user info (`a@b`) or a backslash before its path
-  never matches. The netproxy still decides whether the host is reachable.
+  writes it (lower case, no scheme, port or wildcard). The netproxy still
+  decides whether the host is reachable.
+  - An `auto` rule matches a call whose `http` or `https` URL names exactly
+    that host. Subdomains do not match.
+  - A `deny` or `ask` rule matches that host and its subdomains
+    (`evil.com` covers `api.evil.com`, not `notevil.com`).
+  - Ovra reads the host only from a plain URL. It cannot read one with user
+    info (`a@b`), a backslash before its path, a missing `//`, a `%` escape,
+    non-ASCII letters or dots, or no URL at all. Such a call never matches
+    an `auto` rule and always matches a `deny` or `ask` rule with a host:
+    a URL parser may read it as the denied host, so the rule holds.
 - `action` is `auto`, `ask` or `deny`.
 
 **How a call is decided.**

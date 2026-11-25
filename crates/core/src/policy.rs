@@ -343,7 +343,15 @@ fn matches(rule: &PolicyRule, input: &Value, work_dir: &Path, action: PolicyActi
     }
     if rule.tool == "WebFetch" {
         let url = input.get("url").and_then(Value::as_str);
-        return url.and_then(url_host).is_some_and(|host| host == *pattern);
+        return match url.and_then(url_host) {
+            // `auto` allows the host it names and nothing else.
+            Some(host) if action == PolicyAction::Auto => host == *pattern,
+            // A deny or ask covers the host's subdomains too.
+            Some(host) => host == *pattern || host.ends_with(&format!(".{pattern}")),
+            // A URL whose host Ovra cannot read may be the host a deny or
+            // ask names, written another way: the rule holds.
+            None => action != PolicyAction::Auto,
+        };
     }
     let Some(field) = file_field(&rule.tool) else {
         return false;
@@ -365,8 +373,9 @@ fn file_field(tool: &str) -> Option<&'static str> {
 }
 
 /// The host an `http` or `https` URL names, as the netproxy writes hosts;
-/// `None` for anything else, or a URL with user info, which readers may
-/// take for the host.
+/// `None` for anything else: a URL with user info, which readers may take
+/// for the host, or a host with escapes, non-ASCII letters or dots other
+/// than `.`, which a URL parser may turn into another host.
 fn url_host(url: &str) -> Option<String> {
     let (scheme, rest) = url.trim().split_once("://")?;
     if !["http", "https"]

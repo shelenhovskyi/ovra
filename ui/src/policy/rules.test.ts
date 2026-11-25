@@ -76,7 +76,9 @@ describe("policy rules", () => {
   it("explains the match for the tool being typed", () => {
     expect(matchHint("Bash")).toMatch(/command prefix.*With Exact command, only npm test itself/);
     expect(matchHint("Edit")).toMatch(/glob/);
-    expect(matchHint("webfetch")).toMatch(/^One host/);
+    expect(matchHint("webfetch")).toMatch(
+      /^One host.*Deny and Ask also cover its subdomains.*Auto covers that host only/,
+    );
     expect(matchHint("Grep")).toBe("Grep takes no match: the rule covers every call.");
     expect(matchHint("")).toMatch(
       /^Only Bash, WebFetch and the file tools \(Read, Edit, MultiEdit, Write, NotebookEdit\)/,

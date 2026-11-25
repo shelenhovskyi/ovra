@@ -220,6 +220,62 @@ fn webfetch_matches_the_urls_host_exactly() {
 }
 
 #[test]
+fn a_webfetch_deny_covers_subdomains_and_holds_for_unreadable_urls() {
+    let proxy = sandboxed(SandboxNetwork::Proxy);
+    for action in [PolicyAction::Deny, PolicyAction::Ask] {
+        let policy = Policy {
+            rules: vec![rule("WebFetch", Some("evil.com"), action)],
+        };
+        let decided = |input: serde_json::Value| {
+            decide(&policy, "WebFetch", &input, Path::new(WORK), Some(&proxy)).map(|(a, _)| a)
+        };
+        let url = |url: &str| json!({ "url": url, "prompt": "x" });
+        for held in [
+            "https://evil.com/",
+            "https://EVIL.com./x",
+            "https://api.evil.com/",
+            "https://a.b.evil.com:8443/",
+            "https://user@evil.com/",
+            "https:evil.com",
+            "https:/evil.com",
+            "https://evil%2Ecom/",
+            // An ideographic full stop, which URL parsers read as a dot.
+            "https://evil\u{3002}com/",
+            // Full-width letters, which IDNA maps to `evil`.
+            "https://\u{ff45}\u{ff56}\u{ff49}\u{ff4c}.com/",
+            // A Cyrillic `e`: Ovra cannot tell such a name apart.
+            "https://\u{0435}vil.com/",
+            "https://ev\til.com/",
+            "https:////evil.com/",
+        ] {
+            assert_eq!(decided(url(held)), Some(action), "{held}");
+        }
+        assert_eq!(decided(json!({"prompt": "x"})), Some(action), "no url");
+        for other in [
+            "https://notevil.com/",
+            "https://evil.com.example/",
+            "https://example.com/evil.com",
+            "https://xn--vil-8cd.com/",
+        ] {
+            assert_eq!(decided(url(other)), None, "{other}");
+        }
+    }
+    // Auto allows only the host it names, and only a URL Ovra can read.
+    let auto = Policy {
+        rules: vec![rule("WebFetch", Some("docs.rs"), PolicyAction::Auto)],
+    };
+    for url in [
+        "https://api.docs.rs/",
+        "https:docs.rs",
+        "https://docs%2Ers/",
+    ] {
+        let input = json!({ "url": url });
+        let got = decide(&auto, "WebFetch", &input, Path::new(WORK), Some(&proxy));
+        assert_eq!(got, None, "{url}");
+    }
+}
+
+#[test]
 fn an_ask_rule_wins_over_an_auto_rule() {
     let policy = Policy {
         rules: vec![

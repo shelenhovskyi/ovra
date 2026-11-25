@@ -47,7 +47,8 @@ export function matchHint(tool: string): string {
   if (name === "Bash")
     return "A command prefix, matched on whole words: npm test also matches npm test -- -u. With Exact command, only npm test itself.";
   if (FILE_TOOLS.includes(name)) return "A glob on the path inside the folder the agent works in, such as docs/**.";
-  if (name === "WebFetch") return "One host, such as docs.rs: subdomains do not match.";
+  if (name === "WebFetch")
+    return "One host, such as docs.rs. Deny and Ask also cover its subdomains and URLs whose host is unclear; Auto covers that host only.";
   if (name !== "") return `${name} takes no match: the rule covers every call.`;
   return `Only Bash, WebFetch and the file tools (${FILE_TOOLS.join(", ")}) take a match.`;
 }
