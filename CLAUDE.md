@@ -45,6 +45,9 @@ Before every push: `just test && just e2e && just lint` must pass.
   one per work dir (ADR 0008).
 - `crates/browser` - `Browser`: a sandboxed Chromium per agent session, driven
   over a CDP pipe (ADR 0009).
+- `crates/forge` - `Forge`: pushes and pull requests through the user's
+  installed `gh` and `git`, the only place that uses their GitHub login
+  (ADR 0010; security code).
 - `crates/sandbox` - `Sandbox`: the protected paths every platform shares (the
   `work_dir` list is defined in `ovra-core`, `src/protected.rs`, and
   re-exported here) and the sandbox for this OS.

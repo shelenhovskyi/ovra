@@ -11,6 +11,7 @@ use ovra_agent_runtime::ClaudeCli;
 use ovra_browser::ChromiumBrowser;
 use ovra_core::services::Secrets;
 use ovra_core::{Client, Core};
+use ovra_forge::GhForge;
 use ovra_fs_index::FsIndex;
 use ovra_mcp_server::IdeServer;
 use ovra_opener::SystemOpener;
@@ -107,6 +108,7 @@ fn main() {
                 .opener(Arc::new(SystemOpener::new()))
                 .worktrees(Arc::new(GitWorktrees::new()))
                 .git(Arc::new(GitRepo::new()))
+                .forge(Arc::new(GhForge::new()))
                 .worktrees_dir(data_dir.join("worktrees"))
                 .ide_tools(Arc::new(IdeServer::new()))
                 .terminals(Arc::new(Pty::new()))

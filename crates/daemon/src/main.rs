@@ -12,6 +12,7 @@ use clap::Parser;
 use ovra_agent_runtime::ClaudeCli;
 use ovra_core::Core;
 use ovra_core::services::{AgentRuntime, Browser, DevServers, LanguageServers, Secrets};
+use ovra_forge::GhForge;
 use ovra_fs_index::FsIndex;
 use ovra_mcp_server::IdeServer;
 use ovra_opener::SystemOpener;
@@ -112,6 +113,7 @@ async fn serve() -> anyhow::Result<()> {
         .agents(agents(&args))
         .dev_servers(dev_servers)
         .browser(agent_browser(&args))
+        .forge(Arc::new(GhForge::new()))
         .build();
     let app = ws::router(
         core,

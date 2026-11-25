@@ -3389,6 +3389,7 @@ dependencies = [
  "ovra-agent-runtime",
  "ovra-browser",
  "ovra-core",
+ "ovra-forge",
  "ovra-fs-index",
  "ovra-lsp",
  "ovra-mcp-server",
@@ -3443,6 +3444,7 @@ dependencies = [
  "ovra-agent-runtime",
  "ovra-browser",
  "ovra-core",
+ "ovra-forge",
  "ovra-fs-index",
  "ovra-lsp",
  "ovra-mcp-server",
@@ -3461,6 +3463,14 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "ovra-forge"
+version = "0.1.0"
+dependencies = [
+ "ovra-core",
+ "tokio",
 ]
 
 [[package]]

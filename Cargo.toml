@@ -28,6 +28,7 @@ ovra-netproxy = { path = "crates/netproxy" }
 ovra-lsp = { path = "crates/lsp" }
 ovra-servers = { path = "crates/servers" }
 ovra-browser = { path = "crates/browser" }
+ovra-forge = { path = "crates/forge" }
 anyhow = "1"
 axum = { version = "0.8", features = ["ws"] }
 futures-util = "0.3"

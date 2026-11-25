@@ -2,6 +2,7 @@
 /crates/sandbox*/   @shelenhovskyi
 /crates/netproxy/   @shelenhovskyi
 /crates/secrets/    @shelenhovskyi
+/crates/forge/      @shelenhovskyi
 /crates/ext-host/   @shelenhovskyi
 **/*.wit            @shelenhovskyi
 /app/capabilities/  @shelenhovskyi
