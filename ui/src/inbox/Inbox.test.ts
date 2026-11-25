@@ -1,5 +1,6 @@
 import { flushSync, mount, unmount } from "svelte";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { registerCommand } from "../keys/commands";
 import { Workspace } from "../shell/workspace.svelte";
 import { change, FakeReviewCore, review } from "./fake-review";
 import TestHost from "./TestHost.svelte";
@@ -581,5 +582,39 @@ describe("Inbox", () => {
     expect($("[data-testid=inbox-diff] [role=alert]")?.textContent).toBe(
       "Could not load the diff of src/a.ts: the diff of a decided review is kept for at most 50 files",
     );
+  });
+
+  it("says when approvals wait, and the approvals shortcut or button steps out to them", async () => {
+    let ran = 0;
+    const unregister = registerCommand({
+      id: "approvals.focus",
+      title: "Go to pending approvals",
+      keys: "Mod+Shift+A",
+      run: () => {
+        ran++;
+      },
+    });
+    try {
+      const core = await setup();
+      await open();
+      const line = () => $("[data-testid=inbox-approvals]")?.textContent?.replace(/\s+/g, " ").trim();
+      expect(line()).toBe("");
+      const request = { session: "s1", project: "p1", tool: "Bash", input: { command: "ls" }, title: null };
+      core.emit({ type: "permissions.requested", data: { id: "perm1", ...request } });
+      core.emit({ type: "permissions.requested", data: { id: "perm2", ...request } });
+      await settle();
+      expect(line()).toBe("2 approvals waiting Go to approvals (Alt+Shift+A)");
+      press("KeyA", { altKey: true, shiftKey: true });
+      await settle();
+      expect($("[data-testid=inbox]")).toBeNull();
+      expect(ran).toBe(1);
+      await open();
+      button(/Go to approvals/)?.click();
+      await settle();
+      expect($("[data-testid=inbox]")).toBeNull();
+      expect(ran).toBe(2);
+    } finally {
+      unregister();
+    }
   });
 });

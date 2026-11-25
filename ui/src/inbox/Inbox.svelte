@@ -7,7 +7,9 @@
 // between changes in the diff, Mod+Enter sends a comment, Escape closes.
 import { tick, untrack } from "svelte";
 import { agentSessions } from "../agents/sessions.svelte";
-import { registerCommand } from "../keys/commands";
+import { approvalQueue } from "../approvals/queue.svelte";
+import { listCommands, registerCommand } from "../keys/commands";
+import { runCommand } from "../keys/keybindings";
 import { formatShortcut, inBrowserTab, isApple, liveKeys, matchesShortcut, parseShortcut } from "../keys/shortcut";
 import type { FileChange, ReviewId, ReviewItem } from "../lib/protocol";
 import { useOvra } from "../shell/context";
@@ -271,7 +273,29 @@ async function cancelReject(): Promise<void> {
 
 const toggleKeys = parseShortcut(liveKeys(KEYS, inBrowserTab()), isApple());
 
+// A request that waits must not hide behind the dialog: the inbox says so,
+// and the approvals shortcut steps out of it to the request.
+const approvals = approvalQueue(transport);
+const approvalsCommand = () => listCommands().find((c) => c.id === "approvals.focus");
+const approvalsKeys = (): string | undefined => {
+  const keys = approvalsCommand()?.keys;
+  return keys ? liveKeys(keys, inBrowserTab()) : undefined;
+};
+
+function goToApprovals(): void {
+  const command = approvalsCommand();
+  close();
+  if (command) void runCommand(command);
+}
+
 function onDialogKeydown(event: KeyboardEvent): void {
+  const keys = approvalsKeys();
+  const toApprovals = keys ? parseShortcut(keys, isApple()) : null;
+  if (toApprovals && matchesShortcut(event, toApprovals)) {
+    // Close first; the shortcut then goes on to the approvals.
+    close();
+    return;
+  }
   // Shortcuts of the panels behind the modal must not act; only the inbox's own toggle gets through.
   if (!(toggleKeys && matchesShortcut(event, toggleKeys))) event.stopPropagation();
   if (event.code === "Escape" && !event.defaultPrevented) {
@@ -486,6 +510,17 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
         <button type="button" aria-keyshortcuts="Escape" onclick={close}>Close</button>
       </header>
       <p class="intro">Changes agents made, waiting for you to keep or reject.</p>
+      <div aria-live="polite" data-testid="inbox-approvals">
+        {#if approvals.pending.length > 0}
+          {@const keys = approvalsKeys()}
+          <p class="approvals-waiting">
+            {approvals.pending.length === 1 ? "1 approval waiting" : `${approvals.pending.length} approvals waiting`}
+            <button type="button" onclick={goToApprovals}
+              >Go to approvals{#if keys}{" "}({formatShortcut(keys, isApple())}){/if}</button
+            >
+          </p>
+        {/if}
+      </div>
       {#if inbox.error}
         <p class="error" role="alert">{inbox.error}</p>
       {/if}
@@ -888,6 +923,10 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
   .empty {
     padding: 12px;
     margin: 0;
+  }
+  .approvals-waiting {
+    margin: 6px 12px;
+    color: #ffd36b;
   }
   .intro {
     margin: 0;
