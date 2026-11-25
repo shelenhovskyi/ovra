@@ -11,6 +11,7 @@ import type { Workspace } from "../shell/workspace.svelte";
 import { Buffers } from "./buffers.svelte";
 import { drafts } from "./drafts.svelte";
 import { highlighter } from "./highlight/highlighter";
+import { LanguageClients } from "./lsp/clients";
 
 /** Beyond this many tabs, the leftmost inactive tab without unsaved text is closed. */
 const MAX_OPEN_FILES = 20;
@@ -19,6 +20,8 @@ export class OpenFiles {
   /** Tab order. */
   files = $state<string[]>([]);
   active = $state<string | null>(null);
+  /** The project's language servers, once the shell wires them up. */
+  lsp: LanguageClients | null = null;
   private writes = Promise.resolve();
 
   constructor(
@@ -180,11 +183,22 @@ export function persistOpenFiles(transport: Transport, workspace: Workspace): ()
   return $effect.root(() => {
     $effect(() => {
       const project = workspace.project?.id;
+      const name = workspace.project?.name ?? "";
       tabs.current = null;
       tabs.closing = null;
       if (!project) return;
       const buffers = new Buffers({ transport, project, drafts, highlighter });
       const files = new OpenFiles(transport, project, buffers);
+      const lsp = new LanguageClients({
+        transport,
+        project,
+        name,
+        open: (path) => workspace.openFile(path, "edit"),
+        note: (text) => {
+          tabs.notice = text;
+        },
+      });
+      files.lsp = lsp;
       let live = true;
       const ready = () => {
         if (!live) return;
@@ -206,6 +220,7 @@ export function persistOpenFiles(transport: Transport, workspace: Workspace): ()
         live = false;
         window.removeEventListener("beforeunload", unload);
         window.removeEventListener("pagehide", hide);
+        lsp.close();
         buffers.close();
       };
     });

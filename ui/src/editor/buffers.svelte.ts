@@ -7,7 +7,14 @@
 
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { highlightSelectionMatches, searchKeymap } from "@codemirror/search";
-import { EditorSelection, EditorState, type Extension, type Text } from "@codemirror/state";
+import {
+  Compartment,
+  EditorSelection,
+  EditorState,
+  type Extension,
+  type Text,
+  type TransactionSpec,
+} from "@codemirror/state";
 import { drawSelection, EditorView, highlightActiveLine, keymap, lineNumbers } from "@codemirror/view";
 import { SvelteMap } from "svelte/reactivity";
 import type { FileContent, ProjectId } from "../lib/protocol";
@@ -76,6 +83,9 @@ export class Buffer {
   private highlight: HighlightedDoc | null = null;
   private draftTimer: ReturnType<typeof setTimeout> | null = null;
   private disposed = false;
+  /** The language server's editor extension, if one serves this buffer. */
+  private readonly server = new Compartment();
+  private serverExtension: Extension = [];
 
   constructor(
     private readonly options: Options,
@@ -105,6 +115,20 @@ export class Buffer {
   detach(): void {
     if (this.view) this.state = this.view.state;
     this.view = null;
+  }
+
+  /**
+   * Connects this buffer to a language server's extension (`[]` for none),
+   * applying `also` (such as clearing diagnostics) in the same step.
+   */
+  setLanguageServer(extension: Extension, also?: (state: EditorState) => TransactionSpec): void {
+    this.serverExtension = extension;
+    const state = this.current;
+    if (!state) return;
+    const specs: TransactionSpec[] = [{ effects: this.server.reconfigure(extension) }];
+    if (also) specs.push(also(state));
+    if (this.view) this.view.dispatch(...specs);
+    else this.state = state.update(...specs).state;
   }
 
   /** Writes the text; with `overwrite`, even if the file changed on disk. */
@@ -292,6 +316,7 @@ export class Buffer {
       }),
       theme,
       this.highlight ? treeSitterHighlighting(this.highlight) : [],
+      this.server.of(this.serverExtension),
     ];
   }
 }
