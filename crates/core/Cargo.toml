@@ -16,11 +16,13 @@ serde.workspace = true
 serde_json.workspace = true
 sha2 = "0.10"
 tokio = { workspace = true, features = ["sync"] }
+tracing.workspace = true
 zeroize = "1"
 
 [dev-dependencies]
 insta.workspace = true
 tokio = { workspace = true, features = ["io-util", "macros", "rt"] }
+tracing-subscriber.workspace = true
 
 [lints]
 workspace = true

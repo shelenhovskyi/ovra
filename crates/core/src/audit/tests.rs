@@ -130,6 +130,49 @@ fn wire_format_is_stable() {
     }));
 }
 
+#[test]
+fn a_failed_append_warns_without_the_entrys_content() {
+    #[derive(Clone, Default)]
+    struct Captured(Arc<std::sync::Mutex<Vec<u8>>>);
+    impl std::io::Write for Captured {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let captured = Captured::default();
+    let writer = captured.clone();
+    let subscriber = tracing_subscriber::fmt()
+        .with_writer(move || writer.clone())
+        .with_ansi(false)
+        .finish();
+    let event = AuditEvent::NetworkRefused {
+        host: "evil.example".into(),
+        reason: "not allowed".into(),
+    };
+    // Without a log wired in, every append fails.
+    tracing::subscriber::with_default(subscriber, || {
+        super::record(&Core::new("test"), &project("p1"), None, event);
+    });
+    let logged = String::from_utf8_lossy(
+        &captured
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner),
+    )
+    .into_owned();
+    assert!(logged.contains("WARN"), "{logged}");
+    assert!(logged.contains("network_refused"), "{logged}");
+    assert!(!logged.contains("evil.example"), "{logged}");
+    assert!(!logged.contains("not allowed"), "{logged}");
+}
+
 mod inputs {
     use serde_json::json;
 

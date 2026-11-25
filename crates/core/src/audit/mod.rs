@@ -14,15 +14,41 @@ use crate::protocol::secrets::SecretValue;
 use crate::protocol::{ProtocolError, Response};
 
 /// Appends `event` and shows it to live viewers. A log that cannot be
-/// written does not stop the work it records, as with the session store.
+/// written does not stop the work it records, as with the session store;
+/// it logs a warning that names the kind of entry, never what it holds.
 pub(crate) fn record(
     core: &Core,
     project: &ProjectId,
     session: Option<&SessionId>,
     event: AuditEvent,
 ) {
-    if let Ok(entry) = core.audit_log().append(project, session, event) {
-        core.emit(AuditLogEvent::Appended(entry));
+    let kind = kind(&event);
+    match core.audit_log().append(project, session, event) {
+        Ok(entry) => core.emit(AuditLogEvent::Appended(entry)),
+        Err(error) => tracing::warn!(
+            project = %project.0,
+            session = session.map(|s| s.0.as_str()),
+            kind,
+            code = ?error.code,
+            "an audit entry could not be written: {}",
+            error.message
+        ),
+    }
+}
+
+fn kind(event: &AuditEvent) -> &'static str {
+    match event {
+        AuditEvent::SessionStarted { .. } => "session_started",
+        AuditEvent::ToolDecided { .. } => "tool_decided",
+        AuditEvent::TrustChanged { .. } => "trust_changed",
+        AuditEvent::PolicyChanged { .. } => "policy_changed",
+        AuditEvent::ReviewDecided { .. } => "review_decided",
+        AuditEvent::NetworkRefused { .. } => "network_refused",
+        AuditEvent::SecretUsed { .. } => "secret_used",
+        AuditEvent::ServerStarted { .. } => "server_started",
+        AuditEvent::ServerStopped { .. } => "server_stopped",
+        AuditEvent::LoopbackGranted { .. } => "loopback_granted",
+        AuditEvent::LoopbackRevoked { .. } => "loopback_revoked",
     }
 }
 
