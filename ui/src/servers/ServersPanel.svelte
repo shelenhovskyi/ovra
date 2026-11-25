@@ -162,7 +162,7 @@ async function start(name: string): Promise<void> {
     {/each}
     <button type="submit" class="primary" aria-busy={adding}>{adding ? "Adding…" : "Add server"}</button>
   </form>
-  <p class="muted" id="servers-add-note">Saved to <code>{CONFIG}</code>, which agents can't change.</p>
+  <p class="muted" id="servers-add-note">Saved to <code>{CONFIG}</code>, which sandboxed agents can't change.</p>
   {#if formError}
     <p class="error" role="alert" id="servers-add-error" data-testid="servers-add-error">{formError.error}</p>
   {/if}
