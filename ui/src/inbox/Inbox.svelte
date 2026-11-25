@@ -380,7 +380,8 @@ function outcomeText(outcome: Outcome): string {
   const worker = of?.mode === "isolated";
   const files = outcome.conflicts.join(", ");
   // A worker's protected files that approve left out, named as such.
-  const guarded = (path: string) => of?.files.some((f) => f.protected && !f.blocked && f.path === path) ?? false;
+  const guarded = (path: string) =>
+    of?.files.some((f) => f.protected && !f.blocked && (f.path === path || f.from === path)) ?? false;
   const leftOut = outcome.conflicts.filter(guarded);
   const others = outcome.conflicts.filter((p) => !guarded(p));
   const left =

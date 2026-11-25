@@ -219,6 +219,25 @@ describe("Inbox", () => {
     expect(core.sent("review.take")).toEqual([]);
   });
 
+  it("names both paths of a rename away from a protected path as left out for that reason", async () => {
+    const core = await setup([
+      review("r1", {
+        session: "s2",
+        mode: "isolated",
+        fingerprint: "f1",
+        files: [change("notes.md", { kind: "renamed", from: "CLAUDE.md", protected: true })],
+      }),
+    ]);
+    // Like the core, which leaves both paths of the rename.
+    core.conflicts = ["CLAUDE.md"];
+    await open();
+    button(/^Approve$/)?.click();
+    await settle();
+    expect($("[data-testid=inbox-outcome]")?.textContent?.trim()).toBe(
+      "Approved, not all copied. Not copied, as files that can run code or change agent rules: CLAUDE.md, notes.md.",
+    );
+  });
+
   it("includes a worker's protected files once each one's diff was shown", async () => {
     const core = await setup([review("r2", { session: "s3", mode: "isolated", fingerprint: "f2", files: guarded() })]);
     await open();

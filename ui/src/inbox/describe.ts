@@ -195,8 +195,10 @@ export function protectedHint(item: ReviewItem): string | null {
 
 /** What a partly approved item left, and what the person can do about it. */
 export function notCopiedHint(item: ReviewItem): string {
-  const blocked = new Set(item.files.filter((f) => f.blocked).map((f) => f.path));
-  const guarded = new Set(item.files.filter((f) => f.protected).map((f) => f.path));
+  // `not_copied` names both paths of a rename.
+  const paths = (f: FileChange) => (f.from ? [f.path, f.from] : [f.path]);
+  const blocked = new Set(item.files.filter((f) => f.blocked).flatMap(paths));
+  const guarded = new Set(item.files.filter((f) => f.protected).flatMap(paths));
   const waited = item.not_copied.filter((p) => blocked.has(p));
   const left = item.not_copied.filter((p) => !blocked.has(p) && guarded.has(p));
   const changed = item.not_copied.filter((p) => !blocked.has(p) && !guarded.has(p));

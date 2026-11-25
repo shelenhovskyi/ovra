@@ -169,6 +169,15 @@ describe("inbox wording", () => {
     expect(notCopiedHint(both)).toBe(
       "Not copied into your project folder, because your version changed since the worker started: NOTES.md; and because the direct agent had changed them too: a.rs; and because they can run code or change agent rules: .envrc. The worker's version of each is in its diff below. Replace yours with the worker's version (you can undo it), copy parts by hand, or keep yours and mark this done.",
     );
+    // A rename away from a protected path leaves both paths, for the same reason.
+    const moved = review("r7", {
+      mode: "isolated",
+      state: "partly_approved",
+      files: [change("notes.md", { kind: "renamed", from: "CLAUDE.md", protected: true })],
+      not_copied: ["CLAUDE.md", "notes.md"],
+    });
+    expect(notCopiedHint(moved)).toContain("because they can run code or change agent rules: CLAUDE.md, notes.md.");
+    expect(notCopiedHint(moved)).not.toContain("your version changed");
     expect(fileMarkers(change("a.rs", { blocked: true }), false, "partly_approved")).toEqual([
       "Not copied: it waited for the direct agent",
     ]);
