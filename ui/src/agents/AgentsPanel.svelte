@@ -132,7 +132,12 @@ $effect(() => {
   });
 });
 
+/** Where the menu opens: fixed, above its button, so the start box's own scrolling never clips it. */
+let menuAt = $state({ left: 0, bottom: 0 });
+
 async function toggleModes(open: boolean): Promise<void> {
+  const box = document.querySelector("[data-testid=agent-mode]")?.getBoundingClientRect();
+  if (box) menuAt = { left: box.left, bottom: window.innerHeight - box.top + 4 };
   modeMenu = open;
   if (!open) return;
   await tick();
@@ -894,6 +899,8 @@ const canReply = $derived(current !== null && current.status.state === "idle");
             <div
               class="menu"
               id="agent-mode-menu"
+              style:left="{menuAt.left}px"
+              style:bottom="{menuAt.bottom}px"
               role="menu"
               tabindex="-1"
               aria-label="How Claude works on it"
@@ -1463,10 +1470,8 @@ const canReply = $derived(current !== null && current.status.state === "idle");
     gap: 4px;
   }
   .menu {
-    position: absolute;
-    bottom: calc(100% + 4px);
-    left: 0;
-    z-index: 3;
+    position: fixed;
+    z-index: 20;
     width: max-content;
     max-width: 280px;
     padding: 6px;
