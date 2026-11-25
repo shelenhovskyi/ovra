@@ -6,7 +6,7 @@
 //! session plays the one Ovra's lines match (its prompt, in practice). `--version` and
 //! `auth status` answer like Claude Code 2.1.331; anything else plays the
 //! fixture: `cli` lines go to stdout, each `ovra` line must be the next line
-//! on stdin, `wait`/`core`/`interrupt` steps are the test's part and skipped.
+//! on stdin, `wait`/`core` steps are the test's part and skipped.
 //! The recorded project `/w` becomes the working directory. Exits 2 when Ovra
 //! writes something the recording did not.
 
@@ -129,7 +129,7 @@ fn fixtures(path: &Path) -> Result<Vec<Fixture>, String> {
                 .map(|(n, line)| {
                     serde_json::from_str(line).map_err(|e| format!("{file:?} step {}: {e}", n + 1))
                 })
-                // `wait`, `core` and `interrupt` steps are the test's part.
+                // `wait` and `core` steps are the test's part.
                 .filter(|step| step.as_ref().map_or(true, |s| kind(s).is_some()))
                 .collect::<Result<Vec<Value>, String>>()?;
             Ok(Fixture {

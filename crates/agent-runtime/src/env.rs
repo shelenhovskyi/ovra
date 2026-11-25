@@ -99,15 +99,13 @@ const WINDOWS_KEPT: [&str; 25] = [
     "TMP",
 ];
 
-/// `line` for running without a sandbox: every name of `outer` (Ovra's
-/// environment) that is not kept is removed first, then the line's own
-/// variables apply.
-pub(crate) fn unsandboxed(
-    line: CommandLine,
+/// The names of `outer` (Ovra's environment) a `claude` process must not
+/// get.
+pub(crate) fn removed(
     outer: impl IntoIterator<Item = OsString>,
     windows: bool,
-) -> CommandLine {
-    let kept = |name: &OsStr| {
+) -> impl Iterator<Item = OsString> {
+    let kept = move |name: &OsStr| {
         let Some(name) = name.to_str() else {
             return false;
         };
@@ -119,11 +117,19 @@ pub(crate) fn unsandboxed(
             KEPT.contains(&name)
         }
     };
-    let mut env: Vec<(OsString, Option<OsString>)> = outer
-        .into_iter()
-        .filter(|name| !kept(name))
-        .map(|name| (name, None))
-        .collect();
+    outer.into_iter().filter(move |name| !kept(name))
+}
+
+/// `line` for running without a sandbox: every name of `outer` (Ovra's
+/// environment) that is not kept is removed first, then the line's own
+/// variables apply.
+pub(crate) fn unsandboxed(
+    line: CommandLine,
+    outer: impl IntoIterator<Item = OsString>,
+    windows: bool,
+) -> CommandLine {
+    let mut env: Vec<(OsString, Option<OsString>)> =
+        removed(outer, windows).map(|name| (name, None)).collect();
     env.extend(line.env);
     CommandLine { env, ..line }
 }
@@ -140,7 +146,7 @@ mod tests {
             .split_once(&format!("{name}: [&str; "))
             .and_then(|(_, rest)| rest.split_once("];"))
             .map(|(list, _)| list)
-            .unwrap_or_else(|| panic!("{name}"));
+            .unwrap_or_else(|| panic!("{name} not found in the sandbox's plan.rs"));
         // Names only: comments there hold no quotes.
         list.split('"').skip(1).step_by(2).collect()
     }

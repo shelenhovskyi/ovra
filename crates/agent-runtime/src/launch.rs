@@ -31,10 +31,16 @@ pub(crate) const NESTED_SESSION_VARS: [&str; 9] = [
 /// an account the user added with its own folder (ADR 0006).
 pub(crate) const CONFIG_DIR_VAR: &str = "CLAUDE_CONFIG_DIR";
 
-/// A command for `claude` with the user's environment minus
-/// [`NESTED_SESSION_VARS`], in the account's folder `config_dir` if given.
+/// A command for `claude` (its version, its sign-in) with the environment a
+/// session gets, so a check sees what a session will: the allowlist of
+/// [`crate::env`], without [`NESTED_SESSION_VARS`], in the account's folder
+/// `config_dir` if given.
 pub(crate) fn command(executable: &Path, config_dir: Option<&Path>) -> Command {
     let mut command = Command::new(executable);
+    let outer = std::env::vars_os().map(|(name, _)| name);
+    for name in crate::env::removed(outer, cfg!(windows)) {
+        command.env_remove(name);
+    }
     if let Some(path) = ovra_core::child_path::login() {
         command.env("PATH", path);
     }
@@ -113,15 +119,16 @@ impl Conversation {
     }
 }
 
-/// The arguments for one session. Ovra never passes `--bare` (it ignores the
-/// subscription login) and never touches credentials; the environment is an
-/// allowlist without [`NESTED_SESSION_VARS`], and `CLAUDE_CONFIG_DIR` is
-/// set only to the folder of an account the user added (ADR 0006).
 /// What a coordinator and a worker are told about their role, after Claude
 /// Code's own system prompt.
 const COORDINATOR_PROMPT: &str = include_str!("../../../agents/roles/coordinator.md");
 const WORKER_PROMPT: &str = include_str!("../../../agents/roles/worker.md");
 
+/// The arguments for one session. Ovra never passes `--bare` (it ignores the
+/// subscription login) and never touches credentials; the environment is an
+/// allowlist without [`NESTED_SESSION_VARS`], and `CLAUDE_CONFIG_DIR` is
+/// set only to the folder of an account the user added (ADR 0006).
+///
 /// `ide` passes Ovra's in-process `ovra` MCP server (its IDE tools), whose
 /// messages come back as `mcp_message` control requests. A coordinator only
 /// reads the project and directs workers: it gets no built-in tool that
@@ -216,7 +223,7 @@ mod tests {
     }
 
     #[test]
-    fn nested_session_markers_are_removed_and_configuration_is_kept() {
+    fn a_check_gets_the_sessions_environment_without_nested_session_markers() {
         let command = command(Path::new("claude"), None);
         let envs: Vec<_> = command.as_std().get_envs().collect();
         let removed: Vec<_> = envs
@@ -224,16 +231,24 @@ mod tests {
             .filter(|(_, value)| value.is_none())
             .map(|(name, _)| name.to_string_lossy().into_owned())
             .collect();
-        assert_eq!(removed.len(), NESTED_SESSION_VARS.len());
         for name in NESTED_SESSION_VARS {
             assert!(removed.iter().any(|r| r == name), "{name}");
         }
         assert!(envs.iter().all(|(_, value)| value.is_none()));
-        assert!(
-            !removed
-                .iter()
-                .any(|r| r.contains("BEDROCK") || r.starts_with("ANTHROPIC"))
-        );
+        let configuration = [
+            "ANTHROPIC_API_KEY",
+            "ANTHROPIC_BASE_URL",
+            "CLAUDE_CODE_USE_BEDROCK",
+        ];
+        assert!(!removed.iter().any(|r| configuration.contains(&r.as_str())));
+        // Ovra's own environment beyond the allowlist is removed, as for a session.
+        let outer: Vec<String> = std::env::vars_os()
+            .filter_map(|(name, _)| name.into_string().ok())
+            .collect();
+        for name in crate::env::removed(outer.iter().map(OsString::from), cfg!(windows)) {
+            let name = name.to_string_lossy().into_owned();
+            assert!(removed.contains(&name), "{name}");
+        }
     }
 
     #[test]

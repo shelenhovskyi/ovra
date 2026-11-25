@@ -136,9 +136,9 @@ its changes on approve.
     session's own worktree;
   - on Linux, `/run/user/<uid>`, because D-Bus reaches the keyring there;
   - agent sockets such as `SSH_AUTH_SOCK` and the gpg agent.
-- **Environment (owner approved, 2026-11-25).** Every session starts from
-  an allowlist, with or without a sandbox (`crates/agent-runtime/src/env.rs`
-  when the OS has none yet), so that `SSH_AUTH_SOCK`,
+- **Environment (owner approved, 2026-11-25).** Outside a sandbox ADR 0006
+  keeps every variable but the nested-session markers. A sandboxed session
+  instead starts from an allowlist, so that `SSH_AUTH_SOCK`,
   `GITHUB_TOKEN`, `GH_TOKEN`, `AWS_*` and `NPM_TOKEN` do not pass. This
   amends ADR 0006:
   - the list names variables one by one, never by prefix (a
@@ -158,6 +158,14 @@ its changes on approve.
   adds to that line later still never reaches the agent. The netproxy
   bridge gets no environment. A kept URL with a password in it
   (`ANTHROPIC_BASE_URL=https://user:pass@...`) passes as it is.
+
+  Amended 2026-11-25 (tightening, standing rule): where the OS has no
+  sandbox yet, a session and Ovra's checks of `claude` (version, sign-in)
+  get the same allowlist, plus `PATH`, `TMPDIR` and the person's proxy and
+  CA bundle variables (`crates/agent-runtime/src/env.rs`). Dropped there
+  too, as in the sandbox: `CLAUDE_CODE_OAUTH_TOKEN`, a `CLAUDE_CONFIG_DIR`
+  the person set in their shell (an account in Ovra sets its own),
+  `AWS_PROFILE`, `GOOGLE_APPLICATION_CREDENTIALS` and `SSH_AUTH_SOCK`.
 
 **Language servers (ADR 0007).** On Linux `wrap_server` builds a
 server's sandbox from the same parts as an agent's: the namespaces, the
