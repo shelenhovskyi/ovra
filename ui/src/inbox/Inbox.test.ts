@@ -198,7 +198,13 @@ describe("Inbox", () => {
   it("leaves a worker's protected files out unless included", async () => {
     const core = await setup([review("r1", { session: "s2", mode: "isolated", fingerprint: "f1", files: guarded() })]);
     await open();
-    expect(include()?.disabled).toBe(true);
+    expect(include()?.getAttribute("aria-disabled")).toBe("true");
+    expect(include()?.disabled).toBe(false);
+    expect(include()?.getAttribute("aria-describedby")).toBe("inbox-include-why");
+    // Ticking it before each diff was seen does nothing.
+    include()?.click();
+    await settle();
+    expect(include()?.checked).toBe(false);
     expect(include()?.parentElement?.textContent).toContain("Also apply protected files: .envrc, .mcp.json");
     expect($("[data-testid=inbox-include-why]")?.textContent).toContain("look at the diff of each first: .mcp.json.");
     // Approve without them: they are not copied, and the outcome says so.
@@ -243,7 +249,7 @@ describe("Inbox", () => {
     await open();
     $<HTMLButtonElement>("[data-file='.mcp.json']")?.click();
     await settle();
-    expect(include()?.disabled).toBe(false);
+    expect(include()?.getAttribute("aria-disabled")).toBe("false");
     include()?.click();
     flushSync();
     button(/^Approve$/)?.click();
@@ -281,6 +287,31 @@ describe("Inbox", () => {
     $<HTMLButtonElement>("[data-testid=inbox-take]")?.click();
     await settle();
     expect(core.sent("review.take").map((c) => c.params)).toEqual([{ id: "r3", include_protected: true }]);
+  });
+
+  it("drops the tick for protected files once they change", async () => {
+    const core = await setup([review("r2", { session: "s3", mode: "isolated", fingerprint: "f2", files: guarded() })]);
+    await open();
+    $<HTMLButtonElement>("[data-file='.mcp.json']")?.click();
+    await settle();
+    include()?.click();
+    await settle();
+    expect(include()?.checked).toBe(true);
+    // The worker changed its files: the tick covered the old version.
+    core.items = [review("r2", { session: "s3", mode: "isolated", fingerprint: "f3", files: guarded() })];
+    core.emit({ type: "review.changed", data: { project: "p1", id: "r2" } });
+    await settle();
+    expect(include()?.checked).toBe(false);
+    // Looking at each again does not bring it back.
+    $<HTMLButtonElement>("[data-file='.envrc']")?.click();
+    await settle();
+    $<HTMLButtonElement>("[data-file='.mcp.json']")?.click();
+    await settle();
+    expect(include()?.getAttribute("aria-disabled")).toBe("false");
+    expect(include()?.checked).toBe(false);
+    button(/^Approve$/)?.click();
+    await settle();
+    expect(core.sent("review.approve").map((c) => c.params)).toEqual([{ id: "r2", commit: null, fingerprint: "f3" }]);
   });
 
   it("approves only on a press, and commits with the message given", async () => {

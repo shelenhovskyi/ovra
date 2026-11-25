@@ -55,8 +55,10 @@ let staleDiff = $state(false);
 let asked = $state(false);
 /** Protected files whose diff was on screen since the inbox opened, by `seenKey`. */
 let seen = $state<string[]>([]);
-/** The person ticked "Also apply protected files" for a worker's item. */
+/** The person ticked "Also apply protected files" for a worker's item, at `includedFor`. */
 let includeProtected = $state(false);
+/** The item's fingerprint when the person ticked: the version they included. */
+let includedFor = $state<string | null>(null);
 let dialog = $state<HTMLElement>();
 let returnTo: HTMLElement | null = null;
 
@@ -165,6 +167,13 @@ $effect(() => {
   return () => {
     live = false;
   };
+});
+
+// A tick covers the version it was given for: once the files change, or one
+// needs a new look, it is gone and the person ticks again.
+$effect(() => {
+  if (includeProtected && (includableUnseen.length > 0 || (item?.fingerprint ?? null) !== includedFor))
+    includeProtected = false;
 });
 
 // A protected file counts as seen once its diff, read from the version of
@@ -558,9 +567,17 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                       <input
                         type="checkbox"
                         data-testid="inbox-include-protected"
-                        checked={includeProtected && includableUnseen.length === 0}
-                        onchange={(e) => (includeProtected = e.currentTarget.checked)}
-                        disabled={includableUnseen.length > 0}
+                        checked={includeProtected}
+                        onclick={(e) => {
+                          // Stays focusable so its explanation is read out, but cannot be ticked yet.
+                          if (includableUnseen.length > 0) e.preventDefault();
+                        }}
+                        onchange={(e) => {
+                          if (includableUnseen.length > 0) return;
+                          includeProtected = e.currentTarget.checked;
+                          includedFor = item.fingerprint;
+                        }}
+                        aria-disabled={includableUnseen.length > 0}
                         aria-describedby={includableUnseen.length > 0 ? "inbox-include-why" : undefined}
                       />
                       Also apply protected files: {includable.map(fileName).join(", ")}
@@ -753,7 +770,6 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                           <span
                             class="marker"
                             class:protected={marker === PROTECTED_MARKER}
-                            title={marker === PROTECTED_MARKER ? protectedReason(changed) : undefined}
                             data-testid="file-marker">{marker}</span
                           >
                         {/each}
@@ -804,7 +820,8 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
   .open-inbox {
     margin-left: auto;
   }
-  button[aria-disabled="true"] {
+  button[aria-disabled="true"],
+  input[aria-disabled="true"] {
     opacity: 0.55;
     cursor: default;
   }
@@ -1065,7 +1082,8 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
     #inbox-git {
       border-color: CanvasText;
     }
-    button[aria-disabled="true"] {
+    button[aria-disabled="true"],
+    input[aria-disabled="true"] {
       color: GrayText;
     }
   }
