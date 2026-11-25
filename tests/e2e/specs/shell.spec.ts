@@ -53,12 +53,19 @@ test("the project name switches projects, opens another folder and survives a re
   await projects.getByRole("button", { name: "Open", exact: true }).click();
   await expect(page.getByRole("treeitem", { name: /a\.md/ })).toBeVisible();
 
-  // A browser tab has no folder dialog: Open a folder… goes to the start screen's field.
+  // A browser tab has no folder dialog: Open a folder… asks for a path in the
+  // menu, and the project stays open until the new folder opens.
   const name = page.getByTestId("project-name");
   await name.click();
   await page.getByRole("menuitem", { name: "Open a folder…" }).click();
-  const field = projects.getByRole("textbox", { name: "Open a folder" });
+  const field = page.getByRole("textbox", { name: "Folder to open" });
   await expect(field).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(field).toBeHidden();
+  await expect(name).toBeFocused();
+  await expect(page.getByRole("treeitem", { name: /a\.md/ })).toBeVisible();
+  await name.click();
+  await page.getByRole("menuitem", { name: "Open a folder…" }).click();
   await field.fill(second);
   await page.keyboard.press("Enter");
   await expect(page.getByRole("treeitem", { name: /b\.md/ })).toBeVisible();
