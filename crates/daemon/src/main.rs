@@ -492,6 +492,10 @@ impl ovra_core::services::DevServers for PresetServers {
     > {
         self.0.setup(pod, steps, sink)
     }
+
+    fn pod_ended(&self, work_dir: PathBuf) -> ovra_core::services::BoxFuture<'_, ()> {
+        self.0.pod_ended(work_dir)
+    }
 }
 
 fn new_token() -> String {

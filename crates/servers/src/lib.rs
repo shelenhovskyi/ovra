@@ -160,6 +160,10 @@ impl DevServers for PodServers {
             ))
         })
     }
+
+    fn pod_ended(&self, work_dir: PathBuf) -> BoxFuture<'_, ()> {
+        Box::pin(self.pods.ended(work_dir))
+    }
 }
 
 #[cfg(not(unix))]
@@ -190,6 +194,10 @@ impl DevServers for PodServers {
         _: Arc<dyn SetupSink>,
     ) -> BoxFuture<'_, Result<SetupEnd>> {
         Box::pin(async { Err(unavailable()) })
+    }
+
+    fn pod_ended(&self, _: PathBuf) -> BoxFuture<'_, ()> {
+        Box::pin(async {})
     }
 }
 

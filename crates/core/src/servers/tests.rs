@@ -545,6 +545,26 @@ async fn a_workers_servers_end_before_its_changes_land_and_with_it() {
     assert_eq!(running.ok(), Some(true));
 }
 
+#[tokio::test(start_paused = true)]
+async fn a_worktree_counts_as_stopped_only_once_its_pod_ended() {
+    let f = fx().await;
+    let dir = coordinator_and_worker(&f).await;
+    starts_in(&f, "web", Some("s2"))
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    let worker = SessionId("s2".into());
+    // Its server ends, but its pod's process is slow to exit.
+    f.dev.hold_pod(dir.clone());
+    assert!(!crate::servers::worktree_stopped(&f.core, &worker).await);
+    let waiting = crate::servers::worktree_stopped(&f.core, &worker);
+    let release = async {
+        tokio::task::yield_now().await;
+        f.dev.release_pod(&dir);
+    };
+    let (stopped, ()) = tokio::join!(waiting, release);
+    assert!(stopped);
+}
+
 #[tokio::test]
 async fn a_dial_reaches_only_the_generation_it_was_granted_for() {
     let f = fx().await;

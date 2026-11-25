@@ -681,6 +681,9 @@ pub trait DevServers: Send + Sync + Debug {
         steps: Vec<SetupStep>,
         sink: Arc<dyn SetupSink>,
     ) -> BoxFuture<'_, Result<SetupEnd>>;
+    /// Resolves once no pod of `work_dir` runs: its last server ended and
+    /// its process exited. At once when none runs.
+    fn pod_ended(&self, work_dir: PathBuf) -> BoxFuture<'_, ()>;
 }
 
 /// How a session's browser reports to the core.
@@ -1604,6 +1607,10 @@ impl DevServers for Unavailable {
         _: Arc<dyn SetupSink>,
     ) -> BoxFuture<'_, Result<SetupEnd>> {
         self.later()
+    }
+
+    fn pod_ended(&self, _: PathBuf) -> BoxFuture<'_, ()> {
+        Box::pin(async {})
     }
 }
 
