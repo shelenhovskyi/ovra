@@ -206,7 +206,7 @@ impl Plan {
                 plan.mounts.push(Mount::Tmpfs(hidden));
             }
         }
-        if let ProfileNetwork::Proxy { address } = &profile.network {
+        if let ProfileNetwork::Proxy { address, .. } = &profile.network {
             plan.mounts.push(Mount::Ro(real(Path::new(address))?));
         }
         Ok(plan)
@@ -495,7 +495,7 @@ impl Plan {
             args.extend([os("--rw"), os(path)]);
         }
         let mut env = line.env;
-        if let ProfileNetwork::Proxy { address } = &self.network {
+        if let ProfileNetwork::Proxy { address, .. } = &self.network {
             args.extend([os("--bridge"), os(real(Path::new(address))?)]);
             args.push(os(PROXY_PORT.to_string()));
             let proxy = os(format!("http://127.0.0.1:{PROXY_PORT}"));

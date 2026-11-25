@@ -40,8 +40,9 @@ use crate::protocol::terminals::{TermSize, TerminalId, TerminalsEvent};
 use crate::protocol::{ErrorCode, ProtocolError};
 use crate::services::{
     AgentHost, AgentRuntime, AgentSpec, AuditLog, BoxFuture, CommandLine, EventSink, FsService,
-    NetProxy, NetReporter, Opener, ProjectStore, Result, RunningAgent, Sandbox, SandboxProfile,
-    SandboxStatus, SearchCancel, Secrets, SessionStore, StoredSession, TerminalService, ToolRole,
+    NetProxy, NetReporter, NetStarted, Opener, ProjectStore, Result, RunningAgent, Sandbox,
+    SandboxProfile, SandboxStatus, SearchCancel, Secrets, SessionStore, StoredSession,
+    TerminalService, ToolRole,
 };
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -470,9 +471,13 @@ impl Sandbox for FakeSandbox {
 pub struct FakeNetProxy {
     pub base: Vec<AllowedHost>,
     pub fails: bool,
-    /// Running proxies: what each allows besides `base`, and its reporter.
-    pub running: Mutex<BTreeMap<SessionId, (Allowlist, NetReporter)>>,
+    /// Running proxies: what each allows besides `base`, its reporter and
+    /// the secrets it adds.
+    pub running: Mutex<BTreeMap<SessionId, FakeProxyRun>>,
 }
+
+/// One fake proxy: its allowlist, reporter and secret bindings.
+pub type FakeProxyRun = (Allowlist, NetReporter, Vec<SecretInfo>);
 
 impl NetProxy for FakeNetProxy {
     fn base(&self) -> Allowlist {
@@ -486,7 +491,8 @@ impl NetProxy for FakeNetProxy {
         session: SessionId,
         allow: Allowlist,
         refusals: NetReporter,
-    ) -> BoxFuture<'_, Result<String>> {
+        secrets: Vec<SecretInfo>,
+    ) -> BoxFuture<'_, Result<NetStarted>> {
         Box::pin(async move {
             if self.fails {
                 return Err(ProtocolError::new(
@@ -502,8 +508,9 @@ impl NetProxy for FakeNetProxy {
                     "the session's proxy already runs",
                 ));
             }
-            running.insert(session, (allow, refusals));
-            Ok(address)
+            let ca_bundle = (!secrets.is_empty()).then(|| PathBuf::from("/fake-proxy/ca.pem"));
+            running.insert(session, (allow, refusals, secrets));
+            Ok(NetStarted { address, ca_bundle })
         })
     }
 

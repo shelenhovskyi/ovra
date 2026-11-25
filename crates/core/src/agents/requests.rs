@@ -16,7 +16,8 @@ use crate::protocol::permissions::{
 use crate::protocol::projects::{Project, ProjectId};
 use crate::protocol::{ErrorCode, OkResponse, ProtocolError, Response};
 use crate::services::{
-    AgentRuntime, AgentSpec, EventSink, ProfileNetwork, ProjectStore, SandboxProfile, ToolRole,
+    AgentRuntime, AgentSpec, EventSink, ProfileNetwork, ProjectStore, SandboxProfile, Secrets,
+    ToolRole,
 };
 
 type Result<T> = std::result::Result<T, ProtocolError>;
@@ -26,6 +27,7 @@ pub(crate) struct Ctx<'a> {
     pub(crate) sessions: &'a Arc<Sessions>,
     pub(crate) runtime: &'a dyn AgentRuntime,
     pub(crate) projects: &'a dyn ProjectStore,
+    pub(crate) secrets: &'a dyn Secrets,
     pub(crate) sink: EventSink,
 }
 
@@ -336,7 +338,14 @@ async fn run(
         (info.agent, info.mode)
     })?;
     let network = sessions
-        .net_start(ctx.projects, &project, id, run, ctx.sink.clone())
+        .net_start(
+            ctx.projects,
+            ctx.secrets,
+            &project,
+            id,
+            run,
+            ctx.sink.clone(),
+        )
         .await;
     let network = match network {
         Ok(network) => network,

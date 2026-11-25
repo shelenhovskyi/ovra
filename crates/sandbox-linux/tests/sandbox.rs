@@ -395,6 +395,7 @@ fn a_blocked_network_reaches_nothing_and_a_proxy_only_its_socket() {
         &work,
         ProfileNetwork::Proxy {
             address: socket.display().to_string(),
+            ca_bundle: None,
         },
     );
     let out = run(

@@ -503,9 +503,10 @@ async fn each_session_gets_a_socket_that_follows_updates_and_closes_on_stop() {
             .collect(),
     };
     let address = proxies
-        .start(session.clone(), allow(&["crates.io"]), reporter)
+        .start(session.clone(), allow(&["crates.io"]), reporter, Vec::new())
         .await
-        .unwrap_or_else(|e| panic!("{e}"));
+        .unwrap_or_else(|e| panic!("{e}"))
+        .address;
     let mode = std::fs::metadata(&proxies.dir)
         .map(|m| std::os::unix::fs::PermissionsExt::mode(&m.permissions()) & 0o777);
     assert_eq!(mode.ok(), Some(0o700));

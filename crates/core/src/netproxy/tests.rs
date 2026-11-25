@@ -256,7 +256,8 @@ async fn each_session_runs_behind_its_own_proxy_until_it_ends() {
     assert_eq!(
         spec.sandbox.network,
         ProfileNetwork::Proxy {
-            address: "fake-proxy:s1".into()
+            address: "fake-proxy:s1".into(),
+            ca_bundle: None,
         }
     );
     let allowed = |net: &FakeNetProxy| {
@@ -264,7 +265,7 @@ async fn each_session_runs_behind_its_own_proxy_until_it_ends() {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .get(&s1)
-            .map(|(allow, _)| allow.clone())
+            .map(|(allow, _, _)| allow.clone())
     };
     assert_eq!(
         allowed(&net),
@@ -291,7 +292,7 @@ async fn each_session_runs_behind_its_own_proxy_until_it_ends() {
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .get(&s1)
-        .map(|(_, r)| r.clone());
+        .map(|(_, r, _)| r.clone());
     reporter
         .unwrap_or_else(|| panic!("no reporter"))
         .refused("evil.example:443", "not in the allowlist");
@@ -313,7 +314,7 @@ async fn each_session_runs_behind_its_own_proxy_until_it_ends() {
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .get(&s1)
-        .map(|(_, r)| r.clone())
+        .map(|(_, r, _)| r.clone())
         .unwrap_or_else(|| panic!("no reporter"));
     let long = "x".repeat(10_000);
     for _ in 0..1000 {
@@ -453,4 +454,72 @@ async fn without_a_netproxy_sessions_run_open_and_the_base_is_empty() {
         panic!("no allowlist");
     };
     assert!(list.base.hosts.is_empty());
+}
+
+#[tokio::test]
+async fn the_proxy_gets_the_projects_secret_bindings_and_logs_their_use() {
+    use crate::protocol::secrets::{SecretInfo, SecretValue};
+    use crate::services::Secrets;
+
+    let net = fake_net();
+    let agent = Arc::new(waits());
+    let audit = Arc::new(crate::fakes::MemoryAudit::default());
+    let secrets = Arc::new(crate::fakes::MemorySecrets::default());
+    let core = Core::builder("test")
+        .projects(Arc::new(MemoryProjects::default()))
+        .agents(agent.clone())
+        .netproxy(net.clone())
+        .audit(audit.clone())
+        .secrets(secrets.clone())
+        .build();
+    call(
+        &core,
+        json!({"method": "projects.add", "params": {"root": crate::test_path!("/work/a")}}),
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{e}"));
+    let p1 = crate::protocol::projects::ProjectId("p1".into());
+    let gh = SecretInfo {
+        name: "gh".into(),
+        host: "api.github.com".into(),
+        header: "Authorization".into(),
+        prefix: "Bearer ".into(),
+    };
+    secrets
+        .set(&p1, gh.clone(), SecretValue::new("ghp_value"))
+        .unwrap_or_else(|e| panic!("{e}"));
+    start(&core).await;
+    let s1 = SessionId("s1".into());
+    let spec = agent.started.lock().unwrap_or_else(|e| e.into_inner())[0].clone();
+    assert_eq!(
+        spec.sandbox.network,
+        ProfileNetwork::Proxy {
+            address: "fake-proxy:s1".into(),
+            ca_bundle: Some("/fake-proxy/ca.pem".into()),
+        }
+    );
+    let (bound, reporter) = net
+        .running
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&s1)
+        .map(|(_, r, bound)| (bound.clone(), r.clone()))
+        .unwrap_or_else(|| panic!("no proxy"));
+    assert_eq!(bound, vec![gh]);
+    assert_eq!(reporter.project(), &p1);
+
+    reporter.secret_used("gh", "api.github.com");
+    let logged = crate::services::AuditLog::list(audit.as_ref(), &p1, None, 100)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|e| e.event)
+        .collect::<Vec<_>>();
+    assert!(
+        logged.contains(&crate::protocol::audit::AuditEvent::SecretUsed {
+            name: "gh".into(),
+            host: "api.github.com".into()
+        }),
+        "{logged:?}"
+    );
+    assert!(!format!("{logged:?}").contains("ghp_value"));
 }

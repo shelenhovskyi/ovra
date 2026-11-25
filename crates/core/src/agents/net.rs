@@ -6,7 +6,7 @@ use crate::protocol::agents::SessionId;
 use crate::protocol::netproxy::Allowlist;
 use crate::protocol::projects::ProjectId;
 use crate::protocol::{ErrorCode, ProtocolError};
-use crate::services::{EventSink, NetReporter, ProfileNetwork, ProjectStore};
+use crate::services::{EventSink, NetReporter, ProfileNetwork, ProjectStore, Secrets};
 
 use super::{Sessions, lock};
 
@@ -25,6 +25,7 @@ impl Sessions {
     pub(crate) async fn net_start(
         &self,
         projects: &dyn ProjectStore,
+        secrets: &dyn Secrets,
         project: &ProjectId,
         session: &SessionId,
         run: u64,
@@ -36,7 +37,12 @@ impl Sessions {
         let allow = projects.allowlist(project)?;
         let core = lock(&self.ide).as_ref().map(|link| link.core.clone());
         let reporter = NetReporter::new(project.clone(), session.clone(), sink).with_core(core);
-        let address = net.start(session.clone(), allow.clone(), reporter).await?;
+        // The bindings, never values: the proxy reads a value when it
+        // adds it.
+        let bound = secrets.list(project)?;
+        let started = net
+            .start(session.clone(), allow.clone(), reporter, bound)
+            .await?;
         // The allowlist may have changed while the proxy started, and the
         // session may have ended: a running session gets the stored list,
         // an ended one loses its proxy.
@@ -64,7 +70,10 @@ impl Sessions {
             ));
         }
         now?;
-        Ok(ProfileNetwork::Proxy { address })
+        Ok(ProfileNetwork::Proxy {
+            address: started.address,
+            ca_bundle: started.ca_bundle,
+        })
     }
 
     /// Called under the sessions' lock when a session ends.

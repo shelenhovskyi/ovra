@@ -166,6 +166,7 @@ fn a_worker_reads_its_git_folder_behind_a_proxy() {
     profile.read.push(common);
     profile.network = ProfileNetwork::Proxy {
         address: socket.display().to_string(),
+        ca_bundle: None,
     };
     let plan = Plan::new(&setup, &profile).unwrap();
     let line = plan.line(

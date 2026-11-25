@@ -26,8 +26,9 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock};
 
 use ovra_core::protocol::agents::SessionId;
 use ovra_core::protocol::netproxy::Allowlist;
+use ovra_core::protocol::secrets::SecretInfo;
 use ovra_core::protocol::{ErrorCode, ProtocolError};
-use ovra_core::services::{BoxFuture, NetProxy, NetReporter, Result};
+use ovra_core::services::{BoxFuture, NetProxy, NetReporter, NetStarted, Result};
 use tokio::sync::Semaphore;
 use tokio::task::{JoinHandle, JoinSet};
 
@@ -145,7 +146,8 @@ impl NetProxy for NetProxies {
         session: SessionId,
         allow: Allowlist,
         refusals: NetReporter,
-    ) -> BoxFuture<'_, Result<String>> {
+        _secrets: Vec<SecretInfo>,
+    ) -> BoxFuture<'_, Result<NetStarted>> {
         Box::pin(async move {
             let net = Arc::new(SessionNet {
                 rules: RwLock::new(Rules {
@@ -178,7 +180,10 @@ impl NetProxy for NetProxies {
                 ));
             }
             all.insert(session, running);
-            Ok(address)
+            Ok(NetStarted {
+                address,
+                ca_bundle: None,
+            })
         })
     }
 

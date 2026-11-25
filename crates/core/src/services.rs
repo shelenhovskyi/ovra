@@ -224,6 +224,11 @@ pub enum ProfileNetwork {
     /// Only through the session's netproxy at `address`.
     Proxy {
         address: String,
+        /// The CA bundle the sandbox trusts, if the proxy adds secrets:
+        /// the system's and the person's roots plus the session's own CA
+        /// (`docs/specs/secrets.md`). The sandbox makes it readable and
+        /// points `SSL_CERT_FILE` and the like at it.
+        ca_bundle: Option<PathBuf>,
     },
     /// Not limited: no netproxy is wired in.
     Open,
@@ -252,20 +257,30 @@ pub trait NetProxy: Send + Sync + Debug {
     /// What every session may reach: the hosts `claude` itself needs.
     fn base(&self) -> Allowlist;
     /// Starts the proxy of `session`, which allows `base()` and `allow`,
-    /// until [`NetProxy::stop`]. Returns the address for
-    /// [`ProfileNetwork::Proxy`]. Starting a session's proxy again replaces
-    /// the old one.
+    /// until [`NetProxy::stop`]. It adds each of `secrets` (the project's,
+    /// fixed for this run) to requests for its host
+    /// (`docs/specs/secrets.md`). Returns what [`ProfileNetwork::Proxy`]
+    /// needs.
     fn start(
         &self,
         session: SessionId,
         allow: Allowlist,
         refusals: NetReporter,
-    ) -> BoxFuture<'_, Result<String>>;
+        secrets: Vec<SecretInfo>,
+    ) -> BoxFuture<'_, Result<NetStarted>>;
     /// Replaces a running proxy's project allowlist; new connections follow
     /// it. Does nothing for a session without a proxy.
     fn update(&self, session: &SessionId, allow: Allowlist);
     /// Stops the proxy and its connections. Does nothing without one.
     fn stop(&self, session: &SessionId);
+}
+
+/// A started netproxy: its address and, if it adds secrets, the CA
+/// bundle for the sandbox.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NetStarted {
+    pub address: String,
+    pub ca_bundle: Option<PathBuf>,
 }
 
 /// How a netproxy reports one session's refusals to the core. Cheap to clone.
@@ -307,6 +322,27 @@ impl NetReporter {
                 recorded: 0,
                 left_out: 0,
             })),
+        }
+    }
+
+    /// The session's project, whose secrets the proxy adds.
+    pub fn project(&self) -> &ProjectId {
+        &self.project
+    }
+
+    /// The proxy added secret `name` to a request for `host`: written to
+    /// the audit log as `SecretUsed`, never with the value.
+    pub fn secret_used(&self, name: &str, host: &str) {
+        if let Some(core) = self.core.as_ref().and_then(|c| c.upgrade()) {
+            crate::audit::record(
+                &core,
+                &self.project,
+                Some(&self.session),
+                AuditEvent::SecretUsed {
+                    name: name.to_owned(),
+                    host: host.to_owned(),
+                },
+            );
         }
     }
 

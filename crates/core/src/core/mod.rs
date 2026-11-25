@@ -372,6 +372,7 @@ impl Core {
             sessions: &self.inner.sessions,
             runtime: self.inner.agents.as_ref(),
             projects: self.inner.projects.as_ref(),
+            secrets: self.inner.secrets.as_ref(),
             sink: self.sink(),
         }
     }
