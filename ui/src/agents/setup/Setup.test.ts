@@ -22,7 +22,7 @@ afterEach(() => {
 
 async function settle() {
   flushSync();
-  await new Promise((resolve) => setTimeout(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
   flushSync();
 }
 
