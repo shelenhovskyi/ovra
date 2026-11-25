@@ -3,6 +3,8 @@ import { untrack } from "svelte";
 import AgentsPanel from "../agents/AgentsPanel.svelte";
 import Approvals from "../approvals/Approvals.svelte";
 import AuditLog from "../audit/AuditLog.svelte";
+import BrowserButton from "../browser/BrowserButton.svelte";
+import BrowserPane from "../browser/BrowserPane.svelte";
 import Editor from "../editor/Editor.svelte";
 import { persistOpenFiles } from "../editor/open-files.svelte";
 import Tabs from "../editor/Tabs.svelte";
@@ -101,6 +103,7 @@ const status = $derived.by((): { text: string; ok: boolean } => {
     <PolicyPanel />
     <NetworkPanel />
     <ServersPanel />
+    <BrowserButton />
   </header>
   <aside data-testid="sidebar">
     {#if workspace.project}
@@ -147,6 +150,7 @@ const status = $derived.by((): { text: string; ok: boolean } => {
         {/if}
       </div>
     </div>
+    <BrowserPane />
     <Terminals />
   </main>
   <aside class="agents" data-testid="agents" aria-label="Agents and approvals">
