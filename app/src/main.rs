@@ -26,6 +26,8 @@ async fn ovra_call(client: tauri::State<'_, Client>, frame: String) -> Result<St
 fn main() {
     // Inside an agent's sandbox this process is the sandbox's helper.
     ovra_sandbox::helper_if_asked();
+    // As a server pod, this process is the pod's init.
+    ovra_servers::pod_init_if_asked();
     let result = tauri::Builder::default()
         // Provides window.Notification to the UI for system notifications.
         .plugin(tauri_plugin_notification::init())
