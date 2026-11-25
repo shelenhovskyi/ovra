@@ -21,6 +21,7 @@ pub(super) fn blame(root: &Path, path: &RelPath) -> Result<Blame> {
         )));
     }
     let out = Git::new(root, "blame")
+        .env("GIT_OPTIONAL_LOCKS", "0")
         .args(["--porcelain", "--no-ext-diff", "--no-textconv", "--"])
         .arg(path.as_str())
         .output()?;

@@ -114,7 +114,10 @@ fn unstage(root: &Path, paths: &[RelPath]) -> Result<()> {
 fn discard(root: &Path, paths: &[RelPath]) -> Result<()> {
     git::dirs(root)?;
     // The index entries of the project, relative to it.
-    let listed = Git::new(root, "ls-files").args(["-z", "--cached"]).run()?;
+    let listed = Git::new(root, "ls-files")
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .args(["-z", "--cached"])
+        .run()?;
     let tracked: BTreeSet<String> = git::fields(&listed).collect();
     let is_tracked = |path: &str| {
         let folder = format!("{path}/");
@@ -154,6 +157,7 @@ fn commit(root: &Path, message: &str, amend: bool) -> Result<Committed> {
     // A merge may be committed as it is; anything else needs staged changes.
     if !amend && !dirs.git_dir.join("MERGE_HEAD").exists() {
         let same = Git::new(root, "diff")
+            .env("GIT_OPTIONAL_LOCKS", "0")
             .args(["--cached", "--quiet", "--no-ext-diff", "--no-textconv"])
             .arg("--ignore-submodules=none")
             .output()?;

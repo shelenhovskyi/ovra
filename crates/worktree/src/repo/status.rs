@@ -9,6 +9,8 @@ use ovra_core::services::Result;
 
 use crate::git::{self, Dirs, Git};
 
+/// Reads only: `GIT_OPTIONAL_LOCKS=0` keeps it off the index lock that
+/// the person's and agents' git need.
 pub(super) fn status(root: &Path) -> Result<Option<RepoStatus>> {
     let dirs = match git::dirs(root) {
         Ok(dirs) => dirs,
@@ -16,6 +18,7 @@ pub(super) fn status(root: &Path) -> Result<Option<RepoStatus>> {
         Err(e) => return Err(e),
     };
     let mut run = Git::new(root, "status")
+        .env("GIT_OPTIONAL_LOCKS", "0")
         .args(["--porcelain=v2", "-z", "--branch", "--ahead-behind"])
         .arg("--untracked-files=all");
     // Only the project's folder, when it is not the whole repository.
