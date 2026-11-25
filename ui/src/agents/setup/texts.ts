@@ -147,10 +147,10 @@ export function runsCode(kind: ConfigKind): boolean {
   return kind === "hooks" || kind === "helpers" || kind === "plugins";
 }
 
-/** Display order: rules that skip approvals, then what runs code, then the rest. */
+/** Display order: rules that skip approvals, then what runs code or could not be checked, then the rest. */
 export function weight(kind: ConfigKind): number {
   if (kind === "broad_allow_rules") return 2;
-  return runsCode(kind) ? 1 : 0;
+  return runsCode(kind) || kind === "unreadable" ? 1 : 0;
 }
 
 export type ConfigChange = { path: string; kind: ConfigKind; added: string[]; removed: string[] };
@@ -260,39 +260,115 @@ function list(parts: string[]): string {
   return parts.length < 2 ? parts.join("") : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
 }
 
+/**
+ * Who the trust card speaks to: a project not trusted yet, a trusted one, or
+ * a trusted one whose settings changed (the warnings are about what was added).
+ */
+export type TrustState = "untrusted" | "trusted" | "changed";
+
+/** The trust buttons ignore presses this long after the card or its details change, as approvals do. */
+export const TRUST_ARM_MS = 500;
+
 export type Warnings = {
   /** Rules that let Claude act without Ovra's approvals, named. */
   broad: string | null;
-  /** What runs commands on the user's computer, counted. */
+  /** What runs commands on the user's computer, counted, and quoted when short. */
   code: string | null;
-  /** Files Ovra could not read: whatever they hold may still load. */
+  /** Environment variables that can redirect Claude or run code, named. */
+  env: string | null;
+  /** Files Ovra could not read, named: whatever they hold may still load. */
   unreadable: string | null;
 };
 
 /**
- * The risk in one or two short lines, shown before the user can trust.
- * `fresh` says "new" for the settings that changed since the last trust.
+ * Environment variables that send Claude's traffic elsewhere, change who pays,
+ * or make programs run extra code. Matched in upper case: Windows ignores case.
  */
-export function warnings(items: { kind: ConfigKind; entries: string[] }[], fresh = false): Warnings {
+const RISKY_ENV = [
+  /^ANTHROPIC_/,
+  /^CLAUDE_/,
+  /^DYLD_/,
+  /_BASE_URL$/,
+  /_PROXY$/,
+  /^(NODE_OPTIONS|BASH_ENV|ENV|LD_PRELOAD|LD_LIBRARY_PATH|PATH|PYTHONPATH|PYTHONSTARTUP)$/,
+  /^GIT_(SSH|SSH_COMMAND|EXEC_PATH|ASKPASS)$/,
+];
+
+/** Whether setting this environment variable can redirect Claude or run code. */
+export function riskyEnv(name: string): boolean {
+  const upper = name.trim().toUpperCase();
+  return RISKY_ENV.some((pattern) => pattern.test(upper));
+}
+
+/** `text` cut to `max` characters, ending in "…" when cut. */
+function clip(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+/** At most `max` names, then "N more" (counting `extra` names not listed). */
+function named(names: string[], extra: number, max = 3): string {
+  const shown = names.slice(0, max);
+  const more = names.length - shown.length + extra;
+  return list(more > 0 ? [...shown, `${more} more`] : shown);
+}
+
+/** Commands quoted in the code warning: only as many as stay readable. */
+const QUOTED = 2;
+
+/**
+ * The risk in short lines, shown before the user can trust. Settings not
+ * trusted yet are spoken of as what happens once trusted; for changed
+ * settings, `items` are what was added and the lines say "new".
+ */
+export function warnings(items: { path: string; kind: ConfigKind; entries: string[] }[], state: TrustState): Warnings {
+  const fresh = state === "changed";
+  const once = state === "untrusted" ? "once you trust this project" : fresh ? "once you trust the changes" : "";
+  const lead = once ? `${once.charAt(0).toUpperCase()}${once.slice(1)}, ` : "";
+
   const rules = items.filter((item) => item.kind === "broad_allow_rules").flatMap((item) => item.entries);
-  const shown = rules.slice(0, 3);
-  const more = count("broad_allow_rules", rules) - count("broad_allow_rules", shown);
-  const named = list(more > 0 ? [...shown.filter((r) => !CUT.test(r)), `${more} more`] : shown);
+  const shownRules = rules.filter((rule) => !CUT.test(rule));
+  const hiddenRules = count("broad_allow_rules", rules) - shownRules.length;
+
   const code = tally(items.filter((item) => runsCode(item.kind)));
-  const unread = items
-    .filter((item) => item.kind === "unreadable")
-    .reduce((sum, item) => sum + count(item.kind, item.entries), 0);
   const total = code.reduce((sum, [, n]) => sum + n, 0);
   const parts = code.map(([kind, n]) => {
     const [one, many] = CODE_NOUNS[kind] ?? ["item", "items"];
     return plural(n, fresh ? `new ${one}` : one, fresh ? `new ${many}` : many);
   });
+  // Plugins are names, not commands: quote only what hooks and helpers run, and only when that is all of it.
+  const commands = items
+    .filter((item) => item.kind === "hooks" || item.kind === "helpers")
+    .flatMap((item) => item.entries);
+  const quoted =
+    commands.length === total && total <= QUOTED ? `: ${commands.map((c) => `"${clip(c, 80)}"`).join(" and ")}` : "";
+  const run = once ? "will run" : total === 1 ? "runs" : "run";
+
+  const vars = items.filter((item) => item.kind === "env").flatMap((item) => item.entries);
+  const risky = vars.filter((name) => !CUT.test(name) && riskyEnv(name));
+  const unlisted = vars.reduce((sum, name) => sum + (Number(CUT.exec(name)?.[1]) || 0), 0);
+  const env = [
+    risky.length > 0
+      ? `${fresh ? "New project" : "Project"} settings set ${named(risky, 0, 4)}: ${once ? `${once}, ` : ""}${risky.length === 1 ? "it" : "they"} can send your prompts and code elsewhere or run code.`
+      : "",
+    unlisted > 0
+      ? `${plural(unlisted, "environment variable is", "environment variables are")} not listed, so Ovra could not check ${unlisted === 1 ? "it" : "them"}: read the settings files.`
+      : "",
+  ].filter(Boolean);
+
+  const files = items
+    .filter((item) => item.kind === "unreadable" && item.entries.length > 0)
+    .map((item) => `${item.path} (${clip(item.entries[0] ?? "", 60)})`);
+
   return {
-    broad: rules.length > 0 ? `Claude will use ${named} without asking you.` : null,
-    code: total > 0 ? `${list(parts)} ${total === 1 ? "runs" : "run"} commands on your computer.` : null,
+    broad:
+      rules.length > 0
+        ? `${lead}Claude ${once ? "will use" : "uses"} ${named(shownRules, hiddenRules)} without asking you.`
+        : null,
+    code: total > 0 ? `${lead}${list(parts)} ${run} commands on your computer${quoted}.` : null,
+    env: env.length > 0 ? env.join(" ") : null,
     unreadable:
-      unread > 0
-        ? `Ovra could not read ${plural(unread, fresh ? "new file" : "file", fresh ? "new files" : "files")} of these settings; whatever ${unread === 1 ? "it holds" : "they hold"}, hooks too, may load once you trust it.`
+      files.length > 0
+        ? `Ovra could not read ${fresh ? "the new " : ""}${named(files, 0)}; whatever ${files.length === 1 ? "it holds" : "they hold"}, hooks too, may load${once ? ` ${once}` : ""}.`
         : null,
   };
 }

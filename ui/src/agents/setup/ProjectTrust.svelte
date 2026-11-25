@@ -19,6 +19,7 @@ import {
   type Row,
   runsCode,
   summary,
+  TRUST_ARM_MS,
   touchesConfig,
   warnings,
   weight,
@@ -38,6 +39,10 @@ let busy = $state(false);
 let error = $state<string | null>(null);
 // Answers can come back out of order: only the latest request's counts.
 let latest = 0;
+// The trust buttons count a press only TRUST_ARM_MS after what the card shows last changed.
+let shownAt = $state(Date.now());
+let now = $state(Date.now());
+const armed = $derived(now >= shownAt + TRUST_ARM_MS);
 
 const project = $derived(workspace.project);
 const changed = $derived(
@@ -51,10 +56,10 @@ const empty = $derived(review !== null && !changed && items.length === 0);
 const risk = $derived(
   changed
     ? warnings(
-        diff.map((c) => ({ kind: c.kind, entries: c.added })),
-        true,
+        diff.map((c) => ({ path: c.path, kind: c.kind, entries: c.added })),
+        "changed",
       )
-    : warnings(items),
+    : warnings(items, project?.trusted ? "trusted" : "untrusted"),
 );
 const counts = $derived(
   changed
@@ -105,10 +110,39 @@ $effect(() =>
       details = true;
       await tick();
       section?.scrollIntoView({ block: "nearest" });
-      (section?.querySelector<HTMLElement>("button.primary") ?? section?.querySelector<HTMLElement>("button"))?.focus();
+      // Never a Trust button: the Enter that ran this command must not trust.
+      section?.querySelector<HTMLElement>("#trust-heading")?.focus();
+      rearm();
     },
   }),
 );
+
+function rearm(): void {
+  shownAt = Date.now();
+  now = shownAt;
+}
+
+// Whatever changes what the card shows (or where it puts the buttons) arms them again.
+$effect(() => {
+  void [project?.id, project?.trusted, review?.current.fingerprint, changed, empty, details];
+  untrack(rearm);
+});
+
+$effect(() => {
+  if (armed) return;
+  const timer = setTimeout(() => (now = Date.now()), Math.max(0, shownAt + TRUST_ARM_MS - Date.now()));
+  return () => clearTimeout(timer);
+});
+
+/** Trusts on a deliberate press only: not before the card is armed, not from a held key. */
+function trustPress(): void {
+  if (armed) void trust(true);
+}
+
+function noRepeat(event: KeyboardEvent): void {
+  // A held Enter repeats clicks on a focused button.
+  if (event.repeat) event.preventDefault();
+}
 
 $effect(() => {
   const id = project?.id;
@@ -186,13 +220,23 @@ function trust(trusted: boolean): Promise<void> {
     bind:this={section}
   >
     {#if !review}
-      <h3 id="trust-heading">Project settings</h3>
+      <h3 id="trust-heading" tabindex="-1">Project settings</h3>
     {:else if empty}
       <div class="row">
-        <h3 id="trust-heading">{heading}</h3>
-        <button type="button" class="link" class:primary={!project.trusted} disabled={busy} onclick={() => trust(!project.trusted)}>
-          {project.trusted ? "Stop trusting" : "Trust project"}
-        </button>
+        <h3 id="trust-heading" tabindex="-1">{heading}</h3>
+        {#if project.trusted}
+          <button type="button" class="link" disabled={busy} onclick={() => trust(false)}>Stop trusting</button>
+        {:else}
+          <button
+            type="button"
+            class="link primary"
+            disabled={busy}
+            aria-disabled={!armed}
+            title={armed ? undefined : "Read the card first"}
+            onkeydown={noRepeat}
+            onclick={trustPress}>Trust project</button
+          >
+        {/if}
       </div>
       {#if !project.trusted}
         <p data-testid="trust-language-servers">
@@ -202,21 +246,25 @@ function trust(trusted: boolean): Promise<void> {
         </p>
       {/if}
     {:else}
-      <h3 id="trust-heading">{heading}</h3>
+      <h3 id="trust-heading" tabindex="-1">{heading}</h3>
       <p class="detail">{lead}</p>
       <p data-testid="trust-summary">{counts}</p>
+      <!-- "⚠" marks warnings by shape, not only by colour. -->
       {#if risk.broad}
-        <p class="warning" role="note" data-testid="broad-rules">{risk.broad}</p>
+        <p class="warning" role="note" data-testid="broad-rules">⚠ {risk.broad}</p>
       {/if}
       {#if risk.code}
-        <p class="warning" role="note" data-testid="trust-runs-code">{risk.code}</p>
+        <p class="warning" role="note" data-testid="trust-runs-code">⚠ {risk.code}</p>
+      {/if}
+      {#if risk.env}
+        <p class="warning" role="note" data-testid="trust-risky-env">⚠ {risk.env}</p>
       {/if}
       {#if risk.unreadable}
-        <p class="warning" role="note" data-testid="trust-unreadable">{risk.unreadable}</p>
+        <p class="warning" role="note" data-testid="trust-unreadable">⚠ {risk.unreadable}</p>
       {/if}
       {#if !project.trusted && !sandbox}
         <p class="warning" role="note" data-testid="trust-no-sandbox">
-          Language servers will run this project's code without a sandbox on this computer.
+          ⚠ Language servers will run this project's code without a sandbox on this computer.
         </p>
       {/if}
       <div class="row">
@@ -232,9 +280,25 @@ function trust(trusted: boolean): Promise<void> {
             <button type="button" disabled={busy} onclick={() => trust(false)}>Stop trusting</button>
           {/if}
           {#if changed}
-            <button type="button" class="primary" disabled={busy} onclick={() => trust(true)}>Trust the new settings</button>
+            <button
+              type="button"
+              class="primary"
+              disabled={busy}
+              aria-disabled={!armed}
+              title={armed ? undefined : "Read the card first"}
+              onkeydown={noRepeat}
+              onclick={trustPress}>Trust the new settings</button
+            >
           {:else if !project.trusted}
-            <button type="button" class="primary" disabled={busy} onclick={() => trust(true)}>Trust project</button>
+            <button
+              type="button"
+              class="primary"
+              disabled={busy}
+              aria-disabled={!armed}
+              title={armed ? undefined : "Read the card first"}
+              onkeydown={noRepeat}
+              onclick={trustPress}>Trust project</button
+            >
           {/if}
         </span>
       </div>
@@ -242,9 +306,9 @@ function trust(trusted: boolean): Promise<void> {
         <div id="trust-details" class="details" data-testid="trust-details">
           <p class="detail" data-testid="trust-language-servers">
             {project.trusted ? "Ovra starts" : "Trusting also lets Ovra start"} language servers for the files you edit.
-            They run the project's code (build scripts, for example){sandbox
-              ? ` in the sandbox (${sandbox}), which keeps them to the project and their cache, without network`
-              : ", without a sandbox on this computer"}. Stop trusting stops them.
+            They run the project's code (build scripts, for example){#if sandbox}
+              in the <span title={sandbox}>sandbox</span>, which keeps them to the project and their cache, without
+              network{:else}, without a sandbox on this computer{/if}. Stop trusting stops them.
           </p>
           <p class="detail">
             {changed ? "Lines with + load once you trust them; lines with − no longer load." : ""}
@@ -254,7 +318,7 @@ function trust(trusted: boolean): Promise<void> {
             <details class="group" data-kind={group.kind} open={weight(group.kind) > 0}>
               <summary>
                 {KIND_LABELS[group.kind]}
-                {#if runsCode(group.kind)}<strong>runs code</strong>{/if}
+                {#if runsCode(group.kind)}<strong>· runs code</strong>{/if}
               </summary>
               {#each group.files as file (file.path)}
                 {@const key = `${group.kind}\u0000${file.path}`}
@@ -333,6 +397,18 @@ function trust(trusted: boolean): Promise<void> {
   .warning,
   strong {
     color: #ffd36b;
+    font-weight: 600;
+  }
+  h3:focus {
+    outline: none;
+  }
+  h3:focus-visible {
+    outline: 2px solid #7aa2ff;
+    outline-offset: 1px;
+  }
+  button[aria-disabled="true"] {
+    opacity: 0.55;
+    cursor: default;
   }
   strong {
     margin-left: 4px;

