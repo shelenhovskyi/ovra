@@ -11,7 +11,7 @@ use ovra_core::protocol::projects::ProjectId;
 use ovra_core::protocol::servers::{ServerId, ServerReady, ServerStatus};
 use ovra_core::services::{
     CommandLine, DevServerSpec, DevServers as _, PodSpec, ProfileNetwork, Result, Sandbox,
-    SandboxProfile, SandboxStatus, ServerSink,
+    SandboxProfile, SandboxStatus, ServerSink, SetupEnd, SetupSink, SetupStep,
 };
 use ovra_servers::PodServers;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
@@ -460,4 +460,167 @@ async fn a_pods_folder_too_long_for_its_sockets_is_refused() {
     let error = started.expect_err("too long");
     assert!(error.message.contains("too long"), "{}", error.message);
     assert_eq!(entries(&long), Vec::<PathBuf>::new());
+}
+
+/// Sends every setup report as `"step <n>"` or `"<n> out <line>"`.
+#[derive(Debug)]
+struct Steps(UnboundedSender<String>);
+
+impl SetupSink for Steps {
+    fn step(&self, index: usize) {
+        let _ = self.0.send(format!("step {index}"));
+    }
+    fn output(&self, index: usize, lines: Vec<String>) {
+        for line in lines {
+            let _ = self.0.send(format!("{index} out {line}"));
+        }
+    }
+}
+
+impl Setup {
+    fn steps(&self) -> Arc<Steps> {
+        Arc::new(Steps(self.sink.0.clone()))
+    }
+
+    /// A step that runs `script`, with `GREETING` set, from another folder.
+    fn step(script: &str, timeout: Duration) -> SetupStep {
+        SetupStep {
+            line: CommandLine {
+                program: "sh".into(),
+                args: vec!["-c".into(), script.into()],
+                env: vec![("GREETING".into(), Some("hi".into()))],
+                cwd: "/".into(),
+            },
+            timeout,
+        }
+    }
+
+    /// Every report sent so far.
+    fn sent(&mut self) -> Vec<String> {
+        std::iter::from_fn(|| self.reports.try_recv().ok()).collect()
+    }
+}
+
+const MINUTE: Duration = Duration::from_secs(60);
+
+#[tokio::test]
+async fn setup_runs_its_steps_in_order_in_the_work_dir_and_lets_the_pod_end() {
+    let mut s = setup();
+    let steps = vec![
+        Setup::step("echo \"$GREETING from $(pwd)\"; echo oops >&2", MINUTE),
+        Setup::step("test -e first || echo second", MINUTE),
+    ];
+    let end = s.servers.setup(&s.pod(), steps, s.steps()).await;
+    assert_eq!(end.ok(), Some(SetupEnd::Done));
+    let work = s.work.path().canonicalize().expect("work");
+    assert_eq!(
+        s.sent(),
+        [
+            "step 0".into(),
+            format!("0 out hi from {}", work.display()),
+            "0 out oops".into(),
+            "step 1".into(),
+            "1 out second".into(),
+        ]
+    );
+    s.servers.pod_ended(s.work.path().into()).await;
+    assert_eq!(entries(s.data.path()), Vec::<PathBuf>::new());
+}
+
+#[tokio::test]
+async fn a_failed_step_ends_the_setup() {
+    let mut s = setup();
+    let steps = vec![
+        Setup::step("exit 3", MINUTE),
+        Setup::step("echo never", MINUTE),
+    ];
+    let end = s.servers.setup(&s.pod(), steps, s.steps()).await;
+    let failed = SetupEnd::Failed {
+        step: 0,
+        code: Some(3),
+        reason: None,
+    };
+    assert_eq!(end.ok(), Some(failed));
+    assert_eq!(s.sent(), ["step 0"]);
+    // A step that cannot start says why.
+    let mut missing = Setup::step("", MINUTE);
+    missing.line.program = "/nowhere/ovra-no-such-program".into();
+    let end = s.servers.setup(&s.pod(), vec![missing], s.steps()).await;
+    let Ok(SetupEnd::Failed {
+        step: 0,
+        code: None,
+        reason: Some(reason),
+    }) = end
+    else {
+        panic!("{end:?}");
+    };
+    assert!(reason.contains("ovra-no-such-program"), "{reason}");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_step_past_its_timeout_is_killed_and_the_rest_do_not_run() {
+    let mut s = setup();
+    let steps = vec![
+        Setup::step("exec sleep 30", Duration::from_secs(600)),
+        Setup::step("echo never", MINUTE),
+    ];
+    let end = s.servers.setup(&s.pod(), steps, s.steps()).await;
+    assert_eq!(end.ok(), Some(SetupEnd::TimedOut { step: 0 }));
+    s.servers.pod_ended(s.work.path().into()).await;
+    assert_eq!(s.sent(), ["step 0"]);
+}
+
+#[tokio::test]
+async fn dropping_the_setup_kills_its_running_step() {
+    let mut s = setup();
+    let steps = vec![Setup::step("echo $$; exec sleep 30", MINUTE)];
+    let pod = s.pod();
+    let sink = s.steps();
+    let pid = {
+        let setup = s.servers.setup(&pod, steps, sink);
+        let reports = &mut s.reports;
+        let line = async {
+            loop {
+                let report = reports.recv().await.expect("a report");
+                if let Some(pid) = report.strip_prefix("0 out ") {
+                    return pid.to_owned();
+                }
+            }
+        };
+        tokio::select! {
+            end = setup => panic!("ended first: {end:?}"),
+            pid = line => pid,
+        }
+    };
+    s.servers.pod_ended(s.work.path().into()).await;
+    let stat = format!("/proc/{pid}/stat");
+    while std::fs::read_to_string(&stat).is_ok_and(|s| !s.contains(") Z ")) {
+        tokio::task::yield_now().await;
+    }
+}
+
+#[tokio::test]
+async fn setup_shares_the_pod_with_running_servers() {
+    let mut s = setup();
+    s.start("srv", "echo up; exec sleep 5", free_port(), None)
+        .expect("start");
+    s.until("srv out up").await;
+    let steps = vec![Setup::step("echo ok", MINUTE)];
+    let end = s.servers.setup(&s.pod(), steps, s.steps()).await;
+    assert_eq!(end.ok(), Some(SetupEnd::Done));
+    assert_eq!(s.sent(), ["step 0", "0 out ok"]);
+    // The server keeps the pod.
+    assert_eq!(entries(s.data.path()).len(), 1);
+    s.servers
+        .stop(&ServerId("srv".into()), Duration::from_secs(5));
+    s.until("srv #1 Exited { code: None }").await;
+}
+
+#[tokio::test]
+async fn no_setup_runs_without_a_sandbox() {
+    let s = setup_with(Identity(false));
+    let steps = vec![Setup::step("exit 0", MINUTE)];
+    let end = s.servers.setup(&s.pod(), steps, s.steps()).await;
+    assert_eq!(end.err().map(|e| e.code), Some(ErrorCode::Unavailable));
+    assert_eq!(entries(s.data.path()), Vec::<PathBuf>::new());
 }

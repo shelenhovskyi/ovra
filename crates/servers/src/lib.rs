@@ -5,8 +5,10 @@
 //! A pod is this program itself in pod mode ([`pod_init_if_asked`]),
 //! started through the `Sandbox` with the pod's profile. Ovra drives it
 //! over `<pod dir>/control.sock` (`control`); each server port is reached
-//! through `<pod dir>/<port>.sock`, never through a host port. Without a
-//! sandbox (or a Unix system) nothing runs.
+//! through `<pod dir>/<port>.sock`, never through a host port. A work
+//! dir's setup steps (`docs/specs/worktree-setup.md`) run in the same pod,
+//! one after another, without a port. Without a sandbox (or a Unix
+//! system) nothing runs.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -149,16 +151,11 @@ impl DevServers for PodServers {
 
     fn setup(
         &self,
-        _: &PodSpec,
-        _: Vec<SetupStep>,
-        _: Arc<dyn SetupSink>,
+        pod: &PodSpec,
+        steps: Vec<SetupStep>,
+        sink: Arc<dyn SetupSink>,
     ) -> BoxFuture<'_, Result<SetupEnd>> {
-        Box::pin(async {
-            Err(ovra_core::protocol::ProtocolError::new(
-                ovra_core::protocol::ErrorCode::Unavailable,
-                "worktree setup steps are not available in this build",
-            ))
-        })
+        Box::pin(self.pods.setup(pod.clone(), steps, sink))
     }
 
     fn pod_ended(&self, work_dir: PathBuf) -> BoxFuture<'_, ()> {

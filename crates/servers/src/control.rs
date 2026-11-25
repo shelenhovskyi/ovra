@@ -31,7 +31,7 @@ pub(crate) enum Request {
     Signal { id: String, sig: Sig },
 }
 
-/// One server to start, in its own process group.
+/// One server or setup step to start, in its own process group.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct Spawn {
     pub(crate) id: String,
@@ -40,7 +40,8 @@ pub(crate) struct Spawn {
     /// Variables to set (`Some`) or remove (`None`).
     pub(crate) env: Vec<(String, Option<String>)>,
     pub(crate) cwd: String,
-    pub(crate) port: u16,
+    /// The server's port; a setup step has none.
+    pub(crate) port: Option<u16>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -67,7 +68,7 @@ pub(crate) enum Event {
 impl Spawn {
     /// The spawn of `line`. The control protocol is JSON, so every part of
     /// it must be UTF-8.
-    pub(crate) fn new(id: String, line: &CommandLine, port: u16) -> Result<Self, String> {
+    pub(crate) fn new(id: String, line: &CommandLine, port: Option<u16>) -> Result<Self, String> {
         let text = |s: &std::ffi::OsStr| {
             s.to_str()
                 .map(str::to_owned)
@@ -145,7 +146,7 @@ mod tests {
             argv: vec!["pnpm".into(), "dev".into()],
             env: vec![("PORT".into(), Some("5173".into())), ("CI".into(), None)],
             cwd: "/w/ui".into(),
-            port: 5173,
+            port: Some(5173),
         };
         let requests = [
             Request::Spawn(spawn),
@@ -196,12 +197,12 @@ mod tests {
             env: vec![("PORT".into(), Some("5173".into())), ("CI".into(), None)],
             cwd: "/w/ui".into(),
         };
-        let spawn = Spawn::new("3".into(), &line, 5173).expect("utf-8");
+        let spawn = Spawn::new("3".into(), &line, Some(5173)).expect("utf-8");
         assert_eq!(spawn.argv, ["pnpm", "dev"]);
         assert_eq!(spawn.env[1], ("CI".into(), None));
         assert_eq!(spawn.cwd, "/w/ui");
         line.args.push(std::ffi::OsString::from_vec(vec![0xff]));
-        assert!(Spawn::new("1".into(), &line, 3000).is_err());
+        assert!(Spawn::new("1".into(), &line, None).is_err());
     }
 
     #[test]

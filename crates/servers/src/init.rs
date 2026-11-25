@@ -1,7 +1,7 @@
 //! Pod-init: the first process in a server pod, run as `<ovra> --ovra-pod
 //! <pod dir>` inside the sandbox. It listens on `<pod dir>/control.sock`
-//! for Ovra (the first connection only), spawns servers in their own
-//! process groups, sends their output and ends, and relays
+//! for Ovra (the first connection only), spawns servers and setup steps in
+//! their own process groups, sends their output and ends, and relays
 //! `<pod dir>/<port>.sock` to `127.0.0.1:<port>` inside the pod. When Ovra
 //! goes away it kills every server and exits. On Linux its servers may not
 //! make, remove or rename entries in `<pod dir>` (`confine`).
@@ -55,7 +55,8 @@ pub(crate) fn pod_init_if_asked() {
 
 struct Server {
     group: Pid,
-    port: u16,
+    /// `None` for a setup step.
+    port: Option<u16>,
     tasks: Vec<AbortHandle>,
 }
 
@@ -168,16 +169,28 @@ impl Pod {
 
     fn try_spawn(&self, spawn: Spawn) -> Result<(), String> {
         let mut servers = lock(&self.servers);
-        if servers.contains_key(&spawn.id) || servers.values().any(|s| s.port == spawn.port) {
-            return Err(format!("port {} is taken in this pod", spawn.port));
+        if servers.contains_key(&spawn.id) {
+            return Err(format!("{} is running in this pod", spawn.id));
+        }
+        if let Some(port) = spawn.port
+            && servers.values().any(|s| s.port == Some(port))
+        {
+            return Err(format!("port {port} is taken in this pod"));
         }
         let Some((program, args)) = spawn.argv.split_first() else {
             return Err("no program to run".into());
         };
-        let socket = self.dir.join(port_socket(spawn.port));
-        let _ = std::fs::remove_file(&socket);
-        let relay = UnixListener::bind(&socket)
-            .map_err(|e| format!("relay socket {}: {e}", socket.display()))?;
+        // A server's port is relayed from its socket; a step has neither.
+        let socket = spawn.port.map(|port| self.dir.join(port_socket(port)));
+        let relay = match &socket {
+            Some(socket) => {
+                let _ = std::fs::remove_file(socket);
+                let relay = UnixListener::bind(socket)
+                    .map_err(|e| format!("relay socket {}: {e}", socket.display()))?;
+                Some(relay)
+            }
+            None => None,
+        };
         let (output, writer) = tokio::net::unix::pipe::pipe()
             .and_then(|(w, r)| Ok((r, w.into_blocking_fd()?)))
             .map_err(|e| format!("output pipe: {e}"))?;
@@ -213,10 +226,13 @@ impl Pod {
             .ok_or("the server has no process id")?;
         let port = spawn.port;
         let id = spawn.id;
-        let tasks = vec![
-            tokio::spawn(accept(relay, port)).abort_handle(),
-            tokio::spawn(self.clone().probe(id.clone(), port)).abort_handle(),
-        ];
+        let tasks = match (relay, port) {
+            (Some(relay), Some(port)) => vec![
+                tokio::spawn(accept(relay, port)).abort_handle(),
+                tokio::spawn(self.clone().probe(id.clone(), port)).abort_handle(),
+            ],
+            _ => Vec::new(),
+        };
         servers.insert(id.clone(), Server { group, port, tasks });
         let pod = self.clone();
         tokio::spawn(async move {
@@ -228,7 +244,9 @@ impl Pod {
             if let Some(server) = lock(&pod.servers).remove(&id) {
                 server.tasks.iter().for_each(AbortHandle::abort);
             }
-            let _ = std::fs::remove_file(&socket);
+            if let Some(socket) = &socket {
+                let _ = std::fs::remove_file(socket);
+            }
             let code = status.ok().and_then(|s| s.code());
             pod.send(Event::Exited { id, code });
         });
