@@ -28,16 +28,41 @@ const NO_SUBMODULES: &[&str] = &[
     "submodule.recurse=false",
 ];
 
-fn git(dir: &Path, args: &[&str]) -> Option<Vec<u8>> {
-    let out = Command::new("git")
-        .arg("--no-optional-locks")
+/// Variables that would point git at another repository, index or tree.
+const INHERITED: &[&str] = &[
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_COMMON_DIR",
+    "GIT_NAMESPACE",
+    "GIT_PREFIX",
+    "GIT_LITERAL_PATHSPECS",
+    "GIT_GLOB_PATHSPECS",
+    "GIT_ICASE_PATHSPECS",
+];
+
+/// `git <args>` in `dir`: no prompt, no file monitor, no submodules, and
+/// only the repository of `dir`, whatever `GIT_*` variables Ovra inherited.
+fn command(dir: &Path, args: &[&str]) -> Command {
+    let mut command = Command::new("git");
+    command
+        .args(["--no-optional-locks", "-c", "core.fsmonitor=false"])
         .args(NO_SUBMODULES)
         .args(args)
         .current_dir(dir)
+        .env("GIT_TERMINAL_PROMPT", "0")
         .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output()
-        .ok()?;
+        .stderr(Stdio::null());
+    for var in INHERITED {
+        command.env_remove(var);
+    }
+    command
+}
+
+fn git(dir: &Path, args: &[&str]) -> Option<Vec<u8>> {
+    let out = command(dir, args).output().ok()?;
     out.status.success().then_some(out.stdout)
 }
 
@@ -217,6 +242,17 @@ mod tests {
 u UU N... 100644 100644 100644 100644 e1 e2 e3 merge.txt\0\
 ? notes.md\0\
 ? sub/fresh/\0";
+
+    #[test]
+    fn git_ignores_inherited_repository_variables() {
+        let command = command(Path::new("."), &["status"]);
+        let envs: HashMap<_, _> = command.get_envs().collect();
+        for var in INHERITED {
+            assert_eq!(envs.get(std::ffi::OsStr::new(var)), Some(&None), "{var}");
+        }
+        let prompt = envs.get(std::ffi::OsStr::new("GIT_TERMINAL_PROMPT"));
+        assert_eq!(prompt, Some(&Some(std::ffi::OsStr::new("0"))));
+    }
 
     #[test]
     fn parses_porcelain_v2() {

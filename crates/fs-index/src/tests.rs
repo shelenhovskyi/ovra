@@ -182,6 +182,34 @@ async fn missing_and_wrong_kind() {
     assert_eq!(code(write.await), ErrorCode::NotFound);
 }
 
+/// A file monitor configured in the repository never runs: it is a program
+/// of the repository's choosing.
+#[cfg(unix)]
+#[tokio::test]
+async fn git_status_runs_no_file_monitor() {
+    use std::os::unix::fs::PermissionsExt;
+    let outside = dir();
+    let marker = outside.path().join("ran");
+    let hook = outside.path().join("monitor.sh");
+    let script = format!("#!/bin/sh\ntouch '{}'\nexit 1\n", marker.display());
+    fs::write(&hook, script).expect("write");
+    fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).expect("chmod");
+    let tmp = dir();
+    let root = tmp.path();
+    git(root, &["init", "-q"]);
+    let hook = hook.to_string_lossy();
+    git(root, &["config", "core.fsmonitor", &hook]);
+    put(root, "a.txt", "a\n");
+
+    let listing = list(&FsIndex::new(), root, "").await.expect("root");
+    let a = listing.entries.iter().find(|e| e.name == "a.txt");
+    assert_eq!(
+        a.and_then(|e| e.git),
+        Some(ovra_core::protocol::fs::GitStatus::Untracked)
+    );
+    assert!(!marker.exists(), "the file monitor ran");
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn symlinks_do_not_leave_the_root() {
