@@ -232,7 +232,7 @@ $effect(() => {
     </div>
   </div>
   <p id="terminal-hint" class="sr-only">Shift+Tab leaves the terminal. {label(TOGGLE_KEYS)} hides the panel.</p>
-  <p class="sr-only" role="status">{readerNotice}</p>
+  <p class="sr-only" aria-live="polite">{readerNotice}</p>
   <div class="body">
     {#if !project}
       <p class="empty">Open a project to use terminals.</p>
