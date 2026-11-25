@@ -139,6 +139,8 @@ describe("ProjectList start screen", () => {
     const buttons = [...t.target.querySelectorAll<HTMLButtonElement>("li button")];
     expect(buttons.map((b) => b.querySelector(".path")?.textContent)).toEqual(projects.map((p) => p.root));
     expect(buttons.map((b) => b.tabIndex)).toEqual([0, -1, -1]);
+    // Nothing had focus: the first project takes it, so Enter opens it.
+    expect(document.activeElement).toBe(buttons[0]);
 
     const key = (k: string) => {
       document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true }));

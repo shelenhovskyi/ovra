@@ -4,6 +4,7 @@ import { modeOf } from "../editor/open-files.svelte";
 import { type Command, listCommands } from "../keys/commands";
 import type { Project } from "../lib/protocol";
 import type { Transport } from "../lib/transport";
+import { focusOpenFile, mainView } from "../shell/main-view.svelte";
 import { folderDialogCommand, openAnotherFolder } from "../shell/open-folder";
 import type { Workspace } from "../shell/workspace.svelte";
 import { projectFiles } from "./files";
@@ -99,7 +100,13 @@ async function files(transport: Transport, workspace: Target, project: Project, 
     group,
     // An open file comes back in the mode its tab had; a new one keeps
     // the current mode, so going to a file while editing keeps editing.
-    run: () => workspace.openFile(path, modeOf(path, workspace.mode)),
+    run: () => {
+      // A view covering the files makes way, also for the file already open, and the file gets the focus the view had.
+      const covered = mainView.current !== null;
+      mainView.close(false);
+      workspace.openFile(path, modeOf(path, workspace.mode));
+      if (covered) void focusOpenFile(workspace.mode === "edit");
+    },
   }));
 }
 

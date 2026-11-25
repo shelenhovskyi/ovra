@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { registerCommand } from "../keys/commands";
 import type { Project, Request } from "../lib/protocol";
 import type { Transport } from "../lib/transport";
+import { mainView } from "../shell/main-view.svelte";
 import { Workspace } from "../shell/workspace.svelte";
 import { FakeCore } from "../tree/fake-core";
 import { type PaletteMode, palette } from "./mode.svelte";
@@ -153,6 +154,47 @@ describe("Palette", async () => {
     key(input, "Enter");
     expect([workspace.paletteOpen, palette.mode]).toEqual([false, "commands"]);
     await vi.waitFor(() => expect(workspace.openPath).toBe("src/main.rs"));
+  });
+
+  it("closes a view for a file picked over it, the open one too, and puts focus in the file", async () => {
+    const paths = ["README.md"];
+    const core: Transport = {
+      call: ((request: Request) =>
+        request.method === "fs.list_files"
+          ? Promise.resolve({ type: "fs.files", data: { paths, total: paths.length, version: 1 } })
+          : Promise.reject(new Error(request.method))) as Transport["call"],
+      onEvent: () => () => {},
+    };
+    const panel = document.body.appendChild(document.createElement("div"));
+    panel.id = "ovra-tabpanel";
+    panel.tabIndex = -1;
+    const heading = document.body.appendChild(document.createElement("h2"));
+    heading.tabIndex = -1;
+    cleanups.push(() => {
+      mainView.close(false);
+      panel.remove();
+      heading.remove();
+    });
+    heading.focus();
+    mainView.show("settings");
+    const project = { id: "files-view", name: "demo", root: "/demo", last_opened_ms: null, trusted: false };
+    const { workspace, input } = await open("files", core, project);
+    workspace.openPath = "README.md";
+    await type(input, "readme");
+    key(input, "Enter");
+    await vi.waitFor(() => expect(document.activeElement).toBe(panel));
+    expect(mainView.current).toBeNull();
+  });
+
+  it("goes back to the start screen's first project when it closes with focus nowhere", async () => {
+    const screen = document.body.appendChild(document.createElement("section"));
+    screen.dataset.testid = "project-list";
+    screen.innerHTML = "<ul><li><button>demo-app</button></li></ul>";
+    cleanups.push(() => screen.remove());
+    (document.activeElement as HTMLElement | null)?.blur();
+    const { input } = await open("search");
+    key(input, "Escape");
+    await vi.waitFor(() => expect(document.activeElement?.textContent).toBe("demo-app"));
   });
 
   it("keeps editing and queues an Enter typed before the files load", async () => {

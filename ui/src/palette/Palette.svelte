@@ -7,6 +7,7 @@ import { runCommand } from "../keys/keybindings";
 import { formatShortcut, inBrowserTab, isApple, liveKeys } from "../keys/shortcut";
 import { useOvra } from "../shell/context";
 import { FolderOpener } from "../tree/folder-opener.svelte";
+import { focusStartScreen } from "./commands";
 import { type Ranked, segments } from "./fuzzy";
 import { palette } from "./mode.svelte";
 import { createRanker, type Ranker } from "./ranker";
@@ -135,7 +136,9 @@ $effect(() => {
   const previous = document.activeElement;
   input?.focus();
   return () => {
-    if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
+    if (previous instanceof HTMLElement && previous.isConnected && previous !== document.body) previous.focus();
+    // Opened with focus nowhere, on the start screen: back to its first project rather than the page.
+    else if (!workspace.project) void focusStartScreen();
   };
 });
 

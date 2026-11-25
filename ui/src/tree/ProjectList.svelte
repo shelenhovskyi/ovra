@@ -51,6 +51,9 @@ $effect(() => {
 
 $effect(() => {
   if (projects?.length === 0) (pickButton ?? input)?.focus();
+  // The list loaded with focus nowhere (a fresh window): the first project takes it, so Enter opens it.
+  else if (projects?.length && (!document.activeElement || document.activeElement === document.body))
+    list?.querySelector<HTMLButtonElement>("button")?.focus();
 });
 
 function open(project: Project): void {

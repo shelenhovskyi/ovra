@@ -58,7 +58,7 @@ export function registerPaletteCommands(workspace: Target): () => void {
 }
 
 /** Focuses the first project on the start screen, or its folder field when there are none; waits a few frames for the list. */
-async function focusStartScreen(): Promise<void> {
+export async function focusStartScreen(): Promise<void> {
   for (let frame = 0; frame < 30; frame++) {
     const screen = document.querySelector('[data-testid="project-list"]');
     const target =

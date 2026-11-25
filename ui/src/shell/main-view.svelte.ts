@@ -41,3 +41,23 @@ export class MainView {
 }
 
 export const mainView = new MainView();
+
+/**
+ * Puts focus in the file the main area shows, once it does: the editor's
+ * text when it edits, else the file's panel. For a file opened while a view
+ * covered the files, where the focus it had went away with the view.
+ */
+export async function focusOpenFile(editing: boolean): Promise<void> {
+  let panel: HTMLElement | null = null;
+  for (let frame = 0; frame < 30; frame++) {
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    panel = document.getElementById("ovra-tabpanel");
+    if (!panel || panel.closest("[hidden]")) continue;
+    const text = panel.querySelector<HTMLElement>(".cm-content");
+    if (text || !editing) {
+      (text ?? panel).focus();
+      return;
+    }
+  }
+  panel?.focus();
+}
