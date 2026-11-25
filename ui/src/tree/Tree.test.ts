@@ -101,4 +101,19 @@ describe("Tree: opening a folder", () => {
     await settle();
     expect(target.querySelector("[role=alert]")).toBeNull();
   });
+
+  it("brings back the files view and focuses the tree on Show files", async () => {
+    const core = new DesktopCore();
+    const { workspace, target } = mountTree(core);
+    await settle();
+    expect(listCommands().some((c) => c.id === "tree.focus")).toBe(false);
+    await openFolder()?.run();
+    await settle();
+    workspace.sidebar = "git";
+    const show = listCommands().find((c) => c.id === "tree.focus");
+    expect(show?.keys).toBe("Mod+Shift+E");
+    await show?.run();
+    expect(workspace.sidebar).toBe("files");
+    expect(document.activeElement).toBe(target.querySelector("[role=tree]"));
+  });
 });
