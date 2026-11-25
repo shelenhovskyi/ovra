@@ -11,12 +11,13 @@ use crate::protocol::agents::{
     SessionMode, TurnUsage,
 };
 use crate::protocol::audit::{AuditEvent, DecidedBy, ReviewAction};
+use crate::protocol::fs::FsEvent;
 use crate::protocol::orchestration::{
     FailedWorker, OrchestrationEvent, OrchestrationResponse, ShowTarget, Task,
 };
 use crate::protocol::permissions::PermissionsEvent;
 use crate::protocol::projects::ProjectId;
-use crate::protocol::review::{ChangeKind, ReviewItem, ReviewResponse, ReviewState};
+use crate::protocol::review::{ChangeKind, ReviewEvent, ReviewItem, ReviewResponse, ReviewState};
 use crate::protocol::{ErrorCode, Event, ProtocolError, Request, Response};
 use crate::services::{
     AgentHost, AgentRuntime, AgentSpec, AuditLog, RunningAgent, ToolCaller, ToolRole,
@@ -2723,4 +2724,86 @@ async fn a_worker_spawned_while_its_task_stops_is_stopped_too() {
     // Once stopping, the coordinator starts no more.
     let refused = f.core.spawn_agent(&boss, "later", "x").await;
     assert_eq!(code(refused), ErrorCode::Conflict);
+}
+
+/// Waits for the next `review.changed` of `id`, or `None` if none comes
+/// within a few seconds of the (paused) clock.
+async fn review_changed(rx: &mut broadcast::Receiver<Event>, id: &str) -> Option<()> {
+    let wait = async {
+        loop {
+            match Core::next_event(rx).await {
+                Some(Event::Review(ReviewEvent::Changed { id: got, .. })) if got.0 == id => {
+                    return;
+                }
+                Some(_) => {}
+                None => panic!("core closed"),
+            }
+        }
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(5), wait)
+        .await
+        .ok()
+}
+
+/// Sends `fs.changed` from the watch on `session`'s worktree.
+fn touch_worktree(fs: &MemoryFs, session: &str) {
+    let id = ProjectId(format!("worktree:{session}"));
+    let watched = fs.watched.lock().map(|w| w.clone()).unwrap_or_default();
+    let sink = watched.into_iter().find(|(p, _)| p == &id).map(|(_, s)| s);
+    let sink = sink.unwrap_or_else(|| panic!("{session}'s worktree is not watched"));
+    sink.emit(FsEvent::Changed {
+        project: id,
+        paths: vec!["a.rs".into()],
+    });
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_workers_review_follows_its_worktree_while_it_runs() {
+    let f = fx(say()).await;
+    let mut rx = f.core.subscribe();
+    start_task(&f.core, 3).await;
+    let boss = caller("s1", ToolRole::Coordinator);
+    let worker = f.core.spawn_agent(&boss, "w", "x").await;
+    let worker = worker.unwrap_or_else(|e| panic!("{e}"));
+    until(&mut rx, "s2", AgentStatus::Idle).await;
+    let item = reviews_of(&f.core, "s2");
+    let mut rx = f.core.subscribe();
+
+    // A change in the worktree refreshes its item at once...
+    f.wt.put(&worker.worktree, "a.rs", "two\n");
+    touch_worktree(&f.fs, "s2");
+    assert!(review_changed(&mut rx, &item).await.is_some());
+    // ...and a burst of them once more after a pause, not once each.
+    touch_worktree(&f.fs, "s2");
+    touch_worktree(&f.fs, "s2");
+    assert!(review_changed(&mut rx, &item).await.is_some());
+    assert!(review_changed(&mut rx, &item).await.is_none());
+    // The coordinator's checkout is the project's own watch, not a worktree's.
+    let ids = f.fs.watched_ids();
+    assert!(!ids.contains(&ProjectId("worktree:s1".into())), "{ids:?}");
+
+    // The watch ends with the worker.
+    assert!(f.core.stop_agent(&boss, &worker.session).is_ok());
+    until(&mut rx, "s2", AgentStatus::Stopped).await;
+    assert!(
+        !f.fs
+            .watched_ids()
+            .contains(&ProjectId("worktree:s2".into()))
+    );
+    // A resumed worker watches again.
+    ok(
+        &f.core,
+        json!({"method": "review.comment", "params": {"id": item, "text": "more"}}),
+    )
+    .await;
+    until(&mut rx, "s2", AgentStatus::Idle).await;
+    touch_worktree(&f.fs, "s2");
+}
+
+/// The id of `session`'s latest review item.
+fn reviews_of(core: &Core, session: &str) -> String {
+    let entry = super::review::of_session(core, &SessionId(session.into()));
+    entry
+        .map(|e| e.id.0)
+        .unwrap_or_else(|| panic!("{session} has no item"))
 }

@@ -1,7 +1,7 @@
 //! Orchestration and review state (`docs/specs/orchestration.md`): tasks of
 //! a coordinator and its workers, their limits, review items, the holds
-//! running sessions keep on their projects, and the answers to Ovra's own
-//! tools. Pure state: worktrees and agents are reached through services.
+//! running sessions keep on their projects and workers on their worktrees,
+//! and the answers to Ovra's own tools. Pure state: worktrees and agents are reached through services.
 //!
 //! Lock order: this state's lock may be held while taking the sessions'
 //! lock, never the other way round; sessions call in here only without
@@ -14,6 +14,7 @@ mod review;
 mod saved;
 mod slots;
 mod tasks;
+mod watch;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -65,6 +66,8 @@ struct State {
     reviews_made: u64,
     /// Sessions that hold their project open while they run.
     holds: BTreeSet<SessionId>,
+    /// Workers whose worktree is watched while they run ([`watch`]).
+    watches: BTreeSet<SessionId>,
     /// Places a person's starts took while their sessions are set up
     /// ([`slots::reserve`]); not saved.
     reserved: BTreeMap<ProjectId, usize>,
@@ -119,6 +122,8 @@ pub(crate) fn on_status(core: &Core, session: &SessionId, status: &AgentStatus) 
                 state.lock().holds.insert(session.clone());
             }
         }
+        // A resumed worker; a new one starts its watch once spawned.
+        watch::start(core, session);
         return;
     }
     // Only a stop someone asked for ends a task: a process that exits on
@@ -132,6 +137,9 @@ pub(crate) fn on_status(core: &Core, session: &SessionId, status: &AgentStatus) 
     }
     if status.is_ended() && state.lock().holds.remove(session) {
         core.release(&project);
+    }
+    if status.is_ended() {
+        watch::stop(core, session);
     }
     if *status == AgentStatus::Stopped {
         tasks::stop_workers_of(core, session);

@@ -34,8 +34,8 @@ pub(super) struct Entry {
     pub(super) id: ReviewId,
     pub(super) project: ProjectId,
     pub(super) session: SessionId,
-    mode: SessionMode,
-    workspace: Workspace,
+    pub(super) mode: SessionMode,
+    pub(super) workspace: Workspace,
     pub(super) state: ReviewState,
     summary: Option<String>,
     /// The agent asked for a review, so the item shows even without changes.

@@ -447,6 +447,7 @@ pub(super) async fn spawn(
     }
     let (worker, workspace) = result?;
     review::set_workspace(core, &worker.session, workspace);
+    super::watch::start(core, &worker.session);
     // The person stopped the task while this worker was set up: it must not
     // work on without its coordinator ([`stop_workers_of`] missed it).
     if stopped(core, coordinator) {
