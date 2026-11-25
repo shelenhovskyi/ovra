@@ -150,7 +150,7 @@ describe("Shell", () => {
         "Approvals: Escape Leave the request waiting",
         "Diffs: N Next change",
         "Diffs: P Previous change",
-        "Editor: Mod+/ Comment or uncomment lines",
+        "Editor: Shift+F10 Open the menu at the cursor (also the Menu key)",
         "Editor: Shift+F8 Go to previous problem",
         "Editor: Ctrl+Shift+[ Fold at cursor",
         "Editor: Ctrl+Shift+] Unfold at cursor",

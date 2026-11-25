@@ -1,5 +1,6 @@
 // Commands owned by the editor that work in any mode.
 
+import { toggleComment } from "@codemirror/commands";
 import { registerCommand } from "../keys/commands";
 import { showList } from "../palette/mode.svelte";
 import type { Workspace } from "../shell/workspace.svelte";
@@ -22,7 +23,7 @@ import {
   tabs,
 } from "./open-files.svelte";
 import { editorPrefs } from "./prefs.svelte";
-import { runSearch, type SearchAction, shownView } from "./search";
+import { REPLACE_KEYS, runSearch, type SearchAction, shownView } from "./search";
 import { symbolSource } from "./symbols";
 
 type Target = Pick<
@@ -111,11 +112,11 @@ const LSP_ACTIONS: [LspAction, string, string?][] = [
 
 /**
  * CodeMirror's panels, with the keys VS Code uses. Inside the editor its own
- * keymap answers Mod+F; Ctrl+G is bound there too (buffers.svelte.ts).
+ * keymap answers Mod+F; Ctrl+G and Mod+Alt+F are bound there too (buffers.svelte.ts).
  */
 const SEARCH_ACTIONS: [SearchAction, string, string][] = [
   ["find", "Find in file", "Mod+F"],
-  ["replace", "Replace in file", "Mod+Alt+F"],
+  ["replace", "Replace in file", REPLACE_KEYS],
   ["go_to_line", "Go to line…", "Ctrl+G"],
 ];
 
@@ -284,6 +285,7 @@ export function registerEditorCommands(workspace: Target): () => void {
         id: `editor.lsp_${action}`,
         title: `Language: ${title}`,
         keys,
+        where: "Editor",
         run: inEditor(workspace, () => tabs.current?.lsp?.action(action)),
       }),
     ),
@@ -306,6 +308,17 @@ export function registerEditorCommands(workspace: Target): () => void {
         }),
       }),
     ),
+    // In the text the editor's keymap answers Mod+/ itself; this is the palette's way in.
+    registerCommand({
+      id: "editor.toggle_comment",
+      title: "Comment or uncomment lines",
+      keys: "Mod+/",
+      where: "Editor",
+      run: inEditor(workspace, () => {
+        const view = shownView();
+        if (view) toggleComment(view);
+      }),
+    }),
     ...SEARCH_ACTIONS.map(([action, title, keys]) =>
       registerCommand({ id: `editor.${action}`, title, keys, run: inEditor(workspace, () => runSearch(action)) }),
     ),

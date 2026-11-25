@@ -47,6 +47,7 @@ import type { LanguageSource } from "./highlight/protocol";
 import { dedentLines, indentation, indentLines, indentTab, newlineKeepIndent } from "./indent";
 import { commentTokens, type Language, languageFor, languageSource } from "./languages";
 import { editorPrefs } from "./prefs.svelte";
+import { runSearch } from "./search";
 import { lineEndingOf } from "./status.svelte";
 import { theme } from "./theme";
 
@@ -88,6 +89,11 @@ export function editorKeymap(save: () => void): KeyBinding[] {
     // would take Save all (Mod+Shift+S) from the global shortcuts.
     exactKey("Mod+S", () => {
       save();
+      return true;
+    }),
+    // Replace's other key, where Mod+H is the global one (./search).
+    exactKey("Mod+Alt+F", (view) => {
+      runSearch("replace", view);
       return true;
     }),
     // Go to line on every platform, as in VS Code (CodeMirror's Mod-g finds the next match).

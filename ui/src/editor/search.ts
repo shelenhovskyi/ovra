@@ -3,6 +3,13 @@
 
 import { gotoLine, openSearchPanel } from "@codemirror/search";
 import type { EditorView } from "@codemirror/view";
+import { isApple } from "../keys/shortcut";
+
+/**
+ * Replace in file: Ctrl+H as in VS Code, Cmd+Alt+F on Apple keyboards, where
+ * Cmd+H hides the app. The editor answers Mod+Alt+F on every keyboard.
+ */
+export const REPLACE_KEYS = isApple() ? "Mod+Alt+F" : "Mod+H";
 
 export type SearchAction = "find" | "replace" | "go_to_line";
 
