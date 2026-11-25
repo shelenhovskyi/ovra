@@ -313,6 +313,51 @@ async fn an_allowed_name_that_resolves_to_a_private_address_is_refused() {
 }
 
 #[tokio::test]
+async fn localhost_is_this_machine_even_where_only_the_users_proxy_would_resolve_it() {
+    let var = |name: &str| (name == "HTTPS_PROXY").then(|| "http://proxy.corp:3128".to_owned());
+    let mut p = proxy(
+        web(),
+        rules(&[("localhost", None), ("ovra.localhost", None)]),
+        Upstream::from_env(&var),
+    );
+    for request in [
+        "CONNECT localhost:443 HTTP/1.1\r\n\r\n",
+        "CONNECT LocalHost.:443 HTTP/1.1\r\n\r\n",
+        "CONNECT ovra.localhost:443 HTTP/1.1\r\n\r\n",
+    ] {
+        let (head, _) = p.ask(request).await;
+        assert!(head.starts_with("HTTP/1.1 403"), "{request}: {head}");
+    }
+    assert!(lock(&p.dial.connected).is_empty());
+    assert_eq!(p.refused().len(), 3);
+}
+
+#[tokio::test]
+async fn a_gateway_on_localhost_is_reached_here_not_through_the_users_proxy() {
+    let fake = web().server("127.0.0.1:4000", Server::Echo);
+    let var = |name: &str| match name {
+        "ANTHROPIC_BASE_URL" => Some("http://localhost:4000".to_owned()),
+        "HTTPS_PROXY" => Some("http://proxy.corp:3128".to_owned()),
+        _ => None,
+    };
+    let p = proxy(
+        fake,
+        Rules {
+            base: crate::base::rules(&var).into(),
+            project: Vec::new(),
+        },
+        Upstream::from_env(&var),
+    );
+    let (head, mut stream) = p.ask("CONNECT localhost:4000 HTTP/1.1\r\n\r\n").await;
+    assert!(head.starts_with("HTTP/1.1 200"), "{head}");
+    assert_eq!(roundtrip(&mut stream).await, "hello");
+    assert_eq!(
+        lock(&p.dial.connected).as_slice(),
+        [SocketAddr::from(([127, 0, 0, 1], 4000))]
+    );
+}
+
+#[tokio::test]
 async fn an_endpoint_the_user_configured_may_be_local() {
     let fake = FakeNet::default()
         .name("gateway.lan", &["192.168.1.20"])

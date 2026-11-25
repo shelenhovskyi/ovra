@@ -400,9 +400,22 @@ async fn open(
             )));
         }
     };
-    let upstream = shared.upstream.server(host, request.connect);
+    // This machine is never reached through the user's proxy, which would
+    // reach its own loopback instead.
+    let local = is_localhost(host) || host.parse::<IpAddr>().is_ok_and(|ip| ip.is_loopback());
+    let upstream = shared
+        .upstream
+        .server(host, request.connect)
+        .filter(|_| !local);
     let addrs = match host.parse::<IpAddr>() {
         Ok(ip) => Ok(vec![SocketAddr::new(ip, port)]),
+        // Always this machine (RFC 6761). Resolved as `localhost.` it may
+        // not be found, and the user's proxy would then reach its own
+        // loopback unchecked.
+        Err(_) if is_localhost(host) => Ok(vec![
+            SocketAddr::from(([127, 0, 0, 1], port)),
+            SocketAddr::from((std::net::Ipv6Addr::LOCALHOST, port)),
+        ]),
         Err(_) => match timeout(DIAL_TIMEOUT, shared.dial.resolve(host.to_owned(), port)).await {
             Ok(Ok(addrs)) => Ok(addrs),
             Ok(Err(e)) => Err(format!("could not resolve the host: {e}")),
@@ -425,6 +438,12 @@ async fn open(
         None => Ok((first(&*shared.dial, &addrs).await?, Vec::new())),
         Some(server) => through(request, server, &*shared.dial).await,
     }
+}
+
+/// `localhost` and the names under it, as the agent may spell them.
+fn is_localhost(host: &str) -> bool {
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+    host == "localhost" || host.ends_with(".localhost")
 }
 
 async fn first(dial: &dyn Dial, addrs: &[SocketAddr]) -> Result<Conn, Problem> {
