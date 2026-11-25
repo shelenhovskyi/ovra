@@ -231,7 +231,7 @@ These change the architecture or an approved API, so they need the owner:
   shared board (recommended), or every question goes through the
   coordinator, as today.
 - **D3. A new protocol domain** `board.*` (`protocol/board.rs` and
-  `ui/src/lib/protocol/board.ts`) and an ADR 0011 "Task board".
+  `ui/src/lib/protocol/board.ts`) and an ADR 0012 "Task board".
 - **D4. Claim enforcement** (recommendation 4): deny `Write`/`Edit` on
   another worker's claimed file. It only narrows what agents can do, so it
   needs no approval under the standing rules, but it changes how workers

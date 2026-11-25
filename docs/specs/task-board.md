@@ -1,6 +1,6 @@
 # Task board
 
-Status: draft for the owner's review. ADR 0011; builds on
+Status: draft for the owner's review. ADR 0012; builds on
 `docs/specs/orchestration.md` and `docs/research/agent-messaging.md`.
 The owner chose the shared board on 2026-11-25; the items marked
 "Decision" below wait for their answer, each with a recommended option.

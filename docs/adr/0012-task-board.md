@@ -1,4 +1,4 @@
-# 0011. A task board for agents of one task
+# 0012. A task board for agents of one task
 
 - Status: proposed
 - Date: 2026-11-25
