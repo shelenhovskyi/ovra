@@ -93,9 +93,7 @@ group("describe", () => {
     });
     expect([policy.detail, policy.input]).toEqual(["1 rule.", "auto Bash npm test"]);
     expect(line({ kind: "policy_changed", policy: { rules: [] } }).detail).toBe("No rules: every tool call asks.");
-    expect(line({ kind: "review_decided", review: "r1", action: "partly_approved" }).title).toBe(
-      "Review partly approved",
-    );
+    expect(line({ kind: "review_decided", review: "r1", action: "partly_approved" }).title).toBe("Review partly kept");
     expect(line({ kind: "network_refused", host: "evil.test", reason: "not allowed" })).toMatchObject({
       title: "Network refused: evil.test",
       tone: "refused",

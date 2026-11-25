@@ -47,10 +47,10 @@ export function shows(filter: Filter, refusedOnly: boolean, entry: AuditEntry): 
 }
 
 const REVIEW: Record<ReviewAction, string> = {
-  approved: "approved",
-  partly_approved: "partly approved",
-  rejected: "rejected",
-  undone_reject: "reject undone",
+  approved: "kept",
+  partly_approved: "partly kept",
+  rejected: "discarded",
+  undone_reject: "discard undone",
   taken: "replaced with the worker's version",
   undone_take: "replace undone",
 };
