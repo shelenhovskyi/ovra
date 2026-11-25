@@ -12,8 +12,15 @@ use std::path::{Path, PathBuf};
 use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::{CommandLine, Result, Sandbox, SandboxProfile, SandboxStatus};
 
+#[cfg(windows)]
+mod helper;
 mod plan;
 mod protected;
+#[cfg(windows)]
+mod win;
+
+#[cfg(windows)]
+pub use helper::helper_if_asked;
 
 /// The first argument that makes a program the sandbox helper.
 pub const HELPER_FLAG: &str = "--ovra-sandbox-helper";
