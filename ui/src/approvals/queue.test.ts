@@ -11,7 +11,7 @@ const bash = (id: string) => ({
   input: { command: "ls" },
   title: null,
 });
-const tick = () => new Promise((resolve) => setTimeout(resolve));
+const tick = () => new Promise((resolve) => setImmediate(resolve));
 
 describe("ApprovalQueue", () => {
   it("starts from the core's pending list and follows events", async () => {
