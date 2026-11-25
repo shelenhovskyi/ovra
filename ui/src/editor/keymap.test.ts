@@ -28,7 +28,9 @@ const SAME_ACTION = new Set(["Mod+S", "Mod+F", "Mod+Alt+F", "Ctrl+G", "Shift+F12
 function globalShortcuts(): { id: string; keys: string }[] {
   const found: { id: string; keys: string }[] = [];
   for (const text of Object.values(sources)) {
-    for (const call of text.split("registerCommand(").slice(1)) {
+    for (const rest of text.split("registerCommand(").slice(1)) {
+      // Only the command object, which names its keys before `run`; a menu's keys further down are not global.
+      const call = rest.slice(0, rest.search(/\brun\s*[:,]/));
       const id = /id: [`"]([^`"]+)[`"]/.exec(call)?.[1] ?? "?";
       const value = /keys: (?:"([^"]+)"|([A-Z_]+)\b)/.exec(call);
       const name = value?.[2];
@@ -86,6 +88,8 @@ describe("editor keymaps", () => {
   it("finds the global shortcuts", () => {
     const keys = globalShortcuts().map((g) => g.keys);
     expect(keys).toEqual(expect.arrayContaining(["Mod+K", "Mod+Shift+A", "Ctrl+`", "Mod+Alt+S"]));
+    // Keys of a context menu after a command without keys are not global.
+    expect(keys).not.toContain("Delete");
   });
 
   it("never start with a global shortcut", () => {
