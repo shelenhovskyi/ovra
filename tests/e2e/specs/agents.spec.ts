@@ -62,7 +62,7 @@ test("start an agent and answer its requests from the keyboard", async ({ page }
   await expect(page.getByTestId("agent-sandbox")).toHaveText(
     "No sandbox: the agent can read and change anything your user can.",
   );
-  await expect(run.getByTestId("approval-unsandboxed")).toBeVisible();
+  await expect(approvals.getByTestId("approval-unsandboxed")).toBeVisible();
   await expect(page.getByTestId("notifications")).toContainText("Fix the typo needs approval: Run ls -la");
   // The task opens, ready for a reply; nothing moves focus to the request.
   await expect(page.getByRole("textbox", { name: "Reply to Claude" })).toBeFocused();
@@ -145,8 +145,8 @@ test("in a short window, Review shows the whole request and the title counts wha
   await expect(run).toBeFocused();
   await expect(run.locator("dl")).toBeInViewport({ ratio: 1 });
   // Who asks and the sandbox warning stay in sight above it (SEC-2).
-  await expect(run.locator(".session")).toBeInViewport({ ratio: 1 });
-  await expect(run.getByTestId("approval-unsandboxed")).toBeInViewport({ ratio: 1 });
+  await expect(approvals.locator(".session")).toBeInViewport({ ratio: 1 });
+  await expect(approvals.getByTestId("approval-unsandboxed")).toBeInViewport({ ratio: 1 });
   await arm(page);
   await expect(run.getByRole("button", { name: "Allow" })).toHaveAttribute("aria-disabled", "false");
   await page.keyboard.press("y");
@@ -171,7 +171,7 @@ test("reply to an agent, allow with the mouse and stop it while it waits", async
   await page.getByRole("button", { name: "Start", exact: true }).click();
 
   const approvals = page.getByTestId("approvals");
-  // A click before the card arms says why, next to the buttons (NEW-8);
+  // A click before the card arms shows the wait as a fill on Allow (NEW-8);
   // `click()` would wait out `aria-disabled`.
   const first = approvals.getByRole("group", { name: "Run ls -la" });
   await expect(first).toBeVisible();
@@ -180,7 +180,8 @@ test("reply to an agent, allow with the mouse and stop it while it waits", async
   await page.clock.pauseAt(await page.evaluate(() => Date.now() + 50));
   const box = await first.getByRole("button", { name: "Allow" }).boundingBox();
   if (box) await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-  await expect(first.getByTestId("approval-wait")).toBeInViewport({ ratio: 1 });
+  await expect(first.getByTestId("approval-arming")).toBeVisible();
+  await expect(first.getByRole("button", { name: "Allow" })).toBeInViewport({ ratio: 1 });
   await page.clock.resume();
   for (const name of ["Run ls -la", "Edit README.md"]) {
     const card = approvals.getByRole("group", { name });

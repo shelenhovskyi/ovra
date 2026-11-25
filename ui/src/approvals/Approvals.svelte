@@ -70,6 +70,7 @@ const armed = (id: string): boolean => !keyHeld && now >= armedAt(id) && !queue.
 /** Allow also needs the details to have been in sight. */
 const allowable = (id: PermissionId): boolean => armed(id) && seen.has(id) && headSeen.has(id);
 
+/** Said to screen readers only: the Allow button's fill shows the wait. */
 const EARLY = "Ready in a moment — read the request first.";
 const UNSEEN = "Scrolled to the request: read it, then allow.";
 /** In sight: most of it (a clipped last line still counts), or this many pixels of a taller one. */
@@ -92,6 +93,16 @@ function watch(into: SvelteSet<PermissionId>, id: PermissionId): Attachment<HTML
     );
     observer.observe(element);
     return () => observer.disconnect();
+  };
+}
+
+/** Adds every one of `ids` to `into` once the element is in sight. */
+function watchAll(into: SvelteSet<PermissionId>, ids: PermissionId[]): Attachment<HTMLElement> {
+  return (element) => {
+    const stops = ids.map((id) => watch(into, id)(element));
+    return () => {
+      for (const stop of stops) if (typeof stop === "function") stop();
+    };
   };
 }
 
@@ -126,7 +137,7 @@ $effect(() => {
 // A card that moves (or leaves) puts another one under the pointer.
 let shown: PermissionId[] = [];
 $effect(() => {
-  const ids = queue.pending.map((r) => r.id);
+  const ids = visible.map((r) => r.id);
   untrack(() => {
     if (shown.some((id, i) => ids[i] !== id)) quiet();
     for (const id of opened) if (!ids.includes(id)) opened.delete(id);
@@ -176,7 +187,12 @@ $effect(() => {
     if (collapsed) await show();
     const target = card(id);
     // Never another request instead: a key press meant for this one would answer it.
-    notice = target ? "" : "That request was already answered.";
+    const behind = queue.pending.some((r) => r.id === id);
+    notice = target
+      ? ""
+      : behind
+        ? "That request waits behind an identical one."
+        : "That request was already answered.";
     if (target) await bringUp(target);
     else heading?.focus();
   };
@@ -213,7 +229,7 @@ async function show(): Promise<void> {
 
 /** Only the first request shows its details at once, so a few requests leave room for the agents. */
 function isOpen(id: PermissionId): boolean {
-  return queue.pending[0]?.id === id || opened.has(id);
+  return visible[0]?.id === id || opened.has(id);
 }
 
 /** Shows a request's details; the cards below move, so answers wait again. */
@@ -258,7 +274,7 @@ async function answer(
   said = null;
   // Only a request already on screen may take the focus next: one that
   // arrives while the answer is on its way was never seen.
-  const before = queue.pending.map((r) => r.id);
+  const before = visible.map((r) => r.id);
   const index = before.indexOf(request.id);
   notice = "";
   const focused = list?.contains(document.activeElement) ?? false;
@@ -292,14 +308,14 @@ function answerByClick(event: MouseEvent, request: PermissionRequest, decision: 
   void answer(request, decision, undefined, event.detail > 0);
 }
 
-/** Keeps a card's note in sight; if that moved its buttons, they wait again. */
+/** Keeps a card's Allow button (and its fill) in sight; if that moved the buttons, they wait again. */
 async function revealNote(id: PermissionId): Promise<void> {
   await tick();
-  const wait = card(id)?.querySelector<HTMLElement>("[data-testid=approval-wait]");
-  const row = wait?.parentElement;
-  if (!wait || !row) return;
+  const allow = card(id)?.querySelector<HTMLElement>("button.allow");
+  const row = allow?.parentElement;
+  if (!allow || !row) return;
   const before = row.getBoundingClientRect().top;
-  wait.scrollIntoView?.({ block: "nearest" });
+  allow.scrollIntoView?.({ block: "nearest" });
   if (row.getBoundingClientRect().top !== before) quiet();
 }
 
@@ -333,6 +349,15 @@ function onKeydown(event: KeyboardEvent, request: PermissionRequest): void {
       event.preventDefault();
       answerByKey(event, request, "deny", note.trim() || undefined);
     }
+    return;
+  }
+  // Return never allows, not even on a focused Allow button: Space, a click or Y do.
+  if (
+    event.target instanceof HTMLButtonElement &&
+    event.target.classList.contains("allow") &&
+    (event.code === "Enter" || event.code === "NumpadEnter")
+  ) {
+    event.preventDefault();
     return;
   }
   // Buttons answer by click (Enter, Space); everything else is the card's.
@@ -392,8 +417,8 @@ function folderOf(request: PermissionRequest, project: Project | undefined): { p
 function sandboxWarning(session: SessionId): string | null {
   const info = sessions.byId.get(session);
   const state = info ? sandboxState(info) : null;
-  if (state?.kind === "none") return "No sandbox: it can reach anything you can.";
-  if (state?.kind === "sandboxed" && state.report.network === "open") return "Sandboxed, but network is open.";
+  if (state?.kind === "none") return "No sandbox";
+  if (state?.kind === "sandboxed" && state.report.network === "open") return "Network open";
   return null;
 }
 
@@ -431,6 +456,70 @@ function billedTo(session: SessionId): { text: string; key: boolean } | null {
         : (PROVIDERS[billing.provider] ?? (billing.provider || "cloud account"));
   const account = accounts.list.length > 1 ? ` (${accounts.name(info.account)})` : "";
   return { text: `Billed to ${payer}${account}`, key: billing.kind === "api_key" };
+}
+
+/** The task a request belongs to: a worker's coordinator, else its own session. */
+function taskOf(session: SessionId): SessionId {
+  const role = sessions.roles.get(session);
+  return role?.kind === "worker" ? role.coordinator : session;
+}
+
+/** Requests that would do exactly the same: one card answers them, one at a time. */
+const sameAs = (a: PermissionRequest, b: PermissionRequest): boolean =>
+  a.project === b.project &&
+  a.tool === b.tool &&
+  a.cwd === b.cwd &&
+  JSON.stringify(a.input) === JSON.stringify(b.input);
+
+type Billed = { text: string; key: boolean };
+type Group = { key: string; requests: PermissionRequest[]; stacks: PermissionRequest[][] };
+
+/** Requests by task, oldest first; identical ones stack behind the oldest, which alone is on screen. */
+const groups = $derived.by((): Group[] => {
+  const out: Group[] = [];
+  for (const request of queue.pending) {
+    const key = `${request.project} ${taskOf(request.session)}`;
+    let group = out.find((g) => g.key === key);
+    if (!group) {
+      group = { key, requests: [], stacks: [] };
+      out.push(group);
+    }
+    group.requests.push(request);
+    const stack = group.stacks.find((s) => s[0] && sameAs(s[0], request));
+    if (stack) stack.push(request);
+    else group.stacks.push([request]);
+  }
+  return out;
+});
+/** The requests on screen, in screen order. */
+const visible = $derived(groups.flatMap((g) => g.stacks.flatMap((s) => s.slice(0, 1))));
+
+/** Who asks for a group: the task, or the session itself. */
+function groupName(first: PermissionRequest): string {
+  const lead = taskOf(first.session);
+  return sessions.byId.has(lead) ? sessions.name(lead) : sessions.name(first.session);
+}
+
+/** Facts every request of a group shares, said once: sandbox warnings and who pays. */
+function shared(requests: PermissionRequest[]): { warnings: string[]; sandboxed: boolean; billed: Billed[] } {
+  const ids = [...new Set(requests.map((r) => r.session))];
+  const warnings = [...new Set(ids.map(sandboxWarning).filter((w): w is string => w !== null))];
+  const billed = ids.map(billedTo).filter((b): b is Billed => b !== null);
+  return {
+    warnings,
+    sandboxed: warnings.length === 0 && ids.every((id) => sandboxFact(id) !== null),
+    billed: billed.filter((b, i) => billed.findIndex((o) => o.text === b.text) === i),
+  };
+}
+
+/** Tools whose object is code or a path: it shows in a mono pill after the verb. */
+const MONO = new Set(["Bash", "Edit", "MultiEdit", "NotebookEdit", "Write", "Read", "Glob", "Grep", "WebFetch"]);
+
+/** `Run` and `npm test`; other tools keep their whole summary as the verb. */
+function verbAndObject(tool: string, action: string): { verb: string; object: string } {
+  const space = action.startsWith("Find files ") ? "Find files".length : action.indexOf(" ");
+  if (!MONO.has(tool) || space < 0) return { verb: action, object: "" };
+  return { verb: action.slice(0, space), object: action.slice(space + 1) };
 }
 </script>
 
@@ -487,17 +576,43 @@ function billedTo(session: SessionId): { text: string; key: boolean } | null {
   <p class="sr-only" id="approvals-keys">Y allows, N denies, Shift+N denies with a message.</p>
   <ul bind:this={list} id="approvals-list" hidden={collapsed}>
     {#if !collapsed}
-    {#each queue.pending as request (request.id)}
+    {#each groups as group (group.key)}
+      {@const first = group.requests[0] as PermissionRequest}
+      {@const project = projects.get(first.project)}
+      {@const facts = shared(group.requests)}
+      {@const headId = `approval-group-${first.id}`}
+      <li class="group">
+        <!-- Who asks and what is shared, said once for the task: Allow needs it in sight too. -->
+        <div class="who" id={headId} {@attach watchAll(headSeen, group.requests.map((r) => r.id))}>
+          <p class="session">
+            <span class="dot" aria-hidden="true"></span>{groupName(first)} · {project?.name ?? "unknown project"}
+          </p>
+          <p class="chips">
+            {#each facts.warnings as warning (warning)}
+              <span class="chip warn" data-testid="approval-unsandboxed" title={warning === "No sandbox" ? "It can reach anything you can" : "Sandboxed, but its network is open"}>{warning}</span>
+            {/each}
+            {#if first.project !== workspace.project?.id}
+              <span class="chip warn" data-testid="approval-other-project">Not this window's project</span>
+            {/if}
+            {#if !project}
+              <span class="chip danger" data-testid="approval-unknown-project">Unknown project: paths cannot be checked</span>
+            {/if}
+            {#if facts.sandboxed}<span class="fact">Sandboxed</span>{/if}
+            {#each facts.billed as billed (billed.text)}
+              <span class="fact" class:key={billed.key} data-testid="approval-billing">{billed.text}</span>
+            {/each}
+          </p>
+        </div>
+        <ul class="cards">
+    {#each group.stacks as stack (stack[0]?.id)}
+      {@const request = stack[0] as PermissionRequest}
       {@const summary = describeTool(request.tool, request.input)}
+      {@const what = verbAndObject(request.tool, summary.action)}
       {@const ready = armed(request.id)}
       {@const domId = `approval-${request.id}`}
-      {@const project = projects.get(request.project)}
       {@const folder = folderOf(request, project)}
-      {@const sandboxNote = sandboxWarning(request.session)}
       {@const gaps = gapsOf(request.session)}
-      {@const worker = sessions.roles.get(request.session)?.kind === "worker"}
-      {@const sandboxed = sandboxFact(request.session)}
-      {@const billed = billedTo(request.session)}
+      {@const role = sessions.roles.get(request.session)}
       {@const agentNote = request.title && !repeats(request.title, request, summary.action) ? request.title : null}
       <li>
         <!-- A focusable group is how the keys reach one request (Y, N, arrows). -->
@@ -508,7 +623,7 @@ function billedTo(session: SessionId): { text: string; key: boolean } | null {
           tabindex="0"
           data-request={request.id}
           aria-labelledby="{domId}-action"
-          aria-describedby="{domId}-session approvals-keys"
+          aria-describedby="{headId} {domId}-session approvals-keys"
           onkeydown={(event) => onKeydown(event, request)}
           onfocusin={() => {
             queue.focused = request.id;
@@ -520,37 +635,25 @@ function billedTo(session: SessionId): { text: string; key: boolean } | null {
               queue.focused = null;
           }}
         >
-          <!-- Who asks and how it is sandboxed: Allow needs it in sight too. -->
-          <div class="who" {@attach watch(headSeen, request.id)}>
-            <p class="session" id="{domId}-session">
-              <span class="dot" aria-hidden="true"></span>{sessions.name(request.session)} · {project?.name ??
-                "unknown project"}
-            </p>
-            {#if sandboxNote}
-              <p class="flag" data-testid="approval-unsandboxed">{sandboxNote}</p>
-            {/if}
-          </div>
-          <h3 id="{domId}-action" {@attach summary.details.length === 0 && watch(seen, request.id)}>{summary.action}</h3>
-          {#if request.reason}
-            <p class="line" data-testid="approval-reason">{request.reason.text}</p>
-          {/if}
-          {#if request.project !== workspace.project?.id}
-            <p class="flag" data-testid="approval-other-project">Not this window's project</p>
-          {/if}
-          {#if !project}
-            <p class="flag" data-testid="approval-unknown-project">⚠ Unknown project: paths cannot be checked</p>
-          {/if}
+          <p class="worker" id="{domId}-session">
+            {#if role?.kind === "worker"}{role.name}{/if}{#if stack.length > 1}<span data-testid="approval-stack"
+                >{role?.kind === "worker" ? " · " : ""}{stack.length} identical requests, answered one at a time</span
+              >{/if}
+          </p>
+          <h3 id="{domId}-action" {@attach summary.details.length === 0 && watch(seen, request.id)}>
+            {what.verb}{#if what.object}{" "}<code class="object">{what.object}</code>{/if}
+          </h3>
           {#each pathScopes(request.input, folder.path) as scope}
             {#if scope.scope === "inside"}
               <p class="line" data-testid="approval-scope" title={scope.path}>In {folder.name}: {scope.relative}</p>
             {:else}
-              <p class="flag" data-testid="approval-scope">
-                {scope.scope === "outside" ? "⚠ Outside" : "⚠ Cannot tell if in"}{" "}{folder.name}: {scope.path}
+              <p class="chip danger" data-testid="approval-scope">
+                {scope.scope === "outside" ? "Outside" : "Cannot tell if in"}{" "}{folder.name}: {scope.path}
               </p>
             {/if}
           {/each}
-          {#if request.tool === "Bash"}
-            <p class="line" data-testid="approval-scope">Paths in commands are not checked.</p>
+          {#if request.reason}
+            <p class="line" data-testid="approval-reason">{request.reason.text}</p>
           {/if}
           {#if isOpen(request.id)}
             <dl {@attach watch(seen, request.id)}>
@@ -564,37 +667,45 @@ function billedTo(session: SessionId): { text: string; key: boolean } | null {
               >Show details</button
             >
           {/if}
-          {#if gaps || worker || agentNote}
+          {#if gaps || role?.kind === "worker" || agentNote || request.tool === "Bash"}
             <!-- Context, not the request itself: one click away. -->
             <details class="extra" data-testid={gaps ? "approval-sandbox-gaps" : "approval-extra"}>
               <summary>{@render icon("m9 6 6 6-6 6")}{gaps ? "Sandbox has gaps" : "Details"}</summary>
               {#if gaps}<p>{gaps}</p>{/if}
-              {#if worker}<p data-testid="approval-worker-copy">{workerCopy(request.session)}</p>{/if}
+              {#if role?.kind === "worker"}<p data-testid="approval-worker-copy">{workerCopy(request.session)}</p>{/if}
+              {#if request.tool === "Bash"}<p>Paths in commands are not checked.</p>{/if}
               {#if agentNote}<p>Agent's note: {agentNote}</p>{/if}
             </details>
           {/if}
           <div class="actions">
+            <!-- Deny first, Allow once trailing: the macOS order. Return never allows. -->
+            <button
+              type="button"
+              class="deny"
+              aria-disabled={!ready}
+              aria-keyshortcuts="N"
+              onclick={(event) => answerByClick(event, request, "deny")}>Deny <kbd aria-hidden="true">N</kbd></button
+            >
             <button
               type="button"
               class="allow"
               aria-disabled={!allowable(request.id)}
               aria-keyshortcuts="Y"
-              title={ready ? undefined : EARLY}
-              onclick={(event) => answerByClick(event, request, "allow")}>Allow <kbd aria-hidden="true">Y</kbd></button
+              onclick={(event) => answerByClick(event, request, "allow")}
+              >Allow once <kbd aria-hidden="true">Y</kbd>{#if !ready}{#key armedAt(request.id)}<span
+                    class="fill"
+                    aria-hidden="true"
+                    data-testid="approval-arming"
+                    style:animation-duration="{Math.max(0, armedAt(request.id) - now)}ms"
+                  ></span>{/key}{/if}</button
             >
-            <button
-              type="button"
-              aria-disabled={!ready}
-              aria-keyshortcuts="N"
-              title={ready ? undefined : EARLY}
-              onclick={(event) => answerByClick(event, request, "deny")}>Deny <kbd aria-hidden="true">N</kbd></button
-            >
+          </div>
+          <div class="after">
             <button type="button" class="quiet" aria-keyshortcuts="Shift+N" onclick={() => openDeny(request)}
-              >Deny with message…</button
+              >Deny with a message…</button
             >
-            <!-- Next to the buttons it explains. An early note goes once the
-                 request is ready; the other stays until the next press. -->
-            <span class="wait" aria-live="polite" data-testid="approval-wait"
+            <!-- Why a press did not answer: the fill says "not yet" on screen, this says it to screen readers. -->
+            <span class="wait" class:sr-only={said?.text === EARLY} aria-live="polite" data-testid="approval-wait"
               >{said?.id === request.id && (said.text !== EARLY || !ready) ? said.text : ""}</span
             >
           </div>
@@ -608,20 +719,17 @@ function billedTo(session: SessionId): { text: string; key: boolean } | null {
               <label for="{domId}-note">Message to the agent</label>
               <textarea id="{domId}-note" rows="2" bind:value={note}></textarea>
               <div class="actions">
-                <button type="submit" aria-disabled={!ready} aria-keyshortcuts="Control+Enter">Send denial</button>
                 <button type="button" class="quiet" onclick={() => (denying = null)}>Cancel</button>
+                <button type="submit" class="deny" aria-disabled={!ready} aria-keyshortcuts="Control+Enter"
+                  >Send denial</button
+                >
               </div>
             </form>
           {/if}
-          {#if sandboxed || billed}
-            <p class="foot">
-              {#if sandboxed}<span>{@render icon("M12 3 5 6v6c0 4 3 7 7 9 4-2 7-5 7-9V6z")}{sandboxed}</span>{/if}
-              {#if billed}<span class:key={billed.key} data-testid="approval-billing"
-                  >{@render icon("M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm-7 9a7 7 0 0 1 14 0")}{billed.text}</span
-                >{/if}
-            </p>
-          {/if}
         </div>
+      </li>
+    {/each}
+        </ul>
       </li>
     {/each}
     {/if}
@@ -633,7 +741,7 @@ function billedTo(session: SessionId): { text: string; key: boolean } | null {
   .approvals {
     /* At most about half the column: the agents stay in sight. */
     flex: 0 1 auto;
-    max-height: 45%;
+    max-height: 50%;
     min-height: 0;
     display: flex;
     flex-direction: column;
@@ -722,13 +830,19 @@ function billedTo(session: SessionId): { text: string; key: boolean } | null {
     padding: 12px 12px 10px;
     border-radius: 12px;
     background: var(--s2);
-    box-shadow: var(--card-shadow);
+    /* A warning bar on the leading edge marks what waits for a decision. */
+    box-shadow:
+      inset 3px 0 0 var(--warn),
+      var(--card-shadow);
+    /* Its top shows below the group head that sticks over the list. */
+    scroll-margin-top: 56px;
   }
   /* The card the keys act on, however focus got there (the shortcut has
      modifiers, so browsers do not count it as keyboard focus). Inside: the
      list's scrolling would clip a ring outside the card. */
   .card:focus-within {
     box-shadow:
+      inset 3px 0 0 var(--warn),
       inset 0 0 0 2px var(--accent),
       var(--card-shadow);
   }
@@ -740,7 +854,8 @@ function billedTo(session: SessionId): { text: string; key: boolean } | null {
     position: sticky;
     top: 0;
     z-index: 1;
-    background: var(--s2);
+    padding-bottom: 2px;
+    background: var(--s1);
   }
   .session {
     display: flex;
@@ -778,19 +893,66 @@ function billedTo(session: SessionId): { text: string; key: boolean } | null {
   .notice:not(:empty) {
     color: var(--warn);
   }
-  /* Risk: what reaches past the sandbox or the project. */
-  .flag {
+  /* Risk chips: what reaches past the sandbox or the project. */
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 8px;
+    margin: 4px 0 0;
+    font-size: 13px;
+    color: var(--text-2);
+  }
+  .chips:empty {
+    display: none;
+  }
+  .chip {
     display: block;
     width: fit-content;
     max-width: 100%;
     margin: 4px 0 2px;
-    padding: 3px 8px;
-    border-radius: var(--radius);
-    background: var(--warn-soft);
-    color: var(--warn);
+    padding: 2px 8px;
+    border-radius: var(--radius-xs);
     font-size: 13px;
     font-weight: 500;
     overflow-wrap: anywhere;
+  }
+  .chips .chip {
+    margin: 0;
+  }
+  .chip.warn {
+    background: var(--warn-soft);
+    color: var(--warn);
+  }
+  .chip.danger {
+    background: var(--danger-soft);
+    color: var(--danger);
+  }
+  .fact.key {
+    color: var(--warn);
+  }
+  .group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .cards {
+    gap: 8px;
+    overflow: visible;
+  }
+  .worker:empty {
+    display: none;
+  }
+  .worker {
+    margin: 0;
+    font-size: 13px;
+    color: var(--text-2);
+  }
+  .object {
+    padding: 1px 6px;
+    font: 500 14px / 1.4 var(--mono);
+    background: var(--s3);
+    border-radius: var(--radius-xs);
   }
   /* Label and value side by side: the buttons stay in sight in a short column. */
   dl {
@@ -854,8 +1016,20 @@ function billedTo(session: SessionId): { text: string; key: boolean } | null {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
+    justify-content: flex-end;
     gap: 8px;
     margin-top: 10px;
+  }
+  .after {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-top: 4px;
+  }
+  .after .quiet {
+    margin-left: -6px;
+    font-size: 13px;
   }
   .wait:empty {
     display: none;
@@ -884,8 +1058,41 @@ function billedTo(session: SessionId): { text: string; key: boolean } | null {
     background: var(--s4);
   }
   button.allow {
+    position: relative;
+    overflow: hidden;
     background: var(--accent);
     color: var(--accent-ink);
+  }
+  /* Bordered quiet: Deny must be found without hovering. */
+  button.deny {
+    background: var(--s3);
+  }
+  /* The wait before Allow counts, as a 2 px fill along the button's foot. */
+  .fill {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    height: 2px;
+    width: 100%;
+    background: currentColor;
+    transform-origin: left;
+    animation-name: arm;
+    animation-timing-function: linear;
+    animation-fill-mode: both;
+  }
+  @keyframes arm {
+    from {
+      transform: scaleX(0);
+    }
+    to {
+      transform: scaleX(1);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .fill {
+      animation: none;
+      transform: scaleX(0.5);
+    }
   }
   button.allow:hover {
     filter: brightness(1.08);
@@ -941,25 +1148,6 @@ function billedTo(session: SessionId): { text: string; key: boolean } | null {
   form .actions {
     margin-top: 0;
   }
-  .foot {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: space-between;
-    gap: 4px 12px;
-    margin-top: 12px;
-    padding-top: 10px;
-    box-shadow: 0 -1px 0 var(--s3);
-    color: var(--text-2);
-    font-size: 13px;
-  }
-  .foot span {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .foot .key {
-    color: var(--warn);
-  }
   .icon {
     flex: none;
     width: 15px;
@@ -976,7 +1164,7 @@ function billedTo(session: SessionId): { text: string; key: boolean } | null {
   }
   @media (forced-colors: active) {
     .card,
-    .flag {
+    .chip {
       border: 1px solid CanvasText;
     }
     .card:focus-within {

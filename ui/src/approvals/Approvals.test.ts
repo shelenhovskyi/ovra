@@ -113,6 +113,9 @@ function press(code: string, init: KeyboardEventInit = {}) {
 }
 
 const cards = () => [...target.querySelectorAll<HTMLElement>("[data-request]")];
+/** Each task group's head: who asks, and the facts its requests share. */
+const heads = () => [...target.querySelectorAll<HTMLElement>(".who")];
+const words = (element: Element | undefined) => element?.textContent?.replace(/\s+/g, " ").trim();
 const answers = (core: FakeAgentCore) => core.sent("permissions.answer").map((c) => c.params);
 
 describe("Approvals", () => {
@@ -131,7 +134,8 @@ describe("Approvals", () => {
     });
     core.ask(bash("perm1"));
     await settle();
-    expect(cards()[0]?.querySelector(".session")?.textContent?.replace(/\s+/g, " ")).toContain("Worker docs · demo");
+    expect(words(heads()[0]?.querySelector(".session") ?? undefined)).toBe("Worker docs · demo");
+    expect(words(cards()[0]?.querySelector(".worker") ?? undefined)).toBe("docs");
     expect(cards()[0]?.querySelector("[data-testid=approval-worker-copy]")?.textContent).toBe(
       "Own copy, branch ovra/t1/docs",
     );
@@ -141,15 +145,15 @@ describe("Approvals", () => {
     const core = await setup();
     core.ask(bash("perm1"));
     await settle();
-    const warning = () => cards()[0]?.querySelector("[data-testid=approval-unsandboxed]");
+    const warning = () => heads()[0]?.querySelector("[data-testid=approval-unsandboxed]");
     // Not reported yet: no claim either way.
     expect(warning()).toBeNull();
     core.sandboxed("s1", null);
     await settle();
-    expect(warning()?.textContent?.trim()).toBe("No sandbox: it can reach anything you can.");
+    expect(warning()?.textContent?.trim()).toBe("No sandbox");
     core.sandboxed("s1", { name: "bubblewrap", network: "open", gaps: [] });
     await settle();
-    expect(warning()?.textContent?.trim()).toBe("Sandboxed, but network is open.");
+    expect(warning()?.textContent?.trim()).toBe("Network open");
     core.sandboxed("s1", { name: "bubblewrap", network: "proxy", gaps: [] });
     await settle();
     expect(warning()).toBeNull();
@@ -183,10 +187,14 @@ describe("Approvals", () => {
     core.ask(bash("perm1"));
     await settle();
     const card = cards()[0];
-    expect(card?.querySelector("h3")?.textContent).toBe("Run ls -la");
-    expect(card?.textContent?.replace(/\s+/g, " ")).toContain("Fix the typo · demo");
+    expect(words(card?.querySelector("h3") ?? undefined)).toBe("Run ls -la");
+    expect(card?.querySelector("h3 code")?.textContent).toBe("ls -la");
+    expect(words(heads()[0])).toContain("Fix the typo · demo");
     expect(card?.querySelector("[data-testid=approval-reason]")).toBeNull();
-    core.ask({ ...bash("perm2"), reason: { text: "Path is outside allowed working directories", kind: "rule" } });
+    core.ask({
+      ...bash("perm2", "pwd"),
+      reason: { text: "Path is outside allowed working directories", kind: "rule" },
+    });
     await settle();
     expect(cards()[1]?.querySelector("[data-testid=approval-reason]")?.textContent?.trim()).toBe(
       "Path is outside allowed working directories",
@@ -289,16 +297,16 @@ describe("Approvals", () => {
     core.ask(bash("perm1"));
     core.ask({ ...bash("perm2"), session: "s2", project: "p2", cwd: "/other" });
     await settle();
-    const other = cards().map((c) => c.querySelector("[data-testid=approval-other-project]") !== null);
+    const other = heads().map((c) => c.querySelector("[data-testid=approval-other-project]") !== null);
     expect(other).toEqual([false, true]);
-    expect(cards()[1]?.textContent?.replace(/\s+/g, " ")).toContain("Elsewhere task · other");
+    expect(words(heads()[1])).toContain("Elsewhere task · other");
   });
 
   it("answers one request per key press, however long the key is held", async () => {
     const core = await setup();
     core.ask(bash("perm1"));
-    core.ask(bash("perm2"));
-    core.ask(bash("perm3"));
+    core.ask(bash("perm2", "pwd"));
+    core.ask(bash("perm3", "id"));
     await settle(ARM_MS);
     cards()[0]?.focus();
     hold("KeyY");
@@ -365,7 +373,7 @@ describe("Approvals", () => {
     core.ask({ ...bash("perm2"), tool: "Read", input: { file_path: "/demo/../etc/passwd" } });
     await settle();
     const scopes = cards().map((c) => c.querySelector("[data-testid=approval-scope]")?.textContent?.trim());
-    expect(scopes).toEqual(["In the project: README.md", "⚠ Outside the project: /demo/../etc/passwd"]);
+    expect(scopes).toEqual(["In the project: README.md", "Outside the project: /demo/../etc/passwd"]);
   });
 
   it("judges paths from the agent's own folder and warns about an unknown project", async () => {
@@ -377,11 +385,14 @@ describe("Approvals", () => {
       cards().map((c) => c.querySelector(`[data-testid=${testid}]`)?.textContent?.replace(/\s+/g, " ").trim());
     // A worker's worktree is its folder: the main checkout is outside it.
     expect(lines("approval-scope")).toEqual([
-      "⚠ Outside the agent's folder: /demo/src/a.rs",
-      "⚠ Cannot tell if in a project: /demo/a",
+      "Outside the agent's folder: /demo/src/a.rs",
+      "Cannot tell if in a project: /demo/a",
     ]);
-    expect(lines("approval-unknown-project")).toEqual([undefined, "⚠ Unknown project: paths cannot be checked"]);
-    expect(cards()[1]?.querySelector("[data-testid=approval-other-project]")).not.toBeNull();
+    expect(heads().map((h) => words(h.querySelector("[data-testid=approval-unknown-project]") ?? undefined))).toEqual([
+      undefined,
+      "Unknown project: paths cannot be checked",
+    ]);
+    expect(heads()[1]?.querySelector("[data-testid=approval-other-project]")).not.toBeNull();
     // The core does not know p9: asking again for every card would flood it.
     const asked = core.sent("projects.list").length;
     core.ask({ id: "perm3", session: "s1", project: "p9", tool: "Read", input: { file_path: "/a" }, title: null });
@@ -420,10 +431,29 @@ describe("Approvals", () => {
     expect(document.activeElement?.id).toBe("approvals-heading");
   });
 
-  it("waits again when the cards change order", async () => {
+  it("stacks identical requests into one card that answers them one at a time", async () => {
     const core = await setup();
     core.ask(bash("perm1"));
     core.ask(bash("perm2"));
+    await settle(ARM_MS);
+    expect(cards().map((c) => c.dataset.request)).toEqual(["perm1"]);
+    expect(words(cards()[0]?.querySelector("[data-testid=approval-stack]") ?? undefined)).toBe(
+      "2 identical requests, answered one at a time",
+    );
+    expect(heads()).toHaveLength(1);
+    cards()[0]?.focus();
+    press("KeyY");
+    await settle();
+    expect(answers(core)).toEqual([{ id: "perm1", decision: "allow" }]);
+    // The next one takes its place and waits again.
+    expect(cards().map((c) => c.dataset.request)).toEqual(["perm2"]);
+    expect(cards()[0]?.querySelector("button.allow")?.getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("waits again when the cards change order", async () => {
+    const core = await setup();
+    core.ask(bash("perm1"));
+    core.ask(bash("perm2", "pwd"));
     await settle(ARM_MS);
     core.pending.reverse();
     core.emit({ type: "info.resync", data: { skipped: 2 } });
@@ -490,7 +520,7 @@ describe("Approvals", () => {
   it("focuses the request a notification is about", async () => {
     const core = await setup();
     core.ask(bash("perm1"));
-    core.ask(bash("perm2"));
+    core.ask(bash("perm2", "pwd"));
     await settle();
     const { approvalQueue } = await import("./queue.svelte");
     approvalQueue(core).reveal("perm2");
@@ -555,25 +585,27 @@ describe("Approvals", () => {
     expect(answers(core)).toEqual([{ id: "perm1", decision: "allow" }]);
   });
 
-  it("says why an early click on Allow does nothing, and still waits", async () => {
+  it("shows the wait as a fill on Allow, and says why an early click does nothing", async () => {
     const core = await setup();
     core.ask(bash("perm1"));
     await settle();
     const allow = cards()[0]?.querySelector<HTMLButtonElement>("button.allow");
-    const wait = () => cards()[0]?.querySelector("[data-testid=approval-wait]")?.textContent?.trim();
-    expect(wait()).toBe("");
-    expect(allow?.title).toBe("Ready in a moment — read the request first.");
+    const fill = () => allow?.querySelector<HTMLElement>("[data-testid=approval-arming]");
+    const wait = () => cards()[0]?.querySelector("[data-testid=approval-wait]");
+    expect(fill()?.style.animationDuration).toBe(`${ARM_MS}ms`);
     allow?.click();
     await settle();
     expect(answers(core)).toEqual([]);
-    expect(wait()).toBe("Ready in a moment — read the request first.");
-    // Next to the buttons, and kept in sight.
-    const note = cards()[0]?.querySelector("[data-testid=approval-wait]");
-    expect(note?.parentElement).toBe(allow?.parentElement);
-    expect(scrolled.at(-1)).toEqual([note, { block: "nearest" }]);
+    // To screen readers only; on screen the fill says it, and stays in sight.
+    expect(wait()?.textContent?.trim()).toBe("Ready in a moment — read the request first.");
+    expect(wait()?.classList.contains("sr-only")).toBe(true);
+    expect(scrolled.at(-1)).toEqual([allow, { block: "nearest" }]);
+    // Return on a focused Allow never allows.
     await settle(ARM_MS);
-    expect(wait()).toBe("");
-    expect(allow?.title).toBe("");
+    expect(fill()).toBeNull();
+    const enter = new KeyboardEvent("keydown", { code: "Enter", key: "Enter", bubbles: true, cancelable: true });
+    allow?.dispatchEvent(enter);
+    expect(enter.defaultPrevented).toBe(true);
     allow?.click();
     await settle();
     expect(answers(core)).toEqual([{ id: "perm1", decision: "allow" }]);
