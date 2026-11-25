@@ -7,7 +7,10 @@ import { changeStarts, fileName, fileStats, type PatchLine, parsePatch, patchRow
 
 let { text }: { text: string } = $props();
 
-const files = $derived(parsePatch(text));
+// The highlighter answers after a tick; by then the parent may have dropped
+// the patch (null) while this view is torn down, so read it defensively.
+const source = $derived(text ?? "");
+const files = $derived(parsePatch(source));
 const stats = $derived(files.map(fileStats));
 const total = $derived(
   stats.reduce((sum, s) => ({ added: sum.added + s.added, removed: sum.removed + s.removed }), {
@@ -42,7 +45,7 @@ $effect(() => {
 });
 let collapsed = $state(new Set<number>());
 const rows = $derived(patchRows(files, collapsed));
-const rawLines = $derived(text.split(/\r?\n/));
+const rawLines = $derived(source.split(/\r?\n/));
 
 const changes = $derived(changeStarts(rows));
 /** Index into `changes` of the change last moved to, or -1. */
