@@ -1,6 +1,6 @@
 import { flushSync, mount, unmount } from "svelte";
 import { afterEach, beforeEach, expect, it } from "vitest";
-import { registerCommand } from "../keys/commands";
+import { listCommands, registerCommand } from "../keys/commands";
 import type { Hunk } from "../lib/protocol";
 import { CoreError } from "../lib/transport";
 import { Workspace } from "../shell/workspace.svelte";
@@ -147,6 +147,9 @@ it("commits with Mod+Enter, says why it waits and shows a hook's output", async 
   const commit = $("[data-testid=git-commit]");
   expect(commit?.getAttribute("aria-disabled")).toBe("true");
   expect(text("#git-commit-why")).toBe("Stage changes to commit them, or amend the last commit.");
+  box.dispatchEvent(new KeyboardEvent("keydown", { code: "Enter", ctrlKey: true, bubbles: true }));
+  flushSync();
+  expect(text("[data-testid=git-announce]")).toBe("Stage changes to commit them, or amend the last commit.");
 
   click("[aria-label='Stage a.ts']");
   await settle();
@@ -162,6 +165,16 @@ it("commits with Mod+Enter, says why it waits and shows a hook's output", async 
   await settle();
   expect(core.calls.at(-2)).toMatchObject({ method: "git.commit", params: { message: "Fix the thing\n\nBody" } });
   expect(text("[data-testid=git-committed]")).toBe("Committed c100000: Fix the thing");
+  expect(box.value).toBe("");
+
+  // Amend starts from the last message, and unticking takes it out again.
+  const amend = $<HTMLInputElement>("input[type=checkbox]");
+  amend?.click();
+  await settle();
+  expect(box.value).toBe("Fix the thing");
+  expect(text(".commit .hint")).toMatch(/first line/);
+  amend?.click();
+  await settle();
   expect(box.value).toBe("");
 });
 
@@ -181,11 +194,21 @@ it("switches branches, shows why a switch failed and creates a branch", async ()
     "Could not switch to topic. You have changes to a.ts that this branch would overwrite: commit them or discard them first.",
   );
 
-  click("#git-branch-menu .new");
+  // From the palette: the menu opens on a new branch's name.
+  await listCommands()
+    .find((c) => c.id === "git.new_branch")
+    ?.run();
   await settle();
   const input = $<HTMLInputElement>("#git-branch-menu input");
   if (!input) throw new Error("no branch name");
   expect(document.activeElement).toBe(input);
+  input.value = "my feature";
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+  flushSync();
+  expect(text("[data-testid=git-branch-name-problem]")).toBe("Branch names cannot contain spaces. Try my-feature.");
+  $<HTMLFormElement>("#git-branch-menu form")?.requestSubmit();
+  await settle();
+  expect(core.methods()).not.toContain("git.create_branch");
   input.value = "feature/x";
   input.dispatchEvent(new Event("input", { bubbles: true }));
   $<HTMLFormElement>("#git-branch-menu form")?.requestSubmit();

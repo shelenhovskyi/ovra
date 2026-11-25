@@ -66,6 +66,25 @@ export function describePaths(paths: readonly string[]): string {
   return paths.length === 1 ? (paths[0] ?? "") : `${paths.length} files`;
 }
 
+/**
+ * Why git would refuse `name` as a branch name (its `check-ref-format`
+ * rules), with a fix when there is an obvious one; null when it looks fine.
+ */
+export function branchNameProblem(name: string): string | null {
+  const parts = name.split("/");
+  if (/\s/.test(name)) return `Branch names cannot contain spaces. Try ${name.trim().replace(/\s+/g, "-")}.`;
+  if (name.startsWith("-")) return "Branch names cannot start with -.";
+  if (name.includes("..")) return "Branch names cannot contain two dots in a row (..).";
+  if (/[~^:?*[\\]/.test(name) || [...name].some((c) => c < " " || c === "\u007f"))
+    return "Branch names cannot contain ~ ^ : ? * [ or \\.";
+  if (name === "@" || name.includes("@{")) return "Branch names cannot be @ or contain @{.";
+  if (parts.some((p) => p === "")) return "Branch names cannot start or end with / or contain //.";
+  if (parts.some((p) => p.startsWith("."))) return "No part of a branch name can start with a dot.";
+  if (parts.some((p) => p.endsWith(".lock"))) return "No part of a branch name can end with .lock.";
+  if (name.endsWith(".")) return "Branch names cannot end with a dot.";
+  return null;
+}
+
 /** The status's files in the panel's three lists; a partly staged file is in two. */
 export function fileLists(files: readonly StatusFile[]): {
   conflicts: StatusFile[];
@@ -103,6 +122,8 @@ export class GitModel {
   notice = $state("");
   /** Counts changes seen (events and own calls), so a diff view knows to reload. */
   version = $state(0);
+  /** A palette command asks the branch menu to open, to switch or to create; the menu clears it. */
+  branchMenu = $state<"switch" | "create" | null>(null);
 
   private loading: Promise<void> | null = null;
   private again = false;
@@ -157,6 +178,24 @@ export class GitModel {
     };
     this.loading = run();
     return this.loading;
+  }
+
+  /** Resolves once the status load under way, if any, is done. */
+  loaded(): Promise<void> {
+    return this.loading ?? Promise.resolve();
+  }
+
+  /**
+   * The last commit's summary (its first line), or null. The protocol has no
+   * full message, so a body is not known here.
+   */
+  async lastSummary(): Promise<string | null> {
+    try {
+      const reply = await this.transport.call({ method: "git.log", params: { project: this.project, limit: 1 } });
+      return reply.data.commits[0]?.summary ?? null;
+    } catch {
+      return null;
+    }
   }
 
   async loadBranches(): Promise<void> {
@@ -290,8 +329,9 @@ export class GitModel {
       if (done) this.notice = done;
       return true;
     } catch (err) {
+      // Each scope shows its error in an alert; the status region would say it twice.
       this.error = { scope, ...fail(err) };
-      this.notice = this.error.message;
+      this.notice = "";
       return false;
     } finally {
       this.busy = false;

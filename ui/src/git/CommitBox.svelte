@@ -19,11 +19,35 @@ const why = $derived.by(() => {
   return null;
 });
 
+/** The last commit's summary while it fills the box for an amend; cleared once the box is not that. */
+let prefilled = $state<string | null>(null);
+
 async function commit(): Promise<void> {
-  if (why || model.busy) return;
+  if (model.busy) return;
+  if (why) {
+    // Mod+Enter from the message: say why nothing happened.
+    model.notice = why;
+    return;
+  }
   if (await model.commit(text.trim(), amend)) {
     text = "";
     amend = false;
+    prefilled = null;
+  }
+}
+
+/** Amend starts from the last message (its first line: the protocol has no body); unticking takes it back out. */
+async function onamend(): Promise<void> {
+  if (!amend) {
+    if (prefilled !== null && text === prefilled) text = "";
+    prefilled = null;
+    return;
+  }
+  if (text.trim()) return;
+  const summary = await model.lastSummary();
+  if (amend && !text.trim() && summary) {
+    text = summary;
+    prefilled = summary;
   }
 }
 
@@ -48,11 +72,15 @@ function onkeydown(event: KeyboardEvent): void {
   </label>
   {#if status.head}
     <label class="check">
-      <input type="checkbox" bind:checked={amend} />
+      <input type="checkbox" bind:checked={amend} onchange={onamend} />
       Amend last commit
     </label>
     {#if amend}
-      <p class="hint">Replaces the last commit with what is staged and this message.</p>
+      <p class="hint">
+        Replaces the last commit with what is staged and this message.{prefilled !== null && text === prefilled
+          ? " The message is the last commit's first line; if it had more lines, add them again."
+          : ""}
+      </p>
     {/if}
   {/if}
   <button

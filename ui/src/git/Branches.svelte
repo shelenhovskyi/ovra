@@ -2,9 +2,9 @@
 // The current branch, and a menu to switch to another local branch or
 // create one. Errors (an agent writes the checkout, changes would be
 // overwritten, a bad name) stay in the menu, next to what was pressed.
-import { tick } from "svelte";
+import { tick, untrack } from "svelte";
 import type { RepoStatus } from "../lib/protocol";
-import type { GitModel } from "./model.svelte";
+import { branchNameProblem, type GitModel } from "./model.svelte";
 
 let { model, status }: { model: GitModel; status: RepoStatus } = $props();
 
@@ -47,12 +47,34 @@ async function startCreate(): Promise<void> {
   menu?.querySelector<HTMLInputElement>("input")?.focus();
 }
 
+async function cancelCreate(): Promise<void> {
+  creating = false;
+  await tick();
+  menu?.querySelector<HTMLElement>(".new")?.focus();
+}
+
+const problem = $derived(name.trim() ? branchNameProblem(name.trim()) : null);
+
 async function create(event: SubmitEvent): Promise<void> {
   event.preventDefault();
   const wanted = name.trim();
   if (!wanted || model.busy) return;
-  if (await model.createBranch(wanted)) await close();
+  // The reason is under the field already; pressing Create says it once more.
+  if (problem) model.notice = `Could not create ${wanted}. ${problem}`;
+  else if (await model.createBranch(wanted)) await close();
 }
+
+// "Git: switch branch…" and "Git: new branch…" from the palette.
+$effect(() => {
+  const wanted = model.branchMenu;
+  if (!wanted) return;
+  untrack(async () => {
+    model.branchMenu = null;
+    if (!open) await show();
+    else (menu?.querySelector<HTMLElement>("[aria-current='true']") ?? menu?.querySelector("button"))?.focus();
+    if (wanted === "create") await startCreate();
+  });
+});
 
 function onkeydown(event: KeyboardEvent): void {
   if (event.code !== "Escape") return;
@@ -119,11 +141,21 @@ function onkeydown(event: KeyboardEvent): void {
         <form onsubmit={create}>
           <label>
             New branch name
-            <input type="text" spellcheck="false" autocomplete="off" bind:value={name} />
+            <input
+              type="text"
+              spellcheck="false"
+              autocomplete="off"
+              aria-invalid={!!problem}
+              aria-describedby={problem ? "git-branch-name-problem" : undefined}
+              bind:value={name}
+            />
           </label>
+          {#if problem}
+            <p class="hint" id="git-branch-name-problem" data-testid="git-branch-name-problem">{problem}</p>
+          {/if}
           <div class="buttons">
-            <button type="submit" aria-disabled={!name.trim() || model.busy}>Create and switch</button>
-            <button type="button" onclick={() => (creating = false)}>Cancel</button>
+            <button type="submit" aria-disabled={!name.trim() || !!problem || model.busy}>Create and switch</button>
+            <button type="button" onclick={cancelCreate}>Cancel</button>
           </div>
         </form>
       {:else}
