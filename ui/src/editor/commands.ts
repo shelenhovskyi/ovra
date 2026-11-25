@@ -83,7 +83,7 @@ const LSP_ACTIONS: [LspAction, string, string?][] = [
   ["references", "Find references", "Shift+F12"],
   ["rename", "Rename symbol", "F2"],
   ["format", "Format file", "Shift+Alt+F"],
-  ["hover", "Show hover at cursor", "Mod+K Mod+I"],
+  ["hover", "Show hover at cursor", "Mod+I"],
   ["problems", "Show problems", "Mod+Shift+M"],
   ["next_problem", "Go to next problem", "F8"],
 ];

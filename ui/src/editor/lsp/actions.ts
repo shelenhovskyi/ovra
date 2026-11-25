@@ -63,7 +63,8 @@ export function actionKeys(context: Context): KeyBinding[] {
     { key: "Shift-F12", run: run("references"), preventDefault: true },
     { key: "F2", run: run("rename"), preventDefault: true },
     { key: "Shift-Alt-f", run: run("format"), preventDefault: true },
-    { key: "Mod-k Mod-i", run: run("hover"), preventDefault: true },
+    // One press: a Mod-k chord would take the global Mod+K (Search or run).
+    { key: "Mod-i", run: run("hover"), preventDefault: true },
     { key: "Mod-Shift-m", run: run("problems"), preventDefault: true },
     { key: "F8", run: run("next_problem"), preventDefault: true },
     { key: "Shift-F8", run: previousDiagnostic, preventDefault: true },

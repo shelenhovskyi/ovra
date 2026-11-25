@@ -52,6 +52,12 @@ test("a trusted project's rust file gets diagnostics and hover from its language
     await expect(page.locator(".cm-tooltip-hover")).toContainText("fake hover", { timeout: 1000 });
   }).toPass({ timeout: 8000 });
 
+  // Search or run opens from an editor with a server too: hover's key is Mod+I, not a Mod+K chord.
+  await expect(editor.locator(".cm-content")).toBeFocused();
+  await page.keyboard.press("ControlOrMeta+K");
+  await expect(page.getByRole("combobox", { name: "Search files, or type > for commands" })).toBeFocused();
+  await page.keyboard.press("Escape");
+
   // The footer names the running server; stopping it clears the diagnostic.
   const item = page.getByRole("button", { name: /fake-lsp/ });
   await item.click();

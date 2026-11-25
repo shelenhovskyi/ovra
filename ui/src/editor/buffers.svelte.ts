@@ -5,8 +5,8 @@
 // a conflict instead of replacing them, and unsaved text is mirrored to
 // drafts so it survives a reload.
 
-import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
-import { gotoLine, highlightSelectionMatches, searchKeymap } from "@codemirror/search";
+import { defaultKeymap, history, historyKeymap, indentWithTab, toggleBlockComment } from "@codemirror/commands";
+import { findPrevious, gotoLine, highlightSelectionMatches, searchKeymap } from "@codemirror/search";
 import {
   Compartment,
   EditorSelection,
@@ -15,7 +15,7 @@ import {
   type Text,
   type TransactionSpec,
 } from "@codemirror/state";
-import { drawSelection, EditorView, highlightActiveLine, keymap, lineNumbers } from "@codemirror/view";
+import { drawSelection, EditorView, highlightActiveLine, type KeyBinding, keymap, lineNumbers } from "@codemirror/view";
 import { SvelteMap } from "svelte/reactivity";
 import type { FileContent, ProjectId } from "../lib/protocol";
 import { CoreError, type Transport } from "../lib/transport";
@@ -27,6 +27,40 @@ import { treeSitterHighlighting } from "./highlight/extension";
 import type { LanguageSource } from "./highlight/protocol";
 import { type Language, languageFor, languageSource } from "./languages";
 import { theme } from "./theme";
+
+/**
+ * The keys of every editor; `save` runs on Mod-s. CodeMirror's bindings that
+ * would take a global shortcut keep only their Mac key: block comment
+ * (Alt+Shift+A goes to approvals in a browser tab) and find previous on
+ * Mod-Shift-g (Ctrl+Shift+G shows Git; Shift-F3 still finds previous).
+ */
+export function editorKeymap(save: () => void): KeyBinding[] {
+  const macOnly = (binding: KeyBinding): KeyBinding => ({ ...binding, key: undefined, shift: undefined });
+  const ownKey = (binding: KeyBinding): KeyBinding[] => {
+    if (binding.run === toggleBlockComment) return [macOnly(binding)];
+    if (binding.key !== "Mod-g") return [binding];
+    return [
+      { ...binding, shift: undefined },
+      { ...macOnly(binding), mac: "Mod-Shift-g", run: findPrevious },
+    ];
+  };
+  return [
+    {
+      key: "Mod-s",
+      preventDefault: true,
+      run: () => {
+        save();
+        return true;
+      },
+    },
+    // Go to line on every platform, as in VS Code (CodeMirror's Mod-g finds the next match).
+    { key: "Ctrl-g", run: gotoLine, preventDefault: true },
+    indentWithTab,
+    ...defaultKeymap.flatMap(ownKey),
+    ...historyKeymap,
+    ...searchKeymap.flatMap(ownKey),
+  ];
+}
 
 type BufferStatus = "loading" | "ready" | "binary" | "too_large" | "failed";
 
@@ -350,22 +384,7 @@ export class Buffer {
       drawSelection(),
       highlightActiveLine(),
       this.heavy ? [] : highlightSelectionMatches(),
-      keymap.of([
-        {
-          key: "Mod-s",
-          preventDefault: true,
-          run: () => {
-            void this.save();
-            return true;
-          },
-        },
-        // Go to line on every platform, as in VS Code (CodeMirror's Mod-g finds the next match).
-        { key: "Ctrl-g", run: gotoLine, preventDefault: true },
-        indentWithTab,
-        ...defaultKeymap,
-        ...historyKeymap,
-        ...searchKeymap,
-      ]),
+      keymap.of(editorKeymap(() => void this.save())),
       EditorView.updateListener.of((update) => {
         if (update.docChanged) this.changed();
       }),

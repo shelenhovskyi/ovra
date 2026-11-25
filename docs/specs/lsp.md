@@ -119,7 +119,7 @@ makes on disk still reach them.
   removed, or it exits. It keeps running when the project closes in every
   client, so a reload does not restart it.
 - Keys: F12 definition, Shift+F12 references, F2 rename, Shift+Alt+F
-  format, Mod+K Mod+I hover at the cursor, Mod+Shift+M problems, F8 and
+  format, Mod+I hover at the cursor, Mod+Shift+M problems, F8 and
   Shift+F8 next and previous problem; all are in the palette under
   "Language:", and from the viewer they open the file for editing first.
   An action the server cannot do, and a failed request, says so in the
