@@ -359,8 +359,34 @@ pub trait NetProxy: Send + Sync + Debug {
     /// Replaces a running proxy's project allowlist; new connections follow
     /// it. Does nothing for a session without a proxy.
     fn update(&self, session: &SessionId, allow: Allowlist);
+    /// Replaces the loopback grants of a running proxy: the managed
+    /// servers it may reach as `localhost:<port>` (ADR 0008). An empty list
+    /// revokes all. Does nothing for a session without a proxy.
+    fn grant(&self, session: &SessionId, grants: Vec<LoopbackGrant>);
     /// Stops the proxy and its connections. Does nothing without one.
     fn stop(&self, session: &SessionId);
+}
+
+/// Opens a connection to one port in a server pod, never a host port.
+pub type PodDial = Arc<dyn Fn() -> BoxFuture<'static, Result<PodConn>> + Send + Sync>;
+
+/// One managed server a session's netproxy may reach (ADR 0008).
+#[derive(Clone)]
+pub struct LoopbackGrant {
+    pub server: ServerId,
+    pub port: u16,
+    pub generation: u64,
+    pub dial: PodDial,
+}
+
+impl Debug for LoopbackGrant {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LoopbackGrant")
+            .field("server", &self.server)
+            .field("port", &self.port)
+            .field("generation", &self.generation)
+            .finish_non_exhaustive()
+    }
 }
 
 /// A started netproxy: its address and, if it adds secrets, the CA

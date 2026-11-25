@@ -29,7 +29,7 @@ macro_rules! test_path {
 pub use browser::{FAKE_PNG, FakeBrowser, FakePage};
 pub use git::MemoryGit;
 pub use lsp::{FakeLanguageServers, FakeServer, HostRecord};
-pub use servers::{FakeDevServers, FakeDevServer};
+pub use servers::{FakeDevServer, FakeDevServers};
 pub use worktrees::MemoryWorktrees;
 
 use crate::path::RelPath;
@@ -49,8 +49,8 @@ use crate::protocol::terminals::{TermSize, TerminalId, TerminalsEvent};
 use crate::protocol::{ErrorCode, ProtocolError};
 use crate::services::{
     AgentHost, AgentRuntime, AgentSpec, AuditLog, BoxFuture, CommandLine, EventSink, FsService,
-    NetProxy, NetReporter, NetStarted, Opener, ProjectStore, Result, RunningAgent, Sandbox,
-    SandboxProfile, SandboxStatus, SearchCancel, Secrets, ServerProfile, SessionStore,
+    LoopbackGrant, NetProxy, NetReporter, NetStarted, Opener, ProjectStore, Result, RunningAgent,
+    Sandbox, SandboxProfile, SandboxStatus, SearchCancel, Secrets, ServerProfile, SessionStore,
     StoredSession, TerminalService, ToolRole,
 };
 
@@ -499,6 +499,8 @@ pub struct FakeNetProxy {
     /// Running proxies: what each allows besides `base`, its reporter and
     /// the secrets it adds.
     pub running: Mutex<BTreeMap<SessionId, FakeProxyRun>>,
+    /// Each session's loopback grants: port and generation.
+    pub grants: Mutex<BTreeMap<SessionId, Vec<(u16, u64)>>>,
 }
 
 /// One fake proxy: its allowlist, reporter and secret bindings.
@@ -545,7 +547,13 @@ impl NetProxy for FakeNetProxy {
         }
     }
 
+    fn grant(&self, session: &SessionId, grants: Vec<LoopbackGrant>) {
+        let ports = grants.iter().map(|g| (g.port, g.generation)).collect();
+        lock(&self.grants).insert(session.clone(), ports);
+    }
+
     fn stop(&self, session: &SessionId) {
+        lock(&self.grants).remove(session);
         lock(&self.running).remove(session);
     }
 }

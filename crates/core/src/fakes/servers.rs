@@ -9,7 +9,7 @@ use super::{lock, not_found};
 use crate::protocol::servers::{ServerId, ServerStatus};
 use crate::protocol::{ErrorCode, ProtocolError};
 use crate::services::{
-    BoxFuture, DevServers, PodConn, PodSpec, Result, SandboxStatus, ServerSink, DevServerSpec,
+    BoxFuture, DevServerSpec, DevServers, PodConn, PodSpec, Result, SandboxStatus, ServerSink,
 };
 
 /// Records each start and stop. A stop reports `Exited { code: None }`, as

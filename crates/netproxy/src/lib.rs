@@ -32,7 +32,9 @@ use ovra_core::protocol::netproxy::Allowlist;
 use ovra_core::protocol::projects::ProjectId;
 use ovra_core::protocol::secrets::SecretInfo;
 use ovra_core::protocol::{ErrorCode, ProtocolError};
-use ovra_core::services::{BoxFuture, NetProxy, NetReporter, NetStarted, Result, Secrets};
+use ovra_core::services::{
+    BoxFuture, LoopbackGrant, NetProxy, NetReporter, NetStarted, Result, Secrets,
+};
 use tokio::sync::Semaphore;
 use tokio::task::{JoinHandle, JoinSet};
 
@@ -311,6 +313,10 @@ impl NetProxy for NetProxies {
                 .unwrap_or_else(PoisonError::into_inner)
                 .project = allow.hosts;
         }
+    }
+
+    fn grant(&self, _session: &SessionId, _grants: Vec<LoopbackGrant>) {
+        // The loopback rule (task S.C) is not built yet: nothing is granted.
     }
 
     fn stop(&self, session: &SessionId) {
