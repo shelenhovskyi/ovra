@@ -1333,3 +1333,38 @@ async fn sessions_run_with_their_accounts_folder_and_resume_only_with_it() {
         "{refused:?}"
     );
 }
+
+#[tokio::test]
+async fn streamed_text_is_shown_but_never_kept() {
+    let core = core_with(ScriptedAgent::new(vec![vec![
+        Step::Stream("Reading the code."),
+        Step::Partial("Now the tests"),
+    ]]));
+    project(&core).await;
+    let mut rx = core.subscribe();
+    ok(&core, start("look")).await;
+    let mut deltas = Vec::new();
+    while deltas.concat() != "Reading the code.Now the tests" {
+        match Core::next_event(&mut rx).await {
+            Some(Event::Agents(AgentsEvent::TextDelta { text, .. })) => deltas.push(text),
+            Some(_) => {}
+            None => panic!("core closed"),
+        }
+    }
+    assert!(deltas.len() > 2, "{deltas:?} came in one piece");
+    // Only the complete message is kept; the one still being written
+    // waits until the turn is interrupted, and is not kept either.
+    let said = |t: &[AgentMessage]| {
+        t.iter()
+            .filter(|m| matches!(m, AgentMessage::AssistantText { .. }))
+            .count()
+    };
+    assert_eq!(said(&transcript(&core).await), 1);
+    ok(
+        &core,
+        json!({"method": "agents.interrupt", "params": {"session": "s1"}}),
+    )
+    .await;
+    until(&mut rx, AgentStatus::Idle).await;
+    assert_eq!(said(&transcript(&core).await), 1);
+}

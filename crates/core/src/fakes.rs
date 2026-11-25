@@ -940,6 +940,13 @@ impl SessionStore for MemorySessions {
 pub enum Step {
     /// Writes assistant text.
     Say(&'static str),
+    /// Writes assistant text a few words at a time, then the whole message,
+    /// as an agent that streams its text does.
+    Stream(&'static str),
+    /// Starts writing assistant text a few words at a time and is still
+    /// writing it when the turn is interrupted or the session stopped, so
+    /// a front end can see text that streams in.
+    Partial(&'static str),
     /// Asks to use a tool. If allowed, reports a successful result; if
     /// denied, an error result with the denial message. An allowed call of
     /// one of Ovra's tools (`mcp__ovra__<name>`, input = its arguments) goes
@@ -1038,7 +1045,7 @@ impl AgentRuntime for ScriptedAgent {
         };
         lock(&self.started).push(spec);
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Option<String>>();
-        let interrupted = Arc::new(AtomicBool::new(false));
+        let interrupted = Arc::new(Interrupted::default());
         let process = ScriptedProcess {
             tx,
             interrupted: interrupted.clone(),
@@ -1049,7 +1056,7 @@ impl AgentRuntime for ScriptedAgent {
             loop {
                 if let Some(steps) = next.take() {
                     host.status(AgentStatus::Working);
-                    interrupted.store(false, Ordering::SeqCst);
+                    interrupted.flag.store(false, Ordering::SeqCst);
                     if !play(&host, &tools, steps, &interrupted).await {
                         return;
                     }
@@ -1116,9 +1123,14 @@ impl Tools {
 }
 
 /// Plays one turn; `false` if the session failed.
-async fn play(host: &AgentHost, tools: &Tools, steps: Vec<Step>, interrupted: &AtomicBool) -> bool {
+async fn play(
+    host: &AgentHost,
+    tools: &Tools,
+    steps: Vec<Step>,
+    interrupted: &Interrupted,
+) -> bool {
     for (n, step) in steps.into_iter().enumerate() {
-        if interrupted.load(Ordering::SeqCst) {
+        if interrupted.flag.load(Ordering::SeqCst) {
             break;
         }
         match step {
@@ -1126,6 +1138,17 @@ async fn play(host: &AgentHost, tools: &Tools, steps: Vec<Step>, interrupted: &A
                 text: text.to_owned(),
                 parent: None,
             }),
+            Step::Stream(text) => {
+                stream(host, text);
+                host.message(AgentMessage::AssistantText {
+                    text: text.to_owned(),
+                    parent: None,
+                });
+            }
+            Step::Partial(text) => {
+                stream(host, text);
+                interrupted.wait().await;
+            }
             Step::Use { tool, input } => {
                 let id = format!("tool{n}");
                 host.message(AgentMessage::ToolUse {
@@ -1157,10 +1180,44 @@ async fn play(host: &AgentHost, tools: &Tools, steps: Vec<Step>, interrupted: &A
     true
 }
 
+/// Writes `text` as deltas of a word each.
+fn stream(host: &AgentHost, text: &str) {
+    for word in text.split_inclusive(' ') {
+        host.text_delta(word.to_owned());
+    }
+}
+
+/// `flag` is set by an interrupt until the next turn starts; `wake` ends a
+/// [`Step::Partial`] at an interrupt or a stop.
+#[derive(Debug, Default)]
+struct Interrupted {
+    flag: AtomicBool,
+    stopped: AtomicBool,
+    wake: tokio::sync::Notify,
+}
+
+impl Interrupted {
+    fn set(&self) {
+        self.flag.store(true, Ordering::SeqCst);
+        self.wake.notify_one();
+    }
+
+    fn stop(&self) {
+        self.stopped.store(true, Ordering::SeqCst);
+        self.wake.notify_one();
+    }
+
+    async fn wait(&self) {
+        while !self.flag.load(Ordering::SeqCst) && !self.stopped.load(Ordering::SeqCst) {
+            self.wake.notified().await;
+        }
+    }
+}
+
 #[derive(Debug)]
 struct ScriptedProcess {
     tx: tokio::sync::mpsc::UnboundedSender<Option<String>>,
-    interrupted: Arc<AtomicBool>,
+    interrupted: Arc<Interrupted>,
 }
 
 impl RunningAgent for ScriptedProcess {
@@ -1171,11 +1228,12 @@ impl RunningAgent for ScriptedProcess {
     }
 
     fn interrupt(&self) -> Result<()> {
-        self.interrupted.store(true, Ordering::SeqCst);
+        self.interrupted.set();
         Ok(())
     }
 
     fn stop(&self) {
+        self.interrupted.stop();
         let _ = self.tx.send(None);
     }
 }

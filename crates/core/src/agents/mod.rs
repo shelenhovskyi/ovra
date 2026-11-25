@@ -670,6 +670,15 @@ impl AgentHost {
         }
     }
 
+    /// Shows the next piece of the assistant text the agent is writing. Not
+    /// kept: the complete message comes through [`Self::message`].
+    pub fn text_delta(&self, text: String) {
+        self.sink.emit(AgentsEvent::TextDelta {
+            session: self.session.clone(),
+            text,
+        });
+    }
+
     /// Records a new state, if the state machine allows it. An ended session
     /// drops its pending permission requests, which the agent sees as denied.
     pub fn status(&self, status: AgentStatus) {

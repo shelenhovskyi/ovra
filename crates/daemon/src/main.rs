@@ -229,7 +229,7 @@ fn agents(args: &Args) -> Arc<dyn AgentRuntime> {
         ]
     };
     let mut turns = vec![vec![
-        Step::Say("I will list the files, then fix the typo in README.md."),
+        Step::Stream("I will list the files, then fix the typo in README.md."),
         Step::Use {
             tool: "Bash",
             input: serde_json::json!({ "command": "ls -la", "description": "List files" }),
@@ -282,9 +282,14 @@ fn agents(args: &Args) -> Arc<dyn AgentRuntime> {
             gaps: vec!["everything: nothing is confined".into()],
         });
     }
+    // Sessions that stream are caught mid-sentence until interrupted.
+    let streaming = ScriptedAgent::new(vec![vec![Step::Partial(
+        "Reading the code first, then I will run the tests",
+    )]]);
     Arc::new(FakeAgent {
         script,
         browsing,
+        streaming,
         claude: ClaudeCli::new(None, ovra_sandbox::for_this_os(&args.data_dir)),
     })
 }
@@ -318,6 +323,8 @@ struct FakeAgent {
     script: ovra_core::fakes::ScriptedAgent,
     /// For tasks that start with "Browse".
     browsing: ovra_core::fakes::ScriptedAgent,
+    /// For tasks that start with "Stream".
+    streaming: ovra_core::fakes::ScriptedAgent,
     claude: ClaudeCli,
 }
 
@@ -330,6 +337,9 @@ impl AgentRuntime for FakeAgent {
     ) -> ovra_core::services::Result<Box<dyn ovra_core::services::RunningAgent>> {
         if spec.prompt.starts_with("Browse") {
             return self.browsing.start(spec, host);
+        }
+        if spec.prompt.starts_with("Stream") {
+            return self.streaming.start(spec, host);
         }
         self.script.start(spec, host)
     }
