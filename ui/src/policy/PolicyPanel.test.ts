@@ -104,16 +104,28 @@ describe("PolicyPanel", () => {
     expect(core.calls.filter((c) => c.method === "policy.set")).toHaveLength(3);
   });
 
-  it("adds and edits an exact Bash rule, offering Exact command only for Bash", async () => {
+  it("adds and edits an exact Bash rule, offering Exact command only for Bash auto", async () => {
     const core = await setup();
     const box = () => $<HTMLInputElement>("[data-testid=policy-exact-field]");
     type("[data-testid=policy-tool]", "Edit");
+    type("[data-testid=policy-action]", "auto");
     flushSync();
     expect(box()).toBeNull();
     type("[data-testid=policy-tool]", "Bash");
     flushSync();
     type("[data-testid=policy-match]", "cargo test");
+    box()?.click();
+    flushSync();
+    expect(box()?.checked).toBe(true);
+    // Another action hides the box and clears it: an exact deny or ask is refused.
+    for (const other of ["deny", "ask"]) {
+      type("[data-testid=policy-action]", other);
+      flushSync();
+      expect(box()).toBeNull();
+    }
     type("[data-testid=policy-action]", "auto");
+    flushSync();
+    expect(box()?.checked).toBe(false);
     box()?.click();
     await submit();
     expect(core.rules.get("p1")?.[2]).toEqual({ tool: "Bash", match: "cargo test", action: "auto", exact: true });

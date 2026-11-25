@@ -22,11 +22,14 @@ describe("policy rules", () => {
     expect(formRule("WebFetch", "  ", "deny")).toEqual({ tool: "WebFetch", action: "deny" });
   });
 
-  it("marks only a Bash match exact, and names exact rules apart", () => {
+  it("marks only a Bash auto match exact, and names exact rules apart", () => {
     const exact = formRule("bash", "npm test", "auto", true);
     expect(exact).toEqual({ tool: "Bash", match: "npm test", action: "auto", exact: true });
     expect(formRule("Bash", "", "auto", true)).toEqual({ tool: "Bash", action: "auto" });
     expect(formRule("Edit", "a.md", "auto", true)).toEqual({ tool: "Edit", match: "a.md", action: "auto" });
+    // An exact deny or ask would let longer commands past it.
+    expect(formRule("Bash", "npm test", "deny", true)).toEqual({ tool: "Bash", match: "npm test", action: "deny" });
+    expect(formRule("Bash", "npm test", "ask", true)).toEqual({ tool: "Bash", match: "npm test", action: "ask" });
     expect(ruleLabel(exact)).toBe("Bash(npm test) exactly auto");
     expect(ruleLabel(formRule("Bash", "npm test", "auto"))).toBe("Bash(npm test) auto");
   });
@@ -74,7 +77,7 @@ describe("policy rules", () => {
   });
 
   it("explains the match for the tool being typed", () => {
-    expect(matchHint("Bash")).toMatch(/command prefix.*With Exact command, only npm test itself/);
+    expect(matchHint("Bash")).toMatch(/command prefix.*An Auto rule with Exact command matches only npm test itself/);
     expect(matchHint("Edit")).toMatch(/glob/);
     expect(matchHint("webfetch")).toMatch(
       /^One host.*Deny and Ask also cover its subdomains.*Auto covers that host only/,

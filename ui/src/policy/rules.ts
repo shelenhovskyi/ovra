@@ -36,16 +36,19 @@ export function takesMatch(tool: string): boolean {
   return name === "Bash" || name === "WebFetch" || FILE_TOOLS.includes(name);
 }
 
-/** Whether a rule for `tool` with a match may match the whole command only (Bash). */
-export function takesExact(tool: string): boolean {
-  return toolName(tool) === "Bash";
+/**
+ * Whether a rule for `tool` and `action` with a match may match the whole command only: a Bash
+ * auto rule. An exact deny or ask would let longer commands past it, so the core refuses one.
+ */
+export function takesExact(tool: string, action: PolicyAction): boolean {
+  return toolName(tool) === "Bash" && action === "auto";
 }
 
 /** What `match` means for `tool`, for the field's description. */
 export function matchHint(tool: string): string {
   const name = toolName(tool);
   if (name === "Bash")
-    return "A command prefix, matched on whole words: npm test also matches npm test -- -u. With Exact command, only npm test itself.";
+    return "A command prefix, matched on whole words: npm test also matches npm test -- -u. An Auto rule with Exact command matches only npm test itself.";
   if (FILE_TOOLS.includes(name)) return "A glob on the path inside the folder the agent works in, such as docs/**.";
   if (name === "WebFetch")
     return "One host, such as docs.rs. Deny and Ask also cover its subdomains and URLs whose host is unclear; Auto covers that host only.";
@@ -155,13 +158,13 @@ export function byPrecedence(rules: PolicyRule[]): { rule: PolicyRule; index: nu
 
 /**
  * The rule a form describes: names trimmed, a known tool in its own case, an empty match left out.
- * `exact` counts only for a Bash match.
+ * `exact` counts only for a Bash auto rule with a match.
  */
 export function formRule(tool: string, match: string, action: PolicyAction, exact = false): PolicyRule {
   const pattern = match.trim();
   const name = toolName(tool);
   if (pattern === "") return { tool: name, action };
-  return exact && takesExact(name)
+  return exact && takesExact(name, action)
     ? { tool: name, match: pattern, action, exact }
     : { tool: name, match: pattern, action };
 }

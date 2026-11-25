@@ -213,6 +213,13 @@ fn check(rule: &PolicyRule) -> Result<(), ProtocolError> {
     if rule.exact && (rule.tool != "Bash" || rule.pattern.is_none()) {
         return bad("only a Bash rule with a match can match the exact command");
     }
+    // An exact deny or ask would let `npm test -- -u` through a rule
+    // meant to stop `npm test`.
+    if rule.exact && rule.action != PolicyAction::Auto {
+        return bad(
+            "only an auto rule can match the exact command; a deny or ask matches the prefix",
+        );
+    }
     let Some(pattern) = &rule.pattern else {
         return Ok(());
     };
@@ -519,7 +526,9 @@ fn matches(rule: &PolicyRule, input: &Value, work_dir: &Path, action: PolicyActi
             return false;
         };
         let fits = |part: &str| {
-            if rule.exact {
+            // `check` refuses an exact deny or ask; one stored anyway
+            // still matches the prefix.
+            if rule.exact && action == PolicyAction::Auto {
                 words(part) == words(pattern)
             } else {
                 starts_with_words(part, pattern)

@@ -489,8 +489,11 @@ rules for each project:
   (`npm test` matches `npm test -- -u`, not `npm testx`).
   - With `"exact": true` it is the whole command instead: `npm test`
     matches `npm test` (in any spacing), not `npm test -- -u`. Rules stored
-    without `exact` keep the prefix meaning. `policy.set` refuses `exact`
-    on any other rule.
+    without `exact` keep the prefix meaning. `exact` is for `auto` rules
+    only: an exact `deny` or `ask` would let `npm test -- -u` past a rule
+    meant to stop `npm test`, so `policy.set` refuses `exact` on a `deny`
+    or `ask` rule and on any rule that is not Bash with a `match`. An exact
+    `deny` or `ask` stored anyway matches the prefix.
   - A command that contains `;`, `&`, `|`, a backtick, `$(`, `>`, `<` or a
     newline never matches an `auto` rule.
   - A Bash `deny` rule is advisory: `env git push` or `git -C . push` gets
@@ -624,8 +627,8 @@ rules for each project:
   project's scripts say; the sandbox still applies."
 - Agents cannot reach it: it is a client method, not an IDE tool. The rule
   shows in Settings > Rules, marked "exactly" and "From an approval", where
-  Remove takes it out. A person can add an exact Bash rule there too
-  ("Exact command").
+  Remove takes it out. A person can add an exact Bash `auto` rule there
+  too ("Exact command", shown only when the action is Auto).
 
 ## Audit log
 

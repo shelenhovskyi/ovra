@@ -112,11 +112,21 @@ fn an_exact_bash_rule_matches_only_the_whole_command() {
     for command in ["npm test -- -u", "npm test x", "npm", "npm testx"] {
         assert_eq!(decided(&auto, command), None, "{command:?}");
     }
-    let deny = Policy {
-        rules: vec![exact(PolicyAction::Deny)],
-    };
-    assert_eq!(decided(&deny, "echo a; npm test"), Some(PolicyAction::Deny));
-    assert_eq!(decided(&deny, "npm test -- -u"), None);
+    // An exact deny or ask would let longer commands through: refused,
+    // and one stored anyway matches the prefix.
+    for action in [PolicyAction::Deny, PolicyAction::Ask] {
+        let refused = check(&exact(action)).err().map(|e| e.message);
+        assert!(
+            refused
+                .as_deref()
+                .is_some_and(|m| m.contains("only an auto rule")),
+            "{refused:?}"
+        );
+        let stored = Policy {
+            rules: vec![exact(action)],
+        };
+        assert_eq!(decided(&stored, "npm test -- -u"), Some(action));
+    }
     // Exact means nothing without a Bash match.
     assert!(check(&exact(PolicyAction::Auto)).is_ok());
     for bad in [

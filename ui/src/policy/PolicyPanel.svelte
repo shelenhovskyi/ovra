@@ -33,7 +33,7 @@ let matchField = $state<HTMLInputElement>();
 let tool = $state("");
 let match = $state("");
 let action = $state<PolicyAction>("ask");
-/** A Bash match is the whole command, not a prefix. */
+/** A Bash auto match is the whole command, not a prefix. */
 let exact = $state(false);
 /** The rule being edited: its place in the list and what it said then. */
 let editing = $state<{ index: number; rule: PolicyRule } | null>(null);
@@ -300,7 +300,7 @@ function onPaneKeydown(event: KeyboardEvent): void {
               data-testid="policy-match"
             />
           </label>
-          {#if takesExact(tool)}
+          {#if takesExact(tool, action)}
             <label class="check">
               <input type="checkbox" bind:checked={exact} data-testid="policy-exact-field" />
               Exact command
@@ -313,7 +313,11 @@ function onPaneKeydown(event: KeyboardEvent): void {
               onpointerdown={() => (listOpen = !listOpen)}
               onkeydown={onListKeydown}
               onblur={() => (listOpen = false)}
-              onchange={() => (listOpen = false)}
+              onchange={() => {
+                listOpen = false;
+                // Exact is for Auto only; another action starts without it.
+                exact = false;
+              }}
               data-testid="policy-action"
             >
               <option value="deny">Deny</option>
