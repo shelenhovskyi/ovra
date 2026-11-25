@@ -7,7 +7,7 @@ test("edit a file with highlighting and save it to disk", async ({ page }) => {
   const url = process.env.OVRA_URL;
   if (!url) throw new Error("OVRA_URL is not set; globalSetup did not run");
   const dir = mkdtempSync(join(tmpdir(), "ovra-editor-"));
-  writeFileSync(join(dir, "main.rs"), "fn main() {}\n");
+  writeFileSync(join(dir, "main.rs"), "fn main() {\n    run();\n}\n");
 
   await page.goto(url);
   const projects = page.getByTestId("project-list");
@@ -17,7 +17,7 @@ test("edit a file with highlighting and save it to disk", async ({ page }) => {
   await page.keyboard.press("ControlOrMeta+E");
 
   const editor = page.getByTestId("main");
-  await expect(editor.locator(".cm-content")).toHaveText("fn main() {}");
+  await expect(editor.locator(".cm-line").first()).toHaveText("fn main() {");
   await expect(editor.locator(".tok-keyword").first()).toHaveText("fn");
 
   await editor.locator(".cm-content").click();
@@ -26,7 +26,15 @@ test("edit a file with highlighting and save it to disk", async ({ page }) => {
   await expect(page.getByTestId("editor-dirty")).toBeVisible();
   await page.keyboard.press("ControlOrMeta+S");
   await expect(page.getByTestId("editor-dirty")).toBeHidden();
-  expect(readFileSync(join(dir, "main.rs"), "utf8")).toBe("fn main() {}\n// saved");
+  expect(readFileSync(join(dir, "main.rs"), "utf8")).toBe("fn main() {\n    run();\n}\n// saved");
+
+  // The breadcrumbs name the function around the cursor; its body folds and unfolds.
+  await page.keyboard.press("ControlOrMeta+Home");
+  await expect(page.getByRole("navigation", { name: "Breadcrumbs" }).locator(".symbol")).toHaveText("main");
+  await page.keyboard.press("Control+Shift+BracketLeft");
+  await expect(editor.locator(".cm-foldPlaceholder")).toBeVisible();
+  await page.keyboard.press("Control+Shift+BracketRight");
+  await expect(editor.locator(".cm-foldPlaceholder")).toBeHidden();
 });
 
 test("reopens the file that was open when the project was left", async ({ page }) => {

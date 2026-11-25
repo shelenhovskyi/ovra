@@ -30,6 +30,7 @@ import type { TextSpot } from "../shell/workspace.svelte";
 import type { Buffer } from "./buffers.svelte";
 import { toggle } from "./commands";
 import { AutoSaver, autoSaver } from "./autosave";
+import Breadcrumbs from "./Breadcrumbs.svelte";
 import { editorMenu } from "./context-menu";
 import { answerClose, tabs } from "./open-files.svelte";
 import { editorPrefs } from "./prefs.svelte";
@@ -55,6 +56,7 @@ $effect(() => {
     parent: host,
     dispatchTransactions: (transactions, target) => {
       target.update(transactions);
+      if (shownView === target) track(target, transactions.some((t) => t.docChanged));
       if (shownView === target && workspace.focused) publish(target, transactions.some((t) => t.docChanged));
     },
   });
@@ -121,6 +123,17 @@ $effect(() => {
     hideView(target);
     lsp?.hiding(next, target);
   };
+});
+
+/** The cursor and a count of changes of the shown text, for the breadcrumbs. */
+let cursor = $state(0);
+let revision = $state(0);
+function track(target: EditorView, docChanged: boolean): void {
+  cursor = target.state.selection.main.head;
+  if (docChanged) revision++;
+}
+$effect(() => {
+  if (shownView) untrack(() => shownView && track(shownView, false));
 });
 
 /** The status bar's facts (status.svelte.ts); the indentation is read again only when the text changes. */
@@ -235,13 +248,20 @@ function discard(path: string): void {
 <div class="editor" data-panel="Editor">
   {#if buffer}
     <div class="bar">
-      <span class="path" data-testid="editor-path">{buffer.path}</span>
-      {#if buffer.dirty}
-        {@const label = autoSaving ? "Unsaved changes, saved automatically" : "Unsaved changes"}
-        <span class="dirty" class:auto={autoSaving} title={label} data-testid="editor-dirty"
-          >●<span class="visually-hidden">{label}</span></span
-        >
-      {/if}
+      <Breadcrumbs
+        path={buffer.path}
+        view={shown === buffer ? shownView : null}
+        {cursor}
+        {revision}
+        outline={!buffer.heavy}
+      >
+        {#if buffer.dirty}
+          {@const label = autoSaving ? "Unsaved changes, saved automatically" : "Unsaved changes"}
+          <span class="dirty" class:auto={autoSaving} title={label} data-testid="editor-dirty"
+            >●<span class="visually-hidden">{label}</span></span
+          >
+        {/if}
+      </Breadcrumbs>
       <span class="language" data-testid="editor-language"
         >{buffer.heavy ? "Plain text (large file)" : (buffer.language?.name ?? "Plain text")}</span
       >
@@ -306,13 +326,6 @@ function discard(path: string): void {
     padding: 4px 12px 4px 16px;
     font-size: 13px;
     color: var(--text-2);
-  }
-  .path {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-family: var(--mono);
   }
   .dirty {
     color: var(--accent);

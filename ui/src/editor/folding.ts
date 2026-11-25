@@ -92,6 +92,10 @@ export function headingFoldAt(doc: Text, n: number): FoldRange | null {
   return last > n ? { from: doc.line(n).to, to: doc.line(last).to } : null;
 }
 
+export function isMarkdown(path: string): boolean {
+  return /\.(md|markdown)$/i.test(path);
+}
+
 /** The fold service, gutter and placeholder of a file; `markdown` folds by heading. */
 export function folding(markdown: boolean): Extension {
   return [

@@ -7,8 +7,18 @@ import type { Text } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import type { Entry, Source } from "../palette/sources";
 
-/** A symbol of the shown file; `from`-`to` is its name in the text. */
-export type FileSymbol = { name: string; kind: string; container?: string; from: number; to: number };
+/**
+ * A symbol of the shown file; `from`-`to` is its name in the text, `scope`
+ * all of it (its body too) when the server says.
+ */
+export type FileSymbol = {
+  name: string;
+  kind: string;
+  container?: string;
+  from: number;
+  to: number;
+  scope?: { from: number; to: number };
+};
 
 /** LSP `SymbolKind` as words; unknown kinds say "symbol". */
 const KINDS = [
@@ -59,7 +69,8 @@ export function flattenSymbols(answer: unknown, offset: (position: Position) => 
   const out: FileSymbol[] = [];
   const visit = (symbols: ServerSymbol[], container?: string) => {
     for (const symbol of symbols) {
-      const range = symbol.selectionRange ?? symbol.range ?? symbol.location?.range;
+      const whole = symbol.range ?? symbol.location?.range;
+      const range = symbol.selectionRange ?? whole;
       if (!range || typeof symbol.name !== "string") continue;
       out.push({
         name: symbol.name,
@@ -67,6 +78,7 @@ export function flattenSymbols(answer: unknown, offset: (position: Position) => 
         container: container ?? (symbol.containerName || undefined),
         from: offset(range.start),
         to: offset(range.end),
+        ...(whole && { scope: { from: offset(whole.start), to: offset(whole.end) } }),
       });
       if (Array.isArray(symbol.children)) visit(symbol.children, symbol.name);
     }
@@ -76,7 +88,7 @@ export function flattenSymbols(answer: unknown, offset: (position: Position) => 
 }
 
 /** Asks the server behind `view` for its symbols; null when none serves it or it cannot list them. */
-async function serverSymbols(view: EditorView): Promise<FileSymbol[] | null> {
+export async function serverSymbols(view: EditorView): Promise<FileSymbol[] | null> {
   const plugin = LSPPlugin.get(view);
   const capabilities = plugin?.client.serverCapabilities as Record<string, unknown> | null | undefined;
   if (!plugin || !capabilities?.documentSymbolProvider) return null;
