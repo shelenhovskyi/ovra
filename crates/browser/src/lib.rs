@@ -3,16 +3,20 @@
 //! (`docs/specs/servers-and-browser.md`, ADR 0009).
 //! Contract: `ovra_core::services::Browser`.
 //!
-//! A stub for now: every page answers `unavailable` until task B.A.
+//! The CDP client is Ovra's own ([`cdp`]): a few hundred lines over the
+//! pipe with tokio and serde_json, where `chromiumoxide` speaks CDP only
+//! over a WebSocket, which would need a debugging port.
 
+use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use ovra_core::protocol::agents::SessionId;
 use ovra_core::protocol::browser::{InputEvent, PageId, PageInfo, Pick};
 use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::{
     BoxFuture, Browser, BrowserSink, ConsoleEntry, ElementRef, Inspected, NetworkEntry, PageAction,
-    Result, SandboxProfile, SandboxStatus,
+    Result, Sandbox, SandboxProfile, SandboxStatus,
 };
 
 mod cdp;
@@ -21,112 +25,235 @@ mod launch;
 mod logs;
 mod page;
 mod pick;
+mod session;
 mod snapshot;
 
-const NOT_YET: &str = "the agent browser is not built yet";
+use launch::Launch;
+use page::Page;
+use session::{Session, Sessions, lock};
+
+/// At most this many pages per session (the spec's limit).
+const PAGES_PER_SESSION: usize = 4;
+
+/// The viewport when `open` names none.
+const DEFAULT_SIZE: (u32, u32) = (1280, 800);
 
 /// The real agent browser.
-#[derive(Debug, Default)]
-pub struct ChromiumBrowser {}
+#[derive(Debug)]
+pub struct ChromiumBrowser {
+    launcher: Option<Box<dyn Launch>>,
+    status: SandboxStatus,
+    sessions: Sessions,
+    /// One browser starts at a time, so a session never gets two.
+    starting: tokio::sync::Mutex<()>,
+    /// Numbers pages and picks.
+    count: AtomicU64,
+    /// Numbers profile folders.
+    profiles: AtomicU64,
+}
 
 impl ChromiumBrowser {
-    pub fn new() -> Self {
-        Self {}
+    /// The user's Chromium at `chromium`, else the first of `chromium`,
+    /// `chromium-browser`, `google-chrome` and `google-chrome-stable` on
+    /// `PATH`, run in `sandbox`. Never downloads one.
+    pub fn new(sandbox: Arc<dyn Sandbox>, chromium: Option<PathBuf>) -> Self {
+        let path = std::env::var_os("PATH");
+        let found = launch::find(chromium.as_deref(), path.as_deref());
+        let unavailable = |reason: String| SandboxStatus::Unavailable { reason };
+        let status = match (&found, sandbox.status()) {
+            _ if !cfg!(unix) => unavailable("the agent browser needs Linux for now".into()),
+            (_, SandboxStatus::Unavailable { reason }) => unavailable(format!(
+                "the agent browser runs only in the sandbox, which is unavailable: {reason}"
+            )),
+            (None, _) => unavailable(match &chromium {
+                Some(path) => format!("no browser at {}", path.display()),
+                None => format!(
+                    "install Chromium or Google Chrome: none of {} is on PATH",
+                    launch::NAMES.join(", ")
+                ),
+            }),
+            // What the sandbox does not cover, the browser in it does not either.
+            (Some(program), SandboxStatus::Available { gaps, .. }) => SandboxStatus::Available {
+                name: format!("Chromium at {}", program.display()),
+                gaps,
+            },
+        };
+        let launcher = found
+            .filter(|_| matches!(status, SandboxStatus::Available { .. }))
+            .map(|program| Box::new(launch::Chromium { program, sandbox }) as Box<dyn Launch>);
+        Self::with(launcher, status)
+    }
+
+    fn with(launcher: Option<Box<dyn Launch>>, status: SandboxStatus) -> Self {
+        Self {
+            launcher,
+            status,
+            sessions: Sessions::default(),
+            starting: tokio::sync::Mutex::new(()),
+            count: AtomicU64::new(0),
+            profiles: AtomicU64::new(0),
+        }
+    }
+
+    fn next(&self) -> u64 {
+        self.count.fetch_add(1, Ordering::Relaxed) + 1
+    }
+
+    fn page(&self, id: &PageId) -> Result<Arc<Page>> {
+        let sessions: Vec<Arc<Session>> = lock(&self.sessions).values().cloned().collect();
+        sessions.iter().find_map(|s| s.page(id)).ok_or_else(|| {
+            ProtocolError::new(ErrorCode::NotFound, format!("page {} not found", id.0))
+        })
+    }
+
+    /// The session's browser, started in `profile` if it does not run.
+    async fn session(
+        &self,
+        id: &SessionId,
+        mut profile: SandboxProfile,
+        sink: Arc<dyn BrowserSink>,
+    ) -> Result<Arc<Session>> {
+        let _one = self.starting.lock().await;
+        if let Some(session) = lock(&self.sessions).get(id).cloned() {
+            return Ok(session);
+        }
+        let launcher = self.launcher.as_ref().ok_or_else(|| {
+            let reason = match &self.status {
+                SandboxStatus::Unavailable { reason } => reason.clone(),
+                SandboxStatus::Available { .. } => "the agent browser is unavailable".into(),
+            };
+            ProtocolError::new(ErrorCode::Unavailable, reason)
+        })?;
+        let dir = profile_dir(self.profiles.fetch_add(1, Ordering::Relaxed) + 1)?;
+        profile.write.push(dir.clone());
+        let launched = match launcher.launch(&profile, &dir) {
+            Ok(launched) => launched,
+            Err(e) => {
+                let _ = std::fs::remove_dir_all(&dir);
+                return Err(e);
+            }
+        };
+        let session = Session::start(id.clone(), launched, sink, Some(dir), &self.sessions).await?;
+        lock(&self.sessions).insert(id.clone(), session.clone());
+        Ok(session)
     }
 }
 
-fn unavailable<T>() -> Result<T> {
-    Err(ProtocolError::new(ErrorCode::Unavailable, NOT_YET))
-}
-
-fn later<T: Send + 'static>() -> BoxFuture<'static, Result<T>> {
-    Box::pin(async { unavailable() })
+/// A new, empty folder only this user can enter.
+fn profile_dir(n: u64) -> Result<PathBuf> {
+    let dir = std::env::temp_dir().join(format!("ovra-browser-{}-{n}", std::process::id()));
+    let mut builder = std::fs::DirBuilder::new();
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    builder.create(&dir).map_err(|e| {
+        ProtocolError::new(
+            ErrorCode::Internal,
+            format!("no profile folder for the browser: {e}"),
+        )
+    })?;
+    Ok(dir)
 }
 
 impl Browser for ChromiumBrowser {
     fn status(&self) -> SandboxStatus {
-        SandboxStatus::Unavailable {
-            reason: NOT_YET.into(),
-        }
+        self.status.clone()
     }
 
     fn open(
         &self,
-        _: SessionId,
-        _: SandboxProfile,
-        _: String,
-        _: Option<(u32, u32)>,
-        _: Arc<dyn BrowserSink>,
+        session: SessionId,
+        profile: SandboxProfile,
+        url: String,
+        size: Option<(u32, u32)>,
+        sink: Arc<dyn BrowserSink>,
     ) -> BoxFuture<'_, Result<PageInfo>> {
-        later()
+        Box::pin(async move {
+            let browser = self.session(&session, profile, sink).await?;
+            if browser.pages().len() >= PAGES_PER_SESSION {
+                return Err(ProtocolError::new(
+                    ErrorCode::Conflict,
+                    format!("a session has {PAGES_PER_SESSION} pages at most: close one first"),
+                ));
+            }
+            let id = PageId(format!("pg{}", self.next()));
+            browser.open(id, &url, size.unwrap_or(DEFAULT_SIZE)).await
+        })
     }
 
-    fn close(&self, _: &PageId) -> BoxFuture<'_, Result<()>> {
-        later()
+    fn close(&self, page: &PageId) -> BoxFuture<'_, Result<()>> {
+        let page = page.clone();
+        Box::pin(async move {
+            let sessions: Vec<Arc<Session>> = lock(&self.sessions).values().cloned().collect();
+            sessions
+                .iter()
+                .any(|s| s.close(&page))
+                .then_some(())
+                .ok_or_else(|| {
+                    ProtocolError::new(ErrorCode::NotFound, format!("page {} not found", page.0))
+                })
+        })
     }
 
-    fn end(&self, _: &SessionId) {}
-
-    fn screencast(&self, _: &PageId, _: bool) -> Result<()> {
-        unavailable()
+    fn end(&self, session: &SessionId) {
+        let ended = lock(&self.sessions).remove(session);
+        if let Some(ended) = ended {
+            ended.end();
+        }
     }
 
-    fn input(&self, _: &PageId, _: InputEvent) -> BoxFuture<'_, Result<()>> {
-        later()
+    fn screencast(&self, page: &PageId, on: bool) -> Result<()> {
+        self.page(page)?.screencast(on);
+        Ok(())
+    }
+
+    fn input(&self, page: &PageId, event: InputEvent) -> BoxFuture<'_, Result<()>> {
+        let page = self.page(page);
+        Box::pin(async move { page?.input(&[event]).await })
     }
 
     fn snapshot(
         &self,
-        _: &PageId,
-        _: Option<String>,
-        _: Option<u32>,
+        page: &PageId,
+        target: Option<String>,
+        depth: Option<u32>,
     ) -> BoxFuture<'_, Result<String>> {
-        later()
+        let page = self.page(page);
+        Box::pin(async move { page?.snapshot(target, depth).await })
     }
 
-    fn act(&self, _: &PageId, _: PageAction) -> BoxFuture<'_, Result<()>> {
-        later()
+    fn act(&self, page: &PageId, action: PageAction) -> BoxFuture<'_, Result<()>> {
+        let page = self.page(page);
+        Box::pin(async move { page?.act(action).await })
     }
 
-    fn console(&self, _: &PageId, _: u64, _: usize) -> Result<Vec<ConsoleEntry>> {
-        unavailable()
+    fn console(&self, page: &PageId, since: u64, limit: usize) -> Result<Vec<ConsoleEntry>> {
+        Ok(self.page(page)?.console(since, limit))
     }
 
-    fn network(&self, _: &PageId, _: u64, _: usize) -> Result<Vec<NetworkEntry>> {
-        unavailable()
+    fn network(&self, page: &PageId, since: u64, limit: usize) -> Result<Vec<NetworkEntry>> {
+        Ok(self.page(page)?.network(since, limit))
     }
 
-    fn screenshot(&self, _: &PageId, _: Option<String>, _: bool) -> BoxFuture<'_, Result<Vec<u8>>> {
-        later()
+    fn screenshot(
+        &self,
+        page: &PageId,
+        target: Option<String>,
+        full_page: bool,
+    ) -> BoxFuture<'_, Result<Vec<u8>>> {
+        let page = self.page(page);
+        Box::pin(async move { page?.screenshot(target, full_page).await })
     }
 
-    fn pick_at(&self, _: &PageId, _: i32, _: i32, _: u32) -> BoxFuture<'_, Result<Pick>> {
-        later()
+    fn pick_at(&self, page: &PageId, x: i32, y: i32, up: u32) -> BoxFuture<'_, Result<Pick>> {
+        let page = self.page(page);
+        Box::pin(async move { page?.pick_at(x, y, up, format!("pk{}", self.next())).await })
     }
 
-    fn inspect(&self, _: &PageId, _: ElementRef) -> BoxFuture<'_, Result<Inspected>> {
-        later()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn every_page_answers_unavailable() {
-        let browser = ChromiumBrowser::new();
-        assert!(matches!(
-            browser.status(),
-            SandboxStatus::Unavailable { .. }
-        ));
-        let page = PageId("pg1".into());
-        let codes = [
-            browser.screencast(&page, true).err(),
-            browser.console(&page, 0, 10).err(),
-            browser.network(&page, 0, 10).err(),
-        ]
-        .map(|e| e.map(|e| e.code));
-        assert_eq!(codes, [Some(ErrorCode::Unavailable); 3]);
+    fn inspect(&self, page: &PageId, element: ElementRef) -> BoxFuture<'_, Result<Inspected>> {
+        let page = self.page(page);
+        Box::pin(async move {
+            let (element, png) = page?.inspect(element, format!("pk{}", self.next())).await?;
+            Ok(Inspected { element, png })
+        })
     }
 }
