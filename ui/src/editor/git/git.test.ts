@@ -2,14 +2,15 @@ import { history, undo } from "@codemirror/commands";
 import { EditorState, Text } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
-import type { CoreEvent, Hunk, Request } from "../../lib/protocol";
+import type { Blame, CoreEvent, Hunk, Request } from "../../lib/protocol";
 import { CoreError, type Transport } from "../../lib/transport";
-import { gitExtension, showChangeAtCursor } from "./extension";
+import { gitExtension, showChangeAtCursor, toggleBlame } from "./extension";
 import { GitFile, pickHunk } from "./file";
 
 class FakeGit implements Transport {
   index: { text: string | null; exists: boolean } = { text: "a\nb\nc\n", exists: true };
   hunks: Hunk[] = [];
+  blame: Blame = { ranges: [], commits: {} };
   failures = new Map<string, CoreError>();
   calls: Request[] = [];
 
@@ -26,6 +27,8 @@ class FakeGit implements Transport {
           type: "git.diff",
           data: { path: "f", from: null, binary: false, hunks: this.hunks, truncated: false },
         };
+      case "git.blame":
+        return { type: "git.blame", data: this.blame };
       default:
         return { type: "ok" };
     }
@@ -154,5 +157,32 @@ describe("git extension", () => {
     again?.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true }));
     expect(view.dom.querySelector("[data-testid=git-change-popup]")).toBeNull();
     expect(view.hasFocus).toBe(true);
+  });
+
+  test("blames the cursor line after a pause and shows the blame gutter on toggle", async () => {
+    const { core, view } = setup("a\nb\nc\n");
+    const time = Date.UTC(2026, 10, 23) / 1000;
+    core.blame = {
+      ranges: [
+        { start: 1, lines: 2, commit: "c1" },
+        { start: 3, lines: 1, commit: null },
+      ],
+      commits: { c1: { id: "c1", author: "Ann", time, summary: "Start" } },
+    };
+    await vi.advanceTimersByTimeAsync(500);
+    const inline = () => view.dom.querySelector("[data-testid=git-inline-blame]")?.textContent;
+    expect(inline()).toBe("Ann, 2 days ago · Start");
+    view.dispatch({ selection: { anchor: 4 } });
+    expect(inline()).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(500);
+    expect(inline()).toBe("Not committed yet");
+    toggleBlame();
+    await vi.advanceTimersByTimeAsync(0);
+    const labels = [...view.dom.querySelectorAll("[data-testid=git-blame]")].map((m) => m.textContent);
+    expect(labels).toEqual(["Ann, 2 days ago", "Not committed yet"]);
+    toggleBlame();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(view.dom.querySelectorAll("[data-testid=git-blame]")).toHaveLength(0);
+    expect(core.count("git.blame")).toBe(1);
   });
 });

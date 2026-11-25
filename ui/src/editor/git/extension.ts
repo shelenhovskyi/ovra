@@ -1,5 +1,6 @@
 // Git in the editor: change markers against the index in a gutter (unsaved
-// edits included), and a popup per change with "Stage hunk" and "Revert hunk".
+// edits included), a popup per change with "Stage hunk" and "Revert hunk",
+// an optional blame gutter and a dimmed inline blame of the cursor line.
 // Data comes from the buffer's `GitFile`; a buffer without git shows nothing.
 
 import {
@@ -23,6 +24,14 @@ import {
   ViewPlugin,
   type ViewUpdate,
 } from "@codemirror/view";
+import {
+  blameExtension,
+  blameGutterEffect,
+  blameShown,
+  inlineBlameEffect,
+  toDisk,
+  toggleBlameShown,
+} from "./blame-view";
 import type { GitFile } from "./file";
 import {
   type ChangeKind,
@@ -39,6 +48,8 @@ export type GitHost = { file: GitFile; dirty: () => boolean; saved: () => Text |
 
 /** Markers are recomputed this long after the last edit. */
 const DIFF_DELAY_MS = 200;
+/** The inline blame appears once the cursor rested this long. */
+const INLINE_DELAY_MS = 500;
 
 const host = Facet.define<GitHost, GitHost | null>({ combine: (values) => values[0] ?? null });
 
@@ -221,6 +232,7 @@ let current: Controller | null = null;
 
 class Controller {
   private diffTimer: ReturnType<typeof setTimeout> | undefined;
+  private inlineTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly unsubscribe: () => void;
   private destroyed = false;
 
@@ -229,8 +241,10 @@ class Controller {
     this.unsubscribe =
       this.git?.file.subscribe(() => {
         this.refresh(0);
+        this.scheduleInline();
       }) ?? (() => {});
     this.refresh(0);
+    this.scheduleInline();
   }
 
   private get git(): GitHost | null {
@@ -239,16 +253,18 @@ class Controller {
 
   update(update: ViewUpdate): void {
     if (update.docChanged) this.refresh(DIFF_DELAY_MS);
+    if (update.docChanged || update.selectionSet) this.scheduleInline();
   }
 
   destroy(): void {
     this.destroyed = true;
     clearTimeout(this.diffTimer);
+    clearTimeout(this.inlineTimer);
     this.unsubscribe();
     if (current === this) current = null;
   }
 
-  /** Recomputes markers after `delay` ms. */
+  /** Recomputes markers (and the blame gutter) after `delay` ms. */
   refresh(delay: number): void {
     clearTimeout(this.diffTimer);
     this.diffTimer = setTimeout(() => void this.recompute(), delay);
@@ -272,10 +288,41 @@ class Controller {
       changes = { base, marks: changeMarks(diffLines(base, doc.toJSON()), doc), tooLarge: false };
     }
     this.view.dispatch({ effects: setChanges.of(changes) });
+    await this.renderBlameGutter();
+  }
+
+  /** Fills or empties the blame gutter. */
+  async renderBlameGutter(): Promise<void> {
+    const git = this.git;
+    const blame = git && blameShown() ? await git.file.blame() : null;
+    if (this.destroyed) return;
+    const { state } = this.view;
+    const effect = blameGutterEffect(state, blame, git && toDisk(state, git.saved(), git.dirty()));
+    if (effect) this.view.dispatch({ effects: effect });
+  }
+
+  private scheduleInline(): void {
+    clearTimeout(this.inlineTimer);
+    this.inlineTimer = setTimeout(() => void this.showInline(), INLINE_DELAY_MS);
+  }
+
+  private async showInline(): Promise<void> {
+    const git = this.git;
+    const blame = git ? await git.file.blame() : null;
+    if (!git || !blame || this.destroyed) return;
+    const { state } = this.view;
+    const map = toDisk(state, git.saved(), git.dirty());
+    if (map) this.view.dispatch({ effects: inlineBlameEffect(state, blame, map) });
   }
 }
 
 const controller = ViewPlugin.fromClass(Controller);
+
+/** Shows or hides the blame gutter. */
+export function toggleBlame(): void {
+  toggleBlameShown();
+  void current?.renderBlameGutter();
+}
 
 /** Opens the change popup for the cursor line of the editor, if it is on a change. */
 export function showChangeAtCursor(): void {
@@ -301,6 +348,7 @@ export function gitExtension(git: GitHost): Extension {
     host.of(git),
     changesField,
     popupField,
+    blameExtension,
     controller,
     gutter({
       class: "cm-git-gutter",
