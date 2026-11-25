@@ -1,13 +1,16 @@
 <script lang="ts">
 // One page of a session's browser: its screencast on a canvas, scaled to fit
-// and asked for only while the canvas can be seen.
+// and asked for only while the canvas can be seen; the person's mouse and keys
+// while they control it.
 import { untrack } from "svelte";
-import type { FrameMetadata, PageInfo } from "../lib/protocol";
+import type { FrameMetadata, InputEvent, MouseButton, PageInfo } from "../lib/protocol";
 import { useOvra } from "../shell/context";
 import { sessionBrowsers } from "./browser.svelte";
-import { fitFrame } from "./geometry";
+import { fitFrame, modifiers, toPage } from "./geometry";
 
 let { page }: { page: PageInfo } = $props();
+
+const BUTTONS: (MouseButton | undefined)[] = ["left", "middle", "right"];
 
 const { transport } = useOvra();
 const browsers = sessionBrowsers(transport);
@@ -18,9 +21,19 @@ let box = $state({ width: 0, height: 0 });
 let meta = $state<FrameMetadata | null>(null);
 let intersecting = $state(typeof IntersectionObserver === "undefined");
 let tabVisible = $state(document.visibilityState !== "hidden");
+let control = $state(false);
+let focused = $state(false);
 
 const frame = $derived(meta ? fitFrame(box, meta) : null);
+const controlling = $derived(control && focused);
 const alt = $derived(`${page.title || "Untitled page"}, ${page.url}`);
+const modeText = $derived(
+  controlling
+    ? "You are controlling the page. Shift+Escape gives it back."
+    : control
+      ? "Click the page to control it again."
+      : "The agent drives this page. Take over to use your mouse and keyboard on it.",
+);
 
 // Frames: decode the newest one, skip any that arrived meanwhile.
 let next: { jpeg: string; metadata: FrameMetadata } | null = null;
@@ -125,10 +138,145 @@ $effect(() => {
   untrack(() => screencast(on));
 });
 $effect(() => () => untrack(() => screencast(false)));
+
+function input(event: InputEvent): Promise<unknown> {
+  return browsers.guard(() => transport.call({ method: "browser.input", params: { page: page.id, event } }));
+}
+
+function send(event: InputEvent): void {
+  input(event).catch(() => {});
+}
+
+// Mouse moves wait for the one before: at most one is in flight.
+let moving = false;
+let nextMove: InputEvent | null = null;
+
+function sendMove(event: InputEvent): void {
+  if (moving) {
+    nextMove = event;
+    return;
+  }
+  moving = true;
+  input(event)
+    .catch(() => {})
+    .finally(() => {
+      moving = false;
+      const queued = nextMove;
+      nextMove = null;
+      if (queued) sendMove(queued);
+    });
+}
+
+function pointAt(event: MouseEvent): { x: number; y: number } | null {
+  if (!stage || !frame) return null;
+  const rect = stage.getBoundingClientRect();
+  return toPage({ x: event.clientX - rect.left, y: event.clientY - rect.top }, frame);
+}
+
+function toggleControl(): void {
+  control = !control;
+  if (control) stage?.focus();
+}
+
+function onMouseMove(event: MouseEvent): void {
+  const at = pointAt(event);
+  if (!at) return;
+  if (controlling) sendMove({ kind: "mouse_move", ...at, modifiers: modifiers(event) });
+}
+
+function onMouseDown(event: MouseEvent): void {
+  if (!control) return;
+  // Keep the text selection and focus where Ovra wants them.
+  event.preventDefault();
+  stage?.focus();
+  const at = pointAt(event);
+  const button = BUTTONS[event.button];
+  if (at && button)
+    send({ kind: "mouse_down", ...at, button, clicks: Math.max(1, event.detail), modifiers: modifiers(event) });
+}
+
+function onMouseUp(event: MouseEvent): void {
+  if (!controlling) return;
+  const at = pointAt(event);
+  const button = BUTTONS[event.button];
+  if (at && button)
+    send({ kind: "mouse_up", ...at, button, clicks: Math.max(1, event.detail), modifiers: modifiers(event) });
+}
+
+$effect(() => {
+  const el = stage;
+  if (!el) return;
+  // Not passive: the page scrolls, not Ovra.
+  const onWheel = (event: WheelEvent) => {
+    if (!controlling) return;
+    const at = pointAt(event);
+    if (!at) return;
+    event.preventDefault();
+    const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? box.height : 1;
+    send({
+      kind: "wheel",
+      ...at,
+      delta_x: Math.round(event.deltaX * unit),
+      delta_y: Math.round(event.deltaY * unit),
+      modifiers: modifiers(event),
+    });
+  };
+  el.addEventListener("wheel", onWheel, { passive: false });
+  return () => el.removeEventListener("wheel", onWheel);
+});
+
+/** What a key types, as CDP wants it: Enter types a carriage return. */
+function typed(event: KeyboardEvent): string | null {
+  if (event.ctrlKey || event.metaKey) return null;
+  if (event.key === "Enter") return "\r";
+  return [...event.key].length === 1 ? event.key : null;
+}
+
+function onKeyDown(event: KeyboardEvent): void {
+  if (!controlling || event.isComposing) return;
+  // Every key goes to the page, Tab and Ovra's shortcuts too.
+  event.preventDefault();
+  if (event.code === "Escape" && event.shiftKey) {
+    control = false;
+    return;
+  }
+  send({ kind: "key_down", key: event.key, code: event.code, text: typed(event), modifiers: modifiers(event) });
+}
+
+function onKeyUp(event: KeyboardEvent): void {
+  if (!controlling || event.isComposing) return;
+  event.preventDefault();
+  send({ kind: "key_up", key: event.key, code: event.code, modifiers: modifiers(event) });
+}
 </script>
 
 <div class="page-view">
-  <div class="stage" bind:this={stage} data-testid="browser-stage">
+  <div class="tools">
+    <button type="button" aria-pressed={control} data-testid="browser-take-over" onclick={toggleControl}>
+      {control ? "Give back" : "Take over"}
+    </button>
+    <span class="mode" class:controlling role="status" data-testid="browser-mode">{modeText}</span>
+  </div>
+  <!-- The page itself: keys and the pointer go to it while the person controls it, so it is an
+       `application` that takes focus, which Svelte counts as non-interactive. -->
+  <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+  <div
+    class="stage"
+    class:controlling
+    bind:this={stage}
+    role="application"
+    aria-label={`Page view: ${alt}`}
+    tabindex="0"
+    data-testid="browser-stage"
+    onfocus={() => (focused = true)}
+    onblur={() => (focused = false)}
+    onmousemove={onMouseMove}
+    onmousedown={onMouseDown}
+    onmouseup={onMouseUp}
+    oncontextmenu={(event) => control && event.preventDefault()}
+    onkeydown={onKeyDown}
+    onkeyup={onKeyUp}
+  >
     <canvas bind:this={canvas} aria-label={alt} data-testid="browser-canvas">{alt}</canvas>
     {#if !meta}
       <p class="waiting">Waiting for the page to show…</p>
@@ -144,9 +292,20 @@ $effect(() => () => untrack(() => screencast(false)));
     min-height: 0;
     gap: 4px;
   }
+  .tools {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .mode,
   .waiting {
     color: #b4b4c0;
     font-size: 12px;
+  }
+  .mode.controlling {
+    color: #ffd36b;
+    font-weight: 600;
   }
   .stage {
     position: relative;
@@ -156,6 +315,12 @@ $effect(() => () => untrack(() => screencast(false)));
     background: #0c0c0f;
     border: 2px solid #2a2a31;
     border-radius: 3px;
+  }
+  .stage:focus-visible {
+    outline: 2px solid #7aa2ff;
+  }
+  .stage.controlling {
+    border-color: #ffd36b;
   }
   canvas {
     position: absolute;
@@ -170,5 +335,22 @@ $effect(() => () => untrack(() => screencast(false)));
     align-items: center;
     justify-content: center;
     margin: 0;
+  }
+  button {
+    font: inherit;
+    padding: 2px 10px;
+    color: #e6e6e6;
+    background: #2a2a33;
+    border: 1px solid #4a4a57;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  button[aria-pressed="true"] {
+    border-color: #7aa2ff;
+    background: #33334a;
+  }
+  button:focus-visible {
+    outline: 2px solid #7aa2ff;
+    outline-offset: 1px;
   }
 </style>

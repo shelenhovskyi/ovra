@@ -80,15 +80,19 @@ async function setup(core = new FakeBrowserCore(), { frame = true } = {}) {
 }
 
 const $ = <T extends HTMLElement>(selector: string) => target.querySelector<T>(selector);
+const stage = () => $("[data-testid=browser-stage]") as HTMLElement;
 const button = (name: string) =>
   [...target.querySelectorAll<HTMLButtonElement>("button")].find(
     (b) => b.getAttribute("aria-label") === name || b.textContent?.trim() === name,
   );
+const mouse = (type: string, x: number, y: number, init: MouseEventInit = {}) =>
+  stage().dispatchEvent(new MouseEvent(type, { clientX: x, clientY: y, bubbles: true, cancelable: true, ...init }));
 const key = (type: string, init: KeyboardEventInit) => {
   const event = new KeyboardEvent(type, { bubbles: true, cancelable: true, ...init });
   (document.activeElement ?? document.body).dispatchEvent(event);
   return event;
 };
+const inputs = (core: FakeBrowserCore) => core.sent("browser.input").map((p) => p.event);
 
 describe("the agent browser", () => {
   it("opens with its shortcut and shows the session's pages as tabs", async () => {
@@ -148,6 +152,49 @@ describe("the agent browser", () => {
     button("Hide")?.click();
     await settle();
     expect(casts()).toEqual([true, false, true, false]);
+  });
+
+  it("sends the person's mouse and keys in page pixels only while they control the page", async () => {
+    const core = await setup();
+    mouse("mousemove", 320, 300);
+    expect(inputs(core)).toEqual([]);
+    button("Take over")?.click();
+    await settle();
+    expect(document.activeElement).toBe(stage());
+    expect($("[data-testid=browser-mode]")?.textContent).toContain("You are controlling the page");
+    mouse("mousemove", 320, 300);
+    mouse("mousedown", 160, 210, { button: 0, detail: 1 });
+    mouse("mouseup", 160, 210, { button: 0, detail: 1 });
+    stage().dispatchEvent(
+      new WheelEvent("wheel", { clientX: 320, clientY: 300, deltaY: 3, deltaMode: 1, cancelable: true }),
+    );
+    key("keydown", { code: "KeyA", key: "a" });
+    // Ovra's own shortcuts go to the page too.
+    const save = key("keydown", { code: "KeyB", key: "b", ctrlKey: true, shiftKey: true });
+    key("keyup", { code: "KeyA", key: "a" });
+    await settle();
+    expect(save.defaultPrevented).toBe(true);
+    expect($("[data-testid=browser]")).not.toBeNull();
+    expect(inputs(core)).toEqual([
+      { kind: "mouse_move", x: 640, y: 360, modifiers: 0 },
+      { kind: "mouse_down", x: 320, y: 180, button: "left", clicks: 1, modifiers: 0 },
+      { kind: "mouse_up", x: 320, y: 180, button: "left", clicks: 1, modifiers: 0 },
+      { kind: "wheel", x: 640, y: 360, delta_x: 0, delta_y: 48, modifiers: 0 },
+      { kind: "key_down", key: "a", code: "KeyA", text: "a", modifiers: 0 },
+      { kind: "key_down", key: "b", code: "KeyB", text: null, modifiers: 10 },
+      { kind: "key_up", key: "a", code: "KeyA", modifiers: 0 },
+    ]);
+    // Focus elsewhere pauses control; Shift+Escape ends it.
+    stage().blur();
+    await settle();
+    mouse("mousemove", 10, 200);
+    expect(inputs(core)).toHaveLength(7);
+    expect($("[data-testid=browser-mode]")?.textContent).toBe("Click the page to control it again.");
+    stage().focus();
+    key("keydown", { code: "Escape", key: "Escape", shiftKey: true });
+    await settle();
+    expect(inputs(core)).toHaveLength(7);
+    expect(button("Take over")?.getAttribute("aria-pressed")).toBe("false");
   });
 
   it("asks the person before an agent opens another origin", async () => {
