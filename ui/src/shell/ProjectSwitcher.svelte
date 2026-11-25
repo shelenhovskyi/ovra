@@ -2,6 +2,9 @@
 // The header's project name, a menu button: the other recent projects,
 // "Open a folder…" and "Close project". Keys as in the More menu: arrows,
 // Home, End and a first letter move; Escape closes and gives focus back.
+// Without the system's folder dialog (a browser tab), "Open a folder…" turns
+// the menu into a path field; the current project stays open until the typed
+// folder opens, and Escape or Cancel goes back to it.
 import { tick } from "svelte";
 import { listCommands } from "../keys/commands";
 import { formatShortcut, inBrowserTab, isApple, liveKeys } from "../keys/shortcut";
@@ -29,6 +32,10 @@ let folderKeys = $state<string | undefined>();
 let button = $state<HTMLButtonElement>();
 let menu = $state<HTMLElement>();
 let place = $state("");
+/** The menu shows the folder path field instead of its items. */
+let typing = $state(false);
+let path = $state("");
+let field = $state<HTMLInputElement>();
 
 function items(): HTMLElement[] {
   return [...(menu?.querySelectorAll<HTMLElement>("[role=menuitem]") ?? [])];
@@ -38,6 +45,7 @@ async function show(focus: "first" | "last"): Promise<void> {
   const at = button?.getBoundingClientRect();
   place = at ? `top: ${at.bottom + 4}px; left: ${at.left}px;` : "";
   opener.error = null;
+  typing = false;
   const keys = folderDialogCommand()?.keys;
   folderKeys = keys ? liveKeys(keys, inBrowserTab()) : undefined;
   try {
@@ -55,6 +63,8 @@ async function show(focus: "first" | "last"): Promise<void> {
 
 function close(refocus: boolean): void {
   open = false;
+  typing = false;
+  path = "";
   if (refocus) button?.focus();
 }
 
@@ -64,9 +74,29 @@ async function switchTo(other: Project): Promise<void> {
   if (!opener.error) close(true);
 }
 
-function openFolder(): void {
+async function openFolder(): Promise<void> {
+  if (folderDialogCommand()) {
+    close(true);
+    void openAnotherFolder(workspace);
+    return;
+  }
+  opener.error = null;
+  typing = true;
+  await tick();
+  field?.focus();
+}
+
+async function openTyped(event: SubmitEvent): Promise<void> {
+  event.preventDefault();
+  // A refused path stays in the field, with the reason under it.
+  if (await opener.open(path.trim())) close(true);
+}
+
+function onFormKeydown(event: KeyboardEvent): void {
+  if (event.code !== "Escape") return;
+  event.preventDefault();
+  event.stopPropagation();
   close(true);
-  void openAnotherFolder(workspace);
 }
 
 function closeProject(): void {
@@ -130,7 +160,39 @@ $effect(() => {
     {project.name}
     <span class="caret" aria-hidden="true">▾</span>
   </button>
-  {#if open}
+  {#if open && typing}
+    <!-- Escape from the field or a button cancels. -->
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+    <form
+      class="menu folder"
+      aria-label="Open a folder"
+      style={place}
+      bind:this={menu}
+      onkeydown={onFormKeydown}
+      onsubmit={(event) => void openTyped(event)}
+    >
+      <label for="project-menu-path">Folder to open</label>
+      <input
+        id="project-menu-path"
+        bind:this={field}
+        bind:value={path}
+        spellcheck="false"
+        autocomplete="off"
+        placeholder="/home/you/my-app"
+        aria-invalid={opener.error !== null}
+        aria-describedby={opener.error ? "project-menu-path-error" : "project-menu-path-hint"}
+      />
+      {#if opener.error}
+        <p class="error" id="project-menu-path-error" role="alert">{opener.error}</p>
+      {:else}
+        <p class="hint" id="project-menu-path-hint">{project.name} stays open until the new folder opens.</p>
+      {/if}
+      <div class="actions">
+        <button type="button" onclick={() => close(true)}>Cancel</button>
+        <button type="submit" class="primary" disabled={opener.busy || path.trim() === ""}>Open</button>
+      </div>
+    </form>
+  {:else if open}
     <div id="project-menu" class="menu" role="menu" aria-labelledby="project-button" tabindex="-1" style={place} bind:this={menu} onkeydown={onMenuKeydown}>
       {#if recent.length > 0}
         <div role="group" aria-labelledby="project-menu-recent">
@@ -152,7 +214,7 @@ $effect(() => {
         </div>
         <div role="separator"></div>
       {/if}
-      <button type="button" role="menuitem" tabindex="-1" aria-keyshortcuts={folderKeys} onclick={openFolder}>
+      <button type="button" role="menuitem" tabindex="-1" aria-keyshortcuts={folderKeys} onclick={() => void openFolder()}>
         <span class="name">
           Open a folder…
           {#if folderKeys}<kbd aria-hidden="true">{formatShortcut(folderKeys, isApple())}</kbd>{/if}
@@ -211,7 +273,7 @@ $effect(() => {
     border-radius: 4px;
     box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
   }
-  .menu button {
+  .menu [role="menuitem"] {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
@@ -222,11 +284,11 @@ $effect(() => {
     border: none;
     border-radius: 3px;
   }
-  .menu button:hover,
-  .menu button:focus {
+  .menu [role="menuitem"]:hover,
+  .menu [role="menuitem"]:focus {
     background: #2a2a33;
   }
-  .menu button:disabled {
+  .menu [role="menuitem"]:disabled {
     cursor: progress;
   }
   .name {
@@ -263,5 +325,54 @@ $effect(() => {
   .error {
     margin: 4px 8px;
     color: #ff6b6b;
+  }
+  .folder {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px;
+  }
+  .folder label,
+  .hint {
+    font-size: 12px;
+    color: #b4b4c0;
+  }
+  .folder .error,
+  .hint {
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+  .folder input {
+    font: inherit;
+    color: inherit;
+    background: #121216;
+    border: 1px solid #4a4a57;
+    border-radius: 3px;
+    padding: 3px 6px;
+  }
+  .folder input[aria-invalid="true"] {
+    border-color: #ff8f8f;
+  }
+  .folder input:focus-visible {
+    outline: 2px solid #7aa2ff;
+    outline-offset: 1px;
+  }
+  .actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+  }
+  .actions button {
+    padding: 2px 10px;
+    background: #2a2a33;
+    border: 1px solid #4a4a57;
+    border-radius: 3px;
+  }
+  .actions .primary {
+    border-color: #7aa2ff;
+  }
+  .actions button:disabled {
+    opacity: 0.55;
+    cursor: default;
   }
 </style>

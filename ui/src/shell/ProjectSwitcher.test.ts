@@ -49,7 +49,10 @@ async function mountSwitcher(
   const workspace = new Workspace();
   workspace.project = core.projects[0] ?? null;
   const target = document.body.appendChild(document.createElement("div"));
-  const app = mount(SwitcherHarness, { target, props: { ovra: { transport: core, workspace } } });
+  const app = mount(SwitcherHarness, {
+    target,
+    props: { ovra: { transport: core, workspace } },
+  });
   const unregister = registerPaletteCommands(workspace);
   cleanup = () => {
     unregister();
@@ -118,15 +121,40 @@ describe("ProjectSwitcher", () => {
     expect(document.activeElement).toBe(button());
   });
 
-  it("without a folder dialog, Open a folder… goes to the start screen's folder field", async () => {
-    const { workspace, button, items, target } = await mountSwitcher();
+  it("without a folder dialog, Open a folder… asks for a path and keeps the project until it opens", async () => {
+    const { workspace, button, items, target, key } = await mountSwitcher();
+    const field = () => target.querySelector<HTMLInputElement>("#project-menu-path");
+    const submit = async (path: string) => {
+      const input = field();
+      if (!input) throw new Error("no path field");
+      input.value = path;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.form?.requestSubmit();
+      await settle();
+    };
     button()?.click();
     await settle();
     expect(items()[1]?.querySelector("kbd")).toBeNull();
     items()[1]?.click();
     await settle();
-    expect(workspace.project).toBeNull();
-    expect(document.activeElement).toBe(target.querySelector("[data-testid=project-list] input"));
+    expect(workspace.project?.id).toBe("p1");
+    expect(document.activeElement).toBe(field());
+    // Escape goes back to the project as it was.
+    key("Escape");
+    flushSync();
+    expect(field()).toBeNull();
+    expect(document.activeElement).toBe(button());
+
+    button()?.click();
+    await settle();
+    items()[1]?.click();
+    await settle();
+    await submit("relative");
+    expect(target.querySelector("form [role=alert]")?.textContent).toContain("Use the full path");
+    expect(workspace.project?.id).toBe("p1");
+    await submit("/work/new");
+    expect(workspace.project?.root).toBe("/work/new");
+    expect(field()).toBeNull();
   });
 
   it("with a folder dialog, Open a folder… shows its shortcut and opens the picked folder", async () => {
