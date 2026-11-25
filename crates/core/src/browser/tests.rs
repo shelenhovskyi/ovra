@@ -396,3 +396,5 @@ async fn picks_go_with_the_next_message_as_data_from_their_page() {
     let many = json!({"method": "browser.attach", "params": {"page": page, "picks": many}});
     assert_eq!(code(call(&f.core, many).await), ErrorCode::BadRequest);
 }
+
+mod tools;

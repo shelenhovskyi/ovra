@@ -58,6 +58,18 @@ pub(crate) fn sent(core: &Core, session: &SessionId, count: usize) {
     }
 }
 
+/// A pick the session's messages carried: its page and payload.
+pub(super) fn find_sent(core: &Core, session: &SessionId, pick_id: &str) -> Option<(PageId, Pick)> {
+    let st = core.browser_state().lock();
+    let pages = st.sessions.get(session)?;
+    pages
+        .sent
+        .iter()
+        .rev()
+        .find(|(_, p)| p.pick_id == pick_id)
+        .cloned()
+}
+
 fn render<'a>(picks: impl Iterator<Item = &'a Pick>) -> String {
     let mut text = String::from(
         "The person picked these elements in the agent browser. browser_inspect with a \

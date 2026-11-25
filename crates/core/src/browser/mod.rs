@@ -9,6 +9,7 @@
 
 mod navigation;
 mod picks;
+mod tools;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -88,9 +89,7 @@ impl BrowserState {
 
 pub(crate) async fn handle(core: &Core, request: BrowserRequest) -> Result<Response> {
     let browser = core.browser_state().browser.clone();
-    if let SandboxStatus::Unavailable { reason } = browser.status() {
-        return Err(ProtocolError::new(ErrorCode::Unavailable, reason));
-    }
+    available(browser.as_ref())?;
     let answer = match request {
         BrowserRequest::Open {
             session,
@@ -148,6 +147,7 @@ pub(crate) async fn open(
     size: Option<(u32, u32)>,
 ) -> Result<PageInfo> {
     let state = core.browser_state();
+    available(state.browser.as_ref())?;
     if url != "about:blank" {
         crate::core::check_web_url(&url)?;
     }
@@ -327,6 +327,15 @@ pub(crate) fn origin(url: &str) -> String {
         .find(['/', '?', '#'])
         .map_or(url.len(), |i| start + i);
     url[..end].to_owned()
+}
+
+fn available(browser: &dyn Browser) -> Result<()> {
+    match browser.status() {
+        SandboxStatus::Unavailable { reason } => {
+            Err(ProtocolError::new(ErrorCode::Unavailable, reason))
+        }
+        SandboxStatus::Available { .. } => Ok(()),
+    }
 }
 
 fn page_not_found(page: &PageId) -> ProtocolError {
