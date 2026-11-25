@@ -140,7 +140,9 @@ test("reply to an agent, allow with the mouse and stop it while it waits", async
   // `click()` would wait out `aria-disabled`.
   const first = approvals.getByRole("group", { name: "Run ls -la" });
   await expect(first).toBeVisible();
-  await page.clock.pauseAt(await page.evaluate(() => Date.now()));
+  // A little ahead of the page's clock: by the time pauseAt runs, "now"
+  // may have moved on, and pausing in the past throws.
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 50));
   const box = await first.getByRole("button", { name: "Allow" }).boundingBox();
   if (box) await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   await expect(first.getByTestId("approval-wait")).toBeInViewport({ ratio: 1 });
