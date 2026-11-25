@@ -73,6 +73,30 @@ it("keeps Retry on a turn's error when only the turn's end line follows it", () 
   expect(retries()).toHaveLength(1);
 });
 
+it("says the person stopped a turn, as no error and with no Retry", () => {
+  const usage = { input_tokens: 40_000, output_tokens: 3_600, cost_micro_usd: null };
+  app = mount(Transcript, {
+    target: document.body,
+    props: {
+      messages: [
+        { kind: "user_text", text: "Run the tests", from: "person" },
+        { kind: "interrupted" },
+        { kind: "turn_end", usage },
+        { kind: "user_text", text: "And again", from: "person" },
+        // Saved before interrupts had their own kind.
+        { kind: "error", message: "Interrupted." },
+        { kind: "turn_end", usage },
+      ],
+      onretry: () => {},
+    },
+  });
+  flushSync();
+  const stopped = [...document.querySelectorAll(".interrupted")].map((li) => li.textContent?.trim());
+  expect(stopped).toEqual(["You interrupted this turn.", "You interrupted this turn."]);
+  expect(document.querySelector(".error")).toBeNull();
+  expect(retries()).toHaveLength(0);
+});
+
 it("names files relative to the session's folder, with the whole path on hover", () => {
   const file_path = "/tmp/ovra-ux/demo-app/docs/README.md";
   app = mount(Transcript, {

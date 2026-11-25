@@ -218,7 +218,11 @@ fn prompt(steps: &[Value]) -> String {
 
 /// Replays a fixture to its end and returns the session's transcript.
 async fn replay(fixture: &str) -> (Vec<AgentMessage>, Vec<Ended>) {
-    let steps = steps(fixture);
+    replay_steps(steps(fixture)).await
+}
+
+/// Replays `steps`, a fixture's steps a test may have changed.
+async fn replay_steps(steps: Vec<Value>) -> (Vec<AgentMessage>, Vec<Ended>) {
     let prompt = prompt(&steps);
     let runtime = Arc::new(Replay {
         steps,
@@ -273,7 +277,21 @@ async fn a_write_outside_the_folder_is_asked_about_and_denied_with_a_message() {
             == Some(&json!("ask"))
     });
     assert!(hook_asks, "the policy hook did not ask");
-    let (transcript, ended) = replay(DENIED_OUTSIDE_FOLDER).await;
+    // The person sees why the CLI asks: the wait holds only when the
+    // request carries the recorded `decision_reason`.
+    let steps = steps
+        .into_iter()
+        .map(|mut step| {
+            if step.pointer("/wait/type") == Some(&json!("permissions.requested")) {
+                step["wait"]["data"]["reason"] = json!({
+                    "text": "Ovra asks before an agent changes files outside its folder.",
+                    "kind": "hook",
+                });
+            }
+            step
+        })
+        .collect();
+    let (transcript, ended) = replay_steps(steps).await;
     assert_eq!(ended, [Ended::Closed { stopped: true }]);
     insta::assert_json_snapshot!(transcript);
 }
@@ -287,6 +305,13 @@ async fn an_interrupt_ends_the_turn_and_keeps_the_session() {
         .filter(|m| matches!(m, AgentMessage::TurnEnd { .. }))
         .count();
     assert_eq!(turns, 2);
+    // The person stopped it: no error, so the turn does not read as failed.
+    assert!(transcript.contains(&AgentMessage::Interrupted));
+    let errors = transcript
+        .iter()
+        .filter(|m| matches!(m, AgentMessage::Error { .. }))
+        .count();
+    assert_eq!(errors, 0);
     insta::assert_json_snapshot!(transcript);
 }
 

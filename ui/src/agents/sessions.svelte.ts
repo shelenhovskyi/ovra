@@ -405,7 +405,11 @@ export class AgentSessions {
     } else if (event.type === "agents.message") {
       const { session, message } = event.data;
       // The complete message replaces the text that streamed in.
-      if (message.kind === "assistant_text" ? !message.parent : message.kind === "turn_end" || message.kind === "error")
+      if (
+        message.kind === "assistant_text"
+          ? !message.parent
+          : ["turn_end", "interrupted", "error"].includes(message.kind)
+      )
         this.partial.delete(session);
       const transcript = this.transcripts.get(session);
       if (transcript) this.transcripts.set(session, [...transcript, message]);

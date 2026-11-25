@@ -25,8 +25,7 @@ expression: transcript
     "is_error": true
   },
   {
-    "kind": "error",
-    "message": "Interrupted."
+    "kind": "interrupted"
   },
   {
     "kind": "turn_end",

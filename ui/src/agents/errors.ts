@@ -3,8 +3,13 @@
 
 import type { AgentMessage, AgentStatus } from "../lib/protocol";
 
-/** How the runtime words a turn the person interrupted; that is no failure. */
+/** How the runtime worded a turn the person interrupted before it had its own kind. */
 const INTERRUPTED = "Interrupted.";
+
+/** Whether `message` says the person stopped the turn: no failure. Older transcripts say it as an error. */
+export function isInterrupt(message: AgentMessage): boolean {
+  return message.kind === "interrupted" || (message.kind === "error" && message.message.trim() === INTERRUPTED);
+}
 
 const AUTH_FAILURE =
   /failed to authenticate|oauth (session|token)|not logged in|please run \/login|invalid api key|authentication_error/i;
@@ -22,7 +27,8 @@ export function isAuthFailure(text: string): boolean {
 function turnError(messages: AgentMessage[] | undefined): string | null {
   for (let i = (messages?.length ?? 0) - 1; i >= 0; i--) {
     const message = messages?.[i];
-    if (message?.kind === "error") return message.message.trim() === INTERRUPTED ? null : message.message;
+    if (message && isInterrupt(message)) return null;
+    if (message?.kind === "error") return message.message;
     // A message to the agent starts a turn: anything before it is an older turn's.
     if (message?.kind === "user_text") return null;
   }

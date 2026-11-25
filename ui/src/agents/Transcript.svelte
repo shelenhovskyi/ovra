@@ -9,7 +9,7 @@ import { untrack } from "svelte";
 import { describeTool } from "../approvals/describe";
 import type { AgentMessage, AgentStatus, Billing, MessageFrom } from "../lib/protocol";
 import Icon from "../shell/Icon.svelte";
-import { isAuthFailure, withoutEchoes } from "./errors";
+import { isAuthFailure, isInterrupt, withoutEchoes } from "./errors";
 import LiveActivity from "./LiveActivity.svelte";
 import { usageText } from "./sessions.svelte";
 import {
@@ -159,7 +159,9 @@ const lastError = $derived.by(() => {
   for (let i = shown.length - 1; i >= 0; i--) {
     const entry = shown[i];
     if (entry?.kind === "message" && entry.message.kind === "turn_end") continue;
-    return entry?.kind === "message" && entry.message.kind === "error" ? entry : undefined;
+    return entry?.kind === "message" && entry.message.kind === "error" && !isInterrupt(entry.message)
+      ? entry
+      : undefined;
   }
   return undefined;
 });
@@ -262,7 +264,7 @@ const lastError = $derived.by(() => {
     {:else}
       {@const message = entry.message}
       {@const sub = "parent" in message && message.parent ? "Subagent " : ""}
-      <li class={message.kind} class:sub={sub !== ""}>
+      <li class={isInterrupt(message) ? "interrupted" : message.kind} class:sub={sub !== ""}>
         {#if message.kind === "user_text"}
           <span class="who">{FROM[message.from]}</span>
           <p>{message.text}</p>
@@ -272,6 +274,8 @@ const lastError = $derived.by(() => {
         {:else if message.kind === "turn_end"}
           <!-- A thin divider, not a row: the full numbers on hover. -->
           <span class="divider" title={usageText(message.usage, billing)}>Turn ended · {turnCost(message.usage, billing)}</span>
+        {:else if isInterrupt(message)}
+          <p>You interrupted this turn.</p>
         {:else if message.kind === "error"}
           <!-- A sign-in problem is explained once, above the transcript. -->
           <span class="who">Error</span>
@@ -410,6 +414,7 @@ const lastError = $derived.by(() => {
   /* Steps are quiet one-liners: what Claude says is the text to read. */
   .steps,
   .notes,
+  .interrupted,
   .turn_end {
     font-size: 13px;
     color: var(--text-2);

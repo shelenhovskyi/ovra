@@ -130,10 +130,17 @@ impl Driver {
                 }
             }
             Incoming::TextDelta(text) => self.host.text_delta(text),
-            Incoming::TurnEnd { mut usage, error } => {
+            Incoming::TurnEnd {
+                mut usage,
+                interrupted,
+                error,
+            } => {
                 if let Some(total) = usage.cost_micro_usd {
                     usage.cost_micro_usd = Some(total.saturating_sub(self.cost_micro_usd));
                     self.cost_micro_usd = self.cost_micro_usd.max(total);
+                }
+                if interrupted {
+                    self.host.message(AgentMessage::Interrupted);
                 }
                 if let Some(message) = error {
                     self.host.message(AgentMessage::Error { message });

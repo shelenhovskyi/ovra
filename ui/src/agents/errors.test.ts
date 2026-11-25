@@ -21,6 +21,7 @@ describe("session errors", () => {
     expect(failedLabel({ state: "stopped" }, [you("Fix it"), error(AUTH), end])).toBe("Failed: signed out");
     expect(failedLabel(idle, [you("Fix it"), error("The turn failed."), end])).toBe("Failed");
     // An interrupt, or an error of an older turn, is no failure of this one.
+    expect(failedLabel(idle, [you("Fix it"), { kind: "interrupted" }, end])).toBeNull();
     expect(failedLabel(idle, [you("Fix it"), error("Interrupted."), end])).toBeNull();
     expect(failedLabel(idle, [you("a"), error(AUTH), end, you("b"), claude("Done."), end])).toBeNull();
     expect(signedOutError({ state: "failed", message: AUTH }, [])).toBe(AUTH);

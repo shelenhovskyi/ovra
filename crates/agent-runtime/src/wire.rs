@@ -24,10 +24,12 @@ pub(crate) enum Incoming {
     /// The next piece of the text the agent is writing
     /// (`--include-partial-messages`); not a subagent's.
     TextDelta(String),
-    /// `result`: the turn ended, with an error when it did not succeed.
-    /// The cost is the session's total so far.
+    /// `result`: the turn ended, with an error when it failed, or
+    /// `interrupted` when an interrupt stopped it (no failure). The cost is
+    /// the session's total so far.
     TurnEnd {
         usage: TurnUsage,
+        interrupted: bool,
         error: Option<String>,
     },
     /// The CLI asks whether a tool call may run.
@@ -250,15 +252,14 @@ fn turn_end(v: &Value) -> Incoming {
         || v.get("subtype")
             .and_then(Value::as_str)
             .is_some_and(|s| s != "success");
-    let error = failed.then(|| {
-        let interrupted = v
-            .get("terminal_reason")
+    // An interrupt ends the turn with `error_during_execution` and a terminal
+    // reason such as `aborted_tools` or `aborted_streaming`.
+    let interrupted = failed
+        && v.get("terminal_reason")
             .and_then(Value::as_str)
             .is_some_and(|r| r.starts_with("aborted"));
+    let error = (failed && !interrupted).then(|| {
         let reason = match v.get("subtype").and_then(Value::as_str) {
-            // An interrupt ends the turn with `error_during_execution` and a
-            // terminal reason such as `aborted_tools` or `aborted_streaming`.
-            _ if interrupted => Some("Interrupted."),
             Some("error_max_budget_usd") => Some("The turn stopped: it reached its budget."),
             Some("error_max_turns") => Some("The turn stopped: it reached its turn limit."),
             _ => None,
@@ -268,7 +269,11 @@ fn turn_end(v: &Value) -> Incoming {
             .or_else(|| str_field(v, "result").filter(|r| !r.is_empty()))
             .unwrap_or_else(|| "The turn failed.".to_owned())
     });
-    Incoming::TurnEnd { usage, error }
+    Incoming::TurnEnd {
+        usage,
+        interrupted,
+        error,
+    }
 }
 
 // Lines Ovra writes.
@@ -458,7 +463,27 @@ mod tests {
                     output_tokens: 7,
                     cost_micro_usd: Some(12346),
                 },
+                interrupted: false,
                 error: Some("The turn stopped: it reached its budget.".into()),
+            }
+        );
+    }
+
+    #[test]
+    fn an_interrupted_turn_is_no_failure() {
+        // The `result` of Claude Code 2.1.331 after an interrupt during a tool call.
+        let line = r#"{"type":"result","subtype":"error_during_execution","is_error":true,
+            "terminal_reason":"aborted_tools","usage":{"input_tokens":2,"output_tokens":5}}"#;
+        assert_eq!(
+            parse(&line.replace('\n', "")),
+            Incoming::TurnEnd {
+                usage: TurnUsage {
+                    input_tokens: 2,
+                    output_tokens: 5,
+                    cost_micro_usd: None,
+                },
+                interrupted: true,
+                error: None,
             }
         );
     }
