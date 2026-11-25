@@ -30,10 +30,14 @@ async function settle(): Promise<void> {
   flushSync();
 }
 
-function mountTree(core: FakeCore) {
+function mountTree(core: FakeCore, openPath: string | null = null) {
   const opened: string[] = [];
+  const kept: string[] = [];
   const target = document.body.appendChild(document.createElement("div"));
-  const app = mount(FileTree, { target, props: { transport: core, project: "p1", onopen: (p) => opened.push(p) } });
+  const app = mount(FileTree, {
+    target,
+    props: { transport: core, project: "p1", openPath, onopen: (p) => opened.push(p), onkeep: (p) => kept.push(p) },
+  });
   cleanup = () => unmount(app);
   const tree = () => target.querySelector<HTMLElement>("[role=tree]") as HTMLElement;
   const rows = () => [...target.querySelectorAll<HTMLElement>("[role=treeitem]")];
@@ -42,7 +46,7 @@ function mountTree(core: FakeCore) {
     tree().dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true }));
     flushSync();
   };
-  return { opened, tree, rows, row, key };
+  return { opened, kept, tree, rows, row, key };
 }
 
 describe("FileTree", () => {
@@ -201,6 +205,18 @@ describe("FileTree", () => {
     expect(t.row("blueberry.ts").getAttribute("aria-selected")).toBe("true");
     t.key("PageDown");
     expect(t.row("cherry.ts").getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("keeps the open file's preview tab on Enter", async () => {
+    const t = mountTree(new FakeCore(dirsFromPaths(["a.ts", "b.ts"])), "a.ts");
+    await settle();
+    t.key("ArrowDown");
+    t.key("ArrowDown");
+    t.key("Enter");
+    expect([t.opened, t.kept]).toEqual([["b.ts"], []]);
+    t.key("ArrowUp");
+    t.key("Enter");
+    expect(t.kept).toEqual(["a.ts"]);
   });
 
   it("collapses all, filters to changed files and reveals the open file from the toolbar", async () => {

@@ -145,6 +145,7 @@ function menu(at: MouseEvent | KeyboardEvent, path: string): void {
     }),
     project && { label: revealLabel(), run: () => revealInOs(project.id, path) },
     "separator",
+    current.preview === path && { label: "Keep tab", run: () => current.makePermanent(path) },
     { label: current.isPinned(path) ? "Unpin tab" : "Pin tab", run: () => togglePin(path) },
     "separator",
     { label: "Close", keys: path === current.active ? "Mod+W" : undefined, run: () => close(path) },

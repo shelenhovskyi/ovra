@@ -159,6 +159,16 @@ export function registerEditorCommands(workspace: Target): () => void {
       title: "Close all tabs",
       run: () => closeOtherTabs(workspace, null),
     }),
+    // No default shortcut: Enter on the previewed file in the tree also keeps it.
+    registerCommand({
+      id: "editor.keep_tab",
+      title: "Keep tab",
+      keywords: ["preview"],
+      run: () => {
+        const active = tabs.current?.active;
+        if (active) tabs.current?.makePermanent(active);
+      },
+    }),
     registerCommand({
       id: "editor.toggle_pin",
       title: "Pin or unpin tab",

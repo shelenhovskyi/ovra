@@ -462,6 +462,8 @@ function onkeydown(e: KeyboardEvent): void {
       else if (row) select(rows.findIndex((r) => r.path === parentOf(row.path)));
       break;
     case "Enter":
+      // Enter on the file already shown keeps its preview tab, as a double click does.
+      if (row && row.kind !== "dir" && row.path === openPath) onkeep?.(row.path);
       if (row) activate(row);
       break;
     default:

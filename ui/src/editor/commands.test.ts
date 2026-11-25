@@ -47,6 +47,17 @@ test("editor.toggle switches a text file between viewing and editing", async () 
   expect(listCommands().some((c) => c.id.startsWith("editor."))).toBe(false);
 });
 
+test("editor.keep_tab keeps the preview tab, so the next file opens beside it", async () => {
+  const { files, unregister } = setup();
+  void files.opened("a");
+  expect(files.preview).toBe("a");
+  await run("editor.keep_tab");
+  expect(files.preview).toBeNull();
+  void files.opened("b");
+  expect(files.files).toEqual(["a", "b"]);
+  unregister();
+});
+
 test("editor.toggle on a binary file stays in view mode and says why", async () => {
   const { core, workspace, unregister } = setup();
   core.files.set("logo.png", { body: { kind: "binary", mime: "image/png", base64: "" }, mtime: 1 });
