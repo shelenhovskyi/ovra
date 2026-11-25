@@ -244,15 +244,16 @@ function onDialogKeydown(event: KeyboardEvent): void {
       <header>
         <h2 id="network-title" tabindex="-1">Network and secrets</h2>
         <span class="muted">{workspace.project?.name ?? "No project"}</span>
-        <button type="button" class="close" aria-keyshortcuts="Escape" onclick={close}>Close</button>
+        <button type="button" class="close" aria-keyshortcuts="Escape" title="Close (Escape)" onclick={close}
+          ><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg><span class="sr-only"
+            >Close</span
+          ></button
+        >
       </header>
       {#if !workspace.project}
         <p class="muted note">Open a project to see what its agents may reach.</p>
       {:else}
-        <p class="muted note">
-          Which websites and services agents in the sandbox may reach, and tokens they can use there without seeing
-          them.
-        </p>
+        <p class="muted note">What sandboxed agents may reach, and tokens they use without seeing them.</p>
         {#if access.error}
           <p class="error" role="alert">Could not read the project's network settings: {access.error}</p>
         {/if}
@@ -272,10 +273,7 @@ function onDialogKeydown(event: KeyboardEvent): void {
         <div class="body">
           <section aria-labelledby="hosts-title">
             <h3 id="hosts-title">Allowed hosts</h3>
-            <p class="muted">
-              Sandboxed agents reach only these hosts, through Ovra's proxy. Everything else is refused and shows in the
-              audit log.
-            </p>
+            <p class="muted">Only these, through Ovra's proxy. Everything else is refused and logged.</p>
             {#if gaps.length > 0}
               <p class="muted" data-testid="sandbox-gaps">The sandbox also does not cover: {gaps.join(", ")}.</p>
             {/if}
@@ -290,7 +288,7 @@ function onDialogKeydown(event: KeyboardEvent): void {
                     <code>{hostLabel(entry)}</code>
                     {#if broad.has(entry.host)}
                       <span class="warn" data-testid="broad-host">
-                        Anyone can receive data here, so an agent could send your files out through it.
+                        Anyone can receive data here: an agent could send your files out.
                       </span>
                     {/if}
                     <button
@@ -315,7 +313,7 @@ function onDialogKeydown(event: KeyboardEvent): void {
                   data-testid="add-host"
                 />
               </label>
-              <button type="submit">Allow</button>
+              <button type="submit" class="primary">Allow</button>
               </fieldset>
             </form>
             {#if hostError}
@@ -336,15 +334,13 @@ function onDialogKeydown(event: KeyboardEvent): void {
           <section aria-labelledby="secrets-title">
             <h3 id="secrets-title">Secrets</h3>
             <p class="muted">
-              Ovra's proxy adds a token to requests for one host, so agents use it without ever seeing it. Only agents in
-              the sandbox get secrets. An agent can still do anything the token allows on that host, so give it the
-              narrowest scope you can.
+              The proxy adds a token for one host; only sandboxed agents get it, and never see it. They can still do
+              anything it allows there: keep its scope narrow.
             </p>
             {#if access.store?.state === "unavailable"}
               <div class="warn" role="note" data-testid="store-unavailable">
                 <p>
-                  Secrets can't be saved: the system keychain is not running or cannot be reached. Start it, then check
-                  again. Ovra never keeps secrets in a file.
+                  Secrets can't be saved: the system keychain is not reachable. Ovra never keeps secrets in a file.
                 </p>
                 <button type="button" data-testid="store-retry" onclick={() => void access.reload()}>
                   {access.loading ? "Checking…" : "Check again"}
@@ -398,7 +394,7 @@ function onDialogKeydown(event: KeyboardEvent): void {
                     data-testid="secret-value"
                   /></label
                 >
-                <button type="submit" aria-describedby={storeReady ? undefined : "secret-off"}>Save secret</button>
+                <button type="submit" class="primary" aria-describedby={storeReady ? undefined : "secret-off"}>Save secret</button>
                 {#if !storeReady}
                   <span class="muted off" id="secret-off" data-testid="secret-off">
                     {access.store ? "Saving needs the system keychain." : "Checking the keychain…"}
@@ -407,7 +403,7 @@ function onDialogKeydown(event: KeyboardEvent): void {
               </fieldset>
             </form>
             <p class="muted" id="secret-value-note">
-              The value goes to the keychain and is never shown again. Saving under an existing name replaces it.
+              Kept in the keychain, never shown again. The same name replaces it.
             </p>
             {#if secretError}
               <p class="error" role="alert">{secretError}</p>
@@ -420,113 +416,172 @@ function onDialogKeydown(event: KeyboardEvent): void {
 {/if}
 
 <style>
-  button,
-  input {
-    font: inherit;
-    padding: 2px 10px;
-    color: #e6e6e6;
-    background: #2a2a33;
-    border: 1px solid #4a4a57;
-    border-radius: 3px;
-  }
-  button {
-    cursor: pointer;
-  }
-  button:disabled,
-  input:disabled {
-    cursor: not-allowed;
-    opacity: 0.55;
-  }
-  button:focus-visible,
-  input:focus-visible,
-  summary:focus-visible,
-  h2:focus-visible {
-    outline: 2px solid #7aa2ff;
-    outline-offset: 1px;
-  }
+  /* The More menu's dialogs share this frame: a raised card over the scrim. */
   .backdrop {
     position: fixed;
     inset: 0;
     z-index: 90;
     display: flex;
     justify-content: center;
-    padding: 24px;
-    background: rgb(0 0 0 / 55%);
+    align-items: flex-start;
+    padding: 48px 24px 24px;
+    background: var(--scrim);
   }
   .network {
     flex: 1;
     max-width: 760px;
+    max-height: 100%;
     display: flex;
     flex-direction: column;
     min-width: 0;
     min-height: 0;
-    background: #16161a;
-    border: 1px solid #3a3a44;
-    border-radius: 6px;
+    background: var(--s2);
+    border-radius: 14px;
+    box-shadow: var(--card-shadow);
   }
   header {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 8px 12px;
-    border-bottom: 1px solid #2a2a31;
-  }
-  .close {
-    margin-left: auto;
+    gap: 10px;
+    padding: 16px 14px 4px 22px;
   }
   h2 {
     margin: 0;
-    font-size: 14px;
+    font-size: 17px;
+    font-weight: 600;
   }
-  h3 {
-    margin: 0 0 4px;
-    font-size: 13px;
+  .close {
+    margin-left: auto;
+    padding: 4px;
+    color: var(--text-2);
+    background: transparent;
+  }
+  .close svg {
+    display: block;
+    width: 18px;
+    height: 18px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+  }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
   .body {
     flex: 1;
     overflow: auto;
-    padding: 0 12px 12px;
+    padding: 4px 22px 22px;
   }
-  section {
-    padding: 10px 0;
-    border-bottom: 1px solid #24242b;
-  }
-  .muted {
-    color: #b4b4c0;
-    font-size: 12px;
+  .muted,
+  label {
+    color: var(--text-2);
+    font-size: 13px;
   }
   .note {
-    margin: 8px 12px;
+    margin: 4px 22px 8px;
+  }
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+    padding: 5px 10px;
+    color: var(--text);
+    background: var(--s3);
+    border: 0;
+    border-radius: var(--radius);
+  }
+  button {
+    font-weight: 500;
+    cursor: pointer;
+  }
+  button:hover {
+    color: var(--text);
+    background: var(--s4);
+  }
+  button.primary {
+    color: var(--accent-ink);
+    background: var(--accent);
+  }
+  button:disabled,
+  input:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+  summary {
+    cursor: pointer;
   }
   .error {
-    color: #ff8f8f;
+    color: var(--danger);
     margin: 6px 0;
   }
+  @media (forced-colors: active) {
+    .network {
+      border: 1px solid CanvasText;
+    }
+    button,
+    input,
+    select,
+    textarea {
+      border: 1px solid ButtonText;
+    }
+  }
+  h3 {
+    margin: 0 0 4px;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  section {
+    padding: 12px 0;
+  }
+  section + section {
+    border-top: 0;
+    margin-top: 8px;
+  }
   .warn {
-    color: #ffd36b;
-    font-size: 12px;
+    color: var(--warn);
+    font-size: 13px;
+  }
+  p.warn,
+  div.warn {
+    padding: 8px 12px;
+    border-radius: var(--radius);
+    background: var(--warn-soft);
   }
   ul {
     list-style: none;
-    margin: 6px 0;
+    display: grid;
+    gap: 4px;
+    margin: 8px 0;
     padding: 0;
   }
   li {
     display: flex;
     flex-wrap: wrap;
-    align-items: baseline;
+    align-items: center;
     gap: 8px;
-    padding: 4px 0;
+    padding: 6px 10px;
+    border-radius: var(--radius);
+    background: var(--s1);
   }
   li > button:last-child {
     margin-left: auto;
+    padding: 2px 8px;
+    color: var(--text-2);
+    background: transparent;
   }
   form {
     display: flex;
     flex-wrap: wrap;
     align-items: end;
     gap: 8px;
-    margin: 6px 0;
+    margin: 8px 0;
   }
   fieldset {
     display: contents;
@@ -534,9 +589,7 @@ function onDialogKeydown(event: KeyboardEvent): void {
   label {
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    font-size: 12px;
-    color: #c8c8d2;
+    gap: 4px;
   }
   .token {
     -webkit-text-security: disc;
@@ -547,7 +600,7 @@ function onDialogKeydown(event: KeyboardEvent): void {
   div.warn code {
     display: block;
     margin-top: 4px;
-    color: #c8c8d2;
+    color: var(--text-2);
     overflow-wrap: anywhere;
   }
   .off {
@@ -555,7 +608,7 @@ function onDialogKeydown(event: KeyboardEvent): void {
   }
   details {
     margin-top: 6px;
-    font-size: 12px;
-    color: #b4b4c0;
+    font-size: 13px;
+    color: var(--text-2);
   }
 </style>

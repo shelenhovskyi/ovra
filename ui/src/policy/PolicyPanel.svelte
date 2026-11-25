@@ -290,15 +290,18 @@ function onDialogKeydown(event: KeyboardEvent): void {
       <header>
         <h2 id="policy-title" tabindex="-1">Project policies</h2>
         <span class="muted">{workspace.project?.name ?? "No project"}</span>
-        <button type="button" class="close" aria-keyshortcuts="Escape" onclick={close}>Close</button>
+        <button type="button" class="close" aria-keyshortcuts="Escape" title="Close (Escape)" onclick={close}
+          ><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg><span class="sr-only"
+            >Close</span
+          ></button
+        >
       </header>
       {#if !workspace.project}
         <p class="muted note">Open a project to see its policies.</p>
       {:else}
         <div class="body">
           <p class="muted intro" data-testid="policy-intro">
-            Rules decide what agents in this project may do without you: Deny refuses a tool, Ask asks you first, Auto
-            allows it without asking. Anything no rule covers is asked about.
+            What agents may do without you: Deny refuses, Ask asks you first, Auto allows. Anything else is asked.
           </p>
           <details class="muted">
             <summary>How rules combine</summary>
@@ -398,7 +401,7 @@ function onDialogKeydown(event: KeyboardEvent): void {
                   <option value="auto">Auto</option>
                 </select>
               </label>
-              <button type="submit">{editing ? "Save rule" : "Add rule"}</button>
+              <button type="submit" class="primary">{editing ? "Save rule" : "Add rule"}</button>
               {#if editing}
                 <button type="button" onclick={cancel}>Cancel</button>
               {/if}
@@ -420,120 +423,157 @@ function onDialogKeydown(event: KeyboardEvent): void {
 {/if}
 
 <style>
-  button,
-  input,
-  select {
-    font: inherit;
-    padding: 2px 10px;
-    color: #e6e6e6;
-    background: #2a2a33;
-    border: 1px solid #4a4a57;
-    border-radius: 3px;
-  }
-  button {
-    cursor: pointer;
-  }
-  input::placeholder {
-    color: #9a9aa8;
-    font-style: italic;
-  }
-  input:disabled {
-    cursor: not-allowed;
-    opacity: 0.55;
-  }
-  details p {
-    margin: 4px 0 0;
-  }
-  button:focus-visible,
-  input:focus-visible,
-  select:focus-visible,
-  summary:focus-visible,
-  h2:focus-visible {
-    outline: 2px solid #7aa2ff;
-    outline-offset: 1px;
-  }
+  /* The More menu's dialogs share this frame: a raised card over the scrim. */
   .backdrop {
     position: fixed;
     inset: 0;
     z-index: 90;
     display: flex;
     justify-content: center;
-    padding: 24px;
-    background: rgb(0 0 0 / 55%);
+    align-items: flex-start;
+    padding: 48px 24px 24px;
+    background: var(--scrim);
   }
   .policy {
     flex: 1;
     max-width: 760px;
+    max-height: 100%;
     display: flex;
     flex-direction: column;
     min-width: 0;
     min-height: 0;
-    background: #16161a;
-    border: 1px solid #3a3a44;
-    border-radius: 6px;
+    background: var(--s2);
+    border-radius: 14px;
+    box-shadow: var(--card-shadow);
   }
   header {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 8px 12px;
-    border-bottom: 1px solid #2a2a31;
-  }
-  .close {
-    margin-left: auto;
+    gap: 10px;
+    padding: 16px 14px 4px 22px;
   }
   h2 {
     margin: 0;
-    font-size: 14px;
+    font-size: 17px;
+    font-weight: 600;
+  }
+  .close {
+    margin-left: auto;
+    padding: 4px;
+    color: var(--text-2);
+    background: transparent;
+  }
+  .close svg {
+    display: block;
+    width: 18px;
+    height: 18px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+  }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
   .body {
     flex: 1;
     overflow: auto;
-    padding: 8px 12px 12px;
+    padding: 4px 22px 22px;
   }
   .intro {
     margin: 0 0 8px;
   }
-  .muted {
-    color: #b4b4c0;
-    font-size: 12px;
+  .muted,
+  label {
+    color: var(--text-2);
+    font-size: 13px;
   }
   .note {
-    margin: 8px 12px;
+    margin: 4px 22px 22px;
+  }
+  button,
+  input,
+  select {
+    font: inherit;
+    padding: 5px 10px;
+    color: var(--text);
+    background: var(--s3);
+    border: 0;
+    border-radius: var(--radius);
+  }
+  button {
+    font-weight: 500;
+    cursor: pointer;
+  }
+  button:hover {
+    color: var(--text);
+    background: var(--s4);
+  }
+  button.primary {
+    color: var(--accent-ink);
+    background: var(--accent);
+  }
+  input:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+  summary {
+    cursor: pointer;
+  }
+  details p {
+    margin: 4px 0 0;
   }
   .error {
-    color: #ff8f8f;
+    color: var(--danger);
     margin: 6px 0;
   }
   .warning {
-    color: #ffd36b;
-    font-size: 12px;
+    color: var(--warn);
+    font-size: 13px;
     margin: 6px 0;
   }
   ol {
     list-style: none;
-    margin: 6px 0;
+    display: grid;
+    gap: 4px;
+    margin: 12px 0;
     padding: 0;
   }
   ol > li {
-    padding: 6px 8px;
-    border-left: 3px solid #3a3a44;
-    border-bottom: 1px solid #24242b;
-  }
-  ol > li.deny {
-    border-left-color: #ff8f8f;
-  }
-  ol > li.auto {
-    border-left-color: #ffd36b;
+    padding: 8px 10px;
+    border-radius: var(--radius);
+    background: var(--s1);
   }
   .line {
     display: flex;
     flex-wrap: wrap;
-    align-items: baseline;
+    align-items: center;
     gap: 8px;
   }
   .action {
-    color: #c8c8d2;
+    padding: 1px 8px;
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-2);
+    background: var(--s3);
+  }
+  .deny .action {
+    color: var(--danger);
+  }
+  .auto .action {
+    color: var(--warn);
+    background: var(--warn-soft);
+  }
+  .line button {
+    padding: 2px 8px;
+    color: var(--text-2);
+    background: transparent;
   }
   .line button:first-of-type {
     margin-left: auto;
@@ -541,15 +581,15 @@ function onDialogKeydown(event: KeyboardEvent): void {
   .notes {
     margin: 4px 0 0;
     padding-left: 16px;
-    color: #ffd36b;
-    font-size: 12px;
+    color: var(--warn);
+    font-size: 13px;
   }
   form {
     display: flex;
     flex-wrap: wrap;
     align-items: end;
     gap: 8px;
-    margin: 10px 0 4px;
+    margin: 12px 0 4px;
   }
   fieldset {
     display: contents;
@@ -557,8 +597,16 @@ function onDialogKeydown(event: KeyboardEvent): void {
   label {
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    font-size: 12px;
-    color: #c8c8d2;
+    gap: 4px;
+  }
+  @media (forced-colors: active) {
+    .policy {
+      border: 1px solid CanvasText;
+    }
+    button,
+    input,
+    select {
+      border: 1px solid ButtonText;
+    }
   }
 </style>
