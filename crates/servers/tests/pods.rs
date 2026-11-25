@@ -346,7 +346,7 @@ async fn a_server_cannot_make_remove_or_rename_entries_in_its_pod_folder() {
         try 'rename its socket' \"mv $pod/{port}.sock $pod/y\"
         try 'remove its socket' \"rm $pod/{port}.sock\"
         try 'write its work dir' ': > made'
-        try 'make a temp file' ': > \"$TMPDIR/t$$\" && rm \"$TMPDIR/t$$\"'
+        try 'make a temp file' ': > \"${{TMPDIR:-/tmp}}/t$$\" && rm \"${{TMPDIR:-/tmp}}/t$$\"'
         try 'make a file in /tmp' ': > /tmp/ovra-pods-$$ && rm /tmp/ovra-pods-$$'",
         data = s.data.path().display(),
     );
