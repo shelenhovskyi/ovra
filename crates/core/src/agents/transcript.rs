@@ -64,7 +64,8 @@ fn clip(mut message: AgentMessage) -> AgentMessage {
         | AgentMessage::AssistantText { text, .. }
         | AgentMessage::Error { message: text } => clip_text(text),
         AgentMessage::ToolResult { output, .. } => clip_text(output),
-        AgentMessage::ToolUse { .. } | AgentMessage::TurnEnd { .. } => {}
+        AgentMessage::ToolUse { .. } | AgentMessage::TurnEnd { .. } | AgentMessage::Interrupted => {
+        }
     }
     message
 }

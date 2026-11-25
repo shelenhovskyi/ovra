@@ -164,6 +164,9 @@ pub enum AgentMessage {
     TurnEnd {
         usage: TurnUsage,
     },
+    /// The person stopped the turn before it finished (an interrupt); no
+    /// failure. The turn's end follows.
+    Interrupted,
     Error {
         message: String,
     },

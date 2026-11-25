@@ -75,6 +75,8 @@ export type AgentMessage =
   | { kind: "tool_use"; id: string; name: string; input: unknown; parent?: string }
   | { kind: "tool_result"; tool_use_id: string; output: string; is_error: boolean; parent?: string }
   | { kind: "turn_end"; usage: TurnUsage }
+  /** The person stopped the turn before it finished; no failure. */
+  | { kind: "interrupted" }
   | { kind: "error"; message: string };
 
 /** Whether an agent can run on this machine. */
