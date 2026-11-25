@@ -158,6 +158,25 @@ it("says when the project is not a repository and sets up git in one press", asy
   expect(text("[data-testid=git-staged] .empty")).toBe("Nothing staged.");
 });
 
+it("opens on the first change while nothing is staged, else on the commit message", async () => {
+  const core = new FakeGitCore();
+  core.status = repo({ files: [changed("a.ts"), changed("b.ts")] });
+  await setup(core);
+  const show = () =>
+    listCommands()
+      .find((c) => c.id === "git.show")
+      ?.run();
+  await show();
+  await settle();
+  expect(focusedRow()).toBe("a.ts");
+  core.status = repo({ files: [changed("a.ts", { staged: "modified", unstaged: null }), changed("b.ts")] });
+  core.emit({ type: "fs.git_changed", data: { project: "p1" } });
+  await settle();
+  await show();
+  await settle();
+  expect(document.activeElement?.tagName).toBe("TEXTAREA");
+});
+
 it("discards only after a confirmation and offers Undo until the next discard", async () => {
   const core = new FakeGitCore();
   core.status = repo({ files: [changed("new.md", { unstaged: "untracked" }), changed("b.ts")] });

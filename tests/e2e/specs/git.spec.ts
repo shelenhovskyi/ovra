@@ -62,9 +62,10 @@ test("stage a file and one hunk, commit, and switch to a new branch", async ({ p
 
   await page.keyboard.press("Alt+Shift+G");
   const panel = page.getByTestId("git");
-  await expect(panel.getByRole("textbox", { name: "Commit message" })).toBeFocused();
-  await expect(panel.getByTestId("git-branch")).toHaveAccessibleName("Branch: main");
   const changes = panel.getByTestId("git-changes");
+  // Nothing is staged yet: focus is on the first change, where S stages it.
+  await expect(changes.locator('[data-row][tabindex="0"]')).toBeFocused();
+  await expect(panel.getByTestId("git-branch")).toHaveAccessibleName("Branch: main");
   await expect(changes.getByRole("button", { name: "Stage new.txt" })).toBeVisible();
   // A row's hover slot also shows while the row has focus, for keyboard users.
   const row = changes.locator('[data-row][data-path="notes.txt"]');

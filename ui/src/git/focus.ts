@@ -53,6 +53,13 @@ export function focusList(kind: "staged" | "changes"): void {
   )?.focus();
 }
 
+/** Focuses the Tab stop of the first list with rows (conflicts, staged, changes); false when there is none. */
+export function focusFirstRow(): boolean {
+  const row = panel()?.querySelector<HTMLElement>('[data-row][tabindex="0"]');
+  row?.focus();
+  return !!row;
+}
+
 /** Focuses the commit message, the next step once changes are staged. */
 export function focusMessage(): void {
   panel()?.querySelector<HTMLElement>("textarea")?.focus();

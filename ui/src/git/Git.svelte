@@ -4,7 +4,7 @@
 import { tick } from "svelte";
 import { registerCommand } from "../keys/commands";
 import { useOvra } from "../shell/context";
-import { focusDiffRow, focusMessage } from "./focus";
+import { focusDiffRow, focusFirstRow, focusMessage } from "./focus";
 import GitPanel from "./GitPanel.svelte";
 import { fileLists, type GitModel, gitModel } from "./model.svelte";
 
@@ -38,10 +38,14 @@ $effect(() => {
           document.getElementById("project-root")?.focus();
           return;
         }
-        await showPanel();
+        const model = await showPanel();
         // Back from a diff: its row, to go on with the next file.
         const diff = workspace.gitDiff;
-        if (!diff || diff.project !== workspace.project?.id || !focusDiffRow(diff)) focusPanel();
+        if (diff && diff.project === workspace.project?.id && focusDiffRow(diff)) return;
+        // Nothing staged: the first changed file, where S stages it; the message comes after.
+        const status = model?.state.kind === "ready" ? model.state.status : null;
+        if (status && fileLists(status.files).staged.length === 0 && focusFirstRow()) return;
+        focusPanel();
       },
     }),
     registerCommand({
