@@ -21,8 +21,8 @@ export function inBrowserTab(): boolean {
 }
 
 /**
- * Shortcuts a browser keeps for itself (close tab, switch tabs, print), with
- * the stand-ins used in headless mode. The desktop window gets the originals.
+ * Shortcuts a browser keeps for itself (close tab, switch tabs, print, new
+ * window), with the stand-ins used in headless mode. The desktop window gets the originals.
  */
 const BROWSER_SAFE: Record<string, string> = {
   "Mod+W": "Alt+W",
@@ -32,6 +32,7 @@ const BROWSER_SAFE: Record<string, string> = {
   "Mod+Shift+A": "Alt+Shift+A",
   "Mod+Shift+R": "Alt+Shift+R",
   "Ctrl+Shift+G": "Alt+Shift+G",
+  "Mod+N": "Alt+N",
 };
 
 /** The shortcut that is live where the UI runs: `keys` itself, or its browser-safe stand-in. */

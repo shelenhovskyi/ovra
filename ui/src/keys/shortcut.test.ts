@@ -61,6 +61,7 @@ describe("shortcuts", () => {
     expect(liveKeys("Mod+P", true)).toBe("Alt+P");
     expect(liveKeys("Mod+Shift+R", true)).toBe("Alt+Shift+R");
     expect(liveKeys("Ctrl+Shift+G", true)).toBe("Alt+Shift+G");
+    expect(liveKeys("Mod+N", true)).toBe("Alt+N");
     expect(liveKeys("Mod+S", true)).toBe("Mod+S");
     expect(liveKeys("Mod+W", false)).toBe("Mod+W");
   });
