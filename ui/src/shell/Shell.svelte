@@ -10,6 +10,7 @@ import Inbox from "../inbox/Inbox.svelte";
 import Keybindings from "../keys/Keybindings.svelte";
 import type { CoreInfo } from "../lib/protocol";
 import type { ConnectionStatus, Transport } from "../lib/transport";
+import NetworkPanel from "../network/NetworkPanel.svelte";
 import Notifications from "../notify/Notifications.svelte";
 import Palette from "../palette/Palette.svelte";
 import Search from "../search/Search.svelte";
@@ -90,6 +91,7 @@ const status = $derived.by((): { text: string; ok: boolean } => {
     <span class="project">{workspace.project?.name ?? "No project"}</span>
     <Inbox />
     <AuditLog />
+    <NetworkPanel />
   </header>
   <aside data-testid="sidebar">
     {#if workspace.project}
