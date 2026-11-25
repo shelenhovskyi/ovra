@@ -152,6 +152,32 @@ WebDAV (`\\host@SSL\x`, the WebClient service) and BITS transfers.
 Closing these needs WFP filters for the sandbox user (and stopping
 WebClient and BITS for it), a follow-up.
 
+**WFP follow-up (draft).** What Windows Filtering Platform filters can
+close, and what they cannot:
+
+- *Loopback, closable.* The firewall exempts loopback, WFP does not.
+  Setup adds persistent filters in Ovra's own sublayer at
+  `ALE_AUTH_CONNECT_V4/V6`: for `FWPM_CONDITION_ALE_USER_ID` matching the
+  sandbox user and a loopback remote address, block, except remote ports
+  in one range that setup reserves (`netsh int ipv4 add
+  excludedportrange`, so no ephemeral socket lands there). The Windows
+  netproxy binds its sessions' ports in that range. Filters are persistent
+  because adding one needs an administrator, and sessions start without
+  one; removal deletes the sublayer. Another program of the person's can
+  still listen in the range on purpose; that is the remaining gap.
+- *DNS, not closable this way.* Lookups go to the DNS Client service over
+  local RPC, and the service sends them as itself, so no filter sees the
+  sandbox user. The netproxy resolves names itself, so agents need no DNS;
+  what is left is a slow channel out. It stays a listed gap.
+- *SMB, WebDAV, BITS, not closable this way.* The kernel's redirector
+  and the WebClient and BITS services connect as the system, not as the
+  sandbox user. Stopping WebClient and BITS would change the whole
+  machine. They stay listed gaps.
+
+A Windows CI spike checks the loopback filters first (a listener as the
+person on a port outside the range and one inside it, the probe as the
+sandbox user connecting to each) before the netproxy changes.
+
 **What is not isolated.** The token's restricting SIDs are checked only
 for what Windows counts as writing, which leaves out reading. So a session
 reads every project, cache and temp folder ever granted to the sandbox
