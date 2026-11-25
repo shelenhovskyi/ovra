@@ -748,7 +748,11 @@ impl AgentHost {
                 None => PermissionAnswer::deny("Ovra is shutting down"),
             };
         }
-        match self.policy(&tool, &input) {
+        let decided = self.policy(&tool, &input);
+        // A call some rule asks about, or under an unreadable policy, gets
+        // no "Always allow".
+        let open = matches!(decided, Ok(None));
+        match decided {
             Ok(Some((PolicyAction::Deny, rule))) => {
                 // The hook may have seen the call first (a policy changed
                 // between the two).
@@ -780,16 +784,22 @@ impl AgentHost {
             if s.status().is_ended() {
                 return Err(PermissionAnswer::deny("the session ended"));
             }
+            let cwd = s.launch().map(|l| l.cwd);
+            let sandbox = s.info().sandbox;
+            let always = cwd
+                .as_deref()
+                .filter(|_| open)
+                .and_then(|cwd| crate::policy::always_rule(&tool, &input, cwd, sandbox.as_ref()));
             Ok(s.permissions.register(PermissionRequest {
                 id: PermissionId(String::new()),
                 session: self.session.clone(),
                 project: s.info().project,
-                cwd: s.launch().map(|l| l.cwd.to_string_lossy().into_owned()),
+                cwd: cwd.map(|c| c.to_string_lossy().into_owned()),
                 tool,
                 input,
                 title,
                 reason,
-                always: None,
+                always,
             }))
         });
         let (request, answer) = match registered {

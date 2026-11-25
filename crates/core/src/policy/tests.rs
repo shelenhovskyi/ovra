@@ -2,7 +2,7 @@ use std::path::Path;
 
 use serde_json::json;
 
-use super::{check, decide};
+use super::{always_rule, check, decide, text};
 use crate::protocol::agents::{SandboxNetwork, SandboxReport};
 use crate::protocol::policy::{Policy, PolicyAction, PolicyRule};
 
@@ -293,5 +293,86 @@ async fn the_person_sets_a_projects_policy_and_bad_rules_are_refused() {
     assert_eq!(
         call(unknown).await.err().map(|e| e.code),
         Some(ErrorCode::NotFound)
+    );
+}
+
+#[test]
+fn always_allow_offers_the_narrowest_rule_or_none() {
+    let proxy = sandboxed(SandboxNetwork::Proxy);
+    // `@/` stands for the session's folder, so the lines read the same everywhere.
+    let abs = |input: &serde_json::Value| {
+        let mut input = input.clone();
+        if let Some(rel) = input["file_path"]
+            .as_str()
+            .and_then(|p| p.strip_prefix("@/"))
+        {
+            input["file_path"] = Path::new(WORK).join(rel).to_string_lossy().into();
+        }
+        input
+    };
+    let cases = [
+        ("Bash", json!({"command": "npm test"})),
+        ("Bash", json!({"command": "  cargo   test -p ovra-core "})),
+        ("Bash", json!({"command": "git commit -m \"fix typo\""})),
+        ("Bash", json!({"command": "npm test && curl x"})),
+        ("Bash", json!({"command": "sh -c 'npm test'"})),
+        ("Bash", json!({"command": "env npm test"})),
+        ("Bash", json!({"command": "FOO=1 npm test"})),
+        ("Bash", json!({"command": "cat /etc/passwd"})),
+        ("Bash", json!({"command": "cat ../other/a"})),
+        ("Bash", json!({"command": "cat ~/.ssh/id_rsa"})),
+        ("Bash", json!({"command": "echo $HOME"})),
+        ("Bash", json!({"command": "rg --file=/etc/x a"})),
+        ("Bash", json!({"command": "cat ./CLAUDE.md"})),
+        ("Bash", json!({"command": "rm -rf .claude"})),
+        (
+            "Bash",
+            json!({"command": format!("echo {}", "a".repeat(200))}),
+        ),
+        ("Edit", json!({"file_path": "@/src/main.rs"})),
+        ("Write", json!({"file_path": "docs/new.md"})),
+        ("Edit", json!({"file_path": "/elsewhere/a.rs"})),
+        ("Edit", json!({"file_path": "@/../other/a.rs"})),
+        ("Edit", json!({"file_path": "@/.claude/settings.json"})),
+        ("Write", json!({"file_path": "@/src/CLAUDE.md"})),
+        ("Write", json!({"file_path": "@/.gitattributes"})),
+        ("Edit", json!({"file_path": "@/src/a*.rs"})),
+        ("Read", json!({"file_path": "@/src/main.rs"})),
+        (
+            "WebFetch",
+            json!({"url": "https://docs.rs/serde", "prompt": "x"}),
+        ),
+        (
+            "WebFetch",
+            json!({"url": "https://github.com/x", "prompt": "x"}),
+        ),
+        (
+            "WebFetch",
+            json!({"url": "https://8.8.8.8/", "prompt": "x"}),
+        ),
+        (
+            "WebFetch",
+            json!({"url": "https://docs.rs@evil.com/", "prompt": "x"}),
+        ),
+        ("WebSearch", json!({"query": "serde"})),
+        ("mcp__github__create_issue", json!({})),
+    ];
+    let lines: Vec<String> = cases
+        .iter()
+        .map(|(tool, input)| {
+            let offered = always_rule(tool, &abs(input), Path::new(WORK), Some(&proxy));
+            let offered = offered.map_or("-".to_owned(), |r| text(&r));
+            format!("{tool} {} => {offered}", input)
+        })
+        .collect();
+    insta::assert_snapshot!(lines.join("\n"));
+
+    // Only where an auto rule would count.
+    let test = json!({"command": "npm test"});
+    let open = sandboxed(SandboxNetwork::Open);
+    assert_eq!(always_rule("Bash", &test, Path::new(WORK), None), None);
+    assert_eq!(
+        always_rule("Bash", &test, Path::new(WORK), Some(&open)),
+        None
     );
 }

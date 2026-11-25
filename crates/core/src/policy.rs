@@ -28,6 +28,37 @@ const FILE_TOOLS: [(&str, &str); 5] = [
 /// never matches an `auto` rule.
 const SHELL_JOINS: [&str; 8] = [";", "&", "|", "`", "$(", ">", "<", "\n"];
 
+/// Commands that run whatever their arguments name: a rule for one of
+/// them would allow any command, so "Always allow" never offers one.
+const RUNNERS: [&str; 22] = [
+    "env",
+    "sudo",
+    "doas",
+    "su",
+    "xargs",
+    "eval",
+    "exec",
+    "command",
+    "nohup",
+    "time",
+    "timeout",
+    "nice",
+    "watch",
+    "bash",
+    "sh",
+    "zsh",
+    "dash",
+    "ksh",
+    "fish",
+    "pwsh",
+    "powershell",
+    "cmd",
+];
+
+/// The longest command "Always allow" offers a rule for; longer ones are
+/// rarely repeated and hard to read on a card.
+const MAX_ALWAYS_COMMAND: usize = 200;
+
 /// Held while a `policy.set` compares and stores. One lock for every
 /// project and core: changes are rare and quick.
 static SETTING: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -116,6 +147,73 @@ fn check(rule: &PolicyRule) -> Result<(), ProtocolError> {
         );
     }
     Ok(())
+}
+
+/// The rule "Always allow" offers for a call no project rule decided: the
+/// narrowest `auto` rule that matches it, or `None`. Only for a session
+/// whose sandbox limits the network (elsewhere `auto` never counts), and
+/// never for a path outside `work_dir`, a protected path, a command that
+/// runs other commands, or a host where anyone can receive data.
+pub(crate) fn always_rule(
+    tool: &str,
+    input: &Value,
+    work_dir: &Path,
+    sandbox: Option<&SandboxReport>,
+) -> Option<PolicyRule> {
+    if !sandbox.is_some_and(|s| s.network != SandboxNetwork::Open) {
+        return None;
+    }
+    let text = |field: &str| input.get(field).and_then(Value::as_str);
+    let pattern = match tool {
+        "Bash" => command_scope(text("command")?)?,
+        // The exact file: a glob could cover a protected path.
+        "Edit" | "Write" => {
+            let path = inside(work_dir, Path::new(text("file_path")?))?;
+            let special = path.contains(['*', '?', '[', ':']);
+            (!special && !crate::protected::changes(&path, None)).then_some(path)?
+        }
+        "WebFetch" => {
+            let host = url_host(text("url")?)?;
+            let named = host.parse::<std::net::IpAddr>().is_err() && host.contains('.');
+            (named && !crate::netproxy::is_broad(&host)).then_some(host)?
+        }
+        _ => return None,
+    };
+    let rule = PolicyRule {
+        tool: tool.to_owned(),
+        pattern: Some(pattern),
+        action: PolicyAction::Auto,
+        from_approval: true,
+    };
+    let fits = check(&rule).is_ok() && matches(&rule, input, work_dir, PolicyAction::Auto);
+    fits.then_some(rule)
+}
+
+/// The command itself, in single spaces, when a rule for it stays narrow:
+/// no runner, variable or path outside the folder, no protected path.
+fn command_scope(command: &str) -> Option<String> {
+    let words: Vec<&str> = command.split_whitespace().collect();
+    let first = words.first()?;
+    // Each part of `--file=x` too.
+    let outside = |w: &&str| {
+        w.split('=').any(|part| {
+            let bare = part.trim_matches(['"', '\'']);
+            let bare = bare.strip_prefix("./").unwrap_or(bare);
+            bare.starts_with(['/', '\\', '~', '$', '%'])
+                || bare.contains("..")
+                || bare.as_bytes().get(1) == Some(&b':')
+                || crate::protected::changes(bare, None)
+        })
+    };
+    if SHELL_JOINS.iter().any(|j| command.contains(j))
+        || RUNNERS.contains(first)
+        || first.contains('=')
+        || words.iter().any(outside)
+    {
+        return None;
+    }
+    let scope = words.join(" ");
+    (scope.len() <= MAX_ALWAYS_COMMAND).then_some(scope)
 }
 
 /// A rule as people read it: `Bash(npm test)`, or `WebFetch` for every call.

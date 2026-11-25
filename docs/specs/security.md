@@ -565,6 +565,27 @@ rules for each project:
 - `set` refuses unknown actions, empty tool names and globs that cannot
   match inside `work_dir`.
 
+**Always allow (owner's approval, 2026-11-25).** An approval card may offer
+"Always allow <scope> here": it adds one `auto` rule and allows the call.
+
+- The core works out the rule when it registers the request
+  (`PermissionRequest.always`); the UI only shows it. It is offered only
+  when no project rule decided the call, and the session runs in a sandbox
+  whose network is not `Open` (elsewhere the rule would never count).
+- The scope is the narrowest rule for the call:
+  - `Bash`: the exact command, in single spaces. Not offered for joined
+    commands, commands longer than 200 characters, a first word that runs
+    other commands (`env`, `sudo`, `xargs`, shells, ...) or sets a
+    variable, or any word naming a path outside the folder (`/`, `~`, `$`,
+    `%`, `..`, a drive) or a protected or review-marked path.
+  - `Edit` and `Write`: the exact file, relative to `work_dir`. Not offered
+    outside it, for protected or review-marked paths, or for names with
+    glob characters.
+  - `WebFetch`: the URL's host. Not offered for addresses, single-label
+    names or hosts where anyone can receive data (the netproxy's broad
+    list).
+  - Nothing else.
+
 ## Audit log
 
 The log gets one entry for each event that matters for security. The schema

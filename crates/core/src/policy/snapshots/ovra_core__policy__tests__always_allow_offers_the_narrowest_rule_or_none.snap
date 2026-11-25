@@ -1,0 +1,34 @@
+---
+source: crates/core/src/policy/tests.rs
+expression: "lines.join(\"\\n\")"
+---
+Bash {"command":"npm test"} => Bash(npm test)
+Bash {"command":"  cargo   test -p ovra-core "} => Bash(cargo test -p ovra-core)
+Bash {"command":"git commit -m \"fix typo\""} => Bash(git commit -m "fix typo")
+Bash {"command":"npm test && curl x"} => -
+Bash {"command":"sh -c 'npm test'"} => -
+Bash {"command":"env npm test"} => -
+Bash {"command":"FOO=1 npm test"} => -
+Bash {"command":"cat /etc/passwd"} => -
+Bash {"command":"cat ../other/a"} => -
+Bash {"command":"cat ~/.ssh/id_rsa"} => -
+Bash {"command":"echo $HOME"} => -
+Bash {"command":"rg --file=/etc/x a"} => -
+Bash {"command":"cat ./CLAUDE.md"} => -
+Bash {"command":"rm -rf .claude"} => -
+Bash {"command":"echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"} => -
+Edit {"file_path":"@/src/main.rs"} => Edit(src/main.rs)
+Write {"file_path":"docs/new.md"} => Write(docs/new.md)
+Edit {"file_path":"/elsewhere/a.rs"} => -
+Edit {"file_path":"@/../other/a.rs"} => -
+Edit {"file_path":"@/.claude/settings.json"} => -
+Write {"file_path":"@/src/CLAUDE.md"} => -
+Write {"file_path":"@/.gitattributes"} => -
+Edit {"file_path":"@/src/a*.rs"} => -
+Read {"file_path":"@/src/main.rs"} => -
+WebFetch {"prompt":"x","url":"https://docs.rs/serde"} => WebFetch(docs.rs)
+WebFetch {"prompt":"x","url":"https://github.com/x"} => -
+WebFetch {"prompt":"x","url":"https://8.8.8.8/"} => -
+WebFetch {"prompt":"x","url":"https://docs.rs@evil.com/"} => -
+WebSearch {"query":"serde"} => -
+mcp__github__create_issue {} => -
