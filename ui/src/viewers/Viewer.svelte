@@ -253,6 +253,7 @@ async function openExternal() {
     display: flex;
     flex-direction: column;
     background: var(--s2);
+    container-type: inline-size;
   }
   .bar {
     display: flex;
@@ -287,6 +288,7 @@ async function openExternal() {
     border: 1px solid transparent;
     border-radius: var(--radius-sm);
     cursor: pointer;
+    white-space: nowrap;
   }
   button:hover {
     color: var(--text);
@@ -302,6 +304,13 @@ async function openExternal() {
   kbd {
     font: 12px var(--mono);
     color: var(--text-2);
+  }
+  /* A narrow editor group (a split at 1280 px): the bar keeps one line; the key stays in the title. */
+  @container (max-width: 520px) {
+    .bar kbd,
+    .lsp-hint {
+      display: none;
+    }
   }
   .lsp-hint {
     color: var(--text-2);

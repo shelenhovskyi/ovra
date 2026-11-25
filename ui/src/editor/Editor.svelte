@@ -316,6 +316,7 @@ function discard(path: string): void {
     flex-direction: column;
     height: 100%;
     background: var(--s2);
+    container-type: inline-size;
   }
   .bar {
     display: flex;
@@ -345,6 +346,7 @@ function discard(path: string): void {
     border: 1px solid transparent;
     border-radius: var(--radius-sm);
     cursor: pointer;
+    white-space: nowrap;
   }
   button:hover:not(:disabled) {
     color: var(--text);
@@ -364,6 +366,12 @@ function discard(path: string): void {
   kbd {
     font: 12px var(--mono);
     color: var(--text-2);
+  }
+  /* A narrow editor group (a split at 1280 px): the bar keeps one line; the key stays in the title. */
+  @container (max-width: 520px) {
+    .bar kbd {
+      display: none;
+    }
   }
   .notice {
     display: flex;
