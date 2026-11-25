@@ -28,8 +28,12 @@ async function settle() {
   flushSync();
 }
 
+/** The workspace of the panel `open` mounted last. */
+let shown: Workspace | null = null;
+
 async function open(core = new FakeServersCore()) {
   const workspace = new Workspace();
+  shown = workspace;
   workspace.project = { id: "p1", name: "demo", root: "/demo", last_opened_ms: null, trusted: false };
   app = mount(TestHost, { target, props: { transport: core, workspace } });
   await settle();
@@ -97,13 +101,53 @@ describe("ServersPanel", () => {
     expect(statuses()).toEqual(["starting"]);
   });
 
-  it("explains an empty file with an example", async () => {
+  it("adds a first server from the empty state's form", async () => {
     const core = new FakeServersCore();
     core.definitions = [];
     await open(core);
-    const empty = $("[data-testid=servers-empty]")?.textContent ?? "";
-    expect(empty).toContain(".ovra/servers.json");
-    expect(empty).toContain('"command": ["pnpm", "dev"]');
+    expect($("[data-testid=servers-work-dir]")).toBeNull();
+    expect($("[data-testid=servers-empty] details pre")?.textContent).toContain('"command": ["pnpm", "dev"]');
+    const fill = (field: string, text: string) => {
+      const input = $<HTMLInputElement>(`[data-field=${field}]`);
+      if (input) input.value = text;
+      input?.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+    fill("name", "Web");
+    $<HTMLFormElement>("[data-testid=servers-add]")?.requestSubmit();
+    await settle();
+    expect($("[data-testid=servers-add-error]")?.textContent).toMatch(/^Name it with lowercase letters/);
+    expect(document.activeElement).toBe($("[data-field=name]"));
+    expect(core.calls.some((c) => c.method === "fs.write_file")).toBe(false);
+
+    fill("name", "api");
+    fill("command", " cargo  run ");
+    fill("folder", "server/");
+    fill("port", "8080");
+    $<HTMLFormElement>("[data-testid=servers-add]")?.requestSubmit();
+    await settle();
+    expect(core.calls).toContainEqual({
+      method: "fs.write_file",
+      params: {
+        project: "p1",
+        path: ".ovra/servers.json",
+        text: `${JSON.stringify({ servers: [{ name: "api", command: ["cargo", "run"], port: 8080, cwd: "server" }] }, null, 2)}\n`,
+        expected_mtime_ms: null,
+      },
+    });
+    expect($("[data-testid=servers-empty]")).toBeNull();
+    expect(document.activeElement).toBe(button("Start api"));
+  });
+
+  it("opens the servers file in the editor, starting from the example", async () => {
+    const core = new FakeServersCore();
+    core.definitions = [];
+    await open(core);
+    const workspace = shown;
+    button("Open in the editor")?.click();
+    await settle();
+    expect(core.files.get(".ovra/servers.json")?.text).toContain('"name": "web"');
+    expect($("[data-testid=servers]")).toBeNull();
+    expect([workspace?.openPath, workspace?.mode]).toEqual([".ovra/servers.json", "edit"]);
   });
 
   it("shows a broken file with its path", async () => {

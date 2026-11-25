@@ -9,8 +9,9 @@ import { registerCommand } from "../keys/commands";
 import { inBrowserTab, isApple, liveKeys, matchesShortcut, parseShortcut } from "../keys/shortcut";
 import type { DevServerId as ServerId, DevServerInfo as ServerInfo, SessionId, StartedBy } from "../lib/protocol";
 import { useOvra } from "../shell/context";
+import { addServer, CONFIG, checkForm, createConfig, type ServerForm } from "./config";
 import LogView from "./LogView.svelte";
-import { ProjectServers, running, statusText } from "./servers.svelte";
+import { message, ProjectServers, running, statusText } from "./servers.svelte";
 
 /** Whether to show the header button; the shell opens this from its "More" menu instead. */
 let { trigger = true }: { trigger?: boolean } = $props();
@@ -44,6 +45,69 @@ const example = `{
     { "name": "web", "command": ["pnpm", "dev"], "port": 5173, "ready": { "log": "ready in" } }
   ]
 }`;
+
+/** The add form's fields, each with an example. */
+const FIELDS = [
+  { field: "name", label: "Name", hint: "web" },
+  { field: "command", label: "Command", hint: "pnpm dev" },
+  { field: "folder", label: "Folder (optional)", hint: "ui" },
+  { field: "port", label: "Port", hint: "5173" },
+] as const;
+
+let form = $state<ServerForm>({ name: "", command: "", folder: "", port: "5173" });
+let formError = $state<{ field: keyof ServerForm; error: string } | null>(null);
+let adding = $state(false);
+let copied = $state(false);
+
+async function add(event: SubmitEvent): Promise<void> {
+  event.preventDefault();
+  const at = project;
+  if (!at || adding) return;
+  const checked = checkForm(form, list?.definitions ?? []);
+  if ("error" in checked) {
+    formError = checked;
+    await tick();
+    dialog?.querySelector<HTMLElement>(`[data-field=${checked.field}]`)?.focus();
+    return;
+  }
+  adding = true;
+  try {
+    await addServer(transport, at, checked.def);
+    formError = null;
+    form = { name: "", command: "", folder: "", port: "5173" };
+    await servers.reload();
+    await tick();
+    // The form is gone with the empty state: go on to the new server's Start.
+    dialog?.querySelector<HTMLElement>(`[aria-label="Start ${checked.def.name}"]`)?.focus();
+  } catch (err) {
+    formError = { field: "name", error: `Could not add the server: ${message(err)}` };
+  } finally {
+    adding = false;
+  }
+}
+
+/** Opens the servers file in the editor, starting it from the example if there is none. */
+async function openConfig(): Promise<void> {
+  const at = project;
+  if (!at) return;
+  try {
+    await createConfig(transport, at, `${example}\n`);
+  } catch (err) {
+    formError = { field: "name", error: `Could not create ${CONFIG}: ${message(err)}` };
+    return;
+  }
+  close();
+  workspace.openFile(CONFIG, "edit");
+}
+
+async function copyExample(): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(example);
+    copied = true;
+  } catch {
+    copied = false;
+  }
+}
 
 $effect(() => () => servers.dispose());
 $effect(() => registerCommand({ id: "servers.toggle", title: "Servers", keys: TOGGLE_KEYS, run: toggle }));
@@ -170,9 +234,9 @@ function onDialogKeydown(event: KeyboardEvent): void {
   }
   if (event.code !== "Tab") return;
   // Keep Tab inside the dialog (aria-modal).
-  const focusable = [...(dialog?.querySelectorAll<HTMLElement>("button, select, [tabindex]") ?? [])].filter(
-    (el) => el.tabIndex >= 0 && !el.matches(":disabled"),
-  );
+  const focusable = [
+    ...(dialog?.querySelectorAll<HTMLElement>("button, input, select, summary, [tabindex]") ?? []),
+  ].filter((el) => el.tabIndex >= 0 && !el.matches(":disabled"));
   const first = focusable[0];
   const last = focusable[focusable.length - 1];
   if (!first || !last) return;
@@ -205,7 +269,8 @@ function onDialogKeydown(event: KeyboardEvent): void {
       <header>
         <h2 id="servers-title" tabindex="-1">Servers</h2>
         <span class="muted">{workspace.project?.name ?? "No project"}</span>
-        {#if project}
+        {#if project && (workers.length > 0 || workDir !== null)}
+          <!-- Only a choice once a worker has its own copy of the project. -->
           <label>
             Runs in
             <select bind:value={workDir} data-testid="servers-work-dir">
@@ -219,9 +284,12 @@ function onDialogKeydown(event: KeyboardEvent): void {
         <button type="button" class="close" aria-keyshortcuts="Escape" onclick={close}>Close</button>
       </header>
       <div class="body">
-        <p class="muted">
-          Your project's dev servers, run in the sandbox so agents working in the same folder can reach them.
-        </p>
+        {#if list?.definitions.length !== 0}
+          <!-- The empty state says it in its own words. -->
+          <p class="muted intro">
+            Your project's dev servers, run in the sandbox so agents working in the same folder can reach them.
+          </p>
+        {/if}
         {#if !project}
           <p class="muted">Open a project to run its dev servers.</p>
         {:else if servers.unavailable}
@@ -237,18 +305,54 @@ function onDialogKeydown(event: KeyboardEvent): void {
             <p class="error" role="alert" data-testid="servers-file-error">
               Could not read <code>.ovra/servers.json</code>: {list.error}
             </p>
+            {#if workDir === null}
+              <button type="button" onclick={() => void openConfig()}>Open it in the editor</button>
+            {/if}
           {/if}
           {#if !list}
             <p class="muted">Loading…</p>
           {:else if list.definitions.length === 0 && !list.error}
             <div class="empty" data-testid="servers-empty">
-              <p>No servers are defined for this folder.</p>
-              <p class="muted">
-                Add them to <code>.ovra/servers.json</code> in the project. Each runs its command (no shell) in a sandbox
-                with <code>PORT</code> set; agents working in this folder can reach it while it is ready. Only you can edit the
-                file.
-              </p>
-              <pre>{example}</pre>
+              <p><strong>No dev servers yet.</strong> Add one so agents can open your app while they work.</p>
+              {#if workDir === null}
+                <form class="add" onsubmit={add} aria-label="Add a server" data-testid="servers-add">
+                  {#each FIELDS as input (input.field)}
+                    <label>
+                      {input.label}
+                      <input
+                        bind:value={form[input.field]}
+                        data-field={input.field}
+                        placeholder={`For example ${input.hint}`}
+                        inputmode={input.field === "port" ? "numeric" : undefined}
+                        autocomplete="off"
+                        spellcheck="false"
+                        aria-invalid={formError?.field === input.field ? "true" : undefined}
+                        aria-describedby={formError?.field === input.field ? "servers-add-error" : "servers-add-note"}
+                      />
+                    </label>
+                  {/each}
+                  <button type="submit" aria-busy={adding}>{adding ? "Adding…" : "Add server"}</button>
+                </form>
+                <p class="muted" id="servers-add-note">
+                  The command runs as typed, without a shell, in the sandbox. Ovra sets <code>PORT</code> to the port, so
+                  your server should listen on it. This writes <code>{CONFIG}</code>, which only you can change.
+                </p>
+                {#if formError}
+                  <p class="error" role="alert" id="servers-add-error" data-testid="servers-add-error">{formError.error}</p>
+                {/if}
+              {:else}
+                <p class="muted">This worker's servers come from <code>{CONFIG}</code> in its own copy of the project.</p>
+              {/if}
+              <details>
+                <summary>Write the file by hand</summary>
+                <pre>{example}</pre>
+                <p class="actions-row">
+                  <button type="button" onclick={() => void copyExample()}>{copied ? "Copied" : "Copy example"}</button>
+                  {#if workDir === null}
+                    <button type="button" onclick={() => void openConfig()}>Open in the editor</button>
+                  {/if}
+                </p>
+              </details>
             </div>
           {:else}
             <ul aria-label="Defined servers">
@@ -267,6 +371,9 @@ function onDialogKeydown(event: KeyboardEvent): void {
                 </li>
               {/each}
             </ul>
+            {#if workDir === null}
+              <button type="button" class="link" onclick={() => void openConfig()}>Edit {CONFIG}</button>
+            {/if}
           {/if}
           {#if list && list.servers.length > 0}
             <h3>Started</h3>
@@ -318,6 +425,7 @@ function onDialogKeydown(event: KeyboardEvent): void {
 
 <style>
   button,
+  input,
   select {
     font: inherit;
     padding: 2px 10px;
@@ -333,8 +441,14 @@ function onDialogKeydown(event: KeyboardEvent): void {
     cursor: default;
     opacity: 0.6;
   }
+  input::placeholder {
+    color: #9a9aa8;
+    font-style: italic;
+  }
   button:focus-visible,
+  input:focus-visible,
   select:focus-visible,
+  summary:focus-visible,
   h2:focus-visible {
     outline: 2px solid #7aa2ff;
     outline-offset: 1px;
@@ -350,7 +464,7 @@ function onDialogKeydown(event: KeyboardEvent): void {
   }
   .servers {
     flex: 1;
-    max-width: 900px;
+    max-width: 760px;
     display: flex;
     flex-direction: column;
     min-width: 0;
@@ -451,5 +565,44 @@ function onDialogKeydown(event: KeyboardEvent): void {
   }
   .failed {
     color: #ff8f8f;
+  }
+  .add {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: 8px;
+    margin: 8px 0 4px;
+  }
+  .add label {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .add input {
+    width: 9em;
+  }
+  .add input[data-field="command"] {
+    width: 14em;
+  }
+  details {
+    margin-top: 10px;
+    font-size: 12px;
+    color: #b4b4c0;
+  }
+  summary {
+    cursor: pointer;
+    width: fit-content;
+  }
+  .actions-row {
+    display: flex;
+    gap: 8px;
+    margin: 0;
+  }
+  .link {
+    padding: 2px 0;
+    color: #9db7ff;
+    background: none;
+    border: none;
+    text-decoration: underline;
   }
 </style>
