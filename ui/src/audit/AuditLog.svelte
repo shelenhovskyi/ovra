@@ -85,9 +85,7 @@ function onDialogKeydown(event: KeyboardEvent): void {
 }
 
 async function loadOlder(): Promise<void> {
-  const before = trail.entries.length;
-  await trail.loadOlder();
-  const added = trail.entries.length - before;
+  const added = await trail.loadOlder();
   if (added > 0) olderNote = `${added} older ${added === 1 ? "entry" : "entries"} loaded.`;
   await tick();
   // At the start of the log the button goes; focus must stay in the dialog.

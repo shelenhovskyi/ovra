@@ -104,11 +104,15 @@ export class AuditTrail {
     }
   }
 
-  /** Adds the page of entries just before the oldest shown. */
-  async loadOlder(): Promise<void> {
+  /**
+   * Adds the page of entries just before the oldest shown and returns how
+   * many it held (0 when nothing was read), not counting entries appended
+   * meanwhile.
+   */
+  async loadOlder(): Promise<number> {
     const project = this.project;
     const oldest = this.entries[0];
-    if (!project || !oldest || !this.older || this.loadingOlder) return;
+    if (!project || !oldest || !this.older || this.loadingOlder) return 0;
     const generation = this.generation;
     this.loadingOlder = true;
     try {
@@ -116,14 +120,16 @@ export class AuditTrail {
         method: "audit.list",
         params: { project, before: oldest.seq, order: "newest_first", limit: PAGE },
       });
-      if (generation !== this.generation) return;
+      if (generation !== this.generation) return 0;
       this.older = page.data.length === PAGE;
       // Asked for, so never trimmed away.
       this.entries = merge(page.data, this.entries);
       this.error = null;
+      return page.data.length;
     } catch (err) {
-      if (generation !== this.generation) return;
+      if (generation !== this.generation) return 0;
       this.error = err instanceof Error ? err.message : String(err);
+      return 0;
     } finally {
       if (generation === this.generation) this.loadingOlder = false;
     }

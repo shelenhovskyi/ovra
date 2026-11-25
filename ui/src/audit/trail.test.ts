@@ -51,7 +51,7 @@ describe("AuditTrail", () => {
     await trail.show("p1");
     expect(seqs(trail)).toEqual([1, 2, 3]);
     expect(trail.older).toBe(false);
-    await trail.loadOlder();
+    expect(await trail.loadOlder()).toBe(0);
     expect(core.calls).toHaveLength(1);
   });
 
@@ -60,10 +60,10 @@ describe("AuditTrail", () => {
     core.entries = log(2 * PAGE + 1);
     const trail = new AuditTrail(core);
     await trail.show("p1");
-    await trail.loadOlder();
+    expect(await trail.loadOlder()).toBe(PAGE);
     expect(trail.entries).toHaveLength(2 * PAGE);
     expect(trail.older).toBe(true);
-    await trail.loadOlder();
+    expect(await trail.loadOlder()).toBe(1);
     expect(trail.entries).toHaveLength(2 * PAGE + 1);
     expect(trail.entries[0]?.seq).toBe(1);
     expect(trail.older).toBe(false);
