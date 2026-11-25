@@ -49,8 +49,6 @@ async function open(core = new FakeAccessCore()) {
   workspace.project = { id: "p1", name: "demo", root: "/demo", last_opened_ms: null, trusted: false };
   app = mount(TestHost, { target, props: { transport: core, workspace } });
   await settle();
-  target.querySelector<HTMLButtonElement>("[data-testid=open-network]")?.click();
-  await settle();
   return core;
 }
 
@@ -141,7 +139,7 @@ describe("NetworkPanel", () => {
     expect($("[data-testid=secret-off]")).toBeNull();
   });
 
-  it("follows changes made elsewhere and closes on Escape", async () => {
+  it("follows changes made elsewhere and forgets a typed token when the pane closes", async () => {
     const core = await open();
     core.hosts = [{ host: "pypi.org" }];
     core.emit({ type: "netproxy.changed", data: { project: "p1" } });
@@ -149,12 +147,8 @@ describe("NetworkPanel", () => {
     expect(hosts()).toEqual(["pypi.org"]);
 
     type("[data-testid=secret-value]", "typed");
-    $("[data-testid=network]")?.dispatchEvent(
-      new KeyboardEvent("keydown", { code: "Escape", key: "Escape", bubbles: true }),
-    );
-    await settle();
-    expect($("[data-testid=network]")).toBeNull();
-    $<HTMLButtonElement>("[data-testid=open-network]")?.click();
+    if (app) unmount(app);
+    app = mount(TestHost, { target, props: { transport: core, workspace } });
     await settle();
     expect($<HTMLInputElement>("[data-testid=secret-value]")?.value).toBe("");
   });
@@ -208,24 +202,6 @@ describe("NetworkPanel", () => {
       "The sandbox also does not cover: DNS lookups, loopback services, shared folders.",
     );
     expect($("[data-testid=sandbox-gaps]")?.classList.contains("muted")).toBe(true);
-  });
-
-  it("keeps Tab inside the dialog, from the heading and past a disabled form", async () => {
-    const core = new FakeAccessCore();
-    core.store = { state: "unavailable", reason: "no keychain" };
-    await open(core);
-    const dialog = $("[data-testid=network]");
-    const tab = (shiftKey: boolean) =>
-      document.activeElement?.dispatchEvent(
-        new KeyboardEvent("keydown", { code: "Tab", key: "Tab", shiftKey, bubbles: true }),
-      );
-    expect(document.activeElement?.id).toBe("network-title");
-    tab(true);
-    const last = document.activeElement as HTMLElement;
-    expect(dialog?.contains(last)).toBe(true);
-    expect(last.matches(":disabled")).toBe(false);
-    tab(false);
-    expect(document.activeElement?.textContent?.trim()).toBe("Close");
   });
 
   it("clears what was typed when another project opens", async () => {

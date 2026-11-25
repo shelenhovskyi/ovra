@@ -7,6 +7,7 @@ import { untrack } from "svelte";
 import { listCommands } from "../keys/commands";
 import { formatShortcut, inBrowserTab, isApple, liveKeys } from "../keys/shortcut";
 import type { CoreInfo } from "../lib/protocol";
+import NetworkPanel from "../network/NetworkPanel.svelte";
 import PolicyPanel from "../policy/PolicyPanel.svelte";
 import { useOvra } from "../shell/context";
 import ViewFrame from "../shell/ViewFrame.svelte";
@@ -108,6 +109,8 @@ function onListKeydown(event: KeyboardEvent): void {
         <p class="line">{pane.line}</p>
         {#if pane.id === "rules"}
           <PolicyPanel />
+        {:else if pane.id === "network"}
+          <NetworkPanel />
         {:else if pane.id === "notifications"}
           <p class="field">
             <span>System notifications</span>

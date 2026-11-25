@@ -71,7 +71,7 @@ test("Alt+P goes to a file; the palette switches and closes projects", async ({ 
   await page.keyboard.type("readme");
   await expect(page.getByRole("option", { selected: true })).toContainText("README.md");
   await search.fill(">proxy");
-  await expect(page.getByRole("option", { selected: true })).toContainText(/Settings\s*Network and secrets/);
+  await expect(page.getByRole("option", { selected: true })).toContainText(/Settings\s*Network\b/);
   await page.keyboard.press("Escape");
 
   // Headless mode runs in a browser tab, which keeps Ctrl+P for printing.

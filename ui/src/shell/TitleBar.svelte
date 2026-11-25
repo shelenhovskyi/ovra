@@ -9,7 +9,6 @@ import BrowserButton from "../browser/BrowserButton.svelte";
 import Inbox from "../inbox/Inbox.svelte";
 import { listCommands } from "../keys/commands";
 import { formatShortcut, inBrowserTab, isApple, liveKeys } from "../keys/shortcut";
-import NetworkPanel from "../network/NetworkPanel.svelte";
 import ServersPanel from "../servers/ServersPanel.svelte";
 import { useOvra } from "./context";
 import Icon from "./Icon.svelte";
@@ -160,7 +159,6 @@ function tip(panel: Panel): string {
     <MoreMenu />
   </div>
   <!-- Opened from the "More" menu, the palette or their shortcuts. -->
-  <NetworkPanel trigger={false} />
   <ServersPanel trigger={false} />
   <BrowserButton trigger={false} />
 </header>
