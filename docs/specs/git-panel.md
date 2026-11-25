@@ -100,7 +100,7 @@ announcements through `aria-live`.
 of the buffer against `git.show` of the index, so unsaved edits show too;
 clicking a marker offers "Stage hunk" (saved files only) and "Revert";
 inline blame of the cursor line (author, relative time, summary) and a
-"Toggle blame" command.
+"Git: toggle blame" command.
 
 ## Risks and follow-ups
 
