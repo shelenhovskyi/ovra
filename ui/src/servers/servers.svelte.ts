@@ -21,6 +21,8 @@ export class ProjectServers {
   unavailable = $state<string | null>(null);
   /** The last call that failed. */
   error = $state<string | null>(null);
+  /** Servers seen stopping, on a person's or an agent's request. */
+  private stopped = $state<ServerId[]>([]);
   private latest = 0;
   private readonly off: () => void;
 
@@ -71,12 +73,23 @@ export class ProjectServers {
   async stop(id: ServerId): Promise<ServerInfo | null> {
     return this.act(async () => {
       await this.transport.call({ method: "servers.stop", params: { id } });
+      if (!this.stopped.includes(id)) this.stopped = [...this.stopped, id];
       return null;
     });
   }
 
   async restart(id: ServerId): Promise<ServerInfo | null> {
     return this.act(() => this.transport.call({ method: "servers.restart", params: { id } }));
+  }
+
+  /** The server's status in words; one that was asked to stop did not fail, whatever its exit code. */
+  statusOf(server: ServerInfo): string {
+    return statusText(server.status, this.stopped.includes(server.id));
+  }
+
+  /** Whether the server ended with an error on its own: its output says why. */
+  failed(server: ServerInfo): boolean {
+    return failedStart(server.status, this.stopped.includes(server.id));
   }
 
   /** The newest server started from definition `name`, if any. */
@@ -98,6 +111,10 @@ export class ProjectServers {
   }
 
   private upsert(info: ServerInfo): void {
+    if (info.status.state === "stopping" && !this.stopped.includes(info.id)) this.stopped = [...this.stopped, info.id];
+    // A restart is a new run: how the last one ended no longer says anything.
+    if (info.status.state === "starting" && this.stopped.includes(info.id))
+      this.stopped = this.stopped.filter((id) => id !== info.id);
     if (!this.list || info.project !== this.project) return;
     const others = this.list.servers.filter((s) => s.id !== info.id);
     this.list = { ...this.list, servers: [...others, info] };
@@ -117,16 +134,33 @@ export class ProjectServers {
   }
 }
 
-/** `ready`, `exited (code 1)`, `failed: port 5173 is taken` */
-export function statusText(status: ServerStatus): string {
+/**
+ * `ready`, `stopped: the command failed`, `failed: port 5173 is taken`; the
+ * exit code is `exitDetail`'s. A server that was `stopped` on request ends
+ * with whatever code its signal gave: that is no failure.
+ */
+export function statusText(status: ServerStatus, stopped = false): string {
   switch (status.state) {
     case "exited":
-      return status.code === null ? "exited (signal)" : `exited (code ${status.code})`;
+      if (status.code === null || stopped) return "stopped";
+      return status.code === 0 ? "exited" : "stopped: the command failed";
     case "failed":
       return `failed: ${status.reason}`;
     default:
       return status.state;
   }
+}
+
+/** The exit code, for a tooltip: who needs it can find it, it does not lead. */
+export function exitDetail(status: ServerStatus): string | undefined {
+  if (status.state !== "exited") return undefined;
+  return status.code === null ? "Ended by a signal" : `Exit code ${status.code}`;
+}
+
+/** Whether the server ended on its own with an error: its output says why. */
+export function failedStart(status: ServerStatus, stopped = false): boolean {
+  if (status.state === "failed") return true;
+  return status.state === "exited" && !stopped && status.code !== null && status.code !== 0;
 }
 
 export function running(status: ServerStatus): boolean {

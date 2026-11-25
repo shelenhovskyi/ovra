@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { FakeServersCore } from "./fake-servers";
-import { ProjectServers, statusText } from "./servers.svelte";
+import { exitDetail, failedStart, ProjectServers, statusText } from "./servers.svelte";
 
 describe("ProjectServers", () => {
   it("reads the list again when someone else starts a server", async () => {
@@ -39,10 +39,18 @@ describe("ProjectServers", () => {
 });
 
 describe("statusText", () => {
-  it("names exit codes, signals and failures", () => {
-    expect(statusText({ state: "exited", code: 0 })).toBe("exited (code 0)");
-    expect(statusText({ state: "exited", code: null })).toBe("exited (signal)");
+  it("says a failed command in words, keeping the code for the tooltip", () => {
+    expect(statusText({ state: "exited", code: 0 })).toBe("exited");
+    expect(statusText({ state: "exited", code: 1 })).toBe("stopped: the command failed");
+    expect(exitDetail({ state: "exited", code: 1 })).toBe("Exit code 1");
+    expect(statusText({ state: "exited", code: null })).toBe("stopped");
+    // Asked to stop: whatever code the signal gave is no failure.
+    expect(statusText({ state: "exited", code: 143 }, true)).toBe("stopped");
+    expect(failedStart({ state: "exited", code: 143 }, true)).toBe(false);
     expect(statusText({ state: "failed", reason: "port 5173 is taken" })).toBe("failed: port 5173 is taken");
     expect(statusText({ state: "stopping" })).toBe("stopping");
+    expect(
+      [{ state: "exited", code: 1 } as const, { state: "exited", code: null } as const].map((s) => failedStart(s)),
+    ).toEqual([true, false]);
   });
 });

@@ -4,8 +4,10 @@
 // worker's worktree, a form that adds one, and Start. What runs, and its
 // output, is in the Servers tab of the bottom dock (ServersDock).
 import { tick, untrack } from "svelte";
+import { NO_SANDBOX } from "../agents/sandbox";
 import { agentSessions } from "../agents/sessions.svelte";
 import type { SessionId } from "../lib/protocol";
+import { projectSandbox } from "../settings/sandbox";
 import { useOvra } from "../shell/context";
 import EmptyState from "../shell/EmptyState.svelte";
 import { mainView } from "../shell/main-view.svelte";
@@ -47,6 +49,16 @@ let form = $state<ServerForm>({ name: "", command: "", folder: "", port: "5173" 
 let formError = $state<{ field: keyof ServerForm; error: string } | null>(null);
 let adding = $state(false);
 let copied = $state(false);
+/** The add form under the list, once servers are defined. */
+let addOpen = $state(false);
+/** How agents run here, as the session says it. */
+const sandbox = $derived(project ? projectSandbox(sessions.inProject(project)) : null);
+
+async function openAdd(): Promise<void> {
+  addOpen = true;
+  await tick();
+  pane?.querySelector<HTMLElement>("[data-field=name]")?.focus();
+}
 
 $effect(() => () => servers.dispose());
 
@@ -83,9 +95,10 @@ async function add(event: SubmitEvent): Promise<void> {
     await addServer(transport, at, checked.def);
     formError = null;
     form = { name: "", command: "", folder: "", port: "5173" };
+    addOpen = false;
     await servers.reload();
     await tick();
-    // The form is gone with the empty state: go on to the new server's Start.
+    // The form folds away under the list: go on to the new server's Start.
     pane?.querySelector<HTMLElement>(`[aria-label="Start ${checked.def.name}"]`)?.focus();
   } catch (err) {
     formError = { field: "name", error: `Could not add the server: ${message(err)}` };
@@ -130,7 +143,50 @@ async function start(name: string): Promise<void> {
 }
 </script>
 
+{#snippet addForm()}
+  <form class="add" onsubmit={add} aria-label="Add a server" data-testid="servers-add">
+    {#each FIELDS as input (input.field)}
+      <label>
+        {input.label}
+        <input
+          bind:value={form[input.field]}
+          data-field={input.field}
+          placeholder={`For example ${input.hint}`}
+          inputmode={input.field === "port" ? "numeric" : undefined}
+          autocomplete="off"
+          spellcheck="false"
+          aria-invalid={formError?.field === input.field ? "true" : undefined}
+          aria-describedby={formError?.field === input.field ? "servers-add-error" : "servers-add-note"}
+        />
+      </label>
+    {/each}
+    <button type="submit" class="primary" aria-busy={adding}>{adding ? "Adding…" : "Add server"}</button>
+  </form>
+  <p class="muted" id="servers-add-note">Saved to <code>{CONFIG}</code>, which agents can't change.</p>
+  {#if formError}
+    <p class="error" role="alert" id="servers-add-error" data-testid="servers-add-error">{formError.error}</p>
+  {/if}
+{/snippet}
+
+{#snippet details()}
+  <details>
+    <summary>Details</summary>
+    <p>Runs as typed, without a shell; it should listen on <code>PORT</code>. Or write the file by hand:</p>
+    <pre>{example}</pre>
+    <p class="actions-row">
+      <button type="button" onclick={() => void copyExample()}>{copied ? "Copied" : "Copy example"}</button>
+      {#if workDir === null}
+        <button type="button" onclick={() => void openConfig()}>Open in the editor</button>
+      {/if}
+    </p>
+  </details>
+{/snippet}
+
 <div class="servers" data-testid="servers-settings" bind:this={pane}>
+  {#if sandbox === "none"}
+    <!-- The session's own words: the pane promises no sandbox this computer lacks. -->
+    <p class="warn note" role="note" data-testid="servers-unsandboxed">{NO_SANDBOX}.</p>
+  {/if}
   {#if project && (workers.length > 0 || workDir !== null)}
     <!-- Only a choice once a worker has its own copy of the project. -->
     <label class="where">
@@ -165,44 +221,11 @@ async function start(name: string): Promise<void> {
       <div class="empty" data-testid="servers-empty">
         <EmptyState headline="No dev servers" line="Add the command that starts your app, so agents can open it." />
         {#if workDir === null}
-          <form class="add" onsubmit={add} aria-label="Add a server" data-testid="servers-add">
-            {#each FIELDS as input (input.field)}
-              <label>
-                {input.label}
-                <input
-                  bind:value={form[input.field]}
-                  data-field={input.field}
-                  placeholder={`For example ${input.hint}`}
-                  inputmode={input.field === "port" ? "numeric" : undefined}
-                  autocomplete="off"
-                  spellcheck="false"
-                  aria-invalid={formError?.field === input.field ? "true" : undefined}
-                  aria-describedby={formError?.field === input.field ? "servers-add-error" : "servers-add-note"}
-                />
-              </label>
-            {/each}
-            <button type="submit" class="primary" aria-busy={adding}>{adding ? "Adding…" : "Add server"}</button>
-          </form>
-          <p class="muted" id="servers-add-note">
-            Runs as typed, without a shell, in the sandbox; it should listen on <code>PORT</code>. Saved to
-            <code>{CONFIG}</code>, which only you can change.
-          </p>
-          {#if formError}
-            <p class="error" role="alert" id="servers-add-error" data-testid="servers-add-error">{formError.error}</p>
-          {/if}
+          {@render addForm()}
         {:else}
           <p class="muted">This worker's servers come from <code>{CONFIG}</code> in its own copy of the project.</p>
         {/if}
-        <details>
-          <summary>Write the file by hand</summary>
-          <pre>{example}</pre>
-          <p class="actions-row">
-            <button type="button" onclick={() => void copyExample()}>{copied ? "Copied" : "Copy example"}</button>
-            {#if workDir === null}
-              <button type="button" onclick={() => void openConfig()}>Open in the editor</button>
-            {/if}
-          </p>
-        </details>
+        {@render details()}
       </div>
     {:else}
       <ul aria-label="Defined servers">
@@ -213,9 +236,15 @@ async function start(name: string): Promise<void> {
             <strong>{def.name}</strong>
             <code class="muted">{def.command.join(" ")}</code>
             <span class="muted">port {def.port}</span>
+            <!-- A start that failed says so here; the dock shows its output, and why. -->
+            {#if latest && servers.failed(latest)}
+              <span class="warn" data-testid="server-failed">{servers.statusOf(latest)}</span>
+              <button type="button" aria-label={`Output of ${def.name}`} onclick={showRunning}>Output</button>
+            {/if}
             <!-- One button: while the server runs, it shows it in the dock instead of starting another. -->
             <button
               type="button"
+              class="end"
               aria-label={`${runs ? "Show" : "Start"} ${def.name}`}
               onclick={() => (runs ? showRunning() : void start(def.name))}>{runs ? "Show" : "Start"}</button
             >
@@ -223,7 +252,14 @@ async function start(name: string): Promise<void> {
         {/each}
       </ul>
       {#if workDir === null}
-        <button type="button" class="link" onclick={() => void openConfig()}>Edit {CONFIG}</button>
+        {#if addOpen}
+          {@render addForm()}
+        {:else}
+          <p class="actions-row">
+            <button type="button" data-testid="servers-add-another" onclick={openAdd}>Add server…</button>
+            <button type="button" class="link" onclick={() => void openConfig()}>Edit {CONFIG}</button>
+          </p>
+        {/if}
       {/if}
     {/if}
   {/if}
@@ -295,8 +331,19 @@ async function start(name: string): Promise<void> {
     border-radius: var(--r-md);
     background: var(--s1);
   }
-  li > button:last-child {
+  li > .end,
+  li > .warn {
     margin-left: auto;
+  }
+  li > .warn ~ .end {
+    margin-left: 0;
+  }
+  p.warn {
+    margin: 0 0 8px;
+    padding: 8px 12px;
+    font: var(--t-small);
+    border-radius: var(--r-md);
+    background: var(--warn-soft);
   }
   .add {
     display: flex;

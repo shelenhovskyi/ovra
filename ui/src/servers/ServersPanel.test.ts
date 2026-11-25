@@ -86,9 +86,51 @@ describe("Servers pane and dock tab", () => {
       core.emit({ type: "servers.status", data: { id: "srv1", project: "p1", status, generation: 1 } });
       await settle();
     }
-    expect(statuses()).toEqual(["exited (code 1)"]);
+    // A failed start says so in words, here and in the dock, which shows its output with the reason.
+    expect(statuses()).toEqual(["stopped: the command failed"]);
+    expect($("[data-testid=server-status]")?.getAttribute("title")).toBe("Exit code 1");
+    expect($("[data-testid=server-failed]")?.textContent).toBe("stopped: the command failed");
+    expect($("[data-testid=server-log]")).not.toBeNull();
     expect(button("Start web")).toBeDefined();
     expect(button("Stop web")?.disabled).toBe(true);
+  });
+
+  it("keeps an Add server button under the list, and says No sandbox in the session's words", async () => {
+    const core = new FakeServersCore();
+    core.sessions = [
+      {
+        id: "s1",
+        project: "p1",
+        agent: "claude",
+        mode: "direct",
+        status: { state: "idle" },
+        title: "fix it",
+        usage: { input_tokens: 0, output_tokens: 0, cost_micro_usd: null },
+        resumable: false,
+        billing: null,
+        sandbox: null,
+        sandbox_reported: true,
+        account: null,
+      },
+    ];
+    await open(core);
+    expect($("[data-testid=servers-unsandboxed]")?.textContent).toBe("No sandbox: Claude can change anything you can.");
+    expect($("[data-testid=servers-add]")).toBeNull();
+    button("Add server…")?.click();
+    await settle();
+    expect(document.activeElement).toBe($("[data-field=name]"));
+    const fill = (field: string, text: string) => {
+      const input = $<HTMLInputElement>(`[data-field=${field}]`);
+      if (input) input.value = text;
+      input?.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+    fill("name", "api");
+    fill("command", "cargo run");
+    fill("port", "8080");
+    $<HTMLFormElement>("[data-testid=servers-add]")?.requestSubmit();
+    await settle();
+    expect(core.calls.some((c) => c.method === "fs.write_file")).toBe(true);
+    expect($("[data-testid=servers-add]")).toBeNull();
   });
 
   it("shows who started a server, where, its port and run, and stops and restarts it", async () => {

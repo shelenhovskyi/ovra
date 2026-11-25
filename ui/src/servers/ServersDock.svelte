@@ -14,7 +14,7 @@ import EmptyState from "../shell/EmptyState.svelte";
 import Icon from "../shell/Icon.svelte";
 import { serversDock } from "./dock.svelte";
 import LogView from "./LogView.svelte";
-import { ProjectServers, running, statusText } from "./servers.svelte";
+import { exitDetail, ProjectServers, running } from "./servers.svelte";
 
 const { transport, workspace } = useOvra();
 const servers = new ProjectServers(transport);
@@ -76,6 +76,19 @@ $effect(() => {
 
 $effect(() => {
   serversDock.running = started.filter((s) => running(s.status)).length;
+});
+
+/** Runs whose failure opened their output, so a person who closes it again keeps it closed. */
+const failureShown = new Set<string>();
+// A run that failed shows its output at once: the reason is in its last lines.
+$effect(() => {
+  const failed = started.filter((s) => servers.failed(s)).map((s) => [s.id, `${s.id}:${s.generation}`] as const);
+  untrack(() => {
+    const fresh = failed.filter(([, run]) => !failureShown.has(run));
+    if (fresh.length === 0) return;
+    for (const [, run] of fresh) failureShown.add(run);
+    logsOf = new Set([...logsOf, ...fresh.map(([id]) => id)]);
+  });
 });
 
 // A status change can disable the focused button: focus moves on to the row's next one.
@@ -192,7 +205,7 @@ function onkeydown(event: KeyboardEvent): void {
     {#if project && servers.list && started.length === 0 && !servers.unavailable}
       <EmptyState
         headline="No servers running"
-        line="Start one from its definition; agents can start them too."
+        line="Start a server from Settings > Servers; agents can start them too."
         actions={[{ label: "Server settings", run: () => openSettings("servers") }]}
       />
     {:else if started.length > 0}
@@ -201,7 +214,9 @@ function onkeydown(event: KeyboardEvent): void {
           <li class="server" data-testid="server" data-server={server.id}>
             <div class="row">
               <strong>{server.name}</strong>
-              <span class={`badge ${server.status.state}`} data-testid="server-status">{statusText(server.status)}</span>
+              <span class={`badge ${server.status.state}`} data-testid="server-status" title={exitDetail(server.status)}
+                >{servers.statusOf(server)}</span
+              >
               <span class="muted">port {server.port}</span>
               <span class="muted">in {where(server)}</span>
               <span class="muted">started by {who(server.started_by)}</span>

@@ -60,6 +60,6 @@ test("a defined server starts, gets ready, shows its output and stops", async ({
   await expect(dialog.getByRole("log", { name: "Output of web" })).toContainText("ready in 1 ms on port 5173");
 
   await dialog.getByRole("button", { name: "Stop web" }).click();
-  await expect(server.getByTestId("server-status")).toHaveText(/exited/);
+  await expect(server.getByTestId("server-status")).toHaveText("stopped");
   await expect(settings.getByRole("button", { name: "Start web", exact: true })).toBeVisible();
 });
