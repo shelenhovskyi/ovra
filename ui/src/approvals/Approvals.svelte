@@ -719,7 +719,7 @@ function billedTo(session: SessionId): { text: string; key: boolean } | null {
     overflow: auto;
   }
   .card {
-    padding: 14px 14px 12px;
+    padding: 12px 12px 10px;
     border-radius: 12px;
     background: var(--s2);
     box-shadow: var(--card-shadow);
@@ -758,7 +758,7 @@ function billedTo(session: SessionId): { text: string; key: boolean } | null {
     background: var(--warn);
   }
   h3 {
-    margin: 8px 0 4px;
+    margin: 6px 0 2px;
     font-size: 16px;
     font-weight: 600;
     line-height: 1.35;
@@ -783,8 +783,8 @@ function billedTo(session: SessionId): { text: string; key: boolean } | null {
     display: block;
     width: fit-content;
     max-width: 100%;
-    margin: 6px 0 4px;
-    padding: 4px 9px;
+    margin: 4px 0 2px;
+    padding: 3px 8px;
     border-radius: var(--radius);
     background: var(--warn-soft);
     color: var(--warn);
@@ -795,8 +795,8 @@ function billedTo(session: SessionId): { text: string; key: boolean } | null {
   dl {
     display: grid;
     gap: 2px;
-    margin: 10px 0 0;
-    padding: 10px 12px;
+    margin: 8px 0 0;
+    padding: 8px 10px;
     border-radius: 10px;
     background: var(--s1);
   }
@@ -853,7 +853,7 @@ function billedTo(session: SessionId): { text: string; key: boolean } | null {
     flex-wrap: wrap;
     align-items: center;
     gap: 8px;
-    margin-top: 14px;
+    margin-top: 10px;
   }
   .wait:empty {
     display: none;
@@ -862,6 +862,8 @@ function billedTo(session: SessionId): { text: string; key: boolean } | null {
     flex: 1 1 12em;
     color: var(--warn);
     font-size: 13px;
+    /* Scrolled to whole: fractional heights would leave a sliver clipped. */
+    scroll-margin: 4px;
   }
   button {
     display: inline-flex;
@@ -869,7 +871,7 @@ function billedTo(session: SessionId): { text: string; key: boolean } | null {
     gap: 8px;
     font: inherit;
     font-weight: 500;
-    padding: 5px 12px;
+    padding: 4px 10px;
     color: var(--text);
     background: var(--s3);
     border: 0;
@@ -891,6 +893,7 @@ function billedTo(session: SessionId): { text: string; key: boolean } | null {
     background: transparent;
     color: var(--text-2);
     font-weight: 400;
+    padding-inline: 6px;
   }
   button.quiet:hover,
   .toggle:hover {
