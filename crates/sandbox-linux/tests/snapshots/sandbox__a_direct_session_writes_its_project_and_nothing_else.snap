@@ -7,6 +7,7 @@ read the project: yes
 read ssh keys: no
 read cargo credentials: no
 read cargo config: yes
+write a package cache: yes
 read the data folder: no
 read claude settings: yes
 write claude settings: no

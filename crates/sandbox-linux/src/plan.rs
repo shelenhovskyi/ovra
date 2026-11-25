@@ -48,8 +48,10 @@ const CLAUDE_PRIVATE: [&str; 14] = [
 /// prompt history. The history is made if missing.
 const CLAUDE_FILES: [&str; 2] = [".credentials.json", "history.jsonl"];
 
-/// Package caches builds write, relative to the home folder; each is made
-/// if its parent exists.
+/// Package caches builds write, relative to the home folder. Each session
+/// gets its project's own copy (empty at first), bound where the cache is
+/// if that cache or its parent exists: one shared with the user's own
+/// builds would let an agent plant a package they later run.
 const CACHES: [&str; 5] = [
     ".cargo/registry",
     ".cargo/git",
@@ -120,6 +122,8 @@ enum Mount {
     Tmpfs(PathBuf),
     /// `/dev/null` over a file.
     Null(PathBuf),
+    /// A folder of Ovra's, bound writable at `at`.
+    Private { from: PathBuf, at: PathBuf },
 }
 
 /// The sandbox of one session.
@@ -216,7 +220,7 @@ impl Plan {
     /// it: binding it again would cover what was bound inside it since.
     fn ro(&mut self, path: PathBuf) {
         let shown = self.mounts.iter().any(|m| match m {
-            Mount::Ro(p) | Mount::Rw(p) => path.starts_with(p),
+            Mount::Ro(p) | Mount::Rw(p) | Mount::Private { at: p, .. } => path.starts_with(p),
             Mount::Tmpfs(_) | Mount::Null(_) => false,
         });
         if !shown {
@@ -350,16 +354,21 @@ impl Plan {
                 }
             }
         }
-        for cache in CACHES {
-            let cache = home.join(cache);
+        let caches = setup.caches.join(project_key(work_dir));
+        for name in CACHES {
+            let cache = home.join(name);
             // `~/.npm` only if it exists; `~/.cargo/registry` if `~/.cargo` does.
             let parent = cache.parent().filter(|p| *p != home && p.is_dir());
+            let from = caches.join(project_key(Path::new(name)));
             if (cache.is_dir() || parent.is_some())
                 && fs::create_dir_all(&cache).is_ok()
                 && let Ok(cache) = real(&cache)
                 && cache.starts_with(home)
+                && fs::create_dir_all(&from).is_ok()
+                && let Ok(from) = real(&from)
             {
-                self.rw(cache);
+                self.writable.push(cache.clone());
+                self.mounts.push(Mount::Private { from, at: cache });
             }
         }
     }
@@ -401,7 +410,9 @@ impl Plan {
         self.mounts
             .iter()
             .filter_map(|m| match m {
-                Mount::Rw(root) if path.starts_with(root) => Some(root.clone()),
+                Mount::Rw(root) | Mount::Private { at: root, .. } if path.starts_with(root) => {
+                    Some(root.clone())
+                }
                 _ => None,
             })
             .max_by_key(|root| root.components().count())
@@ -476,6 +487,7 @@ impl Plan {
                 Mount::Ro(p) => ("--ro-bind", p.as_os_str(), p),
                 Mount::Rw(p) => ("--bind", p.as_os_str(), p),
                 Mount::Null(p) => ("--ro-bind", "/dev/null".as_ref(), p),
+                Mount::Private { from, at } => ("--bind", from.as_os_str(), at),
                 Mount::Tmpfs(p) => {
                     args.extend([os("--tmpfs"), os(p)]);
                     continue;
@@ -543,7 +555,11 @@ impl Plan {
 /// it that way.
 fn nothing_lost(mounts: &[Mount]) -> Result<()> {
     let path = |m: &Mount| match m {
-        Mount::Ro(p) | Mount::Rw(p) | Mount::Tmpfs(p) | Mount::Null(p) => p.clone(),
+        Mount::Ro(p)
+        | Mount::Rw(p)
+        | Mount::Tmpfs(p)
+        | Mount::Null(p)
+        | Mount::Private { at: p, .. } => p.clone(),
     };
     for (i, earlier) in mounts.iter().enumerate() {
         let covered = mounts[i + 1..]

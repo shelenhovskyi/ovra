@@ -107,10 +107,11 @@ its changes on approve.
   - Package caches the agent's builds need are writable, by default
     `~/.cargo/registry`, `~/.npm`, `~/.cache/pip` and `~/.cache/pnpm`. The
     platform crate lists them.
-    An agent can change what is cached there, and the user's next build
-    outside the sandbox runs it (an extracted crate's `build.rs`). That is a
-    known limit until caches get a private layer per session; 4.F records
-    it.
+    Each project gets its own copy in Ovra's data folder, bound where the
+    cache is and empty at first (owner approved): a shared cache would let
+    an agent plant a package the user's next build outside the sandbox
+    runs (an extracted crate's `build.rs`). The first build in a project
+    downloads again, through the netproxy's allowlist.
 - **Temporary files.** A private temporary folder is writable. On Linux
   `/tmp`, `/var/tmp`, `/run`, Ovra's temporary folder (the netproxy's
   sockets) and other routes to the same disks (`/mnt`, `/media`,

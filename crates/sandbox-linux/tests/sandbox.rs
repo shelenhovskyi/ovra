@@ -82,6 +82,7 @@ fn sandbox_on(home: &Path, hidden: Vec<PathBuf>, path: &str) -> Option<Bubblewra
         home: home.to_path_buf(),
         path: path.into(),
         toolchains: vec![home.join(".cargo")],
+        caches: home.with_file_name("ovra-caches"),
         hidden,
         protected: PROTECTED,
     });
@@ -233,6 +234,7 @@ fn a_direct_session_writes_its_project_and_nothing_else() {
         read ssh keys: cat {home}/.ssh/id_ed25519
         read cargo credentials: grep token {home}/.cargo/credentials.toml
         read cargo config: cat {home}/.cargo/config.toml
+        write a package cache: echo x > {home}/.cargo/registry/planted
         read the data folder: cat {data}/store.db
         read claude settings: cat {home}/.claude/settings.json
         write claude settings: echo x > {home}/.claude/settings.json
@@ -269,6 +271,8 @@ fn a_direct_session_writes_its_project_and_nothing_else() {
     insta::assert_snapshot!(out);
     assert_eq!(fs::read_to_string(project.join("new.txt")).unwrap(), "x\n");
     assert!(!project.join(".git/hooks/pre-commit").exists());
+    // The package went to the project's own cache, not the user's.
+    assert!(!home.join(".cargo/registry/planted").exists());
     // The shell snapshot went to a private folder, not the user's.
     assert!(!home.join(".claude/shell-snapshots/s.sh").exists());
 }

@@ -57,6 +57,9 @@ pub struct Setup {
     pub toolchains: Vec<PathBuf>,
     /// Folders hidden even outside the home folder: Ovra's data folder.
     pub hidden: Vec<PathBuf>,
+    /// Where sessions keep their package caches, one folder per project, so
+    /// what an agent puts in a cache never reaches the user's own builds.
+    pub caches: PathBuf,
     /// The protected paths every platform shares (`ovra-sandbox`).
     pub protected: Protected,
 }
@@ -73,8 +76,10 @@ impl Setup {
                 .filter(|p| p.is_absolute())
                 .unwrap_or_else(|| home.join(default))
         };
+        let data_dir = std::path::absolute(data_dir).ok()?;
         Some(Self {
             helper: std::env::current_exe().ok()?,
+            caches: data_dir.join("sandbox-caches"),
             path: std::env::var_os("PATH").unwrap_or_default(),
             toolchains: vec![
                 var("CARGO_HOME", ".cargo"),
@@ -83,7 +88,7 @@ impl Setup {
             ],
             // The temporary folder holds the netproxy's sockets of every
             // session; `/tmp` is hidden anyway.
-            hidden: vec![std::path::absolute(data_dir).ok()?, std::env::temp_dir()],
+            hidden: vec![data_dir, std::env::temp_dir()],
             home,
             protected,
         })

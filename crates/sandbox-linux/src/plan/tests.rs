@@ -40,6 +40,7 @@ impl Root {
                 .into(),
             toolchains: vec![self.0.join("home/.cargo")],
             hidden: vec![self.0.join("data")],
+            caches: self.0.join("data/sandbox-caches"),
             protected: PROTECTED,
         }
     }
