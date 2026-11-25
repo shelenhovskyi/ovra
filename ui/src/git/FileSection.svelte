@@ -7,6 +7,7 @@
 // nothing on a row says why. Discard asks first, in the row, starting on Cancel.
 import { tick } from "svelte";
 import type { GitChange, StatusFile } from "../lib/protocol";
+import Icon from "../shell/Icon.svelte";
 import { rowOf } from "./focus";
 import { CHANGE_LABEL, CHANGE_LETTER, type GitModel } from "./model.svelte";
 
@@ -124,21 +125,8 @@ function onrowkeydown(event: KeyboardEvent, file: StatusFile, i: number): void {
   }
 }
 
-// Row icons: one drawn set, 16 px, in the text colour.
-const OPEN = "M9 2.5h4.5V7M13.5 2.5 7.5 8.5M11.5 9.5v4h-9v-9h4";
-const PLUS = "M8 3v10M3 8h10";
-const MINUS = "M3 8h10";
-const CHECK = "M3 8.5 6.5 12 13 4.5";
-const DISCARD = "M3.5 6.5h6.5a3 3 0 0 1 0 6H7M3.5 6.5 6 4M3.5 6.5 6 9";
-
 const all = $derived(files.flatMap((f) => (kind === "staged" && f.from ? [f.path, f.from] : [f.path])));
 </script>
-
-{#snippet icon(path: string)}
-  <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
-    <path d={path} fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
-  </svg>
-{/snippet}
 
 <section class="files" aria-labelledby={`git-${kind}-title`} data-testid={`git-${kind}`}>
   <div class="head">
@@ -193,7 +181,7 @@ const all = $derived(files.flatMap((f) => (kind === "staged" && f.from ? [f.path
               tabindex="-1"
               title="Open file (O)"
               aria-label={`Open ${file.path}`}
-              onclick={() => onopen(file.path)}>{@render icon(OPEN)}</button
+              onclick={() => onopen(file.path)}><Icon name="external" small /></button
             >
           {/if}
           {#if kind === "staged"}
@@ -204,7 +192,7 @@ const all = $derived(files.flatMap((f) => (kind === "staged" && f.from ? [f.path
               title="Unstage (U)"
               aria-label={`Unstage ${file.path}`}
               aria-disabled={model.busy}
-              onclick={() => unstage(file, i)}>{@render icon(MINUS)}</button
+              onclick={() => unstage(file, i)}><Icon name="minus" small /></button
             >
           {:else}
             <button
@@ -214,7 +202,7 @@ const all = $derived(files.flatMap((f) => (kind === "staged" && f.from ? [f.path
               title={kind === "conflicts" ? "Mark resolved (S)" : "Stage (S)"}
               aria-label={kind === "conflicts" ? `Mark ${file.path} resolved (stage)` : `Stage ${file.path}`}
               aria-disabled={model.busy}
-              onclick={() => stage(file, i)}>{@render icon(kind === "conflicts" ? CHECK : PLUS)}</button
+              onclick={() => stage(file, i)}><Icon name={kind === "conflicts" ? "check" : "plus"} small /></button
             >
           {/if}
           {#if kind === "changes"}
@@ -227,7 +215,7 @@ const all = $derived(files.flatMap((f) => (kind === "staged" && f.from ? [f.path
               aria-label={`Discard changes to ${file.path}…`}
               aria-expanded={confirming === file.path}
               aria-disabled={model.busy}
-              onclick={() => askDiscard(file.path)}>{@render icon(DISCARD)}</button
+              onclick={() => askDiscard(file.path)}><Icon name="discard" small /></button
             >
           {/if}
         </div>

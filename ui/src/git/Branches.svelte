@@ -6,6 +6,7 @@
 // filter field above them, where Enter switches to the first match.
 import { tick, untrack } from "svelte";
 import type { RepoStatus } from "../lib/protocol";
+import Icon from "../shell/Icon.svelte";
 import { branchNameProblem, type GitModel } from "./model.svelte";
 
 let { model, status }: { model: GitModel; status: RepoStatus } = $props();
@@ -137,7 +138,7 @@ function onfilterkeydown(event: KeyboardEvent): void {
   >
     <span class="visually-hidden">Branch:</span>
     <span class="label">{label}</span>
-    <span aria-hidden="true">▾</span>
+    <Icon name="chevron" small />
   </button>
   {#if status.upstream}
     <p class="upstream" title={status.upstream}>
@@ -258,6 +259,7 @@ function onfilterkeydown(event: KeyboardEvent): void {
   .current,
   .menu li button {
     display: flex;
+    align-items: center;
     gap: 4px;
     width: 100%;
     min-width: 0;

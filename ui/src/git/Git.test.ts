@@ -92,7 +92,7 @@ it("shows the branch and the lists, stages and unstages files and opens them", a
   });
   await setup(core);
 
-  expect(text("[data-testid=git-branch]")).toBe("Branch: main ▾");
+  expect(text("[data-testid=git-branch]")).toBe("Branch: main");
   expect(text(".upstream")).toBe("origin/main 2 ahead");
   expect(names("conflicts")).toEqual(["! c.ts , conflicted"]);
   // A file in both lists has two rows with different names: one reads "staged".
@@ -127,7 +127,7 @@ it("says when the project is not a repository", async () => {
   core.status = repo({ branch: null });
   core.emit({ type: "fs.git_changed", data: { project: "p1" } });
   await settle();
-  expect(text("[data-testid=git-branch]")).toBe("Branch: No branch, at commit abc1234 (detached HEAD) ▾");
+  expect(text("[data-testid=git-branch]")).toBe("Branch: No branch, at commit abc1234 (detached HEAD)");
   expect(text("[data-testid=git-remote-hint]")).toBe("Push and pull: git push, git pull in a terminal.");
   // With no commits and no changes there is nothing to commit or list: one line.
   core.status = repo({ head: null });
@@ -312,7 +312,7 @@ it("switches branches, shows why a switch failed and creates a branch", async ()
     switch: true,
   });
   expect($("#git-branch-menu")).toBeNull();
-  expect(text("[data-testid=git-branch]")).toBe("Branch: feature/x ▾");
+  expect(text("[data-testid=git-branch]")).toBe("Branch: feature/x");
   expect(document.activeElement).toBe($("[data-testid=git-branch]"));
 });
 

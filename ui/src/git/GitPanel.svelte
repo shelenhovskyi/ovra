@@ -6,6 +6,7 @@ import { tick } from "svelte";
 import { listCommands } from "../keys/commands";
 import type { GitOperation, ProjectId } from "../lib/protocol";
 import { useOvra } from "../shell/context";
+import Icon from "../shell/Icon.svelte";
 import Branches from "./Branches.svelte";
 import CommitBox from "./CommitBox.svelte";
 import FileSection from "./FileSection.svelte";
@@ -159,7 +160,7 @@ function ago(seconds: number, now = Date.now() / 1000): string {
     </div>
     <div class="log">
       <button type="button" class="toggle" aria-expanded={model.logOpen} onclick={() => model.toggleLog()}>
-        <span aria-hidden="true">{model.logOpen ? "▾" : "▸"}</span> Recent commits
+        <Icon name={model.logOpen ? "chevron" : "chevron-right"} small /> Recent commits
       </button>
       {#if model.logOpen}
         {#if model.log === null}
@@ -261,6 +262,9 @@ function ago(seconds: number, now = Date.now() / 1000): string {
     margin-top: 6px;
   }
   .log .toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
     padding: 2px 4px;
     font-size: 13px;
     font-weight: 600;

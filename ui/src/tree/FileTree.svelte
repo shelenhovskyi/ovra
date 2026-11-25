@@ -7,6 +7,7 @@
 import { registerCommand } from "../keys/commands";
 import type { GitStatus, ProjectId } from "../lib/protocol";
 import type { Transport } from "../lib/transport";
+import Icon from "../shell/Icon.svelte";
 import { ancestorsOf, type Filter, parentOf, type Row, TreeModel, typeaheadMatch, visibleRange } from "./model";
 import { ExpandedSaver, loadExpanded } from "./persist";
 import WatchLimitNotice from "./WatchLimitNotice.svelte";
@@ -317,18 +318,15 @@ function onkeydown(e: KeyboardEvent): void {
 }
 </script>
 
-{#snippet icon(d: string)}
-  <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path {d} /></svg>
-{/snippet}
 
 <div class="panel">
   <div class="toolbar">
     <span class="title" aria-hidden="true">Files</span>
     <button type="button" class="icon" onclick={collapseAll} aria-label="Collapse all" title="Collapse all folders">
-      {@render icon("M7 15l5-5 5 5M7 9l5-5 5 5")}
+      <Icon name="collapse-all" small />
     </button>
     <button type="button" class="icon" onclick={reveal} disabled={!openPath} aria-label="Reveal" title="Reveal the open file">
-      {@render icon("M12 5a7 7 0 1 0 0 14 7 7 0 0 0 0-14zm0 4a3 3 0 1 0 0 6 3 3 0 0 0 0-6z")}
+      <Icon name="reveal" small />
     </button>
     <button
       type="button"
@@ -338,7 +336,7 @@ function onkeydown(e: KeyboardEvent): void {
       aria-label="Changed only"
       title="Show changed files only"
     >
-      {@render icon("M4 6h16M7 12h10M10 18h4")}
+      <Icon name="filter" small />
     </button>
   </div>
   <WatchLimitNotice {unwatched} />
@@ -390,13 +388,17 @@ function onkeydown(e: KeyboardEvent): void {
             style:padding-left="{10 + row.depth * 16}px"
             onclick={() => activate(row)}
           >
-            <span class="twisty" aria-hidden="true">{row.kind === "dir" ? (row.expanded ? "▾" : "▸") : ""}</span>
+            <span class="twisty" aria-hidden="true"
+              >{#if row.kind === "dir"}<Icon name={row.expanded ? "chevron" : "chevron-right"} small />{/if}</span
+            >
             <span class="name git-{row.git ?? 'clean'}">{row.name}</span>
             {#if row.loading}<span class="hint" aria-hidden="true">…</span>{/if}
             {#if row.failed}<span class="failed" aria-hidden="true">!</span>{/if}
             {#if describe(row)}<span id="{rowId(index)}-d" class="visually-hidden">{describe(row)}</span>{/if}
             {#if row.git}
-              <span class="badge git-{row.git}" aria-hidden="true">{row.kind === "dir" ? "•" : GIT_LETTER[row.git]}</span>
+              <span class="badge git-{row.git}" class:dot={row.kind === "dir"} aria-hidden="true"
+                >{row.kind === "dir" ? "" : GIT_LETTER[row.git]}</span
+              >
             {/if}
           </div>
         {/if}
@@ -449,13 +451,7 @@ function onkeydown(e: KeyboardEvent): void {
   .icon:disabled {
     opacity: 0.45;
   }
-  .icon svg {
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 1.6;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-  }
+
   .viewport {
     position: relative;
     flex: 1;
@@ -502,10 +498,10 @@ function onkeydown(e: KeyboardEvent): void {
     font-style: italic;
   }
   .twisty {
-    width: 12px;
+    display: flex;
+    width: 15px;
     flex: none;
-    color: var(--text-3);
-    font-size: 12px;
+    color: var(--text-2);
   }
   .name {
     flex: 1;
@@ -515,6 +511,14 @@ function onkeydown(e: KeyboardEvent): void {
   .badge {
     flex: none;
     font: 500 12px var(--mono);
+  }
+  /* A folder with changes inside: a dot in the change's colour. */
+  .badge.dot {
+    width: 6px;
+    height: 6px;
+    margin-right: 3px;
+    border-radius: 50%;
+    background: currentColor;
   }
   .visually-hidden {
     position: absolute;

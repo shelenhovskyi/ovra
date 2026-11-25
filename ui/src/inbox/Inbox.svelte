@@ -13,6 +13,7 @@ import { runCommand } from "../keys/keybindings";
 import { formatShortcut, inBrowserTab, isApple, liveKeys, matchesShortcut, parseShortcut } from "../keys/shortcut";
 import type { FileChange, ReviewId, ReviewItem, SessionId } from "../lib/protocol";
 import { useOvra } from "../shell/context";
+import Icon from "../shell/Icon.svelte";
 import PatchView from "../viewers/PatchView.svelte";
 import {
   approveHint,
@@ -537,7 +538,7 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
           aria-label="Close"
           aria-keyshortcuts="Escape"
           title="Close (Escape)"
-          onclick={close}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg></button
+          onclick={close}><Icon name="close" /></button
         >
       </header>
       <div aria-live="polite" data-testid="inbox-approvals">
@@ -951,14 +952,7 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
     color: var(--text);
     background: var(--s3);
   }
-  .close svg {
-    width: 18px;
-    height: 18px;
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 1.6;
-    stroke-linecap: round;
-  }
+
   h2 {
     margin: 0;
     font-size: 16px;

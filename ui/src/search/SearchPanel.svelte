@@ -7,6 +7,7 @@ import { highlightLines, type Segment, sliceSegments } from "../editor/highlight
 import { languageFor } from "../editor/languages";
 import type { FileMatches, LineMatch, ProjectId } from "../lib/protocol";
 import type { Transport } from "../lib/transport";
+import Icon from "../shell/Icon.svelte";
 import type { TextSpot } from "../shell/workspace.svelte";
 import { SearchModel } from "./model.svelte";
 
@@ -224,7 +225,7 @@ const folder = (path: string) => path.slice(0, Math.max(path.lastIndexOf("/"), 0
         title="Files to include or exclude"
         aria-label="Files to include or exclude"
         aria-expanded={showFilters}
-        onclick={() => (showFilters = !showFilters)}>⋯</button
+        onclick={() => (showFilters = !showFilters)}><Icon name="filter" small /></button
       >
     </div>
   </div>
