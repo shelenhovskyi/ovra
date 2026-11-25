@@ -124,6 +124,10 @@ export function registerEditorCommands(workspace: Target): () => void {
     const next = tabs.current?.neighbour(offset);
     if (next) show(workspace, next);
   };
+  const move = (offset: -1 | 1) => () => {
+    const active = tabs.current?.active;
+    if (active) tabs.current?.shift(active, offset);
+  };
   const nextChange = inEditor(workspace, () => goToChange(1));
   const previousChange = inEditor(workspace, () => goToChange(-1));
   const readCursorBlame = inEditor(workspace, readBlame);
@@ -177,6 +181,9 @@ export function registerEditorCommands(workspace: Target): () => void {
     }),
     registerCommand({ id: "editor.next_tab", title: "Next tab", keys: "Ctrl+Tab", run: step(1) }),
     registerCommand({ id: "editor.previous_tab", title: "Previous tab", keys: "Ctrl+Shift+Tab", run: step(-1) }),
+    // As in VS Code; nothing else in Ovra or CodeMirror binds them.
+    registerCommand({ id: "editor.move_tab_left", title: "Move tab left", keys: "Mod+Shift+PageUp", run: move(-1) }),
+    registerCommand({ id: "editor.move_tab_right", title: "Move tab right", keys: "Mod+Shift+PageDown", run: move(1) }),
     // Alt+F5 and Alt+Shift+F5 as in VS Code; neither browsers nor CodeMirror use them.
     registerCommand({ id: "editor.next_git_change", title: "Git: go to next change", keys: "Alt+F5", run: nextChange }),
     registerCommand({

@@ -25,7 +25,9 @@ registerContextKeys(
 // A tab's context menu (right click, Shift+F10, the Menu key): the file's
 // path and places first, then pinning and the other editor group, then the
 // ways to close tabs. With two editor groups each has its own strip; a tab
-// can be dragged onto the other group (docs/specs/split-editor.md).
+// can be dragged onto the other group (docs/specs/split-editor.md), or
+// within its strip to reorder, with a line where it would land; Escape
+// cancels the drag.
 import { tick } from "svelte";
 import type { ProjectId } from "../lib/protocol";
 import { CoreError } from "../lib/transport";
@@ -82,6 +84,36 @@ $effect(() => {
   void own?.files.length;
   void tick().then(measure);
 });
+
+/** Where a tab dragged within this strip would land: before the tab at this index; null while none is. */
+let dropAt = $state<number | null>(null);
+
+/** A tab of this strip is dragged over it: it would land before the first tab whose middle is right of the pointer. */
+function ondragover(event: DragEvent): void {
+  if (dragging.tab?.group !== group) return;
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+  const tabs = [...(strip?.querySelectorAll<HTMLElement>('[role="tab"][data-path]') ?? [])];
+  const at = tabs.findIndex((tab) => {
+    const box = (tab.parentElement ?? tab).getBoundingClientRect();
+    return event.clientX < box.left + box.width / 2;
+  });
+  dropAt = at < 0 ? tabs.length : at;
+}
+
+function ondropHere(event: DragEvent): void {
+  const tab = dragging.tab;
+  const at = dropAt;
+  dropAt = null;
+  if (tab?.group !== group || at === null) return;
+  event.preventDefault();
+  dragging.tab = null;
+  own?.moveTo(tab.path, at);
+}
+
+function onstripdragleave(event: DragEvent): void {
+  if (!(event.relatedTarget instanceof Node && strip?.contains(event.relatedTarget))) dropAt = null;
+}
 
 function label(path: string): string {
   const entry = labels.get(path);
@@ -284,6 +316,8 @@ function scrollToActive(): void {
 {#if (own && own.files.length > 0) || diff}
   {@const files = own?.files ?? []}
   {@const selected = diff ? null : (own?.active ?? null)}
+  <!-- The tabs take focus, not the strip; it only takes drops. -->
+  <!-- svelte-ignore a11y_interactive_supports_focus -->
   <div
     class="tabs"
     class:more-start={more.start}
@@ -293,13 +327,24 @@ function scrollToActive(): void {
     data-testid="tabs"
     bind:this={strip}
     onscroll={measure}
+    {ondragover}
+    ondragleave={onstripdragleave}
+    ondrop={ondropHere}
   >
-    {#each files as path (path)}
+    {#each files as path, index (path)}
       {@const active = path === selected}
       {@const dirty = own?.buffers.isDirty(path) ?? false}
       {@const pinned = own?.isPinned(path) ?? false}
       {@const preview = own?.preview === path}
-      <div class="tab" class:active class:pinned class:preview title={preview ? `${path} (preview)` : path}>
+      <div
+        class="tab"
+        class:active
+        class:pinned
+        class:preview
+        class:drop-before={dropAt === index}
+        class:drop-after={dropAt === files.length && index === files.length - 1}
+        title={preview ? `${path} (preview)` : path}
+      >
         <button
           type="button"
           role="tab"
@@ -319,7 +364,10 @@ function scrollToActive(): void {
               event.dataTransfer.setData("text/plain", path);
             }
           }}
-          ondragend={() => (dragging.tab = null)}
+          ondragend={() => {
+            dragging.tab = null;
+            dropAt = null;
+          }}
           onkeydown={(event) => onkeydown(event, path)}
         >
           <span class="name">{labels.get(path)?.name}</span>
@@ -454,6 +502,34 @@ function scrollToActive(): void {
     box-sizing: border-box;
     border-radius: var(--r-md) var(--r-md) 0 0;
     color: var(--text-2);
+  }
+  /* Where a dragged tab would land: a 2 px line in the gap before or after a tab. */
+  .tab.drop-before,
+  .tab.drop-after {
+    position: relative;
+  }
+  .tab.drop-before::before,
+  .tab.drop-after::after {
+    content: "";
+    position: absolute;
+    top: 4px;
+    bottom: 4px;
+    width: 2px;
+    border-radius: 1px;
+    background: var(--accent);
+    pointer-events: none;
+  }
+  .tab.drop-before::before {
+    left: -2px;
+  }
+  .tab.drop-after::after {
+    right: -2px;
+  }
+  @media (forced-colors: active) {
+    .tab.drop-before::before,
+    .tab.drop-after::after {
+      background: Highlight;
+    }
   }
   .tab.preview .name {
     font-style: italic;

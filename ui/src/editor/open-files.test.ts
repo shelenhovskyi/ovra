@@ -213,6 +213,37 @@ test("pinned tabs come first and stay through close others and close all", async
   expect(files.pinned).toEqual([]);
 });
 
+test("dragged tabs reorder; pinned ones stay first, and a drop among them pins", async () => {
+  const { core, files } = setup();
+  core.state = { open_files: ["p", "q", "a", "b", "c"], active_file: "a", expanded_dirs: [], pinned_files: ["p", "q"] };
+  await files.restore();
+  // The tabs, then the pinned ones.
+  const order = () => `${files.files.join(" ")} | ${files.pinned.join(" ")}`;
+  files.moveTo("a", 5);
+  expect(order()).toBe("p q b c a | p q");
+  files.moveTo("c", 2);
+  expect(order()).toBe("p q c b a | p q");
+  // A pinned tab stops at the last pinned place.
+  files.moveTo("p", 5);
+  expect(order()).toBe("q p c b a | q p");
+  // An unpinned preview tab dropped among the pinned ones is pinned and kept.
+  await files.opened("d");
+  expect(files.preview).toBe("d");
+  files.moveTo("d", 1);
+  expect(order()).toBe("q d p c b a | q d p");
+  expect(files.preview).toBeNull();
+  await files.opened("a");
+  expect(core.state).toMatchObject({ open_files: ["q", "d", "p", "c", "b", "a"], pinned_files: ["q", "d", "p"] });
+  // The keyboard moves stay within their zone.
+  files.shift("c", -1);
+  files.shift("p", 1);
+  files.shift("a", 1);
+  files.shift("b", 1);
+  files.shift("q", -1);
+  files.shift("q", 1);
+  expect(order()).toBe("d q p c a b | d q p");
+});
+
 test("typing in the preview tab keeps it; a kind of file opens the way it was last switched to", async () => {
   const core = new FakeCore();
   core.put("a.zz", "one");

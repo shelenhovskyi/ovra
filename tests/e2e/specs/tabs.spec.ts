@@ -137,7 +137,18 @@ test("a single click previews in one tab, a double click keeps it, pinned tabs o
   await menu.getByRole("menuitem", { name: "Close others" }).click();
   await expect(tabs.getByRole("tab")).toHaveText(["c.txt"]);
 
+  // Dragging reorders; a tab dropped before a pinned one is pinned too.
+  await row(/a\.txt/).dblclick();
+  await row(/b\.txt/).dblclick();
+  const tab = (name: RegExp) => tabs.getByRole("tab", { name });
+  await tab(/b\.txt/).dragTo(tab(/a\.txt/), { targetPosition: { x: 4, y: 8 } });
+  await expect(tabs.getByRole("tab")).toHaveText(["c.txt", "b.txt", "a.txt"]);
+  await tab(/a\.txt/).dragTo(tab(/c\.txt/), { targetPosition: { x: 4, y: 8 } });
+  await expect(tabs.getByRole("tab")).toHaveText(["a.txt", "c.txt", "b.txt"]);
+  await expect(tabs.getByRole("tab", { name: "a.txt, pinned" })).toBeVisible();
+
   await page.reload();
+  await expect(tabs.getByRole("tab")).toHaveText(["a.txt", "c.txt", "b.txt"]);
   await expect(tabs.getByRole("tab", { name: "c.txt, pinned" })).toBeVisible();
 });
 

@@ -140,6 +140,37 @@ export class OpenFiles {
   }
 
   /**
+   * Moves the tab for `path` to before the tab now at `index` (the end for
+   * `files.length`), as a drop does. Pinned tabs stay first: a pinned tab
+   * moves only among the pinned ones, and an unpinned tab dropped among them
+   * is pinned there. A moved preview tab is kept.
+   */
+  moveTo(path: string, index: number): void {
+    const from = this.files.indexOf(path);
+    if (from < 0) return;
+    const files = this.files.filter((p) => p !== path);
+    const pinnedLeft = this.pinned.length - (this.isPinned(path) ? 1 : 0);
+    let at = Math.max(0, Math.min(index > from ? index - 1 : index, files.length));
+    const pin = this.isPinned(path) || at < pinnedLeft;
+    if (pin) at = Math.min(at, pinnedLeft);
+    files.splice(at, 0, path);
+    if (files.every((p, i) => p === this.files[i]) && pin === this.isPinned(path)) return;
+    this.makePermanent(path);
+    this.files = files;
+    this.pinned = files.slice(0, pinnedLeft + (pin ? 1 : 0));
+    void this.write();
+  }
+
+  /** Moves the tab for `path` one place left (-1) or right (1), staying among the pinned or the unpinned tabs. */
+  shift(path: string, offset: -1 | 1): void {
+    const from = this.files.indexOf(path);
+    const to = from + offset;
+    const zone = (p: string | undefined) => p !== undefined && this.isPinned(p);
+    if (from < 0 || to < 0 || to >= this.files.length || zone(this.files[to]) !== zone(path)) return;
+    this.moveTo(path, offset < 0 ? to : to + 1);
+  }
+
+  /**
    * Closes every tab except `path`, the pinned ones and those with unsaved
    * text (which would need asking); `null` closes all of them. Returns how
    * many tabs stayed open only because of unsaved text.
