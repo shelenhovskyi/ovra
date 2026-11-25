@@ -113,6 +113,8 @@ approvals, no policies and no direct-mode tracking.
 - Read-only in every sandbox: `.claude`, `.mcp.json`, `**/CLAUDE.md`,
   `**/CLAUDE.local.md`, `**/AGENTS.md`, editor folders, `.ovra`, ...
 - Only marked in review: `.zed`, `.cursor`, `.gemini`, `**/GEMINI.md`.
+  (Done 2026-11-25, step 2: other agents' config folders are now protected,
+  their instruction files marked; see `docs/specs/security.md`.)
 - Missing entirely: `.codex/` (Codex project config), `.github/copilot-instructions.md`,
   `.github/instructions/`, `.cursor/rules`, `opencode.json`, `.goosehints`,
   `.aider.conf.yml`.
