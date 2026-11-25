@@ -31,7 +31,7 @@ use crate::services::{
 pub(crate) use permissions::Permissions;
 pub(crate) use requests::{
     Ctx, NewSession, Parts, agents as handle_agents, check_text, permissions as handle_permissions,
-    resume, send, start, stop, stop_project, trust,
+    profile, resume, send, start, stop, stop_project, trust,
 };
 pub(crate) use transcript::MAX_TEXT_BYTES;
 use transcript::Transcript;
@@ -652,6 +652,9 @@ impl AgentHost {
             });
             if let Some(core) = self.sessions.core() {
                 crate::orchestration::on_status(&core, &self.session, &status);
+                if status.is_ended() {
+                    crate::servers::session_ended(&core, &self.session);
+                }
             }
         }
         changed == Ok(true)

@@ -1,0 +1,10 @@
+---
+source: crates/core/src/servers/tests.rs
+assertion_line: 404
+expression: server_audit(&f)
+---
+[
+  "-: {\"kind\":\"server_started\",\"server\":\"srv1\",\"name\":\"web\",\"generation\":1,\"by\":{\"kind\":\"person\"}}",
+  "s1: {\"kind\":\"loopback_granted\",\"server\":\"srv1\",\"port\":5173,\"generation\":1}",
+  "s1: {\"kind\":\"loopback_revoked\",\"server\":\"srv1\",\"port\":5173,\"generation\":1}"
+]

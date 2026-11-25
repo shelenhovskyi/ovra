@@ -1,0 +1,31 @@
+---
+source: crates/core/src/servers/tests.rs
+assertion_line: 195
+expression: "(worker, broken)"
+---
+(
+    ServerList {
+        definitions: [
+            ServerDef {
+                name: "web",
+                command: [
+                    "pnpm",
+                    "dev",
+                ],
+                cwd: None,
+                env: {},
+                port: 5173,
+                ready: None,
+            },
+        ],
+        servers: [],
+        error: None,
+    },
+    ServerList {
+        definitions: [],
+        servers: [],
+        error: Some(
+            ".ovra/servers.json: missing field `command` at line 1 column 28",
+        ),
+    },
+)

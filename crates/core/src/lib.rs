@@ -21,6 +21,7 @@ pub mod protected;
 pub mod protocol;
 mod search;
 mod secrets;
+mod servers;
 pub mod services;
 
 pub use crate::core::{Client, Core, CoreBuilder};

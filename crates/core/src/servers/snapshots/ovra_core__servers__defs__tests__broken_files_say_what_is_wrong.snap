@@ -1,0 +1,22 @@
+---
+source: crates/core/src/servers/defs.rs
+assertion_line: 170
+expression: errors
+---
+[
+  ".ovra/servers.json: expected ident at line 1 column 2",
+  ".ovra/servers.json: unknown field `extra`, expected `servers` at line 1 column 23",
+  ".ovra/servers.json: servers[0]: the name must match ^[a-z0-9][a-z0-9-]{0,31}$",
+  ".ovra/servers.json: servers[0]: the name must match ^[a-z0-9][a-z0-9-]{0,31}$",
+  ".ovra/servers.json: servers[0]: the name must match ^[a-z0-9][a-z0-9-]{0,31}$",
+  ".ovra/servers.json: servers[0]: the command is empty",
+  ".ovra/servers.json: servers[0]: the program is empty",
+  ".ovra/servers.json: servers[0]: the port must be 1024 to 65535",
+  ".ovra/servers.json: invalid value: integer `70000`, expected u16 at line 1 column 60",
+  ".ovra/servers.json: servers[0]: port 3128 is where the sandbox reaches its netproxy",
+  ".ovra/servers.json: servers[0]: cwd: path \"../up\" leaves the project",
+  ".ovra/servers.json: servers[0]: env \"A=B\" is not a valid variable",
+  ".ovra/servers.json: servers[0]: ready.http must be a path starting with /",
+  ".ovra/servers.json: servers[1]: another server is named \"web\"",
+  ".ovra/servers.json: servers[1]: another server uses port 5173"
+]

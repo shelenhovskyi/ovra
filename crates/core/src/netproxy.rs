@@ -61,6 +61,7 @@ pub(crate) fn handle(core: &Core, request: NetproxyRequest) -> Result<Response, 
         NetproxyRequest::SetAllowlist { project, allowlist } => {
             let allowlist = normalize(allowlist)?;
             core.sessions().set_allowlist(store, &project, &allowlist)?;
+            crate::servers::allowlist_changed(core, &project, &allowlist);
             core.emit(NetproxyEvent::Changed {
                 project: project.clone(),
             });

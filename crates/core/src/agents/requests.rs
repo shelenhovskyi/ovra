@@ -283,11 +283,13 @@ pub(crate) async fn resume(ctx: &Ctx<'_>, session: SessionId, parts: Parts) -> R
 
 /// What a session may touch in a sandbox. A worker reads its main
 /// repository's git folder, which its worktree's history lives in.
-fn profile(
+/// `forward`: the ports of its work dir's servers (ADR 0008).
+pub(crate) fn profile(
     project: &Project,
     mode: SessionMode,
     cwd: &Path,
     network: ProfileNetwork,
+    forward: Vec<u16>,
 ) -> SandboxProfile {
     SandboxProfile {
         work_dir: cwd.to_path_buf(),
@@ -297,7 +299,7 @@ fn profile(
         },
         write: Vec::new(),
         expose: Vec::new(),
-        forward: Vec::new(),
+        forward,
         network,
     }
 }
@@ -361,7 +363,15 @@ async fn run(
             return Err(err);
         }
     };
-    let sandbox = profile(&target.project, mode, &launch.cwd, network);
+    let core = sessions.core();
+    let forward = match &core {
+        Some(core) => crate::servers::forward(core, &launch.cwd).await,
+        None => Vec::new(),
+    };
+    if let Some(core) = &core {
+        crate::servers::session_started(core, id);
+    }
+    let sandbox = profile(&target.project, mode, &launch.cwd, network, forward);
     let spec = AgentSpec {
         session: id.clone(),
         agent,
