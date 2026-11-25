@@ -120,7 +120,9 @@ spec.
   127.0.0.1 port that any local process can use, and the sandbox user's
   firewall rule does not filter loopback, so other 127.0.0.1 services on
   the machine stay reachable. Name lookups go through the system's
-  resolver service, so DNS is a slow channel out. `~/.claude`'s session
+  resolver service, so DNS is a slow channel out, and SMB, WebDAV and BITS
+  traffic Windows sends from its own services is not the sandbox user's,
+  so the rule does not block it. Reads are not isolated between projects. `~/.claude`'s session
   folders (`todos/`, `plans/`, ...) are the person's own, shared with
   their sessions; `shell-snapshots/` and `session-env/` stay read-only.
   Sessions are sandboxed only after the one-time setup (administrator);

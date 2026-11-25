@@ -1,7 +1,7 @@
 # Windows sandbox (5.A)
 
-Status: proposed, waiting for the owner (it creates a Windows account and
-needs administrator rights once). Builds on `docs/specs/security.md`, whose
+Status: the model below was taken on 2026-11-25 (the owner's standing rule
+for unanswered, reversible questions); question 2 at the end is still open. Builds on `docs/specs/security.md`, whose
 contract (`Sandbox`, profiles, protected paths, environment allowlist,
 private package caches, the netproxy as the only way out) this keeps.
 
@@ -73,32 +73,42 @@ flag that:
 
 Until setup has run, `status()` is `Unavailable` with the reason "set up
 the Windows sandbox (administrator, once)", and sessions run unsandboxed as
-they do today. A removal flag deletes the account, the rule and every ACE
-Ovra added (it keeps a list).
+they do today. Once it has run (the sealed password is in the data folder)
+`status()` is `Available`, and each session checks the rest before it
+starts: the account, every firewall profile on and the rule in the active
+store (what applies after group policy), and that the sandbox user reaches
+neither 1.1.1.1 nor its IPv6 twin. A removal flag deletes the account and
+the rule. The ACEs Ovra added stay, naming a SID nobody holds any more;
+removing them needs the list of granted folders, a follow-up.
 
 **Each session.**
 
 1. `wrap` returns a line that starts Ovra itself with the helper flag
-   (as on Linux) and a plan file in the session's private folder.
+   (as on Linux) and the plan as its arguments.
 2. The helper, as the person, starts a second helper as `OvraSandbox`
    (`CreateProcessWithLogonW`), in a job object that kills everything when
    the session stops.
 3. The second helper makes a write-restricted token: restricting SIDs
    Everyone, its logon SID and the project's own SID (a SID made from the
-   project key, used only in ACEs), privileges removed, default DACL for
-   the logon SID and the project SID. It bridges the netproxy port, then
-   starts `claude` with that token and the kept environment.
+   SHA-256 of the project's folder, used only in ACEs), privileges
+   removed, default DACL for the logon SID and the project SID (the
+   account itself only reads security, so another project's session cannot
+   read this one's memory). It closes its own process, thread and token to
+   the account, so the restricted processes cannot write it or take its
+   unrestricted token, then starts `claude` with that token and the kept
+   environment. The netproxy's 127.0.0.1 port needs no bridge.
 
 Writes then need both the sandbox user's right and the project SID's
 right, so one project's agents cannot write another project's folders even
 though all of them run as `OvraSandbox`.
 
-**Files.** Grants are ACEs for `OvraSandbox` and the project SID. They are
-added the first time a project starts a session (with progress, since
-NTFS writes the inherited ACE into every file) and kept: a later session
-starts at once, and files the person creates later inherit them. Applying
-ACEs never follows junctions or links (the spike's `icacls /T` followed a
-junction to `C:\Users`).
+**Files.** Grants are ACEs for `OvraSandbox` and the project SID, kept
+after the session, so files the person creates later inherit them. For
+now every session applies them again, which rewrites the whole tree;
+applying them once per project (with progress) is a follow-up. Applying
+ACEs must never follow junctions or links (the spike's `icacls /T`
+followed a junction to `C:\Users`); a Windows test plants a junction in
+the project and checks that its target stays unwritable.
 
 | What                                                       | Right                          |
 | ---------------------------------------------------------- | ------------------------------ |
@@ -123,8 +133,9 @@ the person only. System folders stay readable, as for every user.
 - **`~/.claude` session folders**: Windows has no per-session view of a
   folder. `claude` writes `todos/`, `shell-snapshots/` and the like
   directly in the person's `~/.claude`, which their own sessions read.
-  `shell-snapshots/` and `session-env/` (sourced later) get a deny-write
-  ACE; if `claude` cannot run without them, this becomes a known limit.
+  `shell-snapshots/` and `session-env/` (sourced later) are not granted,
+  so they stay read-only; if `claude` cannot run without them, this
+  becomes a known limit.
 - **Package caches**: no bind mounts, so variables point the tools at the
   project's copy: `CARGO_HOME` (registry and git only; `cargo` itself is
   found on `PATH`), `npm_config_cache`, `PIP_CACHE_DIR`,
@@ -134,8 +145,21 @@ the person only. System folders stay readable, as for every user.
 `HTTPS_PROXY` point at it, `NO_PROXY` is cleared, `NODE_USE_ENV_PROXY=1`.
 Known gaps, recorded in `tests/security/README.md`: other 127.0.0.1
 services stay reachable, and DNS lookups still leave the machine through
-the system resolver (a slow channel for data). Closing loopback needs WFP
-filters for the sandbox user, a follow-up.
+the system resolver (a slow channel for data). The rule also matches only
+the sandbox user's own sockets, so traffic Windows sends for it from its
+own services leaves too: SMB to `\\host\share` (the kernel's redirector),
+WebDAV (`\\host@SSL\x`, the WebClient service) and BITS transfers.
+Closing these needs WFP filters for the sandbox user (and stopping
+WebClient and BITS for it), a follow-up.
+
+**What is not isolated.** Reads are not restricted by the token, so a
+session reads every project, cache and temp folder ever granted to the
+sandbox user, unlike Linux. Processes started through WMI, the Task
+Scheduler or COM servers run outside the job and can outlive the session;
+ending the sandbox user's processes of a logon session when it ends is a
+follow-up. `CreateProcessWithLogonW` takes at most 1024 characters of
+command line: `claude`'s own arguments pass through it, so a very long
+argument fails the session (it never runs unsandboxed).
 
 **Environment.** `ENV_KEPT` as on Linux, plus `SystemRoot`, `windir`,
 `ComSpec`, `PATHEXT`, `USERPROFILE`, `HOMEDRIVE`, `HOMEPATH`, `APPDATA`,
@@ -149,9 +173,11 @@ stays the person's, so `claude` finds its login.
 data built from paths, compiled and unit-tested on every OS; the Win32
 calls (`windows-sys`) are `cfg(windows)`.
 
-**Tests.** Plan snapshots on every OS. On the Windows CI job (an
-administrator, so setup can run): the setup, the helper chain, and the
-4.F attacks against a fake agent.
+**Tests.** Plan snapshots on every OS. On the Windows CI job: the token
+and ACEs around a probe program (`tests/sandbox.rs`), and, as an
+administrator, the setup, a session as the sandbox user and the removal
+(`tests/setup.rs`, ignored unless asked for). The 4.F attacks need a
+Windows port of their fake agent.
 
 ## Questions for the owner
 
@@ -159,5 +185,7 @@ administrator, so setup can run): the setup, the helper chain, and the
    UAC prompt), or no administrator at all: a write-restricted token only,
    which reports the network as `Open`, leaves the home folder and
    Credential Manager readable, and so only stops writes.
-2. Whether DNS and other 127.0.0.1 services being reachable is acceptable
-   for a first version.
+2. Whether these ways out are acceptable for a first version, until WFP
+   filters close them: DNS through the system resolver, other 127.0.0.1
+   services, and SMB, WebDAV and BITS, which Windows sends from its own
+   services. Reads across projects are a second known limit.

@@ -241,9 +241,6 @@ fn hide(on: bool) -> std::io::Result<()> {
 /// Adds (after removing any old one) or removes the rule that blocks all
 /// outbound traffic of the sandbox user, through Windows' own PowerShell.
 fn firewall(on: bool) -> std::io::Result<()> {
-    let root = std::env::var_os("SystemRoot").unwrap_or_else(|| r"C:\Windows".into());
-    let powershell: PathBuf =
-        Path::new(&root).join(r"System32\WindowsPowerShell\v1.0\powershell.exe");
     let mut script = format!(
         "$ErrorActionPreference='Stop'; Get-NetFirewallRule -DisplayName '{RULE}' -ErrorAction SilentlyContinue | Remove-NetFirewallRule;"
     );
@@ -253,9 +250,7 @@ fn firewall(on: bool) -> std::io::Result<()> {
              New-NetFirewallRule -DisplayName '{RULE}' -Direction Outbound -Action Block -Profile Any -LocalUser \"O:LSD:(A;;CC;;;$sid)\" | Out-Null"
         ));
     }
-    let out = Command::new(powershell)
-        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
-        .output()?;
+    let out = powershell(&script)?;
     if !out.status.success() {
         return Err(std::io::Error::other(format!(
             "changing the firewall rule: {}",
@@ -263,6 +258,42 @@ fn firewall(on: bool) -> std::io::Result<()> {
         )));
     }
     Ok(())
+}
+
+/// Checks that the firewall enforces the rule now: every profile on, and
+/// the rule in the active store, which is what Windows applies after
+/// group policy merged (or dropped) local rules. The middle stage's
+/// connection test is the second check.
+pub(crate) fn firewall_holds() -> std::io::Result<()> {
+    let script = format!(
+        "$ErrorActionPreference='Stop'; \
+         $off = @(Get-NetFirewallProfile -PolicyStore ActiveStore | Where-Object {{ $_.Enabled -ne 'True' }}).Count; \
+         $rule = @(Get-NetFirewallRule -PolicyStore ActiveStore -DisplayName '{RULE}' -ErrorAction SilentlyContinue | \
+           Where-Object {{ $_.Enabled -eq 'True' -and $_.Action -eq 'Block' -and $_.Direction -eq 'Outbound' }}).Count; \
+         if ($off -ne 0) {{ 'a firewall profile is off' }} elseif ($rule -ne 1) {{ 'the rule is not applied' }} else {{ 'ok' }}"
+    );
+    let out = powershell(&script)?;
+    let said = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if out.status.success() && said == "ok" {
+        return Ok(());
+    }
+    Err(std::io::Error::other(format!(
+        "the Windows firewall does not block the sandbox user ({}). Set the Windows sandbox up again",
+        if said.is_empty() {
+            String::from_utf8_lossy(&out.stderr).trim().to_string()
+        } else {
+            said
+        }
+    )))
+}
+
+/// Runs `script` in Windows' own PowerShell.
+fn powershell(script: &str) -> std::io::Result<std::process::Output> {
+    let root = std::env::var_os("SystemRoot").unwrap_or_else(|| r"C:\Windows".into());
+    let program: PathBuf = Path::new(&root).join(r"System32\WindowsPowerShell\v1.0\powershell.exe");
+    Command::new(program)
+        .args(["-NoProfile", "-NonInteractive", "-Command", script])
+        .output()
 }
 
 /// Seals (`protect`) or opens bytes with DPAPI for the current account.

@@ -28,9 +28,9 @@ pub(crate) const SETUP_FLAG: &str = "--ovra-sandbox-setup";
 /// Removes the sandbox user and its firewall rule (elevated).
 pub(crate) const REMOVE_FLAG: &str = "--ovra-sandbox-remove";
 
-/// A public address the sandbox user must not reach: if it can, the
-/// firewall rule is gone and the session must not start.
-const OUTSIDE: ([u8; 4], u16) = ([1, 1, 1, 1], 443);
+/// Public addresses, IPv4 and IPv6, the sandbox user must not reach: if
+/// it can, the firewall rule does not hold and the session must not start.
+const OUTSIDE: [&str; 2] = ["1.1.1.1:443", "[2606:4700:4700::1111]:443"];
 
 /// The helper's arguments, as `Plan::line` writes them.
 #[derive(Debug, Default)]
@@ -149,6 +149,7 @@ fn outer(args: &Args) -> Result<u32, String> {
         Some(data) => {
             let password = setup::password(data)
                 .map_err(|e| format!("the Windows sandbox is not set up: {e}"))?;
+            setup::firewall_holds().map_err(io)?;
             logon::run_as(setup::USER, &password, &me, &next, &env, &cwd).map_err(io)
         }
         None => {
@@ -163,10 +164,14 @@ fn outer(args: &Args) -> Result<u32, String> {
 /// As the sandbox user: checks the firewall rule, then starts the last
 /// stage under the session's token.
 fn middle(args: &Args) -> Result<u32, String> {
-    let outside = std::net::SocketAddr::from(OUTSIDE);
-    if std::net::TcpStream::connect_timeout(&outside, std::time::Duration::from_millis(1500))
-        .is_ok()
-    {
+    let reached = OUTSIDE
+        .iter()
+        .filter_map(|a| a.parse().ok())
+        .any(|address| {
+            std::net::TcpStream::connect_timeout(&address, std::time::Duration::from_millis(1500))
+                .is_ok()
+        });
+    if reached {
         return Err("the sandbox user reaches the internet: its firewall rule is missing. Set the Windows sandbox up again".into());
     }
     let token = token::restricted(&args.sid).map_err(io)?;
