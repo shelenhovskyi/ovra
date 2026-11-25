@@ -281,6 +281,23 @@ async fn open_asks_the_sink_and_a_refused_origin_is_blocked() {
 }
 
 #[tokio::test]
+async fn the_person_is_asked_about_the_origin_that_loads() {
+    let s = setup();
+    let page = s.open("s1", "http://localhost:5173/").await.expect("open");
+    s.sink.take();
+    let url = PageAction::Navigate {
+        url: "http://localhost:5173@Evil.example:80/".into(),
+    };
+    s.browser.act(&page.id, url).await.expect("navigate");
+    assert_eq!(s.sink.take()[0], "ask pg1 http://evil.example");
+    let refused = PageAction::Navigate {
+        url: "http://localhost:99999/".into(),
+    };
+    let code = s.browser.act(&page.id, refused).await.err().map(|e| e.code);
+    assert_eq!(code, Some(ErrorCode::BadRequest));
+}
+
+#[tokio::test]
 async fn snapshots_give_refs_that_clicks_and_typing_use() {
     let s = setup();
     let page = s

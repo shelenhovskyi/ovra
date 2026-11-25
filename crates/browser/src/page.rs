@@ -15,6 +15,7 @@ use tokio::time::Instant;
 use crate::cdp::{Cdp, Event};
 use crate::input;
 use crate::logs::Logs;
+use crate::origin::origin;
 use crate::snapshot::{self, Refs};
 
 mod element;
@@ -41,15 +42,6 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 
 fn error(code: ErrorCode, message: impl Into<String>) -> ProtocolError {
     ProtocolError::new(code, message)
-}
-
-/// `scheme://host[:port]` of a URL.
-pub(crate) fn origin(url: &str) -> String {
-    let start = url.find("://").map_or(0, |i| i + 3);
-    let end = url[start..]
-        .find(['/', '?', '#'])
-        .map_or(url.len(), |i| start + i);
-    url[..end].to_owned()
 }
 
 #[derive(Debug, Default)]
@@ -166,7 +158,12 @@ impl Page {
                     .unwrap_or_default()
                     .to_owned();
                 tokio::spawn(async move {
-                    if sink.navigation(&page.id, origin(&url)).await {
+                    // What is not http or https is never asked about.
+                    let allowed = match origin(&url) {
+                        Some(origin) => sink.navigation(&page.id, origin).await,
+                        None => false,
+                    };
+                    if allowed {
                         page.send("Fetch.continueRequest", json!({ "requestId": request }));
                     } else {
                         let failed =
@@ -267,13 +264,16 @@ impl Page {
     }
 
     pub(crate) async fn navigate(&self, url: &str) -> Result<()> {
-        let scheme = url.split_once("://").map(|(s, _)| s.to_ascii_lowercase());
-        if !matches!(scheme.as_deref(), Some("http" | "https")) && url != "about:blank" {
-            return Err(error(
-                ErrorCode::BadRequest,
-                "the agent browser opens only http and https URLs",
-            ));
-        }
+        let shown = match origin(url) {
+            Some(origin) => origin,
+            None if url == "about:blank" => url.to_owned(),
+            None => {
+                return Err(error(
+                    ErrorCode::BadRequest,
+                    "the agent browser opens only http and https URLs",
+                ));
+            }
+        };
         let before = *self.loads.borrow();
         let answer = self
             .cdp
@@ -288,7 +288,7 @@ impl Page {
             Some("net::ERR_BLOCKED_BY_CLIENT") => {
                 return Err(error(
                     ErrorCode::Forbidden,
-                    format!("{} was not allowed", origin(url)),
+                    format!("{shown} was not allowed"),
                 ));
             }
             Some(text) if !text.is_empty() => {

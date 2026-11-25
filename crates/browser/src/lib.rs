@@ -23,6 +23,7 @@ mod cdp;
 mod input;
 mod launch;
 mod logs;
+mod origin;
 mod page;
 mod pick;
 mod session;
