@@ -20,6 +20,9 @@ use crate::protocol::agents::{
 };
 use crate::protocol::audit::{AuditEntry, AuditEvent};
 use crate::protocol::fs::{DirListing, FileContent, FileList};
+use crate::protocol::git::{
+    Blame, BranchInfo, CommitInfo, Committed, FileDiff, GitFileText, GitRev, Hunk, RepoStatus,
+};
 use crate::protocol::netproxy::{Allowlist, NetproxyEvent};
 use crate::protocol::policy::Policy;
 use crate::protocol::projects::{Project, ProjectId, ProjectState, ProjectStatePatch};
@@ -674,6 +677,45 @@ pub struct Taken {
     pub skipped: Vec<String>,
 }
 
+/// The git panel's operations on a project's main checkout (implemented by
+/// `ovra-worktree`, `docs/specs/git-panel.md`). `root` is the project root,
+/// absolute; paths are relative to it and already validated. Every call
+/// runs the git command line with the person's config, but never a file
+/// monitor, an external diff or textconv driver, or a terminal prompt.
+pub trait GitService: Send + Sync + Debug {
+    /// `None` when `root` is not in a git repository.
+    fn status(&self, root: PathBuf) -> BoxFuture<'_, Result<Option<RepoStatus>>>;
+    fn stage(&self, root: PathBuf, paths: Vec<RelPath>) -> BoxFuture<'_, Result<()>>;
+    fn unstage(&self, root: PathBuf, paths: Vec<RelPath>) -> BoxFuture<'_, Result<()>>;
+    /// Applies `hunk` (from [`GitService::diff`] of `path`) to the index,
+    /// or with `unstage` takes it out; `Conflict` when it no longer applies.
+    fn stage_hunk(
+        &self,
+        root: PathBuf,
+        path: RelPath,
+        hunk: Hunk,
+        unstage: bool,
+    ) -> BoxFuture<'_, Result<()>>;
+    /// Unstaged changes of `paths` back to the index version; untracked
+    /// files deleted. The core snapshots the working tree first.
+    fn discard(&self, root: PathBuf, paths: Vec<RelPath>) -> BoxFuture<'_, Result<()>>;
+    fn commit(
+        &self,
+        root: PathBuf,
+        message: String,
+        amend: bool,
+    ) -> BoxFuture<'_, Result<Committed>>;
+    fn branches(&self, root: PathBuf) -> BoxFuture<'_, Result<Vec<BranchInfo>>>;
+    fn switch(&self, root: PathBuf, branch: String) -> BoxFuture<'_, Result<()>>;
+    fn create_branch(&self, root: PathBuf, name: String, switch: bool)
+    -> BoxFuture<'_, Result<()>>;
+    fn diff(&self, root: PathBuf, path: RelPath, staged: bool) -> BoxFuture<'_, Result<FileDiff>>;
+    fn show(&self, root: PathBuf, path: RelPath, rev: GitRev)
+    -> BoxFuture<'_, Result<GitFileText>>;
+    fn blame(&self, root: PathBuf, path: RelPath) -> BoxFuture<'_, Result<Blame>>;
+    fn log(&self, root: PathBuf, limit: u32) -> BoxFuture<'_, Result<Vec<CommitInfo>>>;
+}
+
 /// Placeholder for services a front end has not wired in.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Unavailable(pub(crate) &'static str);
@@ -684,6 +726,55 @@ impl Unavailable {
             ErrorCode::Unavailable,
             format!("{} is not available in this build", self.0),
         ))
+    }
+}
+
+impl Unavailable {
+    fn later<T: Send + 'static>(&self) -> BoxFuture<'static, Result<T>> {
+        let result = self.err();
+        Box::pin(async move { result })
+    }
+}
+
+impl GitService for Unavailable {
+    fn status(&self, _: PathBuf) -> BoxFuture<'_, Result<Option<RepoStatus>>> {
+        self.later()
+    }
+    fn stage(&self, _: PathBuf, _: Vec<RelPath>) -> BoxFuture<'_, Result<()>> {
+        self.later()
+    }
+    fn unstage(&self, _: PathBuf, _: Vec<RelPath>) -> BoxFuture<'_, Result<()>> {
+        self.later()
+    }
+    fn stage_hunk(&self, _: PathBuf, _: RelPath, _: Hunk, _: bool) -> BoxFuture<'_, Result<()>> {
+        self.later()
+    }
+    fn discard(&self, _: PathBuf, _: Vec<RelPath>) -> BoxFuture<'_, Result<()>> {
+        self.later()
+    }
+    fn commit(&self, _: PathBuf, _: String, _: bool) -> BoxFuture<'_, Result<Committed>> {
+        self.later()
+    }
+    fn branches(&self, _: PathBuf) -> BoxFuture<'_, Result<Vec<BranchInfo>>> {
+        self.later()
+    }
+    fn switch(&self, _: PathBuf, _: String) -> BoxFuture<'_, Result<()>> {
+        self.later()
+    }
+    fn create_branch(&self, _: PathBuf, _: String, _: bool) -> BoxFuture<'_, Result<()>> {
+        self.later()
+    }
+    fn diff(&self, _: PathBuf, _: RelPath, _: bool) -> BoxFuture<'_, Result<FileDiff>> {
+        self.later()
+    }
+    fn show(&self, _: PathBuf, _: RelPath, _: GitRev) -> BoxFuture<'_, Result<GitFileText>> {
+        self.later()
+    }
+    fn blame(&self, _: PathBuf, _: RelPath) -> BoxFuture<'_, Result<Blame>> {
+        self.later()
+    }
+    fn log(&self, _: PathBuf, _: u32) -> BoxFuture<'_, Result<Vec<CommitInfo>>> {
+        self.later()
     }
 }
 

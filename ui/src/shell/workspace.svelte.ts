@@ -6,7 +6,7 @@ import type { Project } from "../lib/protocol";
 export type MainMode = "view" | "edit";
 
 /** What the left sidebar shows. */
-export type SidebarView = "files" | "search";
+export type SidebarView = "files" | "search" | "git";
 
 /** A place in a file to show and select: `from` and `to` are UTF-16 offsets in line `line` (from 1). */
 export type TextSpot = { line: number; from: number; to: number };

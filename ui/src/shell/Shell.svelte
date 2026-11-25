@@ -6,6 +6,7 @@ import AuditLog from "../audit/AuditLog.svelte";
 import Editor from "../editor/Editor.svelte";
 import { persistOpenFiles } from "../editor/open-files.svelte";
 import Tabs from "../editor/Tabs.svelte";
+import Git from "../git/Git.svelte";
 import Inbox from "../inbox/Inbox.svelte";
 import Keybindings from "../keys/Keybindings.svelte";
 import type { CoreInfo } from "../lib/protocol";
@@ -106,10 +107,16 @@ const status = $derived.by((): { text: string; ok: boolean } => {
           aria-pressed={workspace.sidebar === "search"}
           onclick={() => (workspace.sidebar = "search")}>Search</button
         >
+        <button
+          type="button"
+          aria-pressed={workspace.sidebar === "git"}
+          onclick={() => (workspace.sidebar = "git")}>Git</button
+        >
       </div>
     {/if}
     <div class="sidebar-view" hidden={!!workspace.project && workspace.sidebar !== "files"}><Tree /></div>
     <div class="sidebar-view" hidden={!workspace.project || workspace.sidebar !== "search"}><Search /></div>
+    <div class="sidebar-view" hidden={!workspace.project || workspace.sidebar !== "git"}><Git /></div>
   </aside>
   <main data-testid="main">
     <Tabs />

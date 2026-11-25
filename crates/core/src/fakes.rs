@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+mod git;
 mod worktrees;
 
 /// An absolute path for tests on every OS, as a `&'static str`: the Unix
@@ -22,6 +23,7 @@ macro_rules! test_path {
     };
 }
 
+pub use git::MemoryGit;
 pub use worktrees::MemoryWorktrees;
 
 use crate::path::RelPath;
