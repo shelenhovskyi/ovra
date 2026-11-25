@@ -31,12 +31,12 @@ starts only from a press, ADR 0006).
 The ✨ button sits at the end of the branch row, the panel's first row. Its
 menu shows only the items that apply right now:
 
-| Item                    | Shown when                         | Result in the panel                                 |
-| ----------------------- | ---------------------------------- | --------------------------------------------------- |
-| Suggest commits         | there are changes                  | a proposal card: commits, files, messages           |
-| Write commit message    | something is staged                | the message box is filled; nothing else changes     |
-| Summarize what's new    | HEAD moved by a pull, merge or rebase (`ORIG_HEAD`) | a short summary card                |
-| Explain conflicts       | there are conflicted files         | a short explanation card                            |
+| Item                 | Shown when                                          | Result in the panel                             |
+| -------------------- | --------------------------------------------------- | ----------------------------------------------- |
+| Suggest commits      | there are changes                                   | a proposal card: commits, files, messages       |
+| Write commit message | something is staged                                 | the message box is filled; nothing else changes |
+| Summarize what's new | HEAD moved by a pull, merge or rebase (`ORIG_HEAD`) | a short summary card                            |
+| Explain conflicts    | there are conflicted files                          | a short explanation card                        |
 
 Each is also a palette command ("Git: suggest commits", ...).
 
@@ -105,8 +105,8 @@ no `ORIG_HEAD`. Implemented in `GitRepo` with `git log` and
 
 ## Steps
 
-| Step | Area                                   | What                                       |
-| ---- | -------------------------------------- | ------------------------------------------ |
-| GA.0 | protocol, `services.rs`, `crates/worktree` | `git.pulled`, fake, real, tests        |
-| GA.A | `ui/src/git`                           | ✨ menu, prompts, answer parsing, cards    |
-| GA.B | `tests/e2e`, UX round                  | fake-agent e2e for each action, `just ux`  |
+| Step | Area                                       | What                                      |
+| ---- | ------------------------------------------ | ----------------------------------------- |
+| GA.0 | protocol, `services.rs`, `crates/worktree` | `git.pulled`, fake, real, tests           |
+| GA.A | `ui/src/git`                               | ✨ menu, prompts, answer parsing, cards   |
+| GA.B | `tests/e2e`, UX round                      | fake-agent e2e for each action, `just ux` |
