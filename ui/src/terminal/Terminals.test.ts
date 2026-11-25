@@ -78,7 +78,7 @@ afterEach(() => {
 });
 
 const settle = async () => {
-  await new Promise((resolve) => setTimeout(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
   flushSync();
 };
 

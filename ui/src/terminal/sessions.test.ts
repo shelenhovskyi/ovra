@@ -29,7 +29,7 @@ function setup() {
 }
 
 /** Lets queued promise callbacks run. */
-const settle = () => new Promise((resolve) => setTimeout(resolve));
+const settle = () => new Promise((resolve) => setImmediate(resolve));
 
 describe("TerminalSessions", () => {
   it("opens a shell at the measured size and echoes input through the sink", async () => {
