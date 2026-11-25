@@ -8,6 +8,15 @@
 //! and a seccomp filter, bridges the netproxy socket to a local port, and
 //! then runs `claude`. Contract: `ovra_core::services::Sandbox`;
 //! `ovra-sandbox` picks it.
+//!
+//! [`Bubblewrap::wrap_server`](Sandbox::wrap_server) does the same for a
+//! language server (ADR 0007) from the same parts, without the agent's
+//! state: no `~/.claude`, always a new, empty network namespace, the
+//! project read-only and its working folder, the server's cache folder
+//! (in Ovra's data folder, bound back after hiding it) the only writable
+//! folder besides private temporary ones, the user's package caches
+//! read-only where they are, and a shorter environment allowlist without
+//! the Claude and cloud-provider names.
 
 #![cfg(target_os = "linux")]
 
@@ -17,7 +26,9 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use ovra_core::protocol::{ErrorCode, ProtocolError};
-use ovra_core::services::{CommandLine, Result, Sandbox, SandboxProfile, SandboxStatus};
+use ovra_core::services::{
+    CommandLine, Result, Sandbox, SandboxProfile, SandboxStatus, ServerProfile,
+};
 
 mod helper;
 mod plan;
@@ -220,13 +231,28 @@ impl Sandbox for Bubblewrap {
     }
 
     fn wrap(&self, profile: &SandboxProfile, line: CommandLine) -> Result<CommandLine> {
-        if !matches!(self.status, SandboxStatus::Available { .. }) {
-            return Err(ProtocolError::new(
-                ErrorCode::Unavailable,
-                "the sandbox is not available",
-            ));
+        self.available()?;
+        self.line(&plan::Plan::new(&self.setup, profile)?, line)
+    }
+
+    fn wrap_server(&self, profile: &ServerProfile, line: CommandLine) -> Result<CommandLine> {
+        self.available()?;
+        self.line(&plan::Plan::server(&self.setup, profile)?, line)
+    }
+}
+
+impl Bubblewrap {
+    fn available(&self) -> Result<()> {
+        if matches!(self.status, SandboxStatus::Available { .. }) {
+            return Ok(());
         }
-        let plan = plan::Plan::new(&self.setup, profile)?;
+        Err(ProtocolError::new(
+            ErrorCode::Unavailable,
+            "the sandbox is not available",
+        ))
+    }
+
+    fn line(&self, plan: &plan::Plan, line: CommandLine) -> Result<CommandLine> {
         let landlock = if self.landlock {
             Landlock::Require
         } else {
@@ -253,4 +279,49 @@ fn outer_env() -> Vec<OsString> {
 
 fn os(s: impl AsRef<OsStr>) -> OsString {
     s.as_ref().to_os_string()
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+
+    use ovra_core::services::ProfileNetwork;
+
+    use super::*;
+
+    #[test]
+    fn an_unavailable_sandbox_wraps_no_server_either() {
+        let setup = Setup {
+            helper: "/nowhere/ovra".into(),
+            home: "/nowhere/home".into(),
+            path: "/usr/bin".into(),
+            toolchains: Vec::new(),
+            hidden: Vec::new(),
+            caches: "/nowhere/caches".into(),
+            protected: Protected { work_dir: &[] },
+        };
+        let sandbox = Bubblewrap::unavailable(setup, "no bubblewrap");
+        let line = CommandLine {
+            program: "/bin/true".into(),
+            args: Vec::new(),
+            env: Vec::new(),
+            cwd: "/".into(),
+        };
+        let agent = SandboxProfile {
+            work_dir: "/".into(),
+            read: Vec::new(),
+            write: Vec::new(),
+            network: ProfileNetwork::Blocked,
+        };
+        let server = ServerProfile {
+            project: "/".into(),
+            cache_dir: "/".into(),
+            read: Vec::new(),
+            network: ProfileNetwork::Blocked,
+        };
+        let wrap = sandbox.wrap(&agent, line.clone()).unwrap_err();
+        let wrap_server = sandbox.wrap_server(&server, line).unwrap_err();
+        assert_eq!(wrap_server.code, ErrorCode::Unavailable);
+        assert_eq!(wrap_server, wrap);
+    }
 }

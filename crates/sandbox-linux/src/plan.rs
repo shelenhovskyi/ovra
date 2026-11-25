@@ -15,6 +15,8 @@ use crate::helper::Landlock;
 use crate::helper::OUTER_FLAG;
 use crate::{HELPER_FLAG, Setup, invalid, os};
 
+mod server;
+
 /// The protected paths of `ovra-sandbox`, handed over by it (it depends on
 /// this crate, not the other way round).
 #[derive(Debug, Clone, Copy)]
@@ -214,6 +216,9 @@ pub(crate) struct Plan {
 enum Kind {
     /// An agent session: [`ENV_KEPT`], and the working folder its line names.
     Agent,
+    /// A language server: [`server::SERVER_ENV_KEPT`], the line's own
+    /// variables over the plan's, and the project as its working folder.
+    Server { project: PathBuf },
 }
 
 impl Plan {
@@ -575,6 +580,7 @@ impl Plan {
         let helper = real(helper)?;
         let cwd = match &self.kind {
             Kind::Agent => real(&line.cwd)?,
+            Kind::Server { project } => project.clone(),
         };
         let mut args: Vec<OsString> = [
             "--unshare-user",
@@ -625,7 +631,12 @@ impl Plan {
         for path in &self.writable {
             args.extend([os("--rw"), os(path)]);
         }
-        let mut env = line.env;
+        // A server's line points its caches and temporary files into its
+        // cache folder: its variables come last, so they win.
+        let (mut env, last) = match self.kind {
+            Kind::Agent => (line.env, Vec::new()),
+            Kind::Server { .. } => (Vec::new(), line.env),
+        };
         if let ProfileNetwork::Proxy { address, ca_bundle } = &self.network {
             args.extend([os("--bridge"), os(real(Path::new(address))?)]);
             args.push(os(PROXY_PORT.to_string()));
@@ -650,6 +661,7 @@ impl Plan {
         }
         env.push((os("PATH"), Some(self.path.clone())));
         env.push((os("TMPDIR"), Some(os("/tmp"))));
+        env.extend(last);
         let names = self.env_kept();
         allowlist(outer_env, names, &mut env);
         // The helper keeps only these: the plan removes the rest, and
@@ -692,6 +704,7 @@ impl Plan {
     fn env_kept(&self) -> &'static [&'static str] {
         match self.kind {
             Kind::Agent => &ENV_KEPT,
+            Kind::Server { .. } => &server::SERVER_ENV_KEPT,
         }
     }
 

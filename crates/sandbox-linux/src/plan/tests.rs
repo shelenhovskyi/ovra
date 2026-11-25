@@ -339,3 +339,5 @@ fn hidden_folders_inside_each_other_are_hidden_once() {
     );
     assert!(line.is_ok(), "{:?}", line.err());
 }
+
+mod server;
