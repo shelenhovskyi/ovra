@@ -139,7 +139,7 @@ impl World {
         SandboxProfile {
             kind: ovra_core::services::ProfileKind::Agent,
             claude_dir: None,
-            project: None,
+            project: Some(ProjectId("p1".into())),
             work_env: None,
             work_dir: self.project.clone(),
             work_dir_read_only: false,
@@ -454,10 +454,10 @@ fn a_hostile_repository_cannot_widen_what_later_runs_outside_the_sandbox() {
             path.replace(&key, "<project>")
         })
         .collect();
-    // The poisoned cache is the project's private one. The empty folders
-    // (`.idea`, `.ovra`, other agents' `.codex`, `.gemini`, ...) and files
-    // (`CLAUDE.local.md`, `AGENTS.md`) planning made are gone with the
-    // record's entries.
+    // The poisoned cache is the project's private one (`p-` and a hash of
+    // its id). The empty folders (`.idea`, `.ovra`, other agents' `.codex`,
+    // `.gemini`, ...) and files (`CLAUDE.local.md`, `AGENTS.md`,
+    // `.worktreeinclude`) planning made are gone with the record's entries.
     insta::assert_debug_snapshot!("changed_on_the_host", changed);
     // The control: without the sandbox every attack works.
     let control = outside(project, &script, &[]);
@@ -467,7 +467,8 @@ fn a_hostile_repository_cannot_widen_what_later_runs_outside_the_sandbox() {
 /// A protected file that does not exist yet is made empty and read-only
 /// for the session, and gone again once the session is over: the agent
 /// cannot leave instructions, MCP servers or a `direnv` script for the
-/// user's own tools to load later.
+/// user's own tools to load later, nor a `.worktreeinclude` that copies
+/// the main checkout's `.env` into its next worker.
 #[test]
 fn missing_protected_files_cannot_be_created() {
     let world = World::new("missing");
@@ -483,6 +484,8 @@ fn missing_protected_files_cannot_be_created() {
         add .envrc: echo x > .envrc
         replace CLAUDE.md: echo x > c && mv c CLAUDE.md
         link .envrc elsewhere: rm -f .envrc && ln -s /tmp/x .envrc
+        list .env for the next worktree: echo .env > .worktreeinclude
+        replace .worktreeinclude: echo .env > w && mv w .worktreeinclude
         add CLAUDE.md in a new folder: mkdir docs && echo x > docs/CLAUDE.md";
     let script = attacks(checks);
     let out = run(

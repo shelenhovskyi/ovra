@@ -3,9 +3,9 @@ source: tests/security/tests/attacks.rs
 expression: changed
 ---
 [
-    "data/sandbox-caches/<project>/-cargo-registry/src",
-    "data/sandbox-caches/<project>/-cargo-registry/src/evil",
-    "data/sandbox-caches/<project>/-cargo-registry/src/evil/build.rs",
+    "data/sandbox-caches/p-f5f849dca255a577b897e3534bd4462d/-cargo-registry/src",
+    "data/sandbox-caches/p-f5f849dca255a577b897e3534bd4462d/-cargo-registry/src/evil",
+    "data/sandbox-caches/p-f5f849dca255a577b897e3534bd4462d/-cargo-registry/src/evil/build.rs",
     "data/sandbox-made/<project>",
     "project/new.txt",
     "data/sandbox-made/<project>",
@@ -15,6 +15,7 @@ expression: changed
     "project/.idea",
     "project/.opencode",
     "project/.ovra",
+    "project/.worktreeinclude",
     "project/.zed",
     "project/AGENTS.md",
     "project/CLAUDE.local.md",

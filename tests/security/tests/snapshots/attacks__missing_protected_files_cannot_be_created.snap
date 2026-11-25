@@ -9,4 +9,6 @@ add a project MCP server: no
 add .envrc: no
 replace CLAUDE.md: no
 link .envrc elsewhere: no
+list .env for the next worktree: no
+replace .worktreeinclude: no
 add CLAUDE.md in a new folder: yes

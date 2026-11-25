@@ -8,8 +8,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use ovra_core::protocol::projects::ProjectId;
 use ovra_core::protocol::{ErrorCode, ProtocolError};
-use ovra_core::services::{CommandLine, ProfileKind, ProfileNetwork, Result, SandboxProfile};
+use ovra_core::services::{
+    CommandLine, ProfileKind, ProfileNetwork, Result, SandboxProfile, WorkEnv,
+};
+use sha2::{Digest as _, Sha256};
 
 use crate::helper::Landlock;
 use crate::helper::OUTER_FLAG;
@@ -133,16 +137,19 @@ const FOLDERS_MADE: [&str; 10] = [
 
 /// Protected files made empty at the top of the session's folder when
 /// missing, for the same reason: agent instructions, MCP servers and
-/// `direnv` scripts the user's own tools would load later. Empty files show
+/// `direnv` scripts the user's own tools would load later, and the list of
+/// ignored files Ovra copies into the project's next worktrees
+/// (`.worktreeinclude`). Empty files show
 /// in git status, so whoever made them (agents and pods alike) removes
 /// them again once the last sandbox of the work dir has ended, if they are
 /// still empty. One in a folder below stays to the review.
-const FILES_MADE: [&str; 5] = [
+const FILES_MADE: [&str; 6] = [
     "CLAUDE.md",
     "CLAUDE.local.md",
     "AGENTS.md",
     ".mcp.json",
     ".envrc",
+    ".worktreeinclude",
 ];
 
 /// Which of [`FILES_MADE`] the protected list names at the top of the
@@ -156,9 +163,10 @@ fn files_made(protected: &[&str]) -> impl Iterator<Item = &'static str> {
 }
 
 /// Package caches builds write, relative to the home folder. Each session
-/// gets its project's own copy (empty at first), bound where the cache is
-/// if that cache or its parent exists: one shared with the user's own
-/// builds would let an agent plant a package they later run.
+/// gets its project's own copy (empty at first), shared by all the
+/// project's work dirs ([`cache_key`]), bound where the cache is if that
+/// cache or its parent exists: one shared with the user's own builds would
+/// let an agent plant a package they later run.
 const CACHES: [&str; 5] = [
     ".cargo/registry",
     ".cargo/git",
@@ -257,6 +265,8 @@ pub(crate) struct Plan {
     /// at this path, which the sandbox shows even when the one it was given
     /// goes through a link in the hidden home folder.
     claude_dir: Option<PathBuf>,
+    /// The work dir's variables, set on the sandbox's own line.
+    work_env: Option<WorkEnv>,
 }
 
 /// Who the sandbox is for.
@@ -324,6 +334,7 @@ impl Plan {
             temporary: Vec::new(),
             record: None,
             claude_dir: own.clone(),
+            work_env: profile.work_env.clone(),
             kind: match profile.kind {
                 ProfileKind::Agent => Kind::Agent,
                 ProfileKind::Pod => Kind::Pod,
@@ -340,7 +351,8 @@ impl Plan {
                     .filter_map(|p| real(p).ok()),
             )
             .collect();
-        plan.home_back(setup, &home, &work_dir, &shown, own.as_deref());
+        let caches = cache_key(profile.project.as_ref(), &work_dir);
+        plan.home_back(setup, (&home, &work_dir), &caches, &shown, own.as_deref());
         for read in &profile.read {
             if let Ok(read) = real(read) {
                 plan.mounts.push(Mount::Ro(read));
@@ -478,12 +490,13 @@ impl Plan {
     }
 
     /// What `claude`, git and the toolchains need from the home folder.
+    /// `caches`: the folder of the project's package caches ([`cache_key`]).
     /// `own`: the account's configuration folder, if it has one.
     fn home_back(
         &mut self,
         setup: &Setup,
-        home: &Path,
-        work_dir: &Path,
+        (home, work_dir): (&Path, &Path),
+        caches: &str,
         shown: &[PathBuf],
         own: Option<&Path>,
     ) {
@@ -498,7 +511,7 @@ impl Plan {
         }
         self.home_read(setup, home, shown);
         self.cover_secrets(home);
-        self.private_caches(setup, home, work_dir);
+        self.private_caches(setup, home, caches);
     }
 
     /// `claude`'s own state: its settings read-only, what it writes during
@@ -605,8 +618,8 @@ impl Plan {
 
     /// The project's own copy of each package cache in [`CACHES`], bound
     /// where the user's is.
-    fn private_caches(&mut self, setup: &Setup, home: &Path, work_dir: &Path) {
-        let caches = setup.caches.join(project_key(work_dir));
+    fn private_caches(&mut self, setup: &Setup, home: &Path, key: &str) {
+        let caches = setup.caches.join(key);
         for name in CACHES {
             let cache = home.join(name);
             // `~/.npm` only if it exists; `~/.cargo/registry` if `~/.cargo` does.
@@ -801,6 +814,11 @@ impl Plan {
         if let Some(dir) = &self.claude_dir {
             env.push((os("CLAUDE_CONFIG_DIR"), Some(os(dir))));
         }
+        if let Some(work) = &self.work_env {
+            env.push((os("OVRA_PORT"), Some(os(work.port.to_string()))));
+            env.push((os("OVRA_WORKTREE_ROOT"), Some(os(&work.worktree_root))));
+            env.push((os("OVRA_MAIN_ROOT"), Some(os(&work.main_root))));
+        }
         env.extend(last);
         let names = self.env_kept();
         allowlist(outer_env, names, &mut env);
@@ -943,6 +961,24 @@ fn project_key(work_dir: &Path) -> String {
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
         .collect()
+}
+
+/// The folder name of a project's package caches in `Setup::caches`: a
+/// hash of its id, so every work dir of the project (its main checkout and
+/// its worktrees) shares one and no two projects do. A profile that names
+/// no project gets one of its work dir's own.
+fn cache_key(project: Option<&ProjectId>, work_dir: &Path) -> String {
+    let (kind, name) = match project {
+        Some(id) => ("project", id.0.as_bytes()),
+        None => ("folder", work_dir.as_os_str().as_encoded_bytes()),
+    };
+    let digest = Sha256::new()
+        .chain_update(kind)
+        .chain_update([0])
+        .chain_update(name)
+        .finalize();
+    let hex: String = digest[..16].iter().map(|b| format!("{b:02x}")).collect();
+    format!("{}-{hex}", &kind[..1])
 }
 
 /// `claude`'s configuration folder and state file: an account's own folder

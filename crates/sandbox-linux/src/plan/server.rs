@@ -143,6 +143,7 @@ impl Plan {
             temporary: Vec::new(),
             record: None,
             claude_dir: None,
+            work_env: None,
             kind: Kind::Server {
                 project: project.clone(),
             },

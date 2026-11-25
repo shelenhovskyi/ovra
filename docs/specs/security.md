@@ -123,7 +123,10 @@ its changes on approve.
     cache is and empty at first (owner approved): a shared cache would let
     an agent plant a package the user's next build outside the sandbox
     runs (an extracted crate's `build.rs`). The first build in a project
-    downloads again, through the netproxy's allowlist.
+    downloads again, through the netproxy's allowlist. The copy is keyed
+    by a hash of the project's id, so the main checkout and every
+    worktree of a project share it (`docs/specs/worktree-setup.md`) and
+    no two projects do.
 - **Temporary files.** A private temporary folder is writable. On Linux
   `/tmp`, `/var/tmp`, `/run`, Ovra's temporary folder (the netproxy's
   sockets) and other routes to the same disks (`/mnt`, `/media`,
@@ -157,7 +160,10 @@ its changes on approve.
   helper starts the agent with only the kept names, so one the runtime
   adds to that line later still never reaches the agent. The netproxy
   bridge gets no environment. A kept URL with a password in it
-  (`ANTHROPIC_BASE_URL=https://user:pass@...`) passes as it is.
+  (`ANTHROPIC_BASE_URL=https://user:pass@...`) passes as it is. When the
+  profile names them, the sandbox's own line sets `OVRA_PORT`,
+  `OVRA_WORKTREE_ROOT` and `OVRA_MAIN_ROOT` over the command's
+  (`docs/specs/worktree-setup.md`): a port and two paths, never secrets.
 
   Amended 2026-11-25 (tightening, standing rule): where the OS has no
   sandbox yet, a session and Ovra's checks of `claude` (version, sign-in)
@@ -250,10 +256,6 @@ Known gaps on Linux, left to the backstop below:
   (`core.fsmonitor = ./x`, `filter.*.clean`, `diff.*.textconv`,
   `credential.helper`, `alias.* = !./...`): the file stays writable;
 - a submodule the user adds while a session runs;
-- package caches are keyed by the session's folder, so each worker's
-  worktree starts with an empty cache, nothing removes old ones, and two
-  projects whose keys match (`/a/b-c` and `/a/b_c`) share one; both
-  sides are sandboxed, so that only reaches the other project's agents;
 - a bind mount of the home folder outside `/mnt`, `/media`, `/sysroot` and
   `/.snapshots` (for example `/srv`) stays readable;
 - a `CLAUDE.md`, `CLAUDE.local.md` or `AGENTS.md` that does not exist yet
@@ -278,10 +280,11 @@ pods) and every process in them are gone, also when they are killed: each
 holds a shared lock on the work dir's record in Ovra's data folder, and
 the helper outside the sandbox that ends last removes what the record
 lists. A folder that is no longer empty stays, and so do those a pod made.
-A missing `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, `.mcp.json` or
-`.envrc` at the top of the work dir is made as an empty file and bound
-read-only the same way, for agents, pods and the browser alike, and
-removed by the same last helper if it is still an empty file. While a
+A missing `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, `.mcp.json`,
+`.envrc` or `.worktreeinclude` at the top of the work dir is made as an
+empty file and bound read-only the same way, for agents, pods and the
+browser alike, and removed by the same last helper if it is still an
+empty file. While a
 session runs it shows in git status (the owner chose this over leaving
 the files creatable, 2026-11-25); reviews leave such an added empty file
 out. Removing or replacing it from outside while a session runs (`git

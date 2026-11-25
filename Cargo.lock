@@ -3599,6 +3599,7 @@ dependencies = [
  "ovra-core",
  "rustix",
  "seccompiler",
+ "sha2 0.10.9",
 ]
 
 [[package]]

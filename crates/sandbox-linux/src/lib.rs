@@ -115,10 +115,9 @@ impl Setup {
 /// What the sandbox does not cover: the known gaps on Linux in
 /// `docs/specs/security.md`, left to the review backstop. Keep it in step
 /// with that list.
-const GAPS: [&str; 6] = [
+const GAPS: [&str; 5] = [
     "git config values that name project files",
     "submodules added during a session",
-    "package caches shared by similar project paths",
     "other mounts of the home folder stay readable",
     "new agent instruction files in subfolders (CLAUDE.md, AGENTS.md, ...)",
     "other agents' missing top-level files (opencode.json, .aider.conf.yml)",
@@ -345,7 +344,6 @@ mod tests {
             [
                 "git config values that name project files",
                 "submodules added during a session",
-                "package caches shared by similar project paths",
                 "other mounts of the home folder stay readable",
                 "new agent instruction files in subfolders (CLAUDE.md, AGENTS.md, ...)",
                 "other agents' missing top-level files (opencode.json, .aider.conf.yml)",
