@@ -13,6 +13,8 @@ use windows_sys::Win32::Security::PSID;
 
 pub(crate) mod acl;
 pub(crate) mod job;
+pub(crate) mod logon;
+pub(crate) mod setup;
 pub(crate) mod token;
 
 /// A SID Windows allocated, freed on drop.
