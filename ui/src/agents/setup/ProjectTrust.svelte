@@ -17,6 +17,8 @@ let review = $state<ProjectConfigReview | null>(null);
 let reviewing = $state(false);
 let busy = $state(false);
 let error = $state<string | null>(null);
+// Answers can come back out of order: only the latest request's counts.
+let latest = 0;
 
 const project = $derived(workspace.project);
 const changed = $derived(
@@ -54,9 +56,10 @@ $effect(() => {
 
 // Check again when changed settings matter (a session starts) and when they
 // may have changed: a review was decided, or files under .claude/ changed.
+// An untrusted project's settings show only while the user reviews them.
 $effect(() =>
   transport.onEvent((event) => {
-    const id = project?.id;
+    const id = project?.trusted || reviewing ? project?.id : undefined;
     const matters =
       (event.type === "agents.status" && event.data.status.state === "starting") ||
       event.type === "review.changed" ||
@@ -71,11 +74,12 @@ function text(err: unknown): string {
 }
 
 async function load(id: string): Promise<void> {
+  const request = ++latest;
   try {
     const answer = await transport.call({ method: "agents.project_config", params: { project: id } });
-    if (workspace.project?.id === id) review = answer.data;
+    if (request === latest && workspace.project?.id === id) review = answer.data;
   } catch (err) {
-    error = text(err);
+    if (request === latest) error = text(err);
   }
 }
 

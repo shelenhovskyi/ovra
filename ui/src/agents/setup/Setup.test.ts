@@ -256,12 +256,43 @@ describe("ProjectTrust", () => {
     expect(kinds).toEqual(["broad_allow_rules", "allow_rules"]);
   });
 
-  it("rechecks when a session starts", async () => {
+  it("rechecks when a session starts, unless the settings are neither trusted nor in review", async () => {
     const core = new FakeAgentCore();
-    await show(core);
+    const workspace = await show(core);
+    core.status("s1", { state: "starting" });
+    core.emit({ type: "review.changed", data: { project: "p1", id: "r1" } });
+    await settle();
+    expect(core.sent("agents.project_config")).toHaveLength(1);
+    workspace.project = { id: "p1", name: "demo", root: "/demo", last_opened_ms: null, trusted: true };
+    await settle();
     core.status("s1", { state: "starting" });
     await settle();
-    expect(core.sent("agents.project_config")).toHaveLength(2);
+    expect(core.sent("agents.project_config")).toHaveLength(3);
+  });
+
+  it("ignores an answer that a later re-read overtook", async () => {
+    const core = new FakeAgentCore();
+    core.trustedConfig.set("p1", core.config);
+    const workspace = await show(core);
+    workspace.project = { id: "p1", name: "demo", root: "/demo", last_opened_ms: null, trusted: true };
+    await settle();
+    // Hold the next answer back; it carries the settings as they are now.
+    const call = core.call.bind(core);
+    let release = () => {};
+    core.call = ((request: Parameters<typeof call>[0]) => {
+      core.call = call;
+      const answer = call(request);
+      return new Promise((resolve) => {
+        release = () => resolve(answer);
+      });
+    }) as typeof core.call;
+    core.emit({ type: "review.changed", data: { project: "p1", id: "r1" } });
+    core.config = { fingerprint: "f1", items: [] };
+    core.emit({ type: "fs.changed", data: { project: "p1", paths: [".claude/settings.json"] } });
+    await settle();
+    release();
+    await settle();
+    expect(trustCard()?.querySelector("h3")?.textContent).toBe("Project settings changed since you trusted them");
   });
 
   it("stops saying trusted once an approved review or a file changes the settings", async () => {
