@@ -175,6 +175,7 @@ fn proxy(fake: FakeNet, rules: Rules, upstream: Upstream) -> Proxy {
         net: Arc::new(SessionNet {
             rules: RwLock::new(rules),
             reporter: NetReporter::new(ProjectId("p1".into()), SessionId("s1".into()), core.sink()),
+            bound: None,
         }),
         dial,
         events,
@@ -489,7 +490,12 @@ async fn each_session_gets_a_socket_that_follows_updates_and_closes_on_stop() {
     use tokio::net::UnixStream;
 
     let fake = Arc::new(web());
-    let proxies = NetProxies::new(&|_| None, fake.clone()).unwrap_or_else(|e| panic!("{e}"));
+    let proxies = NetProxies::new(
+        &|_| None,
+        fake.clone(),
+        Arc::new(ovra_core::fakes::MemorySecrets::default()),
+    )
+    .unwrap_or_else(|e| panic!("{e}"));
     let core = Core::new("test");
     let session = SessionId("s1".into());
     let reporter = NetReporter::new(ProjectId("p1".into()), session.clone(), core.sink());
@@ -664,4 +670,86 @@ fn no_proxy_takes_names_suffixes_and_networks() {
     assert!(upstream.server("internal.example", true).is_none());
     assert!(upstream.server("notinternal.example", true).is_some());
     assert!(upstream.server("11.0.0.1", false).is_some());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_session_with_secrets_gets_a_private_bundle_and_never_binds_claudes_hosts() {
+    use ovra_core::protocol::secrets::SecretInfo;
+
+    let var = |name: &str| {
+        (name == "ANTHROPIC_BASE_URL").then(|| "https://gateway.corp.example".to_owned())
+    };
+    let proxies = NetProxies::new(
+        &var,
+        Arc::new(web()),
+        Arc::new(ovra_core::fakes::MemorySecrets::default()),
+    )
+    .unwrap_or_else(|e| panic!("{e}"));
+    proxies
+        .roots
+        .set(crate::tls::Roots::of(Vec::new()))
+        .unwrap_or_else(|_| panic!("roots set twice"));
+    let core = Core::new("test");
+    let secret = |name: &str, host: &str| SecretInfo {
+        name: name.into(),
+        host: host.into(),
+        header: "Authorization".into(),
+        prefix: String::new(),
+    };
+    let reporter =
+        |s: &str| NetReporter::new(ProjectId("p1".into()), SessionId(s.into()), core.sink());
+
+    let none = proxies
+        .start(
+            SessionId("s0".into()),
+            Allowlist::default(),
+            reporter("s0"),
+            Vec::new(),
+        )
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(none.ca_bundle, None);
+    let only_claude = proxies
+        .start(
+            SessionId("s1".into()),
+            Allowlist::default(),
+            reporter("s1"),
+            vec![secret("gw", "gateway.corp.example")],
+        )
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(
+        only_claude.ca_bundle, None,
+        "claude's own host is never bound"
+    );
+
+    let started = proxies
+        .start(
+            SessionId("s2".into()),
+            Allowlist::default(),
+            reporter("s2"),
+            vec![
+                secret("gh", "api.github.com"),
+                secret("gw", "gateway.corp.example"),
+            ],
+        )
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    let bundle = started.ca_bundle.unwrap_or_else(|| panic!("no bundle"));
+    let text = std::fs::read_to_string(&bundle).unwrap_or_default();
+    assert!(text.contains("BEGIN CERTIFICATE"), "{text}");
+    assert!(!text.contains("PRIVATE KEY"), "never the key");
+    let mode = std::fs::metadata(&bundle)
+        .map(|m| std::os::unix::fs::PermissionsExt::mode(&m.permissions()) & 0o777);
+    assert_eq!(mode.ok(), Some(0o600));
+    let bound: Vec<String> = lock(&proxies.running)
+        .get(&SessionId("s2".into()))
+        .and_then(|r| r.net.bound.as_ref())
+        .map(|b| b.secrets.iter().map(|s| s.name.clone()).collect())
+        .unwrap_or_default();
+    assert_eq!(bound, ["gh"]);
+
+    proxies.stop(&SessionId("s2".into()));
+    assert!(!bundle.exists(), "the bundle goes with the proxy");
 }

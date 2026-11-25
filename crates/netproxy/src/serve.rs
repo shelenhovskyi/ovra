@@ -13,13 +13,14 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::time::timeout;
 
 use crate::dial::{Conn, Dial, Stream};
+use crate::inject::Bound;
 use crate::rules::{Rules, Verdict};
 use crate::upstream::{Server, Upstream};
 
 /// Request heads are small; anything larger is not one.
 const MAX_HEAD: usize = 16 * 1024;
 const MAX_HEADERS: usize = 64;
-const HEAD_TIMEOUT: Duration = Duration::from_secs(30);
+pub(crate) const HEAD_TIMEOUT: Duration = Duration::from_secs(30);
 const DIAL_TIMEOUT: Duration = Duration::from_secs(10);
 /// An open connection where nothing moves this long is closed.
 pub(crate) const IDLE_TIMEOUT: Duration = Duration::from_secs(10 * 60);
@@ -36,6 +37,8 @@ pub(crate) struct Shared {
 pub(crate) struct SessionNet {
     pub(crate) rules: RwLock<Rules>,
     pub(crate) reporter: NetReporter,
+    /// The project's secrets, if it has any.
+    pub(crate) bound: Option<Bound>,
 }
 
 pub(crate) async fn serve(mut client: impl Stream, shared: Arc<Shared>, session: Arc<SessionNet>) {
@@ -126,6 +129,23 @@ async fn handle(client: &mut impl Stream, shared: &Shared, session: &SessionNet)
         }
         Err(Problem::Failed(why)) => return respond(client, 502, &why).await,
     };
+    let secrets = match &session.bound {
+        Some(bound) if request.connect => bound.for_host(&request.host, request.port),
+        _ => Vec::new(),
+    };
+    if let (Some(bound), false) = (&session.bound, secrets.is_empty()) {
+        if !early.is_empty() || !rest.is_empty() {
+            // TLS must start after our answer; anything sooner is not TLS
+            // the proxy can answer.
+            return respond(client, 400, "wait for the CONNECT answer before TLS").await;
+        }
+        client
+            .write_all(b"HTTP/1.1 200 Connection established\r\n\r\n")
+            .await?;
+        let (host, port) = (request.host.as_str(), request.port);
+        let reporter = &session.reporter;
+        return crate::inject::serve(client, server, host, port, secrets, bound, reporter).await;
+    }
     if request.connect {
         client
             .write_all(b"HTTP/1.1 200 Connection established\r\n\r\n")
@@ -189,6 +209,20 @@ async fn relay(a: &mut impl Stream, b: &mut Conn, period: Duration) -> io::Resul
     }
 }
 
+/// Passes `from` to `to` until `from` closes or nothing moves for
+/// `period`.
+pub(crate) async fn relay_one_way(
+    from: &mut (impl tokio::io::AsyncRead + Unpin),
+    to: &mut (impl tokio::io::AsyncWrite + Unpin),
+    period: Duration,
+) -> io::Result<()> {
+    let moved = AtomicBool::new(false);
+    tokio::select! {
+        result = pump(from, to, &moved, true) => result,
+        () = idle(&moved, period) => Ok(()),
+    }
+}
+
 async fn pump(
     from: &mut (impl tokio::io::AsyncRead + Unpin),
     to: &mut (impl tokio::io::AsyncWrite + Unpin),
@@ -211,7 +245,9 @@ async fn pump(
 
 /// Reads up to the end of the head: the head and the bytes after it, or
 /// `None` if it is too large or the client stopped before its end.
-async fn read_head(stream: &mut (impl Stream + ?Sized)) -> io::Result<Option<(Vec<u8>, Vec<u8>)>> {
+pub(crate) async fn read_head(
+    stream: &mut (impl Stream + ?Sized),
+) -> io::Result<Option<(Vec<u8>, Vec<u8>)>> {
     let mut buf = Vec::with_capacity(1024);
     let mut chunk = [0u8; 2048];
     loop {
@@ -448,7 +484,11 @@ async fn through(
     }
 }
 
-async fn respond(client: &mut impl Stream, status: u16, body: &str) -> io::Result<()> {
+pub(crate) async fn respond(
+    client: &mut (impl tokio::io::AsyncWrite + Unpin),
+    status: u16,
+    body: &str,
+) -> io::Result<()> {
     let reason = match status {
         400 => "Bad Request",
         403 => "Forbidden",

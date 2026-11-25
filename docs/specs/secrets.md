@@ -2,9 +2,10 @@
 
 Status: task 4.D. Reviewed by an independent reviewer agent in place of the
 owner (owner's rule, 2026-11-24). Builds on `docs/specs/security.md`
-(section "Secrets"). Part 1 (the keychain store and `secrets.*`) lands with
-this spec. Part 2 (delivery through TLS for bound hosts) is code in the
-netproxy and waits for 4.C to land.
+(section "Secrets"). Part 1 (the keychain store and `secrets.*`) and part 2
+(delivery through TLS for bound hosts, in `crates/netproxy`) are built. The
+owner approved the CA bundle variables on 2026-11-25; the Linux sandbox
+binds the bundle and sets them (4.A).
 
 **Goal.** An agent can call an API that needs a token, such as GitHub's,
 without the token ever entering its sandbox: not in its environment, its
@@ -146,10 +147,11 @@ The goal holds only for sessions the runtime reports as sandboxed with a
 
 ## Delivery: TLS for bound hosts (part 2, in the netproxy)
 
-Part 2 starts with a small first commit: `NetProxy::start` takes the
-session's project, and the netproxy gets the `Secrets` service from
-`daemon` and `app` (no new crate edge: both sides depend on `ovra-core`
-only).
+`NetProxy::start` takes the project's secret bindings (never values) and
+returns the CA bundle's path, which `ProfileNetwork::Proxy` carries to the
+sandbox. The netproxy gets the `Secrets` service from `daemon` and `app`
+(no new crate edge: both depend on `ovra-core` only) and reads a value
+only when it adds it.
 
 The netproxy (4.C) tunnels CONNECT without looking inside. For a host that
 has a secret bound in the session's project, it must see the request to add
@@ -172,11 +174,12 @@ the header, so it terminates TLS for that host only:
    (`SSL_CERT_FILE`, `CURL_CA_BUNDLE`, `GIT_SSL_CAINFO`,
    `REQUESTS_CA_BUNDLE`, `NODE_EXTRA_CA_CERTS`) is merged into it, so
    corporate roots keep working. `wrap` points those variables at it.
-   Pointing them elsewhere changes the environment ADR 0006 describes, so
-   this needs the owner before part 2 is built.
+   The sandbox also unsets `SSL_CERT_DIR`. The owner approved this change
+   to the environment ADR 0006 describes on 2026-11-25.
 3. **Only bound hosts.** For a CONNECT to a bound host and port, the proxy
-   answers the TLS handshake with a short-lived leaf certificate for that
-   name, signed by the session CA. Every other host is tunnelled as before,
+   answers the TLS handshake with a leaf certificate for that name, valid
+   for seven days and signed by the session CA. The agent must wait for the
+   CONNECT answer before it starts TLS; bytes sent sooner are refused. Every other host is tunnelled as before,
    so `claude`'s own traffic to Anthropic is never inspected.
 4. **Upstream as a normal client.** The proxy opens its own TLS connection
    to the real host and verifies it against the system roots plus the
@@ -188,7 +191,9 @@ the header, so it terminates TLS for that host only:
    body of the next request, where the agent can read it back (a gist, an
    issue). So the proxy parses each request with a strict HTTP/1.1 server
    parser (`hyper`) and writes a new request upstream; it never forwards
-   raw bytes. It refuses: `Content-Length` together with
+   raw bytes. It serves one request per tunnel and sends `Connection: close`
+   upstream; whatever the agent sends after that request is dropped. It
+   accepts only HTTP/1.1 with an origin-form target, and refuses: `Content-Length` together with
    `Transfer-Encoding`, more than one `Content-Length`, any
    `Transfer-Encoding` but `chunked`, folded header lines, bare LF line
    ends, `Upgrade` and `101` answers, `CONNECT` inside the tunnel, an

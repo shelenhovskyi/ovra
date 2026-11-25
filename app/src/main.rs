@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use ovra_agent_runtime::ClaudeCli;
+use ovra_core::services::Secrets;
 use ovra_core::{Client, Core};
 use ovra_fs_index::FsIndex;
 use ovra_mcp_server::IdeServer;
@@ -32,7 +33,9 @@ fn main() {
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
             let store = Arc::new(Store::open(&data_dir)?);
+            let secrets: Arc<dyn Secrets> = Arc::new(KeychainSecrets::new(&data_dir));
             let core = Core::builder("tauri")
+                .secrets(secrets.clone())
                 .projects(store.clone())
                 .sessions(store.clone())
                 .audit(store)
@@ -42,12 +45,11 @@ fn main() {
                 .worktrees_dir(data_dir.join("worktrees"))
                 .ide_tools(Arc::new(IdeServer::new()))
                 .terminals(Arc::new(Pty::new()))
-                .netproxy(Arc::new(ovra_netproxy::NetProxies::from_env()?))
+                .netproxy(Arc::new(ovra_netproxy::NetProxies::from_env(secrets)?))
                 .agents(Arc::new(ClaudeCli::new(
                     None,
                     ovra_sandbox::for_this_os(&data_dir),
                 )))
-                .secrets(Arc::new(KeychainSecrets::new(&data_dir)))
                 .build();
             let mut events = core.subscribe();
             // One window, one client.
