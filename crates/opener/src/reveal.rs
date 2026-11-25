@@ -1,0 +1,255 @@
+//! Shows a file or folder in the system file manager: `open -R` on macOS,
+//! `explorer /select,` on Windows, and on Linux the freedesktop
+//! `FileManager1.ShowItems` call over D-Bus, else `xdg-open` on the folder
+//! that holds it. Nothing is ever opened or run: a file is only selected,
+//! and only folders are handed to `explorer` or `xdg-open`.
+
+use std::ffi::OsString;
+use std::io;
+use std::path::Path;
+
+use ovra_core::protocol::{ErrorCode, ProtocolError};
+use ovra_core::services::Result;
+
+use crate::editor::{Invocation, Platform};
+
+/// What is revealed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Kind {
+    File,
+    Folder,
+    /// The project root: on Linux its own folder opens, not its parent.
+    Root,
+}
+
+/// The commands to try for the absolute `target`, in order: the next one
+/// runs only when the one before cannot start or fails.
+pub(crate) fn plan(platform: Platform, target: &Path, kind: Kind) -> Result<Vec<Invocation>> {
+    let invocation = |program: &str, args: Vec<OsString>| Invocation {
+        program: program.into(),
+        args,
+    };
+    Ok(match platform {
+        Platform::Macos => vec![invocation("open", vec!["-R".into(), target.into()])],
+        // Passed as written (see `start`): explorer splits its command line
+        // at commas outside quotes, so the path is always quoted.
+        Platform::Windows => {
+            let path = target.as_os_str();
+            if path.as_encoded_bytes().contains(&b'"') {
+                return Err(ProtocolError::new(
+                    ErrorCode::BadRequest,
+                    "a path with a quote cannot be shown in Explorer",
+                ));
+            }
+            let mut arg = OsString::from(if kind == Kind::File {
+                "/select,\""
+            } else {
+                "\""
+            });
+            arg.push(path);
+            arg.push("\"");
+            vec![invocation("explorer", vec![arg])]
+        }
+        Platform::Unix => {
+            let folder = match kind {
+                Kind::Root => target,
+                Kind::File | Kind::Folder => target.parent().unwrap_or(target),
+            };
+            let mut item = OsString::from("array:string:");
+            item.push(file_uri(target));
+            vec![
+                invocation(
+                    "dbus-send",
+                    vec![
+                        "--session".into(),
+                        "--print-reply".into(),
+                        "--reply-timeout=5000".into(),
+                        "--dest=org.freedesktop.FileManager1".into(),
+                        "--type=method_call".into(),
+                        "/org/freedesktop/FileManager1".into(),
+                        "org.freedesktop.FileManager1.ShowItems".into(),
+                        item,
+                        "string:".into(),
+                    ],
+                ),
+                invocation("xdg-open", vec![folder.into()]),
+            ]
+        }
+    })
+}
+
+/// A `file://` URI with every byte but unreserved ones and `/` escaped, so
+/// no `,` reaches `dbus-send`, which splits arrays there.
+fn file_uri(path: &Path) -> String {
+    let mut uri = String::from("file://");
+    for &byte in path.as_os_str().as_encoded_bytes() {
+        if byte.is_ascii_alphanumeric() || b"-._~/".contains(&byte) {
+            uri.push(char::from(byte));
+        } else {
+            uri.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    uri
+}
+
+/// Waits for a started program and tells whether it succeeded.
+pub(crate) type Wait = Box<dyn FnOnce() -> bool + Send>;
+
+/// Starts the first invocation that starts and returns. A background
+/// thread waits for it and, if it fails, goes on with the rest.
+pub(crate) fn run_in_order<S>(plan: Vec<Invocation>, start: S) -> Result<()>
+where
+    S: Fn(&Invocation) -> io::Result<Wait> + Send + 'static,
+{
+    let mut plan = plan.into_iter();
+    let mut failures = Vec::new();
+    while let Some(invocation) = plan.next() {
+        match start(&invocation) {
+            Ok(wait) => {
+                let rest = plan.collect();
+                std::thread::spawn(move || continue_after(wait, rest, start));
+                return Ok(());
+            }
+            Err(e) => failures.push(format!("{}: {e}", invocation.program.to_string_lossy())),
+        }
+    }
+    Err(ProtocolError::new(
+        ErrorCode::Unavailable,
+        format!("could not start a file manager ({})", failures.join("; ")),
+    ))
+}
+
+fn continue_after<S>(wait: Wait, rest: Vec<Invocation>, start: S)
+where
+    S: Fn(&Invocation) -> io::Result<Wait> + Send + 'static,
+{
+    if !wait() && !rest.is_empty() {
+        // Nobody is left to tell; the person sees that nothing opened.
+        let _ = run_in_order(rest, start);
+    }
+}
+
+/// Starts the program with no shell. On Windows the arguments go to
+/// explorer exactly as `plan` quoted them.
+pub(crate) fn start(invocation: &Invocation) -> io::Result<Wait> {
+    let mut command = std::process::Command::new(&invocation.program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        for arg in &invocation.args {
+            command.raw_arg(arg);
+        }
+    }
+    #[cfg(not(windows))]
+    command.args(&invocation.args);
+    let mut child = command
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()?;
+    Ok(Box::new(move || child.wait().is_ok_and(|s| s.success())))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    use super::*;
+
+    fn lines(platform: Platform, target: &str, kind: Kind) -> Vec<String> {
+        plan(platform, Path::new(target), kind)
+            .unwrap_or_else(|e| panic!("{e}"))
+            .into_iter()
+            .map(|i| {
+                std::iter::once(i.program)
+                    .chain(i.args)
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            })
+            .collect()
+    }
+
+    #[test]
+    fn macos_selects_the_item() {
+        for kind in [Kind::File, Kind::Folder, Kind::Root] {
+            let plan = lines(Platform::Macos, "/p/-rf a.txt", kind);
+            assert_eq!(plan, ["open -R /p/-rf a.txt"]);
+        }
+    }
+
+    #[test]
+    fn windows_selects_files_and_opens_folders_quoted() {
+        let file = lines(Platform::Windows, r"C:\p\a,b c.txt", Kind::File);
+        assert_eq!(file, [r#"explorer /select,"C:\p\a,b c.txt""#]);
+        let folder = lines(Platform::Windows, r"C:\p\src", Kind::Folder);
+        assert_eq!(folder, [r#"explorer "C:\p\src""#]);
+        let root = lines(Platform::Windows, r"C:\p", Kind::Root);
+        assert_eq!(root, [r#"explorer "C:\p""#]);
+        let quoted = plan(Platform::Windows, Path::new("C:\\p\\a\" /x"), Kind::File);
+        assert_eq!(quoted.err().map(|e| e.code), Some(ErrorCode::BadRequest));
+    }
+
+    #[test]
+    fn linux_asks_the_file_manager_then_opens_the_folder() {
+        let show = "dbus-send --session --print-reply --reply-timeout=5000 \
+            --dest=org.freedesktop.FileManager1 --type=method_call \
+            /org/freedesktop/FileManager1 org.freedesktop.FileManager1.ShowItems";
+        let file = lines(Platform::Unix, "/p/a b,c%.txt", Kind::File);
+        assert_eq!(
+            file,
+            [
+                format!("{show} array:string:file:///p/a%20b%2Cc%25.txt string:"),
+                "xdg-open /p".into(),
+            ]
+        );
+        let folder = lines(Platform::Unix, "/p/src", Kind::Folder);
+        assert_eq!(folder[1], "xdg-open /p");
+        let root = lines(Platform::Unix, "/p", Kind::Root);
+        assert_eq!(root[1], "xdg-open /p");
+        assert_eq!(file_uri(Path::new("/p/\u{e9}")), "file:///p/%C3%A9");
+    }
+
+    fn fake(
+        started: mpsc::Sender<String>,
+        fails: &'static str,
+    ) -> impl Fn(&Invocation) -> io::Result<Wait> + Send + 'static {
+        move |invocation| {
+            let program = invocation.program.to_string_lossy().into_owned();
+            if program == "missing" {
+                return Err(io::ErrorKind::NotFound.into());
+            }
+            let ok = program != fails;
+            started.send(program).unwrap_or_else(|e| panic!("{e}"));
+            Ok(Box::new(move || ok))
+        }
+    }
+
+    fn inv(program: &str) -> Invocation {
+        Invocation {
+            program: program.into(),
+            args: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn falls_back_when_the_first_fails_or_cannot_start() {
+        let (tx, rx) = mpsc::channel();
+        let plan = vec![inv("missing"), inv("dbus-send"), inv("xdg-open")];
+        run_in_order(plan, fake(tx, "dbus-send")).unwrap_or_else(|e| panic!("{e}"));
+        let next = || rx.recv_timeout(Duration::from_secs(1)).ok();
+        assert_eq!(next().as_deref(), Some("dbus-send"));
+        assert_eq!(next().as_deref(), Some("xdg-open"));
+    }
+
+    #[test]
+    fn stops_after_one_that_succeeds() {
+        let (tx, rx) = mpsc::channel();
+        let wait: Wait = Box::new(|| true);
+        continue_after(wait, vec![inv("xdg-open")], fake(tx, ""));
+        assert!(rx.try_recv().is_err());
+        let none = run_in_order(vec![inv("missing")], fake(mpsc::channel().0, ""));
+        assert_eq!(none.err().map(|e| e.code), Some(ErrorCode::Unavailable));
+    }
+}

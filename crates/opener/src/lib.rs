@@ -2,11 +2,13 @@
 //! `$VISUAL` or `$EDITOR`, else the platform's default handler (`open` on
 //! macOS, `explorer` on Windows, `xdg-open` elsewhere). Web pages go to the
 //! default handler, which is the system browser. A file the default handler
-//! would run (see [`launcher`]) is only ever given to an editor.
+//! would run (see [`launcher`]) is only ever given to an editor. Files and
+//! folders can also be shown in the system file manager ([`reveal`]).
 //! Contract: `ovra_core::services::Opener`.
 
 mod editor;
 mod launcher;
+mod reveal;
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -45,35 +47,58 @@ impl Opener for SystemOpener {
         launch_first(&[handler], spawn_detached)
     }
 
-    // Lands in its own commit.
-    fn reveal(&self, _: &Path, _: &RelPath) -> Result<()> {
-        Err(ProtocolError::new(
-            ErrorCode::Unavailable,
-            "reveal is not available yet",
-        ))
+    fn reveal(&self, root: &Path, path: &RelPath) -> Result<()> {
+        let (shown, real) = resolved(root, path)?;
+        let kind = if path.is_root() {
+            reveal::Kind::Root
+        } else if real.is_dir() {
+            reveal::Kind::Folder
+        } else {
+            reveal::Kind::File
+        };
+        let plan = reveal::plan(Platform::current(), &shown, kind)?;
+        reveal::run_in_order(plan, reveal::start)
     }
 }
 
 /// The regular file `path` under `root` with symlinks resolved, refused when
-/// it resolves outside `root`. It is returned under `root` as given, so on
-/// Windows the editor gets `C:\p\a.rs`, not the verbatim `\\?\C:\p\a.rs`
-/// that `canonicalize` returns. Checked at the time of the call: hard links,
+/// it resolves outside `root`. Checked at the time of the call: hard links,
 /// and a file or folder swapped for a link between this check and the
 /// handler opening it, are not detected.
 fn inside(root: &Path, path: &RelPath) -> Result<PathBuf> {
-    let not_found = || ProtocolError::new(ErrorCode::NotFound, format!("no such file: {path}"));
-    let real_root = std::fs::canonicalize(root).map_err(|_| not_found())?;
-    let file = std::fs::canonicalize(path.under(root)).map_err(|_| not_found())?;
-    let Ok(rest) = file.strip_prefix(&real_root) else {
+    let (shown, real) = resolved(root, path)?;
+    if !real.is_file() {
+        return Err(not_found(path));
+    }
+    Ok(shown)
+}
+
+fn not_found(path: &RelPath) -> ProtocolError {
+    ProtocolError::new(ErrorCode::NotFound, format!("no such file: {path}"))
+}
+
+/// `path` under `root` with symlinks resolved, refused when it resolves
+/// outside `root`: the path to show and the resolved one. The path to show
+/// is under `root` as given, so on Windows a program gets `C:\p\a.rs`, not
+/// the verbatim `\\?\C:\p\a.rs` that `canonicalize` returns; a relative
+/// `root` gives the resolved path, so no argument starts with `-`.
+fn resolved(root: &Path, path: &RelPath) -> Result<(PathBuf, PathBuf)> {
+    let real_root = std::fs::canonicalize(root).map_err(|_| not_found(path))?;
+    let real = std::fs::canonicalize(path.under(root)).map_err(|_| not_found(path))?;
+    let Ok(rest) = real.strip_prefix(&real_root) else {
         return Err(ProtocolError::new(
             ErrorCode::Forbidden,
             format!("{path} points outside the project"),
         ));
     };
-    if !file.is_file() {
-        return Err(not_found());
-    }
-    Ok(root.join(rest))
+    let shown = if !root.is_absolute() {
+        real.clone()
+    } else if rest.as_os_str().is_empty() {
+        root.to_path_buf()
+    } else {
+        root.join(rest)
+    };
+    Ok((shown, real))
 }
 
 /// Programs that hand a file to its default handler, wherever they come
@@ -224,6 +249,33 @@ mod tests {
             let alias = tmp.path().join("alias-root");
             let shown = Some(alias.join("src").join("a.rs"));
             assert_eq!(inside(&alias, &rel("src/a.rs")).ok(), shown);
+        }
+    }
+
+    #[test]
+    fn reveals_files_folders_and_the_root_inside_it_only() {
+        let tmp = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+        let root = tmp.path().join("p");
+        std::fs::create_dir_all(root.join("src")).unwrap_or_else(|e| panic!("{e}"));
+        std::fs::write(root.join("src/a.rs"), "x").unwrap_or_else(|e| panic!("{e}"));
+        let shown = |raw: &str| resolved(&root, &rel(raw)).map(|(shown, _)| shown);
+
+        assert_eq!(shown("").ok(), Some(root.clone()));
+        assert_eq!(shown("src").ok(), Some(root.join("src")));
+        assert_eq!(shown("src/a.rs").ok(), Some(root.join("src").join("a.rs")));
+        assert_eq!(code(shown("src/b.rs")), Some(ErrorCode::NotFound));
+        let missing = SystemOpener::new().reveal(&root, &rel("nope"));
+        assert_eq!(missing.err().map(|e| e.code), Some(ErrorCode::NotFound));
+
+        #[cfg(unix)]
+        {
+            let outside = tmp.path().join("out");
+            std::fs::create_dir(&outside).unwrap_or_else(|e| panic!("{e}"));
+            std::os::unix::fs::symlink(&outside, root.join("out"))
+                .unwrap_or_else(|e| panic!("{e}"));
+            assert_eq!(code(shown("out")), Some(ErrorCode::Forbidden));
+            let refused = SystemOpener::new().reveal(&root, &rel("out"));
+            assert_eq!(refused.err().map(|e| e.code), Some(ErrorCode::Forbidden));
         }
     }
 
