@@ -193,11 +193,19 @@ describe("Palette", async () => {
     const core = new FakeCore(undefined, projects);
     const { workspace, target, input } = await open("projects", core, projects[0]);
     workspace.openPath = "a.md";
-    expect(titles(target)).toEqual(["alpha /w/alpha", "beta /w/beta"]);
+    expect(titles(target)).toEqual(["alpha /w/alpha", "beta /w/beta", "Open a folder…"]);
     await type(input, "be");
     key(input, "Enter");
     await vi.waitFor(() => expect(workspace.project?.id).toBe("b"));
     expect(workspace.openPath).toBeNull();
+  });
+
+  it("ends the project list with Open a folder…, which leaves for the start screen without a folder dialog", async () => {
+    const projects = [{ id: "a", name: "alpha", root: "/w/alpha", last_opened_ms: null, trusted: false }];
+    const { workspace, input } = await open("projects", new FakeCore(undefined, projects), projects[0]);
+    await type(input, "open a folder");
+    key(input, "Enter");
+    await vi.waitFor(() => expect(workspace.project).toBeNull());
   });
 
   it("shows why the list could not load", async () => {

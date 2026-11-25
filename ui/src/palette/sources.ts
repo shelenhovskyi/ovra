@@ -3,6 +3,7 @@
 import { listCommands } from "../keys/commands";
 import type { Project } from "../lib/protocol";
 import type { Transport } from "../lib/transport";
+import { openAnotherFolder } from "../shell/open-folder";
 import type { Workspace } from "../shell/workspace.svelte";
 import { projectFiles } from "./files";
 import type { PaletteMode } from "./mode.svelte";
@@ -70,13 +71,16 @@ export function source(mode: PaletteMode, transport: Transport, workspace: Targe
         placeholder: "Switch to project",
         empty: "No matching projects",
         limit: 200,
-        entries: async () =>
-          (await transport.call({ method: "projects.list" })).data.map((p) => ({
+        entries: async () => [
+          ...(await transport.call({ method: "projects.list" })).data.map((p) => ({
             id: p.id,
             label: p.name,
             detail: p.root,
             run: () => openProject(transport, workspace, p),
           })),
+          // A folder that is not a project yet: the system's dialog, or the start screen's field.
+          { id: "palette.open_folder", label: "Open a folder…", run: () => openAnotherFolder(workspace) },
+        ],
       };
   }
 }
