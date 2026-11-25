@@ -769,23 +769,26 @@ mod recording {
 /// Keychain reads: cached, bounded by a timeout, and kept when the caller
 /// stops waiting.
 mod keychain {
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::{Arc, Condvar, Mutex};
 
     use serde_json::json;
-    use tokio::sync::Notify;
+    use tokio::sync::{Notify, oneshot};
+    use tokio::time::Instant;
 
     use super::super::input::REDACTED;
-    use super::super::{KEYCHAIN_TIMEOUT, tool_decided};
+    use super::super::{KEYCHAIN_TIMEOUT, RETRY_AFTER, tool_decided};
     use super::project;
     use crate::Core;
     use crate::fakes::{MemoryAudit, MemoryProjects, MemorySecrets, ScriptedAgent};
     use crate::protocol::agents::{AgentStatus, AgentsEvent, AgentsResponse, SessionId};
-    use crate::protocol::audit::{AuditEvent, AuditInput, AuditLogEvent, DecidedBy};
+    use crate::protocol::audit::{
+        AuditEntry, AuditEvent, AuditInput, AuditLogEvent, AuditRange, DecidedBy,
+    };
     use crate::protocol::permissions::PermissionsResponse;
     use crate::protocol::projects::ProjectId;
     use crate::protocol::secrets::{SecretInfo, SecretStoreStatus, SecretValue};
-    use crate::protocol::{Event, ProtocolError, Request, Response};
+    use crate::protocol::{ErrorCode, Event, ProtocolError, Request, Response};
     use crate::services::{AuditLog, Secrets};
 
     /// A keychain whose values wait until it is opened, counting reads.
@@ -795,6 +798,7 @@ mod keychain {
         opened: Condvar,
         entered: Notify,
         reads: AtomicUsize,
+        broken: AtomicBool,
         inner: MemorySecrets,
     }
 
@@ -852,6 +856,9 @@ mod keychain {
         fn value(&self, p: &ProjectId, name: &str) -> Result<SecretValue, ProtocolError> {
             self.reads.fetch_add(1, Ordering::SeqCst);
             self.entered.notify_one();
+            if self.broken.load(Ordering::SeqCst) {
+                return Err(ProtocolError::new(ErrorCode::Unavailable, "locked"));
+            }
             let open = self.open.lock().unwrap_or_else(|e| e.into_inner());
             drop(
                 self.opened
@@ -1042,6 +1049,123 @@ mod keychain {
             }
             other => panic!("unexpected {other:?}"),
         }
+    }
+
+    fn decided(core: &Core, project: &ProjectId, command: &str) -> oneshot::Receiver<()> {
+        let by = DecidedBy::Person;
+        tool_decided(core, project, None, "Bash", &bash(command), true, by)
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_decision_behind_a_slow_read_neither_waits_nor_reads_again() {
+        let keychain = SlowKeychain::with("known-value-123");
+        let _opens = Opens(keychain.clone());
+        let log = Arc::new(MemoryAudit::default());
+        let core = core(&keychain, &log);
+        let began = Instant::now();
+        let first = decided(&core, &project("p1"), "echo one");
+        keychain.entered.notified().await;
+        let second = decided(&core, &project("p1"), "echo two");
+        second.await.unwrap_or_else(|e| panic!("{e}"));
+        first.await.unwrap_or_else(|e| panic!("{e}"));
+        decide(&core, "echo three").await;
+        assert!(began.elapsed() < KEYCHAIN_TIMEOUT, "{:?}", began.elapsed());
+        assert_eq!(keychain.reads(), 1);
+        assert_eq!(inputs(&log), [redacted(), redacted(), redacted()]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_project_without_secrets_does_not_wait_for_another_projects_read() {
+        let keychain = SlowKeychain::with("known-value-123");
+        let _opens = Opens(keychain.clone());
+        let log = Arc::new(MemoryAudit::default());
+        let core = core(&keychain, &log);
+        let began = Instant::now();
+        let slow = decided(&core, &project("p1"), "echo one");
+        keychain.entered.notified().await;
+        decided(&core, &project("p2"), "echo two")
+            .await
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert!(began.elapsed() < KEYCHAIN_TIMEOUT, "{:?}", began.elapsed());
+        let p2 = log
+            .list(&project("p2"), Default::default(), 10)
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert!(
+            matches!(&p2[..], [entry] if matches!(&entry.event, AuditEvent::ToolDecided { input, .. } if *input == kept("echo two")))
+        );
+        keychain.open();
+        slow.await.unwrap_or_else(|e| panic!("{e}"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_failed_read_is_tried_again_only_after_a_while() {
+        let keychain = SlowKeychain::with("known-value-123");
+        keychain.broken.store(true, Ordering::SeqCst);
+        keychain.open();
+        let log = Arc::new(MemoryAudit::default());
+        let core = core(&keychain, &log);
+        decide(&core, "echo one").await;
+        decide(&core, "echo two").await;
+        assert_eq!(keychain.reads(), 1);
+        tokio::time::advance(RETRY_AFTER).await;
+        keychain.broken.store(false, Ordering::SeqCst);
+        decide(&core, "echo known-value-123").await;
+        assert_eq!(keychain.reads(), 2);
+        let gone = format!("echo {REDACTED}");
+        assert_eq!(inputs(&log), [redacted(), redacted(), kept(&gone)]);
+    }
+
+    /// An audit log whose second append panics.
+    #[derive(Debug, Default)]
+    struct PanicsOnce {
+        appends: AtomicUsize,
+        inner: MemoryAudit,
+    }
+
+    impl AuditLog for PanicsOnce {
+        fn append(
+            &self,
+            project: &ProjectId,
+            session: Option<&SessionId>,
+            event: AuditEvent,
+        ) -> Result<AuditEntry, ProtocolError> {
+            if self.appends.fetch_add(1, Ordering::SeqCst) == 1 {
+                // Unwinds without the panic hook, so no backtrace is printed.
+                std::panic::resume_unwind(Box::new("the log broke"));
+            }
+            self.inner.append(project, session, event)
+        }
+        fn list(
+            &self,
+            project: &ProjectId,
+            range: AuditRange,
+            limit: usize,
+        ) -> Result<Vec<AuditEntry>, ProtocolError> {
+            self.inner.list(project, range, limit)
+        }
+    }
+
+    #[tokio::test]
+    async fn decisions_behind_one_whose_recording_panicked_are_still_recorded() {
+        let keychain = SlowKeychain::with("known-value-123");
+        keychain.open();
+        let log = Arc::new(PanicsOnce::default());
+        let core = Core::builder("test")
+            .projects(Arc::new(MemoryProjects::default()))
+            .agents(Arc::new(ScriptedAgent::default()))
+            .secrets(keychain.clone())
+            .audit(log.clone())
+            .build();
+        decide(&core, "echo warm").await;
+        let lost = decided(&core, &project("p1"), "echo one");
+        let kept_one = decided(&core, &project("p1"), "echo two");
+        assert!(lost.await.is_err());
+        kept_one.await.unwrap_or_else(|e| panic!("{e}"));
+        decide(&core, "echo three").await;
+        assert_eq!(
+            inputs(&log.inner),
+            [kept("echo warm"), kept("echo two"), kept("echo three")]
+        );
     }
 
     async fn next(
