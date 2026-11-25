@@ -24,9 +24,19 @@ test("a project's allowed hosts are added in Settings and kept", async ({ page }
   await dialog.getByTestId("add-host").fill("registry.npmjs.org");
   await dialog.getByRole("button", { name: "Allow", exact: true }).click();
   await expect(dialog.getByTestId("allowed-host")).toHaveText(/registry\.npmjs\.org/);
-  // Whether a keychain exists depends on the machine; either way the pane says so once a secret is added.
+  // Whether a keychain exists depends on the machine; either way the pane says which once a secret is added.
   await dialog.getByRole("button", { name: "Add secret…" }).click();
-  await expect(dialog.getByTestId("store-available").or(dialog.getByTestId("store-unavailable"))).toBeVisible();
+  const available = dialog.getByTestId("store-available");
+  await expect(available.or(dialog.getByTestId("store-unavailable"))).toBeVisible();
+  if (await available.isVisible()) {
+    // The core named the keychain: the form is ready, not still checking.
+    await expect(available).not.toContainText("Kept in the keychain");
+    await expect(dialog.getByTestId("secret-off")).toBeHidden();
+    await expect(dialog.getByTestId("secret-name")).toBeEnabled();
+  } else {
+    await expect(dialog.getByTestId("store-retry")).toBeVisible();
+    await expect(dialog.getByTestId("secret-name")).toHaveCount(0);
+  }
 
   await page.keyboard.press("Escape");
   await expect(settings).toBeHidden();

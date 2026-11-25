@@ -323,7 +323,7 @@ async function removeSecret(secretName: string): Promise<void> {
             {/if}
           </fieldset>
         </form>
-        <p class="muted" id="secret-value-note" data-testid="store-available">
+        <p class="muted" id="secret-value-note" data-testid={storeReady ? "store-available" : undefined}>
           Kept in {access.store?.state === "available" ? access.store.name : "the keychain"}, never shown again; the
           same name replaces it.
         </p>

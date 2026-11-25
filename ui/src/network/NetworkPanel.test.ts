@@ -150,6 +150,15 @@ describe("NetworkPanel", () => {
     expect($("[data-testid=store-available]")?.textContent).toContain("Kept in Secret Service");
   });
 
+  it("says the keychain is available only once the core said so", async () => {
+    const core = new FakeAccessCore();
+    core.refuse.set("secrets.list", "core went away");
+    await open(core);
+    addSecret();
+    expect($("[data-testid=secret-off]")?.textContent).toBe("Checking the keychain…");
+    expect($("[data-testid=store-available]")).toBeNull();
+  });
+
   it("follows changes made elsewhere and forgets a typed token when the pane closes", async () => {
     const core = await open();
     core.hosts = [{ host: "pypi.org" }];
