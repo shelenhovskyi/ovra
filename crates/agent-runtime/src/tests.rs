@@ -673,7 +673,14 @@ echo '{"type":"result","subtype":"success","usage":{"input_tokens":1,"output_tok
             "2.1.331",
             &format!("echo \"$OVRA_FAKE_SANDBOX\" > \"$0.sandbox\"\n{ONE_TURN}\ncat > /dev/null"),
         );
-        let sandbox = Arc::new(FakeSandbox::available());
+        // What the platform says it does not cover reaches the report.
+        let sandbox = Arc::new(FakeSandbox {
+            status: ovra_core::services::SandboxStatus::Available {
+                name: "fake".into(),
+                gaps: vec!["DNS lookups".into(), "loopback services".into()],
+            },
+            ..FakeSandbox::available()
+        });
         let core = core_with(Arc::new(ClaudeCli::new(Some(claude), sandbox.clone())));
         let mut rx = core.subscribe();
         start(&core, &dir.0.to_string_lossy(), "hi").await;
@@ -687,7 +694,7 @@ echo '{"type":"result","subtype":"success","usage":{"input_tokens":1,"output_tok
             Some(SandboxReport {
                 name: "fake".into(),
                 network: SandboxNetwork::Open,
-                gaps: Vec::new(),
+                gaps: vec!["DNS lookups".into(), "loopback services".into()],
             })
         );
     }

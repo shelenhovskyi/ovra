@@ -111,6 +111,15 @@ impl Setup {
     }
 }
 
+/// What the sandbox does not cover: the known gaps on Linux in
+/// `docs/specs/security.md`, left to the review backstop.
+const GAPS: [&str; 4] = [
+    "git config commands that name project files",
+    "submodules added during a session",
+    "package caches shared by similar project paths",
+    "home folder mounts outside /mnt and /media",
+];
+
 /// The Linux sandbox: bubblewrap, plus Landlock and seccomp in the helper.
 #[derive(Debug)]
 pub struct Bubblewrap {
@@ -147,7 +156,7 @@ impl Bubblewrap {
                 };
                 sandbox.status = SandboxStatus::Available {
                     name: name.into(),
-                    gaps: Vec::new(),
+                    gaps: GAPS.map(String::from).to_vec(),
                 };
             }
             Err(reason) => sandbox.status = SandboxStatus::Unavailable { reason },

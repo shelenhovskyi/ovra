@@ -282,6 +282,21 @@ fn a_direct_session_writes_its_project_and_nothing_else() {
 }
 
 #[test]
+fn the_status_names_what_the_sandbox_does_not_cover() {
+    let home = Dir::new("gaps-home");
+    let Some(sandbox) = sandbox(&home.0, Vec::new()) else {
+        return;
+    };
+    let SandboxStatus::Available { gaps, .. } = sandbox.status() else {
+        unreachable!("checked by sandbox()");
+    };
+    assert!(
+        gaps.contains(&"submodules added during a session".to_owned()),
+        "{gaps:?}"
+    );
+}
+
+#[test]
 fn a_protected_name_that_is_a_link_is_refused() {
     let root = Dir::new("link");
     let home = root.0.join("home");
