@@ -147,6 +147,14 @@ pub(crate) async fn handle(core: &Core, request: ServersRequest) -> Result<Respo
             let place = place(core, &project, work_dir.as_ref())?;
             ServersResponse::List(list(core, &place).await)
         }
+        ServersRequest::Overview { project } => {
+            core.root(&project)?;
+            let state = core.dev_servers().lock();
+            let servers = state.servers.iter().filter(|e| e.place.project == project);
+            ServersResponse::Overview {
+                servers: servers.map(Entry::info).collect(),
+            }
+        }
         ServersRequest::Start {
             project,
             name,

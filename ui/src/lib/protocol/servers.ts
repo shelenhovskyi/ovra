@@ -56,6 +56,8 @@ export type LogPage = { lines: LogLine[]; next: number };
 
 export type ServersRequest =
   | { method: "servers.list"; params: { project: ProjectId; work_dir?: SessionId | null } }
+  /** Every server started in the project, in the main checkout and in each worker's worktree. */
+  | { method: "servers.overview"; params: { project: ProjectId } }
   | { method: "servers.start"; params: { project: ProjectId; name: string; work_dir?: SessionId | null } }
   /** SIGTERM, then SIGKILL after `grace_ms` (default 5000). */
   | { method: "servers.stop"; params: { id: ServerId; grace_ms?: number | null } }
@@ -69,6 +71,7 @@ export type ServersRequest =
 
 export type ServersResponse =
   | { type: "servers.list"; data: ServerList }
+  | { type: "servers.overview"; data: { servers: ServerInfo[] } }
   | { type: "servers.server"; data: ServerInfo }
   | { type: "servers.logs"; data: LogPage }
   | { type: "servers.opened"; data: { url: string } };
@@ -83,10 +86,12 @@ export type ServersEvent =
 /** The response type of each `servers.*` method. */
 export type ServersResponseFor<M extends ServersRequest["method"]> = M extends "servers.list"
   ? Extract<ServersResponse, { type: "servers.list" }>
-  : M extends "servers.start" | "servers.restart"
-    ? Extract<ServersResponse, { type: "servers.server" }>
-    : M extends "servers.logs"
-      ? Extract<ServersResponse, { type: "servers.logs" }>
-      : M extends "servers.open"
-        ? Extract<ServersResponse, { type: "servers.opened" }>
-        : { type: "ok" };
+  : M extends "servers.overview"
+    ? Extract<ServersResponse, { type: "servers.overview" }>
+    : M extends "servers.start" | "servers.restart"
+      ? Extract<ServersResponse, { type: "servers.server" }>
+      : M extends "servers.logs"
+        ? Extract<ServersResponse, { type: "servers.logs" }>
+        : M extends "servers.open"
+          ? Extract<ServersResponse, { type: "servers.opened" }>
+          : { type: "ok" };
