@@ -34,6 +34,9 @@ pub struct ProjectState {
     pub active_file: Option<String>,
     /// Expanded folders in the file tree.
     pub expanded_dirs: Vec<String>,
+    /// Pinned tabs, a subset of `open_files`; they sit first and stay open
+    /// when others are closed.
+    pub pinned_files: Vec<String>,
 }
 
 /// A partial [`ProjectState`]: only the fields present are written, so panels
@@ -51,6 +54,8 @@ pub struct ProjectStatePatch {
     pub active_file: Option<Option<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expanded_dirs: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pinned_files: Option<Vec<String>>,
 }
 
 impl ProjectStatePatch {
@@ -64,6 +69,9 @@ impl ProjectStatePatch {
         }
         if let Some(expanded_dirs) = self.expanded_dirs {
             state.expanded_dirs = expanded_dirs;
+        }
+        if let Some(pinned_files) = self.pinned_files {
+            state.pinned_files = pinned_files;
         }
     }
 }

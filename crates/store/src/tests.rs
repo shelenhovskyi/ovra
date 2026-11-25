@@ -74,6 +74,7 @@ fn contract(store: &dyn ProjectStore, folders: &Folders) {
     let tabs = ProjectStatePatch {
         open_files: Some(vec!["src/main.rs".into(), "README.md".into()]),
         active_file: Some(Some("README.md".into())),
+        pinned_files: Some(vec!["README.md".into()]),
         ..ProjectStatePatch::default()
     };
     store.update_state(&a.id, tree).expect("save tree");
@@ -208,6 +209,7 @@ fn sample_state() -> ProjectState {
         open_files: vec!["src/main.rs".into(), "README.md".into()],
         active_file: Some("README.md".into()),
         expanded_dirs: vec!["src".into()],
+        pinned_files: vec!["README.md".into()],
     }
 }
 
@@ -216,6 +218,7 @@ fn full(state: ProjectState) -> ProjectStatePatch {
         open_files: Some(state.open_files),
         active_file: Some(state.active_file),
         expanded_dirs: Some(state.expanded_dirs),
+        pinned_files: Some(state.pinned_files),
     }
 }
 

@@ -139,6 +139,7 @@ async fn project_state_is_saved_normalized_and_kept_inside() {
             open_files: open.iter().map(|s| (*s).to_owned()).collect(),
             active_file: active.map(str::to_owned),
             expanded_dirs: dirs.iter().map(|s| (*s).to_owned()).collect(),
+            pinned_files: Vec::new(),
         })))
     };
     assert_eq!(get(p.id.clone()).await, state(&[], None, &[]));
@@ -165,6 +166,8 @@ async fn project_state_is_saved_normalized_and_kept_inside() {
     let escape = set(serde_json::json!({"active_file": "../b/secret"})).await;
     assert_eq!(escape.err().map(|e| e.code), Some(ErrorCode::Forbidden));
     let escape = set(serde_json::json!({"expanded_dirs": ["/etc"]})).await;
+    assert!(escape.is_err(), "{escape:?}");
+    let escape = set(serde_json::json!({"pinned_files": ["../b/secret"]})).await;
     assert!(escape.is_err(), "{escape:?}");
     let unknown = get(ProjectId("nope".into())).await;
     assert_eq!(unknown.err().map(|e| e.code), Some(ErrorCode::NotFound));
@@ -438,6 +441,7 @@ fn wire_format_is_stable() {
                 open_files: vec!["a.rs".into()],
                 active_file: Some("a.rs".into()),
                 expanded_dirs: vec!["src".into()],
+                pinned_files: vec!["a.rs".into()],
             })),
         ],
         "events": [

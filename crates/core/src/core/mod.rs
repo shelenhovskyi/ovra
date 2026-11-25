@@ -772,6 +772,7 @@ fn checked_patch(patch: ProjectStatePatch) -> Result<ProjectStatePatch, Protocol
             .map(|file| file.map(norm).transpose())
             .transpose()?,
         expanded_dirs: patch.expanded_dirs.map(all).transpose()?,
+        pinned_files: patch.pinned_files.map(all).transpose()?,
     })
 }
 

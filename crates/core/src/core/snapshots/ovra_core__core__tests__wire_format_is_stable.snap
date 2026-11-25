@@ -229,6 +229,9 @@ expression: samples
         ],
         "open_files": [
           "a.rs"
+        ],
+        "pinned_files": [
+          "a.rs"
         ]
       },
       "type": "projects.state"

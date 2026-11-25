@@ -16,6 +16,11 @@ export type ProjectState = {
   active_file: string | null;
   /** Expanded folders in the file tree. */
   expanded_dirs: string[];
+  /**
+   * Pinned tabs, a subset of `open_files`. Optional here so fixtures that
+   * predate it stay valid; the core always sends it.
+   */
+  pinned_files?: string[];
 };
 
 /**
