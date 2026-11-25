@@ -1,6 +1,6 @@
 # 0011. Agents from more than one vendor behind one neutral model
 
-- Status: proposed
+- Status: accepted (owner, 2026-11-25: all six decisions as recommended)
 - Date: 2026-11-25
 - Extends: ADR 0006 (Claude stays as it is); revisits the ACP part of
   ADR 0004

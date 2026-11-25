@@ -1,7 +1,7 @@
 # One IDE, many agents: making Ovra provider-agnostic
 
-Status: research, 2026-11-25. Nothing here is approved. The proposal is
-written up as ADR 0011 (Proposed); the decisions at the end need the owner.
+Status: research, 2026-11-25. The owner accepted the proposal and all six
+decisions in section 6 as recommended (same day); it is ADR 0011.
 Builds on ADR 0004, ADR 0006, `docs/specs/claude-cli-protocol.md` and
 `docs/specs/orchestration.md`.
 
