@@ -72,10 +72,14 @@ test("side panels resize, fold and swap, and the layout survives a reload", asyn
   await page.keyboard.press("Alt+N");
   await expect(agentsToggle).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("textbox", { name: "Give Claude a task" })).toBeFocused();
-  // The rail's bottom: Terminal and Settings, which lists the settings in the palette.
-  await rail.getByRole("button", { name: "Settings" }).click();
-  await expect(page.getByRole("dialog", { name: "Command palette" })).toBeVisible();
-  await page.keyboard.press("Escape");
+  // The rail's bottom: Terminal and Settings, which opens in the main area and closes on a second press.
+  const gear = rail.getByRole("button", { name: "Settings" });
+  await gear.click();
+  const settings = page.getByRole("region", { name: "Settings" });
+  await expect(settings.getByRole("heading", { name: "Settings" })).toBeFocused();
+  await expect(gear).toHaveAttribute("aria-pressed", "true");
+  await gear.click();
+  await expect(settings).toBeHidden();
 
   await page.reload();
   await expect(files).toHaveAttribute("aria-pressed", "false");

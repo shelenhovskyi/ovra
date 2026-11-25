@@ -26,6 +26,8 @@ import ContextMenu from "../menu/ContextMenu.svelte";
 import Notifications from "../notify/Notifications.svelte";
 import Palette from "../palette/Palette.svelte";
 import Search from "../search/Search.svelte";
+import { registerSettingsCommands } from "../settings/commands";
+import Settings from "../settings/Settings.svelte";
 import Terminals from "../terminal/Terminals.svelte";
 import Tree from "../tree/Tree.svelte";
 import Viewer from "../viewers/Viewer.svelte";
@@ -138,6 +140,7 @@ const status = $derived.by((): { text: string; ok: boolean } => {
 });
 
 $effect(() => {
+  const offSettings = registerSettingsCommands();
   const off = [
     registerCommand({ id: "layout.swap", title: "Swap side panels", category: "View", run: () => layout.swap() }),
     registerCommand({ id: "layout.reset", title: "Reset layout", category: "View", run: () => layout.resetAll() }),
@@ -167,6 +170,7 @@ $effect(() => {
   ];
   return () => {
     for (const unregister of off) unregister();
+    offSettings();
   };
 });
 
@@ -329,7 +333,7 @@ async function showApprovals(): Promise<void> {
       </div>
     </div>
     </div>
-    {#if mainView.current === "audit"}<AuditLog />{/if}
+    {#if mainView.current === "settings"}<Settings />{:else if mainView.current === "audit"}<AuditLog />{/if}
     <BrowserPane />
     <Terminals />
   </main>

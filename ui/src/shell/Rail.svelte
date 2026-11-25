@@ -1,7 +1,8 @@
 <script lang="ts">
 // The icon rail beside the rail's panel: what that panel shows (Files,
 // Search, Git), and Terminal and Settings at the bottom. Pressing the shown view
-// again folds the panel; another view unfolds it. The shell moves the rail
+// again folds the panel; another view unfolds it. Settings opens in the main
+// area and closes again on a second press. The shell moves the rail
 // to the right edge when the panel goes there, and hides it on the start
 // screen. Reviews and More are in the title bar.
 import { listCommands } from "../keys/commands";
@@ -9,6 +10,7 @@ import { useOvra } from "./context";
 import Icon from "./Icon.svelte";
 import type { IconName } from "./icons";
 import type { Layout } from "./layout.svelte";
+import { mainView } from "./main-view.svelte";
 import { hush, warmTips } from "./tips";
 import type { SidebarView } from "./workspace.svelte";
 
@@ -53,8 +55,13 @@ function run(id: string): void {
     <button type="button" class="rail-button tip" data-tip="Terminal" aria-label="Terminal" onclick={() => run("terminal.toggle")}
       ><Icon name="terminal" /></button
     >
-    <button type="button" class="rail-button tip" data-tip="Settings" aria-label="Settings" onclick={() => run("palette.settings")}
-      ><Icon name="settings" /></button
+    <button
+      type="button"
+      class="rail-button tip"
+      data-tip="Settings"
+      aria-label="Settings"
+      aria-pressed={mainView.current === "settings"}
+      onclick={() => mainView.toggle("settings")}><Icon name="settings" /></button
     >
   {/if}
 </nav>

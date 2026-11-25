@@ -239,12 +239,12 @@ describe("Shell", () => {
         document.getElementById(item.getAttribute("aria-describedby") ?? "")?.textContent,
       ]);
       expect(described).toEqual([
-        ["Settings…", "Ctrl+,", "Rules, network and secrets"],
+        ["Settings…", null, "Rules, network, Claude and more"],
         ["Audit log", null, "Everything agents did, and who approved it"],
         ["Agent browser", "Ctrl+Shift+B", "The web browser an agent uses"],
         ["Keyboard shortcuts", null, "Every command with a shortcut"],
       ]);
-      expect(items()[0]?.getAttribute("aria-keyshortcuts")).toBe("Mod+,");
+      expect(items()[0]?.getAttribute("aria-keyshortcuts")).toBeNull();
       expect(items().map((item) => item.dataset.testid)).toEqual([
         "open-settings",
         "open-audit",
@@ -304,17 +304,18 @@ describe("Shell", () => {
       expect(document.activeElement).toBe(more);
     });
 
-    it("opens the settings list from Settings…", async () => {
+    it("opens Settings from Settings…, with Ovra's panes only while no project is open", async () => {
       const { target, more, items } = shell();
       more?.click();
       flushSync();
       items()[0]?.click();
-      await new Promise((resolve) => setImmediate(resolve));
       flushSync();
-      const search = target.querySelector<HTMLInputElement>("[role=dialog] input");
-      expect(search?.placeholder).toBe("Search settings");
-      search?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      const view = target.querySelector("main [data-testid=settings]");
+      const panes = [...(view?.querySelectorAll("nav button") ?? [])].map((b) => b.textContent);
+      expect(panes).toEqual(["Notifications", "Keyboard", "Accessibility", "About"]);
+      key(view, "Escape");
       flushSync();
+      expect(target.querySelector("[data-testid=settings]")).toBeNull();
     });
 
     it("toggles the agent browser and shows that it is open", () => {
