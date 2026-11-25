@@ -1,0 +1,14 @@
+[package]
+name = "ovra-sandbox-windows"
+description = "The agent sandbox on Windows: a sandbox user and a write-restricted token (implements ovra_core::services::Sandbox)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+ovra-core.workspace = true
+
+[lints]
+workspace = true
