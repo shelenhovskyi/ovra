@@ -185,19 +185,6 @@ export class GitModel {
     return this.loading ?? Promise.resolve();
   }
 
-  /**
-   * The last commit's summary (its first line), or null. The protocol has no
-   * full message, so a body is not known here.
-   */
-  async lastSummary(): Promise<string | null> {
-    try {
-      const reply = await this.transport.call({ method: "git.log", params: { project: this.project, limit: 1 } });
-      return reply.data.commits[0]?.summary ?? null;
-    } catch {
-      return null;
-    }
-  }
-
   async loadBranches(): Promise<void> {
     try {
       const reply = await this.transport.call({ method: "git.branches", params: { project: this.project } });

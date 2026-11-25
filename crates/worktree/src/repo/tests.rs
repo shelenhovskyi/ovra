@@ -210,6 +210,18 @@ async fn commit_needs_staged_changes_except_to_amend() {
     let summaries: Vec<_> = log.iter().map(|c| c.summary.as_str()).collect();
     assert_eq!(summaries, ["Change a, really", "start"]);
     assert_eq!(log[0].id, amended.commit.id);
+
+    // An empty message keeps the whole message, body included.
+    put(root, "a.txt", "a3\n");
+    ok(g.stage(root.clone(), rels(&["a.txt"])).await);
+    ok(g.commit(root.clone(), "Keep\n\nThe body.".into(), true)
+        .await);
+    ok(g.stage(root.clone(), rels(&["a.txt"])).await);
+    ok(g.commit(root.clone(), String::new(), true).await);
+    assert_eq!(
+        git(root, &["log", "-1", "--format=%B"]),
+        "Keep\n\nThe body."
+    );
 }
 
 #[cfg(unix)]

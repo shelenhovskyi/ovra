@@ -167,15 +167,14 @@ it("commits with Mod+Enter, says why it waits and shows a hook's output", async 
   expect(text("[data-testid=git-committed]")).toBe("Committed c100000: Fix the thing");
   expect(box.value).toBe("");
 
-  // Amend starts from the last message, and unticking takes it out again.
-  const amend = $<HTMLInputElement>("input[type=checkbox]");
-  amend?.click();
-  await settle();
-  expect(box.value).toBe("Fix the thing");
-  expect(text(".commit .hint")).toMatch(/first line/);
-  amend?.click();
+  // Amend with an empty message keeps the last commit's message.
+  $<HTMLInputElement>("input[type=checkbox]")?.click();
   await settle();
   expect(box.value).toBe("");
+  expect(text(".commit .hint")).toMatch(/empty to keep/);
+  click("[data-testid=git-commit]");
+  await settle();
+  expect(core.calls.at(-2)).toMatchObject({ method: "git.commit", params: { message: "", amend: true } });
 });
 
 it("switches branches, shows why a switch failed and creates a branch", async () => {

@@ -141,6 +141,17 @@ async fn commit_needs_a_message() {
         let commit = git("commit", json!({"message": message}));
         assert_eq!(code(&f.core, commit).await, ErrorCode::BadRequest);
     }
+    call(
+        &f.core,
+        git("commit", json!({"message": "", "amend": true})),
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{e}"));
+    f.git
+        .calls
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clear();
     let huge = git("commit", json!({"message": "x".repeat(64 * 1024 + 1)}));
     assert_eq!(code(&f.core, huge).await, ErrorCode::BadRequest);
     let committed = call(&f.core, git("commit", json!({"message": "Fix it\n\nWhy"}))).await;

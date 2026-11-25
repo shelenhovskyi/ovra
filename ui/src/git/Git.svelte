@@ -30,7 +30,7 @@ $effect(() => {
   const off = [
     registerCommand({
       id: "git.show",
-      title: "Git: show changes",
+      title: "Git: open panel",
       keys: "Mod+Shift+G",
       run: async () => {
         await showPanel();

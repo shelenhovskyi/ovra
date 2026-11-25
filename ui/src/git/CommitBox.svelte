@@ -15,12 +15,9 @@ let amend = $state(false);
 const staged = $derived(status.files.filter((f) => f.staged !== null && f.unstaged !== "conflicted").length);
 const why = $derived.by(() => {
   if (!amend && staged === 0) return "Stage changes to commit them, or amend the last commit.";
-  if (!text.trim()) return "Write a commit message.";
+  if (!text.trim() && !amend) return "Write a commit message.";
   return null;
 });
-
-/** The last commit's summary while it fills the box for an amend; cleared once the box is not that. */
-let prefilled = $state<string | null>(null);
 
 async function commit(): Promise<void> {
   if (model.busy) return;
@@ -32,22 +29,6 @@ async function commit(): Promise<void> {
   if (await model.commit(text.trim(), amend)) {
     text = "";
     amend = false;
-    prefilled = null;
-  }
-}
-
-/** Amend starts from the last message (its first line: the protocol has no body); unticking takes it back out. */
-async function onamend(): Promise<void> {
-  if (!amend) {
-    if (prefilled !== null && text === prefilled) text = "";
-    prefilled = null;
-    return;
-  }
-  if (text.trim()) return;
-  const summary = await model.lastSummary();
-  if (amend && !text.trim() && summary) {
-    text = summary;
-    prefilled = summary;
   }
 }
 
@@ -72,14 +53,13 @@ function onkeydown(event: KeyboardEvent): void {
   </label>
   {#if status.head}
     <label class="check">
-      <input type="checkbox" bind:checked={amend} onchange={onamend} />
+      <input type="checkbox" bind:checked={amend} />
       Amend last commit
     </label>
     {#if amend}
       <p class="hint">
-        Replaces the last commit with what is staged and this message.{prefilled !== null && text === prefilled
-          ? " The message is the last commit's first line; if it had more lines, add them again."
-          : ""}
+        Replaces the last commit with what is staged. Leave the message empty to keep the last commit's message, or
+        write a new one to replace all of it.
       </p>
     {/if}
   {/if}

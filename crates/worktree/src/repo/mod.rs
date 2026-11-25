@@ -167,11 +167,17 @@ fn commit(root: &Path, message: &str, amend: bool) -> Result<Committed> {
             _ => return Err(internal(format!("git diff: {}", printed(&same)))),
         }
     }
-    let mut run = Git::new(root, "commit").args(["-F", "-"]);
-    if amend {
-        run = run.arg("--amend");
-    }
-    let out = run.input(message).output()?;
+    let keep = amend && message.trim().is_empty();
+    let mut run = Git::new(root, "commit");
+    run = if keep {
+        // Amend what is staged into the last commit, message and all.
+        run.args(["--amend", "--no-edit"])
+    } else if amend {
+        run.args(["-F", "-", "--amend"]).input(message)
+    } else {
+        run.args(["-F", "-"]).input(message)
+    };
+    let out = run.output()?;
     let output = printed(&out);
     if !out.status.success() {
         return Err(conflict(if output.is_empty() {

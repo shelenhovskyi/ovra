@@ -64,7 +64,8 @@ pub(crate) async fn handle(core: &Core, request: GitRequest) -> Result<Response,
             message,
             amend,
         } => {
-            if message.trim().is_empty() || message.len() > MAX_MESSAGE {
+            // An empty message keeps the last one when amending.
+            if (message.trim().is_empty() && !amend) || message.len() > MAX_MESSAGE {
                 return Err(bad(format!(
                     "the commit message must have 1 to {MAX_MESSAGE} bytes"
                 )));
