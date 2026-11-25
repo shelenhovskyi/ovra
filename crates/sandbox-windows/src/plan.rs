@@ -241,6 +241,8 @@ impl Plan {
         }
         plan.claude_state(&home, &work_dir);
         plan.program(&home, program);
+        // The sandbox user starts the helper too.
+        plan.program(&home, &setup.helper);
         plan.path = plan.path_entries(&home, &setup.path);
         plan.private(setup, &work_dir)?;
         if let ProfileNetwork::Proxy { address, ca_bundle } = &profile.network {
@@ -401,11 +403,17 @@ impl Plan {
     /// holds none of them either.
     pub(crate) fn line(
         &self,
-        helper: &Path,
+        setup: &Setup,
         line: CommandLine,
         outer_env: &[OsString],
     ) -> CommandLine {
-        let mut args: Vec<OsString> = vec![HELPER_FLAG.into(), "--sid".into(), (&self.sid).into()];
+        let mut args: Vec<OsString> = vec![
+            HELPER_FLAG.into(),
+            "--sid".into(),
+            (&self.sid).into(),
+            "--data".into(),
+            (&setup.data_dir).into(),
+        ];
         for (path, right) in &self.grants {
             args.extend([OsString::from(format!("--{}", right.flag())), path.into()]);
         }
@@ -439,7 +447,7 @@ impl Plan {
         args.push(line.program.into());
         args.extend(line.args);
         CommandLine {
-            program: helper.to_path_buf(),
+            program: setup.helper.clone(),
             args,
             env,
             cwd: line.cwd,
