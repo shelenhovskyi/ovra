@@ -11,6 +11,7 @@ import { listCommands, registerCommand } from "../keys/commands";
 import type { AccountState, FileChange, SessionId, SessionInfo } from "../lib/protocol";
 import { CoreError } from "../lib/transport";
 import { isMenuKey, type MenuEntry, openContextMenu } from "../menu/context-menu.svelte";
+import { projectSandbox } from "../settings/sandbox";
 import { useOvra } from "../shell/context";
 import Icon from "../shell/Icon.svelte";
 import { menuTarget } from "../shell/menu";
@@ -84,9 +85,8 @@ const sandbox = $derived(current ? sandboxLine(sandboxState(current), isEnded(cu
 const gaps = $derived(current ? sandboxGaps(sandboxState(current), isEnded(current.status)) : null);
 /** How the project's newest session that said so runs: the next one most likely runs the same way. */
 const sandboxWord = $derived.by(() => {
-  const known = [...list].reverse().find((s) => s.sandbox_reported || s.sandbox);
-  if (!known) return "";
-  return known.sandbox ? ", in a sandbox" : ", without a sandbox";
+  const known = projectSandbox(list);
+  return known ? { sandboxed: ", in a sandbox", none: ", without a sandbox" }[known] : "";
 });
 /** The line under the header says "No sandbox" already: the hint does not say it again. */
 const modeSandbox = $derived(unsandboxed ? "" : sandboxWord);
