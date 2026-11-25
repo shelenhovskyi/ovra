@@ -132,12 +132,13 @@ function who(session: string | null): string {
           </label>
           <label><input type="checkbox" bind:checked={refusedOnly} data-testid="audit-refused" /> Refused only</label>
         {/if}
-        <button type="button" class="close" aria-keyshortcuts="Escape" onclick={close}>Close</button>
+        <button type="button" class="close" aria-keyshortcuts="Escape" title="Close (Escape)" onclick={close}
+          ><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg><span class="sr-only"
+            >Close</span
+          ></button
+        >
       </header>
-      <p class="muted note">
-        What agents did in this project and who allowed it. Entries are only ever added; they keep no file contents
-        and no token-like text.
-      </p>
+      <p class="muted note">What agents did and who allowed it. Append-only, without file contents or tokens.</p>
       {#if trail.error}
         <p class="error" role="alert">The audit log could not be read: {trail.error}</p>
       {/if}
@@ -193,49 +194,129 @@ function who(session: string | null): string {
 {/if}
 
 <style>
-  button,
-  select {
-    font: inherit;
-    padding: 2px 10px;
-    color: #e6e6e6;
-    background: #2a2a33;
-    border: 1px solid #4a4a57;
-    border-radius: 3px;
-    cursor: pointer;
-  }
-  button:focus-visible,
-  select:focus-visible,
-  input:focus-visible,
-  summary:focus-visible,
-  h2:focus-visible {
-    outline: 2px solid #7aa2ff;
-    outline-offset: 1px;
-  }
+  /* The More menu's dialogs share this frame: a raised card over the scrim. */
   .backdrop {
     position: fixed;
     inset: 0;
     z-index: 90;
     display: flex;
-    padding: 24px;
-    background: rgb(0 0 0 / 55%);
+    justify-content: center;
+    align-items: flex-start;
+    padding: 48px 24px 24px;
+    background: var(--scrim);
   }
   .audit {
     flex: 1;
+    max-width: none;
+    height: 100%;
     display: flex;
     flex-direction: column;
     min-width: 0;
     min-height: 0;
-    background: #16161a;
-    border: 1px solid #3a3a44;
-    border-radius: 6px;
+    background: var(--s2);
+    border-radius: 14px;
+    box-shadow: var(--card-shadow);
   }
   header {
     display: flex;
-    flex-wrap: wrap;
     align-items: center;
-    gap: 12px;
-    padding: 8px 12px;
-    border-bottom: 1px solid #2a2a31;
+    gap: 10px;
+    padding: 16px 14px 4px 22px;
+  }
+  h2 {
+    margin: 0;
+    font-size: 17px;
+    font-weight: 600;
+  }
+  .close {
+    margin-left: auto;
+    padding: 4px;
+    color: var(--text-2);
+    background: transparent;
+  }
+  .close svg {
+    display: block;
+    width: 18px;
+    height: 18px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+  }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .body {
+    flex: 1;
+    overflow: auto;
+    padding: 4px 22px 22px;
+  }
+  .muted,
+  label {
+    color: var(--text-2);
+    font-size: 13px;
+  }
+  .note {
+    margin: 4px 22px 8px;
+  }
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+    padding: 5px 10px;
+    color: var(--text);
+    background: var(--s3);
+    border: 0;
+    border-radius: var(--radius);
+  }
+  button {
+    font-weight: 500;
+    cursor: pointer;
+  }
+  button:hover {
+    color: var(--text);
+    background: var(--s4);
+  }
+  button.primary {
+    color: var(--accent-ink);
+    background: var(--accent);
+  }
+  button:disabled,
+  input:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+  summary {
+    cursor: pointer;
+  }
+  .error {
+    color: var(--danger);
+    margin: 6px 0;
+  }
+  @media (forced-colors: active) {
+    .audit {
+      border: 1px solid CanvasText;
+    }
+    button,
+    input,
+    select,
+    textarea {
+      border: 1px solid ButtonText;
+    }
+  }
+  header {
+    flex-wrap: wrap;
+  }
+  header label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
   }
   button[aria-busy="true"] {
     cursor: progress;
@@ -249,49 +330,36 @@ function who(session: string | null): string {
     clip-path: inset(50%);
     white-space: nowrap;
   }
-  .close {
-    margin-left: auto;
-  }
-  h2 {
-    margin: 0;
-    font-size: 14px;
-  }
-  .muted {
-    color: #b4b4c0;
-    font-size: 12px;
-  }
-  .note {
-    margin: 8px 12px;
-  }
   .error {
-    color: #ff8f8f;
-    margin: 6px 12px;
+    margin: 6px 22px;
   }
   .entries {
     flex: 1;
     overflow: auto;
     list-style: none;
+    display: grid;
+    align-content: start;
+    gap: 4px;
     margin: 0;
-    padding: 4px 12px 12px;
+    padding: 4px 22px 16px;
   }
   li {
-    padding: 6px 8px;
-    border-left: 3px solid #3a3a44;
-    border-bottom: 1px solid #24242b;
+    padding: 8px 12px;
+    border-radius: var(--radius);
+    background: var(--s1);
+  }
+  li.refused strong {
+    color: var(--danger);
+  }
+  li.warn strong {
+    color: var(--warn);
   }
   .more {
     display: flex;
     align-items: center;
     gap: 10px;
     margin: 0;
-    padding: 6px 12px;
-    border-top: 1px solid #2a2a31;
-  }
-  li.refused {
-    border-left-color: #ff8f8f;
-  }
-  li.warn {
-    border-left-color: #ffd36b;
+    padding: 8px 22px 14px;
   }
   .line {
     display: flex;
@@ -299,22 +367,24 @@ function who(session: string | null): string {
     gap: 10px;
     align-items: baseline;
   }
+  strong {
+    font-weight: 600;
+  }
   time,
   .who {
-    color: #b4b4c0;
-    font-size: 12px;
+    color: var(--text-2);
+    font-size: 13px;
   }
   .detail {
     margin: 2px 0 0;
-    color: #c8c8d2;
+    color: var(--text-2);
   }
   details {
     margin-top: 2px;
-    font-size: 12px;
-    color: #b4b4c0;
+    font-size: 13px;
+    color: var(--text-2);
   }
   summary {
-    cursor: pointer;
     width: fit-content;
   }
   pre {
@@ -323,10 +393,10 @@ function who(session: string | null): string {
     overflow: auto;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
-    font-size: 12px;
-    color: #d8d8e0;
-    background: #1e1e24;
-    padding: 4px 6px;
-    border-radius: 3px;
+    font-size: 13px;
+    color: var(--text);
+    background: var(--s0);
+    padding: 6px 8px;
+    border-radius: var(--radius-sm);
   }
 </style>

@@ -67,43 +67,47 @@ function onScroll(): void {
 <style>
   .log-view {
     position: relative;
+    margin-top: 6px;
   }
   .lines {
     max-height: 240px;
     overflow: auto;
-    padding: 4px 8px;
-    font-family: ui-monospace, monospace;
+    padding: 8px 10px;
+    font-family: var(--mono);
     font-size: 12px;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
-    background: #101013;
-    border: 1px solid #2a2a31;
-    border-radius: 3px;
-  }
-  .lines:focus-visible,
-  .follow:focus-visible {
-    outline: 2px solid #7aa2ff;
+    background: var(--s0);
+    border-radius: var(--radius-sm);
   }
   .follow {
     position: absolute;
     right: 12px;
     bottom: 8px;
     font: inherit;
-    font-size: 12px;
-    color: #e6e6e6;
-    background: #2a2a33;
-    border: 1px solid #4a4a57;
-    border-radius: 3px;
+    font-size: 13px;
+    padding: 2px 10px;
+    color: var(--text);
+    background: var(--s4);
+    border: 0;
+    border-radius: var(--radius-sm);
+    box-shadow: var(--card-shadow);
     cursor: pointer;
   }
   .muted {
-    color: #b4b4c0;
-    font-size: 12px;
+    color: var(--text-2);
+    font-size: 13px;
   }
   .error {
-    color: #ff8f8f;
+    color: var(--danger);
   }
   .bold {
     font-weight: bold;
+  }
+  @media (forced-colors: active) {
+    .lines,
+    .follow {
+      border: 1px solid CanvasText;
+    }
   }
 </style>
