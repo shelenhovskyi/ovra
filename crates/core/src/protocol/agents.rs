@@ -72,9 +72,14 @@ pub struct SessionInfo {
     #[serde(default)]
     pub billing: Option<Billing>,
     /// The sandbox the runtime ran it in; `None` while unknown and for a
-    /// session that ran without one.
+    /// session that ran without one (`sandbox_reported` tells them apart).
     #[serde(default)]
     pub sandbox: Option<SandboxReport>,
+    /// Whether the runtime reported how it ran the current process: `false`
+    /// while it starts. Sessions saved before this field read as `false`;
+    /// a `sandbox` that is set counts as reported.
+    #[serde(default)]
+    pub sandbox_reported: bool,
 }
 
 /// Tokens and cost of one turn, as the agent reports them, or their sum.
@@ -376,5 +381,12 @@ pub enum AgentsEvent {
     Billing {
         session: SessionId,
         billing: Billing,
+    },
+    /// The runtime said how it runs the session's process
+    /// (`SessionInfo::sandbox`; `None`: without a sandbox).
+    #[serde(rename = "agents.sandbox")]
+    Sandbox {
+        session: SessionId,
+        sandbox: Option<SandboxReport>,
     },
 }

@@ -5,7 +5,8 @@ use super::*;
 use crate::fakes::{MemoryFs, MemoryProjects, RecordingOpener};
 use crate::protocol::agents::{
     AgentMessage, AgentSetup, AgentStatus, AgentsEvent, AgentsResponse, Billing, ConfigItem,
-    ConfigKind, ProjectAgentConfig, ProjectConfigReview, SessionId, SetupState,
+    ConfigKind, ProjectAgentConfig, ProjectConfigReview, SandboxNetwork, SandboxReport, SessionId,
+    SetupState,
 };
 use crate::protocol::fs::{FileBody, FsEvent};
 use crate::protocol::info::InfoEvent;
@@ -358,6 +359,10 @@ fn wire_format_is_stable() {
                     parent: Some("tool0".into()),
                 },
             }),
+            Event::Agents(AgentsEvent::Sandbox {
+                session: SessionId("s1".into()),
+                sandbox: Some(SandboxReport { name: "bubblewrap".into(), network: SandboxNetwork::Proxy }),
+            }),
             Event::Permissions(PermissionsEvent::Requested(PermissionRequest {
                 id: PermissionId("perm1".into()),
                 session: SessionId("s1".into()),
@@ -405,6 +410,26 @@ fn a_protected_file_change_round_trips() {
         "blocked": false}))
     .expect("file change");
     assert!(!old.protected);
+}
+
+#[test]
+fn a_session_saved_before_the_sandbox_flag_reads_as_unreported() {
+    use crate::protocol::agents::SessionInfo;
+    let old = |sandbox: serde_json::Value| {
+        serde_json::from_value::<SessionInfo>(serde_json::json!({"id": "s1", "project": "p1",
+            "agent": "claude", "mode": "direct", "status": {"state": "stopped"}, "title": "t",
+            "usage": {"input_tokens": 0, "output_tokens": 0, "cost_micro_usd": null},
+            "sandbox": sandbox}))
+        .expect("old session")
+    };
+    let unknown = old(serde_json::Value::Null);
+    assert!(!unknown.sandbox_reported);
+    assert_eq!(unknown.sandbox, None);
+    let boxed = old(serde_json::json!({"name": "bubblewrap", "network": "proxy"}));
+    assert_eq!(
+        boxed.sandbox.map(|s| s.network),
+        Some(SandboxNetwork::Proxy)
+    );
 }
 
 #[test]

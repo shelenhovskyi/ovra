@@ -148,6 +148,7 @@ mod tests {
                 resumable: false,
                 billing: None,
                 sandbox: None,
+                sandbox_reported: false,
             },
             agent_session: None,
         }

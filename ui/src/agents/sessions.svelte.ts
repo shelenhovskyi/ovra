@@ -168,6 +168,7 @@ export class AgentSessions {
         resumable: false,
         billing: null,
         sandbox: null,
+        sandbox_reported: false,
       });
       void this.load(project).catch(() => {});
     } else if (event.type === "agents.billing") {

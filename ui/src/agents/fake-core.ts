@@ -175,6 +175,7 @@ export class FakeAgentCore implements Transport {
       resumable: false,
       billing: null,
       sandbox: null,
+      sandbox_reported: false,
     };
     this.sessions.push(info);
     return info;
