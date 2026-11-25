@@ -3,6 +3,8 @@
 // keys: F2 and Delete belong to the focused tree, the editor has its own F2.
 
 import { registerCommand } from "../keys/commands";
+import { findInFolder } from "../search/find-in";
+import { openTerminalIn } from "../terminal/open-in";
 import type { FileActions } from "./actions.svelte";
 import { parentOf, type Row } from "./model";
 import { revealLabel } from "./ops";
@@ -44,6 +46,16 @@ export function registerFileCommands(
       id: "tree.copy_relative_path",
       title: "Copy relative file path",
       run: on((row) => actions.copyPaths([row.path], true)),
+    }),
+    registerCommand({
+      id: "tree.open_in_terminal",
+      title: "Open folder in terminal",
+      run: () => openTerminalIn(folderFor(active())),
+    }),
+    registerCommand({
+      id: "tree.find_in_folder",
+      title: "Find in folder…",
+      run: () => findInFolder(folderFor(active())),
     }),
     registerCommand({ id: "tree.undo", title: "Undo file operation", run: () => void actions.undo() }),
     registerCommand({ id: "tree.redo", title: "Redo file operation", run: () => void actions.redo() }),

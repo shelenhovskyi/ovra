@@ -3,6 +3,8 @@
 // (`tree.*`) or a row key.
 
 import type { MenuEntry, MenuItem } from "../menu/context-menu.svelte";
+import { findInFolder } from "../search/find-in";
+import { openTerminalIn } from "../terminal/open-in";
 import type { FileActions } from "./actions.svelte";
 import { folderFor } from "./commands";
 import type { Row } from "./model";
@@ -22,11 +24,18 @@ function pasteItem(actions: FileActions, dir: string): MenuItem {
   return { label: "Paste", keys: "Mod+V", disabled: actions.clip === null, run: () => void actions.paste(dir) };
 }
 
+/** Opens a terminal in `dir`. */
+function terminalItem(dir: string): MenuItem {
+  return { label: "Open in terminal", run: () => openTerminalIn(dir) };
+}
+
 /** The menu of a file or folder row. */
 export function rowMenu(actions: FileActions, row: Pick<Row, "path" | "kind">): MenuEntry[] {
   const dir = folderFor(row);
   return [
     { label: revealLabel(), run: () => actions.reveal(row.path) },
+    terminalItem(dir),
+    row.kind === "dir" && { label: "Find in folder…", run: () => findInFolder(row.path) },
     { label: "Copy path", run: () => actions.copyPaths([row.path], false) },
     { label: "Copy relative path", run: () => actions.copyPaths([row.path], true) },
     "separator",
@@ -57,6 +66,7 @@ export function selectionMenu(actions: FileActions, paths: string[]): MenuEntry[
 export function rootMenu(actions: FileActions, collapseAll: () => void): MenuEntry[] {
   return [
     { label: "Reveal project folder", run: () => actions.reveal("") },
+    terminalItem(""),
     { label: "Collapse all", run: collapseAll },
     "separator",
     { label: "New file…", run: () => actions.startNew("", "file") },

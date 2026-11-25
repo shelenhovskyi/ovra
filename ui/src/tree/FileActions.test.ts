@@ -97,6 +97,7 @@ describe("file actions in the tree", () => {
     expect(t.row("b.ts")?.getAttribute("aria-selected")).toBe("true");
     expect(labels()).toEqual([
       "Open Containing Folder",
+      "Open in terminal",
       "Copy path",
       "Copy relative path",
       "-",
@@ -119,9 +120,17 @@ describe("file actions in the tree", () => {
     t.press(t.input(), "Escape");
 
     t.tree.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2 }));
-    expect(labels()).toEqual(["Reveal project folder", "Collapse all", "-", "New file…", "New folder…", "Paste"]);
+    expect(labels()).toEqual([
+      "Reveal project folder",
+      "Open in terminal",
+      "Collapse all",
+      "-",
+      "New file…",
+      "New folder…",
+      "Paste",
+    ]);
     t.tree.dispatchEvent(new KeyboardEvent("keydown", { code: "F10", key: "F10", shiftKey: true, bubbles: true }));
-    expect(labels()[10]).toBe("Rename…");
+    expect(labels()[11]).toBe("Rename…");
     closeContextMenu(false);
   });
 
