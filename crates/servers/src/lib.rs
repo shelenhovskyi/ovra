@@ -26,6 +26,8 @@ mod init;
 mod pods;
 #[cfg(unix)]
 mod ready;
+#[cfg(unix)]
+mod sockets;
 
 /// If this process was started as a server pod, runs it and never
 /// returns. Otherwise returns at once. Call it first in `main`, before any

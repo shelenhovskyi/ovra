@@ -96,6 +96,13 @@ The person defines servers in `.ovra/servers.json` in the project:
   pod, so the port check runs there. Each server is its own process group;
   when its main process ends, the rest of its group is killed. When the
   control connection closes, pod-init kills every server and exits.
+- The pod's folder is writable inside the pod, so Ovra trusts no name in
+  it. It holds the folder open and opens each socket there without
+  following links (Linux: `O_PATH|O_NOFOLLOW`, then connects through
+  `/proc/self/fd/N`); the file must be a socket, and its listener must run
+  as the user. The listener of `control.sock` must be the process Ovra
+  started or below it (Linux), and is pod-init from then on: only
+  pod-init's own `<port>.sock` is ever connected (`SO_PEERCRED` pid).
 - A `ready.http` check passes on any answer below 500. There is no ready
   timeout: a server stays `starting` until it is ready or ends.
 

@@ -19,7 +19,7 @@ ovra-core.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 rand.workspace = true
-rustix = { version = "1", features = ["process"] }
+rustix = { version = "1", features = ["fs", "process"] }
 serde.workspace = true
 serde_json.workspace = true
 tokio = { workspace = true, features = ["io-util", "net", "process", "rt", "sync", "time"] }

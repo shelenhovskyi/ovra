@@ -13,16 +13,14 @@ use ovra_core::services::{
     CommandLine, DevServerSpec, PodConn, PodSpec, Result, Sandbox, SandboxStatus, ServerSink,
 };
 use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _, AsyncWriteExt as _, BufReader};
-use tokio::net::UnixStream;
 use tokio::process::Child;
 use tokio::runtime::Handle;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
-use crate::control::{
-    CONTROL, Event, LISTENING, Lines, MAX_CONTROL_LINE, Request, Sig, Spawn, encode, port_socket,
-};
+use crate::control::{Event, LISTENING, Lines, MAX_CONTROL_LINE, Request, Sig, Spawn, encode};
 use crate::init::POD_FLAG;
 use crate::ready::{Next, Readiness};
+use crate::sockets::Sockets;
 
 /// How long one `ready.http` request may take.
 const ASK_TIMEOUT: Duration = Duration::from_secs(2);
@@ -51,6 +49,7 @@ struct State {
 struct Pod {
     /// Its private folder; also tells this pod from a later one.
     dir: PathBuf,
+    sockets: Arc<Sockets>,
     control: UnboundedSender<Request>,
     /// By spawn name.
     servers: BTreeMap<String, Running>,
@@ -188,15 +187,21 @@ impl Pods {
     /// A new pod for `spec.work_dir`, its pod-init started.
     fn open(&self, runtime: &Handle, spec: &PodSpec) -> Result<Pod> {
         let dir = new_folder(&self.dir)?;
-        let child = self.launch(runtime, spec, &dir).inspect_err(|_| {
+        let opened = Sockets::open(&dir)
+            .map_err(|e| internal(format!("opening {}: {e}", dir.display())))
+            .and_then(|sockets| Ok((sockets, self.launch(runtime, spec, &dir)?)));
+        let (sockets, child) = opened.inspect_err(|_| {
             let _ = std::fs::remove_dir_all(&dir);
         })?;
+        let sockets = Arc::new(sockets);
         let (control, requests) = unbounded_channel();
         let work_dir = spec.work_dir.clone();
         let state = self.state.clone();
-        runtime.spawn(drive(state, work_dir, dir.clone(), child, requests));
+        let at = (work_dir, dir.clone(), sockets.clone());
+        runtime.spawn(drive(state, at, child, requests));
         Ok(Pod {
             dir,
+            sockets,
             control,
             servers: BTreeMap::new(),
         })
@@ -247,17 +252,18 @@ impl Pods {
     }
 
     pub(crate) async fn connect(&self, work_dir: PathBuf, port: u16) -> Result<PodConn> {
-        let socket = {
+        let sockets = {
             let state = lock(&self.state);
             let pod = state.pods.get(&work_dir);
             pod.filter(|p| p.servers.values().any(|s| s.port == port))
-                .map(|p| p.dir.join(port_socket(port)))
+                .map(|p| p.sockets.clone())
         };
-        let Some(socket) = socket else {
+        let Some(sockets) = sockets else {
             let message = format!("no server on port {port} in this work dir");
             return Err(ProtocolError::new(ErrorCode::NotFound, message));
         };
-        let conn = UnixStream::connect(&socket)
+        let conn = sockets
+            .port(port)
             .await
             .map_err(|e| internal(format!("port {port} of the pod: {e}")))?;
         Ok(Box::new(conn))
@@ -307,12 +313,12 @@ fn new_folder(dir: &Path) -> Result<PathBuf> {
 /// Runs one pod until its last server ended or it failed, then kills it.
 async fn drive(
     state: Arc<Mutex<State>>,
-    work_dir: PathBuf,
-    dir: PathBuf,
+    (work_dir, dir, sockets): (PathBuf, PathBuf, Arc<Sockets>),
     mut child: Child,
     requests: UnboundedReceiver<Request>,
 ) {
-    let reason = run(&state, &work_dir, &dir, &mut child, requests).await;
+    let at = (work_dir.as_path(), dir.as_path(), &sockets);
+    let reason = run(&state, at, &mut child, requests).await;
     let ended = {
         let mut state = lock(&state);
         match state.pods.get(&work_dir) {
@@ -334,8 +340,7 @@ async fn drive(
 /// Returns why the pod ended, if it ended before its servers.
 async fn run(
     state: &Arc<Mutex<State>>,
-    work_dir: &Path,
-    dir: &Path,
+    (work_dir, dir, sockets): (&Path, &Path, &Arc<Sockets>),
     child: &mut Child,
     mut requests: UnboundedReceiver<Request>,
 ) -> String {
@@ -351,7 +356,7 @@ async fn run(
             _ => return "the pod did not start".into(),
         }
     }
-    let control = match UnixStream::connect(dir.join(CONTROL)).await {
+    let control = match sockets.control(child.id()).await {
         Ok(control) => control,
         Err(e) => return format!("the pod's control socket: {e}"),
     };
@@ -377,7 +382,7 @@ async fn run(
                     let Ok(event) = serde_json::from_slice(&line) else {
                         continue;
                     };
-                    if handle(state, work_dir, dir, event) {
+                    if handle(state, (work_dir, dir, sockets), event) {
                         return String::new();
                     }
                 }
@@ -387,7 +392,11 @@ async fn run(
 }
 
 /// Applies one event; true once the pod's last server ended.
-fn handle(state: &Arc<Mutex<State>>, work_dir: &Path, dir: &Path, event: Event) -> bool {
+fn handle(
+    state: &Arc<Mutex<State>>,
+    (work_dir, dir, sockets): (&Path, &Path, &Arc<Sockets>),
+    event: Event,
+) -> bool {
     let mut reports = Vec::new();
     let over = {
         let mut guard = lock(state);
@@ -410,7 +419,7 @@ fn handle(state: &Arc<Mutex<State>>, work_dir: &Path, dir: &Path, event: Event) 
                         Next::Wait => {}
                         Next::Ready => reports.push(server.status(ServerStatus::Ready)),
                         Next::AskHttp(path) => {
-                            let at = (work_dir.to_owned(), dir.to_owned());
+                            let at = (work_dir.to_owned(), dir.to_owned(), sockets.clone());
                             tokio::spawn(ask_http(state.clone(), at, id, port, path));
                         }
                     }
@@ -441,19 +450,18 @@ fn handle(state: &Arc<Mutex<State>>, work_dir: &Path, dir: &Path, event: Event) 
 /// check passed. Gives up when the server ends.
 async fn ask_http(
     state: Arc<Mutex<State>>,
-    (work_dir, dir): (PathBuf, PathBuf),
+    (work_dir, dir, sockets): (PathBuf, PathBuf, Arc<Sockets>),
     name: String,
     port: u16,
     path: String,
 ) {
-    let socket = dir.join(port_socket(port));
     let mut wait = Duration::from_millis(50);
     let runs = || {
         let state = lock(&state);
         let pod = state.pods.get(&work_dir).filter(|p| p.dir == dir);
         pod.is_some_and(|p| p.servers.contains_key(&name))
     };
-    while !answers(&socket, port, &path).await {
+    while !answers(&sockets, port, &path).await {
         tokio::time::sleep(wait).await;
         wait = (wait * 2).min(Duration::from_secs(1));
         if !runs() {
@@ -471,12 +479,12 @@ async fn ask_http(
 }
 
 /// Whether `GET <path>` answers with a status below 500.
-async fn answers(socket: &Path, port: u16, path: &str) -> bool {
+async fn answers(sockets: &Sockets, port: u16, path: &str) -> bool {
     let Some(head) = request_head(path, port) else {
         return false;
     };
     let ask = async {
-        let mut conn = UnixStream::connect(socket).await?;
+        let mut conn = sockets.port(port).await?;
         conn.write_all(head.as_bytes()).await?;
         let mut status = [0; 12];
         conn.read_exact(&mut status).await?;
@@ -527,8 +535,10 @@ mod tests {
             sink: Arc::new(Ignore),
             ready: Readiness::new(None),
         };
+        let folder = tempfile::tempdir().expect("pod folder");
         let pod = Pod {
-            dir: "/pods/1".into(),
+            dir: folder.path().into(),
+            sockets: Arc::new(Sockets::open(folder.path()).expect("pod folder")),
             control,
             servers: BTreeMap::from([("2".to_owned(), running)]),
         };
