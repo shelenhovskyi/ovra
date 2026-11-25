@@ -49,8 +49,10 @@ pub fn for_this_os(data_dir: &Path) -> Arc<dyn Sandbox> {
     }
     #[cfg(windows)]
     {
-        let _ = data_dir;
-        Arc::new(ovra_sandbox_windows::Restricted)
+        match ovra_sandbox_windows::Setup::from_env(data_dir, &PROTECTED_IN_WORK_DIR) {
+            Some(setup) => Arc::new(ovra_sandbox_windows::Restricted::detect(setup)),
+            None => Arc::new(Unsandboxed),
+        }
     }
     #[cfg(not(any(target_os = "linux", windows)))]
     {
