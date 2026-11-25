@@ -44,6 +44,13 @@ struct Args {
     #[cfg(feature = "fake-agent")]
     #[arg(long)]
     fake_servers: bool,
+    /// Runs an agent browser that starts nothing: each page shows one
+    /// still frame and has one element to pick. Sessions whose task
+    /// starts with "Browse" get a fake sandbox behind their netproxy, so
+    /// they may open pages.
+    #[cfg(feature = "fake-agent")]
+    #[arg(long)]
+    fake_browser: bool,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -104,6 +111,13 @@ async fn serve() -> anyhow::Result<()> {
     let core = if args.fake_servers {
         tracing::warn!("using fake dev servers");
         core.dev_servers(Arc::new(PresetServers::default()))
+    } else {
+        core
+    };
+    #[cfg(feature = "fake-agent")]
+    let core = if args.fake_browser {
+        tracing::warn!("using the fake agent browser");
+        core.browser(Arc::new(fake_browser()))
     } else {
         core
     };
@@ -246,10 +260,42 @@ fn agents(args: &Args) -> Arc<dyn AgentRuntime> {
         .for_role(ovra_core::services::ToolRole::Coordinator, coordinator)
         .for_role(ovra_core::services::ToolRole::Worker, worker)
         .writes_files(|path, text| std::fs::write(path, text));
+    // Sessions that browse say one thing, ask nothing, and report a fake
+    // sandbox behind their netproxy.
+    let browsing = ScriptedAgent::new(vec![vec![Step::Say("I will look at the page.")]]);
+    if let Ok(mut sandbox) = browsing.sandbox.lock() {
+        *sandbox = Some(ovra_core::protocol::agents::SandboxReport {
+            name: "fake sandbox for tests".into(),
+            network: ovra_core::protocol::agents::SandboxNetwork::Proxy,
+            gaps: vec!["everything: nothing is confined".into()],
+        });
+    }
     Arc::new(FakeAgent {
         script,
+        browsing,
         claude: ClaudeCli::new(None, ovra_sandbox::for_this_os(&args.data_dir)),
     })
+}
+
+/// A grey page with a dark bar, 64x40 (a 1280x800 viewport scaled down).
+#[cfg(feature = "fake-agent")]
+const FAKE_FRAME: &str = "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDACgcHiMeGSgjISMtKygwPGRBPDc3PHtYXUlkkYCZlo+AjIqgtObDoKrarYqMyP/L2u71////m8H////6/+b9//j/wAALCAAoAEABAREA/8QAGQABAAIDAAAAAAAAAAAAAAAAAAQGAQMF/8QAIBABAAIBBAIDAAAAAAAAAAAAAAEDAhVSkdEEETRysf/aAAgBAQAAPwDrAAAAACtgLB43xqvpH42AhaXRvs5jo0ujfZzHRpdG+zmOjS6N9nMdJmGEYV44R79YxER7ZAAAf//Z";
+
+#[cfg(feature = "fake-agent")]
+fn fake_browser() -> ovra_core::fakes::FakeBrowser {
+    let browser = ovra_core::fakes::FakeBrowser::default();
+    let bar = serde_json::json!({
+        "pick_id": "", "url": "", "selector": "main > button.save", "locator": "button \"Save\"",
+        "tag": "button", "text": "Save", "html": "<button class=\"save\">Save</button>",
+        "rect": {"x": 160, "y": 320, "width": 640, "height": 200},
+        "styles": {"color": "rgb(255, 255, 255)", "background-color": "rgb(60, 60, 60)"},
+    });
+    if let (Ok(mut element), Ok(mut frame)) = (browser.element.lock(), browser.on_screencast.lock())
+    {
+        *element = serde_json::from_value(bar).ok();
+        *frame = Some(FAKE_FRAME.to_owned());
+    }
+    browser
 }
 
 /// Plays the script, is always set up, and reads project configuration
@@ -258,6 +304,8 @@ fn agents(args: &Args) -> Arc<dyn AgentRuntime> {
 #[derive(Debug)]
 struct FakeAgent {
     script: ovra_core::fakes::ScriptedAgent,
+    /// For tasks that start with "Browse".
+    browsing: ovra_core::fakes::ScriptedAgent,
     claude: ClaudeCli,
 }
 
@@ -268,6 +316,9 @@ impl AgentRuntime for FakeAgent {
         spec: ovra_core::services::AgentSpec,
         host: ovra_core::services::AgentHost,
     ) -> ovra_core::services::Result<Box<dyn ovra_core::services::RunningAgent>> {
+        if spec.prompt.starts_with("Browse") {
+            return self.browsing.start(spec, host);
+        }
         self.script.start(spec, host)
     }
 

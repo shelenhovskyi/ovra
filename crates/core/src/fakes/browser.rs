@@ -29,6 +29,8 @@ pub struct FakeBrowser {
     pub started: Mutex<Vec<(SessionId, SandboxProfile)>>,
     /// The element under every point; `None` answers `not_found`.
     pub element: Mutex<Option<Pick>>,
+    /// A frame (JPEG, base64) sent whenever a page's screencast turns on.
+    pub on_screencast: Mutex<Option<String>>,
     sinks: Mutex<BTreeMap<SessionId, Arc<dyn BrowserSink>>>,
     count: Mutex<u64>,
 }
@@ -214,7 +216,12 @@ impl Browser for FakeBrowser {
     }
 
     fn screencast(&self, page: &PageId, on: bool) -> Result<()> {
-        self.change(page, |p| p.screencast = on)
+        self.change(page, |p| p.screencast = on)?;
+        let frame = lock(&self.on_screencast).clone();
+        if let (true, Some(jpeg)) = (on, frame) {
+            self.frame(page, &jpeg);
+        }
+        Ok(())
     }
 
     fn input(&self, page: &PageId, event: InputEvent) -> BoxFuture<'_, Result<()>> {
@@ -363,8 +370,8 @@ mod tests {
         };
         let refused = browser.act(&page, away).await;
         assert_eq!(refused.err().map(|e| e.code), Some(ErrorCode::Forbidden));
+        *lock(&browser.on_screencast) = Some("/9j/".into());
         browser.screencast(&page, true).expect("screencast");
-        assert!(browser.frame(&page, "/9j/"));
         browser.end(&s1);
         assert!(browser.page(&page).is_none());
         assert_eq!(lock(&browser.started).len(), 1);
