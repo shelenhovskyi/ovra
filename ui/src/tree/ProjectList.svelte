@@ -1,48 +1,33 @@
 <script lang="ts">
-// Start screen: the known projects, most recently opened first, and a field
-// to open a folder by its path.
+// Start screen: the known projects, most recently opened first, a button for
+// the system's folder dialog where there is one, and a field to open a folder
+// by its path.
 import type { Project } from "../lib/protocol";
-import { CoreError, type Transport } from "../lib/transport";
+import type { Transport } from "../lib/transport";
+import { type FolderOpener, folderError } from "./folder-opener.svelte";
 
-let { transport, onopen }: { transport: Transport; onopen: (project: Project) => void } = $props();
+let { transport, opener }: { transport: Transport; opener: FolderOpener } = $props();
 
 let projects = $state<Project[] | null>(null);
-let error = $state<string | null>(null);
+let loadError = $state<string | null>(null);
 let root = $state("");
-let busy = $state(false);
 let focused = $state(0);
 let input = $state<HTMLInputElement>();
+let pickButton = $state<HTMLButtonElement>();
 let list = $state<HTMLUListElement>();
 
-const ABSOLUTE = /^(\/|[A-Za-z]:[\\/])/;
 const KEYS = ["ArrowDown", "ArrowUp", "Home", "End"];
-
-/** A message for people: no protocol code, and a hint where there is one. */
-function message(err: unknown, path?: string): string {
-  if (!(err instanceof CoreError)) return err instanceof Error ? err.message : String(err);
-  switch (err.code) {
-    case "not_found":
-      return path ? `Folder not found: ${path}` : err.error.message;
-    case "bad_request":
-      return path && /not a (folder|directory)/i.test(err.error.message)
-        ? "That is not a folder. Choose the folder itself, not a file in it."
-        : err.error.message;
-    case "unavailable":
-      return "The project store is not available right now.";
-    default:
-      return err.error.message;
-  }
-}
+const error = $derived(opener.error ?? loadError);
 
 function load(): void {
   transport
     .call({ method: "projects.list" })
     .then((r) => {
       projects = r.data;
-      error = null;
+      loadError = null;
     })
     .catch((err: unknown) => {
-      error = message(err);
+      loadError = folderError(err);
     });
 }
 
@@ -60,36 +45,24 @@ $effect(() => {
 });
 
 $effect(() => {
-  if (projects?.length === 0) input?.focus();
+  if (projects?.length === 0) (pickButton ?? input)?.focus();
 });
 
-async function open(project: Project): Promise<void> {
-  try {
-    onopen((await transport.call({ method: "projects.open", params: { id: project.id } })).data);
-  } catch (err) {
-    error = message(err, project.root);
-  }
+function open(project: Project): void {
+  loadError = null;
+  void opener.openKnown(project);
 }
 
 async function add(e: SubmitEvent): Promise<void> {
   e.preventDefault();
-  error = null;
   const path = root.trim();
-  if (!path || busy) return;
-  if (!ABSOLUTE.test(path)) {
-    error = "Use the full path to a folder, for example /home/you/my-app.";
-    return;
-  }
-  busy = true;
-  try {
-    const project = (await transport.call({ method: "projects.add", params: { root: path } })).data;
-    root = "";
-    await open(project);
-  } catch (err) {
-    error = message(err, path);
-  } finally {
-    busy = false;
-  }
+  if (!path) return;
+  if (await opener.open(path)) root = "";
+}
+
+function edited(): void {
+  opener.error = null;
+  loadError = null;
 }
 
 function move(e: KeyboardEvent): void {
@@ -127,18 +100,22 @@ function move(e: KeyboardEvent): void {
       {/each}
     </ul>
   {/if}
+  {#if opener.canPick}
+    <button type="button" class="pick" bind:this={pickButton} disabled={opener.busy} onclick={() => opener.pick()}>Open folder…</button>
+    <p class="muted hint drop-hint">Or drop a folder onto this window.</p>
+  {/if}
   <form onsubmit={add}>
-    <label for="project-root">Open a folder</label>
+    <label for="project-root">{opener.canPick ? "Or type its path" : "Open a folder"}</label>
     <div class="row">
       <input
         id="project-root"
         bind:this={input}
         bind:value={root}
-        oninput={() => (error = null)}
+        oninput={edited}
         aria-invalid={error ? "true" : undefined}
         aria-describedby={error ? "project-root-error project-root-hint" : "project-root-hint"}
       />
-      <button type="submit" disabled={busy}>{busy ? "Opening…" : "Open"}</button>
+      <button type="submit" disabled={opener.busy}>{opener.busy ? "Opening…" : "Open"}</button>
     </div>
     <p id="project-root-hint" class="muted hint">Full path to a folder, for example /home/you/my-app</p>
   </form>
@@ -205,14 +182,22 @@ function move(e: KeyboardEvent): void {
   input[aria-invalid="true"] {
     border-color: #ff6b6b;
   }
-  form button {
+  .pick {
+    width: 100%;
+  }
+  .drop-hint {
+    margin-bottom: 12px;
+  }
+  form button,
+  .pick {
     padding: 4px 10px;
     border: 1px solid #2a2a31;
     background: #22222a;
     color: inherit;
     font: inherit;
   }
-  form button:disabled {
+  form button:disabled,
+  .pick:disabled {
     cursor: progress;
   }
   .muted {

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { listCommands } from "../keys/commands";
 import FileTree from "./FileTree.svelte";
 import { dirsFromPaths, FakeCore, flatDir } from "./fake-core";
+import { FolderOpener } from "./folder-opener.svelte";
 import ProjectList from "./ProjectList.svelte";
 
 // jsdom has no ResizeObserver, which `bind:clientHeight` uses; a viewport of 0 px still renders the overscan rows.
@@ -339,7 +340,10 @@ describe("ProjectList", () => {
     ]);
     const opened: string[] = [];
     const target = document.body.appendChild(document.createElement("div"));
-    const app = mount(ProjectList, { target, props: { transport: core, onopen: (p) => opened.push(p.id) } });
+    const app = mount(ProjectList, {
+      target,
+      props: { transport: core, opener: new FolderOpener(core, (p) => opened.push(p.id)) },
+    });
     cleanup = () => unmount(app);
     await settle();
     target.querySelector<HTMLButtonElement>("li button")?.click();
@@ -351,7 +355,10 @@ describe("ProjectList", () => {
     const core = new FakeCore();
     const opened: string[] = [];
     const target = document.body.appendChild(document.createElement("div"));
-    const app = mount(ProjectList, { target, props: { transport: core, onopen: (p) => opened.push(p.name) } });
+    const app = mount(ProjectList, {
+      target,
+      props: { transport: core, opener: new FolderOpener(core, (p) => opened.push(p.name)) },
+    });
     cleanup = () => unmount(app);
     await settle();
     expect(target.textContent).toContain("No projects yet.");

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { ErrorCode, Project } from "../lib/protocol";
 import { CoreError, type Transport } from "../lib/transport";
 import { FakeCore } from "./fake-core";
+import { FolderOpener } from "./folder-opener.svelte";
 import ProjectList from "./ProjectList.svelte";
 
 let cleanup: (() => void) | null = null;
@@ -44,7 +45,8 @@ class FailingAdd implements Transport {
 function mountList(transport: Transport) {
   const opened: string[] = [];
   const target = document.body.appendChild(document.createElement("div"));
-  const app = mount(ProjectList, { target, props: { transport, onopen: (p) => opened.push(p.id) } });
+  const opener = new FolderOpener(transport, (p) => opened.push(p.id));
+  const app = mount(ProjectList, { target, props: { transport, opener } });
   cleanup = () => unmount(app);
   const input = () => target.querySelector("input") as HTMLInputElement;
   const submit = () => target.querySelector<HTMLButtonElement>("button[type=submit]") as HTMLButtonElement;
@@ -168,7 +170,7 @@ describe("ProjectList after a lost connection", () => {
     const core = new FakeCore();
     core.call = (() => Promise.reject(new Error("connection to core closed"))) as typeof core.call;
     const target = document.body.appendChild(document.createElement("div"));
-    const app = mount(ProjectList, { target, props: { transport: core, onopen: () => {} } });
+    const app = mount(ProjectList, { target, props: { transport: core, opener: new FolderOpener(core, () => {}) } });
     cleanup = () => unmount(app);
     await settle();
     expect(target.querySelector("[role=alert]")?.textContent).toBe("connection to core closed");
@@ -179,5 +181,31 @@ describe("ProjectList after a lost connection", () => {
     await settle();
     expect(target.textContent).toContain("/work/app");
     expect(target.querySelector("[role=alert]")).toBeNull();
+  });
+});
+
+describe("ProjectList with the system's folder dialog", () => {
+  class DialogCore extends FakeCore {
+    async pickFolder(): Promise<string | null> {
+      return "/work/picked";
+    }
+  }
+
+  it("opens the picked folder from the Open folder button, which has focus", async () => {
+    const t = mountList(new DialogCore());
+    await settle();
+    const pick = t.target.querySelector<HTMLButtonElement>("button.pick");
+    expect(pick?.textContent).toBe("Open folder…");
+    expect(document.activeElement).toBe(pick);
+    expect(t.input().labels?.[0]?.textContent).toBe("Or type its path");
+    pick?.click();
+    await settle();
+    expect(t.opened).toEqual(["p1"]);
+  });
+
+  it("has no Open folder button without the dialog", async () => {
+    const t = mountList(new FakeCore());
+    await settle();
+    expect(t.target.querySelector("button.pick")).toBeNull();
   });
 });
