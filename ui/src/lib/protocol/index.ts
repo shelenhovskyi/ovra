@@ -3,6 +3,7 @@
 import type { AgentsEvent, AgentsRequest, AgentsResponse } from "./agents";
 import type { AuditLogEvent, AuditRequest, AuditResponse } from "./audit";
 import type { FsEvent, FsRequest, FsResponse } from "./fs";
+import type { GitRequest, GitResponse, GitResponseFor } from "./git";
 import type { InfoEvent, InfoRequest, InfoResponse } from "./info";
 import type { NetproxyEvent, NetproxyRequest, NetproxyResponse } from "./netproxy";
 import type { OpenRequest } from "./open";
@@ -18,6 +19,7 @@ import type { TerminalsEvent, TerminalsRequest, TerminalsResponse } from "./term
 export type * from "./agents";
 export type * from "./audit";
 export type * from "./fs";
+export type * from "./git";
 export type * from "./info";
 export type * from "./netproxy";
 export type * from "./open";
@@ -44,7 +46,8 @@ export type Request =
   | PolicyRequest
   | SecretsRequest
   | AuditRequest
-  | NetproxyRequest;
+  | NetproxyRequest
+  | GitRequest;
 
 export type Response =
   | InfoResponse
@@ -60,6 +63,7 @@ export type Response =
   | SecretsResponse
   | AuditResponse
   | NetproxyResponse
+  | GitResponse
   | { type: "ok" };
 
 export type CoreEvent =
@@ -170,4 +174,6 @@ type PhaseThreeResponseFor<R extends Request> = R extends { method: "review.list
                     ? Extract<Response, { type: "audit.entries" }>
                     : R extends { method: "netproxy.get_allowlist" | "netproxy.set_allowlist" }
                       ? Extract<Response, { type: "netproxy.allowlist" }>
-                      : never;
+                      : R extends GitRequest
+                        ? GitResponseFor<R["method"]>
+                        : never;

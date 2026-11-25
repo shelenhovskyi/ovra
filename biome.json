@@ -6,7 +6,7 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!**/dist", "!target", "!app/gen", "!**/*.snap"]
+    "includes": ["**", "!**/dist", "!target", "!app/gen", "!**/*.snap", "!.claude/worktrees"]
   },
   "formatter": {
     "indentStyle": "space",

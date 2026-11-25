@@ -12,6 +12,7 @@ mod diff;
 mod direct;
 mod files;
 mod git;
+mod repo;
 #[cfg(test)]
 mod tests;
 
@@ -25,6 +26,7 @@ use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::{BoxFuture, Delta, Result, Taken, WorktreeInfo, Worktrees};
 
 use crate::git::Git;
+pub use crate::repo::GitRepo;
 
 /// Keeps snapshots reachable, so `git gc` does not prune a baseline or the
 /// base of a worktree while a session needs it; its reflog lists them all.

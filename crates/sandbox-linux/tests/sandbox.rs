@@ -18,7 +18,7 @@ use ovra_sandbox_linux::{Bubblewrap, HELPER_FLAG, Protected, Setup};
 const HELPER: &str = env!("CARGO_BIN_EXE_ovra-sandbox-helper");
 
 const PROTECTED: Protected = Protected {
-    work_dir: &[".claude", "**/CLAUDE.md", ".envrc", ".vscode"],
+    work_dir: &[".claude", "**/CLAUDE.md", ".envrc", ".vscode", ".idea"],
 };
 
 struct Dir(PathBuf);
@@ -539,4 +539,75 @@ fn a_session_gets_only_the_allowed_environment() {
             "{name} reached the session: {env}"
         );
     }
+}
+
+/// Waits until `path` is gone; the cleaner removes it once the session's
+/// last process has exited.
+fn gone(path: &Path) -> bool {
+    let start = std::time::Instant::now();
+    while path.exists() {
+        if start.elapsed() > std::time::Duration::from_secs(2) {
+            return false;
+        }
+        std::thread::yield_now();
+    }
+    true
+}
+
+#[test]
+fn folders_made_for_a_session_go_away_when_it_ends() {
+    let root = Dir::new("temporary");
+    let home = root.0.join("home");
+    let project = root.0.join("project");
+    fs::create_dir_all(&home).unwrap();
+    fs::create_dir_all(&project).unwrap();
+    let Some(sandbox) = sandbox(&home, Vec::new()) else {
+        return;
+    };
+    let profile = profile(&project, ProfileNetwork::Blocked);
+    let checks = "made for the session: test -d .vscode
+        write into it: echo x > .vscode/tasks.json";
+    assert_eq!(
+        run(&sandbox, &profile, &script(checks)),
+        "made for the session: yes\nwrite into it: no\n"
+    );
+    assert!(gone(&project.join(".vscode")));
+    assert!(gone(&project.join(".claude")));
+
+    // A session that is killed, with a process of its own still running.
+    let line = CommandLine {
+        program: "/bin/sh".into(),
+        args: vec!["-c".into(), "sleep 30 & echo up; wait".into()],
+        env: Vec::new(),
+        cwd: project.clone(),
+    };
+    let line = sandbox.wrap(&profile, line).unwrap();
+    let mut command = Command::new(&line.program);
+    command.args(&line.args).current_dir(&line.cwd);
+    for (name, value) in &line.env {
+        match value {
+            Some(value) => command.env(name, value),
+            None => command.env_remove(name),
+        };
+    }
+    let mut child = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut up = String::new();
+    std::io::BufRead::read_line(
+        &mut std::io::BufReader::new(child.stdout.take().unwrap()),
+        &mut up,
+    )
+    .unwrap();
+    assert_eq!(up, "up\n");
+    assert!(project.join(".vscode").is_dir());
+    child.kill().unwrap();
+    child.wait().unwrap();
+    assert!(gone(&project.join(".vscode")));
+    // A folder the user had stays.
+    fs::create_dir(project.join(".idea")).unwrap();
+    run(&sandbox, &profile, "true");
+    assert!(project.join(".idea").is_dir());
 }

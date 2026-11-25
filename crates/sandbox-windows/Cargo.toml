@@ -1,0 +1,47 @@
+[package]
+name = "ovra-sandbox-windows"
+description = "The agent sandbox on Windows: a sandbox user and a write-restricted token (implements ovra_core::services::Sandbox)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+# The helper on its own with a few probes, for this crate's tests; the
+# daemon and the app are the helper themselves (`helper_if_asked`).
+name = "ovra-sandbox-probe"
+path = "src/bin/probe.rs"
+test = false
+
+[dependencies]
+ovra-core.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_Security_Authorization",
+  "Win32_Storage_FileSystem",
+  "Win32_System_Console",
+  "Win32_System_JobObjects",
+  "Win32_System_Threading",
+] }
+
+[dev-dependencies]
+insta.workspace = true
+
+# The workspace's lints, except that unsafe code is denied instead of
+# forbidden: the Win32 calls in `src/win` need it, and only that module
+# allows it. Keep the rest in step with the root Cargo.toml.
+[lints.rust]
+unreachable_pub = "warn"
+unsafe_code = "deny"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+dbg_macro = "warn"
+todo = "warn"
+unwrap_used = "warn"
+undocumented_unsafe_blocks = "warn"

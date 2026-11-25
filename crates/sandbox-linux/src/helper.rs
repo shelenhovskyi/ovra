@@ -27,6 +27,14 @@ pub(crate) const LANDLOCK_HELD: &str = "ovra-sandbox: landlock enforced";
 /// Runs the netproxy bridge instead of an agent.
 const BRIDGE_FLAG: &str = "--ovra-sandbox-bridge";
 
+/// Starts bubblewrap from outside the sandbox and removes folders made for
+/// the session once it is over: `--ovra-sandbox-outer <folder>... --
+/// <bwrap> <args>`.
+pub(crate) const OUTER_FLAG: &str = "--ovra-sandbox-outer";
+
+/// Waits for the session to end, then removes the folders it names.
+const CLEANER_FLAG: &str = "--ovra-sandbox-cleaner";
+
 /// The newest Landlock version the rules are written for.
 const ABI_WANTED: ABI = ABI::V6;
 
@@ -62,6 +70,20 @@ pub fn helper_if_asked() {
             let error = run(args.collect());
             eprintln!("ovra-sandbox: {error}");
             std::process::exit(126);
+        }
+        Some(flag) if flag == OUTER_FLAG => {
+            let error = outer(args.collect());
+            eprintln!("ovra-sandbox: {error}");
+            std::process::exit(126);
+        }
+        Some(flag) if flag == CLEANER_FLAG => {
+            // End of file: the session and everything in it are gone.
+            let _ = std::io::copy(&mut std::io::stdin(), &mut std::io::sink());
+            for folder in args {
+                // Only an empty folder, and never through a link.
+                let _ = std::fs::remove_dir(folder);
+            }
+            std::process::exit(0);
         }
         Some(flag) if flag == BRIDGE_FLAG => {
             let error = bridge(args.collect());
@@ -116,6 +138,46 @@ fn parse(args: Vec<OsString>) -> Result<Args, String> {
         return Err("no command".into());
     }
     Ok(parsed)
+}
+
+/// Starts a cleaner that removes `folders` once the last holder of a pipe
+/// is gone, then becomes bubblewrap, which hands the pipe to every process
+/// in the sandbox. A session that is killed still closes it. Returns only
+/// if something failed.
+fn outer(args: Vec<OsString>) -> String {
+    let Some(at) = args.iter().position(|a| a == "--") else {
+        return "no command".into();
+    };
+    let (folders, command) = args.split_at(at);
+    let Some((program, rest)) = command[1..].split_first() else {
+        return "no command".into();
+    };
+    // Close-on-exec while the cleaner starts, so it does not hold the pipe
+    // open itself.
+    let (read, write) = match rustix::pipe::pipe_with(rustix::pipe::PipeFlags::CLOEXEC) {
+        Ok(pipe) => pipe,
+        Err(e) => return format!("no pipe: {e}"),
+    };
+    let cleaner = std::env::current_exe().and_then(|exe| {
+        Command::new(exe)
+            .arg(CLEANER_FLAG)
+            .args(folders)
+            .stdin(Stdio::from(read))
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            // Not stopped with the session's process group.
+            .process_group(0)
+            .spawn()
+    });
+    if let Err(e) = cleaner {
+        return format!("the cleaner did not start: {e}");
+    }
+    if let Err(e) = rustix::io::fcntl_setfd(&write, rustix::io::FdFlags::empty()) {
+        return format!("cannot pass the pipe on: {e}");
+    }
+    let error = Command::new(program).args(rest).exec();
+    drop(write);
+    format!("could not run {}: {error}", program.to_string_lossy())
 }
 
 /// Returns only if something failed; the agent never starts then.

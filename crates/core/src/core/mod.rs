@@ -18,8 +18,8 @@ use crate::protocol::terminals::{TerminalsRequest, TerminalsResponse};
 use crate::protocol::{ErrorCode, Event, OkResponse, ProtocolError, Request, Response};
 use crate::search::{self, Searches};
 use crate::services::{
-    AgentRuntime, AuditLog, EventSink, FsService, IdeTools, NetProxy, Opener, ProjectStore,
-    Secrets, SessionStore, TerminalService, Unavailable, Worktrees,
+    AgentRuntime, AuditLog, EventSink, FsService, GitService, IdeTools, NetProxy, Opener,
+    ProjectStore, Secrets, SessionStore, TerminalService, Unavailable, Worktrees,
 };
 
 const EVENT_CAPACITY: usize = 1024;
@@ -36,6 +36,7 @@ pub struct CoreBuilder {
     sessions: Arc<dyn SessionStore>,
     worktrees: Arc<dyn Worktrees>,
     worktrees_dir: Option<PathBuf>,
+    git: Arc<dyn GitService>,
     ide_tools: Arc<dyn IdeTools>,
     secrets: Arc<dyn Secrets>,
     audit: Arc<dyn AuditLog>,
@@ -88,6 +89,11 @@ impl CoreBuilder {
         self
     }
 
+    pub fn git(mut self, git: Arc<dyn GitService>) -> Self {
+        self.git = git;
+        self
+    }
+
     pub fn ide_tools(mut self, tools: Arc<dyn IdeTools>) -> Self {
         self.ide_tools = tools;
         self
@@ -130,6 +136,7 @@ impl CoreBuilder {
                     self.netproxy,
                 )),
                 worktrees: self.worktrees,
+                git: self.git,
                 orchestration: Orchestration::new(self.worktrees_dir, kept),
                 held: Mutex::new(None),
                 open: Mutex::new(BTreeMap::new()),
@@ -164,6 +171,7 @@ struct Inner {
     terminals: Arc<dyn TerminalService>,
     agents: Arc<dyn AgentRuntime>,
     worktrees: Arc<dyn Worktrees>,
+    git: Arc<dyn GitService>,
     orchestration: Orchestration,
     sessions: Arc<Sessions>,
     /// The project held by requests sent through [`Core::handle`] directly.
@@ -238,6 +246,7 @@ impl Core {
             sessions: Arc::new(Unavailable("keeping sessions")),
             worktrees: Arc::new(Unavailable("worktrees")),
             worktrees_dir: None,
+            git: Arc::new(Unavailable("git")),
             ide_tools: Arc::new(Unavailable("IDE tools")),
             secrets: Arc::new(Unavailable("keeping secrets")),
             audit: Arc::new(Unavailable("the audit log")),
@@ -323,6 +332,7 @@ impl Core {
             Request::Secrets(r) => crate::secrets::handle(self, r).await,
             Request::Audit(r) => crate::audit::handle(self, r),
             Request::Netproxy(r) => crate::netproxy::handle(self, r),
+            Request::Git(r) => crate::git::handle(self, r).await,
         }
     }
 
@@ -341,6 +351,10 @@ impl Core {
 
     pub(crate) fn worktrees(&self) -> &dyn Worktrees {
         self.inner.worktrees.as_ref()
+    }
+
+    pub(crate) fn git_service(&self) -> &dyn GitService {
+        self.inner.git.as_ref()
     }
 
     pub(crate) fn fs_service(&self) -> &dyn FsService {

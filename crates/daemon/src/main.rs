@@ -19,7 +19,7 @@ use ovra_pty::Pty;
 use ovra_secrets::KeychainSecrets;
 use ovra_store::Store;
 use ovra_transport::ws::{self, Access};
-use ovra_worktree::GitWorktrees;
+use ovra_worktree::{GitRepo, GitWorktrees};
 use rand::Rng;
 use tower_http::services::{ServeDir, ServeFile};
 
@@ -86,6 +86,7 @@ async fn serve() -> anyhow::Result<()> {
         .fs(Arc::new(FsIndex::new()))
         .opener(Arc::new(SystemOpener::new()))
         .worktrees(Arc::new(GitWorktrees::new()))
+        .git(Arc::new(GitRepo::new()))
         .worktrees_dir(args.data_dir.join("worktrees"))
         .ide_tools(Arc::new(IdeServer::new()))
         .terminals(Arc::new(Pty::new()))

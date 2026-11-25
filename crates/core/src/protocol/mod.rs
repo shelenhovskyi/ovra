@@ -8,6 +8,7 @@
 pub mod agents;
 pub mod audit;
 pub mod fs;
+pub mod git;
 pub mod info;
 pub mod netproxy;
 pub mod open;
@@ -40,6 +41,7 @@ pub enum Request {
     Secrets(secrets::SecretsRequest),
     Audit(audit::AuditRequest),
     Netproxy(netproxy::NetproxyRequest),
+    Git(git::GitRequest),
 }
 
 /// The core's answer to a [`Request`]. Wire form: `{"type": "<domain>.<name>", "data": ...}`.
@@ -59,6 +61,7 @@ pub enum Response {
     Secrets(secrets::SecretsResponse),
     Audit(audit::AuditResponse),
     Netproxy(netproxy::NetproxyResponse),
+    Git(git::GitResponse),
     /// The request succeeded and has nothing to return.
     Ok(OkResponse),
 }

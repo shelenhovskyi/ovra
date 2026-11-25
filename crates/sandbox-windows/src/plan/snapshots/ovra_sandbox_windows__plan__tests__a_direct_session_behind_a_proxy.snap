@@ -1,0 +1,127 @@
+---
+source: crates/sandbox-windows/src/plan/tests.rs
+expression: root.show(&line)
+---
+--ovra-sandbox-helper
+--sid SID
+--r ROOT/data/net/ca.pem
+--m ROOT/data/sandbox-caches/-ROOT-projects-app/cargo
+--m ROOT/data/sandbox-caches/-ROOT-projects-app/npm
+--m ROOT/data/sandbox-caches/-ROOT-projects-app/pip
+--m ROOT/data/sandbox-caches/-ROOT-projects-app/pnpm
+--m ROOT/data/sandbox-temp/-ROOT-projects-app
+--rx ROOT/home/.cargo
+--r ROOT/home/.claude
+--m ROOT/home/.claude/.credentials.json
+--m ROOT/home/.claude/backups
+--m ROOT/home/.claude/cache
+--m ROOT/home/.claude/debug
+--m ROOT/home/.claude/file-history
+--m ROOT/home/.claude/history.jsonl
+--m ROOT/home/.claude/ide
+--m ROOT/home/.claude/logs
+--m ROOT/home/.claude/paste-cache
+--m ROOT/home/.claude/plans
+--m ROOT/home/.claude/projects/-ROOT-projects-app
+--m ROOT/home/.claude/sessions
+--m ROOT/home/.claude/statsig
+--m ROOT/home/.claude/todos
+--m ROOT/home/.claude.json
+--r ROOT/home/.gitconfig
+--rx ROOT/home/.local/bin
+--m ROOT/projects/app
+--deny ROOT/home/.claude/projects/-ROOT-projects-app/memory
+--deny ROOT/projects/app/.claude
+--deny ROOT/projects/app/.git
+--deny ROOT/projects/app/.vscode
+--deny ROOT/projects/app/docs/CLAUDE.md
+--env USERNAME
+--env LANG
+--env LANGUAGE
+--env LC_ALL
+--env LC_CTYPE
+--env TZ
+--env TERM
+--env COLORTERM
+--env NO_COLOR
+--env ANTHROPIC_API_KEY
+--env ANTHROPIC_AUTH_TOKEN
+--env ANTHROPIC_BASE_URL
+--env ANTHROPIC_MODEL
+--env ANTHROPIC_SMALL_FAST_MODEL
+--env CLAUDE_CODE_USE_BEDROCK
+--env CLAUDE_CODE_USE_VERTEX
+--env CLAUDE_CODE_USE_FOUNDRY
+--env ANTHROPIC_BEDROCK_BASE_URL
+--env ANTHROPIC_VERTEX_BASE_URL
+--env ANTHROPIC_VERTEX_PROJECT_ID
+--env ANTHROPIC_FOUNDRY_RESOURCE
+--env ANTHROPIC_FOUNDRY_BASE_URL
+--env AWS_REGION
+--env CLOUD_ML_REGION
+--env GOOGLE_CLOUD_PROJECT
+--env CLAUDE_CODE_GIT_BASH_PATH
+--env SSL_CERT_FILE
+--env NODE_EXTRA_CA_CERTS
+--env RUSTUP_HOME
+--env NVM_HOME
+--env NVM_SYMLINK
+--env GOPATH
+--env SystemRoot
+--env SystemDrive
+--env windir
+--env ComSpec
+--env PATHEXT
+--env USERPROFILE
+--env HOMEDRIVE
+--env HOMEPATH
+--env APPDATA
+--env LOCALAPPDATA
+--env ProgramData
+--env ProgramFiles
+--env ProgramFiles(x86)
+--env ProgramW6432
+--env CommonProgramFiles
+--env CommonProgramFiles(x86)
+--env NUMBER_OF_PROCESSORS
+--env PROCESSOR_ARCHITECTURE
+--env OS
+--env OVRA_FAKE_CLAUDE_FIXTURE
+--env CARGO_HOME
+--env npm_config_cache
+--env PIP_CACHE_DIR
+--env npm_config_store_dir
+--env TEMP
+--env TMP
+--env HTTP_PROXY
+--env HTTPS_PROXY
+--env NODE_USE_ENV_PROXY
+--env REQUESTS_CA_BUNDLE
+--env CURL_CA_BUNDLE
+--env GIT_SSL_CAINFO
+--env PATH
+--
+ROOT/home/.local/bin/claude.exe
+-p
+environment:
+  CLAUDECODE = (removed)
+  CARGO_HOME = ROOT/data/sandbox-caches/-ROOT-projects-app/cargo
+  npm_config_cache = ROOT/data/sandbox-caches/-ROOT-projects-app/npm
+  PIP_CACHE_DIR = ROOT/data/sandbox-caches/-ROOT-projects-app/pip
+  npm_config_store_dir = ROOT/data/sandbox-caches/-ROOT-projects-app/pnpm
+  TEMP = ROOT/data/sandbox-temp/-ROOT-projects-app
+  TMP = ROOT/data/sandbox-temp/-ROOT-projects-app
+  HTTP_PROXY = http;//127.0.0.1;49152
+  HTTPS_PROXY = http;//127.0.0.1;49152
+  NO_PROXY = (removed)
+  ALL_PROXY = (removed)
+  NODE_USE_ENV_PROXY = 1
+  SSL_CERT_FILE = ROOT/data/net/ca.pem
+  NODE_EXTRA_CA_CERTS = ROOT/data/net/ca.pem
+  REQUESTS_CA_BUNDLE = ROOT/data/net/ca.pem
+  CURL_CA_BUNDLE = ROOT/data/net/ca.pem
+  GIT_SSL_CAINFO = ROOT/data/net/ca.pem
+  SSL_CERT_DIR = (removed)
+  PATH = ROOT/home/.cargo/bin;ROOT/sys/bin
+  GITHUB_TOKEN = (removed)
+  CLAUDE_CODE_OAUTH_TOKEN = (removed)

@@ -191,8 +191,11 @@ Ovra's own git calls (fs-index, worktree) should pass
 them; that is a follow-up in those areas.
 
 On Linux a missing `.claude/`, `.vscode/`, `.idea/` or `.devcontainer/`
-is made as an empty folder (git does not show it) and bound read-only, so
-the agent cannot create one for the user's own tools to load later. A
+is made as an empty folder and bound read-only, so the agent cannot
+create one for the user's own tools to load later. A helper outside the
+sandbox removes it again once the session and every process in it are
+gone, also when the session is killed; a folder that is no longer empty
+stays. A
 missing protected file (`.mcp.json`, `.envrc`, `CLAUDE.md` and the like)
 can still be created; the review backstop below covers it.
 

@@ -14,7 +14,7 @@ use ovra_opener::SystemOpener;
 use ovra_pty::Pty;
 use ovra_secrets::KeychainSecrets;
 use ovra_store::Store;
-use ovra_worktree::GitWorktrees;
+use ovra_worktree::{GitRepo, GitWorktrees};
 use tauri::{Emitter, Manager};
 
 /// Carries one client frame to the core and returns the reply frame.
@@ -42,6 +42,7 @@ fn main() {
                 .fs(Arc::new(FsIndex::new()))
                 .opener(Arc::new(SystemOpener::new()))
                 .worktrees(Arc::new(GitWorktrees::new()))
+                .git(Arc::new(GitRepo::new()))
                 .worktrees_dir(data_dir.join("worktrees"))
                 .ide_tools(Arc::new(IdeServer::new()))
                 .terminals(Arc::new(Pty::new()))
