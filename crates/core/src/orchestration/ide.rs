@@ -43,9 +43,14 @@ impl Core {
         skip_setup: bool,
     ) -> Result<Worker> {
         coordinator(caller)?;
-        // No setup runs yet (WS.C), so there is nothing to skip.
-        let _ = skip_setup;
-        tasks::spawn(self, &caller.session, name.to_owned(), task.to_owned()).await
+        tasks::spawn(
+            self,
+            &caller.session,
+            name.to_owned(),
+            task.to_owned(),
+            skip_setup,
+        )
+        .await
     }
 
     /// `list_agents`: the caller's workers, oldest first.

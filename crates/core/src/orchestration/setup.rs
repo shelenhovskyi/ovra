@@ -2,9 +2,6 @@
 //! (`docs/specs/worktree-setup.md`), checked as the spec says. `.ovra` is
 //! protected, so only the person changes it.
 
-// WS.C reads the file and runs the steps; until then only tests use this.
-#![cfg_attr(not(test), expect(dead_code, reason = "used by worktree setup (WS.C)"))]
-
 use std::time::Duration;
 
 use serde::Deserialize;

@@ -328,7 +328,6 @@ impl Sessions {
     /// Moves the session `id` between `queued` and `preparing` (`to`),
     /// keeping its first message, without telling anyone yet. False if it
     /// is in neither state.
-    #[expect(dead_code, reason = "used by worktree setup (WS.C)")]
     pub(crate) fn wait(&self, id: &SessionId, to: AgentStatus) -> bool {
         let mut list = lock(&self.list);
         let Some(session) = list.iter_mut().find(|s| &s.info.id == id) else {

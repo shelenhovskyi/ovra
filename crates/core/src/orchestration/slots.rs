@@ -6,7 +6,7 @@
 //! Research sessions (ADR 0013) have a cap of their own, from the user's
 //! settings, and never count against the other.
 
-use super::{State, tasks};
+use super::{State, prepare, tasks};
 use crate::Core;
 use crate::agents;
 use crate::protocol::agents::{AgentCapacity, AgentLimit, AgentStatus, AgentsEvent, SessionMode};
@@ -187,6 +187,8 @@ pub(super) fn count(core: &Core, state: &State, project: &ProjectId) -> (usize, 
         }
         match status {
             AgentStatus::Queued => queued += 1,
+            // Its setup failed: it waits for a retry and runs nothing.
+            AgentStatus::Preparing if prepare::failed(state, &id) => {}
             AgentStatus::Idle if role.is_none() || asked.contains(&id) => {}
             _ => working += 1,
         }
@@ -300,7 +302,7 @@ fn start(core: &Core, project: &ProjectId, most: usize) -> usize {
         // the last place.
         let next = {
             let state = core.orchestration_state();
-            let guard = state.lock();
+            let mut guard = state.lock();
             if count(core, &guard, project).0 >= limit {
                 return started;
             }
@@ -308,8 +310,21 @@ fn start(core: &Core, project: &ProjectId, most: usize) -> usize {
                 .sessions()
                 .active(project)
                 .into_iter()
-                .find(|(_, status, ..)| *status == AgentStatus::Queued);
-            oldest.and_then(|(id, ..)| Some((id.clone(), core.sessions().take_waiting(&id)?)))
+                .filter(|(_, status, ..)| *status == AgentStatus::Queued)
+                .map(|(id, ..)| id)
+                .find(|id| !prepare::waits_for_disk(core, &mut guard, id));
+            let Some(id) = oldest else {
+                return started;
+            };
+            // A worker's worktree is prepared first, which takes the place.
+            if prepare::pending(&guard, &id).is_some() {
+                if prepare::begin(core, &mut guard, &id).is_none() {
+                    return started;
+                }
+                started += 1;
+                continue;
+            }
+            core.sessions().take_waiting(&id).map(|parts| (id, parts))
         };
         let Some((id, parts)) = next else {
             return started;

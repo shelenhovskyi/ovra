@@ -261,7 +261,6 @@ async fn list(core: &Core, place: &Place) -> ServerList {
 /// (`docs/specs/worktree-setup.md`): builds the pod's spec, starts its
 /// netproxy if no server runs there, calls [`DevServers::setup`], and ends
 /// the netproxy afterwards unless a server of that pod runs by then.
-#[cfg_attr(not(test), expect(dead_code, reason = "used by worktree setup (WS.C)"))]
 pub(crate) async fn run_steps(
     core: &Core,
     project: &ProjectId,

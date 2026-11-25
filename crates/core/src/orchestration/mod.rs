@@ -12,6 +12,7 @@ pub(crate) mod direct;
 mod ide;
 mod overlap;
 mod policy;
+mod prepare;
 mod review;
 mod saved;
 mod setup;
@@ -86,6 +87,8 @@ struct State {
     limit: Option<usize>,
     /// The same for research sessions ([`slots::reserve_research`]).
     reserved_research: BTreeMap<ProjectId, usize>,
+    /// Workers whose worktree is being prepared ([`prepare`]).
+    setups: BTreeMap<SessionId, tokio::task::AbortHandle>,
 }
 
 impl Orchestration {
@@ -155,6 +158,7 @@ pub(crate) fn on_status(core: &Core, session: &SessionId, status: &AgentStatus) 
     }
     if status.is_ended() {
         watch::stop(core, session);
+        prepare::abort(core, session);
     }
     if *status == AgentStatus::Stopped {
         tasks::stop_workers_of(core, session);
@@ -185,6 +189,9 @@ pub(crate) fn on_status(core: &Core, session: &SessionId, status: &AgentStatus) 
     if let Ok(runtime) = tokio::runtime::Handle::try_current() {
         let (core, session) = (core.clone(), session.clone());
         runtime.spawn(async move { overlap::check(&core, &session).await });
+    }
+    if *status == AgentStatus::Idle {
+        prepare::count_disk(core, session);
     }
     // A finished turn or session may have changed files or spent money.
     let (review, task) = {
