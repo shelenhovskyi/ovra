@@ -437,9 +437,10 @@ fn joined(parts: &Parts) -> Result<String> {
         .collect::<Vec<_>>()
         .join("\n\n");
     check_text(&text)?;
-    Ok(crate::provenance::for_agent(
-        parts.iter().map(|(text, from)| (text.as_str(), *from)),
-    ))
+    let marked =
+        crate::provenance::for_agent(parts.iter().map(|(text, from)| (text.as_str(), *from)));
+    check_text(&marked)?;
+    Ok(marked)
 }
 
 /// Resumes the ended session `session` with `parts` as its next prompt.

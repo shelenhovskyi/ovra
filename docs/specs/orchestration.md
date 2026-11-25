@@ -81,12 +81,16 @@ part with its author. The agent itself only reads text, so the text it gets
 marks the authors with tags only the core writes
 (`crates/core/src/provenance.rs`): a coordinator's words inside
 `<coordinator-message>`, Ovra's notes inside `<ovra-note>`, the person's
-words outside both. These tags inside any part are defused (`<` written as
-`&lt;`), so no part can close its own mark and speak as the person or as
-Ovra. `read_output` defuses them in a worker's transcript too, so a worker
-cannot pass its own text to the coordinator as a note from Ovra. The role
-prompts say which tags mean what and that a coordinator's words are never
-the person's approval.
+words outside both. A coordinator's text has every `<` (and every
+character that looks like one) written as `&lt;`, so it cannot close its
+own mark and speak as the person or as Ovra. Ovra's notes are the core's
+own words: anything in them someone else wrote is inside `<untrusted>`
+(a rejected diff), cut to one escaped line (a runtime error), or left out
+(file names that are not plain, see below). Tool results that carry a
+worker's words (`read_output`, `list_agents`, `request_review`) are
+escaped the same way, so a worker cannot pass its text to the coordinator
+as a note. The role prompts say which tags mean what and that a
+coordinator's words are never the person's approval.
 
 ## Review
 
@@ -174,8 +178,12 @@ when its worktree changes and when its turn ends
 the task's other workers. When a file is in both, the coordinator gets a
 note from Ovra naming both workers and the files, and each of the two
 that is still working (or waiting for an approval) gets one too; a worker
-that waits idle is not woken, the coordinator decides about it. Each
-worker pair and file is told once; what the core saw is not saved.
+that waits idle is not woken, the coordinator decides about it. Each pair
+of workers is told once, in one note per look. Notes name only file names
+made of letters, digits, `.`, `_`, `/` and `-` (at most 200 bytes) and
+count the others, since file names are the workers' words. A discarded
+worker counts as changing nothing; what the core saw is not saved and is
+dropped when the task ends.
 
 ## Stopping a task
 

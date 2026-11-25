@@ -6,7 +6,7 @@ use ovra_core::protocol::ProtocolError;
 use ovra_core::protocol::agents::SessionId;
 use ovra_core::protocol::orchestration::{ShowTarget, Worker};
 use ovra_core::protocol::review::ReviewId;
-use ovra_core::provenance::defused;
+use ovra_core::provenance::escaped;
 use ovra_core::services::ToolCaller;
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
@@ -106,7 +106,8 @@ pub(crate) async fn call(
                     agent
                 })
                 .collect();
-            Ok(text(&json!({ "agents": agents })))
+            // Failure messages may quote a worker.
+            Ok(escaped(&text(&json!({ "agents": agents }))))
         }
         "read_output" => {
             let args: ReadOutput = parse(arguments)?;
@@ -120,7 +121,7 @@ pub(crate) async fn call(
                 .map_err(failed)?;
             // A worker's words must not pass for a note from Ovra or the
             // coordinator once they reach another agent.
-            Ok(defused(&text(
+            Ok(escaped(&text(
                 &json!({"messages": output.messages, "next": output.next}),
             )))
         }
@@ -138,9 +139,10 @@ pub(crate) async fn call(
                 .await
                 .map_err(failed)?;
             let files: Vec<&str> = item.files.iter().map(|f| f.path.as_str()).collect();
-            Ok(text(
+            // File names are the worker's.
+            Ok(escaped(&text(
                 &json!({"review_id": item.id, "state": item.state, "files": files}),
-            ))
+            )))
         }
         "open_in_ui" => {
             let target = target(parse(arguments)?)?;
