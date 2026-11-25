@@ -4,8 +4,8 @@
 /**
  * `search` is "Search or run": files (projects without one open) and commands.
  * `folder` asks for the path of a folder to open, keeping the project open meanwhile.
- * `settings` and `shortcuts` list the commands that open a setting, or that have a shortcut.
+ * `shortcuts` lists the commands that have a shortcut.
  */
-export type PaletteMode = "search" | "commands" | "files" | "projects" | "folder" | "settings" | "shortcuts";
+export type PaletteMode = "search" | "commands" | "files" | "projects" | "folder" | "shortcuts";
 
 export const palette = $state<{ mode: PaletteMode }>({ mode: "commands" });

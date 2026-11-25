@@ -52,7 +52,10 @@ it("opens on a pane from its command, moves with the arrow keys and reopens on t
   await settle();
   const pane = () => target.querySelector("[data-testid=settings] section.pane");
   expect(pane()?.querySelector("h3")?.textContent).toBe("Keyboard");
-  expect(pane()?.querySelector("tr")?.textContent).toBe("SaveCtrl+S");
+  expect([...(pane()?.querySelectorAll("tr") ?? [])].map((row) => row.textContent)).toEqual([
+    "Open settingsCtrl+,",
+    "SaveCtrl+S",
+  ]);
   // The frame's title takes focus; the list is one tab stop, and arrows move in it.
   expect(document.activeElement?.textContent).toBe("Settings");
   const current = () => target.querySelector<HTMLElement>("nav [aria-current=page]");

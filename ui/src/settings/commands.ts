@@ -17,6 +17,7 @@ export function registerSettingsCommands(): () => void {
     registerCommand({
       id: "settings.open",
       title: "Open settings",
+      keys: "Mod+,",
       category: "Settings",
       keywords: ["preferences", "options"],
       run: () => openSettings(),

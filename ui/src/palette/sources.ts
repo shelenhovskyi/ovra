@@ -146,14 +146,6 @@ export function source(mode: PaletteMode, transport: Transport, workspace: Targe
         limit: 200,
         entries: () => commands(),
       };
-    case "settings":
-      return {
-        name: "Settings",
-        placeholder: "Search settings",
-        empty: "No matching settings",
-        limit: 200,
-        entries: () => commands((c) => c.category === "Settings" && c.id !== "palette.settings"),
-      };
     case "shortcuts":
       return {
         name: "Keyboard shortcuts",

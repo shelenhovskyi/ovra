@@ -239,12 +239,12 @@ describe("Shell", () => {
         document.getElementById(item.getAttribute("aria-describedby") ?? "")?.textContent,
       ]);
       expect(described).toEqual([
-        ["Settings…", null, "Rules, network, Claude and more"],
+        ["Settings…", "Ctrl+,", "Rules, network, Claude and more"],
         ["Audit log", null, "Everything agents did, and who approved it"],
         ["Agent browser", "Ctrl+Shift+B", "The web browser an agent uses"],
         ["Keyboard shortcuts", null, "Every command with a shortcut"],
       ]);
-      expect(items()[0]?.getAttribute("aria-keyshortcuts")).toBeNull();
+      expect(items()[0]?.getAttribute("aria-keyshortcuts")).toBe("Mod+,");
       expect(items().map((item) => item.dataset.testid)).toEqual([
         "open-settings",
         "open-audit",

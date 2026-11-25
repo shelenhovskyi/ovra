@@ -20,7 +20,6 @@ describe("palette commands", () => {
       ["palette.close_project", undefined],
       ["palette.go_to_file", "Mod+P"],
       ["palette.shortcuts", undefined],
-      ["palette.settings", "Mod+,"],
       ["palette.search", "Mod+K"],
       ["palette.show", "Mod+Shift+P"],
       ["palette.switch_project", undefined],
@@ -36,16 +35,13 @@ describe("palette commands", () => {
     expect(palette.mode).toBe("search");
     await run("palette.show");
     expect(palette.mode).toBe("commands");
-    // Settings lists the commands that open one, Keyboard shortcuts those with keys.
-    const off = registerCommand({ id: "t.rules", title: "Rules", category: "Settings", run: () => {} });
-    await run("palette.settings");
-    expect(palette.mode).toBe("settings");
+    // Keyboard shortcuts lists the commands with keys.
+    const off = registerCommand({ id: "t.rules", title: "Rules", keys: "Mod+,", run: () => {} });
     const labels = async (mode: PaletteMode) =>
       (await source(mode, {} as Transport, { ...workspace, mode: "view", openFile: () => {} }).entries()).map(
         (e) => e.label,
       );
-    expect(await labels("settings")).toEqual(["Rules"]);
-    expect(await labels("shortcuts")).toEqual(["Go to file", "Open settings", "Search or run", "Show all commands"]);
+    expect(await labels("shortcuts")).toEqual(["Go to file", "Rules", "Search or run", "Show all commands"]);
     off();
 
     // The start screen, as the tree shows it once the project is closed.
