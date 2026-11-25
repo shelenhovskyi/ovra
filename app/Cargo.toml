@@ -12,7 +12,7 @@ name = "ovra"
 path = "src/main.rs"
 
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+tauri-build = { version = "=2.7.6", features = [] }
 
 [dependencies]
 ovra-core.workspace = true
@@ -30,8 +30,8 @@ ovra-lsp.workspace = true
 ovra-browser.workspace = true
 ovra-servers.workspace = true
 ovra-transport.workspace = true
-tauri = { version = "2", features = [] }
-tauri-plugin-notification = "2"
+tauri = { version = "=2.12.7", features = [] }
+tauri-plugin-notification = "=2.8.1"
 
 [lints]
 workspace = true

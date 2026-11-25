@@ -16,10 +16,10 @@ test = false
 
 [dependencies]
 ovra-core.workspace = true
-sha2 = "0.10"
+sha2 = "=0.10.9"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = [
+windows-sys = { version = "=0.61.2", features = [
   "Win32_Foundation",
   "Win32_NetworkManagement_NetManagement",
   "Win32_Security",

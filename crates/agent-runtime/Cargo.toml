@@ -20,14 +20,14 @@ test = false
 [dependencies]
 ovra-core.workspace = true
 serde_json.workspace = true
-sha2 = "0.10"
+sha2 = "=0.10.9"
 tokio = { workspace = true, features = ["io-util", "macros", "process", "rt", "sync", "time"] }
-uuid = { version = "1", features = ["v4"] }
+uuid = { version = "=1.26.1", features = ["v4"] }
 
 [dev-dependencies]
 ovra-core = { workspace = true, features = ["fakes"] }
 insta.workspace = true
-tempfile = "3"
+tempfile = "=3.27.0"
 tokio = { workspace = true, features = ["test-util"] }
 
 [lints]

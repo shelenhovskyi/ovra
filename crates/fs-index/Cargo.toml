@@ -9,18 +9,18 @@ publish = false
 
 [dependencies]
 ovra-core.workspace = true
-globset = "0.4"
-grep-matcher = "0.1"
-grep-regex = "0.1"
-grep-searcher = "0.1"
-ignore = "0.4"
-notify = "8"
+globset = "=0.4.22"
+grep-matcher = "=0.1.9"
+grep-regex = "=0.1.14"
+grep-searcher = "=0.1.17"
+ignore = "=0.4.35"
+notify = "=8.2.2"
 tokio = { workspace = true, features = ["rt"] }
 
 [dev-dependencies]
 ovra-core = { workspace = true, features = ["fakes"] }
 insta.workspace = true
-tempfile = "3"
+tempfile = "=3.27.0"
 tokio = { workspace = true, features = ["macros", "rt", "time"] }
 
 [lints]
