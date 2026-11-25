@@ -207,10 +207,11 @@ async fn start(
     let started = match started {
         Ok(started) => started,
         Err(e) => {
+            let entry = state.servers.remove(&id);
+            drop(state);
             // The service may have made the cache folder before it failed.
             forget_if_gone(core, &project);
-            if let Some(entry) = state.servers.remove(&id) {
-                drop(state);
+            if let Some(entry) = entry {
                 let mut info = entry.info;
                 info.state = ServerState::Failed {
                     reason: e.message.clone(),

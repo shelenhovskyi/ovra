@@ -424,6 +424,25 @@ async fn a_server_that_was_starting_as_its_project_was_removed_leaves_no_cache()
     );
 }
 
+#[tokio::test]
+async fn a_start_that_fails_after_its_project_was_removed_leaves_no_cache() {
+    let test = setup(FakeLanguageServers::default(), true).await;
+    let gate = test.servers.hold_starts();
+    let core = test.core.clone();
+    // No fake server for python: the start fails once let through.
+    let starting = tokio::spawn(async move { start(&core, "python").await });
+    while test.core.lsp_servers().lock().servers.is_empty() {
+        tokio::task::yield_now().await;
+    }
+    let remove = json!({"method": "projects.remove", "params": {"id": "p1"}});
+    ok(call(&test.core, remove).await);
+    gate.add_permits(1);
+    let started = starting.await.unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(code(started), ErrorCode::NotFound);
+    let p1 = ProjectId("p1".into());
+    assert_eq!(test.servers.forgotten(), [p1.clone(), p1]);
+}
+
 #[test]
 fn server_uris_that_could_leave_the_project_never_reach_the_client_as_files() {
     let root = Path::new(ROOT);
