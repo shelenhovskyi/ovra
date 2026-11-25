@@ -163,6 +163,20 @@ for the worker's latest item, at once and then at most once a second, so
 the inbox shows the diff as it grows, not only at turn ends. The watch's
 own events never reach clients, and it ends with the worker.
 
+## Workers changing the same file
+
+Worktrees keep workers from overwriting each other, so two workers that
+change the same file would otherwise learn of it only when the person
+approves the second one. The core looks at a worker's changed files (its
+latest review item, old paths of renames included, none once discarded)
+when its worktree changes and when its turn ends
+(`orchestration/overlap.rs`), and compares them with what it last saw of
+the task's other workers. When a file is in both, the coordinator gets a
+note from Ovra naming both workers and the files, and each of the two
+that is still working (or waiting for an approval) gets one too; a worker
+that waits idle is not woken, the coordinator decides about it. Each
+worker pair and file is told once; what the core saw is not saved.
+
 ## Stopping a task
 
 The person stops a task with `orchestration.stop` or by stopping its

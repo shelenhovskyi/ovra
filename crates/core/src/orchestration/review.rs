@@ -561,7 +561,7 @@ fn inside(path: &str, folder: &str) -> bool {
 }
 
 /// The entry's changed files as they are now.
-async fn files(core: &Core, entry: &Entry) -> Result<Vec<FileChange>> {
+pub(super) async fn files(core: &Core, entry: &Entry) -> Result<Vec<FileChange>> {
     Ok(listed(core, entry, None).await?.0)
 }
 
