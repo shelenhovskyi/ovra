@@ -80,6 +80,22 @@ pub enum AuditEvent {
         port: u16,
         generation: u64,
     },
+    /// A language server for the project's files (ADR 0007); `sandbox`
+    /// is `None` when it runs without one.
+    LanguageServerStarted {
+        server: crate::protocol::lsp::ServerId,
+        name: String,
+        language: String,
+        sandbox: Option<String>,
+    },
+    /// `reason` says why it failed; `None` when it was stopped or exited
+    /// cleanly.
+    LanguageServerStopped {
+        server: crate::protocol::lsp::ServerId,
+        name: String,
+        language: String,
+        reason: Option<String>,
+    },
 }
 
 /// A tool call's input as the log keeps it: never file contents, and with

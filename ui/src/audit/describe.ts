@@ -24,7 +24,14 @@ export const FILTERS = {
   network: { label: "Network and secrets", kinds: ["network_refused", "secret_used"] },
   servers: {
     label: "Servers",
-    kinds: ["server_started", "server_stopped", "loopback_granted", "loopback_revoked"],
+    kinds: [
+      "server_started",
+      "server_stopped",
+      "loopback_granted",
+      "loopback_revoked",
+      "language_server_started",
+      "language_server_stopped",
+    ],
   },
 } as const satisfies Record<string, { label: string; kinds: readonly AuditEvent["kind"][] | null }>;
 
@@ -148,6 +155,23 @@ export function describe(entry: AuditEntry): Described {
       return {
         title: `Server no longer reachable on localhost:${event.port}`,
         detail: `Server ${event.server} (run ${event.generation}) stopped or the session ended.`,
+        input: null,
+        tone: "plain",
+      };
+    case "language_server_started":
+      return {
+        title: `Language server ${event.name} started`,
+        detail:
+          event.sandbox === null
+            ? `For ${event.language} files, without a sandbox: it could read and change your files.`
+            : `For ${event.language} files, in the sandbox (${event.sandbox}).`,
+        input: null,
+        tone: event.sandbox === null ? "warn" : "plain",
+      };
+    case "language_server_stopped":
+      return {
+        title: `Language server ${event.name} ${event.reason === null ? "stopped" : "failed"}`,
+        detail: event.reason ?? `It served ${event.language} files.`,
         input: null,
         tone: "plain",
       };

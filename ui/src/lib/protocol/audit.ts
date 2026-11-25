@@ -1,6 +1,7 @@
 // Mirrors crates/core/src/protocol/audit.rs: the audit log's schema and `audit.*`.
 
 import type { SandboxReport, SessionId, SessionMode } from "./agents";
+import type { ServerId as LspServerId } from "./lsp";
 import type { Policy } from "./policy";
 import type { ProjectId } from "./projects";
 import type { ReviewId } from "./review";
@@ -27,7 +28,11 @@ export type AuditEvent =
   | { kind: "server_stopped"; server: ServerId; name: string; generation: number; code: number | null }
   /** The session may reach the server on `localhost:<port>` while this generation runs. */
   | { kind: "loopback_granted"; server: ServerId; port: number; generation: number }
-  | { kind: "loopback_revoked"; server: ServerId; port: number; generation: number };
+  | { kind: "loopback_revoked"; server: ServerId; port: number; generation: number }
+  /** A language server for the project's files; `sandbox` is null without one. */
+  | { kind: "language_server_started"; server: LspServerId; name: string; language: string; sandbox: string | null }
+  /** `reason` says why it failed; null when it was stopped or exited cleanly. */
+  | { kind: "language_server_stopped"; server: LspServerId; name: string; language: string; reason: string | null };
 
 /** Never file contents; other inputs redacted and cut to 4 KiB. */
 export type AuditInput = { kind: "file"; path: string; sha256: string | null } | { kind: "json"; text: string };

@@ -16,6 +16,7 @@ use serde_json::Value;
 
 use crate::Core;
 use crate::core::WeakCore;
+use crate::protocol::audit::AuditEvent;
 use crate::protocol::lsp::{
     LspEvent, LspRequest, LspResponse, LspStatus, ServerId, ServerInfo, ServerState,
 };
@@ -238,10 +239,32 @@ async fn start(
     entry.info.state = ServerState::Running;
     let info = entry.info.clone();
     drop(state);
+    let started = AuditEvent::LanguageServerStarted {
+        server: info.id.clone(),
+        name: info.name.clone(),
+        language: info.language.clone(),
+        sandbox: info.sandbox.clone(),
+    };
+    crate::audit::record(core, &info.project, None, started);
     core.emit(LspEvent::Changed {
         server: info.clone(),
     });
     Ok(info)
+}
+
+/// Logs that a server which had started is gone, with why if it failed.
+fn record_stopped(core: &Core, info: &ServerInfo) {
+    let reason = match &info.state {
+        ServerState::Failed { reason } => Some(reason.clone()),
+        _ => None,
+    };
+    let stopped = AuditEvent::LanguageServerStopped {
+        server: info.id.clone(),
+        name: info.name.clone(),
+        language: info.language.clone(),
+        reason,
+    };
+    crate::audit::record(core, &info.project, None, stopped);
 }
 
 /// Forgets `project`'s caches again if it was removed or lost its trust
@@ -289,6 +312,9 @@ fn stop(core: &Core, server: &ServerId) -> bool {
     };
     let mut info = entry.info;
     info.state = ServerState::Stopped;
+    if entry.process.is_some() {
+        record_stopped(core, &info);
+    }
     core.emit(LspEvent::Changed { server: info });
     if let Some(process) = entry.process {
         let exit = serde_json::json!({ "jsonrpc": "2.0", "method": "exit" });
@@ -389,6 +415,10 @@ impl ServerHost {
                 reason: "the server was killed".into(),
             },
         };
+        // Only a start that was logged gets its end logged.
+        if entry.process.is_some() {
+            record_stopped(&core, &info);
+        }
         core.emit(LspEvent::Changed { server: info });
     }
 

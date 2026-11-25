@@ -5,11 +5,13 @@ use serde_json::{Value, json};
 
 use super::uris;
 use crate::Core;
-use crate::fakes::{FakeLanguageServers, FakeServer, MemoryProjects};
+use crate::fakes::{FakeLanguageServers, FakeServer, MemoryAudit, MemoryProjects};
 use crate::protocol::agents::ProjectAgentConfig;
+use crate::protocol::audit::{AuditEvent, AuditOrder, AuditRange};
 use crate::protocol::lsp::{KnownServer, LspEvent, LspResponse, ServerInfo, ServerState};
 use crate::protocol::projects::ProjectId;
 use crate::protocol::{ErrorCode, Event, ProtocolError, Request, Response};
+use crate::services::AuditLog;
 use crate::services::ProjectStore;
 
 const ROOT: &str = crate::test_path!("/work/a");
@@ -18,15 +20,18 @@ struct Test {
     core: Core,
     store: Arc<MemoryProjects>,
     servers: Arc<FakeLanguageServers>,
+    audit: Arc<MemoryAudit>,
     events: tokio::sync::broadcast::Receiver<Event>,
 }
 
 async fn setup(servers: FakeLanguageServers, trusted: bool) -> Test {
     let store = Arc::new(MemoryProjects::default());
     let servers = Arc::new(servers);
+    let audit = Arc::new(MemoryAudit::default());
     let core = Core::builder("test")
         .projects(store.clone())
         .lsp(servers.clone())
+        .audit(audit.clone())
         .build();
     let add = json!({"method": "projects.add", "params": {"root": ROOT}});
     ok(call(&core, add).await);
@@ -42,6 +47,7 @@ async fn setup(servers: FakeLanguageServers, trusted: bool) -> Test {
         core,
         store,
         servers,
+        audit,
         events,
     }
 }
@@ -441,6 +447,38 @@ async fn a_start_that_fails_after_its_project_was_removed_leaves_no_cache() {
     assert_eq!(code(started), ErrorCode::NotFound);
     let p1 = ProjectId("p1".into());
     assert_eq!(test.servers.forgotten(), [p1.clone(), p1]);
+}
+
+#[tokio::test]
+async fn the_audit_log_shows_each_server_start_and_end() {
+    let mut known = FakeLanguageServers::default().known;
+    known.push(KnownServer {
+        language: "typescript".into(),
+        name: "fake-ts".into(),
+        path: Some(crate::test_path!("/bin/fake-ts").into()),
+        install: "i".into(),
+    });
+    let test = setup(FakeLanguageServers::new(known), true).await;
+    let rust = ok(start(&test.core, "rust").await);
+    ok(start(&test.core, "typescript").await);
+    ok(call(
+        &test.core,
+        json!({"method": "lsp.stop", "params": {"server": rust.id}}),
+    )
+    .await);
+    test.servers.started()[1].exit(Some(2), None);
+    // A start the service refused never ran: nothing to log.
+    let _ = start(&test.core, "python").await;
+    let range = AuditRange {
+        after: None,
+        before: None,
+        order: AuditOrder::OldestFirst,
+    };
+    let events: Vec<AuditEvent> = ok(test.audit.list(&ProjectId("p1".into()), range, 10))
+        .into_iter()
+        .map(|e| e.event)
+        .collect();
+    insta::assert_json_snapshot!(events);
 }
 
 #[test]

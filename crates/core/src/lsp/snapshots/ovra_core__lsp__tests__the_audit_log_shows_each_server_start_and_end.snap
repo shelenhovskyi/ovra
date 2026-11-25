@@ -1,0 +1,34 @@
+---
+source: crates/core/src/lsp/tests.rs
+expression: events
+---
+[
+  {
+    "kind": "language_server_started",
+    "server": "l1",
+    "name": "fake-ls",
+    "language": "rust",
+    "sandbox": "fake"
+  },
+  {
+    "kind": "language_server_started",
+    "server": "l2",
+    "name": "fake-ts",
+    "language": "typescript",
+    "sandbox": "fake"
+  },
+  {
+    "kind": "language_server_stopped",
+    "server": "l1",
+    "name": "fake-ls",
+    "language": "rust",
+    "reason": null
+  },
+  {
+    "kind": "language_server_stopped",
+    "server": "l2",
+    "name": "fake-ts",
+    "language": "typescript",
+    "reason": "the server exited with code 2"
+  }
+]

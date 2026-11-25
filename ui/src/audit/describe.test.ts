@@ -91,6 +91,23 @@ group("describe", () => {
     expect(shows("servers", false, revoked)).toBe(true);
   });
 
+  it("describes language servers, and warns about one without a sandbox", () => {
+    const started = { kind: "language_server_started", server: "l1", name: "rust-analyzer", language: "rust" } as const;
+    expect(line({ ...started, sandbox: "bubblewrap" })).toMatchObject({
+      title: "Language server rust-analyzer started",
+      detail: "For rust files, in the sandbox (bubblewrap).",
+      tone: "plain",
+    });
+    expect(line({ ...started, sandbox: null }).tone).toBe("warn");
+    const stopped = { kind: "language_server_stopped", server: "l1", name: "rust-analyzer", language: "rust" } as const;
+    expect(line({ ...stopped, reason: null }).title).toBe("Language server rust-analyzer stopped");
+    expect(line({ ...stopped, reason: "the server exited with code 2" })).toMatchObject({
+      title: "Language server rust-analyzer failed",
+      detail: "the server exited with code 2",
+    });
+    expect(shows("servers", false, entry(5, { ...stopped, reason: null }))).toBe(true);
+  });
+
   it("filters by kind and by refusals", () => {
     const allowed = entry(1, bash(true));
     const refused = entry(2, bash(false));
