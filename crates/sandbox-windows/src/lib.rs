@@ -84,8 +84,11 @@ impl Restricted {
     /// missing.
     pub fn detect(setup: Setup) -> Self {
         let status = if setup.data_dir.join(PASSWORD_FILE).is_file() {
+            // The name is what sessions report: it says what stays open
+            // until WFP filters close it (`docs/specs/sandbox-windows.md`).
             SandboxStatus::Available {
-                name: "sandbox user, restricted token".into(),
+                name: "Windows sandbox user; DNS, loopback and Windows file sharing stay open"
+                    .into(),
             }
         } else {
             SandboxStatus::Unavailable {
