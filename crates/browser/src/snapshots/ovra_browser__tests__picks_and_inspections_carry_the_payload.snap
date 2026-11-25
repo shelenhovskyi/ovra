@@ -1,0 +1,10 @@
+---
+source: crates/browser/src/tests.rs
+expression: "s.sent(&[\"DOM.getNodeForLocation\", \"DOM.resolveNode\",\n\"Page.captureScreenshot\"])"
+---
+[
+    "DOM.getNodeForLocation {\"ignorePointerEventsNone\":true,\"includeUserAgentShadowDOM\":false,\"x\":40,\"y\":30}",
+    "DOM.resolveNode {\"backendNodeId\":18,\"executionContextId\":7}",
+    "Page.captureScreenshot {\"clip\":{\"height\":24.0,\"scale\":1,\"width\":80.0,\"x\":10.0,\"y\":120.0},\"format\":\"png\"}",
+    "DOM.resolveNode {\"backendNodeId\":17,\"executionContextId\":7}",
+]

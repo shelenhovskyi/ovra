@@ -1,0 +1,17 @@
+---
+source: crates/browser/src/tests.rs
+expression: "s.sent(&[\"DOM.\", \"Input.\"])"
+---
+[
+    "DOM.scrollIntoViewIfNeeded {\"backendNodeId\":17}",
+    "DOM.getContentQuads {\"backendNodeId\":17}",
+    "Input.dispatchMouseEvent {\"modifiers\":0,\"type\":\"mouseMoved\",\"x\":50,\"y\":32}",
+    "Input.dispatchMouseEvent {\"button\":\"left\",\"clickCount\":1,\"modifiers\":0,\"type\":\"mousePressed\",\"x\":50,\"y\":32}",
+    "Input.dispatchMouseEvent {\"button\":\"left\",\"clickCount\":1,\"modifiers\":0,\"type\":\"mouseReleased\",\"x\":50,\"y\":32}",
+    "DOM.focus {\"backendNodeId\":16}",
+    "Input.dispatchKeyEvent {\"code\":\"KeyA\",\"commands\":[\"selectAll\"],\"key\":\"a\",\"modifiers\":2,\"type\":\"rawKeyDown\",\"windowsVirtualKeyCode\":65}",
+    "Input.dispatchKeyEvent {\"code\":\"KeyA\",\"commands\":[\"selectAll\"],\"key\":\"a\",\"modifiers\":2,\"type\":\"keyUp\",\"windowsVirtualKeyCode\":65}",
+    "Input.insertText {\"text\":\"me@x.y\"}",
+    "Input.dispatchKeyEvent {\"code\":\"Enter\",\"key\":\"Enter\",\"modifiers\":0,\"text\":\"\\r\",\"type\":\"keyDown\",\"windowsVirtualKeyCode\":13}",
+    "Input.dispatchKeyEvent {\"code\":\"Enter\",\"key\":\"Enter\",\"modifiers\":0,\"type\":\"keyUp\",\"windowsVirtualKeyCode\":13}",
+]

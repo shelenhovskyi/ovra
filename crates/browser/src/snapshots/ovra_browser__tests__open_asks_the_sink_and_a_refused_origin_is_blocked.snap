@@ -1,0 +1,14 @@
+---
+source: crates/browser/src/tests.rs
+expression: made
+---
+[
+    "Target.createTarget {\"url\":\"about:blank\"}",
+    "Fetch.enable {\"patterns\":[{\"requestStage\":\"Request\",\"resourceType\":\"Document\",\"urlPattern\":\"*\"}]}",
+    "Fetch.continueRequest {\"requestId\":\"r1\"}",
+    "Fetch.failRequest {\"errorReason\":\"BlockedByClient\",\"requestId\":\"r1\"}",
+    "Target.createTarget {\"url\":\"about:blank\"}",
+    "Fetch.enable {\"patterns\":[{\"requestStage\":\"Request\",\"resourceType\":\"Document\",\"urlPattern\":\"*\"}]}",
+    "Fetch.failRequest {\"errorReason\":\"BlockedByClient\",\"requestId\":\"r1\"}",
+    "Target.closeTarget {\"targetId\":\"T2\"}",
+]

@@ -257,3 +257,6 @@ impl Browser for ChromiumBrowser {
         })
     }
 }
+
+#[cfg(test)]
+mod tests;
