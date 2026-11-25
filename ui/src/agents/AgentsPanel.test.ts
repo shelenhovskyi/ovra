@@ -313,8 +313,8 @@ describe("AgentsPanel", () => {
     expect(transcript()).toEqual([
       "You Fix the typo in README.md",
       "Claude Looking.",
-      "Command Run ls",
-      "Subagent Tool output (1 line) README.md",
+      // One line per step; what it ran and got opens on demand.
+      "Subagent: Ran ls Command: ls Output, 1 line: README.md",
       "Turn ended: 10 tokens in, 5 out, $0.0012",
     ]);
     expect(panel()?.querySelector("[role=status]")?.textContent).toBe("Working");
@@ -478,11 +478,18 @@ describe("AgentsPanel", () => {
       "Ovra Worker docs stopped. What Claude was told For the coordinator: its agent_id is s2. Check with list_agents.",
       "You Thanks",
       "Sender not recorded Saved long ago",
-      "Task step Message worker docs Text: Also add tests. Then ask for review.",
-      "Task step Start worker docs: Write the notes.",
-      'Worker docs started on its own copy of the project (branch ovra/t1/docs) What Claude got {"agent_id":"s2","branch":"ovra/t1/docs","name":"docs","worktree":"/wt/docs"}',
-      "Task step Message a worker Text: x",
+      // Steps in a row are one folded group; a worker's task only inside.
+      "3 steps " +
+        "Message worker docs Text: Also add tests. Then ask for review. " +
+        "Started worker docs Task: Write the notes. " +
+        'Worker docs started on its own copy of the project (branch ovra/t1/docs) What Claude got: {"agent_id":"s2","branch":"ovra/t1/docs","name":"docs","worktree":"/wt/docs"} ' +
+        "Message a worker Text: x",
     ]);
+    const labels = [...target.querySelectorAll("[data-testid=transcript] .step > summary")].map((s) =>
+      s.textContent?.trim(),
+    );
+    expect(labels).toEqual(["Message worker docs", "Started worker docs", "Message a worker"]);
+    expect(target.querySelector("[data-testid=transcript] details.group")?.hasAttribute("open")).toBe(false);
     expect(target.querySelector("[data-testid=transcript] li.user_text details")?.hasAttribute("open")).toBe(false);
     // Its worker asked for review: the task says so, next to a way there.
     core.reviews = [{ ...review("s2", [file("NOTES.md", "agent")]), mode: "isolated" }];

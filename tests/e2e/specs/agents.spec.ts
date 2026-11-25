@@ -108,9 +108,35 @@ test("start an agent and answer its requests from the keyboard", async ({ page }
   const header = await agents.getByRole("heading", { name: "Agents", exact: true }).boundingBox();
   expect((band?.y ?? 0) + (band?.height ?? 0)).toBeLessThanOrEqual(header?.y ?? 0);
   const transcript = page.getByTestId("transcript");
-  await expect(transcript).toContainText(/Tool output \(1 line\)\s*done/);
-  await expect(transcript).toContainText(/Tool failed \(1 line\)\s*Leave the readme alone/);
+  // The two steps are one folded line that opens to one line each.
+  const steps = transcript.getByText("2 steps · 1 failed or not run");
+  await expect(steps).toBeVisible();
+  await expect(transcript.getByText("Ran ls -la")).toBeHidden();
+  await steps.click();
+  await expect(transcript.getByText("Ran ls -la")).toBeVisible();
+  await expect(transcript.locator(".step.failed summary")).toHaveText(/Edit README\.md\s*failed/);
   await expect(transcript).toContainText(/Claude\s*Done\./);
+});
+
+test("a working agent's text streams in under a live row until the turn ends", async ({ page }) => {
+  await openProject(page, "ovra-agents-stream-");
+  // The fake agent stays mid-sentence for prompts that start with "Stream".
+  await page.getByRole("textbox", { name: "What should Claude do?" }).fill("Stream the notes");
+  await page.keyboard.press("ControlOrMeta+Enter");
+
+  const transcript = page.getByTestId("transcript");
+  await expect(transcript.getByTestId("streaming-text")).toHaveText(
+    /Claude\s*Reading the code first, then I will run the tests/,
+  );
+  const live = transcript.getByTestId("live-activity");
+  await expect(live).toHaveText("Writing");
+  await page.clock.fastForward(3000);
+  await expect(live).toHaveText(/Writing\s*· 3s/);
+
+  await page.getByTestId("agent-session").getByRole("button", { name: "Interrupt" }).click();
+  await expect(page.getByTestId("agent-session").getByRole("status")).toHaveText("Done");
+  await expect(live).toHaveCount(0);
+  await expect(transcript.getByTestId("streaming-text")).toHaveCount(0);
 });
 
 test("in a short window, Review shows the whole request and the title counts what waits", async ({ page }) => {

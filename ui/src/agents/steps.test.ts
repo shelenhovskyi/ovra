@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { describeTool } from "../approvals/describe";
 import type { AgentMessage } from "../lib/protocol";
-import { elapsed, liveStep } from "./steps";
+import { elapsed, entries, liveStep, stepLabel } from "./steps";
 
 const use = (id: string, name: string, input: unknown): AgentMessage => ({ kind: "tool_use", id, name, input });
 const result = (id: string, is_error = false): AgentMessage => ({
@@ -12,6 +13,39 @@ const result = (id: string, is_error = false): AgentMessage => ({
 const working = { state: "working" } as const;
 
 describe("steps", () => {
+  it("pairs each call with its result and keeps steps in a row together", () => {
+    const shown = entries([
+      { kind: "assistant_text", text: "Looking." },
+      use("t1", "Bash", { command: "npm test" }),
+      use("t2", "Grep", { pattern: ".ovra/**" }),
+      result("t1"),
+      result("t2", true),
+      { kind: "assistant_text", text: "Done." },
+      result("lost"),
+    ]);
+    expect(shown.map((e) => (e.kind === "message" ? e.message.kind : e.steps.length))).toEqual([
+      "assistant_text",
+      2,
+      "assistant_text",
+      1,
+    ]);
+    const labels = shown.flatMap((e) =>
+      e.kind === "steps"
+        ? e.steps.map((s) =>
+            stepLabel(s, s.use?.kind === "tool_use" ? describeTool(s.use.name, s.use.input).action : ""),
+          )
+        : [],
+    );
+    // A failed call did not do what it says.
+    expect(labels).toEqual(["Ran npm test", "Search .ovra/**", "Tool finished"]);
+    const spawn = use("t3", "mcp__ovra__spawn_agent", { name: "research-speed", task: "A long task." });
+    const [step] = entries([spawn, result("t3")]);
+    const action = describeTool("mcp__ovra__spawn_agent", { name: "research-speed", task: "A long task." }).action;
+    expect(step?.kind === "steps" && stepLabel(step.steps[0] ?? { use: null, result: null }, action)).toBe(
+      "Started worker research-speed",
+    );
+  });
+
   it("says what a working session does now, this turn only", () => {
     const edit = use("t1", "Edit", { file_path: "src/x.ts", old_string: "a", new_string: "b" });
     expect(liveStep(working, [], false)).toBe("Thinking");

@@ -1,13 +1,16 @@
 <script lang="ts">
 // One session's messages. Focusable so the keyboard can scroll it. Screen
 // readers hear only what Claude says (a separate live region), not every
-// tool output; outputs are folded, since they are mostly written for the
-// model.
+// tool output. What the person wrote, what Claude says and errors stay in
+// full; each tool call is a one-line step that opens for its details, and
+// steps in a row fold into one group (`steps.ts`).
 import { describeTool, isIdeTool } from "../approvals/describe";
 import type { AgentMessage, AgentStatus, Billing, MessageFrom } from "../lib/protocol";
+import Icon from "../shell/Icon.svelte";
 import { isAuthFailure, withoutEchoes } from "./errors";
 import LiveActivity from "./LiveActivity.svelte";
 import { usageText } from "./sessions.svelte";
+import { entries, type Step, stepIcon, stepLabel } from "./steps";
 import { ideResult } from "./tool-results";
 
 /**
@@ -49,33 +52,6 @@ function clip(text: string): string {
   return `${text.slice(0, MAX_OUTPUT)}\n… ${text.length - MAX_OUTPUT} more characters`;
 }
 
-/** What a tool does, in a word or two, above its summary; unknown tools by name. */
-function toolKind(tool: string): string {
-  if (isIdeTool(tool)) return "Task step";
-  switch (tool) {
-    case "Bash":
-      return "Command";
-    case "Edit":
-    case "MultiEdit":
-    case "NotebookEdit":
-    case "Write":
-      return "File change";
-    case "Read":
-      return "Read a file";
-    case "Glob":
-    case "Grep":
-      return "Search";
-    case "WebFetch":
-    case "WebSearch":
-      return "Web";
-    case "Agent":
-    case "Task":
-      return "Helper agent";
-    default:
-      return `Tool ${tool}`;
-  }
-}
-
 /** A tool call in words, with a worker's id replaced by its name. */
 function describe(tool: string, input: unknown) {
   const fields = typeof input === "object" && input !== null ? (input as Record<string, unknown>) : null;
@@ -95,20 +71,14 @@ function note(text: string): { line: string; rest: string } {
 
 const capital = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 
-/** What a step sent, without what its line already says in full ("Start worker docs: Write the notes."). */
-function sent(action: string, details: { label: string; text: string }[]) {
-  return details.filter((d) => d.text.includes("\n") || !action.endsWith(`: ${d.text.trim()}`));
-}
-
-/** Each tool call's tool by its id, so its result can be told in words. */
-const tools = $derived(new Map(messages.flatMap((m) => (m.kind === "tool_use" ? [[m.id, m.name] as const] : []))));
-
 /**
  * Without usage (a fake agent, say) a turn's end line would say nothing;
  * Claude's copy of the error its turn ended with would say it twice.
  */
 const shown = $derived(
-  withoutEchoes(messages).filter((m) => m.kind !== "turn_end" || m.usage.input_tokens + m.usage.output_tokens > 0),
+  entries(
+    withoutEchoes(messages).filter((m) => m.kind !== "turn_end" || m.usage.input_tokens + m.usage.output_tokens > 0),
+  ),
 );
 
 function lines(text: string): string {
@@ -141,66 +111,85 @@ $effect(() => {
 });
 </script>
 
+{#snippet card(step: Step)}
+  {@const sub = step.use?.parent || step.result?.parent ? "Subagent: " : ""}
+  {@const failed = step.result?.is_error ?? false}
+  {@const denied = failed && (step.result?.output.startsWith(REJECTED) ?? false)}
+  {@const summary = step.use ? describe(step.use.name, step.use.input) : null}
+  {@const plain = step.use && step.result && !failed ? ideResult(step.use.name, step.result.output) : null}
+  <details class="step" class:failed={failed && !denied} class:sub={sub !== ""}>
+    <summary title={step.use?.name}>
+      <Icon name={stepIcon(step)} small />
+      <span class="label"
+        >{sub}{denied
+          ? summary
+            ? `Not run: ${summary.action}`
+            : "Not run: you denied it or interrupted the turn"
+          : stepLabel(step, summary?.action ?? "")}</span
+      >
+      {#if failed && !denied}<span class="flag">failed</span>{/if}
+    </summary>
+    <div class="body">
+      {#if summary}
+        {#each summary.details as detail}
+          <p class="detail" data-testid="tool-detail"><span class="label">{capital(detail.label)}:</span> {detail.text}</p>
+        {/each}
+      {/if}
+      {#if plain}<p>{plain}</p>{/if}
+      {#if step.result?.output && !denied}
+        <p class="detail">{plain ? "What Claude got" : `Output, ${lines(step.result.output)}`}:</p>
+        <pre>{clip(step.result.output)}</pre>
+      {/if}
+    </div>
+  </details>
+{/snippet}
+
 <p class="spoken" aria-live="polite">{spoken}</p>
 <!-- Focusable so arrow keys and Page Up/Down scroll it. -->
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 <ol class="transcript" aria-label="Transcript" tabindex="0" bind:this={box} data-testid="transcript">
-  {#each shown as message, i (i)}
-    {@const sub = "parent" in message && message.parent ? "Subagent " : ""}
-    <li class={message.kind} class:sub={sub !== ""}>
-      {#if message.kind === "user_text" && message.from === "ovra"}
-        {@const { line, rest } = note(message.text)}
-        <span class="who">{FROM.ovra}</span>
-        <p>{line}</p>
-        {#if rest}
-          <details>
-            <summary class="who">What Claude was told</summary>
-            <pre>{clip(rest)}</pre>
-          </details>
+  {#each shown as entry, i (i)}
+    {#if entry.kind === "steps" && entry.steps.length === 1 && entry.steps[0]}
+      <li class="steps">{@render card(entry.steps[0])}</li>
+    {:else if entry.kind === "steps"}
+      {@const failed = entry.steps.filter((s) => s.result?.is_error).length}
+      <li class="steps">
+        <details class="group">
+          <summary>{entry.steps.length} steps{failed ? ` · ${failed} failed or not run` : ""}</summary>
+          <div class="cards">
+            {#each entry.steps as step, n (n)}{@render card(step)}{/each}
+          </div>
+        </details>
+      </li>
+    {:else}
+      {@const message = entry.message}
+      {@const sub = "parent" in message && message.parent ? "Subagent " : ""}
+      <li class={message.kind} class:sub={sub !== ""}>
+        {#if message.kind === "user_text" && message.from === "ovra"}
+          {@const { line, rest } = note(message.text)}
+          <span class="who">{FROM.ovra}</span>
+          <p>{line}</p>
+          {#if rest}
+            <details>
+              <summary class="who">What Claude was told</summary>
+              <pre>{clip(rest)}</pre>
+            </details>
+          {/if}
+        {:else if message.kind === "user_text"}
+          <span class="who">{FROM[message.from]}</span>
+          <p>{message.text}</p>
+        {:else if message.kind === "assistant_text"}
+          <span class="who">{sub}Claude</span>
+          <p>{message.text}</p>
+        {:else if message.kind === "turn_end"}
+          <span class="who">Turn ended: {usageText(message.usage, billing)}</span>
+        {:else if message.kind === "error"}
+          <!-- A sign-in problem is explained once, above the transcript. -->
+          <span class="who">Error</span>
+          <p>{isAuthFailure(message.message) ? "Account signed out" : message.message}</p>
         {/if}
-      {:else if message.kind === "user_text"}
-        <span class="who">{FROM[message.from]}</span>
-        <p>{message.text}</p>
-      {:else if message.kind === "assistant_text"}
-        <span class="who">{sub}Claude</span>
-        <p>{message.text}</p>
-      {:else if message.kind === "tool_use"}
-        {@const summary = describe(message.name, message.input)}
-        <span class="who" title={message.name}>{sub}{toolKind(message.name)}</span>
-        <p>{summary.action}</p>
-        {#if isIdeTool(message.name)}
-          <!-- What was sent in full: a worker's task and a coordinator's
-               messages are what the person checks. -->
-          {#each sent(summary.action, summary.details) as detail}
-            <p class="sent" data-testid="tool-detail"><span class="label">{capital(detail.label)}:</span> {detail.text}</p>
-          {/each}
-        {/if}
-      {:else if message.kind === "tool_result"}
-        {@const plain = message.is_error ? null : ideResult(tools.get(message.tool_use_id) ?? "", message.output)}
-        {#if message.is_error && message.output.startsWith(REJECTED)}
-          <span class="who">{sub}Not run: you denied it or interrupted the turn</span>
-        {:else if plain}
-          <span class="who">{sub}{plain}</span>
-          <details>
-            <summary class="who">What Claude got</summary>
-            <pre>{clip(message.output)}</pre>
-          </details>
-        {:else if message.output}
-          <details>
-            <summary class="who">{sub}{message.is_error ? "Tool failed" : "Tool output"} ({lines(message.output)})</summary>
-            <pre>{clip(message.output)}</pre>
-          </details>
-        {:else}
-          <span class="who">{sub}{message.is_error ? "Tool failed" : "Tool finished"}</span>
-        {/if}
-      {:else if message.kind === "turn_end"}
-        <span class="who">Turn ended: {usageText(message.usage, billing)}</span>
-      {:else if message.kind === "error"}
-        <!-- A sign-in problem is explained once, above the transcript. -->
-        <span class="who">Error</span>
-        <p>{isAuthFailure(message.message) ? "Account signed out" : message.message}</p>
-      {/if}
-    </li>
+      </li>
+    {/if}
   {/each}
   {#if status}<LiveActivity {status} {messages} {partial} />{/if}
 </ol>
@@ -249,29 +238,63 @@ $effect(() => {
     background: var(--s3);
     border-radius: var(--radius);
   }
-  /* Steps are quiet: one line each, what Claude says is the text to read. */
-  .tool_use,
-  .tool_result,
+  /* Steps are quiet one-liners: what Claude says is the text to read. */
+  .steps,
   .turn_end {
     font-size: 13px;
     color: var(--text-2);
   }
-  .tool_use {
+  .step > summary,
+  .group > summary {
     display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    column-gap: 8px;
+    align-items: center;
+    gap: 8px;
+    min-height: 24px;
+    min-width: 0;
+    list-style: none;
+    border-radius: var(--radius-sm);
   }
-  .tool_use p {
-    margin: 0;
+  .step > summary::-webkit-details-marker,
+  .group > summary::-webkit-details-marker {
+    display: none;
+  }
+  .step > summary:hover,
+  .group > summary:hover {
+    color: var(--text);
+  }
+  .step > summary .label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .group > summary::before {
+    content: "▸";
+  }
+  .group[open] > summary::before {
+    content: "▾";
+  }
+  .cards {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 4px 0 0 12px;
+  }
+  .flag {
+    flex: none;
+    color: var(--danger);
+  }
+  .body {
+    margin: 4px 0 4px 23px;
+  }
+  .action {
     color: var(--text);
     font-family: var(--mono);
-    font-size: 13px;
   }
-  .tool_use .sent {
-    flex-basis: 100%;
-    font-family: var(--font);
+  .detail .label {
     color: var(--text-2);
+  }
+  .detail {
+    color: var(--text);
   }
   .sub {
     padding-left: 12px;
@@ -295,4 +318,3 @@ $effect(() => {
     border-radius: var(--radius-sm);
   }
 </style>
-
