@@ -19,3 +19,12 @@ export const test = base.extend({
 });
 
 export { expect };
+
+/** A shortcut as the UI labels it on this OS: `⌥P` on a Mac, `Alt+P` elsewhere. */
+export function shortcutLabel(text: string): string {
+  if (process.platform !== "darwin") return text;
+  const parts = text.split("+");
+  const key = parts.pop() ?? "";
+  const symbols: Record<string, string> = { Ctrl: "⌃", Alt: "⌥", Shift: "⇧", Meta: "⌘" };
+  return ["Ctrl", "Alt", "Shift", "Meta"].filter((m) => parts.includes(m)).map((m) => symbols[m]).join("") + key;
+}
