@@ -5,6 +5,23 @@ all-features = true
 [advisories]
 version = 2
 yanked = "deny"
+# Unmaintained and unsound crates fail anywhere in the graph, not only in
+# direct dependencies. Each ignore says why it is accepted and when to revisit;
+# docs/security-alerts.md tracks them for the weekly alert pass.
+unmaintained = "all"
+unsound = "all"
+ignore = [
+  # glib 0.18 (Tauri's GTK 3 stack on Linux): Ovra never calls
+  # VariantStrIter. Fixed in glib 0.20, which needs Tauri on gtk-rs 0.20+.
+  { id = "RUSTSEC-2024-0429", reason = "glib via Tauri GTK 3; VariantStrIter unused" },
+  # proc-macro-error: build-time only, through glib-macros 0.18 (same stack).
+  { id = "RUSTSEC-2024-0370", reason = "build-time macro via Tauri GTK 3 stack" },
+  # zvariant, zvariant_derive, zbus_names: merged into zbus 6. They come from
+  # zbus 5 in zbus-secret-service-keyring-store 1.0.1 (ovra-secrets, Linux).
+  { id = "RUSTSEC-2026-0370", reason = "zbus 5 via keyring store; merged into zbus 6" },
+  { id = "RUSTSEC-2026-0371", reason = "zbus 5 via keyring store; merged into zbus 6" },
+  { id = "RUSTSEC-2026-0372", reason = "zbus 5 via keyring store; merged into zbus 6" },
+]
 
 [licenses]
 version = 2
