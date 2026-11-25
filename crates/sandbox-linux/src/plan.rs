@@ -114,9 +114,10 @@ const CA_BUNDLE_VARS: [&str; 5] = [
 
 /// Protected folders made empty in the session's folder when missing, so
 /// the agent cannot create them (`.claude/settings.json` hooks, editor
-/// tasks) for the user's own tools to run later. They are removed again
-/// when the session ends. Missing protected files are left to the review.
-const FOLDERS_MADE: [&str; 4] = [".claude", ".vscode", ".idea", ".devcontainer"];
+/// tasks, `.ovra/servers.json` commands) for the user's own tools to run
+/// later. They are removed again when the session ends. Missing protected
+/// files are left to the review.
+const FOLDERS_MADE: [&str; 5] = [".claude", ".vscode", ".idea", ".devcontainer", ".ovra"];
 
 /// Package caches builds write, relative to the home folder. Each session
 /// gets its project's own copy (empty at first), bound where the cache is

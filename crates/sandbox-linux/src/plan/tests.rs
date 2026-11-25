@@ -329,6 +329,20 @@ fn path_entries_inside_the_project_and_nested_repositories() {
 }
 
 #[test]
+fn a_missing_ovra_folder_is_made_and_kept_read_only() {
+    let root = Root::new("ovra-dir");
+    let project = root.dir("project");
+    let mut setup = root.setup("/usr/bin");
+    setup.protected = Protected {
+        work_dir: &[".claude", ".ovra"],
+    };
+    let plan = Plan::new(&setup, &profile(&project)).unwrap();
+    assert!(project.join(".ovra").is_dir());
+    assert!(plan.mounts.contains(&Mount::Ro(project.join(".ovra"))));
+    assert!(plan.temporary.contains(&project.join(".ovra")));
+}
+
+#[test]
 fn hidden_folders_inside_each_other_are_hidden_once() {
     let root = Root::new("hidden-nested");
     let project = root.dir("project");

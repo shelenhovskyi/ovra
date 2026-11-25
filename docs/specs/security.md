@@ -214,15 +214,14 @@ Ovra's own git calls (fs-index, worktree) should pass
 `--ignore-submodules=all` so a missed submodule cannot run a filter in
 them; that is a follow-up in those areas.
 
-On Linux a missing `.claude/`, `.vscode/`, `.idea/` or `.devcontainer/`
-is made as an empty folder and bound read-only, so the agent cannot
+On Linux a missing `.claude/`, `.vscode/`, `.idea/`, `.devcontainer/` or
+`.ovra/` is made as an empty folder and bound read-only, so the agent cannot
 create one for the user's own tools to load later. A helper outside the
 sandbox removes it again once the session and every process in it are
 gone, also when the session is killed; a folder that is no longer empty
 stays. A
 missing protected file (`.mcp.json`, `.envrc`, `CLAUDE.md` and the like)
-can still be created; the review backstop below covers it. For now so can a
-missing `.ovra/`; task S.B makes it like the folders above.
+can still be created; the review backstop below covers it.
 
 An agent that needs one of these changed says so in its summary, and the
 person makes the change. A protected path that is a link cannot be kept
