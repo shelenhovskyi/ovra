@@ -592,6 +592,8 @@ describe("AgentsPanel", () => {
     expect(target.querySelector("[data-testid=agent-reviews]")?.textContent?.replace(/\s+/g, " ").trim()).toBe(
       "1 change waits for your review. Review",
     );
+    // A card like the others, not a centred box as wide as the column plus its margins.
+    expect(target.querySelector("[data-testid=agent-reviews]")?.classList.contains("row")).toBe(false);
     // Review opens the inbox on this task's workers, not the item chosen last.
     const asked = vi.fn();
     const off = handleOpenFor(asked);
@@ -735,6 +737,58 @@ describe("AgentsPanel", () => {
     await settle();
     await settle();
     expect(transcript()).toEqual(["You Earlier task", "Claude Missed"]);
+  });
+
+  it("folds the start box to one line while requests wait, and opens it on focus", async () => {
+    const core = new FakeAgentCore();
+    core.addSession("p1", "Fix the typo", { state: "waiting_for_approval" });
+    await setup(core);
+    const form = () => target.querySelector<HTMLFormElement>("form.new");
+    const field = () => target.querySelector<HTMLTextAreaElement>("#agent-prompt");
+    expect(form()?.classList.contains("folded")).toBe(false);
+    core.ask({ id: "perm1", session: "s1", project: "p1", tool: "Bash", input: { command: "ls" }, title: null });
+    await settle();
+    // One line: the field alone; the list and the requests keep the room.
+    expect(form()?.classList.contains("folded")).toBe(true);
+    expect(field()?.rows).toBe(1);
+    expect(startButton()).toBeUndefined();
+    field()?.focus();
+    field()?.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+    flushSync();
+    expect(form()?.classList.contains("folded")).toBe(false);
+    expect(startButton()).toBeDefined();
+    // Typed text keeps it open after focus leaves.
+    type(field(), "Also the docs");
+    field()?.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+    flushSync();
+    expect(form()?.classList.contains("folded")).toBe(false);
+  });
+
+  it("says how many messages came while scrolled up, under the transcript rather than over it", async () => {
+    const core = new FakeAgentCore();
+    core.addSession("p1", "Fix the typo", { state: "working" });
+    core.transcripts.set("s1", [{ kind: "user_text", text: "Fix the typo", from: "person" }]);
+    await setup(core);
+    selectRow("Fix the typo");
+    await settle();
+    const log = target.querySelector<HTMLElement>("[data-testid=transcript]");
+    if (!log) throw new Error("no log");
+    Object.defineProperty(log, "scrollHeight", { value: 1000 });
+    Object.defineProperty(log, "clientHeight", { value: 200 });
+    log.scrollTop = 100;
+    log.dispatchEvent(new Event("scroll"));
+    flushSync();
+    const jump = () => target.querySelector<HTMLButtonElement>("[data-testid=jump-to-latest]");
+    expect(jump()?.textContent).toBe("Jump to latest");
+    core.message("s1", { kind: "assistant_text", text: "Looking." });
+    core.message("s1", { kind: "assistant_text", text: "Found it." });
+    await settle();
+    expect(jump()?.textContent).toBe("2 new · Jump to latest");
+    // Its own row after the log, so it never covers a line.
+    expect(jump()?.previousElementSibling).toBe(log);
+    jump()?.click();
+    flushSync();
+    expect(jump()).toBeNull();
   });
 
   it("marks a step the person denied with a message as Denied, from the answer itself", async () => {

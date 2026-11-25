@@ -96,6 +96,15 @@ const modeHint = $derived(
 );
 /** The mode menu is open. */
 let modeMenu = $state(false);
+/** Focus is in the start box. */
+let startFocus = $state(false);
+/**
+ * Tasks run and requests wait: the start box folds to its field, until
+ * focused or holding text, so the list and the requests keep the room.
+ */
+const foldStart = $derived(
+  list.length > 0 && approvals.pending.length > 0 && !startFocus && !modeMenu && !prompt.trim() && !startError,
+);
 let modeList = $state<HTMLElement>();
 /** Projects known not to be git repositories: Plan and split cannot run there. */
 let noRepo = $state<string | null>(null);
@@ -777,11 +786,11 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
             </div>
           </section>
         {:else if waiting > 0}
-          <div class="card outcome row" data-testid="agent-reviews">
+          <div class="card outcome waits" data-testid="agent-reviews">
             <span>{waiting === 1 ? "1 change waits" : `${waiting} changes wait`} for your review.</span>
             <button
               type="button"
-              class="quiet"
+              class="quiet soft"
               onclick={() =>
                 current &&
                 openReviews(
@@ -943,23 +952,31 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
       <ClaudeSetup open={setupOpen} />
       <ProjectTrust />
     </div>
+    <!-- While requests wait, the box is one line, so the list and the requests keep the room; focus opens it. -->
     <form
       class="compose new"
+      class:folded={foldStart}
       onsubmit={(event) => {
         event.preventDefault();
         void start();
       }}
+      onfocusin={() => (startFocus = true)}
+      onfocusout={(event) => {
+        const to = event.relatedTarget;
+        if (!(to instanceof Node && event.currentTarget.contains(to))) startFocus = false;
+      }}
     >
-      <label for="agent-prompt" class="label">Give Claude a task</label>
+      <label for="agent-prompt" class="label" class:visually-hidden={foldStart}>Give Claude a task</label>
       <textarea
         id="agent-prompt"
-        rows="2"
-        placeholder="Describe a change, or ask about the code"
+        rows={foldStart ? 1 : 2}
+        placeholder={foldStart ? "Give Claude a task…" : "Describe a change, or ask about the code"}
         bind:this={promptField}
         bind:value={prompt}
         aria-describedby="agent-mode-hint"
         onkeydown={(event) => submitOnEnter(event, start)}
       ></textarea>
+      {#if !foldStart}
       <div class="row">
         <!-- How the task runs: a menu button whose options say what each one means. -->
         <span class="mode-menu">
@@ -1040,6 +1057,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
           >
           <button type="button" class="quiet" onclick={() => pickMode("split")}>Use Plan and split</button>
         </p>
+      {/if}
       {/if}
       {#if startError}
         <p class="error" role="alert" data-testid="agent-start-error">
@@ -1477,6 +1495,18 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
     background: var(--s2);
     border-radius: var(--radius);
   }
+  /* In line with the other cards: text on the left, a button that looks like one on the right. */
+  .card.waits {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+  }
+  .soft {
+    flex: none;
+    color: var(--text);
+    background: var(--s3);
+  }
   .signed-out .title {
     font-weight: 600;
     color: var(--warn);
@@ -1553,6 +1583,9 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
     flex: 0 1 auto;
     min-height: 0;
     overflow-y: auto;
+  }
+  .compose.new.folded {
+    padding: 6px 10px;
   }
   .compose:focus-within {
     box-shadow: 0 0 0 2px var(--accent-soft);

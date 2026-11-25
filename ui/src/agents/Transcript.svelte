@@ -125,9 +125,15 @@ const spoken = $derived.by(() => {
 const FOLLOW_PX = 60;
 /** The person scrolled up to read: "Jump to latest" brings the view back. */
 let detached = $state(false);
+/** How many entries there were when the person scrolled away: the rest are new to them. */
+let seen = $state(0);
+const fresh = $derived(detached ? Math.max(0, shown.length - seen) : 0);
 
 function onscroll(): void {
-  if (box) detached = box.scrollHeight - box.scrollTop - box.clientHeight > FOLLOW_PX;
+  if (!box) return;
+  const away = box.scrollHeight - box.scrollTop - box.clientHeight > FOLLOW_PX;
+  if (away && !detached) seen = shown.length;
+  detached = away;
 }
 
 function jump(): void {
@@ -275,7 +281,9 @@ const lastError = $derived.by(() => {
   {#if status}<LiveActivity {status} {messages} {partial} {root} />{/if}
 </ol>
 {#if detached}
-  <button type="button" class="jump" data-testid="jump-to-latest" onclick={jump}>Jump to latest</button>
+  <button type="button" class="jump" data-testid="jump-to-latest" onclick={jump}
+    >{fresh > 0 ? `${fresh} new · ` : ""}Jump to latest</button
+  >
 {/if}
 </div>
 
@@ -288,10 +296,10 @@ const lastError = $derived.by(() => {
     flex-direction: column;
   }
   .jump {
-    position: absolute;
-    left: 50%;
-    bottom: 12px;
-    transform: translateX(-50%);
+    /* Its own row under the log: it never covers a line. */
+    flex: none;
+    align-self: center;
+    margin: 4px 0;
     height: 28px;
     padding: 0 12px;
     font: inherit;
