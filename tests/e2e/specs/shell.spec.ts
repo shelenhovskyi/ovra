@@ -24,7 +24,11 @@ test("the shell shows its panels", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Open a project" })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Views" })).toBeHidden();
   // Whether Claude is ready shows before any project is open.
-  await expect(page.getByTestId("claude-setup")).toContainText("is ready");
+  // Ready is plain facts with quiet actions, not a repair form.
+  const claude = page.getByTestId("claude-status");
+  await expect(claude).toContainText("is ready");
+  await expect(claude.getByRole("button", { name: "Set path…" })).toBeVisible();
+  await expect(claude).not.toContainText("How to fix");
 });
 
 test("with no file open, the main area offers the next steps", async ({ page }) => {

@@ -153,8 +153,9 @@ describe("Shell", () => {
     const base = transport.call;
     let checks = 0;
     transport.call = ((r: Request) => {
-      if (r.method === "agents.setup") checks++;
-      return base(r);
+      if (r.method !== "agents.setup") return base(r);
+      checks++;
+      return Promise.resolve({ type: "agents.setup", data: READY });
     }) as Transport["call"];
     const target = document.createElement("div");
     const app = mount(Shell, { target, props: { transport } });
@@ -312,7 +313,7 @@ describe("Shell", () => {
       flushSync();
       const view = target.querySelector("main [data-testid=settings]");
       const panes = [...(view?.querySelectorAll("nav button") ?? [])].map((b) => b.textContent);
-      expect(panes).toEqual(["Notifications", "Keyboard", "Accessibility", "About"]);
+      expect(panes).toEqual(["Claude", "Notifications", "Keyboard", "Accessibility", "About"]);
       key(view, "Escape");
       flushSync();
       expect(target.querySelector("[data-testid=settings]")).toBeNull();
@@ -336,3 +337,12 @@ describe("Shell", () => {
 });
 
 const INFO = { type: "info", data: { name: "ovra", version: "0.0.0", mode: "test" } };
+
+const READY = {
+  path: null,
+  executable: "/usr/local/bin/claude",
+  version: "2.1.0",
+  state: { state: "ready" },
+  billing: { kind: "subscription" },
+  api_key_in_env: false,
+} as const;

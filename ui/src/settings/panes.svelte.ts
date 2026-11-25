@@ -2,7 +2,16 @@
 // the open project's first, then Ovra's own. Settings reopens on the pane it
 // showed last.
 
-export type PaneId = "rules" | "network" | "servers" | "keyboard" | "notifications" | "accessibility" | "about";
+export type PaneId =
+  | "trust"
+  | "rules"
+  | "network"
+  | "servers"
+  | "claude"
+  | "keyboard"
+  | "notifications"
+  | "accessibility"
+  | "about";
 
 export type Pane = {
   id: PaneId;
@@ -16,6 +25,13 @@ export type Pane = {
 };
 
 export const PANES: Pane[] = [
+  {
+    id: "trust",
+    title: "Trust",
+    line: "Whether Claude loads this project's own settings: its hooks, rules, commands and skills.",
+    group: "project",
+    keywords: ["hooks", "project settings"],
+  },
   {
     id: "rules",
     title: "Rules",
@@ -36,6 +52,13 @@ export const PANES: Pane[] = [
     line: "Dev servers run in the sandbox, where agents can open your app.",
     group: "project",
     keywords: ["dev servers", "ports"],
+  },
+  {
+    id: "claude",
+    title: "Claude",
+    line: "The Claude Code on this computer that runs your tasks, and who pays for them.",
+    group: "ovra",
+    keywords: ["account", "billing", "path", "sign in"],
   },
   {
     id: "notifications",
@@ -62,7 +85,7 @@ export const PANES: Pane[] = [
 ];
 
 /** The pane Settings shows; kept while the view is closed. */
-export const settings = $state<{ pane: PaneId }>({ pane: "notifications" });
+export const settings = $state<{ pane: PaneId }>({ pane: "trust" });
 
 /** The panes there are: the project's only with a project open. */
 export function panesFor(project: boolean): Pane[] {

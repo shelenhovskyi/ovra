@@ -13,7 +13,9 @@ import ServersPanel from "../servers/ServersPanel.svelte";
 import { useOvra } from "../shell/context";
 import ViewFrame from "../shell/ViewFrame.svelte";
 import { loadScreenReader } from "../terminal/prefs";
+import ClaudePane from "./ClaudePane.svelte";
 import { type PaneId, panesFor, settings } from "./panes.svelte";
+import TrustPane from "./TrustPane.svelte";
 
 const { transport, workspace } = useOvra();
 
@@ -108,7 +110,11 @@ function onListKeydown(event: KeyboardEvent): void {
       <section class="pane" aria-labelledby="settings-pane-title" data-testid={`settings-${pane.id}`}>
         <h3 id="settings-pane-title" class="title">{pane.title}</h3>
         <p class="line">{pane.line}</p>
-        {#if pane.id === "rules"}
+        {#if pane.id === "trust"}
+          <TrustPane />
+        {:else if pane.id === "claude"}
+          <ClaudePane />
+        {:else if pane.id === "rules"}
           <PolicyPanel />
         {:else if pane.id === "network"}
           <NetworkPanel />

@@ -7,7 +7,6 @@
 import { tick, untrack } from "svelte";
 import AgentsPanel from "../agents/AgentsPanel.svelte";
 import { agentSessions } from "../agents/sessions.svelte";
-import ClaudeSetup from "../agents/setup/ClaudeSetup.svelte";
 import Approvals from "../approvals/Approvals.svelte";
 import { approvalQueue } from "../approvals/queue.svelte";
 import AuditLog from "../audit/AuditLog.svelte";
@@ -28,6 +27,7 @@ import Palette from "../palette/Palette.svelte";
 import Search from "../search/Search.svelte";
 import { serversDock } from "../servers/dock.svelte";
 import ServersDock from "../servers/ServersDock.svelte";
+import ClaudePane from "../settings/ClaudePane.svelte";
 import { registerSettingsCommands } from "../settings/commands";
 import Settings from "../settings/Settings.svelte";
 import Terminals from "../terminal/Terminals.svelte";
@@ -291,7 +291,7 @@ async function showApprovals(): Promise<void> {
         <!-- The start screen's second column: whether Claude is ready, before any project is open. -->
         <section class="claude-column" aria-labelledby="start-claude">
           <h2 id="start-claude">Claude</h2>
-          {#key claudeCheck}<ClaudeSetup open />{/key}
+          {#key claudeCheck}<ClaudePane />{/key}
         </section>
       {/if}
     </div>
