@@ -228,6 +228,31 @@ test("a rename that would change files that are not open is not applied", async 
   await until(() => expect(view.state.doc.toString()).toBe("const x = 1;\nz;\n"));
 });
 
+test("references list files the editor does not show, read from disk, and open them on a pick", async () => {
+  const { core, view, show } = setup();
+  const at = (uri: string, line: number) => ({
+    uri,
+    range: { start: { line, character: 0 }, end: { line, character: 1 } },
+  });
+  const B = "ovra:///src/b.ts";
+  core.answers["textDocument/references"] = [at(A, 1), at(B, 1), at("file:///etc/passwd", 0)];
+  await show("src/a b.ts");
+  await until(() => expect(core.got("s1", "textDocument/didOpen")).toHaveLength(1));
+  view.dispatch({ selection: { anchor: 13 } });
+  view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "F12", code: "F12", shiftKey: true }));
+  const panel = () => view.dom.querySelector(".cm-lsp-reference-panel");
+  await until(() => expect(panel()?.textContent).toContain("y;"));
+  expect(panel()?.textContent).toContain("x;");
+  // Read for the list only: the server was never told b.ts was opened.
+  expect(core.got("s1", "textDocument/didOpen")).toHaveLength(1);
+  const entries = [...(panel()?.querySelectorAll("[role=option]") ?? [])];
+  expect(entries).toHaveLength(2);
+  entries[1]?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  await until(() => expect(view.state.doc.toString()).toBe("export const y = 2;\n  y;\n"));
+  await until(() => expect(core.got("s1", "textDocument/didOpen")).toHaveLength(2));
+  expect(core.got("s1", "textDocument/didOpen")[1]?.params).toMatchObject({ textDocument: { uri: B } });
+});
+
 test("links in docs open through the core, never in this window", async () => {
   const { core, view, show } = setup();
   await show("src/a b.ts");

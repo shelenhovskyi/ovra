@@ -5,8 +5,9 @@
 // drops its client, and the next file shown starts a new one.
 
 import { setDiagnostics } from "@codemirror/lint";
-import { LSPClient, languageServerExtensions } from "@codemirror/lsp-client";
-import { type EditorView, ViewPlugin } from "@codemirror/view";
+import { findReferences, LSPClient, LSPPlugin, languageServerExtensions } from "@codemirror/lsp-client";
+import { Prec, Text } from "@codemirror/state";
+import { type EditorView, keymap, ViewPlugin } from "@codemirror/view";
 import type { LspStatus, ProjectId, ServerId, ServerInfo } from "../../lib/protocol";
 import type { Transport } from "../../lib/transport";
 import { languageServers } from "../../lsp/servers.svelte";
@@ -27,6 +28,9 @@ const LANGUAGES: Record<string, { server: string; languageId: string }> = {
   typescript: { server: "typescript", languageId: "typescript" },
 };
 
+/** Files not shown in the editor whose text is read to list references in them. */
+const MAX_PEEKED = 50;
+
 /** Servers indexing a large project answer slowly; the library's default is 3 s. */
 const REQUEST_TIMEOUT_MS = 10_000;
 
@@ -45,6 +49,8 @@ type Server = { language: string; info: ServerInfo; client: LSPClient; channel: 
 
 /** Minimal `WorkspaceEdit`: the library applies only `changes`. */
 type WorkspaceEdit = { changes?: Record<string, unknown[]> } | null;
+
+type Location = { uri: string };
 
 export class LanguageClients {
   private readonly servers = new Map<string, Server>();
@@ -136,6 +142,7 @@ export class LanguageClients {
         ...languageServerExtensions(),
         { clientCapabilities: { workspace: { workspaceFolders: true } } },
         this.docLinks(),
+        Prec.high(keymap.of([{ key: "Shift-F12", run: (view) => this.references(view), preventDefault: true }])),
       ],
     });
     const channel = new ServerChannel(this.options.transport, info.id, {
@@ -237,7 +244,7 @@ export class LanguageClients {
    * not applied at all, so it never leaves the code half renamed.
    */
   private renamed(client: LSPClient, edit: WorkspaceEdit): WorkspaceEdit {
-    const open = new Set(client.workspace.files.map((file) => file.uri));
+    const open = new Set((client.workspace as BufferWorkspace).open().map((file) => file.uri));
     const others = Object.entries(edit?.changes ?? {})
       .filter(([uri, edits]) => edits.length > 0 && !open.has(uri))
       .map(([uri]) => pathOf(uri) ?? outsideName(uri));
@@ -246,6 +253,54 @@ export class LanguageClients {
       `Rename not applied: it would also change ${others.join(", ")}, which only works in one file for now.`,
     );
     return null;
+  }
+
+  /**
+   * Finds references in every project file, not only the shown one: the
+   * library lists references only in files of its workspace, so the
+   * files the answer names are read from disk and peeked first, then the
+   * library asks again and shows the list.
+   */
+  private references(view: EditorView): boolean {
+    const plugin = LSPPlugin.get(view);
+    const capabilities = plugin?.client.serverCapabilities;
+    if (!plugin || (capabilities && !capabilities.referencesProvider)) return false;
+    const workspace = plugin.client.workspace as BufferWorkspace;
+    workspace.unpeek();
+    plugin.client.sync();
+    plugin.client
+      .request<unknown, Location[] | null>("textDocument/references", {
+        textDocument: { uri: plugin.uri },
+        position: plugin.toPosition(view.state.selection.main.head),
+        context: { includeDeclaration: true },
+      })
+      .then(async (locations) => {
+        const uris = [...new Set((locations ?? []).map((l) => l.uri))].filter((uri) => !workspace.getFile(uri));
+        const read = uris.slice(0, MAX_PEEKED);
+        const texts = await Promise.all(read.map((uri) => this.diskText(uri)));
+        for (const [i, uri] of read.entries()) {
+          const text = texts[i];
+          if (typeof text === "string") workspace.peek(uri, Text.of(text.split(/\r\n?|\n/)));
+        }
+        if (LSPPlugin.get(view) === plugin) findReferences(view);
+      })
+      .catch((err: unknown) => plugin.reportError("Finding references failed", err));
+    return true;
+  }
+
+  /** A project file's text as saved, or null for a file outside the project or not text. */
+  private async diskText(uri: string): Promise<string | null> {
+    const path = pathOf(uri);
+    if (path === null) return null;
+    try {
+      const { data } = await this.options.transport.call({
+        method: "fs.read_file",
+        params: { project: this.options.project, path },
+      });
+      return data.body.kind === "text" ? data.body.text : null;
+    } catch {
+      return null;
+    }
   }
 
   /** Links in hover and completion docs open in the system browser, never in this window. */

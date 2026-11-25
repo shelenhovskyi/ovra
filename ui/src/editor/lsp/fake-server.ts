@@ -92,6 +92,7 @@ export class FakeLspCore extends FakeCore {
               hoverProvider: true,
               definitionProvider: true,
               renameProvider: true,
+              referencesProvider: true,
             },
           }
         : (this.answers[message.method as string] ?? null);

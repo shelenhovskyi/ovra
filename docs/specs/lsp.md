@@ -118,6 +118,12 @@ makes on disk still reach them.
 - A server stops when the person stops it, its project loses trust or is
   removed, or it exits. It keeps running when the project closes in every
   client, so a reload does not restart it.
+- Find references (Shift+F12) lists references in files the editor does
+  not show by reading up to 50 of them from disk; the server is not told
+  they were opened until the person picks one.
+- A rename that would change a file the editor does not show is not
+  applied at all, and the editor says which files it would change, so
+  code is never left half renamed.
 
 ## Sandbox profile
 
