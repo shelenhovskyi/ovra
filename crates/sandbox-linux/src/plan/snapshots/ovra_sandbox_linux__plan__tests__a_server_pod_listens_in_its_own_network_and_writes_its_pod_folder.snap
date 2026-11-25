@@ -24,24 +24,6 @@ ROOT/projects/app/.claude
 --tmpfs /mnt
 --tmpfs /media
 --tmpfs ROOT/home
---ro-bind ROOT/home/.claude
---tmpfs ROOT/home/.claude/backups
---tmpfs ROOT/home/.claude/cache
---tmpfs ROOT/home/.claude/debug
---tmpfs ROOT/home/.claude/file-history
---tmpfs ROOT/home/.claude/ide
---tmpfs ROOT/home/.claude/logs
---tmpfs ROOT/home/.claude/paste-cache
---tmpfs ROOT/home/.claude/plans
---tmpfs ROOT/home/.claude/session-env
---tmpfs ROOT/home/.claude/sessions
---tmpfs ROOT/home/.claude/shell-snapshots
---tmpfs ROOT/home/.claude/statsig
---tmpfs ROOT/home/.claude/telemetry
---tmpfs ROOT/home/.claude/todos
---bind ROOT/home/.claude/projects/-ROOT-projects-app
---ro-bind ROOT/home/.claude/projects/-ROOT-projects-app/memory
---bind ROOT/home/.claude/history.jsonl
 --bind ROOT/data/pods/p1
 --bind ROOT/projects/app
 --ro-bind ROOT/projects/app/.claude
@@ -56,22 +38,6 @@ ROOT/bin/ovra
 --rw /tmp
 --rw /dev
 --rw ROOT/home
---rw ROOT/home/.claude/backups
---rw ROOT/home/.claude/cache
---rw ROOT/home/.claude/debug
---rw ROOT/home/.claude/file-history
---rw ROOT/home/.claude/ide
---rw ROOT/home/.claude/logs
---rw ROOT/home/.claude/paste-cache
---rw ROOT/home/.claude/plans
---rw ROOT/home/.claude/session-env
---rw ROOT/home/.claude/sessions
---rw ROOT/home/.claude/shell-snapshots
---rw ROOT/home/.claude/statsig
---rw ROOT/home/.claude/telemetry
---rw ROOT/home/.claude/todos
---rw ROOT/home/.claude/projects/-ROOT-projects-app
---rw ROOT/home/.claude/history.jsonl
 --rw ROOT/data/pods/p1
 --rw ROOT/projects/app
 --bridge
@@ -102,38 +68,6 @@ COLORTERM
 --env
 NO_COLOR
 --env
-ANTHROPIC_API_KEY
---env
-ANTHROPIC_AUTH_TOKEN
---env
-ANTHROPIC_BASE_URL
---env
-ANTHROPIC_MODEL
---env
-ANTHROPIC_SMALL_FAST_MODEL
---env
-CLAUDE_CODE_USE_BEDROCK
---env
-CLAUDE_CODE_USE_VERTEX
---env
-CLAUDE_CODE_USE_FOUNDRY
---env
-ANTHROPIC_BEDROCK_BASE_URL
---env
-ANTHROPIC_VERTEX_BASE_URL
---env
-ANTHROPIC_VERTEX_PROJECT_ID
---env
-ANTHROPIC_FOUNDRY_RESOURCE
---env
-ANTHROPIC_FOUNDRY_BASE_URL
---env
-AWS_REGION
---env
-CLOUD_ML_REGION
---env
-GOOGLE_CLOUD_PROJECT
---env
 SSL_CERT_FILE
 --env
 SSL_CERT_DIR
@@ -147,8 +81,6 @@ RUSTUP_HOME
 NVM_DIR
 --env
 GOPATH
---env
-OVRA_FAKE_CLAUDE_FIXTURE
 --env
 HTTP_PROXY
 --env
@@ -182,3 +114,6 @@ env GITHUB_TOKEN = None
 env SSH_AUTH_SOCK = None
 env CLAUDE_CODE_OAUTH_TOKEN = None
 env CLAUDECODE = None
+env ANTHROPIC_API_KEY = None
+env CLAUDE_CODE_USE_BEDROCK = None
+env AWS_REGION = None

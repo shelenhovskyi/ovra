@@ -486,14 +486,21 @@ fn a_server_pod_cannot_reach_the_hosts_loopback() {
     let mut pod_profile = profile(&work, ProfileNetwork::Blocked);
     pod_profile.write.push(pod.clone());
     pod_profile.expose = vec![port];
+    let login = root.file("home/.claude/.credentials.json", "secret");
+    let state = root.file("home/.claude.json", "{}");
     let checks = format!(
         "reach the host: bash -c 'echo > /dev/tcp/127.0.0.1/{port}'
-        write its pod folder: echo x > {}/x",
-        pod.display()
+        write its pod folder: echo x > {}/x
+        read the claude login: cat {}
+        read the claude state: cat {}",
+        pod.display(),
+        login.display(),
+        state.display()
     );
     assert_eq!(
         run(&sandbox, &pod_profile, &script(&checks)),
-        "reach the host: no\nwrite its pod folder: yes\n"
+        "reach the host: no\nwrite its pod folder: yes\n\
+         read the claude login: no\nread the claude state: no\n"
     );
     // Its servers listen inside it, and its supervisor on Unix sockets in
     // its folder; a shell cannot listen, Python can where it is installed.

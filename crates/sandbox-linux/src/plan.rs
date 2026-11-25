@@ -220,6 +220,12 @@ pub(crate) struct Plan {
 enum Kind {
     /// An agent session: [`ENV_KEPT`], and the working folder its line names.
     Agent,
+    /// A server pod (a profile that exposes ports): an agent's sandbox
+    /// without `claude`'s state (all of `~/.claude` and `~/.claude.json`
+    /// stay hidden), with [`server::SERVER_ENV_KEPT`]. Servers run the
+    /// project's code, not `claude`: they get no login, no transcripts and
+    /// no Claude or cloud-provider variables.
+    Pod,
     /// A language server: [`server::SERVER_ENV_KEPT`], the line's own
     /// variables over the plan's, and the project as its working folder.
     Server { project: PathBuf },
@@ -263,7 +269,11 @@ impl Plan {
             forward: ports(profile)?,
             path: OsString::new(),
             temporary: Vec::new(),
-            kind: Kind::Agent,
+            kind: if profile.expose.is_empty() {
+                Kind::Agent
+            } else {
+                Kind::Pod
+            },
         };
         plan.hide(setup, &home);
         let shown: Vec<PathBuf> = std::iter::once(work_dir.clone())
@@ -372,7 +382,9 @@ impl Plan {
 
     /// What `claude`, git and the toolchains need from the home folder.
     fn home_back(&mut self, setup: &Setup, home: &Path, work_dir: &Path, shown: &[PathBuf]) {
-        self.claude_back(home, work_dir);
+        if self.kind == Kind::Agent {
+            self.claude_back(home, work_dir);
+        }
         self.home_read(setup, home, shown);
         self.cover_secrets(home);
         self.private_caches(setup, home, work_dir);
@@ -584,7 +596,7 @@ impl Plan {
         let program = real(&line.program)?;
         let helper = real(helper)?;
         let cwd = match &self.kind {
-            Kind::Agent => real(&line.cwd)?,
+            Kind::Agent | Kind::Pod => real(&line.cwd)?,
             Kind::Server { project } => project.clone(),
         };
         let mut args: Vec<OsString> = [
@@ -642,7 +654,7 @@ impl Plan {
         // A server's line points its caches and temporary files into its
         // cache folder: its variables come last, so they win.
         let (mut env, last) = match self.kind {
-            Kind::Agent => (line.env, Vec::new()),
+            Kind::Agent | Kind::Pod => (line.env, Vec::new()),
             Kind::Server { .. } => (Vec::new(), line.env),
         };
         if let ProfileNetwork::Proxy { address, ca_bundle } = &self.network {
@@ -715,7 +727,7 @@ impl Plan {
     fn env_kept(&self) -> &'static [&'static str] {
         match self.kind {
             Kind::Agent => &ENV_KEPT,
-            Kind::Server { .. } => &server::SERVER_ENV_KEPT,
+            Kind::Pod | Kind::Server { .. } => &server::SERVER_ENV_KEPT,
         }
     }
 
@@ -741,8 +753,9 @@ impl Plan {
 /// servers would listen on the host; forwarding needs the netproxy, which
 /// applies the loopback rule. No port may be the proxy's own inside the
 /// sandbox, and none both exposed and forwarded: each is one listener
-/// there. Everything else about a pod is an agent's sandbox: its own PID
-/// namespace and `--die-with-parent` are on for every session, and
+/// there. Apart from `claude`'s state and the environment ([`Kind::Pod`]),
+/// a pod is an agent's sandbox: its own PID namespace and
+/// `--die-with-parent` are on for every session, and
 /// Landlock and seccomp already let it listen on TCP inside its network
 /// namespace and make Unix sockets in its writable folders.
 fn ports(profile: &SandboxProfile) -> Result<Vec<u16>> {

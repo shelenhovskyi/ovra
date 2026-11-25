@@ -377,10 +377,17 @@ fn a_server_pod_listens_in_its_own_network_and_writes_its_pod_folder() {
     let project = root.dir("projects/app");
     let pod = root.dir("data/pods/p1");
     let setup = root.setup("/usr/bin");
+    // Claude's login and state: none of it is shown to a pod.
+    root.file("home/.claude/.credentials.json");
+    root.file("home/.claude/history.jsonl");
+    root.file("home/.claude.json");
     let mut profile = proxied(&root, &project);
     profile.write.push(pod.clone());
     profile.expose = vec![5173, 8080];
     let plan = Plan::new(&setup, &profile).unwrap();
+    let mut outer_env = Root::outer_env();
+    outer_env
+        .extend(["ANTHROPIC_API_KEY", "CLAUDE_CODE_USE_BEDROCK", "AWS_REGION"].map(OsString::from));
     let line = plan.line(
         Path::new("/usr/bin/bwrap"),
         &setup.helper,
@@ -391,9 +398,11 @@ fn a_server_pod_listens_in_its_own_network_and_writes_its_pod_folder() {
             env: Vec::new(),
             cwd: project.clone(),
         },
-        &Root::outer_env(),
+        &outer_env,
     );
     insta::assert_snapshot!(root.show(&line.unwrap()));
+    // `claude`'s folder is neither made nor bound for a pod.
+    assert!(!root.0.join("home/.claude/projects").exists());
 }
 
 #[test]

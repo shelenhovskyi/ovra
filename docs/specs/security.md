@@ -176,6 +176,17 @@ the toolchains, Landlock and seccomp through the helper. It differs in:
   `OVRA_FAKE_CLAUDE_FIXTURE` names; the server's own line (build and
   cache folders, `CARGO_NET_OFFLINE`) is applied last.
 
+**Server pods.** A profile with `expose` is a pod: an agent's sandbox
+(the same mounts, hidden paths, protected paths and `write` folders)
+without the agent's state. Nothing of `~/.claude` or `~/.claude.json` is
+bound (not its login `.credentials.json`, transcripts or history), and
+the environment allowlist is `SERVER_ENV_KEPT`, as for language servers:
+no `ANTHROPIC_*`, `CLAUDE_*` or cloud-provider names. The pod's folder is
+writable inside it; on Linux pod-init adds a Landlock layer for the
+servers it starts, so that only pod-init makes, removes or renames
+entries there, and Ovra connects to the sockets in it without following
+links and only to pod-init's (`docs/specs/servers-and-browser.md`).
+
 **Protected paths.** They stay read-only. The list lives in
 `crates/sandbox`, so every platform uses the same one:
 

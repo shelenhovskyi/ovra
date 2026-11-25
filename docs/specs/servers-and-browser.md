@@ -67,9 +67,13 @@ The person defines servers in `.ovra/servers.json` in the project:
   `localhost:8080`. Pods of different worktrees never see each other, so
   two worktrees both run `web` on 5173 without a clash.
 - Its profile is the agent's for that work dir (`work_dir` writable except
-  the protected paths, the same hidden paths, the same environment
-  allowlist), with its own netproxy for the way out: the project's
-  allowlist, refusals reported for the pod.
+  the protected paths, the same hidden paths), with its own netproxy for
+  the way out: the project's allowlist, refusals reported for the pod.
+  Servers run the project's code, not `claude`, so a pod gets none of
+  `claude`'s state (`~/.claude` and `~/.claude.json` stay hidden: no
+  login, transcripts or history) and the language servers' environment
+  allowlist (`SERVER_ENV_KEPT`: no `ANTHROPIC_*`, `CLAUDE_*` or
+  cloud-provider names; `docs/specs/security.md`).
 - Inside the pod its supervisor (`ovra-servers` pod-init, the pod's only
   program) exposes each defined port: it listens on
   `<pod dir>/<port>.sock` and connects each connection to

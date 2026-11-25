@@ -12,10 +12,11 @@ use ovra_core::services::{ProfileNetwork, Result, ServerProfile};
 use super::{CACHES, Kind, Mount, NEVER_BOUND, Plan, SECRETS, real};
 use crate::{Setup, invalid};
 
-/// The variables a language server keeps from Ovra's environment: those of
-/// [`super::ENV_KEPT`] without where Claude usage is billed, the cloud
-/// provider's names and Ovra's own test recording. A server has no use for
-/// them, and the project's code it runs must not see them. Whole names
+/// The variables a language server or a server pod keeps from Ovra's
+/// environment: those of [`super::ENV_KEPT`] without where Claude usage is
+/// billed, the cloud provider's names and Ovra's own test recording. A
+/// server has no use for them, and the project's code it runs must not see
+/// them. Whole names
 /// only, as for agents. `PATH` and `TMPDIR` are set by the plan, and the
 /// server's own line sets its build and cache folders.
 pub(super) const SERVER_ENV_KEPT: [&str; 19] = [
