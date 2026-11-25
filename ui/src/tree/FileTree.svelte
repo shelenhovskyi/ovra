@@ -5,6 +5,7 @@ import { trashKeys } from "./ops";
 // This panel's own keys, for Settings > Keyboard; the panel handles them itself.
 registerContextKeys(
   [
+    { keys: "Enter", title: "Open the file, or keep its tab when it is shown" },
     { keys: "F2", title: "Rename" },
     { keys: trashKeys(), title: "Move to the trash" },
     { keys: "Shift+F10", title: "Open the row's menu (also the Menu key)" },
