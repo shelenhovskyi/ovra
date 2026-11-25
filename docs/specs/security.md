@@ -596,7 +596,8 @@ rules for each project:
     (`node`, `python3`, `git`, ...), any word naming a path outside the
     folder (`/`, `~`, `$`, `%`, `..`, a drive) or a protected or
     review-marked path, or any word the shell expands past that check
-    (`*`, `?`, `[`, `{` or `$` anywhere, or a quote inside the word).
+    (`*`, `?`, `[`, `{`, `$` or a backslash anywhere, or a quote inside the
+    word).
   - `Edit` and `Write`: the exact file, relative to `work_dir`. Not offered
     outside it, for protected or review-marked paths, for names with glob
     characters, for any path with a `.git` part (in any case, with

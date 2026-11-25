@@ -316,9 +316,10 @@ fn command_scope(command: &str) -> Option<String> {
         })
     };
     // Globs, braces and variables expand past that check, into names it
-    // never saw; a quote inside a word can hide what it starts.
+    // never saw; a quote or backslash inside a word can hide what it
+    // starts (`.cl\aude` is `.claude`).
     let expands = |w: &&str| {
-        w.contains(['*', '?', '[', '{', '$'])
+        w.contains(['*', '?', '[', '{', '$', '\\'])
             || w.char_indices()
                 .any(|(i, c)| matches!(c, '"' | '\'') && i != 0 && i + 1 != w.len())
     };

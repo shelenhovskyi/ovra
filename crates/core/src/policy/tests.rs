@@ -484,6 +484,8 @@ fn always_allow_offers_the_narrowest_rule_or_none() {
         ("Bash", json!({"command": "cat src$X/a"})),
         ("Bash", json!({"command": "cat .cl\"au\"de/x"})),
         ("Bash", json!({"command": "cat .c'laude'"})),
+        ("Bash", json!({"command": "cat .cl\\aude/settings.json"})),
+        ("Bash", json!({"command": "cp x .hus\\ky/pre-commit"})),
         ("Bash", json!({"command": "rg --file=\"x\" a"})),
         ("Bash", json!({"command": "echo 'two words'"})),
         ("Bash", json!({"command": "FOO=1 npm test"})),
