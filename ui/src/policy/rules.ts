@@ -20,7 +20,7 @@ export function ruleText(rule: PolicyRule): string {
 }
 
 /** The tool a form names: a known tool typed in another case is that tool. */
-export function toolName(tool: string): string {
+function toolName(tool: string): string {
   const name = tool.trim();
   return KNOWN_TOOLS.find((t) => t.toLowerCase() === name.toLowerCase()) ?? name;
 }
