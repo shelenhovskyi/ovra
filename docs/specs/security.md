@@ -244,13 +244,13 @@ subtree read-only. The backstop is outside the sandbox:
 - the review marks any change to a protected path, and approve never
   applies one unless the person includes protected files
   (`include_protected`): a worker's are otherwise left out, as in a partial
-  approve, and a direct item with one is refused. A direct item's
-  include is bound to the versions of its protected files the person saw
-  (the item's fingerprint): one changed or added since is refused. Replacing the person's
-  version with what a partial approve left (`review.take`) needs the same
-  choice. The inbox offers it only once each protected file's diff has
-  been shown. The marks
-  cover the `work_dir` list, in any case, and also, though the sandbox
+  approve, and a direct item with one is refused. A direct item's include
+  is bound to the versions of its protected files the person saw (the
+  item's fingerprint): one changed or added since is refused. Replacing
+  the person's version with what a partial approve left (`review.take`)
+  needs the same choice. The inbox offers it only once each protected
+  file's diff has been shown. The marks cover the `work_dir` list, in any
+  case, and also, though the sandbox
   does not keep them read-only, `.envrc` and `.claude/` in any folder,
   `.husky/`, `.gitattributes` in any folder, `.gitmodules`, `.lfsconfig`,
   other agents' `.zed/`, `.cursor/`, `.gemini/` and `GEMINI.md`, and the
