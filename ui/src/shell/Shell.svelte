@@ -26,6 +26,7 @@ import Tree from "../tree/Tree.svelte";
 import Viewer from "../viewers/Viewer.svelte";
 import { provideOvra } from "./context";
 import MoreMenu from "./MoreMenu.svelte";
+import ProjectSwitcher from "./ProjectSwitcher.svelte";
 import { Workspace } from "./workspace.svelte";
 
 let { transport }: { transport: Transport } = $props();
@@ -99,10 +100,7 @@ const status = $derived.by((): { text: string; ok: boolean } => {
   <header>
     <h1>Ovra</h1>
     {#if workspace.project}
-      <span class="project" data-testid="project-name" title={workspace.project.root}>
-        <span class="muted">Project</span>
-        {workspace.project.name}
-      </span>
+      <ProjectSwitcher project={workspace.project} />
     {:else}
       <span class="project muted" data-testid="project-name">No project open</span>
     {/if}
