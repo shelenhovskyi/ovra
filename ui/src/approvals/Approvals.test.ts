@@ -21,6 +21,8 @@ let target: HTMLElement;
 
 /** While set, no observed element comes into sight. */
 let outOfSight = false;
+/** While set, observed elements matching it do not come into sight. */
+let hiddenPart: string | null = null;
 let observers: FakeObserver[] = [];
 
 /** jsdom lays nothing out: everything observed is in sight unless `outOfSight`. */
@@ -31,7 +33,7 @@ class FakeObserver {
   }
   observe(element: Element): void {
     this.targets.add(element);
-    if (!outOfSight) this.report(element);
+    if (!outOfSight && !(hiddenPart && element.matches(hiddenPart))) this.report(element);
   }
   report(element: Element): void {
     const entry = { target: element, isIntersecting: true, intersectionRatio: 1, intersectionRect: { height: 20 } };
@@ -44,6 +46,7 @@ class FakeObserver {
 
 function comeIntoSight(): void {
   outOfSight = false;
+  hiddenPart = null;
   for (const observer of observers) for (const element of observer.targets) observer.report(element);
 }
 
@@ -53,6 +56,7 @@ let scrolled: [Element, unknown][] = [];
 beforeEach(() => {
   vi.useFakeTimers();
   outOfSight = false;
+  hiddenPart = null;
   observers = [];
   scrolled = [];
   vi.stubGlobal("IntersectionObserver", FakeObserver);
@@ -492,7 +496,7 @@ describe("Approvals", () => {
     await settle();
     // All of it, not just the line that says who asks.
     expect(scrolled).toEqual([
-      [cards()[1], { block: "nearest" }],
+      [cards()[1], { block: "start" }],
       [cards()[1]?.querySelector("dl"), { block: "nearest" }],
     ]);
   });
@@ -524,6 +528,29 @@ describe("Approvals", () => {
     expect(answers(core)).toEqual([{ id: "perm1", decision: "allow" }]);
   });
 
+  it("allows nothing while who asks and the sandbox warning were never in sight", async () => {
+    const core = await setup();
+    hiddenPart = ".who";
+    core.ask(bash("perm1"));
+    await settle(ARM_MS);
+    const allow = () => cards()[0]?.querySelector<HTMLButtonElement>("button.allow");
+    expect(allow()?.getAttribute("aria-disabled")).toBe("true");
+    cards()[0]?.focus();
+    press("KeyY");
+    await settle();
+    expect(answers(core)).toEqual([]);
+    // The card's top comes into view, not just its details.
+    expect(scrolled.at(-1)).toEqual([cards()[0], { block: "start" }]);
+    expect(cards()[0]?.querySelector("[data-testid=approval-wait]")?.textContent).toBe(
+      "Scrolled to the request: read it, then allow.",
+    );
+    comeIntoSight();
+    await settle(ARM_MS);
+    press("KeyY");
+    await settle();
+    expect(answers(core)).toEqual([{ id: "perm1", decision: "allow" }]);
+  });
+
   it("says why an early click on Allow does nothing, and still waits", async () => {
     const core = await setup();
     core.ask(bash("perm1"));
@@ -536,6 +563,10 @@ describe("Approvals", () => {
     await settle();
     expect(answers(core)).toEqual([]);
     expect(wait()).toBe("Ready in a moment — read the request first.");
+    // Next to the buttons, and kept in sight.
+    const note = cards()[0]?.querySelector("[data-testid=approval-wait]");
+    expect(note?.parentElement).toBe(allow?.parentElement);
+    expect(scrolled.at(-1)).toEqual([note, { block: "nearest" }]);
     await settle(ARM_MS);
     expect(wait()).toBe("");
     expect(allow?.title).toBe("");
