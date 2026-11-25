@@ -177,8 +177,9 @@ close, and what they cannot:
   sandbox user. Stopping WebClient and BITS would change the whole
   machine. They stay listed gaps.
 
-Owner question 3 below: close loopback and lose agents' own local
-servers, or keep it open as a listed gap.
+Decided (question 3, 2026-11-25, the recommended option after 30 minutes
+without an answer): loopback stays open as a listed gap, so agents' own
+local servers keep working. The spike's filters stay on the spike branch.
 
 **What is not isolated.** The token's restricting SIDs are checked only
 for what Windows counts as writing, which leaves out reading. So a session
@@ -228,7 +229,7 @@ Windows port of their fake agent.
    services. Reads across projects are a second known limit.
 3. Loopback: close it with WFP filters, at the cost that an agent's own
    local servers (a test that starts one and calls it) stop working on
-   Windows, or keep it open as a listed gap. Recommended: keep it open for
+   Windows, or keep it open as a listed gap. Taken: keep it open for
    now; the sandbox user still cannot write the person's files or reach
    the internet, and a local service is reachable only if it accepts
    unauthenticated loopback callers.
