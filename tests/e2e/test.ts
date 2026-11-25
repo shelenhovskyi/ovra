@@ -26,5 +26,10 @@ export function shortcutLabel(text: string): string {
   const parts = text.split("+");
   const key = parts.pop() ?? "";
   const symbols: Record<string, string> = { Ctrl: "⌃", Alt: "⌥", Shift: "⇧", Meta: "⌘" };
-  return ["Ctrl", "Alt", "Shift", "Meta"].filter((m) => parts.includes(m)).map((m) => symbols[m]).join("") + key;
+  return (
+    ["Ctrl", "Alt", "Shift", "Meta"]
+      .filter((m) => parts.includes(m))
+      .map((m) => symbols[m])
+      .join("") + key
+  );
 }
