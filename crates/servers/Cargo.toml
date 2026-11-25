@@ -24,6 +24,9 @@ serde.workspace = true
 serde_json.workspace = true
 tokio = { workspace = true, features = ["io-util", "net", "process", "rt", "sync", "time"] }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+landlock = "0.4.8"
+
 [target.'cfg(unix)'.dev-dependencies]
 insta.workspace = true
 tempfile = "3"

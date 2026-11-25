@@ -18,6 +18,8 @@ use ovra_core::services::{
     ServerSink,
 };
 
+#[cfg(target_os = "linux")]
+mod confine;
 #[cfg(unix)]
 mod control;
 #[cfg(unix)]

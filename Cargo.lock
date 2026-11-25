@@ -3577,6 +3577,7 @@ name = "ovra-servers"
 version = "0.1.0"
 dependencies = [
  "insta",
+ "landlock",
  "ovra-core",
  "rand 0.9.5",
  "rustix",

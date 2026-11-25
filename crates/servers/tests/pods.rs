@@ -315,3 +315,39 @@ async fn nothing_runs_without_a_sandbox() {
     assert_eq!(started.err().map(|e| e.code), Some(ErrorCode::Unavailable));
     assert_eq!(entries(s.data.path()), Vec::<PathBuf>::new());
 }
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn a_server_cannot_make_remove_or_rename_entries_in_its_pod_folder() {
+    let mut s = setup();
+    let port = free_port();
+    let script = format!(
+        "pod=$(echo {data}/*)
+        try() {{ if (eval \"$2\") 2>/dev/null; then echo \"$1: yes\"; else echo \"$1: no\"; fi; }}
+        try 'make a file' \": > $pod/x\"
+        try 'make a link' \"ln -s /var/run/docker.sock $pod/l\"
+        try 'make a folder' \"mkdir $pod/d\"
+        try 'rename its socket' \"mv $pod/{port}.sock $pod/y\"
+        try 'remove its socket' \"rm $pod/{port}.sock\"
+        try 'write its work dir' ': > made'",
+        data = s.data.path().display(),
+    );
+    s.start("srv", &script, port, None).expect("start");
+    let seen = s.until("srv #1 Exited { code: Some(0) }").await;
+    if seen.contains(&"srv out make a file: yes".to_owned()) && std::env::var_os("CI").is_none() {
+        eprintln!("skipped: this kernel has no Landlock");
+        return;
+    }
+    assert_eq!(
+        seen,
+        [
+            "srv out make a file: no",
+            "srv out make a link: no",
+            "srv out make a folder: no",
+            "srv out rename its socket: no",
+            "srv out remove its socket: no",
+            "srv out write its work dir: yes",
+            "srv #1 Exited { code: Some(0) }",
+        ]
+    );
+}

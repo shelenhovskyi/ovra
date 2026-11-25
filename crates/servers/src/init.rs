@@ -3,7 +3,8 @@
 //! for Ovra (the first connection only), spawns servers in their own
 //! process groups, sends their output and ends, and relays
 //! `<pod dir>/<port>.sock` to `127.0.0.1:<port>` inside the pod. When Ovra
-//! goes away it kills every server and exits.
+//! goes away it kills every server and exits. On Linux its servers may not
+//! make, remove or rename entries in `<pod dir>` (`confine`).
 
 use std::collections::BTreeMap;
 use std::net::Ipv4Addr;
@@ -165,6 +166,9 @@ impl Pod {
                 None => command.env_remove(name),
             };
         }
+        #[cfg(target_os = "linux")]
+        let child = crate::confine::spawn(&self.dir, &mut command);
+        #[cfg(not(target_os = "linux"))]
         let child = command.spawn();
         drop(command);
         let mut child = child.map_err(|e| format!("could not start {program}: {e}"))?;
