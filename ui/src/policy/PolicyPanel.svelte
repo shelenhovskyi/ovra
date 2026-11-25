@@ -63,7 +63,15 @@ let matchFocused = $state(false);
 const matchOff = $derived(tool.trim() !== "" && !takesMatch(tool) && match.trim() === "" && !matchFocused);
 
 $effect(() => () => policy.dispose());
-$effect(() => registerCommand({ id: "policy.toggle", title: "Project policies", run: toggle }));
+$effect(() =>
+  registerCommand({
+    id: "policy.toggle",
+    title: "Project policies",
+    category: "Settings",
+    keywords: ["rules", "permissions"],
+    run: toggle,
+  }),
+);
 
 // Read the policy when the dialog opens, and again for another project.
 // What was typed is cleared only for another project, not when the same

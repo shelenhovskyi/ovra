@@ -8,6 +8,10 @@ export type Command = {
   title: string;
   /** Default shortcut, e.g. `Mod+P` (Mod is Cmd on macOS, Ctrl elsewhere). */
   keys?: string;
+  /** Group shown beside the title in the palette (Git, View, Settings); else taken from the id's area. */
+  category?: string;
+  /** Other words the palette matches, e.g. `preferences` for Settings. */
+  keywords?: string[];
   run: () => void | Promise<void>;
 };
 

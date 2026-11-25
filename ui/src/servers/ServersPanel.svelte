@@ -110,7 +110,16 @@ async function copyExample(): Promise<void> {
 }
 
 $effect(() => () => servers.dispose());
-$effect(() => registerCommand({ id: "servers.toggle", title: "Servers", keys: TOGGLE_KEYS, run: toggle }));
+$effect(() =>
+  registerCommand({
+    id: "servers.toggle",
+    title: "Show servers",
+    keys: TOGGLE_KEYS,
+    category: "View",
+    keywords: ["dev servers"],
+    run: toggle,
+  }),
+);
 
 // While open, Escape and the toggle chord close the dialog even when focus fell out of it, and
 // no other key reaches the panels behind it.

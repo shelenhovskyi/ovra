@@ -1,4 +1,5 @@
 // Commands owned by the palette: open it in each mode, and leave the project.
+// Settings and keyboard shortcuts are palette lists until they get views of their own.
 
 import { tick } from "svelte";
 import { registerCommand } from "../keys/commands";
@@ -25,6 +26,21 @@ export function registerPaletteCommands(workspace: Target): () => void {
     // The title bar's search field: the same list, on the key the field shows.
     registerCommand({ id: "palette.search", title: "Quick open", keys: "Mod+K", run: goToFile }),
     registerCommand({ id: "palette.switch_project", title: "Switch project", run: show("projects") }),
+    registerCommand({
+      id: "palette.settings",
+      title: "Open settings",
+      keys: "Mod+,",
+      category: "Settings",
+      keywords: ["preferences", "options"],
+      run: show("settings"),
+    }),
+    registerCommand({
+      id: "palette.shortcuts",
+      title: "Keyboard shortcuts",
+      category: "Help",
+      keywords: ["keybindings", "hotkeys"],
+      run: show("shortcuts"),
+    }),
     registerCommand({
       id: "palette.close_project",
       title: "Close project",

@@ -181,7 +181,7 @@ describe("Shell", () => {
         ["Audit log", null, "Everything agents did, and who approved it"],
         ["Project policies", null, "Rules for what agents may do in this project"],
         ["Network and secrets", null, "Which websites agents may reach, and secrets"],
-        ["Servers", "Ctrl+Shift+S", "Your project's dev servers, run for agents"],
+        ["Show servers", "Ctrl+Shift+S", "Your project's dev servers, run for agents"],
         ["Agent browser", "Ctrl+Shift+B", "The web browser an agent uses"],
         ["Swap side panels", null, "Agents and files change sides"],
       ]);

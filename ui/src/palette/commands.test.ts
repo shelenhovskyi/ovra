@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { listCommands } from "../keys/commands";
+import { listCommands, registerCommand } from "../keys/commands";
 import type { Project } from "../lib/protocol";
+import type { Transport } from "../lib/transport";
 import { registerPaletteCommands } from "./commands";
-import { palette } from "./mode.svelte";
+import { type PaletteMode, palette } from "./mode.svelte";
+import { source } from "./sources";
 
 const project: Project = { id: "p1", name: "demo", root: "/demo", last_opened_ms: null, trusted: false };
 const run = (id: string) =>
@@ -17,6 +19,8 @@ describe("palette commands", () => {
     expect(listCommands().map((c) => [c.id, c.keys])).toEqual([
       ["palette.close_project", undefined],
       ["palette.go_to_file", "Mod+P"],
+      ["palette.shortcuts", undefined],
+      ["palette.settings", "Mod+,"],
       ["palette.search", "Mod+K"],
       ["palette.show", "Mod+Shift+P"],
       ["palette.switch_project", undefined],
@@ -32,6 +36,17 @@ describe("palette commands", () => {
     expect(palette.mode).toBe("files");
     await run("palette.show");
     expect(palette.mode).toBe("commands");
+    // Settings lists the commands that open one, Keyboard shortcuts those with keys.
+    const off = registerCommand({ id: "t.rules", title: "Rules", category: "Settings", run: () => {} });
+    await run("palette.settings");
+    expect(palette.mode).toBe("settings");
+    const labels = async (mode: PaletteMode) =>
+      (await source(mode, {} as Transport, { ...workspace, mode: "view", openFile: () => {} }).entries()).map(
+        (e) => e.label,
+      );
+    expect(await labels("settings")).toEqual(["Rules"]);
+    expect(await labels("shortcuts")).toEqual(["Go to file", "Open settings", "Quick open", "Show all commands"]);
+    off();
 
     // The start screen, as the tree shows it once the project is closed.
     const screen = document.createElement("section");

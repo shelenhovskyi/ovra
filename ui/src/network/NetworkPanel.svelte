@@ -59,7 +59,15 @@ const unreachable = $derived(
 );
 
 $effect(() => () => access.dispose());
-$effect(() => registerCommand({ id: "network.toggle", title: "Network and secrets", run: toggle }));
+$effect(() =>
+  registerCommand({
+    id: "network.toggle",
+    title: "Network and secrets",
+    category: "Settings",
+    keywords: ["proxy", "token", "hosts"],
+    run: toggle,
+  }),
+);
 
 // Read the settings when the dialog opens, and again for another project.
 // Whatever was typed for one project is never sent for another.

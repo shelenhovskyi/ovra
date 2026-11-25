@@ -1,7 +1,7 @@
 // What each palette mode lists and what choosing an entry does.
 
 import { modeOf } from "../editor/open-files.svelte";
-import { listCommands } from "../keys/commands";
+import { type Command, listCommands } from "../keys/commands";
 import type { Project } from "../lib/protocol";
 import type { Transport } from "../lib/transport";
 import { folderDialogCommand, openAnotherFolder } from "../shell/open-folder";
@@ -44,6 +44,12 @@ function openFolder(workspace: Target): Promise<void> | void {
   workspace.paletteOpen = true;
 }
 
+function commands(keep: (command: Command) => boolean = () => true): Entry[] {
+  return listCommands()
+    .filter(keep)
+    .map((c) => ({ id: c.id, label: c.title, keys: c.keys, run: c.run }));
+}
+
 export function source(mode: PaletteMode, transport: Transport, workspace: Target): Source {
   switch (mode) {
     case "commands":
@@ -52,7 +58,23 @@ export function source(mode: PaletteMode, transport: Transport, workspace: Targe
         placeholder: "Type a command",
         empty: "No matching commands",
         limit: 200,
-        entries: () => listCommands().map((c) => ({ id: c.id, label: c.title, keys: c.keys, run: c.run })),
+        entries: () => commands(),
+      };
+    case "settings":
+      return {
+        name: "Settings",
+        placeholder: "Search settings",
+        empty: "No matching settings",
+        limit: 200,
+        entries: () => commands((c) => c.category === "Settings" && c.id !== "palette.settings"),
+      };
+    case "shortcuts":
+      return {
+        name: "Keyboard shortcuts",
+        placeholder: "Search keyboard shortcuts",
+        empty: "No matching shortcuts",
+        limit: 200,
+        entries: () => commands((c) => c.keys !== undefined),
       };
     case "files": {
       const project = workspace.project;

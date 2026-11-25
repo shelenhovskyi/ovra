@@ -130,6 +130,9 @@ const status = $derived.by((): { text: string; ok: boolean } => {
 });
 
 $effect(() => registerCommand({ id: "layout.swap", title: "Swap side panels", run: () => layout.swap() }));
+$effect(() =>
+  registerCommand({ id: "layout.reset", title: "Reset layout", category: "View", run: () => layout.resetAll() }),
+);
 
 const view = $derived(VIEWS[workspace.sidebar]);
 const capacity = $derived(workspace.project ? sessions.capacity.get(workspace.project.id) : undefined);

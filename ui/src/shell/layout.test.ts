@@ -36,6 +36,12 @@ describe("Layout", () => {
     expect(again.swapped).toBe(true);
     again.reset("side");
     expect(again.side.width).toBe(DEFAULT_WIDTH.side);
+    again.resetAll();
+    expect(new Layout(store)).toMatchObject({
+      side: { width: DEFAULT_WIDTH.side, collapsed: false },
+      agents: { width: DEFAULT_WIDTH.agents, collapsed: false },
+      swapped: false,
+    });
   });
 
   it("starts from the defaults when the saved layout is broken or storage fails", () => {

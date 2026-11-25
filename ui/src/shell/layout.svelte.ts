@@ -69,6 +69,14 @@ export class Layout {
     this.resize(panel, DEFAULT_WIDTH[panel]);
   }
 
+  /** Default widths, both panels shown, files on the left. */
+  resetAll(): void {
+    this.side = { width: DEFAULT_WIDTH.side, collapsed: false };
+    this.agents = { width: DEFAULT_WIDTH.agents, collapsed: false };
+    this.swapped = false;
+    this.#save();
+  }
+
   setCollapsed(panel: Panel, collapsed: boolean): void {
     this[panel].collapsed = collapsed;
     this.#save();

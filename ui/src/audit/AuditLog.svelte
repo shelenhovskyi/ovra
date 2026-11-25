@@ -33,7 +33,9 @@ const shown = $derived(
 );
 
 $effect(() => () => trail.dispose());
-$effect(() => registerCommand({ id: "audit.toggle", title: "Audit log", run: toggle }));
+$effect(() =>
+  registerCommand({ id: "audit.toggle", title: "Audit log", category: "View", keywords: ["history"], run: toggle }),
+);
 
 // Read the log when the dialog opens, and again for another project.
 $effect(() => {
