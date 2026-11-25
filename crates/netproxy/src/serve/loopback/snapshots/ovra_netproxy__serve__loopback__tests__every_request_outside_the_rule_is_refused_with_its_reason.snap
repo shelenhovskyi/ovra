@@ -20,6 +20,7 @@ GET http://localhost:5173/ HTTP/1.1 | Host: localhost:5173 | Origin: http://loca
 GET http://localhost:5173/ HTTP/1.1 | Host: localhost:5173 | Origin: https://localhost:5173 => HTTP/1.1 403 Forbidden localhost:5173: bad origin
 GET http://localhost:5173/ HTTP/1.1 | Host: localhost:5173 | Origin: http://localhost:5173/ => HTTP/1.1 403 Forbidden localhost:5173: bad origin
 GET http://localhost:5173/ HTTP/1.1 | Host: localhost:5173 | Origin: http://localhost:5173 | Origin: null => HTTP/1.1 403 Forbidden localhost:5173: bad origin
+OVRA-LOCAL 8000 | GET / HTTP/1.1 | Host: localhost:8000 | Origin: http://evil.example | Connection: upgrade | Upgrade: websocket => HTTP/1.1 403 Forbidden localhost:8000: bad origin
 GET http://[::1]:5173/ HTTP/1.1 | Host: [::1]:5173 => HTTP/1.1 403 Forbidden [::1]:5173: the host resolves to a loopback, private or link-local address
 GET http://0.0.0.0:5173/ HTTP/1.1 | Host: 0.0.0.0:5173 => HTTP/1.1 403 Forbidden 0.0.0.0:5173: the host resolves to a loopback, private or link-local address
 GET http://foo.localhost:5173/ HTTP/1.1 | Host: foo.localhost:5173 => HTTP/1.1 403 Forbidden foo.localhost:5173: the host resolves to a loopback, private or link-local address

@@ -79,6 +79,9 @@ struct Request {
     /// The `Host` and `Origin` headers as sent, for the loopback rule.
     hosts: Vec<Vec<u8>>,
     origins: Vec<Vec<u8>>,
+    /// A WebSocket upgrade: `GET`, `Upgrade: websocket`,
+    /// `Connection: upgrade`.
+    websocket: bool,
 }
 
 impl Request {
@@ -93,8 +96,8 @@ impl Request {
 
     /// The head to send for plain HTTP: origin-form to the server itself,
     /// absolute-form to an upstream proxy. One request, then the server
-    /// closes.
-    fn head(&self, upstream: Option<&Server>) -> Vec<u8> {
+    /// closes, unless it is a WebSocket `upgrade`.
+    fn head(&self, upstream: Option<&Server>, upgrade: bool) -> Vec<u8> {
         let authority = if self.port == 80 {
             self.name()
                 .rsplit_once(':')
@@ -113,7 +116,14 @@ impl Request {
             out.extend_from_slice(value);
             out.extend_from_slice(b"\r\n");
         }
-        out.extend_from_slice(format!("Host: {authority}\r\nConnection: close\r\n").as_bytes());
+        let connection = if upgrade {
+            "Upgrade\r\nUpgrade: websocket"
+        } else {
+            "close"
+        };
+        out.extend_from_slice(
+            format!("Host: {authority}\r\nConnection: {connection}\r\n").as_bytes(),
+        );
         if let Some(auth) = upstream.and_then(|s| s.auth.as_ref()) {
             out.extend_from_slice(format!("Proxy-Authorization: {auth}\r\n").as_bytes());
         }
@@ -179,7 +189,7 @@ async fn handle(client: &mut impl Stream, shared: &Shared, session: &SessionNet)
         return relay(client, &mut server, IDLE_TIMEOUT).await;
     }
     let upstream = shared.upstream.server(&request.host, false);
-    let head = request.head(upstream);
+    let head = request.head(upstream, false);
     one_request(client, server, &head, &rest, request.body).await
 }
 
@@ -238,7 +248,7 @@ pub(crate) async fn idle(moved: &AtomicBool, period: Duration) {
 
 /// Passes bytes both ways until either side closes or nothing moves for
 /// `idle`.
-async fn relay(a: &mut impl Stream, b: &mut Conn, period: Duration) -> io::Result<()> {
+async fn relay(a: &mut impl Stream, b: &mut impl Stream, period: Duration) -> io::Result<()> {
     let (mut a_read, mut a_write) = tokio::io::split(a);
     let (mut b_read, mut b_write) = tokio::io::split(b);
     let moved = AtomicBool::new(false);
@@ -374,6 +384,9 @@ fn parse(head: &[u8], local: Option<u16>) -> Result<Request, &'static str> {
             .collect()
     };
     let (hosts, origins) = (all("host"), all("origin"));
+    let websocket = method == "GET"
+        && named.iter().any(|n| n == "upgrade")
+        && matches!(all("upgrade").as_slice(), [one] if one.trim_ascii().eq_ignore_ascii_case(b"websocket"));
     let mut headers: Vec<(String, Vec<u8>)> = parsed
         .headers
         .iter()
@@ -398,6 +411,7 @@ fn parse(head: &[u8], local: Option<u16>) -> Result<Request, &'static str> {
         loopback,
         hosts: hosts.clone(),
         origins: origins.clone(),
+        websocket,
     };
     if let Some(port) = local {
         let host = "localhost".to_owned();

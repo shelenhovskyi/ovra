@@ -41,6 +41,10 @@ impl Dial for HostNet {
 enum Pod {
     /// Keeps the head, the body and anything after it; answers `200 ok`.
     Http,
+    /// Keeps the head, answers `101`, then echoes.
+    WebSocket,
+    /// Keeps the head and anything after it; answers `400`.
+    NoUpgrade,
 }
 
 async fn head_of(stream: &mut (impl AsyncRead + Unpin)) -> String {
@@ -57,8 +61,23 @@ async fn head_of(stream: &mut (impl AsyncRead + Unpin)) -> String {
 
 async fn pod(pod: Pod, mut theirs: DuplexStream, heads: Arc<Mutex<Vec<String>>>) {
     let mut head = head_of(&mut theirs).await;
-    let Pod::Http = pod;
-    let answer = b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok";
+    let answer: &[u8] = match pod {
+        Pod::Http => b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok",
+        Pod::NoUpgrade => b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n",
+        Pod::WebSocket => {
+            lock(&heads).push(head);
+            let _ = theirs
+                .write_all(b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n")
+                .await;
+            let mut buf = [0u8; 256];
+            while let Ok(n) = theirs.read(&mut buf).await {
+                if n == 0 || theirs.write_all(&buf[..n]).await.is_err() {
+                    return;
+                }
+            }
+            return;
+        }
+    };
     let length = head
         .lines()
         .find_map(|l| l.strip_prefix("Content-Length: "))
@@ -178,7 +197,7 @@ impl Proxy {
     }
 }
 
-/// A proxy with servers granted on 5173 and 8000.
+/// A proxy with servers granted on 5173 (HTTP) and 8000 (WebSocket).
 fn granted() -> Proxy {
     // Even listed, other spellings of this machine get nothing.
     let listed = [
@@ -192,7 +211,7 @@ fn granted() -> Proxy {
     let p = proxy(Vec::new(), &listed);
     p.set(vec![
         p.grant(5173, 1, Pod::Http),
-        p.grant(8000, 1, Pod::Http),
+        p.grant(8000, 1, Pod::WebSocket),
     ]);
     p
 }
@@ -243,6 +262,49 @@ async fn a_pipelined_second_request_never_reaches_the_pod() {
 }
 
 #[tokio::test]
+async fn a_websocket_upgrade_is_relayed_both_ways() {
+    let p = granted();
+    let (head, mut stream) = p
+        .ask("OVRA-LOCAL 8000\r\nGET /hmr HTTP/1.1\r\nHost: localhost:8000\r\nOrigin: http://localhost:5173\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Key: dGhlIHNhbXBsZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n")
+        .await;
+    assert!(head.starts_with("HTTP/1.1 101"), "{head}");
+    for message in ["frame one", "frame two"] {
+        stream
+            .write_all(message.as_bytes())
+            .await
+            .unwrap_or_else(|e| panic!("{e}"));
+        let mut buf = vec![0u8; message.len()];
+        stream
+            .read_exact(&mut buf)
+            .await
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(buf, message.as_bytes());
+    }
+    insta::assert_debug_snapshot!(p.heads(1).await, @r#"
+    [
+        "GET /hmr HTTP/1.1\r\nOrigin: http://localhost:5173\r\nSec-WebSocket-Key: dGhlIHNhbXBsZQ==\r\nSec-WebSocket-Version: 13\r\nHost: localhost:8000\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n",
+    ]
+    "#);
+}
+
+#[tokio::test]
+async fn an_upgrade_the_server_refuses_passes_nothing_more() {
+    let p = proxy(Vec::new(), &[]);
+    p.set(vec![p.grant(5173, 1, Pod::NoUpgrade)]);
+    let (head, mut stream) = p
+        .ask("GET http://localhost:5173/ws HTTP/1.1\r\nHost: localhost:5173\r\nConnection: upgrade\r\nUpgrade: websocket\r\n\r\nGET /admin HTTP/1.1\r\n\r\n")
+        .await;
+    assert!(head.starts_with("HTTP/1.1 400"), "{head}");
+    let _ = stream.write_all(b"GET /more HTTP/1.1\r\n\r\n").await;
+    let mut rest = Vec::new();
+    let _ = stream.read_to_end(&mut rest).await;
+    // The server keeps its head only once the proxy closed its side.
+    let heads = p.heads(1).await;
+    assert!(!heads[0].contains("<after>"), "{heads:?}");
+    assert!(!heads[0].contains("/admin"), "{heads:?}");
+}
+
+#[tokio::test]
 async fn every_request_outside_the_rule_is_refused_with_its_reason() {
     let mut p = granted();
     let mut seen = Vec::new();
@@ -269,6 +331,7 @@ async fn every_request_outside_the_rule_is_refused_with_its_reason() {
         "GET http://localhost:5173/ HTTP/1.1\r\nHost: localhost:5173\r\nOrigin: https://localhost:5173\r\n\r\n",
         "GET http://localhost:5173/ HTTP/1.1\r\nHost: localhost:5173\r\nOrigin: http://localhost:5173/\r\n\r\n",
         "GET http://localhost:5173/ HTTP/1.1\r\nHost: localhost:5173\r\nOrigin: http://localhost:5173\r\nOrigin: null\r\n\r\n",
+        "OVRA-LOCAL 8000\r\nGET / HTTP/1.1\r\nHost: localhost:8000\r\nOrigin: http://evil.example\r\nConnection: upgrade\r\nUpgrade: websocket\r\n\r\n",
         // Rule 1: every other spelling of this machine stays refused.
         "GET http://[::1]:5173/ HTTP/1.1\r\nHost: [::1]:5173\r\n\r\n",
         "GET http://0.0.0.0:5173/ HTTP/1.1\r\nHost: 0.0.0.0:5173\r\n\r\n",

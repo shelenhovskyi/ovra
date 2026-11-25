@@ -1,17 +1,21 @@
 //! The loopback rule (`docs/specs/servers-and-browser.md`, "The netproxy
 //! rule"): exactly `localhost:P` or `127.0.0.1:P` reaches the pod of a
 //! managed server the core granted on `P`, through the grant's dial, never
-//! a host port. Plain HTTP only, one request per connection; `Host` must
-//! name the target and `Origin`, if any, a granted server. No secret is
-//! ever added here.
+//! a host port. Plain HTTP only, one request per connection except a
+//! WebSocket upgrade; `Host` must name the target and `Origin`, if any, a
+//! granted server. No secret is ever added here.
 
 use std::collections::BTreeMap;
 use std::io;
 
 use ovra_core::services::LoopbackGrant;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::time::timeout;
 
-use super::{DIAL_TIMEOUT, Request, SessionNet, one_request, respond};
+use super::{
+    DIAL_TIMEOUT, HEAD_TIMEOUT, IDLE_TIMEOUT, Request, SessionNet, one_request, read_head, relay,
+    relay_one_way, respond,
+};
 use crate::dial::Stream;
 
 /// One session's grants by port.
@@ -107,8 +111,45 @@ pub(super) async fn serve(
         }
         Err(_) => return respond(client, 502, "reaching the server timed out").await,
     };
-    let head = request.head(None);
-    one_request(client, server, &head, &rest, request.body).await
+    exchange(client, server, &request, &rest).await
+}
+
+async fn exchange(
+    client: &mut impl Stream,
+    mut server: impl Stream,
+    request: &Request,
+    rest: &[u8],
+) -> io::Result<()> {
+    if !request.websocket {
+        let head = request.head(None, false);
+        return one_request(client, server, &head, rest, request.body).await;
+    }
+    server.write_all(&request.head(None, true)).await?;
+    // Only a `101` opens the relay, so no second request passes unchecked.
+    let Ok(answer) = timeout(HEAD_TIMEOUT, read_head(&mut server)).await else {
+        return Ok(());
+    };
+    let Some((head, early)) = answer? else {
+        return Ok(());
+    };
+    client.write_all(&head).await?;
+    client.write_all(&early).await?;
+    let mut headers = [httparse::EMPTY_HEADER; super::MAX_HEADERS];
+    let mut response = httparse::Response::new(&mut headers);
+    let switched = matches!(response.parse(&head), Ok(httparse::Status::Complete(_)))
+        && response.code == Some(101);
+    if switched {
+        server.write_all(rest).await?;
+        return relay(client, &mut server, IDLE_TIMEOUT).await;
+    }
+    // Refused: the answer goes back, and the client's next bytes (its close
+    // or a second request) end the connection.
+    let (mut from_client, mut to_client) = tokio::io::split(client);
+    let mut probe = [0u8; 1];
+    tokio::select! {
+        result = relay_one_way(&mut server, &mut to_client, IDLE_TIMEOUT) => result,
+        _ = from_client.read(&mut probe) => Ok(()),
+    }
 }
 
 #[cfg(test)]
