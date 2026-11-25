@@ -10,7 +10,7 @@ use crate::fakes::{
     FakeDevServers, FakeNetProxy, MemoryAudit, MemoryFs, MemoryProjects, MemoryWorktrees,
     ScriptedAgent, Step,
 };
-use crate::protocol::agents::{AgentStatus, AgentsEvent, SessionId};
+use crate::protocol::agents::{AgentStatus, AgentsEvent, AgentsResponse, SessionId};
 use crate::protocol::audit::{AuditEvent, AuditRange};
 use crate::protocol::projects::ProjectId;
 use crate::protocol::servers::{
@@ -452,6 +452,41 @@ async fn output_events_are_batched_at_ten_a_second() {
         }
     }
     assert_eq!(next, ["output 6", "Exited { code: Some(0) }"]);
+}
+
+fn direct_session() -> serde_json::Value {
+    json!({"method": "agents.start", "params": {
+        "project": "p1", "agent": "claude", "mode": "direct", "prompt": "look"}})
+}
+
+#[tokio::test]
+async fn a_session_started_after_its_server_was_ready_gets_the_grant() {
+    let f = fx().await;
+    let web = person_starts(&f, "web").await;
+    f.dev.report(&web.id, ServerStatus::Ready);
+    assert!(grants(&f).is_empty(), "no session yet");
+    ok(&f.core, direct_session()).await;
+    // Sent again once its netproxy runs; the fake ignores earlier grants
+    // as the real one does.
+    assert_eq!(
+        grants(&f),
+        BTreeMap::from([("s1".to_owned(), vec![(5173, 1)])])
+    );
+    insta::assert_json_snapshot!(server_audit(&f));
+}
+
+#[tokio::test]
+async fn a_bad_port_in_servers_json_forwards_nothing_and_the_session_still_runs() {
+    let f = fx().await;
+    let bridge = r#"{"servers": [{"name": "web", "command": ["x"], "port": 3128}]}"#;
+    f.fs.put(Path::new(ROOT), ".ovra/servers.json", bridge);
+    let started = ok(&f.core, direct_session()).await;
+    assert!(
+        matches!(&started, Response::Agents(AgentsResponse::Session(s)) if !s.status.is_ended()),
+        "{started:?}"
+    );
+    let forward = f.agent.started.lock().map(|s| s[0].sandbox.forward.clone());
+    assert_eq!(forward.ok(), Some(Vec::new()));
 }
 
 #[tokio::test]

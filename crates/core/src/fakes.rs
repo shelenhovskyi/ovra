@@ -500,7 +500,8 @@ pub struct FakeNetProxy {
     /// Running proxies: what each allows besides `base`, its reporter and
     /// the secrets it adds.
     pub running: Mutex<BTreeMap<SessionId, FakeProxyRun>>,
-    /// Each session's loopback grants: port and generation.
+    /// Each running proxy's loopback grants: port and generation. Grants
+    /// for a session without a running proxy are ignored.
     pub grants: Mutex<BTreeMap<SessionId, Vec<(u16, u64)>>>,
 }
 
@@ -549,6 +550,11 @@ impl NetProxy for FakeNetProxy {
     }
 
     fn grant(&self, session: &SessionId, grants: Vec<LoopbackGrant>) {
+        // Like the real one: a session without a running proxy has nothing
+        // to grant to.
+        if !lock(&self.running).contains_key(session) {
+            return;
+        }
         let ports = grants.iter().map(|g| (g.port, g.generation)).collect();
         lock(&self.grants).insert(session.clone(), ports);
     }

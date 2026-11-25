@@ -1,6 +1,6 @@
 ---
 source: crates/core/src/servers/defs.rs
-assertion_line: 170
+assertion_line: 192
 expression: errors
 ---
 [
@@ -16,7 +16,11 @@ expression: errors
   ".ovra/servers.json: servers[0]: port 3128 is where the sandbox reaches its netproxy",
   ".ovra/servers.json: servers[0]: cwd: path \"../up\" leaves the project",
   ".ovra/servers.json: servers[0]: env \"A=B\" is not a valid variable",
-  ".ovra/servers.json: servers[0]: ready.http must be a path starting with /",
+  ".ovra/servers.json: servers[0]: ready.http must be a plain absolute path such as /health",
+  ".ovra/servers.json: servers[0]: ready.http must be a plain absolute path such as /health",
+  ".ovra/servers.json: servers[0]: ready.http must be a plain absolute path such as /health",
+  ".ovra/servers.json: servers[0]: ready.http must be a plain absolute path such as /health",
+  ".ovra/servers.json: servers[0]: the port must be 1024 to 65535",
   ".ovra/servers.json: servers[1]: another server is named \"web\"",
   ".ovra/servers.json: servers[1]: another server uses port 5173"
 ]

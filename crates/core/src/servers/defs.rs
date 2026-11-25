@@ -81,13 +81,13 @@ fn check(def: &ServerDef) -> Result<(), String> {
     if let Some(cwd) = &def.cwd {
         RelPath::parse(cwd).map_err(|e| format!("cwd: {}", e.message))?;
     }
-    if def.port < 1024 {
-        return Err("the port must be 1024 to 65535".to_owned());
-    }
     if def.port == PROXY_BRIDGE_PORT {
         return Err(format!(
             "port {PROXY_BRIDGE_PORT} is where the sandbox reaches its netproxy"
         ));
+    }
+    if !server_port(def.port) {
+        return Err("the port must be 1024 to 65535".to_owned());
     }
     for (name, value) in &def.env {
         if name.is_empty() || name.contains('=') || has_nul(name) || has_nul(value) {
@@ -98,11 +98,29 @@ fn check(def: &ServerDef) -> Result<(), String> {
         if ready.log.as_deref().is_some_and(str::is_empty) {
             return Err("ready.log is empty".to_owned());
         }
-        if ready.http.as_deref().is_some_and(|p| !p.starts_with('/')) {
-            return Err("ready.http must be a path starting with /".to_owned());
+        if ready.http.as_deref().is_some_and(|p| !plain_path(p)) {
+            return Err("ready.http must be a plain absolute path such as /health".to_owned());
         }
     }
     Ok(())
+}
+
+/// A port a server may listen on, a session may be granted and a sandbox
+/// may forward: 1024 to 65535 without the proxy bridge's.
+pub(crate) fn server_port(port: u16) -> bool {
+    port >= 1024 && port != PROXY_BRIDGE_PORT
+}
+
+/// An origin-form path and query, nothing a client could read as another
+/// host, scheme or fragment: `/` then path and query characters, no `//`
+/// start, no `\`, `@`, `#` or `:`.
+fn plain_path(path: &str) -> bool {
+    path.starts_with('/')
+        && !path.starts_with("//")
+        && path.len() <= 1024
+        && path
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "/-._~%!$&'()*+,;=?".contains(c))
 }
 
 fn valid_name(name: &str) -> bool {
@@ -154,6 +172,10 @@ mod tests {
             r#"{"servers": [{"name": "web", "command": ["x"], "port": 5173, "cwd": "../up"}]}"#.to_owned(),
             r#"{"servers": [{"name": "web", "command": ["x"], "port": 5173, "env": {"A=B": "1"}}]}"#.to_owned(),
             r#"{"servers": [{"name": "web", "command": ["x"], "port": 5173, "ready": {"http": "health"}}]}"#.to_owned(),
+            r#"{"servers": [{"name": "web", "command": ["x"], "port": 5173, "ready": {"http": "//evil.example/"}}]}"#.to_owned(),
+            r#"{"servers": [{"name": "web", "command": ["x"], "port": 5173, "ready": {"http": "/a@evil.example:80/"}}]}"#.to_owned(),
+            r#"{"servers": [{"name": "web", "command": ["x"], "port": 5173, "ready": {"http": "/a b\r\nHost: x"}}]}"#.to_owned(),
+            r#"{"servers": [{"name": "web", "command": ["x"], "port": 0}]}"#.to_owned(),
             format!(r#"{{"servers": [{web}, {web}]}}"#),
             format!(
                 r#"{{"servers": [{web}, {{"name": "api", "command": ["x"], "port": 5173}}]}}"#
@@ -174,7 +196,7 @@ mod tests {
     fn a_definition_becomes_a_command_line_in_its_work_dir() {
         let text = r#"{"servers": [
             {"name": "web", "command": ["pnpm", "dev", "--strict"], "cwd": "./ui/", "port": 5173,
-             "env": {"VITE_API": "http://localhost:8080"}, "ready": {"log": "ready in"}},
+             "env": {"VITE_API": "http://localhost:8080"}, "ready": {"log": "ready in", "http": "/health?ready=1"}},
             {"name": "api", "command": ["cargo", "run"], "port": 8080}
         ]}"#;
         let defs = parse(text).unwrap_or_else(|e| panic!("{e}"));

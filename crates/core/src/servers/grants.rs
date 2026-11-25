@@ -85,7 +85,13 @@ pub(crate) async fn forward(core: &Core, dir: &Path) -> Vec<u16> {
     }
     defs::read(core.fs_service(), dir)
         .await
-        .map(|defs| defs.iter().map(|d| d.port).collect())
+        .map(|found| {
+            found
+                .iter()
+                .map(|d| d.port)
+                .filter(|p| defs::server_port(*p))
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -111,7 +117,7 @@ fn apply(
         .servers
         .iter()
         .filter(|e| &e.place.project == project && e.place.dir == dir)
-        .filter(|e| e.status == ServerStatus::Ready)
+        .filter(|e| e.status == ServerStatus::Ready && defs::server_port(e.port))
         .map(|e| (e.id.clone(), e.port, e.generation))
         .collect();
     new.sort_by_key(|g| g.1);
