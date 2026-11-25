@@ -777,7 +777,7 @@ mod keychain {
     use tokio::time::Instant;
 
     use super::super::input::REDACTED;
-    use super::super::{KEYCHAIN_TIMEOUT, RETRY_AFTER, tool_decided};
+    use super::super::{KEYCHAIN_TIMEOUT, RETRY_AFTER, forget_secrets, tool_decided};
     use super::project;
     use crate::Core;
     use crate::fakes::{MemoryAudit, MemoryProjects, MemorySecrets, ScriptedAgent};
@@ -856,15 +856,15 @@ mod keychain {
         fn value(&self, p: &ProjectId, name: &str) -> Result<SecretValue, ProtocolError> {
             self.reads.fetch_add(1, Ordering::SeqCst);
             self.entered.notify_one();
-            if self.broken.load(Ordering::SeqCst) {
-                return Err(ProtocolError::new(ErrorCode::Unavailable, "locked"));
-            }
             let open = self.open.lock().unwrap_or_else(|e| e.into_inner());
             drop(
                 self.opened
                     .wait_while(open, |open| !*open)
                     .unwrap_or_else(|e| e.into_inner()),
             );
+            if self.broken.load(Ordering::SeqCst) {
+                return Err(ProtocolError::new(ErrorCode::Unavailable, "locked"));
+            }
             self.inner.value(p, name)
         }
     }
@@ -1057,21 +1057,107 @@ mod keychain {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn a_decision_behind_a_slow_read_neither_waits_nor_reads_again() {
+    async fn a_hung_keychain_costs_one_timeout_per_read_not_per_decision() {
         let keychain = SlowKeychain::with("known-value-123");
         let _opens = Opens(keychain.clone());
         let log = Arc::new(MemoryAudit::default());
         let core = core(&keychain, &log);
         let began = Instant::now();
         let first = decided(&core, &project("p1"), "echo one");
-        keychain.entered.notified().await;
         let second = decided(&core, &project("p1"), "echo two");
-        second.await.unwrap_or_else(|e| panic!("{e}"));
+        keychain.entered.notified().await;
+        tokio::time::advance(KEYCHAIN_TIMEOUT).await;
         first.await.unwrap_or_else(|e| panic!("{e}"));
+        second.await.unwrap_or_else(|e| panic!("{e}"));
+        // Past the deadline, with the read still hung, nothing waits.
         decide(&core, "echo three").await;
-        assert!(began.elapsed() < KEYCHAIN_TIMEOUT, "{:?}", began.elapsed());
+        assert_eq!(began.elapsed(), KEYCHAIN_TIMEOUT);
         assert_eq!(keychain.reads(), 1);
         assert_eq!(inputs(&log), [redacted(), redacted(), redacted()]);
+    }
+
+    #[tokio::test]
+    async fn a_burst_on_a_cold_cache_waits_for_the_one_read() {
+        let keychain = SlowKeychain::with("known-value-123");
+        keychain.open();
+        let log = Arc::new(MemoryAudit::default());
+        let core = core(&keychain, &log);
+        let first = decided(&core, &project("p1"), "echo known-value-123");
+        let second = decided(&core, &project("p1"), "echo two");
+        first.await.unwrap_or_else(|e| panic!("{e}"));
+        second.await.unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(keychain.reads(), 1);
+        let gone = format!("echo {REDACTED}");
+        assert_eq!(inputs(&log), [kept(&gone), kept("echo two")]);
+    }
+
+    #[tokio::test]
+    async fn a_read_that_fails_while_the_secrets_change_is_not_held_against_the_new_ones() {
+        let keychain = SlowKeychain::with("known-value-123");
+        keychain.broken.store(true, Ordering::SeqCst);
+        let _opens = Opens(keychain.clone());
+        let log = Arc::new(MemoryAudit::default());
+        let core = core(&keychain, &log);
+        let failing = decided(&core, &project("p1"), "echo one");
+        keychain.entered.notified().await;
+        forget_secrets(&core, &project("p1"));
+        keychain.broken.store(false, Ordering::SeqCst);
+        keychain.open();
+        failing.await.unwrap_or_else(|e| panic!("{e}"));
+        decide(&core, "echo known-value-123").await;
+        assert_eq!(keychain.reads(), 2);
+        let gone = format!("echo {REDACTED}");
+        assert_eq!(inputs(&log)[1], kept(&gone));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_change_to_the_secrets_retries_a_hung_read() {
+        let keychain = SlowKeychain::with("known-value-123");
+        let _opens = Opens(keychain.clone());
+        let log = Arc::new(MemoryAudit::default());
+        let core = core(&keychain, &log);
+        let hung = decided(&core, &project("p1"), "echo one");
+        keychain.entered.notified().await;
+        tokio::time::advance(KEYCHAIN_TIMEOUT).await;
+        hung.await.unwrap_or_else(|e| panic!("{e}"));
+        forget_secrets(&core, &project("p1"));
+        let retried = decided(&core, &project("p1"), "echo known-value-123");
+        keychain.entered.notified().await;
+        keychain.open();
+        retried.await.unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(keychain.reads(), 2);
+        let gone = format!("echo {REDACTED}");
+        assert_eq!(inputs(&log), [redacted(), kept(&gone)]);
+    }
+
+    #[test]
+    fn decisions_left_when_the_runtime_shuts_down_are_not_waited_for() {
+        let keychain = SlowKeychain::with("known-value-123");
+        let _opens = Opens(keychain.clone());
+        let log = Arc::new(MemoryAudit::default());
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap_or_else(|e| panic!("{e}"));
+        let (core, first, second) = runtime.block_on(async {
+            let core = core(&keychain, &log);
+            let first = decided(&core, &project("p1"), "echo one");
+            let second = decided(&core, &project("p1"), "echo two");
+            keychain.entered.notified().await;
+            (core, first, second)
+        });
+        runtime.shutdown_background();
+        let (mut first, mut second) = (first, second);
+        assert!(first.try_recv().is_err());
+        assert!(second.try_recv().is_err());
+        // A new decision starts a new lane instead of joining a dead one.
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap_or_else(|e| panic!("{e}"));
+        keychain.open();
+        runtime.block_on(decide(&core, "echo three"));
+        assert_eq!(inputs(&log).len(), 1);
     }
 
     #[tokio::test(start_paused = true)]

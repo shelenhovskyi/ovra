@@ -4,13 +4,11 @@
 
 mod input;
 
-use std::collections::{HashMap, HashSet, VecDeque};
-use std::pin::pin;
+use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-use std::task::Poll;
 use std::time::Duration;
 
-use tokio::sync::{Notify, oneshot};
+use tokio::sync::{oneshot, watch};
 use tokio::time::Instant;
 
 use crate::Core;
@@ -61,8 +59,8 @@ fn kind(event: &AuditEvent) -> &'static str {
     }
 }
 
-/// How long a decision waits for a keychain read before it is kept as if
-/// the secrets could not be read. A late answer still fills the cache.
+/// How long after a keychain read began its project's decisions are kept
+/// as if the secrets could not be read. A late answer still fills the cache.
 pub(crate) const KEYCHAIN_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// How long after a failed read the project's decisions are kept as if the
@@ -85,12 +83,8 @@ impl std::fmt::Debug for State {
 }
 
 /// One project's decisions waiting to be recorded. A lane exists while a
-/// task drains it; `more` wakes that task when a decision joins.
-#[derive(Default)]
-struct Lane {
-    pending: VecDeque<Decided>,
-    more: Arc<Notify>,
-}
+/// task drains it.
+type Lane = VecDeque<Decided>;
 
 struct Decided {
     session: Option<SessionId>,
@@ -109,8 +103,20 @@ struct Decided {
 struct Known {
     values: HashMap<ProjectId, Arc<[SecretValue]>>,
     generation: u64,
-    reading: HashSet<ProjectId>,
+    reading: HashMap<ProjectId, Reading>,
     failed: HashMap<ProjectId, Instant>,
+}
+
+/// What a read gives: the values, or `None` if they could not be read.
+type Outcome = Option<Arc<[SecretValue]>>;
+
+/// A read in flight. Every decision of the project waits on it until
+/// `deadline`, set when it began, so a hung keychain costs one timeout per
+/// read, not one per decision.
+struct Reading {
+    generation: u64,
+    deadline: Instant,
+    outcome: watch::Receiver<Option<Outcome>>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -136,31 +142,39 @@ pub(crate) fn tool_decided(
     let (done, recorded) = oneshot::channel();
     let mut queue = lock(&core.audit_state().queue);
     let start = !queue.contains_key(project);
-    let lane = queue.entry(project.clone()).or_default();
-    lane.pending.push_back(Decided {
-        session: session.cloned(),
-        tool: tool.to_owned(),
-        input: input.clone(),
-        allowed,
-        by,
-        done,
-    });
+    queue
+        .entry(project.clone())
+        .or_default()
+        .push_back(Decided {
+            session: session.cloned(),
+            tool: tool.to_owned(),
+            input: input.clone(),
+            allowed,
+            by,
+            done,
+        });
     if start {
-        let more = lane.more.clone();
-        tokio::spawn(drain(core.clone(), project.clone(), more));
-    } else {
-        lane.more.notify_waiters();
+        tokio::spawn(drain(core.clone(), project.clone()));
     }
     recorded
 }
 
-/// Hands the lane to a new task if its drain panics, so the decisions
-/// behind the one that failed are still recorded.
+/// Ends a lane's drain that stopped early. One that was running (its
+/// recording panicked, or the runtime is shutting down) hands the lane to a
+/// new task; one that never ran, or with no runtime left, drops the lane,
+/// which drops the senders of its decisions and so ends every wait.
 struct Draining {
     core: Core,
     project: ProjectId,
-    more: Arc<Notify>,
+    started: bool,
     done: bool,
+}
+
+impl Draining {
+    /// The lane is empty and gone: nothing is left to hand on.
+    fn finish(&mut self) {
+        self.done = true;
+    }
 }
 
 impl Drop for Draining {
@@ -168,16 +182,21 @@ impl Drop for Draining {
         if self.done {
             return;
         }
+        // Never the entry: it may hold what the agent wrote.
+        tracing::warn!(
+            project = %self.project.0,
+            "recording a tool decision in the audit log stopped unexpectedly"
+        );
         let mut queue = lock(&self.core.audit_state().queue);
         let waiting = queue
             .get(&self.project)
-            .is_some_and(|lane| !lane.pending.is_empty());
-        // Without a runtime (it is shutting down) nothing can record them;
-        // dropping the lane drops their senders, which ends every wait.
+            .is_some_and(|lane| !lane.is_empty());
         match tokio::runtime::Handle::try_current() {
-            Ok(runtime) if waiting => {
-                let (core, project) = (self.core.clone(), self.project.clone());
-                runtime.spawn(drain(core, project, self.more.clone()));
+            Ok(runtime) if waiting && self.started => {
+                // Unlocked first: a runtime shutting down drops the new
+                // task at once, and its guard takes the lock.
+                drop(queue);
+                runtime.spawn(drain(self.core.clone(), self.project.clone()));
             }
             _ => {
                 queue.remove(&self.project);
@@ -186,88 +205,90 @@ impl Drop for Draining {
     }
 }
 
-async fn drain(core: Core, project: ProjectId, more: Arc<Notify>) {
+/// The guard is made here, outside the task's body, so a task dropped
+/// before it first runs still ends its lane.
+fn drain(core: Core, project: ProjectId) -> impl Future<Output = ()> + Send + 'static {
     let mut guard = Draining {
-        core: core.clone(),
-        project: project.clone(),
-        more: more.clone(),
+        core,
+        project,
+        started: false,
         done: false,
     };
-    loop {
-        let next = {
-            let mut queue = lock(&core.audit_state().queue);
-            match queue.get_mut(&project).and_then(|l| l.pending.pop_front()) {
-                Some(next) => next,
-                None => {
-                    queue.remove(&project);
-                    guard.done = true;
-                    return;
+    async move {
+        guard.started = true;
+        let (core, project) = (guard.core.clone(), guard.project.clone());
+        loop {
+            let next = {
+                let mut queue = lock(&core.audit_state().queue);
+                match queue.get_mut(&project).and_then(VecDeque::pop_front) {
+                    Some(next) => next,
+                    None => {
+                        queue.remove(&project);
+                        guard.finish();
+                        return;
+                    }
                 }
-            }
-        };
-        let known = known_secrets(&core, &project, &more).await;
-        let event = AuditEvent::ToolDecided {
-            tool: input::cut_name(&next.tool, known.as_deref()),
-            input: input::input(&next.tool, &next.input, known.as_deref()),
-            allowed: next.allowed,
-            by: next.by,
-        };
-        record(&core, &project, next.session.as_ref(), event);
-        let _ = next.done.send(());
+            };
+            let known = known_secrets(&core, &project).await;
+            let event = AuditEvent::ToolDecided {
+                tool: input::cut_name(&next.tool, known.as_deref()),
+                input: input::input(&next.tool, &next.input, known.as_deref()),
+                allowed: next.allowed,
+                by: next.by,
+            };
+            record(&core, &project, next.session.as_ref(), event);
+            let _ = next.done.send(());
+        }
     }
 }
 
 /// The values of the project's secrets, or `None` if they cannot be read
-/// now: from the cache, or from a read on a blocking thread as every
-/// keychain call. A decision waits up to [`KEYCHAIN_TIMEOUT`] for a read it
-/// starts, and no longer once another of the project's decisions waits
-/// behind it; one that finds a read in flight, or a failed one within
-/// [`RETRY_AFTER`], does not wait.
-async fn known_secrets(
-    core: &Core,
-    project: &ProjectId,
-    more: &Notify,
-) -> Option<Arc<[SecretValue]>> {
-    let read = match start_read(core, project) {
+/// now: from the cache, or from the project's read in flight (started here
+/// if there is none) on a blocking thread as every keychain call. A
+/// decision waits for that read until its deadline, [`KEYCHAIN_TIMEOUT`]
+/// after it began; within [`RETRY_AFTER`] of a failed read it does not wait.
+async fn known_secrets(core: &Core, project: &ProjectId) -> Outcome {
+    let (mut outcome, deadline) = match start_read(core, project) {
         Ok(known) => return known,
-        Err(read) => read,
+        Err(reading) => reading,
     };
-    let mut read = pin!(tokio::time::timeout(KEYCHAIN_TIMEOUT, read));
-    let mut behind = pin!(more.notified());
-    behind.as_mut().enable();
-    let waiting = lock(&core.audit_state().queue)
-        .get(project)
-        .is_some_and(|lane| !lane.pending.is_empty());
-    if waiting {
-        return None;
+    match tokio::time::timeout_at(deadline, outcome.wait_for(Option::is_some)).await {
+        Ok(Ok(seen)) => (*seen).clone().flatten(),
+        _ => None,
     }
-    std::future::poll_fn(|cx| {
-        if let Poll::Ready(result) = read.as_mut().poll(cx) {
-            return Poll::Ready(result.ok().and_then(Result::ok).flatten());
-        }
-        behind.as_mut().poll(cx).map(|()| None)
-    })
-    .await
 }
 
-type Read = oneshot::Receiver<Option<Arc<[SecretValue]>>>;
-
-/// What is known of the project's secrets now, or else a read just begun.
-fn start_read(core: &Core, project: &ProjectId) -> Result<Option<Arc<[SecretValue]>>, Read> {
+/// What is known of the project's secrets now, or else the read in flight
+/// and its deadline, begun here if there was none.
+fn start_read(
+    core: &Core,
+    project: &ProjectId,
+) -> Result<Outcome, (watch::Receiver<Option<Outcome>>, Instant)> {
     let known = core.audit_state().known.clone();
-    let generation = {
-        let mut state = lock(&known);
-        if let Some(values) = state.values.get(project) {
-            return Ok(Some(values.clone()));
-        }
-        let failed = state.failed.get(project);
-        if state.reading.contains(project) || failed.is_some_and(|at| at.elapsed() < RETRY_AFTER) {
-            return Ok(None);
-        }
-        state.reading.insert(project.clone());
-        state.generation
+    let mut state = lock(&known);
+    if let Some(values) = state.values.get(project) {
+        return Ok(Some(values.clone()));
+    }
+    if let Some(reading) = state.reading.get(project) {
+        return Err((reading.outcome.clone(), reading.deadline));
+    }
+    if state
+        .failed
+        .get(project)
+        .is_some_and(|at| at.elapsed() < RETRY_AFTER)
+    {
+        return Ok(None);
+    }
+    let generation = state.generation;
+    let deadline = Instant::now() + KEYCHAIN_TIMEOUT;
+    let (done, outcome) = watch::channel(None);
+    let reading = Reading {
+        generation,
+        deadline,
+        outcome: outcome.clone(),
     };
-    let (done, read) = oneshot::channel();
+    state.reading.insert(project.clone(), reading);
+    drop(state);
     let secrets = core.secrets_store();
     let project = project.clone();
     tokio::spawn(async move {
@@ -282,29 +303,39 @@ fn start_read(core: &Core, project: &ProjectId) -> Result<Option<Arc<[SecretValu
         .await
         .ok();
         let mut state = lock(&known);
-        state.reading.remove(&project);
-        match &values {
-            Some(values) if state.generation == generation => {
-                state.failed.remove(&project);
-                state.values.insert(project, values.clone());
-            }
-            Some(_) => {}
-            None => {
-                state.failed.insert(project, Instant::now());
+        // `forget_secrets` may have dropped this read and begun another.
+        if state
+            .reading
+            .get(&project)
+            .is_some_and(|r| r.generation == generation)
+        {
+            state.reading.remove(&project);
+        }
+        if state.generation == generation {
+            match &values {
+                Some(values) => {
+                    state.failed.remove(&project);
+                    state.values.insert(project, values.clone());
+                }
+                None => {
+                    state.failed.insert(project, Instant::now());
+                }
             }
         }
         drop(state);
-        let _ = done.send(values);
+        done.send_replace(Some(values));
     });
-    Err(read)
+    Err((outcome, deadline))
 }
 
-/// Drops what the core knows of the project's secret values; the secrets
-/// broker calls it after every change to them.
+/// Drops what the core knows of the project's secret values, its read in
+/// flight and its last failure, so the next decision reads them again; the
+/// secrets broker calls it after every change to them.
 pub(crate) fn forget_secrets(core: &Core, project: &ProjectId) {
     let mut known = lock(&core.audit_state().known);
     known.generation += 1;
     known.values.remove(project);
+    known.reading.remove(project);
     known.failed.remove(project);
 }
 
