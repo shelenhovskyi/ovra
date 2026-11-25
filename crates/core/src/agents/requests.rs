@@ -197,6 +197,18 @@ pub(crate) async fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Resp
             };
             Ok(Response::Agents(AgentsResponse::Limit(limit)))
         }
+        AgentsRequest::ResearchLimit | AgentsRequest::SetResearchLimit { .. } => {
+            let core = sessions.core().ok_or_else(|| {
+                ProtocolError::new(ErrorCode::Unavailable, "Ovra is shutting down")
+            })?;
+            let limit = match request {
+                AgentsRequest::SetResearchLimit { limit } => {
+                    crate::orchestration::set_research_limit(&core, limit)?
+                }
+                _ => crate::orchestration::research_limit(&core),
+            };
+            Ok(Response::Agents(AgentsResponse::ResearchLimit(limit)))
+        }
         AgentsRequest::Checkpoints { session }
         | AgentsRequest::GoBack { session, .. }
         | AgentsRequest::UndoGoBack { session } => {
@@ -234,7 +246,7 @@ pub(crate) async fn start(ctx: &Ctx<'_>, new: NewSession) -> Result<SessionInfo>
     // Workers wait for a place instead (`crate::orchestration`), and
     // coordinators do not take one.
     let place = match new.tools {
-        None => check_room(ctx, &new.project)?,
+        None => check_room(ctx, &new.project, new.mode)?,
         Some(_) => None,
     };
     let target = prepare(
@@ -340,15 +352,30 @@ pub(crate) async fn start_queued(
 }
 
 /// Takes a place for a person's start, or refuses it while the project has
-/// as many agents working as it may. Hold the place until the session is
-/// in the list with its status, where it counts itself.
+/// as many agents working as it may: research sessions against their own
+/// cap (ADR 0011). Hold the place until the session is in the list with its
+/// status, where it counts itself.
 fn check_room(
     ctx: &Ctx<'_>,
     project: &ProjectId,
+    mode: SessionMode,
 ) -> Result<Option<crate::orchestration::Reservation>> {
     let Some(core) = ctx.sessions.core() else {
         return Ok(None);
     };
+    if mode == SessionMode::Research {
+        return crate::orchestration::reserve_research(&core, project)
+            .map(Some)
+            .map_err(|(working, limit)| {
+                conflict(&match limit {
+                    0 => "research agents are turned off in Settings".to_owned(),
+                    _ => format!(
+                        "{working} research agents are already working in this project, the \
+                         most at once (Settings). Start this when one of them finishes, or stop one."
+                    ),
+                })
+            });
+    }
     crate::orchestration::reserve(&core, project)
         .map(Some)
         .map_err(|working| {
@@ -462,7 +489,7 @@ pub(crate) async fn resume(ctx: &Ctx<'_>, session: SessionId, parts: Parts) -> R
     let tools = launch.as_ref().and_then(|l| l.tools);
     let place = match tools {
         Some(ToolRole::Coordinator) => None,
-        _ => check_room(ctx, &info.project)?,
+        _ => check_room(ctx, &info.project, info.mode)?,
     };
     // Its conversation lives in its account's folder: no other account
     // can continue it.
@@ -515,9 +542,10 @@ pub(crate) fn profile(
         project: Some(project.id.clone()),
         work_env: None,
         work_dir: cwd.to_path_buf(),
+        work_dir_read_only: mode == SessionMode::Research,
         read: match mode {
             SessionMode::Isolated => vec![PathBuf::from(&project.root).join(".git")],
-            SessionMode::Direct => Vec::new(),
+            SessionMode::Direct | SessionMode::Research => Vec::new(),
         },
         write: Vec::new(),
         expose: Vec::new(),
@@ -587,9 +615,12 @@ async fn run(
         }
     };
     let core = sessions.core();
+    // A research session has no tool that could reach a server.
     let forward = match &core {
-        Some(core) => crate::servers::forward(core, &launch.cwd).await,
-        None => Vec::new(),
+        Some(core) if mode != SessionMode::Research => {
+            crate::servers::forward(core, &launch.cwd).await
+        }
+        _ => Vec::new(),
     };
     if let Some(core) = &core {
         crate::servers::session_started(core, id);

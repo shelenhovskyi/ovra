@@ -356,6 +356,7 @@ mod tests {
             project: None,
             work_env: None,
             work_dir: "/w".into(),
+            work_dir_read_only: false,
             read: Vec::new(),
             write: Vec::new(),
             expose: Vec::new(),

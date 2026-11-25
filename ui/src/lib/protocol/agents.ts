@@ -6,7 +6,8 @@ export type SessionId = string;
 export type AgentKind = "claude";
 
 /** ADR 0005: `direct` works in the main checkout, `isolated` in a worktree (phase 3). */
-export type SessionMode = "direct" | "isolated";
+/** `research` reads the main checkout and searches the web, changes nothing; own cap (ADR 0011). */
+export type SessionMode = "direct" | "isolated" | "research";
 
 /** Closed set: the UI shows exactly these states. */
 export type AgentStatus =
@@ -28,6 +29,9 @@ export type AgentCapacity = {
   limit: number;
   /** Workers waiting for a free place. */
   queued: number;
+  /** Research sessions that work now, counted apart from `working`. */
+  research_working: number;
+  research_limit: number;
 };
 
 export type SessionInfo = {
@@ -213,6 +217,9 @@ export type AgentsRequest =
   | { method: "agents.limit" }
   /** Refused (`bad_request`) outside `min`..`max`; queued workers start if it rose. */
   | { method: "agents.set_limit"; params: { limit: number } }
+  | { method: "agents.research_limit" }
+  /** Refused (`bad_request`) outside `min`..`max` (ADR 0011). */
+  | { method: "agents.set_research_limit"; params: { limit: number } }
   /** Newest first. */
   | { method: "agents.checkpoints"; params: { session: SessionId } }
   /** Refused (`conflict`) while a turn runs; `not_found` for a dropped turn. */
@@ -229,6 +236,7 @@ export type AgentsResponse =
   | { type: "agents.transcript"; data: AgentMessage[] }
   | { type: "agents.capacity"; data: AgentCapacity }
   | { type: "agents.limit"; data: AgentLimit }
+  | { type: "agents.research_limit"; data: AgentLimit }
   | { type: "agents.checkpoints"; data: Checkpoint[] }
   | { type: "agents.went_back"; data: { restored: string[]; conflicts: string[]; can_undo: boolean } }
   | { type: "agents.undid_go_back"; data: { restored: string[]; conflicts: string[] } };
@@ -254,6 +262,7 @@ export interface AgentLimit {
 export type AgentsEvent =
   /** The person changed the limit; ask for capacities again. */
   | { type: "agents.limit_changed"; data: AgentLimit }
+  | { type: "agents.research_limit_changed"; data: AgentLimit }
   | { type: "agents.message"; data: { session: SessionId; message: AgentMessage } }
   | { type: "agents.status"; data: { session: SessionId; project: ProjectId; status: AgentStatus } }
   /** The agent said who pays for the session (`SessionInfo.billing`). */

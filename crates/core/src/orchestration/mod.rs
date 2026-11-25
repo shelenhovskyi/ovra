@@ -36,7 +36,8 @@ use crate::services::SessionStore;
 
 pub(crate) use saved::restore;
 pub(crate) use slots::{
-    Reservation, capacity, reserve, set_limit, start_next_queued, view as limit,
+    Reservation, capacity, research_view as research_limit, reserve, reserve_research, set_limit,
+    set_research_limit, start_next_queued, view as limit,
 };
 pub(crate) use tasks::unless_cleaned;
 
@@ -83,6 +84,8 @@ struct State {
     /// How many agents may work at once ([`slots::limit`]), once read from
     /// the settings; not saved here.
     limit: Option<usize>,
+    /// The same for research sessions ([`slots::reserve_research`]).
+    reserved_research: BTreeMap<ProjectId, usize>,
 }
 
 impl Orchestration {

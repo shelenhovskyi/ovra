@@ -246,6 +246,9 @@ pub struct CommandLine {
 pub struct SandboxProfile {
     /// The session's folder, readable and writable.
     pub work_dir: PathBuf,
+    /// `work_dir` is readable only, and the sandbox makes nothing in it (a
+    /// research session, ADR 0011).
+    pub work_dir_read_only: bool,
     /// More folders it may read but not write.
     pub read: Vec<PathBuf>,
     /// More folders it may write.

@@ -58,7 +58,7 @@ export class FakeAgentCore implements Transport {
   /** What the user trusted, per project. */
   trustedConfig = new Map<ProjectId, ProjectAgentConfig>();
   /** What `agents.capacity` answers. */
-  capacity: AgentCapacity = { working: 0, limit: 3, queued: 0 };
+  capacity: AgentCapacity = { working: 0, limit: 3, queued: 0, research_working: 0, research_limit: 2 };
   /** `git.status` answers that the project is not a git repository. */
   noRepo = false;
   /** Makes the next call of this method fail with this error. */

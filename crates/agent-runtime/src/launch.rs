@@ -123,6 +123,11 @@ impl Conversation {
 /// Code's own system prompt.
 const COORDINATOR_PROMPT: &str = include_str!("../../../agents/roles/coordinator.md");
 const WORKER_PROMPT: &str = include_str!("../../../agents/roles/worker.md");
+const RESEARCH_PROMPT: &str = include_str!("../../../agents/roles/research.md");
+
+/// The built-in tools of a research session (ADR 0011): it reads and
+/// searches, nothing else. The core refuses any other tool too.
+const RESEARCH_TOOLS: &str = "Read,Grep,Glob,WebSearch";
 
 /// The arguments for one session. Ovra never passes `--bare` (it ignores the
 /// subscription login) and never touches credentials; the environment is an
@@ -132,12 +137,15 @@ const WORKER_PROMPT: &str = include_str!("../../../agents/roles/worker.md");
 /// `ide` passes Ovra's in-process `ovra` MCP server (its IDE tools), whose
 /// messages come back as `mcp_message` control requests. A coordinator only
 /// reads the project and directs workers: it gets no built-in tool that
-/// writes or runs anything (owner decision, 2026-11-24).
+/// writes or runs anything (owner decision, 2026-11-24). A `research`
+/// session gets [`RESEARCH_TOOLS`] and no IDE tools.
 pub(crate) fn args(
     conversation: &Conversation,
     trusted: bool,
     ide: Option<ToolRole>,
+    research: bool,
 ) -> Vec<OsString> {
+    let ide = ide.filter(|_| !research);
     let mut args: Vec<&str> = vec![
         "-p",
         "--input-format",
@@ -181,6 +189,12 @@ pub(crate) fn args(
             COORDINATOR_PROMPT,
         ]),
         Some(ToolRole::Worker) => args.extend(["--append-system-prompt", WORKER_PROMPT]),
+        None if research => args.extend([
+            "--tools",
+            RESEARCH_TOOLS,
+            "--append-system-prompt",
+            RESEARCH_PROMPT,
+        ]),
         None => {}
     }
     match conversation {
@@ -310,7 +324,7 @@ mod tests {
     }
 
     fn line_text(conversation: &Conversation, trusted: bool) -> String {
-        args(conversation, trusted, None)
+        args(conversation, trusted, None, false)
             .iter()
             .map(|a| a.to_string_lossy().into_owned())
             .collect::<Vec<_>>()
@@ -335,7 +349,7 @@ mod tests {
     #[test]
     fn sessions_with_ide_tools_get_the_in_process_ovra_server() {
         let after = |role, flag: &str| {
-            let args = args(&Conversation::New("id".into()), false, Some(role));
+            let args = args(&Conversation::New("id".into()), false, Some(role), false);
             let args: Vec<_> = args
                 .iter()
                 .map(|a| a.to_string_lossy().into_owned())
@@ -368,6 +382,27 @@ mod tests {
     }
 
     #[test]
+    fn a_research_session_only_reads_and_searches() {
+        let args: Vec<String> = args(
+            &Conversation::New("id".into()),
+            false,
+            Some(ToolRole::Worker),
+            true,
+        )
+        .iter()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
+        let after = |flag: &str| {
+            let at = args.iter().position(|a| a == flag)?;
+            args.get(at + 1).map(String::as_str)
+        };
+        assert_eq!(after("--tools"), Some("Read,Grep,Glob,WebSearch"));
+        assert_eq!(after("--append-system-prompt"), Some(RESEARCH_PROMPT));
+        assert_eq!(after("--mcp-config"), Some(r#"{"mcpServers":{}}"#));
+        assert_eq!(after("--permission-mode"), Some("default"));
+    }
+
+    #[test]
     fn only_a_trusted_project_loads_its_own_settings() {
         let trusted = line_text(&Conversation::New("id".into()), true);
         assert!(trusted.contains("--setting-sources user,project,local --strict-mcp-config"));
@@ -393,6 +428,7 @@ mod tests {
                 project: None,
                 work_env: None,
                 work_dir: "/work".into(),
+                work_dir_read_only: false,
                 read: Vec::new(),
                 write: Vec::new(),
                 expose: Vec::new(),

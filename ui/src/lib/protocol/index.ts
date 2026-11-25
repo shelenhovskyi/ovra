@@ -172,24 +172,26 @@ export type ResponseFor<R extends Request> = R extends { method: "info.get" }
                                       ? Extract<Response, { type: "agents.capacity" }>
                                       : R extends { method: "agents.limit" | "agents.set_limit" }
                                         ? Extract<Response, { type: "agents.limit" }>
-                                        : R extends { method: "permissions.pending" }
-                                          ? Extract<Response, { type: "permissions.pending" }>
-                                          : R extends {
-                                                method:
-                                                  | "terminals.input"
-                                                  | "terminals.resize"
-                                                  | "terminals.close"
-                                                  | "agents.send"
-                                                  | "agents.interrupt"
-                                                  | "agents.stop"
-                                                  | "agents.set_project_account"
-                                                  | "permissions.answer"
-                                                  | "review.comment"
-                                                  | "orchestration.stop"
-                                                  | "search.cancel";
-                                              }
-                                            ? { type: "ok" }
-                                            : PhaseThreeResponseFor<R>;
+                                        : R extends { method: "agents.research_limit" | "agents.set_research_limit" }
+                                          ? Extract<Response, { type: "agents.research_limit" }>
+                                          : R extends { method: "permissions.pending" }
+                                            ? Extract<Response, { type: "permissions.pending" }>
+                                            : R extends {
+                                                  method:
+                                                    | "terminals.input"
+                                                    | "terminals.resize"
+                                                    | "terminals.close"
+                                                    | "agents.send"
+                                                    | "agents.interrupt"
+                                                    | "agents.stop"
+                                                    | "agents.set_project_account"
+                                                    | "permissions.answer"
+                                                    | "review.comment"
+                                                    | "orchestration.stop"
+                                                    | "search.cancel";
+                                                }
+                                              ? { type: "ok" }
+                                              : PhaseThreeResponseFor<R>;
 
 /** `ResponseFor` for the review and orchestration domains. */
 type PhaseThreeResponseFor<R extends Request> = R extends { method: "review.list" }

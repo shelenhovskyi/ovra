@@ -896,7 +896,7 @@ async fn a_cmd_script_gets_the_whole_command_line() {
     let script = dir.path().join("claude.cmd");
     std::fs::write(&script, "@echo off\r\necho %*> \"%~dp0claude.args\"\r\n")
         .unwrap_or_else(|e| panic!("{e}"));
-    let args = launch::args(&launch::Conversation::New("id".into()), false, None);
+    let args = launch::args(&launch::Conversation::New("id".into()), false, None, false);
     let status = tokio::process::Command::new(&script)
         .args(&args)
         .status()

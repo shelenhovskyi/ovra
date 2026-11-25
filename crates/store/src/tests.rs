@@ -125,6 +125,7 @@ fn contract(store: &dyn ProjectStore, folders: &Folders) {
         }],
         project_accounts: [(a.id.clone(), "account-1".into())].into(),
         max_working: Some(5),
+        research_limit: Some(4),
     };
     store
         .set_agent_settings(settings.clone())

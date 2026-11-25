@@ -3,11 +3,13 @@
 //! worker beyond it waits `queued` and starts when a place frees; a person's
 //! start beyond it is refused. Both are checked and their place taken under
 //! the one lock, so starts at the same moment never pass the cap together.
+//! Research sessions (ADR 0011) have a cap of their own, from the user's
+//! settings, and never count against the other.
 
 use super::{State, tasks};
 use crate::Core;
 use crate::agents;
-use crate::protocol::agents::{AgentCapacity, AgentLimit, AgentStatus, AgentsEvent};
+use crate::protocol::agents::{AgentCapacity, AgentLimit, AgentStatus, AgentsEvent, SessionMode};
 use crate::protocol::projects::ProjectId;
 use crate::protocol::{ErrorCode, ProtocolError};
 use crate::resources;
@@ -87,12 +89,87 @@ pub(crate) fn capacity(core: &Core, project: &ProjectId) -> AgentCapacity {
     let state = core.orchestration_state();
     let guard = state.lock();
     let (working, queued) = count(core, &guard, project);
+    let research = research_count(core, &guard, project);
     let n = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
     AgentCapacity {
         working: n(working),
         limit: n(limit),
         queued: n(queued),
+        research_working: n(research),
+        research_limit: research_limit(core),
     }
+}
+
+/// Research sessions (ADR 0011) that may work at once in one project,
+/// unless the person chose another number, from 0 (none) to
+/// [`MAX_RESEARCH_LIMIT`]. They read and search only, so they get places
+/// of their own, but each still uses the person's plan.
+const DEFAULT_RESEARCH_LIMIT: u32 = 2;
+const MIN_RESEARCH_LIMIT: u32 = 0;
+const MAX_RESEARCH_LIMIT: u32 = 5;
+
+/// The research cap now; an unreadable setting allows none.
+fn research_limit(core: &Core) -> u32 {
+    core.project_store().agent_settings().map_or(0, |settings| {
+        settings
+            .research_limit
+            .filter(|n| (MIN_RESEARCH_LIMIT..=MAX_RESEARCH_LIMIT).contains(n))
+            .unwrap_or(DEFAULT_RESEARCH_LIMIT)
+    })
+}
+
+fn research_view_of(limit: u32) -> AgentLimit {
+    AgentLimit {
+        limit,
+        default: DEFAULT_RESEARCH_LIMIT,
+        min: MIN_RESEARCH_LIMIT,
+        max: MAX_RESEARCH_LIMIT,
+    }
+}
+
+/// The research cap and its range, as `agents.research_limit` answers.
+pub(crate) fn research_view(core: &Core) -> AgentLimit {
+    research_view_of(research_limit(core))
+}
+
+/// `agents.set_research_limit`: saves the person's choice. Under the
+/// orchestration lock, so no research start counts against a cap half
+/// changed.
+pub(crate) fn set_research_limit(core: &Core, limit: u32) -> Result<AgentLimit, ProtocolError> {
+    if !(MIN_RESEARCH_LIMIT..=MAX_RESEARCH_LIMIT).contains(&limit) {
+        return Err(ProtocolError::new(
+            ErrorCode::BadRequest,
+            format!(
+                "the research limit must be between {MIN_RESEARCH_LIMIT} and {MAX_RESEARCH_LIMIT}"
+            ),
+        ));
+    }
+    {
+        let state = core.orchestration_state();
+        let _guard = state.lock();
+        let store = core.project_store();
+        let mut settings = store.agent_settings()?;
+        settings.research_limit = (limit != DEFAULT_RESEARCH_LIMIT).then_some(limit);
+        store.set_agent_settings(settings)?;
+    }
+    let view = research_view_of(limit);
+    core.emit(AgentsEvent::ResearchLimitChanged(view));
+    Ok(view)
+}
+
+/// Research sessions of `project` that work, and starts that took a place.
+/// One that waits idle for the person does no work, like a person's own
+/// direct session.
+fn research_count(core: &Core, state: &State, project: &ProjectId) -> usize {
+    let working = core
+        .sessions()
+        .active(project)
+        .into_iter()
+        .filter(|(_, status, _, mode)| {
+            *mode == SessionMode::Research && *status != AgentStatus::Idle
+        })
+        .count();
+    working + state.reserved_research.get(project).copied().unwrap_or(0)
 }
 
 /// Agents of `project` that work, and workers that wait for a place.
@@ -104,8 +181,8 @@ pub(crate) fn capacity(core: &Core, project: &ProjectId) -> AgentCapacity {
 pub(super) fn count(core: &Core, state: &State, project: &ProjectId) -> (usize, usize) {
     let asked = tasks::asked_for_review(&state.reviews);
     let (mut working, mut queued) = (0, 0);
-    for (id, status, role) in core.sessions().active(project) {
-        if role == Some(ToolRole::Coordinator) {
+    for (id, status, role, mode) in core.sessions().active(project) {
+        if role == Some(ToolRole::Coordinator) || mode == SessionMode::Research {
             continue;
         }
         match status {
@@ -129,6 +206,7 @@ pub(super) fn count(core: &Core, state: &State, project: &ProjectId) -> (usize, 
 pub(crate) struct Reservation {
     core: Core,
     project: ProjectId,
+    research: bool,
 }
 
 /// Takes a place in `project` for a person's start, or says how many
@@ -145,6 +223,28 @@ pub(crate) fn reserve(core: &Core, project: &ProjectId) -> Result<Reservation, u
     Ok(Reservation {
         core: core.clone(),
         project: project.clone(),
+        research: false,
+    })
+}
+
+/// Takes a research place in `project`, or says how many research
+/// sessions work there (and the cap) if none is free.
+pub(crate) fn reserve_research(
+    core: &Core,
+    project: &ProjectId,
+) -> Result<Reservation, (usize, u32)> {
+    let limit = research_limit(core);
+    let state = core.orchestration_state();
+    let mut guard = state.lock();
+    let working = research_count(core, &guard, project);
+    if working >= usize::try_from(limit).unwrap_or(usize::MAX) {
+        return Err((working, limit));
+    }
+    *guard.reserved_research.entry(project.clone()).or_default() += 1;
+    Ok(Reservation {
+        core: core.clone(),
+        project: project.clone(),
+        research: true,
     })
 }
 
@@ -153,10 +253,15 @@ impl Drop for Reservation {
         {
             let state = self.core.orchestration_state();
             let mut guard = state.lock();
-            if let Some(n) = guard.reserved.get_mut(&self.project) {
+            let reserved = if self.research {
+                &mut guard.reserved_research
+            } else {
+                &mut guard.reserved
+            };
+            if let Some(n) = reserved.get_mut(&self.project) {
                 *n = n.saturating_sub(1);
                 if *n == 0 {
-                    guard.reserved.remove(&self.project);
+                    reserved.remove(&self.project);
                 }
             }
         }

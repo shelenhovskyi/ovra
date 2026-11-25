@@ -282,13 +282,13 @@ impl Sessions {
     pub(crate) fn active(
         &self,
         project: &ProjectId,
-    ) -> Vec<(SessionId, AgentStatus, Option<ToolRole>)> {
+    ) -> Vec<(SessionId, AgentStatus, Option<ToolRole>, SessionMode)> {
         lock(&self.list)
             .iter()
             .filter(|s| &s.info.project == project && !s.info.status.is_ended())
             .map(|s| {
                 let role = s.launch.as_ref().and_then(|l| l.tools);
-                (s.info.id.clone(), s.info.status.clone(), role)
+                (s.info.id.clone(), s.info.status.clone(), role, s.info.mode)
             })
             .collect()
     }
@@ -678,6 +678,10 @@ impl AgentHost {
             .get("tool_input")
             .cloned()
             .unwrap_or(serde_json::Value::Null);
+        if let Some(why) = self.outside_research(name) {
+            self.audit_tool(name, &input, false, DecidedBy::Role).await;
+            return BeforeTool::Deny(why);
+        }
         // Ovra's own tools follow their role rules (`Self::ask`).
         let mut verdict = BeforeTool::Proceed;
         if !name.starts_with(crate::orchestration::IDE_TOOL_PREFIX) {
@@ -809,6 +813,10 @@ impl AgentHost {
         title: Option<String>,
         reason: Option<PermissionReason>,
     ) -> PermissionAnswer {
+        if let Some(why) = self.outside_research(&tool) {
+            let answer = PermissionAnswer::deny(why);
+            return self.decided(&tool, &input, answer, DecidedBy::Role).await;
+        }
         if let Some(name) = tool.strip_prefix(crate::orchestration::IDE_TOOL_PREFIX) {
             // Ovra's own tools are decided by role and limits, never asked.
             return match self.sessions.core() {
@@ -842,6 +850,13 @@ impl AgentHost {
                 let by = DecidedBy::Policy { rule };
                 return self
                     .decided(&tool, &input, PermissionAnswer::allow(), by)
+                    .await;
+            }
+            // A research session's web search runs on Anthropic's side and
+            // touches nothing here (ADR 0011).
+            Ok(None) if tool == WEB_SEARCH && self.is_research() => {
+                return self
+                    .decided(&tool, &input, PermissionAnswer::allow(), DecidedBy::Role)
                     .await;
             }
             // Unreadable policy: ask, never decide on its own.
@@ -918,6 +933,31 @@ impl AgentHost {
         waiting.settled = true;
         recorded.await;
         answer
+    }
+}
+
+/// The only tools a research session may use (ADR 0011); the runtime offers
+/// no others, and the core refuses any other one it is asked about.
+pub(crate) const RESEARCH_TOOLS: [&str; 4] = ["Read", "Grep", "Glob", WEB_SEARCH];
+const WEB_SEARCH: &str = "WebSearch";
+
+impl AgentHost {
+    fn is_research(&self) -> bool {
+        // A session that is gone is no research session.
+        self.sessions
+            .find(&self.session, |s| s.info().mode == SessionMode::Research)
+            .unwrap_or(false)
+    }
+
+    /// Why `tool` is refused, if this is a research session and the tool is
+    /// not one of [`RESEARCH_TOOLS`].
+    fn outside_research(&self, tool: &str) -> Option<String> {
+        (self.is_research() && !RESEARCH_TOOLS.contains(&tool)).then(|| {
+            format!(
+                "A research session only reads the project and searches the web; {tool} is \
+                 not available. Put what should change in your report instead."
+            )
+        })
     }
 }
 

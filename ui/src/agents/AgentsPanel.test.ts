@@ -364,7 +364,7 @@ describe("AgentsPanel", () => {
       kept: null,
     });
     core.emit({ type: "orchestration.changed", data: { project: "p1", task: "t1" } });
-    core.capacity = { working: 3, limit: 3, queued: 1 };
+    core.capacity = { working: 3, limit: 3, queued: 1, research_working: 0, research_limit: 2 };
     core.status(docs.id, { state: "queued" });
     await settle();
     // The coordinator takes no place, but the count does not hide that it works.
@@ -375,16 +375,16 @@ describe("AgentsPanel", () => {
     await settle();
     expect(count()).toBe("3 of 3 · 1 queued");
     // A review asked for or decided changes the count without a change of state.
-    core.capacity = { working: 2, limit: 3, queued: 1 };
+    core.capacity = { working: 2, limit: 3, queued: 1, research_working: 0, research_limit: 2 };
     core.emit({ type: "review.changed", data: { project: "p1", id: "r1" } });
     await settle();
     expect(count()).toBe("2 of 3 · 1 queued");
     // So does a new limit from Settings.
-    core.capacity = { working: 2, limit: 5, queued: 1 };
+    core.capacity = { working: 2, limit: 5, queued: 1, research_working: 0, research_limit: 2 };
     core.emit({ type: "agents.limit_changed", data: { limit: 5, default: 3, min: 1, max: 8 } });
     await settle();
     expect(count()).toBe("2 of 5 · 1 queued");
-    core.capacity = { working: 3, limit: 3, queued: 1 };
+    core.capacity = { working: 3, limit: 3, queued: 1, research_working: 0, research_limit: 2 };
     // Working sessions come before a task whose worker only waits.
     expect(target.querySelectorAll(".sessions .state")[1]?.textContent).toBe("Workers are waiting for a free agent");
     core.status(docs.id, { state: "working" });
@@ -1054,7 +1054,7 @@ describe("AgentsPanel", () => {
   it("says when every agent waits for the person, and why One agent, here cannot start at the cap", async () => {
     const core = new FakeAgentCore();
     for (const n of [1, 2, 3]) core.addSession("p1", `Task ${n}`, { state: "waiting_for_approval" });
-    core.capacity = { working: 3, limit: 3, queued: 0 };
+    core.capacity = { working: 3, limit: 3, queued: 0, research_working: 0, research_limit: 2 };
     await setup(core);
     const count = () => target.querySelector("[data-testid=agents-capacity]");
     expect(count()?.textContent?.trim()).toBe("3 need you");

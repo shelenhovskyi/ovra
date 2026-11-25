@@ -6,7 +6,7 @@ use tokio::sync::broadcast;
 use crate::Core;
 use crate::fakes::{EchoTerminals, MemoryFs, MemoryProjects, MemorySessions, ScriptedAgent, Step};
 use crate::protocol::agents::{
-    AgentMessage, AgentStatus, AgentsEvent, AgentsResponse, SessionInfo, TurnUsage,
+    AgentMessage, AgentStatus, AgentsEvent, AgentsResponse, SessionInfo, SessionMode, TurnUsage,
 };
 use crate::protocol::agents::{ProjectAgentConfig, ProjectConfigReview, SetupState};
 use crate::protocol::permissions::{
@@ -1479,4 +1479,119 @@ async fn going_back_routes_to_the_session_and_is_not_available_yet() {
         let unknown = json!({"method": method, "params": params});
         assert_eq!(code(&core, unknown).await, ErrorCode::NotFound, "{method}");
     }
+}
+
+fn research(prompt: &str) -> serde_json::Value {
+    json!({"method": "agents.start", "params": {
+        "project": "p1", "agent": "claude", "mode": "research", "prompt": prompt}})
+}
+
+async fn capacity(core: &Core) -> crate::protocol::agents::AgentCapacity {
+    match ok(
+        core,
+        json!({"method": "agents.capacity", "params": {"project": "p1"}}),
+    )
+    .await
+    {
+        Response::Agents(AgentsResponse::Capacity(c)) => c,
+        other => panic!("unexpected {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn research_sessions_read_only_take_no_direct_place_and_have_their_own_cap() {
+    // Each session waits for the person on its first read, so it counts.
+    let agent = Arc::new(ScriptedAgent::new(vec![vec![Step::Use {
+        tool: "Read",
+        input: json!({"file_path": "README.md"}),
+    }]]));
+    let core = Core::builder("test")
+        .projects(Arc::new(MemoryProjects::default()))
+        .agents(agent.clone())
+        .build();
+    project(&core).await;
+    match ok(&core, json!({"method": "agents.research_limit"})).await {
+        Response::Agents(AgentsResponse::ResearchLimit(l)) => {
+            assert_eq!((l.limit, l.default, l.min, l.max), (2, 2, 0, 5));
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+    let set = |n: u32| json!({"method": "agents.set_research_limit", "params": {"limit": n}});
+    assert_eq!(code(&core, set(6)).await, ErrorCode::BadRequest);
+    ok(&core, set(1)).await;
+
+    let mut rx = core.subscribe();
+    ok(&core, research("How does review work?")).await;
+    until(&mut rx, AgentStatus::WaitingForApproval).await;
+    // The research cap is full; a direct session still starts, and takes
+    // the main checkout's writer place, which research never holds.
+    assert_eq!(
+        code(&core, research("And the inbox?")).await,
+        ErrorCode::Conflict
+    );
+    ok(&core, start("Fix it")).await;
+    until(&mut rx, AgentStatus::WaitingForApproval).await;
+    let c = capacity(&core).await;
+    assert_eq!((c.working, c.research_working, c.research_limit), (1, 1, 1));
+
+    let spec = lock_started(&agent, 0);
+    assert_eq!(spec.mode, SessionMode::Research);
+    assert_eq!(spec.tools, None);
+    assert!(spec.sandbox.work_dir_read_only);
+    assert!(spec.sandbox.forward.is_empty() && spec.sandbox.write.is_empty());
+    assert!(!lock_started(&agent, 1).sandbox.work_dir_read_only);
+
+    // Turned off in Settings: no research starts at all.
+    ok(&core, set(0)).await;
+    assert_eq!(code(&core, research("x")).await, ErrorCode::Conflict);
+}
+
+fn lock_started(agent: &ScriptedAgent, n: usize) -> crate::services::AgentSpec {
+    agent
+        .started
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)[n]
+        .clone()
+}
+
+#[tokio::test]
+async fn a_research_session_gets_only_its_tools_and_searches_without_asking() {
+    use crate::agents::BeforeTool;
+    use crate::protocol::permissions::Decision;
+
+    let core = core_with(ScriptedAgent::new(vec![vec![Step::Say("hi")]]));
+    project(&core).await;
+    ok(&core, research("Look around")).await;
+    let host = host(&core);
+    for tool in [
+        "Write",
+        "Edit",
+        "Bash",
+        "WebFetch",
+        "Task",
+        "mcp__ovra__spawn_agent",
+    ] {
+        let answer = host.ask(tool.into(), json!({}), None, None).await;
+        assert_eq!(answer.decision, Decision::Deny, "{tool}");
+        assert!(answer.message.is_some_and(|m| m.contains("research")));
+        let hook = json!({"tool_name": tool, "tool_input": {}});
+        assert!(
+            matches!(host.before_tool(&hook).await, BeforeTool::Deny(_)),
+            "{tool}"
+        );
+    }
+    for tool in ["Read", "Grep", "Glob", "WebSearch"] {
+        let hook = json!({"tool_name": tool, "tool_input": {}});
+        assert_eq!(host.before_tool(&hook).await, BeforeTool::Proceed, "{tool}");
+    }
+    let search = || host.ask("WebSearch".into(), json!({"query": "x"}), None, None);
+    assert_eq!(search().await.decision, Decision::Allow);
+    // A project's rule about it still wins.
+    ok(
+        &core,
+        json!({"method": "policy.set", "params": {"project": "p1", "policy": {"rules": [
+            {"tool": "WebSearch", "action": "deny"}]}}}),
+    )
+    .await;
+    assert_eq!(search().await.decision, Decision::Deny);
 }

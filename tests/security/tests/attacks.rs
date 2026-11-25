@@ -142,6 +142,7 @@ impl World {
             project: None,
             work_env: None,
             work_dir: self.project.clone(),
+            work_dir_read_only: false,
             read: Vec::new(),
             write: Vec::new(),
             expose: Vec::new(),

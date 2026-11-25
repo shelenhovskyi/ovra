@@ -142,7 +142,12 @@ async fn session(
     }
     let line = launch::line(
         &executable,
-        launch::args(&conversation, spec.trusted, spec.tools),
+        launch::args(
+            &conversation,
+            spec.trusted,
+            spec.tools,
+            spec.mode == ovra_core::protocol::agents::SessionMode::Research,
+        ),
         &spec.cwd,
         spec.config_dir.as_deref(),
     );

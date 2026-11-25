@@ -25,6 +25,9 @@ pub enum SessionMode {
     Direct,
     /// In its own git worktree (phase 3).
     Isolated,
+    /// Reads the main checkout and searches the web, changes nothing; has
+    /// its own cap (ADR 0011).
+    Research,
 }
 
 /// The state of a session. Closed set: the UI shows exactly these.
@@ -130,6 +133,12 @@ pub struct AgentCapacity {
     pub limit: u32,
     /// Workers waiting for a free place (`queued`).
     pub queued: u32,
+    /// Research sessions that work now (ADR 0011): counted apart from
+    /// `working`, against `research_limit`.
+    #[serde(default)]
+    pub research_working: u32,
+    #[serde(default)]
+    pub research_limit: u32,
 }
 
 /// Tokens and cost of one turn, as the agent reports them, or their sum.
@@ -290,6 +299,9 @@ pub struct AgentSettings {
     /// How many agents may work at once in one project
     /// ([`AgentLimit`]); `None` is the default.
     pub max_working: Option<u32>,
+    /// How many research sessions may work at once in one project (ADR
+    /// 0011); `None` is the default.
+    pub research_limit: Option<u32>,
 }
 
 /// How many agents may work at once in each project, and the range the
@@ -535,6 +547,15 @@ pub enum AgentsRequest {
     /// if it rose. Answers `agents.limit` and sends `agents.limit_changed`.
     #[serde(rename = "agents.set_limit")]
     SetLimit { limit: u32 },
+    /// How many research sessions may work at once in each project
+    /// (ADR 0011), apart from the agents of `agents.limit`.
+    #[serde(rename = "agents.research_limit")]
+    ResearchLimit,
+    /// Sets it; refused (`bad_request`) outside [`AgentLimit`]'s range.
+    /// Answers `agents.research_limit` and sends
+    /// `agents.research_limit_changed`.
+    #[serde(rename = "agents.set_research_limit")]
+    SetResearchLimit { limit: u32 },
     /// The turns of a direct session that can be gone back to, newest first.
     #[serde(rename = "agents.checkpoints")]
     Checkpoints { session: SessionId },
@@ -569,6 +590,8 @@ pub enum AgentsResponse {
     Capacity(AgentCapacity),
     #[serde(rename = "agents.limit")]
     Limit(AgentLimit),
+    #[serde(rename = "agents.research_limit")]
+    ResearchLimit(AgentLimit),
     #[serde(rename = "agents.checkpoints")]
     Checkpoints(Vec<Checkpoint>),
     #[serde(rename = "agents.went_back")]
@@ -596,6 +619,9 @@ pub enum AgentsEvent {
     /// for capacities again.
     #[serde(rename = "agents.limit_changed")]
     LimitChanged(AgentLimit),
+    /// The same for research sessions (`agents.research_limit`).
+    #[serde(rename = "agents.research_limit_changed")]
+    ResearchLimitChanged(AgentLimit),
     #[serde(rename = "agents.message")]
     Message {
         session: SessionId,
