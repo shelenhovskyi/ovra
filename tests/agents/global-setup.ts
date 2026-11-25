@@ -47,12 +47,15 @@ export default async function globalSetup(): Promise<() => void> {
   const live = mkdtempSync(join(tmpdir(), "ovra-live-"));
   const shims = join(live, "bin");
   mkdirSync(shims);
-  const shim = join(shims, "claude");
-  writeFileSync(shim, `#!/bin/sh\nexec "${process.execPath}" "${join(here, "recorder.ts")}" "$@"\n`);
-  chmodSync(shim, 0o755);
   const recordings = join(here, "test-results", "recordings");
   rmSync(recordings, { recursive: true, force: true });
   mkdirSync(recordings, { recursive: true });
+  // The recorder's settings live in the shim: claude gets only an allowlist
+  // of the daemon's environment (crates/agent-runtime/src/env.rs).
+  const shim = join(shims, "claude");
+  const vars = `OVRA_REAL_CLAUDE="${realClaude()}" OVRA_RECORD_DIR="${recordings}"`;
+  writeFileSync(shim, `#!/bin/sh\n${vars} exec "${process.execPath}" "${join(here, "recorder.ts")}" "$@"\n`);
+  chmodSync(shim, 0o755);
 
   const env = userEnv();
   env.PATH = `${shims}${delimiter}${env.PATH ?? ""}`;

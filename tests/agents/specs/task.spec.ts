@@ -59,21 +59,23 @@ test("a coordinator splits a small task between two workers whose work waits for
   await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
   await projects.getByRole("button", { name: "Open", exact: true }).click();
   await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();
-  await expect(page.getByTestId("claude-setup")).toContainText("is ready");
+  await expect(page.getByRole("textbox", { name: "Give Claude a task" })).toBeEnabled();
+  await expect(page.getByTestId("claude-setup")).toHaveCount(0);
   const projectId = (await core<{ id: string; root: string }[]>(page, "projects.list", undefined)).find(
     (p) => p.root === dir,
   )?.id;
   if (!projectId) throw new Error(`no project for ${dir}`);
 
   await page
-    .getByRole("textbox", { name: "What should Claude do?" })
+    .getByRole("textbox", { name: "Give Claude a task" })
     .fill(
       "Do not read any files. Start exactly two workers with spawn_agent: one named alpha whose task is " +
         '"Create the file alpha.txt containing the single word alpha, then call request_review", and one ' +
         'named beta whose task is "Create the file beta.txt containing the single word beta, then call ' +
         'request_review". Then end your turn without waiting for them.',
     );
-  await page.getByRole("radio", { name: "Plan and split" }).check();
+  await page.getByTestId("agent-mode").click();
+  await page.getByRole("menuitemradio", { name: /^Plan and split/ }).click();
   await page.getByRole("button", { name: "Start", exact: true }).click();
 
   // Allow what the workers ask for (writing their file) until both asked
@@ -84,9 +86,16 @@ test("a coordinator splits a small task between two workers whose work waits for
   const deadline = Date.now() + 200_000;
   while ((await reviewed()) < 2) {
     if (Date.now() > deadline) throw new Error("the workers did not ask for review in time");
-    const allow = approvals.getByRole("button", { name: "Allow", exact: true }).first();
+    const allow = approvals.getByRole("button", { name: "Allow once", exact: true }).first();
     if (await allow.isVisible()) {
-      await expect(allow).toHaveAttribute("aria-disabled", "false");
+      // Nothing is allowed unseen: one press on Allow opens the card's
+      // details, which counts them seen; a second would close them again.
+      try {
+        await expect(allow).toHaveAttribute("aria-disabled", "false", { timeout: 2000 });
+      } catch {
+        await allow.click();
+        await expect(allow).toHaveAttribute("aria-disabled", "false");
+      }
       await allow.click();
     } else {
       await page.waitForTimeout(1000);
@@ -102,7 +111,7 @@ test("a coordinator splits a small task between two workers whose work waits for
   expect(task?.spent_micro_usd ?? 0).toBeLessThan(MAX_COST_MICRO_USD);
 
   await page.keyboard.press("Alt+Shift+R");
-  const inbox = page.getByRole("dialog", { name: "Review inbox" });
+  const inbox = page.getByTestId("inbox");
   await expect(inbox.getByRole("navigation", { name: "Review items" }).getByRole("button")).toHaveCount(2);
   if (task) await core(page, "orchestration.stop", { task: task.id });
 });

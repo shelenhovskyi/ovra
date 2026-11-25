@@ -37,21 +37,38 @@ async function open(page: Page, dir: string): Promise<void> {
   await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
   await projects.getByRole("button", { name: "Open", exact: true }).click();
   await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();
-  await expect(page.getByTestId("claude-setup")).toContainText("is ready");
+  // A ready Claude shows no setup card, only the box to start a task.
+  await expect(page.getByRole("textbox", { name: "Give Claude a task" })).toBeEnabled();
+  await expect(page.getByTestId("claude-setup")).toHaveCount(0);
 }
 
 async function startSession(page: Page, prompt: string): Promise<Locator> {
-  await page.getByRole("textbox", { name: "What should Claude do?" }).fill(prompt);
+  await page.getByRole("textbox", { name: "Give Claude a task" }).fill(prompt);
   await page.getByRole("button", { name: "Start", exact: true }).click();
   return page.getByTestId("agent-session");
 }
 
+/**
+ * Waits until `card` can be answered. Nothing is allowed unseen: a press on
+ * Allow before then opens the card's details, which counts them seen.
+ */
+async function reveal(card: Locator): Promise<void> {
+  const allow = card.getByRole("button", { name: "Allow once", exact: true });
+  try {
+    await expect(allow).toHaveAttribute("aria-disabled", "false", { timeout: 2000 });
+  } catch {
+    // One press: a second would close the card again.
+    await allow.click();
+    await expect(allow).toHaveAttribute("aria-disabled", "false");
+  }
+}
+
 /** Answers the approval card named `name` once it can be answered. */
-async function answer(page: Page, name: RegExp, decision: "Allow" | "Deny"): Promise<void> {
+async function answer(page: Page, name: RegExp, decision: "Allow once" | "Deny"): Promise<void> {
   const card = page.getByTestId("approvals").getByRole("group", { name });
   await expect(card).toBeVisible();
   const button = card.getByRole("button", { name: decision, exact: true });
-  await expect(button).toHaveAttribute("aria-disabled", "false");
+  await reveal(card);
   await button.click();
   await expect(card).toBeHidden();
 }
@@ -59,8 +76,8 @@ async function answer(page: Page, name: RegExp, decision: "Allow" | "Deny"): Pro
 async function denyWithMessage(page: Page, name: RegExp, message: string): Promise<void> {
   const card = page.getByTestId("approvals").getByRole("group", { name });
   await expect(card).toBeVisible();
-  await expect(card.getByRole("button", { name: "Allow" })).toHaveAttribute("aria-disabled", "false");
-  await card.getByRole("button", { name: "Deny with message…" }).click();
+  await reveal(card);
+  await card.getByRole("button", { name: "Deny with a message…" }).click();
   await card.getByRole("textbox", { name: "Message to the agent" }).fill(message);
   const send = card.getByRole("button", { name: "Send denial" });
   await expect(send).toHaveAttribute("aria-disabled", "false");
@@ -69,7 +86,7 @@ async function denyWithMessage(page: Page, name: RegExp, message: string): Promi
 }
 
 async function waitingForYou(session: Locator): Promise<void> {
-  await expect(session.getByRole("status")).toHaveText("Done, you can reply");
+  await expect(session.getByRole("status")).toHaveText("Done");
 }
 
 async function reply(session: Locator, text: string): Promise<void> {
@@ -77,8 +94,12 @@ async function reply(session: Locator, text: string): Promise<void> {
   await session.getByRole("button", { name: "Send" }).click();
 }
 
+/** A Done session shows no Stop button; the palette stops it. */
 async function stop(session: Locator): Promise<void> {
-  await session.getByRole("button", { name: "Stop" }).click();
+  const page = session.page();
+  await page.keyboard.press("ControlOrMeta+Shift+P");
+  await page.getByRole("combobox", { name: "Type a command" }).fill("Stop the agent");
+  await page.keyboard.press("Enter");
   await expect(session.getByRole("status")).toHaveText("Stopped");
 }
 
@@ -115,15 +136,14 @@ test("allow an edit, reply, allow a command and stop", async ({ page }) => {
     page,
     "Fix the typo in README.md with the Edit tool. Do not run commands and do not change anything else.",
   );
-  await answer(page, /Edit .*README\.md/, "Allow");
+  await answer(page, /Edit .*README\.md/, "Allow once");
   await waitingForYou(session);
   expect(readFileSync(join(dir, "README.md"), "utf8")).toBe("# Demo\n\nThis is the demo.\n");
 
   await reply(session, "Now run `echo ok > done.txt` with the Bash tool once, then say done.");
-  await answer(page, /Run echo ok > done\.txt/, "Allow");
+  await answer(page, /Run echo ok > done\.txt/, "Allow once");
   await waitingForYou(session);
   expect(readFileSync(join(dir, "done.txt"), "utf8")).toBe("ok\n");
-  await expect(page.getByTestId("transcript")).toContainText("Tool output");
   await stop(session);
 
   const lines = cliLines(recording(before, base, "edit_allowed"));
@@ -143,7 +163,11 @@ test("a hook asks before a write outside the project even when settings allow it
   await open(page, dir);
   const trust = page.getByTestId("project-trust");
   await expect(trust.getByTestId("broad-rules")).toContainText("without asking you");
-  await trust.getByRole("button", { name: "Trust project" }).click();
+  // Trust is at the bottom of the full list, never on the card itself.
+  await trust.getByRole("button", { name: "Review and trust…" }).click();
+  await trust.getByTestId("trust-details").getByRole("button", { name: "Trust project" }).click();
+  await expect(trust.getByRole("heading")).toHaveText("Trusted project settings");
+  await trust.getByRole("button", { name: "Details" }).click();
   await expect(trust.getByRole("heading")).toHaveText("Project settings are on");
 
   const session = await startSession(
@@ -153,7 +177,8 @@ test("a hook asks before a write outside the project even when settings allow it
   );
   await denyWithMessage(page, /notes\.txt/, "Keep files inside the project.");
   await waitingForYou(session);
-  await expect(page.getByTestId("transcript")).toContainText("Keep files inside the project.");
+  // The step says it was denied; the message went to Claude (recorded below).
+  await expect(page.getByTestId("transcript")).toContainText(/Write .*notes\.txt\s*Denied/);
   expect(existsSync(join(base, "notes.txt"))).toBe(false);
   await stop(session);
 
@@ -177,13 +202,16 @@ test("interrupt a running command, then go on in the same session", async ({ pag
   const card = page.getByTestId("approvals").getByRole("group", { name: /Run ping -c 120/ });
   const running = page
     .getByTestId("transcript")
-    .getByRole("listitem")
-    .filter({ hasText: /Tool Bash\s*Run ping -c 120/ });
+    .locator(".step")
+    .filter({ hasText: /ping -c 120/ });
   await expect(card.or(running).first()).toBeVisible();
-  if (await card.isVisible()) await answer(page, /Run ping -c 120/, "Allow");
+  if (await card.isVisible()) await answer(page, /Run ping -c 120/, "Allow once");
   await expect(session.getByRole("status")).toHaveText("Working");
   await session.getByRole("button", { name: "Interrupt" }).click();
   await waitingForYou(session);
+  // The person stopped it: said so, and no error.
+  await expect(page.getByTestId("transcript")).toContainText("You interrupted this turn.");
+  await expect(page.getByTestId("transcript").locator("li.error")).toHaveCount(0);
 
   await reply(session, "Never mind. Reply with just the word: ready");
   await expect(page.getByTestId("transcript")).toContainText(/ready/i);
