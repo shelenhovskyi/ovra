@@ -23,9 +23,12 @@ function named(text: string, spans: Span[]): string[] {
 
 beforeAll(() => ready);
 
+// One engine for the tests below: it keeps each grammar and its compiled
+// queries once loaded, so each language is loaded and compiled only once.
+const engine = new HighlightEngine(ready);
+
 describe("language packages", () => {
   test.each(languages.map((l) => l.id))("%s: grammar loads and every query compiles", async (id) => {
-    const engine = new HighlightEngine(ready);
     await engine.open(1, await source(id), "");
     expect(engine.highlight(1, 0, 0)).toEqual([]);
   });
@@ -33,7 +36,6 @@ describe("language packages", () => {
 
 describe("HighlightEngine", () => {
   test("highlights a range with hierarchical classes", async () => {
-    const engine = new HighlightEngine(ready);
     const text = 'fn main() { println!("hi"); }';
     await engine.open(1, await source("rust"), text);
     expect(named(text, engine.highlight(1, 0, text.length))).toMatchInlineSnapshot(`
@@ -56,7 +58,6 @@ describe("HighlightEngine", () => {
   });
 
   test("earlier query files win for the same node", async () => {
-    const engine = new HighlightEngine(ready);
     const text = "let x: number = 1;";
     await engine.open(1, await source("typescript"), text);
     // `typescript/highlights.scm` comes first and calls `number` a builtin type.
@@ -64,7 +65,6 @@ describe("HighlightEngine", () => {
   });
 
   test("incremental edits give the same tree as a fresh parse", async () => {
-    const engine = new HighlightEngine(ready);
     const rust = await source("rust");
     const changes = [
       { from: 3, to: 4, insert: "main" },
