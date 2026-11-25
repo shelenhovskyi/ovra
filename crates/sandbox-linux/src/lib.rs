@@ -69,6 +69,9 @@ pub struct Setup {
     pub toolchains: Vec<PathBuf>,
     /// Folders hidden even outside the home folder: Ovra's data folder.
     pub hidden: Vec<PathBuf>,
+    /// Ovra's data folder. A language server's cache folder must be inside
+    /// its `lsp` folder.
+    pub data_dir: PathBuf,
     /// Where sessions keep their package caches, one folder per project, so
     /// what an agent puts in a cache never reaches the user's own builds.
     pub caches: PathBuf,
@@ -100,7 +103,8 @@ impl Setup {
             ],
             // The temporary folder holds the netproxy's sockets of every
             // session; `/tmp` is hidden anyway.
-            hidden: vec![data_dir, std::env::temp_dir()],
+            hidden: vec![data_dir.clone(), std::env::temp_dir()],
+            data_dir,
             home,
             protected,
         })
@@ -333,6 +337,7 @@ mod tests {
             path: "/usr/bin".into(),
             toolchains: Vec::new(),
             hidden: Vec::new(),
+            data_dir: "/nowhere/data".into(),
             caches: "/nowhere/caches".into(),
             protected: Protected { work_dir: &[] },
         };

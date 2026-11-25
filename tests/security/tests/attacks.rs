@@ -116,6 +116,7 @@ impl World {
             path: "/usr/local/bin:/usr/bin:/bin".into(),
             toolchains: vec![self.home.join(".cargo")],
             hidden: vec![self.data.clone(), std::env::temp_dir()],
+            data_dir: self.data.clone(),
             caches: self.data.join("sandbox-caches"),
             protected: Protected {
                 work_dir: &ovra_sandbox::PROTECTED_IN_WORK_DIR,

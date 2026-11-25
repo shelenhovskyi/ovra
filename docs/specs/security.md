@@ -154,13 +154,18 @@ server's sandbox from the same parts as an agent's: the namespaces, the
 system read-only, the hidden folders and secrets, the filtered `PATH`,
 the toolchains, Landlock and seccomp through the helper. It differs in:
 
-- no agent state: nothing of `~/.claude` or `~/.claude.json`;
+- no agent state: nothing of `~/.claude` or `~/.claude.json`; a `read`
+  path inside or holding them, a never-bound folder (`~/.config`,
+  `~/.ssh`, ...) or a credentials file (`~/.netrc`, `~/.npmrc`,
+  `credentials.toml`, ...) is refused;
 - the project read-only (so no protected paths are needed) and the
   working folder; it must not hold the home folder;
 - the cache folder the only writable folder besides a private `/tmp`
   and `/dev` (Landlock's list; `/var/tmp` and the home folder are empty
   and not writable). It must be
-  inside Ovra's data folder, which is hidden, and is bound back after it;
+  inside `<data dir>/lsp` (not just any hidden folder: the temporary
+  folder holds the netproxy's sockets), which is hidden, and is bound
+  back after it;
   it must not be inside the project;
 - the user's package caches (`~/.cargo/registry`, `~/.npm`, ...) read-only
   where they are, never the per-project copies agents get;

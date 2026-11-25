@@ -138,9 +138,11 @@ usage is billed or which cloud provider it uses. The user's package caches
 
 On Linux (`wrap_server` in `crates/sandbox-linux`, see `security.md`) the
 sandbox refuses a profile whose network is not `Blocked`, a project or
-`read` folder that holds the home folder, a `read` folder inside Ovra's
-data folder, and a cache folder inside the project or outside Ovra's data
-folder. The server's working folder is the project.
+`read` folder that holds the home folder, a `read` path inside Ovra's
+data folder or inside or holding a folder agents never get (`~/.config`,
+`~/.ssh`, ...), `~/.claude`, `~/.claude.json` or a credentials file
+(`~/.netrc`, `~/.git-credentials`, `credentials.toml`, ...), and a cache
+folder inside the project or outside `<data dir>/lsp`. The server's working folder is the project.
 
 ## Tasks
 

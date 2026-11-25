@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use ovra_core::services::{ProfileNetwork, Result, ServerProfile};
 
-use super::{CACHES, Kind, Mount, Plan, real};
+use super::{CACHES, Kind, Mount, NEVER_BOUND, Plan, SECRETS, real};
 use crate::{Setup, invalid};
 
 /// The variables a language server keeps from Ovra's environment: those of
@@ -42,10 +42,24 @@ pub(super) const SERVER_ENV_KEPT: [&str; 19] = [
     "GOPATH",
 ];
 
+/// Paths under the home folder a server's `read` folder may neither be in
+/// nor hold, besides the agent plan's [`NEVER_BOUND`] folders: Claude's
+/// state and the files that keep credentials for tools.
+const NEVER_READ: [&str; 7] = [
+    ".claude",
+    ".claude.json",
+    ".netrc",
+    ".git-credentials",
+    ".npmrc",
+    ".pypirc",
+    ".pgpass",
+];
+
 impl Plan {
     /// The sandbox of one language server. Refuses a profile with any
-    /// network, a project or folder that holds the home folder, and a cache
-    /// folder that is in the project or outside Ovra's hidden folders.
+    /// network, a project or folder that holds the home folder, a `read`
+    /// folder of Ovra's or of secrets, and a cache folder that is in the
+    /// project or outside the `lsp` folder of Ovra's data folder.
     pub(crate) fn server(setup: &Setup, profile: &ServerProfile) -> Result<Self> {
         if profile.network != ProfileNetwork::Blocked {
             return Err(invalid(
@@ -65,6 +79,11 @@ impl Plan {
                 ))
             })
         };
+        let secret: Vec<PathBuf> = NEVER_BOUND
+            .iter()
+            .chain(&NEVER_READ)
+            .map(|name| home.join(name))
+            .collect();
         let mut read = Vec::new();
         for path in &profile.read {
             // As for agents, a folder that is not there is left out.
@@ -75,6 +94,19 @@ impl Plan {
             if hidden.iter().any(|h| path.starts_with(h)) {
                 return Err(invalid(format!(
                     "the sandbox does not let a language server read {}: it is Ovra's",
+                    path.display()
+                )));
+            }
+            let named_secret = path
+                .file_name()
+                .is_some_and(|name| SECRETS.iter().any(|s| name == *s));
+            if named_secret
+                || secret
+                    .iter()
+                    .any(|s| path.starts_with(s) || s.starts_with(&path))
+            {
+                return Err(invalid(format!(
+                    "the sandbox does not let a language server read {}: it holds secrets",
                     path.display()
                 )));
             }
@@ -89,9 +121,12 @@ impl Plan {
                 cache.display()
             )));
         }
-        if !hidden.iter().any(|h| cache.starts_with(h) && cache != *h) {
+        // Not just any hidden folder: the temporary folder holds the
+        // netproxy's sockets, and the rest of the data folder is Ovra's.
+        let caches = real(&setup.data_dir.join("lsp")).ok();
+        if !caches.is_some_and(|c| cache.starts_with(&c) && cache != c) {
             return Err(invalid(format!(
-                "a language server's cache folder {} must be inside Ovra's data folder",
+                "a language server's cache folder {} must be inside the lsp folder of Ovra's data folder",
                 cache.display()
             )));
         }

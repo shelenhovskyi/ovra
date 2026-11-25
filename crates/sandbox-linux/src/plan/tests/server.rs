@@ -214,15 +214,84 @@ fn a_language_server_gets_no_network_and_no_folder_it_could_misuse() {
     );
     refused(
         &server(&project, &root.dir("elsewhere/lsp")),
-        "inside Ovra's data folder",
+        "inside the lsp folder of Ovra's data folder",
     );
     refused(
         &server(&project, &root.0.join("data")),
-        "inside Ovra's data folder",
+        "inside the lsp folder of Ovra's data folder",
     );
     let mut read = server(&project, &cache);
     read.read.push(root.dir("data/worktrees"));
     refused(&read, "it is Ovra's");
+}
+
+#[test]
+fn a_language_server_cache_is_only_in_ovras_lsp_folder() {
+    let root = Root::new("server-cache");
+    let mut setup = root.setup("/usr/bin");
+    // The temporary folder is hidden too: it holds the netproxy's sockets.
+    let temp = root.dir("tmp");
+    setup.hidden.push(temp.clone());
+    let project = root.dir("project");
+    for cache in [
+        root.dir("tmp/ovra-netproxy"),
+        root.dir("data/sandbox-caches/app"),
+        root.dir("data/worktrees/app"),
+        root.dir("data/lsp"),
+    ] {
+        let err = Plan::server(&setup, &server(&project, &cache)).unwrap_err();
+        assert!(err.message.contains("lsp folder"), "{}", err.message);
+    }
+    let cache = root.dir("data/lsp/p1/rust");
+    assert!(Plan::server(&setup, &server(&project, &cache)).is_ok());
+}
+
+#[test]
+fn a_language_server_reads_no_secrets_and_nothing_of_claude() {
+    let root = Root::new("server-secrets");
+    let setup = root.setup("/usr/bin");
+    let project = root.dir("project");
+    let cache = root.dir("data/lsp/p1/rust");
+    for path in [
+        "home/.config",
+        "home/.config/gh",
+        "home/.ssh",
+        "home/.aws/sso",
+        "home/.gnupg",
+        "home/.docker",
+        "home/.kube",
+        "home/.local",
+        "home/.local/share/keyrings",
+        "home/.claude",
+        "home/.claude/agents",
+        "home/.claude.json",
+        "home/.netrc",
+        "home/.git-credentials",
+        "home/.npmrc",
+        "home/.cargo/credentials.toml",
+        "home/.cargo/credentials",
+        "home/.config/gcloud/credentials.json",
+    ] {
+        let path = if path.contains("credentials") || path.ends_with("rc") || path.ends_with("json")
+        {
+            root.file(path)
+        } else {
+            root.dir(path)
+        };
+        let mut profile = server(&project, &cache);
+        profile.read.push(path.clone());
+        let err = Plan::server(&setup, &profile).unwrap_err();
+        assert_eq!(err.code, ErrorCode::BadRequest);
+        assert!(
+            err.message.contains("holds secrets"),
+            "{path:?}: {}",
+            err.message
+        );
+    }
+    // A toolchain folder is fine: its own secrets are covered.
+    let mut profile = server(&project, &cache);
+    profile.read.push(root.dir("home/.local/lib/node"));
+    assert!(Plan::server(&setup, &profile).is_ok());
 }
 
 #[test]
@@ -234,6 +303,7 @@ fn ovra_data_inside_a_folder_a_server_reads_stays_hidden_but_its_cache() {
     let cache = root.dir("shared/data/lsp/p1/rust");
     let mut setup = root.setup("/usr/bin");
     setup.hidden = vec![shared.join("data")];
+    setup.data_dir = shared.join("data");
     let mut profile = server(&project, &cache);
     profile.read.push(shared.clone());
     let plan = Plan::server(&setup, &profile).unwrap();
