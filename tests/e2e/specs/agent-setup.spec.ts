@@ -31,9 +31,11 @@ test("review what a project would load, trust it and stop trusting it", async ({
   await expect(trust.getByTestId("trust-runs-code")).toHaveText(
     '⚠ Once you trust this project, 1 hook will run commands on your computer: "PostToolUse (Edit): ./fmt.sh".',
   );
-  await trust.getByRole("button", { name: "Show details" }).click();
+  // Trust is at the bottom of the full list, never on the card itself.
+  await expect(trust.getByRole("button", { name: "Trust project" })).toHaveCount(0);
+  await trust.getByRole("button", { name: "Review and trust…" }).click();
   await expect(trust.getByTestId("trust-details")).toContainText("PostToolUse (Edit): ./fmt.sh");
-  await trust.getByRole("button", { name: "Trust project" }).click();
+  await trust.getByTestId("trust-details").getByRole("button", { name: "Trust project" }).click();
   // Trusted: one quiet line; the rest is under Details.
   await expect(trust.getByRole("heading")).toHaveText("Trusted project settings");
   await expect(trust.getByTestId("trust-warning-count")).toHaveText("⚠ 1 warning");

@@ -14,12 +14,22 @@ async function trustedProject(page: Page, files: Record<string, string>): Promis
   const projects = page.getByTestId("project-list");
   await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
   await projects.getByRole("button", { name: "Open", exact: true }).click();
+  // No .claude/ here: no trust card until the status bar's item asks for it.
   const trust = page.getByTestId("project-trust");
-  // No .claude/ here: the card is one line, and trusting starts the language servers.
+  await page.getByRole("treeitem", { name: /main\.rs/ }).click();
+  await expect(trust).toHaveCount(0);
+  // The editor asks for a server, so the status bar offers to turn them on.
+  await page.keyboard.press("ControlOrMeta+E");
+  await page.getByTestId("lsp-status").click();
+  await page.getByTestId("lsp-panel").getByRole("button", { name: "Review and trust…" }).click();
   await expect(trust.getByTestId("trust-language-servers")).toContainText("language servers");
   await trust.getByRole("button", { name: "Trust project" }).click();
-  await expect(trust.getByRole("heading")).toHaveText("Project trusted · no Claude settings of its own");
+  await expect(trust).toHaveCount(0);
+  // The server starts; then back to the viewer, where each test starts.
+  await expect(page.getByRole("button", { name: /fake-lsp/ })).toBeVisible();
   await page.getByRole("treeitem", { name: /main\.rs/ }).click();
+  await page.keyboard.press("ControlOrMeta+E");
+  await expect(page.getByTestId("lsp-edit-hint")).toBeVisible();
   return dir;
 }
 

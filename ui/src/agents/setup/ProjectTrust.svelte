@@ -1,10 +1,13 @@
 <script lang="ts">
 // Per-project trust. Until the user trusts a project, Claude runs with the
 // user's own settings only; trusting it also loads the project's .claude/
-// settings, hooks, agents, commands and skills. The card leads with counts
-// and the risky parts (rules that skip approvals, what runs code) in one or
-// two lines; the full lists sit behind "Show details". Settings that changed
-// since (a git pull, say) do not load until the user trusts them again.
+// settings, hooks, agents, commands and skills. A project without settings
+// of its own shows no card: the `projects.review_trust` command opens it
+// (the language servers' "Turn on" does). With settings, the card leads
+// with counts and every warning line; "Review and trust…" opens the full
+// lists, and Trust sits at their bottom, so nobody trusts what they did not
+// see listed. Settings that changed since (a git pull, say) do not load
+// until the user trusts them again.
 import { tick, untrack } from "svelte";
 import { registerCommand } from "../../keys/commands";
 import type { ProjectConfigReview } from "../../lib/protocol";
@@ -221,7 +224,8 @@ function trust(trusted: boolean): Promise<void> {
 }
 </script>
 
-{#if project && (review || error)}
+<!-- No settings of its own: nothing to trust here until someone asks (the command). -->
+{#if project && (review || error) && !(empty && !details)}
   <section
     class="trust"
     class:changed
@@ -249,6 +253,7 @@ function trust(trusted: boolean): Promise<void> {
             onclick={trustPress}>Trust project</button
           >
         {/if}
+        <button type="button" class="link" onclick={() => (details = false)}>Close</button>
       </div>
       <!-- Says why an early press did nothing; goes once the buttons are ready. -->
       <p class="wait" aria-live="polite" data-testid="trust-wait">{early && !armed ? EARLY : ""}</p>
@@ -306,37 +311,15 @@ function trust(trusted: boolean): Promise<void> {
           class="link"
           aria-expanded={details}
           aria-controls="trust-details"
-          onclick={() => (details = !details)}>{details ? "Hide details" : "Show details"}</button
+          onclick={() => (details = !details)}
+          >{details ? "Hide details" : project.trusted && !changed ? "Show details" : "Review and trust…"}</button
         >
-        <span class="actions">
-          {#if project.trusted}
+        {#if project.trusted}
+          <span class="actions">
             <button type="button" disabled={busy} onclick={() => trust(false)}>Stop trusting</button>
-          {/if}
-          {#if changed}
-            <button
-              type="button"
-              class="primary"
-              disabled={busy}
-              aria-disabled={!armed}
-              title={armed ? undefined : EARLY}
-              onkeydown={noRepeat}
-              onclick={trustPress}>Trust the new settings</button
-            >
-          {:else if !project.trusted}
-            <button
-              type="button"
-              class="primary"
-              disabled={busy}
-              aria-disabled={!armed}
-              title={armed ? undefined : EARLY}
-              onkeydown={noRepeat}
-              onclick={trustPress}>Trust project</button
-            >
-          {/if}
-        </span>
+          </span>
+        {/if}
       </div>
-      <!-- Says why an early press did nothing; goes once the buttons are ready. -->
-      <p class="wait" aria-live="polite" data-testid="trust-wait">{early && !armed ? EARLY : ""}</p>
       {#if details}
         <div id="trust-details" class="details" data-testid="trust-details">
           <p class="detail" data-testid="trust-language-servers">
@@ -378,6 +361,22 @@ function trust(trusted: boolean): Promise<void> {
               {/each}
             </details>
           {/each}
+          {#if changed || !project.trusted}
+            <!-- Trust at the bottom of the lists: what it loads was in front of the person first. -->
+            <div class="row end">
+              <button
+                type="button"
+                class="primary"
+                disabled={busy}
+                aria-disabled={!armed}
+                title={armed ? undefined : EARLY}
+                onkeydown={noRepeat}
+                onclick={trustPress}>{changed ? "Trust the new settings" : "Trust project"}</button
+              >
+            </div>
+            <!-- Says why an early press did nothing; goes once the buttons are ready. -->
+            <p class="wait" aria-live="polite" data-testid="trust-wait">{early && !armed ? EARLY : ""}</p>
+          {/if}
         </div>
       {/if}
     {/if}
@@ -420,6 +419,10 @@ function trust(trusted: boolean): Promise<void> {
     align-items: center;
     justify-content: space-between;
     gap: 8px;
+  }
+  .row.end {
+    justify-content: flex-end;
+    margin-top: 4px;
   }
   .actions {
     display: flex;

