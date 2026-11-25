@@ -44,11 +44,11 @@ import { GitFile } from "./git/file";
 import type { HighlightClient, HighlightedDoc } from "./highlight/client";
 import { treeSitterHighlighting } from "./highlight/extension";
 import type { LanguageSource } from "./highlight/protocol";
-import { dedentLines, indentation, indentLines, indentTab, newlineKeepIndent } from "./indent";
+import { dedentLines, fileIndentation, indentLines, indentTab, newlineKeepIndent } from "./indent";
 import { commentTokens, type Language, languageFor, languageSource } from "./languages";
 import { editorPrefs } from "./prefs.svelte";
 import { goToLine, runSearch, searchPhrases } from "./search";
-import { lineEndingOf } from "./status.svelte";
+import { detectIndent, lineEndingOf } from "./status.svelte";
 import { theme } from "./theme";
 
 /**
@@ -123,6 +123,8 @@ const DRAFT_DELAY_MS = 300;
  */
 const HEAVY_TEXT_CHARS = 1024 * 1024;
 const HEAVY_LINE_CHARS = 10_000;
+/** Lines read to tell a file's indentation (detectIndent reads no more). */
+const INDENT_SAMPLE = 2000;
 
 /** Whether `text` is too big, or has too long a line, for the costly extensions. */
 function isHeavy(text: string): boolean {
@@ -185,6 +187,8 @@ export class Buffer {
   private readonly label = new Compartment();
   /** Line wrapping, tab size and indent style, as `editorPrefs` says. */
   private readonly prefs = new Compartment();
+  /** The file's own indentation when it was read ("Tab", "Spaces: N"); it wins over the preferences. */
+  private fileIndent: string | null = null;
 
   constructor(
     private readonly options: Options,
@@ -258,7 +262,7 @@ export class Buffer {
 
   /** Follows the editor preferences (word wrap, tab size) as they are now. */
   applyPrefs(): void {
-    const effects = this.prefs.reconfigure(prefsExtension());
+    const effects = this.prefs.reconfigure(prefsExtension(this.fileIndent));
     this.mirror?.dispatch({ effects });
     if (this.view) this.view.dispatch({ effects });
     else if (this.state) this.state = this.state.update({ effects }).state;
@@ -458,6 +462,7 @@ export class Buffer {
   private create(text: string, cursor = 0): EditorState {
     this.highlight?.close();
     this.heavy = isHeavy(text);
+    this.fileIndent = detectIndent(text.split("\n", INDENT_SAMPLE), "") || null;
     const highlighter = this.source && !this.heavy && this.options.highlighter();
     this.highlight = this.source && highlighter ? highlighter.open(this.source, text) : null;
     return EditorState.create({
@@ -515,7 +520,7 @@ export class Buffer {
       }),
       // Named, so a screen reader says which file the text box edits.
       this.label.of(this.labelExtension()),
-      this.prefs.of(prefsExtension()),
+      this.prefs.of(prefsExtension(this.fileIndent)),
       commentData(this.language),
       theme,
       searchPhrases,
@@ -648,10 +653,11 @@ function commentData(language: Language | null): Extension {
   return tokens ? EditorState.languageData.of(() => [{ commentTokens: tokens }]) : [];
 }
 
-function prefsExtension(): Extension {
+/** Word wrap, and the indentation of `fileIndent` (detected at load) or else the preferences. */
+function prefsExtension(fileIndent: string | null): Extension {
   return [
     editorPrefs.wordWrap ? EditorView.lineWrapping : [],
-    indentation(editorPrefs.tabSize, editorPrefs.insertSpaces),
+    fileIndentation(fileIndent, editorPrefs.tabSize, editorPrefs.insertSpaces),
   ];
 }
 

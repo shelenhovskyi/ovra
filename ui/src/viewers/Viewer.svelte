@@ -70,7 +70,8 @@ $effect(() => {
   publishFacts(facts, {
     cursor: null,
     language: languageFor(path)?.name ?? "Plain text",
-    indent: detectIndent(textLines),
+    // What Edit would insert (editor/buffers.svelte.ts): the file's own indentation, else the preferences.
+    indent: detectIndent(textLines, editorPrefs.insertSpaces ? `Spaces: ${editorPrefs.tabSize}` : "Tab"),
     lineEnding: lineEndingOf(view.text),
   });
   return () => clearFacts(facts);

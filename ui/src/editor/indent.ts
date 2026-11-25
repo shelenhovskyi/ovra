@@ -15,6 +15,21 @@ export function indentation(tabSize: number, spaces: boolean): Extension {
   return [EditorState.tabSize.of(tabSize), insertSpaces.of(spaces)];
 }
 
+/**
+ * The facets for a file: its own indentation when it has one (`detected`,
+ * "Tab" or "Spaces: N" from `detectIndent`), else the preferences.
+ */
+export function fileIndentation(detected: string | null, tabSize: number, spaces: boolean): Extension {
+  if (detected === "Tab") return indentation(tabSize, false);
+  const width = Number(/^Spaces: (\d+)$/.exec(detected ?? "")?.[1]);
+  return width > 0 ? indentation(width, true) : indentation(tabSize, spaces);
+}
+
+/** What Tab inserts, as the status bar says it: "Tab" or "Spaces: N". */
+export function indentLabel(state: EditorState): string {
+  return state.facet(insertSpaces) ? `Spaces: ${state.tabSize}` : "Tab";
+}
+
 function unit(state: EditorState): string {
   return state.facet(insertSpaces) ? " ".repeat(state.tabSize) : "\t";
 }

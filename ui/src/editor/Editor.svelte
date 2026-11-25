@@ -35,7 +35,8 @@ import { editorMenu } from "./context-menu";
 import { answerClose, tabs } from "./open-files.svelte";
 import { editorPrefs } from "./prefs.svelte";
 import { hideView, showView } from "./search";
-import { clearFacts, cursorOf, detectIndent, type FileFacts, publishFacts } from "./status.svelte";
+import { indentLabel } from "./indent";
+import { clearFacts, cursorOf, type FileFacts, publishFacts } from "./status.svelte";
 
 const { workspace } = useOvra();
 const viewKeys = formatShortcut(liveKeys("Mod+E", inBrowserTab()), isApple());
@@ -57,7 +58,7 @@ $effect(() => {
     dispatchTransactions: (transactions, target) => {
       target.update(transactions);
       if (shownView === target) track(target, transactions.some((t) => t.docChanged));
-      if (shownView === target && workspace.focused) publish(target, transactions.some((t) => t.docChanged));
+      if (shownView === target && workspace.focused) publish(target);
     },
   });
   view = created;
@@ -113,7 +114,7 @@ $effect(() => {
   const lsp = tabs.current?.lsp;
   if (!target || !next || !workspace.focused) return;
   untrack(() => {
-    publish(target, true);
+    publish(target);
     showView(target);
     // Showing a file is what starts its language server (ADR 0007).
     lsp?.showing(next, target);
@@ -136,22 +137,19 @@ $effect(() => {
   if (shownView) untrack(() => shownView && track(shownView, false));
 });
 
-/** The status bar's facts (status.svelte.ts); the indentation is read again only when the text changes. */
+/** The status bar's facts (status.svelte.ts). */
 const facts = {};
 /** The view, once it shows `shown`. */
 let shownView = $state.raw<EditorView | null>(null);
-let indent = "";
-/** What Tab inserts, for a text with no indentation to go by. */
-const ownIndent = () => (editorPrefs.insertSpaces ? `Spaces: ${editorPrefs.tabSize}` : "Tab");
 /** Untracked: an effect that dispatches (word wrap, a reveal) must not come to depend on it. */
-function publish(target: EditorView, docChanged: boolean): void {
+function publish(target: EditorView): void {
   untrack(() => {
     const state = target.state;
-    if (docChanged) indent = detectIndent(state.doc.iterLines(), ownIndent());
     const next: FileFacts = {
       cursor: cursorOf(state),
       language: shown?.heavy ? "Plain text (large file)" : (shown?.language?.name ?? "Plain text"),
-      indent,
+      // What Tab inserts: the file's own indentation, or the preferences (buffers.svelte.ts).
+      indent: indentLabel(state),
       // The file's own line breaks, which saving keeps.
       lineEnding: shown?.lineEnding ?? "LF",
     };
