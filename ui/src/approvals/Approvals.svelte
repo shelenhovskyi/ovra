@@ -10,8 +10,12 @@
 //   was reloaded in another order), and the
 //   buttons look disabled exactly as long as they are;
 // - one key press answers at most one request: auto-repeat is ignored and the
-//   next answer needs the key released first.
+//   next answer needs the key released first;
+// - nothing is allowed unseen: Allow counts only once the request's details
+//   (or its action, without details) have been in sight; before that a press
+//   scrolls them into view and waits again.
 import { tick, untrack } from "svelte";
+import type { Attachment } from "svelte/attachments";
 import { SvelteMap, SvelteSet } from "svelte/reactivity";
 import { sandboxGaps, sandboxState } from "../agents/sandbox";
 import { agentSessions } from "../agents/sessions.svelte";
@@ -35,6 +39,7 @@ let denying = $state<string | null>(null);
 let note = $state("");
 let list = $state<HTMLElement>();
 let heading = $state<HTMLElement>();
+let section = $state<HTMLElement>();
 let returnTo: HTMLElement | null = null;
 /** The list is hidden; the heading still counts what waits. */
 let collapsed = $state(false);
@@ -42,6 +47,10 @@ let collapsed = $state(false);
 const opened = new SvelteSet<PermissionId>();
 /** Said to screen readers: what a jump to a request found. */
 let notice = $state("");
+/** Requests whose details have been in sight, so Allow may count. */
+const seen = new SvelteSet<PermissionId>();
+/** A note on one card: why a press did not answer. */
+let said = $state<{ id: PermissionId; text: string } | null>(null);
 const projects = new SvelteMap<ProjectId, Project>();
 /** Projects already asked for, so a project the core does not know is asked once. */
 const requested = new Set<ProjectId>();
@@ -52,6 +61,38 @@ const idle = $derived(queue.pending.length === 0 && !queue.error && !notice);
 const armedAt = (id: string): number => Math.max(queue.arrived.get(id) ?? 0, quietFrom) + ARM_MS;
 /** The one test for both the look of the buttons and whether a press counts. */
 const armed = (id: string): boolean => !keyHeld && now >= armedAt(id) && !queue.answering.has(id);
+/** Allow also needs the details to have been in sight. */
+const allowable = (id: PermissionId): boolean => armed(id) && seen.has(id);
+
+const EARLY = "Ready in a moment — read the request first.";
+const UNSEEN = "Scrolled to the request: read it, then allow.";
+/** In sight: all of it, or at least this many pixels of a taller one. */
+const SEEN_PX = 120;
+
+/** Marks a request as seen once the element (its details) is in sight. */
+function watch(id: PermissionId): Attachment<HTMLElement> {
+  return (element) => {
+    // No observer, no way to tell: the request is never counted as seen.
+    if (typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          if (entry.intersectionRatio >= 0.99 || entry.intersectionRect.height >= SEEN_PX) seen.add(id);
+        }
+      },
+      { threshold: [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1] },
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  };
+}
+
+/** Focuses a card and scrolls all of it into view, not just its first line. */
+function bringUp(target: HTMLElement): void {
+  target.focus({ preventScroll: true });
+  target.scrollIntoView?.({ block: "nearest" });
+}
 
 function quiet(): void {
   quietFrom = Date.now();
@@ -73,6 +114,8 @@ $effect(() => {
   untrack(() => {
     if (shown.some((id, i) => ids[i] !== id)) quiet();
     for (const id of opened) if (!ids.includes(id)) opened.delete(id);
+    for (const id of seen) if (!ids.includes(id)) seen.delete(id);
+    if (said && !ids.includes(said.id)) said = null;
   });
   shown = ids;
 });
@@ -118,7 +161,8 @@ $effect(() => {
     const target = card(id);
     // Never another request instead: a key press meant for this one would answer it.
     notice = target ? "" : "That request was already answered.";
-    (target ?? heading)?.focus();
+    if (target) bringUp(target);
+    else heading?.focus();
   };
   return () => {
     queue.revealer = null;
@@ -141,7 +185,9 @@ function remember(): void {
 async function enter(): Promise<void> {
   remember();
   if (collapsed) await show();
-  (cards()[0] ?? heading)?.focus();
+  const first = cards()[0];
+  if (first) bringUp(first);
+  else heading?.focus();
 }
 
 async function show(): Promise<void> {
@@ -163,16 +209,37 @@ function expand(id: PermissionId): void {
 
 function leave(): void {
   if (returnTo?.isConnected) returnTo.focus();
+  else if (document.activeElement instanceof HTMLElement && section?.contains(document.activeElement))
+    document.activeElement.blur();
   returnTo = null;
 }
 
-async function answer(request: PermissionRequest, decision: Decision, message?: string): Promise<void> {
+/** Scrolls a request's details into view; what moved under the pointer waits again. */
+function showDetails(request: PermissionRequest): void {
+  const target = card(request.id);
+  target?.scrollIntoView?.({ block: "nearest" });
+  target?.querySelector("dl")?.scrollIntoView?.({ block: "nearest" });
+  said = { id: request.id, text: UNSEEN };
+  quiet();
+}
+
+async function answer(
+  request: PermissionRequest,
+  decision: Decision,
+  message?: string,
+  byPointer = false,
+): Promise<void> {
   if (!armed(request.id)) return;
   // Nothing is allowed unseen: the first press shows what it would allow.
   if (decision === "allow" && !isOpen(request.id)) {
     expand(request.id);
     return;
   }
+  if (decision === "allow" && !seen.has(request.id)) {
+    showDetails(request);
+    return;
+  }
+  said = null;
   // Only a request already on screen may take the focus next: one that
   // arrives while the answer is on its way was never seen.
   const before = queue.pending.map((r) => r.id);
@@ -188,11 +255,24 @@ async function answer(request: PermissionRequest, decision: Decision, message?: 
   }
   await tick();
   if (!focused) return;
-  const seen = [...before.slice(index + 1), ...before.slice(0, index).reverse()];
-  const next = seen.map(card).find((c) => c !== undefined);
-  // With nothing seen left, stay on the heading. A request that arrives later
-  // is never focused on its own: typing must not land on it.
-  (next ?? heading)?.focus();
+  const onScreen = [...before.slice(index + 1), ...before.slice(0, index).reverse()];
+  const next = onScreen.map(card).find((c) => c !== undefined);
+  if (next) next.focus();
+  // With nothing seen left, a pointer answer gives focus back, so the empty
+  // section does not stay over the agents; keys stay on the heading. A
+  // request that arrives later is never focused on its own: typing must not land on it.
+  else if (byPointer) leave();
+  else heading?.focus();
+}
+
+/** Answers from a click; one too early says why instead of doing nothing. */
+function answerByClick(event: MouseEvent, request: PermissionRequest, decision: Decision): void {
+  if (!armed(request.id)) {
+    said = { id: request.id, text: EARLY };
+    return;
+  }
+  // `detail` is 0 for a click from Enter or Space on the button.
+  void answer(request, decision, undefined, event.detail > 0);
 }
 
 /** Answers from a key press: at most one answer per press. */
@@ -302,6 +382,7 @@ function workerCopy(session: SessionId): string {
 <section
   class="approvals"
   class:idle
+  bind:this={section}
   aria-labelledby="approvals-heading"
   data-testid="approvals"
 >
@@ -381,7 +462,7 @@ function workerCopy(session: SessionId): string {
               <p>{gaps}</p>
             </details>
           {/if}
-          <h3 id="{domId}-action">{summary.action}</h3>
+          <h3 id="{domId}-action" {@attach summary.details.length === 0 && watch(request.id)}>{summary.action}</h3>
           {#if request.project !== workspace.project?.id}
             <p class="other" data-testid="approval-other-project">Not the project open in this window</p>
           {/if}
@@ -410,7 +491,7 @@ function workerCopy(session: SessionId): string {
             <p class="title">Agent's note: {request.title}</p>
           {/if}
           {#if isOpen(request.id)}
-            <dl>
+            <dl {@attach watch(request.id)}>
               {#each summary.details as detail}
                 <dt>{detail.label}</dt>
                 <dd><pre>{detail.text}</pre></dd>
@@ -425,18 +506,24 @@ function workerCopy(session: SessionId): string {
             <button
               type="button"
               class="allow"
-              aria-disabled={!ready}
+              aria-disabled={!allowable(request.id)}
               aria-keyshortcuts="Y"
-              onclick={() => answer(request, "allow")}>Allow <kbd aria-hidden="true">Y</kbd></button
+              title={ready ? undefined : EARLY}
+              onclick={(event) => answerByClick(event, request, "allow")}>Allow <kbd aria-hidden="true">Y</kbd></button
             >
             <button
               type="button"
               aria-disabled={!ready}
               aria-keyshortcuts="N"
-              onclick={() => answer(request, "deny")}>Deny <kbd aria-hidden="true">N</kbd></button
+              title={ready ? undefined : EARLY}
+              onclick={(event) => answerByClick(event, request, "deny")}>Deny <kbd aria-hidden="true">N</kbd></button
             >
             <button type="button" aria-keyshortcuts="Shift+N" onclick={() => openDeny(request)}>Deny with message…</button>
           </div>
+          <!-- An early note goes once the request is ready; the other stays until the next press. -->
+          <p class="wait" aria-live="polite" data-testid="approval-wait">
+            {said?.id === request.id && (said.text !== EARLY || !ready) ? said.text : ""}
+          </p>
           {#if denying === request.id}
             <form
               onsubmit={(event) => {
@@ -470,6 +557,11 @@ function workerCopy(session: SessionId): string {
     flex-direction: column;
     padding: 8px 12px;
     border-bottom: 1px solid #2a2a31;
+  }
+  /* While something waits, it keeps room for a request even in a short
+     column (the stacked layout): a 26 px strip shows only who asks. */
+  .approvals:not(.idle) {
+    min-height: min(100%, 220px);
   }
   .body {
     flex: 0 1 auto;
@@ -583,6 +675,14 @@ function workerCopy(session: SessionId): string {
     margin: 0 0 6px;
     font-size: 12px;
     font-weight: 600;
+    color: #ffd36b;
+  }
+  .wait:empty {
+    display: none;
+  }
+  .wait {
+    margin: 6px 0 0;
+    font-size: 12px;
     color: #ffd36b;
   }
   .notice {

@@ -19,8 +19,46 @@ const bash = (id: string, command = "ls -la"): PermissionRequest => ({
 let app: Record<string, unknown> | null = null;
 let target: HTMLElement;
 
+/** While set, no observed element comes into sight. */
+let outOfSight = false;
+let observers: FakeObserver[] = [];
+
+/** jsdom lays nothing out: everything observed is in sight unless `outOfSight`. */
+class FakeObserver {
+  readonly targets = new Set<Element>();
+  constructor(private readonly callback: IntersectionObserverCallback) {
+    observers.push(this);
+  }
+  observe(element: Element): void {
+    this.targets.add(element);
+    if (!outOfSight) this.report(element);
+  }
+  report(element: Element): void {
+    const entry = { target: element, isIntersecting: true, intersectionRatio: 1, intersectionRect: { height: 20 } };
+    this.callback([entry as unknown as IntersectionObserverEntry], this as unknown as IntersectionObserver);
+  }
+  disconnect(): void {
+    this.targets.clear();
+  }
+}
+
+function comeIntoSight(): void {
+  outOfSight = false;
+  for (const observer of observers) for (const element of observer.targets) observer.report(element);
+}
+
+/** Elements scrolled into view, with their options. */
+let scrolled: [Element, unknown][] = [];
+
 beforeEach(() => {
   vi.useFakeTimers();
+  outOfSight = false;
+  observers = [];
+  scrolled = [];
+  vi.stubGlobal("IntersectionObserver", FakeObserver);
+  Element.prototype.scrollIntoView = function (this: Element, options?: unknown) {
+    scrolled.push([this, options]);
+  };
   target = document.createElement("div");
   document.body.append(target);
 });
@@ -29,6 +67,8 @@ afterEach(() => {
   if (app) unmount(app);
   app = null;
   target.remove();
+  vi.unstubAllGlobals();
+  delete (Element.prototype as Partial<Element>).scrollIntoView;
   vi.useRealTimers();
 });
 
@@ -449,6 +489,69 @@ describe("Approvals", () => {
     const { approvalQueue } = await import("./queue.svelte");
     approvalQueue(core).reveal("perm2");
     expect(document.activeElement).toBe(cards()[1]);
+    // All of it, not just the line that says who asks.
+    expect(scrolled).toEqual([[cards()[1], { block: "nearest" }]]);
+  });
+
+  it("allows nothing whose details were never in sight, and scrolls them into view first", async () => {
+    const core = await setup();
+    outOfSight = true;
+    core.ask(bash("perm1"));
+    await settle(ARM_MS);
+    const allow = () => cards()[0]?.querySelector<HTMLButtonElement>("button.allow");
+    const wait = () => cards()[0]?.querySelector("[data-testid=approval-wait]")?.textContent?.trim();
+    expect(allow()?.getAttribute("aria-disabled")).toBe("true");
+    cards()[0]?.focus();
+    press("KeyY");
+    await settle();
+    expect(answers(core)).toEqual([]);
+    expect(scrolled.map(([element]) => element)).toContain(cards()[0]?.querySelector("dl"));
+    expect(wait()).toBe("Scrolled to the request: read it, then allow.");
+    // The click lands where the scroll moved things: it waits again too.
+    comeIntoSight();
+    await settle();
+    press("KeyY");
+    await settle();
+    expect(answers(core)).toEqual([]);
+    await settle(ARM_MS);
+    expect(allow()?.getAttribute("aria-disabled")).toBe("false");
+    press("KeyY");
+    await settle();
+    expect(answers(core)).toEqual([{ id: "perm1", decision: "allow" }]);
+  });
+
+  it("says why an early click on Allow does nothing, and still waits", async () => {
+    const core = await setup();
+    core.ask(bash("perm1"));
+    await settle();
+    const allow = cards()[0]?.querySelector<HTMLButtonElement>("button.allow");
+    const wait = () => cards()[0]?.querySelector("[data-testid=approval-wait]")?.textContent?.trim();
+    expect(wait()).toBe("");
+    expect(allow?.title).toBe("Ready in a moment — read the request first.");
+    allow?.click();
+    await settle();
+    expect(answers(core)).toEqual([]);
+    expect(wait()).toBe("Ready in a moment — read the request first.");
+    await settle(ARM_MS);
+    expect(wait()).toBe("");
+    expect(allow?.title).toBe("");
+    allow?.click();
+    await settle();
+    expect(answers(core)).toEqual([{ id: "perm1", decision: "allow" }]);
+  });
+
+  it("after the last answer by pointer, gives focus back instead of staying over the agents", async () => {
+    const core = await setup();
+    core.ask(bash("perm1"));
+    await settle(ARM_MS);
+    const allow = cards()[0]?.querySelector<HTMLButtonElement>("button.allow");
+    allow?.focus();
+    allow?.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
+    await settle();
+    expect(answers(core)).toEqual([{ id: "perm1", decision: "allow" }]);
+    const section = target.querySelector<HTMLElement>("[data-testid=approvals]");
+    expect(section?.classList.contains("idle")).toBe(true);
+    expect(section?.contains(document.activeElement)).toBe(false);
   });
 
   it("denies with a message from Shift+N", async () => {
