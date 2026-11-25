@@ -128,6 +128,23 @@ describe("PolicyPanel", () => {
     expect(rules()).toHaveLength(2);
   });
 
+  it("adopts a policy changed elsewhere instead of dropping it, and keeps what was typed", async () => {
+    const core = await setup();
+    $<HTMLButtonElement>("[data-testid=open-policy]")?.click();
+    await settle();
+    // Another window adds a rule; its event has not arrived yet.
+    core.rules.set("p1", [...(core.rules.get("p1") ?? []), { tool: "Read", match: "secrets/**", action: "deny" }]);
+    type("[data-testid=policy-tool]", "Bash");
+    type("[data-testid=policy-match]", "git push");
+    await submit();
+    expect($("[data-testid=policy-error]")?.textContent).toMatch(/changed elsewhere in the meantime/);
+    expect(core.rules.get("p1")).toHaveLength(3);
+    expect(rules()).toContainEqual(expect.stringMatching(/^Read\(secrets\/\*\*\)\s+Deny/));
+    expect($<HTMLInputElement>("[data-testid=policy-match]")?.value).toBe("git push");
+    await submit();
+    expect(core.rules.get("p1")?.[3]).toEqual({ tool: "Bash", match: "git push", action: "ask" });
+  });
+
   it("keeps what was typed when the same project's details refresh, and clears it for another", async () => {
     const core = await setup();
     $<HTMLButtonElement>("[data-testid=open-policy]")?.click();

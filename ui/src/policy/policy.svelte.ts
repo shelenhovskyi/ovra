@@ -58,12 +58,23 @@ export class ProjectPolicy {
     }
   }
 
-  /** Replaces the project's rules; throws the core's reason when it refuses them. */
-  async save(rules: PolicyRule[]): Promise<void> {
+  /**
+   * Replaces the project's rules with `rules`, built from `expected`. Throws
+   * the core's reason when it refuses them, and `ChangedElsewhere` after
+   * reading the fresh list when the policy changed since `expected`.
+   */
+  async save(rules: PolicyRule[], expected: PolicyRule[]): Promise<void> {
     const project = this.project;
     if (!project) throw new Error("No project is open.");
-    const reply = await this.transport.call({ method: "policy.set", params: { project, policy: { rules } } });
-    if (project !== this.project) return;
+    // The reply is kept only if no read started after the request was sent:
+    // that read may know of a later change.
+    const mine = this.latest;
+    const reply = await this.set(project, rules, expected).catch(async (err: unknown) => {
+      if (!(err instanceof CoreError && err.code === "conflict")) throw err;
+      if (project === this.project) await this.reload();
+      throw new ChangedElsewhere();
+    });
+    if (project !== this.project || mine !== this.latest) return;
     // A read that started earlier must not overwrite what was just kept.
     this.latest++;
     this.loading = false;
@@ -71,8 +82,22 @@ export class ProjectPolicy {
     this.error = null;
   }
 
+  private set(project: ProjectId, rules: PolicyRule[], expected: PolicyRule[]) {
+    return this.transport.call({
+      method: "policy.set",
+      params: { project, policy: { rules }, expected: { rules: expected } },
+    });
+  }
+
   private apply(event: CoreEvent): void {
     if (event.type === "policy.changed" && event.data.project === this.project) void this.reload();
+  }
+}
+
+/** A change built from an older policy; the fresh one is read already. */
+export class ChangedElsewhere extends Error {
+  constructor() {
+    super("The policy changed elsewhere in the meantime. The list now shows it; check it and try again.");
   }
 }
 

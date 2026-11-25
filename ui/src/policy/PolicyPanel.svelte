@@ -83,12 +83,15 @@ function toggle(): void {
   else void show();
 }
 
-async function save(rules: PolicyRule[]): Promise<boolean> {
+/** Saves `rules`, built from `from`; on a refusal the form keeps what was typed. */
+async function save(rules: PolicyRule[], from: PolicyRule[]): Promise<boolean> {
   // Buttons stay enabled while a call runs, so focus is never lost to the page.
   if (busy) return false;
   busy = true;
   try {
-    await policy.save(rules);
+    // With `from`, the core refuses a change built from an older policy, so a
+    // rule added elsewhere meanwhile is never dropped; the list is read again.
+    await policy.save(rules, from);
     formError = null;
     return true;
   } catch (err) {
@@ -116,7 +119,7 @@ async function submit(event: SubmitEvent): Promise<void> {
     return;
   }
   const next = target ? current.map((rule, i) => (i === target.index ? preview : rule)) : [...current, preview];
-  if (await save(next)) {
+  if (await save(next, current)) {
     clearForm();
     toolField?.focus();
   }
@@ -140,7 +143,8 @@ function cancel(): void {
 async function remove(index: number): Promise<void> {
   const current = policy.rules;
   if (!current) return;
-  if (await save(current.filter((_, i) => i !== index))) {
+  const next = current.filter((_, i) => i !== index);
+  if (await save(next, current)) {
     // Places in the list moved, so an edit in progress starts over.
     if (editing) clearForm();
     await tick();
