@@ -26,7 +26,7 @@ let {
   onreveal?: () => void;
 } = $props();
 
-const ROW_HEIGHT = 22;
+const ROW_HEIGHT = 28;
 const OVERSCAN = 8;
 const TYPEAHEAD_RESET_MS = 700;
 const ID = `tree-${Math.random().toString(36).slice(2, 8)}`;
@@ -317,12 +317,28 @@ function onkeydown(e: KeyboardEvent): void {
 }
 </script>
 
+{#snippet icon(d: string)}
+  <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path {d} /></svg>
+{/snippet}
+
 <div class="panel">
   <div class="toolbar">
-    <button type="button" onclick={collapseAll} title="Collapse all folders">Collapse all</button>
-    <button type="button" onclick={reveal} disabled={!openPath} title="Find the open file in the tree: opens its folders and selects it">Reveal</button>
-    <button type="button" onclick={toggleChanged} aria-pressed={filter === "changed"} title="Show only files git sees as changed or new, and their folders">
-      Changed only
+    <span class="title" aria-hidden="true">Files</span>
+    <button type="button" class="icon" onclick={collapseAll} aria-label="Collapse all" title="Collapse all folders">
+      {@render icon("M7 15l5-5 5 5M7 9l5-5 5 5")}
+    </button>
+    <button type="button" class="icon" onclick={reveal} disabled={!openPath} aria-label="Reveal" title="Reveal the open file">
+      {@render icon("M12 5a7 7 0 1 0 0 14 7 7 0 0 0 0-14zm0 4a3 3 0 1 0 0 6 3 3 0 0 0 0-6z")}
+    </button>
+    <button
+      type="button"
+      class="icon"
+      onclick={toggleChanged}
+      aria-pressed={filter === "changed"}
+      aria-label="Changed only"
+      title="Show changed files only"
+    >
+      {@render icon("M4 6h16M7 12h10M10 18h4")}
     </button>
   </div>
   <WatchLimitNotice {unwatched} />
@@ -371,7 +387,7 @@ function onkeydown(e: KeyboardEvent): void {
             data-ignored={row.ignored || undefined}
             title={describe(row) ? `${row.path} (${describe(row)})` : row.path}
             style:top="{index * ROW_HEIGHT}px"
-            style:padding-left="{8 + row.depth * 14}px"
+            style:padding-left="{10 + row.depth * 16}px"
             onclick={() => activate(row)}
           >
             <span class="twisty" aria-hidden="true">{row.kind === "dir" ? (row.expanded ? "▾" : "▸") : ""}</span>
@@ -394,28 +410,51 @@ function onkeydown(e: KeyboardEvent): void {
     display: flex;
     flex-direction: column;
     height: 100%;
+    background: var(--s1);
   }
   .toolbar {
     display: flex;
-    gap: 4px;
-    padding: 4px 6px;
-    border-bottom: 1px solid #2a2a31;
+    align-items: center;
+    gap: 2px;
+    padding: 10px 8px 6px 14px;
   }
-  .toolbar button {
-    padding: 2px 6px;
-    border: 1px solid #2a2a31;
-    border-radius: 3px;
-    background: #1b1b20;
-    color: #c8c8d0;
-    font: inherit;
-    font-size: 12px;
+  .title {
+    flex: 1;
+    font-weight: 600;
   }
-  .toolbar button[aria-pressed="true"] {
-    background: #2a2d3a;
-    border-color: #4c6ef5;
+  /* Secondary chrome: muted until the panel is hovered or a button is focused. */
+  .icon {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-3);
   }
-  .toolbar button:disabled {
-    color: #9a9aa6;
+  .panel:hover .icon,
+  .icon:focus-visible {
+    color: var(--text-2);
+  }
+  .icon:hover:not(:disabled),
+  .icon[aria-pressed="true"] {
+    background: var(--s3);
+    color: var(--text);
+  }
+  .icon[aria-pressed="true"] {
+    color: var(--accent);
+  }
+  .icon:disabled {
+    opacity: 0.45;
+  }
+  .icon svg {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
   }
   .viewport {
     position: relative;
@@ -426,42 +465,47 @@ function onkeydown(e: KeyboardEvent): void {
     contain: strict;
   }
   .viewport:focus-visible {
-    box-shadow: inset 0 0 0 1px #4c6ef5;
+    box-shadow: inset 0 0 0 2px var(--accent);
   }
   .spacer {
     position: relative;
   }
   .row {
     position: absolute;
-    left: 0;
-    right: 0;
-    height: 22px;
+    left: 6px;
+    right: 6px;
+    height: 28px;
     display: flex;
     align-items: center;
-    gap: 4px;
-    padding-right: 8px;
+    gap: 6px;
+    padding-right: 10px;
+    border-radius: var(--radius-sm);
+    color: var(--text-2);
     white-space: nowrap;
     cursor: default;
     user-select: none;
   }
   .row:hover {
-    background: #1f1f25;
+    background: var(--s3);
   }
   .row.selected {
-    background: #2a2d3a;
+    background: var(--s3);
+    color: var(--text);
+    font-weight: 500;
   }
   .viewport:focus-visible .row.selected {
-    outline: 1px solid #4c6ef5;
-    outline-offset: -1px;
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
   }
   .ignored .name {
-    color: #9a9aa6;
+    color: var(--text-3);
     font-style: italic;
   }
   .twisty {
     width: 12px;
     flex: none;
-    color: #9a9aa6;
+    color: var(--text-3);
+    font-size: 12px;
   }
   .name {
     flex: 1;
@@ -470,8 +514,7 @@ function onkeydown(e: KeyboardEvent): void {
   }
   .badge {
     flex: none;
-    font-size: 11px;
-    font-weight: 600;
+    font: 500 12px var(--mono);
   }
   .visually-hidden {
     position: absolute;
@@ -483,35 +526,41 @@ function onkeydown(e: KeyboardEvent): void {
   }
   .hint,
   .note {
-    color: #9a9aa6;
+    color: var(--text-2);
   }
   .note {
     margin: 0;
-    padding: 12px;
+    padding: 12px 14px;
   }
   .error,
   .failed {
-    color: #ff6b6b;
+    color: var(--danger);
   }
   .failed {
     flex: none;
     font-weight: 600;
   }
-  .git-modified {
-    color: #e2c08d;
+  /* Names keep the row's colour; the small letter or dot carries the status. */
+  .badge.git-modified {
+    color: var(--warn);
   }
-  .git-added,
-  .git-untracked {
-    color: #73c991;
+  .badge.git-added,
+  .badge.git-untracked {
+    color: var(--ok);
   }
   .name.git-deleted {
     text-decoration: line-through;
   }
-  .git-deleted,
-  .git-conflicted {
-    color: #f14c4c;
+  .badge.git-deleted,
+  .badge.git-conflicted {
+    color: var(--danger);
   }
-  .git-renamed {
-    color: #4fc1ff;
+  .badge.git-renamed {
+    color: var(--accent);
+  }
+  @media (forced-colors: active) {
+    .row.selected {
+      outline: 1px solid Highlight;
+    }
   }
 </style>

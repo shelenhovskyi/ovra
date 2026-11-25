@@ -103,7 +103,7 @@ describe("ProjectList start screen", () => {
     const described = t.input().getAttribute("aria-describedby")?.split(" ") ?? [];
     expect(described.map((id) => document.getElementById(id)?.textContent)).toEqual([
       "Folder not found: /gone",
-      "Full path to a folder, for example /home/you/my-app",
+      "Full path, like /home/you/my-app",
     ]);
     t.type("/gone2");
     expect(t.error()).toBeNull();

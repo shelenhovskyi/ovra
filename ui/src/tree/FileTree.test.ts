@@ -85,7 +85,7 @@ describe("FileTree", () => {
     expect(t.rows().length).toBeLessThan(60);
     expect(t.rows()[0]?.getAttribute("aria-setsize")).toBe("20000");
 
-    Object.defineProperty(t.tree(), "scrollTop", { value: 22 * 10_000, configurable: true });
+    Object.defineProperty(t.tree(), "scrollTop", { value: 28 * 10_000, configurable: true });
     t.tree().dispatchEvent(new Event("scroll"));
     flushSync();
     const shown = t.rows().map((r) => r.dataset.path);
@@ -128,7 +128,7 @@ describe("FileTree", () => {
     t.key("ArrowDown");
     const active = () => document.getElementById(t.tree().getAttribute("aria-activedescendant") ?? "");
     expect(active()?.dataset.path).toBe("f000000");
-    Object.defineProperty(t.tree(), "scrollTop", { value: 22 * 500, configurable: true, writable: true });
+    Object.defineProperty(t.tree(), "scrollTop", { value: 28 * 500, configurable: true, writable: true });
     t.tree().dispatchEvent(new Event("scroll"));
     flushSync();
     expect(active()?.dataset.path).toBe("f000000");
@@ -184,7 +184,7 @@ describe("FileTree", () => {
     core.emit({ type: "fs.changed", data: { project: "p1", paths: ["src/b.ts"] } });
     await settle();
     expect(t.row("src/c.ts").getAttribute("aria-selected")).toBe("true");
-    [...document.querySelectorAll("button")].find((b) => b.textContent === "Collapse all")?.click();
+    [...document.querySelectorAll("button")].find((b) => b.getAttribute("aria-label") === "Collapse all")?.click();
     await settle();
     expect(t.row("src").getAttribute("aria-selected")).toBe("true");
     expect(t.rows().map((r) => r.dataset.path)).toEqual(["src"]);
@@ -212,11 +212,11 @@ describe("FileTree", () => {
     cleanup = () => unmount(app);
     await settle();
     const button = (name: string) =>
-      [...target.querySelectorAll("button")].find((b) => b.textContent?.trim() === name) as HTMLButtonElement;
+      [...target.querySelectorAll("button")].find((b) => b.getAttribute("aria-label") === name) as HTMLButtonElement;
     const paths = () => [...target.querySelectorAll<HTMLElement>("[role=treeitem]")].map((r) => r.dataset.path);
-    // Tooltips say what the short labels do.
-    expect(button("Reveal").title).toBe("Find the open file in the tree: opens its folders and selects it");
-    expect(button("Changed only").title).toBe("Show only files git sees as changed or new, and their folders");
+    // Icon buttons have short names and tooltips.
+    expect(button("Reveal").title).toBe("Reveal the open file");
+    expect(button("Changed only").title).toBe("Show changed files only");
     button("Reveal").click();
     await settle();
     // The sidebar is asked to show the tree first, also from the Git or Search view.
@@ -236,14 +236,14 @@ describe("FileTree", () => {
     const core = new FakeCore(new Map([["", flatDir(1000)]]));
     const t = mountTree(core);
     await settle();
-    let top = 22 * 500;
+    let top = 28 * 500;
     Object.defineProperty(t.tree(), "scrollTop", { get: () => top, set: (v: number) => (top = v), configurable: true });
     t.tree().dispatchEvent(new Event("scroll"));
     flushSync();
     core.dirs = new Map([["", [...flatDir(3, "a"), ...flatDir(1000)]]]);
     core.emit({ type: "fs.changed", data: { project: "p1", paths: ["a000000", "a000001", "a000002"] } });
     await settle();
-    expect(top).toBe(22 * 503);
+    expect(top).toBe(28 * 503);
   });
 
   it("reveals and selects the open file without taking focus", async () => {

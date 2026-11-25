@@ -9,39 +9,55 @@ let dismissed = $state<number | null>(null);
 
 {#if unwatched > (dismissed ?? 0)}
   <div class="notice" role="status" data-testid="watch-limit-notice">
-    <p>
-      {unwatched === 1 ? "1 folder is" : `${unwatched} folders are`} not watched for changes: the system limit on file
-      watches is reached. Ovra checks them every few seconds instead, so changes there show up late.
-    </p>
-    <p>
-      On Linux, raise the limit with <code>sudo sysctl {SETTING}</code>. To keep it after a restart, add
-      <code>{SETTING}</code> to <code>/etc/sysctl.d/99-inotify.conf</code>.
-    </p>
+    <p>{unwatched === 1 ? "1 folder is" : `${unwatched} folders are`} not watched; changes show up late.</p>
+    <details>
+      <summary>Details</summary>
+      <p>
+        The system limit on file watches is reached, so Ovra checks these folders every few seconds. On Linux, run
+        <code>sudo sysctl {SETTING}</code>; to keep it, add <code>{SETTING}</code> to
+        <code>/etc/sysctl.d/99-inotify.conf</code>.
+      </p>
+    </details>
     <button type="button" onclick={() => (dismissed = unwatched)}>Dismiss</button>
   </div>
 {/if}
 
 <style>
   .notice {
-    padding: 6px 8px;
-    border-bottom: 1px solid #2a2a31;
-    background: #2a2618;
-    color: #e2c08d;
-    font-size: 12px;
+    margin: 0 8px 8px;
+    padding: 8px 10px;
+    border-radius: var(--radius);
+    background: var(--warn-soft);
+    color: var(--text);
+    font-size: 13px;
   }
   p {
-    margin: 0 0 4px;
+    margin: 0 0 6px;
+  }
+  summary {
+    color: var(--text-2);
+    cursor: pointer;
+  }
+  details p {
+    margin-top: 4px;
+    color: var(--text-2);
   }
   code {
     user-select: all;
-    color: #f0e0b8;
+    color: var(--text);
+    overflow-wrap: anywhere;
   }
   button {
-    padding: 2px 6px;
-    border: 1px solid #4a4330;
-    border-radius: 3px;
-    background: #1b1b20;
-    color: #c8c8d0;
+    margin-top: 4px;
+    padding: 2px 8px;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-2);
     font: inherit;
+  }
+  button:hover {
+    background: var(--s3);
+    color: var(--text);
   }
 </style>

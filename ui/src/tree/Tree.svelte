@@ -88,13 +88,14 @@ $effect(() => {
   .error {
     margin: 0;
     padding: 6px 12px;
-    color: #ff6b6b;
+    color: var(--danger);
   }
   .error button {
     margin-left: 6px;
-    border: 1px solid #2a2a31;
-    background: #22222a;
-    color: inherit;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: var(--s3);
+    color: var(--text);
     font: inherit;
   }
 </style>

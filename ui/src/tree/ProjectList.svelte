@@ -102,7 +102,7 @@ function move(e: KeyboardEvent): void {
   {/if}
   {#if opener.canPick}
     <button type="button" class="pick" bind:this={pickButton} disabled={opener.busy} onclick={() => opener.pick()}>Open folder…</button>
-    <p class="muted hint drop-hint">Or drop a folder onto this window.</p>
+    <p class="muted hint drop-hint">Or drop a folder here.</p>
   {/if}
   <form onsubmit={add}>
     <label for="project-root">{opener.canPick ? "Or type its path" : "Open a folder"}</label>
@@ -117,37 +117,39 @@ function move(e: KeyboardEvent): void {
       />
       <button type="submit" disabled={opener.busy}>{opener.busy ? "Opening…" : "Open"}</button>
     </div>
-    <p id="project-root-hint" class="muted hint">Full path to a folder, for example /home/you/my-app</p>
+    <p id="project-root-hint" class="muted hint">Full path, like /home/you/my-app</p>
   </form>
   {#if error}<p id="project-root-error" class="error" role="alert">{error}</p>{/if}
 </section>
 
 <style>
   .start {
-    padding: 12px;
+    padding: 14px;
+    background: var(--s1);
   }
-  h2,
-  h3 {
-    margin: 0 0 8px;
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: #9a9aa6;
+  h2 {
+    margin: 0 0 12px;
+    font-size: 14px;
+    font-weight: 600;
   }
   h3 {
-    font-size: 11px;
+    margin: 0 0 6px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-2);
   }
   ul {
     list-style: none;
-    margin: 0 0 12px;
+    margin: 0 0 16px;
     padding: 0;
   }
   li button {
     display: flex;
     flex-direction: column;
     width: 100%;
-    padding: 4px 6px;
+    padding: 6px 8px;
     border: 0;
+    border-radius: var(--radius-sm);
     background: none;
     color: inherit;
     font: inherit;
@@ -155,16 +157,21 @@ function move(e: KeyboardEvent): void {
     cursor: pointer;
   }
   li button:hover {
-    background: #1f1f25;
+    background: var(--s3);
+  }
+  .name {
+    font-weight: 500;
   }
   .path {
-    color: #9a9aa6;
-    font-size: 0.9em;
+    color: var(--text-2);
+    font: 13px var(--mono);
     overflow-wrap: anywhere;
   }
   label {
     display: block;
-    margin-bottom: 4px;
+    margin-bottom: 6px;
+    color: var(--text-2);
+    font-size: 13px;
   }
   .row {
     display: flex;
@@ -173,41 +180,63 @@ function move(e: KeyboardEvent): void {
   input {
     flex: 1;
     min-width: 0;
-    padding: 4px 6px;
-    border: 1px solid #2a2a31;
-    background: #1b1b20;
+    padding: 6px 10px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    background: var(--s3);
     color: inherit;
-    font: inherit;
+    font: 13px var(--mono);
   }
   input[aria-invalid="true"] {
-    border-color: #ff6b6b;
+    border-color: var(--danger);
   }
   .pick {
     width: 100%;
   }
   .drop-hint {
-    margin-bottom: 12px;
+    margin-bottom: 16px;
   }
   form button,
   .pick {
-    padding: 4px 10px;
-    border: 1px solid #2a2a31;
-    background: #22222a;
-    color: inherit;
+    padding: 6px 12px;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: var(--accent);
+    color: var(--accent-ink);
     font: inherit;
+    font-weight: 500;
+  }
+  form button {
+    background: var(--s3);
+    color: var(--text);
+  }
+  form button:hover {
+    background: var(--s4);
+  }
+  /* Without a folder dialog, Open is the one primary action. */
+  .start:not(:has(.pick)) form button {
+    background: var(--accent);
+    color: var(--accent-ink);
   }
   form button:disabled,
   .pick:disabled {
     cursor: progress;
   }
   .muted {
-    color: #9a9aa6;
+    color: var(--text-2);
   }
   .hint {
-    margin: 4px 0 0;
-    font-size: 0.9em;
+    margin: 6px 0 0;
+    font-size: 13px;
   }
   .error {
-    color: #ff6b6b;
+    color: var(--danger);
+  }
+  @media (forced-colors: active) {
+    input,
+    form button,
+    .pick {
+      border: 1px solid ButtonText;
+    }
   }
 </style>
