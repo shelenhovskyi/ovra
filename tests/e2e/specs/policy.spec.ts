@@ -1,0 +1,43 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { expect, test } from "@playwright/test";
+
+test("a project's policy rules are added in the policies dialog, refused inline and kept", async ({ page }) => {
+  const url = process.env.OVRA_URL;
+  if (!url) throw new Error("OVRA_URL is not set; globalSetup did not run");
+  const dir = mkdtempSync(join(tmpdir(), "ovra-policy-"));
+  writeFileSync(join(dir, "README.md"), "readme\n");
+  await page.goto(url);
+  const projects = page.getByTestId("project-list");
+  await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
+  await projects.getByRole("button", { name: "Open", exact: true }).click();
+  await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();
+
+  await page.getByTestId("open-policy").click();
+  const dialog = page.getByRole("dialog", { name: "Project policies" });
+  await expect(dialog.getByRole("heading", { name: "Project policies" })).toBeFocused();
+  await expect(dialog.getByTestId("policy-empty")).toHaveText(/No rules yet/);
+
+  // The core refuses a match on a tool that never takes one.
+  await dialog.getByLabel("Tool", { exact: true }).fill("WebFetch");
+  await dialog.getByLabel("Match (optional)").fill("example.com");
+  await dialog.getByRole("combobox", { name: "Action" }).selectOption("deny");
+  await dialog.getByRole("button", { name: "Add rule" }).click();
+  await expect(dialog.getByRole("alert")).toHaveText(/only Bash and file tools take a match/);
+
+  await dialog.getByLabel("Tool", { exact: true }).fill("Bash");
+  await dialog.getByLabel("Match (optional)").fill("git push");
+  await dialog.getByRole("button", { name: "Add rule" }).click();
+  await expect(dialog.getByTestId("policy-rule")).toHaveText(/Bash\(git push\)\s*Deny.*Advisory/);
+
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  // A new page reads the rules from the core again.
+  await page.reload();
+  await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
+  await projects.getByRole("button", { name: "Open", exact: true }).click();
+  await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();
+  await page.getByTestId("open-policy").click();
+  await expect(page.getByTestId("policy-rule")).toHaveText(/Bash\(git push\)/);
+});
