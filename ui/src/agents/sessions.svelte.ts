@@ -10,6 +10,7 @@ import type {
   AgentMessage,
   Billing,
   CoreEvent,
+  FailedWorker,
   FileChange,
   ProjectId,
   ReviewItem,
@@ -38,6 +39,8 @@ export type SessionRole =
 export class AgentSessions {
   /** Coordinators and workers of the projects' tasks. */
   readonly roles = new SvelteMap<SessionId, SessionRole>();
+  /** Workers each task's coordinator asked for that could not start, by coordinator. */
+  readonly failedStarts = new SvelteMap<SessionId, FailedWorker[]>();
   /** Every known session by id, in the order they became known. */
   readonly byId = new SvelteMap<SessionId, SessionInfo>();
   /** Transcripts of sessions watched since they started or since `loadTranscript`. */
@@ -142,6 +145,7 @@ export class AgentSessions {
       const { data } = await this.transport.call({ method: "orchestration.list", params: { project } });
       for (const task of data) {
         this.roles.set(task.coordinator, { kind: "coordinator", task: task.id });
+        this.failedStarts.set(task.coordinator, task.failed ?? []);
         for (const w of task.workers)
           this.roles.set(w.session, {
             kind: "worker",
@@ -198,6 +202,10 @@ export class AgentSessions {
         .map(([session]) => this.byId.get(session)?.status ?? null);
       if (workers.some(isBusy)) return "Workers are on it";
       if (workers.some((s) => s?.state === "queued")) return "Workers are waiting for a free agent";
+      // Never done while a worker failed or did not start.
+      const missed = this.failedStarts.get(id)?.length ?? 0;
+      const failed = missed + workers.filter((s) => s?.state === "failed").length;
+      if (failed > 0) return `Failed: ${failed} of ${workers.length + missed} workers`;
     }
     const transcript = this.transcripts.get(id);
     // Stopping a worker that had finished (its task was stopped) does not undo its work.

@@ -630,6 +630,19 @@ const canReply = $derived(current !== null && current.status.state === "idle");
               {/if}
             </li>
             {#if confirming === session.id}<li class="confirm-row">{@render confirmClose(session.id)}</li>{/if}
+            {#each role?.kind === "coordinator" ? (sessions.failedStarts.get(session.id) ?? []) : [] as missed (missed.name)}
+              <!-- A worker that never started has no conversation: its row says why. -->
+              <li class="worker" data-testid="agent-failed-start">
+                <span class="row-button" data-state="failed">
+                  <span class="state-mark" aria-hidden="true"></span>
+                  <span class="text">
+                    <span class="title">{missed.name}</span>
+                    <span class="state" title={missed.reason}>Did not start: {missed.reason}</span>
+                  </span>
+                </span>
+                <span class="close-space" aria-hidden="true"></span>
+              </li>
+            {/each}
           {/each}
         </ul>
       {/if}

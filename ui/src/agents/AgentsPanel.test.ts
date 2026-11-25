@@ -242,6 +242,28 @@ describe("AgentsPanel", () => {
     expect(rows()).toEqual([]);
   });
 
+  it("never calls a task done when its workers failed, and says why one did not start", async () => {
+    const core = new FakeAgentCore();
+    core.addSession("p1", "Write the notes", { state: "idle" });
+    core.addSession("p1", "docs notes", { state: "failed", message: "claude was not found" });
+    core.tasks.push({
+      id: "t1",
+      project: "p1",
+      coordinator: "s1",
+      workers: [{ session: "s2", name: "docs", branch: "ovra/t1/docs", worktree: "/wt/docs", kept: null }],
+      failed: [{ name: "lint", reason: "the worktree could not be made" }],
+      limits: { max_workers: 3, budget_micro_usd: null },
+      spent_micro_usd: 0,
+    });
+    await setup(core);
+    const rows = [...target.querySelectorAll(".sessions li")].map((li) => li.textContent?.replace(/\s+/g, " ").trim());
+    expect(rows).toEqual([
+      "Task: Write the notes Failed: 2 of 2 workers",
+      "lint Did not start: the worktree could not be made",
+      "docs · Write the notes Failed: claude was not found",
+    ]);
+  });
+
   it("starts a session in the open project and streams its transcript", async () => {
     const core = await setup();
     type(target.querySelector("#agent-prompt"), "Fix the typo\nin README.md");
