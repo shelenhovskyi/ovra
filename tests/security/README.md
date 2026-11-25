@@ -116,8 +116,16 @@ spec.
   inside the project, a submodule the person adds while a session runs,
   and a bind mount of the home folder outside `/mnt`, `/media`, `/sysroot`
   and `/.snapshots`.
-- **Windows** gives each session's proxy a 127.0.0.1 port that any local
-  process can use (5.A).
+- **Windows** (`docs/specs/sandbox-windows.md`): each session's proxy is a
+  127.0.0.1 port that any local process can use, and the sandbox user's
+  firewall rule does not filter loopback, so other 127.0.0.1 services on
+  the machine stay reachable. Name lookups go through the system's
+  resolver service, so DNS is a slow channel out. `~/.claude`'s session
+  folders (`todos/`, `plans/`, ...) are the person's own, shared with
+  their sessions; `shell-snapshots/` and `session-env/` stay read-only.
+  Sessions are sandboxed only after the one-time setup (administrator);
+  until then they run unsandboxed and say so. Closing loopback and DNS
+  needs WFP filters for the sandbox user, a follow-up.
 - **Without bubblewrap** sessions run unsandboxed and say so; policies never
   skip a question for them.
 - **Unix sockets in visible folders.** Landlock does not limit connecting
@@ -144,4 +152,8 @@ The keychain attack the secrets spec asks for is the sum of lines above:
 
 ## Not covered yet
 
-- macOS (4.B) and Windows (5.A) run these attacks once their sandboxes exist.
+- macOS (4.B) runs these attacks once its sandbox exists. On Windows (5.A)
+  the CI job runs the setup and a session as the sandbox user
+  (`crates/sandbox-windows/tests/setup.rs`: writes, protected paths, the
+  home folder, the internet); this suite's attacks still need a Windows
+  port of its fake agent.
