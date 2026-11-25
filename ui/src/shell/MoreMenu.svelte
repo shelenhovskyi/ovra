@@ -132,7 +132,7 @@ $effect(() => {
     onclick={() => (open ? close(false) : void show("first"))}
     onkeydown={onButtonKeydown}
   >
-    <Icon name="settings" />
+    <Icon name="more" />
     {#if waiting > 0}<span class="rail-badge warn" aria-hidden="true">{waiting}</span>{/if}
   </button>
   {#if open}
