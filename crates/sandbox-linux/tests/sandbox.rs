@@ -571,8 +571,14 @@ fn folders_made_for_a_session_go_away_when_it_ends() {
         run(&sandbox, &profile, &script(checks)),
         "made for the session: yes\nwrite into it: no\n"
     );
-    assert!(gone(&project.join(".vscode")));
-    assert!(gone(&project.join(".claude")));
+    // The cleaner removes them one by one; a folder still there when the
+    // next session plans counts as the user's.
+    let all_gone = || {
+        for made in [".claude", ".vscode", ".idea", ".devcontainer"] {
+            assert!(gone(&project.join(made)), "{made}");
+        }
+    };
+    all_gone();
 
     // A session that is killed, with a process of its own still running.
     let line = CommandLine {
@@ -605,7 +611,7 @@ fn folders_made_for_a_session_go_away_when_it_ends() {
     assert!(project.join(".vscode").is_dir());
     child.kill().unwrap();
     child.wait().unwrap();
-    assert!(gone(&project.join(".vscode")));
+    all_gone();
     // A folder the user had stays.
     fs::create_dir(project.join(".idea")).unwrap();
     run(&sandbox, &profile, "true");
