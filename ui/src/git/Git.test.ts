@@ -6,6 +6,7 @@ import { CoreError, type Transport } from "../lib/transport";
 import { closeContextMenu, contextMenu } from "../menu/context-menu.svelte";
 import { Workspace } from "../shell/workspace.svelte";
 import { changed, FakeGitCore, repo } from "./fake-git";
+import { gitModel } from "./model.svelte";
 import TestHost from "./TestHost.svelte";
 
 // One host (panel, tab strip, tabpanel) for the whole file, mounted once with
@@ -185,6 +186,12 @@ it("opens on the first change while nothing is staged, else on the commit messag
   await show();
   await settle();
   expect(document.activeElement?.tagName).toBe("TEXTAREA");
+
+  // With no project open it says why nothing opened.
+  workspace.project = null;
+  flushSync();
+  await show();
+  expect(document.querySelector("[data-testid=git-outside-announce]")?.textContent).toMatch(/^Open a project first/);
 });
 
 it("discards only after a confirmation and offers Undo until the next discard", async () => {
@@ -289,6 +296,19 @@ it("commits with Mod+Enter, says why it waits and shows a hook's output", async 
     method: "git.commit",
     params: { message: "", amend: true },
   });
+
+  // A commit that keeps running (a hook, gpg) can be stopped.
+  const model = gitModel("p1");
+  if (!model) throw new Error("no model");
+  model.slow = "commit";
+  flushSync();
+  expect(text("[data-testid=git-running] p")).toBe("Committing: git or a hook is still running.");
+  click("[data-testid=git-running] button");
+  await settle();
+  expect(core.calls.at(-1)).toEqual({ method: "git.cancel", params: { project: "p1" } });
+  expect(text("[data-testid=git-running] p")).toBe("Stopping…");
+  model.slow = null;
+  model.stopping = false;
 });
 
 it("switches branches, shows why a switch failed and creates a branch", async () => {

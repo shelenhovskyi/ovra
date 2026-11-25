@@ -45,11 +45,18 @@ export class FakeGitCore implements Transport {
   diffs = new Map<string, FileDiff>();
   /** Makes the next call of this method fail with this error. */
   failNext = new Map<Request["method"], CoreError>();
+  /** Holds the next call of this method until the test calls the function it is given. */
+  holdNext = new Map<Request["method"], (release: () => void) => void>();
   private discards = new Map<string, StatusFile[]>();
   private listeners = new Set<(event: CoreEvent) => void>();
 
   async call<R extends Request>(request: R): Promise<ResponseFor<R>> {
     this.calls.push(request);
+    const hold = this.holdNext.get(request.method);
+    if (hold) {
+      this.holdNext.delete(request.method);
+      await new Promise<void>((release) => hold(release));
+    }
     const failure = this.failNext.get(request.method);
     if (failure) {
       this.failNext.delete(request.method);

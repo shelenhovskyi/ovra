@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { CoreError } from "../lib/transport";
 import { changed, FakeGitCore, repo } from "./fake-git";
-import { branchNameProblem, fileLists, GitModel, gitModel } from "./model.svelte";
+import { branchNameProblem, fileLists, GitModel, gitModel, SLOW_MS } from "./model.svelte";
 
 async function loaded(core = new FakeGitCore()) {
   const model = new GitModel(core, "p1");
@@ -75,7 +75,7 @@ describe("GitModel", () => {
     expect(await model.commit("Fix", false)).toBe(false);
     expect(model.error).toEqual({
       scope: "commit",
-      message: "The commit was not made. Git or a hook refused it:",
+      message: "The commit was not made:",
       output: "lint failed\nsrc/a.ts:1",
     });
 
@@ -92,6 +92,45 @@ describe("GitModel", () => {
     expect(model.error?.message).toMatch(/changed since this diff/);
     model.dispose();
   });
+});
+
+it("offers Cancel for a commit that keeps running, and says it was stopped", async () => {
+  vi.useFakeTimers();
+  try {
+    const core = new FakeGitCore();
+    core.status = repo({ files: [changed("a.ts", { staged: "modified", unstaged: null })] });
+    const { model } = await loaded(core);
+    let release = () => {};
+    core.holdNext.set("git.commit", (r) => {
+      release = r;
+    });
+    const commit = model.commit("Fix", false);
+    vi.advanceTimersByTime(SLOW_MS - 1);
+    expect(model.slow).toBeNull();
+    vi.advanceTimersByTime(1);
+    expect(model.slow).toBe("commit");
+
+    await model.cancel();
+    expect(core.calls.at(-1)).toEqual({ method: "git.cancel", params: { project: "p1" } });
+    expect(model.stopping).toBe(true);
+    core.failNext.set("git.commit", new CoreError({ code: "conflict", message: "git commit was stopped" }));
+    release();
+    expect(await commit).toBe(false);
+    expect(model.error).toEqual({
+      scope: "commit",
+      message: "You stopped the commit.",
+      output: "git commit was stopped",
+    });
+    expect([model.slow, model.stopping, model.busy]).toEqual([null, false, false]);
+
+    // A quick commit never shows it.
+    expect(await model.commit("Again", true)).toBe(true);
+    vi.advanceTimersByTime(SLOW_MS);
+    expect(model.slow).toBeNull();
+    model.dispose();
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 it("says why a branch name is refused, with a fix for spaces", () => {

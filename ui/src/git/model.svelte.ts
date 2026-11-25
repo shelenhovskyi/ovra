@@ -24,6 +24,9 @@ export type Discarded = { undo: string; paths: string[] };
 /** Commits shown under "Recent commits". */
 const LOG_LIMIT = 20;
 
+/** After this long a commit or a branch switch says it still runs, and offers Cancel. */
+export const SLOW_MS = 1500;
+
 export const CHANGE_LETTER: Record<GitChange, string> = {
   added: "A",
   modified: "M",
@@ -122,6 +125,10 @@ export class GitModel {
   notice = $state("");
   /** Counts changes seen (events and own calls), so a diff view knows to reload. */
   version = $state(0);
+  /** A commit or branch switch still running after `SLOW_MS`: git or the person's hooks are at work. */
+  slow = $state<"commit" | "branch" | null>(null);
+  /** Cancel was pressed for the running action. */
+  stopping = $state(false);
   /** A palette command asks the branch menu to open, to switch or to create; the menu clears it. */
   branchMenu = $state<"switch" | "create" | null>(null);
 
@@ -266,9 +273,25 @@ export class GitModel {
       null,
       (err) =>
         err instanceof CoreError && err.code === "conflict"
-          ? { message: "The commit was not made. Git or a hook refused it:", output: err.error.message }
+          ? {
+              message: this.stopping ? "You stopped the commit." : "The commit was not made:",
+              output: err.error.message,
+            }
           : { message: `The commit was not made: ${message(err)}` },
+      "commit",
     );
+  }
+
+  /** Stops the commit or switch that runs, with its hooks; the action then fails and says so. */
+  async cancel(): Promise<void> {
+    if (!this.slow || this.stopping) return;
+    this.stopping = true;
+    try {
+      await this.transport.call({ method: "git.cancel", params: { project: this.project } });
+    } catch (err) {
+      this.stopping = false;
+      this.notice = `Could not stop it: ${message(err)}`;
+    }
   }
 
   switchTo(branch: string): Promise<boolean> {
@@ -280,6 +303,7 @@ export class GitModel {
       },
       `Switched to branch ${branch}.`,
       (err) => ({ message: `Could not switch to ${branch}. ${sentence(message(err))}` }),
+      "branch",
     );
   }
 
@@ -292,6 +316,7 @@ export class GitModel {
       },
       `Created branch ${name} and switched to it.`,
       (err) => ({ message: `Could not create ${name}: ${message(err)}` }),
+      "branch",
     );
   }
 
@@ -312,16 +337,21 @@ export class GitModel {
     await this.transport.call(request);
   }
 
-  /** Runs one action at a time, records its outcome and refreshes afterwards, also after a failure. */
+  /**
+   * Runs one action at a time, records its outcome and refreshes afterwards, also after a failure.
+   * A `slow` one (it runs the person's hooks) offers Cancel once it has run for `SLOW_MS`.
+   */
   private async act(
     scope: GitErrorScope,
     run: () => Promise<void>,
     done: string | null,
     fail: (err: unknown) => Omit<GitError, "scope"> = (err) => ({ message: message(err) }),
+    slow?: "commit" | "branch",
   ): Promise<boolean> {
     if (this.busy) return false;
     this.busy = true;
     this.error = null;
+    const timer = slow ? setTimeout(() => (this.slow = slow), SLOW_MS) : undefined;
     try {
       await run();
       if (done) this.notice = done;
@@ -332,6 +362,9 @@ export class GitModel {
       this.notice = "";
       return false;
     } finally {
+      clearTimeout(timer);
+      this.slow = null;
+      this.stopping = false;
       this.busy = false;
       this.changed();
       await this.loading;
