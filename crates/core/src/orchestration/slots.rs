@@ -27,16 +27,17 @@ pub(crate) fn limit(core: &Core) -> usize {
     if let Some(limit) = state.lock().limit {
         return limit;
     }
-    let chosen = core
-        .project_store()
-        .agent_settings()
-        .ok()
-        .and_then(|s| s.max_working)
+    let as_usize = |n: u32| usize::try_from(n).unwrap_or(1);
+    // A failed read gives the default this once and is tried again.
+    let Ok(settings) = core.project_store().agent_settings() else {
+        return as_usize(DEFAULT_LIMIT);
+    };
+    let chosen = settings
+        .max_working
         .filter(|n| (MIN_LIMIT..=MAX_LIMIT).contains(n))
         .unwrap_or(DEFAULT_LIMIT);
-    let chosen = usize::try_from(chosen).unwrap_or(1);
-    state.lock().limit = Some(chosen);
-    chosen
+    // A `set_limit` that ran meanwhile wins over what was read before it.
+    *state.lock().limit.get_or_insert(as_usize(chosen))
 }
 
 /// The limit and its range, as `agents.limit` answers.
@@ -59,13 +60,21 @@ pub(crate) fn set_limit(core: &Core, limit: u32) -> Result<AgentLimit, ProtocolE
         ));
     }
     let store = core.project_store();
-    let mut settings = store.agent_settings()?;
-    settings.max_working = (limit != DEFAULT_LIMIT).then_some(limit);
-    store.set_agent_settings(settings)?;
-    core.orchestration_state().lock().limit = usize::try_from(limit).ok();
+    {
+        // Saved and cached under one lock, so the store and the cap agree
+        // when two changes come at once.
+        let state = core.orchestration_state();
+        let mut guard = state.lock();
+        let mut settings = store.agent_settings()?;
+        settings.max_working = (limit != DEFAULT_LIMIT).then_some(limit);
+        store.set_agent_settings(settings)?;
+        guard.limit = usize::try_from(limit).ok();
+    }
     let view = view(core);
     core.emit(AgentsEvent::LimitChanged(view));
-    for project in store.list()? {
+    // Done either way; a project list that fails only leaves workers
+    // waiting until the next place frees.
+    for project in store.list().unwrap_or_default() {
         start_queued(core, &project.id);
     }
     Ok(view)

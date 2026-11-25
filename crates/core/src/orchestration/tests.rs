@@ -2628,7 +2628,7 @@ async fn workers_past_the_projects_cap_wait_and_start_when_a_place_frees() {
         panic!("a waiting worker took a message");
     };
     insta::assert_snapshot!(format!("{}\n{}", refused.message, sent.message), @"
-    3 agents are already working in this project, the most at once. Start this when one of them finishes, or stop one.
+    3 agents are already working in this project, the most at once. Start this when one of them finishes, or stop one. Settings > Claude sets how many may work at once.
     the agent waits for a free place and starts when another agent finishes
     ");
 
@@ -2865,4 +2865,20 @@ async fn the_person_sets_how_many_agents_work_at_once() {
     let set = json!({"method": "agents.set_limit", "params": {"limit": 3}});
     ok(&f.core, set).await;
     assert_eq!(saved(&f.core), None);
+}
+
+#[tokio::test]
+async fn the_saved_limit_holds_after_a_restart_and_a_wrong_one_is_the_default() {
+    for (saved, want) in [(Some(5), 5), (Some(20), 3), (Some(0), 3)] {
+        let f = fx(say()).await;
+        let mut settings = f.core.project_store().agent_settings().unwrap_or_default();
+        settings.max_working = saved;
+        assert!(f.core.project_store().set_agent_settings(settings).is_ok());
+        let asked = ok(&f.core, json!({"method": "agents.limit"})).await;
+        let Response::Agents(AgentsResponse::Limit(limit)) = asked else {
+            panic!("unexpected {asked:?}");
+        };
+        assert_eq!(limit.limit, want, "saved {saved:?}");
+        assert_eq!(capacity(&f.core).await.limit, want);
+    }
 }

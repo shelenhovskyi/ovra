@@ -15,7 +15,10 @@ $effect(() =>
   untrack(() => {
     void load();
     return transport.onEvent((event) => {
-      if (event.type === "agents.limit_changed") limit = event.data;
+      if (event.type === "agents.limit_changed") {
+        limit = event.data;
+        error = null;
+      }
     });
   }),
 );
@@ -29,8 +32,13 @@ async function load(): Promise<void> {
 }
 
 async function save(input: HTMLInputElement): Promise<void> {
-  const value = Number.parseInt(input.value, 10);
+  const value = Number(input.value);
   error = null;
+  if (!Number.isInteger(value) || input.value.trim() === "") {
+    error = limit ? `Choose a whole number from ${limit.min} to ${limit.max}.` : null;
+    if (limit) input.value = String(limit.limit);
+    return;
+  }
   try {
     limit = (await transport.call({ method: "agents.set_limit", params: { limit: value } })).data;
   } catch (err) {
@@ -56,9 +64,9 @@ async function save(input: HTMLInputElement): Promise<void> {
       />
     </label>
     <p class="hint" id="agent-limit-why">
-      In each project, {limit.min} to {limit.max}; {limit.default} by default. More agents finish independent work
-      sooner, but each one uses your Claude plan's limits and disk space for its own copy of the project, and leaves
-      more changes for you to review. Others wait their turn.
+      From {limit.min} to {limit.max} in each project ({limit.default} by default). More agents finish independent work
+      sooner, but each one uses your Claude usage limits and disk space for its own copy of the project, and leaves
+      more changes for you to review. Beyond the limit, workers wait their turn and new sessions cannot start.
     </p>
     {#if error}<p class="error" role="alert">{error}</p>{/if}
   </div>

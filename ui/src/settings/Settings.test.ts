@@ -231,7 +231,7 @@ it("sets how many agents work at once and shows what the core kept", async () =>
   await settle();
   const field = () => target.querySelector<HTMLInputElement>("[data-testid=agent-limit] input");
   expect(field()?.value).toBe("3");
-  expect(target.querySelector("[data-testid=agent-limit]")?.textContent).toContain("Claude plan's limits");
+  expect(target.querySelector("[data-testid=agent-limit]")?.textContent).toContain("Claude usage limits");
   const change = async (value: string) => {
     const input = field();
     if (!input) throw new Error("no field");
@@ -245,4 +245,9 @@ it("sets how many agents work at once and shows what the core kept", async () =>
   expect(sent).toEqual([5, 12]);
   expect(field()?.value).toBe("5");
   expect(target.querySelector("[data-testid=agent-limit] [role=alert]")?.textContent).toContain("between 1 and 8");
+  // An empty field is not sent; it shows the kept number again.
+  await change("");
+  expect(sent).toEqual([5, 12]);
+  expect(field()?.value).toBe("5");
+  expect(target.querySelector("[data-testid=agent-limit] [role=alert]")?.textContent).toContain("from 1 to 8");
 });

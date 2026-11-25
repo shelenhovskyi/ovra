@@ -351,7 +351,8 @@ fn check_room(
         .map_err(|working| {
             conflict(&format!(
                 "{working} agents are already working in this project, the most at once. \
-                 Start this when one of them finishes, or stop one."
+                 Start this when one of them finishes, or stop one. Settings > Claude sets \
+                 how many may work at once."
             ))
         })
 }
