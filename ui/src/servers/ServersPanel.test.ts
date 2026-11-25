@@ -238,4 +238,57 @@ describe("ServersPanel", () => {
     await settle();
     expect($("[data-testid=servers]")).toBeNull();
   });
+
+  it("keeps focus on the server's buttons as Start, Stop and Restart disable them", async () => {
+    const core = await open();
+    const press = (name: string) => {
+      button(name)?.focus();
+      button(name)?.click();
+    };
+    const status = async (state: "stopping" | "exited") => {
+      const next = state === "exited" ? { state, code: null } : { state };
+      core.emit({ type: "servers.status", data: { id: "srv1", project: "p1", status: next, generation: 1 } });
+      await settle();
+    };
+    press("Start web");
+    await settle();
+    expect(document.activeElement).toBe(button("Stop web"));
+    press("Stop web");
+    await settle();
+    await status("stopping");
+    expect(document.activeElement?.textContent?.trim()).toBe("Output");
+    await status("exited");
+    expect(document.activeElement).toBe(button("Restart web"));
+    press("Restart web");
+    await settle();
+    expect(document.activeElement).toBe(button("Restart web"));
+    document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true }));
+    await settle();
+    expect($("[data-testid=servers]")).toBeNull();
+  });
+
+  it("closes on Escape and on its shortcut wherever focus is while it is open", async () => {
+    const off = installKeybindings(window, false, false);
+    const chord = { key: "S", code: "KeyS", ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true };
+    await open();
+    // Focus lost to the body: Tab comes back in, Escape still closes.
+    (document.activeElement as HTMLElement | null)?.blur();
+    document.body.dispatchEvent(new KeyboardEvent("keydown", { code: "Tab", key: "Tab", bubbles: true }));
+    expect(document.activeElement).toBe($("[data-testid=servers] h2"));
+    (document.activeElement as HTMLElement | null)?.blur();
+    document.body.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", key: "Escape", bubbles: true }));
+    await settle();
+    expect($("[data-testid=servers]")).toBeNull();
+    // The toggle chord closes it from inside, and opens it again.
+    window.dispatchEvent(new KeyboardEvent("keydown", chord));
+    await settle();
+    button("Close")?.focus();
+    button("Close")?.dispatchEvent(new KeyboardEvent("keydown", chord));
+    await settle();
+    expect($("[data-testid=servers]")).toBeNull();
+    window.dispatchEvent(new KeyboardEvent("keydown", chord));
+    await settle();
+    off();
+    expect($("[data-testid=servers]")).not.toBeNull();
+  });
 });

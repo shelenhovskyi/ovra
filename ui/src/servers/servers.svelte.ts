@@ -59,23 +59,24 @@ export class ProjectServers {
     }
   }
 
-  async start(name: string): Promise<void> {
+  /** Starts definition `name`; answers the new server, or null when the call failed. */
+  async start(name: string): Promise<ServerInfo | null> {
     const project = this.project;
-    if (!project) return;
-    await this.act(() =>
+    if (!project) return null;
+    return this.act(() =>
       this.transport.call({ method: "servers.start", params: { project, name, work_dir: this.workDir } }),
     );
   }
 
-  async stop(id: ServerId): Promise<void> {
-    await this.act(async () => {
+  async stop(id: ServerId): Promise<ServerInfo | null> {
+    return this.act(async () => {
       await this.transport.call({ method: "servers.stop", params: { id } });
       return null;
     });
   }
 
-  async restart(id: ServerId): Promise<void> {
-    await this.act(() => this.transport.call({ method: "servers.restart", params: { id } }));
+  async restart(id: ServerId): Promise<ServerInfo | null> {
+    return this.act(() => this.transport.call({ method: "servers.restart", params: { id } }));
   }
 
   /** The newest server started from definition `name`, if any. */
@@ -83,14 +84,16 @@ export class ProjectServers {
     return this.list?.servers.filter((s) => s.name === name).at(-1);
   }
 
-  private async act(call: () => Promise<{ data: ServerInfo } | null>): Promise<void> {
+  private async act(call: () => Promise<{ data: ServerInfo } | null>): Promise<ServerInfo | null> {
     try {
       const reply = await call();
       if (reply) this.upsert(reply.data);
       this.error = null;
+      return reply?.data ?? null;
     } catch (err) {
       if (err instanceof CoreError && err.code === "unavailable") this.unavailable = err.error.message;
       else this.error = message(err);
+      return null;
     }
   }
 

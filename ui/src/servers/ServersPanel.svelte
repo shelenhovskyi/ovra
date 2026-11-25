@@ -2,11 +2,12 @@
 // Dev servers: a header button (and the "Servers" command) opens a dialog
 // with the servers defined in `.ovra/servers.json` of the open project's main
 // checkout or of a worker's worktree, the ones that run there, and their
-// output. Escape closes.
+// output. Escape and the toggle shortcut close it wherever focus is.
 import { tick, untrack } from "svelte";
 import { agentSessions } from "../agents/sessions.svelte";
 import { registerCommand } from "../keys/commands";
-import type { DevServerInfo as ServerInfo, SessionId, StartedBy } from "../lib/protocol";
+import { inBrowserTab, isApple, liveKeys, matchesShortcut, parseShortcut } from "../keys/shortcut";
+import type { DevServerId as ServerId, DevServerInfo as ServerInfo, SessionId, StartedBy } from "../lib/protocol";
 import { useOvra } from "../shell/context";
 import LogView from "./LogView.svelte";
 import { ProjectServers, running, statusText } from "./servers.svelte";
@@ -20,6 +21,12 @@ let workDir = $state<SessionId | null>(null);
 let logsOf = $state(new Set<string>());
 let dialog = $state<HTMLElement>();
 let returnTo: HTMLElement | null = null;
+
+const TOGGLE_KEYS = "Mod+Shift+S";
+type Action = "Stop" | "Restart";
+/** The row whose buttons keep focus after an action on it, the buttons it prefers, and the stand-in used while those are off. */
+let keep: { row: ServerId; prefer: Action[] } | null = null;
+let standIn: HTMLElement | null = null;
 
 const project = $derived(workspace.project?.id ?? null);
 const workers = $derived(
@@ -37,7 +44,65 @@ const example = `{
 }`;
 
 $effect(() => () => servers.dispose());
-$effect(() => registerCommand({ id: "servers.toggle", title: "Servers", keys: "Mod+Shift+S", run: toggle }));
+$effect(() => registerCommand({ id: "servers.toggle", title: "Servers", keys: TOGGLE_KEYS, run: toggle }));
+
+// While open, Escape and the toggle chord close the dialog even when focus fell out of it, and
+// no other key reaches the panels behind it.
+$effect(() => {
+  if (!opened) return;
+  const chord = parseShortcut(liveKeys(TOGGLE_KEYS, inBrowserTab()), isApple());
+  const onKeydown = (event: KeyboardEvent) => {
+    if (event.isComposing) return;
+    const inside = event.target instanceof Node && !!dialog?.contains(event.target);
+    if ((chord && matchesShortcut(event, chord)) || (event.code === "Escape" && !inside)) {
+      event.preventDefault();
+      event.stopPropagation();
+      close();
+      return;
+    }
+    if (inside) return;
+    event.stopPropagation();
+    if (event.code === "Tab") {
+      event.preventDefault();
+      heading()?.focus();
+    }
+  };
+  window.addEventListener("keydown", onKeydown, true);
+  return () => window.removeEventListener("keydown", onKeydown, true);
+});
+
+// A status change can disable the focused button: focus moves on to the row's next one.
+$effect(() => {
+  void list;
+  if (opened) void tick().then(placeFocus);
+});
+
+function heading(): HTMLElement | null {
+  return dialog?.querySelector<HTMLElement>("h2") ?? null;
+}
+
+/** Moves focus off a disabled or vanished button to the kept row's preferred enabled one, else its Output. */
+function placeFocus(): void {
+  if (!keep || !dialog) return;
+  const active = document.activeElement;
+  const lost =
+    !(active instanceof HTMLElement) || !dialog.contains(active) || active.matches(":disabled") || active === standIn;
+  if (!lost) return;
+  const buttons = [...dialog.querySelectorAll<HTMLButtonElement>(`[data-server="${keep.row}"] .actions button`)];
+  const enabled = (name: string) => buttons.find((b) => b.textContent?.trim() === name && !b.disabled);
+  const best = keep.prefer.map(enabled).find((b) => b !== undefined);
+  const target = best ?? enabled("Output") ?? heading();
+  target?.focus();
+  standIn = best ? null : target;
+}
+
+async function act(row: ServerId | null, prefer: Action[], action: () => Promise<ServerInfo | null>) {
+  if (row) keep = { row, prefer };
+  const started = await action();
+  if (started) keep = { row: started.id, prefer };
+  await tick();
+  placeFocus();
+}
 
 // Read the servers when the dialog opens, and again for another project or work dir.
 $effect(() => {
@@ -63,11 +128,13 @@ async function show(): Promise<void> {
   returnTo = active instanceof HTMLElement ? active : null;
   opened = true;
   await tick();
-  dialog?.querySelector<HTMLElement>("h2")?.focus();
+  heading()?.focus();
 }
 
 function close(): void {
   opened = false;
+  keep = null;
+  standIn = null;
   if (returnTo?.isConnected) returnTo.focus();
   returnTo = null;
 }
@@ -188,7 +255,7 @@ function onDialogKeydown(event: KeyboardEvent): void {
                     type="button"
                     disabled={!!latest && running(latest.status)}
                     aria-label={`Start ${def.name}`}
-                    onclick={() => void servers.start(def.name)}>Start</button
+                    onclick={() => void act(null, ["Stop", "Restart"], () => servers.start(def.name))}>Start</button
                   >
                 </li>
               {/each}
@@ -198,7 +265,7 @@ function onDialogKeydown(event: KeyboardEvent): void {
             <h3>Started</h3>
             <ul aria-label="Started servers">
               {#each [...list.servers].reverse() as server (server.id)}
-                <li class="server" data-testid="server">
+                <li class="server" data-testid="server" data-server={server.id}>
                   <div class="row">
                     <strong>{server.name}</strong>
                     <span class={`badge ${server.status.state}`} data-testid="server-status">
@@ -218,13 +285,14 @@ function onDialogKeydown(event: KeyboardEvent): void {
                         type="button"
                         aria-label={`Restart ${server.name}`}
                         disabled={server.status.state === "stopping"}
-                        onclick={() => void servers.restart(server.id)}>Restart</button
+                        onclick={() => void act(server.id, ["Restart", "Stop"], () => servers.restart(server.id))}
+                        >Restart</button
                       >
                       <button
                         type="button"
                         aria-label={`Stop ${server.name}`}
                         disabled={!running(server.status) || server.status.state === "stopping"}
-                        onclick={() => void servers.stop(server.id)}>Stop</button
+                        onclick={() => void act(server.id, ["Restart"], () => servers.stop(server.id))}>Stop</button
                       >
                     </span>
                   </div>
