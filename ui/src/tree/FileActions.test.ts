@@ -89,6 +89,29 @@ describe("file actions in the tree", () => {
     expect(t.row("/")).toBeNull();
   });
 
+  it("starts a new folder from the header, and cuts, copies, pastes and trashes from the palette", async () => {
+    const t = await mountTree(["src/a.ts", "b.ts"]);
+    const run = (id: string) =>
+      listCommands()
+        .find((c) => c.id === id)
+        ?.run();
+    t.target.querySelector<HTMLButtonElement>('[aria-label="New folder"]')?.click();
+    await settle();
+    expect(t.row("/")?.getAttribute("aria-label")).toBe("New folder");
+    t.press(t.input(), "Escape");
+
+    t.row("b.ts")?.click();
+    await run("tree.copy");
+    t.row("src")?.click();
+    await settle();
+    await run("tree.paste");
+    await settle();
+    expect(t.core.calls.find((c) => c.method === "fs.copy")?.params).toMatchObject({ from: "b.ts", to: "src/b.ts" });
+    await run("tree.trash");
+    expect(t.target.querySelector("[role=alertdialog]")?.textContent).toContain("Move “b.ts” to Trash?");
+    expect(listCommands().find((c) => c.id === "tree.trash")?.keywords).toContain("delete");
+  });
+
   it("opens a row's menu on right-click or Shift+F10 and the project's below the rows", async () => {
     const t = await mountTree(["src/a.ts", "b.ts"]);
     const labels = () =>

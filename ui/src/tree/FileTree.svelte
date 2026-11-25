@@ -219,7 +219,12 @@ $effect(() => {
       title: "Go to previous changed file in the tree",
       run: () => nextChange(-1),
     }),
-    registerFileCommands(actions, activeRow, () => onreveal?.()),
+    registerFileCommands(
+      actions,
+      activeRow,
+      () => onDisk,
+      () => onreveal?.(),
+    ),
   ];
   return () => {
     off();
@@ -259,6 +264,8 @@ let activeIndex = $derived(current === null ? -1 : rows.findIndex((r) => r.path 
 let chosen = $derived(picked.length > 0 ? picked : current !== null && activeIndex >= 0 ? [current] : []);
 let chosenSet = $derived(new Set(chosen));
 let gonePaths = $derived(new Set(rows.filter(isGone).map((r) => r.path)));
+/** The selected paths file actions work on: a deleted file is not on disk. */
+let onDisk = $derived(chosen.filter((path) => !gonePaths.has(path)));
 /** Rows cut and not pasted yet: they look dimmed, and so does what is in a cut folder. */
 let cutPaths = $derived(actions.clip?.cut ? actions.clip.paths : []);
 const isCut = (path: string) => cutPaths.some((p) => path === p || path.startsWith(`${p}/`));
@@ -560,7 +567,6 @@ function onkeydown(e: KeyboardEvent): void {
   const action = e.target instanceof HTMLInputElement ? null : keyAction(e);
   const real = row && !row.draft ? row : null;
   // A deleted file is not on disk: file actions skip it.
-  const onDisk = chosen.filter((path) => !gonePaths.has(path));
   const acts = action === "rename" || action === "trash" || action === "cut" || action === "copy";
   if (acts && real && onDisk.length === 0) actions.tell("Deleted. Restore it in Git.");
   // Rename works on one row only.
@@ -629,6 +635,24 @@ function onkeydown(e: KeyboardEvent): void {
 <div class="panel">
   <div class="toolbar" {oncontextmenu} role="presentation">
     <span class="title" aria-hidden="true">Files</span>
+    <button
+      type="button"
+      class="icon"
+      onclick={() => void actions.startNew(folderFor(activeRow()), "file")}
+      aria-label="New file"
+      title="New file"
+    >
+      <Icon name="new-file" small />
+    </button>
+    <button
+      type="button"
+      class="icon"
+      onclick={() => void actions.startNew(folderFor(activeRow()), "dir")}
+      aria-label="New folder"
+      title="New folder"
+    >
+      <Icon name="folder" small />
+    </button>
     <button type="button" class="icon" onclick={collapseAll} aria-label="Collapse all" title="Collapse all folders">
       <Icon name="collapse-all" small />
     </button>
