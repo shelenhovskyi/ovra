@@ -173,6 +173,10 @@ pub struct SandboxReport {
     /// The sandbox's name, such as `bubblewrap`.
     pub name: String,
     pub network: SandboxNetwork,
+    /// What the sandbox does not cover, each a short phrase such as
+    /// `DNS lookups`. Reports saved before the field read as none.
+    #[serde(default)]
+    pub gaps: Vec<String>,
 }
 
 /// What a sandboxed session can reach.

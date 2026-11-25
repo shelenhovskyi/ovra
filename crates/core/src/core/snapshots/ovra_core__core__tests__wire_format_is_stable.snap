@@ -68,6 +68,9 @@ expression: samples
     {
       "data": {
         "sandbox": {
+          "gaps": [
+            "DNS lookups"
+          ],
           "name": "bubblewrap",
           "network": "proxy"
         },

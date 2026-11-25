@@ -46,7 +46,7 @@ group("describe", () => {
       kind: "session_started",
       mode: "isolated",
       trusted: true,
-      sandbox: { name: "bwrap", network: "proxy" },
+      sandbox: { name: "bwrap", network: "proxy", gaps: [] },
     });
     expect(boxed.detail).toBe("In its own worktree, with the project's agent settings, sandbox bwrap, network proxy.");
     expect(boxed.tone).toBe("plain");

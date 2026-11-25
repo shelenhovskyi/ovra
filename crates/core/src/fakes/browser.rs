@@ -127,6 +127,7 @@ impl Browser for FakeBrowser {
     fn status(&self) -> SandboxStatus {
         SandboxStatus::Available {
             name: "fake".into(),
+            gaps: Vec::new(),
         }
     }
 

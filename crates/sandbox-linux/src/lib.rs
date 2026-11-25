@@ -145,7 +145,10 @@ impl Bubblewrap {
                 } else {
                     "bubblewrap, seccomp"
                 };
-                sandbox.status = SandboxStatus::Available { name: name.into() };
+                sandbox.status = SandboxStatus::Available {
+                    name: name.into(),
+                    gaps: Vec::new(),
+                };
             }
             Err(reason) => sandbox.status = SandboxStatus::Unavailable { reason },
         }

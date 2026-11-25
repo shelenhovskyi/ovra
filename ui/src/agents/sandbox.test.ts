@@ -23,7 +23,7 @@ describe("sandbox words", () => {
     expect(sandboxState(info({ sandbox_reported: true }))).toEqual({ kind: "none" });
     expect(sandboxState(info({ status: { state: "stopped" } }))).toEqual({ kind: "unknown" });
     // Saved before the flag existed, with a report: still sandboxed, in the past.
-    const old = info({ status: { state: "stopped" }, sandbox: { name: "bwrap", network: "blocked" } });
+    const old = info({ status: { state: "stopped" }, sandbox: { name: "bwrap", network: "blocked", gaps: [] } });
     expect(sandboxLine(sandboxState(old), true)?.text).toBe("Ran in a sandbox (bwrap), no network.");
     expect(sandboxBadge(sandboxState(old))).toEqual({ text: "Sandboxed", warning: false });
     expect(sandboxLine({ kind: "none" }, true)).toEqual({
@@ -35,7 +35,7 @@ describe("sandbox words", () => {
   });
 
   it("warns about an open network even inside a sandbox", () => {
-    const open = sandboxState(info({ sandbox: { name: "x", network: "open" }, sandbox_reported: true }));
+    const open = sandboxState(info({ sandbox: { name: "x", network: "open", gaps: [] }, sandbox_reported: true }));
     expect(sandboxLine(open, false)).toEqual({ text: "Runs in a sandbox (x), network not limited.", warning: true });
     expect(sandboxBadge(open)).toEqual({ text: "Sandboxed, open network", warning: true });
   });

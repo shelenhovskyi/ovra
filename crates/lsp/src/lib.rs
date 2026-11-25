@@ -62,7 +62,7 @@ impl LanguageServers for Servers {
 
     fn sandbox(&self) -> Option<String> {
         match self.sandbox.status() {
-            SandboxStatus::Available { name } => Some(name),
+            SandboxStatus::Available { name, .. } => Some(name),
             SandboxStatus::Unavailable { .. } => None,
         }
     }
@@ -80,7 +80,7 @@ impl LanguageServers for Servers {
             let cache = cache_dir(&self.caches, &spec)?;
             let line = line(def, program, &spec.root, &cache);
             let (line, sandbox) = match self.sandbox.status() {
-                SandboxStatus::Available { name } => {
+                SandboxStatus::Available { name, .. } => {
                     let profile = ServerProfile {
                         project: spec.root.clone(),
                         cache_dir: cache,

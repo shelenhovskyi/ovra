@@ -686,7 +686,8 @@ echo '{"type":"result","subtype":"success","usage":{"input_tokens":1,"output_tok
             sessions(&core).await[0].sandbox,
             Some(SandboxReport {
                 name: "fake".into(),
-                network: SandboxNetwork::Open
+                network: SandboxNetwork::Open,
+                gaps: Vec::new(),
             })
         );
     }

@@ -448,6 +448,7 @@ impl FakeSandbox {
         Self {
             status: SandboxStatus::Available {
                 name: "fake".into(),
+                gaps: Vec::new(),
             },
             fails: false,
             wrapped: Mutex::default(),

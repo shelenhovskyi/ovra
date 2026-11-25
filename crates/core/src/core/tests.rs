@@ -373,7 +373,11 @@ fn wire_format_is_stable() {
             }),
             Event::Agents(AgentsEvent::Sandbox {
                 session: SessionId("s1".into()),
-                sandbox: Some(SandboxReport { name: "bubblewrap".into(), network: SandboxNetwork::Proxy }),
+                sandbox: Some(SandboxReport {
+                    name: "bubblewrap".into(),
+                    network: SandboxNetwork::Proxy,
+                    gaps: vec!["DNS lookups".into()],
+                }),
             }),
             Event::Permissions(PermissionsEvent::Requested(PermissionRequest {
                 id: PermissionId("perm1".into()),
@@ -439,9 +443,18 @@ fn a_session_saved_before_the_sandbox_flag_reads_as_unreported() {
     assert_eq!(unknown.sandbox, None);
     let boxed = old(serde_json::json!({"name": "bubblewrap", "network": "proxy"}));
     assert_eq!(
-        boxed.sandbox.map(|s| s.network),
-        Some(SandboxNetwork::Proxy)
+        boxed.sandbox.map(|s| (s.network, s.gaps)),
+        Some((SandboxNetwork::Proxy, vec![]))
     );
+}
+
+#[test]
+fn a_sandbox_report_with_gaps_round_trips() {
+    let json = serde_json::json!({"name": "Windows sandbox user", "network": "proxy",
+        "gaps": ["DNS lookups", "loopback services", "Windows file sharing"]});
+    let report: SandboxReport = serde_json::from_value(json.clone()).expect("report");
+    assert_eq!(report.gaps.len(), 3);
+    assert_eq!(serde_json::to_value(&report).ok(), Some(json));
 }
 
 #[test]

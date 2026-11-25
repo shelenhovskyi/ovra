@@ -32,6 +32,7 @@ fn sandboxed(network: SandboxNetwork) -> SandboxReport {
     SandboxReport {
         name: "test".into(),
         network,
+        gaps: Vec::new(),
     }
 }
 
@@ -148,6 +149,7 @@ fn an_ask_rule_wins_over_an_auto_rule() {
     let sandbox = SandboxReport {
         name: "test".into(),
         network: SandboxNetwork::Blocked,
+        gaps: Vec::new(),
     };
     let decided = |command: &str| {
         decide(

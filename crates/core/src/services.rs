@@ -252,8 +252,15 @@ pub enum ProfileNetwork {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SandboxStatus {
-    Available { name: String },
-    Unavailable { reason: String },
+    Available {
+        name: String,
+        /// What it does not cover, each a short phrase such as `DNS
+        /// lookups` (`SandboxReport::gaps`).
+        gaps: Vec<String>,
+    },
+    Unavailable {
+        reason: String,
+    },
 }
 
 /// Runs agent processes inside a sandbox (implemented by the platform

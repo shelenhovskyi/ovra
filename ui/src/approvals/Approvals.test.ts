@@ -103,10 +103,10 @@ describe("Approvals", () => {
     core.sandboxed("s1", null);
     await settle();
     expect(warning()?.textContent?.trim()).toBe("No sandbox: what you allow can reach anything your user can.");
-    core.sandboxed("s1", { name: "bubblewrap", network: "open" });
+    core.sandboxed("s1", { name: "bubblewrap", network: "open", gaps: [] });
     await settle();
     expect(warning()?.textContent?.trim()).toBe("Sandboxed, but its network is not limited.");
-    core.sandboxed("s1", { name: "bubblewrap", network: "proxy" });
+    core.sandboxed("s1", { name: "bubblewrap", network: "proxy", gaps: [] });
     await settle();
     expect(warning()).toBeNull();
   });

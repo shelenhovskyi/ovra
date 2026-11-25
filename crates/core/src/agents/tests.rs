@@ -956,6 +956,7 @@ async fn a_session_says_how_it_is_sandboxed_once_the_runtime_tells() {
     let boxed = SandboxReport {
         name: "test".into(),
         network: SandboxNetwork::Proxy,
+        gaps: Vec::new(),
     };
     host(&core).sandboxed(Some(boxed.clone()));
     host(&core).sandboxed(Some(boxed.clone()));
@@ -999,6 +1000,7 @@ async fn a_resumed_session_reports_its_sandbox_anew() {
     let boxed = SandboxReport {
         name: "test".into(),
         network: SandboxNetwork::Proxy,
+        gaps: Vec::new(),
     };
     let agent = ScriptedAgent::new(vec![vec![Step::Say("hi")]]);
     *agent
@@ -1127,6 +1129,7 @@ async fn the_projects_policy_decides_before_the_person_is_asked() {
     second.sandboxed(Some(SandboxReport {
         name: "test".into(),
         network: SandboxNetwork::Proxy,
+        gaps: Vec::new(),
     }));
     assert_eq!(
         sessions(&core).await[1]

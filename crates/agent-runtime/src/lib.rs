@@ -132,11 +132,12 @@ async fn session(
     // An available sandbox that cannot wrap the session fails it: it never
     // runs unsandboxed instead.
     let line = match sandbox.status() {
-        SandboxStatus::Available { name } => match sandbox.wrap(&spec.sandbox, line) {
+        SandboxStatus::Available { name, gaps } => match sandbox.wrap(&spec.sandbox, line) {
             Ok(line) => {
                 host.sandboxed(Some(SandboxReport {
                     name,
                     network: network(&spec.sandbox.network),
+                    gaps,
                 }));
                 line
             }

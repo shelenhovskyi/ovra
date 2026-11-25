@@ -91,6 +91,7 @@ impl DevServers for FakeDevServers {
     fn status(&self) -> SandboxStatus {
         SandboxStatus::Available {
             name: "fake".into(),
+            gaps: Vec::new(),
         }
     }
 
