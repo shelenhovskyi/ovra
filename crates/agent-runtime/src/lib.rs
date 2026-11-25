@@ -6,6 +6,7 @@
 
 mod detect;
 mod driver;
+mod env;
 mod launch;
 mod policy;
 mod project;
@@ -165,7 +166,8 @@ async fn session(
         },
         SandboxStatus::Unavailable { .. } => {
             host.sandboxed(None);
-            line
+            let outer = std::env::vars_os().map(|(name, _)| name);
+            env::unsandboxed(line, outer, cfg!(windows))
         }
     };
     let child = launch::spawnable(&line)

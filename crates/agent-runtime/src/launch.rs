@@ -8,9 +8,9 @@ use tokio::process::Command;
 /// Variables a running Claude Code session sets for the processes it starts.
 /// When Ovra itself runs inside such a session (an IDE terminal, a Claude
 /// Code tool call), they would make our `claude` think it is nested in that
-/// session or attach to its IDE, so they are removed. Exact names only:
-/// everything else, including the user's configuration (`ANTHROPIC_*`,
-/// `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, proxies), is kept.
+/// session or attach to its IDE, so they are removed. Exact names only; the
+/// sandbox, or without one [`crate::env::unsandboxed`], then keeps only an
+/// allowlist of the rest.
 pub(crate) const NESTED_SESSION_VARS: [&str; 9] = [
     // Set to 1 inside a session; the CLI treats its children as nested.
     "CLAUDECODE",
@@ -114,8 +114,8 @@ impl Conversation {
 }
 
 /// The arguments for one session. Ovra never passes `--bare` (it ignores the
-/// subscription login) and never touches credentials; the environment is
-/// inherited except for [`NESTED_SESSION_VARS`], and `CLAUDE_CONFIG_DIR` is
+/// subscription login) and never touches credentials; the environment is an
+/// allowlist without [`NESTED_SESSION_VARS`], and `CLAUDE_CONFIG_DIR` is
 /// set only to the folder of an account the user added (ADR 0006).
 /// What a coordinator and a worker are told about their role, after Claude
 /// Code's own system prompt.

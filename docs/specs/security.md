@@ -136,9 +136,9 @@ its changes on approve.
     session's own worktree;
   - on Linux, `/run/user/<uid>`, because D-Bus reaches the keyring there;
   - agent sockets such as `SSH_AUTH_SOCK` and the gpg agent.
-- **Environment (owner approved, 2026-11-25).** Outside a sandbox ADR 0006
-  keeps every variable but the nested-session markers. A sandboxed session
-  instead starts from an allowlist, so that `SSH_AUTH_SOCK`,
+- **Environment (owner approved, 2026-11-25).** Every session starts from
+  an allowlist, with or without a sandbox (`crates/agent-runtime/src/env.rs`
+  when the OS has none yet), so that `SSH_AUTH_SOCK`,
   `GITHUB_TOKEN`, `GH_TOKEN`, `AWS_*` and `NPM_TOKEN` do not pass. This
   amends ADR 0006:
   - the list names variables one by one, never by prefix (a

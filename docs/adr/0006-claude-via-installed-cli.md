@@ -72,6 +72,10 @@ the CLI directly, without the SDK:
   Amended 2026-11-25 (owner): a sandboxed session gets only an allowlist of
   variables, named one by one (`docs/specs/security.md`, "Environment"), so
   tokens and agent sockets in the user's environment do not reach it.
+  Amended again the same day (tightening, standing rule): a session that runs
+  without a sandbox (an OS with none yet) gets the same allowlist, plus
+  `PATH`, `TMPDIR` and the person's proxy and CA bundle variables, which the
+  sandbox sets itself (`crates/agent-runtime/src/env.rs`).
 - The binary is run as published, unmodified. Ovra finds it on `PATH` (or a
   path the user sets), checks its version against a tested range and tells
   the user how to install, update or sign in when needed.
