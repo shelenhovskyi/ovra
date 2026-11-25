@@ -130,12 +130,52 @@ describe("Shell", () => {
       target.querySelector<HTMLButtonElement>(`nav[aria-label=Views] [aria-label=${name}]`);
     const viewTab = () => target.querySelector("[data-testid=view-tab]");
     expect(rail("Files")?.getAttribute("aria-pressed")).toBe("true");
-    // Settings > Keyboard lists the panels' own keys too.
+    // Settings > Keyboard lists the panels' own keys too, grouped as it shows them.
+    const places = [...new Set(listContextKeys().map((k) => k.where))].sort((a, b) => a.localeCompare(b));
     expect(
-      listContextKeys()
-        .filter((k) => k.where === "Approvals")
-        .map((k) => k.keys),
-    ).toContain("Y");
+      places.flatMap((where) =>
+        listContextKeys()
+          .filter((k) => k.where === where)
+          .map((k) => `${where}: ${k.keys} ${k.title}`),
+      ),
+    ).toMatchInlineSnapshot(`
+      [
+        "Agent browser: Alt+Shift+P Pick an element on the page",
+        "Agents: Enter Start the task, or send the reply",
+        "Agents: Shift+Enter New line",
+        "Approvals: Y Allow once",
+        "Approvals: N Deny",
+        "Approvals: Shift+N Deny and tell Claude why",
+        "Approvals: Up/Down Previous or next request",
+        "Approvals: Escape Leave the request waiting",
+        "Diffs: N Next change",
+        "Diffs: P Previous change",
+        "Editor: Shift+F8 Go to previous problem",
+        "Files: F2 Rename",
+        "Files: Delete Move to the trash",
+        "Files: Shift+F10 Open the row's menu (also the Menu key)",
+        "Git: S Stage",
+        "Git: U Unstage",
+        "Git: O Open the file",
+        "Git: Enter Show the diff",
+        "Git: Delete Discard changes…",
+        "Git: Shift+F10 Open the row's menu (also the Menu key)",
+        "Git: Mod+Enter Commit",
+        "Reviews: Up/Down Previous or next item or file",
+        "Reviews: Mod+Enter Send the comment",
+        "Reviews: Escape Leave the comment or the reject step",
+        "Search or run: Up/Down Previous or next result",
+        "Search or run: Ctrl+N Next result (also Ctrl+J)",
+        "Search or run: Ctrl+P Previous result (also Ctrl+K)",
+        "Search or run: PageUp/PageDown Move by a page",
+        "Search or run: Enter Run or open the result",
+        "Search or run: Escape Close",
+        "Tabs: Shift+F10 Open the tab's menu (also the Menu key)",
+        "Tabs: Left/Right Previous or next tab",
+        "Tabs: Delete Close the tab",
+        "Views: Escape Close Settings, Reviews or the Audit log",
+      ]
+    `);
 
     rail("Settings")?.click();
     flushSync();
