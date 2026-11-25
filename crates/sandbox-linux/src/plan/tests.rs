@@ -118,6 +118,7 @@ impl Drop for Root {
 fn profile(work_dir: &Path) -> SandboxProfile {
     SandboxProfile {
         kind: ovra_core::services::ProfileKind::Agent,
+        claude_dir: None,
         work_dir: work_dir.to_path_buf(),
         read: Vec::new(),
         write: Vec::new(),
@@ -303,6 +304,142 @@ fn claude_settings_are_never_a_session_folder() {
     assert!(Plan::new(&setup, &profile(&inside)).is_err());
     let mut write = profile(&root.dir("project"));
     write.write.push(root.file("home/.claude.json"));
+    assert!(Plan::new(&setup, &write).is_err());
+}
+
+#[test]
+fn an_accounts_own_folder_comes_back_instead_of_the_default_one() {
+    let root = Root::new("account");
+    let project = root.dir("projects/app");
+    root.file("home/.claude/.credentials.json");
+    root.file("home/.claude.json");
+    let work = root.dir("home/.claude-work");
+    root.file("home/.claude-work/.credentials.json");
+    root.file("home/.claude-work/.claude.json");
+    root.dir("home/.claude-other");
+    // The link the user typed is in the hidden home folder; claude is
+    // pointed at the folder itself.
+    std::os::unix::fs::symlink(&work, root.0.join("home/work-link")).unwrap();
+    let setup = root.setup("/usr/bin");
+    let mut profile = profile(&project);
+    profile.claude_dir = Some(root.0.join("home/work-link"));
+    let plan = Plan::new(&setup, &profile).unwrap();
+    let home = root.0.join("home");
+    let shown = |path: &Path| {
+        plan.mounts.iter().any(|m| match m {
+            Mount::Ro(p) | Mount::Rw(p) => path.starts_with(p),
+            _ => false,
+        })
+    };
+    assert!(plan.mounts.contains(&Mount::Ro(work.clone())));
+    assert!(plan.mounts.contains(&Mount::Rw(work.join(".claude.json"))));
+    assert!(
+        plan.mounts
+            .contains(&Mount::Rw(work.join(".credentials.json")))
+    );
+    assert!(
+        plan.mounts
+            .contains(&Mount::Tmpfs(work.join("shell-snapshots")))
+    );
+    assert!(!shown(&home.join(".claude")));
+    assert!(!shown(&home.join(".claude.json")));
+    assert!(!shown(&home.join(".claude-other")));
+    let line = plan
+        .line(
+            Path::new("/usr/bin/bwrap"),
+            &setup.helper,
+            Landlock::Try,
+            line(Path::new("/bin/sh"), &project),
+            &Root::outer_env(),
+        )
+        .unwrap();
+    let set: Vec<_> = line
+        .env
+        .iter()
+        .filter(|(n, _)| n == "CLAUDE_CONFIG_DIR")
+        .collect();
+    assert_eq!(
+        set.last().and_then(|(_, v)| v.as_deref()),
+        Some(work.as_os_str())
+    );
+    assert!(
+        line.args
+            .windows(2)
+            .any(|w| w[0] == "--env" && w[1] == "CLAUDE_CONFIG_DIR")
+    );
+
+    // A pod gets no account at all.
+    let mut pod = profile.clone();
+    pod.kind = ovra_core::services::ProfileKind::Pod;
+    let pod = Plan::new(&setup, &pod).unwrap();
+    assert!(!pod.mounts.contains(&Mount::Ro(work.clone())));
+    assert_eq!(pod.claude_dir, None);
+
+    // And the agent cannot write it as a session folder.
+    let mut write = profile.clone();
+    write.write.push(work.join("agents"));
+    fs::create_dir_all(work.join("agents")).unwrap();
+    assert!(Plan::new(&setup, &write).is_err());
+}
+
+#[test]
+fn an_account_folder_must_be_a_claude_folder_right_in_the_home_folder() {
+    let root = Root::new("account-bad");
+    let project = root.dir("home/projects/app");
+    root.dir("home/.ssh");
+    root.dir("home/.mozilla");
+    root.dir("home/.claude");
+    root.dir("home/projects/app/.claude-x");
+    root.dir("home/tools/.claude-work");
+    root.dir("elsewhere/.claude-work");
+    let setup = root.setup("/usr/bin");
+    let refused = |dir: PathBuf| {
+        let mut profile = profile(&project);
+        profile.claude_dir = Some(dir);
+        Plan::new(&setup, &profile).err().map(|e| e.message)
+    };
+    let home = root.0.join("home");
+    let says = |dir: PathBuf, what: &str| {
+        let message = refused(dir).unwrap_or_default();
+        assert!(message.contains(what), "{message}");
+    };
+    says(home.join(".claude-missing"), "does not exist");
+    let right_in_home = "right in the home folder";
+    for dir in [
+        home.clone(),
+        home.join(".ssh"),
+        home.join(".mozilla"),
+        home.join(".claude"),
+        home.join("projects"),
+        home.join("projects/app/.claude-x"),
+        home.join("tools/.claude-work"),
+        root.0.join("elsewhere/.claude-work"),
+    ] {
+        says(dir, right_in_home);
+    }
+    root.file("home/.claude-file");
+    says(home.join(".claude-file"), "not a folder");
+}
+
+#[test]
+fn no_session_writes_any_accounts_claude_state() {
+    let root = Root::new("account-write");
+    let setup = root.setup("/usr/bin");
+    let work = root.dir("home/.claude-work");
+    let inside_default = root.dir("home/.claude/agents");
+    let project = root.dir("projects/app");
+    // With an account set, the default account's folder stays protected.
+    let mut account = profile(&inside_default);
+    account.claude_dir = Some(work.clone());
+    assert!(Plan::new(&setup, &account).is_err());
+    let mut state = profile(&project);
+    state.claude_dir = Some(work.clone());
+    state.write.push(root.file("home/.claude.json"));
+    assert!(Plan::new(&setup, &state).is_err());
+    // And a default-account session cannot work in an account's folder.
+    assert!(Plan::new(&setup, &profile(&work)).is_err());
+    let mut write = profile(&project);
+    write.write.push(root.dir("home/.claude-work/agents"));
     assert!(Plan::new(&setup, &write).is_err());
 }
 

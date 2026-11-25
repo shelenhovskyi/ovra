@@ -217,6 +217,10 @@ pub(crate) struct Plan {
     /// sandbox runs (agents and pods; [`crate::made`]).
     record: Option<PathBuf>,
     kind: Kind,
+    /// The account's configuration folder, resolved: `claude` is pointed
+    /// at this path, which the sandbox shows even when the one it was given
+    /// goes through a link in the hidden home folder.
+    claude_dir: Option<PathBuf>,
 }
 
 /// Who the sandbox is for.
@@ -259,11 +263,15 @@ impl Plan {
                 )));
             }
         }
-        // `claude`'s own configuration stays read-only, whatever the project.
-        let claude = (home.join(".claude"), home.join(".claude.json"));
+        let own = match (&profile.claude_dir, profile.kind) {
+            (Some(dir), ProfileKind::Agent) => Some(account_dir(dir, &home, &work_dir, setup)?),
+            _ => None,
+        };
+        // `claude`'s own configuration stays read-only, whatever the project
+        // and the account: the default account's and every other one's.
         for path in std::iter::once(&work_dir).chain(&profile.write) {
             let path = real(path).unwrap_or_else(|_| path.clone());
-            if path.starts_with(&claude.0) || path == claude.1 {
+            if holds_claude_state(&path, &home) {
                 return Err(invalid(format!(
                     "the sandbox does not let an agent write {}: it holds claude's settings",
                     path.display()
@@ -279,6 +287,7 @@ impl Plan {
             path: OsString::new(),
             temporary: Vec::new(),
             record: None,
+            claude_dir: own.clone(),
             kind: match profile.kind {
                 ProfileKind::Agent => Kind::Agent,
                 ProfileKind::Pod => Kind::Pod,
@@ -295,7 +304,7 @@ impl Plan {
                     .filter_map(|p| real(p).ok()),
             )
             .collect();
-        plan.home_back(setup, &home, &work_dir, &shown);
+        plan.home_back(setup, &home, &work_dir, &shown, own.as_deref());
         for read in &profile.read {
             if let Ok(read) = real(read) {
                 plan.mounts.push(Mount::Ro(read));
@@ -408,9 +417,17 @@ impl Plan {
     }
 
     /// What `claude`, git and the toolchains need from the home folder.
-    fn home_back(&mut self, setup: &Setup, home: &Path, work_dir: &Path, shown: &[PathBuf]) {
+    /// `own`: the account's configuration folder, if it has one.
+    fn home_back(
+        &mut self,
+        setup: &Setup,
+        home: &Path,
+        work_dir: &Path,
+        shown: &[PathBuf],
+        own: Option<&Path>,
+    ) {
         if self.kind == Kind::Agent {
-            self.claude_back(home, work_dir);
+            self.claude_back(home, work_dir, own);
         }
         if self.kind == Kind::Browser {
             // The system's programs only; an empty `PATH` would search
@@ -424,10 +441,14 @@ impl Plan {
     }
 
     /// `claude`'s own state: its settings read-only, what it writes during
-    /// a session private or writable.
-    fn claude_back(&mut self, home: &Path, work_dir: &Path) {
-        let claude = home.join(".claude");
-        let _ = fs::create_dir_all(&claude);
+    /// a session private or writable. With an account's own folder `own`,
+    /// that folder and the state file in it instead of `~/.claude` and
+    /// `~/.claude.json`, which stay hidden with every other account's.
+    fn claude_back(&mut self, home: &Path, work_dir: &Path, own: Option<&Path>) {
+        let (claude, state) = claude_state(home, own);
+        if own.is_none() {
+            let _ = fs::create_dir_all(&claude);
+        }
         if let Ok(claude) = real(&claude)
             && claude.starts_with(home)
         {
@@ -472,7 +493,6 @@ impl Plan {
                 }
             }
         }
-        let state = home.join(".claude.json");
         if fs::symlink_metadata(&state).is_ok_and(|m| m.is_file()) {
             self.rw(state);
         }
@@ -717,6 +737,9 @@ impl Plan {
         }
         env.push((os("PATH"), Some(self.path.clone())));
         env.push((os("TMPDIR"), Some(os("/tmp"))));
+        if let Some(dir) = &self.claude_dir {
+            env.push((os("CLAUDE_CONFIG_DIR"), Some(os(dir))));
+        }
         env.extend(last);
         let names = self.env_kept();
         allowlist(outer_env, names, &mut env);
@@ -859,6 +882,71 @@ fn project_key(work_dir: &Path) -> String {
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
         .collect()
+}
+
+/// `claude`'s configuration folder and state file: an account's own folder
+/// keeps its state file inside (`CLAUDE_CONFIG_DIR`), the default account
+/// uses `~/.claude` and `~/.claude.json`.
+fn claude_state(home: &Path, own: Option<&Path>) -> (PathBuf, PathBuf) {
+    match own {
+        Some(dir) => (dir.to_path_buf(), dir.join(".claude.json")),
+        None => (home.join(".claude"), home.join(".claude.json")),
+    }
+}
+
+/// Whether `name`, right in the home folder, holds `claude`'s state:
+/// `.claude`, `.claude.json` or an account's folder such as `.claude-work`.
+fn claude_name(name: &std::ffi::OsStr) -> bool {
+    name.to_string_lossy().starts_with(".claude")
+}
+
+/// Whether `path` (resolved) is in or is one of the home folder's
+/// [`claude_name`] entries, which every account's sessions load from.
+fn holds_claude_state(path: &Path, home: &Path) -> bool {
+    path.strip_prefix(home)
+        .ok()
+        .and_then(|rest| rest.components().next())
+        .is_some_and(|top| claude_name(top.as_os_str()))
+}
+
+/// The account's configuration folder, resolved, if the sandbox may give
+/// it back: an existing folder right in the home folder whose name starts
+/// with `.claude` (not `.claude` itself), like the ones Ovra suggests, and
+/// that holds none of Ovra's hidden folders. Any other folder could hold
+/// the person's secrets or a project an agent writes.
+fn account_dir(dir: &Path, home: &Path, work_dir: &Path, setup: &Setup) -> Result<PathBuf> {
+    let refused = |why: &str| {
+        Err(invalid(format!(
+            "the sandbox does not use {} as a Claude account's folder: {why}",
+            dir.display()
+        )))
+    };
+    let Ok(real_dir) = real(dir) else {
+        return refused("it does not exist; sign in to that account once to create it");
+    };
+    if !real_dir.is_dir() {
+        return refused("it is not a folder");
+    }
+    let named = real_dir
+        .file_name()
+        .is_some_and(|n| claude_name(n) && n != ".claude");
+    if real_dir.parent() != Some(home) || !named {
+        return refused(
+            "it must be a folder right in the home folder whose name starts with .claude, such as ~/.claude-work",
+        );
+    }
+    if real_dir.starts_with(work_dir) || work_dir.starts_with(&real_dir) {
+        return refused("it overlaps the session's folder");
+    }
+    let hides = setup
+        .hidden
+        .iter()
+        .filter_map(|h| real(h).ok())
+        .any(|h| h.starts_with(&real_dir) || real_dir.starts_with(&h));
+    if hides {
+        return refused("it holds Ovra's own data");
+    }
+    Ok(real_dir)
 }
 
 /// `path` with every link resolved; it must exist.

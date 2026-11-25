@@ -142,6 +142,7 @@ impl Plan {
             path: OsString::new(),
             temporary: Vec::new(),
             record: None,
+            claude_dir: None,
             kind: Kind::Server {
                 project: project.clone(),
             },
