@@ -219,31 +219,29 @@ async fn later_snapshots_see_every_change_since_the_last() {
     );
 }
 
-/// Git never looks inside a submodule an agent may have changed, nor
-/// recurses into one: that would run the submodule's config.
+/// Commits everything in `dir`, a repository without Ovra's test config.
+fn commit_all(dir: &Path, message: &str) {
+    git(dir, &["add", "--all"]);
+    let who = ["-c", "user.name=T", "-c", "user.email=t@t"];
+    let commit = ["-c", "commit.gpgsign=false", "commit", "--quiet", "-m"];
+    git(dir, &[&who[..], &commit[..], &[message]].concat());
+}
+
+/// A repository with one file at `dir`, committed.
+fn small_repo(dir: &Path) {
+    put(dir, "x.txt", "x\n");
+    git(dir, &["init", "--quiet"]);
+    commit_all(dir, "sub");
+}
+
+/// Git never looks inside a submodule an agent may have changed: that
+/// would run the submodule's config.
 #[test]
-fn git_stays_out_of_submodules() {
+fn status_stays_out_of_submodules() {
     let repo = Repo::new(&[]);
     let root = &repo.root;
     let sub = root.join("sub");
-    put(&sub, "x.txt", "x\n");
-    git(&sub, &["init", "--quiet"]);
-    git(&sub, &["add", "--all"]);
-    git(
-        &sub,
-        &[
-            "-c",
-            "user.name=T",
-            "-c",
-            "user.email=t@t",
-            "-c",
-            "commit.gpgsign=false",
-            "commit",
-            "--quiet",
-            "-m",
-            "sub",
-        ],
-    );
+    small_repo(&sub);
     git(root, &["add", "sub"]);
     git(root, &["commit", "--quiet", "-m", "start"]);
     put(&sub, "x.txt", "changed\n");
@@ -253,12 +251,43 @@ fn git_stays_out_of_submodules() {
         .arg("--porcelain")
         .text();
     assert_eq!(status.ok().as_deref(), Some(""));
-    let args = format!("{:?}", crate::git::Git::new(root, "reset"));
-    assert!(args.contains(r#""-c" "submodule.recurse=false""#), "{args}");
-    assert!(
-        args.contains(r#""-c" "diff.ignoreSubmodules=all""#),
-        "{args}"
+}
+
+/// A review always shows a changed submodule commit, even when the agent
+/// wrote a `.gitmodules` that tells git to ignore it.
+#[tokio::test]
+async fn a_review_sees_a_submodule_bump_whatever_gitmodules_says() {
+    let repo = Repo::new(&[]);
+    let root = &repo.root;
+    let sub = root.join("sub");
+    small_repo(&sub);
+    git(root, &["add", "sub"]);
+    git(root, &["commit", "--quiet", "-m", "start"]);
+    let base = git(root, &["rev-parse", "HEAD"]);
+    put(&sub, "x.txt", "bumped\n");
+    commit_all(&sub, "bump");
+
+    let w = GitWorktrees::new();
+    let paths = |deltas: Vec<ovra_core::services::Delta>| -> Vec<String> {
+        deltas.into_iter().map(|d| d.path).collect()
+    };
+    let changes = w.changes(root.clone(), base.clone()).await;
+    assert_eq!(changes.map(paths).ok(), Some(vec!["sub".to_owned()]));
+
+    put(
+        root,
+        ".gitmodules",
+        "[submodule \"sub\"]\n\tpath = sub\n\turl = ./sub\n\tignore = all\n",
     );
+    let changes = w.changes(root.clone(), base.clone()).await;
+    let changes = changes.map(paths).ok();
+    assert_eq!(
+        changes,
+        Some(vec![".gitmodules".to_owned(), "sub".to_owned()])
+    );
+    let patch = w.patch(root.clone(), base, rels(&["sub"])).await;
+    let patch = patch.unwrap_or_else(|e| panic!("{e:?}"));
+    assert!(patch.contains("+Subproject commit"), "{patch}");
 }
 
 #[test]

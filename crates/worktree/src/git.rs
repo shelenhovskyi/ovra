@@ -100,10 +100,18 @@ impl Git {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         // `status` asks each submodule for its own status unless told not
-        // to. `diff-tree` compares trees only and keeps showing a changed
-        // submodule commit, so a review still sees it.
-        if subcommand == "status" {
-            command.arg("--ignore-submodules=all");
+        // to. `diff-tree` compares trees only, never a submodule's files,
+        // but would hide a changed submodule commit when a `.gitmodules`
+        // (which an agent can write) says `ignore = all`: a review must
+        // always see it.
+        match subcommand {
+            "status" => {
+                command.arg("--ignore-submodules=all");
+            }
+            "diff-tree" => {
+                command.arg("--ignore-submodules=none");
+            }
+            _ => {}
         }
         for var in INHERITED {
             command.env_remove(var);
