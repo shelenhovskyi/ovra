@@ -39,8 +39,8 @@ tone instead of lines, and chrome that appears only when needed.
   settings) stay visible: shorter, never hidden.
 - **One primary action per area**, filled with `--accent` and `--accent-ink`.
   Other buttons are quiet: transparent, `--text-2`, `--s3` on hover.
-- **Icons.** Inline SVG, 18 px (15 px small), 1.6 stroke, `currentColor`,
-  drawn in `ui/src/shell/icons.ts`. Icon-only buttons have an accessible name
+- **Icons.** Lucide (ISC) as inline SVG, 18 px (16 px small), 1.75 stroke, `currentColor`,
+  copied into `ui/src/shell/icons.ts`. Icon-only buttons have an accessible name
   and a tooltip.
 - **Chrome on demand.** Panel headers show their secondary buttons (swap,
   collapse, filters) muted, at full strength on hover or focus.

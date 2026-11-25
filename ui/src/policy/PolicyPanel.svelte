@@ -8,6 +8,7 @@ import { tick, untrack } from "svelte";
 import { registerCommand } from "../keys/commands";
 import type { PolicyAction, PolicyRule } from "../lib/protocol";
 import { useOvra } from "../shell/context";
+import Icon from "../shell/Icon.svelte";
 import { ChangedElsewhere, ProjectPolicy, reason } from "./policy.svelte";
 import {
   ACTIONS,
@@ -299,7 +300,7 @@ function onDialogKeydown(event: KeyboardEvent): void {
         <h2 id="policy-title" tabindex="-1">Project policies</h2>
         <span class="muted">{workspace.project?.name ?? "No project"}</span>
         <button type="button" class="close" aria-keyshortcuts="Escape" title="Close (Escape)" onclick={close}
-          ><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg><span class="sr-only"
+          ><Icon name="close" /><span class="sr-only"
             >Close</span
           ></button
         >
@@ -470,15 +471,6 @@ function onDialogKeydown(event: KeyboardEvent): void {
     padding: 4px;
     color: var(--text-2);
     background: transparent;
-  }
-  .close svg {
-    display: block;
-    width: 18px;
-    height: 18px;
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 1.6;
-    stroke-linecap: round;
   }
   .sr-only {
     position: absolute;

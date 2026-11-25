@@ -1,5 +1,6 @@
 <script lang="ts">
 // One of Ovra's icons (icons.ts), decorative: the button around it carries the name.
+// 18 px alone (rail, title bar), 16 px (`small`) beside text.
 import { ICONS, type IconName } from "./icons";
 
 let { name, small = false }: { name: IconName; small?: boolean } = $props();
@@ -14,12 +15,12 @@ let { name, small = false }: { name: IconName; small?: boolean } = $props();
     flex: none;
     fill: none;
     stroke: currentColor;
-    stroke-width: 1.6;
+    stroke-width: 1.75;
     stroke-linecap: round;
     stroke-linejoin: round;
   }
   .small {
-    width: 15px;
-    height: 15px;
+    width: 16px;
+    height: 16px;
   }
 </style>

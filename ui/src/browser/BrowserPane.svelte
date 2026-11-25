@@ -8,6 +8,7 @@ import { isEnded } from "../agents/status";
 import type { PageId, PageInfo, SessionId } from "../lib/protocol";
 import { CoreError } from "../lib/transport";
 import { useOvra } from "../shell/context";
+import Icon from "../shell/Icon.svelte";
 import { type NavigationAsk, sessionBrowsers } from "./browser.svelte";
 import PageView from "./PageView.svelte";
 
@@ -245,7 +246,7 @@ function onPaneKeydown(event: KeyboardEvent): void {
                 onkeydown={(event) => onTabKeydown(event, i)}>{p.title || p.url}</button
               >
               <button type="button" class="x" aria-label={`Close ${p.title || p.url}`} onclick={() => void close(p)}
-                >×</button
+                ><Icon name="close" small /></button
               >
             </span>
           {/each}
@@ -343,6 +344,8 @@ function onPaneKeydown(event: KeyboardEvent): void {
     font-weight: 500;
   }
   .tab .x {
+    display: grid;
+    place-items: center;
     color: var(--text-2);
     background: transparent;
   }

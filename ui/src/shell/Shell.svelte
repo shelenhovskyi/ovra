@@ -203,7 +203,7 @@ function fold(panel: Panel, name: string): void {
       type="button"
       title="Collapse"
       aria-label={`Collapse ${name}`}
-      onclick={() => fold(panel, name)}><Icon name="collapse" small /></button
+      onclick={() => fold(panel, name)}><Icon name="panel-left" small /></button
 
     >
   </span>

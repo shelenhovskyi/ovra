@@ -8,6 +8,7 @@ import { tick, untrack } from "svelte";
 import { agentSessions } from "../agents/sessions.svelte";
 import { registerCommand } from "../keys/commands";
 import { useOvra } from "../shell/context";
+import Icon from "../shell/Icon.svelte";
 import { describe, FILTERS, type Filter, shows, when } from "./describe";
 import { AuditTrail } from "./trail.svelte";
 
@@ -135,7 +136,7 @@ function who(session: string | null): string {
           <label><input type="checkbox" bind:checked={refusedOnly} data-testid="audit-refused" /> Refused only</label>
         {/if}
         <button type="button" class="close" aria-keyshortcuts="Escape" title="Close (Escape)" onclick={close}
-          ><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg><span class="sr-only"
+          ><Icon name="close" /><span class="sr-only"
             >Close</span
           ></button
         >
@@ -235,15 +236,6 @@ function who(session: string | null): string {
     padding: 4px;
     color: var(--text-2);
     background: transparent;
-  }
-  .close svg {
-    display: block;
-    width: 18px;
-    height: 18px;
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 1.6;
-    stroke-linecap: round;
   }
   .sr-only {
     position: absolute;

@@ -1,36 +1,86 @@
-// Ovra's icons: inner SVG of a 24 x 24 view box, drawn with a 1.6 stroke in
-// `currentColor` (docs/specs/quiet-style.md). `Icon.svelte` renders them.
+// Ovra's icons: the inner SVG of Lucide icons (https://lucide.dev), on a
+// 24 x 24 view box, drawn with a 1.75 stroke in `currentColor`
+// (docs/design/tokens.md). `Icon.svelte` renders them at 18 px, or 16 px
+// beside text. Keys name what an icon means here; the comment names the
+// Lucide icon. One family only: no Unicode glyphs and no private drawings.
+//
+// Lucide is ISC licensed: Copyright (c) for portions of Lucide are held by
+// Cole Bemis 2013-2022 as part of Feather (MIT). All other copyright (c) for
+// Lucide are held by Lucide Contributors 2022. The full notice is in
+// NOTICE at the repository root.
+
+const FOLDER =
+  '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>';
+const SHIELD =
+  '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/>';
+const PANEL = '<rect width="18" height="18" x="3" y="3" rx="2"/>';
 
 export const ICONS = {
-  files:
-    '<path d="M4 6.5A1.5 1.5 0 0 1 5.5 5h4l2 2h7A1.5 1.5 0 0 1 20 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z"/>',
-  search: '<circle cx="11" cy="11" r="6"/><path d="m20 20-4.2-4.2"/>',
+  /** folder */
+  files: FOLDER,
+  /** search */
+  search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+  /** git-branch */
   branch:
-    '<circle cx="7" cy="6" r="2"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="8" r="2"/><path d="M7 8v8M17 10c0 4-5 3.5-9 6.5"/>',
-  agent: '<path d="M12 3v3M12 18v3M3 12h3M18 12h3"/><circle cx="12" cy="12" r="4"/>',
-  terminal: '<rect x="3.5" y="5" width="17" height="14" rx="2"/><path d="m7.5 10 2.5 2-2.5 2M12.5 14.5h4"/>',
-  more: '<circle cx="6" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="18" cy="12" r="1"/>',
-  swap: '<path d="M4 9h15l-3.5-3.5M20 15H5l3.5 3.5"/>',
-  collapse: '<rect x="3.5" y="5" width="17" height="14" rx="2"/><path d="M9.5 5v14M15.5 10l-2 2 2 2"/>',
+    '<line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>',
+  /** bot */
+  agent:
+    '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/>',
+  /** square-terminal */
+  terminal: '<path d="m7 11 2-2-2-2"/><path d="M11 13h4"/><rect width="18" height="18" x="3" y="3" rx="2"/>',
+  /** ellipsis */
+  more: '<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
+  /** arrow-left-right */
+  swap: '<path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/>',
+  /** panel-left */
+  "panel-left": `${PANEL}<path d="M9 3v18"/>`,
+  /** panel-right */
+  "panel-right": `${PANEL}<path d="M15 3v18"/>`,
+  /** chevron-down */
   chevron: '<path d="m6 9 6 6 6-6"/>',
-  dot: '<circle cx="12" cy="12" r="3.5" fill="currentColor"/>',
-  "chevron-right": '<path d="m9 6 6 6-6 6"/>',
-  close: '<path d="M6 6l12 12M18 6 6 18"/>',
-  plus: '<path d="M12 5v14M5 12h14"/>',
+  /** chevron-right */
+  "chevron-right": '<path d="m9 18 6-6-6-6"/>',
+  /** circle, filled: an unsaved file's mark */
+  dot: '<circle cx="12" cy="12" r="4" fill="currentColor"/>',
+  /** x */
+  close: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  /** plus */
+  plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
+  /** minus */
   minus: '<path d="M5 12h14"/>',
-  check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
-  external: '<path d="M14 4.5h5.5V10M19.5 4.5 11 13M17 13.5v5h-12.5v-12.5h5"/>',
-  discard: '<path d="M5 9.5h9.5a4.5 4.5 0 0 1 0 9H10M5 9.5 8.5 6M5 9.5 8.5 13"/>',
-  "collapse-all": '<path d="m7 15 5-5 5 5M7 9l5-5 5 5"/>',
-  reveal: '<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.5"/>',
-  filter: '<path d="M4 6h16M7 12h10M10 18h4"/>',
-  pin: '<path d="M12 16v4.5M8.5 4h7M10 4v5l-3.5 4.5V16h11v-2.5L14 9V4"/>',
+  /** check */
+  check: '<path d="M20 6 9 17l-5-5"/>',
+  /** volume-2: read a terminal to a screen reader */
+  speaker:
+    '<path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/><path d="M16 9a5 5 0 0 1 0 6"/><path d="M19.364 18.364a9 9 0 0 0 0-12.728"/>',
+  /** square: stop a run */
+  stop: '<rect width="12" height="12" x="6" y="6" rx="2"/>',
+  /** external-link */
+  external:
+    '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
+  /** undo-2 */
+  discard: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11"/>',
+  /** chevrons-down-up */
+  "collapse-all": '<path d="m7 20 5-5 5 5"/><path d="m7 4 5 5 5-5"/>',
+  /** locate-fixed */
+  reveal:
+    '<line x1="2" x2="5" y1="12" y2="12"/><line x1="19" x2="22" y1="12" y2="12"/><line x1="12" x2="12" y1="2" y2="5"/><line x1="12" x2="12" y1="19" y2="22"/><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="3"/>',
+  /** list-filter */
+  filter: '<path d="M3 6h18"/><path d="M7 12h10"/><path d="M10 18h4"/>',
+  /** pin */
+  pin: '<path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>',
+  /** inbox */
   review:
-    '<path d="M5 5.5A1.5 1.5 0 0 1 6.5 4h11A1.5 1.5 0 0 1 19 5.5v13a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 18.5z"/><path d="m9 12 2 2 4-4"/>',
+    '<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
+  /** settings */
   settings:
-    '<circle cx="12" cy="12" r="3"/><path d="M12 3.5v2.2M12 18.3v2.2M3.5 12h2.2M18.3 12h2.2M6 6l1.6 1.6M16.4 16.4 18 18M6 18l1.6-1.6M16.4 7.6 18 6"/>',
-  folder:
-    '<path d="M4 7.5A1.5 1.5 0 0 1 5.5 6h4l2 2h7A1.5 1.5 0 0 1 20 9.5v8a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z"/><path d="M12 11v5M9.5 13.5h5"/>',
+    '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
+  /** folder-plus */
+  folder: `<path d="M12 10v6"/><path d="M9 13h6"/>${FOLDER}`,
+  /** shield-check: an approval */
+  "shield-check": `${SHIELD}<path d="m9 12 2 2 4-4"/>`,
+  /** shield-alert: no sandbox; the one icon drawn in `--warn` */
+  "shield-alert": `${SHIELD}<path d="M12 8v4"/><path d="M12 16h.01"/>`,
 } as const;
 
 export type IconName = keyof typeof ICONS;

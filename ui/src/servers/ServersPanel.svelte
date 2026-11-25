@@ -9,6 +9,7 @@ import { registerCommand } from "../keys/commands";
 import { inBrowserTab, isApple, liveKeys, matchesShortcut, parseShortcut } from "../keys/shortcut";
 import type { DevServerId as ServerId, DevServerInfo as ServerInfo, SessionId, StartedBy } from "../lib/protocol";
 import { useOvra } from "../shell/context";
+import Icon from "../shell/Icon.svelte";
 import { addServer, CONFIG, checkForm, createConfig, type ServerForm } from "./config";
 import LogView from "./LogView.svelte";
 import { message, ProjectServers, running, statusText } from "./servers.svelte";
@@ -291,7 +292,7 @@ function onDialogKeydown(event: KeyboardEvent): void {
           </label>
         {/if}
         <button type="button" class="close" aria-keyshortcuts="Escape" title="Close (Escape)" onclick={close}
-          ><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg><span class="sr-only"
+          ><Icon name="close" /><span class="sr-only"
             >Close</span
           ></button
         >
@@ -473,15 +474,6 @@ function onDialogKeydown(event: KeyboardEvent): void {
     padding: 4px;
     color: var(--text-2);
     background: transparent;
-  }
-  .close svg {
-    display: block;
-    width: 18px;
-    height: 18px;
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 1.6;
-    stroke-linecap: round;
   }
   .sr-only {
     position: absolute;

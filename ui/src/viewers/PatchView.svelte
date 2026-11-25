@@ -2,6 +2,7 @@
 import Code from "../editor/highlight/Code.svelte";
 import { highlightLines, type Segment } from "../editor/highlight/static";
 import { languageFor } from "../editor/languages";
+import Icon from "../shell/Icon.svelte";
 import Lines from "./Lines.svelte";
 import { changeStarts, fileName, fileStats, type PatchLine, parsePatch, patchRows } from "./patch";
 
@@ -138,7 +139,7 @@ const SIGN = { context: " ", added: "+", removed: "-" } as const;
           {@const file = files[item.file]}
           <div class="file">
             <button type="button" aria-expanded={!collapsed.has(item.file)} onclick={() => toggle(item.file)}>
-              <span aria-hidden="true">{collapsed.has(item.file) ? "▸" : "▾"}</span>
+              <Icon name={collapsed.has(item.file) ? "chevron-right" : "chevron"} small />
               {#if file?.oldPath === null}
                 <span class="badge">new</span> {file.newPath}
               {:else if file?.newPath === null}
@@ -221,6 +222,9 @@ const SIGN = { context: " ", added: "+", removed: "-" } as const;
   }
   .file button {
     all: unset;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
     cursor: pointer;
     font-weight: 600;
     padding: 0 6px;
