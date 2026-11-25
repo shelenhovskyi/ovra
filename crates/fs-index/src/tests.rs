@@ -182,6 +182,21 @@ async fn missing_and_wrong_kind() {
     assert_eq!(code(write.await), ErrorCode::NotFound);
 }
 
+/// A `.git` file that sends git to a repository in a folder of the project
+/// is not followed: that repository, and its config, may be an agent's.
+#[tokio::test]
+async fn no_status_from_a_repository_inside_the_project() {
+    let tmp = dir();
+    let root = tmp.path();
+    fs::create_dir(root.join("inner")).expect("mkdir");
+    git(&root.join("inner"), &["init", "-q"]);
+    put(root, ".git", "gitdir: inner/.git\n");
+    put(root, "a.txt", "a\n");
+    let listing = list(&FsIndex::new(), root, "").await.expect("root");
+    let git: Vec<_> = listing.entries.iter().map(|e| e.git).collect();
+    assert_eq!(git, [None, None, None]);
+}
+
 /// A file monitor configured in the repository never runs: it is a program
 /// of the repository's choosing.
 #[cfg(unix)]

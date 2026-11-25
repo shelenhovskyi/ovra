@@ -74,6 +74,12 @@ impl Repo {
         let mut lines = out.lines();
         let prefix = lines.next()?.to_owned();
         let git_dir = PathBuf::from(lines.next()?);
+        // A `.git` file may point into a folder of the project, at a
+        // repository an agent could have made there: never run git in it.
+        let real = std::fs::canonicalize(&git_dir).unwrap_or_else(|_| git_dir.clone());
+        if real.starts_with(root) && real != root.join(".git") {
+            return None;
+        }
         Some(Self {
             workdir: root.to_path_buf(),
             prefix,
