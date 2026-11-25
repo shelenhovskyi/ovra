@@ -80,3 +80,48 @@ impl Roots {
         Ok(Arc::new(config))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cert(bytes: &[u8]) -> CertificateDer<'static> {
+        CertificateDer::from(bytes.to_vec())
+    }
+
+    fn parse(pem: &str) -> Vec<Vec<u8>> {
+        CertificateDer::pem_slice_iter(pem.as_bytes())
+            .map(|c| c.expect("bundle parses").to_vec())
+            .collect()
+    }
+
+    #[test]
+    fn the_bundle_joins_the_roots_and_the_session_ca() {
+        let session = Roots::of(vec![cert(b"session ca")]).bundle("");
+        let bundle = Roots::of(vec![cert(b"corporate root"), cert(&[7; 100])]).bundle(&session);
+        assert_eq!(
+            parse(&bundle),
+            vec![
+                b"corporate root".to_vec(),
+                vec![7; 100],
+                b"session ca".to_vec()
+            ]
+        );
+    }
+
+    #[test]
+    fn roots_from_env_include_the_bundles_the_person_names() -> std::io::Result<()> {
+        let dir = std::env::temp_dir().join(format!("ovra-tls-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir)?;
+        let file = dir.join("extra.pem");
+        std::fs::write(&file, Roots::of(vec![cert(b"extra root")]).bundle(""))?;
+        let path = file.to_string_lossy().into_owned();
+        let roots = Roots::from_env(&|name| (name == "NODE_EXTRA_CA_CERTS").then(|| path.clone()));
+        let missing =
+            Roots::from_env(&|name| (name == "CURL_CA_BUNDLE").then(|| "/no/such.pem".into()));
+        std::fs::remove_dir_all(&dir)?;
+        assert!(roots.certs.iter().any(|c| c.as_ref() == b"extra root"));
+        assert!(!missing.certs.iter().any(|c| c.as_ref() == b"extra root"));
+        Ok(())
+    }
+}
