@@ -5,6 +5,7 @@
 // model.
 import { describeTool, isIdeTool } from "../approvals/describe";
 import type { AgentMessage, Billing, MessageFrom } from "../lib/protocol";
+import { isAuthFailure, withoutEchoes } from "./errors";
 import { usageText } from "./sessions.svelte";
 import { ideResult } from "./tool-results";
 
@@ -95,9 +96,12 @@ function sent(action: string, details: { label: string; text: string }[]) {
 /** Each tool call's tool by its id, so its result can be told in words. */
 const tools = $derived(new Map(messages.flatMap((m) => (m.kind === "tool_use" ? [[m.id, m.name] as const] : []))));
 
-/** Without usage (a fake agent, say) a turn's end line would say nothing. */
+/**
+ * Without usage (a fake agent, say) a turn's end line would say nothing;
+ * Claude's copy of the error its turn ended with would say it twice.
+ */
 const shown = $derived(
-  messages.filter((m) => m.kind !== "turn_end" || m.usage.input_tokens + m.usage.output_tokens > 0),
+  withoutEchoes(messages).filter((m) => m.kind !== "turn_end" || m.usage.input_tokens + m.usage.output_tokens > 0),
 );
 
 function lines(text: string): string {
@@ -184,8 +188,9 @@ $effect(() => {
       {:else if message.kind === "turn_end"}
         <span class="who">Turn ended: {usageText(message.usage, billing)}</span>
       {:else if message.kind === "error"}
+        <!-- A sign-in problem is explained once, above the transcript. -->
         <span class="who">Error</span>
-        <p>{message.message}</p>
+        <p>{isAuthFailure(message.message) ? "Account signed out" : message.message}</p>
       {/if}
     </li>
   {/each}
@@ -195,16 +200,15 @@ $effect(() => {
   .transcript {
     list-style: none;
     margin: 0;
-    padding: 0 12px;
+    padding: 4px 16px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
     overflow: auto;
-    /* A real reading area that the person can make taller or shorter. */
-    height: max(240px, 40vh);
+    flex: 1;
     min-height: 120px;
-    resize: vertical;
-    flex: none;
   }
   .transcript:focus-visible {
-    outline: 2px solid #7aa2ff;
     outline-offset: -2px;
   }
   .spoken {
@@ -218,33 +222,10 @@ $effect(() => {
   summary {
     cursor: pointer;
   }
-  li {
-    padding: 6px 0;
-    border-bottom: 1px solid #23232a;
-  }
-  .sub {
-    padding-left: 12px;
-    border-left: 2px solid #4a4a57;
-  }
   .who {
-    font-size: 11px;
-    color: #b4b4c0;
-  }
-  .tool_result summary,
-  .user_text summary,
-  .error .who {
-    font-weight: 600;
-  }
-  .turn_end .who {
-    font-style: italic;
-  }
-  .sent {
-    padding-left: 8px;
-    border-left: 2px solid #4a4a57;
-  }
-  .sent .label {
-    font-size: 11px;
-    color: #b4b4c0;
+    display: block;
+    font-size: 13px;
+    color: var(--text-2);
   }
   p,
   pre {
@@ -252,12 +233,56 @@ $effect(() => {
     white-space: pre-wrap;
     overflow-wrap: anywhere;
   }
+  /* What the person wrote stands apart by tone. */
+  .user_text {
+    padding: 8px 12px;
+    background: var(--s3);
+    border-radius: var(--radius);
+  }
+  /* Steps are quiet: one line each, what Claude says is the text to read. */
+  .tool_use,
+  .tool_result,
+  .turn_end {
+    font-size: 13px;
+    color: var(--text-2);
+  }
+  .tool_use {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    column-gap: 8px;
+  }
+  .tool_use p {
+    margin: 0;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+  }
+  .tool_use .sent {
+    flex-basis: 100%;
+    font-family: var(--font);
+    color: var(--text-2);
+  }
+  .sub {
+    padding-left: 12px;
+    box-shadow: inset 2px 0 var(--s4);
+  }
+  .error {
+    padding: 8px 12px;
+    background: var(--s2);
+    border-radius: var(--radius);
+  }
+  .error .who {
+    color: var(--danger);
+    font-weight: 600;
+  }
   pre {
     max-height: 200px;
     overflow: auto;
-    font-size: 12px;
-    background: #121216;
-    padding: 4px 6px;
-    border-radius: 3px;
+    font-size: 13px;
+    background: var(--s2);
+    padding: 6px 8px;
+    border-radius: var(--radius-sm);
   }
 </style>
+
