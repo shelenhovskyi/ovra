@@ -153,18 +153,39 @@ const SIGN = { context: " ", added: "+", removed: "-" } as const;
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 12px;
-    padding: 6px 12px;
-    border-bottom: 1px solid #2a2a31;
+    gap: 8px 12px;
+    padding: 6px 16px;
+    font-size: 13px;
+  }
+  .summary button,
+  .summary select {
+    padding: 2px 10px;
+    font: inherit;
+    color: var(--text-2);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+  }
+  .summary select {
+    background: var(--s3);
+    color: var(--text);
+  }
+  .summary button:hover {
+    color: var(--text);
+    background: var(--s3);
+  }
+  label {
+    color: var(--text-2);
   }
   .summary select {
     max-width: 320px;
   }
   .plus {
-    color: #7fd18b;
+    color: var(--ok);
   }
   .minus {
-    color: #ff8a8a;
+    color: var(--danger);
   }
   .file button {
     all: unset;
@@ -173,18 +194,18 @@ const SIGN = { context: " ", added: "+", removed: "-" } as const;
     padding: 0 6px;
   }
   .file button:focus-visible {
-    outline: 2px solid #7aa2f7;
+    outline: 2px solid var(--accent);
   }
   .file {
-    background: #1d1d23;
+    background: var(--s3);
   }
   .hunk {
-    color: #a0a0e6;
-    background: #1e1e2a;
+    color: var(--text-2);
+    background: var(--accent-soft);
     padding: 0 6px;
   }
   .note {
-    color: #8a8a96;
+    color: var(--text-2);
     padding: 0 6px;
   }
   .no {
@@ -192,7 +213,7 @@ const SIGN = { context: " ", added: "+", removed: "-" } as const;
     width: 6ch;
     padding-right: 6px;
     text-align: right;
-    color: #8a8a96;
+    color: var(--text-2);
     user-select: none;
   }
   .sign {
@@ -205,22 +226,22 @@ const SIGN = { context: " ", added: "+", removed: "-" } as const;
     border-left: 3px solid transparent;
   }
   .added {
-    background: #16301e;
-    border-left-color: #3f9a55;
+    background: var(--ok-soft);
+    border-left-color: var(--ok);
   }
   .removed {
-    background: #3a1a1e;
-    border-left-color: #c24a55;
+    background: color-mix(in srgb, var(--danger) 14%, transparent);
+    border-left-color: var(--danger);
   }
   .current {
-    outline: 1px solid #7aa2f7;
-    outline-offset: -1px;
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
   }
   .badge {
     padding: 0 4px;
     border: 1px solid currentColor;
-    border-radius: 3px;
-    font-size: 11px;
+    border-radius: 4px;
+    font-size: 12px;
     font-weight: 400;
   }
   .visually-hidden {

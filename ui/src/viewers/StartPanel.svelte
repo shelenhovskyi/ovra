@@ -48,16 +48,16 @@ const actions = $derived(
 
 <style>
   .start {
-    max-width: 320px;
-    margin: 48px auto 0;
+    max-width: 340px;
+    margin: 18vh auto 0;
     padding: 0 16px;
-    color: #b4b4c0;
+    color: var(--text-2);
   }
   h2 {
-    margin: 0 0 4px;
-    font-size: 14px;
+    margin: 0 0 6px;
+    font-size: 16px;
     font-weight: 600;
-    color: #e6e6e6;
+    color: var(--text);
   }
   p {
     margin: 0 0 12px;
@@ -78,24 +78,22 @@ const actions = $derived(
     gap: 12px;
     padding: 6px 10px;
     font: inherit;
-    color: #e6e6e6;
+    color: var(--text);
     text-align: left;
-    background: #1e1e24;
-    border: 1px solid #2a2a31;
-    border-radius: 4px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
     cursor: pointer;
   }
   button:hover {
-    background: #26262e;
-    border-color: #3a3a44;
+    background: var(--s3);
   }
   button:focus-visible {
-    outline: 2px solid #4a6bb0;
+    outline: 2px solid var(--accent);
     outline-offset: 1px;
   }
   kbd {
-    font: inherit;
-    font-size: 12px;
-    color: #9a9aa6;
+    font: 12px var(--mono);
+    color: var(--text-2);
   }
 </style>

@@ -159,12 +159,12 @@ async function openExternal() {
         </Lines>
       {:else if shown.view.kind === "binary"}
         <p class="note">
-          This is a binary file ({shown.view.mime}, {formatSize(shown.size)}) and cannot be shown here.
+          Binary file ({shown.view.mime}, {formatSize(shown.size)}): not shown.
           <button type="button" onclick={openExternal}>Open in default app</button>
         </p>
       {:else}
         <p class="note">
-          This file is {formatSize(shown.size)}, too large to show here.
+          Too large to show ({formatSize(shown.size)}).
           <button type="button" onclick={openExternal}>Open in default app</button>
         </p>
       {/if}
@@ -177,58 +177,58 @@ async function openExternal() {
     height: 100%;
     display: flex;
     flex-direction: column;
+    background: var(--s2);
   }
   .bar {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 4px 12px;
-    border-bottom: 1px solid #2a2a31;
-    font-size: 12px;
+    gap: 8px;
+    padding: 4px 12px 4px 16px;
+    font-size: 13px;
   }
   .path {
     flex: 1;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    color: #b4b4c0;
+    font-family: var(--mono);
+    color: var(--text-2);
   }
   .notice {
     margin: 0;
-    padding: 0 12px;
-    font-size: 12px;
-    color: #b4b4c0;
+    padding: 0 16px 4px;
+    font-size: 13px;
+    color: var(--text-2);
   }
   .notice:empty {
     display: none;
   }
-  .quiet {
-    background: none;
-    color: #b4b4c0;
-    border: 1px solid #3a3a44;
-    border-radius: 3px;
-    padding: 1px 8px;
+  button {
+    padding: 2px 10px;
     font: inherit;
+    color: var(--text-2);
+    background: none;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
     cursor: pointer;
   }
-  .quiet:hover {
-    color: #e6e6e6;
-  }
-  .quiet:focus-visible {
-    outline: 2px solid #7aa2ff;
-    outline-offset: 1px;
+  button:hover {
+    color: var(--text);
+    background: var(--s3);
   }
   .edit {
-    color: #e6e6e6;
-    border-color: #4a6bb0;
+    color: var(--text);
+    background: var(--s3);
+  }
+  .edit:hover {
+    background: var(--s4);
   }
   kbd {
-    font: inherit;
-    font-size: 11px;
-    color: #9a9aa6;
+    font: 12px var(--mono);
+    color: var(--text-2);
   }
   .lsp-hint {
-    color: #9a9aa6;
+    color: var(--text-2);
     white-space: nowrap;
   }
   .content {
@@ -238,14 +238,23 @@ async function openExternal() {
     outline: none;
   }
   .note {
-    padding: 12px;
+    padding: 12px 16px;
     margin: 0;
-    color: #8a8a96;
+    color: var(--text-2);
+  }
+  .note button {
+    color: var(--text);
+    background: var(--s3);
   }
   .error {
-    color: #ff6b6b;
+    color: var(--danger);
   }
   .text-line {
-    padding: 0 12px;
+    padding: 0 16px;
+  }
+  @media (forced-colors: active) {
+    button {
+      border-color: ButtonText;
+    }
   }
 </style>

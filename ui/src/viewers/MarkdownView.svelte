@@ -69,25 +69,25 @@ async function openWeb(url: string) {
 
 <style>
   .markdown {
-    max-width: 860px;
-    padding: 16px 24px;
+    max-width: 820px;
+    padding: 20px 32px;
     line-height: 1.6;
     font-size: 14px;
   }
   .markdown :global(a) {
-    color: #7aa2f7;
+    color: var(--accent);
   }
   .markdown :global(code) {
-    font-family: ui-monospace, monospace;
-    font-size: 12px;
-    background: #22222a;
-    padding: 1px 4px;
-    border-radius: 3px;
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--s3);
+    padding: 1px 5px;
+    border-radius: 4px;
   }
   .markdown :global(pre) {
-    background: #1d1d23;
-    padding: 10px 12px;
-    border-radius: 4px;
+    background: var(--s3);
+    padding: 12px 14px;
+    border-radius: var(--radius);
     overflow: auto;
   }
   .markdown :global(pre code) {
@@ -99,21 +99,20 @@ async function openWeb(url: string) {
   }
   .markdown :global(th),
   .markdown :global(td) {
-    border: 1px solid #2a2a31;
-    padding: 4px 8px;
+    border: 1px solid var(--s4);
+    padding: 4px 10px;
   }
   .markdown :global(blockquote) {
     margin: 0;
     padding-left: 12px;
-    border-left: 3px solid #2a2a31;
-    color: #9a9aa6;
+    border-left: 3px solid var(--s3);
+    color: var(--text-2);
   }
   .markdown :global(img) {
     max-width: 100%;
   }
   .markdown :global(h1),
   .markdown :global(h2) {
-    border-bottom: 1px solid #2a2a31;
-    padding-bottom: 4px;
+    font-weight: 600;
   }
 </style>

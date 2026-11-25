@@ -42,7 +42,7 @@ function onload(event: Event) {
     padding: 12px;
     box-sizing: border-box;
     /* Checkerboard so transparent pixels are visible. */
-    background: repeating-conic-gradient(#1f1f25 0% 25%, #19191e 0% 50%) 0 0 / 16px 16px;
+    background: repeating-conic-gradient(var(--s3) 0% 25%, var(--s1) 0% 50%) 0 0 / 16px 16px;
   }
   img {
     max-width: 100%;
@@ -54,7 +54,7 @@ function onload(event: Event) {
   }
   figcaption,
   .note {
-    color: #b4b4c0;
-    font-size: 12px;
+    color: var(--text-2);
+    font-size: 13px;
   }
 </style>

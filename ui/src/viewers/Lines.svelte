@@ -10,7 +10,7 @@ let {
   items,
   row,
   label,
-  rowHeight = 18,
+  rowHeight = 22,
   testid,
   onkeydown,
 }: {
@@ -103,11 +103,11 @@ function onscroll() {
   .viewport {
     height: 100%;
     overflow: auto;
-    font-family: ui-monospace, monospace;
-    font-size: 12px;
+    font-family: var(--mono);
+    font-size: 13px;
   }
   .viewport:focus-visible {
-    outline: 2px solid #7aa2f7;
+    outline: 2px solid var(--accent);
     outline-offset: -2px;
   }
   .sizer {

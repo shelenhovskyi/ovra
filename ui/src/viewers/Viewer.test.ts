@@ -310,10 +310,10 @@ describe("Viewer", () => {
       "a.bin",
     );
     await settle();
-    expect(target.textContent).toContain("This is a binary file (application/zip, 1 byte) and cannot be shown here.");
+    expect(target.textContent).toContain("Binary file (application/zip, 1 byte): not shown.");
     workspace.openFile("big.txt");
     await settle();
-    expect(target.textContent).toContain("This file is 1 byte, too large to show here.");
+    expect(target.textContent).toContain("Too large to show (1 byte).");
     const buttons = [...target.querySelectorAll("button")].filter((b) => b.textContent === "Open in default app");
     expect(buttons).toHaveLength(1);
     buttons[0]?.click();
