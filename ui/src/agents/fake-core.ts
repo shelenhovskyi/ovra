@@ -2,6 +2,8 @@
 // them like the core and lets a test push events.
 
 import type {
+  AccountState,
+  AccountsOverview,
   AgentMessage,
   AgentSetup,
   AgentStatus,
@@ -37,6 +39,16 @@ export class FakeAgentCore implements Transport {
     billing: { kind: "subscription" },
     api_key_in_env: false,
   };
+  /** The accounts `agents.accounts` reports; the default one first. */
+  accounts: AccountState[] = [
+    {
+      account: { id: "default", name: "Default", config_dir: null },
+      setup: { ...this.setup },
+    },
+  ];
+  /** Folders `agents.accounts` reports as found. */
+  found: string[] = [];
+  projectAccounts = new Map<ProjectId, string>();
   /** What `agents.project_config` reports as current. */
   config: ProjectAgentConfig = { fingerprint: "f0", items: [] };
   /** What the user trusted, per project. */
@@ -141,6 +153,22 @@ export class FakeAgentCore implements Transport {
       case "agents.set_path":
         this.setup = { ...this.setup, path: request.params.path };
         return { type: "agents.setup", data: { ...this.setup } };
+      case "agents.accounts":
+        return { type: "agents.accounts", data: this.accountsOverview(request.params.project) };
+      case "agents.save_account": {
+        const account = { ...request.params.account };
+        if (!account.id) account.id = `account-${this.accounts.length}`;
+        this.accounts = [...this.accounts.filter((a) => a.account.id !== account.id), { account, setup: this.setup }];
+        this.found = this.found.filter((dir) => dir !== account.config_dir);
+        return { type: "agents.accounts", data: this.accountsOverview(null) };
+      }
+      case "agents.remove_account":
+        this.accounts = this.accounts.filter((a) => a.account.id !== request.params.id);
+        return { type: "agents.accounts", data: this.accountsOverview(null) };
+      case "agents.set_project_account":
+        if (request.params.account) this.projectAccounts.set(request.params.project, request.params.account);
+        else this.projectAccounts.delete(request.params.project);
+        return { type: "ok" };
       case "agents.project_config":
         return {
           type: "agents.project_config",
@@ -173,6 +201,14 @@ export class FakeAgentCore implements Transport {
     }
   }
 
+  private accountsOverview(project: ProjectId | null): AccountsOverview {
+    return {
+      accounts: this.accounts.map((a) => ({ ...a })),
+      found: [...this.found],
+      project_account: project ? (this.projectAccounts.get(project) ?? null) : null,
+    };
+  }
+
   addSession(project: ProjectId, title: string, status: AgentStatus = { state: "starting" }): SessionInfo {
     const info: SessionInfo = {
       id: `s${this.sessions.length + 1}`,
@@ -186,6 +222,7 @@ export class FakeAgentCore implements Transport {
       billing: null,
       sandbox: null,
       sandbox_reported: false,
+      account: null,
     };
     this.sessions.push(info);
     return info;

@@ -11,6 +11,8 @@ import { CoreError } from "../lib/transport";
 import { useOvra } from "../shell/context";
 import { sandboxBadge, sandboxGaps, sandboxLine, sandboxState } from "./sandbox";
 import { agentSessions, usageText } from "./sessions.svelte";
+import AccountPicker from "./setup/AccountPicker.svelte";
+import { claudeAccounts } from "./setup/accounts.svelte";
 import ClaudeSetup from "./setup/ClaudeSetup.svelte";
 import ProjectTrust from "./setup/ProjectTrust.svelte";
 import { paidText } from "./setup/texts";
@@ -20,6 +22,7 @@ import Transcript from "./Transcript.svelte";
 const { transport, workspace } = useOvra();
 const sessions = agentSessions(transport);
 const picks = browserPicks(transport);
+const accounts = claudeAccounts(transport);
 const modEnter = formatShortcut("Mod+Enter", isApple());
 
 type Mode = "here" | "split";
@@ -49,6 +52,8 @@ let launched = $state<SessionId | null>(null);
 /** How the next task runs; the last choice stays for this window. */
 let mode = $state<Mode>("here");
 let promptField = $state<HTMLTextAreaElement>();
+/** The account the picker shows; null while there is only one. */
+let account = $state<string | null>(null);
 
 const project = $derived(workspace.project);
 const list = $derived(project ? sessions.grouped(project.id) : []);
@@ -139,7 +144,10 @@ async function start(): Promise<void> {
   busy = true;
   startError = null;
   try {
-    selected = mode === "here" ? (await sessions.start(id, body)).id : await sessions.startTask(id, body);
+    // A task's coordinator and workers use the project's account: make it
+    // the picked one before the task starts.
+    if (account && account !== accounts.projectAccount) await accounts.setProject(id, account);
+    selected = mode === "here" ? (await sessions.start(id, body, account)).id : await sessions.startTask(id, body);
     launched = selected;
     prompt = "";
   } catch (err) {
@@ -231,6 +239,7 @@ const canReply = $derived(current !== null && current.status.state === "idle");
       <p class="hint" id="agent-mode-hint">{modeHint}</p>
       <div class="row">
         <span class="hint">{modEnter} starts.</span>
+        <AccountPicker project={project.id} bind:account />
         <button type="submit" class="primary" disabled={busy || !prompt.trim()}>Start</button>
       </div>
       {#if startError}
@@ -295,7 +304,9 @@ const canReply = $derived(current !== null && current.status.state === "idle");
         {#if current.billing}
           <!-- An API key bills at API prices, often not what a plan user expects. -->
           <p class={current.billing.kind === "api_key" ? "status billed-key" : "status"} data-testid="agent-billing">
-            This agent: {paidText(current.billing)}
+            This agent{accounts.list.length > 1 ? ` (${accounts.name(current.account)} account)` : ""}: {paidText(
+              current.billing,
+            )}
           </p>
         {/if}
         {#if sandbox}

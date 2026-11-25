@@ -6,6 +6,7 @@ import { untrack } from "svelte";
 import type { AgentSetup } from "../../lib/protocol";
 import { CoreError } from "../../lib/transport";
 import { useOvra } from "../../shell/context";
+import Accounts from "./Accounts.svelte";
 import { advice, billingText, INSTALL_COMMANDS, paidShort, SETUP_DOCS } from "./texts";
 
 const { transport } = useOvra();
@@ -162,6 +163,7 @@ function openDocs(): void {
   {:else if setup && !ready}
     <button type="button" class="link" onclick={() => (editing = true)}>Choose a path</button>
   {/if}
+  <Accounts quiet={compact} />
 </section>
 
 <style>

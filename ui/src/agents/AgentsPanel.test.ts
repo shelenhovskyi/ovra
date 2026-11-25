@@ -152,7 +152,7 @@ describe("AgentsPanel", () => {
     modEnter();
     await settle();
     expect(core.sent("agents.start").map((c) => c.params)).toEqual([
-      { project: "p1", agent: "claude", mode: "direct", prompt: "Fix the typo\nin README.md" },
+      { project: "p1", agent: "claude", mode: "direct", account: null, prompt: "Fix the typo\nin README.md" },
     ]);
     expect(panel()?.querySelector("[aria-current=true]")?.textContent).toContain("Fix the typo");
     core.status("s1", { state: "working" });

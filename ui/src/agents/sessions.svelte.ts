@@ -122,11 +122,12 @@ export class AgentSessions {
     this.transcripts.set(session, data);
   }
 
-  async start(project: ProjectId, prompt: string): Promise<SessionInfo> {
+  /** `account`: a Claude account's id; null uses the project's. */
+  async start(project: ProjectId, prompt: string, account: string | null = null): Promise<SessionInfo> {
     // Messages may arrive before the reply: collect them from the start.
     const { data } = await this.transport.call({
       method: "agents.start",
-      params: { project, agent: "claude", mode: "direct", prompt },
+      params: { project, agent: "claude", mode: "direct", prompt, account },
     });
     const known = this.byId.get(data.id);
     // agents.sandbox may also have come before the reply: keep what it said.
@@ -183,6 +184,7 @@ export class AgentSessions {
         billing: null,
         sandbox: null,
         sandbox_reported: false,
+        account: null,
       });
       void this.load(project).catch(() => {});
     } else if (event.type === "agents.billing") {
