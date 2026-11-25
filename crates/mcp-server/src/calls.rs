@@ -16,7 +16,7 @@ const DEFAULT_MESSAGES: usize = 50;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Nothing {}
+pub(crate) struct Nothing {}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -144,7 +144,9 @@ pub(crate) async fn call(
             core.stop_agent(caller, &agent).map_err(failed)?;
             Ok(format!("Stopped {}.", agent.0))
         }
-        _ => Err(format!("unknown tool: {name}")),
+        _ => crate::servers::call(core, caller, name, arguments)
+            .await
+            .unwrap_or_else(|| Err(format!("unknown tool: {name}"))),
     }
 }
 
@@ -187,7 +189,7 @@ fn worker_json(worker: &Worker) -> Value {
 }
 
 /// Missing arguments are an empty object, as for a tool without parameters.
-fn parse<T: DeserializeOwned>(arguments: Value) -> Result<T, String> {
+pub(crate) fn parse<T: DeserializeOwned>(arguments: Value) -> Result<T, String> {
     let arguments = if arguments.is_null() {
         json!({})
     } else {
@@ -196,10 +198,10 @@ fn parse<T: DeserializeOwned>(arguments: Value) -> Result<T, String> {
     serde_json::from_value(arguments).map_err(|e| format!("invalid arguments: {e}"))
 }
 
-fn failed(error: ProtocolError) -> String {
+pub(crate) fn failed(error: ProtocolError) -> String {
     error.to_string()
 }
 
-fn text(value: &Value) -> String {
+pub(crate) fn text(value: &Value) -> String {
     value.to_string()
 }

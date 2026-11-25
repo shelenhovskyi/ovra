@@ -9,6 +9,8 @@
 //! the caller's role and its task's limits.
 
 mod calls;
+mod servers;
+mod untrusted;
 
 use ovra_core::Core;
 use ovra_core::services::{BoxFuture, IdeTools, ToolCaller, ToolRole};
@@ -22,8 +24,14 @@ const PROTOCOL_VERSIONS: [&str; 2] = ["2025-11-25", "2025-06-18"];
 
 const METHOD_NOT_FOUND: i64 = -32601;
 
-/// Tools a worker may call; the coordinator may call all of them.
-const WORKER_TOOLS: [&str; 2] = ["request_review", "open_in_ui"];
+/// Tools every role may call; the coordinator may call all of them.
+const SHARED_TOOLS: [&str; 5] = [
+    "request_review",
+    "open_in_ui",
+    "server_list",
+    "server_start",
+    "server_stop",
+];
 
 /// The IDE tools server.
 #[derive(Debug)]
@@ -43,7 +51,7 @@ impl IdeServer {
             .iter()
             .filter(|tool| {
                 role == ToolRole::Coordinator
-                    || WORKER_TOOLS.contains(&tool["name"].as_str().unwrap_or(""))
+                    || SHARED_TOOLS.contains(&tool["name"].as_str().unwrap_or(""))
             })
             .cloned()
             .collect()
