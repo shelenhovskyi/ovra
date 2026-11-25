@@ -27,6 +27,7 @@ import { editorMenu } from "./context-menu";
 import { answerClose, tabs } from "./open-files.svelte";
 import { editorPrefs } from "./prefs.svelte";
 import { showView } from "./search";
+import { clearFacts, cursorOf, detectIndent, type FileFacts, publishFacts } from "./status.svelte";
 
 const { workspace } = useOvra();
 const viewKeys = formatShortcut(liveKeys("Mod+E", inBrowserTab()), isApple());
@@ -42,12 +43,20 @@ let entering = true;
 
 $effect(() => {
   if (!host) return;
-  const created = new EditorView({ parent: host });
+  // Every change and cursor move passes here, whichever buffer is shown.
+  const created = new EditorView({
+    parent: host,
+    dispatchTransactions: (transactions, target) => {
+      target.update(transactions);
+      if (shownView === target) publish(target, transactions.some((t) => t.docChanged));
+    },
+  });
   view = created;
   return () => {
     buffer?.detach();
     created.destroy();
     view = null;
+    clearFacts(facts);
   };
 });
 
@@ -70,6 +79,8 @@ $effect(() => {
     else focusUnlessInTabs();
     entering = false;
     shown = next;
+    shownView = target;
+    publish(target, true);
     showView(target);
     // Showing a file is what starts its language server (ADR 0007).
     untrack(() => lsp?.showing(next, target));
@@ -77,6 +88,8 @@ $effect(() => {
   return () => {
     live = false;
     shown = null;
+    shownView = null;
+    clearFacts(facts);
     showView(null);
     lsp?.hiding(next);
     next.detach();
@@ -84,6 +97,26 @@ $effect(() => {
     view?.setState(EditorState.create());
   };
 });
+
+/** The status bar's facts (status.svelte.ts); the indentation is read again only when the text changes. */
+const facts = {};
+let shownView: EditorView | null = null;
+let indent = "";
+/** Untracked: an effect that dispatches (word wrap, a reveal) must not come to depend on it. */
+function publish(target: EditorView, docChanged: boolean): void {
+  untrack(() => {
+    const state = target.state;
+    if (docChanged) indent = detectIndent(state.doc.iterLines());
+    const next: FileFacts = {
+      cursor: cursorOf(state),
+      language: shown?.heavy ? "Plain text (large file)" : (shown?.language?.name ?? "Plain text"),
+      indent,
+      // The editor keeps and saves "\n" line breaks.
+      lineEnding: "LF",
+    };
+    publishFacts(facts, next);
+  });
+}
 
 // The shown buffer follows word wrap; a new text size needs a fresh measure.
 $effect(() => {

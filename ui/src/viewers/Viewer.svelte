@@ -10,6 +10,7 @@ import { languageFor } from "../editor/languages";
 import { serverFor } from "../editor/lsp/clients";
 import { unsavedText } from "../editor/open-files.svelte";
 import { editorPrefs } from "../editor/prefs.svelte";
+import { clearFacts, detectIndent, lineEndingOf, publishFacts } from "../editor/status.svelte";
 import { formatShortcut, inBrowserTab, isApple, liveKeys } from "../keys/shortcut";
 import { CoreError } from "../lib/transport";
 import { languageServers } from "../lsp/servers.svelte";
@@ -58,6 +59,20 @@ $effect(() => {
   return () => {
     live = false;
   };
+});
+// Plain text tells the status bar its language, indentation and line endings; no cursor here.
+const facts = {};
+$effect(() => {
+  const view = shown && "view" in shown ? shown.view : null;
+  const path = workspace.openPath;
+  if (view?.kind !== "text" || !path) return;
+  publishFacts(facts, {
+    cursor: null,
+    language: languageFor(path)?.name ?? "Plain text",
+    indent: detectIndent(textLines),
+    lineEnding: lineEndingOf(view.text),
+  });
+  return () => clearFacts(facts);
 });
 let notice = $state("");
 let root = $state<HTMLElement | null>(null);

@@ -92,4 +92,17 @@ test("the editor's context menu finds in the file, and Ctrl+G goes to a line", a
   await content.click();
   await page.keyboard.press("Control+G");
   await expect(page.locator(".cm-goto-line input")).toBeFocused();
+
+  // The status bar's cursor follows the selection and opens "Go to line…" too.
+  await page.keyboard.press("Escape");
+  await content.click();
+  await page.keyboard.press("ControlOrMeta+End");
+  await page.keyboard.press("Shift+Home");
+  const facts = page.getByTestId("file-status");
+  await expect(facts).toHaveText(/Ln 2, Col 1\s+Rust\s+Spaces: 2\s+LF/);
+  await page.keyboard.press("ArrowUp");
+  await page.keyboard.press("Shift+End");
+  await expect(facts.getByRole("button")).toHaveText("Ln 1, Col 13 (12 selected)");
+  await facts.getByRole("button").click();
+  await expect(page.locator(".cm-goto-line input")).toBeFocused();
 });

@@ -12,6 +12,7 @@ import { approvalQueue } from "../approvals/queue.svelte";
 import AuditLog from "../audit/AuditLog.svelte";
 import BrowserPane from "../browser/BrowserPane.svelte";
 import Editor from "../editor/Editor.svelte";
+import FileStatus from "../editor/FileStatus.svelte";
 import { persistOpenFiles } from "../editor/open-files.svelte";
 import Tabs from "../editor/Tabs.svelte";
 import Git from "../git/Git.svelte";
@@ -408,8 +409,8 @@ async function showApprovals(): Promise<void> {
     </div>
   </aside>
   <!-- Only what needs a person: the connection when it is lost (screen
-       readers still hear it come and go), and on the right what runs for the
-       open project. -->
+       readers still hear it come and go), and on the right the open file's
+       quiet facts and what runs for the open project. -->
   <footer>
     <span
       class="status"
@@ -420,6 +421,8 @@ async function showApprovals(): Promise<void> {
       title={info ? `${info.name} ${info.version} (${info.mode})` : undefined}>{status.text}</span
     >
     <span class="footer-end">
+      <!-- Quiet facts about the open file, while it is what the main area shows. -->
+      {#if !gitDiff && !mainView.current}<FileStatus />{/if}
       {#if serversDock.running > 0 && !serversDock.shown}
         <button type="button" class="running" onclick={() => (serversDock.shown = true)}
           >{serversDock.running === 1 ? "1 server running" : `${serversDock.running} servers running`}</button
