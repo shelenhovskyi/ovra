@@ -49,6 +49,7 @@ fn kind(event: &AuditEvent) -> &'static str {
         AuditEvent::ToolDecided { .. } => "tool_decided",
         AuditEvent::TrustChanged { .. } => "trust_changed",
         AuditEvent::PolicyChanged { .. } => "policy_changed",
+        AuditEvent::RuleAdded { .. } => "rule_added",
         AuditEvent::ReviewDecided { .. } => "review_decided",
         AuditEvent::NetworkRefused { .. } => "network_refused",
         AuditEvent::SecretUsed { .. } => "secret_used",

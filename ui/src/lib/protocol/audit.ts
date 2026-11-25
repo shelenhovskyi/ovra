@@ -2,7 +2,7 @@
 
 import type { SandboxReport, SessionId, SessionMode } from "./agents";
 import type { ServerId as LspServerId } from "./lsp";
-import type { Policy } from "./policy";
+import type { Policy, PolicyRule } from "./policy";
 import type { ProjectId } from "./projects";
 import type { ReviewId } from "./review";
 import type { ServerId, StartedBy } from "./servers";
@@ -20,6 +20,8 @@ export type AuditEvent =
   | { kind: "tool_decided"; tool: string; input: AuditInput; allowed: boolean; by: DecidedBy }
   | { kind: "trust_changed"; trusted: boolean; fingerprint: string | null }
   | { kind: "policy_changed"; policy: Policy }
+  /** `by` added `rule` from an approval ("Always allow"); the entry's session is the one that asked. */
+  | { kind: "rule_added"; rule: PolicyRule; by: DecidedBy }
   | { kind: "review_decided"; review: ReviewId; action: ReviewAction }
   | { kind: "network_refused"; host: string; reason: string }
   | { kind: "secret_used"; name: string; host: string }

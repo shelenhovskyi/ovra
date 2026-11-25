@@ -1,4 +1,5 @@
 import type { SessionId } from "./agents";
+import type { PolicyRule } from "./policy";
 import type { ProjectId } from "./projects";
 
 export type PermissionId = string;
@@ -16,6 +17,12 @@ export type PermissionRequest = {
   title: string | null;
   /** Why the agent's own rules ask a person, if it says. */
   reason?: PermissionReason;
+  /**
+   * The rule "Always allow" would add: the narrowest `auto` rule for this call. Offered only in a
+   * sandboxed session with a limited network, inside its folder, never for protected paths or calls
+   * a project rule asks about.
+   */
+  always?: PolicyRule;
 };
 
 /** Why an agent asks rather than deciding itself. */
@@ -30,8 +37,14 @@ export type Decision = "allow" | "deny";
 
 export type PermissionsRequest =
   | { method: "permissions.pending" }
-  /** `message` is shown to the agent on deny. */
-  | { method: "permissions.answer"; params: { id: PermissionId; decision: Decision; message?: string } };
+  /**
+   * `message` is shown to the agent on deny. With `always` (and `allow`), the request's `always` rule
+   * is added to the project's policy first; `bad_request` when there is none or a rule now asks about it.
+   */
+  | {
+      method: "permissions.answer";
+      params: { id: PermissionId; decision: Decision; message?: string; always?: boolean };
+    };
 
 export type PermissionsResponse = { type: "permissions.pending"; data: PermissionRequest[] };
 

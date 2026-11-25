@@ -8,9 +8,14 @@ export type PolicyAction = "auto" | "ask" | "deny";
 export type PolicyRule = {
   /** A tool name, such as `Bash` or `Edit`. */
   tool: string;
-  /** A command prefix for Bash, a glob on the session-relative path for file tools; absent matches every call. */
+  /**
+   * A command prefix for Bash, a glob on the session-relative path for file tools, the URL's host for
+   * WebFetch; absent matches every call.
+   */
   match?: string;
   action: PolicyAction;
+  /** Added by a person's "Always allow" on an approval, not in Settings. */
+  from_approval?: true;
 };
 
 /** A project's rules; the empty policy asks about everything. */

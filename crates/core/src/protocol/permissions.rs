@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::agents::SessionId;
+use super::policy::PolicyRule;
 use super::projects::ProjectId;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -30,6 +31,12 @@ pub struct PermissionRequest {
     /// Why the agent's own rules ask a person, if it says.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<PermissionReason>,
+    /// The rule "Always allow" would add: the narrowest `auto` rule for this
+    /// call. Offered only in a sandboxed session with a limited network,
+    /// inside its folder, never for protected paths or calls a project
+    /// rule asks about.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub always: Option<PolicyRule>,
 }
 
 /// Why an agent asks rather than deciding itself.
@@ -82,12 +89,16 @@ pub enum PermissionsRequest {
     #[serde(rename = "permissions.pending")]
     Pending,
     /// Answers a request. Answers `ok`; `not_found` if it was already answered
-    /// or its session ended.
+    /// or its session ended. With `always` (and `allow`), the request's
+    /// `always` rule is added to the project's policy first; `bad_request`
+    /// when the request offers none or a project rule now asks about it.
     #[serde(rename = "permissions.answer")]
     Answer {
         id: PermissionId,
         #[serde(flatten)]
         answer: PermissionAnswer,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        always: bool,
     },
 }
 
@@ -102,7 +113,7 @@ pub enum PermissionsResponse {
 #[serde(tag = "type", content = "data")]
 pub enum PermissionsEvent {
     #[serde(rename = "permissions.requested")]
-    Requested(PermissionRequest),
+    Requested(Box<PermissionRequest>),
     /// The request was answered, or dropped because its session ended
     /// (`decision: deny`).
     #[serde(rename = "permissions.resolved")]

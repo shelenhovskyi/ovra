@@ -484,7 +484,7 @@ fn wire_format_is_stable() {
                 session: SessionId("s1".into()),
                 text: "Look".into(),
             }),
-            Event::Permissions(PermissionsEvent::Requested(PermissionRequest {
+            Event::Permissions(PermissionsEvent::Requested(Box::new(PermissionRequest {
                 id: PermissionId("perm1".into()),
                 session: SessionId("s1".into()),
                 project: ProjectId("p1".into()),
@@ -496,7 +496,13 @@ fn wire_format_is_stable() {
                     text: "This command requires approval".into(),
                     kind: Some("other".into()),
                 }),
-            })),
+                always: Some(crate::protocol::policy::PolicyRule {
+                    tool: "Bash".into(),
+                    pattern: Some("ls".into()),
+                    action: crate::protocol::policy::PolicyAction::Auto,
+                    from_approval: true,
+                }),
+            }))),
             Event::Terminals(TerminalsEvent::Output { id: TerminalId("t1".into()), data: "$ ".into(), seq: 1 }),
             Event::Terminals(TerminalsEvent::Exited { id: TerminalId("t1".into()), code: None }),
             Event::Review(ReviewEvent::Changed { project: ProjectId("p1".into()), id: ReviewId("r1".into()) }),

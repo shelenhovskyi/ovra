@@ -87,6 +87,12 @@ expression: samples
     },
     {
       "data": {
+        "always": {
+          "action": "auto",
+          "from_approval": true,
+          "match": "ls",
+          "tool": "Bash"
+        },
         "cwd": "/work/demo",
         "id": "perm1",
         "input": {

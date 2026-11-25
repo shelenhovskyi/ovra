@@ -21,7 +21,7 @@ export const FILTERS = {
   all: { label: "Everything", kinds: null },
   tools: { label: "Tool calls", kinds: ["tool_decided"] },
   sessions: { label: "Agent starts", kinds: ["session_started"] },
-  settings: { label: "Trust and policy", kinds: ["trust_changed", "policy_changed"] },
+  settings: { label: "Trust and policy", kinds: ["trust_changed", "policy_changed", "rule_added"] },
   reviews: { label: "Reviews", kinds: ["review_decided"] },
   network: { label: "Network and secrets", kinds: ["network_refused", "secret_used", "browser_navigation"] },
   servers: {
@@ -148,6 +148,16 @@ export function describe(entry: AuditEntry): Described {
             ? "No rules: every tool call asks."
             : `${rules.length} ${rules.length === 1 ? "rule" : "rules"}.`,
         input: rules.length === 0 ? null : rules.join("\n"),
+        raw: null,
+        tone: "plain",
+      };
+    }
+    case "rule_added": {
+      const { tool, match, action } = event.rule;
+      return {
+        title: `Rule added: ${tool}${match ? `(${match})` : ""}`,
+        detail: `${action === "auto" ? "Always allowed" : action} from an approval, ${decidedBy(event.by)}.`,
+        input: `${action} ${tool}${match ? ` ${match}` : ""}`,
         raw: null,
         tone: "plain",
       };

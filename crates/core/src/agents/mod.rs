@@ -789,6 +789,7 @@ impl AgentHost {
                 input,
                 title,
                 reason,
+                always: None,
             }))
         });
         let (request, answer) = match registered {
@@ -815,7 +816,8 @@ impl AgentHost {
         let (tool, input) = tool_input;
         let direct = &self.sessions.direct;
         direct.tool_waiting(&self.session, &tool, &input).await;
-        self.sink.emit(PermissionsEvent::Requested(request));
+        self.sink
+            .emit(PermissionsEvent::Requested(Box::new(request)));
         self.set_status(AgentStatus::WaitingForApproval);
         let (answer, by) = answer.await.unwrap_or_else(|_| {
             (

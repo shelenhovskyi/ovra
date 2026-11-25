@@ -23,10 +23,14 @@ pub struct PolicyRule {
     pub tool: String,
     /// Tested against the call's main argument: a command prefix for
     /// `Bash`, a glob on the path relative to the session's folder for the
-    /// file tools. `None` matches every call of the tool.
+    /// file tools, the URL's host for `WebFetch`. `None` matches every call
+    /// of the tool.
     #[serde(default, rename = "match", skip_serializing_if = "Option::is_none")]
     pub pattern: Option<String>,
     pub action: PolicyAction,
+    /// Added by a person's "Always allow" on an approval, not in Settings.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub from_approval: bool,
 }
 
 /// A project's rules. The empty policy asks about everything.

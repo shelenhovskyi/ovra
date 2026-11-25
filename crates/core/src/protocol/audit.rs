@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::agents::{SandboxReport, SessionId, SessionMode};
-use super::policy::Policy;
+use super::policy::{Policy, PolicyRule};
 use super::projects::ProjectId;
 use super::review::ReviewId;
 use super::servers::{ServerId, StartedBy};
@@ -41,6 +41,12 @@ pub enum AuditEvent {
     },
     PolicyChanged {
         policy: Policy,
+    },
+    /// `by` added `rule` to the policy from an approval ("Always allow");
+    /// the entry's session is the one that asked.
+    RuleAdded {
+        rule: PolicyRule,
+        by: DecidedBy,
     },
     ReviewDecided {
         review: ReviewId,

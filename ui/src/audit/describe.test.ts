@@ -93,6 +93,15 @@ group("describe", () => {
     });
     expect([policy.detail, policy.input]).toEqual(["1 rule.", "auto Bash npm test"]);
     expect(line({ kind: "policy_changed", policy: { rules: [] } }).detail).toBe("No rules: every tool call asks.");
+    const added = line({
+      kind: "rule_added",
+      rule: { tool: "Bash", match: "npm test", action: "auto", from_approval: true },
+      by: { kind: "person" },
+    });
+    expect([added.title, added.detail]).toEqual([
+      "Rule added: Bash(npm test)",
+      "Always allowed from an approval, by a person.",
+    ]);
     expect(line({ kind: "review_decided", review: "r1", action: "partly_approved" }).title).toBe("Review partly kept");
     expect(line({ kind: "network_refused", host: "evil.test", reason: "not allowed" })).toMatchObject({
       title: "Network refused: evil.test",
