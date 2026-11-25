@@ -41,11 +41,12 @@ describe("sandbox words", () => {
   });
 
   it("lists what the sandbox does not cover, and nothing without gaps or a sandbox", () => {
-    const gaps = ["DNS lookups", "loopback services", "Windows file sharing"];
+    const gaps = ["DNS lookups", "loopback services", "shared folders"];
     const boxed = sandboxState(info({ sandbox: { name: "x", network: "proxy", gaps }, sandbox_reported: true }));
-    expect(sandboxGaps(boxed)).toBe("Not covered: DNS lookups, loopback services, Windows file sharing.");
+    expect(sandboxGaps(boxed, false)).toBe("Not covered: DNS lookups, loopback services, shared folders.");
+    expect(sandboxGaps(boxed, true)).toBe("Did not cover: DNS lookups, loopback services, shared folders.");
     const tight = sandboxState(info({ sandbox: { name: "x", network: "proxy", gaps: [] }, sandbox_reported: true }));
-    expect(sandboxGaps(tight)).toBeNull();
-    expect(sandboxGaps({ kind: "none" })).toBeNull();
+    expect(sandboxGaps(tight, false)).toBeNull();
+    expect(sandboxGaps({ kind: "none" }, false)).toBeNull();
   });
 });

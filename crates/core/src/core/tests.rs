@@ -450,8 +450,8 @@ fn a_session_saved_before_the_sandbox_flag_reads_as_unreported() {
 
 #[test]
 fn a_sandbox_report_with_gaps_round_trips() {
-    let json = serde_json::json!({"name": "Windows sandbox user", "network": "proxy",
-        "gaps": ["DNS lookups", "loopback services", "Windows file sharing"]});
+    let json = serde_json::json!({"name": "fake sandbox", "network": "proxy",
+        "gaps": ["DNS lookups", "loopback services", "shared folders"]});
     let report: SandboxReport = serde_json::from_value(json.clone()).expect("report");
     assert_eq!(report.gaps.len(), 3);
     assert_eq!(serde_json::to_value(&report).ok(), Some(json));

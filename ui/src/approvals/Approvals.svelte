@@ -282,7 +282,7 @@ function sandboxWarning(session: SessionId): string | null {
 /** What the session's sandbox does not cover; null without gaps. */
 function gapsOf(session: SessionId): string | null {
   const info = sessions.byId.get(session);
-  return info ? sandboxGaps(sandboxState(info)) : null;
+  return info ? sandboxGaps(sandboxState(info), false) : null;
 }
 
 /** A worker acts on its own copy of the project, not on the project itself. */
@@ -520,14 +520,15 @@ function workerCopy(session: SessionId): string {
     font-size: 12px;
     overflow-wrap: anywhere;
   }
+  /* Muted, not the warning colour: every Linux card has gaps, and yellow
+     on every card would teach people to skip the real warnings. */
   .gaps {
     margin: 0 0 6px;
     font-size: 12px;
-    color: #ffd36b;
+    color: #b4b4c0;
   }
   .gaps summary {
     cursor: pointer;
-    font-weight: 600;
   }
   .gaps p {
     margin: 2px 0 0;

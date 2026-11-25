@@ -31,7 +31,7 @@ const list = $derived(project ? sessions.grouped(project.id) : []);
 const current = $derived(list.find((s) => s.id === selected) ?? null);
 const messages = $derived(current ? sessions.transcripts.get(current.id) : undefined);
 const sandbox = $derived(current ? sandboxLine(sandboxState(current), isEnded(current.status)) : null);
-const gaps = $derived(current ? sandboxGaps(sandboxState(current)) : null);
+const gaps = $derived(current ? sandboxGaps(sandboxState(current), isEnded(current.status)) : null);
 
 $effect(() => {
   const id = project?.id;

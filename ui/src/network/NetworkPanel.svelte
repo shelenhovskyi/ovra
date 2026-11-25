@@ -269,7 +269,7 @@ function onDialogKeydown(event: KeyboardEvent): void {
               audit log.
             </p>
             {#if gaps.length > 0}
-              <p class="warn" data-testid="sandbox-gaps">Not covered: {gaps.join(", ")}.</p>
+              <p class="muted" data-testid="sandbox-gaps">The sandbox also does not cover: {gaps.join(", ")}.</p>
             {/if}
             {#if own.length === 0 && !access.error}
               <p class="muted" data-testid="hosts-empty">

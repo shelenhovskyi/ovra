@@ -188,15 +188,16 @@ describe("NetworkPanel", () => {
     expect($("[data-testid=sandbox-gaps]")).toBeNull();
     unmount(app ?? {});
     app = null;
-    const windows = { name: "Windows sandbox user", network: "proxy" as const };
+    const boxed = { name: "fake sandbox", network: "proxy" as const };
     core.sessions = [
-      session("s1", { ...windows, gaps: ["DNS lookups", "loopback services"] }),
-      session("s2", { ...windows, gaps: ["DNS lookups", "Windows file sharing"] }),
+      session("s1", { ...boxed, gaps: ["DNS lookups", "loopback services"] }),
+      session("s2", { ...boxed, gaps: ["DNS lookups", "shared folders"] }),
     ];
     await open(core);
     expect($("[data-testid=sandbox-gaps]")?.textContent).toBe(
-      "Not covered: DNS lookups, loopback services, Windows file sharing.",
+      "The sandbox also does not cover: DNS lookups, loopback services, shared folders.",
     );
+    expect($("[data-testid=sandbox-gaps]")?.classList.contains("muted")).toBe(true);
   });
 
   it("keeps Tab inside the dialog, from the heading and past a disabled form", async () => {

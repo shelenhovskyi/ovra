@@ -120,7 +120,7 @@ describe("Approvals", () => {
     await settle();
     expect(gaps()).toBeNull();
     core.sandboxed("s1", {
-      name: "Windows sandbox user",
+      name: "fake sandbox",
       network: "proxy",
       gaps: ["DNS lookups", "loopback services"],
     });
