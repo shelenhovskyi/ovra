@@ -585,6 +585,7 @@ fn every_request_round_trips() {
         serde_json::json!({"method": "open.url", "params": {"url": "https://example.com"}}),
         serde_json::json!({"method": "open.reveal", "params": {"project": "p1", "path": ""}}),
         serde_json::json!({"method": "terminals.open", "params": {"project": "p1", "size": {"cols": 80, "rows": 24}}}),
+        serde_json::json!({"method": "terminals.open", "params": {"project": "p1", "size": {"cols": 80, "rows": 24}, "cwd": "src"}}),
         serde_json::json!({"method": "terminals.input", "params": {"id": "t1", "data": "ls\r"}}),
         serde_json::json!({"method": "terminals.resize", "params": {"id": "t1", "size": {"cols": 100, "rows": 30}}}),
         serde_json::json!({"method": "terminals.close", "params": {"id": "t1"}}),

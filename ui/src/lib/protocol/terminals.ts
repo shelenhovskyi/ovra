@@ -6,7 +6,8 @@ export type TerminalId = string;
 export type TermSize = { cols: number; rows: number };
 
 export type TerminalsRequest =
-  | { method: "terminals.open"; params: { project: ProjectId; size: TermSize } }
+  /** `cwd`: a project-relative folder to start in; the project root when left out. */
+  | { method: "terminals.open"; params: { project: ProjectId; size: TermSize; cwd?: string } }
   | { method: "terminals.input"; params: { id: TerminalId; data: string } }
   | { method: "terminals.resize"; params: { id: TerminalId; size: TermSize } }
   | { method: "terminals.close"; params: { id: TerminalId } }

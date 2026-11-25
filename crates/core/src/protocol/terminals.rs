@@ -19,9 +19,15 @@ pub struct TermSize {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "method", content = "params")]
 pub enum TerminalsRequest {
-    /// Starts the user's shell in the project root.
+    /// Starts the user's shell in the project root, or in `cwd`: a
+    /// project-relative folder inside the project (not a symlink).
     #[serde(rename = "terminals.open")]
-    Open { project: ProjectId, size: TermSize },
+    Open {
+        project: ProjectId,
+        size: TermSize,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cwd: Option<String>,
+    },
     /// Types into the terminal. Answers `ok`.
     #[serde(rename = "terminals.input")]
     Input { id: TerminalId, data: String },

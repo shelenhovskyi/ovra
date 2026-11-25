@@ -4,7 +4,7 @@ use serde_json::json;
 use tokio::sync::broadcast;
 
 use crate::Core;
-use crate::fakes::{EchoTerminals, MemoryProjects, MemorySessions, ScriptedAgent, Step};
+use crate::fakes::{EchoTerminals, MemoryFs, MemoryProjects, MemorySessions, ScriptedAgent, Step};
 use crate::protocol::agents::{
     AgentMessage, AgentStatus, AgentsEvent, AgentsResponse, SessionInfo, TurnUsage,
 };
@@ -578,6 +578,40 @@ async fn terminals_open_in_the_project_root() {
     );
     let input = json!({"method": "terminals.input", "params": {"id": "t1", "data": "x"}});
     assert_eq!(code(&core, input).await, ErrorCode::NotFound);
+}
+
+#[tokio::test]
+async fn terminals_open_in_a_folder_of_the_project_only() {
+    let (fs, terminals) = (
+        Arc::new(MemoryFs::default()),
+        Arc::new(EchoTerminals::default()),
+    );
+    let root = std::path::Path::new(crate::test_path!("/work/a"));
+    fs.put(root, "src/ui/app.ts", "");
+    let core = Core::builder("test")
+        .projects(Arc::new(MemoryProjects::default()))
+        .fs(fs)
+        .terminals(terminals.clone())
+        .build();
+    project(&core).await;
+    let open = |cwd: &str| {
+        json!({"method": "terminals.open",
+        "params": {"project": "p1", "size": {"cols": 80, "rows": 24}, "cwd": cwd}})
+    };
+    ok(&core, open("src/ui")).await;
+    ok(&core, open("")).await;
+    assert_eq!(
+        code(&core, open("src/ui/app.ts")).await,
+        ErrorCode::NotFound
+    );
+    assert_eq!(code(&core, open("missing")).await, ErrorCode::NotFound);
+    assert_eq!(code(&core, open("../b")).await, ErrorCode::Forbidden);
+    let cwds: Vec<_> = terminals
+        .open_terminals()
+        .into_iter()
+        .map(|(_, cwd, _)| cwd)
+        .collect();
+    assert_eq!(cwds, [root.join("src").join("ui"), root.to_path_buf()]);
 }
 
 #[tokio::test]

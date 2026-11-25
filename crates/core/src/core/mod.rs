@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use tokio::sync::broadcast;
@@ -8,7 +8,7 @@ use crate::agents::{self, Sessions};
 use crate::orchestration::{self, Orchestration};
 use crate::path::RelPath;
 use crate::protocol::audit::AuditEvent;
-use crate::protocol::fs::{FsRequest, FsResponse, MAX_FILES_PAGE};
+use crate::protocol::fs::{EntryKind, FsRequest, FsResponse, MAX_FILES_PAGE};
 use crate::protocol::info::{CoreInfo, InfoEvent, InfoRequest, InfoResponse};
 use crate::protocol::open::OpenRequest;
 use crate::protocol::projects::{
@@ -367,7 +367,7 @@ impl Core {
             Request::Projects(r) => self.projects(r, held).await,
             Request::Fs(r) => self.fs(r).await,
             Request::Open(r) => self.open(r).map(|()| Response::Ok(OkResponse::Ok)),
-            Request::Terminals(r) => self.terminals(r),
+            Request::Terminals(r) => self.terminals(r).await,
             Request::Agents(r) => agents::handle_agents(&self.agents_ctx(), r).await,
             Request::Permissions(r) => agents::handle_permissions(&self.agents_ctx(), r),
             Request::Review(r) => orchestration::review(self, r).await,
@@ -459,11 +459,16 @@ impl Core {
         }
     }
 
-    fn terminals(&self, request: TerminalsRequest) -> Result<Response, ProtocolError> {
+    async fn terminals(&self, request: TerminalsRequest) -> Result<Response, ProtocolError> {
         let terminals = &self.inner.terminals;
         match request {
-            TerminalsRequest::Open { project, size } => {
-                let id = terminals.open(self.root(&project)?, size, self.sink())?;
+            TerminalsRequest::Open { project, size, cwd } => {
+                let root = self.root(&project)?;
+                let cwd = match cwd {
+                    Some(cwd) => self.folder_in(&root, RelPath::parse(&cwd)?).await?,
+                    None => root,
+                };
+                let id = terminals.open(cwd, size, self.sink())?;
                 return Ok(Response::Terminals(TerminalsResponse::Opened { id }));
             }
             TerminalsRequest::Input { id, data } => terminals.input(&id, &data)?,
@@ -478,6 +483,34 @@ impl Core {
             }
         }
         Ok(Response::Ok(OkResponse::Ok))
+    }
+
+    /// The absolute path of `path` when it is a folder in the project: its
+    /// parent lists it as a directory, so a file or a symlink is refused.
+    async fn folder_in(&self, root: &Path, path: RelPath) -> Result<PathBuf, ProtocolError> {
+        if path.is_root() {
+            return Ok(root.to_path_buf());
+        }
+        let (parent, name) = path
+            .as_str()
+            .rsplit_once('/')
+            .unwrap_or(("", path.as_str()));
+        let listing = self
+            .inner
+            .fs
+            .list_dir(root.to_path_buf(), RelPath::parse(parent)?)
+            .await?;
+        let is_dir = listing
+            .entries
+            .iter()
+            .any(|e| e.name == name && e.kind == EntryKind::Dir);
+        if !is_dir {
+            return Err(ProtocolError::new(
+                ErrorCode::NotFound,
+                format!("no folder {:?} in the project", path.as_str()),
+            ));
+        }
+        Ok(path.under(root))
     }
 
     /// Takes a reference on a project, watching it if it was not open.
