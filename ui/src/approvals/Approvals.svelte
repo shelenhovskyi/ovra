@@ -26,6 +26,7 @@ import { listCommands, registerCommand } from "../keys/commands";
 import type { Decision, PermissionId, PermissionRequest, Project, ProjectId, SessionId } from "../lib/protocol";
 import { useOvra } from "../shell/context";
 import { typed } from "../shell/menu";
+import { cardBody } from "./body";
 import { describeTool } from "./describe";
 import { ARM_MS, approvalQueue } from "./queue.svelte";
 import { pathScopes, sameFolder } from "./scope";
@@ -111,7 +112,7 @@ function watchAll(into: SvelteSet<PermissionId>, ids: PermissionId[]): Attachmen
  * column its head stays in sight above them (it sticks to the top). */
 function scrollToDetails(target: HTMLElement): void {
   target.scrollIntoView?.({ block: "start" });
-  target.querySelector("dl")?.scrollIntoView?.({ block: "nearest" });
+  target.querySelector("[data-details]")?.scrollIntoView?.({ block: "nearest" });
 }
 
 /** Focuses a card and scrolls it into view, not just its first line. */
@@ -623,6 +624,9 @@ function verbAndObject(tool: string, action: string): { verb: string; object: st
       {@const ready = armed(request.id)}
       {@const domId = `approval-${request.id}`}
       {@const folder = folderOf(request, project)}
+      {@const scopes = pathScopes(request.input, folder.path)}
+      {@const parts = cardBody(request.tool, request.input, summary)}
+      {@const named = scopes.find((s) => s.path === what.object)}
       {@const gaps = gapsOf(request.session)}
       {@const role = sessions.roles.get(request.session)}
       {@const agentNote = request.title && !repeats(request.title, request, summary.action) ? request.title : null}
@@ -652,29 +656,48 @@ function verbAndObject(tool: string, action: string): { verb: string; object: st
                 >{role?.kind === "worker" ? " · " : ""}{stack.length} identical requests, answered one at a time</span
               >{/if}
           </p>
-          <h3 id="{domId}-action" {@attach summary.details.length === 0 && watch(seen, request.id)}>
-            {what.verb}{#if what.object}{" "}<code class="object">{what.object}</code>{/if}
+          <!-- A path inside the folder by its relative name; the scope line says which folder. -->
+          <h3 id="{domId}-action" {@attach parts.length === 0 && watch(seen, request.id)}>
+            {what.verb}{#if what.object}{" "}<code class="object" title={named?.path}
+                >{named?.scope === "inside" ? named.relative : what.object}</code
+              >{/if}
           </h3>
-          {#each pathScopes(request.input, folder.path) as scope}
+          {#each scopes as scope}
+            <!-- The path the title names is not said again. -->
+            {@const path = scope === named ? "" : `: ${scope.scope === "inside" ? scope.relative : scope.path}`}
             {#if scope.scope === "inside"}
-              <p class="line" data-testid="approval-scope" title={scope.path}>In {folder.name}: {scope.relative}</p>
+              <p class="line" data-testid="approval-scope" title={scope.path}>In {folder.name}{path}</p>
             {:else}
               <p class="chip danger" data-testid="approval-scope">
-                {scope.scope === "outside" ? "Outside" : "Cannot tell if in"}{" "}{folder.name}: {scope.path}
+                {scope.scope === "outside" ? "Outside" : "Cannot tell if in"}{" "}{folder.name}{path}
               </p>
             {/if}
           {/each}
           {#if request.reason}
             <p class="line" data-testid="approval-reason">{request.reason.text}</p>
           {/if}
-          {#if isOpen(request.id)}
-            <dl {@attach watch(seen, request.id)}>
-              {#each summary.details as detail}
-                <dt>{detail.label}</dt>
-                <dd><pre>{detail.text}</pre></dd>
+          {#if isOpen(request.id) && parts.length > 0}
+            <div class="details" data-details {@attach watch(seen, request.id)}>
+              {#each parts as part}
+                {#if part.kind === "note"}
+                  <p class="note">{part.text}</p>
+                {:else if part.kind === "code"}
+                  <pre class="code">{part.text}</pre>
+                {:else if part.kind === "diff"}
+                  <div class="diff" data-testid="approval-diff">
+                    {#each part.removed as line}<del>{line}</del>{/each}{#each part.added as line}<ins>{line}</ins>{/each}
+                  </div>
+                {:else}
+                  <dl>
+                    {#each part.fields as field}
+                      <dt>{field.label}</dt>
+                      <dd><pre>{field.text}</pre></dd>
+                    {/each}
+                  </dl>
+                {/if}
               {/each}
-            </dl>
-          {:else if summary.details.length > 0}
+            </div>
+          {:else if parts.length > 0}
             <button type="button" class="quiet more" data-testid="approval-details" onclick={() => expand(request.id)}
               >Show details</button
             >
@@ -967,18 +990,64 @@ function verbAndObject(tool: string, action: string): { verb: string; object: st
     background: var(--s3);
     border-radius: var(--radius-xs);
   }
+  .details {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 6px 0 0;
+    /* Scrolled to whole: fractional heights would leave a sliver clipped. */
+    scroll-margin: 4px;
+  }
+  .note {
+    font-size: 13px;
+    overflow-wrap: anywhere;
+  }
+  .code,
+  .diff,
+  dl {
+    padding: 6px 10px;
+    border-radius: 10px;
+    background: var(--s1);
+  }
   /* Label and value side by side: the buttons stay in sight in a short column. */
   dl {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);
-    /* Scrolled to whole: fractional heights would leave a sliver clipped. */
-    scroll-margin: 4px;
     align-items: baseline;
     gap: 4px 12px;
-    margin: 8px 0 0;
-    padding: 8px 10px;
-    border-radius: 10px;
-    background: var(--s1);
+    margin: 0;
+  }
+  /* Taken out and put in, one line each, as the review diff marks them. */
+  .diff {
+    max-height: 160px;
+    overflow: auto;
+    padding-inline: 0;
+    font: 13px / 1.45 var(--mono);
+  }
+  del,
+  ins {
+    display: block;
+    padding: 0 10px 0 7px;
+    border-left: 3px solid;
+    text-decoration: none;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  del {
+    background: var(--danger-soft);
+    border-left-color: var(--danger);
+  }
+  ins {
+    background: var(--ok-soft);
+    border-left-color: var(--ok);
+  }
+  del::before,
+  ins::before {
+    content: "- ";
+    color: var(--text-2);
+  }
+  ins::before {
+    content: "+ ";
   }
   dt {
     color: var(--text-2);

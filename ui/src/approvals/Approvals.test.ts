@@ -13,7 +13,7 @@ const bash = (id: string, command = "ls -la"): PermissionRequest => ({
   project: "p1",
   cwd: "/demo",
   tool: "Bash",
-  input: { command },
+  input: { command, description: `About ${command}` },
   title: null,
 });
 
@@ -117,6 +117,8 @@ const cards = () => [...target.querySelectorAll<HTMLElement>("[data-request]")];
 /** Each task group's head: who asks, and the facts its requests share. */
 const heads = () => [...target.querySelectorAll<HTMLElement>(".who")];
 const words = (element: Element | undefined) => element?.textContent?.replace(/\s+/g, " ").trim();
+/** Opens a card's details, as focusing it does. */
+const expand = (card: HTMLElement) => card.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
 const answers = (core: FakeAgentCore) => core.sent("permissions.answer").map((c) => c.params);
 
 describe("Approvals", () => {
@@ -372,9 +374,25 @@ describe("Approvals", () => {
       input: { file_path: "/demo/README.md", old_string: "a", new_string: "b" },
     });
     core.ask({ ...bash("perm2"), tool: "Read", input: { file_path: "/demo/../etc/passwd" } });
+    core.ask({ ...bash("perm3"), tool: "Grep", input: { pattern: "TODO", path: "/demo/src" } });
     await settle();
-    const scopes = cards().map((c) => c.querySelector("[data-testid=approval-scope]")?.textContent?.trim());
-    expect(scopes).toEqual(["In the project: README.md", "Outside the project: /demo/../etc/passwd"]);
+    for (const c of cards()) expand(c);
+    const scopes = cards().map((c) => words(c.querySelector("[data-testid=approval-scope]") ?? undefined));
+    // The title names the file once, by its path in the project; other paths are named on their line.
+    expect(cards().map((c) => words(c.querySelector("h3") ?? undefined))).toEqual([
+      "Edit README.md",
+      "Read /demo/../etc/passwd",
+      "Search TODO",
+    ]);
+    expect(cards()[0]?.querySelector("h3 code")?.getAttribute("title")).toBe("/demo/README.md");
+    expect(scopes).toEqual(["In the project", "Outside the project", "In the project: src"]);
+    // An edit is a small diff, not the tool's field names.
+    const diff = cards()[0]?.querySelector("[data-testid=approval-diff]");
+    expect([...(diff?.children ?? [])].map((line) => `${line.tagName} ${line.textContent}`)).toEqual([
+      "DEL a",
+      "INS b",
+    ]);
+    expect(words(cards()[0])).not.toMatch(/old string|new string|\/demo\/README/);
   });
 
   it("judges paths from the agent's own folder and warns about an unknown project", async () => {
@@ -385,10 +403,8 @@ describe("Approvals", () => {
     const lines = (testid: string) =>
       cards().map((c) => c.querySelector(`[data-testid=${testid}]`)?.textContent?.replace(/\s+/g, " ").trim());
     // A worker's worktree is its folder: the main checkout is outside it.
-    expect(lines("approval-scope")).toEqual([
-      "Outside the agent's folder: /demo/src/a.rs",
-      "Cannot tell if in a project: /demo/a",
-    ]);
+    expect(lines("approval-scope")).toEqual(["Outside the agent's folder", "Cannot tell if in a project"]);
+    expect(cards().map((c) => words(c.querySelector("h3 code") ?? undefined))).toEqual(["/demo/src/a.rs", "/demo/a"]);
     expect(heads().map((h) => words(h.querySelector("[data-testid=approval-unknown-project]") ?? undefined))).toEqual([
       undefined,
       "Unknown project: paths cannot be checked",
@@ -488,13 +504,13 @@ describe("Approvals", () => {
     core.ask(bash("perm1"));
     core.ask(bash("perm2", "rm -rf build"));
     await settle(ARM_MS);
-    expect(cards().map((c) => c.querySelector("dl") !== null)).toEqual([true, false]);
+    expect(cards().map((c) => c.querySelector("[data-details]") !== null)).toEqual([true, false]);
     const allow = cards()[1]?.querySelector<HTMLButtonElement>("button.allow");
     allow?.click();
     await settle();
     // The first press shows what it would allow; the cards below moved, so it waits again.
     expect(answers(core)).toEqual([]);
-    expect(cards()[1]?.querySelector("dl pre")?.textContent).toBe("rm -rf build");
+    expect(cards()[1]?.querySelector("[data-details]")?.textContent?.trim()).toBe("About rm -rf build");
     expect(allow?.getAttribute("aria-disabled")).toBe("true");
     await settle(ARM_MS);
     allow?.click();
@@ -532,7 +548,7 @@ describe("Approvals", () => {
     // All of it, not just the line that says who asks.
     expect(scrolled).toEqual([
       [cards()[1], { block: "start" }],
-      [cards()[1]?.querySelector("dl"), { block: "nearest" }],
+      [cards()[1]?.querySelector("[data-details]"), { block: "nearest" }],
     ]);
   });
 
@@ -548,7 +564,7 @@ describe("Approvals", () => {
     press("KeyY");
     await settle();
     expect(answers(core)).toEqual([]);
-    expect(scrolled.map(([element]) => element)).toContain(cards()[0]?.querySelector("dl"));
+    expect(scrolled.map(([element]) => element)).toContain(cards()[0]?.querySelector("[data-details]"));
     expect(wait()).toBe("Scrolled to the request: read it, then allow.");
     // The click lands where the scroll moved things: it waits again too.
     comeIntoSight();
