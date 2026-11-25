@@ -137,6 +137,33 @@ describe("Inbox", () => {
     ]);
   });
 
+  it("shows an item with only changed git hooks and config, and warns before Approve", async () => {
+    await setup([
+      review("r1", { files: [], git_changes: [{ path: ".git/hooks/pre-commit", kind: "added" }] }),
+      review("r2", {
+        state: "approved",
+        git_changes: [{ path: "/home/me/.gitconfig", kind: "modified" }],
+        git_unchecked: true,
+      }),
+    ]);
+    expect($("[data-testid=inbox-button]")?.textContent).toContain("(1 waiting)");
+    await open();
+    expect($("[data-item=r1] [data-testid=item-git]")?.textContent).toBe("1 git hook or config file changed");
+    expect($("[data-item=r1]")?.textContent).toContain("No changed files");
+    expect($("[data-testid=inbox-git]")?.textContent).toContain(".git/hooks/pre-commit (added)");
+    expect($("[data-testid=inbox-git]")?.textContent).toContain("neither applies nor undoes them");
+    expect(button(/^Approve$/)?.getAttribute("aria-describedby")).toBe("inbox-git");
+    expect($("[data-testid=inbox-diff]")?.textContent).toContain("Only git hooks or config changed");
+
+    // A decided item keeps the list it was decided with, and says what was not checked.
+    $<HTMLButtonElement>("[data-item=r2]")?.click();
+    await settle();
+    expect($("[data-testid=inbox-git]")?.textContent).toContain("/home/me/.gitconfig (modified)");
+    expect($("[data-testid=inbox-git]")?.textContent).toContain(
+      "Ovra could not check git hooks and config for this item",
+    );
+  });
+
   const guarded = () => [
     change("NOTES.md"),
     change(".envrc", { protected: true }),

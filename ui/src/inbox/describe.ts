@@ -27,11 +27,19 @@ function reasonFor(path: string): string | null {
   const parts = path.toLowerCase().split("/").filter(Boolean);
   const top = parts[0] ?? "";
   const last = parts[parts.length - 1] ?? "";
-  if (top === ".envrc") return "runs commands when you enter the folder with direnv";
+  if (last === ".envrc") return "runs commands when you enter the folder with direnv";
   if (top === ".mcp.json") return "tools the agent can start";
-  if (top === ".claude") return "the agent's settings and permissions";
-  if (["claude.md", "claude.local.md", "agents.md"].includes(last)) return "instructions every agent reads";
+  if (parts.includes(".claude")) return "the agent's settings and permissions";
+  if (["claude.md", "claude.local.md", "agents.md", "gemini.md"].includes(last))
+    return "instructions every agent reads";
   if ([".vscode", ".idea", ".devcontainer"].includes(top)) return "editor tasks and containers that can run code";
+  if ([".zed", ".cursor", ".gemini"].includes(top)) return "another editor's or agent's settings and rules";
+  if (top === ".husky") return "git hooks: run when you commit or push";
+  if (last === ".gitattributes") return "tells git which programs to run on files";
+  if (top === ".gitmodules") return "other repositories git fetches into this one";
+  if (top === ".lfsconfig") return "where git downloads large files from";
+  // The folder `core.hooksPath` names: usually `.githooks/` or `hooks/`.
+  if (parts.slice(0, -1).some((p) => /hooks$/.test(p))) return "git hooks: run when you commit or push";
   return null;
 }
 
@@ -86,6 +94,7 @@ export function fileSummary(file: FileChange): string {
 
 /** One line for the item list: how many files, and what needs attention. Protected files get their own tag. */
 export function itemSummary(item: ReviewItem, shared = 0): string {
+  if (item.files.length === 0 && item.git_changes.length > 0) return "No changed files";
   const files = item.files.length === 1 ? "1 file" : `${item.files.length} files`;
   const outside = item.files.filter((f) => f.by !== "agent").length;
   const blocked = item.files.filter((f) => f.blocked).length;
@@ -105,6 +114,30 @@ export function protectedTag(item: ReviewItem): string | null {
   const count = item.files.filter((f) => f.protected).length;
   if (count === 0) return null;
   return `${count === 1 ? "1 file" : `${count} files`} can run code or change agent rules`;
+}
+
+/** The list's tag for an item whose git hooks or config changed, or could not be checked; null otherwise. */
+export function gitTag(item: ReviewItem): string | null {
+  const count = item.git_changes.length;
+  if (count > 0) return `${count === 1 ? "1 git hook or config file" : `${count} git hooks or config files`} changed`;
+  return item.git_unchecked ? "Git hooks and config not checked" : null;
+}
+
+/**
+ * The warning on an item for git hooks and config that changed since its
+ * session started, by anyone: no diff shows them, and neither approve nor
+ * reject touches them. Null when there are none and they were checked.
+ */
+export function gitWarning(item: ReviewItem): string | null {
+  const parts: string[] = [];
+  if (item.git_changes.length > 0) {
+    const listed = item.git_changes.map((c) => `${c.path} (${KIND_LABEL[c.kind]})`).join(", ");
+    parts.push(
+      `Git hooks and config changed since the session started, by the agent or anyone else: ${listed}. Git runs hooks by itself, and its config can make it run programs. Ovra shows no diff of these and neither applies nor undoes them: Approve and Reject leave them as they are. Check each one yourself before you next use git here.`,
+    );
+  }
+  if (item.git_unchecked) parts.push("Ovra could not check git hooks and config for this item: look at them yourself.");
+  return parts.length > 0 ? parts.join(" ") : null;
 }
 
 /** An item's title: the kind of session and its name, without saying "Worker" twice. */

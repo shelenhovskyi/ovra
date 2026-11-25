@@ -54,11 +54,15 @@ export class ReviewInbox {
     return this.items.filter((item) => item.state === "open");
   }
 
-  /** Open items with at least one of the agent's files, and partly approved ones: what waits for the person. */
+  /**
+   * Open items with at least one of the agent's files or a changed git hook
+   * or config file, and partly approved ones: what waits for the person.
+   */
   get waiting(): ReviewItem[] {
     return this.items.filter(
       (item) =>
-        item.state === "partly_approved" || (item.state === "open" && item.files.some((f) => f.by !== "outside")),
+        item.state === "partly_approved" ||
+        (item.state === "open" && (item.git_changes.length > 0 || item.files.some((f) => f.by !== "outside"))),
     );
   }
 

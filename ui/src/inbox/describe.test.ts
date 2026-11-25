@@ -4,6 +4,8 @@ import {
   defaultCommitMessage,
   fileMarkers,
   fileSummary,
+  gitTag,
+  gitWarning,
   itemSummary,
   itemTitle,
   notCopiedHint,
@@ -38,6 +40,16 @@ describe("inbox wording", () => {
     expect(reason("ui/AGENTS.md")).toBe("instructions every agent reads");
     expect(reason(".vscode/tasks.json")).toBe("editor tasks and containers that can run code");
     expect(reason(".devcontainer/devcontainer.json")).toBe("editor tasks and containers that can run code");
+    expect(reason("sub/.envrc")).toBe("runs commands when you enter the folder with direnv");
+    expect(reason("a/b/.claude/settings.json")).toBe("the agent's settings and permissions");
+    expect(reason("docs/GEMINI.md")).toBe("instructions every agent reads");
+    expect(reason(".cursor/rules")).toBe("another editor's or agent's settings and rules");
+    expect(reason(".husky/pre-commit")).toBe("git hooks: run when you commit or push");
+    expect(reason(".githooks/pre-push")).toBe("git hooks: run when you commit or push");
+    expect(reason("src/.gitattributes")).toBe("tells git which programs to run on files");
+    expect(reason(".gitmodules")).toBe("other repositories git fetches into this one");
+    expect(reason(".lfsconfig")).toBe("where git downloads large files from");
+    expect(reason("odd/name")).toBe("can run code or change agent rules");
     // A rename away from a protected path is explained by where it came from.
     expect(reason("notes.md", "CLAUDE.md")).toBe("instructions every agent reads");
   });
@@ -90,6 +102,34 @@ describe("inbox wording", () => {
     // The person's own edit is never called the agent's.
     const theirs = review("r3", { mode: "direct", files: [change(".envrc", { protected: true, by: "outside" })] });
     expect(protectedHint(theirs)).not.toMatch(/Reject restores/);
+  });
+
+  it("warns about git hooks and config that no diff shows and nothing undoes", () => {
+    const item = review("r1", {
+      files: [],
+      git_changes: [
+        { path: ".git/hooks/pre-commit", kind: "added" },
+        { path: "/home/me/.gitconfig", kind: "modified" },
+      ],
+    });
+    expect(gitTag(item)).toBe("2 git hooks or config files changed");
+    expect(itemSummary(item)).toBe("No changed files");
+    const warning = gitWarning(item) ?? "";
+    expect(warning).toContain(".git/hooks/pre-commit (added), /home/me/.gitconfig (modified)");
+    expect(warning).toContain("neither applies nor undoes them: Approve and Reject leave them as they are");
+    expect(warning).toContain("Check each one yourself");
+    expect(warning).not.toContain("could not check");
+
+    const unchecked = review("r2", { git_unchecked: true });
+    expect(gitTag(unchecked)).toBe("Git hooks and config not checked");
+    expect(gitWarning(unchecked)).toBe(
+      "Ovra could not check git hooks and config for this item: look at them yourself.",
+    );
+    expect(gitTag(review("r3"))).toBeNull();
+    expect(gitWarning(review("r3"))).toBeNull();
+    expect(gitTag(review("r4", { git_changes: [{ path: ".husky/_/pre-commit", kind: "deleted" }] }))).toBe(
+      "1 git hook or config file changed",
+    );
   });
 
   it("titles items without saying Worker twice", () => {

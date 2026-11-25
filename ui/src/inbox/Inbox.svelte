@@ -18,6 +18,8 @@ import {
   fileMarkers,
   fileName,
   fileSummary,
+  gitTag,
+  gitWarning,
   itemSummary,
   itemTitle,
   notCopiedHint,
@@ -62,6 +64,7 @@ const item = $derived(inbox.items.find((i) => i.id === selectedId) ?? null);
 const file = $derived(item?.files.find((f) => f.path === selectedPath) ?? null);
 const shared = $derived(item ? sharedFiles(item, inbox.items) : new Set<string>());
 const protectedText = $derived(item ? protectedHint(item) : null);
+const gitText = $derived(item ? gitWarning(item) : null);
 const busy = $derived(item ? inbox.busy.includes(item.id) : false);
 const outcome = $derived(inbox.outcome && inbox.outcome.id === item?.id ? inbox.outcome : null);
 const diffKey = $derived(item && file ? `${item.id}\n${file.path}\n${inbox.changes}` : null);
@@ -88,6 +91,7 @@ const approveWhy = $derived(
   [
     commit && !commitMessage.trim() ? "inbox-commit-why" : diffShown ? null : "inbox-diff-why",
     protectedText ? "inbox-protected" : null,
+    gitText ? "inbox-git" : null,
     directWaits ? "inbox-protected-why" : null,
   ]
     .filter(Boolean)
@@ -500,6 +504,9 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                     {#if protectedTag(review)}
                       <span class="marker protected" data-testid="item-protected">{protectedTag(review)}</span>
                     {/if}
+                    {#if gitTag(review)}
+                      <span class="marker protected" data-testid="item-git">{gitTag(review)}</span>
+                    {/if}
                   </button>
                 </li>
               {/each}
@@ -513,6 +520,9 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                 <span class="state {item.state}">{STATE_LABEL[item.state]}</span>
                 {#if item.summary}
                   <p class="summary">Agent's summary: {item.summary}</p>
+                {/if}
+                {#if gitText}
+                  <p class="protected" id="inbox-git" role="note" data-testid="inbox-git">{gitText}</p>
                 {/if}
                 {#if outcome}
                   <p class="outcome" data-testid="inbox-outcome">
@@ -747,7 +757,11 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                 </ul>
                 <div class="diff" data-testid="inbox-diff">
                   {#if !file}
-                    <p class="empty">This review has no files.</p>
+                    <p class="empty">
+                      {item.git_changes.length > 0
+                        ? "No file of the project changed, so there is no diff. Only git hooks or config changed: see the warning above."
+                        : "This review has no files."}
+                    </p>
                   {:else if diff?.error}
                     <p class="error" role="alert">Could not load the diff of {file.path}: {diff.error}</p>
                   {:else if diff?.patch === null || !diff}
