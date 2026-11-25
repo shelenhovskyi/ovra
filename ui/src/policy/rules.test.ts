@@ -14,22 +14,34 @@ describe("policy rules", () => {
 
   it("says what deny and auto rules do not promise", () => {
     expect(caveats({ tool: "Bash", match: "git push", action: "deny" })).toEqual([
-      expect.stringMatching(/^Advisory: .*env git push.*only in a sandboxed session.*without a sandbox nothing holds/),
+      expect.stringMatching(
+        /^Advisory: .*env git push, gets past it\. The boundary that holds is the sandbox and its network proxy; without a sandbox, nothing does\.$/,
+      ),
     ]);
     expect(caveats({ tool: "Bash", action: "deny" })).toEqual([]);
     expect(caveats({ tool: "Read", match: "secrets/**", action: "deny" })).toEqual([
-      expect.stringMatching(/^Advisory: Grep, Glob or cat.*without a sandbox nothing holds/),
+      expect.stringMatching(/^Advisory: Grep, Glob or cat.*without a sandbox, nothing does\.$/),
     ]);
     expect(caveats({ tool: "WebFetch", action: "deny" })).toEqual([
       "Only this tool is refused; others such as Bash can do the same.",
     ]);
     expect(caveats({ tool: "Edit", match: "docs/**", action: "auto" })).toEqual([
-      "Applies only in a sandboxed session whose network is limited. Otherwise Ovra still asks.",
+      "Applies only in a sandboxed session whose network is limited. Otherwise the call is decided as if this rule were not there.",
     ]);
     expect(caveats({ tool: "Bash", match: "npm test", action: "auto" })[1]).toMatch(
       /^npm test also runs .*package\.json scripts, and the agent can edit those\.$/,
     );
     expect(caveats({ tool: "Bash", action: "ask" })).toEqual([]);
+    expect(caveats({ tool: "WebFetch", action: "ask" })).toEqual([]);
+  });
+
+  it("says what ask rules do not promise", () => {
+    expect(caveats({ tool: "Bash", match: "git push", action: "ask" })).toEqual([
+      expect.stringMatching(/^Advisory: .*env git push, is not asked about\. The boundary that holds is the sandbox/),
+    ]);
+    expect(caveats({ tool: "Write", match: "docs/**", action: "ask" })).toEqual([
+      expect.stringMatching(/^Advisory: Bash commands like cat still reach it\. .*without a sandbox, nothing does\.$/),
+    ]);
   });
 
   it("lists rules deny first, then ask, then auto, keeping their order otherwise", () => {

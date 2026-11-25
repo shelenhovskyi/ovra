@@ -35,9 +35,8 @@ export function toolWarning(tool: string): string | null {
   return `Ovra does not know a tool named ${name}, so this rule may never match. Check the spelling.`;
 }
 
-/** Where Bash and file deny rules stop holding. */
-const BOUNDARY =
-  "It holds only in a sandboxed session: the sandbox and its network proxy are the boundary, and without a sandbox nothing holds.";
+/** What holds where Bash and file deny and ask rules do not. */
+const BOUNDARY = "The boundary that holds is the sandbox and its network proxy; without a sandbox, nothing does.";
 
 /** What a rule does not promise, in plain words. */
 export function caveats(rule: PolicyRule): string[] {
@@ -58,8 +57,20 @@ export function caveats(rule: PolicyRule): string[] {
       notes.push("Only this tool is refused; others such as Bash can do the same.");
     }
   }
+  if (rule.action === "ask") {
+    // An ask with no match asks about every command, however it is written.
+    if (rule.tool === "Bash" && rule.match !== undefined) {
+      notes.push(
+        `Advisory: the same command written another way, such as env ${rule.match}, is not asked about. ${BOUNDARY}`,
+      );
+    } else if (FILE_TOOLS.includes(rule.tool)) {
+      notes.push(`Advisory: Bash commands like cat still reach it. ${BOUNDARY}`);
+    }
+  }
   if (rule.action === "auto") {
-    notes.push("Applies only in a sandboxed session whose network is limited. Otherwise Ovra still asks.");
+    notes.push(
+      "Applies only in a sandboxed session whose network is limited. Otherwise the call is decided as if this rule were not there.",
+    );
     if (rule.tool === "Bash") {
       const what = rule.match === undefined ? "Every command" : rule.match;
       notes.push(`${what} also runs whatever it calls, such as package.json scripts, and the agent can edit those.`);

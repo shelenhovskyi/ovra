@@ -430,6 +430,8 @@ rules for each project:
   - A Bash `deny` rule is advisory: `env git push` or `git -C . push` gets
     past it. The boundary that holds is the sandbox plus the netproxy. The
     UI says so beside Bash deny rules.
+  - A Bash `ask` rule is advisory in the same way: the same command written
+    another way is not asked about. The UI says so beside Bash ask rules.
   - An `auto` rule runs more than its words: `npm test` runs the scripts in
     `package.json`, which the agent can edit. The UI says so beside Bash
     auto rules; the sandbox is what makes that acceptable.
@@ -444,6 +446,8 @@ rules for each project:
   - A file `deny` rule is advisory too: `Grep`, `Glob` or `cat` in Bash
     still reach the file. The boundary that holds is the sandbox's protected
     and hidden paths.
+  - A file `ask` rule is advisory the same way: Bash commands like `cat`
+    still reach the file without a question. The UI says so beside it.
 - `action` is `auto`, `ask` or `deny`.
 
 **How a call is decided.**

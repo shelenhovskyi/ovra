@@ -73,7 +73,9 @@ describe("PolicyPanel", () => {
     ]);
     const notes = [...target.querySelectorAll("[data-testid=policy-caveat]")].map((el) => el.textContent).join(" ");
     expect(notes).toMatch(/Only this tool is refused; others such as Bash can do the same/);
-    expect(notes).toMatch(/only in a sandboxed session whose network is limited\. Otherwise Ovra still asks/);
+    expect(notes).toMatch(
+      /only in a sandboxed session whose network is limited\. Otherwise the call is decided as if this rule were not there/,
+    );
     expect(notes).toMatch(/npm test also runs .*the agent can edit those/);
 
     $("[data-testid=policy]")?.dispatchEvent(
