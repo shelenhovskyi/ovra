@@ -489,8 +489,12 @@ describe("Approvals", () => {
     const { approvalQueue } = await import("./queue.svelte");
     approvalQueue(core).reveal("perm2");
     expect(document.activeElement).toBe(cards()[1]);
+    await settle();
     // All of it, not just the line that says who asks.
-    expect(scrolled).toEqual([[cards()[1], { block: "nearest" }]]);
+    expect(scrolled).toEqual([
+      [cards()[1], { block: "nearest" }],
+      [cards()[1]?.querySelector("dl"), { block: "nearest" }],
+    ]);
   });
 
   it("allows nothing whose details were never in sight, and scrolls them into view first", async () => {

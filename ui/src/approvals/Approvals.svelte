@@ -11,9 +11,9 @@
 //   buttons look disabled exactly as long as they are;
 // - one key press answers at most one request: auto-repeat is ignored and the
 //   next answer needs the key released first;
-// - nothing is allowed unseen: Allow counts only once the request's details
-//   (or its action, without details) have been in sight; before that a press
-//   scrolls them into view and waits again.
+// - nothing is allowed unseen: Allow counts only once most of the request's
+//   details (or its action, without details) have been in sight; before that
+//   a press scrolls them into view and waits again.
 import { tick, untrack } from "svelte";
 import type { Attachment } from "svelte/attachments";
 import { SvelteMap, SvelteSet } from "svelte/reactivity";
@@ -66,7 +66,8 @@ const allowable = (id: PermissionId): boolean => armed(id) && seen.has(id);
 
 const EARLY = "Ready in a moment — read the request first.";
 const UNSEEN = "Scrolled to the request: read it, then allow.";
-/** In sight: all of it, or at least this many pixels of a taller one. */
+/** In sight: most of it (a clipped last line still counts), or this many pixels of a taller one. */
+const SEEN_RATIO = 0.75;
 const SEEN_PX = 120;
 
 /** Marks a request as seen once the element (its details) is in sight. */
@@ -78,7 +79,7 @@ function watch(id: PermissionId): Attachment<HTMLElement> {
       (entries) => {
         for (const entry of entries) {
           if (!entry.isIntersecting) continue;
-          if (entry.intersectionRatio >= 0.99 || entry.intersectionRect.height >= SEEN_PX) seen.add(id);
+          if (entry.intersectionRatio >= SEEN_RATIO || entry.intersectionRect.height >= SEEN_PX) seen.add(id);
         }
       },
       { threshold: [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1] },
@@ -88,10 +89,18 @@ function watch(id: PermissionId): Attachment<HTMLElement> {
   };
 }
 
-/** Focuses a card and scrolls all of it into view, not just its first line. */
-function bringUp(target: HTMLElement): void {
-  target.focus({ preventScroll: true });
+/** Scrolls a card into view, then its details: in a short column those matter more than its first lines. */
+function scrollToDetails(target: HTMLElement): void {
   target.scrollIntoView?.({ block: "nearest" });
+  target.querySelector("dl")?.scrollIntoView?.({ block: "nearest" });
+}
+
+/** Focuses a card and scrolls it into view, not just its first line. */
+async function bringUp(target: HTMLElement): Promise<void> {
+  target.focus({ preventScroll: true });
+  // Focus opens a card's details; scroll once they are there.
+  await tick();
+  scrollToDetails(target);
 }
 
 function quiet(): void {
@@ -161,7 +170,7 @@ $effect(() => {
     const target = card(id);
     // Never another request instead: a key press meant for this one would answer it.
     notice = target ? "" : "That request was already answered.";
-    if (target) bringUp(target);
+    if (target) await bringUp(target);
     else heading?.focus();
   };
   return () => {
@@ -186,7 +195,7 @@ async function enter(): Promise<void> {
   remember();
   if (collapsed) await show();
   const first = cards()[0];
-  if (first) bringUp(first);
+  if (first) await bringUp(first);
   else heading?.focus();
 }
 
@@ -217,8 +226,7 @@ function leave(): void {
 /** Scrolls a request's details into view; what moved under the pointer waits again. */
 function showDetails(request: PermissionRequest): void {
   const target = card(request.id);
-  target?.scrollIntoView?.({ block: "nearest" });
-  target?.querySelector("dl")?.scrollIntoView?.({ block: "nearest" });
+  if (target) scrollToDetails(target);
   said = { id: request.id, text: UNSEEN };
   quiet();
 }
