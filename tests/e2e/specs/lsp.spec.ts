@@ -26,8 +26,14 @@ test("a trusted project's rust file gets diagnostics and hover from its language
   const editor = page.getByTestId("main");
   await expect(editor.locator(".cm-lintRange-error")).toHaveCount(1);
 
-  await editor.locator(".cm-content").getByText("main").first().hover();
-  await expect(page.locator(".cm-tooltip-hover")).toContainText("fake hover");
+  // A hover only asks once the pointer moves onto the word; until the
+  // server has answered `initialize` it is not asked at all, so move again.
+  const word = editor.locator(".cm-content").getByText("main").first();
+  await expect(async () => {
+    await page.mouse.move(0, 0);
+    await word.hover();
+    await expect(page.locator(".cm-tooltip-hover")).toContainText("fake hover", { timeout: 1000 });
+  }).toPass({ timeout: 8000 });
 
   // The footer names the running server; stopping it clears the diagnostic.
   const item = page.getByRole("button", { name: /fake-lsp/ });
