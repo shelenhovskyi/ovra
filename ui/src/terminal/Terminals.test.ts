@@ -188,7 +188,7 @@ describe("Terminals", () => {
     const { core, panel } = setup(null);
     await run("terminal.toggle");
     expect(panel.hidden).toBe(false);
-    expect(panel.textContent).toContain("Open a project to use terminals.");
+    expect(panel.textContent).toContain("No project open.");
     expect(core.calls).toEqual([]);
   });
 
@@ -197,7 +197,7 @@ describe("Terminals", () => {
     await run("terminal.toggle");
     workspace.project = PROJECT;
     flushSync();
-    expect(panel.textContent).toContain("No terminals in this project.");
+    expect(panel.textContent).toContain("No terminals.");
     panel.querySelector<HTMLButtonElement>(".link")?.click();
     await settle();
     expect(tabs().map((t) => t.textContent?.trim())).toEqual(["Terminal 1"]);

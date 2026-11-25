@@ -216,8 +216,19 @@ $effect(() => {
         type="button"
         class="reader"
         aria-pressed={screenReader}
+        aria-label="Screen reader"
         title="Read terminal output to a screen reader"
-        onclick={() => setScreenReader(!screenReader)}>Screen reader</button
+        onclick={() => setScreenReader(!screenReader)}
+        ><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"
+          ><path
+            d="M4 9v6h4l5 4V5L8 9H4zM16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.6"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          /></svg
+        ></button
       >
       <button
         type="button"
@@ -235,10 +246,10 @@ $effect(() => {
   <p class="sr-only" aria-live="polite">{readerNotice}</p>
   <div class="body">
     {#if !project}
-      <p class="empty">Open a project to use terminals.</p>
+      <p class="empty">No project open.</p>
     {:else if tabs.length === 0}
       <p class="empty">
-        No terminals in this project.
+        No terminals.
         <button type="button" class="link" onclick={newTerminal}>New terminal</button>
         ({label(NEW_KEYS)})
       </p>
@@ -285,7 +296,7 @@ $effect(() => {
     flex-direction: column;
     flex: 0 0 40%;
     min-height: 120px;
-    border-top: 1px solid #2a2a31;
+    background: var(--s2);
   }
   .terminals[hidden] {
     display: none;
@@ -293,27 +304,31 @@ $effect(() => {
   .bar {
     display: flex;
     align-items: stretch;
-    background: #121215;
-    border-bottom: 1px solid #2a2a31;
+    padding: 4px 8px 0 10px;
+    background: var(--s2);
   }
   .tabs {
     display: flex;
     flex: 1;
+    gap: 2px;
     overflow-x: auto;
     scrollbar-width: thin;
   }
+  /* Like the editor's tabs: no boxes, the selected one has --text and an accent underline. */
   .tab {
     display: flex;
     align-items: center;
     flex-shrink: 0;
-    border-right: 1px solid #2a2a31;
     border-bottom: 2px solid transparent;
-    color: #9a9aa6;
+    color: var(--text-2);
+  }
+  .tab:hover {
+    color: var(--text);
   }
   .tab.selected {
-    background: #16161a;
-    color: #e6e6e6;
-    border-bottom-color: #6b8afd;
+    color: var(--text);
+    font-weight: 500;
+    border-bottom-color: var(--accent);
   }
   button {
     font: inherit;
@@ -327,63 +342,74 @@ $effect(() => {
     opacity: 0.5;
   }
   button:focus-visible {
-    outline: 2px solid #6b8afd;
+    outline: 2px solid var(--accent);
     outline-offset: -2px;
   }
   [role="tab"] {
-    padding: 4px 4px 4px 12px;
+    padding: 5px 2px 5px 10px;
   }
   .note {
-    color: #9a9aa6;
+    font-weight: 400;
+    color: var(--text-2);
   }
   .close {
-    width: 20px;
-    height: 20px;
-    margin-right: 6px;
-    border-radius: 3px;
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    margin-right: 4px;
+    border-radius: var(--radius-sm);
+    color: var(--text-2);
+    opacity: 0;
+  }
+  .tab.selected .close,
+  .tab:hover .close,
+  .close:focus-visible {
+    opacity: 1;
   }
   .close::before {
     content: "×";
+    font-size: 16px;
+    line-height: 1;
   }
   .close:hover,
   .actions button:hover:not(:disabled) {
-    background: #2a2a31;
+    background: var(--s3);
+    color: var(--text);
   }
+  /* Secondary chrome: muted until the panel is pointed at or a button is focused. */
   .actions {
     display: flex;
     align-items: center;
     gap: 2px;
-    padding: 0 6px;
+    padding: 0 2px;
   }
   .actions button {
-    width: 24px;
-    height: 24px;
-    border-radius: 3px;
-    font-size: 15px;
-  }
-  .actions .reader {
-    width: auto;
-    padding: 0 6px;
-    font-size: 12px;
-    color: #9a9aa6;
-  }
-  .actions .reader[aria-pressed="true"] {
-    background: #2a2a31;
-    color: #e6e6e6;
-    box-shadow: inset 0 -2px 0 #6b8afd;
-  }
-  .hide {
     display: grid;
     place-items: center;
+    width: 26px;
+    height: 26px;
+    border-radius: var(--radius-sm);
+    font-size: 16px;
+    color: var(--text-3);
+  }
+  .terminals:hover .actions button,
+  .actions button:focus-visible {
+    color: var(--text-2);
+  }
+  .actions .reader[aria-pressed="true"] {
+    background: var(--accent-soft);
+    color: var(--accent);
   }
   .ended {
     display: flex;
     align-items: baseline;
     gap: 12px;
+    margin: 4px 10px;
     padding: 6px 12px;
-    background: #121215;
-    border-bottom: 1px solid #2a2a31;
-    color: #b4b4c0;
+    border-radius: var(--radius);
+    background: var(--s3);
+    color: var(--text-2);
   }
   .ended p {
     margin: 0;
@@ -409,18 +435,18 @@ $effect(() => {
   .empty,
   .failed {
     margin: 0;
-    padding: 8px 12px;
+    padding: 10px 16px;
   }
   .empty {
-    color: #9a9aa6;
+    color: var(--text-2);
   }
   .link {
     padding: 0;
-    color: #8fa6ff;
+    color: var(--accent);
     text-decoration: underline;
   }
   .failed {
-    color: #ff6b6b;
+    color: var(--danger);
   }
   .sr-only {
     position: absolute;
@@ -431,6 +457,9 @@ $effect(() => {
     white-space: nowrap;
   }
   @media (forced-colors: active) {
+    .close {
+      opacity: 1;
+    }
     .actions .reader[aria-pressed="true"] {
       outline: 2px solid Highlight;
       outline-offset: -2px;

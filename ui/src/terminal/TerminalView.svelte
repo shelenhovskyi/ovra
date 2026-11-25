@@ -37,6 +37,18 @@ function leaves(event: KeyboardEvent): boolean {
 
 const FALLBACK_SIZE = { cols: 80, rows: 24 };
 
+/** xterm draws its own colours, so it gets the theme tokens' values, not `var()`. */
+function colours(): { background: string; foreground: string; cursor: string; selectionBackground: string } {
+  const css = getComputedStyle(document.documentElement);
+  const token = (name: string, fallback: string) => css.getPropertyValue(name).trim() || fallback;
+  return {
+    background: token("--s2", "black"),
+    foreground: token("--text", "white"),
+    cursor: token("--text", "white"),
+    selectionBackground: token("--s4", "gray"),
+  };
+}
+
 let host: HTMLDivElement;
 let term: Terminal | undefined = $state();
 let fit: FitAddon | undefined;
@@ -62,11 +74,14 @@ $effect(() =>
     const browser = inBrowserTab();
     const t = new Terminal({
       cursorBlink: true,
-      fontFamily: 'ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
+      fontFamily:
+        getComputedStyle(document.documentElement).getPropertyValue("--mono").trim() ||
+        'ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
       fontSize: 13,
+      lineHeight: 1.2,
       scrollback: 5000,
       screenReaderMode: screenReader,
-      theme: { background: "#16161a", foreground: "#e6e6e6", cursor: "#e6e6e6", selectionBackground: "#3a3a46" },
+      theme: colours(),
     });
     fit = new FitAddon();
     t.loadAddon(fit);
@@ -95,7 +110,12 @@ $effect(() =>
 
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => refit());
     observer?.observe(host);
+    // The tokens change with the system's light or dark theme.
+    const scheme = typeof matchMedia === "function" ? matchMedia("(prefers-color-scheme: light)") : null;
+    const recolour = () => (t.options.theme = colours());
+    scheme?.addEventListener("change", recolour);
     return () => {
+      scheme?.removeEventListener("change", recolour);
       observer?.disconnect();
       detach();
       for (const sub of subs) sub.dispose();
@@ -123,7 +143,8 @@ $effect(() => {
 <style>
   .xterm-host {
     height: 100%;
-    padding: 4px 0 0 8px;
+    padding: 6px 0 0 14px;
     box-sizing: border-box;
+    background: var(--s2);
   }
 </style>

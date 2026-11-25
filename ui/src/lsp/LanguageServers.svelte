@@ -228,49 +228,56 @@ function onKeydown(event: KeyboardEvent): void {
   }
   button {
     font: inherit;
-    padding: 0 8px;
-    color: #e6e6e6;
-    background: #2a2a33;
-    border: 1px solid #4a4a57;
-    border-radius: 3px;
+    padding: 2px 10px;
+    color: var(--text);
+    background: var(--s3);
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
     cursor: pointer;
+  }
+  button:hover {
+    background: var(--s4);
   }
   .item {
     background: none;
-    border-color: transparent;
     color: inherit;
   }
-  button:focus-visible,
+  .item:hover {
+    background: var(--s3);
+  }
   h2:focus-visible {
-    outline: 2px solid #7aa2ff;
+    outline: 2px solid var(--accent);
     outline-offset: 1px;
   }
   .mark {
     margin-right: 4px;
-    font-weight: bold;
-    color: #ffd36b;
+    font-weight: 600;
+    color: var(--warn);
   }
   .panel {
     position: absolute;
     right: 0;
     bottom: calc(100% + 6px);
     z-index: 80;
-    width: 360px;
+    width: 380px;
     max-height: 60vh;
     overflow: auto;
-    padding: 8px 12px;
-    background: #16161a;
-    border: 1px solid #3a3a44;
-    border-radius: 6px;
-    color: #e6e6e6;
-  }
-  h2 {
-    margin: 0 0 6px;
+    padding: 12px 14px;
+    background: var(--s4);
+    border-radius: var(--radius);
+    box-shadow: var(--card-shadow);
+    color: var(--text);
     font-size: 13px;
   }
+  h2 {
+    margin: 0 0 8px;
+    font-size: 14px;
+    font-weight: 600;
+  }
   h3 {
-    margin: 8px 0 2px;
-    font-size: 12px;
+    margin: 12px 0 4px;
+    font-size: 13px;
+    font-weight: 600;
   }
   ul {
     list-style: none;
@@ -278,13 +285,15 @@ function onKeydown(event: KeyboardEvent): void {
     padding: 0;
   }
   li {
-    padding: 4px 0;
-    border-bottom: 1px solid #24242b;
+    padding: 6px 0;
   }
   .row {
     display: flex;
     align-items: baseline;
     gap: 8px;
+  }
+  .row strong {
+    font-weight: 500;
   }
   .row button {
     margin-left: auto;
@@ -293,18 +302,27 @@ function onKeydown(event: KeyboardEvent): void {
     margin: 2px 0;
   }
   .muted {
-    color: #b4b4c0;
+    color: var(--text-2);
   }
   .warn {
-    color: #ffd36b;
+    color: var(--warn);
   }
   .error {
-    color: #ff8f8f;
+    color: var(--danger);
   }
   code {
     display: block;
-    margin-top: 2px;
+    margin-top: 4px;
+    padding: 4px 8px;
+    border-radius: var(--radius-sm);
+    background: var(--s3);
+    font-size: 12px;
     user-select: all;
     overflow-wrap: anywhere;
+  }
+  @media (forced-colors: active) {
+    .panel {
+      border: 1px solid CanvasText;
+    }
   }
 </style>
