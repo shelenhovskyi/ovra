@@ -38,6 +38,15 @@ test("with no file open, the main area offers the next steps", async ({ page }) 
 
   const start = page.getByTestId("start");
   await expect(start).toContainText("Open a file from the tree on the left");
+  // A control without styles of its own takes the arrow and does not select as text; scrollbars are thin.
+  const look = await page.evaluate(() => {
+    const probe = document.body.appendChild(document.createElement("button"));
+    const style = getComputedStyle(probe);
+    const seen = [style.cursor, style.userSelect, style.scrollbarWidth];
+    probe.remove();
+    return seen;
+  });
+  expect(look).toEqual(["default", "none", "thin"]);
   // Headless mode runs in a browser tab, so the browser-safe key is shown.
   await start.getByRole("button", { name: /Find a file/ }).click();
   await expect(page.getByRole("dialog", { name: "Command palette" })).toBeVisible();

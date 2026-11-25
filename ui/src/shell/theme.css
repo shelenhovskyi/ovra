@@ -233,6 +233,46 @@ body {
 :where(button, summary) {
   min-height: 24px;
 }
+/* Controls take the arrow, as in native apps; links keep the hand. */
+:where(
+  button,
+  select,
+  summary,
+  label,
+  input[type="checkbox"],
+  input[type="radio"],
+  [role="button"],
+  [role="tab"],
+  [role="option"],
+  [role="menuitem"],
+  [role="menuitemcheckbox"],
+  [role="treeitem"]
+) {
+  cursor: default;
+}
+/* Chrome is not text: buttons, tabs, menus, rows and key caps do not select.
+   Fields, the editor, viewers and transcripts still do. */
+:where(button, summary, label, kbd, [role="tab"], [role="menu"], [role="option"], [role="treeitem"], [role="toolbar"]) {
+  -webkit-user-select: none;
+  user-select: none;
+}
+/* Thin scrollbars in the theme's tones (WebKit without scrollbar-width too). */
+* {
+  scrollbar-width: thin;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--s4) padding-box;
+  border: 2px solid transparent;
+  border-radius: var(--r-pill);
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
 :where(code, kbd, pre, samp) {
   font-family: var(--mono);
 }
