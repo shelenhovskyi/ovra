@@ -290,6 +290,48 @@ async fn a_review_sees_a_submodule_bump_whatever_gitmodules_says() {
     assert!(patch.contains("+Subproject commit"), "{patch}");
 }
 
+/// A repository asking for `submodule.recurse` still gets no git that
+/// checks out, resets or updates a submodule.
+#[tokio::test]
+async fn git_never_recurses_into_submodules() {
+    let repo = Repo::new(&[("a.txt", "a\n")]);
+    let root = &repo.root;
+    // An active submodule, without the cost of cloning one.
+    let sub = root.join("sub");
+    small_repo(&sub);
+    put(
+        root,
+        ".gitmodules",
+        "[submodule \"sub\"]\n\tpath = sub\n\turl = ./up\n",
+    );
+    git(root, &["add", ".gitmodules", "sub"]);
+    git(root, &["commit", "--quiet", "-m", "sub"]);
+    git(root, &["config", "submodule.sub.url", "./up"]);
+    git(root, &["config", "submodule.recurse", "true"]);
+    let base = git(root, &["rev-parse", "HEAD"]);
+    // The submodule moves on and has a change of its own.
+    put(&sub, "x.txt", "bumped\n");
+    commit_all(&sub, "bump");
+    let bumped = git(&sub, &["rev-parse", "HEAD"]);
+    put(&sub, "x.txt", "mine\n");
+
+    let w = GitWorktrees::new();
+    put(root, "a.txt", "changed\n");
+    let restored = w
+        .restore(root.clone(), base.clone(), rels(&["a.txt"]))
+        .await;
+    restored.unwrap_or_else(|e| panic!("{e:?}"));
+    put(root, "a.txt", "again\n");
+    let committed = w.commit(root.clone(), rels(&["a.txt"]), "a".into()).await;
+    committed.unwrap_or_else(|e| panic!("{e:?}"));
+    let (_, worker) = repo.worker(&w).await;
+
+    assert_eq!(git(&sub, &["rev-parse", "HEAD"]), bumped);
+    assert_eq!(read(&sub, "x.txt").as_deref(), Some("mine\n"));
+    let checked_out = fs::read_dir(worker.join("sub")).map(|d| d.count());
+    assert_eq!(checked_out.ok(), Some(0));
+}
+
 #[test]
 fn head_is_read_like_git_reads_it() {
     let repo = Repo::new(&[]);
