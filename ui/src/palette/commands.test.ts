@@ -20,6 +20,7 @@ describe("palette commands", () => {
       ["palette.close_project", undefined],
       ["palette.go_to_file", "Mod+P"],
       ["palette.shortcuts", undefined],
+      ["palette.recent_files", undefined],
       ["palette.search", "Mod+K"],
       ["palette.show", "Mod+Shift+P"],
       ["palette.switch_project", undefined],
@@ -31,6 +32,8 @@ describe("palette commands", () => {
     await run("palette.go_to_file");
     expect(palette.mode).toBe("files");
     palette.mode = "commands";
+    await run("palette.recent_files");
+    expect(palette.mode).toBe("recent");
     await run("palette.search");
     expect(palette.mode).toBe("search");
     await run("palette.show");

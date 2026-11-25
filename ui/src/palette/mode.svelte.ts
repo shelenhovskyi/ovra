@@ -7,10 +7,11 @@ import type { Source } from "./sources";
 /**
  * `search` is "Search or run": files (projects without one open) and commands.
  * `folder` asks for the path of a folder to open, keeping the project open meanwhile.
+ * `recent` lists the project's files opened lately, newest first.
  * `shortcuts` lists the commands that have a shortcut.
  * `list` shows a list another area hands over with `showList`.
  */
-export type PaletteMode = "search" | "commands" | "files" | "projects" | "folder" | "shortcuts" | "list";
+export type PaletteMode = "search" | "commands" | "files" | "recent" | "projects" | "folder" | "shortcuts" | "list";
 
 export const palette = $state<{ mode: PaletteMode; list: Source | null }>({ mode: "commands", list: null });
 

@@ -9,6 +9,7 @@ import { folderDialogCommand, openAnotherFolder } from "../shell/open-folder";
 import type { Workspace } from "../shell/workspace.svelte";
 import { projectFiles } from "./files";
 import { type PaletteMode, palette } from "./mode.svelte";
+import { recentFileEntries, recentFiles, recentFirst } from "./recent-files.svelte";
 import { idleRows, recentIds } from "./search";
 
 export type Entry = {
@@ -171,6 +172,25 @@ export function source(mode: PaletteMode, transport: Transport, workspace: Targe
         empty: "No matching files",
         limit: 50,
         entries: async () => (project ? files(transport, workspace, project) : []),
+        // With nothing opened lately, an empty query ranks every file as usual.
+        idle:
+          project && recentFiles(project.id).length > 0
+            ? (entries) =>
+                recentFirst(recentFileEntries(project.id, entries, workspace.openPath), entries, 50) ??
+                entries.slice(0, 50)
+            : undefined,
+      };
+    }
+    case "recent": {
+      const project = workspace.project;
+      return {
+        name: "Recent files",
+        placeholder: project ? `Recent files in ${project.name}` : "Open a project first",
+        empty: "No recent files",
+        limit: 50,
+        entries: async () =>
+          project ? recentFileEntries(project.id, await files(transport, workspace, project), workspace.openPath) : [],
+        idle: (entries) => entries,
       };
     }
     case "folder":

@@ -1,4 +1,5 @@
 // Commands owned by the palette: open it in each mode, and leave the project.
+// Registering them also starts noting the files opened, for Recent files.
 // Keyboard shortcuts is a palette list; Settings is a view of its own (ui/src/settings).
 
 import { tick } from "svelte";
@@ -6,6 +7,7 @@ import { registerCommand } from "../keys/commands";
 import { registerContextKeys } from "../keys/context-keys";
 import type { Workspace } from "../shell/workspace.svelte";
 import { type PaletteMode, palette } from "./mode.svelte";
+import { trackRecentFiles } from "./recent-files.svelte";
 
 type Target = Pick<Workspace, "paletteOpen" | "project" | "openPath">;
 
@@ -19,6 +21,14 @@ export function registerPaletteCommands(workspace: Target): () => void {
   const unregister = [
     registerCommand({ id: "palette.show", title: "Show all commands", keys: "Mod+Shift+P", run: show("commands") }),
     registerCommand({ id: "palette.go_to_file", title: "Go to file", keys: "Mod+P", category: "File", run: goToFile }),
+    // Mod+E, JetBrains' key for it, toggles editing here; no key of its own.
+    registerCommand({
+      id: "palette.recent_files",
+      title: "Recent files",
+      category: "File",
+      keywords: ["recently opened"],
+      run: () => show(workspace.project ? "recent" : "projects")(),
+    }),
     // The title bar's search field: files (projects without one open) and commands.
     registerCommand({
       id: "palette.search",
@@ -53,6 +63,7 @@ export function registerPaletteCommands(workspace: Target): () => void {
       },
     }),
     registerContextKeys(PALETTE_KEYS),
+    trackRecentFiles(workspace),
   ];
   return () => {
     for (const off of unregister) off();

@@ -10,6 +10,7 @@ import { Workspace } from "../shell/workspace.svelte";
 import { FakeCore } from "../tree/fake-core";
 import { type PaletteMode, palette } from "./mode.svelte";
 import PaletteHarness from "./PaletteHarness.svelte";
+import { noteRecentFile } from "./recent-files.svelte";
 
 const unused: Transport = {
   call: (() => Promise.reject(new Error("unused"))) as Transport["call"],
@@ -24,9 +25,11 @@ async function open(
   mode: PaletteMode = "commands",
   transport: Transport = unused,
   project: Project | null = null,
+  openPath: string | null = null,
 ): Promise<{ workspace: Workspace; target: HTMLElement; input: HTMLInputElement }> {
   const workspace = new Workspace();
   workspace.project = project;
+  workspace.openPath = openPath;
   palette.mode = mode;
   workspace.paletteOpen = true;
   const target = document.createElement("div");
@@ -137,6 +140,31 @@ describe("Palette", async () => {
     const { target } = await open();
     (target.querySelector("[role=option]") as HTMLElement).click();
     await vi.waitFor(() => expect(run).toHaveBeenCalledOnce());
+  });
+
+  it("lists the files opened lately first, newest first, without the one shown", async () => {
+    const paths = ["README.md", "src/lib.rs", "src/main.rs"];
+    const core: Transport = {
+      call: ((request: Request) =>
+        request.method === "fs.list_files"
+          ? Promise.resolve({ type: "fs.files", data: { paths, total: paths.length, version: 1 } })
+          : Promise.reject(new Error(request.method))) as Transport["call"],
+      onEvent: () => () => {},
+    };
+    for (const path of ["gone.rs", "src/lib.rs", "src/main.rs"]) noteRecentFile("files-recent", path);
+    cleanups.push(() => localStorage.removeItem("ovra.palette.recent_files:files-recent"));
+    const project = { id: "files-recent", name: "demo", root: "/demo", last_opened_ms: null, trusted: false };
+    const rows = (target: HTMLElement) =>
+      [...target.querySelectorAll("li")].map((li) => li.textContent?.replace(/\s+/g, " ").trim());
+    const files = await open("files", core, project, "src/main.rs");
+    expect(rows(files.target)).toEqual(["Recent", "src/lib.rs", "Files", "README.md", "src/main.rs"]);
+    // Typing ranks every file as usual.
+    await type(files.input, "rs");
+    expect(rows(files.target)).toEqual(["src/lib.rs", "src/main.rs"]);
+    key(files.input, "Escape");
+    const recent = await open("recent", core, project, "src/main.rs");
+    expect(recent.input.placeholder).toBe("Recent files in demo");
+    expect(rows(recent.target)).toEqual(["src/lib.rs"]);
   });
 
   it("goes to a file of the open project", async () => {

@@ -5,7 +5,7 @@ import type { Entry } from "./sources";
 const KEY = "ovra.palette.recent";
 const RECENT_MAX = 5;
 
-function storage(): Storage | null {
+export function storage(): Storage | null {
   try {
     return typeof localStorage === "undefined" ? null : localStorage;
   } catch {
