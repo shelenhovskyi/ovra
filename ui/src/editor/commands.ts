@@ -2,6 +2,7 @@
 
 import { registerCommand } from "../keys/commands";
 import type { Workspace } from "../shell/workspace.svelte";
+import { showChangeAtCursor, toggleBlame } from "./git/extension";
 import { focusMain, requestClose, show, tabs } from "./open-files.svelte";
 
 type Target = Pick<Workspace, "openPath" | "mode" | "openFile">;
@@ -58,6 +59,9 @@ export function registerEditorCommands(workspace: Target): () => void {
     registerCommand({ id: "editor.save", title: "Save file", keys: "Mod+S", run: () => saveActive(workspace) }),
     registerCommand({ id: "editor.next_tab", title: "Next tab", keys: "Ctrl+Tab", run: step(1) }),
     registerCommand({ id: "editor.previous_tab", title: "Previous tab", keys: "Ctrl+Shift+Tab", run: step(-1) }),
+    // No default shortcuts: free ones that browsers leave alone are scarce; the palette reaches both.
+    registerCommand({ id: "editor.toggle_blame", title: "Toggle blame", run: toggleBlame }),
+    registerCommand({ id: "editor.show_git_change", title: "Show git change at cursor", run: showChangeAtCursor }),
     registerCommand({
       id: "editor.close_tab",
       title: "Close tab",

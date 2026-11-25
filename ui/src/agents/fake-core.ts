@@ -12,6 +12,7 @@ import type {
   ProjectId,
   Request,
   ResponseFor,
+  SandboxReport,
   SessionId,
   SessionInfo,
   Task,
@@ -79,6 +80,13 @@ export class FakeAgentCore implements Transport {
     this.emit({ type: "agents.message", data: { session, message } });
   }
 
+  /** The runtime says how it runs the session (`null`: without a sandbox). */
+  sandboxed(session: SessionId, sandbox: SandboxReport | null): void {
+    const info = this.sessions.find((s) => s.id === session);
+    if (info) Object.assign(info, { sandbox, sandbox_reported: true });
+    this.emit({ type: "agents.sandbox", data: { session, sandbox } });
+  }
+
   ask(request: PermissionRequest): void {
     this.pending.push(request);
     this.emit({ type: "permissions.requested", data: request });
@@ -121,7 +129,8 @@ export class FakeAgentCore implements Transport {
       case "agents.resume": {
         const info = this.sessions.find((s) => s.id === request.params.session);
         if (!info) throw new CoreError({ code: "not_found", message: "no such session" });
-        info.resumable = false;
+        // Like the core, a restart forgets how the last process ran.
+        Object.assign(info, { resumable: false, sandbox: null, sandbox_reported: false });
         this.status(info.id, { state: "starting" });
         this.message(info.id, { kind: "user_text", text: request.params.prompt, from: "person" });
         return { type: "agents.session", data: { ...info } };
@@ -175,6 +184,7 @@ export class FakeAgentCore implements Transport {
       resumable: false,
       billing: null,
       sandbox: null,
+      sandbox_reported: false,
     };
     this.sessions.push(info);
     return info;

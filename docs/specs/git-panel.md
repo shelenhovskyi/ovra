@@ -32,10 +32,12 @@ remote branches, submodules, `git init`.
 Domain `git.*` (`crates/core/src/protocol/git.rs`,
 `ui/src/lib/protocol/git.ts`). Requests name the project and paths relative
 to its root. There are no `git.*` events: the panel and the editor refresh
-on `fs.git_changed` and after their own calls.
+on `fs.git_changed` (which also fires when the index or HEAD is written),
+on `fs.changed` and after their own calls. Read-only git calls run with
+`GIT_OPTIONAL_LOCKS=0` so they never hold the index lock.
 
 The core (`crates/core/src/git.rs`) checks paths (inside the project, not
-the root, nothing under `.git`), sizes and branch names before the
+the root, no control characters, no `.git` segment anywhere), sizes and branch names before the
 `GitService` sees them; it takes the discard snapshot through `Worktrees`
 and refuses `git.switch` while a session writes the main checkout (direct
 mode, ADR 0005). Creating a branch and committing stay allowed then: they do
@@ -55,10 +57,13 @@ monitor, submodules ignored. Diffs, blame and show also pass
   is a folder inside a repository, paths are made relative to the project
   and files outside it are left out (commit still commits everything that
   is staged, as git does).
-- `stage`/`unstage`: `git add --all -- <paths>` and `git restore --staged`
-  (or `git rm --cached` before the first commit), paths on stdin
+- `stage`/`unstage`: `git add --all` and `git reset` (which also works
+  before the first commit), paths on stdin
   (`--pathspec-from-file=- --pathspec-file-nul`), never on the command line.
-- `stage_hunk`: builds a one-file patch from the hunk and runs
+- `stage_hunk`: checks the hunk first (only context, added and removed
+  lines, counts matching its header: `Hunk::check`, in the core and again
+  in the service) so a client cannot slip another file's patch in, then
+  builds a one-file patch from the hunk and runs
   `git apply --cached` (`--reverse` to unstage); a patch that no longer
   applies is `conflict`.
 - `discard`: tracked files from the index (`git checkout-index` or

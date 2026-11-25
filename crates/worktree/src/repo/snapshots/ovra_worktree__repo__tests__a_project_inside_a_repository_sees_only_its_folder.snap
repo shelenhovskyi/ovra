@@ -1,0 +1,43 @@
+---
+source: crates/worktree/src/repo/tests.rs
+expression: diff
+---
+FileDiff {
+    path: "a.txt",
+    from: None,
+    binary: false,
+    hunks: [
+        Hunk {
+            old_start: 1,
+            old_lines: 5,
+            new_start: 1,
+            new_lines: 5,
+            header: "",
+            lines: [
+                " 1",
+                "-2",
+                "+2 changed",
+                " 3",
+                " 4",
+                " 5",
+            ],
+        },
+        Hunk {
+            old_start: 15,
+            old_lines: 6,
+            new_start: 15,
+            new_lines: 6,
+            header: "",
+            lines: [
+                " 15",
+                " 16",
+                " 17",
+                "-18",
+                "+18 changed",
+                " 19",
+                " 20",
+            ],
+        },
+    ],
+    truncated: false,
+}

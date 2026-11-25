@@ -65,7 +65,9 @@ function openDocs(): void {
     <button type="button" disabled={busy} onclick={check}>Check again</button>
   </div>
   {#if tip}
-    <p class="detail">{tip.detail}</p>
+    {#if tip.detail}
+      <p class="detail">{tip.detail}</p>
+    {/if}
     {#if tip.command}
       <p class="command"><code>{tip.command}</code></p>
     {/if}
@@ -213,6 +215,8 @@ function openDocs(): void {
     color: #ff8f8f;
   }
   .warning {
+    /* Who pays is what this card must get right (ADR 0006): it stands out. */
+    font-weight: 600;
     color: #ffd36b;
   }
   @media (forced-colors: active) {

@@ -132,6 +132,81 @@ describe("AgentsPanel", () => {
     expect(billed?.classList.contains("billed-key")).toBe(true);
   });
 
+  it("says whether a session runs in a sandbox, in the detail and the list", async () => {
+    const core = new FakeAgentCore();
+    core.addSession("p1", "Earlier task", { state: "stopped" });
+    await setup(core);
+    const line = () => panel()?.querySelector("[data-testid=agent-sandbox]");
+    const badges = () => [...target.querySelectorAll("[data-testid=agent-sandbox-badge]")].map((b) => b.textContent);
+    // Saved before Ovra recorded the report: nothing to say.
+    expect(line()).toBeNull();
+    type(target.querySelector("#agent-prompt"), "Fix the typo");
+    modEnter();
+    await settle();
+    expect(line()?.textContent).toBe("Sandbox: starting…");
+    expect(badges()).toEqual([]);
+    core.sandboxed("s2", null);
+    await settle();
+    expect(line()?.textContent).toBe("No sandbox: the agent can read and change anything your user can.");
+    expect(line()?.classList.contains("unsandboxed")).toBe(true);
+    expect(badges()).toEqual(["No sandbox"]);
+    core.sandboxed("s2", { name: "bubblewrap, Landlock, seccomp", network: "proxy" });
+    await settle();
+    expect(line()?.textContent).toBe(
+      "Runs in a sandbox (bubblewrap, Landlock, seccomp), network only through Ovra's proxy.",
+    );
+    expect(line()?.classList.contains("unsandboxed")).toBe(false);
+    expect(badges()).toEqual(["Sandboxed"]);
+    core.status("s2", { state: "stopped" });
+    await settle();
+    expect(line()?.textContent).toBe(
+      "Ran in a sandbox (bubblewrap, Landlock, seccomp), network only through Ovra's proxy.",
+    );
+  });
+
+  it("forgets the sandbox report when a session starts again", async () => {
+    const core = new FakeAgentCore();
+    core.addSession("p1", "Earlier task", { state: "idle" });
+    await setup(core);
+    const line = () => panel()?.querySelector("[data-testid=agent-sandbox]")?.textContent;
+    core.sandboxed("s1", null);
+    await settle();
+    expect(line()).toBe("No sandbox: the agent can read and change anything your user can.");
+    // A restart clears the report in the core and sends only a status.
+    core.status("s1", { state: "starting" });
+    await settle();
+    expect(line()).toBe("Sandbox: starting…");
+  });
+
+  it("keeps a sandbox report that came before the reply to agents.start", async () => {
+    const core = new FakeAgentCore();
+    await setup(core);
+    const call = core.call.bind(core);
+    core.call = (async (request: Parameters<typeof call>[0]) => {
+      const reply = await call(request);
+      if (request.method === "agents.start") core.sandboxed("s1", { name: "bwrap", network: "proxy" });
+      return reply;
+    }) as typeof core.call;
+    type(target.querySelector("#agent-prompt"), "Fix the typo");
+    modEnter();
+    await settle();
+    expect(panel()?.querySelector("[data-testid=agent-sandbox]")?.textContent).toBe(
+      "Runs in a sandbox (bwrap), network only through Ovra's proxy.",
+    );
+  });
+
+  it("marks the cost as an API price estimate on a Claude plan", async () => {
+    const core = new FakeAgentCore();
+    const info = core.addSession("p1", "Earlier task", { state: "idle" });
+    info.billing = { kind: "subscription" };
+    info.usage = { input_tokens: 64044, output_tokens: 372, cost_micro_usd: 2400 };
+    core.transcripts.set("s1", [{ kind: "turn_end", usage: info.usage }]);
+    await setup(core);
+    const estimate = "64,044 tokens in, 372 out, about $0.0024 at API prices (your plan's limits, not this amount)";
+    expect(panel()?.querySelector("[data-testid=agent-usage]")?.textContent).toBe(`Total: ${estimate}`);
+    expect(transcript()).toEqual([`Turn ended: ${estimate}`]);
+  });
+
   it("names who wrote each message an agent was sent", async () => {
     const core = new FakeAgentCore();
     core.addSession("p1", "Write the notes", { state: "idle" });

@@ -7,10 +7,12 @@ import Editor from "../editor/Editor.svelte";
 import { persistOpenFiles } from "../editor/open-files.svelte";
 import Tabs from "../editor/Tabs.svelte";
 import Git from "../git/Git.svelte";
+import GitDiff from "../git/GitDiff.svelte";
 import Inbox from "../inbox/Inbox.svelte";
 import Keybindings from "../keys/Keybindings.svelte";
 import type { CoreInfo } from "../lib/protocol";
 import type { ConnectionStatus, Transport } from "../lib/transport";
+import LanguageServers from "../lsp/LanguageServers.svelte";
 import NetworkPanel from "../network/NetworkPanel.svelte";
 import Notifications from "../notify/Notifications.svelte";
 import Palette from "../palette/Palette.svelte";
@@ -33,6 +35,8 @@ let connection = $state<ConnectionStatus>("connecting");
 let wasOpen = $state(false);
 let everClosed = $state(false);
 let request = 0;
+/** The git diff the main area shows instead of the open file, if it is of this project. */
+const gitDiff = $derived(workspace.gitDiff?.project === workspace.project?.id ? workspace.gitDiff : null);
 
 $effect(() => persistOpenFiles(transport, workspace));
 
@@ -120,7 +124,17 @@ const status = $derived.by((): { text: string; ok: boolean } => {
   </aside>
   <main data-testid="main">
     <Tabs />
-    <div class="view" id="ovra-tabpanel" role="tabpanel" tabindex="-1" aria-label={workspace.openPath ?? "No file open"}>
+    {#if gitDiff}
+      <div class="view"><GitDiff target={gitDiff} /></div>
+    {/if}
+    <div
+      class="view"
+      id="ovra-tabpanel"
+      role="tabpanel"
+      tabindex="-1"
+      aria-label={workspace.openPath ?? "No file open"}
+      hidden={!!gitDiff}
+    >
       {#if workspace.mode === "edit"}
         <Editor />
       {:else}
@@ -135,6 +149,7 @@ const status = $derived.by((): { text: string; ok: boolean } => {
   </aside>
   <footer>
     <span data-testid="status" role="status" class:error={!status.ok}>{status.text}</span>
+    <LanguageServers />
   </footer>
   <Notifications />
   {#if connection === "refused"}
@@ -249,6 +264,9 @@ const status = $derived.by((): { text: string; ok: boolean } => {
   .view {
     flex: 1;
     min-height: 0;
+  }
+  .view[hidden] {
+    display: none;
   }
   footer {
     grid-area: footer;

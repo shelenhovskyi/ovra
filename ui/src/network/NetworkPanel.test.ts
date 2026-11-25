@@ -40,6 +40,7 @@ const session = (id: string, sandbox: SessionInfo["sandbox"]): SessionInfo => ({
   resumable: false,
   billing: null,
   sandbox,
+  sandbox_reported: true,
 });
 
 async function open(core = new FakeAccessCore()) {

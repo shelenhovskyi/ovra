@@ -147,6 +147,28 @@ its changes on approve.
   bridge gets no environment. A kept URL with a password in it
   (`ANTHROPIC_BASE_URL=https://user:pass@...`) passes as it is.
 
+**Language servers (ADR 0007).** On Linux `wrap_server` builds a
+server's sandbox from the same parts as an agent's: the namespaces, the
+system read-only, the hidden folders and secrets, the filtered `PATH`,
+the toolchains, Landlock and seccomp through the helper. It differs in:
+
+- no agent state: nothing of `~/.claude` or `~/.claude.json`;
+- the project read-only (so no protected paths are needed) and the
+  working folder; it must not hold the home folder;
+- the cache folder the only writable folder besides a private `/tmp`
+  and `/dev` (Landlock's list; `/var/tmp` and the home folder are empty
+  and not writable). It must be
+  inside Ovra's data folder, which is hidden, and is bound back after it;
+  it must not be inside the project;
+- the user's package caches (`~/.cargo/registry`, `~/.npm`, ...) read-only
+  where they are, never the per-project copies agents get;
+- always a new, empty network namespace: `Proxy` and `Open` are refused
+  (`bad_request`); loosening that needs the owner;
+- the environment allowlist `SERVER_ENV_KEPT`: `ENV_KEPT` without the
+  `ANTHROPIC_*`, `CLAUDE_CODE_USE_*`, cloud-provider and
+  `OVRA_FAKE_CLAUDE_FIXTURE` names; the server's own line (build and
+  cache folders, `CARGO_NET_OFFLINE`) is applied last.
+
 **Protected paths.** They stay read-only. The list lives in
 `crates/sandbox`, so every platform uses the same one:
 

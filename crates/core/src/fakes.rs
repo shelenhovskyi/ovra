@@ -30,7 +30,8 @@ pub use worktrees::MemoryWorktrees;
 
 use crate::path::RelPath;
 use crate::protocol::agents::{
-    AgentMessage, AgentSettings, AgentStatus, ProjectAgentConfig, SessionId, TurnUsage,
+    AgentMessage, AgentSettings, AgentStatus, ProjectAgentConfig, SandboxReport, SessionId,
+    TurnUsage,
 };
 use crate::protocol::audit::{AuditEntry, AuditEvent};
 use crate::protocol::fs::{DirEntry, DirListing, EntryKind, FileBody, FileContent, FileList};
@@ -830,6 +831,8 @@ pub struct ScriptedAgent {
     pub config: Mutex<ProjectAgentConfig>,
     /// ...except for these folders.
     pub configs: Mutex<BTreeMap<PathBuf, ProjectAgentConfig>>,
+    /// The sandbox it reports after each spawn (`None`: without one).
+    pub sandbox: Mutex<Option<SandboxReport>>,
 }
 
 /// Writes a file for an allowed `Write` step: the absolute path and text.
@@ -881,7 +884,7 @@ impl AgentRuntime for ScriptedAgent {
             .unwrap_or_else(|| format!("scripted-{}", spec.session.0));
         host.agent_session(own);
         // Like the real runtime, which reports after each spawn.
-        host.sandboxed(None);
+        host.sandboxed(lock(&self.sandbox).clone());
         let turns = self
             .roles
             .iter()

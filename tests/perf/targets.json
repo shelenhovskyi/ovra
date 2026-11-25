@@ -30,6 +30,8 @@
     "worktree.snapshot_ms": { "max": 300, "source": "budget", "label": "Next snapshot, 600 files changed" },
     "worktree.changes_ms": { "max": 300, "source": "budget", "label": "Changed files against a snapshot" },
     "worktree.patch_600_ms": { "max": 500, "source": "budget", "label": "One diff of 600 files" },
-    "worktree.restore_600_ms": { "max": 800, "source": "budget", "label": "Restore 600 files" }
+    "worktree.restore_600_ms": { "max": 800, "source": "budget", "label": "Restore 600 files" },
+    "worktree.git_status_ms": { "max": 300, "source": "budget", "label": "Git panel status, 12k changed files" },
+    "worktree.git_blame_ms": { "max": 100, "source": "budget", "label": "Git panel blame of one file" }
   }
 }

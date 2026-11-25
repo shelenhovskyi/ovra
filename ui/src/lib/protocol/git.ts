@@ -14,7 +14,7 @@ export type Hunk = {
   new_lines: number;
   /** Git's text after the second `@@`, such as a function name. */
   header: string;
-  /** Lines without breaks, each starting with ` `, `+`, `-`, or `\` for "No newline at end of file". */
+  /** Lines without breaks (CRLF files keep the `\r`), each starting with ` `, `+`, `-`, or `\` for "No newline at end of file". */
   lines: string[];
 };
 

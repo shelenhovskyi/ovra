@@ -361,11 +361,14 @@ fn known() -> MutexGuard<'static, HashMap<PathBuf, Dirs>> {
 }
 
 /// The repository folders of `dir`, asked of git once per directory: every
-/// git process costs tens of milliseconds on Windows.
+/// git process costs tens of milliseconds on Windows. `NotFound` when `dir`
+/// is not in a git repository.
 pub(crate) fn dirs(dir: &Path) -> Result<Dirs> {
     if let Some(dirs) = known().get(dir).filter(|d| d.git_dir.is_dir()) {
         return Ok(dirs.clone());
     }
+    // English messages, to tell "not a repository" from other failures;
+    // `rev-parse` runs no hooks or filters the locale could matter to.
     let out = Git::new(dir, "rev-parse")
         .args(["--absolute-git-dir", "--show-toplevel"])
         .args([
@@ -373,8 +376,20 @@ pub(crate) fn dirs(dir: &Path) -> Result<Dirs> {
             "--git-common-dir",
             "--show-prefix",
         ])
-        .text()?;
-    let mut lines = out.lines();
+        .env("LC_ALL", "C")
+        .output()?;
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        if stderr.contains("not a git repository") {
+            return Err(ProtocolError::new(
+                ErrorCode::NotFound,
+                "not a git repository",
+            ));
+        }
+        return Err(internal(format!("git rev-parse: {}", stderr.trim())));
+    }
+    let out = String::from_utf8_lossy(&out.stdout);
+    let mut lines = out.trim().lines();
     let (Some(git_dir), Some(top), Some(common)) = (lines.next(), lines.next(), lines.next())
     else {
         return Err(internal("git rev-parse printed too little"));

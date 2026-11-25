@@ -1,4 +1,4 @@
-# Attack tests and threat model (task 4.F)
+# Attack tests and threat model (tasks 4.F, L.D)
 
 `tests/attacks.rs` runs the real Linux sandbox (`ovra-sandbox-linux`, built
 as `ovra_sandbox::for_this_os` builds it) and a real netproxy
@@ -32,7 +32,8 @@ to a Unix socket path, or to an abstract one).
   command its tools allow, inside its session's sandbox.
 - **The repository.** A cloned project that ships files meant to widen
   what an agent, or the person's own tools later, may do: git config and
-  hooks, agent settings, editor tasks, links to secrets.
+  hooks, agent settings, editor tasks, links to secrets. In a trusted
+  project it also runs code through its language servers.
 
 Ovra's core, its UI and the person's own terminals are trusted and never
 sandboxed. The person decides what a project's allowlist and policy hold.
@@ -55,6 +56,19 @@ sandboxed. The person decides what a project's allowlist and policy hold.
 | Use another session's proxy socket, or find its folder                                                                                                                                                                                                                                                                                             | not there                                                                                                                                                                                                                                      | same                                                                    |
 | Through the proxy: a host not listed (tunnel and plain), the daemon, `localhost` and `169.254.169.254` even when listed, `[::1]`, a base host on another port                                                                                                                                                                                      | 403, and each refusal reaches the core with its reason                                                                                                                                                                                         | same                                                                    |
 | With a secret bound to a host: find its value in the environment, a process or a file, or the session CA's key; smuggle a request past the parser (length and chunked, two lengths, odd codings, folded lines, bare LF, `Upgrade`, `CONNECT` in the tunnel, another authority, missing, repeated or foreign `Host`, a second request in one write) | nothing found; 400 with the reason for each refused form, 502 for well-formed requests (they passed the checks; TLS to the fake upstream then fails). That a second request is dropped is unit-tested in `crates/netproxy/src/inject/tests.rs` | `a_bound_secret_never_enters_the_sandbox`                               |
+
+A language server (ADR 0007) runs the project's code too (`build.rs`,
+proc macros, plugins), so it gets its own sandbox (`wrap_server`).
+`a_language_server_reads_the_project_and_writes_only_its_cache` plays one
+with a shell script: it may read the project and the user's package
+caches and write only its cache folder and temporary files. Writing the
+project or `~/.cargo/registry`, reading `~/.ssh`, `~/.claude` or Ovra's
+data, reaching the daemon or the internet, and finding
+`ANTHROPIC_API_KEY`, `GITHUB_TOKEN` or a planted secret in any process
+environment all fail; on the host only the cache folder changes. Which
+profiles the sandbox refuses for a server (any network, a project that
+holds the home folder, a cache folder in the project) is in
+`crates/sandbox-linux/src/plan/tests/server.rs`.
 
 ## Known limits
 

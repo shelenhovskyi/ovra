@@ -1,0 +1,48 @@
+---
+source: crates/worktree/src/repo/tests.rs
+expression: status.files
+---
+[
+    StatusFile {
+        path: "a.txt",
+        from: None,
+        staged: None,
+        unstaged: Some(
+            Modified,
+        ),
+    },
+    StatusFile {
+        path: "b.txt",
+        from: None,
+        staged: Some(
+            Modified,
+        ),
+        unstaged: None,
+    },
+    StatusFile {
+        path: "gone.txt",
+        from: None,
+        staged: None,
+        unstaged: Some(
+            Deleted,
+        ),
+    },
+    StatusFile {
+        path: "new.txt",
+        from: Some(
+            "old.txt",
+        ),
+        staged: Some(
+            Renamed,
+        ),
+        unstaged: None,
+    },
+    StatusFile {
+        path: "c/d é.txt",
+        from: None,
+        staged: None,
+        unstaged: Some(
+            Untracked,
+        ),
+    },
+]

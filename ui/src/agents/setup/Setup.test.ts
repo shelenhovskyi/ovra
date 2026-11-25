@@ -109,13 +109,30 @@ describe("ClaudeSetup", () => {
     );
     expect(card()?.querySelector("[data-testid=claude-api-key]")).toBeNull();
 
+    // With the key set, one message: no "your plan" next to "billed to the key".
     const keyed = setup({ state: "ready" }, { api_key_in_env: true });
-    expect(billingText(keyed).warning).toContain("ANTHROPIC_API_KEY is set");
+    expect(billingText(keyed)).toEqual({
+      paid: null,
+      warning:
+        "Usage may be billed to the API key in ANTHROPIC_API_KEY, at API prices, not to your Claude plan. To use your plan, unset it and restart Ovra.",
+    });
+    expect(advice(keyed).detail).toBeNull();
+    const keyBilled = setup({ state: "ready" }, { billing: { kind: "api_key" }, api_key_in_env: true });
+    expect(billingText(keyBilled).warning).toMatch(/^Usage is billed to the API key in ANTHROPIC_API_KEY/);
     const cloud = setup({ state: "ready" }, { billing: { kind: "cloud", provider: "bedrock" }, api_key_in_env: true });
     expect(billingText(cloud)).toEqual({ paid: "Usage is billed to your Amazon Bedrock account.", warning: null });
     expect(billingText(setup({ state: "ready" }, { billing: { kind: "api_key" } })).paid).toContain("API prices");
     expect(billingText(setup({ state: "ready" }, { billing: null })).paid).toBeNull();
     expect(paidText({ kind: "cloud", provider: "" })).toBe("Usage is billed to your cloud provider's account.");
+  });
+
+  it("shows only the API key warning on the card when the key is set", async () => {
+    const core = new FakeAgentCore();
+    core.setup = setup({ state: "ready" }, { api_key_in_env: true });
+    await show(core);
+    expect(card()?.textContent).not.toContain("plan's limits");
+    expect(card()?.textContent).not.toContain("sign-in");
+    expect(card()?.querySelector("[data-testid=claude-api-key]")?.textContent).toContain("not to your Claude plan");
   });
 
   it("explains how to install and saves a chosen path", async () => {
@@ -239,11 +256,69 @@ describe("ProjectTrust", () => {
     expect(kinds).toEqual(["broad_allow_rules", "allow_rules"]);
   });
 
-  it("rechecks when a session starts", async () => {
+  it("rechecks when a session starts, unless the settings are neither trusted nor in review", async () => {
     const core = new FakeAgentCore();
-    await show(core);
+    const workspace = await show(core);
+    core.status("s1", { state: "starting" });
+    core.emit({ type: "review.changed", data: { project: "p1", id: "r1" } });
+    await settle();
+    expect(core.sent("agents.project_config")).toHaveLength(1);
+    workspace.project = { id: "p1", name: "demo", root: "/demo", last_opened_ms: null, trusted: true };
+    await settle();
     core.status("s1", { state: "starting" });
     await settle();
-    expect(core.sent("agents.project_config")).toHaveLength(2);
+    expect(core.sent("agents.project_config")).toHaveLength(3);
+  });
+
+  it("ignores an answer that a later re-read overtook", async () => {
+    const core = new FakeAgentCore();
+    core.trustedConfig.set("p1", core.config);
+    const workspace = await show(core);
+    workspace.project = { id: "p1", name: "demo", root: "/demo", last_opened_ms: null, trusted: true };
+    await settle();
+    // Hold the next answer back; it carries the settings as they are now.
+    const call = core.call.bind(core);
+    let release = () => {};
+    core.call = ((request: Parameters<typeof call>[0]) => {
+      core.call = call;
+      const answer = call(request);
+      return new Promise<unknown>((resolve) => {
+        release = () => resolve(answer);
+      });
+    }) as typeof core.call;
+    core.emit({ type: "review.changed", data: { project: "p1", id: "r1" } });
+    core.config = { fingerprint: "f1", items: [] };
+    core.emit({ type: "fs.changed", data: { project: "p1", paths: [".claude/settings.json"] } });
+    await settle();
+    release();
+    await settle();
+    expect(trustCard()?.querySelector("h3")?.textContent).toBe("Project settings changed since you trusted them");
+  });
+
+  it("stops saying trusted once an approved review or a file changes the settings", async () => {
+    const core = new FakeAgentCore();
+    core.trustedConfig.set("p1", core.config);
+    const workspace = await show(core);
+    workspace.project = { id: "p1", name: "demo", root: "/demo", last_opened_ms: null, trusted: true };
+    await settle();
+    const heading = () => trustCard()?.querySelector("h3")?.textContent;
+    expect(heading()).toBe("Project settings: trusted");
+    // A worker's changes to .claude/settings.json were approved into the project.
+    core.config = {
+      fingerprint: "f1",
+      items: [{ path: ".claude/settings.json", kind: "broad_allow_rules", entries: ["Bash(*)"] }],
+    };
+    core.emit({ type: "review.changed", data: { project: "p1", id: "r1" } });
+    await settle();
+    expect(heading()).toBe("Project settings changed since you trusted them");
+    // Someone else's project, or files outside .claude/: nothing to re-read.
+    const asked = core.sent("agents.project_config").length;
+    core.emit({ type: "review.changed", data: { project: "p2", id: "r2" } });
+    core.emit({ type: "fs.changed", data: { project: "p1", paths: ["README.md", ".claudeignore"] } });
+    await settle();
+    expect(core.sent("agents.project_config")).toHaveLength(asked);
+    core.emit({ type: "fs.changed", data: { project: "p1", paths: [".claude/agents/x.md"] } });
+    await settle();
+    expect(core.sent("agents.project_config")).toHaveLength(asked + 1);
   });
 });

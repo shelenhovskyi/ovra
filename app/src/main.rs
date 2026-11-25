@@ -47,9 +47,10 @@ fn main() {
                 .ide_tools(Arc::new(IdeServer::new()))
                 .terminals(Arc::new(Pty::new()))
                 .netproxy(Arc::new(ovra_netproxy::NetProxies::from_env(secrets)?))
-                .lsp(Arc::new(ovra_lsp::Servers::new(ovra_sandbox::for_this_os(
-                    &data_dir,
-                ))))
+                .lsp(Arc::new(ovra_lsp::Servers::new(
+                    ovra_sandbox::for_this_os(&data_dir),
+                    data_dir.join("lsp"),
+                )))
                 .agents(Arc::new(ClaudeCli::new(
                     None,
                     ovra_sandbox::for_this_os(&data_dir),

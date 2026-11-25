@@ -71,6 +71,10 @@ const MAX_PATHS: usize = 512;
 pub(crate) struct GitCache {
     repo: Option<Repo>,
     status: Mutex<Option<Statuses>>,
+    /// When the index and HEAD last changed: staging, committing or
+    /// switching can leave the statuses the tree shows as they were, but
+    /// the git panel must hear of it.
+    stamp: Mutex<Option<Stamp>>,
     /// How many times `git status` ran.
     pub(crate) runs: AtomicUsize,
 }
@@ -80,6 +84,7 @@ impl GitCache {
         Self {
             repo,
             status: Mutex::new(None),
+            stamp: Mutex::new(None),
             runs: AtomicUsize::new(0),
         }
     }
@@ -97,22 +102,42 @@ impl GitCache {
         let repo = self.repo.as_ref()?;
         let mut status = self.lock();
         if status.is_none() {
+            *self.stamp.lock().unwrap_or_else(PoisonError::into_inner) = Some(stamp(repo));
             *status = self.run(repo);
         }
         status.clone()
     }
 
-    /// Re-reads the status; true if it changed.
-    fn refresh(&self) -> bool {
+    /// Re-reads the status; true if it or the index or HEAD changed.
+    pub(crate) fn refresh(&self) -> bool {
         let Some(repo) = &self.repo else {
             return false;
+        };
+        let stamp = Some(stamp(repo));
+        let moved = {
+            let mut last = self.stamp.lock().unwrap_or_else(PoisonError::into_inner);
+            let moved = last.is_some() && *last != stamp;
+            *last = stamp;
+            moved
         };
         let mut status = self.lock();
         let fresh = self.run(repo);
         let changed = *status != fresh;
         *status = fresh;
-        changed
+        changed || moved
     }
+}
+
+type Stamp = (Option<SystemTime>, Option<SystemTime>);
+
+/// When the index and HEAD of `repo` were last written.
+fn stamp(repo: &Repo) -> Stamp {
+    let modified = |name: &str| {
+        std::fs::metadata(repo.git_dir.join(name))
+            .and_then(|m| m.modified())
+            .ok()
+    };
+    (modified("index"), modified("HEAD"))
 }
 
 /// A running watch. Dropping it stops the watcher thread.

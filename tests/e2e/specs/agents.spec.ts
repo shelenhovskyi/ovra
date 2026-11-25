@@ -37,6 +37,11 @@ test("start an agent and answer its requests from the keyboard", async ({ page }
   const approvals = page.getByTestId("approvals");
   const run = approvals.getByRole("group", { name: "Run ls -la" });
   await expect(run).toBeVisible();
+  // The fake agent runs without a sandbox, and the session and card say so.
+  await expect(page.getByTestId("agent-sandbox")).toHaveText(
+    "No sandbox: the agent can read and change anything your user can.",
+  );
+  await expect(run.getByTestId("approval-unsandboxed")).toBeVisible();
   await expect(page.getByTestId("notifications")).toContainText("Fix the typo needs approval: Run ls -la");
   // Nothing moves focus to the request: the prompt field keeps it.
   await expect(page.getByRole("textbox", { name: "Task for a new Claude session" })).toBeFocused();

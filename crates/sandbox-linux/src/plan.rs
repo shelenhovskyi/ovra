@@ -15,6 +15,8 @@ use crate::helper::Landlock;
 use crate::helper::OUTER_FLAG;
 use crate::{HELPER_FLAG, Setup, invalid, os};
 
+mod server;
+
 /// The protected paths of `ovra-sandbox`, handed over by it (it depends on
 /// this crate, not the other way round).
 #[derive(Debug, Clone, Copy)]
@@ -206,6 +208,17 @@ pub(crate) struct Plan {
     /// Folders of [`FOLDERS_MADE`] this plan made: removed again once
     /// the session and everything it started are gone.
     temporary: Vec<PathBuf>,
+    kind: Kind,
+}
+
+/// Who the sandbox is for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Kind {
+    /// An agent session: [`ENV_KEPT`], and the working folder its line names.
+    Agent,
+    /// A language server: [`server::SERVER_ENV_KEPT`], the line's own
+    /// variables over the plan's, and the project as its working folder.
+    Server { project: PathBuf },
 }
 
 impl Plan {
@@ -245,6 +258,7 @@ impl Plan {
             network: profile.network.clone(),
             path: OsString::new(),
             temporary: Vec::new(),
+            kind: Kind::Agent,
         };
         plan.hide(setup, &home);
         let shown: Vec<PathBuf> = std::iter::once(work_dir.clone())
@@ -353,6 +367,15 @@ impl Plan {
 
     /// What `claude`, git and the toolchains need from the home folder.
     fn home_back(&mut self, setup: &Setup, home: &Path, work_dir: &Path, shown: &[PathBuf]) {
+        self.claude_back(home, work_dir);
+        self.home_read(setup, home, shown);
+        self.cover_secrets(home);
+        self.private_caches(setup, home, work_dir);
+    }
+
+    /// `claude`'s own state: its settings read-only, what it writes during
+    /// a session private or writable.
+    fn claude_back(&mut self, home: &Path, work_dir: &Path) {
         let claude = home.join(".claude");
         let _ = fs::create_dir_all(&claude);
         if let Ok(claude) = real(&claude)
@@ -403,6 +426,11 @@ impl Plan {
         if fs::symlink_metadata(&state).is_ok_and(|m| m.is_file()) {
             self.rw(state);
         }
+    }
+
+    /// What git and the toolchains read from the home folder, and the
+    /// toolchains on `PATH`.
+    fn home_read(&mut self, setup: &Setup, home: &Path, shown: &[PathBuf]) {
         for read in HOME_READ {
             if let Ok(read) = real(&home.join(read))
                 && read.starts_with(home)
@@ -419,7 +447,11 @@ impl Plan {
             }
         }
         self.path = self.path_entries(setup, home, shown);
-        // Secrets and caches inside the folders bound above come after them.
+    }
+
+    /// `/dev/null` over [`SECRETS`] in the home folder's bound folders. Comes
+    /// after them, so nothing covers it again.
+    fn cover_secrets(&mut self, home: &Path) {
         let bound: Vec<PathBuf> = self
             .mounts
             .iter()
@@ -438,6 +470,11 @@ impl Plan {
                 }
             }
         }
+    }
+
+    /// The project's own copy of each package cache in [`CACHES`], bound
+    /// where the user's is.
+    fn private_caches(&mut self, setup: &Setup, home: &Path, work_dir: &Path) {
         let caches = setup.caches.join(project_key(work_dir));
         for name in CACHES {
             let cache = home.join(name);
@@ -541,7 +578,10 @@ impl Plan {
     ) -> Result<CommandLine> {
         let program = real(&line.program)?;
         let helper = real(helper)?;
-        let cwd = real(&line.cwd)?;
+        let cwd = match &self.kind {
+            Kind::Agent => real(&line.cwd)?,
+            Kind::Server { project } => project.clone(),
+        };
         let mut args: Vec<OsString> = [
             "--unshare-user",
             "--unshare-pid",
@@ -591,7 +631,12 @@ impl Plan {
         for path in &self.writable {
             args.extend([os("--rw"), os(path)]);
         }
-        let mut env = line.env;
+        // A server's line points its caches and temporary files into its
+        // cache folder: its variables come last, so they win.
+        let (mut env, last) = match self.kind {
+            Kind::Agent => (line.env, Vec::new()),
+            Kind::Server { .. } => (Vec::new(), line.env),
+        };
         if let ProfileNetwork::Proxy { address, ca_bundle } = &self.network {
             args.extend([os("--bridge"), os(real(Path::new(address))?)]);
             args.push(os(PROXY_PORT.to_string()));
@@ -616,10 +661,12 @@ impl Plan {
         }
         env.push((os("PATH"), Some(self.path.clone())));
         env.push((os("TMPDIR"), Some(os("/tmp"))));
-        allowlist(outer_env, &mut env);
+        env.extend(last);
+        let names = self.env_kept();
+        allowlist(outer_env, names, &mut env);
         // The helper keeps only these: the plan removes the rest, and
         // whatever Ovra's environment gains later.
-        let mut kept: Vec<OsString> = ENV_KEPT.iter().map(os).collect();
+        let mut kept: Vec<OsString> = names.iter().map(os).collect();
         for (name, value) in &env {
             if value.is_some() && !kept.contains(name) {
                 kept.push(name.clone());
@@ -651,6 +698,14 @@ impl Plan {
             env,
             cwd,
         })
+    }
+
+    /// The variables this sandbox keeps from Ovra's environment.
+    fn env_kept(&self) -> &'static [&'static str] {
+        match self.kind {
+            Kind::Agent => &ENV_KEPT,
+            Kind::Server { .. } => &server::SERVER_ENV_KEPT,
+        }
     }
 
     /// What to bind so that `program` runs: its folder when it is installed
@@ -854,11 +909,11 @@ fn config_files(work_dir: &Path, home: &Path) -> Vec<PathBuf> {
 }
 
 /// Removes every variable of Ovra's environment (`outer_env`, its names)
-/// that is neither kept nor set by `env`, so bubblewrap's own processes,
+/// that is neither in `names` nor set by `env`, so bubblewrap's own processes,
 /// whose environment the agent may read, hold none of them.
-fn allowlist(outer_env: &[OsString], env: &mut Vec<(OsString, Option<OsString>)>) {
+fn allowlist(outer_env: &[OsString], names: &[&str], env: &mut Vec<(OsString, Option<OsString>)>) {
     for name in outer_env {
-        let kept = ENV_KEPT.iter().any(|k| name == k);
+        let kept = names.iter().any(|k| name == k);
         if !kept && !env.iter().any(|(n, _)| n == name) {
             env.push((name.clone(), None));
         }

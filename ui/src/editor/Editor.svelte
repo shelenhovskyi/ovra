@@ -38,20 +38,25 @@ $effect(() => {
     buffer = null;
     return;
   }
+  const lsp = tabs.current?.lsp;
   const next = buffers.open(path);
   buffer = next;
   let live = true;
   void next.loaded.then(() => {
-    if (!live || !view) return;
-    next.attach(view);
-    if (entering) view.focus();
+    const target = view;
+    if (!live || !target) return;
+    next.attach(target);
+    if (entering) target.focus();
     else focusUnlessInTabs();
     entering = false;
     shown = next;
+    // Showing a file is what starts its language server (ADR 0007).
+    untrack(() => lsp?.showing(next, target));
   });
   return () => {
     live = false;
     shown = null;
+    lsp?.hiding(next);
     next.detach();
     // Nothing typed before the next buffer arrives may land in this one.
     view?.setState(EditorState.create());

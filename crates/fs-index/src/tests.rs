@@ -539,6 +539,23 @@ async fn git_refresher_folds_a_burst_of_changes_into_one_status_run() {
     assert_eq!(cache.runs.load(std::sync::atomic::Ordering::Relaxed), 2);
 }
 
+#[test]
+fn staging_counts_as_a_git_change_though_the_tree_looks_the_same() {
+    let tmp = dir();
+    let root = tmp.path();
+    git(root, &["init", "-q"]);
+    put(root, "a.txt", "one");
+    git(root, &["add", "."]);
+    git(root, &["commit", "-qm", "init"]);
+    put(root, "a.txt", "two");
+    let cache = watch::GitCache::new(git::Repo::discover(&resolve::root(root).expect("root")));
+    let before = cache.current();
+    assert!(!cache.refresh(), "nothing happened yet");
+    git(root, &["add", "a.txt"]);
+    assert!(cache.refresh(), "the index changed");
+    assert_eq!(cache.current(), before, "the tree's statuses did not");
+}
+
 #[tokio::test]
 async fn lists_all_files_that_are_not_ignored() {
     let tmp = dir();

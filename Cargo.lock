@@ -3464,6 +3464,8 @@ name = "ovra-lsp"
 version = "0.1.0"
 dependencies = [
  "ovra-core",
+ "serde_json",
+ "tempfile",
  "tokio",
 ]
 

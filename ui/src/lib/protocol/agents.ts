@@ -31,8 +31,10 @@ export type SessionInfo = {
   resumable: boolean;
   /** Who pays for the session's usage, as the agent said when it started. */
   billing: Billing | null;
-  /** The sandbox the runtime ran it in; null while unknown or without one. */
+  /** The sandbox the runtime ran it in; null while unknown or without one (`sandbox_reported` tells them apart). */
   sandbox: SandboxReport | null;
+  /** Whether the runtime reported how it runs the current process: false while it starts. Sessions saved before the field read as false; a set `sandbox` counts as reported. */
+  sandbox_reported: boolean;
 };
 
 /** How the runtime actually ran a session. */
@@ -147,4 +149,6 @@ export type AgentsEvent =
   | { type: "agents.message"; data: { session: SessionId; message: AgentMessage } }
   | { type: "agents.status"; data: { session: SessionId; project: ProjectId; status: AgentStatus } }
   /** The agent said who pays for the session (`SessionInfo.billing`). */
-  | { type: "agents.billing"; data: { session: SessionId; billing: Billing } };
+  | { type: "agents.billing"; data: { session: SessionId; billing: Billing } }
+  /** The runtime said how it runs the session's process (`SessionInfo.sandbox`; null: without a sandbox). */
+  | { type: "agents.sandbox"; data: { session: SessionId; sandbox: SandboxReport | null } };

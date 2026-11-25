@@ -3,7 +3,16 @@
 // notifications (`agentSessions(transport)`).
 
 import { SvelteMap } from "svelte/reactivity";
-import type { AgentMessage, CoreEvent, ProjectId, SessionId, SessionInfo, TaskId, TurnUsage } from "../lib/protocol";
+import type {
+  AgentMessage,
+  Billing,
+  CoreEvent,
+  ProjectId,
+  SessionId,
+  SessionInfo,
+  TaskId,
+  TurnUsage,
+} from "../lib/protocol";
 import type { Transport } from "../lib/transport";
 
 /** A session's part in a task, if it has one. */
@@ -119,7 +128,10 @@ export class AgentSessions {
       method: "agents.start",
       params: { project, agent: "claude", mode: "direct", prompt },
     });
-    this.byId.set(data.id, { ...data, status: this.byId.get(data.id)?.status ?? data.status });
+    const known = this.byId.get(data.id);
+    // agents.sandbox may also have come before the reply: keep what it said.
+    const sandbox = known?.sandbox_reported ? { sandbox: known.sandbox, sandbox_reported: true } : {};
+    this.byId.set(data.id, { ...data, status: known?.status ?? data.status, ...sandbox });
     return data;
   }
 
@@ -150,7 +162,9 @@ export class AgentSessions {
       const { session, project, status } = event.data;
       const known = this.byId.get(session);
       if (known) {
-        this.byId.set(session, { ...known, status });
+        // A restart clears the sandbox report without an event of its own.
+        const fresh = status.state === "starting" ? { sandbox: null, sandbox_reported: false } : {};
+        this.byId.set(session, { ...known, status, ...fresh });
         // Whether it can be resumed comes only with the list.
         if (status.state === "stopped" || status.state === "failed") void this.load(project).catch(() => {});
         return;
@@ -168,11 +182,15 @@ export class AgentSessions {
         resumable: false,
         billing: null,
         sandbox: null,
+        sandbox_reported: false,
       });
       void this.load(project).catch(() => {});
     } else if (event.type === "agents.billing") {
       const known = this.byId.get(event.data.session);
       if (known) this.byId.set(event.data.session, { ...known, billing: event.data.billing });
+    } else if (event.type === "agents.sandbox") {
+      const known = this.byId.get(event.data.session);
+      if (known) this.byId.set(event.data.session, { ...known, sandbox: event.data.sandbox, sandbox_reported: true });
     } else if (event.type === "agents.message") {
       const { session, message } = event.data;
       const transcript = this.transcripts.get(session);
@@ -201,9 +219,17 @@ function add(a: TurnUsage, b: TurnUsage): TurnUsage {
   };
 }
 
-/** `12,345 tokens in, 678 out, $0.0123` */
-export function usageText(usage: TurnUsage): string {
-  const cost = usage.cost_micro_usd === null ? "" : `, $${(usage.cost_micro_usd / 1_000_000).toFixed(4)}`;
+/**
+ * `12,345 tokens in, 678 out, $0.0123`. On a Claude plan the agent's cost is
+ * only what the tokens would cost at API prices, so it says so.
+ */
+export function usageText(usage: TurnUsage, billing: Billing | null): string {
+  const dollars = usage.cost_micro_usd === null ? "" : `$${(usage.cost_micro_usd / 1_000_000).toFixed(4)}`;
+  const cost = !dollars
+    ? ""
+    : billing?.kind === "subscription"
+      ? `, about ${dollars} at API prices (your plan's limits, not this amount)`
+      : `, ${dollars}`;
   return `${usage.input_tokens.toLocaleString("en")} tokens in, ${usage.output_tokens.toLocaleString("en")} out${cost}`;
 }
 

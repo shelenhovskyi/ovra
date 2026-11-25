@@ -11,7 +11,7 @@ use anyhow::Context;
 use clap::Parser;
 use ovra_agent_runtime::ClaudeCli;
 use ovra_core::Core;
-use ovra_core::services::{AgentRuntime, Secrets};
+use ovra_core::services::{AgentRuntime, LanguageServers, Secrets};
 use ovra_fs_index::FsIndex;
 use ovra_mcp_server::IdeServer;
 use ovra_opener::SystemOpener;
@@ -91,9 +91,7 @@ async fn serve() -> anyhow::Result<()> {
         .ide_tools(Arc::new(IdeServer::new()))
         .terminals(Arc::new(Pty::new()))
         .netproxy(Arc::new(ovra_netproxy::NetProxies::from_env(secrets)?))
-        .lsp(Arc::new(ovra_lsp::Servers::new(ovra_sandbox::for_this_os(
-            &args.data_dir,
-        ))))
+        .lsp(language_servers(&args))
         .agents(agents(&args))
         .build();
     let app = ws::router(
@@ -114,6 +112,36 @@ async fn serve() -> anyhow::Result<()> {
         })
         .await?;
     Ok(())
+}
+
+#[cfg(not(feature = "fake-agent"))]
+fn language_servers(args: &Args) -> Arc<dyn LanguageServers> {
+    Arc::new(ovra_lsp::Servers::new(
+        ovra_sandbox::for_this_os(&args.data_dir),
+        args.data_dir.join("lsp"),
+    ))
+}
+
+/// With the fake agent, `rust` files get the fake language server built
+/// next to the daemon (`just build-headless`) instead of rust-analyzer.
+#[cfg(feature = "fake-agent")]
+fn language_servers(args: &Args) -> Arc<dyn LanguageServers> {
+    let sandbox = ovra_sandbox::for_this_os(&args.data_dir);
+    let caches = args.data_dir.join("lsp");
+    if !args.fake_agent {
+        return Arc::new(ovra_lsp::Servers::new(sandbox, caches));
+    }
+    let exe = std::env::current_exe().unwrap_or_default();
+    let fake = exe.with_file_name(format!("fake-lsp{}", std::env::consts::EXE_SUFFIX));
+    let def = ovra_lsp::ServerDef {
+        language: "rust".into(),
+        name: "fake-lsp".into(),
+        program: fake,
+        args: Vec::new(),
+        install: "just build-headless".into(),
+        env: Vec::new(),
+    };
+    Arc::new(ovra_lsp::Servers::with_known(sandbox, caches, vec![def]))
 }
 
 #[cfg(not(feature = "fake-agent"))]

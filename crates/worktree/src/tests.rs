@@ -17,27 +17,27 @@ use super::GitWorktrees;
 
 const BRANCH: &str = "ovra/t1/worker";
 
-fn rel(path: &str) -> RelPath {
+pub(crate) fn rel(path: &str) -> RelPath {
     RelPath::parse(path).unwrap_or_else(|e| panic!("{e}"))
 }
 
-fn rels(paths: &[&str]) -> Vec<RelPath> {
+pub(crate) fn rels(paths: &[&str]) -> Vec<RelPath> {
     paths.iter().map(|p| rel(p)).collect()
 }
 
-fn put(dir: &Path, path: &str, text: &str) {
+pub(crate) fn put(dir: &Path, path: &str, text: &str) {
     let path = dir.join(path);
     fs::create_dir_all(path.parent().unwrap_or(dir)).unwrap_or_else(|e| panic!("{e}"));
     fs::write(path, text).unwrap_or_else(|e| panic!("{e}"));
 }
 
-fn read(dir: &Path, path: &str) -> Option<String> {
+pub(crate) fn read(dir: &Path, path: &str) -> Option<String> {
     fs::read_to_string(dir.join(path)).ok()
 }
 
 /// Runs git for checks and setup; the repository's own config makes it
 /// independent of the machine's.
-fn git(dir: &Path, args: &[&str]) -> String {
+pub(crate) fn git(dir: &Path, args: &[&str]) -> String {
     let out = Command::new(crate::git::program())
         .args(args)
         .current_dir(dir)
@@ -60,14 +60,14 @@ fn git_fails(dir: &Path, args: &[&str]) -> bool {
     status.map(|o| !o.status.success()).unwrap_or(false)
 }
 
-struct Repo {
-    tmp: TempDir,
-    root: PathBuf,
+pub(crate) struct Repo {
+    pub(crate) tmp: TempDir,
+    pub(crate) root: PathBuf,
 }
 
 impl Repo {
     /// A repository with `files` committed, or no commit if empty.
-    fn new(files: &[(&str, &str)]) -> Self {
+    pub(crate) fn new(files: &[(&str, &str)]) -> Self {
         let tmp = tempfile::Builder::new()
             .prefix("ovra wt \u{e9} ")
             .tempdir()

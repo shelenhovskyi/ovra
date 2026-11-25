@@ -44,6 +44,9 @@ jobs:
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev ripgrep bubblewrap
+          # Ubuntu 24.04 confines unprivileged user namespaces with AppArmor:
+          # bwrap gets one without rights and cannot even set up loopback.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @ovra/ui build
       - run: just lint
@@ -106,6 +109,9 @@ jobs:
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev bubblewrap
+          # Ubuntu 24.04 confines unprivileged user namespaces with AppArmor:
+          # bwrap gets one without rights and cannot even set up loopback.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - run: pnpm install --frozen-lockfile
       - name: Build app (UI + Tauri, no installers)
         run: pnpm exec tauri build --no-bundle
@@ -116,12 +122,14 @@ jobs:
         run: |
           cargo nextest run --workspace --exclude ovra-app --all-features --no-fail-fast --no-tests=pass
           cargo test --workspace --exclude ovra-app --all-features --doc
-      # The runner is an administrator: the Windows sandbox's one-time
-      # setup, a session as its user, and the removal (crates/sandbox-windows).
-      - name: Windows sandbox setup
-        if: runner.os == 'Windows'
+      # The Windows sandbox on the real OS (crates/sandbox-windows): the
+      # token and ACEs, and, as the runner is an administrator, the one-time
+      # setup, a session as its user and the removal. Too slow for nextest's
+      # per-test limit, so these are ignored there.
+      - name: Windows sandbox
+        if: ${{ !cancelled() && runner.os == 'Windows' }}
         timeout-minutes: 5
-        run: cargo test -p ovra-sandbox-windows --test setup -- --ignored
+        run: cargo test -p ovra-sandbox-windows --test sandbox --test setup -- --ignored
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ovra-${{ matrix.os }}

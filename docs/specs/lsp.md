@@ -124,9 +124,16 @@ makes on disk still reach them.
 - `network`: `Blocked` in v1 (`CARGO_NET_OFFLINE=true`).
 
 The platform adds what `security.md` lists for agents except the agent's own
-state: no `~/.claude`, no netproxy, the same environment allowlist, the
-same hidden secrets. The user's package caches (`~/.cargo/registry`,
-`~/.npm`, ...) are readable, never writable.
+state: no `~/.claude`, no netproxy, the same hidden secrets, and the
+agents' environment allowlist without the names that say where Claude
+usage is billed or which cloud provider it uses. The user's package caches
+(`~/.cargo/registry`, `~/.npm`, ...) are readable, never writable.
+
+On Linux (`wrap_server` in `crates/sandbox-linux`, see `security.md`) the
+sandbox refuses a profile whose network is not `Blocked`, a project or
+`read` folder that holds the home folder, a `read` folder inside Ovra's
+data folder, and a cache folder inside the project or outside Ovra's data
+folder. The server's working folder is the project.
 
 ## Tasks
 

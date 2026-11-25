@@ -12,8 +12,6 @@ use crate::protocol::{ErrorCode, OkResponse, ProtocolError, Response};
 const MAX_MESSAGE: usize = 64 * 1024;
 /// The most paths one request may name.
 const MAX_PATHS: usize = 10_000;
-/// The most lines a hunk sent back for staging may have.
-const MAX_HUNK_LINES: usize = 20_000;
 
 pub(crate) async fn handle(core: &Core, request: GitRequest) -> Result<Response, ProtocolError> {
     let git = core.git_service();
@@ -38,12 +36,7 @@ pub(crate) async fn handle(core: &Core, request: GitRequest) -> Result<Response,
             hunk,
             unstage,
         } => {
-            if hunk.lines.is_empty() || hunk.lines.len() > MAX_HUNK_LINES {
-                return Err(bad(format!("a hunk must have 1 to {MAX_HUNK_LINES} lines")));
-            }
-            if hunk.lines.iter().any(|l| l.contains(['\n', '\r'])) {
-                return Err(bad("hunk lines must not contain line breaks"));
-            }
+            hunk.check()?;
             let root = core.root(&project)?;
             git.stage_hunk(root, path_of(&path)?, hunk, unstage).await?;
             ok()
@@ -130,15 +123,22 @@ fn bad(message: impl Into<String>) -> ProtocolError {
     ProtocolError::new(ErrorCode::BadRequest, message)
 }
 
-/// A file or folder in the project, never the root itself or anything in
-/// `.git`.
+/// A file or folder in the project, never the root itself, anything in a
+/// `.git` folder, or a name with control characters.
 fn path_of(raw: &str) -> Result<RelPath, ProtocolError> {
     let path = RelPath::parse(raw)?;
     if path.is_root() {
         return Err(bad("name a file or folder, not the project root"));
     }
-    let first = path.as_str().split('/').next().unwrap_or_default();
-    if first.eq_ignore_ascii_case(".git") {
+    if raw.chars().any(char::is_control) {
+        return Err(bad(format!("path {raw:?} contains a control character")));
+    }
+    // Also a nested repository's `.git`, such as `vendor/lib/.git/config`.
+    if path
+        .as_str()
+        .split('/')
+        .any(|s| s.eq_ignore_ascii_case(".git"))
+    {
         return Err(ProtocolError::new(
             ErrorCode::Forbidden,
             format!("path {raw:?} is inside .git"),

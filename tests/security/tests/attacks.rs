@@ -24,6 +24,7 @@ use ovra_core::protocol::netproxy::{AllowedHost, Allowlist, NetproxyEvent};
 use ovra_core::protocol::projects::ProjectId;
 use ovra_core::services::{
     CommandLine, NetProxy, NetReporter, ProfileNetwork, Sandbox, SandboxProfile, SandboxStatus,
+    ServerProfile,
 };
 use ovra_netproxy::NetProxies;
 use ovra_sandbox_linux::{Bubblewrap, Protected, Setup};
@@ -678,6 +679,83 @@ fn the_known_limits_are_what_the_threat_model_says() {
         &[],
     );
     insta::assert_snapshot!(out);
+}
+
+/// A language server (ADR 0007) runs the project's code: `build.rs`, proc
+/// macros, plugins. Here a shell script plays one that tries to get out;
+/// only reading the project and the user's packages and writing its own
+/// cache folder may work.
+#[test]
+fn a_language_server_reads_the_project_and_writes_only_its_cache() {
+    let world = World::new("server");
+    world.file("home/.ssh/id_rsa", SECRET);
+    let cache = world.data.join("lsp/p1/rust");
+    fs::create_dir_all(cache.join("tmp")).unwrap();
+    let Some(sandbox) = world.sandbox() else {
+        return;
+    };
+    // Ovra's own daemon, outside the sandbox.
+    let daemon = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = daemon.local_addr().unwrap().port();
+    let checks = format!(
+        "read the project: grep -q hello README.md
+        read the registry of the user: test -f {home}/.cargo/registry/index/.keep
+        write its cache folder: echo built > {cache}/out && grep -q built {cache}/out
+        write its temporary folder: echo x > \"$TMPDIR/t\" && echo x > /tmp/t
+        write a file of the project: echo planted > README.md
+        make a file in the project: touch target
+        read ssh keys: cat {home}/.ssh/id_rsa
+        read the login of claude: cat {home}/.claude/.credentials.json
+        read the settings of claude: cat {home}/.claude.json
+        write the registry of the user: touch {home}/.cargo/registry/index/planted
+        read ovra data: cat {data}/store.db
+        reach the daemon: echo > /dev/tcp/127.0.0.1/{port}
+        find ANTHROPIC_API_KEY: printenv ANTHROPIC_API_KEY
+        find GITHUB_TOKEN: printenv GITHUB_TOKEN
+        find a secret in any process environment: grep -qs {SECRET} /proc/*/environ",
+        home = world.home.display(),
+        data = world.data.display(),
+        cache = cache.display(),
+    );
+    // No control for these: outside they would leave this machine.
+    let offline = "reach the internet: echo > /dev/tcp/1.1.1.1/443
+        reach the internet over IPv6: echo > /dev/tcp/2606:4700:4700::1111/443";
+    let env = [
+        ("ANTHROPIC_API_KEY", SECRET),
+        ("GITHUB_TOKEN", SECRET),
+        ("CLAUDE_CODE_OAUTH_TOKEN", SECRET),
+    ];
+    let profile = ServerProfile {
+        project: world.project.clone(),
+        cache_dir: cache.clone(),
+        read: Vec::new(),
+        network: ProfileNetwork::Blocked,
+    };
+    // What `ovra-lsp` passes: build output and temporary files in the cache.
+    let line = CommandLine {
+        program: "/bin/bash".into(),
+        args: vec!["-c".into(), attacks(&format!("{checks}\n{offline}")).into()],
+        env: vec![
+            ("CARGO_TARGET_DIR".into(), Some(cache.join("target").into())),
+            ("TMPDIR".into(), Some(cache.join("tmp").into())),
+            ("CARGO_NET_OFFLINE".into(), Some("true".into())),
+        ],
+        cwd: world.project.clone(),
+    };
+    let before = world.files();
+    let out = output(spawn(&sandbox.wrap_server(&profile, line).unwrap(), &env));
+    insta::assert_snapshot!(out);
+    // Only the cache folder changed on the host.
+    let changed: Vec<PathBuf> = world
+        .files()
+        .into_iter()
+        .filter(|file| !before.contains(file))
+        .map(|(path, _)| path)
+        .collect();
+    assert_eq!(changed, [cache.join("out"), cache.join("tmp/t")]);
+    // The control: without the sandbox every attack works.
+    let control = outside(&world.project, &attacks(&checks), &env);
+    assert_eq!(failed(&control), Vec::<&str>::new(), "{control}");
 }
 
 /// The host the secret is bound to. It never resolves (RFC 6761), so the

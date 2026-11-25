@@ -17,7 +17,7 @@ use crate::git::{self, Git, TempIndex, internal};
 
 /// What is at a path on disk, without following a symlink at the path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum OnDisk {
+pub(crate) enum OnDisk {
     Missing,
     /// A regular file or a symlink.
     File,
@@ -25,7 +25,7 @@ enum OnDisk {
     Off,
 }
 
-fn on_disk(dir: &Path, path: &RelPath) -> Result<OnDisk> {
+pub(crate) fn on_disk(dir: &Path, path: &RelPath) -> Result<OnDisk> {
     let mut at = dir.to_path_buf();
     let parts: Vec<&str> = path.as_str().split('/').collect();
     for (i, part) in parts.iter().enumerate() {
@@ -90,7 +90,7 @@ fn blobs(dir: &Path, base: &str, paths: &[RelPath]) -> Result<BTreeMap<String, S
 /// opened without following links, so a folder an agent swaps for a link
 /// after [`on_disk`] looked never makes Ovra delete outside `dir`.
 #[cfg(unix)]
-fn remove_file(dir: &Path, path: &RelPath) -> Result<bool> {
+pub(crate) fn remove_file(dir: &Path, path: &RelPath) -> Result<bool> {
     use rustix::fs::{AtFlags, Mode, OFlags, open, openat, unlinkat};
     use rustix::io::Errno;
     let folder = OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC | OFlags::RDONLY;
@@ -113,7 +113,7 @@ fn remove_file(dir: &Path, path: &RelPath) -> Result<bool> {
 }
 
 #[cfg(not(unix))]
-fn remove_file(dir: &Path, path: &RelPath) -> Result<bool> {
+pub(crate) fn remove_file(dir: &Path, path: &RelPath) -> Result<bool> {
     match fs::remove_file(path.under(dir)) {
         Err(e) if e.kind() != ErrorKind::NotFound => {
             Err(internal(format!("cannot delete {path}: {e}")))

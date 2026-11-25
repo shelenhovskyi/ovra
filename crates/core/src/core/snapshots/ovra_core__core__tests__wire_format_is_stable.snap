@@ -67,6 +67,16 @@ expression: samples
     },
     {
       "data": {
+        "sandbox": {
+          "name": "bubblewrap",
+          "network": "proxy"
+        },
+        "session": "s1"
+      },
+      "type": "agents.sandbox"
+    },
+    {
+      "data": {
         "cwd": "/work/demo",
         "id": "perm1",
         "input": {
