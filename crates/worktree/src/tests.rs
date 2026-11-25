@@ -483,26 +483,46 @@ async fn a_patch_shows_exactly_the_files_asked_for_with_their_renames() {
 
 #[tokio::test]
 async fn approved_work_applies_unless_the_person_changed_the_file() {
-    let repo = Repo::new(&[("a.txt", "a\n"), ("b.txt", "b\n"), ("old.txt", "old\n")]);
+    let repo = Repo::new(&[
+        ("a.txt", "a\n"),
+        ("b.txt", "b\n"),
+        ("old.txt", "old\n"),
+        ("same.txt", "s\n"),
+        ("gone.txt", "g\n"),
+    ]);
     let w = GitWorktrees::new();
     let (base, wt) = repo.worker(&w).await;
     put(&wt, "a.txt", "agent\n");
     put(&wt, "b.txt", "agent\n");
+    put(&wt, "same.txt", "agent\n");
     put(&wt, "sub/new.txt", "new\n");
     fs::remove_file(wt.join("old.txt")).unwrap_or_else(|e| panic!("{e}"));
-    // Meanwhile the person edits b.txt in the main checkout.
+    fs::remove_file(wt.join("gone.txt")).unwrap_or_else(|e| panic!("{e}"));
+    // Meanwhile the person edits b.txt in the main checkout, and another
+    // worker's identical same.txt and deletion of gone.txt were kept.
     put(&repo.root, "b.txt", "mine\n");
+    put(&repo.root, "same.txt", "agent\n");
+    fs::remove_file(repo.root.join("gone.txt")).unwrap_or_else(|e| panic!("{e}"));
 
     // What the person reviewed; the worker writes on after it.
     let reviewed = w.look(wt.clone()).await.unwrap_or_else(|e| panic!("{e:?}"));
     put(&wt, "a.txt", "written after the review\n");
     put(&wt, "old.txt", "back after the review\n");
 
-    let paths = rels(&["a.txt", "b.txt", "sub/new.txt", "old.txt"]);
+    let paths = rels(&[
+        "a.txt",
+        "b.txt",
+        "sub/new.txt",
+        "old.txt",
+        "same.txt",
+        "gone.txt",
+    ]);
     let conflicts = w
         .apply(reviewed, base.clone(), repo.root.clone(), paths)
         .await;
+    // Already as the worker has them: copied, not conflicts.
     assert_eq!(conflicts.ok(), Some(vec!["b.txt".to_owned()]));
+    assert_eq!(read(&repo.root, "same.txt").as_deref(), Some("agent\n"));
     let root = &repo.root;
     assert_eq!(read(root, "a.txt").as_deref(), Some("agent\n"));
     assert_eq!(read(root, "b.txt").as_deref(), Some("mine\n"));
