@@ -1,0 +1,51 @@
+---
+source: crates/forge/src/parse.rs
+assertion_line: 325
+expression: status
+---
+{
+  "state": "open",
+  "draft": true,
+  "url": "https://github.com/o/r/pull/7",
+  "head": "abc",
+  "checks": [
+    {
+      "name": "test",
+      "state": "failed",
+      "url": "https://github.com/o/r/actions/runs/123/job/456",
+      "run": 123
+    },
+    {
+      "name": "lint",
+      "state": "passed",
+      "url": "https://github.com/o/r/actions/runs/124/job/457",
+      "run": 124
+    },
+    {
+      "name": "e2e",
+      "state": "pending",
+      "url": "https://github.com/o/r/actions/runs/125/job/458",
+      "run": 125
+    },
+    {
+      "name": "docs",
+      "state": "skipped",
+      "url": "https://github.com/o/r/actions/runs/126/job/459",
+      "run": 126
+    },
+    {
+      "name": "app",
+      "state": "failed",
+      "url": "https://ci.example.com/build/9",
+      "run": null
+    },
+    {
+      "name": "ci/legacy",
+      "state": "pending",
+      "url": "https://ci.example.com/7",
+      "run": null
+    }
+  ],
+  "review_decision": null,
+  "merge_state": "BLOCKED"
+}

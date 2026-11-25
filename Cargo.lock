@@ -3490,7 +3490,10 @@ dependencies = [
 name = "ovra-forge"
 version = "0.1.0"
 dependencies = [
+ "insta",
  "ovra-core",
+ "serde_json",
+ "tempfile",
  "tokio",
 ]
 
