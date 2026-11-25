@@ -45,11 +45,14 @@ impl Root {
     fn show(&self, line: &CommandLine) -> String {
         let root = self.0.display().to_string();
         let key = project_key(&self.0);
+        let sid = project_sid(&self.0.join("projects/app"));
         let clean = |s: &OsStr| {
             s.to_string_lossy()
+                .replace(&sid, "SID")
                 .replace(&key, "-ROOT")
                 .replace(&root, "ROOT")
                 .replace(':', ";")
+                .replace('\\', "/")
         };
         let mut out = String::new();
         let mut args = line.args.iter();
@@ -212,4 +215,15 @@ fn variable_names_match_without_case() {
         .collect();
     assert!(removed.contains(&"github_token".into()));
     assert!(!removed.contains(&"userprofile".into()) && !removed.contains(&"Path".into()));
+}
+
+#[test]
+fn each_folder_has_its_own_sid_and_keeps_it() {
+    let a = project_sid(Path::new("C:/work/a"));
+    assert_eq!(a, project_sid(Path::new("C:/work/a")));
+    assert_ne!(a, project_sid(Path::new("C:/work/b")));
+    assert!(
+        a.starts_with("S-1-5-21-") && a.split('-').count() == 8,
+        "{a}"
+    );
 }
