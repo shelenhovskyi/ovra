@@ -471,6 +471,10 @@ fn wire_format_is_stable() {
                     gaps: vec!["DNS lookups".into()],
                 }),
             }),
+            Event::Agents(AgentsEvent::TextDelta {
+                session: SessionId("s1".into()),
+                text: "Look".into(),
+            }),
             Event::Permissions(PermissionsEvent::Requested(PermissionRequest {
                 id: PermissionId("perm1".into()),
                 session: SessionId("s1".into()),

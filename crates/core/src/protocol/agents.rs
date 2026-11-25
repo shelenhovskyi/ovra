@@ -531,4 +531,9 @@ pub enum AgentsEvent {
         session: SessionId,
         sandbox: Option<SandboxReport>,
     },
+    /// The next piece of the assistant text the agent is writing now, for
+    /// display only: the complete `AssistantText` message replaces what
+    /// came so far, and the transcript never keeps these.
+    #[serde(rename = "agents.text_delta")]
+    TextDelta { session: SessionId, text: String },
 }

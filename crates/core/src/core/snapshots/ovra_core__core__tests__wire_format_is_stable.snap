@@ -80,6 +80,13 @@ expression: samples
     },
     {
       "data": {
+        "session": "s1",
+        "text": "Look"
+      },
+      "type": "agents.text_delta"
+    },
+    {
+      "data": {
         "cwd": "/work/demo",
         "id": "perm1",
         "input": {

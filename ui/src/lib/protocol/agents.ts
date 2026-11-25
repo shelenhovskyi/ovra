@@ -207,4 +207,9 @@ export type AgentsEvent =
   /** The agent said who pays for the session (`SessionInfo.billing`). */
   | { type: "agents.billing"; data: { session: SessionId; billing: Billing } }
   /** The runtime said how it runs the session's process (`SessionInfo.sandbox`; null: without a sandbox). */
-  | { type: "agents.sandbox"; data: { session: SessionId; sandbox: SandboxReport | null } };
+  | { type: "agents.sandbox"; data: { session: SessionId; sandbox: SandboxReport | null } }
+  /**
+   * The next piece of the assistant text the agent is writing now, for display
+   * only: the complete `assistant_text` message replaces it.
+   */
+  | { type: "agents.text_delta"; data: { session: SessionId; text: string } };
