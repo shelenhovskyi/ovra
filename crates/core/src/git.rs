@@ -95,6 +95,10 @@ pub(crate) async fn handle(core: &Core, request: GitRequest) -> Result<Response,
             git.switch(core.root(&project)?, branch).await?;
             ok()
         }
+        GitRequest::Cancel { project } => {
+            git.cancel(core.root(&project)?).await?;
+            ok()
+        }
         GitRequest::CreateBranch {
             project,
             name,

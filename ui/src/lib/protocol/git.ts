@@ -57,6 +57,12 @@ export type GitRequest =
    * or while an agent session writes the main checkout.
    */
   | { method: "git.switch"; params: { project: ProjectId; branch: string } }
+  /**
+   * Stops the `git.commit`, `git.switch` or switching `git.create_branch` running in the
+   * project, with its hooks and gpg;
+   * that request then answers `conflict`. `ok` also when nothing runs.
+   */
+  | { method: "git.cancel"; params: { project: ProjectId } }
   /** A branch at HEAD; `bad_request` for an invalid name, `conflict` if it exists. */
   | { method: "git.create_branch"; params: { project: ProjectId; name: string; switch?: boolean } }
   /** Index to working tree, or with `staged` HEAD to index. Untracked files diff as all added. */

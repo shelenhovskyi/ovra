@@ -79,7 +79,8 @@ pub enum GitRequest {
     /// hooks, as in their terminal. With `amend`, an empty message keeps the
     /// last commit's message. `bad_request` for an empty message or nothing
     /// staged (unless `amend`); a failing hook answers `conflict`
-    /// with its output.
+    /// with its output, and so does a commit stopped by `git.cancel` or
+    /// because it ran too long (a hook or gpg waiting for input).
     #[serde(rename = "git.commit")]
     Commit {
         project: ProjectId,
@@ -95,6 +96,12 @@ pub enum GitRequest {
     /// agent session writes the main checkout.
     #[serde(rename = "git.switch")]
     Switch { project: ProjectId, branch: String },
+    /// Stops the `git.commit`, `git.switch` or switching `git.create_branch`
+    /// running in the project, with
+    /// the hooks and gpg it started; that request then answers `conflict`.
+    /// `ok` also when nothing runs.
+    #[serde(rename = "git.cancel")]
+    Cancel { project: ProjectId },
     /// Creates a branch at HEAD; with `switch`, switches to it (allowed
     /// while a direct session runs: the files stay the same).
     /// `bad_request` for a name git does not accept, `conflict` if it exists.

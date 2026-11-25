@@ -242,6 +242,14 @@ async fn switching_waits_for_a_direct_session_but_creating_a_branch_does_not() {
 }
 
 #[tokio::test]
+async fn cancel_reaches_the_project_root() {
+    let f = fixture().await;
+    let done = call(&f.core, git("cancel", json!({}))).await;
+    assert_eq!(done, Ok(Response::Ok(OkResponse::Ok)));
+    assert_eq!(f.git.calls(), [format!("cancel {ROOT} ")]);
+}
+
+#[tokio::test]
 async fn hunks_are_checked_before_staging() {
     let f = fixture().await;
     let hunk = |lines: serde_json::Value| {

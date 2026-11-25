@@ -450,6 +450,10 @@ impl GitService for GitRepo {
     fn switch(&self, root: PathBuf, branch: String) -> BoxFuture<'_, Result<()>> {
         blocking(move || switch(&root, &branch))
     }
+    fn cancel(&self, _: PathBuf) -> BoxFuture<'_, Result<()>> {
+        // Commits and switches cannot be stopped yet.
+        Box::pin(async { Ok(()) })
+    }
     fn create_branch(
         &self,
         root: PathBuf,

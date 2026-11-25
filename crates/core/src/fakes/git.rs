@@ -147,6 +147,9 @@ impl GitService for MemoryGit {
     fn switch(&self, root: PathBuf, branch: String) -> BoxFuture<'_, Result<()>> {
         self.change("switch", &root, &branch, ())
     }
+    fn cancel(&self, root: PathBuf) -> BoxFuture<'_, Result<()>> {
+        self.read("cancel", &root, "", ())
+    }
     fn create_branch(
         &self,
         root: PathBuf,
