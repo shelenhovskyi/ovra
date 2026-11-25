@@ -414,12 +414,17 @@ function onkeydown(e: KeyboardEvent): void {
     height: 100%;
     background: var(--s1);
   }
+  /* The shell's panel header: 44 px, the title 16 px in (Shell.svelte `.head`). */
   .toolbar {
     display: flex;
+    flex: none;
     align-items: center;
     gap: 2px;
-    padding: 10px 8px 6px 14px;
+    box-sizing: border-box;
+    height: 44px;
+    padding: 8px 8px 4px 16px;
   }
+
   .title {
     flex: 1;
     font-weight: 600;

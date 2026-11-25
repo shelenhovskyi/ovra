@@ -390,29 +390,29 @@ function edge(panel: Panel): "left" | "right" {
   .file[hidden] {
     display: none;
   }
+  /* Every side panel's header: the file tree's and the Agents panel's have the same height and inset. */
   .head {
     display: flex;
     flex: none;
     align-items: center;
     gap: 6px;
-    height: 40px;
-    padding: 0 8px 0 18px;
-    font-weight: 500;
-    color: var(--text-2);
+    box-sizing: border-box;
+    height: 44px;
+    padding: 8px 8px 4px 16px;
+    font-weight: 600;
   }
-  .head .name {
-    color: var(--text);
-  }
+  /* Chrome on demand: the panel's own buttons are faint until the header is pointed at or focused. */
   .controls {
     display: flex;
     gap: 2px;
     margin-left: auto;
-    opacity: 0.6;
   }
-  .head:hover .controls,
-  .agents-panel:hover > .controls,
-  .controls:focus-within {
-    opacity: 1;
+  .controls button {
+    color: var(--text-3);
+  }
+  :where(.head:hover, .own-head:hover, .agents-panel:hover) .controls button,
+  .controls:focus-within button {
+    color: var(--text-2);
   }
   .agents-panel {
     position: relative;
@@ -426,14 +426,10 @@ function edge(panel: Panel): "left" | "right" {
   }
   .own-head > .head {
     position: absolute;
-    top: 10px;
+    top: 0;
     right: 0;
     z-index: 1;
-    height: auto;
-    padding: 0 8px 0 0;
-  }
-  .own-head:hover .controls {
-    opacity: 1;
+    padding-left: 0;
   }
   .own-head :global(.toolbar) {
     padding-right: 72px;
@@ -448,13 +444,15 @@ function edge(panel: Panel): "left" | "right" {
   .agents-panel :global([data-testid="agents-panel"] > header) {
     padding-right: 72px;
   }
+  .strip button {
+    color: var(--text-2);
+  }
   .controls button,
   .strip button {
     position: relative;
     display: grid;
     place-items: center;
     padding: 0;
-    color: var(--text-2);
     background: none;
     border: 0;
     border-radius: 7px;
