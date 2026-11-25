@@ -37,6 +37,15 @@ Bash {"command":"Python3"} => -
 Bash {"command":"git"} => -
 Bash {"command":"git status"} => Bash(git status) exactly
 Bash {"command":"node scripts/build.js"} => Bash(node scripts/build.js) exactly
+Bash {"command":"rm *.tmp"} => -
+Bash {"command":"cat src/?.rs"} => -
+Bash {"command":"cat [.]claude/settings.json"} => -
+Bash {"command":"cat {.,}claude/x"} => -
+Bash {"command":"cat src$X/a"} => -
+Bash {"command":"cat .cl\"au\"de/x"} => -
+Bash {"command":"cat .c'laude'"} => -
+Bash {"command":"rg --file=\"x\" a"} => -
+Bash {"command":"echo 'two words'"} => Bash(echo 'two words') exactly
 Bash {"command":"FOO=1 npm test"} => -
 Bash {"command":"cat /etc/passwd"} => -
 Bash {"command":"cat ../other/a"} => -

@@ -266,7 +266,8 @@ pub(crate) fn always_rule(
 }
 
 /// The command itself, in single spaces, when a rule for it stays narrow:
-/// no runner, variable or path outside the folder, no protected path.
+/// no runner, variable or path outside the folder, no protected path, no
+/// word the shell expands.
 fn command_scope(command: &str) -> Option<String> {
     let words: Vec<&str> = command.split_whitespace().collect();
     let first = words.first()?;
@@ -281,6 +282,13 @@ fn command_scope(command: &str) -> Option<String> {
                 || crate::protected::changes(bare, None)
         })
     };
+    // Globs, braces and variables expand past that check, into names it
+    // never saw; a quote inside a word can hide what it starts.
+    let expands = |w: &&str| {
+        w.contains(['*', '?', '[', '{', '$'])
+            || w.char_indices()
+                .any(|(i, c)| matches!(c, '"' | '\'') && i != 0 && i + 1 != w.len())
+    };
     let program = program(first);
     let runs = |list: &[&str]| program.iter().any(|name| list.contains(&name.as_str()));
     if SHELL_JOINS.iter().any(|j| command.contains(j))
@@ -288,6 +296,7 @@ fn command_scope(command: &str) -> Option<String> {
         || (words.len() == 1 && runs(&CODE_TAKERS))
         || first.contains('=')
         || words.iter().any(outside)
+        || words.iter().any(expands)
     {
         return None;
     }

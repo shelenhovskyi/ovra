@@ -590,8 +590,10 @@ rules for each project:
     other commands (`env`, `sudo`, `xargs`, `source`, `npx`, shells, ...;
     compared without quotes, backslashes, folder, `.exe` or version, in any
     case) or sets a variable, a runtime or tool that takes code on its own
-    (`node`, `python3`, `git`, ...), or any word naming a path outside the folder (`/`, `~`, `$`,
-    `%`, `..`, a drive) or a protected or review-marked path.
+    (`node`, `python3`, `git`, ...), any word naming a path outside the
+    folder (`/`, `~`, `$`, `%`, `..`, a drive) or a protected or
+    review-marked path, or any word the shell expands past that check
+    (`*`, `?`, `[`, `{` or `$` anywhere, or a quote inside the word).
   - `Edit` and `Write`: the exact file, relative to `work_dir`. Not offered
     outside it, for protected or review-marked paths, or for names with
     glob characters.
