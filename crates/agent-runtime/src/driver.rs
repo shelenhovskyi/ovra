@@ -129,6 +129,7 @@ impl Driver {
                     self.host.tools_settled().await;
                 }
             }
+            Incoming::TextDelta(text) => self.host.text_delta(text),
             Incoming::TurnEnd { mut usage, error } => {
                 if let Some(total) = usage.cost_micro_usd {
                     usage.cost_micro_usd = Some(total.saturating_sub(self.cost_micro_usd));

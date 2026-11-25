@@ -43,11 +43,16 @@ fn play() -> Result<(), String> {
         .ok_or("OVRA_FAKE_CLAUDE_FIXTURE is not set")?;
     let text = std::fs::read_to_string(&fixture).map_err(|e| format!("{fixture:?}: {e}"))?;
     let cwd = std::env::current_dir().map_err(|e| e.to_string())?;
+    // A fixture recorded with text deltas plays its own.
+    let streamed = text.contains(r#""type":"stream_event""#);
     let mut stdin = std::io::stdin().lock().lines();
     let mut stdout = std::io::stdout().lock();
     for (n, line) in text.lines().filter(|l| !l.trim().is_empty()).enumerate() {
         let step: Value = serde_json::from_str(line).map_err(|e| format!("step {}: {e}", n + 1))?;
         if let Some(line) = step.get("cli") {
+            for delta in deltas(line).into_iter().filter(|_| !streamed) {
+                writeln!(stdout, "{delta}").map_err(|e| e.to_string())?;
+            }
             writeln!(stdout, "{}", localize(line.clone(), &cwd)).map_err(|e| e.to_string())?;
             stdout.flush().map_err(|e| e.to_string())?;
         } else if let Some(expected) = step.get("ovra") {
@@ -73,6 +78,26 @@ fn play() -> Result<(), String> {
             line.map_err(|e| e.to_string())?
         )),
     }
+}
+
+/// The `stream_event` text deltas `--include-partial-messages` writes before
+/// an `assistant` message, a word each, for fixtures recorded without them.
+fn deltas(line: &Value) -> Vec<Value> {
+    if line["type"] != "assistant" {
+        return Vec::new();
+    }
+    let texts = line["message"]["content"].as_array().into_iter().flatten();
+    texts
+        .filter(|block| block["type"] == "text")
+        .filter_map(|block| block["text"].as_str())
+        .flat_map(|text| text.split_inclusive(' '))
+        .map(|word| {
+            serde_json::json!({"type": "stream_event", "session_id": line["session_id"],
+                "parent_tool_use_id": line["parent_tool_use_id"],
+                "event": {"type": "content_block_delta", "index": 0,
+                    "delta": {"type": "text_delta", "text": word}}})
+        })
+        .collect()
 }
 
 /// Replaces the recorded project `/w` with `cwd` in every string.

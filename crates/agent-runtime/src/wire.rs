@@ -21,6 +21,9 @@ pub(crate) enum Incoming {
     Started { billing: Option<Billing> },
     /// Transcript entries from an `assistant` or `user` message.
     Messages(Vec<AgentMessage>),
+    /// The next piece of the text the agent is writing
+    /// (`--include-partial-messages`); not a subagent's.
+    TextDelta(String),
     /// `result`: the turn ended, with an error when it did not succeed.
     /// The cost is the session's total so far.
     TurnEnd {
@@ -92,6 +95,7 @@ pub(crate) fn parse(line: &str) -> Incoming {
             billing: billing(&v),
         },
         "assistant" | "user" => Incoming::Messages(messages(&v)),
+        "stream_event" => text_delta(&v),
         "result" => turn_end(&v),
         "control_request" => control_request(&v),
         "control_response" => {
@@ -149,6 +153,26 @@ fn control_request(v: &Value) -> Incoming {
             request_id,
             subtype,
         },
+    }
+}
+
+/// A `content_block_delta` with text, as the Messages API streams it. Tool
+/// input and thinking deltas are left out: their complete blocks follow.
+fn text_delta(v: &Value) -> Incoming {
+    let top_level = v.get("parent_tool_use_id").is_none_or(Value::is_null);
+    let event = v.get("event").unwrap_or(&Value::Null);
+    let delta = event.get("delta").unwrap_or(&Value::Null);
+    match (
+        str_field(event, "type").as_deref(),
+        str_field(delta, "type").as_deref(),
+        str_field(delta, "text"),
+    ) {
+        (Some("content_block_delta"), Some("text_delta"), Some(text))
+            if top_level && !text.is_empty() =>
+        {
+            Incoming::TextDelta(text)
+        }
+        _ => Incoming::Ignored,
     }
 }
 
@@ -306,6 +330,52 @@ mod tests {
         ] {
             assert_eq!(parse(line), Incoming::Ignored, "{line}");
         }
+    }
+
+    #[test]
+    fn only_the_sessions_own_text_deltas_are_shown() {
+        let delta = |parent: &str, event: &str| {
+            parse(&format!(
+                r#"{{"type":"stream_event","session_id":"x","parent_tool_use_id":{parent},"event":{event}}}"#
+            ))
+        };
+        let text = r#"{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hel"}}"#;
+        let lines = [
+            delta("null", text),
+            delta(r#""t0""#, text),
+            delta("null", r#"{"type":"message_start","message":{}}"#),
+            delta(
+                "null",
+                r#"{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#,
+            ),
+            delta(
+                "null",
+                r#"{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"a"}}"#,
+            ),
+            delta(
+                "null",
+                r#"{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"hm"}}"#,
+            ),
+            delta(
+                "null",
+                r#"{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":""}}"#,
+            ),
+            delta("null", r#"{"type":"message_stop"}"#),
+        ];
+        insta::assert_debug_snapshot!(lines, @r#"
+        [
+            TextDelta(
+                "Hel",
+            ),
+            Ignored,
+            Ignored,
+            Ignored,
+            Ignored,
+            Ignored,
+            Ignored,
+            Ignored,
+        ]
+        "#);
     }
 
     #[test]

@@ -12,6 +12,7 @@ the CLI version at start and has contract tests on recorded sessions.
 ```
 claude -p
   --input-format stream-json --output-format stream-json --verbose
+  --include-partial-messages
   --permission-prompt-tool stdio
   --permission-mode default
   --setting-sources user            # user,project,local once the project is trusted in Ovra
@@ -29,9 +30,10 @@ claude -p
   Ovra never reads or passes credentials.
 - `-p` skips Claude Code's workspace trust dialog, hence `--setting-sources
   user` until the person trusts the project in Ovra.
-- `--include-partial-messages` is left out until the protocol has a message
-  for partial text; `--model` and `--max-budget-usd` until a session carries
-  them.
+- `--include-partial-messages` (after `--verbose`) adds `stream_event`
+  lines; the spike on 2.1.331, the lowest version Ovra runs, saw them, so the
+  flag is always passed. `--model` and `--max-budget-usd` are left out until
+  a session carries them.
 - Before starting, `claude --version` must be at least 2.1.331 and below
   3.0.0 (`crates/agent-runtime/src/launch.rs`).
 
@@ -59,7 +61,7 @@ Closing stdin ends the session after the current turn.
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `control_response`                          | reply to our `initialize` (lists commands, agents, models)                                                                                                                                                                           |
 | `system`, `subtype: init`                   | session id, cwd, tools, MCP servers, model; status `working`                                                                                                                                                                         |
-| `stream_event`                              | partial content (`--include-partial-messages`): text and tool input deltas, for live rendering                                                                                                                                       |
+| `stream_event`                              | partial content: a `content_block_delta` with a `text_delta` of the session's own message → `agents.text_delta`, shown until the `assistant` message and never kept; other deltas are ignored                                        |
 | `assistant`                                 | complete message; `content[]` of `text`, `thinking`, `tool_use` → `AgentMessage::AssistantText` / `ToolUse`                                                                                                                          |
 | `user`                                      | `content[]` of `tool_result` → `AgentMessage::ToolResult`                                                                                                                                                                            |
 | `control_request`, `subtype: can_use_tool`  | `tool_name`, `input`, `description`, `permission_suggestions`, `request_id` → `AgentHost::ask`, then answer on stdin                                                                                                                 |

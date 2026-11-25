@@ -223,6 +223,7 @@ async function resumeTurn(dir: string, id: string, prompt: string): Promise<{ in
     "--output-format",
     "stream-json",
     "--verbose",
+    "--include-partial-messages",
     "--permission-prompt-tool",
     "stdio",
     "--permission-mode",

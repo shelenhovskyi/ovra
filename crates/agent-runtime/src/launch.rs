@@ -138,6 +138,9 @@ pub(crate) fn args(
         "--output-format",
         "stream-json",
         "--verbose",
+        // Text deltas as `stream_event` lines, so the UI shows text as it
+        // is written (every version the range in `detect.rs` allows has it).
+        "--include-partial-messages",
         // Every approval comes to Ovra as a `can_use_tool` control request.
         "--permission-prompt-tool",
         "stdio",
@@ -302,7 +305,7 @@ mod tests {
     #[test]
     fn the_command_line_keeps_the_safe_defaults() {
         let new = line_text(&Conversation::New("0b8e…".into()), false);
-        insta::assert_snapshot!(new, @r#"-p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio --permission-mode default --setting-sources user --strict-mcp-config --mcp-config {"mcpServers":{}} --session-id 0b8e…"#);
+        insta::assert_snapshot!(new, @r#"-p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --permission-prompt-tool stdio --permission-mode default --setting-sources user --strict-mcp-config --mcp-config {"mcpServers":{}} --session-id 0b8e…"#);
         let resume = line_text(
             &Conversation::Resume {
                 id: "abc".into(),

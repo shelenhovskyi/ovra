@@ -27,4 +27,7 @@ skills and plugins are left out. Do not edit them by hand; record again.
 
 `src/bin/fake-claude.rs` (feature `fake-claude`, built by `just
 build-headless`) plays a fixture as a stand-in `claude` executable, so e2e
-tests (`tests/e2e/specs/claude-driver.spec.ts`) run the real driver.
+tests (`tests/e2e/specs/claude-driver.spec.ts`) run the real driver. The
+fixtures were recorded without `--include-partial-messages`, so it writes a
+`stream_event` text delta per word before each `assistant` text of a
+fixture that has none of its own.
