@@ -28,15 +28,16 @@ fn main() {
                 .is_some_and(|(file, sid)| icacls(file, sid)),
             "delete" => delete(path),
             // `selfloop <anything>`: listen on 127.0.0.1 and connect to it.
-            "selfloop" => std::net::TcpListener::bind("127.0.0.1:0")
-                .and_then(|l| l.local_addr())
-                .is_ok_and(|address| {
-                    std::net::TcpStream::connect_timeout(
-                        &address,
-                        std::time::Duration::from_secs(2),
-                    )
-                    .is_ok()
-                }),
+            "selfloop" => match std::net::TcpListener::bind("127.0.0.1:0").and_then(|l| {
+                let address = l.local_addr()?;
+                std::net::TcpStream::connect_timeout(&address, std::time::Duration::from_secs(2))
+            }) {
+                Ok(_) => true,
+                Err(e) => {
+                    println!("selfloop error: {e} ({:?})", e.raw_os_error());
+                    false
+                }
+            },
             _ => false,
         };
         println!("{what} {path}: {}", if worked { "yes" } else { "no" });
