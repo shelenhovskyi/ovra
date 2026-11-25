@@ -9,7 +9,7 @@ import { untrack } from "svelte";
 import type { ProjectConfigReview } from "../../lib/protocol";
 import { CoreError } from "../../lib/transport";
 import { useOvra } from "../../shell/context";
-import { changes, KIND_LABELS, runsCode, weight } from "./texts";
+import { changes, KIND_LABELS, runsCode, touchesConfig, weight } from "./texts";
 
 const { transport, workspace } = useOvra();
 
@@ -52,11 +52,16 @@ $effect(() => {
   });
 });
 
-// A session start is when changed settings matter: check again then.
+// Check again when changed settings matter (a session starts) and when they
+// may have changed: a review was decided, or files under .claude/ changed.
 $effect(() =>
   transport.onEvent((event) => {
-    if (event.type !== "agents.status" || event.data.status.state !== "starting") return;
-    if (event.data.project === project?.id) void load(event.data.project);
+    const id = project?.id;
+    const matters =
+      (event.type === "agents.status" && event.data.status.state === "starting") ||
+      event.type === "review.changed" ||
+      (event.type === "fs.changed" && touchesConfig(event.data.paths));
+    if (matters && id && event.data.project === id) void load(id);
   }),
 );
 

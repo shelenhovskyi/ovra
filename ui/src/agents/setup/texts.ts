@@ -87,6 +87,11 @@ export function advice(setup: AgentSetup): SetupAdvice {
   }
 }
 
+/** Whether a change to these project paths may change what trusting the project loads. */
+export function touchesConfig(paths: string[]): boolean {
+  return paths.some((path) => path === ".claude" || path.startsWith(".claude/"));
+}
+
 /** Headings of the configuration a trusted project loads. */
 export const KIND_LABELS: Record<ConfigKind, string> = {
   hooks: "Hooks: commands that run on agent events",

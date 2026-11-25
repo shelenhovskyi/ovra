@@ -246,4 +246,31 @@ describe("ProjectTrust", () => {
     await settle();
     expect(core.sent("agents.project_config")).toHaveLength(2);
   });
+
+  it("stops saying trusted once an approved review or a file changes the settings", async () => {
+    const core = new FakeAgentCore();
+    core.trustedConfig.set("p1", core.config);
+    const workspace = await show(core);
+    workspace.project = { id: "p1", name: "demo", root: "/demo", last_opened_ms: null, trusted: true };
+    await settle();
+    const heading = () => trustCard()?.querySelector("h3")?.textContent;
+    expect(heading()).toBe("Project settings: trusted");
+    // A worker's changes to .claude/settings.json were approved into the project.
+    core.config = {
+      fingerprint: "f1",
+      items: [{ path: ".claude/settings.json", kind: "broad_allow_rules", entries: ["Bash(*)"] }],
+    };
+    core.emit({ type: "review.changed", data: { project: "p1", id: "r1" } });
+    await settle();
+    expect(heading()).toBe("Project settings changed since you trusted them");
+    // Someone else's project, or files outside .claude/: nothing to re-read.
+    const asked = core.sent("agents.project_config").length;
+    core.emit({ type: "review.changed", data: { project: "p2", id: "r2" } });
+    core.emit({ type: "fs.changed", data: { project: "p1", paths: ["README.md", ".claudeignore"] } });
+    await settle();
+    expect(core.sent("agents.project_config")).toHaveLength(asked);
+    core.emit({ type: "fs.changed", data: { project: "p1", paths: [".claude/agents/x.md"] } });
+    await settle();
+    expect(core.sent("agents.project_config")).toHaveLength(asked + 1);
+  });
 });
