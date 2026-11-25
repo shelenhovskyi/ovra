@@ -146,7 +146,10 @@ fn cache_dir(caches: &Path, spec: &ServerSpec) -> Result<PathBuf> {
 
 /// A name a cache folder can have: one plain path segment.
 fn plain(name: &str) -> bool {
-    !name.is_empty() && name != "." && name != ".." && !name.contains(['/', '\\'])
+    // Letters, digits and `-_.+` only: no separator, and no `C:` that
+    // would make `join` leave the caches folder on Windows.
+    let allowed = |c: char| c.is_ascii_alphanumeric() || "-_.+".contains(c);
+    !name.is_empty() && name != "." && name != ".." && name.chars().all(allowed)
 }
 
 /// Makes `path` a folder of its own: kept if it is one, else whatever is
@@ -208,6 +211,19 @@ fn line(def: &ServerDef, program: PathBuf, root: &Path, cache: &Path) -> Command
         args: def.args.iter().map(OsString::from).collect(),
         env,
         cwd: root.to_path_buf(),
+    }
+}
+
+#[cfg(test)]
+mod plain_tests {
+    #[test]
+    fn only_plain_names_become_cache_folders() {
+        for bad in ["", ".", "..", "a/b", "a\\b", "C:", "c:x", "a b"] {
+            assert!(!super::plain(bad), "{bad}");
+        }
+        for good in ["p1", "rust", "c++", "9f2c_a-b.c"] {
+            assert!(super::plain(good), "{good}");
+        }
     }
 }
 
