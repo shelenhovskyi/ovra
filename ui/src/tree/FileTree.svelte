@@ -8,23 +8,38 @@ import { registerCommand } from "../keys/commands";
 import type { GitStatus, ProjectId } from "../lib/protocol";
 import type { Transport } from "../lib/transport";
 import Icon from "../shell/Icon.svelte";
+import type { MainMode } from "../shell/workspace.svelte";
+import { FileActions } from "./actions.svelte";
+import { registerFileCommands } from "./commands";
 import { ancestorsOf, type Filter, parentOf, type Row, TreeModel, typeaheadMatch, visibleRange } from "./model";
+import NameInput from "./NameInput.svelte";
+import { baseName, keyAction, stemRange } from "./ops";
 import { ExpandedSaver, loadExpanded } from "./persist";
+import TrashConfirm from "./TrashConfirm.svelte";
 import WatchLimitNotice from "./WatchLimitNotice.svelte";
 
 let {
   transport,
   project,
+  root = "",
   openPath = null,
   onopen,
   onreveal,
+  onmoved,
+  ontrashed,
 }: {
   transport: Transport;
   project: ProjectId;
+  /** The project folder on disk, for Copy Path. */
+  root?: string;
   openPath?: string | null;
-  onopen: (path: string) => void;
+  /** Opens a file; a file the person just made opens in `"edit"`. */
+  onopen: (path: string, mode?: MainMode) => void;
   /** Before a reveal: make the tree visible (the sidebar may show another view). */
   onreveal?: () => void;
+  /** A file or folder was renamed or moved by the person. */
+  onmoved?: (from: string, to: string) => void;
+  ontrashed?: (paths: string[]) => void;
 } = $props();
 
 const ROW_HEIGHT = 28;
@@ -62,6 +77,19 @@ const model = new TreeModel(
   () => update(model.rows),
 );
 let saver: ExpandedSaver | null = null;
+
+// svelte-ignore state_referenced_locally
+const actions = new FileActions({
+  transport,
+  project,
+  model,
+  root: () => root,
+  selected: () => current,
+  select: selectPath,
+  open: (path) => onopen(path, "edit"),
+  moved: (from, to) => onmoved?.(from, to),
+  trashed: (paths) => ontrashed?.(paths),
+});
 
 /** Takes new rows, keeping the selection and the rows under the user's eyes in place. */
 function update(next: Row[]): void {
@@ -147,6 +175,7 @@ $effect(() => {
       title: "Go to previous changed file in the tree",
       run: () => nextChange(-1),
     }),
+    registerFileCommands(actions, activeRow, () => onreveal?.()),
   ];
   return () => {
     off();
@@ -201,7 +230,23 @@ function describe(row: Row): string {
   return parts.join(", ");
 }
 
+/** The active row, unless it is the draft of a new entry. */
+function activeRow(): Row | null {
+  const row = rows[activeIndex];
+  return row && !row.draft ? row : null;
+}
+
+/** Selects the row at `path` (or nothing) and gives focus back to the tree. */
+function selectPath(path: string | null): void {
+  const index = path === null ? -1 : rows.findIndex((r) => r.path === path);
+  if (index >= 0) select(index);
+  else selected = path;
+  lost = null;
+  viewport?.focus();
+}
+
 function activate(row: Row): void {
+  if (row.draft) return;
   selected = row.path;
   lost = null;
   viewport?.focus(); // a click focuses the row itself; focus belongs on the tree
@@ -280,6 +325,13 @@ function onkeydown(e: KeyboardEvent): void {
   const index = activeIndex;
   const row = rows[index];
   const page = Math.max(1, Math.floor(height / ROW_HEIGHT) - 1);
+  const action = row && !row.draft ? keyAction(e) : null;
+  if (action === "rename" && row) actions.startRename(row.path);
+  else if (action === "trash" && row) actions.askTrash(row.path);
+  if (action) {
+    e.preventDefault();
+    return;
+  }
   switch (e.key) {
     case "ArrowDown":
       select(index < 0 ? 0 : Math.min(rows.length - 1, index + 1));
@@ -340,6 +392,14 @@ function onkeydown(e: KeyboardEvent): void {
     </button>
   </div>
   <WatchLimitNotice {unwatched} />
+  {#if actions.confirming !== null}
+    <TrashConfirm
+      name={baseName(actions.confirming)}
+      onconfirm={() => void actions.confirmTrash()}
+      oncancel={() => actions.cancelTrash()}
+    />
+  {/if}
+  {#if actions.notice}<p class="note error" role="alert">{actions.notice}</p>{/if}
   <div
     class="viewport"
     role="tree"
@@ -372,7 +432,7 @@ function onkeydown(e: KeyboardEvent): void {
             class:selected={index === activeIndex}
             class:ignored={row.ignored}
             role="treeitem"
-            aria-label={row.name}
+            aria-label={row.draft ? (row.kind === "dir" ? "New folder" : "New file") : row.name}
             tabindex="-1"
             aria-describedby={describe(row) ? `${rowId(index)}-d` : undefined}
             aria-level={row.depth + 1}
@@ -391,7 +451,19 @@ function onkeydown(e: KeyboardEvent): void {
             <span class="twisty" aria-hidden="true"
               >{#if row.kind === "dir"}<Icon name={row.expanded ? "chevron" : "chevron-right"} small />{/if}</span
             >
-            <span class="name git-{row.git ?? 'clean'}">{row.name}</span>
+            {#if row.draft || (actions.edit?.kind === "rename" && actions.edit.path === row.path)}
+              <NameInput
+                value={row.name}
+                range={stemRange(row.name, row.kind === "dir")}
+                problem={actions.problem}
+                label={row.draft ? (row.kind === "dir" ? "Folder name" : "File name") : "New name"}
+                oncheck={(name) => actions.check(name)}
+                oncommit={(name, blur) => void actions.commit(name, blur)}
+                oncancel={() => actions.cancel()}
+              />
+            {:else}
+              <span class="name git-{row.git ?? 'clean'}">{row.name}</span>
+            {/if}
             {#if row.loading}<span class="hint" aria-hidden="true">…</span>{/if}
             {#if row.failed}<span class="failed" aria-hidden="true">!</span>{/if}
             {#if describe(row)}<span id="{rowId(index)}-d" class="visually-hidden">{describe(row)}</span>{/if}
