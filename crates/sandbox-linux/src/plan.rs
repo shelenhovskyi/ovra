@@ -413,6 +413,9 @@ impl Plan {
             self.claude_back(home, work_dir);
         }
         if self.kind == Kind::Browser {
+            // The system's programs only; an empty `PATH` would search
+            // the working folder, which the browser writes.
+            self.path = "/usr/bin:/bin".into();
             return;
         }
         self.home_read(setup, home, shown);

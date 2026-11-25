@@ -125,6 +125,8 @@ impl ChromiumBrowser {
         let dir = profile_dir(&std::env::temp_dir())?;
         // The core passes a placeholder: the browser's folder is its work dir.
         profile.work_dir.clone_from(&dir);
+        // Whatever the caller said: a browser gets none of the person's state.
+        profile.kind = ovra_core::services::ProfileKind::Browser;
         let launched = match launcher.launch(&profile, &dir) {
             Ok(launched) => launched,
             Err(e) => {
