@@ -659,6 +659,11 @@ function workerCopy(session: SessionId): string {
   .more {
     margin: 0 0 8px;
   }
+  /* A 24 px target that does not make the heading row (and so the column
+     above the request) taller: the request's details stay in sight. */
+  .toggle {
+    margin-block: -3px;
+  }
   .count {
     color: #ffd36b;
   }
