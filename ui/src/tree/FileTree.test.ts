@@ -24,7 +24,7 @@ async function settle(): Promise<void> {
   // A few rounds: restored folders load level by level as their rows appear.
   for (let i = 0; i < 3; i++) {
     flushSync();
-    await new Promise((resolve) => setTimeout(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
   }
   flushSync();
 }

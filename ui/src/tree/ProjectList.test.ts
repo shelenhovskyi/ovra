@@ -14,7 +14,7 @@ afterEach(() => {
 
 async function settle(): Promise<void> {
   flushSync();
-  await new Promise((resolve) => setTimeout(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
   flushSync();
 }
 
