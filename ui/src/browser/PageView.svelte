@@ -25,6 +25,7 @@ const picks = browserPicks(transport);
 // The pane mounts a new view for every page.
 // svelte-ignore state_referenced_locally
 const picker = new Picker(transport, page.id);
+$effect(() => () => picker.stop());
 
 let stage = $state<HTMLElement>();
 let canvas = $state<HTMLCanvasElement>();

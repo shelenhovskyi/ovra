@@ -252,6 +252,17 @@ describe("the agent browser", () => {
     expect(button("Pick")?.getAttribute("aria-pressed")).toBe("false");
   });
 
+  it("stops hit tests when the pane hides in pick mode", async () => {
+    const core = await setup();
+    button("Pick")?.click();
+    mouse("mousemove", 320, 300);
+    mouse("mousemove", 330, 300);
+    button("Hide")?.click();
+    await settle();
+    await vi.advanceTimersByTimeAsync(200);
+    expect(core.sent("browser.pick")).toHaveLength(1);
+  });
+
   it("asks the person before an agent opens another origin", async () => {
     const core = await setup();
     button("Hide")?.click();
