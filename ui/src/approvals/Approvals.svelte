@@ -23,12 +23,13 @@ import { sandboxGaps, sandboxState } from "../agents/sandbox";
 import { agentSessions } from "../agents/sessions.svelte";
 import { claudeAccounts } from "../agents/setup/claude-accounts.svelte";
 import { listCommands, registerCommand } from "../keys/commands";
+import { formatShortcut, inBrowserTab, isApple, liveKeys } from "../keys/shortcut";
 import type { Decision, PermissionId, PermissionRequest, Project, ProjectId, SessionId } from "../lib/protocol";
 import { useOvra } from "../shell/context";
 import { typed } from "../shell/menu";
 import { cardBody } from "./body";
 import { describeTool } from "./describe";
-import { ARM_MS, approvalQueue } from "./queue.svelte";
+import { ARM_MS, approvalQueue, HOLD_MS } from "./queue.svelte";
 import { pathScopes, sameFolder } from "./scope";
 
 const { transport, workspace } = useOvra();
@@ -41,8 +42,18 @@ let now = $state(Date.now());
 let quietFrom = $state(0);
 /** A key answered and has not been released yet. */
 let keyHeld = $state(false);
-/** The last request was answered by key: focus goes back where it was once that key is up, so a held key types nothing there. */
-let giveBack = false;
+/**
+ * The last request was answered by key: focus goes back where it was once
+ * that key is up ("now"), so a held key types nothing there; to a text field
+ * only HOLD_MS later and only while nothing waits ("later"), so the next Y
+ * is not typed into it.
+ */
+let giveBack: "now" | "later" | null = null;
+let holdTimer: ReturnType<typeof setTimeout> | undefined;
+/** When the last answer went out, `Date.now()`: Y and N stay out of text fields for HOLD_MS. */
+let answeredAt = -Infinity;
+/** The pointer, not the keyboard, put focus on a card: the window is not dimmed for it. */
+let pointed = $state(false);
 let denying = $state<string | null>(null);
 let note = $state("");
 let list = $state<HTMLElement>();
@@ -79,6 +90,9 @@ const allowable = (id: PermissionId): boolean => armed(id) && seen.has(id) && he
 /** Said to screen readers only: the Allow button's fill shows the wait. */
 const EARLY = "Ready in a moment — read the request first.";
 const UNSEEN = "Scrolled to the request: read it, then allow.";
+/** Y or N pressed for a request that arrived after the last answer, before anyone read it. */
+const newFirst = (): string =>
+  `New request: press ${formatShortcut(liveKeys("Mod+Shift+A", inBrowserTab()), isApple())} to read it first.`;
 /** In sight: most of it (a clipped last line still counts), or this many pixels of a taller one. */
 const SEEN_RATIO = 0.75;
 const SEEN_PX = 120;
@@ -158,10 +172,9 @@ $effect(() => {
     // The next card arms ARM_MS after the key that answered comes up.
     if (keyHeld) quiet();
     keyHeld = false;
-    if (giveBack) {
-      giveBack = false;
-      if (document.activeElement === heading) leave();
-    }
+    if (giveBack === "now" && document.activeElement === heading) leave();
+    else if (giveBack === "later") holdThenLeave();
+    giveBack = null;
   };
   window.addEventListener("keyup", release);
   // A key released in another window sends no keyup here; held keys only repeat, which is ignored.
@@ -169,8 +182,37 @@ $effect(() => {
   return () => {
     window.removeEventListener("keyup", release);
     window.removeEventListener("blur", release);
+    clearTimeout(holdTimer);
   };
 });
+
+/** Y or N typed into a text field just after an answer was meant for a request: never typed. */
+$effect(() => {
+  const guard = (event: KeyboardEvent) => {
+    if (Date.now() - answeredAt >= HOLD_MS || !isTextField(event.target) || section?.contains(event.target)) return;
+    const letter = typed(event);
+    if (letter !== "y" && letter !== "n") return;
+    event.preventDefault();
+    if (queue.pending.length > 0) notice = newFirst();
+  };
+  window.addEventListener("keydown", guard, true);
+  return () => window.removeEventListener("keydown", guard, true);
+});
+
+function isTextField(target: EventTarget | null): target is HTMLElement {
+  if (target instanceof HTMLTextAreaElement) return true;
+  if (target instanceof HTMLInputElement)
+    return !["button", "checkbox", "radio", "submit", "reset"].includes(target.type);
+  return target instanceof HTMLElement && target.isContentEditable;
+}
+
+/** Focus waits on the heading HOLD_MS more, then goes back unless a request came meanwhile. */
+function holdThenLeave(): void {
+  clearTimeout(holdTimer);
+  holdTimer = setTimeout(() => {
+    if (document.activeElement === heading && queue.pending.length === 0) leave();
+  }, HOLD_MS);
+}
 
 // Project names and folders for the cards.
 $effect(() => {
@@ -236,6 +278,8 @@ async function unfoldAgents(): Promise<void> {
 
 async function enter(): Promise<void> {
   remember();
+  pointed = false;
+  notice = "";
   await unfoldAgents();
   if (queue.hidden) await show();
   const first = cards()[0];
@@ -275,6 +319,10 @@ function expand(id: PermissionId): void {
 }
 
 function leave(): void {
+  clearTimeout(holdTimer);
+  giveBack = null;
+  // What the heading said was about this visit.
+  notice = "";
   if (returnTo?.isConnected) returnTo.focus();
   else if (document.activeElement instanceof HTMLElement && section?.contains(document.activeElement))
     document.activeElement.blur();
@@ -316,6 +364,7 @@ async function answer(
   quiet();
   const sent = await queue.answer(request.id, decision, message);
   if (!sent) return;
+  answeredAt = Date.now();
   hints.mark("answered");
   if (denying === request.id) {
     denying = null;
@@ -330,12 +379,16 @@ async function answer(
   // empty section does not stay over the agents; after a key, only once
   // that key is up. Without a place to go back to, keys stay on the
   // heading. A request that arrives later is never focused on its own:
-  // typing must not land on it.
+  // typing must not land on it. Nor in a text field: the next Y would be
+  // typed there, so focus waits on the heading a moment longer.
   else if (byPointer) leave();
   else {
     heading?.focus();
     if (!returnTo?.isConnected) return;
-    if (keyHeld) giveBack = true;
+    if (isTextField(returnTo)) {
+      if (keyHeld) giveBack = "later";
+      else holdThenLeave();
+    } else if (keyHeld) giveBack = "now";
     else leave();
   }
 }
@@ -426,7 +479,11 @@ function onKeydown(event: KeyboardEvent, request: PermissionRequest): void {
         } else answerByKey(event, request, "deny");
         return true;
       case "ArrowDown":
-        if (at === all.length - 1 && more > 0) void showMore().then(() => cards()[at + 1]?.focus());
+        if (at === all.length - 1 && more > 0)
+          void showMore().then(() => {
+            const next = cards()[at + 1];
+            if (next) void bringUp(next);
+          });
         else all[Math.min(at + 1, all.length - 1)]?.focus();
         return true;
       case "ArrowUp":
@@ -589,12 +646,17 @@ function verbAndObject(tool: string, action: string): { verb: string; object: st
 <!-- Nothing to say: the section takes no space and is out of sight (screen
      readers still find it). Focus in it (the shortcut, the last answer) shows
      it over the agents, so nothing below moves when focus leaves again.
-     While a request has focus, a scrim dims the rest of the window. -->
+     While a request has focus from the keyboard, a scrim dims the rest of
+     the window; the pointer and key listeners only note which one it was. -->
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <section
   class="approvals"
   class:idle
   class:collapsed={queue.hidden}
+  class:keyed={!pointed}
   bind:this={section}
+  onpointerdown={() => (pointed = true)}
+  onkeydown={() => (pointed = false)}
   aria-labelledby="approvals-heading"
   data-testid="approvals"
 >
@@ -606,10 +668,15 @@ function verbAndObject(tool: string, action: string): { verb: string; object: st
     tabindex="-1"
     bind:this={heading}
     onkeydown={(event) => {
+      const letter = typed(event);
       if (event.code === "Escape") leave();
       else if (event.code === "ArrowDown") {
         event.preventDefault();
         cards()[0]?.focus();
+      } else if (letter === "y" || letter === "n") {
+        // Meant for a request, but none here was read: say so, answer nothing.
+        event.preventDefault();
+        if (queue.pending.length > 0) notice = newFirst();
       }
     }}
   >
@@ -832,10 +899,11 @@ function verbAndObject(tool: string, action: string): { verb: string; object: st
           class="quiet more-line"
           data-testid="approvals-more"
           onclick={async () => {
-            // The button goes away: focus moves on to the first card it showed.
+            // The button goes away: focus moves on to the first card it showed, whole under the head.
             const before = cards().length;
             await showMore();
-            cards()[before]?.focus();
+            const first = cards()[before];
+            if (first) await bringUp(first);
           }}>{more} more {more === 1 ? "request" : "requests"}</button
         >
       </li>
@@ -867,12 +935,13 @@ function verbAndObject(tool: string, action: string): { verb: string; object: st
   .collapsed .head {
     margin-bottom: 0;
   }
-  /* A request in focus is the one thing to decide: the rest of the window dims. */
-  .approvals:not(.idle):has(.card:focus-within) {
+  /* A request the keyboard reached is the one thing to decide: the rest of
+     the window dims. Not after a click, where it would look like a modal. */
+  .approvals.keyed:not(.idle):has(.card:focus-within) {
     position: relative;
     z-index: 5;
   }
-  .approvals:not(.idle):has(.card:focus-within)::before {
+  .approvals.keyed:not(.idle):has(.card:focus-within)::before {
     content: "";
     position: fixed;
     inset: 0;
@@ -968,7 +1037,8 @@ function verbAndObject(tool: string, action: string): { verb: string; object: st
   .who {
     position: sticky;
     top: 0;
-    z-index: 1;
+    /* Above the cards' own sticky answers, which scroll under it. */
+    z-index: 2;
     display: flex;
     align-items: center;
     gap: 8px;

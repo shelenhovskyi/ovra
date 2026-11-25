@@ -4,7 +4,7 @@ import { FakeAgentCore } from "../agents/fake-core";
 import { registerCommand } from "../keys/commands";
 import type { PermissionRequest } from "../lib/protocol";
 import { Workspace } from "../shell/workspace.svelte";
-import { ARM_MS } from "./queue.svelte";
+import { ARM_MS, HOLD_MS } from "./queue.svelte";
 import TestHost from "./TestHost.svelte";
 
 const bash = (id: string, command = "ls -la"): PermissionRequest => ({
@@ -311,6 +311,97 @@ describe("Approvals", () => {
     expect(document.activeElement).toBe(cards()[0]);
   });
 
+  it("after the last answer, holds focus on the heading instead of the task field", async () => {
+    const core = await setup();
+    const field = document.createElement("textarea");
+    target.append(field);
+    field.focus();
+    core.ask(bash("perm1"));
+    await settle(ARM_MS);
+    press("KeyA", { altKey: true, shiftKey: true });
+    await settle();
+    press("KeyY");
+    await settle();
+    expect(answers(core)).toEqual([{ id: "perm1", decision: "allow" }]);
+    const heading = target.querySelector("#approvals-heading");
+    expect(document.activeElement).toBe(heading);
+    // The follow-up arrives at once: Y and N on the heading answer nothing and say why.
+    core.ask(bash("perm2", "pwd"));
+    await settle(ARM_MS);
+    for (const code of ["KeyY", "KeyN"]) {
+      const down = new KeyboardEvent("keydown", {
+        code,
+        key: code.slice(3).toLowerCase(),
+        bubbles: true,
+        cancelable: true,
+      });
+      document.activeElement?.dispatchEvent(down);
+      expect(down.defaultPrevented).toBe(true);
+    }
+    await settle(2 * ARM_MS);
+    expect(answers(core)).toEqual([{ id: "perm1", decision: "allow" }]);
+    expect(document.activeElement).toBe(heading);
+    expect(target.querySelector("[data-testid=approvals-notice]")?.textContent).toBe(
+      "New request: press Alt+Shift+A to read it first.",
+    );
+    press("KeyA", { altKey: true, shiftKey: true });
+    await settle();
+    expect(document.activeElement).toBe(cards()[0]);
+  });
+
+  it("gives the task field back a moment after the key is up, when nothing new came", async () => {
+    const core = await setup();
+    const field = document.createElement("textarea");
+    target.append(field);
+    field.focus();
+    core.ask(bash("perm1"));
+    await settle(ARM_MS);
+    press("KeyA", { altKey: true, shiftKey: true });
+    await settle();
+    hold("KeyY");
+    await settle(5000);
+    expect(document.activeElement?.id).toBe("approvals-heading");
+    release("KeyY");
+    await settle(HOLD_MS - 1);
+    expect(document.activeElement?.id).toBe("approvals-heading");
+    await settle(1);
+    expect(document.activeElement).toBe(field);
+  });
+
+  it("keeps Y and N out of a text field right after an answer", async () => {
+    const core = await setup();
+    const field = document.createElement("textarea");
+    target.append(field);
+    core.ask(bash("perm1"));
+    core.ask(bash("perm2", "pwd"));
+    await settle(ARM_MS);
+    field.focus();
+    // A click that leaves focus in the field, as in WebKit.
+    cards()[0]?.querySelector<HTMLButtonElement>("button.deny")?.click();
+    await settle();
+    expect(answers(core)).toEqual([{ id: "perm1", decision: "deny" }]);
+    expect(document.activeElement).toBe(field);
+    const typeIn = (code: string) => {
+      const down = new KeyboardEvent("keydown", {
+        code,
+        key: code.slice(3).toLowerCase(),
+        bubbles: true,
+        cancelable: true,
+      });
+      field.dispatchEvent(down);
+      return down.defaultPrevented;
+    };
+    expect(typeIn("KeyN")).toBe(true);
+    expect(typeIn("KeyT")).toBe(false);
+    flushSync();
+    expect(target.querySelector("[data-testid=approvals-notice]")?.textContent).toBe(
+      "New request: press Alt+Shift+A to read it first.",
+    );
+    await settle(HOLD_MS);
+    expect(typeIn("KeyN")).toBe(false);
+    expect(answers(core)).toEqual([{ id: "perm1", decision: "deny" }]);
+  });
+
   it("ignores Y and N typed in a text field", async () => {
     const core = await setup();
     const field = document.createElement("textarea");
@@ -607,6 +698,25 @@ describe("Approvals", () => {
     press("KeyY");
     await settle();
     expect(answers(core)).toEqual([{ id: "perm1", decision: "allow" }]);
+  });
+
+  it("dims the window only for a card the keyboard reached, and shows more cards whole", async () => {
+    const core = await setup();
+    core.ask(bash("perm1"));
+    core.ask(bash("perm2", "pwd"));
+    await settle(ARM_MS);
+    const section = target.querySelector<HTMLElement>("[data-testid=approvals]");
+    const more = target.querySelector<HTMLButtonElement>("[data-testid=approvals-more]");
+    more?.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+    more?.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
+    await settle();
+    expect(document.activeElement).toBe(cards()[1]);
+    expect(section?.classList.contains("keyed")).toBe(false);
+    // From its top, under the group's head: not centred with its title cut off.
+    expect(scrolled[0]).toEqual([cards()[1], { block: "start" }]);
+    press("ArrowUp");
+    flushSync();
+    expect(section?.classList.contains("keyed")).toBe(true);
   });
 
   it("can be hidden, and opens again for the shortcut", async () => {

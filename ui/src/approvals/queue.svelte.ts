@@ -13,6 +13,13 @@ import { CoreError, type Transport } from "../lib/transport";
  */
 export const ARM_MS = 500;
 
+/**
+ * After an answer, Y and N stay out of text fields this long, and after the
+ * last one focus waits on the Approvals heading this long once the key is
+ * up: a quick second Y must not land as text, nor on a request that arrived.
+ */
+export const HOLD_MS = 1000;
+
 export class ApprovalQueue {
   /** Oldest first. */
   pending = $state<PermissionRequest[]>([]);
