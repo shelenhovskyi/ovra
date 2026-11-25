@@ -8,7 +8,7 @@
 mod answer;
 mod uris;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -30,6 +30,11 @@ const MAX_RUNNING: usize = 4;
 /// is held back, as terminal output is.
 const MAX_BACKLOG: usize = 256;
 
+/// Bytes of server messages possibly still in the event channel past which
+/// a server's output is held back too. A message's length is its JSON's;
+/// as a `serde_json::Value` it can take ~16 times that.
+const MAX_IN_FLIGHT: usize = 16 << 20;
+
 /// The longest language id a client may name.
 const MAX_LANGUAGE: usize = 40;
 
@@ -37,6 +42,11 @@ const MAX_LANGUAGE: usize = 40;
 #[derive(Debug, Default)]
 pub(crate) struct Servers {
     state: Mutex<State>,
+    /// The lengths of the last [`MAX_BACKLOG`] server messages emitted, of
+    /// every server, last last. The events in the channel are the last
+    /// `backlog` ones, so the server messages among them are at most the
+    /// last `backlog` of these.
+    emitted: Mutex<VecDeque<usize>>,
 }
 
 #[derive(Debug, Default)]
@@ -56,6 +66,17 @@ struct Entry {
 impl Servers {
     fn lock(&self) -> std::sync::MutexGuard<'_, State> {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn emitted(&self) -> std::sync::MutexGuard<'_, VecDeque<usize>> {
+        self.emitted.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Whether server messages fill the event channel: too many events,
+    /// or too many bytes in the last `backlog` server messages.
+    fn backed_up(&self, backlog: usize) -> bool {
+        backlog >= MAX_BACKLOG
+            || self.emitted().iter().rev().take(backlog).sum::<usize>() >= MAX_IN_FLIGHT
     }
 }
 
@@ -95,8 +116,8 @@ pub(crate) async fn handle(core: &Core, request: LspRequest) -> Result<Response,
     }
 }
 
-/// Stops every server of `project`: its trust was taken back, or it was
-/// removed.
+/// Stops every server of `project` and has the service forget its caches:
+/// its trust was taken back, or it was removed.
 pub(crate) fn stop_project(core: &Core, project: &ProjectId) {
     let ids: Vec<ServerId> = core
         .lsp_servers()
@@ -109,6 +130,7 @@ pub(crate) fn stop_project(core: &Core, project: &ProjectId) {
     for id in ids {
         stop(core, &id);
     }
+    core.language_servers().forget(project);
 }
 
 async fn start(
@@ -289,12 +311,13 @@ pub struct ServerHost {
 }
 
 impl ServerHost {
-    /// One message the server wrote. A request of the client is answered
-    /// here; anything else goes to the UI with its URIs rewritten.
-    pub fn message(&self, mut message: Value) {
+    /// One message the server wrote, `size` bytes long. A request of the
+    /// client is answered here; anything else goes to the UI with its URIs
+    /// rewritten.
+    pub fn message(&self, mut message: Value, size: usize) {
         #[cfg(any(test, feature = "fakes"))]
         if let Some(record) = &self.record {
-            return record.message(message);
+            return record.message(message, size);
         }
         let Some(core) = self.core.upgrade() else {
             return;
@@ -316,10 +339,16 @@ impl ServerHost {
             return;
         }
         uris::to_client(&mut message, &self.root);
+        // Held while emitting, so the lengths keep the channel's order.
+        let mut emitted = core.lsp_servers().emitted();
         core.emit(LspEvent::Message {
             server: self.server.clone(),
             message,
         });
+        emitted.push_back(size);
+        if emitted.len() > MAX_BACKLOG {
+            emitted.pop_front();
+        }
     }
 
     /// The server ended. `reason` says why if the service ended it; `code`
@@ -356,9 +385,10 @@ impl ServerHost {
         if let Some(record) = &self.record {
             return record.busy();
         }
-        self.core
-            .upgrade()
-            .is_some_and(|core| core.sink().backlog() >= MAX_BACKLOG)
+        self.core.upgrade().is_some_and(|core| {
+            let backlog = core.sink().backlog();
+            core.lsp_servers().backed_up(backlog)
+        })
     }
 }
 

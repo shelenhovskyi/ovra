@@ -88,7 +88,9 @@ under the budgets in `scripts/test-budgets.json`.
 ## UI
 
 `ui/src/git/`: a "Git" tab in the left sidebar, `Mod+Shift+G` (browser
-stand-in `Alt+Shift+G`), command "Show git changes". It shows the branch
+stand-in `Alt+Shift+G`), command "Git: open panel" (the palette also has
+"Git: stage all changes", "Git: commit", "Git: new branch…" and "Git:
+switch branch…"). It shows the branch
 (with a switch/create menu), a commit box (Mod+Enter commits, "Amend"
 checkbox), staged and unstaged/untracked lists with stage, unstage and
 discard buttons and "Stage all", and a conflicts list. Selecting a file
@@ -100,7 +102,7 @@ announcements through `aria-live`.
 of the buffer against `git.show` of the index, so unsaved edits show too;
 clicking a marker offers "Stage hunk" (saved files only) and "Revert";
 inline blame of the cursor line (author, relative time, summary) and a
-"Toggle blame" command.
+"Git: toggle blame" command.
 
 ## Risks and follow-ups
 

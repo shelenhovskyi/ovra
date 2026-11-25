@@ -66,6 +66,8 @@ core only builds profiles.
 | `work_dir` | The session's folder: its worktree, or the project root in direct mode. Readable and writable, except the protected paths (below). |
 | `read`     | More folders the agent may read but not write. A worker's main repository git folder goes here: object store, refs, packed refs.   |
 | `write`    | More folders the agent may write.                                                                                                  |
+| `expose`   | A server pod's ports (`docs/specs/servers-and-browser.md`). Non-empty makes the sandbox a pod; `network` must not be `Open`.       |
+| `forward`  | Ports of the work dir's servers the helper forwards to the netproxy as `OVRA-LOCAL <port>`. Needs `network` to be `Proxy`.         |
 | `network`  | `Blocked`, or `Proxy { address }` for the session's netproxy. `Open` exists only for platforms that cannot limit the network.      |
 
 A worker's own `<git dir>/worktrees/<name>` (its index and HEAD) stays
@@ -152,13 +154,18 @@ server's sandbox from the same parts as an agent's: the namespaces, the
 system read-only, the hidden folders and secrets, the filtered `PATH`,
 the toolchains, Landlock and seccomp through the helper. It differs in:
 
-- no agent state: nothing of `~/.claude` or `~/.claude.json`;
+- no agent state: nothing of `~/.claude` or `~/.claude.json`; a `read`
+  path inside or holding them, a never-bound folder (`~/.config`,
+  `~/.ssh`, ...) or a credentials file (`~/.netrc`, `~/.npmrc`,
+  `credentials.toml`, ...) is refused;
 - the project read-only (so no protected paths are needed) and the
   working folder; it must not hold the home folder;
 - the cache folder the only writable folder besides a private `/tmp`
   and `/dev` (Landlock's list; `/var/tmp` and the home folder are empty
   and not writable). It must be
-  inside Ovra's data folder, which is hidden, and is bound back after it;
+  inside `<data dir>/lsp` (not just any hidden folder: the temporary
+  folder holds the netproxy's sockets), which is hidden, and is bound
+  back after it;
   it must not be inside the project;
 - the user's package caches (`~/.cargo/registry`, `~/.npm`, ...) read-only
   where they are, never the per-project copies agents get;
@@ -194,6 +201,8 @@ the toolchains, Landlock and seccomp through the helper. It differs in:
   `CLAUDE.local.md` and `AGENTS.md`.
 - Code that tools run on their own: `.vscode/`, `.idea/`, `.devcontainer/`
   and `.envrc`.
+- Ovra's own project settings: `.ovra/`, whose `servers.json` holds the
+  commands a server start runs (`docs/specs/servers-and-browser.md`).
 
 Known gaps on Linux, left to the backstop below:
 
@@ -208,12 +217,15 @@ Known gaps on Linux, left to the backstop below:
 - a bind mount of the home folder outside `/mnt`, `/media`, `/sysroot` and
   `/.snapshots` (for example `/srv`) stays readable.
 
+The sandbox status lists these gaps, plus the missing protected files
+below, and the UI shows them; that list must change with this one.
+
 Ovra's own git calls (fs-index, worktree) should pass
 `--ignore-submodules=all` so a missed submodule cannot run a filter in
 them; that is a follow-up in those areas.
 
-On Linux a missing `.claude/`, `.vscode/`, `.idea/` or `.devcontainer/`
-is made as an empty folder and bound read-only, so the agent cannot
+On Linux a missing `.claude/`, `.vscode/`, `.idea/`, `.devcontainer/` or
+`.ovra/` is made as an empty folder and bound read-only, so the agent cannot
 create one for the user's own tools to load later. A helper outside the
 sandbox removes it again once the session and every process in it are
 gone, also when the session is killed; a folder that is no longer empty
@@ -230,8 +242,15 @@ Not every platform can protect a path that does not exist yet, or make a
 subtree read-only. The backstop is outside the sandbox:
 
 - the review marks any change to a protected path, and approve never
-  applies one without saying so (4.A adds this to the inbox). The marks
-  cover the `work_dir` list, in any case, and also, though the sandbox
+  applies one unless the person includes protected files
+  (`include_protected`): a worker's are otherwise left out, as in a partial
+  approve, and a direct item with one is refused. A direct item's include
+  is bound to the versions of its protected files the person saw (the
+  item's fingerprint): one changed or added since is refused. Replacing
+  the person's version with what a partial approve left (`review.take`)
+  needs the same choice. The inbox offers it only once each protected
+  file's diff has been shown. The marks cover the `work_dir` list, in any
+  case, and also, though the sandbox
   does not keep them read-only, `.envrc` and `.claude/` in any folder,
   `.husky/`, `.gitattributes` in any folder, `.gitmodules`, `.lfsconfig`,
   other agents' `.zed/`, `.cursor/`, `.gemini/` and `GEMINI.md`, and the
@@ -308,7 +327,14 @@ pub trait NetProxy: Send + Sync + Debug {
   (`docs/specs/sandbox-windows.md`). The platform's helper bridges the
   socket to a local port inside the sandbox. `wrap` sets `HTTP_PROXY` and
   `HTTPS_PROXY` to that port, clears `NO_PROXY`, and sets
-  `NODE_USE_ENV_PROXY=1` (4.A, 4.B). Until a platform sandbox exists the
+  `NODE_USE_ENV_PROXY=1` (4.A, 4.B). For each port in the profile's
+  `forward`, the same bridge also listens on `127.0.0.1:<port>` inside the
+  sandbox and opens each connection to the socket with
+  `OVRA-LOCAL <port>\r\n` (the loopback rule in
+  `docs/specs/servers-and-browser.md`). On Linux the plan refuses a port
+  the bridge needs itself (3128), port 0, a port both exposed and
+  forwarded, `forward` without a proxy, and a pod (`expose`) with an open
+  network. Until a platform sandbox exists the
   proxy runs but nothing uses it, and the session reports no sandbox.
 - **Requests.** `CONNECT host:port` for TLS, and plain `http://` requests
   in absolute form. A plain request is passed on as one request with
@@ -416,6 +442,8 @@ rules for each project:
   - A Bash `deny` rule is advisory: `env git push` or `git -C . push` gets
     past it. The boundary that holds is the sandbox plus the netproxy. The
     UI says so beside Bash deny rules.
+  - A Bash `ask` rule is advisory in the same way: the same command written
+    another way is not asked about. The UI says so beside Bash ask rules.
   - An `auto` rule runs more than its words: `npm test` runs the scripts in
     `package.json`, which the agent can edit. The UI says so beside Bash
     auto rules; the sandbox is what makes that acceptable.
@@ -430,6 +458,8 @@ rules for each project:
   - A file `deny` rule is advisory too: `Grep`, `Glob` or `cat` in Bash
     still reach the file. The boundary that holds is the sandbox's protected
     and hidden paths.
+  - A file `ask` rule is advisory the same way: Bash commands like `cat`
+    still reach the file without a question. The UI says so beside it.
 - `action` is `auto`, `ask` or `deny`.
 
 **How a call is decided.**
@@ -444,6 +474,9 @@ rules for each project:
     allow never reach `can_use_tool`.
 - An `ask` rule wins over an `auto` rule that also matches: the stricter
   rule decides.
+  - Ask is enforced in the hook too: it answers `permissionDecision: "ask"`,
+    so the CLI asks through `can_use_tool` and Ovra asks the person, even
+    for a call the user's own Claude settings allow.
 - An `auto` rule applies only when the runtime reported a sandbox for the
   session (above) whose network is not `Open`. Ovra skips the question only
   when the sandbox would contain a mistake. Otherwise `auto` counts as
@@ -459,12 +492,19 @@ rules for each project:
   asked. These are the user's settings, plus the project's
   `.claude/settings.json` when the project is trusted. Policies add a layer
   on top and replace nothing.
+  - Only `deny` and `ask` rules override those settings, through the hook.
+  - An `auto` rule never skips more than they allow: the hook leaves it to
+    the CLI, and it applies only to calls the CLI asks Ovra about.
 
 **Storage and protocol.**
 
 - A project's policy is kept by `ProjectStore`.
-- `policy.get { project }` reads it. `policy.set { project, policy }`
-  replaces it.
+- `policy.get { project }` reads it. `policy.set { project, policy,
+  expected? }` replaces it.
+  - `expected` is the policy the change was built from. When it is given
+    and the stored policy differs, `set` refuses with `conflict` and keeps
+    nothing, so a rule added elsewhere meanwhile is never dropped. The UI
+    always sends it.
 - Only the person changes a policy, through the UI. No agent tool can, and
   policies live outside every sandbox.
 - `set` refuses unknown actions, empty tool names and globs that cannot
@@ -502,24 +542,55 @@ pub enum ReviewAction { Approved, PartlyApproved, Rejected, UndoneReject, Taken,
   and a SHA-256 of the content, never the content.
 - For anything else, it records the input as JSON, cut to 4 KiB, with these
   removed first:
-  - values the secrets broker knows;
+  - values the secrets broker knows, as they are, JSON-escaped and
+    percent-encoded;
   - strings that look like tokens: `sk-`, `ghp_`, `gho_`, `github_pat_`,
     `xox`, `AKIA` and JWTs;
   - the values of `Authorization` and `Cookie` headers.
+- Tool names are agent-chosen too: they get the same treatment.
+- If the secrets' values cannot be read (a locked keychain), nothing the
+  agent wrote is kept: the input is `[redacted]`, a file tool keeps only
+  its hash, and any tool name but Claude's built-in tools (`Bash`, `Read`,
+  `WebFetch`, ...) is `[redacted]`, since an MCP tool's could hold a value.
+- Known limit: a value in another encoding (base64, hex, split across
+  strings, partly escaped) is not recognised, unless it also looks like a
+  token.
+- The core reads a project's values once and keeps them in memory until
+  its secrets change (`secrets.set`, `secrets.remove`, removing the
+  project). A project has at most one read in flight, and every decision
+  of the project waits on it until one deadline, 5 s after the read began:
+  a hung keychain costs 5 s once per read, not once per decision.
+- A read that fails, or is not done by its deadline, counts as
+  unreadable: the decisions waiting on it are recorded as above. A late
+  answer still fills the cache; until it comes, later decisions do not
+  wait. After a failed read the keychain is not asked again for 10 s.
+  A change to the project's secrets drops what is known, including a
+  failure or a hung read, so the next decision reads them again.
+- Decisions are queued when they are made and recorded by a task of their
+  own, so an agent that stops waiting loses no entry. Each project's
+  entries keep the order its decisions were made in; projects do not wait
+  for each other.
 
 **Service:**
 
 ```rust
 pub trait AuditLog: Send + Sync + Debug {
     fn append(&self, project: &ProjectId, session: Option<&SessionId>, event: AuditEvent) -> Result<AuditEntry>;
-    fn list(&self, project: &ProjectId, after: Option<u64>, limit: usize) -> Result<Vec<AuditEntry>>;
+    fn list(&self, project: &ProjectId, range: AuditRange, limit: usize) -> Result<Vec<AuditEntry>>;
 }
+pub struct AuditRange { pub after: Option<u64>, pub before: Option<u64>, pub order: AuditOrder }
+pub enum AuditOrder { OldestFirst, NewestFirst } // OldestFirst by default
 ```
 
 - **Storage.** `ovra-store` keeps it in its SQLite file (4.E). The file
   mode is 0600.
-- **Protocol.** `audit.list { project, after, limit }`, plus an
-  `audit.appended` event for live viewers.
+- **Protocol.** `audit.list { project, after, before, order, limit }`
+  returns the first `limit` entries (at most 500) with a `seq` between
+  `after` and `before`, in `order`. Plus an `audit.appended` event for
+  live viewers.
+- **Viewer.** It opens on the newest page (`newest_first`) and reads the
+  page before the oldest shown (`before`) when the person asks for older
+  entries, so a long log is never read whole.
 - **No edits.** The log is only appended to. No method deletes or edits an
   entry, and removing a project keeps its entries.
 - **4.0 versus 4.E.** 4.0 defines the trait and the schema, with an

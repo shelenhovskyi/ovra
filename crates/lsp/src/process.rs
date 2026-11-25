@@ -147,11 +147,11 @@ pub(crate) async fn read(
             return Ok(());
         }
         decoder.push(&buf[..n]);
-        while let Some(message) = decoder.next()? {
+        while let Some((message, size)) = decoder.next()? {
             while host.busy() {
                 tokio::time::sleep(BUSY_POLL).await;
             }
-            host.message(message);
+            host.message(message, size);
         }
     }
 }
@@ -323,6 +323,8 @@ mod tests {
         let read = read(output, host).await;
         assert_eq!(read, Err("the server wrote a bad header".into()));
         assert_eq!(record.messages(), [json!({"id": 1})]);
+        // The host learns each message's length from its header.
+        assert_eq!(record.sizes(), [8]);
     }
 
     #[test]

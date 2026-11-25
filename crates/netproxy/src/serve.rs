@@ -1,6 +1,10 @@
 //! One client connection: read the proxy request, decide it, connect, and
 //! pass bytes both ways. Plain HTTP gets one request per connection.
 
+mod loopback;
+
+pub(crate) use loopback::{Grants, grants};
+
 use std::io;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -10,6 +14,7 @@ use std::time::Duration;
 use ovra_core::netproxy::is_reachable;
 use ovra_core::services::NetReporter;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::sync::watch;
 use tokio::time::timeout;
 
 use crate::dial::{Conn, Dial, Stream};
@@ -39,6 +44,8 @@ pub(crate) struct SessionNet {
     pub(crate) reporter: NetReporter,
     /// The project's secrets, if it has any.
     pub(crate) bound: Option<Bound>,
+    /// The managed servers it may reach as `localhost:<port>`.
+    pub(crate) grants: watch::Sender<Arc<Grants>>,
 }
 
 pub(crate) async fn serve(mut client: impl Stream, shared: Arc<Shared>, session: Arc<SessionNet>) {
@@ -66,6 +73,15 @@ struct Request {
     headers: Vec<(String, Vec<u8>)>,
     /// Plain HTTP: the request body's length; nothing after it is passed on.
     body: u64,
+    /// The port, if the target is exactly `localhost[:P]` or
+    /// `127.0.0.1[:P]`, or the connection began with `OVRA-LOCAL <P>`.
+    loopback: Option<u16>,
+    /// The `Host` and `Origin` headers as sent, for the loopback rule.
+    hosts: Vec<Vec<u8>>,
+    origins: Vec<Vec<u8>>,
+    /// A WebSocket upgrade: `GET`, `Upgrade: websocket`,
+    /// `Connection: upgrade`.
+    websocket: bool,
 }
 
 impl Request {
@@ -80,8 +96,8 @@ impl Request {
 
     /// The head to send for plain HTTP: origin-form to the server itself,
     /// absolute-form to an upstream proxy. One request, then the server
-    /// closes.
-    fn head(&self, upstream: Option<&Server>) -> Vec<u8> {
+    /// closes, unless it is a WebSocket `upgrade`.
+    fn head(&self, upstream: Option<&Server>, upgrade: bool) -> Vec<u8> {
         let authority = if self.port == 80 {
             self.name()
                 .rsplit_once(':')
@@ -100,7 +116,14 @@ impl Request {
             out.extend_from_slice(value);
             out.extend_from_slice(b"\r\n");
         }
-        out.extend_from_slice(format!("Host: {authority}\r\nConnection: close\r\n").as_bytes());
+        let connection = if upgrade {
+            "Upgrade\r\nUpgrade: websocket"
+        } else {
+            "close"
+        };
+        out.extend_from_slice(
+            format!("Host: {authority}\r\nConnection: {connection}\r\n").as_bytes(),
+        );
         if let Some(auth) = upstream.and_then(|s| s.auth.as_ref()) {
             out.extend_from_slice(format!("Proxy-Authorization: {auth}\r\n").as_bytes());
         }
@@ -116,10 +139,21 @@ async fn handle(client: &mut impl Stream, shared: &Shared, session: &SessionNet)
     let Some((head, rest)) = read? else {
         return respond(client, 400, "the request head is too large or incomplete").await;
     };
-    let request = match parse(&head) {
+    // The sandbox's forwarder: a client that connected to `localhost:P`.
+    let (local, head) = match head.strip_prefix(b"OVRA-LOCAL ") {
+        None => (None, &head[..]),
+        Some(after) => match loopback::preamble(after) {
+            Some((port, head)) => (Some(port), head),
+            None => return respond(client, 400, "a bad OVRA-LOCAL line").await,
+        },
+    };
+    let request = match parse(head, local) {
         Ok(request) => request,
         Err(why) => return respond(client, 400, why).await,
     };
+    if request.loopback.is_some() && (local.is_some() || !configured(&request, session)) {
+        return loopback::serve(client, request, rest, session).await;
+    }
     let opened = open(&request, shared, session).await;
     let (mut server, early) = match opened {
         Ok(opened) => opened,
@@ -155,14 +189,35 @@ async fn handle(client: &mut impl Stream, shared: &Shared, session: &SessionNet)
         return relay(client, &mut server, IDLE_TIMEOUT).await;
     }
     let upstream = shared.upstream.server(&request.host, false);
-    server.write_all(&request.head(upstream)).await?;
-    // Exactly one body: a pipelined second request never passes, so it
-    // cannot reach a host the rules did not check.
-    let first = rest
-        .len()
-        .min(usize::try_from(request.body).unwrap_or(usize::MAX));
+    let head = request.head(upstream, false);
+    one_request(client, server, &head, &rest, request.body).await
+}
+
+/// Whether the target is an endpoint the user configured on this machine
+/// (the base list's `private_ok`), which keeps today's path.
+fn configured(request: &Request, session: &SessionNet) -> bool {
+    let verdict = session
+        .rules
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .verdict(&request.host, request.port);
+    verdict == Verdict::Allowed { private_ok: true }
+}
+
+/// Sends `head` and exactly one body of `body` bytes, the first of them
+/// in `rest`, and passes the answer back: a pipelined second request never
+/// passes, so it cannot reach a host the rules did not check.
+async fn one_request(
+    client: &mut impl Stream,
+    mut server: impl Stream,
+    head: &[u8],
+    rest: &[u8],
+    body: u64,
+) -> io::Result<()> {
+    server.write_all(head).await?;
+    let first = rest.len().min(usize::try_from(body).unwrap_or(usize::MAX));
     server.write_all(&rest[..first]).await?;
-    let remaining = request.body - first as u64;
+    let remaining = body - first as u64;
     let (from_client, mut to_client) = tokio::io::split(client);
     let (mut from_server, mut to_server) = tokio::io::split(server);
     let mut body_in = from_client.take(remaining);
@@ -193,7 +248,7 @@ pub(crate) async fn idle(moved: &AtomicBool, period: Duration) {
 
 /// Passes bytes both ways until either side closes or nothing moves for
 /// `idle`.
-async fn relay(a: &mut impl Stream, b: &mut Conn, period: Duration) -> io::Result<()> {
+async fn relay(a: &mut impl Stream, b: &mut impl Stream, period: Duration) -> io::Result<()> {
     let (mut a_read, mut a_write) = tokio::io::split(a);
     let (mut b_read, mut b_write) = tokio::io::split(b);
     let moved = AtomicBool::new(false);
@@ -278,7 +333,9 @@ const HOP: [&str; 7] = [
     "content-length",
 ];
 
-fn parse(head: &[u8]) -> Result<Request, &'static str> {
+/// `local`: the port an `OVRA-LOCAL` line named; the request is then in
+/// origin-form, for `localhost:<local>`.
+fn parse(head: &[u8], local: Option<u16>) -> Result<Request, &'static str> {
     let mut headers = [httparse::EMPTY_HEADER; MAX_HEADERS];
     let mut parsed = httparse::Request::new(&mut headers);
     match parsed.parse(head) {
@@ -318,6 +375,18 @@ fn parse(head: &[u8]) -> Result<Request, &'static str> {
         }
     }
     let body = body.unwrap_or(0);
+    let all = |name: &str| -> Vec<Vec<u8>> {
+        parsed
+            .headers
+            .iter()
+            .filter(|h| h.name.eq_ignore_ascii_case(name))
+            .map(|h| h.value.to_vec())
+            .collect()
+    };
+    let (hosts, origins) = (all("host"), all("origin"));
+    let websocket = method == "GET"
+        && named.iter().any(|n| n == "upgrade")
+        && matches!(all("upgrade").as_slice(), [one] if one.trim_ascii().eq_ignore_ascii_case(b"websocket"));
     let mut headers: Vec<(String, Vec<u8>)> = parsed
         .headers
         .iter()
@@ -330,18 +399,59 @@ fn parse(head: &[u8]) -> Result<Request, &'static str> {
     if body > 0 {
         headers.push(("Content-Length".to_owned(), body.to_string().into_bytes()));
     }
+    let request = |connect, host, port, target, headers, body, loopback| Request {
+        connect,
+        host,
+        port,
+        method: method.to_owned(),
+        target,
+        version,
+        headers,
+        body,
+        loopback,
+        hosts: hosts.clone(),
+        origins: origins.clone(),
+        websocket,
+    };
+    if let Some(port) = local {
+        let host = "localhost".to_owned();
+        if method == "CONNECT" {
+            return Ok(request(
+                true,
+                host,
+                port,
+                String::new(),
+                Vec::new(),
+                0,
+                local,
+            ));
+        }
+        if !target.starts_with('/') {
+            return Err("after OVRA-LOCAL, send an origin-form request");
+        }
+        return Ok(request(
+            false,
+            host,
+            port,
+            target.to_owned(),
+            headers,
+            body,
+            local,
+        ));
+    }
     if method == "CONNECT" {
         let (host, port) = crate::url::host_port(target).ok_or("CONNECT needs host:port")?;
-        return Ok(Request {
-            connect: true,
+        let port = port.ok_or("CONNECT needs host:port")?;
+        let loopback = loopback::authority(target).filter(|p| *p == port);
+        return Ok(request(
+            true,
             host,
-            port: port.ok_or("CONNECT needs host:port")?,
-            method: method.to_owned(),
-            target: String::new(),
-            version,
-            headers: Vec::new(),
-            body: 0,
-        });
+            port,
+            String::new(),
+            Vec::new(),
+            0,
+            loopback,
+        ));
     }
     let lower = target.to_ascii_lowercase();
     if lower.starts_with("https://") {
@@ -361,16 +471,16 @@ fn parse(head: &[u8]) -> Result<Request, &'static str> {
         Some('/') => path.to_owned(),
         _ => format!("/{path}"),
     };
-    Ok(Request {
-        connect: false,
+    let loopback = loopback::authority(authority);
+    Ok(request(
+        false,
         host,
-        port: port.unwrap_or(80),
-        method: method.to_owned(),
-        target: path,
-        version,
+        port.unwrap_or(80),
+        path,
         headers,
         body,
-    })
+        loopback,
+    ))
 }
 
 /// Decides the request and connects: to the server, or through the

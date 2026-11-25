@@ -17,9 +17,11 @@ use crate::protocol::projects::{
 use crate::protocol::terminals::{TerminalsRequest, TerminalsResponse};
 use crate::protocol::{ErrorCode, Event, OkResponse, ProtocolError, Request, Response};
 use crate::search::{self, Searches};
+use crate::servers::DevServerState;
 use crate::services::{
-    AgentRuntime, AuditLog, EventSink, FsService, GitService, IdeTools, LanguageServers, NetProxy,
-    Opener, ProjectStore, Secrets, SessionStore, TerminalService, Unavailable, Worktrees,
+    AgentRuntime, AuditLog, DevServers, EventSink, FsService, GitService, IdeTools,
+    LanguageServers, NetProxy, Opener, ProjectStore, Secrets, SessionStore, TerminalService,
+    Unavailable, Worktrees,
 };
 
 const EVENT_CAPACITY: usize = 1024;
@@ -42,6 +44,7 @@ pub struct CoreBuilder {
     audit: Arc<dyn AuditLog>,
     netproxy: Option<Arc<dyn NetProxy>>,
     lsp: Arc<dyn LanguageServers>,
+    dev_servers: Arc<dyn DevServers>,
 }
 
 impl CoreBuilder {
@@ -126,6 +129,12 @@ impl CoreBuilder {
         self
     }
 
+    /// Runs the projects' dev servers in sandbox pods (ADR 0008).
+    pub fn dev_servers(mut self, servers: Arc<dyn DevServers>) -> Self {
+        self.dev_servers = servers;
+        self
+    }
+
     pub fn build(self) -> Core {
         let (events, _) = broadcast::channel(EVENT_CAPACITY);
         let kept = self.sessions.clone();
@@ -137,6 +146,7 @@ impl CoreBuilder {
                 opener: self.opener,
                 terminals: self.terminals,
                 agents: self.agents,
+                dev_servers: DevServerState::new(self.dev_servers, self.netproxy.clone()),
                 sessions: Arc::new(Sessions::new(
                     self.sessions,
                     self.worktrees.clone(),
@@ -153,6 +163,7 @@ impl CoreBuilder {
                 audit: self.audit,
                 lsp: self.lsp,
                 lsp_servers: crate::lsp::Servers::default(),
+                audit_state: crate::audit::State::default(),
             }),
             events,
         };
@@ -195,6 +206,8 @@ struct Inner {
     audit: Arc<dyn AuditLog>,
     lsp: Arc<dyn LanguageServers>,
     lsp_servers: crate::lsp::Servers,
+    audit_state: crate::audit::State,
+    dev_servers: DevServerState,
 }
 
 /// A [`Core`] that does not keep it alive; sessions hold one so their IDE
@@ -272,6 +285,7 @@ impl Core {
             audit: Arc::new(Unavailable("the audit log")),
             netproxy: None,
             lsp: Arc::new(Unavailable("language servers")),
+            dev_servers: Arc::new(Unavailable("servers")),
         }
     }
 
@@ -355,6 +369,12 @@ impl Core {
             Request::Netproxy(r) => crate::netproxy::handle(self, r),
             Request::Git(r) => crate::git::handle(self, r).await,
             Request::Lsp(r) => crate::lsp::handle(self, r).await,
+            Request::Servers(r) => crate::servers::handle(self, r).await,
+            // Until the core implements it (task B.B).
+            Request::Browser(_) => Err(ProtocolError::new(
+                ErrorCode::Unavailable,
+                "the agent browser is not available in this build",
+            )),
         }
     }
 
@@ -405,6 +425,14 @@ impl Core {
 
     pub(crate) fn lsp_servers(&self) -> &crate::lsp::Servers {
         &self.inner.lsp_servers
+    }
+
+    pub(crate) fn audit_state(&self) -> &crate::audit::State {
+        &self.inner.audit_state
+    }
+
+    pub(crate) fn dev_servers(&self) -> &DevServerState {
+        &self.inner.dev_servers
     }
 
     pub(crate) fn project_store(&self) -> &dyn ProjectStore {

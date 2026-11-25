@@ -385,21 +385,34 @@ impl Direct {
     /// The session's changes since its baseline, each marked with who made
     /// it.
     pub(crate) async fn files(&self, session: &SessionId) -> Result<Vec<FileChange>> {
+        Ok(self.files_at(session).await?.0)
+    }
+
+    /// [`Self::files`], and the look of the folder they were read from, if
+    /// it could be taken.
+    pub(crate) async fn files_at(
+        &self,
+        session: &SessionId,
+    ) -> Result<(Vec<FileChange>, Option<String>)> {
         let worktrees = &*self.worktrees;
         let (_, writer) = self.held(session)?;
         let mut tracker = writer.lock(worktrees).await;
         let t = tracker.as_mut().ok_or_else(not_direct)?;
         let now = worktrees.look(writer.dir.clone()).await.ok();
-        t.files(worktrees, &writer.dir, now.as_ref()).await
+        let files = t.files(worktrees, &writer.dir, now.as_ref()).await?;
+        Ok((files, now))
     }
 
     /// Keeps the changes. With `commit`, commits the
     /// agent's own files with that message; files changed by both are left
-    /// uncommitted and listed as conflicts.
-    pub(crate) async fn approve(
+    /// uncommitted and listed as conflicts. Refused when a protected file
+    /// changed, unless `guard` includes it as the person saw it: checked
+    /// on the same look, under the same lock, as what is kept.
+    pub(super) async fn approve(
         &self,
         session: &SessionId,
         commit: Option<String>,
+        guard: &super::review::Guard,
     ) -> Result<Outcome> {
         let worktrees = &*self.worktrees;
         let (_, writer) = self.held(session)?;
@@ -407,7 +420,10 @@ impl Direct {
         let t = tracker.as_mut().ok_or_else(not_direct)?;
         t.idle()?;
         let now = worktrees.look(writer.dir.clone()).await.ok();
-        let files = t.files(worktrees, &writer.dir, now.as_ref()).await?;
+        let mut files = t.files(worktrees, &writer.dir, now.as_ref()).await?;
+        guard
+            .admit(worktrees, &writer.dir, &mut files, now.as_ref())
+            .await?;
         let mut outcome = Outcome {
             conflicts: Vec::new(),
             snapshot: None,
@@ -899,6 +915,26 @@ impl Tracker {
             })
             .collect())
     }
+}
+
+/// Refuses to keep `files` blindly when one of them is protected: they
+/// are already on disk, so only the person's explicit choice keeps them.
+pub(crate) fn protected_refused(files: &[FileChange]) -> Result<()> {
+    let guarded: Vec<&str> = files
+        .iter()
+        .filter(|f| f.protected)
+        .map(|f| f.path.as_str())
+        .collect();
+    if guarded.is_empty() {
+        return Ok(());
+    }
+    Err(ProtocolError::new(
+        ErrorCode::BadRequest,
+        format!(
+            "these changes include protected files ({}); look at their diffs and approve with include_protected",
+            guarded.join(", ")
+        ),
+    ))
 }
 
 /// Every path (renames: both) of the files changed by `by`.

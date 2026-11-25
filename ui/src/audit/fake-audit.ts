@@ -1,5 +1,5 @@
 // Test-only fake of the core's `audit.list`: pages through `entries` like the
-// core and lets a test push `audit.appended`.
+// core (both orders) and lets a test push `audit.appended`.
 
 import type { AuditEntry, AuditEvent, CoreEvent, Request, ResponseFor } from "../lib/protocol";
 import type { Transport } from "../lib/transport";
@@ -29,10 +29,12 @@ export class FakeAuditCore implements Transport {
   async call<R extends Request>(request: R): Promise<ResponseFor<R>> {
     this.calls.push(request);
     if (request.method !== "audit.list") throw new Error(`unexpected ${request.method}`);
-    const { project, after, limit } = request.params;
-    const data = this.entries
-      .filter((e) => e.project === project && e.seq > (after ?? 0))
-      .slice(0, Math.min(limit ?? 500, 500));
+    const { project, after, before, order, limit } = request.params;
+    const kept = this.entries
+      .filter((e) => e.project === project && e.seq > (after ?? 0) && e.seq < (before ?? Number.POSITIVE_INFINITY))
+      .sort((a, b) => a.seq - b.seq);
+    if (order === "newest_first") kept.reverse();
+    const data = kept.slice(0, Math.min(limit ?? 500, 500));
     return { type: "audit.entries", data } as ResponseFor<R>;
   }
 

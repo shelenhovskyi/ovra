@@ -13,7 +13,7 @@ use ovra_core::fakes::MemoryProjects;
 use ovra_core::protocol::agents::{AgentMessage, AgentStatus};
 use ovra_core::protocol::review::{ChangedBy, ReviewItem, ReviewResponse, ReviewState};
 use ovra_core::protocol::{Request, Response};
-use ovra_core::services::{AgentHost, AgentRuntime, AgentSpec, Result, RunningAgent};
+use ovra_core::services::{AgentHost, AgentRuntime, AgentSpec, BeforeTool, Result, RunningAgent};
 use serde_json::{Value, json};
 use tempfile::TempDir;
 
@@ -138,9 +138,8 @@ impl Checkout {
     async fn tool(&mut self, name: &str, input: Value, change: impl FnOnce(&Path)) {
         self.tools += 1;
         let id = format!("toolu_{}", self.tools);
-        self.host
-            .before_tool(&json!({"tool_use_id": id, "tool_name": name, "tool_input": input}))
-            .await;
+        let hook = json!({"tool_use_id": id, "tool_name": name, "tool_input": input});
+        assert_eq!(self.host.before_tool(&hook).await, BeforeTool::Proceed);
         change(&self.root);
         self.host.message(AgentMessage::ToolResult {
             tool_use_id: id,

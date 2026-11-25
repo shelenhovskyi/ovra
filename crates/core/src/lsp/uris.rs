@@ -47,14 +47,25 @@ pub(crate) fn to_server(message: &mut Value, root: &Path) -> Result<(), Protocol
     })
 }
 
+/// What a server-sent `ovra:` URI that names no file of the project
+/// becomes, so the UI cannot open it.
+pub(crate) const INVALID: &str = "about:invalid";
+
 /// Rewrites a server message for the client: `file:` URIs under `root`
-/// become `ovra:` URIs; others pass as they are.
+/// become `ovra:` URIs; an `ovra:` URI the server wrote passes only if it
+/// names a file of the project, else it becomes [`INVALID`]; others pass
+/// as they are.
 pub(crate) fn to_client(message: &mut Value, root: &Path) {
     let root = slashed(root);
     let _ = walk(message, &mut |key, value| {
-        if let (Key::Uri | Key::Changes, Some(text)) = (key, value.as_str())
-            && let Some(uri) = to_ovra(text, &root)
-        {
+        let (Key::Uri | Key::Changes, Some(text)) = (key, value.as_str()) else {
+            return Ok(());
+        };
+        if has_scheme(text, "ovra") {
+            if !is_project_uri(text) {
+                *value = Value::String(INVALID.into());
+            }
+        } else if let Some(uri) = to_ovra(text, &root) {
             *value = Value::String(uri);
         }
         Ok(())
@@ -160,8 +171,44 @@ fn to_ovra(uri: &str, root: &str) -> Option<String> {
     let path = path.split(['?', '#']).next().unwrap_or_default();
     let path = decode(path)?;
     let path = strip_root(&path, root)?;
+    if !plain(&path.split('/').collect::<Vec<_>>()) {
+        return None;
+    }
     let encoded: Vec<String> = path.split('/').map(encode).collect();
     Some(format!("{ROOT}{}", encoded.join("/")))
+}
+
+/// Whether `uri` is an `ovra:` URI as the UI writes them: plain segments
+/// (see [`plain`]) that make a [`RelPath`], with no query or fragment.
+fn is_project_uri(uri: &str) -> bool {
+    let Some(rest) = uri.strip_prefix(ROOT) else {
+        return false;
+    };
+    if rest.is_empty() {
+        return true;
+    }
+    if rest.contains(['?', '#']) {
+        return false;
+    }
+    let Some(segments) = rest.split('/').map(decode).collect::<Option<Vec<_>>>() else {
+        return false;
+    };
+    let segments: Vec<&str> = segments.iter().map(String::as_str).collect();
+    plain(&segments) && RelPath::parse(&segments.join("/")).is_ok()
+}
+
+/// Whether decoded path segments name a file under the root and nothing
+/// else: none is `.` or `..` or holds `/` or `\`, and only the last may be
+/// empty (a folder's trailing slash, or the root).
+fn plain(segments: &[&str]) -> bool {
+    let last = segments.len().saturating_sub(1);
+    segments.iter().enumerate().all(|(i, s)| {
+        if s.is_empty() {
+            i == last
+        } else {
+            *s != "." && *s != ".." && !s.contains(['/', '\\'])
+        }
+    })
 }
 
 /// `path` relative to `root`, both with `/` separators. Windows paths in

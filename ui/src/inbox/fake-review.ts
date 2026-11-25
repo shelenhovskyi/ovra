@@ -101,6 +101,17 @@ export class FakeReviewCore implements Transport {
       case "review.reject":
       case "review.undo_reject": {
         const item = this.find(request.params.id);
+        // Like the core: protected files land only when included.
+        const guarded = item.files.filter((f) => f.protected && !f.blocked).map((f) => f.path);
+        const included = request.method === "review.approve" && request.params.include_protected === true;
+        if (request.method === "review.approve" && !included && guarded.length > 0) {
+          if (item.mode === "direct")
+            throw new CoreError({ code: "bad_request", message: "these changes include protected files" });
+          const left = [...new Set([...this.conflicts, ...guarded])].sort();
+          item.state = "partly_approved";
+          item.not_copied = left;
+          return { type: "review.done", data: { item: structuredClone(item), conflicts: left, restored: [] } };
+        }
         const state = {
           "review.approve": "approved",
           "review.reject": "rejected",

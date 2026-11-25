@@ -32,7 +32,9 @@ use ovra_core::protocol::netproxy::Allowlist;
 use ovra_core::protocol::projects::ProjectId;
 use ovra_core::protocol::secrets::SecretInfo;
 use ovra_core::protocol::{ErrorCode, ProtocolError};
-use ovra_core::services::{BoxFuture, NetProxy, NetReporter, NetStarted, Result, Secrets};
+use ovra_core::services::{
+    BoxFuture, LoopbackGrant, NetProxy, NetReporter, NetStarted, Result, Secrets,
+};
 use tokio::sync::Semaphore;
 use tokio::task::{JoinHandle, JoinSet};
 
@@ -282,6 +284,7 @@ impl NetProxy for NetProxies {
                 }),
                 reporter: refusals,
                 bound,
+                grants: tokio::sync::watch::Sender::new(Arc::default()),
             });
             let task = tokio::spawn(accept(
                 listener,
@@ -312,6 +315,15 @@ impl NetProxy for NetProxies {
                 .write()
                 .unwrap_or_else(PoisonError::into_inner)
                 .project = allow.hosts;
+        }
+    }
+
+    fn grant(&self, session: &SessionId, grants: Vec<LoopbackGrant>) {
+        if let Some(running) = lock(&self.running).get(session) {
+            running
+                .net
+                .grants
+                .send_replace(Arc::new(serve::grants(grants)));
         }
     }
 

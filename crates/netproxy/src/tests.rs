@@ -178,6 +178,7 @@ fn proxy(fake: FakeNet, rules: Rules, upstream: Upstream) -> Proxy {
             rules: RwLock::new(rules),
             reporter: NetReporter::new(ProjectId("p1".into()), SessionId("s1".into()), core.sink()),
             bound: None,
+            grants: tokio::sync::watch::Sender::new(Arc::default()),
         }),
         dial,
         events,

@@ -3395,12 +3395,20 @@ dependencies = [
  "ovra-pty",
  "ovra-sandbox",
  "ovra-secrets",
+ "ovra-servers",
  "ovra-store",
  "ovra-transport",
  "ovra-worktree",
  "tauri",
  "tauri-build",
  "tauri-plugin-notification",
+]
+
+[[package]]
+name = "ovra-browser"
+version = "0.1.0"
+dependencies = [
+ "ovra-core",
 ]
 
 [[package]]
@@ -3412,6 +3420,8 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "tokio",
+ "tracing",
+ "tracing-subscriber",
  "zeroize",
 ]
 
@@ -3432,6 +3442,7 @@ dependencies = [
  "ovra-pty",
  "ovra-sandbox",
  "ovra-secrets",
+ "ovra-servers",
  "ovra-store",
  "ovra-transport",
  "ovra-worktree",
@@ -3485,6 +3496,7 @@ name = "ovra-netproxy"
 version = "0.1.0"
 dependencies = [
  "httparse",
+ "insta",
  "ovra-core",
  "rand 0.9.5",
  "rcgen",
@@ -3568,6 +3580,20 @@ dependencies = [
  "ovra-netproxy",
  "ovra-sandbox",
  "ovra-sandbox-linux",
+ "tokio",
+]
+
+[[package]]
+name = "ovra-servers"
+version = "0.1.0"
+dependencies = [
+ "insta",
+ "ovra-core",
+ "rand 0.9.5",
+ "rustix",
+ "serde",
+ "serde_json",
+ "tempfile",
  "tokio",
 ]
 

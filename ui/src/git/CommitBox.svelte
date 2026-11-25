@@ -15,12 +15,17 @@ let amend = $state(false);
 const staged = $derived(status.files.filter((f) => f.staged !== null && f.unstaged !== "conflicted").length);
 const why = $derived.by(() => {
   if (!amend && staged === 0) return "Stage changes to commit them, or amend the last commit.";
-  if (!text.trim()) return "Write a commit message.";
+  if (!text.trim() && !amend) return "Write a commit message.";
   return null;
 });
 
 async function commit(): Promise<void> {
-  if (why || model.busy) return;
+  if (model.busy) return;
+  if (why) {
+    // Mod+Enter from the message: say why nothing happened.
+    model.notice = why;
+    return;
+  }
   if (await model.commit(text.trim(), amend)) {
     text = "";
     amend = false;
@@ -52,7 +57,10 @@ function onkeydown(event: KeyboardEvent): void {
       Amend last commit
     </label>
     {#if amend}
-      <p class="hint">Replaces the last commit with what is staged and this message.</p>
+      <p class="hint">
+        Replaces the last commit with what is staged. Leave the message empty to keep the last commit's message, or
+        write a new one to replace all of it.
+      </p>
     {/if}
   {/if}
   <button

@@ -1,0 +1,156 @@
+---
+source: crates/core/src/protocol/browser.rs
+expression: "serde_json::json!({\n    \"requests\":\n    [Request::Browser(BrowserRequest::Input\n    {\n        page: page(), event: InputEvent::MouseDown\n        { x: 15, y: 25, button: MouseButton::Left, clicks: 1, modifiers: 8, }\n    }),\n    Request::Browser(BrowserRequest::Input\n    {\n        page: page(), event: InputEvent::KeyDown\n        {\n            key: \"a\".into(), code: \"KeyA\".into(), text: Some(\"a\".into()),\n            modifiers: 0,\n        }\n    }),\n    Request::Browser(BrowserRequest::Attach\n    { page: page(), picks: vec![pick.clone()] }),], \"responses\":\n    [Response::Browser(BrowserResponse::Page(info.clone())),\n    Response::Browser(BrowserResponse::Picked(pick)),], \"events\":\n    [Event::from(BrowserEvent::Frame\n    {\n        page: page(), jpeg: \"/9j/4A==\".into(), metadata: FrameMetadata\n        { width: 1280, height: 800, scroll_x: 0, scroll_y: 120 },\n    }),\n    Event::from(BrowserEvent::Pages\n    { session: SessionId(\"s1\".into()), pages: vec![info] }),\n    Event::from(BrowserEvent::NavigationAsked\n    {\n        page: page(), session: SessionId(\"s1\".into()), origin:\n        \"https://example.com\".into(),\n    }),],\n})"
+---
+{
+  "events": [
+    {
+      "data": {
+        "jpeg": "/9j/4A==",
+        "metadata": {
+          "height": 800,
+          "scroll_x": 0,
+          "scroll_y": 120,
+          "width": 1280
+        },
+        "page": "pg1"
+      },
+      "type": "browser.frame"
+    },
+    {
+      "data": {
+        "pages": [
+          {
+            "id": "pg1",
+            "session": "s1",
+            "title": "Demo",
+            "url": "http://localhost:5173/"
+          }
+        ],
+        "session": "s1"
+      },
+      "type": "browser.pages"
+    },
+    {
+      "data": {
+        "origin": "https://example.com",
+        "page": "pg1",
+        "session": "s1"
+      },
+      "type": "browser.navigation_asked"
+    }
+  ],
+  "requests": [
+    {
+      "method": "browser.input",
+      "params": {
+        "event": {
+          "button": "left",
+          "clicks": 1,
+          "kind": "mouse_down",
+          "modifiers": 8,
+          "x": 15,
+          "y": 25
+        },
+        "page": "pg1"
+      }
+    },
+    {
+      "method": "browser.input",
+      "params": {
+        "event": {
+          "code": "KeyA",
+          "key": "a",
+          "kind": "key_down",
+          "modifiers": 0,
+          "text": "a"
+        },
+        "page": "pg1"
+      }
+    },
+    {
+      "method": "browser.attach",
+      "params": {
+        "page": "pg1",
+        "picks": [
+          {
+            "attributes": {
+              "type": "submit"
+            },
+            "classes": [
+              "save"
+            ],
+            "html": "<button class=\"save\" type=\"submit\">Save</button>",
+            "id": null,
+            "locator": "button \"Save\"",
+            "note": "make it blue",
+            "pick_id": "pk1",
+            "rect": {
+              "height": 24,
+              "width": 80,
+              "x": 10,
+              "y": 20
+            },
+            "selector": "main > button.save",
+            "source": {
+              "component": "SaveButton",
+              "file": "src/Save.tsx",
+              "line": 12
+            },
+            "styles": {
+              "color": "rgb(0, 0, 0)"
+            },
+            "tag": "button",
+            "text": "Save",
+            "url": "http://localhost:5173/"
+          }
+        ]
+      }
+    }
+  ],
+  "responses": [
+    {
+      "data": {
+        "id": "pg1",
+        "session": "s1",
+        "title": "Demo",
+        "url": "http://localhost:5173/"
+      },
+      "type": "browser.page"
+    },
+    {
+      "data": {
+        "attributes": {
+          "type": "submit"
+        },
+        "classes": [
+          "save"
+        ],
+        "html": "<button class=\"save\" type=\"submit\">Save</button>",
+        "id": null,
+        "locator": "button \"Save\"",
+        "note": "make it blue",
+        "pick_id": "pk1",
+        "rect": {
+          "height": 24,
+          "width": 80,
+          "x": 10,
+          "y": 20
+        },
+        "selector": "main > button.save",
+        "source": {
+          "component": "SaveButton",
+          "file": "src/Save.tsx",
+          "line": 12
+        },
+        "styles": {
+          "color": "rgb(0, 0, 0)"
+        },
+        "tag": "button",
+        "text": "Save",
+        "url": "http://localhost:5173/"
+      },
+      "type": "browser.picked"
+    }
+  ]
+}

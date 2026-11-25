@@ -2,7 +2,7 @@
 
 import { registerCommand } from "../keys/commands";
 import type { Workspace } from "../shell/workspace.svelte";
-import { showChangeAtCursor, toggleBlame } from "./git/extension";
+import { goToChange, readBlame, showChangeAtCursor, toggleBlame } from "./git/extension";
 import { focusMain, requestClose, show, tabs } from "./open-files.svelte";
 
 type Target = Pick<Workspace, "openPath" | "mode" | "openFile">;
@@ -48,6 +48,8 @@ export function registerEditorCommands(workspace: Target): () => void {
     const next = tabs.current?.neighbour(offset);
     if (next) show(workspace, next);
   };
+  const nextChange = () => goToChange(1);
+  const previousChange = () => goToChange(-1);
   const unregister = [
     registerCommand({
       id: "editor.toggle",
@@ -59,9 +61,18 @@ export function registerEditorCommands(workspace: Target): () => void {
     registerCommand({ id: "editor.save", title: "Save file", keys: "Mod+S", run: () => saveActive(workspace) }),
     registerCommand({ id: "editor.next_tab", title: "Next tab", keys: "Ctrl+Tab", run: step(1) }),
     registerCommand({ id: "editor.previous_tab", title: "Previous tab", keys: "Ctrl+Shift+Tab", run: step(-1) }),
-    // No default shortcuts: free ones that browsers leave alone are scarce; the palette reaches both.
-    registerCommand({ id: "editor.toggle_blame", title: "Toggle blame", run: toggleBlame }),
-    registerCommand({ id: "editor.show_git_change", title: "Show git change at cursor", run: showChangeAtCursor }),
+    // Alt+F5 and Alt+Shift+F5 as in VS Code; neither browsers nor CodeMirror use them.
+    registerCommand({ id: "editor.next_git_change", title: "Git: go to next change", keys: "Alt+F5", run: nextChange }),
+    registerCommand({
+      id: "editor.previous_git_change",
+      title: "Git: go to previous change",
+      keys: "Alt+Shift+F5",
+      run: previousChange,
+    }),
+    // No default shortcuts: free ones that browsers leave alone are scarce; the palette reaches these.
+    registerCommand({ id: "editor.toggle_blame", title: "Git: toggle blame", run: toggleBlame }),
+    registerCommand({ id: "editor.read_blame", title: "Git: read blame of cursor line", run: readBlame }),
+    registerCommand({ id: "editor.show_git_change", title: "Git: show change at cursor", run: showChangeAtCursor }),
     registerCommand({
       id: "editor.close_tab",
       title: "Close tab",

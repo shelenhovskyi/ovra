@@ -297,7 +297,7 @@ async fn each_session_runs_behind_its_own_proxy_until_it_ends() {
         .unwrap_or_else(|| panic!("no reporter"))
         .refused("evil.example:443", "not in the allowlist");
     let p1 = crate::protocol::projects::ProjectId("p1".into());
-    let logged = crate::services::AuditLog::list(audit.as_ref(), &p1, None, 100)
+    let logged = crate::services::AuditLog::list(audit.as_ref(), &p1, Default::default(), 100)
         .unwrap_or_default()
         .into_iter()
         .filter(|e| {
@@ -320,8 +320,8 @@ async fn each_session_runs_behind_its_own_proxy_until_it_ends() {
     for _ in 0..1000 {
         reporter.refused(&long, "not in the allowlist");
     }
-    let entries =
-        crate::services::AuditLog::list(audit.as_ref(), &p1, None, 10_000).unwrap_or_default();
+    let entries = crate::services::AuditLog::list(audit.as_ref(), &p1, Default::default(), 10_000)
+        .unwrap_or_default();
     let refusals: Vec<_> = entries
         .iter()
         .filter_map(|e| match &e.event {
@@ -509,7 +509,7 @@ async fn the_proxy_gets_the_projects_secret_bindings_and_logs_their_use() {
     assert_eq!(reporter.project(), &p1);
 
     reporter.secret_used("gh", "api.github.com");
-    let logged = crate::services::AuditLog::list(audit.as_ref(), &p1, None, 100)
+    let logged = crate::services::AuditLog::list(audit.as_ref(), &p1, Default::default(), 100)
         .unwrap_or_default()
         .into_iter()
         .map(|e| e.event)

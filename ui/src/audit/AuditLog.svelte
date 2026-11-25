@@ -1,13 +1,15 @@
 <script lang="ts">
 // The audit log viewer: a header button (and the "Audit log" command) opens a
-// dialog with the open project's entries, newest first, updated live. It only
-// reads: the core offers no way to edit or remove an entry. Escape closes.
-import { tick } from "svelte";
+// dialog with the open project's entries, newest first, updated live. It
+// opens on the newest page; "Load older" at the end of the list reads the page
+// before. It only reads: the core offers no way to edit or remove an entry.
+// Escape closes.
+import { tick, untrack } from "svelte";
 import { agentSessions } from "../agents/sessions.svelte";
 import { registerCommand } from "../keys/commands";
 import { useOvra } from "../shell/context";
 import { describe, FILTERS, type Filter, shows, when } from "./describe";
-import { AuditTrail, MAX_SHOWN } from "./trail.svelte";
+import { AuditTrail } from "./trail.svelte";
 
 const { transport, workspace } = useOvra();
 const trail = new AuditTrail(transport);
@@ -17,6 +19,8 @@ let opened = $state(false);
 let filter = $state<Filter>("all");
 let refusedOnly = $state(false);
 let dialog = $state<HTMLElement>();
+/** Read out when older entries arrive. */
+let olderNote = $state("");
 let returnTo: HTMLElement | null = null;
 
 const shown = $derived(
@@ -32,7 +36,8 @@ $effect(() => registerCommand({ id: "audit.toggle", title: "Audit log", run: tog
 // Read the log when the dialog opens, and again for another project.
 $effect(() => {
   const project = workspace.project?.id ?? null;
-  if (opened) void trail.show(project);
+  // Only these two: reading the log must not run it again.
+  if (opened) untrack(() => void trail.show(project));
 });
 
 async function show(): Promise<void> {
@@ -65,7 +70,7 @@ function onDialogKeydown(event: KeyboardEvent): void {
   if (event.code !== "Tab") return;
   // Keep Tab inside the dialog (aria-modal).
   const focusable = [...(dialog?.querySelectorAll<HTMLElement>("button, input, select, [tabindex]") ?? [])].filter(
-    (el) => el.tabIndex >= 0,
+    (el) => el.tabIndex >= 0 && !el.matches(":disabled"),
   );
   const first = focusable[0];
   const last = focusable[focusable.length - 1];
@@ -77,6 +82,14 @@ function onDialogKeydown(event: KeyboardEvent): void {
     event.preventDefault();
     first.focus();
   }
+}
+
+async function loadOlder(): Promise<void> {
+  const added = await trail.loadOlder();
+  if (added > 0) olderNote = `${added} older ${added === 1 ? "entry" : "entries"} loaded.`;
+  await tick();
+  // At the start of the log the button goes; focus must stay in the dialog.
+  if (opened && !dialog?.contains(document.activeElement)) dialog?.querySelector<HTMLElement>("h2")?.focus();
 }
 
 function who(session: string | null): string {
@@ -121,9 +134,6 @@ function who(session: string | null): string {
       {#if trail.error}
         <p class="error" role="alert">The audit log could not be read: {trail.error}</p>
       {/if}
-      {#if trail.cut}
-        <p class="muted note" data-testid="audit-cut">Showing the newest {MAX_SHOWN} entries.</p>
-      {/if}
       {#if !workspace.project}
         <p class="muted note">Open a project to see its audit log.</p>
       {:else if shown.length === 0}
@@ -147,6 +157,20 @@ function who(session: string | null): string {
           {/each}
         </ol>
       {/if}
+      {#if workspace.project && trail.older}
+        <p class="more">
+          <span class="muted">Older entries are not loaded yet.</span>
+          <button
+            type="button"
+            data-testid="audit-older"
+            aria-busy={trail.loadingOlder}
+            onclick={() => void loadOlder()}
+          >
+            {trail.loadingOlder ? "Loading…" : "Load older"}
+          </button>
+        </p>
+      {/if}
+      <p class="visually-hidden" role="status" data-testid="audit-older-note">{olderNote}</p>
     </div>
   </div>
 {/if}
@@ -195,6 +219,18 @@ function who(session: string | null): string {
     padding: 8px 12px;
     border-bottom: 1px solid #2a2a31;
   }
+  button[aria-busy="true"] {
+    cursor: progress;
+    opacity: 0.6;
+  }
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
   .close {
     margin-left: auto;
   }
@@ -224,6 +260,14 @@ function who(session: string | null): string {
     padding: 6px 8px;
     border-left: 3px solid #3a3a44;
     border-bottom: 1px solid #24242b;
+  }
+  .more {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0;
+    padding: 6px 12px;
+    border-top: 1px solid #2a2a31;
   }
   li.refused {
     border-left-color: #ff8f8f;

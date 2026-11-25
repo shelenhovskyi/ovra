@@ -7,7 +7,7 @@ import { formatShortcut, isApple } from "../keys/shortcut";
 import type { SessionId } from "../lib/protocol";
 import { CoreError } from "../lib/transport";
 import { useOvra } from "../shell/context";
-import { sandboxBadge, sandboxLine, sandboxState } from "./sandbox";
+import { sandboxBadge, sandboxGaps, sandboxLine, sandboxState } from "./sandbox";
 import { agentSessions, usageText } from "./sessions.svelte";
 import ClaudeSetup from "./setup/ClaudeSetup.svelte";
 import ProjectTrust from "./setup/ProjectTrust.svelte";
@@ -31,6 +31,7 @@ const list = $derived(project ? sessions.grouped(project.id) : []);
 const current = $derived(list.find((s) => s.id === selected) ?? null);
 const messages = $derived(current ? sessions.transcripts.get(current.id) : undefined);
 const sandbox = $derived(current ? sandboxLine(sandboxState(current), isEnded(current.status)) : null);
+const gaps = $derived(current ? sandboxGaps(sandboxState(current), isEnded(current.status)) : null);
 
 $effect(() => {
   const id = project?.id;
@@ -244,6 +245,9 @@ const canReply = $derived(current !== null && current.status.state === "idle");
         {/if}
         {#if sandbox}
           <p class={sandbox.warning ? "status unsandboxed" : "status"} data-testid="agent-sandbox">{sandbox.text}</p>
+        {/if}
+        {#if gaps}
+          <p class="status" data-testid="agent-sandbox-gaps">{gaps}</p>
         {/if}
         <Transcript messages={messages ?? []} billing={current.billing} />
         {#if !isEnded(current.status)}

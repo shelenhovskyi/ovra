@@ -11,7 +11,7 @@ use std::io::{BufRead as _, BufReader, Write as _};
 use std::net::{Ipv4Addr, TcpListener, TcpStream};
 use std::os::unix::net::UnixStream;
 use std::os::unix::process::CommandExt as _;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use landlock::{
@@ -100,6 +100,8 @@ struct Args {
     landlock: Option<Landlock>,
     writable: Vec<PathBuf>,
     bridge: Option<(OsString, OsString)>,
+    /// Ports to listen on and forward through the bridge's socket.
+    forward: Vec<u16>,
     /// The only variables the agent gets.
     env: Vec<OsString>,
     command: Vec<OsString>,
@@ -127,6 +129,12 @@ fn parse(args: Vec<OsString>) -> Result<Args, String> {
                 let socket = value(&mut args, "--bridge")?;
                 parsed.bridge = Some((socket, value(&mut args, "--bridge")?));
             }
+            Some("--forward") => {
+                let port = value(&mut args, "--forward")?;
+                parsed
+                    .forward
+                    .push(port_of(&port).ok_or("bad --forward port")?);
+            }
             Some("--") => {
                 parsed.command = args.collect();
                 break;
@@ -136,6 +144,9 @@ fn parse(args: Vec<OsString>) -> Result<Args, String> {
     }
     if parsed.command.is_empty() {
         return Err("no command".into());
+    }
+    if !parsed.forward.is_empty() && parsed.bridge.is_none() {
+        return Err("--forward needs --bridge".into());
     }
     Ok(parsed)
 }
@@ -201,7 +212,7 @@ fn run(args: Vec<OsString>) -> String {
     // After both: the bridge is held as tightly as the agent, which could
     // otherwise trace it and act through it.
     if let Some((socket, port)) = &args.bridge
-        && let Err(e) = start_bridge(socket, port)
+        && let Err(e) = start_bridge(socket, port, &args.forward)
     {
         return format!("the network bridge did not start: {e}");
     }
@@ -235,14 +246,15 @@ fn landlock(writable: &[PathBuf]) -> Result<bool, landlock::RulesetError> {
 }
 
 /// Starts the bridge as a process of its own (this one becomes the agent)
-/// and waits until it listens.
-fn start_bridge(socket: &OsString, port: &OsString) -> std::io::Result<()> {
+/// and waits until it listens on `port` and every port of `forward`.
+fn start_bridge(socket: &OsString, port: &OsString, forward: &[u16]) -> std::io::Result<()> {
     // The agent can read the bridge's environment: it gets none.
     let mut child = Command::new(std::env::current_exe()?)
         .env_clear()
         .arg(BRIDGE_FLAG)
         .arg(socket)
         .arg(port)
+        .args(forward.iter().map(u16::to_string))
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .spawn()?;
@@ -256,37 +268,103 @@ fn start_bridge(socket: &OsString, port: &OsString) -> std::io::Result<()> {
     Ok(())
 }
 
+/// A port number a listener can use: 1 to 65535.
+fn port_of(arg: &OsString) -> Option<u16> {
+    arg.to_str()
+        .and_then(|p| p.parse::<u16>().ok())
+        .filter(|p| *p != 0)
+}
+
 /// Forwards each connection to `127.0.0.1:<port>` to the netproxy's Unix
-/// socket. Returns only on failure.
+/// socket as it is, and each connection to `127.0.0.1:<P>` for every
+/// further port `P` (a managed server's, `docs/specs/servers-and-browser.md`)
+/// after the line `OVRA-LOCAL <P>`. Returns only on failure.
 fn bridge(args: Vec<OsString>) -> String {
-    let [socket, port] = args.as_slice() else {
+    let [socket, ports @ ..] = args.as_slice() else {
         return "needs a socket and a port".into();
     };
-    let Some(port) = port.to_str().and_then(|p| p.parse::<u16>().ok()) else {
-        return "bad port".into();
-    };
-    let listener = match TcpListener::bind((Ipv4Addr::LOCALHOST, port)) {
-        Ok(listener) => listener,
-        Err(e) => return e.to_string(),
-    };
+    if ports.is_empty() {
+        return "needs a socket and a port".into();
+    }
+    let mut listeners = Vec::new();
+    for (n, port) in ports.iter().enumerate() {
+        let Some(port) = port_of(port) else {
+            return "bad port".into();
+        };
+        match TcpListener::bind((Ipv4Addr::LOCALHOST, port)) {
+            // The first port is the proxy's own: no preamble.
+            Ok(listener) => listeners.push((listener, (n > 0).then_some(port))),
+            Err(e) => return format!("port {port}: {e}"),
+        }
+    }
     println!("ready");
     let _ = std::io::stdout().flush();
     let socket = PathBuf::from(socket);
-    for client in listener.incoming() {
-        let Ok(client) = client else { continue };
-        let socket = socket.clone();
-        std::thread::spawn(move || {
-            if let Ok(upstream) = UnixStream::connect(&socket) {
-                pipe(client, upstream);
-            }
-        });
+    let threads: Vec<_> = listeners
+        .into_iter()
+        .map(|(listener, local)| {
+            let socket = socket.clone();
+            std::thread::spawn(move || accept(&listener, &socket, local))
+        })
+        .collect();
+    // Each runs until its listener fails; the bridge stops with the first.
+    if let Some(proxy) = threads.into_iter().next() {
+        let _ = proxy.join();
     }
     "the listener closed".into()
 }
 
+/// Relays every connection `listener` accepts to `socket`, opening each
+/// with `OVRA-LOCAL <port>` when `local` is a server's port.
+fn accept(listener: &TcpListener, socket: &Path, local: Option<u16>) {
+    for client in listener.incoming() {
+        let Ok(client) = client else { continue };
+        let socket = socket.to_path_buf();
+        std::thread::spawn(move || {
+            let _ = relay(client, &socket, local);
+        });
+    }
+}
+
+/// Connects to `socket`, writes the preamble for `local` if any, then
+/// copies both ways.
+fn relay<C: Duplex>(client: C, socket: &Path, local: Option<u16>) -> std::io::Result<()> {
+    let mut upstream = UnixStream::connect(socket)?;
+    if let Some(port) = local {
+        upstream.write_all(format!("OVRA-LOCAL {port}\r\n").as_bytes())?;
+    }
+    pipe(client, upstream);
+    Ok(())
+}
+
+/// A connection the bridge accepts: TCP inside the sandbox, a Unix
+/// stream in tests.
+trait Duplex: std::io::Read + std::io::Write + Send + Sized + 'static {
+    fn split(&self) -> std::io::Result<Self>;
+    fn close_write(&self);
+}
+
+impl Duplex for TcpStream {
+    fn split(&self) -> std::io::Result<Self> {
+        self.try_clone()
+    }
+    fn close_write(&self) {
+        let _ = self.shutdown(std::net::Shutdown::Write);
+    }
+}
+
+impl Duplex for UnixStream {
+    fn split(&self) -> std::io::Result<Self> {
+        self.try_clone()
+    }
+    fn close_write(&self) {
+        let _ = self.shutdown(std::net::Shutdown::Write);
+    }
+}
+
 /// Copies both ways until either side closes.
-fn pipe(client: TcpStream, upstream: UnixStream) {
-    let (Ok(mut client_r), Ok(mut upstream_w)) = (client.try_clone(), upstream.try_clone()) else {
+fn pipe<C: Duplex>(client: C, upstream: UnixStream) {
+    let (Ok(mut client_r), Ok(mut upstream_w)) = (client.split(), upstream.try_clone()) else {
         return;
     };
     let (mut client_w, mut upstream_r) = (client, upstream);
@@ -295,7 +373,7 @@ fn pipe(client: TcpStream, upstream: UnixStream) {
         let _ = upstream_w.shutdown(std::net::Shutdown::Write);
     });
     let _ = std::io::copy(&mut upstream_r, &mut client_w);
-    let _ = client_w.shutdown(std::net::Shutdown::Write);
+    client_w.close_write();
     let _ = up.join();
 }
 
@@ -336,5 +414,99 @@ mod tests {
         assert!(parse(args(&["--net", "open", "--", "x"])).is_err());
         assert!(parse(args(&["--landlock", "maybe", "--", "x"])).is_err());
         assert!(parse(args(&["--rw", "/w"])).is_err());
+    }
+
+    #[test]
+    fn forwards_ports_only_through_the_bridge() {
+        let parsed = parse(args(&[
+            "--bridge",
+            "/s",
+            "3128",
+            "--forward",
+            "5173",
+            "--forward",
+            "8080",
+            "--",
+            "x",
+        ]))
+        .unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(parsed.forward, vec![5173, 8080]);
+        let refused = |list: &[&str]| parse(args(list)).err().unwrap_or_default();
+        assert_eq!(
+            refused(&["--forward", "5173", "--", "x"]),
+            "--forward needs --bridge"
+        );
+        for bad in ["0", "65536", "http", ""] {
+            assert_eq!(
+                refused(&["--bridge", "/s", "3128", "--forward", bad, "--", "x"]),
+                "bad --forward port"
+            );
+        }
+        assert!(refused(&["--bridge", "/s", "3128", "--forward"]).contains("needs a value"));
+    }
+
+    #[test]
+    fn a_forwarded_connection_opens_with_its_port_then_relays_both_ways() {
+        use std::io::Read as _;
+        use std::os::unix::net::UnixListener;
+        let dir = std::env::temp_dir().join(format!("ovra-forward-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap_or_else(|e| panic!("{e}"));
+        let socket = dir.join("proxy.sock");
+        let proxy = UnixListener::bind(&socket).unwrap_or_else(|e| panic!("{e}"));
+        let (mut agent, accepted) = UnixStream::pair().unwrap_or_else(|e| panic!("{e}"));
+        let relaying = {
+            let socket = socket.clone();
+            std::thread::spawn(move || relay(accepted, &socket, Some(5173)))
+        };
+        let (mut upstream, _) = proxy.accept().unwrap_or_else(|e| panic!("{e}"));
+        agent
+            .write_all(b"GET / HTTP/1.1\r\n\r\n")
+            .unwrap_or_else(|e| panic!("{e}"));
+        agent
+            .shutdown(std::net::Shutdown::Write)
+            .unwrap_or_else(|e| panic!("{e}"));
+        let mut seen = String::new();
+        upstream
+            .read_to_string(&mut seen)
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(seen, "OVRA-LOCAL 5173\r\nGET / HTTP/1.1\r\n\r\n");
+        upstream
+            .write_all(b"HTTP/1.1 200 OK\r\n\r\n")
+            .unwrap_or_else(|e| panic!("{e}"));
+        drop(upstream);
+        let mut answer = String::new();
+        agent
+            .read_to_string(&mut answer)
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(answer, "HTTP/1.1 200 OK\r\n\r\n");
+        assert!(relaying.join().is_ok_and(|r| r.is_ok()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_proxy_port_itself_gets_no_preamble() {
+        use std::io::Read as _;
+        use std::os::unix::net::UnixListener;
+        let dir = std::env::temp_dir().join(format!("ovra-bridge-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap_or_else(|e| panic!("{e}"));
+        let socket = dir.join("proxy.sock");
+        let proxy = UnixListener::bind(&socket).unwrap_or_else(|e| panic!("{e}"));
+        let (mut agent, accepted) = UnixStream::pair().unwrap_or_else(|e| panic!("{e}"));
+        let relaying = std::thread::spawn(move || relay(accepted, &socket, None));
+        let (mut upstream, _) = proxy.accept().unwrap_or_else(|e| panic!("{e}"));
+        agent
+            .write_all(b"CONNECT")
+            .unwrap_or_else(|e| panic!("{e}"));
+        drop(agent);
+        let mut seen = String::new();
+        upstream
+            .read_to_string(&mut seen)
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(seen, "CONNECT");
+        drop(upstream);
+        assert!(relaying.join().is_ok());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

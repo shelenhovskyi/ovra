@@ -1,0 +1,33 @@
+[package]
+name = "ovra-servers"
+description = "Dev servers in sandbox pods (implements ovra_core::services::DevServers)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+# Pod mode on its own, for this crate's tests; the daemon and the app are
+# the pod themselves (`pod_init_if_asked`).
+name = "ovra-pod"
+path = "src/bin/pod.rs"
+test = false
+
+[dependencies]
+ovra-core.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+rand.workspace = true
+rustix = { version = "1", features = ["process"] }
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["io-util", "net", "process", "rt", "sync", "time"] }
+
+[target.'cfg(unix)'.dev-dependencies]
+insta.workspace = true
+tempfile = "3"
+tokio = { workspace = true, features = ["macros", "test-util"] }
+
+[lints]
+workspace = true

@@ -22,7 +22,7 @@ export type FileChange = {
   deletions: number;
   /** A worker's file the direct session also changed: it waits for that session's review. */
   blocked: boolean;
-  /** The file, or the old path of a rename, is a protected path (agent configuration, tool folders); approve applies it too. */
+  /** The file, or the old path of a rename, is a protected path (agent configuration, tool folders); approve applies it only with `include_protected`. */
   protected: boolean;
 };
 
@@ -37,13 +37,15 @@ export type ReviewItem = {
   files: FileChange[];
   /** A direct session's last reject can be undone (`review.undo_reject`). */
   can_undo: boolean;
-  /** A worker's files approve did not copy; the worker's version stays in its diff. */
+  /** A worker's files approve did not copy (including protected files not included); the worker's version stays in its diff. */
   not_copied: string[];
   /** The last `review.take` can be undone (`review.undo_take`). */
   can_undo_take: boolean;
   /**
    * An open worker item's files as listed here; `review.approve` sends it
-   * back and is refused if the worker's files changed since. Null otherwise.
+   * back and is refused if the worker's files changed since. For an open
+   * direct item with protected files: those files, which an approve that
+   * includes them sends back. Null otherwise.
    */
   fingerprint: string | null;
   /**
@@ -64,16 +66,26 @@ export type ReviewRequest =
   | { method: "review.diff"; params: { id: ReviewId; path: string } }
   /**
    * With `commit`, commits the agent's files with that message. A worker's
-   * item needs the `fingerprint` the person reviewed.
+   * item, and a direct item's `include_protected`, need the `fingerprint`
+   * the person reviewed. Without
+   * `include_protected`, a worker's protected files are not copied (they
+   * wait in `not_copied`) and a direct item with protected files is refused.
    */
-  | { method: "review.approve"; params: { id: ReviewId; commit: string | null; fingerprint?: string | null } }
+  | {
+      method: "review.approve";
+      params: { id: ReviewId; commit: string | null; fingerprint?: string | null; include_protected?: boolean };
+    }
   | { method: "review.reject"; params: { id: ReviewId } }
   /** Puts back what the last reject reverted; files changed since come back as conflicts. */
   | { method: "review.undo_reject"; params: { id: ReviewId } }
   /** The person is done with what a partly approved item did not copy: it becomes approved. */
   | { method: "review.resolve"; params: { id: ReviewId } }
-  /** Puts the worker's version over the person's for what a partly approved item left; files the worker changed since come back as conflicts. */
-  | { method: "review.take"; params: { id: ReviewId } }
+  /**
+   * Puts the worker's version over the person's for what a partly approved
+   * item left; files the worker changed since come back as conflicts.
+   * Protected files are copied only with `include_protected`.
+   */
+  | { method: "review.take"; params: { id: ReviewId; include_protected?: boolean } }
   /** Puts back the person's versions from just before the last take. */
   | { method: "review.undo_take"; params: { id: ReviewId } }
   /** The same session continues with the comment; a decided item stays decided. */
@@ -81,7 +93,7 @@ export type ReviewRequest =
 
 export type ReviewResponse =
   | { type: "review.list"; data: ReviewItem[] }
-  /** For a worker's item, `fingerprint` is the item's fingerprint the diff was read with. */
+  /** For a worker's item, and a direct one with protected files, the item's fingerprint the diff was read with. */
   | { type: "review.diff"; data: { path: string; patch: string; fingerprint?: string | null } }
   /** After approve, reject or undo; `conflicts` are files left for the person, `restored` what a reject restored or an undo put back. */
   | { type: "review.done"; data: { item: ReviewItem; conflicts: string[]; restored: string[] } };

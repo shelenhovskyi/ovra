@@ -18,8 +18,12 @@ export type Policy = { rules: PolicyRule[] };
 
 export type PolicyRequest =
   | { method: "policy.get"; params: { project: ProjectId } }
-  /** Replaces the policy; `bad_request` for rules that cannot mean what they say. */
-  | { method: "policy.set"; params: { project: ProjectId; policy: Policy } };
+  /**
+   * Replaces the policy; `bad_request` for rules that cannot mean what they say.
+   * With `expected` (the policy the change was built from), `conflict` and nothing
+   * kept when the stored policy differs.
+   */
+  | { method: "policy.set"; params: { project: ProjectId; policy: Policy; expected?: Policy } };
 
 export type PolicyResponse = { type: "policy.policy"; data: Policy };
 

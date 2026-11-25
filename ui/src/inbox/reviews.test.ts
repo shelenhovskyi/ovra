@@ -62,6 +62,16 @@ describe("ReviewInbox", () => {
     core.items[core.items.length - 1] = review("r4", { mode: "isolated", fingerprint: "f-newer" });
     expect(await inbox.approve("r4", null)).toBe(true);
     expect(core.sent("review.approve")[0]?.params).toEqual({ id: "r4", commit: null, fingerprint: "f-seen" });
+    // Protected files go only when the person included them.
+    core.items[core.items.length - 1] = review("r4", { mode: "isolated", state: "open", fingerprint: "f-seen" });
+    await inbox.reload();
+    expect(await inbox.approve("r4", null, true)).toBe(true);
+    expect(core.sent("review.approve")[1]?.params).toEqual({
+      id: "r4",
+      commit: null,
+      fingerprint: "f-seen",
+      include_protected: true,
+    });
 
     // Refused because the files moved on: the list shows them as they are now.
     core.items.push(review("r5", { mode: "isolated", fingerprint: "f-old" }));

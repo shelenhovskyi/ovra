@@ -1,0 +1,173 @@
+---
+source: crates/core/src/protocol/servers.rs
+expression: "serde_json::json!({\n    \"requests\":\n    [Request::Servers(ServersRequest::List\n    { project: ProjectId(\"p1\".into()), work_dir: None }),\n    Request::Servers(ServersRequest::Stop { id: id(), grace_ms: Some(1000) }),\n    Request::Servers(ServersRequest::Logs\n    {\n        id: id(), since: Some(6), limit: Some(100), grep: Some(\"error\".into())\n    }),], \"responses\":\n    [Response::Servers(ServersResponse::List(ServerList\n    {\n        definitions:\n        vec![def, ServerDef\n        {\n            name: \"api\".into(), command: vec![\"cargo\".into(), \"run\".into()],\n            cwd: None, env: BTreeMap::new(), port: 8080, ready: None,\n        }], servers: vec![info.clone()], error: None,\n    })),\n    Response::Servers(ServersResponse::Server(ServerInfo\n    {\n        status: ServerStatus::Failed { reason: \"port 5173 is taken\".into() },\n        started_by: StartedBy::Person, work_dir: None, ..info\n    })),\n    Response::Servers(ServersResponse::Logs(LogPage\n    { lines: vec![line.clone()], next: 7 })),\n    Response::Servers(ServersResponse::Opened\n    { url: \"http://127.0.0.1:5173/\".into() }),], \"events\":\n    [Event::from(ServersEvent::Status\n    {\n        id: id(), project: ProjectId(\"p1\".into()), status:\n        ServerStatus::Exited { code: Some(1) }, generation: 2,\n    }), Event::from(ServersEvent::Output { id: id(), lines: vec![line] }),],\n    \"audit\":\n    [AuditEvent::ServerStarted\n    {\n        server: id(), name: \"web\".into(), generation: 2, by: StartedBy::Person\n    }, AuditEvent::ServerStopped\n    { server: id(), name: \"web\".into(), generation: 2, code: None },\n    AuditEvent::LoopbackGranted { server: id(), port: 5173, generation: 2 },\n    AuditEvent::LoopbackRevoked { server: id(), port: 5173, generation: 2 },],\n})"
+---
+{
+  "audit": [
+    {
+      "by": {
+        "kind": "person"
+      },
+      "generation": 2,
+      "kind": "server_started",
+      "name": "web",
+      "server": "srv1"
+    },
+    {
+      "code": null,
+      "generation": 2,
+      "kind": "server_stopped",
+      "name": "web",
+      "server": "srv1"
+    },
+    {
+      "generation": 2,
+      "kind": "loopback_granted",
+      "port": 5173,
+      "server": "srv1"
+    },
+    {
+      "generation": 2,
+      "kind": "loopback_revoked",
+      "port": 5173,
+      "server": "srv1"
+    }
+  ],
+  "events": [
+    {
+      "data": {
+        "generation": 2,
+        "id": "srv1",
+        "project": "p1",
+        "status": {
+          "code": 1,
+          "state": "exited"
+        }
+      },
+      "type": "servers.status"
+    },
+    {
+      "data": {
+        "id": "srv1",
+        "lines": [
+          {
+            "n": 7,
+            "text": "ready in 300 ms"
+          }
+        ]
+      },
+      "type": "servers.output"
+    }
+  ],
+  "requests": [
+    {
+      "method": "servers.list",
+      "params": {
+        "project": "p1",
+        "work_dir": null
+      }
+    },
+    {
+      "method": "servers.stop",
+      "params": {
+        "grace_ms": 1000,
+        "id": "srv1"
+      }
+    },
+    {
+      "method": "servers.logs",
+      "params": {
+        "grep": "error",
+        "id": "srv1",
+        "limit": 100,
+        "since": 6
+      }
+    }
+  ],
+  "responses": [
+    {
+      "data": {
+        "definitions": [
+          {
+            "command": [
+              "pnpm",
+              "dev"
+            ],
+            "cwd": "ui",
+            "env": {
+              "VITE_API": "http://localhost:8080"
+            },
+            "name": "web",
+            "port": 5173,
+            "ready": {
+              "log": "ready in"
+            }
+          },
+          {
+            "command": [
+              "cargo",
+              "run"
+            ],
+            "name": "api",
+            "port": 8080
+          }
+        ],
+        "error": null,
+        "servers": [
+          {
+            "generation": 2,
+            "id": "srv1",
+            "name": "web",
+            "port": 5173,
+            "project": "p1",
+            "started_by": {
+              "kind": "agent",
+              "session": "s1"
+            },
+            "status": {
+              "state": "ready"
+            },
+            "work_dir": "s1"
+          }
+        ]
+      },
+      "type": "servers.list"
+    },
+    {
+      "data": {
+        "generation": 2,
+        "id": "srv1",
+        "name": "web",
+        "port": 5173,
+        "project": "p1",
+        "started_by": {
+          "kind": "person"
+        },
+        "status": {
+          "reason": "port 5173 is taken",
+          "state": "failed"
+        },
+        "work_dir": null
+      },
+      "type": "servers.server"
+    },
+    {
+      "data": {
+        "lines": [
+          {
+            "n": 7,
+            "text": "ready in 300 ms"
+          }
+        ],
+        "next": 7
+      },
+      "type": "servers.logs"
+    },
+    {
+      "data": {
+        "url": "http://127.0.0.1:5173/"
+      },
+      "type": "servers.opened"
+    }
+  ]
+}

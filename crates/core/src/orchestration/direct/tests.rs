@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 
 use super::*;
 use crate::fakes::MemoryWorktrees;
+use crate::orchestration::review::Guard;
 use crate::protocol::review::ChangeKind;
 use crate::services::{BoxFuture, GitFiles, WorktreeInfo};
 
@@ -279,7 +280,12 @@ async fn one_running_direct_writer_per_project_and_a_resumed_session_keeps_its_b
     assert!(h.direct.begin(&h.project, &s2, DIR.into()).await.is_ok());
     let resumed = h.direct.begin(&h.project, &h.session, DIR.into()).await;
     assert_eq!(resumed.err().map(|e| e.code), Some(ErrorCode::Conflict));
-    assert!(h.direct.approve(&h.session, None).await.is_ok());
+    assert!(
+        h.direct
+            .approve(&h.session, None, &Guard::default())
+            .await
+            .is_ok()
+    );
     let reviewed = h.direct.files(&h.session).await;
     assert_eq!(reviewed.err().map(|e| e.code), Some(ErrorCode::Conflict));
 }
@@ -498,7 +504,7 @@ async fn reject_waits_for_running_tools() {
     h.started("t1", "Bash", json!({"command": "make"})).await;
     let refused = h.direct.reject(&h.session).await;
     assert_eq!(refused.err().map(|e| e.code), Some(ErrorCode::Conflict));
-    let refused = h.direct.approve(&h.session, None).await;
+    let refused = h.direct.approve(&h.session, None, &Guard::default()).await;
     assert_eq!(refused.err().map(|e| e.code), Some(ErrorCode::Conflict));
     // Ending the session drops its tools: what they changed is outside.
     h.put("out.o", "bin\n");
@@ -680,7 +686,7 @@ async fn approve_commits_only_the_agents_own_files() {
     h.put("mine.rs", "mine\n");
     let outcome = h
         .direct
-        .approve(&h.session, Some("feat: move a".into()))
+        .approve(&h.session, Some("feat: move a".into()), &Guard::default())
         .await
         .unwrap_or_else(|e| panic!("{e:?}"));
     assert_eq!(outcome.conflicts, ["both.rs"]);
@@ -796,11 +802,14 @@ mod through_the_core {
         let s1 = host.session().clone();
 
         let input = json!({"command": "cargo fmt"});
-        host.before_tool(&json!({
+        let hook = json!({
             "hook_event_name": "PreToolUse", "tool_use_id": "t1",
             "tool_name": "Bash", "tool_input": input,
-        }))
-        .await;
+        });
+        assert_eq!(
+            host.before_tool(&hook).await,
+            crate::agents::BeforeTool::Proceed
+        );
         let asking = tokio::spawn({
             let host = host.clone();
             async move { host.ask("Bash".into(), input, None, None).await }
@@ -912,7 +921,7 @@ mod through_the_core {
         use crate::protocol::audit::{AuditEvent, ReviewAction};
         use crate::services::AuditLog;
         let actions: Vec<_> = audit
-            .list(&ProjectId("p1".into()), None, 100)
+            .list(&ProjectId("p1".into()), Default::default(), 100)
             .unwrap_or_default()
             .into_iter()
             .filter_map(|e| match e.event {
@@ -1039,10 +1048,13 @@ mod through_the_core {
     }
 
     async fn bash(host: &AgentHost, id: &str, during: impl std::future::Future<Output = ()>) {
-        host.before_tool(&json!({
+        let hook = json!({
             "tool_use_id": id, "tool_name": "Bash", "tool_input": {"command": "cargo build"},
-        }))
-        .await;
+        });
+        assert_eq!(
+            host.before_tool(&hook).await,
+            crate::agents::BeforeTool::Proceed
+        );
         during.await;
         host.message(crate::protocol::agents::AgentMessage::ToolResult {
             tool_use_id: id.into(),

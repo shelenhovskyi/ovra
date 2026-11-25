@@ -5,8 +5,9 @@
 //! namespace, the system read-only, the home folder and `/run` hidden, and
 //! only what [`plan`] lists bound back. Inside it, the helper (the program
 //! [`Setup::helper`] names, started with [`HELPER_FLAG`]) applies Landlock
-//! and a seccomp filter, bridges the netproxy socket to a local port, and
-//! then runs `claude`. Contract: `ovra_core::services::Sandbox`;
+//! and a seccomp filter, bridges the netproxy socket to a local port (and
+//! the profile's `forward` ports to it with `OVRA-LOCAL <port>`), and then
+//! runs `claude`, or a server pod's supervisor. Contract: `ovra_core::services::Sandbox`;
 //! `ovra-sandbox` picks it.
 //!
 //! [`Bubblewrap::wrap_server`](Sandbox::wrap_server) does the same for a
@@ -68,6 +69,9 @@ pub struct Setup {
     pub toolchains: Vec<PathBuf>,
     /// Folders hidden even outside the home folder: Ovra's data folder.
     pub hidden: Vec<PathBuf>,
+    /// Ovra's data folder. A language server's cache folder must be inside
+    /// its `lsp` folder.
+    pub data_dir: PathBuf,
     /// Where sessions keep their package caches, one folder per project, so
     /// what an agent puts in a cache never reaches the user's own builds.
     pub caches: PathBuf,
@@ -99,12 +103,24 @@ impl Setup {
             ],
             // The temporary folder holds the netproxy's sockets of every
             // session; `/tmp` is hidden anyway.
-            hidden: vec![data_dir, std::env::temp_dir()],
+            hidden: vec![data_dir.clone(), std::env::temp_dir()],
+            data_dir,
             home,
             protected,
         })
     }
 }
+
+/// What the sandbox does not cover: the known gaps on Linux in
+/// `docs/specs/security.md`, left to the review backstop. Keep it in step
+/// with that list.
+const GAPS: [&str; 5] = [
+    "git config values that name project files",
+    "submodules added during a session",
+    "package caches shared by similar project paths",
+    "other mounts of the home folder stay readable",
+    "new protected files such as CLAUDE.md or .envrc",
+];
 
 /// The Linux sandbox: bubblewrap, plus Landlock and seccomp in the helper.
 #[derive(Debug)]
@@ -140,7 +156,10 @@ impl Bubblewrap {
                 } else {
                     "bubblewrap, seccomp"
                 };
-                sandbox.status = SandboxStatus::Available { name: name.into() };
+                sandbox.status = SandboxStatus::Available {
+                    name: name.into(),
+                    gaps: GAPS.map(String::from).to_vec(),
+                };
             }
             Err(reason) => sandbox.status = SandboxStatus::Unavailable { reason },
         }
@@ -188,6 +207,8 @@ impl Bubblewrap {
             work_dir: work.clone(),
             read: Vec::new(),
             write: Vec::new(),
+            expose: Vec::new(),
+            forward: Vec::new(),
             network: ovra_core::services::ProfileNetwork::Blocked,
         };
         let line = CommandLine {
@@ -309,6 +330,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_gaps_are_the_known_gaps_in_the_security_spec() {
+        assert_eq!(
+            GAPS,
+            [
+                "git config values that name project files",
+                "submodules added during a session",
+                "package caches shared by similar project paths",
+                "other mounts of the home folder stay readable",
+                "new protected files such as CLAUDE.md or .envrc",
+            ]
+        );
+    }
+
+    #[test]
     fn a_failed_probe_names_apparmor_when_it_restricts_user_namespaces() {
         let err = "bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted";
         assert!(not_working(err, Some("1\n")).contains("AppArmor restricts user namespaces"));
@@ -330,6 +365,7 @@ mod tests {
             path: "/usr/bin".into(),
             toolchains: Vec::new(),
             hidden: Vec::new(),
+            data_dir: "/nowhere/data".into(),
             caches: "/nowhere/caches".into(),
             protected: Protected { work_dir: &[] },
         };
@@ -344,6 +380,8 @@ mod tests {
             work_dir: "/".into(),
             read: Vec::new(),
             write: Vec::new(),
+            expose: Vec::new(),
+            forward: Vec::new(),
             network: ProfileNetwork::Blocked,
         };
         let server = ServerProfile {

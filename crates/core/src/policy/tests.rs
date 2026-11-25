@@ -32,6 +32,7 @@ fn sandboxed(network: SandboxNetwork) -> SandboxReport {
     SandboxReport {
         name: "test".into(),
         network,
+        gaps: Vec::new(),
     }
 }
 
@@ -148,6 +149,7 @@ fn an_ask_rule_wins_over_an_auto_rule() {
     let sandbox = SandboxReport {
         name: "test".into(),
         network: SandboxNetwork::Blocked,
+        gaps: Vec::new(),
     };
     let decided = |command: &str| {
         decide(
@@ -222,6 +224,29 @@ async fn the_person_sets_a_projects_policy_and_bad_rules_are_refused() {
         panic!("no policy");
     };
     assert_eq!(kept.rules.len(), 1);
+
+    // A change built from an older policy would drop the rule just kept.
+    let stale = json!({"method": "policy.set", "params": {"project": "p1",
+        "policy": {"rules": [{"tool": "WebFetch", "action": "ask"}]},
+        "expected": {"rules": []}}});
+    assert_eq!(
+        call(stale).await.err().map(|e| e.code),
+        Some(ErrorCode::Conflict)
+    );
+    assert!(rx.try_recv().is_err(), "a refused change was announced");
+    let current = json!({"method": "policy.set", "params": {"project": "p1",
+        "policy": {"rules": [kept.rules[0].clone(), {"tool": "WebFetch", "action": "deny"}]},
+        "expected": kept}});
+    let Ok(Response::Policy(PolicyResponse::Policy(both))) = call(current).await else {
+        panic!("the change built from the stored policy was refused");
+    };
+    assert_eq!(both.rules.len(), 2);
+    let Ok(Response::Policy(PolicyResponse::Policy(stored))) =
+        call(json!({"method": "policy.get", "params": {"project": "p1"}})).await
+    else {
+        panic!("no policy");
+    };
+    assert_eq!(stored, both);
 
     let bad = json!({"method": "policy.set", "params": {"project": "p1", "policy": {"rules": [
         {"tool": "Edit", "match": "/etc/passwd", "action": "auto"}]}}});

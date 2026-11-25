@@ -54,11 +54,15 @@ export class ReviewInbox {
     return this.items.filter((item) => item.state === "open");
   }
 
-  /** Open items with at least one of the agent's files, and partly approved ones: what waits for the person. */
+  /**
+   * Open items with at least one of the agent's files or a changed git hook
+   * or config file, and partly approved ones: what waits for the person.
+   */
   get waiting(): ReviewItem[] {
     return this.items.filter(
       (item) =>
-        item.state === "partly_approved" || (item.state === "open" && item.files.some((f) => f.by !== "outside")),
+        item.state === "partly_approved" ||
+        (item.state === "open" && (item.git_changes.length > 0 || item.files.some((f) => f.by !== "outside"))),
     );
   }
 
@@ -109,11 +113,17 @@ export class ReviewInbox {
    * Keeps the changes; with `commit`, the core commits the agent's files with
    * that message. A worker's item goes with the fingerprint of the files shown
    * here, so the core refuses if they changed since the person looked.
+   * Protected files land only with `includeProtected`: the person chose so.
    */
-  approve(id: ReviewId, commit: string | null): Promise<boolean> {
+  approve(id: ReviewId, commit: string | null, includeProtected = false): Promise<boolean> {
     const fingerprint = this.items.find((i) => i.id === id)?.fingerprint ?? null;
     return this.act(id, async () => {
-      const params = fingerprint ? { id, commit, fingerprint } : { id, commit };
+      const params = {
+        id,
+        commit,
+        ...(fingerprint ? { fingerprint } : {}),
+        ...(includeProtected ? { include_protected: true } : {}),
+      };
       const { data } = await this.transport.call({ method: "review.approve", params });
       this.settle("approved", data, commit);
     });
@@ -135,10 +145,14 @@ export class ReviewInbox {
     });
   }
 
-  /** Puts the worker's version over the person's for what a partly approved item left. */
-  take(id: ReviewId): Promise<boolean> {
+  /**
+   * Puts the worker's version over the person's for what a partly approved
+   * item left. Protected files are copied only with `includeProtected`.
+   */
+  take(id: ReviewId, includeProtected = false): Promise<boolean> {
     return this.act(id, async () => {
-      const { data } = await this.transport.call({ method: "review.take", params: { id } });
+      const params = { id, ...(includeProtected ? { include_protected: true } : {}) };
+      const { data } = await this.transport.call({ method: "review.take", params });
       this.settle("taken", data);
     });
   }

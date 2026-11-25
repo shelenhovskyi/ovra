@@ -150,14 +150,26 @@ describe("AgentsPanel", () => {
     expect(line()?.textContent).toBe("No sandbox: the agent can read and change anything your user can.");
     expect(line()?.classList.contains("unsandboxed")).toBe(true);
     expect(badges()).toEqual(["No sandbox"]);
-    core.sandboxed("s2", { name: "bubblewrap, Landlock, seccomp", network: "proxy" });
+    core.sandboxed("s2", { name: "bubblewrap, Landlock, seccomp", network: "proxy", gaps: [] });
     await settle();
     expect(line()?.textContent).toBe(
       "Runs in a sandbox (bubblewrap, Landlock, seccomp), network only through Ovra's proxy.",
     );
     expect(line()?.classList.contains("unsandboxed")).toBe(false);
     expect(badges()).toEqual(["Sandboxed"]);
+    const gaps = () => panel()?.querySelector("[data-testid=agent-sandbox-gaps]")?.textContent;
+    expect(gaps()).toBeUndefined();
+    core.sandboxed("s2", {
+      name: "fake sandbox",
+      network: "proxy",
+      gaps: ["DNS lookups", "loopback services"],
+    });
+    await settle();
+    expect(gaps()).toBe("Not covered: DNS lookups, loopback services.");
     core.status("s2", { state: "stopped" });
+    await settle();
+    expect(gaps()).toBe("Did not cover: DNS lookups, loopback services.");
+    core.sandboxed("s2", { name: "bubblewrap, Landlock, seccomp", network: "proxy", gaps: [] });
     await settle();
     expect(line()?.textContent).toBe(
       "Ran in a sandbox (bubblewrap, Landlock, seccomp), network only through Ovra's proxy.",
@@ -184,7 +196,7 @@ describe("AgentsPanel", () => {
     const call = core.call.bind(core);
     core.call = (async (request: Parameters<typeof call>[0]) => {
       const reply = await call(request);
-      if (request.method === "agents.start") core.sandboxed("s1", { name: "bwrap", network: "proxy" });
+      if (request.method === "agents.start") core.sandboxed("s1", { name: "bwrap", network: "proxy", gaps: [] });
       return reply;
     }) as typeof core.call;
     type(target.querySelector("#agent-prompt"), "Fix the typo");

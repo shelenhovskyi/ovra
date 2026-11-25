@@ -57,6 +57,7 @@ test("stage a file and one hunk, commit, and switch to a new branch", async ({ p
 
   await page.keyboard.press("Alt+Shift+G");
   const panel = page.getByTestId("git");
+  await expect(panel.getByRole("textbox", { name: "Commit message" })).toBeFocused();
   await expect(panel.getByTestId("git-branch")).toHaveAccessibleName("Branch: main");
   const changes = panel.getByTestId("git-changes");
   await expect(changes.getByRole("button", { name: "Stage new.txt" })).toBeVisible();
@@ -64,14 +65,20 @@ test("stage a file and one hunk, commit, and switch to a new branch", async ({ p
   await changes.getByRole("button", { name: "Stage new.txt" }).click();
   await expect(panel.getByTestId("git-staged").getByRole("button", { name: "Unstage new.txt" })).toBeVisible();
 
-  // Only the first of the two hunks of notes.txt.
-  await changes.getByRole("button", { name: "Show diff of notes.txt" }).click();
-  const diff = page.getByTestId("git-diff");
+  // A row shows its diff as the selected tab. Only the first of the two hunks of notes.txt.
+  const row = changes.locator('[data-row][data-path="notes.txt"]');
+  await row.click();
+  await expect(page.getByRole("tab", { name: "notes.txt (diff)", selected: true })).toBeVisible();
+  const diff = page.getByRole("tabpanel", { name: "Diff of notes.txt" }).getByTestId("git-diff");
   const hunks = diff.locator("[data-hunk-action]");
   await expect(hunks).toHaveCount(2);
   await hunks.first().click();
   await expect.poll(() => git(dir, "diff", "--cached", "--name-only")).toBe("new.txt\nnotes.txt\n");
   expect(git(dir, "diff", "--", "notes.txt")).toContain("+line 28 changed");
+  // Escape closes the diff and goes back to the row.
+  await page.keyboard.press("Escape");
+  await expect(diff).toBeHidden();
+  await expect(row).toBeFocused();
 
   await panel.getByRole("textbox", { name: "Commit message" }).fill("Add new.txt and fix line 2");
   await page.keyboard.press("ControlOrMeta+Enter");
@@ -98,5 +105,12 @@ test("the editor marks changed lines against the index", async ({ page }) => {
   await text.click();
   await page.keyboard.press("ControlOrMeta+Home");
   await page.keyboard.type("added line\n");
-  await expect(main.locator('[data-testid="git-marker"][data-change="added"]')).toHaveCount(1);
+  const marker = main.locator('[data-testid="git-marker"][data-change="added"]');
+  await expect(marker).toHaveCount(1);
+  await expect(marker).toBeVisible();
+  expect((await marker.boundingBox())?.width).toBeGreaterThan(0);
+  // The cursor is on line 2; the next change wraps around to line 1.
+  await expect(main.locator(".cm-activeLine")).toHaveText("line 1");
+  await page.keyboard.press("Alt+F5");
+  await expect(main.locator(".cm-activeLine")).toHaveText("added line");
 });

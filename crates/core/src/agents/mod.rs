@@ -31,7 +31,7 @@ use crate::services::{
 pub(crate) use permissions::Permissions;
 pub(crate) use requests::{
     Ctx, NewSession, Parts, agents as handle_agents, check_text, permissions as handle_permissions,
-    resume, send, start, stop, stop_project, trust,
+    profile, resume, send, start, stop, stop_project, trust,
 };
 pub(crate) use transcript::MAX_TEXT_BYTES;
 use transcript::Transcript;
@@ -499,8 +499,36 @@ impl AgentHost {
         }
     }
 
+    /// Records who decided a tool call. The entry is queued before this
+    /// returns, so it is kept even if the caller stops waiting for it; the
+    /// returned future waits until it is written.
+    fn audit_tool(
+        &self,
+        tool: &str,
+        input: &serde_json::Value,
+        allowed: bool,
+        by: DecidedBy,
+    ) -> impl Future<Output = ()> + use<> {
+        let recorded = self.sessions.core().map(|core| {
+            crate::audit::tool_decided(
+                &core,
+                &self.project,
+                Some(&self.session),
+                tool,
+                input,
+                allowed,
+                by,
+            )
+        });
+        async move {
+            if let Some(recorded) = recorded {
+                let _ = recorded.await;
+            }
+        }
+    }
+
     /// Records who decided a tool call and passes the answer on.
-    fn decided(
+    async fn decided(
         &self,
         tool: &str,
         input: &serde_json::Value,
@@ -508,7 +536,7 @@ impl AgentHost {
         by: DecidedBy,
     ) -> PermissionAnswer {
         let allowed = answer.decision == Decision::Allow;
-        self.audit(crate::audit::tool_decided(tool, input, allowed, by));
+        self.audit_tool(tool, input, allowed, by).await;
         answer
     }
 
@@ -517,19 +545,22 @@ impl AgentHost {
     /// before the tool runs, so a direct session can snapshot the tree
     /// first (ADR 0005).
     ///
-    /// Returns why the project's policy refuses the call, if it does: the
-    /// hook also sees calls the user's own settings allow without asking,
-    /// which never reach [`Self::ask`].
-    pub async fn before_tool(&self, hook_input: &serde_json::Value) -> Option<String> {
+    /// Returns what the project's policy says about the call: the hook also
+    /// sees calls the user's own settings allow without asking, which never
+    /// reach [`Self::ask`] unless the hook tells the CLI to ask.
+    pub async fn before_tool(&self, hook_input: &serde_json::Value) -> BeforeTool {
         let field = |name: &str| hook_input.get(name).and_then(serde_json::Value::as_str);
-        let (Some(id), Some(name)) = (field("tool_use_id"), field("tool_name")) else {
-            return None;
+        // The policy decides whenever the tool is known; only the
+        // bookkeeping below needs the call's id.
+        let Some(name) = field("tool_name") else {
+            return BeforeTool::Proceed;
         };
         let input = hook_input
             .get("tool_input")
             .cloned()
             .unwrap_or(serde_json::Value::Null);
         // Ovra's own tools follow their role rules (`Self::ask`).
+        let mut verdict = BeforeTool::Proceed;
         if !name.starts_with(crate::orchestration::IDE_TOOL_PREFIX) {
             let refused = match self.policy(name, &input) {
                 Ok(Some((PolicyAction::Deny, rule))) => Some((
@@ -543,19 +574,31 @@ impl AgentHost {
                         .to_owned(),
                     UNREADABLE_POLICY.to_owned(),
                 )),
-                Ok(_) => None,
+                // The CLI asks through `can_use_tool`, and `Self::ask`
+                // asks the person, whatever the user's settings allow.
+                Ok(Some((PolicyAction::Ask, rule))) => {
+                    verdict = BeforeTool::Ask(format!(
+                        "The project's policy asks the person first ({rule})."
+                    ));
+                    None
+                }
+                // Auto never skips more than the user's settings: the CLI
+                // decides as usual, and `Self::ask` applies the rule.
+                Ok(Some((PolicyAction::Auto, _)) | None) => None,
             };
             if let Some((why, rule)) = refused {
                 let by = DecidedBy::Policy { rule };
-                self.audit(crate::audit::tool_decided(name, &input, false, by));
-                return Some(why);
+                self.audit_tool(name, &input, false, by).await;
+                return BeforeTool::Deny(why);
             }
         }
-        self.sessions
-            .direct
-            .tool_started(&self.session, id, name, &input)
-            .await;
-        None
+        if let Some(id) = field("tool_use_id") {
+            self.sessions
+                .direct
+                .tool_started(&self.session, id, name, &input)
+                .await;
+        }
+        verdict
     }
 
     /// Finishes the bookkeeping for tool results reported with
@@ -609,6 +652,9 @@ impl AgentHost {
             });
             if let Some(core) = self.sessions.core() {
                 crate::orchestration::on_status(&core, &self.session, &status);
+                if status.is_ended() {
+                    crate::servers::session_ended(&core, &self.session);
+                }
             }
         }
         changed == Ok(true)
@@ -636,7 +682,7 @@ impl AgentHost {
             return match self.sessions.core() {
                 Some(core) => {
                     let answer = crate::orchestration::decide(&core, &self.session, name, &input);
-                    self.decided(&tool, &input, answer, DecidedBy::Role)
+                    self.decided(&tool, &input, answer, DecidedBy::Role).await
                 }
                 None => PermissionAnswer::deny("Ovra is shutting down"),
             };
@@ -652,11 +698,15 @@ impl AgentHost {
                 let answer = PermissionAnswer::deny(format!(
                     "The project's policy refuses this ({rule}). Ask the person if it is needed."
                 ));
-                return self.decided(&tool, &input, answer, DecidedBy::Policy { rule });
+                return self
+                    .decided(&tool, &input, answer, DecidedBy::Policy { rule })
+                    .await;
             }
             Ok(Some((PolicyAction::Auto, rule))) => {
                 let by = DecidedBy::Policy { rule };
-                return self.decided(&tool, &input, PermissionAnswer::allow(), by);
+                return self
+                    .decided(&tool, &input, PermissionAnswer::allow(), by)
+                    .await;
             }
             // Unreadable policy: ask, never decide on its own.
             _ => {}
@@ -684,17 +734,22 @@ impl AgentHost {
             Ok(Ok(registered)) => registered,
             Ok(Err(answer)) => {
                 let (tool, input) = &tool_input;
-                return self.decided(tool, input, answer, DecidedBy::SessionEnded);
+                return self
+                    .decided(tool, input, answer, DecidedBy::SessionEnded)
+                    .await;
             }
             Err(_) => {
                 let (tool, input) = &tool_input;
                 let answer = PermissionAnswer::deny("the session ended");
-                return self.decided(tool, input, answer, DecidedBy::SessionEnded);
+                return self
+                    .decided(tool, input, answer, DecidedBy::SessionEnded)
+                    .await;
             }
         };
         let mut waiting = Waiting {
             host: self,
             id: Some(request.id.clone()),
+            settled: false,
         };
         let (tool, input) = tool_input;
         let direct = &self.sessions.direct;
@@ -708,30 +763,56 @@ impl AgentHost {
             )
         });
         waiting.id = None;
-        let answer = self.decided(&tool, &input, answer, by);
+        // Queued at once, so the entry survives the future being dropped.
         let allowed = answer.decision == Decision::Allow;
+        let recorded = self.audit_tool(&tool, &input, allowed, by);
         direct
             .tool_answered(&self.session, &tool, &input, allowed)
             .await;
         // Ignored while other requests of the session still wait.
         self.set_status(AgentStatus::Working);
+        waiting.settled = true;
+        recorded.await;
         answer
     }
 }
 
+/// What the project's policy says about a tool call before it runs
+/// ([`AgentHost::before_tool`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[must_use = "a deny or ask from the project's policy must reach the CLI"]
+pub enum BeforeTool {
+    /// No deny or ask rule matches: the CLI decides as usual.
+    Proceed,
+    /// The person is asked, even if the user's settings allow the call.
+    Ask(String),
+    /// Refused, for this reason.
+    Deny(String),
+}
+
 /// Withdraws the request when the agent stops waiting before it is answered
-/// (the [`AgentHost::ask`] future is dropped, e.g. the agent cancelled it).
+/// (the [`AgentHost::ask`] future is dropped, e.g. the agent cancelled it),
+/// and shows the session working again if it stops after the answer but
+/// before that.
 struct Waiting<'a> {
     host: &'a AgentHost,
     id: Option<PermissionId>,
+    settled: bool,
 }
 
 impl Drop for Waiting<'_> {
     fn drop(&mut self) {
-        let Some(id) = self.id.take() else { return };
-        if self.host.sessions.permissions.withdraw(&id) {
-            self.host.resolved(vec![id], Decision::Deny);
-            self.host.set_status(AgentStatus::Working);
+        match self.id.take() {
+            Some(id) => {
+                if self.host.sessions.permissions.withdraw(&id) {
+                    self.host.resolved(vec![id], Decision::Deny);
+                    self.host.set_status(AgentStatus::Working);
+                }
+            }
+            None if !self.settled => {
+                self.host.set_status(AgentStatus::Working);
+            }
+            None => {}
         }
     }
 }

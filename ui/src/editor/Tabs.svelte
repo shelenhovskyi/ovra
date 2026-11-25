@@ -3,6 +3,7 @@
 // for the strip; arrows, Home and End move between tabs, Delete closes one.
 // Closing a tab with unsaved text asks Save / Don't save / Cancel in a
 // modal dialog. The Edit / View button switches the open file's mode.
+// A git diff shown in the main area is the last tab, selected while it shows.
 import { tick } from "svelte";
 import { useOvra } from "../shell/context";
 import { toggle } from "./commands";
@@ -25,6 +26,27 @@ function label(path: string): string {
  * `pkg-003/src`), shown muted. The full path is in the tooltip.
  */
 let labels = $derived(tabLabels(tabs.current?.files ?? []));
+
+/** A git diff of this project shown in the main area: a tab of its own, after the files, selected while it shows. */
+const diff = $derived(workspace.gitDiff?.project === workspace.project?.id ? workspace.gitDiff : null);
+const diffName = $derived(diff ? diff.path.slice(diff.path.lastIndexOf("/") + 1) : "");
+
+function closeDiff(): void {
+  // The diff view puts focus back where the diff was opened from.
+  workspace.gitDiff = null;
+}
+
+function ondiffkeydown(event: KeyboardEvent): void {
+  const files = tabs.current?.files ?? [];
+  const target = { ArrowRight: files[0], Home: files[0], ArrowLeft: files.at(-1) }[event.key];
+  if (target) {
+    event.preventDefault();
+    select(target);
+  } else if (event.key === "Delete") {
+    event.preventDefault();
+    closeDiff();
+  }
+}
 
 async function focusTab(path: string | null): Promise<void> {
   await tick();
@@ -118,12 +140,13 @@ function scrollToActive(): void {
 }
 </script>
 
-{#if tabs.current && tabs.current.files.length > 0}
-  {@const current = tabs.current}
+{#if (tabs.current && tabs.current.files.length > 0) || diff}
+  {@const files = tabs.current?.files ?? []}
+  {@const selected = diff ? null : (tabs.current?.active ?? null)}
   <div class="tabs" role="tablist" aria-label="Open files" data-testid="tabs" bind:this={strip}>
-    {#each current.files as path (path)}
-      {@const active = path === current.active}
-      {@const dirty = current.buffers.isDirty(path)}
+    {#each files as path (path)}
+      {@const active = path === selected}
+      {@const dirty = tabs.current?.buffers.isDirty(path) ?? false}
       <div class="tab" class:active title={path}>
         <button
           type="button"
@@ -132,7 +155,7 @@ function scrollToActive(): void {
           aria-selected={active}
           aria-controls="ovra-tabpanel"
           aria-label={`${label(path)}${dirty ? ", unsaved changes" : ""}`}
-          tabindex={active || (!current.active && path === current.files[0]) ? 0 : -1}
+          tabindex={active || (!diff && !selected && path === files[0]) ? 0 : -1}
           onclick={() => select(path)}
           onkeydown={(event) => onkeydown(event, path)}
         >
@@ -149,7 +172,32 @@ function scrollToActive(): void {
         ></button>
       </div>
     {/each}
-    {#if workspace.openPath}
+    {#if diff}
+      {@const side = diff.staged ? "staged diff" : "diff"}
+      <div class="tab active" title={`${diff.path} (${side})`}>
+        <button
+          type="button"
+          role="tab"
+          data-diff-tab
+          aria-selected="true"
+          aria-controls="ovra-tabpanel"
+          aria-label={`${diffName} (${side})`}
+          tabindex="0"
+          onkeydown={ondiffkeydown}
+        >
+          <span class="name">{diffName}</span>
+          <span class="hint">{side}</span>
+        </button>
+        <button
+          type="button"
+          class="close"
+          tabindex="-1"
+          aria-label={`Close ${diffName} (${side})`}
+          onclick={closeDiff}
+        ></button>
+      </div>
+    {/if}
+    {#if workspace.openPath && !diff}
       <button type="button" class="mode" onclick={() => toggle(workspace)}>
         {workspace.mode === "edit" ? "View" : "Edit"}
       </button>

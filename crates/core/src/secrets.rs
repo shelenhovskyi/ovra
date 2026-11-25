@@ -58,7 +58,7 @@ pub(crate) async fn handle(
             let _changing = core.changing_secrets().await;
             core.project_store().get(&project)?;
             let changed = project.clone();
-            blocking(move || {
+            let set = blocking(move || {
                 let taken = secrets.list(&project)?.into_iter().find(|other| {
                     other.name != secret.name
                         && same_host(&other.host, &secret.host)
@@ -75,7 +75,9 @@ pub(crate) async fn handle(
                 }
                 secrets.set(&project, secret, value)
             })
-            .await?;
+            .await;
+            crate::audit::forget_secrets(core, &changed);
+            set?;
             core.emit(SecretsEvent::Changed { project: changed });
             Ok(Response::Ok(OkResponse::Ok))
         }
@@ -83,7 +85,9 @@ pub(crate) async fn handle(
             let _changing = core.changing_secrets().await;
             core.project_store().get(&project)?;
             let changed = project.clone();
-            blocking(move || secrets.remove(&project, &name)).await?;
+            let removed = blocking(move || secrets.remove(&project, &name)).await;
+            crate::audit::forget_secrets(core, &changed);
+            removed?;
             core.emit(SecretsEvent::Changed { project: changed });
             Ok(Response::Ok(OkResponse::Ok))
         }
@@ -94,11 +98,13 @@ pub(crate) async fn handle(
 /// holds [`Core::changing_secrets`].
 pub(crate) async fn remove_project(core: &Core, project: &ProjectId) -> Result<(), ProtocolError> {
     let secrets = core.secrets_store();
-    let project = project.clone();
-    blocking(move || secrets.remove_project(&project)).await
+    let removed = project.clone();
+    let result = blocking(move || secrets.remove_project(&removed)).await;
+    crate::audit::forget_secrets(core, project);
+    result
 }
 
-async fn blocking<T: Send + 'static>(
+pub(crate) async fn blocking<T: Send + 'static>(
     f: impl FnOnce() -> Result<T, ProtocolError> + Send + 'static,
 ) -> Result<T, ProtocolError> {
     tokio::task::spawn_blocking(f).await.map_err(|_| {

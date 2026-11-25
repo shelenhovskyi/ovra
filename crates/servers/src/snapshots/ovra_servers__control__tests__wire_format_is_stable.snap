@@ -1,0 +1,16 @@
+---
+source: crates/servers/src/control.rs
+expression: "(lines(requests.iter().map(encode).collect()),\nlines(events.iter().map(encode).collect()),)"
+---
+(
+    [
+        "{\"spawn\":{\"id\":\"3\",\"argv\":[\"pnpm\",\"dev\"],\"env\":[[\"PORT\",\"5173\"],[\"CI\",null]],\"cwd\":\"/w/ui\",\"port\":5173}}\n",
+        "{\"signal\":{\"id\":\"3\",\"sig\":\"term\"}}\n",
+    ],
+    [
+        "{\"output\":{\"id\":\"3\",\"line\":\"ready in 300 ms\"}}\n",
+        "{\"listening\":{\"id\":\"3\",\"port\":5173}}\n",
+        "{\"exited\":{\"id\":\"3\",\"code\":null}}\n",
+        "{\"failed\":{\"id\":\"4\",\"reason\":\"port 5173 is taken in this pod\"}}\n",
+    ],
+)

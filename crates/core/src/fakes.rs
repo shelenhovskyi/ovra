@@ -6,8 +6,10 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+mod browser;
 mod git;
 mod lsp;
+mod servers;
 mod worktrees;
 
 /// An absolute path for tests on every OS, as a `&'static str`: the Unix
@@ -24,8 +26,10 @@ macro_rules! test_path {
     };
 }
 
+pub use browser::{FAKE_PNG, FakeBrowser, FakePage};
 pub use git::MemoryGit;
 pub use lsp::{FakeLanguageServers, FakeServer, HostRecord};
+pub use servers::{FakeDevServer, FakeDevServers};
 pub use worktrees::MemoryWorktrees;
 
 use crate::path::RelPath;
@@ -33,7 +37,7 @@ use crate::protocol::agents::{
     AgentMessage, AgentSettings, AgentStatus, ProjectAgentConfig, SandboxReport, SessionId,
     TurnUsage,
 };
-use crate::protocol::audit::{AuditEntry, AuditEvent};
+use crate::protocol::audit::{AuditEntry, AuditEvent, AuditOrder, AuditRange};
 use crate::protocol::fs::{DirEntry, DirListing, EntryKind, FileBody, FileContent, FileList};
 use crate::protocol::netproxy::{AllowedHost, Allowlist};
 use crate::protocol::permissions::Decision;
@@ -45,8 +49,8 @@ use crate::protocol::terminals::{TermSize, TerminalId, TerminalsEvent};
 use crate::protocol::{ErrorCode, ProtocolError};
 use crate::services::{
     AgentHost, AgentRuntime, AgentSpec, AuditLog, BoxFuture, CommandLine, EventSink, FsService,
-    NetProxy, NetReporter, NetStarted, Opener, ProjectStore, Result, RunningAgent, Sandbox,
-    SandboxProfile, SandboxStatus, SearchCancel, Secrets, ServerProfile, SessionStore,
+    LoopbackGrant, NetProxy, NetReporter, NetStarted, Opener, ProjectStore, Result, RunningAgent,
+    Sandbox, SandboxProfile, SandboxStatus, SearchCancel, Secrets, ServerProfile, SessionStore,
     StoredSession, TerminalService, ToolRole,
 };
 
@@ -444,6 +448,7 @@ impl FakeSandbox {
         Self {
             status: SandboxStatus::Available {
                 name: "fake".into(),
+                gaps: Vec::new(),
             },
             fails: false,
             wrapped: Mutex::default(),
@@ -495,6 +500,9 @@ pub struct FakeNetProxy {
     /// Running proxies: what each allows besides `base`, its reporter and
     /// the secrets it adds.
     pub running: Mutex<BTreeMap<SessionId, FakeProxyRun>>,
+    /// Each running proxy's loopback grants: port and generation. Grants
+    /// for a session without a running proxy are ignored.
+    pub grants: Mutex<BTreeMap<SessionId, Vec<(u16, u64)>>>,
 }
 
 /// One fake proxy: its allowlist, reporter and secret bindings.
@@ -541,7 +549,18 @@ impl NetProxy for FakeNetProxy {
         }
     }
 
+    fn grant(&self, session: &SessionId, grants: Vec<LoopbackGrant>) {
+        // Like the real one: a session without a running proxy has nothing
+        // to grant to.
+        if !lock(&self.running).contains_key(session) {
+            return;
+        }
+        let ports = grants.iter().map(|g| (g.port, g.generation)).collect();
+        lock(&self.grants).insert(session.clone(), ports);
+    }
+
     fn stop(&self, session: &SessionId) {
+        lock(&self.grants).remove(session);
         lock(&self.running).remove(session);
     }
 }
@@ -575,15 +594,24 @@ impl AuditLog for MemoryAudit {
     fn list(
         &self,
         project: &ProjectId,
-        after: Option<u64>,
+        range: AuditRange,
         limit: usize,
     ) -> Result<Vec<AuditEntry>> {
-        Ok(lock(&self.entries)
+        let entries = lock(&self.entries);
+        let mut kept: Vec<AuditEntry> = entries
             .iter()
-            .filter(|e| &e.project == project && after.is_none_or(|a| e.seq > a))
-            .take(limit)
+            .filter(|e| {
+                &e.project == project
+                    && range.after.is_none_or(|a| e.seq > a)
+                    && range.before.is_none_or(|b| e.seq < b)
+            })
             .cloned()
-            .collect())
+            .collect();
+        if range.order == AuditOrder::NewestFirst {
+            kept.reverse();
+        }
+        kept.truncate(limit);
+        Ok(kept)
     }
 }
 

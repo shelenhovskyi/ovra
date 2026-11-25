@@ -45,6 +45,11 @@ claude -p
 | answer to a permission request | `{"type":"control_response","response":{"subtype":"success","request_id":"<id>","response":{"behavior":"allow","updatedInput":{...}}}}`, or `{"behavior":"deny","message":"..."}`                                                     |
 | interrupt the turn             | `{"type":"control_request","request_id":"rN","request":{"subtype":"interrupt"}}`                                                                                                                                                      |
 
+The hook's `ask` never loosens the user's own rules: hook decisions do not
+bypass permission rules, so a matching deny rule in their settings still
+blocks the call ([permissions](https://code.claude.com/docs/en/permissions),
+"Precedence among rules, hooks, and mods").
+
 Closing stdin ends the session after the current turn.
 
 ## stdout (one JSON object per line)

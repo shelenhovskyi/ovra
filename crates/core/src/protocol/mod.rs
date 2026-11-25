@@ -7,6 +7,7 @@
 
 pub mod agents;
 pub mod audit;
+pub mod browser;
 pub mod fs;
 pub mod git;
 pub mod info;
@@ -20,6 +21,7 @@ pub mod projects;
 pub mod review;
 pub mod search;
 pub mod secrets;
+pub mod servers;
 pub mod terminals;
 
 use serde::{Deserialize, Serialize};
@@ -44,6 +46,8 @@ pub enum Request {
     Netproxy(netproxy::NetproxyRequest),
     Git(git::GitRequest),
     Lsp(lsp::LspRequest),
+    Servers(servers::ServersRequest),
+    Browser(browser::BrowserRequest),
 }
 
 /// The core's answer to a [`Request`]. Wire form: `{"type": "<domain>.<name>", "data": ...}`.
@@ -65,6 +69,8 @@ pub enum Response {
     Netproxy(netproxy::NetproxyResponse),
     Git(git::GitResponse),
     Lsp(lsp::LspResponse),
+    Servers(servers::ServersResponse),
+    Browser(browser::BrowserResponse),
     /// The request succeeded and has nothing to return.
     Ok(OkResponse),
 }
@@ -93,6 +99,8 @@ pub enum Event {
     Audit(audit::AuditLogEvent),
     Netproxy(netproxy::NetproxyEvent),
     Lsp(lsp::LspEvent),
+    Servers(servers::ServersEvent),
+    Browser(browser::BrowserEvent),
 }
 
 /// An error returned instead of a [`Response`].
@@ -217,5 +225,17 @@ impl From<netproxy::NetproxyEvent> for Event {
 impl From<lsp::LspEvent> for Event {
     fn from(e: lsp::LspEvent) -> Self {
         Self::Lsp(e)
+    }
+}
+
+impl From<servers::ServersEvent> for Event {
+    fn from(e: servers::ServersEvent) -> Self {
+        Self::Servers(e)
+    }
+}
+
+impl From<browser::BrowserEvent> for Event {
+    fn from(e: browser::BrowserEvent) -> Self {
+        Self::Browser(e)
     }
 }

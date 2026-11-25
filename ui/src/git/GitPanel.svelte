@@ -9,6 +9,7 @@ import { useOvra } from "../shell/context";
 import Branches from "./Branches.svelte";
 import CommitBox from "./CommitBox.svelte";
 import FileSection from "./FileSection.svelte";
+import { focusList, focusMessage, focusRow } from "./focus";
 import { describePaths, fileLists, GitModel } from "./model.svelte";
 
 let { project }: { project: ProjectId } = $props();
@@ -18,7 +19,6 @@ const { transport, workspace } = useOvra();
 const model = new GitModel(transport, project);
 $effect(() => () => model.dispose());
 
-let heading = $state<HTMLElement>();
 let terminalNote = $state("");
 
 const status = $derived(model.state.kind === "ready" ? model.state.status : null);
@@ -42,13 +42,19 @@ function showDiff(path: string, staged: boolean): void {
   workspace.gitDiff = { project, path, staged };
 }
 
+/** The path whose diff of one side is shown, for its row to say so. */
+function shownDiff(staged: boolean): string | null {
+  const diff = workspace.gitDiff;
+  return diff?.project === project && diff.staged === staged ? diff.path : null;
+}
+
 async function undo(): Promise<void> {
   const path = model.discarded?.paths[0];
   if (model.busy || path === undefined) return;
   await model.undoDiscard();
   await tick();
-  // Back on the file that came back, else on the panel.
-  (document.querySelector<HTMLElement>(`[data-action="discard"][data-path="${CSS.escape(path)}"]`) ?? heading)?.focus();
+  // Back on the file that came back, else on the list or the commit message.
+  focusRow(path, false);
 }
 
 /** "5 min ago", "3 days ago", or a date for older commits. */
@@ -65,7 +71,7 @@ function ago(seconds: number, now = Date.now() / 1000): string {
 </script>
 
 <section class="git" aria-labelledby="git-title" data-testid="git">
-  <h2 id="git-title" class="visually-hidden" tabindex="-1" bind:this={heading}>Git</h2>
+  <h2 id="git-title" class="visually-hidden">Git</h2>
   <p class="visually-hidden" role="status" data-testid="git-announce">{model.notice}</p>
 
   {#if model.state.kind === "loading"}
@@ -101,9 +107,10 @@ function ago(seconds: number, now = Date.now() / 1000): string {
         kind="conflicts"
         title="Conflicts"
         files={lists.conflicts}
+        shownDiff={null}
         onopen={(path) => workspace.openFile(path, "edit")}
         ondiff={showDiff}
-        onfocuslost={() => heading?.focus()}
+        onfocuslost={focusMessage}
       />
     {/if}
     <FileSection
@@ -111,18 +118,20 @@ function ago(seconds: number, now = Date.now() / 1000): string {
       kind="staged"
       title="Staged changes"
       files={lists.staged}
+      shownDiff={shownDiff(true)}
       onopen={(path) => workspace.openFile(path)}
       ondiff={showDiff}
-      onfocuslost={() => heading?.focus()}
+      onfocuslost={() => focusList("changes")}
     />
     <FileSection
       {model}
       kind="changes"
       title="Changes"
       files={lists.changes}
+      shownDiff={shownDiff(false)}
       onopen={(path) => workspace.openFile(path)}
       ondiff={showDiff}
-      onfocuslost={() => heading?.focus()}
+      onfocuslost={focusMessage}
     />
     {#if status.truncated > 0}
       <p class="hint" data-testid="git-truncated">

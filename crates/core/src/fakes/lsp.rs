@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use super::{lock, not_found};
 use crate::protocol::lsp::KnownServer;
+use crate::protocol::projects::ProjectId;
 use crate::services::{
     BoxFuture, LanguageServers, Result, RunningServer, ServerHost, ServerSpec, StartedServer,
 };
@@ -17,6 +18,7 @@ pub struct FakeLanguageServers {
     pub known: Vec<KnownServer>,
     pub sandbox: Option<String>,
     started: Mutex<Vec<FakeServer>>,
+    forgotten: Mutex<Vec<ProjectId>>,
 }
 
 impl Default for FakeLanguageServers {
@@ -37,12 +39,18 @@ impl FakeLanguageServers {
             known,
             sandbox: Some("fake".into()),
             started: Mutex::default(),
+            forgotten: Mutex::default(),
         }
     }
 
     /// Every server started so far, first first.
     pub fn started(&self) -> Vec<FakeServer> {
         lock(&self.started).clone()
+    }
+
+    /// The projects the core asked it to forget, first first.
+    pub fn forgotten(&self) -> Vec<ProjectId> {
+        lock(&self.forgotten).clone()
     }
 }
 
@@ -76,6 +84,10 @@ impl LanguageServers for FakeLanguageServers {
             })
         })
     }
+
+    fn forget(&self, project: &ProjectId) {
+        lock(&self.forgotten).push(project.clone());
+    }
 }
 
 /// One fake server: records what it was sent, says what the test tells it.
@@ -95,7 +107,19 @@ impl FakeServer {
 
     /// Hands `message` to the core as if the server wrote it.
     pub fn say(&self, message: serde_json::Value) {
-        self.host.message(message);
+        let size = message.to_string().len();
+        self.host.message(message, size);
+    }
+
+    /// Hands `message` to the core as if the server wrote it in `size`
+    /// bytes.
+    pub fn say_sized(&self, message: serde_json::Value, size: usize) {
+        self.host.message(message, size);
+    }
+
+    /// Whether the core asks the server to hold its output back.
+    pub fn busy(&self) -> bool {
+        self.host.busy()
     }
 
     /// Ends the server as if it exited by itself.
@@ -125,7 +149,7 @@ impl RunningServer for FakeServer {
 /// What a [`ServerHost::recording`] host was handed.
 #[derive(Debug, Default)]
 pub struct HostRecord {
-    messages: Mutex<Vec<serde_json::Value>>,
+    messages: Mutex<Vec<(serde_json::Value, usize)>>,
     exited: Mutex<Option<(Option<i32>, Option<String>)>>,
     changed: tokio::sync::Notify,
     /// What [`ServerHost::busy`] answers.
@@ -133,8 +157,8 @@ pub struct HostRecord {
 }
 
 impl HostRecord {
-    pub(crate) fn message(&self, message: serde_json::Value) {
-        lock(&self.messages).push(message);
+    pub(crate) fn message(&self, message: serde_json::Value, size: usize) {
+        lock(&self.messages).push((message, size));
         self.changed.notify_waiters();
     }
 
@@ -149,7 +173,15 @@ impl HostRecord {
 
     /// The messages so far.
     pub fn messages(&self) -> Vec<serde_json::Value> {
-        lock(&self.messages).clone()
+        lock(&self.messages)
+            .iter()
+            .map(|(m, _)| m.clone())
+            .collect()
+    }
+
+    /// The length each message so far was said to have.
+    pub fn sizes(&self) -> Vec<usize> {
+        lock(&self.messages).iter().map(|(_, s)| *s).collect()
     }
 
     /// How the server ended, once it has.

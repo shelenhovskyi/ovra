@@ -1,6 +1,6 @@
 ---
 source: crates/core/src/audit/tests.rs
-expression: "serde_json::json!({\n    \"request\":\n    Request::Audit(AuditRequest::List\n    { project: project(\"p1\"), after: Some(6), limit: Some(100) }), \"response\":\n    Response::Audit(AuditResponse::Entries(vec![entry.clone()])), \"event\":\n    Event::from(AuditLogEvent::Appended(entry)),\n})"
+expression: "serde_json::json!({\n    \"request\":\n    Request::Audit(AuditRequest::List\n    {\n        project: project(\"p1\"), after: Some(6), before: None, order:\n        AuditOrder::default(), limit: Some(100)\n    }), \"newest\":\n    Request::Audit(AuditRequest::List\n    {\n        project: project(\"p1\"), after: None, before: Some(9), order:\n        AuditOrder::NewestFirst, limit: None\n    }), \"response\":\n    Response::Audit(AuditResponse::Entries(vec![entry.clone()])), \"event\":\n    Event::from(AuditLogEvent::Appended(entry)),\n})"
 ---
 {
   "event": {
@@ -24,11 +24,23 @@ expression: "serde_json::json!({\n    \"request\":\n    Request::Audit(AuditRequ
     },
     "type": "audit.appended"
   },
+  "newest": {
+    "method": "audit.list",
+    "params": {
+      "after": null,
+      "before": 9,
+      "limit": null,
+      "order": "newest_first",
+      "project": "p1"
+    }
+  },
   "request": {
     "method": "audit.list",
     "params": {
       "after": 6,
+      "before": null,
       "limit": 100,
+      "order": "oldest_first",
       "project": "p1"
     }
   },

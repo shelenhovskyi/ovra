@@ -1,6 +1,8 @@
 // Git in the editor: change markers against the index in a gutter (unsaved
 // edits included), a popup per change with "Stage hunk" and "Revert hunk",
 // an optional blame gutter and a dimmed inline blame of the cursor line.
+// The gutters are hidden from screen readers, so the commands (next and
+// previous change, change at cursor, blame) announce what they find.
 // Data comes from the buffer's `GitFile`; a buffer without git shows nothing.
 
 import {
@@ -28,6 +30,7 @@ import {
   blameExtension,
   blameGutterEffect,
   blameShown,
+  cursorBlame,
   inlineBlameEffect,
   toDisk,
   toggleBlameShown,
@@ -79,6 +82,18 @@ const DESCRIPTIONS: Record<ChangeKind, string> = {
   deleted: "Deleted lines",
 };
 
+/** What a change is and where, for people: "Changed lines 4 to 6", "Deleted line after line 19". */
+export function describeChange(hunk: LineHunk): string {
+  const kind = changeKind(hunk);
+  if (kind === "deleted") {
+    const what = hunk.oldCount === 1 ? "Deleted line" : `Deleted ${hunk.oldCount} lines`;
+    return hunk.newStart === 0 ? `${what} at the start` : `${what} after line ${hunk.newStart}`;
+  }
+  const first = hunk.newStart + 1;
+  const name = kind === "added" ? "Added" : "Changed";
+  return hunk.newCount === 1 ? `${name} line ${first}` : `${name} lines ${first} to ${first + hunk.newCount - 1}`;
+}
+
 class ChangeMarker extends GutterMarker {
   constructor(readonly kind: ChangeKind) {
     super();
@@ -89,8 +104,8 @@ class ChangeMarker extends GutterMarker {
   override toDOM(): Node {
     const dom = document.createElement("span");
     dom.className = `cm-git-marker cm-git-${this.kind}`;
-    dom.setAttribute("role", "img");
-    dom.setAttribute("aria-label", `${DESCRIPTIONS[this.kind]}, click for actions`);
+    // The gutters are aria-hidden: the title is for the mouse, the commands announce changes.
+    dom.title = `${DESCRIPTIONS[this.kind]}, click for actions`;
     dom.dataset.testid = "git-marker";
     dom.dataset.change = this.kind;
     return dom;
@@ -103,9 +118,15 @@ const MARKERS: Record<ChangeKind, ChangeMarker> = {
   deleted: new ChangeMarker("deleted"),
 };
 
-/** The change markers of `hunks` in `doc`. */
+/** The change markers of `hunks` in `doc`: one on every added or changed line, one per deletion. */
 function changeMarks(hunks: readonly LineHunk[], doc: Text): RangeSet<GutterMarker> {
-  return RangeSet.of(hunks.map((h) => MARKERS[changeKind(h)].range(doc.line(markerLine(h) + 1).from)));
+  return RangeSet.of(
+    hunks.flatMap((h) => {
+      const marker = MARKERS[changeKind(h)];
+      const lines = Array.from({ length: Math.max(h.newCount, 1) }, (_, i) => markerLine(h) + i);
+      return lines.map((line) => marker.range(doc.line(line + 1).from));
+    }),
+  );
 }
 
 /** The edit that puts the index lines `old` back in place of `hunk`'s buffer lines. */
@@ -142,23 +163,26 @@ function popupTooltip(popup: Popup): Tooltip {
     above: false,
     create(view) {
       const dom = popupDom(view, popup);
-      return { dom, mount: () => dom.querySelector<HTMLButtonElement>("button:not([disabled])")?.focus() };
+      // The first safe action: Stage, or Close when Stage is off. Never Revert.
+      const first = dom.querySelector<HTMLButtonElement>("button:not([disabled]):not([data-destructive])");
+      return { dom, mount: () => first?.focus() };
     },
   };
 }
 
-function closePopup(view: EditorView): void {
-  view.dispatch({ effects: setPopup.of(null) });
-  view.focus();
+/** Closes the popup; focus goes back to the text unless it already moved elsewhere (`refocus` false). */
+function closePopup(view: EditorView, refocus = true): void {
+  if (view.state.field(popupField)) view.dispatch({ effects: setPopup.of(null) });
+  if (refocus) view.focus();
 }
 
 function popupDom(view: EditorView, popup: Popup): HTMLElement {
   const git = view.state.facet(host);
   const { hunk, old } = popup;
-  const first = hunk.newStart + 1;
   const dom = element("div", "cm-git-popup");
   dom.setAttribute("role", "dialog");
-  dom.setAttribute("aria-label", `Git change at line ${first}`);
+  dom.setAttribute("aria-modal", "true");
+  dom.setAttribute("aria-label", describeChange(hunk));
   dom.dataset.testid = "git-change-popup";
   const caption = element("p", "cm-git-caption");
   caption.textContent = old.length > 0 ? "In the index:" : "New lines, not in the index.";
@@ -169,35 +193,51 @@ function popupDom(view: EditorView, popup: Popup): HTMLElement {
   const actions = element("div", "cm-git-actions");
   const stage = button(actions, "Stage hunk");
   const revert = button(actions, "Revert hunk");
+  revert.dataset.destructive = "";
   button(actions, "Close").onclick = () => closePopup(view);
   if (!git || git.dirty()) {
     stage.disabled = true;
     status.textContent = "Save the file to stage this change.";
   }
+  let staging = false;
   stage.onclick = async () => {
-    if (!git) return;
-    stage.disabled = true;
+    if (!git || staging) return;
+    // aria-disabled, not disabled: disabling the focused button would drop focus out of the popup.
+    staging = true;
+    stage.setAttribute("aria-disabled", "true");
     status.textContent = "Staging...";
     const error = await git.file.stage(hunk);
-    if (error === null) {
-      closePopup(view);
-    } else {
-      status.textContent = error;
-      stage.disabled = false;
-    }
+    staging = false;
+    stage.removeAttribute("aria-disabled");
+    if (error === null) closePopup(view);
+    else status.textContent = error;
   };
   revert.onclick = () => {
     view.dispatch({ changes: revertChange(view.state.doc, hunk, old), userEvent: "input.revert" });
     closePopup(view);
   };
   dom.onkeydown = (event) => {
+    if (event.code === "Tab") trapTab(dom, event);
     if (event.code !== "Escape") return;
     event.preventDefault();
     event.stopPropagation();
     closePopup(view);
   };
+  // Focus that moves elsewhere (a click in the text or another panel) closes it.
+  dom.addEventListener("focusout", (event) => {
+    const next = event.relatedTarget;
+    if (next instanceof Node && !dom.contains(next)) closePopup(view, false);
+  });
   dom.append(caption, ...(old.length > 0 ? [lines] : []), actions, status);
   return dom;
+}
+
+/** Keeps Tab and Shift+Tab cycling through the popup's buttons. */
+function trapTab(dom: HTMLElement, event: KeyboardEvent): void {
+  const buttons = [...dom.querySelectorAll<HTMLButtonElement>("button:not([disabled])")];
+  const at = buttons.indexOf(document.activeElement as HTMLButtonElement);
+  event.preventDefault();
+  buttons[(at + (event.shiftKey ? -1 : 1) + buttons.length) % buttons.length]?.focus();
 }
 
 function element(tag: string, className: string): HTMLElement {
@@ -214,17 +254,32 @@ function button(parent: HTMLElement, label: string): HTMLButtonElement {
   return dom;
 }
 
-/** Opens the popup for the change under buffer line `line` (0-based); false if there is none. */
-function openChange(view: EditorView, line: number): boolean {
+/** The buffer's changes against the index, fresh, so a pending debounce cannot offer a stale hunk. */
+function currentHunks(view: EditorView): { base: string[]; hunks: LineHunk[] } | null {
   const { base } = view.state.field(changesField);
-  if (!base) return false;
-  // Fresh, so a pending debounce cannot offer a stale hunk.
-  const hunk = hunkAtLine(diffLines(base, view.state.doc.toJSON()), line);
-  if (!hunk) return false;
+  return base ? { base, hunks: diffLines(base, view.state.doc.toJSON()) } : null;
+}
+
+/**
+ * Opens the popup for the change under buffer line `line` (0-based); false if
+ * there is none. An open popup is replaced, or closed when there is no change.
+ */
+function openChange(view: EditorView, line: number): boolean {
+  const found = currentHunks(view);
+  const hunk = found && hunkAtLine(found.hunks, line);
+  if (!found || !hunk) {
+    if (view.state.field(popupField)) view.dispatch({ effects: setPopup.of(null) });
+    return false;
+  }
   const pos = view.state.doc.line(markerLine(hunk) + 1).from;
-  const old = base.slice(hunk.oldStart, hunk.oldStart + hunk.oldCount);
+  const old = found.base.slice(hunk.oldStart, hunk.oldStart + hunk.oldCount);
   view.dispatch({ effects: setPopup.of({ hunk, old, pos }) });
   return true;
+}
+
+/** Says `message` through the editor's live region. */
+function announce(view: EditorView, message: string): void {
+  view.dispatch({ effects: EditorView.announce.of(message) });
 }
 
 /** The controller of the editor view, for the commands. */
@@ -270,10 +325,56 @@ class Controller {
     this.diffTimer = setTimeout(() => void this.recompute(), delay);
   }
 
-  /** Opens the popup for the change at the cursor line. */
-  openAtCursor(): void {
+  private cursorLine(): number {
     const { state } = this.view;
-    openChange(this.view, state.doc.lineAt(state.selection.main.head).number - 1);
+    return state.doc.lineAt(state.selection.main.head).number - 1;
+  }
+
+  /** Opens the popup for the change at the cursor line, or says there is none. */
+  openAtCursor(): void {
+    if (!openChange(this.view, this.cursorLine())) announce(this.view, "No git change on this line.");
+  }
+
+  /** Moves the cursor to the next (`step` 1) or previous (-1) change, wrapping around, and announces it. */
+  goToChange(step: 1 | -1): void {
+    const hunks = currentHunks(this.view)?.hunks ?? [];
+    if (hunks.length === 0) {
+      announce(this.view, "No git changes in this file.");
+      return;
+    }
+    const line = this.cursorLine();
+    let index = step > 0 ? 0 : hunks.length - 1;
+    if (step > 0) {
+      const ahead = hunks.findIndex((h) => markerLine(h) > line);
+      if (ahead >= 0) index = ahead;
+    } else {
+      // Back from inside a change goes to the one before it, not to its own start.
+      for (const [i, h] of hunks.entries()) if (markerLine(h) < line && !hunkAtLine([h], line)) index = i;
+    }
+    const hunk = hunks[index] as LineHunk;
+    const pos = this.view.state.doc.line(markerLine(hunk) + 1).from;
+    this.view.dispatch({
+      selection: { anchor: pos },
+      effects: [
+        EditorView.scrollIntoView(pos, { y: "center" }),
+        EditorView.announce.of(`${describeChange(hunk)}, ${index + 1} of ${hunks.length}`),
+      ],
+    });
+    this.view.focus();
+  }
+
+  /** Announces the blame of the cursor line. */
+  async announceBlame(): Promise<void> {
+    const git = this.git;
+    const blame = git ? await git.file.blame() : null;
+    if (this.destroyed) return;
+    const { state } = this.view;
+    const map = git && toDisk(state, git.saved(), git.dirty());
+    announce(this.view, blame && map ? cursorBlame(state, blame, map) : "No blame for this line.");
+  }
+
+  announce(message: string): void {
+    announce(this.view, message);
   }
 
   private async recompute(): Promise<void> {
@@ -318,23 +419,49 @@ class Controller {
 
 const controller = ViewPlugin.fromClass(Controller);
 
-/** Shows or hides the blame gutter. */
+/** Shows or hides the blame gutter, and says which. */
 export function toggleBlame(): void {
   toggleBlameShown();
+  current?.announce(blameShown() ? "Blame shown." : "Blame hidden.");
   void current?.renderBlameGutter();
 }
 
-/** Opens the change popup for the cursor line of the editor, if it is on a change. */
+/** Opens the change popup for the cursor line of the editor, or says there is no change. */
 export function showChangeAtCursor(): void {
   current?.openAtCursor();
 }
 
+/** Moves the editor's cursor to its next (`step` 1) or previous (-1) git change. */
+export function goToChange(step: 1 | -1): void {
+  current?.goToChange(step);
+}
+
+/** Announces the blame of the editor's cursor line. */
+export async function readBlame(): Promise<void> {
+  await current?.announceBlame();
+}
+
 const styles = EditorView.baseTheme({
-  ".cm-git-gutter .cm-gutterElement": { width: "4px", padding: "0 2px", cursor: "pointer" },
-  ".cm-git-marker": { display: "block", height: "100%" },
-  ".cm-git-added": { backgroundColor: "#4caf50" },
-  ".cm-git-modified": { backgroundColor: "#4f8fd8" },
-  ".cm-git-deleted": { borderBottom: "3px solid #e05252", height: "auto", marginTop: "calc(1.5em - 3px)" },
+  // The cell is border-box: 8px less 2px of padding a side leaves the marker 4px.
+  ".cm-git-gutter .cm-gutterElement": { width: "8px", padding: "0 2px", cursor: "pointer" },
+  // Kinds differ by shape, not only by colour: a solid bar, a striped bar, a triangle.
+  ".cm-git-marker": { display: "block", boxSizing: "border-box", width: "4px", height: "100%" },
+  ".cm-git-added": { borderLeft: "4px solid #4caf50" },
+  ".cm-git-modified": { background: "repeating-linear-gradient(#4f8fd8 0 3px, transparent 3px 5px)" },
+  ".cm-git-deleted": {
+    width: "0",
+    height: "0",
+    marginTop: "calc(1.5em - 5px)",
+    borderLeft: "6px solid #e05252",
+    borderTop: "5px solid transparent",
+    borderBottom: "5px solid transparent",
+  },
+  "@media (forced-colors: active)": {
+    ".cm-git-marker": { forcedColorAdjust: "none" },
+    ".cm-git-added": { borderLeftColor: "CanvasText" },
+    ".cm-git-modified": { background: "repeating-linear-gradient(Highlight 0 3px, transparent 3px 5px)" },
+    ".cm-git-deleted": { borderLeftColor: "LinkText" },
+  },
   ".cm-git-popup": { padding: "6px 8px", maxWidth: "60ch", backgroundColor: "#1d1d23", color: "#e6e6e6" },
   ".cm-git-old": { margin: "4px 0", maxHeight: "12em", overflow: "auto", color: "#e8a0a0" },
   ".cm-git-caption, .cm-git-status": { margin: "0" },

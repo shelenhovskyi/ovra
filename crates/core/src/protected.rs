@@ -7,7 +7,7 @@
 /// Paths under a session's `work_dir` that stay read-only: agent
 /// configuration and code that tools run on their own. `**/` matches any
 /// folder, `*` one name. A folder covers everything in it.
-pub const PROTECTED_IN_WORK_DIR: [&str; 9] = [
+pub const PROTECTED_IN_WORK_DIR: [&str; 10] = [
     ".claude",
     ".mcp.json",
     "**/CLAUDE.md",
@@ -17,6 +17,8 @@ pub const PROTECTED_IN_WORK_DIR: [&str; 9] = [
     ".idea",
     ".devcontainer",
     ".envrc",
+    // Ovra's own: `servers.json` holds the commands a server start runs.
+    ".ovra",
 ];
 
 /// Paths the review marks too although the sandbox does not keep them
@@ -96,6 +98,8 @@ mod tests {
             ".vscode/tasks.json",
             ".devcontainer/devcontainer.json",
             ".envrc",
+            ".ovra/servers.json",
+            ".OVRA",
         ] {
             assert!(is_protected(path), "{path}");
         }
@@ -157,6 +161,8 @@ mod tests {
             ".mcp.json.bak",
             "CLAUDE.md.orig",
             "notes/.envrc.example",
+            "sub/.ovra/servers.json",
+            ".ovra.json",
         ] {
             assert!(!is_protected(path), "{path}");
         }

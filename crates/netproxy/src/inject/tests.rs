@@ -289,6 +289,7 @@ fn setup_with(secrets: Arc<MemorySecrets>, trusted: bool, plain: bool) -> Setup 
         }),
         reporter: NetReporter::new(ProjectId("p1".into()), SessionId("s1".into()), core.sink()),
         bound: Some(bound),
+        grants: tokio::sync::watch::Sender::new(Arc::default()),
     });
     Setup {
         shared: Arc::new(Shared {

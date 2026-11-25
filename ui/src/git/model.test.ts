@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { CoreError } from "../lib/transport";
 import { changed, FakeGitCore, repo } from "./fake-git";
-import { fileLists, GitModel, gitModel } from "./model.svelte";
+import { branchNameProblem, fileLists, GitModel, gitModel } from "./model.svelte";
 
 async function loaded(core = new FakeGitCore()) {
   const model = new GitModel(core, "p1");
@@ -90,4 +90,12 @@ describe("GitModel", () => {
     expect(model.error?.message).toMatch(/changed since this diff/);
     model.dispose();
   });
+});
+
+it("says why a branch name is refused, with a fix for spaces", () => {
+  expect(branchNameProblem("my feature")).toBe("Branch names cannot contain spaces. Try my-feature.");
+  expect(branchNameProblem("a..b")).toMatch(/two dots/);
+  expect(branchNameProblem("feature/")).toMatch(/end with \//);
+  expect(branchNameProblem("x.lock")).toMatch(/\.lock/);
+  expect(branchNameProblem("feature/login-2")).toBeNull();
 });

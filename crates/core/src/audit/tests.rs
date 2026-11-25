@@ -1,10 +1,12 @@
 use std::sync::Arc;
 
+use serde_json::json;
+
 use crate::Core;
 use crate::fakes::MemoryAudit;
 use crate::protocol::audit::{
-    AuditEntry, AuditEvent, AuditInput, AuditLogEvent, AuditRequest, AuditResponse, DecidedBy,
-    MAX_AUDIT_PAGE,
+    AuditEntry, AuditEvent, AuditInput, AuditLogEvent, AuditOrder, AuditRequest, AuditResponse,
+    DecidedBy, MAX_AUDIT_PAGE,
 };
 use crate::protocol::projects::ProjectId;
 use crate::protocol::{ErrorCode, Event, Request, Response};
@@ -21,12 +23,12 @@ fn trust(trusted: bool) -> AuditEvent {
     }
 }
 
-async fn list(core: &Core, after: Option<u64>, limit: Option<usize>) -> Vec<AuditEntry> {
-    let request = Request::Audit(AuditRequest::List {
-        project: project("p1"),
-        after,
-        limit,
-    });
+/// `audit.list` for `p1`, with `params` as the client sends them.
+async fn list(core: &Core, mut params: serde_json::Value) -> Vec<AuditEntry> {
+    params["project"] = "p1".into();
+    let request =
+        serde_json::from_value(serde_json::json!({"method": "audit.list", "params": params}))
+            .unwrap_or_else(|e| panic!("bad request: {e}"));
     match core.handle(request).await {
         Ok(Response::Audit(AuditResponse::Entries(entries))) => entries,
         other => panic!("unexpected {other:?}"),
@@ -42,9 +44,39 @@ async fn list_pages_through_one_projects_entries() {
     }
     let core = Core::builder("test").audit(log).build();
     let seqs = |entries: Vec<AuditEntry>| entries.iter().map(|e| e.seq).collect::<Vec<_>>();
-    assert_eq!(seqs(list(&core, None, None).await), [1, 3, 4]);
-    assert_eq!(seqs(list(&core, Some(1), Some(1)).await), [3]);
-    assert_eq!(seqs(list(&core, Some(4), None).await), Vec::<u64>::new());
+    assert_eq!(seqs(list(&core, json!({})).await), [1, 3, 4]);
+    assert_eq!(
+        seqs(list(&core, json!({"after": 1, "limit": 1})).await),
+        [3]
+    );
+    assert_eq!(
+        seqs(list(&core, json!({"after": 4})).await),
+        Vec::<u64>::new()
+    );
+}
+
+#[tokio::test]
+async fn list_pages_back_from_the_newest_entry() {
+    let log = Arc::new(MemoryAudit::default());
+    for (p, trusted) in [("p1", true), ("p2", true), ("p1", false), ("p1", true)] {
+        log.append(&project(p), None, trust(trusted))
+            .unwrap_or_else(|e| panic!("{e}"));
+    }
+    let core = Core::builder("test").audit(log).build();
+    let seqs = |entries: Vec<AuditEntry>| entries.iter().map(|e| e.seq).collect::<Vec<_>>();
+    let newest = |params: serde_json::Value| {
+        let mut params = params;
+        params["order"] = "newest_first".into();
+        params
+    };
+    assert_eq!(seqs(list(&core, newest(json!({"limit": 2}))).await), [4, 3]);
+    assert_eq!(seqs(list(&core, newest(json!({"before": 3}))).await), [1]);
+    assert_eq!(
+        seqs(list(&core, newest(json!({"before": 1}))).await),
+        Vec::<u64>::new()
+    );
+    // `before` bounds an oldest-first page too.
+    assert_eq!(seqs(list(&core, json!({"before": 4})).await), [1, 3]);
 }
 
 #[tokio::test]
@@ -55,10 +87,10 @@ async fn list_never_returns_more_than_a_page() {
             .unwrap_or_else(|e| panic!("{e}"));
     }
     let core = Core::builder("test").audit(log).build();
-    assert_eq!(
-        list(&core, None, Some(usize::MAX)).await.len(),
-        MAX_AUDIT_PAGE
-    );
+    for order in ["oldest_first", "newest_first"] {
+        let page = list(&core, json!({"limit": usize::MAX, "order": order})).await;
+        assert_eq!(page.len(), MAX_AUDIT_PAGE);
+    }
 }
 
 #[tokio::test]
@@ -66,6 +98,8 @@ async fn without_a_log_list_is_unavailable() {
     let request = Request::Audit(AuditRequest::List {
         project: project("p1"),
         after: None,
+        before: None,
+        order: AuditOrder::default(),
         limit: None,
     });
     let err = Core::new("test").handle(request).await.err();
@@ -89,20 +123,65 @@ fn wire_format_is_stable() {
         },
     };
     insta::assert_json_snapshot!(serde_json::json!({
-        "request": Request::Audit(AuditRequest::List { project: project("p1"), after: Some(6), limit: Some(100) }),
+        "request": Request::Audit(AuditRequest::List { project: project("p1"), after: Some(6), before: None, order: AuditOrder::default(), limit: Some(100) }),
+        "newest": Request::Audit(AuditRequest::List { project: project("p1"), after: None, before: Some(9), order: AuditOrder::NewestFirst, limit: None }),
         "response": Response::Audit(AuditResponse::Entries(vec![entry.clone()])),
         "event": Event::from(AuditLogEvent::Appended(entry)),
     }));
 }
 
+#[test]
+fn a_failed_append_warns_without_the_entrys_content() {
+    #[derive(Clone, Default)]
+    struct Captured(Arc<std::sync::Mutex<Vec<u8>>>);
+    impl std::io::Write for Captured {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let captured = Captured::default();
+    let writer = captured.clone();
+    let subscriber = tracing_subscriber::fmt()
+        .with_writer(move || writer.clone())
+        .with_ansi(false)
+        .finish();
+    let event = AuditEvent::NetworkRefused {
+        host: "evil.example".into(),
+        reason: "not allowed".into(),
+    };
+    // Without a log wired in, every append fails.
+    tracing::subscriber::with_default(subscriber, || {
+        super::record(&Core::new("test"), &project("p1"), None, event);
+    });
+    let logged = String::from_utf8_lossy(
+        &captured
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner),
+    )
+    .into_owned();
+    assert!(logged.contains("WARN"), "{logged}");
+    assert!(logged.contains("network_refused"), "{logged}");
+    assert!(!logged.contains("evil.example"), "{logged}");
+    assert!(!logged.contains("not allowed"), "{logged}");
+}
+
 mod inputs {
     use serde_json::json;
 
-    use super::super::input::{MAX_INPUT_BYTES, REDACTED, input};
+    use super::super::input::{MAX_INPUT_BYTES, REDACTED, cut_name, input};
     use crate::protocol::audit::AuditInput;
+    use crate::protocol::secrets::SecretValue;
 
     fn text(tool: &str, value: serde_json::Value) -> String {
-        match input(tool, &value) {
+        match input(tool, &value, Some(&[])) {
             AuditInput::Json { text } => text,
             other => panic!("unexpected {other:?}"),
         }
@@ -113,6 +192,7 @@ mod inputs {
         let kept = input(
             "Write",
             &json!({"file_path": "src/a.rs", "content": "ghp_secretsecretsecret"}),
+            Some(&[]),
         );
         assert_eq!(
             kept,
@@ -124,6 +204,7 @@ mod inputs {
         let edit = input(
             "Edit",
             &json!({"file_path": "a", "old_string": "x", "new_string": "y"}),
+            Some(&[]),
         );
         assert_eq!(
             edit,
@@ -132,7 +213,11 @@ mod inputs {
                 sha256: Some(sha("y"))
             }
         );
-        let notebook = input("NotebookEdit", &json!({"notebook_path": "n.ipynb"}));
+        let notebook = input(
+            "NotebookEdit",
+            &json!({"notebook_path": "n.ipynb"}),
+            Some(&[]),
+        );
         assert_eq!(
             notebook,
             AuditInput::File {
@@ -219,6 +304,69 @@ mod inputs {
         assert!(kept.contains(r#""max_tokens":5"#), "{kept}");
     }
 
+    /// Each command keeps `abc123` (and what follows it) out of the log.
+    fn header_value_is_gone(command: &str) {
+        let kept = text("Bash", json!({ "command": command }));
+        assert!(!kept.contains("abc123"), "{kept}");
+        assert!(!kept.contains("tail"), "{kept}");
+        assert!(kept.contains(REDACTED), "{kept}");
+    }
+
+    #[test]
+    fn header_values_behind_escaped_quotes_are_removed() {
+        header_value_is_gone(
+            r#"python -c "requests.get(u, headers={\"Authorization\": \"Bearer abc123 tail\"})""#,
+        );
+        header_value_is_gone(r#"curl -d "{\"Cookie\":\"abc123 tail\"}" u"#);
+        // An escaped quote inside a quoted value does not end it.
+        header_value_is_gone(r#"curl -H 'Authorization: "Bearer ab\"c123 tail"' u"#);
+        header_value_is_gone(r#"node -e 'h = {"cookie": "a\"bc123 tail"}'"#);
+    }
+
+    #[test]
+    fn header_values_after_a_comma_after_the_name_are_removed() {
+        header_value_is_gone(r#"node -e 'req.headers.set("Authorization", "Bearer abc123 tail")'"#);
+        header_value_is_gone(r#"node -e "headers.append('Cookie','abc123 tail')""#);
+        header_value_is_gone(r#"python -c 'h = [("authorization", "abc123 tail")]'"#);
+        // Without a quoted name, a comma is just prose.
+        let kept = text("Bash", json!({"command": "echo cookie, fine"}));
+        assert!(kept.contains("cookie, fine"), "{kept}");
+    }
+
+    #[test]
+    fn header_values_after_a_bracket_after_the_name_are_removed() {
+        header_value_is_gone(r#"node -e 'headers["Authorization"] = "Bearer abc123 tail"'"#);
+        header_value_is_gone(r#"php -r "\$h[\"Cookie\"]=\"abc123 tail\";""#);
+    }
+
+    #[test]
+    fn header_values_on_the_next_line_are_removed() {
+        header_value_is_gone("headers:\n  Authorization:\n    Bearer abc123 tail\n");
+        header_value_is_gone("headers:\n  Cookie: |\n    abc123 tail\n");
+        header_value_is_gone("headers:\r\n  cookie: >-\r\n    abc123 tail\r\n");
+    }
+
+    #[test]
+    fn header_values_after_a_ruby_symbol_are_removed() {
+        header_value_is_gone(r#"ruby -e 'req.headers[:authorization] = "Bearer abc123 tail"'"#);
+    }
+
+    #[test]
+    fn a_list_of_header_names_is_kept() {
+        let kept = text(
+            "Bash",
+            json!({"command": r#"node -e 'allow(["authorization", "content-type"])'"#}),
+        );
+        assert!(kept.contains("content-type"), "{kept}");
+    }
+
+    #[test]
+    fn header_values_after_a_fat_arrow_are_removed() {
+        header_value_is_gone(r#"ruby -e 'get(u, {"Authorization" => "Bearer abc123 tail"})'"#);
+        header_value_is_gone(r#"php -r "['Cookie'=>'abc123 tail'];""#);
+        header_value_is_gone(r#"perl -e 'my %h = (Authorization => "abc123 tail");'"#);
+    }
+
     #[test]
     fn long_inputs_are_cut_without_leaking_a_token_cut_in_half() {
         let token = "ghp_0123456789abcdefABCDEF";
@@ -238,6 +386,110 @@ mod inputs {
     }
 
     #[test]
+    fn the_projects_secret_values_are_removed_wherever_they_are() {
+        let known = [
+            SecretValue::new("plain-value-1"),
+            SecretValue::new("value-1x"),
+            SecretValue::new("aa"),
+        ];
+        let kept = input(
+            "Bash",
+            &json!({"command": "echo plain-value-1x", "plain-value-1": ["aaa"]}),
+            Some(&known),
+        );
+        // Overlapping values go whole, and so does a value overlapping itself.
+        assert_eq!(
+            kept,
+            AuditInput::Json {
+                text: json!({"command": format!("echo {REDACTED}"), REDACTED: [REDACTED]})
+                    .to_string()
+            }
+        );
+        let file = input(
+            "Write",
+            &json!({"file_path": "out/plain-value-1.txt", "content": "x"}),
+            Some(&known),
+        );
+        assert!(
+            matches!(&file, AuditInput::File { path, .. } if *path == format!("out/{REDACTED}.txt")),
+            "{file:?}"
+        );
+        assert_eq!(
+            cut_name("mcp__plain-value-1", Some(&known)),
+            format!("mcp__{REDACTED}")
+        );
+    }
+
+    #[test]
+    fn encoded_secret_values_are_removed_too() {
+        let known = [SecretValue::new("p@ss \"w/rd\"")];
+        for encoded in [
+            r#"p@ss \"w/rd\""#,
+            r#"p@ss \"w\/rd\""#,
+            "p%40ss%20%22w%2Frd%22",
+            "p%40ss%20%22w%2frd%22",
+        ] {
+            let command = format!("curl -d '{{\"k\":\"{encoded}\"}}' https://x?v={encoded}");
+            let kept = input("Bash", &json!({ "command": command }), Some(&known));
+            let AuditInput::Json { text } = kept else {
+                panic!("unexpected {kept:?}")
+            };
+            assert!(!text.contains("ss"), "{encoded}: {text}");
+            assert_eq!(text.matches(REDACTED).count(), 2, "{text}");
+        }
+    }
+
+    #[test]
+    fn a_short_value_in_a_huge_input_is_removed_within_the_cut() {
+        let known = [SecretValue::new("b"), SecretValue::new("value-at-the-cut")];
+        // Ten megabytes of one-byte matches merge into one place.
+        let kept = text_with("Bash", json!({ "command": "b".repeat(10 << 20) }), &known);
+        assert_eq!(kept, json!({ "command": REDACTED }).to_string());
+        // A value that starts before the cut goes whole; one cut at the
+        // end of what is read shows no prefix.
+        for at in [2 * MAX_INPUT_BYTES - 4, 2 * MAX_INPUT_BYTES + 4] {
+            let value = format!("{}value-at-the-cut tail", "-".repeat(at));
+            let kept = text_with("Bash", json!({ "command": value }), &known);
+            assert!(
+                !kept.contains("value-at"),
+                "{at}: {}",
+                &kept[kept.len() - 40..]
+            );
+            assert!(kept.len() <= MAX_INPUT_BYTES, "{}", kept.len());
+        }
+    }
+
+    fn text_with(tool: &str, value: serde_json::Value, known: &[SecretValue]) -> String {
+        match input(tool, &value, Some(known)) {
+            AuditInput::Json { text } => text,
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    #[test]
+    fn unreadable_secrets_keep_nothing_the_agent_wrote_but_a_hash() {
+        let kept = input("Bash", &json!({"command": "ls"}), None);
+        assert_eq!(
+            kept,
+            AuditInput::Json {
+                text: REDACTED.into()
+            }
+        );
+        // Only the names of Claude's own tools stay: an MCP tool's could
+        // hold a value.
+        assert_eq!(cut_name("Bash", None), "Bash");
+        assert_eq!(cut_name("mcp__srv__known-value", None), REDACTED);
+        let file = input("Write", &json!({"file_path": "a", "content": "y"}), None);
+        assert_eq!(
+            file,
+            AuditInput::File {
+                path: REDACTED.into(),
+                sha256: Some(sha("y"))
+            }
+        );
+    }
+
+    #[test]
     fn secret_looking_field_names_are_removed_too() {
         let kept = text("Task", json!({"ghp_0123456789abcdefABCDEF": 1}));
         assert_eq!(kept, json!({ REDACTED: 1 }).to_string());
@@ -250,14 +502,17 @@ mod recording {
     use serde_json::json;
     use tokio::sync::broadcast;
 
+    use super::super::input::REDACTED;
     use super::project;
     use crate::Core;
-    use crate::fakes::{MemoryAudit, MemoryProjects, ScriptedAgent, Step};
+    use crate::fakes::{MemoryAudit, MemoryProjects, MemorySecrets, ScriptedAgent, Step};
     use crate::protocol::agents::{AgentStatus, AgentsEvent, AgentsResponse};
-    use crate::protocol::audit::{AuditEntry, AuditLogEvent};
+    use crate::protocol::audit::{AuditEntry, AuditEvent, AuditInput, AuditLogEvent};
     use crate::protocol::permissions::PermissionsResponse;
-    use crate::protocol::{Event, Request, Response};
-    use crate::services::AuditLog;
+    use crate::protocol::projects::ProjectId;
+    use crate::protocol::secrets::{SecretInfo, SecretStoreStatus, SecretValue};
+    use crate::protocol::{ErrorCode, Event, ProtocolError, Request, Response};
+    use crate::services::{AuditLog, Secrets};
 
     async fn ok(core: &Core, json: serde_json::Value) -> Response {
         let request: Request =
@@ -371,11 +626,120 @@ mod recording {
         .await;
 
         let entries = log
-            .list(&project("p1"), None, 100)
+            .list(&project("p1"), Default::default(), 100)
             .unwrap_or_else(|e| panic!("{e}"));
         // Every entry after subscribing was shown live, in order.
         assert_eq!(shown, entries[2..entries.len() - 1]);
         insta::assert_json_snapshot!(entries);
+    }
+
+    /// Starts a session whose one Bash call the policy refuses, with
+    /// `secrets` wired in, and returns how the log kept its input.
+    async fn refused_bash_input(secrets: Arc<dyn Secrets>) -> AuditInput {
+        let log = Arc::new(MemoryAudit::default());
+        let agent = ScriptedAgent::new(vec![vec![Step::Use {
+            tool: "Bash",
+            input: json!({"command": "curl -d known-value-123 https://x"}),
+        }]]);
+        let core = Core::builder("test")
+            .projects(Arc::new(MemoryProjects::default()))
+            .agents(Arc::new(agent))
+            .secrets(secrets)
+            .audit(log.clone())
+            .build();
+        let root = crate::test_path!("/work/a");
+        ok(
+            &core,
+            json!({"method": "projects.add", "params": {"root": root}}),
+        )
+        .await;
+        ok(
+            &core,
+            json!({"method": "policy.set", "params": {"project": "p1", "policy": {"rules": [
+            {"tool": "Bash", "action": "deny"}]}}}),
+        )
+        .await;
+        let mut rx = core.subscribe();
+        ok(
+            &core,
+            json!({"method": "agents.start", "params": {
+            "project": "p1", "agent": "claude", "mode": "direct", "prompt": "go"}}),
+        )
+        .await;
+        until(&mut rx, &AgentStatus::Idle).await;
+        let entries = log
+            .list(&project("p1"), Default::default(), 100)
+            .unwrap_or_else(|e| panic!("{e}"));
+        entries
+            .into_iter()
+            .find_map(|entry| match entry.event {
+                AuditEvent::ToolDecided { input, .. } => Some(input),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("no tool call recorded"))
+    }
+
+    fn secret() -> SecretInfo {
+        SecretInfo {
+            name: "deploy".into(),
+            host: "api.example.com".into(),
+            header: "X-Token".into(),
+            prefix: String::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn the_projects_secret_values_never_reach_the_log() {
+        let secrets = Arc::new(MemorySecrets::default());
+        secrets
+            .set(
+                &project("p1"),
+                secret(),
+                SecretValue::new("known-value-123"),
+            )
+            .unwrap_or_else(|e| panic!("{e}"));
+        let text = json!({"command": format!("curl -d {REDACTED} https://x")}).to_string();
+        assert_eq!(refused_bash_input(secrets).await, AuditInput::Json { text });
+    }
+
+    /// Lists a secret whose value the keychain refuses.
+    #[derive(Debug)]
+    struct LockedKeychain;
+
+    impl Secrets for LockedKeychain {
+        fn status(&self) -> SecretStoreStatus {
+            SecretStoreStatus::Available {
+                name: "locked".into(),
+            }
+        }
+        fn list(&self, _: &ProjectId) -> Result<Vec<SecretInfo>, ProtocolError> {
+            Ok(vec![secret()])
+        }
+        fn set(&self, _: &ProjectId, _: SecretInfo, _: SecretValue) -> Result<(), ProtocolError> {
+            Err(locked())
+        }
+        fn remove(&self, _: &ProjectId, _: &str) -> Result<(), ProtocolError> {
+            Err(locked())
+        }
+        fn remove_project(&self, _: &ProjectId) -> Result<(), ProtocolError> {
+            Err(locked())
+        }
+        fn value(&self, _: &ProjectId, _: &str) -> Result<SecretValue, ProtocolError> {
+            Err(locked())
+        }
+    }
+
+    fn locked() -> ProtocolError {
+        ProtocolError::new(ErrorCode::Unavailable, "the keychain is locked")
+    }
+
+    #[tokio::test]
+    async fn unreadable_secrets_keep_the_input_out_of_the_log() {
+        let text = REDACTED.to_owned();
+        assert_eq!(
+            refused_bash_input(Arc::new(LockedKeychain)).await,
+            AuditInput::Json { text }
+        );
     }
 
     #[tokio::test]
@@ -399,5 +763,520 @@ mod recording {
         )
         .await;
         assert_eq!(until(&mut rx, &AgentStatus::Idle).await, Vec::new());
+    }
+}
+
+/// Keychain reads: cached, bounded by a timeout, and kept when the caller
+/// stops waiting.
+mod keychain {
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::{Arc, Condvar, Mutex};
+
+    use serde_json::json;
+    use tokio::sync::oneshot::error::TryRecvError;
+    use tokio::sync::{Notify, oneshot};
+    use tokio::time::Instant;
+
+    use super::super::input::REDACTED;
+    use super::super::{KEYCHAIN_TIMEOUT, RETRY_AFTER, forget_secrets, tool_decided};
+    use super::project;
+    use crate::Core;
+    use crate::fakes::{MemoryAudit, MemoryProjects, MemorySecrets, ScriptedAgent};
+    use crate::protocol::agents::{AgentStatus, AgentsEvent, AgentsResponse, SessionId};
+    use crate::protocol::audit::{
+        AuditEntry, AuditEvent, AuditInput, AuditLogEvent, AuditRange, DecidedBy,
+    };
+    use crate::protocol::permissions::PermissionsResponse;
+    use crate::protocol::projects::ProjectId;
+    use crate::protocol::secrets::{SecretInfo, SecretStoreStatus, SecretValue};
+    use crate::protocol::{ErrorCode, Event, ProtocolError, Request, Response};
+    use crate::services::{AuditLog, Secrets};
+
+    /// The one secret the tests' project has.
+    fn deploy() -> SecretInfo {
+        SecretInfo {
+            name: "deploy".into(),
+            host: "api.example.com".into(),
+            header: "X-Token".into(),
+            prefix: String::new(),
+        }
+    }
+
+    /// A keychain whose values wait until it is opened, counting reads.
+    #[derive(Debug, Default)]
+    struct SlowKeychain {
+        open: Mutex<bool>,
+        opened: Condvar,
+        entered: Notify,
+        reads: AtomicUsize,
+        broken: AtomicBool,
+        inner: MemorySecrets,
+    }
+
+    impl SlowKeychain {
+        fn with(value: &str) -> Arc<Self> {
+            let keychain = Arc::new(Self::default());
+            keychain
+                .inner
+                .set(&project("p1"), deploy(), SecretValue::new(value))
+                .unwrap_or_else(|e| panic!("{e}"));
+            keychain
+        }
+
+        fn open(&self) {
+            *self.open.lock().unwrap_or_else(|e| e.into_inner()) = true;
+            self.opened.notify_all();
+        }
+
+        fn reads(&self) -> usize {
+            self.reads.load(Ordering::SeqCst)
+        }
+    }
+
+    /// Opens the keychain when the test ends, so its blocked thread ends too.
+    struct Opens(Arc<SlowKeychain>);
+
+    impl Drop for Opens {
+        fn drop(&mut self) {
+            self.0.open();
+        }
+    }
+
+    impl Secrets for SlowKeychain {
+        fn status(&self) -> SecretStoreStatus {
+            self.inner.status()
+        }
+        fn list(&self, p: &ProjectId) -> Result<Vec<SecretInfo>, ProtocolError> {
+            self.inner.list(p)
+        }
+        fn set(&self, p: &ProjectId, s: SecretInfo, v: SecretValue) -> Result<(), ProtocolError> {
+            self.inner.set(p, s, v)
+        }
+        fn remove(&self, p: &ProjectId, name: &str) -> Result<(), ProtocolError> {
+            self.inner.remove(p, name)
+        }
+        fn remove_project(&self, p: &ProjectId) -> Result<(), ProtocolError> {
+            self.inner.remove_project(p)
+        }
+        fn value(&self, p: &ProjectId, name: &str) -> Result<SecretValue, ProtocolError> {
+            self.reads.fetch_add(1, Ordering::SeqCst);
+            self.entered.notify_one();
+            let open = self.open.lock().unwrap_or_else(|e| e.into_inner());
+            drop(
+                self.opened
+                    .wait_while(open, |open| !*open)
+                    .unwrap_or_else(|e| e.into_inner()),
+            );
+            if self.broken.load(Ordering::SeqCst) {
+                return Err(ProtocolError::new(ErrorCode::Unavailable, "locked"));
+            }
+            self.inner.value(p, name)
+        }
+    }
+
+    fn core(keychain: &Arc<SlowKeychain>, log: &Arc<MemoryAudit>) -> Core {
+        Core::builder("test")
+            .projects(Arc::new(MemoryProjects::default()))
+            .agents(Arc::new(ScriptedAgent::default()))
+            .secrets(keychain.clone())
+            .audit(log.clone())
+            .build()
+    }
+
+    async fn ok(core: &Core, json: serde_json::Value) -> Response {
+        let request: Request =
+            serde_json::from_value(json).unwrap_or_else(|e| panic!("bad request: {e}"));
+        core.handle(request)
+            .await
+            .unwrap_or_else(|e| panic!("request failed: {e}"))
+    }
+
+    fn inputs(log: &MemoryAudit) -> Vec<AuditInput> {
+        log.list(&project("p1"), Default::default(), 100)
+            .unwrap_or_else(|e| panic!("{e}"))
+            .into_iter()
+            .filter_map(|entry| match entry.event {
+                AuditEvent::ToolDecided { input, .. } => Some(input),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn bash(command: &str) -> serde_json::Value {
+        json!({ "command": command })
+    }
+
+    fn redacted() -> AuditInput {
+        AuditInput::Json {
+            text: REDACTED.to_owned(),
+        }
+    }
+
+    fn kept(command: &str) -> AuditInput {
+        AuditInput::Json {
+            text: bash(command).to_string(),
+        }
+    }
+
+    async fn decide(core: &Core, command: &str) {
+        let input = bash(command);
+        let by = DecidedBy::Person;
+        let recorded = tool_decided(core, &project("p1"), None, "Bash", &input, true, by);
+        recorded.await.unwrap_or_else(|e| panic!("{e}"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_keychain_that_never_answers_times_out_to_redacted() {
+        let keychain = SlowKeychain::with("known-value-123");
+        let _opens = Opens(keychain.clone());
+        let log = Arc::new(MemoryAudit::default());
+        let core = core(&keychain, &log);
+        let input = bash("echo known-value-123");
+        let by = DecidedBy::Person;
+        let recorded = tool_decided(&core, &project("p1"), None, "Bash", &input, true, by);
+        keychain.entered.notified().await;
+        tokio::time::advance(KEYCHAIN_TIMEOUT).await;
+        recorded.await.unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(inputs(&log), [redacted()]);
+    }
+
+    #[tokio::test]
+    async fn secret_values_are_read_once_until_they_change() {
+        let keychain = SlowKeychain::with("known-value-123");
+        keychain.open();
+        let log = Arc::new(MemoryAudit::default());
+        let core = core(&keychain, &log);
+        ok(
+            &core,
+            json!({"method": "projects.add", "params": {"root": crate::test_path!("/work/a")}}),
+        )
+        .await;
+        decide(&core, "echo known-value-123").await;
+        decide(&core, "echo new-value-456").await;
+        assert_eq!(keychain.reads(), 1);
+        ok(
+            &core,
+            json!({"method": "secrets.set", "params": {"project": "p1",
+            "secret": {"name": "other", "host": "api.other.com", "header": "X-Key"},
+            "value": "new-value-456"}}),
+        )
+        .await;
+        decide(&core, "echo new-value-456").await;
+        assert_eq!(keychain.reads(), 3);
+        ok(
+            &core,
+            json!({"method": "secrets.remove", "params": {"project": "p1", "name": "other"}}),
+        )
+        .await;
+        decide(&core, "echo new-value-456").await;
+        assert_eq!(keychain.reads(), 4);
+        let gone = format!("echo {REDACTED}");
+        assert_eq!(
+            inputs(&log),
+            [
+                kept(&gone),
+                kept("echo new-value-456"),
+                kept(&gone),
+                kept("echo new-value-456")
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn an_answer_is_recorded_even_if_the_agent_stops_waiting_mid_read() {
+        let keychain = SlowKeychain::with("known-value-123");
+        let _opens = Opens(keychain.clone());
+        let log = Arc::new(MemoryAudit::default());
+        let core = core(&keychain, &log);
+        ok(
+            &core,
+            json!({"method": "projects.add", "params": {"root": crate::test_path!("/work/a")}}),
+        )
+        .await;
+        let mut rx = core.subscribe();
+        ok(
+            &core,
+            json!({"method": "agents.start", "params": {
+            "project": "p1", "agent": "claude", "mode": "direct", "prompt": "go"}}),
+        )
+        .await;
+        let status = |want: AgentStatus| move |event: &Event| matches!(event, Event::Agents(AgentsEvent::Status { status, .. }) if *status == want);
+        next(&mut rx, status(AgentStatus::Idle)).await;
+        let host = crate::agents::AgentHost::new(
+            SessionId("s1".into()),
+            project("p1"),
+            core.inner_sessions(),
+            core.sink(),
+        );
+        let asking = tokio::spawn(async move {
+            host.ask("Bash".into(), bash("echo known-value-123"), None, None)
+                .await
+        });
+        next(&mut rx, status(AgentStatus::WaitingForApproval)).await;
+        let id = match ok(&core, json!({"method": "permissions.pending"})).await {
+            Response::Permissions(PermissionsResponse::Pending(p)) => p[0].id.0.clone(),
+            other => panic!("unexpected {other:?}"),
+        };
+        ok(
+            &core,
+            json!({"method": "permissions.answer", "params": {"id": id, "decision": "allow"}}),
+        )
+        .await;
+        keychain.entered.notified().await;
+        asking.abort();
+        let _ = asking.await;
+        keychain.open();
+        let appended = next(&mut rx, |event| {
+            matches!(event, Event::Audit(AuditLogEvent::Appended(_)))
+        })
+        .await;
+        let Event::Audit(AuditLogEvent::Appended(entry)) = appended else {
+            unreachable!()
+        };
+        let gone = format!("echo {REDACTED}");
+        assert_eq!(
+            entry.event,
+            AuditEvent::ToolDecided {
+                tool: "Bash".into(),
+                input: kept(&gone),
+                allowed: true,
+                by: DecidedBy::Person,
+            }
+        );
+        match ok(
+            &core,
+            json!({"method": "agents.list", "params": {"project": "p1"}}),
+        )
+        .await
+        {
+            Response::Agents(AgentsResponse::List(list)) => {
+                assert_eq!(list[0].status, AgentStatus::Working);
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    fn decided(core: &Core, project: &ProjectId, command: &str) -> oneshot::Receiver<()> {
+        let by = DecidedBy::Person;
+        tool_decided(core, project, None, "Bash", &bash(command), true, by)
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_hung_keychain_costs_one_timeout_per_read_not_per_decision() {
+        let keychain = SlowKeychain::with("known-value-123");
+        let _opens = Opens(keychain.clone());
+        let log = Arc::new(MemoryAudit::default());
+        let core = core(&keychain, &log);
+        let began = Instant::now();
+        let first = decided(&core, &project("p1"), "echo one");
+        let second = decided(&core, &project("p1"), "echo two");
+        keychain.entered.notified().await;
+        tokio::time::advance(KEYCHAIN_TIMEOUT).await;
+        first.await.unwrap_or_else(|e| panic!("{e}"));
+        second.await.unwrap_or_else(|e| panic!("{e}"));
+        // Past the deadline, with the read still hung, nothing waits.
+        decide(&core, "echo three").await;
+        assert_eq!(began.elapsed(), KEYCHAIN_TIMEOUT);
+        assert_eq!(keychain.reads(), 1);
+        assert_eq!(inputs(&log), [redacted(), redacted(), redacted()]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_burst_on_a_cold_cache_waits_for_the_one_read() {
+        let keychain = SlowKeychain::with("known-value-123");
+        keychain.open();
+        let log = Arc::new(MemoryAudit::default());
+        let core = core(&keychain, &log);
+        let first = decided(&core, &project("p1"), "echo known-value-123");
+        let second = decided(&core, &project("p1"), "echo two");
+        first.await.unwrap_or_else(|e| panic!("{e}"));
+        second.await.unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(keychain.reads(), 1);
+        let gone = format!("echo {REDACTED}");
+        assert_eq!(inputs(&log), [kept(&gone), kept("echo two")]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_read_that_fails_while_the_secrets_change_is_not_held_against_the_new_ones() {
+        let keychain = SlowKeychain::with("known-value-123");
+        keychain.broken.store(true, Ordering::SeqCst);
+        let _opens = Opens(keychain.clone());
+        let log = Arc::new(MemoryAudit::default());
+        let core = core(&keychain, &log);
+        let failing = decided(&core, &project("p1"), "echo one");
+        keychain.entered.notified().await;
+        keychain
+            .inner
+            .set(&project("p1"), deploy(), SecretValue::new("new-value-456"))
+            .unwrap_or_else(|e| panic!("{e}"));
+        forget_secrets(&core, &project("p1"));
+        keychain.open();
+        // The old read fails after the change: no backoff may follow from it.
+        failing.await.unwrap_or_else(|e| panic!("{e}"));
+        keychain.broken.store(false, Ordering::SeqCst);
+        decide(&core, "echo new-value-456 known-value-123").await;
+        assert_eq!(keychain.reads(), 2);
+        let changed = format!("echo {REDACTED} known-value-123");
+        assert_eq!(inputs(&log), [redacted(), kept(&changed)]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_change_to_the_secrets_retries_a_hung_read() {
+        let keychain = SlowKeychain::with("known-value-123");
+        let _opens = Opens(keychain.clone());
+        let log = Arc::new(MemoryAudit::default());
+        let core = core(&keychain, &log);
+        let hung = decided(&core, &project("p1"), "echo one");
+        keychain.entered.notified().await;
+        tokio::time::advance(KEYCHAIN_TIMEOUT).await;
+        hung.await.unwrap_or_else(|e| panic!("{e}"));
+        forget_secrets(&core, &project("p1"));
+        let retried = decided(&core, &project("p1"), "echo known-value-123");
+        keychain.entered.notified().await;
+        keychain.open();
+        retried.await.unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(keychain.reads(), 2);
+        let gone = format!("echo {REDACTED}");
+        assert_eq!(inputs(&log), [redacted(), kept(&gone)]);
+    }
+
+    #[test]
+    fn decisions_left_when_the_runtime_shuts_down_are_not_waited_for() {
+        let keychain = SlowKeychain::with("known-value-123");
+        let _opens = Opens(keychain.clone());
+        let log = Arc::new(MemoryAudit::default());
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap_or_else(|e| panic!("{e}"));
+        let (core, first, second) = runtime.block_on(async {
+            let core = core(&keychain, &log);
+            let first = decided(&core, &project("p1"), "echo one");
+            let second = decided(&core, &project("p1"), "echo two");
+            keychain.entered.notified().await;
+            (core, first, second)
+        });
+        runtime.shutdown_background();
+        let (mut first, mut second) = (first, second);
+        assert!(matches!(first.try_recv(), Err(TryRecvError::Closed)));
+        assert!(matches!(second.try_recv(), Err(TryRecvError::Closed)));
+        // A new decision starts a new lane instead of joining a dead one.
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap_or_else(|e| panic!("{e}"));
+        keychain.open();
+        // The read the old runtime dropped is not waited on: a new one runs.
+        runtime.block_on(decide(&core, "echo known-value-123"));
+        assert_eq!(keychain.reads(), 2);
+        let gone = format!("echo {REDACTED}");
+        assert_eq!(inputs(&log), [kept(&gone)]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_project_without_secrets_does_not_wait_for_another_projects_read() {
+        let keychain = SlowKeychain::with("known-value-123");
+        let _opens = Opens(keychain.clone());
+        let log = Arc::new(MemoryAudit::default());
+        let core = core(&keychain, &log);
+        let began = Instant::now();
+        let slow = decided(&core, &project("p1"), "echo one");
+        keychain.entered.notified().await;
+        decided(&core, &project("p2"), "echo two")
+            .await
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert!(began.elapsed() < KEYCHAIN_TIMEOUT, "{:?}", began.elapsed());
+        let p2 = log
+            .list(&project("p2"), Default::default(), 10)
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert!(
+            matches!(&p2[..], [entry] if matches!(&entry.event, AuditEvent::ToolDecided { input, .. } if *input == kept("echo two")))
+        );
+        keychain.open();
+        slow.await.unwrap_or_else(|e| panic!("{e}"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_failed_read_is_tried_again_only_after_a_while() {
+        let keychain = SlowKeychain::with("known-value-123");
+        keychain.broken.store(true, Ordering::SeqCst);
+        keychain.open();
+        let log = Arc::new(MemoryAudit::default());
+        let core = core(&keychain, &log);
+        decide(&core, "echo one").await;
+        decide(&core, "echo two").await;
+        assert_eq!(keychain.reads(), 1);
+        tokio::time::advance(RETRY_AFTER).await;
+        keychain.broken.store(false, Ordering::SeqCst);
+        decide(&core, "echo known-value-123").await;
+        assert_eq!(keychain.reads(), 2);
+        let gone = format!("echo {REDACTED}");
+        assert_eq!(inputs(&log), [redacted(), redacted(), kept(&gone)]);
+    }
+
+    /// An audit log whose second append panics.
+    #[derive(Debug, Default)]
+    struct PanicsOnce {
+        appends: AtomicUsize,
+        inner: MemoryAudit,
+    }
+
+    impl AuditLog for PanicsOnce {
+        fn append(
+            &self,
+            project: &ProjectId,
+            session: Option<&SessionId>,
+            event: AuditEvent,
+        ) -> Result<AuditEntry, ProtocolError> {
+            if self.appends.fetch_add(1, Ordering::SeqCst) == 1 {
+                // Unwinds without the panic hook, so no backtrace is printed.
+                std::panic::resume_unwind(Box::new("the log broke"));
+            }
+            self.inner.append(project, session, event)
+        }
+        fn list(
+            &self,
+            project: &ProjectId,
+            range: AuditRange,
+            limit: usize,
+        ) -> Result<Vec<AuditEntry>, ProtocolError> {
+            self.inner.list(project, range, limit)
+        }
+    }
+
+    #[tokio::test]
+    async fn decisions_behind_one_whose_recording_panicked_are_still_recorded() {
+        let keychain = SlowKeychain::with("known-value-123");
+        keychain.open();
+        let log = Arc::new(PanicsOnce::default());
+        let core = Core::builder("test")
+            .projects(Arc::new(MemoryProjects::default()))
+            .agents(Arc::new(ScriptedAgent::default()))
+            .secrets(keychain.clone())
+            .audit(log.clone())
+            .build();
+        decide(&core, "echo warm").await;
+        let lost = decided(&core, &project("p1"), "echo one");
+        let kept_one = decided(&core, &project("p1"), "echo two");
+        assert!(lost.await.is_err());
+        kept_one.await.unwrap_or_else(|e| panic!("{e}"));
+        decide(&core, "echo three").await;
+        assert_eq!(
+            inputs(&log.inner),
+            [kept("echo warm"), kept("echo two"), kept("echo three")]
+        );
+    }
+
+    async fn next(
+        rx: &mut tokio::sync::broadcast::Receiver<Event>,
+        want: impl Fn(&Event) -> bool,
+    ) -> Event {
+        loop {
+            match Core::next_event(rx).await {
+                Some(event) if want(&event) => return event,
+                Some(_) => {}
+                None => panic!("core closed"),
+            }
+        }
     }
 }

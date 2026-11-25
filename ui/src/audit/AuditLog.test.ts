@@ -79,4 +79,95 @@ describe("AuditLog", () => {
     await settle();
     expect(target.querySelector("[data-testid=audit-empty]")?.textContent?.trim()).toBe("No entries match.");
   });
+
+  it("opens a long log on its newest page and loads older ones on request", async () => {
+    const core = await setup();
+    // Refused: the first and the last; only they render, which keeps this fast.
+    core.entries = Array.from({ length: 501 }, (_, i) => entry(i + 1, bash(i !== 0 && i !== 500)));
+    target.querySelector<HTMLButtonElement>("[data-testid=open-audit]")?.click();
+    flushSync();
+    target.querySelector<HTMLInputElement>("[data-testid=audit-refused]")?.click();
+    await settle();
+    const seqs = () => [...target.querySelectorAll("[data-testid=audit-entry] time")].map((el) => el.textContent);
+    expect(titles()).toEqual(["Refused Bash"]);
+    const older = () => target.querySelector<HTMLButtonElement>("[data-testid=audit-older]");
+    older()?.click();
+    await settle();
+    expect(titles()).toEqual(["Refused Bash", "Refused Bash"]);
+    expect(new Set(seqs()).size).toBe(2);
+    expect(older()).toBeNull();
+    expect(target.querySelector("[data-testid=audit-older-note]")?.textContent).toBe("1 older entry loaded.");
+  });
+
+  it("counts only the older entries loaded, not ones appended meanwhile", async () => {
+    const core = await setup();
+    core.entries = Array.from({ length: 501 }, (_, i) => entry(i + 1, bash(true)));
+    target.querySelector<HTMLButtonElement>("[data-testid=open-audit]")?.click();
+    flushSync();
+    target.querySelector<HTMLInputElement>("[data-testid=audit-refused]")?.click();
+    await settle();
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const call = core.call.bind(core);
+    core.call = (async (request) => {
+      await held;
+      return call(request);
+    }) as typeof core.call;
+    target.querySelector<HTMLButtonElement>("[data-testid=audit-older]")?.click();
+    await settle();
+    core.append(entry(502, bash(true)));
+    core.append(entry(503, bash(true)));
+    release();
+    await settle();
+    await settle();
+    expect(target.querySelector("[data-testid=audit-older-note]")?.textContent).toBe("1 older entry loaded.");
+  });
+
+  it("keeps Load older focusable while it loads and focus in the dialog after", async () => {
+    const core = await setup();
+    // All allowed and only refusals shown, so none render.
+    core.entries = Array.from({ length: 501 }, (_, i) => entry(i + 1, bash(true)));
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    target.querySelector<HTMLButtonElement>("[data-testid=open-audit]")?.click();
+    flushSync();
+    target.querySelector<HTMLInputElement>("[data-testid=audit-refused]")?.click();
+    await settle();
+    const call = core.call.bind(core);
+    core.call = (async (request) => {
+      await held;
+      return call(request);
+    }) as typeof core.call;
+    const older = target.querySelector<HTMLButtonElement>("[data-testid=audit-older]");
+    older?.focus();
+    older?.click();
+    await settle();
+    expect(older?.disabled).toBe(false);
+    expect(older?.getAttribute("aria-busy")).toBe("true");
+    expect(document.activeElement).toBe(older);
+    release();
+    await settle();
+    await settle();
+    expect(target.querySelector("[data-testid=audit-older]")).toBeNull();
+    expect(document.activeElement?.id).toBe("audit-title");
+  });
+
+  it("Tab wraps past disabled controls", async () => {
+    await setup();
+    target.querySelector<HTMLButtonElement>("[data-testid=open-audit]")?.click();
+    await settle();
+    const dialog = target.querySelector<HTMLElement>("[data-testid=audit]");
+    const disabled = document.createElement("button");
+    disabled.disabled = true;
+    dialog?.append(disabled);
+    const close = target.querySelector<HTMLButtonElement>("button.close");
+    close?.focus();
+    dialog?.dispatchEvent(new KeyboardEvent("keydown", { code: "Tab", key: "Tab", bubbles: true }));
+    expect(document.activeElement).toBe(target.querySelector("[data-testid=audit-filter]"));
+    disabled.remove();
+  });
 });

@@ -114,9 +114,10 @@ const CA_BUNDLE_VARS: [&str; 5] = [
 
 /// Protected folders made empty in the session's folder when missing, so
 /// the agent cannot create them (`.claude/settings.json` hooks, editor
-/// tasks) for the user's own tools to run later. They are removed again
-/// when the session ends. Missing protected files are left to the review.
-const FOLDERS_MADE: [&str; 4] = [".claude", ".vscode", ".idea", ".devcontainer"];
+/// tasks, `.ovra/servers.json` commands) for the user's own tools to run
+/// later. They are removed again when the session ends. Missing protected
+/// files are left to the review.
+const FOLDERS_MADE: [&str; 5] = [".claude", ".vscode", ".idea", ".devcontainer", ".ovra"];
 
 /// Package caches builds write, relative to the home folder. Each session
 /// gets its project's own copy (empty at first), bound where the cache is
@@ -204,6 +205,9 @@ pub(crate) struct Plan {
     /// The folders and files Landlock lets the agent write.
     writable: Vec<PathBuf>,
     network: ProfileNetwork,
+    /// Ports the helper listens on inside the sandbox and forwards to the
+    /// netproxy with `OVRA-LOCAL <port>`.
+    forward: Vec<u16>,
     path: OsString,
     /// Folders of [`FOLDERS_MADE`] this plan made: removed again once
     /// the session and everything it started are gone.
@@ -256,6 +260,7 @@ impl Plan {
             mounts: Vec::new(),
             writable: vec!["/tmp".into(), "/dev".into(), home.clone()],
             network: profile.network.clone(),
+            forward: ports(profile)?,
             path: OsString::new(),
             temporary: Vec::new(),
             kind: Kind::Agent,
@@ -640,6 +645,9 @@ impl Plan {
         if let ProfileNetwork::Proxy { address, ca_bundle } = &self.network {
             args.extend([os("--bridge"), os(real(Path::new(address))?)]);
             args.push(os(PROXY_PORT.to_string()));
+            for port in &self.forward {
+                args.extend([os("--forward"), os(port.to_string())]);
+            }
             let proxy = os(format!("http://127.0.0.1:{PROXY_PORT}"));
             for name in ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"] {
                 env.push((os(name), Some(proxy.clone())));
@@ -723,6 +731,45 @@ impl Plan {
         });
         own_folder.map_or_else(|| program.to_path_buf(), Path::to_path_buf)
     }
+}
+
+/// Checks the ports of a profile and returns those to forward, sorted.
+/// A server pod (`expose`) needs a network namespace of its own, or its
+/// servers would listen on the host; forwarding needs the netproxy, which
+/// applies the loopback rule. No port may be the proxy's own inside the
+/// sandbox, and none both exposed and forwarded: each is one listener
+/// there. Everything else about a pod is an agent's sandbox: its own PID
+/// namespace and `--die-with-parent` are on for every session, and
+/// Landlock and seccomp already let it listen on TCP inside its network
+/// namespace and make Unix sockets in its writable folders.
+fn ports(profile: &SandboxProfile) -> Result<Vec<u16>> {
+    let proxy = matches!(profile.network, ProfileNetwork::Proxy { .. });
+    if !profile.expose.is_empty() && matches!(profile.network, ProfileNetwork::Open) {
+        return Err(invalid(
+            "a server pod needs a network of its own: the sandbox cannot run one with an open network",
+        ));
+    }
+    if !profile.forward.is_empty() && !proxy {
+        return Err(invalid(
+            "forwarding ports to servers needs the session's netproxy",
+        ));
+    }
+    for &port in profile.expose.iter().chain(&profile.forward) {
+        if port == 0 || (proxy && port == PROXY_PORT) {
+            return Err(invalid(format!(
+                "port {port} cannot be used by a server: the sandbox needs it"
+            )));
+        }
+    }
+    if let Some(port) = profile.forward.iter().find(|p| profile.expose.contains(p)) {
+        return Err(invalid(format!(
+            "port {port} cannot be both exposed and forwarded"
+        )));
+    }
+    let mut forward = profile.forward.clone();
+    forward.sort_unstable();
+    forward.dedup();
+    Ok(forward)
 }
 
 /// Fails if a mount covers one made before it (binds its folder or one

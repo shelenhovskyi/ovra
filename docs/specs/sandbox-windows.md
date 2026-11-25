@@ -154,15 +154,22 @@ WebClient and BITS for it), a follow-up.
 
 **What is not isolated.** The token's restricting SIDs are checked only
 for what Windows counts as writing, which leaves out reading, `DELETE` and
-changing an ACL. So a session reads, and can delete files in, every
-project, cache and temp folder ever granted to the sandbox user, unlike
-Linux; it cannot write or create there. Protected paths hold, because
+changing an ACL. So a session reads every project, cache and temp folder
+ever granted to the sandbox user, unlike Linux, and may delete, move or
+re-ACL files there; it cannot write or create there. The setup test on CI
+probes each of these (a plain `remove` there already fails) and this list
+shrinks to what gets through. Protected paths hold, because
 their deny ACEs name the sandbox user itself (CI checks both). Processes started through WMI, the Task
 Scheduler or COM servers run outside the job and can outlive the session;
 ending the sandbox user's processes of a logon session when it ends is a
 follow-up. `CreateProcessWithLogonW` takes at most 1024 characters of
 command line: `claude`'s own arguments pass through it, so a very long
 argument fails the session (it never runs unsandboxed).
+
+Sessions report these gaps in their sandbox status (`GAPS` in
+`src/lib.rs`), so the UI never says "fully sandboxed". Server pods
+(ADR 0008) have no Windows bridge yet: a pod profile is refused, and an
+agent's forwarded ports are left out, so it cannot reach its servers.
 
 **Environment.** `ENV_KEPT` as on Linux, plus `SystemRoot`, `windir`,
 `ComSpec`, `PATHEXT`, `USERPROFILE`, `HOMEDRIVE`, `HOMEPATH`, `APPDATA`,

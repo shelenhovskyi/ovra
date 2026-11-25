@@ -1,8 +1,8 @@
 //! Rules a `PreToolUse` hook applies to every tool call. Hooks run even for
 //! calls the user's own settings allow without asking, so the rules here
 //! hold whatever those settings say. They only ever ask or deny; they never
-//! allow on their own. The core adds the project's deny rules
-//! ([`Verdict::Deny`]).
+//! allow on their own. The core adds the project's deny and ask rules
+//! ([`Verdict::Deny`], [`Verdict::Ask`]).
 
 use std::path::{Component, Path, PathBuf};
 
@@ -14,8 +14,8 @@ pub(crate) enum Verdict {
     /// No rule applies; the CLI's normal permission flow decides.
     Pass,
     /// The person must approve the call through Ovra, even if a setting
-    /// allows it.
-    Ask(&'static str),
+    /// allows it, for this reason.
+    Ask(String),
     /// The project's policy refuses the call, for this reason.
     Deny(String),
 }
@@ -59,7 +59,7 @@ pub(crate) fn pre_tool_use(cwd: &Path, input: &Value) -> Verdict {
         .and_then(Value::as_str);
     match path {
         Some(path) if inside(cwd, Path::new(path)) => Verdict::Pass,
-        _ => Verdict::Ask("Ovra asks before an agent changes files outside its folder."),
+        _ => Verdict::Ask("Ovra asks before an agent changes files outside its folder.".into()),
     }
 }
 

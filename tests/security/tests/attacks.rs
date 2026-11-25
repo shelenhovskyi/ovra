@@ -116,6 +116,7 @@ impl World {
             path: "/usr/local/bin:/usr/bin:/bin".into(),
             toolchains: vec![self.home.join(".cargo")],
             hidden: vec![self.data.clone(), std::env::temp_dir()],
+            data_dir: self.data.clone(),
             caches: self.data.join("sandbox-caches"),
             protected: Protected {
                 work_dir: &ovra_sandbox::PROTECTED_IN_WORK_DIR,
@@ -139,6 +140,8 @@ impl World {
             work_dir: self.project.clone(),
             read: Vec::new(),
             write: Vec::new(),
+            expose: Vec::new(),
+            forward: Vec::new(),
             network,
         }
     }
@@ -694,9 +697,16 @@ fn a_language_server_reads_the_project_and_writes_only_its_cache() {
     let Some(sandbox) = world.sandbox() else {
         return;
     };
-    // Ovra's own daemon, outside the sandbox.
+    // Ovra's own daemon, outside the sandbox, and a local service on an
+    // abstract Unix socket.
     let daemon = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = daemon.local_addr().unwrap().port();
+    let abstract_name = format!("ovra-security-server-{}", std::process::id());
+    let _abstract = {
+        use std::os::linux::net::SocketAddrExt as _;
+        let addr = std::os::unix::net::SocketAddr::from_abstract_name(&abstract_name).unwrap();
+        UnixListener::bind_addr(&addr).unwrap()
+    };
     let checks = format!(
         "read the project: grep -q hello README.md
         read the registry of the user: test -f {home}/.cargo/registry/index/.keep
@@ -709,7 +719,9 @@ fn a_language_server_reads_the_project_and_writes_only_its_cache() {
         read the settings of claude: cat {home}/.claude.json
         write the registry of the user: touch {home}/.cargo/registry/index/planted
         read ovra data: cat {data}/store.db
+        read the cargo token: grep -q {SECRET} {home}/.cargo/credentials.toml
         reach the daemon: echo > /dev/tcp/127.0.0.1/{port}
+        reach an abstract socket: {AGENT} connect-abstract {abstract_name}
         find ANTHROPIC_API_KEY: printenv ANTHROPIC_API_KEY
         find GITHUB_TOKEN: printenv GITHUB_TOKEN
         find a secret in any process environment: grep -qs {SECRET} /proc/*/environ",
@@ -754,7 +766,11 @@ fn a_language_server_reads_the_project_and_writes_only_its_cache() {
         .collect();
     assert_eq!(changed, [cache.join("out"), cache.join("tmp/t")]);
     // The control: without the sandbox every attack works.
-    let control = outside(&world.project, &attacks(&checks), &env);
+    // With the line's TMPDIR, as the sandbox runs it: unset, `$TMPDIR/t`
+    // would be `/t`, which only root can write.
+    let tmp = cache.join("tmp").to_string_lossy().into_owned();
+    let control_env = [env.as_slice(), &[("TMPDIR", tmp.as_str())]].concat();
+    let control = outside(&world.project, &attacks(&checks), &control_env);
     assert_eq!(failed(&control), Vec::<&str>::new(), "{control}");
 }
 

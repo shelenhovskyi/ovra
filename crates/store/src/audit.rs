@@ -5,7 +5,7 @@
 //! the table's triggers refuse edits and deletes.
 
 use ovra_core::protocol::agents::SessionId;
-use ovra_core::protocol::audit::{AuditEntry, AuditEvent};
+use ovra_core::protocol::audit::{AuditEntry, AuditEvent, AuditOrder, AuditRange};
 use ovra_core::protocol::projects::ProjectId;
 use ovra_core::services::{AuditLog, Result};
 use rusqlite::params;
@@ -48,20 +48,28 @@ impl AuditLog for Store {
     fn list(
         &self,
         project: &ProjectId,
-        after: Option<u64>,
+        range: AuditRange,
         limit: usize,
     ) -> Result<Vec<AuditEntry>> {
         let db = self.db();
         let mut stmt = db
-            .prepare_cached(
-                "SELECT seq, at_ms, session_id, event FROM audit
-                 WHERE project_id = ?1 AND seq > ?2 ORDER BY seq LIMIT ?3",
-            )
+            .prepare_cached(match range.order {
+                AuditOrder::OldestFirst => {
+                    "SELECT seq, at_ms, session_id, event FROM audit
+                     WHERE project_id = ?1 AND seq > ?2 AND seq < ?3 ORDER BY seq LIMIT ?4"
+                }
+                AuditOrder::NewestFirst => {
+                    "SELECT seq, at_ms, session_id, event FROM audit
+                     WHERE project_id = ?1 AND seq > ?2 AND seq < ?3 ORDER BY seq DESC LIMIT ?4"
+                }
+            })
             .map_err(db_error)?;
-        let after = after.map_or(0, |a| i64::try_from(a).unwrap_or(i64::MAX));
+        let seq = |s: u64| i64::try_from(s).unwrap_or(i64::MAX);
+        let after = range.after.map_or(0, seq);
+        let before = range.before.map_or(i64::MAX, seq);
         let limit = i64::try_from(limit).unwrap_or(i64::MAX);
         let rows = stmt
-            .query_map(params![project.0, after, limit], |row| {
+            .query_map(params![project.0, after, before, limit], |row| {
                 Ok((
                     row.get::<_, i64>(0)?,
                     row.get::<_, i64>(1)?,
@@ -111,8 +119,8 @@ mod tests {
             .unwrap_or_else(|e| panic!("append: {e}"))
     }
 
-    fn seqs(log: &dyn AuditLog, p: &str, after: Option<u64>, limit: usize) -> Vec<u64> {
-        log.list(&project(p), after, limit)
+    fn seqs(log: &dyn AuditLog, p: &str, range: AuditRange, limit: usize) -> Vec<u64> {
+        log.list(&project(p), range, limit)
             .unwrap_or_else(|e| panic!("list: {e}"))
             .iter()
             .map(|e| e.seq)
@@ -125,11 +133,33 @@ mod tests {
         append(log, "p2", None, true);
         let third = append(log, "p1", None, false);
         assert!(third.seq > first.seq);
-        let all = log.list(&project("p1"), None, 10);
+        let all = log.list(&project("p1"), Default::default(), 10);
         assert_eq!(all, Ok(vec![first.clone(), third.clone()]));
-        assert_eq!(seqs(log, "p1", Some(first.seq), 10), [third.seq]);
-        assert_eq!(seqs(log, "p1", None, 1), [first.seq]);
-        assert_eq!(seqs(log, "p3", None, 10), Vec::<u64>::new());
+        let after = |seq| AuditRange {
+            after: Some(seq),
+            ..AuditRange::default()
+        };
+        assert_eq!(seqs(log, "p1", after(first.seq), 10), [third.seq]);
+        assert_eq!(seqs(log, "p1", AuditRange::default(), 1), [first.seq]);
+        assert_eq!(
+            seqs(log, "p3", AuditRange::default(), 10),
+            Vec::<u64>::new()
+        );
+        // Newest first: the end of the log, then back from the lowest shown.
+        let fourth = append(log, "p1", None, true);
+        let newest = |before| AuditRange {
+            before,
+            order: AuditOrder::NewestFirst,
+            ..AuditRange::default()
+        };
+        assert_eq!(seqs(log, "p1", newest(None), 2), [fourth.seq, third.seq]);
+        assert_eq!(seqs(log, "p1", newest(Some(third.seq)), 2), [first.seq]);
+        let between = AuditRange {
+            after: Some(first.seq),
+            before: Some(fourth.seq),
+            order: AuditOrder::NewestFirst,
+        };
+        assert_eq!(seqs(log, "p1", between, 10), [third.seq]);
     }
 
     #[test]
@@ -151,7 +181,7 @@ mod tests {
         drop(store);
         let store = Store::open(dir.path()).expect("reopen");
         assert_eq!(
-            AuditLog::list(&store, &p.id, None, 10),
+            AuditLog::list(&store, &p.id, Default::default(), 10),
             Ok(vec![first.clone()])
         );
         assert!(append(&store, &p.id.0, None, false).seq > first.seq);
@@ -175,7 +205,7 @@ mod tests {
         }
         drop(db);
         assert_eq!(
-            AuditLog::list(&store, &project("p1"), None, 10),
+            AuditLog::list(&store, &project("p1"), Default::default(), 10),
             Ok(vec![entry])
         );
     }

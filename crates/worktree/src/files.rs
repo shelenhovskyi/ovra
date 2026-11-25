@@ -289,14 +289,20 @@ fn copy_over(
     // Deleted only once the writes went through, so a failure leaves the
     // checkout as it was as far as deletions go. Each path is looked at
     // again right before: a folder on the way may have become a symlink.
-    // A deletion that names a written file on a case-insensitive disk
-    // would remove it again, so it is left to the person.
-    let written: BTreeSet<String> = checkout
-        .iter()
-        .map(|p| String::from_utf8_lossy(p).to_lowercase())
-        .collect();
+    // A deletion that names another path of the batch in another case is
+    // left to the person: on a case-insensitive disk both are one file, so
+    // it would remove the file just written, or the person's file when that
+    // write was refused (a rename `readme.md` -> `README.md`).
+    let mut folded_names: BTreeMap<String, usize> = BTreeMap::new();
+    for path in paths {
+        *folded_names
+            .entry(path.as_str().to_lowercase())
+            .or_default() += 1;
+    }
     for path in deleted {
-        let folded = written.contains(&path.as_str().to_lowercase());
+        let folded = folded_names
+            .get(&path.as_str().to_lowercase())
+            .is_some_and(|n| *n > 1);
         match on_disk(into, path)? {
             OnDisk::Missing => {}
             OnDisk::File if !folded && !is_symlink(into, path) => {

@@ -56,7 +56,8 @@ pub struct FileChange {
     pub blocked: bool,
     /// The file, or the old path of a rename, is a protected path
     /// (`docs/specs/security.md`): agent configuration or code that tools
-    /// run on their own. Approve applies it too, so the inbox says so.
+    /// run on their own. Approve applies it only when the person includes
+    /// protected files (`review.approve`'s `include_protected`).
     #[serde(default)]
     pub protected: bool,
 }
@@ -75,8 +76,9 @@ pub struct ReviewItem {
     #[serde(default)]
     pub can_undo: bool,
     /// A worker's files that approve did not copy: the person's version
-    /// changed since the worker started, or the direct agent's changes to
-    /// them wait. The worker's version stays in its worktree and in
+    /// changed since the worker started, the direct agent's changes to
+    /// them wait, or they are protected and the person did not include
+    /// them. The worker's version stays in its worktree and in
     /// `review.diff`.
     #[serde(default)]
     pub not_copied: Vec<String>,
@@ -85,7 +87,10 @@ pub struct ReviewItem {
     pub can_undo_take: bool,
     /// An open worker item's files as listed here (paths and contents);
     /// `review.approve` sends it back and is refused if the worker's files
-    /// changed since. `None` for direct and decided items.
+    /// changed since. For an open direct item with protected files: those
+    /// files (paths and contents), which an approve that includes them
+    /// sends back, refused if they changed or others appeared. `None` for
+    /// other direct items and decided ones.
     #[serde(default)]
     pub fingerprint: Option<String>,
     /// Files of the repository's git folder or hooks folder, and other
@@ -125,9 +130,15 @@ pub enum ReviewRequest {
         id: ReviewId,
         commit: Option<String>,
         /// The `ReviewItem::fingerprint` the person reviewed; a worker's
-        /// item needs it.
+        /// item needs it, and so does a direct item's `include_protected`.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         fingerprint: Option<String>,
+        /// The person chose to apply the item's protected files too.
+        /// Without it a worker's protected files are not copied (they wait
+        /// in `not_copied`, as in a partial approve), and a direct item
+        /// with protected files, already on disk, is refused.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        include_protected: bool,
     },
     /// Restores the agent's files from the base. Files changed outside the
     /// agent since are left alone and listed as conflicts.
@@ -148,7 +159,14 @@ pub enum ReviewRequest {
     /// agent). A file the worker changed since the approve is skipped and
     /// listed as a conflict. When nothing is left the item is approved.
     #[serde(rename = "review.take")]
-    Take { id: ReviewId },
+    Take {
+        id: ReviewId,
+        /// The person chose to copy the protected files left too. Without
+        /// it they stay not copied, and a take with nothing else left is
+        /// refused.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        include_protected: bool,
+    },
     /// Puts back the person's versions from just before the last
     /// `review.take`; the item is partly approved again.
     #[serde(rename = "review.undo_take")]
@@ -169,9 +187,10 @@ pub enum ReviewResponse {
     Diff {
         path: String,
         patch: String,
-        /// For a worker's item: the `ReviewItem::fingerprint` of the files
-        /// this diff was read from. If it differs from the item's, the item
-        /// changed since it was listed.
+        /// For a worker's item, and a direct item with protected files: the
+        /// `ReviewItem::fingerprint` of the files this diff was read from.
+        /// If it differs from the item's, the item changed since it was
+        /// listed.
         #[serde(default)]
         fingerprint: Option<String>,
     },

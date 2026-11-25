@@ -38,7 +38,12 @@ export type SessionInfo = {
 };
 
 /** How the runtime actually ran a session. */
-export type SandboxReport = { name: string; network: "blocked" | "proxy" | "open" };
+export type SandboxReport = {
+  name: string;
+  network: "blocked" | "proxy" | "open";
+  /** What the sandbox does not cover, each a short phrase such as "DNS lookups"; empty when none are known. */
+  gaps: string[];
+};
 
 export type TurnUsage = {
   input_tokens: number;

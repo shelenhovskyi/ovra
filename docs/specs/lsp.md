@@ -79,8 +79,12 @@ The filter rewrites URIs only where LSP puts them, never in document text:
 Client to server: an `ovra:` URI becomes `file://<root>/<path>` after
 `RelPath::parse`; a `file:` URI anywhere in those keys is refused.
 Server to client: a `file:` URI under the root becomes `ovra:///<path>`; one
-outside it (a standard library, a dependency) passes unchanged, and the UI
-shows such a location as text it cannot open.
+outside it (a standard library, a dependency), or one with a `.`, `..` or
+empty segment or a segment holding `\`, passes unchanged, and the UI shows
+such a location as text it cannot open. An `ovra:` URI the server writes
+passes only if it is one the UI could have written (segments that decode to
+a `RelPath` with no `.`, `..`, `/` or `\`, no query or fragment); any other
+becomes `about:invalid`.
 
 ## Requests from the server
 
@@ -105,9 +109,12 @@ makes on disk still reach them.
 ## Limits
 
 - One server per project and language; at most 4 running at once.
-- A message over 16 MiB ends the server (`failed`).
+- A message over 4 MiB ends the server (`failed`).
 - The core holds back forwarding while the event channel is backed up, as
-  terminals do, so a flood of diagnostics cannot make every client resync.
+  terminals do, so a flood of diagnostics cannot make every client resync:
+  while 256 events wait, or while the server messages that may still wait
+  add up to 16 MiB of JSON (a stalled client cannot make Ovra hold
+  hundreds of large messages).
 - A server stops when the person stops it, its project loses trust or is
   removed, or it exits. It keeps running when the project closes in every
   client, so a reload does not restart it.
@@ -119,7 +126,12 @@ makes on disk still reach them.
 - `project`: the project root, readable, never writable;
 - `cache_dir`: `<data dir>/lsp/<project id>/<language>`, writable; the
   server's environment points build output there (`CARGO_TARGET_DIR`,
-  `XDG_CACHE_HOME`, `TMPDIR`);
+  `XDG_CACHE_HOME`, `TMPDIR`). Each start replaces a link or file in
+  place of the cache folder or those folders with a real folder, so a
+  link a server planted never sends a later start elsewhere.
+  `LanguageServers::forget` deletes `<data dir>/lsp/<project id>` once
+  the core stopped the project's servers because its trust was taken
+  back or it was removed;
 - `read`: more readable folders (toolchains the server needs);
 - `network`: `Blocked` in v1 (`CARGO_NET_OFFLINE=true`).
 
@@ -129,11 +141,19 @@ agents' environment allowlist without the names that say where Claude
 usage is billed or which cloud provider it uses. The user's package caches
 (`~/.cargo/registry`, `~/.npm`, ...) are readable, never writable.
 
+Without a sandbox a server still gets only that environment allowlist
+plus `PATH` (and on Windows the names processes need there, such as
+`SystemRoot`, `ComSpec`, `PATHEXT`, `TEMP` and `APPDATA`), then its own
+line: `KEPT` in `crates/lsp/src/env.rs`. Ovra's tokens and keys
+(`GITHUB_TOKEN`, `ANTHROPIC_API_KEY`, ...) never reach it.
+
 On Linux (`wrap_server` in `crates/sandbox-linux`, see `security.md`) the
 sandbox refuses a profile whose network is not `Blocked`, a project or
-`read` folder that holds the home folder, a `read` folder inside Ovra's
-data folder, and a cache folder inside the project or outside Ovra's data
-folder. The server's working folder is the project.
+`read` folder that holds the home folder, a `read` path inside Ovra's
+data folder or inside or holding a folder agents never get (`~/.config`,
+`~/.ssh`, ...), `~/.claude`, `~/.claude.json` or a credentials file
+(`~/.netrc`, `~/.git-credentials`, `credentials.toml`, ...), and a cache
+folder inside the project or outside `<data dir>/lsp`. The server's working folder is the project.
 
 ## Tasks
 

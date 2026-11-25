@@ -70,8 +70,9 @@ pub enum GitRequest {
         paths: Vec<String>,
     },
     /// `git commit` of what is staged, with the person's own config and
-    /// hooks, as in their terminal. `bad_request` for an empty message or
-    /// nothing staged (unless `amend`); a failing hook answers `conflict`
+    /// hooks, as in their terminal. With `amend`, an empty message keeps the
+    /// last commit's message. `bad_request` for an empty message or nothing
+    /// staged (unless `amend`); a failing hook answers `conflict`
     /// with its output.
     #[serde(rename = "git.commit")]
     Commit {

@@ -69,6 +69,18 @@ impl Setup {
     }
 }
 
+/// What the Windows sandbox does not isolate yet, as sessions report it
+/// (`docs/specs/sandbox-windows.md`, "What is not isolated"). WFP filters
+/// are meant to close the network ones.
+const GAPS: [&str; 6] = [
+    "DNS lookups",
+    "loopback services",
+    "Windows file sharing (SMB, WebDAV, BITS)",
+    "reads in other sandboxed projects, caches and temp folders",
+    "deletes, moves and ACL changes in other sandboxed projects",
+    "processes started through WMI, the task scheduler or COM servers",
+];
+
 /// The Windows sandbox: the sandbox user and a write-restricted token.
 #[derive(Debug)]
 pub struct Restricted {
@@ -84,11 +96,9 @@ impl Restricted {
     /// missing.
     pub fn detect(setup: Setup) -> Self {
         let status = if setup.data_dir.join(PASSWORD_FILE).is_file() {
-            // The name is what sessions report: it says what stays open
-            // until WFP filters close it (`docs/specs/sandbox-windows.md`).
             SandboxStatus::Available {
-                name: "Windows sandbox user; DNS, loopback and Windows file sharing stay open"
-                    .into(),
+                name: "Windows sandbox user".into(),
+                gaps: GAPS.map(String::from).to_vec(),
             }
         } else {
             SandboxStatus::Unavailable {
@@ -152,6 +162,8 @@ mod tests {
             work_dir: "w".into(),
             read: Vec::new(),
             write: Vec::new(),
+            expose: Vec::new(),
+            forward: Vec::new(),
             network: ProfileNetwork::Blocked,
         };
         assert_eq!(sandbox.wrap(&profile, line.clone()).ok(), Some(line));
@@ -173,9 +185,18 @@ mod tests {
         };
         let status = Restricted::detect(setup).status();
         let _ = std::fs::remove_dir_all(&data);
-        assert!(
-            matches!(status, SandboxStatus::Available { .. }),
-            "{status:?}"
-        );
+        let SandboxStatus::Available { name, gaps } = status else {
+            panic!("{status:?}");
+        };
+        assert_eq!(name, "Windows sandbox user");
+        // Every network gap the spec lists stays visible until WFP closes it.
+        for gap in [
+            "DNS lookups",
+            "loopback services",
+            "Windows file sharing (SMB, WebDAV, BITS)",
+        ] {
+            assert!(gaps.iter().any(|g| g == gap), "{gap} missing from {gaps:?}");
+        }
+        assert_eq!(gaps.len(), 6, "{gaps:?}");
     }
 }

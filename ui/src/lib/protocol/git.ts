@@ -39,6 +39,7 @@ export type GitRequest =
   | { method: "git.undo_discard"; params: { project: ProjectId; undo: string; paths: string[] } }
   /**
    * `git commit` of what is staged, with the person's config and hooks.
+   * With `amend`, an empty message keeps the last commit's message.
    * `bad_request` for an empty message or nothing staged (unless `amend`);
    * a failing hook answers `conflict` with its output.
    */

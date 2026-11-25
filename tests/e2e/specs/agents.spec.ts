@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
@@ -27,6 +27,26 @@ async function openProject(page: Page, prefix: string): Promise<void> {
   await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
   await projects.getByRole("button", { name: "Open", exact: true }).click();
   await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();
+}
+
+/** Opens a new git repository with README.md committed; returns its folder. */
+async function openGitProject(page: Page, prefix: string): Promise<string> {
+  const url = process.env.OVRA_URL;
+  if (!url) throw new Error("OVRA_URL is not set; globalSetup did not run");
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  writeFileSync(join(dir, "README.md"), "teh readme\n");
+  const git = (...args: string[]) =>
+    execFileSync("git", ["-c", "user.name=e2e", "-c", "user.email=e2e@example.invalid", ...args], { cwd: dir });
+  git("init", "-q");
+  git("add", ".");
+  git("commit", "-q", "-m", "start");
+  await page.clock.install();
+  await page.goto(url);
+  const projects = page.getByTestId("project-list");
+  await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
+  await projects.getByRole("button", { name: "Open", exact: true }).click();
+  await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();
+  return dir;
 }
 
 test("start an agent and answer its requests from the keyboard", async ({ page }) => {
@@ -119,22 +139,8 @@ test("reply to an agent, allow with the mouse and stop it while it waits", async
 });
 
 test("a task's coordinator splits the work among three workers whose diffs wait for review", async ({ page }) => {
-  const url = process.env.OVRA_URL;
-  if (!url) throw new Error("OVRA_URL is not set; globalSetup did not run");
   // Workers need a git repository for their worktrees.
-  const dir = mkdtempSync(join(tmpdir(), "ovra-agents-task-"));
-  writeFileSync(join(dir, "README.md"), "readme\n");
-  const git = (...args: string[]) =>
-    execFileSync("git", ["-c", "user.name=e2e", "-c", "user.email=e2e@example.invalid", ...args], { cwd: dir });
-  git("init", "-q");
-  git("add", ".");
-  git("commit", "-q", "-m", "start");
-  await page.clock.install();
-  await page.goto(url);
-  const projects = page.getByTestId("project-list");
-  await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
-  await projects.getByRole("button", { name: "Open", exact: true }).click();
-  await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();
+  await openGitProject(page, "ovra-agents-task-");
 
   await page.getByRole("textbox", { name: "Task for a new Claude session" }).fill("Write the notes");
   await page.getByRole("button", { name: "Start task" }).click();
@@ -161,4 +167,54 @@ test("a task's coordinator splits the work among three workers whose diffs wait 
     await expect(item.getByRole("list", { name: "Changed files" })).toContainText("NOTES.md");
     await expect(item.getByTestId("inbox-diff")).toContainText("Notes from a worker.");
   }
+});
+
+test("a direct session's protected files and git hooks need a look before approve", async ({ page }) => {
+  const dir = await openGitProject(page, "ovra-agents-protected-");
+  await page.getByRole("textbox", { name: "Task for a new Claude session" }).fill("Fix the typo");
+  await page.getByRole("button", { name: "Start", exact: true }).click();
+  const approvals = page.getByTestId("approvals");
+  for (const name of ["Run ls -la", "Edit README.md"]) {
+    const card = approvals.getByRole("group", { name });
+    await expect(card).toBeVisible();
+    await arm(page);
+    const deny = card.getByRole("button", { name: "Deny", exact: true });
+    await expect(deny).toHaveAttribute("aria-disabled", "false");
+    await deny.click();
+  }
+  await expect(page.getByTestId("agent-session").getByRole("status")).toHaveText("Waiting for you");
+
+  // Not the agent's file tools: the person (here the test) writes these.
+  writeFileSync(join(dir, ".envrc"), "echo hi\n");
+  writeFileSync(join(dir, ".mcp.json"), "{}\n");
+  writeFileSync(join(dir, ".git/hooks/pre-commit"), "#!/bin/sh\n");
+
+  await page.keyboard.press("Alt+Shift+R");
+  const inbox = page.getByRole("dialog", { name: "Review inbox" });
+  const entry = inbox.getByRole("navigation", { name: "Review items" }).getByRole("button");
+  await expect(entry).toHaveCount(1);
+  await expect(entry.getByTestId("item-protected")).toHaveText("2 files can run code or change agent rules");
+  await expect(entry.getByTestId("item-git")).toHaveText("1 git hook or config file changed");
+  await entry.click();
+  const item = inbox.getByTestId("inbox-item");
+  await expect(item.getByTestId("inbox-git")).toContainText("pre-commit (added)");
+  await expect(item.getByTestId("inbox-git")).toContainText("neither applies nor undoes them");
+  await expect(item.getByTestId("inbox-protected")).toContainText("Reject leaves .envrc, .mcp.json as they are");
+  await expect(item.getByTestId("inbox-protected")).not.toContainText("Reject restores");
+
+  // It opens on the first protected file; Approve waits for the other one.
+  const approve = item.getByRole("button", { name: "Approve", exact: true });
+  await expect(item.getByTestId("inbox-diff")).toContainText("echo hi");
+  await expect(item.getByTestId("inbox-protected-why")).toContainText(".mcp.json");
+  await expect(approve).toHaveAttribute("aria-disabled", "true");
+  await item
+    .getByRole("list", { name: "Changed files" })
+    .getByRole("button", { name: /\.mcp\.json/ })
+    .click();
+  await expect(item.getByTestId("inbox-protected-why")).toBeHidden();
+  await expect(approve).toHaveAttribute("aria-disabled", "false");
+  await approve.click();
+  await expect(item).toContainText("Approved");
+  expect(existsSync(join(dir, ".envrc"))).toBe(true);
+  expect(existsSync(join(dir, ".git/hooks/pre-commit"))).toBe(true);
 });

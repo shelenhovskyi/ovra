@@ -122,8 +122,8 @@ spec.
   the machine stay reachable. Name lookups go through the system's
   resolver service, so DNS is a slow channel out, and SMB, WebDAV and BITS
   traffic Windows sends from its own services is not the sandbox user's,
-  so the rule does not block it. Projects are isolated for writes only: a
-  session can read, and delete files in, another sandboxed project. `~/.claude`'s session
+  so the rule does not block it. A session can read another sandboxed
+  project and may delete, move or re-ACL files there, but not write. `~/.claude`'s session
   folders (`todos/`, `plans/`, ...) are the person's own, shared with
   their sessions; `shell-snapshots/` and `session-env/` stay read-only.
   Sessions are sandboxed only after the one-time setup (administrator);
@@ -131,6 +131,13 @@ spec.
   needs WFP filters for the sandbox user, a follow-up.
 - **Without bubblewrap** sessions run unsandboxed and say so; policies never
   skip a question for them.
+- **Unix sockets in visible folders.** Landlock does not limit connecting
+  to a socket file, so an agent or a language server can reach a socket
+  that something on the host listens on inside a folder the sandbox shows
+  (the project, a toolchain folder). `/run` and `/tmp` are hidden, so the
+  system's sockets (D-Bus, Docker) are not reachable, and abstract sockets
+  are not (new network namespace). Refusing `socket(AF_UNIX)` in seccomp
+  would close it; it needs a check that servers and agent tools still work.
 
 ## Covered elsewhere
 

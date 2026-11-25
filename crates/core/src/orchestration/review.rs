@@ -2,6 +2,7 @@
 //! approves or rejects it; a comment reopens it and continues the session.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
 
 use sha2::{Digest, Sha256};
 
@@ -18,7 +19,7 @@ use crate::protocol::review::{
     ReviewRequest, ReviewResponse, ReviewState,
 };
 use crate::protocol::{ErrorCode, OkResponse, ProtocolError, Response};
-use crate::services::Delta;
+use crate::services::{Delta, Worktrees};
 
 /// Room left in a message for the words around a rejected diff.
 const WRAPPER_BYTES: usize = 256;
@@ -186,6 +187,21 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
             let ws = entry.workspace.clone();
             let worktrees = core.worktrees();
             if entry.mode == SessionMode::Direct {
+                // With protected files, read from the tree the item's
+                // fingerprint names: the inbox can tell a newer diff.
+                let (item, tree) = current(core, &entry).await?;
+                if let (Some(fingerprint), Some(tree)) = (item.fingerprint, tree) {
+                    let patch = worktrees
+                        .patches(ws.dir, ws.base, tree, vec![path.clone()])
+                        .await?
+                        .remove(path.as_str())
+                        .unwrap_or_default();
+                    return Ok(Response::Review(ReviewResponse::Diff {
+                        path: path.to_string(),
+                        patch,
+                        fingerprint: Some(fingerprint),
+                    }));
+                }
                 let patch = worktrees.patch(ws.dir, ws.base, vec![path.clone()]).await?;
                 return Ok(Response::Review(ReviewResponse::Diff {
                     path: path.to_string(),
@@ -212,8 +228,14 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
             id,
             commit,
             fingerprint,
+            include_protected,
         } => {
-            let (item, conflicts) = approve(core, &id, commit, fingerprint).await?;
+            let choice = Approval {
+                commit,
+                reviewed: fingerprint,
+                include_protected,
+            };
+            let (item, conflicts) = approve(core, &id, choice).await?;
             let action = if item.state == ReviewState::PartlyApproved {
                 ReviewAction::PartlyApproved
             } else {
@@ -223,7 +245,7 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
             prune(core, &item.project).await;
             super::tasks::clean_up(core, &item.project).await;
             let what = if item.state == ReviewState::PartlyApproved {
-                "had its work approved by the person, except files the person had changed too or that wait for the direct session: those were not copied and wait for the person"
+                "had its work approved by the person, except files the person had changed too, that wait for the direct session, or protected files the person did not include: those were not copied and wait for the person"
             } else if conflicts.is_empty() {
                 "had its work approved by the person"
             } else {
@@ -261,8 +283,11 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
             audit(core, &resolved, ReviewAction::Approved);
             Ok(done((resolved, Vec::new(), Vec::new())))
         }
-        ReviewRequest::Take { id } => {
-            let outcome = take(core, &id).await?;
+        ReviewRequest::Take {
+            id,
+            include_protected,
+        } => {
+            let outcome = take(core, &id, include_protected).await?;
             audit(core, &outcome.0, ReviewAction::Taken);
             prune(core, &outcome.0.project).await;
             super::tasks::clean_up(core, &outcome.0.project).await;
@@ -347,26 +372,33 @@ fn update(core: &Core, id: &ReviewId, f: impl FnOnce(&mut Entry)) -> Result<Entr
 }
 
 pub(super) async fn item(core: &Core, entry: &Entry) -> Result<ReviewItem> {
-    let (mut files, fingerprint) = if entry.state != ReviewState::Open {
-        (entry.decided.clone(), None)
+    Ok(current(core, entry).await?.0)
+}
+
+/// The entry's item, and for an open item the tree its files were read
+/// from.
+async fn current(core: &Core, entry: &Entry) -> Result<(ReviewItem, Option<String>)> {
+    let (mut files, mut fingerprint, tree) = if entry.state != ReviewState::Open {
+        (entry.decided.clone(), None, None)
     } else if super::tasks::cleaned(core, &entry.session) {
         // Removed only once nothing in it changed (`clean_up`).
-        (Vec::new(), None)
+        (Vec::new(), None, None)
     } else {
-        let (files, fingerprint, _) = listed(core, entry, None).await?;
-        (files, fingerprint)
+        listed(core, entry, None).await?
     };
     let git = match &entry.decided_git {
         Some(git) if entry.state != ReviewState::Open => git.clone(),
         _ => git_seen(core, entry).await,
     };
-    if let Some(hooks) = &git.hooks_in_tree {
-        for file in &mut files {
-            let paths = std::iter::once(&file.path).chain(&file.from);
-            file.protected |= paths.into_iter().any(|p| inside(p, hooks));
-        }
+    mark_hooks(&mut files, git.hooks_in_tree.as_deref());
+    if entry.mode == SessionMode::Direct
+        && let Some(tree) = &tree
+    {
+        let ws = &entry.workspace;
+        fingerprint =
+            protected_fingerprint(core.worktrees(), &ws.dir, &ws.base, &files, tree).await;
     }
-    Ok(ReviewItem {
+    let item = ReviewItem {
         id: entry.id.clone(),
         project: entry.project.clone(),
         session: entry.session.clone(),
@@ -382,7 +414,94 @@ pub(super) async fn item(core: &Core, entry: &Entry) -> Result<ReviewItem> {
         fingerprint,
         git_changes: git.changes,
         git_unchecked: git.unchecked,
-    })
+    };
+    Ok((item, tree))
+}
+
+/// Marks the files in the hooks folder git uses, when it is inside the
+/// tree, as protected.
+fn mark_hooks(files: &mut [FileChange], hooks_in_tree: Option<&str>) {
+    let Some(hooks) = hooks_in_tree else { return };
+    for file in files {
+        let paths = std::iter::once(&file.path).chain(&file.from);
+        file.protected |= paths.into_iter().any(|p| inside(p, hooks));
+    }
+}
+
+/// What keeping a direct item's files needs: the person's choice for its
+/// protected files, bound to the version they saw.
+#[derive(Debug, Default)]
+pub(super) struct Guard {
+    /// The person chose to keep the protected files.
+    pub(super) include_protected: bool,
+    /// The `ReviewItem::fingerprint` the person reviewed.
+    pub(super) reviewed: Option<String>,
+    /// The hooks folder inside the tree, if git uses one (`GitSeen`).
+    pub(super) hooks_in_tree: Option<String>,
+    /// The base the item's fingerprint is read against.
+    pub(super) base: String,
+}
+
+impl Guard {
+    /// Marks `files`, read from `tree` of `dir`, and refuses them if a
+    /// protected one is not included or not as the person saw it.
+    pub(super) async fn admit(
+        &self,
+        worktrees: &dyn Worktrees,
+        dir: &Path,
+        files: &mut [FileChange],
+        tree: Option<&String>,
+    ) -> Result<()> {
+        mark_hooks(files, self.hooks_in_tree.as_deref());
+        if !self.include_protected {
+            return super::direct::protected_refused(files);
+        }
+        if !files.iter().any(|f| f.protected) {
+            return Ok(());
+        }
+        let now = match tree {
+            Some(tree) => protected_fingerprint(worktrees, dir, &self.base, files, tree).await,
+            None => None,
+        };
+        if now.is_none() || now != self.reviewed {
+            return Err(conflict(
+                "the protected files changed since you looked at them; review them again",
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// A direct item's protected files as read from `tree`: SHA-256 over each
+/// one's path, old path, kind and content version. `None` without
+/// protected files, or when their versions cannot be read.
+async fn protected_fingerprint(
+    worktrees: &dyn Worktrees,
+    dir: &Path,
+    base: &str,
+    files: &[FileChange],
+    tree: &str,
+) -> Option<String> {
+    let guarded: Vec<&FileChange> = files.iter().filter(|f| f.protected).collect();
+    if guarded.is_empty() {
+        return None;
+    }
+    let deltas = worktrees
+        .diff(dir.to_owned(), base.to_owned(), tree.to_owned())
+        .await
+        .ok()?;
+    let mut hash = Sha256::new();
+    hash.update(b"ovra-review-direct-v1\0");
+    for f in guarded {
+        // A file the diff does not show cannot be pinned to a version.
+        let version = &deltas.iter().find(|d| d.path == f.path)?.version;
+        let from = f.from.as_deref().unwrap_or("");
+        for part in [f.path.as_str(), from, kind_name(f.kind), version.as_str()] {
+            hash.update(part.as_bytes());
+            hash.update(b"\0");
+        }
+    }
+    Some(hash.finalize().iter().map(|b| format!("{b:02x}")).collect())
 }
 
 /// What changed in the project's hooks and config since the session
@@ -454,9 +573,9 @@ type Listed = (Vec<FileChange>, Option<String>, Option<String>);
 async fn listed(core: &Core, entry: &Entry, at: Option<&String>) -> Result<Listed> {
     let ws = &entry.workspace;
     if entry.mode == SessionMode::Direct
-        && let Ok(files) = core.sessions().direct.files(&entry.session).await
+        && let Ok((files, tree)) = core.sessions().direct.files_at(&entry.session).await
     {
-        return Ok((files, None, None));
+        return Ok((files, None, tree));
     }
     let worktrees = core.worktrees();
     // One reading of the workspace, so the files, their fingerprint and
@@ -587,15 +706,29 @@ fn rel_paths(files: &[FileChange]) -> Result<Vec<RelPath>> {
     paths.into_iter().map(RelPath::parse).collect()
 }
 
+/// What the person chose in `review.approve`.
+struct Approval {
+    commit: Option<String>,
+    /// The fingerprint of the files they looked at.
+    reviewed: Option<String>,
+    /// Apply protected files too.
+    include_protected: bool,
+}
+
 /// Applies a worker's files to the main checkout, except those the direct
-/// session touched, which wait, and those the person changed since the
-/// worker started, which conflict. Both are returned for the person.
+/// session touched, which wait, protected files the person did not
+/// include, which wait too, and those the person changed since the worker
+/// started, which conflict. All are returned for the person.
 async fn approve(
     core: &Core,
     id: &ReviewId,
-    commit: Option<String>,
-    reviewed: Option<String>,
+    choice: Approval,
 ) -> Result<(ReviewItem, Vec<String>)> {
+    let Approval {
+        commit,
+        reviewed,
+        include_protected,
+    } = choice;
     let entry = find(core, id)?;
     check_open(&entry)?;
     // A session still at work would change the worktree while the person
@@ -613,13 +746,26 @@ async fn approve(
         ));
     }
     if entry.mode == SessionMode::Direct {
+        // Protected files are already on disk: they are kept only as the
+        // person saw them, and only by their choice. Each check reads the
+        // same look of the folder as what it keeps.
+        let git = git_seen(core, &entry).await;
+        let guard = Guard {
+            include_protected,
+            reviewed,
+            hooks_in_tree: git.hooks_in_tree.clone(),
+            base: entry.workspace.base.clone(),
+        };
         let direct = &core.sessions().direct;
         if commit.is_none() && direct.files(&entry.session).await.is_err() {
             // Ovra no longer knows which files are the agent's (it
             // restarted since): keeping the changes needs no such knowledge.
-            let decided = files(core, &entry).await?;
+            let (mut decided, _, tree) = listed(core, &entry, None).await?;
+            let ws = &entry.workspace;
+            guard
+                .admit(core.worktrees(), &ws.dir, &mut decided, tree.as_ref())
+                .await?;
             let diffs = freeze(core, &entry, &decided, None).await;
-            let git = git_seen(core, &entry).await;
             let entry = update(core, id, |e| {
                 e.state = ReviewState::Approved;
                 e.decided_git = Some(git);
@@ -628,9 +774,8 @@ async fn approve(
             })?;
             return Ok((item(core, &entry).await?, Vec::new()));
         }
-        let outcome = direct.approve(&entry.session, commit).await?;
+        let outcome = direct.approve(&entry.session, commit, &guard).await?;
         let diffs = freeze(core, &entry, &outcome.files, outcome.seen.as_ref()).await;
-        let git = git_seen(core, &entry).await;
         let entry = update(core, id, |e| {
             e.state = ReviewState::Approved;
             e.decided_git = Some(git);
@@ -649,7 +794,11 @@ async fn approve(
     // copies this one snapshot, which must be what the inbox showed them,
     // whatever the worker writes meanwhile.
     let snapshot = worktrees.snapshot(ws.dir.clone()).await?;
-    let (decided, now, _) = listed(core, &entry, Some(&snapshot)).await?;
+    let (mut decided, now, _) = listed(core, &entry, Some(&snapshot)).await?;
+    // Read first: the hooks folder in the tree is protected like the rest,
+    // here and in the decided record `take` checks.
+    let git = git_seen(core, &entry).await;
+    mark_hooks(&mut decided, git.hooks_in_tree.as_deref());
     match reviewed {
         None => {
             return Err(ProtocolError::new(
@@ -665,8 +814,12 @@ async fn approve(
         Some(_) => {}
     }
     let mut diffs = freeze(core, &entry, &decided, Some(&snapshot)).await;
-    let (waiting, ready): (Vec<FileChange>, Vec<FileChange>) =
-        decided.iter().cloned().partition(|f| f.blocked);
+    // Protected files land only by the person's explicit choice; until then
+    // they wait like files the direct session holds.
+    let (waiting, ready): (Vec<FileChange>, Vec<FileChange>) = decided
+        .iter()
+        .cloned()
+        .partition(|f| f.blocked || (f.protected && !include_protected));
     let mut conflicts = worktrees
         .apply(
             snapshot.clone(),
@@ -711,7 +864,6 @@ async fn approve(
     // person are in the outcome and the decided record. `take` copies them
     // from this snapshot: the version the person approved.
     let base = snapshot;
-    let git = git_seen(core, &entry).await;
     let entry = update(core, id, |e| {
         e.decided_git = Some(git);
         // Approved only if everything the person read is now theirs.
@@ -740,8 +892,13 @@ fn busy(core: &Core, session: &SessionId) -> bool {
 /// `review.take`: the worker's version over the person's, for what a partly
 /// approved item left. Only what the person approved is copied: a file the
 /// worker changed since, or that the direct agent has changed and nobody
-/// decided yet, is skipped.
-async fn take(core: &Core, id: &ReviewId) -> Result<(ReviewItem, Vec<String>, Vec<String>)> {
+/// decided yet, is skipped, and so is a protected file unless
+/// `include_protected`: the person chose it, not the approve.
+async fn take(
+    core: &Core,
+    id: &ReviewId,
+    include_protected: bool,
+) -> Result<(ReviewItem, Vec<String>, Vec<String>)> {
     let entry = find(core, id)?;
     if entry.state != ReviewState::PartlyApproved {
         return Err(conflict(
@@ -762,10 +919,24 @@ async fn take(core: &Core, id: &ReviewId) -> Result<(ReviewItem, Vec<String>, Ve
         .iter()
         .cloned()
         .partition(|p| waits.contains(p));
+    // A protected file left by the approve may never have been looked at
+    // (it waited for the direct agent then): only the person's explicit
+    // choice copies it.
+    let (guarded, wanted): (Vec<String>, Vec<String>) = wanted
+        .into_iter()
+        .partition(|p| !include_protected && guarded(&entry.decided, p));
     if wanted.is_empty() {
-        return Err(conflict(
-            "the files left wait for the direct agent; decide its review first",
-        ));
+        return Err(if guarded.is_empty() {
+            conflict("the files left wait for the direct agent; decide its review first")
+        } else {
+            ProtocolError::new(
+                ErrorCode::BadRequest,
+                format!(
+                    "the files left are protected ({}); look at their diffs and replace with include_protected",
+                    guarded.join(", ")
+                ),
+            )
+        });
     }
     let ws = entry.workspace.clone();
     let worktrees = core.worktrees();
@@ -815,6 +986,15 @@ async fn take(core: &Core, id: &ReviewId) -> Result<(ReviewItem, Vec<String>, Ve
         e.taken = taken;
     })?;
     Ok((item(core, &entry).await?, skipped, written))
+}
+
+/// Whether `path`, left by an approve, is protected: one of the `decided`
+/// files with it as its path or old path was marked so, or the path itself is.
+fn guarded(decided: &[FileChange], path: &str) -> bool {
+    protected::changes(path, None)
+        || decided
+            .iter()
+            .any(|f| f.protected && (f.path == path || f.from.as_deref() == Some(path)))
 }
 
 /// `review.undo_take`: the person's versions from just before the last take.

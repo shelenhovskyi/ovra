@@ -50,6 +50,12 @@ export function message(err: unknown): string {
   return err instanceof CoreError ? err.error.message : err instanceof Error ? err.message : String(err);
 }
 
+/** `text` as a sentence of its own: capital first letter, full stop at the end. */
+function sentence(text: string): string {
+  const trimmed = text.trim();
+  return `${trimmed.charAt(0).toUpperCase()}${trimmed.slice(1)}${/[.!?]$/.test(trimmed) ? "" : "."}`;
+}
+
 function statusError(err: unknown): string {
   if (err instanceof CoreError && err.code === "unavailable") return `Git is not available here: ${err.error.message}`;
   return `Could not read the git status: ${message(err)}`;
@@ -58,6 +64,25 @@ function statusError(err: unknown): string {
 /** "src/a.ts", or "3 files". */
 export function describePaths(paths: readonly string[]): string {
   return paths.length === 1 ? (paths[0] ?? "") : `${paths.length} files`;
+}
+
+/**
+ * Why git would refuse `name` as a branch name (its `check-ref-format`
+ * rules), with a fix when there is an obvious one; null when it looks fine.
+ */
+export function branchNameProblem(name: string): string | null {
+  const parts = name.split("/");
+  if (/\s/.test(name)) return `Branch names cannot contain spaces. Try ${name.trim().replace(/\s+/g, "-")}.`;
+  if (name.startsWith("-")) return "Branch names cannot start with -.";
+  if (name.includes("..")) return "Branch names cannot contain two dots in a row (..).";
+  if (/[~^:?*[\\]/.test(name) || [...name].some((c) => c < " " || c === "\u007f"))
+    return "Branch names cannot contain ~ ^ : ? * [ or \\.";
+  if (name === "@" || name.includes("@{")) return "Branch names cannot be @ or contain @{.";
+  if (parts.some((p) => p === "")) return "Branch names cannot start or end with / or contain //.";
+  if (parts.some((p) => p.startsWith("."))) return "No part of a branch name can start with a dot.";
+  if (parts.some((p) => p.endsWith(".lock"))) return "No part of a branch name can end with .lock.";
+  if (name.endsWith(".")) return "Branch names cannot end with a dot.";
+  return null;
 }
 
 /** The status's files in the panel's three lists; a partly staged file is in two. */
@@ -97,6 +122,8 @@ export class GitModel {
   notice = $state("");
   /** Counts changes seen (events and own calls), so a diff view knows to reload. */
   version = $state(0);
+  /** A palette command asks the branch menu to open, to switch or to create; the menu clears it. */
+  branchMenu = $state<"switch" | "create" | null>(null);
 
   private loading: Promise<void> | null = null;
   private again = false;
@@ -151,6 +178,11 @@ export class GitModel {
     };
     this.loading = run();
     return this.loading;
+  }
+
+  /** Resolves once the status load under way, if any, is done. */
+  loaded(): Promise<void> {
+    return this.loading ?? Promise.resolve();
   }
 
   async loadBranches(): Promise<void> {
@@ -236,7 +268,7 @@ export class GitModel {
         await this.loadBranches();
       },
       `Switched to branch ${branch}.`,
-      (err) => ({ message: `Could not switch to ${branch}: ${message(err)}` }),
+      (err) => ({ message: `Could not switch to ${branch}. ${sentence(message(err))}` }),
     );
   }
 
@@ -256,7 +288,8 @@ export class GitModel {
     return this.act(
       "diff",
       () => this.call({ method: "git.stage_hunk", params: { project: this.project, path, hunk, unstage } }),
-      unstage ? "Hunk unstaged." : "Hunk staged.",
+      // The diff view announces it.
+      null,
       (err) =>
         err instanceof CoreError && err.code === "conflict"
           ? { message: "The file changed since this diff was shown. The diff is up to date again; try once more." }
@@ -283,8 +316,9 @@ export class GitModel {
       if (done) this.notice = done;
       return true;
     } catch (err) {
+      // Each scope shows its error in an alert; the status region would say it twice.
       this.error = { scope, ...fail(err) };
-      this.notice = this.error.message;
+      this.notice = "";
       return false;
     } finally {
       this.busy = false;

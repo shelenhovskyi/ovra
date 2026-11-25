@@ -353,6 +353,32 @@ async fn a_server_that_dies_shows_as_failed() {
 }
 
 #[tokio::test]
+async fn a_flood_of_large_messages_is_held_back_until_clients_read() {
+    let mut test = setup(FakeLanguageServers::default(), true).await;
+    ok(start(&test.core, "rust").await);
+    events(&mut test);
+    let server = server(&test);
+    let note = json!({"jsonrpc": "2.0", "method": "window/logMessage"});
+    // Three 4 MiB messages are few events but 12 MiB; the fourth fills
+    // the 16 MiB budget.
+    for _ in 0..3 {
+        server.say_sized(note.clone(), 4 << 20);
+        assert!(!server.busy());
+    }
+    server.say_sized(note.clone(), 4 << 20);
+    assert!(server.busy());
+    assert_eq!(events(&mut test).len(), 4);
+    assert!(!server.busy());
+    // Small messages are held back by their count.
+    for _ in 0..super::MAX_BACKLOG {
+        server.say(note.clone());
+    }
+    assert!(server.busy());
+    events(&mut test);
+    assert!(!server.busy());
+}
+
+#[tokio::test]
 async fn taking_trust_back_stops_the_projects_servers() {
     let test = setup(FakeLanguageServers::default(), true).await;
     ok(start(&test.core, "rust").await);
@@ -360,7 +386,50 @@ async fn taking_trust_back_stops_the_projects_servers() {
     ok(call(&test.core, untrust).await);
     assert!(server(&test).stopped());
     assert!(!ok(test.store.get(&ProjectId("p1".into()))).trusted);
+    assert_eq!(test.servers.forgotten(), [ProjectId("p1".into())]);
     assert_eq!(code(start(&test.core, "rust").await), ErrorCode::Forbidden);
+}
+
+#[tokio::test]
+async fn removing_a_project_stops_its_servers_and_forgets_their_caches() {
+    let test = setup(FakeLanguageServers::default(), true).await;
+    ok(start(&test.core, "rust").await);
+    assert!(test.servers.forgotten().is_empty());
+    let remove = json!({"method": "projects.remove", "params": {"id": "p1"}});
+    ok(call(&test.core, remove).await);
+    assert!(server(&test).stopped());
+    assert_eq!(test.servers.forgotten(), [ProjectId("p1".into())]);
+}
+
+#[test]
+fn server_uris_that_could_leave_the_project_never_reach_the_client_as_files() {
+    let root = Path::new(ROOT);
+    let file = |path: &str| format!("{}/{path}", uris::file_uri(root));
+    for path in ["../../etc/x", "src/./a.rs", "a//b.rs", "a\\b.rs"] {
+        let mut message = json!({"uri": file(path)});
+        uris::to_client(&mut message, root);
+        assert_eq!(message["uri"], file(path), "{path}");
+    }
+    for (sent, seen) in [
+        ("ovra:///src/a%20b.rs", "ovra:///src/a%20b.rs"),
+        ("ovra:///", "ovra:///"),
+        ("ovra:///src/", "ovra:///src/"),
+        ("ovra:///../etc/passwd", uris::INVALID),
+        ("ovra:///src/%2E%2E/%2E%2E/x", uris::INVALID),
+        ("ovra:///a%2F..%2F..%2Fx", uris::INVALID),
+        ("ovra:///a%5Cb", uris::INVALID),
+        ("ovra:///./a", uris::INVALID),
+        ("ovra:////etc/passwd", uris::INVALID),
+        ("ovra:///a?x=1", uris::INVALID),
+        ("ovra:///%ZZ", uris::INVALID),
+        ("ovra://host/a", uris::INVALID),
+        ("OVRA:///a", uris::INVALID),
+    ] {
+        let mut message = json!({"uri": sent, "changes": {sent: []}});
+        uris::to_client(&mut message, root);
+        assert_eq!(message["uri"], seen, "{sent}");
+        assert!(message["changes"].get(seen).is_some(), "{sent}");
+    }
 }
 
 #[test]

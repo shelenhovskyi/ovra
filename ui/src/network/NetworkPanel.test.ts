@@ -163,12 +163,12 @@ describe("NetworkPanel", () => {
 
   it("warns while a live session of the project runs without the sandbox", async () => {
     const core = new FakeAccessCore();
-    core.sessions = [session("s1", { name: "bubblewrap", network: "proxy" })];
+    core.sessions = [session("s1", { name: "bubblewrap", network: "proxy", gaps: [] })];
     await open(core);
     expect($("[data-testid=unsandboxed]")).toBeNull();
     unmount(app ?? {});
     app = null;
-    core.sessions = [session("s1", { name: "bubblewrap", network: "proxy" }), session("s2", null)];
+    core.sessions = [session("s1", { name: "bubblewrap", network: "proxy", gaps: [] }), session("s2", null)];
     await open(core);
     expect($("[data-testid=unsandboxed]")?.textContent).toMatch(
       /One session of this project runs\s+without.*keychain/s,
@@ -179,6 +179,25 @@ describe("NetworkPanel", () => {
     failing.refuse.set("agents.list", "core went away");
     await open(failing);
     expect($("[data-testid=unsandboxed]")?.textContent).toContain("Could not check");
+  });
+
+  it("lists what the sandbox of the project's live sessions does not cover, each once", async () => {
+    const core = new FakeAccessCore();
+    core.sessions = [session("s1", { name: "bubblewrap", network: "proxy", gaps: [] })];
+    await open(core);
+    expect($("[data-testid=sandbox-gaps]")).toBeNull();
+    unmount(app ?? {});
+    app = null;
+    const boxed = { name: "fake sandbox", network: "proxy" as const };
+    core.sessions = [
+      session("s1", { ...boxed, gaps: ["DNS lookups", "loopback services"] }),
+      session("s2", { ...boxed, gaps: ["DNS lookups", "shared folders"] }),
+    ];
+    await open(core);
+    expect($("[data-testid=sandbox-gaps]")?.textContent).toBe(
+      "The sandbox also does not cover: DNS lookups, loopback services, shared folders.",
+    );
+    expect($("[data-testid=sandbox-gaps]")?.classList.contains("muted")).toBe(true);
   });
 
   it("keeps Tab inside the dialog, from the heading and past a disabled form", async () => {

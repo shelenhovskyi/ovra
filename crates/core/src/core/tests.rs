@@ -73,6 +73,18 @@ async fn unwired_services_are_unavailable() {
 }
 
 #[tokio::test]
+async fn servers_and_the_browser_are_unavailable_for_now() {
+    let core = Core::new("test");
+    for json in [
+        serde_json::json!({"method": "servers.list", "params": {"project": "p1"}}),
+        serde_json::json!({"method": "browser.close", "params": {"page": "pg1"}}),
+    ] {
+        let reply = core.handle(req(json)).await;
+        assert_eq!(reply.err().map(|e| e.code), Some(ErrorCode::Unavailable));
+    }
+}
+
+#[tokio::test]
 async fn open_switches_the_watched_project_and_emits() {
     let f = fixture();
     let mut events = f.core.subscribe();
@@ -361,7 +373,11 @@ fn wire_format_is_stable() {
             }),
             Event::Agents(AgentsEvent::Sandbox {
                 session: SessionId("s1".into()),
-                sandbox: Some(SandboxReport { name: "bubblewrap".into(), network: SandboxNetwork::Proxy }),
+                sandbox: Some(SandboxReport {
+                    name: "bubblewrap".into(),
+                    network: SandboxNetwork::Proxy,
+                    gaps: vec!["DNS lookups".into()],
+                }),
             }),
             Event::Permissions(PermissionsEvent::Requested(PermissionRequest {
                 id: PermissionId("perm1".into()),
@@ -427,9 +443,18 @@ fn a_session_saved_before_the_sandbox_flag_reads_as_unreported() {
     assert_eq!(unknown.sandbox, None);
     let boxed = old(serde_json::json!({"name": "bubblewrap", "network": "proxy"}));
     assert_eq!(
-        boxed.sandbox.map(|s| s.network),
-        Some(SandboxNetwork::Proxy)
+        boxed.sandbox.map(|s| (s.network, s.gaps)),
+        Some((SandboxNetwork::Proxy, vec![]))
     );
+}
+
+#[test]
+fn a_sandbox_report_with_gaps_round_trips() {
+    let json = serde_json::json!({"name": "fake sandbox", "network": "proxy",
+        "gaps": ["DNS lookups", "loopback services", "shared folders"]});
+    let report: SandboxReport = serde_json::from_value(json.clone()).expect("report");
+    assert_eq!(report.gaps.len(), 3);
+    assert_eq!(serde_json::to_value(&report).ok(), Some(json));
 }
 
 #[test]
@@ -479,16 +504,18 @@ fn every_request_round_trips() {
         serde_json::json!({"method": "review.diff", "params": {"id": "r1", "path": "a.rs"}}),
         serde_json::json!({"method": "review.approve", "params": {"id": "r1", "commit": "fix: a"}}),
         serde_json::json!({"method": "review.approve", "params": {"id": "r1", "commit": null, "fingerprint": "f1"}}),
+        serde_json::json!({"method": "review.approve", "params": {"id": "r1", "commit": null, "fingerprint": "f1", "include_protected": true}}),
         serde_json::json!({"method": "review.reject", "params": {"id": "r1"}}),
         serde_json::json!({"method": "review.comment", "params": {"id": "r1", "text": "also b"}}),
         serde_json::json!({"method": "review.resolve", "params": {"id": "r1"}}),
         serde_json::json!({"method": "review.take", "params": {"id": "r1"}}),
+        serde_json::json!({"method": "review.take", "params": {"id": "r1", "include_protected": true}}),
         serde_json::json!({"method": "review.undo_take", "params": {"id": "r1"}}),
         serde_json::json!({"method": "orchestration.start", "params": {"project": "p1", "prompt": "x", "limits": {"max_workers": 2, "budget_micro_usd": null}}}),
         serde_json::json!({"method": "orchestration.list", "params": {"project": "p1"}}),
         serde_json::json!({"method": "orchestration.stop", "params": {"task": "task1"}}),
-        serde_json::json!({"method": "audit.list", "params": {"project": "p1", "after": 3, "limit": 50}}),
-        serde_json::json!({"method": "audit.list", "params": {"project": "p1", "after": null, "limit": null}}),
+        serde_json::json!({"method": "audit.list", "params": {"project": "p1", "after": 3, "before": null, "order": "oldest_first", "limit": 50}}),
+        serde_json::json!({"method": "audit.list", "params": {"project": "p1", "after": null, "before": 9, "order": "newest_first", "limit": null}}),
     ];
     for json in requests {
         let parsed: Request = req(json.clone());
