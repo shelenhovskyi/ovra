@@ -25,7 +25,7 @@ let logsOf = $state(new Set<string>());
 let dialog = $state<HTMLElement>();
 let returnTo: HTMLElement | null = null;
 
-const TOGGLE_KEYS = "Mod+Shift+S";
+const TOGGLE_KEYS = "Mod+Alt+S";
 type Action = "Stop" | "Restart";
 /** The row whose buttons keep focus after an action on it, the buttons it prefers, and the stand-in used while those are off. */
 let keep: { row: ServerId; prefer: Action[] } | null = null;

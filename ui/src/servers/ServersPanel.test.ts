@@ -264,14 +264,14 @@ describe("ServersPanel", () => {
     expect(button("Jump to the newest line")).toBeUndefined();
   });
 
-  it("opens with Mod+Shift+S on any keyboard layout", async () => {
+  it("opens with Mod+Alt+S on any keyboard layout", async () => {
     const workspace = new Workspace();
     workspace.project = { id: "p1", name: "demo", root: "/demo", last_opened_ms: null, trusted: false };
     app = mount(TestHost, { target, props: { transport: new FakeServersCore(), workspace } });
     const off = installKeybindings(window, false, false);
     await settle();
     // A Cyrillic layout: the key is a Cyrillic letter, the physical key is KeyS.
-    window.dispatchEvent(new KeyboardEvent("keydown", { key: "\u044b", code: "KeyS", ctrlKey: true, shiftKey: true }));
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "\u044b", code: "KeyS", ctrlKey: true, altKey: true }));
     await settle();
     off();
     expect($("[data-testid=servers]")).not.toBeNull();
@@ -314,7 +314,7 @@ describe("ServersPanel", () => {
 
   it("closes on Escape and on its shortcut wherever focus is while it is open", async () => {
     const off = installKeybindings(window, false, false);
-    const chord = { key: "S", code: "KeyS", ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true };
+    const chord = { key: "s", code: "KeyS", ctrlKey: true, altKey: true, bubbles: true, cancelable: true };
     await open();
     // Focus lost to the body: Tab comes back in, Escape still closes.
     (document.activeElement as HTMLElement | null)?.blur();

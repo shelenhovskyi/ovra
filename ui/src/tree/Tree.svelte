@@ -24,7 +24,7 @@ $effect(() => {
   return registerCommand({ id: "tree.open_folder", title: "Open folder…", keys: "Mod+O", run: () => opener.pick() });
 });
 
-// Back to the files from Search or Git, as Mod+Shift+F and Mod+Shift+G go there.
+// Back to the files from Search or Git, as Mod+Shift+F and Ctrl+Shift+G go there.
 $effect(() => {
   if (!workspace.project) return;
   return registerCommand({

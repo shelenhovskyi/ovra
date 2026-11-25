@@ -31,7 +31,7 @@ $effect(() => {
     registerCommand({
       id: "git.show",
       title: "Git: open panel",
-      keys: "Mod+Shift+G",
+      keys: "Ctrl+Shift+G",
       run: async () => {
         // Without a project there is no git to show: go where one is opened.
         if (!workspace.project) {

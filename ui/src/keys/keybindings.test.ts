@@ -28,6 +28,23 @@ describe("keybindings", () => {
     expect(plain.defaultPrevented).toBe(false);
   });
 
+  it("runs settings, servers and git by physical key on a Ukrainian layout, Git on Ctrl on a Mac", () => {
+    const run = vi.fn();
+    for (const [id, keys] of [
+      ["t.settings", "Mod+,"],
+      ["t.servers", "Mod+Alt+S"],
+      ["t.git", "Ctrl+Shift+G"],
+    ] as const)
+      cleanups.push(registerCommand({ id, title: id, keys, run: () => run(id) }));
+    cleanups.push(installKeybindings(window, true, false));
+    keydown({ key: "\u0431", code: "Comma", metaKey: true });
+    // Option turns S into another character; the physical key still counts.
+    keydown({ key: "\u00df", code: "KeyS", metaKey: true, altKey: true });
+    keydown({ key: "\u041f", code: "KeyG", ctrlKey: true, shiftKey: true });
+    keydown({ key: "G", code: "KeyG", metaKey: true, shiftKey: true });
+    expect(run.mock.calls).toEqual([["t.settings"], ["t.servers"], ["t.git"]]);
+  });
+
   it("leaves keys that a focused widget already handled", () => {
     const run = vi.fn();
     cleanups.push(registerCommand({ id: "t.save", title: "Save", keys: "Mod+S", run }));

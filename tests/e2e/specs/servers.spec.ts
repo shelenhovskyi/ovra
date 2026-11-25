@@ -19,7 +19,7 @@ test("the servers dialog opens with its shortcut and says what it can run", asyn
   await projects.getByRole("button", { name: "Open", exact: true }).click();
   await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();
 
-  await page.keyboard.press("ControlOrMeta+Shift+KeyS");
+  await page.keyboard.press("ControlOrMeta+Alt+KeyS");
   const dialog = page.getByRole("dialog", { name: "Servers" });
   await expect(dialog.getByRole("heading", { name: "Servers" })).toBeFocused();
   // Without servers in the core (or without the Linux sandbox) the dialog says why.
