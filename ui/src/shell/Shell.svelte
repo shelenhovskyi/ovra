@@ -228,6 +228,14 @@ async function toggle(panel: Panel): Promise<void> {
   back?.focus();
 }
 
+/** Bumped to ask again whether Claude is ready: the person may have fixed it in a terminal meanwhile. */
+let claudeCheck = $state(0);
+
+/** The window is back: on the start screen, Claude's check runs again. */
+function recheckClaude(): void {
+  if (!workspace.project) claudeCheck++;
+}
+
 /** Shows Agents and moves to the first waiting request. */
 async function showApprovals(): Promise<void> {
   if (folded.agents) await toggle("agents");
@@ -238,7 +246,7 @@ async function showApprovals(): Promise<void> {
 }
 </script>
 
-<svelte:window bind:innerWidth={layout.viewport} />
+<svelte:window bind:innerWidth={layout.viewport} onfocus={recheckClaude} />
 <Keybindings />
 <div class="shell" class:start={!workspace.project} class:solo class:rail-right={layout.swapped} style={grid}>
   <div class="title-area">
@@ -258,7 +266,7 @@ async function showApprovals(): Promise<void> {
         <!-- The start screen's second column: whether Claude is ready, before any project is open. -->
         <section class="claude-column" aria-labelledby="start-claude">
           <h2 id="start-claude">Claude</h2>
-          <ClaudeSetup open />
+          {#key claudeCheck}<ClaudeSetup open />{/key}
         </section>
       {/if}
     </div>

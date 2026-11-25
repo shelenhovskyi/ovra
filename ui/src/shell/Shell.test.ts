@@ -148,6 +148,24 @@ describe("Shell", () => {
     localStorage.clear();
   });
 
+  it("checks Claude again on the start screen when the window comes back", () => {
+    const transport = fakeTransport();
+    const base = transport.call;
+    let checks = 0;
+    transport.call = ((r: Request) => {
+      if (r.method === "agents.setup") checks++;
+      return base(r);
+    }) as Transport["call"];
+    const target = document.createElement("div");
+    const app = mount(Shell, { target, props: { transport } });
+    flushSync();
+    expect(checks).toBe(1);
+    window.dispatchEvent(new FocusEvent("focus"));
+    flushSync();
+    expect(checks).toBe(2);
+    unmount(app);
+  });
+
   it("explains a refused address instead of retrying", async () => {
     const router = new FrameRouter(() => {}, "connecting");
     const target = document.createElement("div");
