@@ -29,15 +29,26 @@ export function paidText(billing: Billing): string {
     : "Usage is billed to your cloud provider's account.";
 }
 
-/** Who pays for agents' usage, and a warning when that may not be what the user expects. */
+/**
+ * Who pays for agents' usage. With ANTHROPIC_API_KEY set (and no cloud
+ * provider) the key decides, so the warning replaces the plan line instead
+ * of contradicting it.
+ */
 export function billingText(setup: AgentSetup): { paid: string | null; warning: string | null } {
   const billing = setup.billing;
-  const paid = billing ? paidText(billing) : null;
-  const warning =
-    setup.api_key_in_env && billing?.kind !== "cloud"
-      ? "ANTHROPIC_API_KEY is set where Ovra runs. Claude Code may bill that key instead of your plan; unset it and restart Ovra to use your subscription."
-      : null;
-  return { paid, warning };
+  if (keyBills(setup)) {
+    const may = billing?.kind === "api_key" ? "is" : "may be";
+    return {
+      paid: null,
+      warning: `Usage ${may} billed to the API key in ANTHROPIC_API_KEY, at API prices, not to your Claude plan. To use your plan, unset it and restart Ovra.`,
+    };
+  }
+  return { paid: billing ? paidText(billing) : null, warning: null };
+}
+
+/** `ANTHROPIC_API_KEY` is set and no cloud provider takes precedence over it. */
+function keyBills(setup: AgentSetup): boolean {
+  return setup.api_key_in_env && setup.billing?.kind !== "cloud";
 }
 
 export type SetupAdvice = {
@@ -56,7 +67,12 @@ export function advice(setup: AgentSetup): SetupAdvice {
   const state = setup.state;
   switch (state.state) {
     case "ready":
-      return { title: `Claude${version} is ready`, detail: "Sessions use your own Claude sign-in and plan." };
+      return {
+        title: `Claude${version} is ready`,
+        detail: keyBills(setup)
+          ? "Sessions use your own Claude sign-in."
+          : "Sessions use your own Claude sign-in and plan.",
+      };
     case "not_found":
       return {
         title: "Claude is not installed",

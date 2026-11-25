@@ -234,7 +234,7 @@ const canReply = $derived(current !== null && current.status.state === "idle");
         </div>
         <p class="status" role="status">{statusLabel(current.status)}</p>
         {#if current.usage.input_tokens + current.usage.output_tokens > 0}
-          <p class="status" data-testid="agent-usage">Total: {usageText(current.usage)}</p>
+          <p class="status" data-testid="agent-usage">Total: {usageText(current.usage, current.billing)}</p>
         {/if}
         {#if current.billing}
           <!-- An API key bills at API prices, often not what a plan user expects. -->
@@ -245,7 +245,7 @@ const canReply = $derived(current !== null && current.status.state === "idle");
         {#if sandbox}
           <p class={sandbox.warning ? "status unsandboxed" : "status"} data-testid="agent-sandbox">{sandbox.text}</p>
         {/if}
-        <Transcript messages={messages ?? []} />
+        <Transcript messages={messages ?? []} billing={current.billing} />
         {#if !isEnded(current.status)}
           <form
             class="reply"

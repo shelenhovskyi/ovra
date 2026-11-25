@@ -4,10 +4,11 @@
 // tool output; outputs are folded, since they are mostly written for the
 // model.
 import { describeTool, isIdeTool } from "../approvals/describe";
-import type { AgentMessage, MessageFrom } from "../lib/protocol";
+import type { AgentMessage, Billing, MessageFrom } from "../lib/protocol";
 import { usageText } from "./sessions.svelte";
 
-let { messages }: { messages: AgentMessage[] } = $props();
+/** `billing`: who pays for the session, which says what its cost means. */
+let { messages, billing = null }: { messages: AgentMessage[]; billing?: Billing | null } = $props();
 
 /** Who wrote what an agent was sent: never "You" for text the person did not write. */
 const FROM: Record<MessageFrom, string> = {
@@ -95,7 +96,7 @@ $effect(() => {
           <span class="who">{sub}{message.is_error ? "Tool failed" : "Tool finished"}</span>
         {/if}
       {:else if message.kind === "turn_end"}
-        <span class="who">Turn ended: {usageText(message.usage)}</span>
+        <span class="who">Turn ended: {usageText(message.usage, billing)}</span>
       {:else if message.kind === "error"}
         <span class="who">Error</span>
         <p>{message.message}</p>

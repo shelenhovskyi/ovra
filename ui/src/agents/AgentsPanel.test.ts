@@ -159,6 +159,18 @@ describe("AgentsPanel", () => {
     expect(badges()).toEqual(["Sandboxed"]);
   });
 
+  it("marks the cost as an API price estimate on a Claude plan", async () => {
+    const core = new FakeAgentCore();
+    const info = core.addSession("p1", "Earlier task", { state: "idle" });
+    info.billing = { kind: "subscription" };
+    info.usage = { input_tokens: 64044, output_tokens: 372, cost_micro_usd: 2400 };
+    core.transcripts.set("s1", [{ kind: "turn_end", usage: info.usage }]);
+    await setup(core);
+    const estimate = "64,044 tokens in, 372 out, about $0.0024 at API prices (not charged on your plan)";
+    expect(panel()?.querySelector("[data-testid=agent-usage]")?.textContent).toBe(`Total: ${estimate}`);
+    expect(transcript()).toEqual([`Turn ended: ${estimate}`]);
+  });
+
   it("names who wrote each message an agent was sent", async () => {
     const core = new FakeAgentCore();
     core.addSession("p1", "Write the notes", { state: "idle" });

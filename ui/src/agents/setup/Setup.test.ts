@@ -109,13 +109,30 @@ describe("ClaudeSetup", () => {
     );
     expect(card()?.querySelector("[data-testid=claude-api-key]")).toBeNull();
 
+    // With the key set, one message: no "your plan" next to "billed to the key".
     const keyed = setup({ state: "ready" }, { api_key_in_env: true });
-    expect(billingText(keyed).warning).toContain("ANTHROPIC_API_KEY is set");
+    expect(billingText(keyed)).toEqual({
+      paid: null,
+      warning:
+        "Usage may be billed to the API key in ANTHROPIC_API_KEY, at API prices, not to your Claude plan. To use your plan, unset it and restart Ovra.",
+    });
+    expect(advice(keyed).detail).toBe("Sessions use your own Claude sign-in.");
+    const keyBilled = setup({ state: "ready" }, { billing: { kind: "api_key" }, api_key_in_env: true });
+    expect(billingText(keyBilled).warning).toMatch(/^Usage is billed to the API key in ANTHROPIC_API_KEY/);
     const cloud = setup({ state: "ready" }, { billing: { kind: "cloud", provider: "bedrock" }, api_key_in_env: true });
     expect(billingText(cloud)).toEqual({ paid: "Usage is billed to your Amazon Bedrock account.", warning: null });
     expect(billingText(setup({ state: "ready" }, { billing: { kind: "api_key" } })).paid).toContain("API prices");
     expect(billingText(setup({ state: "ready" }, { billing: null })).paid).toBeNull();
     expect(paidText({ kind: "cloud", provider: "" })).toBe("Usage is billed to your cloud provider's account.");
+  });
+
+  it("shows only the API key warning on the card when the key is set", async () => {
+    const core = new FakeAgentCore();
+    core.setup = setup({ state: "ready" }, { api_key_in_env: true });
+    await show(core);
+    expect(card()?.textContent).not.toContain("plan's limits");
+    expect(card()?.textContent).not.toContain("sign-in and plan");
+    expect(card()?.querySelector("[data-testid=claude-api-key]")?.textContent).toContain("not to your Claude plan");
   });
 
   it("explains how to install and saves a chosen path", async () => {

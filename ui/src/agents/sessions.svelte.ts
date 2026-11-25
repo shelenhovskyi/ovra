@@ -3,7 +3,16 @@
 // notifications (`agentSessions(transport)`).
 
 import { SvelteMap } from "svelte/reactivity";
-import type { AgentMessage, CoreEvent, ProjectId, SessionId, SessionInfo, TaskId, TurnUsage } from "../lib/protocol";
+import type {
+  AgentMessage,
+  Billing,
+  CoreEvent,
+  ProjectId,
+  SessionId,
+  SessionInfo,
+  TaskId,
+  TurnUsage,
+} from "../lib/protocol";
 import type { Transport } from "../lib/transport";
 
 /** A session's part in a task, if it has one. */
@@ -205,9 +214,17 @@ function add(a: TurnUsage, b: TurnUsage): TurnUsage {
   };
 }
 
-/** `12,345 tokens in, 678 out, $0.0123` */
-export function usageText(usage: TurnUsage): string {
-  const cost = usage.cost_micro_usd === null ? "" : `, $${(usage.cost_micro_usd / 1_000_000).toFixed(4)}`;
+/**
+ * `12,345 tokens in, 678 out, $0.0123`. On a Claude plan the agent's cost is
+ * only what the tokens would cost at API prices, so it says so.
+ */
+export function usageText(usage: TurnUsage, billing: Billing | null): string {
+  const dollars = usage.cost_micro_usd === null ? "" : `$${(usage.cost_micro_usd / 1_000_000).toFixed(4)}`;
+  const cost = !dollars
+    ? ""
+    : billing?.kind === "subscription"
+      ? `, about ${dollars} at API prices (not charged on your plan)`
+      : `, ${dollars}`;
   return `${usage.input_tokens.toLocaleString("en")} tokens in, ${usage.output_tokens.toLocaleString("en")} out${cost}`;
 }
 

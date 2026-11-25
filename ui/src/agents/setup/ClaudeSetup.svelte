@@ -213,6 +213,8 @@ function openDocs(): void {
     color: #ff8f8f;
   }
   .warning {
+    /* Who pays is what this card must get right (ADR 0006): it stands out. */
+    font-weight: 600;
     color: #ffd36b;
   }
   @media (forced-colors: active) {
