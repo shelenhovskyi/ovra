@@ -4,11 +4,12 @@
 // Once the account new tasks start with is ready the card goes (an API key
 // in the environment still warns); `open` shows it again, from the start
 // form's Claude button.
-import { untrack } from "svelte";
+import { tick, untrack } from "svelte";
 import type { AgentSetup } from "../../lib/protocol";
 import { CoreError } from "../../lib/transport";
 import { useOvra } from "../../shell/context";
 import Accounts from "./Accounts.svelte";
+import { setupAsks } from "./asks.svelte";
 import { claudeAccounts } from "./claude-accounts.svelte";
 import { advice, billingText, INSTALL_COMMANDS, paidShort, SETUP_DOCS } from "./texts";
 
@@ -42,6 +43,16 @@ const hidden = $derived(!open && !editing && (first || usable));
 
 $effect(() => {
   untrack(() => void check());
+});
+
+// "Set path to claude…" from the palette: the path field, focused.
+$effect(() => {
+  if (!setupAsks.path) return;
+  untrack(() => {
+    setupAsks.path = false;
+    editing = true;
+    void tick().then(() => document.getElementById("claude-path")?.focus());
+  });
 });
 
 function text(err: unknown): string {

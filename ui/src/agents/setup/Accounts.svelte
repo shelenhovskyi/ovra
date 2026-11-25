@@ -2,11 +2,12 @@
 // Claude accounts (personal, work, ...): each a Claude Code configuration
 // folder with its own sign-in. Lists them with their sign-in state, offers
 // the folders found on this computer and adds, renames and removes them.
-import { untrack } from "svelte";
+import { tick, untrack } from "svelte";
 import type { AccountState } from "../../lib/protocol";
 import { CoreError } from "../../lib/transport";
 import { useOvra } from "../../shell/context";
 import { accountStatus, accountsSummary, nameFromFolder } from "./account-texts";
+import { setupAsks } from "./asks.svelte";
 import { claudeAccounts, DEFAULT_ACCOUNT } from "./claude-accounts.svelte";
 
 /** `quiet`: the setup card is one line; with one account and none found,
@@ -30,6 +31,16 @@ const list = $derived(accounts.list);
 const found = $derived(accounts.overview?.found ?? []);
 /** Folded to one line until the person manages them or adds one. */
 const open = $derived(managing || adding);
+
+// "Use another account…" from the palette: the form that adds one, focused.
+$effect(() => {
+  if (!setupAsks.account) return;
+  untrack(() => {
+    setupAsks.account = false;
+    adding = true;
+    void tick().then(() => document.getElementById("account-name")?.focus());
+  });
+});
 
 $effect(() => {
   const project = workspace.project?.id ?? null;

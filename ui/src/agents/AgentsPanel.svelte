@@ -17,6 +17,7 @@ import { listWarning, sandboxGaps, sandboxLine, sandboxState } from "./sandbox";
 import { agentSessions, openReviews, usageText } from "./sessions.svelte";
 import AccountPicker from "./setup/AccountPicker.svelte";
 import { signInCommand } from "./setup/account-texts";
+import { setupAsks } from "./setup/asks.svelte";
 import ClaudeSetup from "./setup/ClaudeSetup.svelte";
 import { claudeAccounts, DEFAULT_ACCOUNT } from "./setup/claude-accounts.svelte";
 import ProjectTrust from "./setup/ProjectTrust.svelte";
@@ -228,6 +229,20 @@ $effect(() => {
   const off = [
     registerCommand({ id: "agents.new_session", title: "New task for Claude", run: newTask }),
     registerCommand({
+      id: "agents.add_account",
+      title: "Use another account…",
+      category: "Claude",
+      keywords: ["account", "sign in", "work", "personal"],
+      run: () => askSetup("account"),
+    }),
+    registerCommand({
+      id: "agents.set_claude_path",
+      title: "Set path to claude…",
+      category: "Claude",
+      keywords: ["executable", "install", "binary"],
+      run: () => askSetup("path"),
+    }),
+    registerCommand({
       id: "agents.interrupt",
       title: "Interrupt the agent's turn",
       run: () => {
@@ -251,6 +266,13 @@ async function openSetup(): Promise<void> {
   setupOpen = true;
   await tick();
   document.querySelector("[data-testid=claude-setup]")?.scrollIntoView?.({ block: "nearest" });
+}
+
+/** Opens Claude's setup card in the task list with the path field or the account form. */
+async function askSetup(what: "path" | "account"): Promise<void> {
+  selected = null;
+  setupAsks[what] = true;
+  await openSetup();
 }
 
 async function newTask(): Promise<void> {

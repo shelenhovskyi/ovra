@@ -1,5 +1,6 @@
 import { flushSync, mount, unmount } from "svelte";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { listCommands } from "../../keys/commands";
 import type { AccountState } from "../../lib/protocol";
 import { CoreError } from "../../lib/transport";
 import { Workspace } from "../../shell/workspace.svelte";
@@ -89,6 +90,20 @@ describe("account texts", () => {
 });
 
 describe("accounts in the agents panel", () => {
+  it("opens the account form and the path field from the palette's Claude commands", async () => {
+    await show(new FakeAgentCore());
+    const run = async (title: string) => {
+      const command = listCommands().find((c) => c.title === title);
+      expect(command?.category).toBe("Claude");
+      await command?.run();
+      await settle();
+    };
+    await run("Use another account…");
+    expect(document.activeElement?.id).toBe("account-name");
+    await run("Set path to claude…");
+    expect(document.activeElement?.id).toBe("claude-path");
+  });
+
   it("offers only a way to add one while there is a single account", async () => {
     await show(new FakeAgentCore());
     // No card while Claude is ready: the way to add one shows once it is opened.
