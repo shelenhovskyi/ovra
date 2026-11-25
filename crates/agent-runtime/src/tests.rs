@@ -608,6 +608,7 @@ echo '{"type":"result","subtype":"success","usage":{"input_tokens":1,"output_tok
             },
             fails: false,
             wrapped: Default::default(),
+            servers: Default::default(),
         })
     }
 

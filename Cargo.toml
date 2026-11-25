@@ -24,6 +24,7 @@ ovra-sandbox = { path = "crates/sandbox" }
 ovra-secrets = { path = "crates/secrets" }
 ovra-sandbox-linux = { path = "crates/sandbox-linux" }
 ovra-netproxy = { path = "crates/netproxy" }
+ovra-lsp = { path = "crates/lsp" }
 anyhow = "1"
 axum = { version = "0.8", features = ["ws"] }
 futures-util = "0.3"

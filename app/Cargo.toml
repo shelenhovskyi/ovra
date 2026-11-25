@@ -26,6 +26,7 @@ ovra-store.workspace = true
 ovra-sandbox.workspace = true
 ovra-secrets.workspace = true
 ovra-netproxy.workspace = true
+ovra-lsp.workspace = true
 ovra-transport.workspace = true
 tauri = { version = "2", features = [] }
 tauri-plugin-notification = "2"

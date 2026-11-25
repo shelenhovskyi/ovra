@@ -5,6 +5,7 @@ import type { AuditLogEvent, AuditRequest, AuditResponse } from "./audit";
 import type { FsEvent, FsRequest, FsResponse } from "./fs";
 import type { GitRequest, GitResponse, GitResponseFor } from "./git";
 import type { InfoEvent, InfoRequest, InfoResponse } from "./info";
+import type { LspEvent, LspRequest, LspResponse } from "./lsp";
 import type { NetproxyEvent, NetproxyRequest, NetproxyResponse } from "./netproxy";
 import type { OpenRequest } from "./open";
 import type { OrchestrationEvent, OrchestrationRequest, OrchestrationResponse } from "./orchestration";
@@ -21,6 +22,7 @@ export type * from "./audit";
 export type * from "./fs";
 export type * from "./git";
 export type * from "./info";
+export type * from "./lsp";
 export type * from "./netproxy";
 export type * from "./open";
 export type * from "./orchestration";
@@ -47,7 +49,8 @@ export type Request =
   | SecretsRequest
   | AuditRequest
   | NetproxyRequest
-  | GitRequest;
+  | GitRequest
+  | LspRequest;
 
 export type Response =
   | InfoResponse
@@ -64,6 +67,7 @@ export type Response =
   | AuditResponse
   | NetproxyResponse
   | GitResponse
+  | LspResponse
   | { type: "ok" };
 
 export type CoreEvent =
@@ -79,7 +83,8 @@ export type CoreEvent =
   | PolicyEvent
   | SecretsEvent
   | AuditLogEvent
-  | NetproxyEvent;
+  | NetproxyEvent
+  | LspEvent;
 
 export type ErrorCode = "bad_request" | "not_found" | "conflict" | "forbidden" | "unavailable" | "internal";
 
@@ -176,4 +181,10 @@ type PhaseThreeResponseFor<R extends Request> = R extends { method: "review.list
                       ? Extract<Response, { type: "netproxy.allowlist" }>
                       : R extends GitRequest
                         ? GitResponseFor<R["method"]>
-                        : never;
+                        : R extends { method: "lsp.status" }
+                          ? Extract<Response, { type: "lsp.status" }>
+                          : R extends { method: "lsp.start" }
+                            ? Extract<Response, { type: "lsp.server" }>
+                            : R extends { method: "lsp.send" | "lsp.stop" }
+                              ? { type: "ok" }
+                              : never;

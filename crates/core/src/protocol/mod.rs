@@ -10,6 +10,7 @@ pub mod audit;
 pub mod fs;
 pub mod git;
 pub mod info;
+pub mod lsp;
 pub mod netproxy;
 pub mod open;
 pub mod orchestration;
@@ -42,6 +43,7 @@ pub enum Request {
     Audit(audit::AuditRequest),
     Netproxy(netproxy::NetproxyRequest),
     Git(git::GitRequest),
+    Lsp(lsp::LspRequest),
 }
 
 /// The core's answer to a [`Request`]. Wire form: `{"type": "<domain>.<name>", "data": ...}`.
@@ -62,6 +64,7 @@ pub enum Response {
     Audit(audit::AuditResponse),
     Netproxy(netproxy::NetproxyResponse),
     Git(git::GitResponse),
+    Lsp(lsp::LspResponse),
     /// The request succeeded and has nothing to return.
     Ok(OkResponse),
 }
@@ -89,6 +92,7 @@ pub enum Event {
     Secrets(secrets::SecretsEvent),
     Audit(audit::AuditLogEvent),
     Netproxy(netproxy::NetproxyEvent),
+    Lsp(lsp::LspEvent),
 }
 
 /// An error returned instead of a [`Response`].
@@ -207,5 +211,11 @@ impl From<audit::AuditLogEvent> for Event {
 impl From<netproxy::NetproxyEvent> for Event {
     fn from(e: netproxy::NetproxyEvent) -> Self {
         Self::Netproxy(e)
+    }
+}
+
+impl From<lsp::LspEvent> for Event {
+    fn from(e: lsp::LspEvent) -> Self {
+        Self::Lsp(e)
     }
 }

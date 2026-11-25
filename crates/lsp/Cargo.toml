@@ -1,0 +1,18 @@
+[package]
+name = "ovra-lsp"
+description = "Language servers through the sandbox (implements ovra_core::services::LanguageServers)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+ovra-core.workspace = true
+
+[dev-dependencies]
+ovra-core = { workspace = true, features = ["fakes"] }
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[lints]
+workspace = true
