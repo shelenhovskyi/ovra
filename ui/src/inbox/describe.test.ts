@@ -116,8 +116,8 @@ describe("inbox wording", () => {
     expect(itemSummary(item)).toBe("No changed files");
     const warning = gitWarning(item) ?? "";
     expect(warning).toContain(".git/hooks/pre-commit (added), /home/me/.gitconfig (modified)");
-    expect(warning).toContain("neither applies nor undoes them: Keep changes and Reject leave them as they are");
-    expect(warning).toContain("Check each one yourself");
+    expect(warning).toContain("Keep changes and Reject leave them as they are");
+    expect(warning).toContain("check each one yourself");
     expect(warning).not.toContain("could not check");
 
     const unchecked = review("r2", { git_unchecked: true });

@@ -531,9 +531,15 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
       <header>
         <h2 id="inbox-title" tabindex="-1">Review inbox</h2>
         <span class="project">{workspace.project?.name ?? "No project"}</span>
-        <button type="button" aria-keyshortcuts="Escape" onclick={close}>Close</button>
+        <button
+          type="button"
+          class="close"
+          aria-label="Close"
+          aria-keyshortcuts="Escape"
+          title="Close (Escape)"
+          onclick={close}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg></button
+        >
       </header>
-      <p class="intro">Changes agents made, waiting for you to keep or reject.</p>
       <div aria-live="polite" data-testid="inbox-approvals">
         {#if approvals.pending.length > 0}
           {@const keys = approvalsKeys()}
@@ -871,45 +877,52 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
 {/if}
 
 <style>
-  .open-inbox,
   button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     font: inherit;
-    padding: 2px 10px;
-    color: #e6e6e6;
-    background: #2a2a33;
-    border: 1px solid #4a4a57;
-    border-radius: 3px;
+    font-weight: 500;
+    padding: 5px 12px;
+    color: var(--text);
+    background: var(--s3);
+    border: 0;
+    border-radius: var(--radius);
     cursor: pointer;
   }
+  button:hover {
+    background: var(--s4);
+  }
+  /* The header's button: quiet until an agent asks. */
   .open-inbox {
     margin-left: auto;
+    padding: 3px 10px;
+    color: var(--text-2);
+    background: transparent;
+  }
+  .open-inbox:hover {
+    color: var(--text);
+    background: var(--s3);
+  }
+  .open-inbox.asked {
+    color: var(--text);
+    background: var(--warn-soft);
   }
   button[aria-disabled="true"],
   input[aria-disabled="true"] {
     opacity: 0.55;
     cursor: default;
   }
-  button:focus-visible,
-  input:focus-visible,
-  textarea:focus-visible,
-  h2:focus-visible,
-  h3:focus-visible {
-    outline: 2px solid #7aa2ff;
-    outline-offset: 1px;
-  }
   .count {
-    color: #ffd36b;
-  }
-  .open-inbox.asked {
-    border-color: #ffd36b;
+    color: var(--warn);
   }
   .backdrop {
     position: fixed;
     inset: 0;
     z-index: 90;
     display: flex;
-    padding: 24px;
-    background: rgb(0 0 0 / 55%);
+    padding: 32px;
+    background: var(--scrim);
   }
   .inbox {
     flex: 1;
@@ -917,53 +930,68 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
     flex-direction: column;
     min-width: 0;
     min-height: 0;
-    background: #16161a;
-    border: 1px solid #3a3a44;
-    border-radius: 6px;
+    overflow: hidden;
+    background: var(--s1);
+    border-radius: 14px;
+    box-shadow: var(--card-shadow);
   }
   header {
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 8px 12px;
-    border-bottom: 1px solid #2a2a31;
+    padding: 12px 12px 8px 20px;
   }
-  header button {
+  .close {
     margin-left: auto;
+    padding: 4px;
+    color: var(--text-2);
+    background: transparent;
+  }
+  .close:hover {
+    color: var(--text);
+    background: var(--s3);
+  }
+  .close svg {
+    width: 18px;
+    height: 18px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
   }
   h2 {
     margin: 0;
-    font-size: 14px;
+    font-size: 16px;
+    font-weight: 600;
   }
   h3 {
     margin: 0;
-    font-size: 13px;
+    font-size: 15px;
+    font-weight: 600;
   }
   .project,
-  .intro,
   .meta,
   .hint,
   .empty,
-  .summary {
-    color: #b4b4c0;
-    font-size: 12px;
+  .summary,
+  .field {
+    color: var(--text-2);
+    font-size: 13px;
   }
   .empty {
-    padding: 12px;
+    padding: 12px 20px;
     margin: 0;
   }
   .approvals-waiting {
-    margin: 6px 12px;
-    color: #ffd36b;
-  }
-  .intro {
-    margin: 0;
-    padding: 6px 12px;
-    border-bottom: 1px solid #2a2a31;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0 20px 8px;
+    color: var(--warn);
   }
   .error {
-    color: #ff8f8f;
-    margin: 6px 12px;
+    color: var(--danger);
+    margin: 4px 20px;
   }
   .body {
     flex: 1;
@@ -973,12 +1001,11 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
   }
   nav {
     overflow: auto;
-    border-right: 1px solid #2a2a31;
   }
   ul {
     list-style: none;
     margin: 0;
-    padding: 4px;
+    padding: 4px 8px;
   }
   .entry {
     all: unset;
@@ -987,75 +1014,87 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
     flex-direction: column;
     gap: 2px;
     width: 100%;
-    padding: 6px 8px;
-    border-radius: 3px;
+    padding: 8px 10px;
+    border-radius: var(--radius);
     cursor: pointer;
     overflow-wrap: anywhere;
   }
+  .entry:hover,
   .entry[aria-current="true"] {
-    background: #2a2a38;
-    box-shadow: inset 3px 0 0 #7aa2ff;
+    background: var(--s3);
   }
-  /* Items with protected files or git changes stand out in the list. */
-  .entry.flagged {
-    border-left: 3px solid #ff8f8f;
+  .entry[aria-current="true"] .name {
+    font-weight: 500;
   }
   .entry:focus-visible {
-    outline: 2px solid #7aa2ff;
+    outline: 2px solid var(--accent);
     outline-offset: -2px;
   }
-  .state {
-    font-size: 11px;
+  /* Items with protected files or git changes stand out in the list. */
+  .entry.flagged .name::before {
+    content: "";
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    margin-right: 8px;
+    border-radius: 50%;
+    background: var(--danger);
+    vertical-align: middle;
   }
-  .state.open {
-    color: #ffd36b;
+  .state {
+    font-size: 13px;
+    font-weight: 500;
+  }
+  .state.open,
+  .state.partly_approved {
+    color: var(--warn);
   }
   .state.approved {
-    color: #7fd18b;
-  }
-  .state.partly_approved {
-    color: #ffd36b;
+    color: var(--ok);
   }
   .state.rejected {
-    color: #ff8a8a;
+    color: var(--danger);
   }
   .marker {
     align-self: flex-start;
-    padding: 0 4px;
-    font-size: 11px;
-    color: #ffd36b;
-    border: 1px solid currentColor;
-    border-radius: 3px;
+    padding: 1px 7px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--warn);
+    background: var(--warn-soft);
+    border-radius: var(--radius-sm);
   }
   .detail {
     display: flex;
     flex-direction: column;
     min-width: 0;
     min-height: 0;
+    background: var(--s2);
+    border-top-left-radius: 12px;
   }
   .item-head,
   .actions,
   .comment {
-    padding: 8px 12px;
-    border-bottom: 1px solid #2a2a31;
+    padding: 12px 20px 0;
   }
   .item-head {
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
-    gap: 8px;
+    gap: 4px 10px;
+    padding-top: 16px;
   }
   .item-head p {
     flex-basis: 100%;
     margin: 0;
   }
   .outcome {
-    color: #e6e6e6;
+    color: var(--text);
   }
   .actions {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 8px;
   }
   .actions p {
     margin: 0;
@@ -1063,19 +1102,36 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
   .buttons {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
+    gap: 8px;
   }
-  .approve {
-    border-color: #6bd18a;
+  .approve,
+  .approve:hover {
+    color: var(--accent-ink);
+    background: var(--accent);
+  }
+  .approve:hover {
+    filter: brightness(1.08);
   }
   .reject {
-    border-color: #ff8a8a;
+    color: var(--danger);
+  }
+  .check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  input[type="checkbox"] {
+    accent-color: var(--accent);
   }
   .field,
   .comment {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 6px;
+  }
+  .comment label {
+    color: var(--text-2);
+    font-size: 13px;
   }
   .comment button {
     align-self: flex-start;
@@ -1083,24 +1139,28 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
   input[type="text"],
   textarea {
     font: inherit;
-    color: inherit;
-    background: #121216;
-    border: 1px solid #4a4a57;
-    border-radius: 3px;
+    color: var(--text);
+    padding: 6px 10px;
+    background: var(--s3);
+    border: 0;
+    border-radius: var(--radius);
   }
   .files-and-diff {
     flex: 1;
     display: grid;
     grid-template-columns: 240px 1fr;
     min-height: 0;
+    margin-top: 12px;
   }
   .files {
     overflow: auto;
-    border-right: 1px solid #2a2a31;
   }
   .diff {
     min-width: 0;
     min-height: 0;
+    overflow: hidden;
+    background: var(--s1);
+    border-top-left-radius: 10px;
   }
   .visually-hidden {
     position: absolute;
@@ -1123,8 +1183,6 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
     nav,
     .files {
       max-height: 25vh;
-      border-right: none;
-      border-bottom: 1px solid #2a2a31;
     }
     .detail {
       overflow: auto;
@@ -1135,26 +1193,32 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
   }
   .marker.protected,
   p.protected {
-    color: #ff8f8f;
-    font-weight: 600;
+    color: var(--danger);
+    font-weight: 500;
+  }
+  .marker.protected,
+  #inbox-git {
+    background: color-mix(in srgb, var(--danger) 13%, transparent);
   }
   p.protected {
     margin: 0;
-    font-size: 12px;
+    font-size: 13px;
   }
   /* Git hooks and config: nothing else on the item shows them. */
   #inbox-git {
-    padding: 6px 8px;
-    border: 1px solid #ff8f8f;
-    border-radius: 3px;
+    padding: 8px 12px;
+    border-radius: var(--radius);
   }
   @media (forced-colors: active) {
+    .inbox {
+      border: 1px solid CanvasText;
+    }
     .entry[aria-current="true"] {
       outline: 2px solid Highlight;
     }
     .marker,
     #inbox-git {
-      border-color: CanvasText;
+      border: 1px solid CanvasText;
     }
     button[aria-disabled="true"],
     input[aria-disabled="true"] {

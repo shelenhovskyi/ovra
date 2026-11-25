@@ -177,7 +177,7 @@ describe("Inbox", () => {
     expect($("[data-item=r1]")?.textContent).toContain("No changed files");
     expect($("[data-item=r1]")?.classList.contains("flagged")).toBe(true);
     expect($("[data-testid=inbox-git]")?.textContent).toContain(".git/hooks/pre-commit (added)");
-    expect($("[data-testid=inbox-git]")?.textContent).toContain("neither applies nor undoes them");
+    expect($("[data-testid=inbox-git]")?.textContent).toContain("leave them as they are");
     expect(button(/^Keep changes$/)?.getAttribute("aria-describedby")).toBe("inbox-git");
     expect($("[data-testid=inbox-diff]")?.textContent).toContain("Only git hooks or config changed");
 

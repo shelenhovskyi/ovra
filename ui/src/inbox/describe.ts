@@ -189,7 +189,7 @@ export function gitWarning(item: ReviewItem): string | null {
   if (item.git_changes.length > 0) {
     const listed = item.git_changes.map((c) => `${c.path} (${KIND_LABEL[c.kind]})`).join(", ");
     parts.push(
-      `Git hooks and config changed since the session started, by the agent or anyone else: ${listed}. Git runs hooks by itself, and its config can make it run programs. Ovra shows no diff of these and neither applies nor undoes them: Keep changes and Reject leave them as they are. Check each one yourself before you next use git here.`,
+      `Git hooks or config changed: ${listed}. They can make git run programs. Keep changes and Reject leave them as they are: check each one yourself before you use git here.`,
     );
   }
   if (item.git_unchecked) parts.push("Ovra could not check git hooks and config for this item: look at them yourself.");
