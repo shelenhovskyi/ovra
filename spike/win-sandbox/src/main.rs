@@ -109,6 +109,8 @@ fn probe(a: &[String]) {
     );
     if let Some(pid) = a.get(5).and_then(|s| s.strip_prefix("pid=")) {
         line("open_parent_process", restricted::open_process(pid.parse().unwrap()));
+        line("spawn_inherit", Command::new("cmd.exe").args(["/c", "exit 0"]).status().map(|s| s.to_string()).map_err(|e| e.to_string()));
+        line("spawn_null", Command::new("cmd.exe").args(["/c", "exit 0"]).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).status().map(|s| s.to_string()).map_err(|e| e.to_string()));
         line("read_granted_home", std::fs::read_to_string(Path::new(&a[6]).join("cfg.txt")).map_err(|e| e.to_string()));
         line("write_granted_home", std::fs::write(Path::new(&a[6]).join("w.txt"), "x").map(|_| "written".into()).map_err(|e| e.to_string()));
         line("write_home_root", std::fs::write(home.join("planted.txt"), "x").map(|_| "written".into()).map_err(|e| e.to_string()));
@@ -233,7 +235,7 @@ fn host() {
     let home_granted = home.join("granted-home");
     let _ = std::fs::create_dir_all(&home_granted);
     std::fs::write(home_granted.join("cfg.txt"), "home-cfg").unwrap();
-    for with_logon in [false, true] {
+    for with_logon in [1u8, 2] {
         println!("=== restricted token, logon SID {with_logon} ===");
         let _ = std::fs::remove_dir_all(granted.join("prot"));
         let _ = std::fs::remove_dir_all(granted.join("repo"));
@@ -507,7 +509,8 @@ mod restricted {
         }
     }
 
-    pub fn run(exe: &Path, args: &[String], granted: &Path, home_granted: &Path, with_logon: bool) {
+    pub fn run(exe: &Path, args: &[String], granted: &Path, home_granted: &Path, variant: u8) {
+        let with_logon = true;
         ace(granted, SYNTH, 0x1301BF, 1);
         ace(home_granted, SYNTH, 0x1200A9, 1);
         let prot = granted.join("prot");
@@ -539,7 +542,19 @@ mod restricted {
             let ok = CreateRestrictedToken(tok, DISABLE_MAX_PRIVILEGE, 1, admins.as_ptr(), 0, std::ptr::null(), entries.len() as u32, entries.as_ptr(), &mut rt);
             println!("CreateRestrictedToken ok={ok} err={}", GetLastError());
             // Default DACL: the sandbox's own objects open for the synthetic SID.
-            let sddl = wide(&format!("D:(A;;GA;;;{SYNTH})(A;;GA;;;SY)(A;;GA;;;OW)"));
+            let mut logon_str = String::new();
+            if let Some(l) = sids.get(3) {
+                let mut p: *mut u16 = std::ptr::null_mut();
+                ConvertSidToStringSidW(*l, &mut p);
+                let n = (0..).take_while(|&i| *p.add(i) != 0).count();
+                logon_str = String::from_utf16_lossy(std::slice::from_raw_parts(p, n));
+            }
+            let sddl = if variant == 1 {
+                wide(&format!("D:(A;;GA;;;{SYNTH})(A;;GA;;;SY)(A;;GA;;;OW)"))
+            } else {
+                wide(&format!("D:(A;;GA;;;{SYNTH})(A;;GA;;;SY)(A;;GA;;;OW)(A;;GA;;;{logon_str})"))
+            };
+            println!("default dacl variant {variant} logon {logon_str}");
             let mut sd: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
             ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.as_ptr(), 1, &mut sd, std::ptr::null_mut());
             let mut present = 0;
