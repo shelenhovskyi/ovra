@@ -286,19 +286,21 @@ describe("Shell", () => {
       expect(menu()).toBeNull();
     });
 
-    it("opens a panel's dialog, which gives focus back to More when it closes", async () => {
+    it("opens the audit log in the main area, which gives focus back to More when it closes", async () => {
       const { target, more, items } = shell();
       more?.click();
       flushSync();
       items()[1]?.click();
       flushSync();
-      await Promise.resolve();
+      // The start screen makes way for the view, which takes the focus.
+      const view = target.querySelector("main [data-testid=audit]");
+      expect(target.querySelector("main")?.hidden).toBe(false);
+      expect(target.querySelector(".shell")?.classList.contains("viewing")).toBe(true);
+      expect(document.activeElement?.textContent).toBe("Audit log");
+      key(view, "Escape");
       flushSync();
-      const dialog = target.querySelector("[role=dialog][aria-labelledby=audit-title]");
-      expect(dialog).not.toBeNull();
-      key(dialog, "Escape");
-      flushSync();
-      expect(target.querySelector("[aria-labelledby=audit-title]")).toBeNull();
+      expect(target.querySelector("[data-testid=audit]")).toBeNull();
+      expect(target.querySelector("main")?.hidden).toBe(true);
       expect(document.activeElement).toBe(more);
     });
 

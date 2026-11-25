@@ -1,5 +1,6 @@
 import { flushSync, mount, unmount } from "svelte";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { mainView } from "../shell/main-view.svelte";
 import { Workspace } from "../shell/workspace.svelte";
 import { bash, entry, FakeAuditCore } from "./fake-audit";
 import TestHost from "./TestHost.svelte";
@@ -13,6 +14,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  mainView.close(false);
   if (app) unmount(app);
   app = null;
   target.remove();
@@ -50,7 +52,7 @@ describe("AuditLog", () => {
     open?.focus();
     open?.click();
     await settle();
-    expect(document.activeElement?.id).toBe("audit-title");
+    expect(document.activeElement?.textContent).toBe("Audit log");
     expect(titles()).toEqual(["Refused Bash", "Allowed Bash", "Agent started"]);
     expect(target.querySelector("[data-testid=audit-entry]")?.className).toContain("refused");
 
@@ -72,7 +74,7 @@ describe("AuditLog", () => {
     target.querySelector<HTMLButtonElement>("[data-testid=open-audit]")?.click();
     await settle();
     expect(target.querySelector("[data-testid=audit-empty]")?.textContent?.trim()).toMatch(
-      /^Nothing yet\. Entries appear when an agent starts/,
+      /^Nothing recorded yet\s*Agent starts, approvals and tool calls appear here\.$/,
     );
     expect(target.querySelector("[data-testid=audit-filter]")).toBeNull();
 
@@ -143,7 +145,7 @@ describe("AuditLog", () => {
     expect(target.querySelector("[data-testid=audit-older-note]")?.textContent).toBe("1 older entry loaded.");
   });
 
-  it("keeps Load older focusable while it loads and focus in the dialog after", async () => {
+  it("keeps Load older focusable while it loads and focus in the view after", async () => {
     const core = await setup();
     // All allowed and only refusals shown, so none render.
     core.entries = Array.from({ length: 501 }, (_, i) => entry(i + 1, bash(true)));
@@ -171,21 +173,6 @@ describe("AuditLog", () => {
     await settle();
     await settle();
     expect(target.querySelector("[data-testid=audit-older]")).toBeNull();
-    expect(document.activeElement?.id).toBe("audit-title");
-  });
-
-  it("Tab wraps past disabled controls", async () => {
-    await setup();
-    target.querySelector<HTMLButtonElement>("[data-testid=open-audit]")?.click();
-    await settle();
-    const dialog = target.querySelector<HTMLElement>("[data-testid=audit]");
-    const disabled = document.createElement("button");
-    disabled.disabled = true;
-    dialog?.append(disabled);
-    const last = [...target.querySelectorAll<HTMLElement>("[data-testid=audit] summary")].at(-1);
-    last?.focus();
-    dialog?.dispatchEvent(new KeyboardEvent("keydown", { code: "Tab", key: "Tab", bubbles: true }));
-    expect(document.activeElement).toBe(target.querySelector("[data-testid=audit-filter]"));
-    disabled.remove();
+    expect(document.activeElement?.textContent).toBe("Audit log");
   });
 });

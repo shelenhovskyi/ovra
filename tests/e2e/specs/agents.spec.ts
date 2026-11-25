@@ -261,7 +261,7 @@ test("reply to an agent, allow with the mouse and stop it while it waits", async
   // The audit log says what was decided and by whom, newest first.
   await page.getByTestId("more").click();
   await page.getByRole("menuitem", { name: "Audit log" }).click();
-  const audit = page.getByRole("dialog", { name: "Audit log" });
+  const audit = page.getByRole("region", { name: "Audit log" });
   const entries = audit.getByTestId("audit-entry");
   await expect(entries).toHaveCount(4);
   await expect(entries.nth(0)).toContainText("Refused Bash");

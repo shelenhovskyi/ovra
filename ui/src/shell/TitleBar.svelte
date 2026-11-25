@@ -5,7 +5,6 @@
 // mark and More. In the desktop app on macOS it is the title bar itself
 // (`data-chrome="overlay"` on the root, set by the app): the traffic lights
 // sit on its left and its empty space drags the window.
-import AuditLog from "../audit/AuditLog.svelte";
 import BrowserButton from "../browser/BrowserButton.svelte";
 import Inbox from "../inbox/Inbox.svelte";
 import { listCommands } from "../keys/commands";
@@ -162,7 +161,6 @@ function tip(panel: Panel): string {
     <MoreMenu />
   </div>
   <!-- Opened from the "More" menu, the palette or their shortcuts. -->
-  <AuditLog trigger={false} />
   <PolicyPanel trigger={false} />
   <NetworkPanel trigger={false} />
   <ServersPanel trigger={false} />

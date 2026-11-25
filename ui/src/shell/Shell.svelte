@@ -10,6 +10,7 @@ import { agentSessions } from "../agents/sessions.svelte";
 import ClaudeSetup from "../agents/setup/ClaudeSetup.svelte";
 import Approvals from "../approvals/Approvals.svelte";
 import { approvalQueue } from "../approvals/queue.svelte";
+import AuditLog from "../audit/AuditLog.svelte";
 import BrowserPane from "../browser/BrowserPane.svelte";
 import Editor from "../editor/Editor.svelte";
 import { persistOpenFiles } from "../editor/open-files.svelte";
@@ -32,6 +33,7 @@ import { provideOvra } from "./context";
 import Icon from "./Icon.svelte";
 import { rememberProject, restoreProject } from "./last-project";
 import { Layout, type Panel } from "./layout.svelte";
+import { mainView } from "./main-view.svelte";
 import Rail from "./Rail.svelte";
 import Splitter from "./Splitter.svelte";
 import TitleBar from "./TitleBar.svelte";
@@ -64,6 +66,12 @@ let request = 0;
 const gitDiff = $derived(workspace.gitDiff?.project === workspace.project?.id ? workspace.gitDiff : null);
 
 $effect(() => persistOpenFiles(transport, workspace));
+
+// Opening a file or a diff shows it: a view in the main area makes way.
+$effect(() => {
+  void [workspace.openPath, workspace.gitDiff];
+  untrack(() => mainView.close(false));
+});
 
 // The window opens the project it had before a reload; until that is decided, nothing is forgotten.
 let restoring = true;
@@ -148,6 +156,13 @@ $effect(() => {
       keywords: ["collapse", "panel"],
       keys: "Alt+Mod+0",
       run: () => toggle("agents"),
+    }),
+    registerCommand({
+      id: "audit.toggle",
+      title: "Audit log",
+      category: "View",
+      keywords: ["history"],
+      run: () => mainView.toggle("audit"),
     }),
   ];
   return () => {
@@ -248,7 +263,11 @@ async function showApprovals(): Promise<void> {
 
 <svelte:window bind:innerWidth={layout.viewport} onfocus={recheckClaude} />
 <Keybindings />
-<div class="shell" class:start={!workspace.project} class:solo class:rail-right={layout.swapped} style={grid}>
+<div
+  class="shell"
+  class:start={!workspace.project}
+  class:viewing={!workspace.project && !!mainView.current}
+  class:solo class:rail-right={layout.swapped} style={grid}>
   <div class="title-area">
     <TitleBar {layout} shown={{ side: !folded.side, agents: !folded.agents }} {waiting} {toggle} {showApprovals} />
   </div>
@@ -285,7 +304,9 @@ async function showApprovals(): Promise<void> {
       </div>
     {/if}
   {/each}
-  <main data-testid="main" hidden={!workspace.project}>
+  <main data-testid="main" hidden={!workspace.project && !mainView.current}>
+    <!-- A view (Settings, Audit log, Reviews) takes the files' place; they stay mounted under it. -->
+    <div class="files" hidden={!!mainView.current}>
     <Tabs />
     <!-- The selected tab: a git diff (a tab of its own) or the open file, which stays mounted under the diff. -->
     <div
@@ -307,6 +328,8 @@ async function showApprovals(): Promise<void> {
         {/if}
       </div>
     </div>
+    </div>
+    {#if mainView.current === "audit"}<AuditLog />{/if}
     <BrowserPane />
     <Terminals />
   </main>
@@ -446,6 +469,7 @@ async function showApprovals(): Promise<void> {
     min-height: 0;
   }
   .body[hidden],
+  .files[hidden],
   .sidebar-view[hidden],
   main[hidden],
   .file[hidden] {
@@ -554,9 +578,22 @@ async function showApprovals(): Promise<void> {
     overflow: clip;
     background: var(--s2);
   }
+  .files {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+  }
   .view {
     flex: 1;
     min-height: 0;
+  }
+  /* The start screen with a view open (Settings, say): the view takes the start page's place. */
+  .viewing > .side {
+    display: none;
+  }
+  .viewing > main {
+    grid-area: side;
   }
   .file {
     height: 100%;
