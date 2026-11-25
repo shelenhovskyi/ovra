@@ -13,6 +13,7 @@ mod direct;
 mod files;
 mod git;
 mod gitfiles;
+mod pick;
 mod repo;
 #[cfg(test)]
 mod tests;
@@ -231,6 +232,47 @@ fn remove(root: &Path, dir: &Path) -> Result<()> {
     Ok(())
 }
 
+/// `git worktree lock`, replacing an earlier lock's reason (the one
+/// [`create`] gives) with `reason`.
+fn lock(root: &Path, dir: &Path, reason: &str) -> Result<()> {
+    let locking = || {
+        Git::new(root, "worktree")
+            .args(["lock", "--reason", reason, "--"])
+            .arg(dir)
+            .env("LC_ALL", "C")
+            .output()
+    };
+    let mut out = locking()?;
+    if !out.status.success() && String::from_utf8_lossy(&out.stderr).contains("already locked") {
+        unlock(root, dir)?;
+        out = locking()?;
+    }
+    if out.status.success() {
+        return Ok(());
+    }
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    Err(git::internal(format!(
+        "git worktree lock: {}",
+        stderr.trim()
+    )))
+}
+
+fn unlock(root: &Path, dir: &Path) -> Result<()> {
+    let out = Git::new(root, "worktree")
+        .args(["unlock", "--"])
+        .arg(dir)
+        .env("LC_ALL", "C")
+        .output()?;
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    if out.status.success() || stderr.contains("is not locked") {
+        return Ok(());
+    }
+    Err(git::internal(format!(
+        "git worktree unlock: {}",
+        stderr.trim()
+    )))
+}
+
 fn take(tree: &str, into: &Path, paths: &[RelPath], snapshot_ref: &Mutex<()>) -> Result<Taken> {
     let undo = snapshot(into, snapshot_ref)?;
     let skipped = files::take(tree, into, paths)?;
@@ -358,14 +400,14 @@ impl Worktrees for GitWorktrees {
 
     fn pick(
         &self,
-        _: PathBuf,
-        _: String,
-        _: String,
-        _: String,
-        _: String,
-        _: Option<CommitAuthor>,
+        root: PathBuf,
+        base: String,
+        start: String,
+        reviewed: String,
+        message: String,
+        author: Option<CommitAuthor>,
     ) -> BoxFuture<'_, Result<Picked>> {
-        not_yet("committing a reviewed worker for a pull request")
+        blocking(move || pick::pick(&root, &base, &start, &reviewed, &message, author.as_ref()))
     }
 
     fn include(&self, _: PathBuf, _: PathBuf) -> BoxFuture<'_, Result<Included>> {
@@ -376,12 +418,12 @@ impl Worktrees for GitWorktrees {
         not_yet("counting a worktree's size")
     }
 
-    fn lock(&self, _: PathBuf, _: PathBuf, _: String) -> BoxFuture<'_, Result<()>> {
-        not_yet("locking a worktree")
+    fn lock(&self, root: PathBuf, dir: PathBuf, reason: String) -> BoxFuture<'_, Result<()>> {
+        blocking(move || lock(&root, &dir, &reason))
     }
 
-    fn unlock(&self, _: PathBuf, _: PathBuf) -> BoxFuture<'_, Result<()>> {
-        not_yet("unlocking a worktree")
+    fn unlock(&self, root: PathBuf, dir: PathBuf) -> BoxFuture<'_, Result<()>> {
+        blocking(move || unlock(&root, &dir))
     }
 
     fn take(

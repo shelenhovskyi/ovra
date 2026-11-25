@@ -15,7 +15,7 @@ use tempfile::TempDir;
 
 use super::GitWorktrees;
 
-const BRANCH: &str = "ovra/t1/worker";
+pub(crate) const BRANCH: &str = "ovra/t1/worker";
 
 pub(crate) fn rel(path: &str) -> RelPath {
     RelPath::parse(path).unwrap_or_else(|e| panic!("{e}"))
@@ -95,7 +95,7 @@ impl Repo {
 
     /// Where a worker's worktree goes: outside the repository, in folders
     /// that do not exist yet.
-    fn worktree_dir(&self) -> PathBuf {
+    pub(crate) fn worktree_dir(&self) -> PathBuf {
         self.tmp
             .path()
             .join("data dir")
@@ -104,7 +104,7 @@ impl Repo {
     }
 
     /// A snapshot of the main checkout and a worker worktree from it.
-    async fn worker(&self, w: &GitWorktrees) -> (String, PathBuf) {
+    pub(crate) async fn worker(&self, w: &GitWorktrees) -> (String, PathBuf) {
         let base = w.snapshot(self.root.clone()).await;
         let base = base.unwrap_or_else(|e| panic!("{e:?}"));
         let dir = self.worktree_dir();
@@ -566,6 +566,26 @@ async fn worktrees_are_locked_until_removed_even_when_their_folder_is_gone() {
 
     assert!(w.remove(root.clone(), wt, Vec::new()).await.is_ok());
     assert_eq!(git(root, &["worktree", "list"]).lines().count(), 1);
+}
+
+#[tokio::test]
+async fn a_lock_names_its_task_and_both_lock_and_unlock_can_repeat() {
+    let repo = Repo::new(&[("a.txt", "a\n")]);
+    let w = GitWorktrees::new();
+    let (_, wt) = repo.worker(&w).await;
+    let root = &repo.root;
+    let lock = |reason: &str| w.lock(root.clone(), wt.clone(), reason.into());
+    // Made locked already: the new reason replaces the old one.
+    assert!(lock("Ovra: t1/worker").await.is_ok());
+    assert!(lock("Ovra: t1/worker").await.is_ok());
+    let listed = git(root, &["worktree", "list", "--porcelain"]);
+    assert!(listed.contains("locked Ovra: t1/worker"), "{listed}");
+    assert!(!listed.contains("agent session"), "{listed}");
+
+    assert!(w.unlock(root.clone(), wt.clone()).await.is_ok());
+    assert!(w.unlock(root.clone(), wt.clone()).await.is_ok());
+    let listed = git(root, &["worktree", "list", "--porcelain"]);
+    assert!(!listed.contains("locked"), "{listed}");
 }
 
 #[tokio::test]
