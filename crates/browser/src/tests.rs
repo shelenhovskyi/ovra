@@ -481,3 +481,38 @@ fn status_says_what_is_missing() {
     ));
     assert_eq!(shell, "Chromium at /bin/sh");
 }
+
+#[cfg(unix)]
+#[test]
+fn profile_folders_get_random_private_names() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let parent = std::env::temp_dir();
+    let dirs = [
+        profile_dir(&parent).expect("one"),
+        profile_dir(&parent).expect("two"),
+    ];
+    let modes: Vec<Option<u32>> = dirs
+        .iter()
+        .map(|d| {
+            let mode = d.metadata().ok().map(|m| m.permissions().mode() & 0o777);
+            let _ = std::fs::remove_dir(d);
+            mode
+        })
+        .collect();
+    assert_eq!(modes, [Some(0o700), Some(0o700)]);
+    let names: Vec<String> = dirs
+        .iter()
+        .map(|d| {
+            d.file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    assert_ne!(names[0], names[1]);
+    for name in &names {
+        let random = name.strip_prefix("ovra-browser-").unwrap_or_default();
+        let hex = random.len() == 32 && random.chars().all(|c| c.is_ascii_hexdigit());
+        assert!(hex, "{name}");
+    }
+}

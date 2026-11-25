@@ -48,8 +48,6 @@ pub struct ChromiumBrowser {
     starting: tokio::sync::Mutex<()>,
     /// Numbers pages and picks.
     count: AtomicU64,
-    /// Numbers profile folders.
-    profiles: AtomicU64,
 }
 
 impl ChromiumBrowser {
@@ -91,7 +89,6 @@ impl ChromiumBrowser {
             sessions: Sessions::default(),
             starting: tokio::sync::Mutex::new(()),
             count: AtomicU64::new(0),
-            profiles: AtomicU64::new(0),
         }
     }
 
@@ -124,7 +121,7 @@ impl ChromiumBrowser {
             };
             ProtocolError::new(ErrorCode::Unavailable, reason)
         })?;
-        let dir = profile_dir(self.profiles.fetch_add(1, Ordering::Relaxed) + 1)?;
+        let dir = profile_dir(&std::env::temp_dir())?;
         profile.write.push(dir.clone());
         let launched = match launcher.launch(&profile, &dir) {
             Ok(launched) => launched,
@@ -139,19 +136,32 @@ impl ChromiumBrowser {
     }
 }
 
-/// A new, empty folder only this user can enter.
-fn profile_dir(n: u64) -> Result<PathBuf> {
-    let dir = std::env::temp_dir().join(format!("ovra-browser-{}-{n}", std::process::id()));
-    let mut builder = std::fs::DirBuilder::new();
-    #[cfg(unix)]
-    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
-    builder.create(&dir).map_err(|e| {
+/// A new, empty folder in `parent` only this user can enter, with a name
+/// nobody can guess ahead: made here, never one planted there.
+fn profile_dir(parent: &std::path::Path) -> Result<PathBuf> {
+    let failed = |e: std::io::Error| {
         ProtocolError::new(
             ErrorCode::Internal,
             format!("no profile folder for the browser: {e}"),
         )
-    })?;
-    Ok(dir)
+    };
+    let mut builder = std::fs::DirBuilder::new();
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    loop {
+        let mut random = [0u8; 16];
+        std::fs::File::open("/dev/urandom")
+            .and_then(|mut f| std::io::Read::read_exact(&mut f, &mut random))
+            .map_err(failed)?;
+        let name: String = random.iter().map(|b| format!("{b:02x}")).collect();
+        let dir = parent.join(format!("ovra-browser-{name}"));
+        // `create` fails on anything already there, a link included.
+        match builder.create(&dir) {
+            Ok(()) => return Ok(dir),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(e) => return Err(failed(e)),
+        }
+    }
 }
 
 impl Browser for ChromiumBrowser {
