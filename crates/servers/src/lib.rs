@@ -65,6 +65,7 @@ pub fn servers_dir() -> std::io::Result<PathBuf> {
     if cfg!(unix) && !socket_paths_fit(&dir) {
         return Err(too_long(&dir));
     }
+    #[cfg_attr(not(unix), allow(unused_mut))]
     let mut builder = std::fs::DirBuilder::new();
     #[cfg(unix)]
     std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
