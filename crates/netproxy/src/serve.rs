@@ -534,11 +534,22 @@ async fn open(
     };
     // With the user's proxy, the name may not resolve here: that proxy
     // resolves it. What does resolve here is still checked.
-    let addrs = match (addrs, upstream) {
+    let mut addrs = match (addrs, upstream) {
         (Ok(addrs), _) => addrs,
         (Err(_), Some(_)) => Vec::new(),
         (Err(why), None) => return Err(Problem::Failed(why)),
     };
+    // The user's proxy on this machine resolves the name as given, and
+    // finds `/etc/hosts` entries (or search domains) the fully qualified
+    // lookup above misses. Those addresses are checked too.
+    if upstream.is_some() && !private_ok && host.parse::<IpAddr>().is_err() {
+        let given = shared.dial.resolve_as_given(host.to_owned(), port);
+        match timeout(DIAL_TIMEOUT, given).await {
+            Ok(Ok(more)) => addrs.extend(more),
+            Ok(Err(_)) => {}
+            Err(_) => return Err(Problem::Failed("resolving the host timed out".into())),
+        }
+    }
     if !private_ok && addrs.iter().any(|a| !is_reachable(a.ip())) {
         return Err(Problem::Refused(
             "the host resolves to a loopback, private or link-local address".into(),

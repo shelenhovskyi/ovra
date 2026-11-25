@@ -36,6 +36,8 @@ enum Server {
 #[derive(Debug, Default)]
 struct FakeNet {
     names: BTreeMap<String, Vec<IpAddr>>,
+    /// Names only a lookup as given finds, like `/etc/hosts` entries.
+    hosts: BTreeMap<String, Vec<IpAddr>>,
     servers: BTreeMap<SocketAddr, Server>,
     /// Every address connected to, in order.
     connected: Mutex<Vec<SocketAddr>>,
@@ -49,6 +51,12 @@ impl FakeNet {
             .iter()
             .map(|ip| ip.parse().unwrap_or_else(|e| panic!("{e}")));
         self.names.insert(host.into(), ips.collect());
+        self
+    }
+
+    fn hosts_entry(mut self, host: &str, ip: &str) -> Self {
+        let ip = ip.parse().unwrap_or_else(|e| panic!("{e}"));
+        self.hosts.insert(host.into(), vec![ip]);
         self
     }
 
@@ -84,6 +92,20 @@ impl Dial for FakeNet {
     fn resolve(&self, host: String, port: u16) -> BoxFuture<'_, io::Result<Vec<SocketAddr>>> {
         Box::pin(async move {
             match self.names.get(&host) {
+                Some(ips) => Ok(ips.iter().map(|ip| SocketAddr::new(*ip, port)).collect()),
+                None => Err(io::Error::new(io::ErrorKind::NotFound, "no such host")),
+            }
+        })
+    }
+
+    fn resolve_as_given(
+        &self,
+        host: String,
+        port: u16,
+    ) -> BoxFuture<'_, io::Result<Vec<SocketAddr>>> {
+        Box::pin(async move {
+            let ips = self.hosts.get(&host).or_else(|| self.names.get(&host));
+            match ips {
                 Some(ips) => Ok(ips.iter().map(|ip| SocketAddr::new(*ip, port)).collect()),
                 None => Err(io::Error::new(io::ErrorKind::NotFound, "no such host")),
             }
@@ -706,6 +728,33 @@ async fn a_configured_gateway_lends_its_private_pass_to_no_other_entry() {
     let (head, _) = p.ask("CONNECT gateway.lan:443 HTTP/1.1\r\n\r\n").await;
     assert!(head.starts_with("HTTP/1.1 403"), "{head}");
     let (head, _) = p.ask("CONNECT gateway.lan:4000 HTTP/1.1\r\n\r\n").await;
+    assert!(head.starts_with("HTTP/1.1 200"), "{head}");
+}
+
+#[tokio::test]
+async fn a_hosts_file_name_never_reaches_the_users_proxy_when_it_is_private() {
+    // `nas.home` is only in `/etc/hosts`, which the fully qualified lookup
+    // misses; `crates.io` resolves publicly but `/etc/hosts` points it home.
+    let fake = web()
+        .hosts_entry("nas.home", "192.168.1.5")
+        .hosts_entry("crates.io", "127.0.0.1")
+        .hosts_entry("pages.example", "93.184.216.40");
+    let p = proxy(
+        fake,
+        rules(&[
+            ("nas.home", None),
+            ("crates.io", None),
+            ("pages.example", None),
+        ]),
+        corp_proxy(),
+    );
+    for host in ["nas.home", "crates.io"] {
+        let (head, _) = p.ask(&format!("CONNECT {host}:443 HTTP/1.1\r\n\r\n")).await;
+        assert!(head.starts_with("HTTP/1.1 403"), "{host}: {head}");
+    }
+    assert!(lock(&p.dial.connected).is_empty());
+    // A public entry still goes to the user's proxy.
+    let (head, _) = p.ask("CONNECT pages.example:443 HTTP/1.1\r\n\r\n").await;
     assert!(head.starts_with("HTTP/1.1 200"), "{head}");
 }
 

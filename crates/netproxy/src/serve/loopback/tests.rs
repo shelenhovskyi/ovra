@@ -30,6 +30,13 @@ impl Dial for HostNet {
     fn resolve(&self, _: String, _: u16) -> BoxFuture<'_, io::Result<Vec<SocketAddr>>> {
         Box::pin(async { Err(io::ErrorKind::NotFound.into()) })
     }
+    fn resolve_as_given(
+        &self,
+        host: String,
+        port: u16,
+    ) -> BoxFuture<'_, io::Result<Vec<SocketAddr>>> {
+        self.resolve(host, port)
+    }
     fn connect(&self, addr: SocketAddr) -> BoxFuture<'_, io::Result<Conn>> {
         lock(&self.connected).push(addr);
         Box::pin(async { Err(io::ErrorKind::ConnectionRefused.into()) })

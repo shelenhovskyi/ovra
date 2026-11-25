@@ -15,6 +15,14 @@ pub(crate) type Conn = Box<dyn Stream>;
 
 pub(crate) trait Dial: Send + Sync + Debug {
     fn resolve(&self, host: String, port: u16) -> BoxFuture<'_, io::Result<Vec<SocketAddr>>>;
+    /// `host` as the user's proxy may resolve it: not fully qualified, so
+    /// `/etc/hosts`, search domains and the other sources of the
+    /// machine's resolver apply. Only ever checked, never connected to.
+    fn resolve_as_given(
+        &self,
+        host: String,
+        port: u16,
+    ) -> BoxFuture<'_, io::Result<Vec<SocketAddr>>>;
     fn connect(&self, addr: SocketAddr) -> BoxFuture<'_, io::Result<Conn>>;
 }
 
@@ -31,6 +39,14 @@ impl Dial for Net {
             format!("{host}.")
         };
         Box::pin(async move { Ok(tokio::net::lookup_host((name, port)).await?.collect()) })
+    }
+
+    fn resolve_as_given(
+        &self,
+        host: String,
+        port: u16,
+    ) -> BoxFuture<'_, io::Result<Vec<SocketAddr>>> {
+        Box::pin(async move { Ok(tokio::net::lookup_host((host, port)).await?.collect()) })
     }
 
     fn connect(&self, addr: SocketAddr) -> BoxFuture<'_, io::Result<Conn>> {

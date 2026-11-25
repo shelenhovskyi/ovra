@@ -134,6 +134,14 @@ impl Dial for Host {
         Box::pin(async move { Ok(vec![SocketAddr::from(([93, 184, 216, 34], port))]) })
     }
 
+    fn resolve_as_given(
+        &self,
+        host: String,
+        port: u16,
+    ) -> BoxFuture<'_, io::Result<Vec<SocketAddr>>> {
+        self.resolve(host, port)
+    }
+
     fn connect(&self, _: SocketAddr) -> BoxFuture<'_, io::Result<Conn>> {
         Box::pin(async move {
             *self.connects.lock().unwrap_or_else(|e| e.into_inner()) += 1;
