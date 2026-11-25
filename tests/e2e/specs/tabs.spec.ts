@@ -148,6 +148,7 @@ test("the keyboard keeps a preview tab, and a focused tab shows its actions", as
   const tree = page.getByRole("tree", { name: "Files" });
   await expect(page.getByRole("treeitem", { name: /a\.txt/ })).toBeVisible();
   await tree.focus();
+  await page.keyboard.press("ArrowDown");
   await page.keyboard.press("Enter");
   await expect(tabs.getByRole("tab", { name: "a.txt, preview" })).toBeVisible();
   // Enter on the file already shown keeps it, as a double click does.

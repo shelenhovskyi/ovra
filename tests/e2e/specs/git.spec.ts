@@ -63,17 +63,20 @@ test("stage a file and one hunk, commit, and switch to a new branch", async ({ p
   await page.keyboard.press("Alt+Shift+G");
   const panel = page.getByTestId("git");
   const changes = panel.getByTestId("git-changes");
-  // Nothing is staged yet: focus is on the first change, where S stages it.
-  await expect(changes.locator('[data-row][tabindex="0"]')).toBeFocused();
+  // Nothing is staged yet: focus is on the first change (git lists tracked files first), where S stages it.
+  const row = changes.locator('[data-row][data-path="notes.txt"]');
+  await expect(row).toBeFocused();
   await expect(panel.getByTestId("git-branch")).toHaveAccessibleName("Branch: main");
   await expect(changes.getByRole("button", { name: "Stage new.txt" })).toBeVisible();
   // A row's hover slot also shows while the row has focus, for keyboard users.
-  const row = changes.locator('[data-row][data-path="notes.txt"]');
   const slot = row.locator("xpath=..").getByTestId("git-row-actions");
-  await expect(slot).toHaveCSS("opacity", "0");
-  await row.focus();
+  const other = changes.locator('[data-row][data-path="new.txt"]').locator("xpath=..").getByTestId("git-row-actions");
+  await expect(other).toHaveCSS("opacity", "0");
   await expect(slot).toHaveCSS("opacity", "1");
-  // The focus ring goes round the whole row: name, dot and actions.
+  // The focus ring goes round the whole row: name, dot and actions (arrows give keyboard focus).
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowUp");
+  await expect(row).toBeFocused();
   await expect(row.locator("xpath=..")).toHaveCSS("outline-style", "solid");
   await expect(row).toHaveCSS("outline-style", "none");
 
