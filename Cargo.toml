@@ -23,6 +23,7 @@ ovra-mcp-server = { path = "crates/mcp-server" }
 ovra-sandbox = { path = "crates/sandbox" }
 ovra-secrets = { path = "crates/secrets" }
 ovra-sandbox-linux = { path = "crates/sandbox-linux" }
+ovra-sandbox-windows = { path = "crates/sandbox-windows" }
 ovra-netproxy = { path = "crates/netproxy" }
 anyhow = "1"
 axum = { version = "0.8", features = ["ws"] }

@@ -1,7 +1,7 @@
 //! What every platform's sandbox shares (`docs/specs/security.md`): the
 //! paths an agent never writes, and [`for_this_os`], the sandbox the daemon
 //! and the app hand to the agent runtime. The platform crates
-//! (`sandbox-linux`, `sandbox-macos`) implement the wrapping itself.
+//! (`sandbox-linux`, `sandbox-windows`, `sandbox-macos`) implement the wrapping itself.
 //! Contract: `ovra_core::services::Sandbox`; fake:
 //! `ovra_core::fakes::FakeSandbox`.
 
@@ -33,8 +33,8 @@ pub const PROTECTED_IN_GIT_DIR: [&str; 7] = [
 pub const PROTECTED_IN_WORKTREE_GIT_DIR: [&str; 3] = ["commondir", "gitdir", "config.worktree"];
 
 /// The sandbox for this OS, hiding Ovra's `data_dir` from agents. Where no
-/// platform crate exists (macOS until 4.B, Windows until 5.A), sessions run
-/// unsandboxed, as they did before phase 4, and say so. On Linux the
+/// platform crate exists (macOS until 4.B), sessions run unsandboxed, as
+/// they did before phase 4, and say so. On Linux the
 /// sandbox tries itself once here and reports why if it cannot work.
 pub fn for_this_os(data_dir: &Path) -> Arc<dyn Sandbox> {
     #[cfg(target_os = "linux")]
@@ -47,7 +47,12 @@ pub fn for_this_os(data_dir: &Path) -> Arc<dyn Sandbox> {
             None => Arc::new(Unsandboxed),
         }
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(windows)]
+    {
+        let _ = data_dir;
+        Arc::new(ovra_sandbox_windows::Restricted)
+    }
+    #[cfg(not(any(target_os = "linux", windows)))]
     {
         let _ = data_dir;
         Arc::new(Unsandboxed)
