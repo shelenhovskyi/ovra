@@ -36,6 +36,21 @@ describe("SessionBrowsers", () => {
     core.status.clear();
     await browsers.check("s1");
     expect(browsers.refusals.has("s1")).toBe(false);
+    // A slow answer from before is out of date once a later one came.
+    let late: () => void = () => {};
+    const call = core.call.bind(core);
+    core.call = (async (request) => {
+      const answer = await call(request);
+      if (request.method === "browser.status" && answer.type === "browser.status" && answer.data.state === "available")
+        await new Promise<void>((resolve) => (late = resolve));
+      return answer;
+    }) as typeof core.call;
+    const slow = browsers.check("s1");
+    core.status.set("s1", { state: "refused", code: "session_ended", reason: "the session has ended" });
+    await browsers.check("s1");
+    late();
+    await slow;
+    expect(browsers.refusals.get("s1")?.code).toBe("session_ended");
     core.refuse.set("browser.open", { code: "conflict", message: "at most 4 pages" });
     await expect(browsers.open("s1", "http://localhost/")).rejects.toThrow("at most 4 pages");
   });

@@ -18,6 +18,8 @@ export class SessionBrowsers {
   asks = $state<NavigationAsk[]>([]);
   /** Why the browser cannot run, by session: from `browser.status`, or from a call it refused. */
   readonly refusals = new SvelteMap<SessionId, Refusal>();
+  /** Counts the `browser.status` asks per session, so only the latest answer counts. */
+  private readonly asked = new Map<SessionId, number>();
   /** Whether the pane is shown. */
   shown = $state(false);
 
@@ -60,8 +62,12 @@ export class SessionBrowsers {
 
   /** Asks the core whether the session's browser can run, and keeps why not; `keep` keeps a refusal it no longer sees. */
   async check(session: SessionId, keep = false): Promise<void> {
+    const mine = (this.asked.get(session) ?? 0) + 1;
+    this.asked.set(session, mine);
     try {
       const { data } = await this.transport.call({ method: "browser.status", params: { session } });
+      // A later ask answers for now; this one is out of date.
+      if (this.asked.get(session) !== mine) return;
       if (data.state === "refused") this.refusals.set(session, { code: data.code, reason: data.reason });
       else if (!keep) this.refusals.delete(session);
     } catch {

@@ -649,18 +649,18 @@ fn status_says_what_is_missing() {
     };
     let none = reason(ChromiumBrowser::new(Arc::new(unavailable), None));
     let sandbox = "the agent browser runs only in the sandbox, which is unavailable: no bwrap";
-    assert_eq!(none, (BrowserRefusal::NoSandbox, sandbox.into()));
+    assert_eq!(none, (Some(BrowserRefusal::NoSandbox), sandbox.into()));
     let missing = reason(ChromiumBrowser::new(
         Arc::new(FakeSandbox::available()),
         Some("/no/chromium".into()),
     ));
     let at = "no browser at /no/chromium";
-    assert_eq!(missing, (BrowserRefusal::NoChromium, at.into()));
+    assert_eq!(missing, (Some(BrowserRefusal::NoChromium), at.into()));
     let shell = reason(ChromiumBrowser::new(
         Arc::new(FakeSandbox::available()),
         Some("/bin/sh".into()),
     ));
-    assert_eq!(shell.1, "Chromium at /bin/sh");
+    assert_eq!(shell, (None, "Chromium at /bin/sh".into()));
 }
 
 #[cfg(unix)]

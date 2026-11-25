@@ -247,7 +247,9 @@ fn availability(core: &Core, session: &SessionId) -> Result<BrowserAvailability>
     }
     let browser = core.browser_state().browser.as_ref();
     if let SandboxStatus::Unavailable { reason } = browser.status() {
-        return refused(browser.refusal(), reason);
+        // A service that gives no code is not here, for this build.
+        let code = browser.refusal().unwrap_or(BrowserRefusal::NotSupported);
+        return refused(code, reason);
     }
     match profile {
         Ok(_) => Ok(BrowserAvailability::Available),

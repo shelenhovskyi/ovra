@@ -130,9 +130,9 @@ async function copyExample(): Promise<void> {
   }
 }
 
-/** Shows this work dir's servers in the dock, where they run; an overview of all shows them too. */
+/** Shows this work dir's servers in the dock, where they run; the overview of all folders shows them too. */
 function showRunning(): void {
-  serversDock.workDir = workDir;
+  if (!serversDock.everywhere) serversDock.workDir = workDir;
   serversDock.shown = true;
 }
 
