@@ -184,6 +184,8 @@ fn a_read_only_folder_is_refused_until_it_can_be_kept_read_only() {
         write: Vec::new(),
         expose: Vec::new(),
         forward: Vec::new(),
+        project: None,
+        work_env: None,
         network: ProfileNetwork::Blocked,
     };
     let refused = Plan::new(&setup, &profile, &claude).err().unwrap();
