@@ -192,10 +192,11 @@ function edge(panel: Panel): "left" | "right" {
         >
       </div>
     {/if}
-    <div class="body" hidden={folded.side}>
+    <div class="body" class:own-head={workspace.sidebar === "files"} hidden={folded.side}>
+      <!-- The file tree draws its own header; Search and Git get one here. -->
       {#if workspace.project}
         <div class="head">
-          <span class="name">{view.name}</span>
+          {#if workspace.sidebar !== "files"}<span class="name">{view.name}</span>{/if}
           {@render controls("side", view.name)}
         </div>
       {/if}
@@ -377,6 +378,23 @@ function edge(panel: Panel): "left" | "right" {
     flex: 1;
     flex-direction: column;
     min-height: 0;
+  }
+  .own-head {
+    position: relative;
+  }
+  .own-head > .head {
+    position: absolute;
+    top: 10px;
+    right: 0;
+    z-index: 1;
+    height: auto;
+    padding: 0 8px 0 0;
+  }
+  .own-head:hover .controls {
+    opacity: 1;
+  }
+  .own-head :global(.toolbar) {
+    padding-right: 72px;
   }
   .agents-panel > .controls {
     position: absolute;
