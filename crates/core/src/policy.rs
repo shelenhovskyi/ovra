@@ -34,7 +34,9 @@ pub(crate) fn handle(core: &Core, request: PolicyRequest) -> Result<Response, Pr
         PolicyRequest::Get { project } => Ok(Response::Policy(PolicyResponse::Policy(
             store.policy(&project)?,
         ))),
-        PolicyRequest::Set { project, policy } => {
+        PolicyRequest::Set {
+            project, policy, ..
+        } => {
             for rule in &policy.rules {
                 check(rule)?;
             }

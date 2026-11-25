@@ -45,7 +45,15 @@ pub enum PolicyRequest {
     /// an empty pattern or a path glob that cannot match inside the
     /// project. Answers `policy.policy` with what was kept.
     #[serde(rename = "policy.set")]
-    Set { project: ProjectId, policy: Policy },
+    Set {
+        project: ProjectId,
+        policy: Policy,
+        /// The policy the change was built from. When it is given and the
+        /// stored policy differs, the core refuses with `conflict` and
+        /// keeps nothing, so a change made elsewhere is never lost.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expected: Option<Policy>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
