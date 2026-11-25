@@ -5,6 +5,7 @@ use std::path::Path;
 
 use ovra_core::path::RelPath;
 use ovra_core::protocol::git::{Blame, BlameRange, CommitInfo, MAX_GIT_FILE};
+use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::Result;
 
 use super::{bad, printed};
@@ -12,7 +13,7 @@ use crate::files::{self, OnDisk};
 use crate::git::{self, Git, internal};
 
 pub(super) fn blame(root: &Path, path: &RelPath) -> Result<Blame> {
-    git::dirs(root)?;
+    let dirs = git::dirs(root)?;
     let meta = fs::symlink_metadata(path.under(root));
     if meta.as_ref().is_ok_and(|m| m.len() > MAX_GIT_FILE) {
         return Err(bad(format!(
@@ -20,30 +21,55 @@ pub(super) fn blame(root: &Path, path: &RelPath) -> Result<Blame> {
             MAX_GIT_FILE / 1024 / 1024
         )));
     }
+    // Not in HEAD (new, or no commit yet): every line is uncommitted. Any
+    // other failure of git blame is said as it is.
+    if !in_head(root, &dirs.prefix, path)? {
+        return uncommitted(root, path, meta.is_ok_and(|m| m.is_file()));
+    }
     let out = Git::new(root, "blame")
         .env("GIT_OPTIONAL_LOCKS", "0")
         .args(["--porcelain", "--no-ext-diff", "--no-textconv", "--"])
         .arg(path.as_str())
         .output()?;
-    if out.status.success() {
-        return Ok(parse(&String::from_utf8_lossy(&out.stdout)));
+    if !out.status.success() {
+        return Err(internal(format!("git blame {path}: {}", printed(&out))));
     }
-    // Not in HEAD (new, or no commit yet): every line is uncommitted. A
-    // symlink, or a file under a symlinked folder, is not read.
-    if meta.is_ok_and(|m| m.is_file()) && files::on_disk(root, path)? == OnDisk::File {
-        let text = fs::read(path.under(root)).map_err(|e| internal(format!("{path}: {e}")))?;
-        let lines = text.split(|b| *b == b'\n').count() - usize::from(text.ends_with(b"\n"));
-        let ranges = (!text.is_empty()).then(|| BlameRange {
-            start: 1,
-            lines: u32::try_from(lines).unwrap_or(u32::MAX),
-            commit: None,
-        });
-        return Ok(Blame {
-            ranges: ranges.into_iter().collect(),
-            commits: Default::default(),
-        });
+    Ok(parse(&String::from_utf8_lossy(&out.stdout)))
+}
+
+/// Whether HEAD has a file at `path` (`prefix` is the project's folder in
+/// the repository); false before the first commit, when git says
+/// `missing` too. Paths never hold a newline (the core refuses control
+/// characters).
+fn in_head(root: &Path, prefix: &str, path: &RelPath) -> Result<bool> {
+    // The name on stdin, from the top of the repository.
+    let out = Git::new(root, "cat-file")
+        .arg("--batch-check=%(objecttype)")
+        .input(format!("HEAD:{prefix}{path}\n"))
+        .text()?;
+    Ok(out == "blob")
+}
+
+/// Every line of a file HEAD does not have, as not committed yet. A
+/// symlink, or a file under a symlinked folder, is not read.
+fn uncommitted(root: &Path, path: &RelPath, is_file: bool) -> Result<Blame> {
+    if !is_file || files::on_disk(root, path)? != OnDisk::File {
+        return Err(ProtocolError::new(
+            ErrorCode::NotFound,
+            format!("{path} is not a file in the project"),
+        ));
     }
-    Err(internal(format!("git blame: {}", printed(&out))))
+    let text = fs::read(path.under(root)).map_err(|e| internal(format!("{path}: {e}")))?;
+    let lines = text.split(|b| *b == b'\n').count() - usize::from(text.ends_with(b"\n"));
+    let ranges = (!text.is_empty()).then(|| BlameRange {
+        start: 1,
+        lines: u32::try_from(lines).unwrap_or(u32::MAX),
+        commit: None,
+    });
+    Ok(Blame {
+        ranges: ranges.into_iter().collect(),
+        commits: Default::default(),
+    })
 }
 
 fn is_id(word: &str) -> bool {

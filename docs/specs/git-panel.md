@@ -73,11 +73,27 @@ monitor, submodules ignored. Diffs, blame and show also pass
   asked. The person's hooks and signing config run, as in their terminal;
   a failing hook is `conflict` with its output. Commit and amend refuse a
   message-only commit with nothing staged (`bad_request`), except amend.
+- Commit and switch (also `switch -c`) run without `--literal-pathspecs`
+  and `core.quotepath=off`, which git would pass on to hooks
+  (`GIT_LITERAL_PATHSPECS`, `GIT_CONFIG_PARAMETERS`) and which change how a
+  hook's own git commands read pathspecs and print names. The options that
+  keep repository content from running (fsmonitor off, no submodules,
+  `protectNTFS`/`protectHFS`) stay, and hooks see them too.
+- They run in their own process group; after 10 minutes, or on
+  `git.cancel`, git and its hooks and gpg are ended (asked first, so git
+  removes its locks; forced after 2 s; on Windows only git itself) and the
+  call answers `conflict` with what they printed so far. Output is not
+  waited for after that, so a process a hook left running cannot hold the
+  call. After 1.5 s the panel says it still runs and offers Cancel. A hook
+  or pinentry that reads the terminal of a daemon started from a terminal
+  is stopped by the shell until the limit (stdin is never a terminal).
 - `branches`: `git for-each-ref refs/heads` sorted by committer date.
 - `switch`: `git check-ref-format --branch`, then `git switch <name>`
   (never `--force`, never `--discard-changes`).
 - `create_branch`: `git switch -c` or `git branch`.
 - `blame`: `git blame --porcelain` of the working-tree file, at most 4 MiB.
+  A file HEAD does not have (or no HEAD) is all uncommitted; any other
+  failure of git blame is an error, never shown as uncommitted lines.
 - `show`: `git cat-file` of `HEAD:<path>` or `:<path>`, at most 4 MiB, null
   for binary files.
 - `log`: `git log -n <limit>` with a fixed format.
