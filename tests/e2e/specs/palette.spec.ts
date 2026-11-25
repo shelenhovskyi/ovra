@@ -63,6 +63,12 @@ test("Alt+P goes to a file; the palette switches and closes projects", async ({ 
   await projects.getByRole("button", { name: "Open", exact: true }).click();
   await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();
 
+  // The title bar's search field shows Mod+K, which opens the same list.
+  await expect(page.getByTestId("search-field")).toContainText(/Ctrl\+K|⌘K/);
+  await page.keyboard.press("ControlOrMeta+K");
+  await expect(page.getByRole("combobox", { name: /Go to file in/ })).toBeFocused();
+  await page.keyboard.press("Escape");
+
   // Headless mode runs in a browser tab, which keeps Ctrl+P for printing.
   await page.keyboard.press("Alt+P");
   await page.keyboard.type("deeptarget");

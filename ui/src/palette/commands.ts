@@ -13,14 +13,17 @@ export function registerPaletteCommands(workspace: Target): () => void {
     palette.mode = mode;
     workspace.paletteOpen = true;
   };
+  const goToFile = () => show(workspace.project ? "files" : "projects")();
   const unregister = [
     registerCommand({ id: "palette.show", title: "Show all commands", keys: "Mod+Shift+P", run: show("commands") }),
     registerCommand({
       id: "palette.go_to_file",
       title: "Go to file",
       keys: "Mod+P",
-      run: () => show(workspace.project ? "files" : "projects")(),
+      run: goToFile,
     }),
+    // The title bar's search field: the same list, on the key the field shows.
+    registerCommand({ id: "palette.search", title: "Quick open", keys: "Mod+K", run: goToFile }),
     registerCommand({ id: "palette.switch_project", title: "Switch project", run: show("projects") }),
     registerCommand({
       id: "palette.close_project",

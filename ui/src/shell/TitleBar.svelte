@@ -16,7 +16,9 @@ import Icon from "./Icon.svelte";
 import MoreMenu from "./MoreMenu.svelte";
 import ProjectSwitcher from "./ProjectSwitcher.svelte";
 
-const SEARCH = "palette.go_to_file";
+// Mod+K. The palette it opens lists files (projects on the start screen), not
+// commands, so the field says "Go to file" rather than "Search or run".
+const SEARCH = "palette.search";
 
 const { transport, workspace } = useOvra();
 

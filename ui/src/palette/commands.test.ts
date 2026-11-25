@@ -17,6 +17,7 @@ describe("palette commands", () => {
     expect(listCommands().map((c) => [c.id, c.keys])).toEqual([
       ["palette.close_project", undefined],
       ["palette.go_to_file", "Mod+P"],
+      ["palette.search", "Mod+K"],
       ["palette.show", "Mod+Shift+P"],
       ["palette.switch_project", undefined],
     ]);
@@ -25,6 +26,9 @@ describe("palette commands", () => {
     expect([workspace.paletteOpen, palette.mode]).toEqual([true, "projects"]);
     workspace.project = project;
     await run("palette.go_to_file");
+    expect(palette.mode).toBe("files");
+    palette.mode = "commands";
+    await run("palette.search");
     expect(palette.mode).toBe("files");
     await run("palette.show");
     expect(palette.mode).toBe("commands");
