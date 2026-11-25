@@ -426,6 +426,24 @@ async fn frames_in_other_processes_hold_their_documents_before_they_run() {
 }
 
 #[tokio::test]
+async fn downloads_are_denied_and_service_workers_bypassed() {
+    let s = setup();
+    s.open("s1", "http://localhost:5173/").await.expect("open");
+    let sent = s.until("S1 Network.setBypassServiceWorker").await;
+    let set: Vec<&String> = sent
+        .iter()
+        .filter(|m| m.contains("setDownloadBehavior") || m.contains("setBypassServiceWorker"))
+        .collect();
+    assert_eq!(
+        set,
+        [
+            r#" Browser.setDownloadBehavior {"behavior":"deny"}"#,
+            r#"S1 Network.setBypassServiceWorker {"bypass":true}"#,
+        ]
+    );
+}
+
+#[tokio::test]
 async fn the_person_is_asked_about_the_origin_that_loads() {
     let s = setup();
     let page = s.open("s1", "http://localhost:5173/").await.expect("open");

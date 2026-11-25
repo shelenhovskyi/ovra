@@ -45,6 +45,12 @@ fn hold_documents() -> Value {
     json!({ "patterns": [document] })
 }
 
+/// Requests go to the network, never to a service worker: one would
+/// answer a navigation without it being held.
+fn bypass() -> Value {
+    json!({ "bypass": true })
+}
+
 /// The page's text, read in Ovra's isolated world.
 const TEXT: &str = "document.body ? document.body.innerText : ''";
 
@@ -156,6 +162,8 @@ impl Page {
             self.call(&format!("{domain}.enable"), json!({})).await?;
         }
         self.call("Fetch.enable", hold_documents()).await?;
+        self.call("Network.setBypassServiceWorker", bypass())
+            .await?;
         self.call("Target.setAutoAttach", auto_attach()).await?;
         let metrics =
             json!({"width": size.0, "height": size.1, "deviceScaleFactor": 1, "mobile": false});
@@ -240,6 +248,7 @@ impl Page {
         tokio::spawn(async move {
             for (method, params) in [
                 ("Fetch.enable", hold_documents()),
+                ("Network.setBypassServiceWorker", bypass()),
                 ("Target.setAutoAttach", auto_attach()),
             ] {
                 if cdp.call(Some(&child), method, params).await.is_err() {

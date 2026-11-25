@@ -5,10 +5,12 @@ expression: frames
 [
     "D1 Runtime.runIfWaitingForDebugger {}",
     "F1 Fetch.enable {\"patterns\":[{\"requestStage\":\"Request\",\"resourceType\":\"Document\",\"urlPattern\":\"*\"}]}",
+    "F1 Network.setBypassServiceWorker {\"bypass\":true}",
     "F1 Target.setAutoAttach {\"autoAttach\":true,\"flatten\":true,\"waitForDebuggerOnStart\":true}",
     "F1 Runtime.runIfWaitingForDebugger {}",
     "F1 Fetch.failRequest {\"errorReason\":\"BlockedByClient\",\"requestId\":\"r9\"}",
     "F2 Fetch.enable {\"patterns\":[{\"requestStage\":\"Request\",\"resourceType\":\"Document\",\"urlPattern\":\"*\"}]}",
+    "F2 Network.setBypassServiceWorker {\"bypass\":true}",
     "F2 Target.setAutoAttach {\"autoAttach\":true,\"flatten\":true,\"waitForDebuggerOnStart\":true}",
     "F2 Runtime.runIfWaitingForDebugger {}",
     "F2 Fetch.continueRequest {\"requestId\":\"r9\"}",

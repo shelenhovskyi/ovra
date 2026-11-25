@@ -69,6 +69,8 @@ impl Session {
         for (method, params) in [
             ("Target.setDiscoverTargets", json!({ "discover": true })),
             ("Target.setAutoAttach", attach),
+            // Nothing a page offers is saved to disk.
+            ("Browser.setDownloadBehavior", json!({ "behavior": "deny" })),
         ] {
             ready = session.cdp.call(None, method, params).await;
             if ready.is_err() {
