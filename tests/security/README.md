@@ -120,6 +120,13 @@ spec.
   process can use (5.A).
 - **Without bubblewrap** sessions run unsandboxed and say so; policies never
   skip a question for them.
+- **Unix sockets in visible folders.** Landlock does not limit connecting
+  to a socket file, so an agent or a language server can reach a socket
+  that something on the host listens on inside a folder the sandbox shows
+  (the project, a toolchain folder). `/run` and `/tmp` are hidden, so the
+  system's sockets (D-Bus, Docker) are not reachable, and abstract sockets
+  are not (new network namespace). Refusing `socket(AF_UNIX)` in seccomp
+  would close it; it needs a check that servers and agent tools still work.
 
 ## Covered elsewhere
 
