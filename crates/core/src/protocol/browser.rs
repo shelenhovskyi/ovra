@@ -229,6 +229,7 @@ pub enum BrowserEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::protocol::audit::{AuditEvent, NavigationBy};
     use crate::protocol::{Event, Request, Response};
 
     fn page() -> PageId {
@@ -294,6 +295,13 @@ mod tests {
                     session: SessionId("s1".into()),
                     origin: "https://example.com".into(),
                 }),
+            ],
+            "audit": [
+                AuditEvent::BrowserNavigation {
+                    origin: "https://example.com".into(),
+                    allowed: false,
+                    by: NavigationBy::NoAnswer,
+                },
             ],
         }));
     }

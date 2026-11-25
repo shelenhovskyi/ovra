@@ -32,7 +32,9 @@ export type AuditEvent =
   /** A language server for the project's files; `sandbox` is null without one. */
   | { kind: "language_server_started"; server: LspServerId; name: string; language: string; sandbox: string | null }
   /** `reason` says why it failed; null when it was stopped or exited cleanly. */
-  | { kind: "language_server_stopped"; server: LspServerId; name: string; language: string; reason: string | null };
+  | { kind: "language_server_stopped"; server: LspServerId; name: string; language: string; reason: string | null }
+  /** Whether the session's browser may load an origin that is not a granted server. */
+  | { kind: "browser_navigation"; origin: string; allowed: boolean; by: NavigationBy };
 
 /** Never file contents; other inputs redacted and cut to 4 KiB. */
 export type AuditInput = { kind: "file"; path: string; sha256: string | null } | { kind: "json"; text: string };
@@ -42,6 +44,9 @@ export type DecidedBy =
   | { kind: "policy"; rule: string }
   | { kind: "role" }
   | { kind: "session_ended" };
+
+/** Who decided a browser navigation; `no_answer` and `session_ended` refuse. */
+export type NavigationBy = "person" | "no_answer" | "session_ended";
 
 export type ReviewAction = "approved" | "partly_approved" | "rejected" | "undone_reject" | "taken" | "undone_take";
 

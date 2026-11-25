@@ -108,6 +108,18 @@ group("describe", () => {
     expect(shows("servers", false, entry(5, { ...stopped, reason: null }))).toBe(true);
   });
 
+  it("describes browser navigations and counts refusals", () => {
+    const refused = entry(5, { kind: "browser_navigation", origin: "https://x.test", allowed: false, by: "no_answer" });
+    expect(describe(refused)).toMatchObject({
+      title: "Browser may not open https://x.test",
+      detail: "The session's browser was refused because nobody answered in time.",
+      tone: "refused",
+    });
+    expect(shows("network", true, refused)).toBe(true);
+    const allowed = line({ kind: "browser_navigation", origin: "https://x.test", allowed: true, by: "person" });
+    expect(allowed.detail).toBe("The session's browser was allowed by a person.");
+  });
+
   it("filters by kind and by refusals", () => {
     const allowed = entry(1, bash(true));
     const refused = entry(2, bash(false));

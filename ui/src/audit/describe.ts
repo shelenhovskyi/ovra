@@ -1,7 +1,7 @@
 // Plain-language lines for audit entries. Kept apart from the component so
 // every kind of entry is tested without mounting it.
 
-import type { AuditEntry, AuditEvent, DecidedBy, ReviewAction } from "../lib/protocol";
+import type { AuditEntry, AuditEvent, DecidedBy, NavigationBy, ReviewAction } from "../lib/protocol";
 
 export type Described = {
   /** What happened, e.g. "Allowed Bash". */
@@ -21,7 +21,7 @@ export const FILTERS = {
   sessions: { label: "Sessions", kinds: ["session_started"] },
   settings: { label: "Trust and policy", kinds: ["trust_changed", "policy_changed"] },
   reviews: { label: "Reviews", kinds: ["review_decided"] },
-  network: { label: "Network and secrets", kinds: ["network_refused", "secret_used"] },
+  network: { label: "Network and secrets", kinds: ["network_refused", "secret_used", "browser_navigation"] },
   servers: {
     label: "Servers",
     kinds: [
@@ -51,6 +51,12 @@ const REVIEW: Record<ReviewAction, string> = {
   undone_reject: "reject undone",
   taken: "replaced with the worker's version",
   undone_take: "replace undone",
+};
+
+const NAVIGATION_BY: Record<NavigationBy, string> = {
+  person: "by a person",
+  no_answer: "because nobody answered in time",
+  session_ended: "because the session ended",
 };
 
 function decidedBy(by: DecidedBy): string {
@@ -175,6 +181,15 @@ export function describe(entry: AuditEntry): Described {
         input: null,
         tone: "plain",
       };
+    case "browser_navigation": {
+      const verb = event.allowed ? "allowed" : "refused";
+      return {
+        title: `Browser ${event.allowed ? "may open" : "may not open"} ${event.origin}`,
+        detail: `The session's browser was ${verb} ${NAVIGATION_BY[event.by]}.`,
+        input: null,
+        tone: event.allowed ? "plain" : "refused",
+      };
+    }
   }
 }
 

@@ -58,6 +58,7 @@ fn kind(event: &AuditEvent) -> &'static str {
         AuditEvent::LoopbackRevoked { .. } => "loopback_revoked",
         AuditEvent::LanguageServerStarted { .. } => "language_server_started",
         AuditEvent::LanguageServerStopped { .. } => "language_server_stopped",
+        AuditEvent::BrowserNavigation { .. } => "browser_navigation",
     }
 }
 

@@ -96,6 +96,24 @@ pub enum AuditEvent {
         language: String,
         reason: Option<String>,
     },
+    /// Whether a session's browser may load `origin`, which is neither a
+    /// granted server nor decided before for the session (ADR 0009).
+    BrowserNavigation {
+        origin: String,
+        allowed: bool,
+        by: NavigationBy,
+    },
+}
+
+/// Who decided a browser navigation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NavigationBy {
+    Person,
+    /// Nobody answered in time: refused.
+    NoAnswer,
+    /// The session ended while the navigation waited: refused.
+    SessionEnded,
 }
 
 /// A tool call's input as the log keeps it: never file contents, and with
