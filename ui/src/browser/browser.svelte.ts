@@ -6,6 +6,7 @@
 import { SvelteMap } from "svelte/reactivity";
 import type { CoreEvent, PageId, PageInfo, SessionId } from "../lib/protocol";
 import { CoreError, type Transport } from "../lib/transport";
+import type { Refusal } from "./refusal";
 
 /** A page wants an origin that is not one of the session's servers. */
 export type NavigationAsk = { page: PageId; session: SessionId; origin: string };
@@ -15,8 +16,8 @@ export class SessionBrowsers {
   readonly pages = new SvelteMap<SessionId, PageInfo[]>();
   /** Navigations waiting for an answer, oldest first. */
   asks = $state<NavigationAsk[]>([]);
-  /** Why the browser cannot run for a session, in the core's words; set by the call it refused. */
-  unavailable = $state<{ session: SessionId; reason: string } | null>(null);
+  /** Why the browser cannot run, by session: from `browser.status`, or from a call it refused. */
+  readonly refusals = new SvelteMap<SessionId, Refusal>();
   /** Whether the pane is shown. */
   shown = $state(false);
 
@@ -57,13 +58,25 @@ export class SessionBrowsers {
     this.asks = this.asks.filter((a) => a !== ask);
   }
 
-  /** Runs a call for `session`; `unavailable` is remembered and answers null, other errors are thrown. */
+  /** Asks the core whether the session's browser can run, and keeps why not; `keep` keeps a refusal it no longer sees. */
+  async check(session: SessionId, keep = false): Promise<void> {
+    try {
+      const { data } = await this.transport.call({ method: "browser.status", params: { session } });
+      if (data.state === "refused") this.refusals.set(session, { code: data.code, reason: data.reason });
+      else if (!keep) this.refusals.delete(session);
+    } catch {
+      // A lost connection: the next call says why, if it fails.
+    }
+  }
+
+  /** Runs a call for `session`; `unavailable` is remembered with its code and answers null, other errors are thrown. */
   async guard<T>(session: SessionId, call: () => Promise<T>): Promise<T | null> {
     try {
       return await call();
     } catch (err) {
       if (err instanceof CoreError && err.code === "unavailable") {
-        this.unavailable = { session, reason: err.error.message };
+        this.refusals.set(session, { code: null, reason: err.error.message });
+        await this.check(session, true);
         return null;
       }
       throw err;

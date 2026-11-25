@@ -437,19 +437,15 @@ describe("the agent browser", () => {
     if (!first) throw new Error("no session");
     core.sessions = [first, { ...first, id: "s2", title: "Other" }];
     const reason = "the agent browser runs only for sessions whose agent runs in the sandbox";
-    core.refuse.set("browser.open", { code: "unavailable", message: reason });
+    core.status.set("s1", { state: "refused", code: "not_sandboxed", reason });
     await setup(core, { frame: false });
-    const field = $<HTMLInputElement>("#browser-address");
-    if (!field) throw new Error("no address field");
-    field.value = "localhost:5173/login";
-    field.dispatchEvent(new Event("input", { bubbles: true }));
-    flushSync();
-    button("Open in new tab")?.click();
-    await settle();
-    expect(core.sent("browser.open")).toEqual([{ session: "s1", url: "http://localhost:5173/login" }]);
+    // The pane asked about the session it shows before anyone tried.
+    expect(core.sent("browser.status").at(-1)).toEqual({ session: "s1" });
     const note = () => $("[data-testid=browser-unavailable]")?.textContent ?? null;
-    expect(note()).toContain(`The agent browser runs only for sessions whose agent runs in the sandbox.`);
+    expect(note()).toContain("This agent runs outside the sandbox, so it gets no browser.");
     expect(note()).not.toContain("Chromium");
+    expect(button("Try again")).toBeUndefined();
+    expect($("#browser-address")).toBeNull();
     const choose = async (id: string) => {
       const select = $<HTMLSelectElement>("[data-testid=browser-session]");
       if (!select) throw new Error("no session select");
@@ -459,9 +455,19 @@ describe("the agent browser", () => {
     };
     await choose("s2");
     expect(note()).toBeNull();
-    expect($("#browser-address")).not.toBeNull();
-    // Coming back tries again instead of keeping the old refusal.
-    await choose("s1");
+    // A call refused without a code says the core's words, and may be tried again.
+    core.refuse.set("browser.open", { code: "unavailable", message: "the browser has closed" });
+    const field = $<HTMLInputElement>("#browser-address");
+    if (!field) throw new Error("no address field");
+    field.value = "localhost:5173/login";
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+    flushSync();
+    button("Open in new tab")?.click();
+    await settle();
+    expect(core.sent("browser.open")).toEqual([{ session: "s2", url: "http://localhost:5173/login" }]);
+    expect(note()).toContain("The browser has closed.");
+    button("Try again")?.click();
+    await settle();
     expect(note()).toBeNull();
     expect($("#browser-address")).not.toBeNull();
   });
