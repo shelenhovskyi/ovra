@@ -226,13 +226,15 @@ async fn opens_through_the_core_in_the_project_root() {
 #[cfg(unix)]
 #[tokio::test]
 async fn a_flood_reaches_a_subscriber_whole() {
-    const LINES: usize = 200_000;
+    // Far more than one read (16 KiB) and one event (64 KiB), and still
+    // quick through a slow terminal driver.
+    const LINES: usize = 50_000;
     // A marker after the flood shows that everything before it arrived.
     let pty = shell();
     let core = Core::new("test");
     let mut rx = core.subscribe();
     let id = pty.open(here(), SIZE, core.sink()).expect("open");
-    pty.input(&id, "yes | head -n 200000; echo \"<$((1+1))>\"\r")
+    pty.input(&id, "yes | head -n 50000; echo \"<$((1+1))>\"\r")
         .expect("input");
     let (mut text, mut last) = (String::new(), 0);
     while !text.contains("<2>") {
