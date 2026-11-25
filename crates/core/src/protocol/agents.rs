@@ -31,6 +31,9 @@ pub enum SessionMode {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum AgentStatus {
+    /// The project already has as many agents working as it may
+    /// ([`AgentCapacity::limit`]); the agent starts when one finishes.
+    Queued,
     /// The agent process is starting.
     Starting,
     /// The agent is working on a turn.
@@ -84,6 +87,20 @@ pub struct SessionInfo {
     /// the default account, and for sessions saved before accounts existed.
     #[serde(default)]
     pub account: Option<String>,
+}
+
+/// How many agents of a project work at once, of how many it may run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentCapacity {
+    /// Sessions that do work now: direct sessions and workers that have not
+    /// ended. Coordinators only plan and wait for their workers, and a
+    /// worker that asked for review waits idle for the person: neither
+    /// counts.
+    pub working: u32,
+    /// The most that may work at once.
+    pub limit: u32,
+    /// Workers waiting for a free place (`queued`).
+    pub queued: u32,
 }
 
 /// Tokens and cost of one turn, as the agent reports them, or their sum.
@@ -462,6 +479,9 @@ pub enum AgentsRequest {
     /// Every message of the session so far.
     #[serde(rename = "agents.transcript")]
     Transcript { session: SessionId },
+    /// How many of the project's agents work, of how many may.
+    #[serde(rename = "agents.capacity")]
+    Capacity { project: ProjectId },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -479,6 +499,8 @@ pub enum AgentsResponse {
     Session(SessionInfo),
     #[serde(rename = "agents.transcript")]
     Transcript(Vec<AgentMessage>),
+    #[serde(rename = "agents.capacity")]
+    Capacity(AgentCapacity),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

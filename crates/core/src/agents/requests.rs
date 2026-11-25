@@ -178,6 +178,14 @@ pub(crate) async fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Resp
             let transcript = sessions.find(&session, |s| s.transcript())?;
             Ok(Response::Agents(AgentsResponse::Transcript(transcript)))
         }
+        AgentsRequest::Capacity { project } => {
+            ctx.projects.get(&project)?;
+            let core = sessions.core().ok_or_else(|| {
+                ProtocolError::new(ErrorCode::Unavailable, "Ovra is shutting down")
+            })?;
+            let capacity = crate::orchestration::capacity(&core, &project);
+            Ok(Response::Agents(AgentsResponse::Capacity(capacity)))
+        }
     }
 }
 

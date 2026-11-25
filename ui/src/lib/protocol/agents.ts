@@ -10,12 +10,23 @@ export type SessionMode = "direct" | "isolated";
 
 /** Closed set: the UI shows exactly these states. */
 export type AgentStatus =
+  /** The project has as many agents working as it may; it starts when one finishes. */
+  | { state: "queued" }
   | { state: "starting" }
   | { state: "working" }
   | { state: "waiting_for_approval" }
   | { state: "idle" }
   | { state: "stopped" }
   | { state: "failed"; message: string };
+
+/** How many agents of a project work at once, of how many it may run. */
+export type AgentCapacity = {
+  /** Direct sessions and workers that have not ended; not coordinators, nor workers idle after asking for review. */
+  working: number;
+  limit: number;
+  /** Workers waiting for a free place. */
+  queued: number;
+};
 
 export type SessionInfo = {
   id: SessionId;
@@ -178,7 +189,8 @@ export type AgentsRequest =
   | { method: "agents.resume"; params: { session: SessionId; prompt: string } }
   | { method: "agents.interrupt"; params: { session: SessionId } }
   | { method: "agents.stop"; params: { session: SessionId } }
-  | { method: "agents.transcript"; params: { session: SessionId } };
+  | { method: "agents.transcript"; params: { session: SessionId } }
+  | { method: "agents.capacity"; params: { project: ProjectId } };
 
 export type AgentsResponse =
   | { type: "agents.setup"; data: AgentSetup }
@@ -186,7 +198,8 @@ export type AgentsResponse =
   | { type: "agents.project_config"; data: ProjectConfigReview }
   | { type: "agents.list"; data: SessionInfo[] }
   | { type: "agents.session"; data: SessionInfo }
-  | { type: "agents.transcript"; data: AgentMessage[] };
+  | { type: "agents.transcript"; data: AgentMessage[] }
+  | { type: "agents.capacity"; data: AgentCapacity };
 
 export type AgentsEvent =
   | { type: "agents.message"; data: { session: SessionId; message: AgentMessage } }

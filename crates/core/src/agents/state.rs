@@ -4,7 +4,8 @@
 
 use crate::protocol::agents::AgentStatus;
 
-/// Whether a session may go from `from` to `to`. Pending permission requests
+/// Whether a session may go from `from` to `to`. A queued session has no
+/// process to report anything; the core starts it (`starting`) itself. Pending permission requests
 /// are checked by the caller: while any waits, only `waiting_for_approval`
 /// and the end states apply.
 pub(crate) fn allowed(from: &AgentStatus, to: &AgentStatus) -> bool {
@@ -26,11 +27,12 @@ mod tests {
 
     #[test]
     fn transitions() {
-        use AgentStatus::{Idle, Starting, Stopped, WaitingForApproval, Working};
+        use AgentStatus::{Idle, Queued, Starting, Stopped, WaitingForApproval, Working};
         let failed = AgentStatus::Failed {
             message: "x".into(),
         };
         let all = [
+            Queued,
             Starting,
             Working,
             WaitingForApproval,
@@ -55,6 +57,7 @@ mod tests {
             })
             .collect();
         insta::assert_snapshot!(table.join("\n"), @r#"
+        Queued -> Stopped, Failed { message: "x" }
         Starting -> Working, WaitingForApproval, Idle, Stopped, Failed { message: "x" }
         Working -> WaitingForApproval, Idle, Stopped, Failed { message: "x" }
         WaitingForApproval -> Working, Stopped, Failed { message: "x" }

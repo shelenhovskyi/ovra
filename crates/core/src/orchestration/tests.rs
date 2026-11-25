@@ -7,7 +7,8 @@ use tokio::sync::broadcast;
 use crate::Core;
 use crate::fakes::{MemoryAudit, MemoryFs, MemoryProjects, MemoryWorktrees, ScriptedAgent, Step};
 use crate::protocol::agents::{
-    AgentMessage, AgentStatus, AgentsEvent, MessageFrom, SessionId, SessionMode, TurnUsage,
+    AgentCapacity, AgentMessage, AgentStatus, AgentsEvent, AgentsResponse, MessageFrom, SessionId,
+    SessionMode, TurnUsage,
 };
 use crate::protocol::audit::{AuditEvent, DecidedBy, ReviewAction};
 use crate::protocol::orchestration::{OrchestrationEvent, OrchestrationResponse, ShowTarget, Task};
@@ -2441,4 +2442,40 @@ async fn workers_run_with_their_coordinators_account() {
         assert_eq!(spec.config_dir.as_deref(), Some(std::path::Path::new(work)));
         assert_eq!(spec.sandbox.claude_dir, spec.config_dir);
     }
+}
+
+async fn capacity(core: &Core) -> AgentCapacity {
+    let response = ok(
+        core,
+        json!({"method": "agents.capacity", "params": {"project": "p1"}}),
+    )
+    .await;
+    match response {
+        Response::Agents(AgentsResponse::Capacity(c)) => c,
+        other => panic!("unexpected {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn capacity_counts_the_agents_that_work_but_not_coordinators() {
+    let f = fx(say()).await;
+    let mut rx = f.core.subscribe();
+    start_task(&f.core, 3).await;
+    let boss = caller("s1", ToolRole::Coordinator);
+    let worker = f.core.spawn_agent(&boss, "one", "x").await;
+    let worker = worker.unwrap_or_else(|e| panic!("{e}"));
+    ok(
+        &f.core,
+        json!({"method": "agents.start", "params": {
+        "project": "p1", "agent": "claude", "mode": "direct", "prompt": "fix it"}}),
+    )
+    .await;
+    let c = capacity(&f.core).await;
+    assert_eq!((c.working, c.limit, c.queued), (2, 3, 0));
+
+    // A worker that asked for review and waits idle holds no place.
+    until(&mut rx, &worker.session.0, AgentStatus::Idle).await;
+    let me = caller(&worker.session.0, ToolRole::Worker);
+    assert!(f.core.request_review(&me, None, "done").await.is_ok());
+    assert_eq!(capacity(&f.core).await.working, 1);
 }

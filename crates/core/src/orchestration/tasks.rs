@@ -46,6 +46,12 @@ impl Entry {
         &self.coordinator == session || self.workers.iter().any(|w| &w.session == session)
     }
 
+    /// Workers being set up: how many will wait for a place, how many
+    /// will work.
+    pub(super) fn starting(&self) -> (usize, usize) {
+        (0, self.starting.len())
+    }
+
     fn sessions(&self) -> impl Iterator<Item = &SessionId> {
         std::iter::once(&self.coordinator).chain(self.workers.iter().map(|w| &w.session))
     }

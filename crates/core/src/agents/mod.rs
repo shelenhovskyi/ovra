@@ -233,6 +233,22 @@ impl Sessions {
         })
     }
 
+    /// Sessions of `project` that have not ended, with their state and
+    /// which IDE tools they have.
+    pub(crate) fn active(
+        &self,
+        project: &ProjectId,
+    ) -> Vec<(SessionId, AgentStatus, Option<ToolRole>)> {
+        lock(&self.list)
+            .iter()
+            .filter(|s| &s.info.project == project && !s.info.status.is_ended())
+            .map(|s| {
+                let role = s.launch.as_ref().and_then(|l| l.tools);
+                (s.info.id.clone(), s.info.status.clone(), role)
+            })
+            .collect()
+    }
+
     /// Sessions of `project` that have not ended.
     pub(crate) fn running(&self, project: &ProjectId) -> Vec<SessionId> {
         lock(&self.list)

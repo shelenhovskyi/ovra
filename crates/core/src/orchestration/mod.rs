@@ -12,6 +12,7 @@ mod ide;
 mod policy;
 mod review;
 mod saved;
+mod slots;
 mod tasks;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -29,6 +30,7 @@ use crate::protocol::{ErrorCode, ProtocolError, Response};
 use crate::services::SessionStore;
 
 pub(crate) use saved::restore;
+pub(crate) use slots::capacity;
 pub(crate) use tasks::unless_cleaned;
 
 type Result<T> = std::result::Result<T, ProtocolError>;

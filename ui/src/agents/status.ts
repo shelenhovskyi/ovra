@@ -5,6 +5,8 @@ import type { AgentStatus } from "../lib/protocol";
 
 export function statusLabel(status: AgentStatus): string {
   switch (status.state) {
+    case "queued":
+      return "Waiting for a free agent";
     case "starting":
       return "Starting";
     case "working":
