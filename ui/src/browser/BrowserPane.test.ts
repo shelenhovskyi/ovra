@@ -333,6 +333,29 @@ describe("the agent browser", () => {
     expect(inputs(core)).toEqual([]);
   });
 
+  it("keeps focus on the pick list as picks are removed, then on Pick", async () => {
+    const core = await setup();
+    button("Pick")?.click();
+    await settle();
+    mouse("click", 320, 300, { shiftKey: true });
+    await settle();
+    core.element = (_x, _y, up) => pickOf("a", up);
+    mouse("click", 100, 200);
+    await settle();
+    const remove = (label: string) => {
+      const b = button(`Remove ${label}`);
+      b?.focus();
+      b?.click();
+    };
+    remove('button "button"');
+    await settle();
+    expect(document.activeElement).toBe(button('Remove link "a"'));
+    remove('link "a"');
+    await settle();
+    expect(browserPicks(core).of("s1")).toEqual([]);
+    expect(document.activeElement).toBe(button("Pick"));
+  });
+
   it("stops hit tests when the pane hides in pick mode", async () => {
     const core = await setup();
     button("Pick")?.click();
@@ -358,12 +381,40 @@ describe("the agent browser", () => {
     await settle();
     const ask = $('[role=group][aria-label="Let the agent open https://example.com?"]');
     expect(ask?.textContent).toContain("Let the agent open https://example.com?");
+    // Showing the pane with an ask waiting puts the person on it.
+    expect(document.activeElement).toBe(button("Allow"));
     button("Allow")?.click();
     await settle();
     expect(core.sent("browser.answer_navigation")).toEqual([
       { page: "pg1", origin: "https://example.com", allow: true },
     ]);
     expect($("[data-testid=browser-ask]")).toBeNull();
+    expect(document.activeElement?.textContent).toBe("Home");
+  });
+
+  it("moves focus to a new ask, and to the next one after an answer", async () => {
+    const core = await setup();
+    const asked = (origin: string) =>
+      core.emit({ type: "browser.navigation_asked", data: { page: "pg1", session: "s1", origin } });
+    const allow = (origin: string) =>
+      $<HTMLButtonElement>(`[role=group][aria-label="Let the agent open ${origin}?"] button`);
+    // Not while the person works the page itself.
+    stage().focus();
+    asked("https://a.test");
+    await settle();
+    expect(document.activeElement).toBe(stage());
+    $<HTMLInputElement>("#browser-address")?.focus();
+    asked("https://b.test");
+    await settle();
+    expect(document.activeElement).toBe(allow("https://b.test"));
+    const deny = $<HTMLButtonElement>(
+      '[role=group][aria-label="Let the agent open https://a.test?"] button:last-child',
+    );
+    deny?.focus();
+    deny?.click();
+    await settle();
+    expect(core.sent("browser.answer_navigation")).toEqual([{ page: "pg1", origin: "https://a.test", allow: false }]);
+    expect(document.activeElement).toBe(allow("https://b.test"));
   });
 
   it("says why the browser cannot run for one session, and only there", async () => {

@@ -20,6 +20,7 @@ let activePage = $state<PageId | null>(null);
 let address = $state("");
 let error = $state<string | null>(null);
 let heading = $state<HTMLElement>();
+let pane = $state<HTMLElement>();
 const tabButtons: Record<PageId, HTMLButtonElement> = $state({});
 
 const project = $derived(workspace.project?.id ?? null);
@@ -48,9 +49,30 @@ $effect(() => {
   if (browsers.shown && project) untrack(() => sessions.load(project).catch(() => {}));
 });
 
-// Showing the pane moves focus to it.
+// Showing the pane moves focus to it: to the first ask waiting, if any.
 $effect(() => {
-  if (browsers.shown) void tick().then(() => heading?.focus());
+  if (browsers.shown) void tick().then(() => (allowOf(0) ?? heading)?.focus());
+});
+
+/** The Allow button of the `at`th ask shown. */
+function allowOf(at: number): HTMLButtonElement | null {
+  return pane?.querySelectorAll<HTMLButtonElement>("[data-testid=browser-ask] button")[at * 2] ?? null;
+}
+
+/** Whether focus is in the pane, or nowhere, but not on the page itself. */
+function focusIsFree(): boolean {
+  const active = document.activeElement;
+  if (!active || active === document.body) return true;
+  return !!pane?.contains(active) && !active.closest("[data-testid=browser-stage]");
+}
+
+// A new ask gets focus, unless the person is busy elsewhere.
+let asked = 0;
+$effect(() => {
+  const count = asks.length;
+  const grew = count > asked;
+  asked = count;
+  if (grew && browsers.shown) void tick().then(() => focusIsFree() && allowOf(count - 1)?.focus());
 });
 
 // A refusal is about one session: showing another one forgets it, so coming back tries again.
@@ -100,8 +122,17 @@ function close(closing: PageInfo): Promise<void> {
   return run(() => browsers.close(closing));
 }
 
-function answer(ask: NavigationAsk, allow: boolean): Promise<void> {
-  return run(() => browsers.answer(ask, allow));
+async function answer(ask: NavigationAsk, allow: boolean): Promise<void> {
+  await run(() => browsers.answer(ask, allow));
+  await tick();
+  // The answered ask is gone: go on to the next one, else to the page's tab or the address.
+  if (pane?.contains(document.activeElement)) return;
+  (
+    allowOf(0) ??
+    (page && tabButtons[page.id]) ??
+    pane?.querySelector<HTMLElement>("#browser-address") ??
+    heading
+  )?.focus();
 }
 
 async function select(target: PageInfo): Promise<void> {
@@ -124,7 +155,7 @@ function hide(): void {
 </script>
 
 {#if browsers.shown}
-  <section class="browser" aria-labelledby="browser-title" data-testid="browser">
+  <section class="browser" aria-labelledby="browser-title" data-testid="browser" bind:this={pane}>
     <header>
       <h2 id="browser-title" tabindex="-1" bind:this={heading}>Browser</h2>
       {#if list.length > 0}

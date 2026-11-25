@@ -1,14 +1,27 @@
 <script lang="ts">
 // The elements picked on a page and not sent yet, each with an optional note
 // for the agent. The session's message box shows them as chips too.
+import { tick } from "svelte";
 import type { PageInfo } from "../lib/protocol";
 import { useOvra } from "../shell/context";
 import { browserPicks, pickLabel } from "./picks.svelte";
 
-let { page }: { page: PageInfo } = $props();
+/** `onEmptied` runs after the last pick is removed, to move focus on. */
+let { page, onEmptied }: { page: PageInfo; onEmptied: () => void } = $props();
 
 const picks = browserPicks(useOvra().transport);
 const mine = $derived(picks.of(page.session).filter((p) => p.page === page.id));
+const removeButtons: Record<string, HTMLButtonElement> = $state({});
+
+/** Removes a pick; focus goes to the next one's Remove, else the previous one's. */
+async function remove(pickId: string): Promise<void> {
+  const at = mine.findIndex((p) => p.pick.pick_id === pickId);
+  const neighbour = mine[at + 1] ?? mine[at - 1];
+  picks.remove(page.session, pickId);
+  await tick();
+  if (neighbour) removeButtons[neighbour.pick.pick_id]?.focus();
+  else onEmptied();
+}
 </script>
 
 {#if mine.length > 0}
@@ -26,7 +39,8 @@ const mine = $derived(picks.of(page.session).filter((p) => p.page === page.id));
         <button
           type="button"
           aria-label={`Remove ${pickLabel(p.pick)}`}
-          onclick={() => picks.remove(page.session, p.pick.pick_id)}>Remove</button
+          bind:this={removeButtons[p.pick.pick_id]}
+          onclick={() => void remove(p.pick.pick_id)}>Remove</button
         >
       </li>
     {/each}

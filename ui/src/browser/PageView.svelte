@@ -30,6 +30,7 @@ const picker = new Picker(transport, id);
 $effect(() => () => picker.stop());
 
 let stage = $state<HTMLElement>();
+let pickButton = $state<HTMLButtonElement>();
 let canvas = $state<HTMLCanvasElement>();
 let box = $state({ width: 0, height: 0 });
 let meta = $state<FrameMetadata | null>(null);
@@ -354,6 +355,7 @@ $effect(() => {
       aria-keyshortcuts={PICK_KEYS}
       title={`Pick an element (${pickKeys})`}
       data-testid="browser-pick"
+      bind:this={pickButton}
       onclick={togglePick}>Pick</button
     >
     <span class="mode" class:controlling role="status" data-testid="browser-mode">{modeText}</span>
@@ -388,7 +390,7 @@ $effect(() => {
       <p class="waiting">Waiting for the page to show…</p>
     {/if}
   </div>
-  <PickList {page} />
+  <PickList {page} onEmptied={() => pickButton?.focus()} />
 </div>
 
 <style>
