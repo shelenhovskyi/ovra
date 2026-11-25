@@ -326,6 +326,12 @@ pub trait LanguageServers: Send + Sync + Debug {
     /// [`ServerHost::message`] in order, held back while
     /// [`ServerHost::busy`]; [`ServerHost::exited`] comes once, last.
     fn start(&self, spec: ServerSpec, host: ServerHost) -> BoxFuture<'_, Result<StartedServer>>;
+    /// Deletes what the service keeps for `project` (its servers' cache
+    /// folders), after the core stopped its servers because its trust was
+    /// taken back or it was removed. Never touches the project's files.
+    fn forget(&self, project: &ProjectId) {
+        let _ = project;
+    }
 }
 
 /// One running language server.

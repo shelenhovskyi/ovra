@@ -126,7 +126,12 @@ makes on disk still reach them.
 - `project`: the project root, readable, never writable;
 - `cache_dir`: `<data dir>/lsp/<project id>/<language>`, writable; the
   server's environment points build output there (`CARGO_TARGET_DIR`,
-  `XDG_CACHE_HOME`, `TMPDIR`);
+  `XDG_CACHE_HOME`, `TMPDIR`). Each start replaces a link or file in
+  place of the cache folder or those folders with a real folder, so a
+  link a server planted never sends a later start elsewhere.
+  `LanguageServers::forget` deletes `<data dir>/lsp/<project id>` once
+  the core stopped the project's servers because its trust was taken
+  back or it was removed;
 - `read`: more readable folders (toolchains the server needs);
 - `network`: `Blocked` in v1 (`CARGO_NET_OFFLINE=true`).
 

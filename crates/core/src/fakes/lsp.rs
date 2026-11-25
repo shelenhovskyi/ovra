@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use super::{lock, not_found};
 use crate::protocol::lsp::KnownServer;
+use crate::protocol::projects::ProjectId;
 use crate::services::{
     BoxFuture, LanguageServers, Result, RunningServer, ServerHost, ServerSpec, StartedServer,
 };
@@ -17,6 +18,7 @@ pub struct FakeLanguageServers {
     pub known: Vec<KnownServer>,
     pub sandbox: Option<String>,
     started: Mutex<Vec<FakeServer>>,
+    forgotten: Mutex<Vec<ProjectId>>,
 }
 
 impl Default for FakeLanguageServers {
@@ -37,12 +39,18 @@ impl FakeLanguageServers {
             known,
             sandbox: Some("fake".into()),
             started: Mutex::default(),
+            forgotten: Mutex::default(),
         }
     }
 
     /// Every server started so far, first first.
     pub fn started(&self) -> Vec<FakeServer> {
         lock(&self.started).clone()
+    }
+
+    /// The projects the core asked it to forget, first first.
+    pub fn forgotten(&self) -> Vec<ProjectId> {
+        lock(&self.forgotten).clone()
     }
 }
 
@@ -75,6 +83,10 @@ impl LanguageServers for FakeLanguageServers {
                 sandbox: self.sandbox.clone(),
             })
         })
+    }
+
+    fn forget(&self, project: &ProjectId) {
+        lock(&self.forgotten).push(project.clone());
     }
 }
 

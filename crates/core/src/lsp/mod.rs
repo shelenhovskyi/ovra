@@ -116,8 +116,8 @@ pub(crate) async fn handle(core: &Core, request: LspRequest) -> Result<Response,
     }
 }
 
-/// Stops every server of `project`: its trust was taken back, or it was
-/// removed.
+/// Stops every server of `project` and has the service forget its caches:
+/// its trust was taken back, or it was removed.
 pub(crate) fn stop_project(core: &Core, project: &ProjectId) {
     let ids: Vec<ServerId> = core
         .lsp_servers()
@@ -130,6 +130,7 @@ pub(crate) fn stop_project(core: &Core, project: &ProjectId) {
     for id in ids {
         stop(core, &id);
     }
+    core.language_servers().forget(project);
 }
 
 async fn start(

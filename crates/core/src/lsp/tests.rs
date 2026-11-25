@@ -386,7 +386,19 @@ async fn taking_trust_back_stops_the_projects_servers() {
     ok(call(&test.core, untrust).await);
     assert!(server(&test).stopped());
     assert!(!ok(test.store.get(&ProjectId("p1".into()))).trusted);
+    assert_eq!(test.servers.forgotten(), [ProjectId("p1".into())]);
     assert_eq!(code(start(&test.core, "rust").await), ErrorCode::Forbidden);
+}
+
+#[tokio::test]
+async fn removing_a_project_stops_its_servers_and_forgets_their_caches() {
+    let test = setup(FakeLanguageServers::default(), true).await;
+    ok(start(&test.core, "rust").await);
+    assert!(test.servers.forgotten().is_empty());
+    let remove = json!({"method": "projects.remove", "params": {"id": "p1"}});
+    ok(call(&test.core, remove).await);
+    assert!(server(&test).stopped());
+    assert_eq!(test.servers.forgotten(), [ProjectId("p1".into())]);
 }
 
 #[test]
