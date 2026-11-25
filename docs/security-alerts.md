@@ -15,8 +15,8 @@ is neither fixed nor listed below is a new one.
 | Workflow audit                | zizmor job in `Security`.                                                                                                           |
 
 Dependency updates come from Renovate (`renovate.json`). Dependabot alerts are
-off; Scorecard's Vulnerabilities check (OSV over `Cargo.lock` and
-`pnpm-lock.yaml`) covers the same advisories.
+on, but agents cannot read their API either; Scorecard's Vulnerabilities check
+(OSV over `Cargo.lock` and `pnpm-lock.yaml`) covers the same advisories.
 
 ## How a pass works
 
