@@ -269,8 +269,16 @@ fn start_read(
     if let Some(values) = state.values.get(project) {
         return Ok(Some(values.clone()));
     }
-    if let Some(reading) = state.reading.get(project) {
-        return Err((reading.outcome.clone(), reading.deadline));
+    // A read whose task died (its runtime shut down) never answers: start
+    // another in its place.
+    match state.reading.get(project) {
+        Some(reading) if reading.outcome.has_changed().is_ok() => {
+            return Err((reading.outcome.clone(), reading.deadline));
+        }
+        Some(_) => {
+            state.reading.remove(project);
+        }
+        None => {}
     }
     if state
         .failed

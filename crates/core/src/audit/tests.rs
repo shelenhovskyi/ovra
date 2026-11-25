@@ -773,6 +773,7 @@ mod keychain {
     use std::sync::{Arc, Condvar, Mutex};
 
     use serde_json::json;
+    use tokio::sync::oneshot::error::TryRecvError;
     use tokio::sync::{Notify, oneshot};
     use tokio::time::Instant;
 
@@ -791,6 +792,16 @@ mod keychain {
     use crate::protocol::{ErrorCode, Event, ProtocolError, Request, Response};
     use crate::services::{AuditLog, Secrets};
 
+    /// The one secret the tests' project has.
+    fn deploy() -> SecretInfo {
+        SecretInfo {
+            name: "deploy".into(),
+            host: "api.example.com".into(),
+            header: "X-Token".into(),
+            prefix: String::new(),
+        }
+    }
+
     /// A keychain whose values wait until it is opened, counting reads.
     #[derive(Debug, Default)]
     struct SlowKeychain {
@@ -805,15 +816,9 @@ mod keychain {
     impl SlowKeychain {
         fn with(value: &str) -> Arc<Self> {
             let keychain = Arc::new(Self::default());
-            let secret = SecretInfo {
-                name: "deploy".into(),
-                host: "api.example.com".into(),
-                header: "X-Token".into(),
-                prefix: String::new(),
-            };
             keychain
                 .inner
-                .set(&project("p1"), secret, SecretValue::new(value))
+                .set(&project("p1"), deploy(), SecretValue::new(value))
                 .unwrap_or_else(|e| panic!("{e}"));
             keychain
         }
@@ -1076,7 +1081,7 @@ mod keychain {
         assert_eq!(inputs(&log), [redacted(), redacted(), redacted()]);
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn a_burst_on_a_cold_cache_waits_for_the_one_read() {
         let keychain = SlowKeychain::with("known-value-123");
         keychain.open();
@@ -1091,7 +1096,7 @@ mod keychain {
         assert_eq!(inputs(&log), [kept(&gone), kept("echo two")]);
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn a_read_that_fails_while_the_secrets_change_is_not_held_against_the_new_ones() {
         let keychain = SlowKeychain::with("known-value-123");
         keychain.broken.store(true, Ordering::SeqCst);
@@ -1100,14 +1105,19 @@ mod keychain {
         let core = core(&keychain, &log);
         let failing = decided(&core, &project("p1"), "echo one");
         keychain.entered.notified().await;
+        keychain
+            .inner
+            .set(&project("p1"), deploy(), SecretValue::new("new-value-456"))
+            .unwrap_or_else(|e| panic!("{e}"));
         forget_secrets(&core, &project("p1"));
-        keychain.broken.store(false, Ordering::SeqCst);
         keychain.open();
+        // The old read fails after the change: no backoff may follow from it.
         failing.await.unwrap_or_else(|e| panic!("{e}"));
-        decide(&core, "echo known-value-123").await;
+        keychain.broken.store(false, Ordering::SeqCst);
+        decide(&core, "echo new-value-456 known-value-123").await;
         assert_eq!(keychain.reads(), 2);
-        let gone = format!("echo {REDACTED}");
-        assert_eq!(inputs(&log)[1], kept(&gone));
+        let changed = format!("echo {REDACTED} known-value-123");
+        assert_eq!(inputs(&log), [redacted(), kept(&changed)]);
     }
 
     #[tokio::test(start_paused = true)]
@@ -1148,16 +1158,19 @@ mod keychain {
         });
         runtime.shutdown_background();
         let (mut first, mut second) = (first, second);
-        assert!(first.try_recv().is_err());
-        assert!(second.try_recv().is_err());
+        assert!(matches!(first.try_recv(), Err(TryRecvError::Closed)));
+        assert!(matches!(second.try_recv(), Err(TryRecvError::Closed)));
         // A new decision starts a new lane instead of joining a dead one.
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .unwrap_or_else(|e| panic!("{e}"));
         keychain.open();
-        runtime.block_on(decide(&core, "echo three"));
-        assert_eq!(inputs(&log).len(), 1);
+        // The read the old runtime dropped is not waited on: a new one runs.
+        runtime.block_on(decide(&core, "echo known-value-123"));
+        assert_eq!(keychain.reads(), 2);
+        let gone = format!("echo {REDACTED}");
+        assert_eq!(inputs(&log), [kept(&gone)]);
     }
 
     #[tokio::test(start_paused = true)]
