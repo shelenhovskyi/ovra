@@ -754,12 +754,12 @@ echo '{"type":"result","subtype":"success","usage":{"input_tokens":1,"output_tok
     }
 
     #[tokio::test]
-    async fn a_missing_executable_says_how_to_install() {
+    async fn a_missing_executable_says_what_to_do() {
         let dir = Dir::new("missing");
         let (_core, mut rx) = run(&dir, &dir.0.join("no-claude")).await;
         match end(&mut rx).await {
             AgentStatus::Failed { message } => {
-                assert!(message.contains("Install Claude Code"), "{message}");
+                assert!(message.contains("Find automatically"), "{message}");
             }
             other => panic!("unexpected {other:?}"),
         }
