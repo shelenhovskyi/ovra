@@ -127,7 +127,7 @@ fn a_direct_session_behind_a_proxy() {
         },
     };
     let plan = Plan::new(&setup, &profile, &claude).unwrap();
-    let line = plan.line(&setup.helper, line(claude, &work), &outer_env());
+    let line = plan.line(&setup, line(claude, &work), &outer_env());
     insta::assert_snapshot!(root.show(&line));
     // Missing protected folders are made, so the agent cannot make them.
     assert!(work.join(".claude").is_dir() && work.join(".vscode").is_dir());
@@ -206,7 +206,7 @@ fn variable_names_match_without_case() {
     };
     let plan = Plan::new(&setup, &profile, &claude).unwrap();
     let outer = ["Path", "userprofile", "github_token"].map(OsString::from);
-    let line = plan.line(&setup.helper, line(claude, &work), &outer);
+    let line = plan.line(&setup, line(claude, &work), &outer);
     let removed: Vec<_> = line
         .env
         .iter()
@@ -226,4 +226,22 @@ fn each_folder_has_its_own_sid_and_keeps_it() {
         a.starts_with("S-1-5-21-") && a.split('-').count() == 8,
         "{a}"
     );
+}
+
+#[test]
+fn a_helper_installed_in_the_home_folder_can_be_started() {
+    let root = Root::new("helper");
+    let work = root.dir("projects/app");
+    let claude = root.file("sys/bin/claude.exe");
+    let mut setup = root.setup(&["sys/bin"]);
+    setup.helper = root.file("home/AppData/Local/Programs/Ovra/ovra.exe");
+    let profile = SandboxProfile {
+        work_dir: work,
+        read: Vec::new(),
+        write: Vec::new(),
+        network: ProfileNetwork::Blocked,
+    };
+    let plan = Plan::new(&setup, &profile, &claude).unwrap();
+    let folder = root.0.join("home/AppData/Local/Programs/Ovra");
+    assert!(plan.grants.contains(&(folder, Right::ReadExecute)));
 }

@@ -4,6 +4,7 @@ expression: root.show(&line)
 ---
 --ovra-sandbox-helper
 --sid SID
+--data ROOT/data
 --r ROOT/data/net/ca.pem
 --m ROOT/data/sandbox-caches/-ROOT-projects-app/cargo
 --m ROOT/data/sandbox-caches/-ROOT-projects-app/npm
