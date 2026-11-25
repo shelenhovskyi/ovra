@@ -158,16 +158,20 @@ export class AgentSessions {
     await this.load(project).catch(() => {});
   }
 
-  /** What `id` does now, in words; a coordinator that waits while its workers run says so. */
+  /**
+   * What `id` does now, in words; a coordinator that waits while its
+   * workers run, or wait for a free agent, says so.
+   */
   status(id: SessionId): string {
     const info = this.byId.get(id);
     if (!info) return "";
     const role = this.roles.get(id);
     if (role?.kind === "coordinator" && info.status.state === "idle") {
-      const working = [...this.roles].some(
-        ([session, r]) => r.kind === "worker" && r.coordinator === id && isBusy(this.byId.get(session)?.status ?? null),
-      );
-      if (working) return "Workers are on it";
+      const workers = [...this.roles]
+        .filter(([, r]) => r.kind === "worker" && r.coordinator === id)
+        .map(([session]) => this.byId.get(session)?.status ?? null);
+      if (workers.some(isBusy)) return "Workers are on it";
+      if (workers.some((s) => s?.state === "queued")) return "Workers are waiting for a free agent";
     }
     return statusLabel(info.status);
   }

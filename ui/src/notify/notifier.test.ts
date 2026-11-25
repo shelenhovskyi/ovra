@@ -153,6 +153,12 @@ describe("watchAgents", () => {
     // The coordinator handed out the work; its worker still runs.
     core.status("s1", { state: "idle" });
     expect(await texts()).toEqual([]);
+    // Its worker waits for a free agent: nothing is done yet.
+    core.status("s2", { state: "queued" });
+    core.status("s1", { state: "working" });
+    core.status("s1", { state: "idle" });
+    expect(await texts()).toEqual([]);
+    core.status("s2", { state: "working" });
     core.status("s2", { state: "idle" });
     expect(await texts()).toEqual(["Task: Add notes is done. Reply to ask for more."]);
     // Its worker asked for review: the toast says so and opens Reviews.
@@ -186,7 +192,7 @@ describe("watchAgents", () => {
     ];
     core.status("s2", { state: "working" });
     core.status("s2", { state: "idle" });
-    expect(await texts()).toEqual(["Task: Add notes: 1 change waits for your review"]);
+    expect(await texts()).toEqual(["Add notes: 1 change waits for your review"]);
     expect(notifier.toasts[0]?.action?.label).toBe("Review");
     // Work starts again: the toast no longer holds.
     core.status("s2", { state: "working" });

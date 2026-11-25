@@ -50,16 +50,18 @@ export function watchAgents(transport: Transport, notifier: Notifier, review: (i
       return;
     }
     const members = [task.coordinator, ...task.workers.map((w) => w.session)];
-    if (members.some(busy)) return;
+    // A worker waiting for a free agent has not started: the task is not done.
+    const unfinished = (id: SessionId) => busy(id) || state(id) === "queued";
+    if (members.some(unfinished)) return;
     await sessions.loadReviews(project);
-    if (members.some(busy)) return;
+    if (members.some(unfinished)) return;
     const waiting = sessions.waitingInTask(task.coordinator);
     notifier.notify({
       key: `task:${task.id}`,
       level: "info",
       ...(waiting > 0
         ? {
-            text: `${name(task.coordinator)}: ${waiting === 1 ? "1 change waits" : `${waiting} changes wait`} for your review`,
+            text: `${sessions.byId.get(task.coordinator)?.title || "A task"}: ${waiting === 1 ? "1 change waits" : `${waiting} changes wait`} for your review`,
             action: { label: "Review", run: openReviews },
           }
         : { text: `${name(task.coordinator)} is done. Reply to ask for more.` }),

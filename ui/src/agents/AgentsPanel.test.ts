@@ -154,6 +154,9 @@ describe("AgentsPanel", () => {
     await settle();
     expect(target.querySelector("[data-testid=agents-capacity]")?.textContent).toBe("3 of 3 agents working, 1 waiting");
     expect(target.querySelectorAll(".sessions .state")[1]?.textContent).toBe("Waiting for a free agent");
+    core.status("s1", { state: "idle" });
+    await settle();
+    expect(target.querySelectorAll(".sessions .state")[0]?.textContent).toBe("Workers are waiting for a free agent");
     core.status(docs.id, { state: "working" });
     await settle();
     const rows = [...target.querySelectorAll(".sessions button")];
