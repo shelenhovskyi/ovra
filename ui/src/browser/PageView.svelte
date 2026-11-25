@@ -1,19 +1,30 @@
 <script lang="ts">
 // One page of a session's browser: its screencast on a canvas, scaled to fit
 // and asked for only while the canvas can be seen; the person's mouse and keys
-// while they control it.
+// while they control it; and pick mode with Ovra's overlay (PickOverlay).
 import { untrack } from "svelte";
+import { registerCommand } from "../keys/commands";
+import { formatShortcut, isApple } from "../keys/shortcut";
 import type { FrameMetadata, InputEvent, MouseButton, PageInfo } from "../lib/protocol";
 import { useOvra } from "../shell/context";
 import { sessionBrowsers } from "./browser.svelte";
 import { fitFrame, modifiers, toPage } from "./geometry";
+import PickList from "./PickList.svelte";
+import PickOverlay from "./PickOverlay.svelte";
+import { Picker } from "./picker.svelte";
+import { browserPicks } from "./picks.svelte";
 
 let { page }: { page: PageInfo } = $props();
 
+const PICK_KEYS = "Alt+Shift+P";
 const BUTTONS: (MouseButton | undefined)[] = ["left", "middle", "right"];
 
 const { transport } = useOvra();
 const browsers = sessionBrowsers(transport);
+const picks = browserPicks(transport);
+// The pane mounts a new view for every page.
+// svelte-ignore state_referenced_locally
+const picker = new Picker(transport, page.id);
 
 let stage = $state<HTMLElement>();
 let canvas = $state<HTMLCanvasElement>();
@@ -27,12 +38,15 @@ let focused = $state(false);
 const frame = $derived(meta ? fitFrame(box, meta) : null);
 const controlling = $derived(control && focused);
 const alt = $derived(`${page.title || "Untitled page"}, ${page.url}`);
+const pickKeys = formatShortcut(PICK_KEYS, isApple());
 const modeText = $derived(
-  controlling
-    ? "You are controlling the page. Shift+Escape gives it back."
-    : control
-      ? "Click the page to control it again."
-      : "The agent drives this page. Take over to use your mouse and keyboard on it.",
+  picker.active
+    ? "Picking: point at an element. Up and Down arrows choose its parent or child, click picks it, Shift+click picks more, Escape stops."
+    : controlling
+      ? "You are controlling the page. Shift+Escape gives it back."
+      : control
+        ? "Click the page to control it again."
+        : "The agent drives this page. Take over to use your mouse and keyboard on it.",
 );
 
 // Frames: decode the newest one, skip any that arrived meanwhile.
@@ -139,6 +153,15 @@ $effect(() => {
 });
 $effect(() => () => untrack(() => screencast(false)));
 
+$effect(() =>
+  registerCommand({
+    id: "browser.pick",
+    title: "Pick an element in the agent's browser",
+    keys: PICK_KEYS,
+    run: togglePick,
+  }),
+);
+
 function input(event: InputEvent): Promise<unknown> {
   return browsers.guard(() => transport.call({ method: "browser.input", params: { page: page.id, event } }));
 }
@@ -175,20 +198,35 @@ function pointAt(event: MouseEvent): { x: number; y: number } | null {
 
 function toggleControl(): void {
   control = !control;
-  if (control) stage?.focus();
+  if (control) {
+    picker.stop();
+    stage?.focus();
+  }
+}
+
+function togglePick(): void {
+  if (picker.active) {
+    picker.stop();
+    return;
+  }
+  control = false;
+  picker.start();
+  stage?.focus();
 }
 
 function onMouseMove(event: MouseEvent): void {
   const at = pointAt(event);
   if (!at) return;
-  if (controlling) sendMove({ kind: "mouse_move", ...at, modifiers: modifiers(event) });
+  if (picker.active) picker.hover(at);
+  else if (controlling) sendMove({ kind: "mouse_move", ...at, modifiers: modifiers(event) });
 }
 
 function onMouseDown(event: MouseEvent): void {
-  if (!control) return;
+  if (!picker.active && !control) return;
   // Keep the text selection and focus where Ovra wants them.
   event.preventDefault();
   stage?.focus();
+  if (picker.active) return;
   const at = pointAt(event);
   const button = BUTTONS[event.button];
   if (at && button)
@@ -201,6 +239,18 @@ function onMouseUp(event: MouseEvent): void {
   const button = BUTTONS[event.button];
   if (at && button)
     send({ kind: "mouse_up", ...at, button, clicks: Math.max(1, event.detail), modifiers: modifiers(event) });
+}
+
+async function onClick(event: MouseEvent): Promise<void> {
+  if (!picker.active) return;
+  const at = pointAt(event);
+  if (!at) return;
+  const more = event.shiftKey;
+  const scroll = { x: meta?.scroll_x ?? 0, y: meta?.scroll_y ?? 0 };
+  const pick = await picker.take(at);
+  if (!pick) return;
+  picks.add(page.session, page.id, pick, scroll);
+  if (!more) picker.stop();
 }
 
 $effect(() => {
@@ -233,6 +283,14 @@ function typed(event: KeyboardEvent): string | null {
 }
 
 function onKeyDown(event: KeyboardEvent): void {
+  if (picker.active) {
+    if (event.code === "ArrowUp") picker.parent();
+    else if (event.code === "ArrowDown") picker.child();
+    else if (event.code === "Escape") picker.stop();
+    else return;
+    event.preventDefault();
+    return;
+  }
   if (!controlling || event.isComposing) return;
   // Every key goes to the page, Tab and Ovra's shortcuts too.
   event.preventDefault();
@@ -255,6 +313,14 @@ function onKeyUp(event: KeyboardEvent): void {
     <button type="button" aria-pressed={control} data-testid="browser-take-over" onclick={toggleControl}>
       {control ? "Give back" : "Take over"}
     </button>
+    <button
+      type="button"
+      aria-pressed={picker.active}
+      aria-keyshortcuts={PICK_KEYS}
+      title={`Pick an element (${pickKeys})`}
+      data-testid="browser-pick"
+      onclick={togglePick}>Pick</button
+    >
     <span class="mode" class:controlling role="status" data-testid="browser-mode">{modeText}</span>
   </div>
   <!-- The page itself: keys and the pointer go to it while the person controls it, so it is an
@@ -263,6 +329,7 @@ function onKeyUp(event: KeyboardEvent): void {
   <div
     class="stage"
     class:controlling
+    class:picking={picker.active}
     bind:this={stage}
     role="application"
     aria-label={`Page view: ${alt}`}
@@ -273,15 +340,20 @@ function onKeyUp(event: KeyboardEvent): void {
     onmousemove={onMouseMove}
     onmousedown={onMouseDown}
     onmouseup={onMouseUp}
-    oncontextmenu={(event) => control && event.preventDefault()}
+    onclick={(event) => void onClick(event)}
+    oncontextmenu={(event) => (control || picker.active) && event.preventDefault()}
     onkeydown={onKeyDown}
     onkeyup={onKeyUp}
   >
     <canvas bind:this={canvas} aria-label={alt} data-testid="browser-canvas">{alt}</canvas>
+    {#if frame && meta}
+      <PickOverlay {page} {picker} {frame} {meta} />
+    {/if}
     {#if !meta}
       <p class="waiting">Waiting for the page to show…</p>
     {/if}
   </div>
+  <PickList {page} />
 </div>
 
 <style>
@@ -321,6 +393,9 @@ function onKeyUp(event: KeyboardEvent): void {
   }
   .stage.controlling {
     border-color: #ffd36b;
+  }
+  .stage.picking {
+    cursor: crosshair;
   }
   canvas {
     position: absolute;

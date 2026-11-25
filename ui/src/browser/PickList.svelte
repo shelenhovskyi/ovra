@@ -1,0 +1,83 @@
+<script lang="ts">
+// The elements picked on a page and not sent yet, each with an optional note
+// for the agent. The session's message box shows them as chips too.
+import type { PageInfo } from "../lib/protocol";
+import { useOvra } from "../shell/context";
+import { browserPicks, pickLabel } from "./picks.svelte";
+
+let { page }: { page: PageInfo } = $props();
+
+const picks = browserPicks(useOvra().transport);
+const mine = $derived(picks.of(page.session).filter((p) => p.page === page.id));
+</script>
+
+{#if mine.length > 0}
+  <ol class="picks" aria-label="Picked on this page">
+    {#each mine as p (p.pick.pick_id)}
+      <li data-testid="browser-pick-item">
+        <span class="name">{pickLabel(p.pick)}</span>
+        <input
+          type="text"
+          placeholder="Note for the agent (optional)"
+          aria-label={`Note for ${pickLabel(p.pick)}`}
+          value={p.pick.note ?? ""}
+          oninput={(event) => picks.note(page.session, p.pick.pick_id, event.currentTarget.value)}
+        />
+        <button
+          type="button"
+          aria-label={`Remove ${pickLabel(p.pick)}`}
+          onclick={() => picks.remove(page.session, p.pick.pick_id)}>Remove</button
+        >
+      </li>
+    {/each}
+  </ol>
+  <p class="hint">Picks go with your next message to this session.</p>
+{/if}
+
+<style>
+  .picks {
+    margin: 0;
+    padding: 0 0 0 20px;
+  }
+  .picks li {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 0;
+  }
+  .name {
+    min-width: 0;
+    max-width: 40%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .hint {
+    margin: 0;
+    color: #b4b4c0;
+    font-size: 12px;
+  }
+  input {
+    flex: 1;
+    min-width: 0;
+    font: inherit;
+    color: inherit;
+    background: #121216;
+    border: 1px solid #4a4a57;
+    border-radius: 3px;
+  }
+  button {
+    font: inherit;
+    padding: 2px 10px;
+    color: #e6e6e6;
+    background: #2a2a33;
+    border: 1px solid #4a4a57;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  button:focus-visible,
+  input:focus-visible {
+    outline: 2px solid #7aa2ff;
+    outline-offset: 1px;
+  }
+</style>

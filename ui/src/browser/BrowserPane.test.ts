@@ -4,6 +4,7 @@ import { installKeybindings } from "../keys/keybindings";
 import type { FrameMetadata, PageInfo } from "../lib/protocol";
 import { Workspace } from "../shell/workspace.svelte";
 import { FakeBrowserCore } from "./fake-browser";
+import { browserPicks } from "./picks.svelte";
 import TestHost from "./TestHost.svelte";
 
 let app: Record<string, unknown> | null = null;
@@ -93,6 +94,10 @@ const key = (type: string, init: KeyboardEventInit) => {
   return event;
 };
 const inputs = (core: FakeBrowserCore) => core.sent("browser.input").map((p) => p.event);
+const box = (testid: string) => {
+  const el = $(`[data-testid=${testid}]`);
+  return el && [el.style.left, el.style.top, el.style.width, el.style.height];
+};
 
 describe("the agent browser", () => {
   it("opens with its shortcut and shows the session's pages as tabs", async () => {
@@ -197,6 +202,56 @@ describe("the agent browser", () => {
     expect(button("Take over")?.getAttribute("aria-pressed")).toBe("false");
   });
 
+  it("picks elements with an overlay of its own, Arrow Up and Down, and notes", async () => {
+    const core = await setup();
+    key("keydown", { code: "KeyP", key: "P", altKey: true, shiftKey: true });
+    await settle();
+    expect(button("Pick")?.getAttribute("aria-pressed")).toBe("true");
+    mouse("mousemove", 320, 300);
+    mouse("mousemove", 330, 300);
+    await settle();
+    // One hit test until the throttle lets the next through.
+    expect(core.sent("browser.pick")).toEqual([{ page: "pg1", x: 640, y: 360, up: 0 }]);
+    // The button's 100 by 40 box at the page's corner, at half size.
+    expect(box("browser-hover-box")).toEqual(["0px", "120px", "50px", "20px"]);
+    await vi.advanceTimersByTimeAsync(100);
+    await settle();
+    expect(core.sent("browser.pick").at(-1)).toEqual({ page: "pg1", x: 660, y: 360, up: 0 });
+    key("keydown", { code: "ArrowUp", key: "ArrowUp" });
+    await settle();
+    expect(core.sent("browser.pick").at(-1)?.up).toBe(1);
+    expect(box("browser-hover-box")).toEqual(["5px", "125px", "50px", "20px"]);
+    expect($("[data-testid=browser-hover-box]")?.textContent).toContain('div1 "div1"');
+    key("keydown", { code: "ArrowDown", key: "ArrowDown" });
+    await settle();
+    expect(core.sent("browser.pick").at(-1)?.up).toBe(0);
+    // Shift+click adds and keeps picking; a plain click adds and stops.
+    mouse("click", 330, 300, { shiftKey: true });
+    await settle();
+    core.element = (_x, _y, up) => pickOf("a", up);
+    mouse("click", 100, 200);
+    await settle();
+    expect(button("Pick")?.getAttribute("aria-pressed")).toBe("false");
+    expect($("[data-testid=browser-hover-box]")).toBeNull();
+    expect(target.querySelectorAll("[data-testid=browser-picked-box]")).toHaveLength(2);
+    expect(inputs(core)).toEqual([]);
+    const note = $<HTMLInputElement>('input[aria-label="Note for button \\"button\\""]');
+    if (!note) throw new Error("no note field");
+    note.value = "make it blue";
+    note.dispatchEvent(new Event("input", { bubbles: true }));
+    const picked = browserPicks(core).of("s1");
+    expect(picked.map((p) => [p.page, p.pick.tag, p.pick.note])).toEqual([
+      ["pg1", "button", "make it blue"],
+      ["pg1", "a", ""],
+    ]);
+    // Escape leaves pick mode.
+    button("Pick")?.click();
+    await settle();
+    key("keydown", { code: "Escape", key: "Escape" });
+    await settle();
+    expect(button("Pick")?.getAttribute("aria-pressed")).toBe("false");
+  });
+
   it("asks the person before an agent opens another origin", async () => {
     const core = await setup();
     button("Hide")?.click();
@@ -237,3 +292,16 @@ describe("the agent browser", () => {
     expect(note).toContain("no Chromium found");
   });
 });
+
+function pickOf(tag: string, up: number) {
+  return {
+    pick_id: `pk-${tag}${up}`,
+    url: PAGE.url,
+    selector: `main > ${tag}`,
+    locator: `link "${tag}"`,
+    tag,
+    text: "",
+    html: "",
+    rect: { x: 200, y: 200, width: 20, height: 20 },
+  };
+}
