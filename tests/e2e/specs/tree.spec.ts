@@ -124,4 +124,20 @@ test("several rows cut with Mod+X paste into a folder with Mod+V, and Mod+Z move
   await expect(tree.getByRole("treeitem", { name: "b.md" })).toHaveAttribute("aria-level", "1");
   expect(existsSync(join(dir, "a.md"))).toBe(true);
   expect(existsSync(join(dir, "docs", "a.md"))).toBe(false);
+  await expect(page.getByRole("status").filter({ hasText: "Undid move of 2 items" })).toBeVisible();
+
+  // The trash question sits below its row and keeps Tab on its buttons.
+  const a = tree.getByRole("treeitem", { name: "a.md" });
+  await a.click();
+  await tree.press("Delete");
+  const question = page.getByRole("alertdialog", { name: "Move to Trash" });
+  await expect(question).toContainText("Move “a.md” to Trash?");
+  const [row, card] = [await a.boundingBox(), await question.boundingBox()];
+  expect(card?.y).toBeGreaterThanOrEqual((row?.y ?? 0) + (row?.height ?? 0) - 1);
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Tab");
+  await expect(question.getByRole("button", { name: "Move to Trash" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(question).toBeHidden();
+  expect(existsSync(join(dir, "a.md"))).toBe(true);
 });
