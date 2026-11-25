@@ -152,10 +152,26 @@ function onTabKeydown(event: KeyboardEvent, at: number): void {
 function hide(): void {
   browsers.shown = false;
 }
+
+/** Escape hides the pane like the dialogs of the "More" menu, unless the page or a picker took it. */
+function onPaneKeydown(event: KeyboardEvent): void {
+  if (event.code !== "Escape" || event.defaultPrevented || event.isComposing) return;
+  if (event.target instanceof Element && event.target.closest("[data-testid=browser-stage]")) return;
+  event.preventDefault();
+  event.stopPropagation();
+  hide();
+}
 </script>
 
 {#if browsers.shown}
-  <section class="browser" aria-labelledby="browser-title" data-testid="browser" bind:this={pane}>
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+  <section
+    class="browser"
+    aria-labelledby="browser-title"
+    data-testid="browser"
+    bind:this={pane}
+    onkeydown={onPaneKeydown}
+  >
     <header>
       <h2 id="browser-title" tabindex="-1" bind:this={heading}>Browser</h2>
       {#if list.length > 0}
@@ -175,7 +191,7 @@ function hide(): void {
           </select>
         </label>
       {/if}
-      <button type="button" class="close" onclick={hide}>Hide</button>
+      <button type="button" class="close" aria-keyshortcuts="Escape" onclick={hide}>Hide</button>
     </header>
 
     {#each asks as ask (`${ask.page} ${ask.origin}`)}
