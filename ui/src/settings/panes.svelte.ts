@@ -42,7 +42,7 @@ export const PANES: Pane[] = [
   {
     id: "network",
     title: "Network",
-    line: "Hosts agents may reach through Ovra's proxy, and tokens it adds for them.",
+    line: "Hosts sandboxed agents may reach, and tokens the proxy adds for them.",
     group: "project",
     keywords: ["proxy", "token", "hosts", "secrets"],
   },
