@@ -126,6 +126,55 @@ describe("PolicyPanel", () => {
     );
     expect($<HTMLInputElement>("[data-testid=policy-match]")?.value).toBe("src/**");
     expect(rules()).toHaveLength(2);
+    const toolField = $<HTMLInputElement>("[data-testid=policy-tool]");
+    expect(toolField?.getAttribute("aria-invalid")).toBe("true");
+    expect(toolField?.getAttribute("aria-describedby")).toBe("policy-error");
+    type("[data-testid=policy-tool]", "grep");
+    flushSync();
+    expect(toolField?.getAttribute("aria-describedby")).toBe("policy-error policy-tool-warning");
+    expect($("#policy-tool-warning")?.textContent).toMatch(/grep never matches Grep/);
+  });
+
+  it("keeps an edit whose rule changed elsewhere as a new rule instead of overwriting", async () => {
+    const core = await setup();
+    $<HTMLButtonElement>("[data-testid=open-policy]")?.click();
+    await settle();
+    $<HTMLButtonElement>("[aria-label='Edit WebFetch deny']")?.click();
+    await settle();
+    core.rules.set("p1", [
+      { tool: "Bash", match: "npm test", action: "auto" },
+      { tool: "Grep", action: "deny" },
+    ]);
+    core.emit({ type: "policy.changed", data: { project: "p1" } });
+    await settle();
+    type("[data-testid=policy-action]", "ask");
+    await submit();
+    expect($("[data-testid=policy-error]")?.textContent).toMatch(/changed elsewhere\. What you typed is kept/);
+    expect(core.calls.filter((c) => c.method === "policy.set")).toHaveLength(0);
+    expect($<HTMLInputElement>("[data-testid=policy-tool]")?.value).toBe("WebFetch");
+    expect($("button[type=submit]")?.textContent?.trim()).toBe("Add rule");
+    await submit();
+    expect(core.rules.get("p1")).toEqual([
+      { tool: "Bash", match: "npm test", action: "auto" },
+      { tool: "Grep", action: "deny" },
+      { tool: "WebFetch", action: "ask" },
+    ]);
+  });
+
+  it("keeps editing the same rule when another one is removed", async () => {
+    const core = await setup();
+    $<HTMLButtonElement>("[data-testid=open-policy]")?.click();
+    await settle();
+    $<HTMLButtonElement>("[aria-label='Edit WebFetch deny']")?.click();
+    await settle();
+    const remove = $<HTMLButtonElement>("[aria-label='Remove Bash(npm test) auto']");
+    expect(remove?.getAttribute("aria-describedby")).toBe("policy-notes-0");
+    remove?.click();
+    await settle();
+    expect($("button[type=submit]")?.textContent?.trim()).toBe("Save rule");
+    type("[data-testid=policy-action]", "ask");
+    await submit();
+    expect(core.rules.get("p1")).toEqual([{ tool: "WebFetch", action: "ask" }]);
   });
 
   it("adopts a policy changed elsewhere instead of dropping it, and keeps what was typed", async () => {
@@ -173,6 +222,60 @@ describe("PolicyPanel", () => {
     expect(document.activeElement?.textContent?.trim()).toBe("Close");
     tab(true);
     expect(document.activeElement?.textContent?.trim()).toBe("Add rule");
+  });
+
+  it("keeps Tab inside the dialog while the form waits for the rules", async () => {
+    const core = await setup();
+    core.hold = "policy.get";
+    $<HTMLButtonElement>("[data-testid=open-policy]")?.click();
+    await settle();
+    expect($("[data-testid=policy-empty]")?.textContent).toBe("Loading…");
+    expect($<HTMLInputElement>("[data-testid=policy-tool]")?.matches(":disabled")).toBe(true);
+    for (const shiftKey of [false, false, true]) {
+      $("[data-testid=policy]")?.dispatchEvent(
+        new KeyboardEvent("keydown", { code: "Tab", key: "Tab", shiftKey, bubbles: true, cancelable: true }),
+      );
+      expect(document.activeElement?.textContent?.trim()).toBe("Close");
+    }
+    core.release();
+  });
+
+  it("offers to try again when the rules cannot be read", async () => {
+    const core = await setup();
+    core.readFails = "the core is not reachable";
+    $<HTMLButtonElement>("[data-testid=open-policy]")?.click();
+    await settle();
+    expect($("[role=alert]")?.textContent).toMatch(/Could not read the project's policy: the core is not reachable/);
+    core.readFails = null;
+    $<HTMLButtonElement>("[data-testid=policy-retry]")?.click();
+    await settle();
+    expect(rules()).toHaveLength(2);
+    expect($("[data-testid=policy-retry]")).toBeNull();
+  });
+
+  it("closes an open list of suggestions before the dialog, and returns focus to its button", async () => {
+    const core = await setup();
+    document.body.focus();
+    await listCommands()
+      .find((c) => c.id === "policy.toggle")
+      ?.run();
+    await settle();
+    type("[data-testid=policy-tool]", "Ba");
+    const pressEscape = () =>
+      $("[data-testid=policy-tool]")?.dispatchEvent(
+        new KeyboardEvent("keydown", { code: "Escape", key: "Escape", bubbles: true, cancelable: true }),
+      );
+    pressEscape();
+    await settle();
+    expect($("[data-testid=policy]")).not.toBeNull();
+    pressEscape();
+    await settle();
+    expect($("[data-testid=policy]")).toBeNull();
+    expect(document.activeElement).toBe($("[data-testid=open-policy]"));
+    // A closed dialog no longer follows the policy.
+    core.emit({ type: "policy.changed", data: { project: "p1" } });
+    await settle();
+    expect(core.calls.filter((c) => c.method === "policy.get")).toHaveLength(1);
   });
 
   it("reads the rules again when the policy changes elsewhere", async () => {

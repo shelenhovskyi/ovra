@@ -11,6 +11,8 @@ export class FakePolicyCore implements Transport {
   rules = new Map<string, PolicyRule[]>();
   /** A `policy.set` with a rule whose tool is named here is refused with the message. */
   refuse = new Map<string, string>();
+  /** A `policy.get` fails with this message. */
+  readFails: string | null = null;
   /** Replies to calls of this method wait until `release` is called. */
   hold: Request["method"] | null = null;
   private held: (() => void)[] = [];
@@ -51,6 +53,7 @@ export class FakePolicyCore implements Transport {
   private answer<R extends Request>(request: R): () => ResponseFor<R> {
     switch (request.method) {
       case "policy.get": {
+        if (this.readFails) return fail({ code: "unavailable", message: this.readFails });
         const rules = this.reply(this.rules.get(request.params.project) ?? []);
         return () => rules as ResponseFor<R>;
       }
