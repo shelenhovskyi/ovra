@@ -1060,3 +1060,69 @@ async fn git_files_name_hooks_and_config_wherever_they_are() {
         before.files.get(".git/config")
     );
 }
+
+/// The ways around a plain listing of `.git/hooks`: a flood of files, a
+/// link to a script elsewhere, config included from another file or kept
+/// per worktree, a submodule's hooks, and a project below the top.
+#[tokio::test]
+async fn git_files_see_through_floods_links_includes_and_submodules() {
+    let repo = Repo::new(&[("sub/a.txt", "a\n")]);
+    let root = &repo.root;
+    git(root, &["config", "--unset", "core.hooksPath"]);
+    let w = GitWorktrees::new();
+    let files = |dir: PathBuf| {
+        let w = &w;
+        async move { w.git_files(dir).await.unwrap_or_else(|e| panic!("{e:?}")) }
+    };
+    let git_dir = root.join(".git");
+    put(&git_dir, "hooks/pre-commit", "ok\n");
+    for n in 0..201 {
+        put(&git_dir, &format!("hooks/a{n:03}"), "junk\n");
+    }
+    put(&git_dir, "extra.cfg", "[alias]\n\tx = !ls\n");
+    git(root, &["config", "include.path", "extra.cfg"]);
+    put(&git_dir, "config.worktree", "[core]\n\tfsmonitor = ./x\n");
+    put(&git_dir, "modules/m/config", "[core]\n");
+    put(&git_dir, "modules/m/hooks/pre-commit", "sh\n");
+    put(root, "scripts/hook", "one\n");
+    #[cfg(unix)]
+    std::os::unix::fs::symlink("../../scripts/hook", git_dir.join("hooks/pre-push"))
+        .unwrap_or_else(|e| panic!("{e}"));
+    let seen = files(root.clone()).await;
+    for name in [
+        ".git/hooks/pre-commit",
+        ".git/extra.cfg",
+        ".git/config.worktree",
+        ".git/modules/m/config",
+        ".git/modules/m/hooks/pre-commit",
+        ".git/hooks (more files)",
+    ] {
+        assert!(
+            seen.files.contains_key(name),
+            "{name}: {:?}",
+            seen.files.keys()
+        );
+    }
+    assert_eq!(
+        seen.files
+            .get(".git/hooks (more files)")
+            .map(String::as_str),
+        Some("1")
+    );
+
+    // Edited through the link: the link is the same, what it runs is not.
+    #[cfg(unix)]
+    {
+        put(root, "scripts/hook", "two\n");
+        let after = files(root.clone()).await;
+        assert_ne!(
+            after.files.get(".git/hooks/pre-push"),
+            seen.files.get(".git/hooks/pre-push")
+        );
+    }
+
+    // A project below the top names the hooks folder as its paths do.
+    git(root, &["config", "core.hooksPath", "sub/hooks"]);
+    let below = files(root.join("sub")).await;
+    assert_eq!(below.hooks_in_tree.as_deref(), Some("hooks"));
+}

@@ -1971,12 +1971,13 @@ async fn a_worker_item_lists_hooks_and_config_changed_since_it_started() {
     until(&mut rx, "s2", AgentStatus::Idle).await;
     assert!(reviews(&f.core).await.is_empty(), "nothing changed yet");
 
-    // The worker plants a hook and points git at a hooks folder of its own.
+    // The worker plants a hook in the shared git folder and points git at a
+    // hooks folder in the tree: the project's own git files show it.
     f.wt.git_files
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .insert(
-            PathBuf::from(&worker.worktree),
+            PathBuf::from(ROOT),
             git_files(
                 Some("tools/hooks"),
                 &[
@@ -2012,6 +2013,24 @@ async fn a_worker_item_lists_hooks_and_config_changed_since_it_started() {
         marked,
         [("src/lib.rs", false), ("tools/hooks/pre-push", true)]
     );
+
+    // Decided, the item keeps what had changed then; later changes are not
+    // pinned on it.
+    let id = items[0].id.0.clone();
+    ok(&f.core, approval(&f.core, &id, json!(null)).await).await;
+    f.wt.git_files
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .insert(
+            PathBuf::from(ROOT),
+            git_files(None, &[(".git/hooks/post-merge", "exec 1")]),
+        );
+    let decided = reviews(&f.core).await;
+    let decided = decided.iter().find(|i| i.id.0 == id);
+    let decided = decided.unwrap_or_else(|| panic!("no item {id}"));
+    assert_eq!(decided.state, ReviewState::Approved);
+    assert_eq!(decided.git_changes.len(), 2);
+    assert!(!decided.git_unchecked);
 }
 
 #[tokio::test]
@@ -2068,4 +2087,11 @@ async fn a_direct_item_lists_config_the_agent_changed() {
             (".git/info/exclude", ChangeKind::Deleted),
         ]
     );
+}
+
+#[test]
+fn a_workspace_saved_before_git_records_reads_as_unchecked() {
+    let old: super::Workspace = serde_json::from_value(json!({"dir": ROOT, "base": "c1"}))
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(old.git, None);
 }

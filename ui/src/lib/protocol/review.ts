@@ -52,6 +52,8 @@ export type ReviewItem = {
    * approve and reject never touch them: the person checks them.
    */
   git_changes: GitChange[];
+  /** Hooks and config could not be compared: `git_changes` may be incomplete. */
+  git_unchecked: boolean;
 };
 
 /** A changed file of the git folder or hooks folder, such as `.git/hooks/pre-commit`. */

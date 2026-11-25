@@ -29,6 +29,7 @@ export const review = (id: string, extra: Partial<ReviewItem> = {}): ReviewItem 
   can_undo_take: false,
   fingerprint: null,
   git_changes: [],
+  git_unchecked: false,
   ...extra,
 });
 

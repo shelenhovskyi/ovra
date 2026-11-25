@@ -409,9 +409,9 @@ async fn create_worker(
         .join(name);
     let branch = format!("ovra/{}/{name}", task.id.0);
     let info = worktrees.create(root.clone(), dir, branch, base).await?;
-    // Before the worker runs: what its hooks and config were at its start.
+    // Before the worker runs: the project's hooks and config at its start.
     let git = worktrees
-        .git_files(info.path.clone())
+        .git_files(root.clone())
         .await
         .ok()
         .map(|g| g.files);
