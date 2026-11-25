@@ -88,6 +88,22 @@ pub(crate) fn unsandboxed(
 mod tests {
     use super::*;
 
+    #[test]
+    fn the_names_kept_are_the_linux_sandboxs_plus_path() {
+        // Read as text: this crate cannot depend on the sandbox's.
+        let source = include_str!("../../sandbox-linux/src/plan/server.rs");
+        let list = source
+            .split_once("SERVER_ENV_KEPT: [&str; ")
+            .and_then(|(_, rest)| rest.split_once("];"))
+            .map(|(list, _)| list)
+            .expect("SERVER_ENV_KEPT in plan/server.rs");
+        let mut sandbox: Vec<&str> = list.split('"').skip(1).step_by(2).chain(["PATH"]).collect();
+        let mut kept = KEPT.to_vec();
+        sandbox.sort_unstable();
+        kept.sort_unstable();
+        assert_eq!(kept, sandbox);
+    }
+
     fn names(env: &[(OsString, Option<OsString>)]) -> Vec<(String, bool)> {
         env.iter()
             .map(|(k, v)| (k.to_string_lossy().into_owned(), v.is_some()))

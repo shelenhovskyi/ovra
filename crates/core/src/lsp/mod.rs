@@ -198,7 +198,7 @@ async fn start(
         record: None,
     };
     let spec = ServerSpec {
-        project,
+        project: project.clone(),
         root,
         language,
     };
@@ -223,6 +223,11 @@ async fn start(
         // It ended, or was stopped, before it was ready.
         drop(state);
         process.stop();
+        // Stopped with its project: the service made its cache folder
+        // after it forgot the project's.
+        if !core.project_store().get(&project).is_ok_and(|p| p.trusted) {
+            core.language_servers().forget(&project);
+        }
         return Err(ProtocolError::new(
             ErrorCode::Internal,
             "the language server ended as it started",

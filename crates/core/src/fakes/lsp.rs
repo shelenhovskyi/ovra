@@ -19,6 +19,8 @@ pub struct FakeLanguageServers {
     pub sandbox: Option<String>,
     started: Mutex<Vec<FakeServer>>,
     forgotten: Mutex<Vec<ProjectId>>,
+    /// Starts wait for a permit when set.
+    gate: Mutex<Option<Arc<tokio::sync::Semaphore>>>,
 }
 
 impl Default for FakeLanguageServers {
@@ -40,7 +42,16 @@ impl FakeLanguageServers {
             sandbox: Some("fake".into()),
             started: Mutex::default(),
             forgotten: Mutex::default(),
+            gate: Mutex::default(),
         }
+    }
+
+    /// Makes every later start wait until the test adds a permit to the
+    /// returned semaphore.
+    pub fn hold_starts(&self) -> Arc<tokio::sync::Semaphore> {
+        let gate = Arc::new(tokio::sync::Semaphore::new(0));
+        *lock(&self.gate) = Some(gate.clone());
+        gate
     }
 
     /// Every server started so far, first first.
@@ -65,6 +76,10 @@ impl LanguageServers for FakeLanguageServers {
 
     fn start(&self, spec: ServerSpec, host: ServerHost) -> BoxFuture<'_, Result<StartedServer>> {
         Box::pin(async move {
+            let gate = lock(&self.gate).clone();
+            if let Some(gate) = gate {
+                let _ = gate.acquire().await;
+            }
             let known = self
                 .known
                 .iter()

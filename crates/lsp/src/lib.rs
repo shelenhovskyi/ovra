@@ -183,16 +183,35 @@ fn forget(caches: &Path, project: &ProjectId) -> std::io::Result<()> {
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_nanos());
-    let aside = caches.join(format!(".forgotten-{}-{nanos}", project.0));
+    let aside = caches.join(format!("{FORGOTTEN}{}-{nanos}", project.0));
     std::fs::rename(&folder, &aside)?;
-    // `remove_dir_all` removes links, never what they point at.
+    let caches = caches.to_path_buf();
     match tokio::runtime::Handle::try_current() {
         Ok(runtime) => {
-            runtime.spawn_blocking(move || std::fs::remove_dir_all(aside));
+            runtime.spawn_blocking(move || sweep(&caches));
             Ok(())
         }
-        Err(_) => std::fs::remove_dir_all(aside),
+        Err(_) => sweep(&caches),
     }
+}
+
+/// How a folder moved aside to be deleted starts.
+const FORGOTTEN: &str = ".forgotten-";
+
+/// Deletes every folder moved aside, also those an earlier sweep left
+/// because a stopping server still wrote into them.
+fn sweep(caches: &Path) -> std::io::Result<()> {
+    let mut result = Ok(());
+    for entry in std::fs::read_dir(caches)? {
+        let entry = entry?;
+        if entry.file_name().to_string_lossy().starts_with(FORGOTTEN) {
+            // `remove_dir_all` removes links, never what they point at.
+            if let Err(e) = std::fs::remove_dir_all(entry.path()) {
+                result = Err(e);
+            }
+        }
+    }
+    result
 }
 
 /// The server's command line before a sandbox wraps it. Build output and
@@ -409,6 +428,15 @@ mod tests {
         assert_eq!(left, ["p2"]);
         // Nothing to forget is fine.
         forget(&caches, &ProjectId("p9".into())).expect("forget");
+        // What an earlier sweep left goes with the next one.
+        std::fs::create_dir_all(caches.join(".forgotten-p3-1/target")).expect("mkdir");
+        cache_dir(&caches, &spec("rust")).expect("cache");
+        forget(&caches, &ProjectId("p1".into())).expect("forget");
+        let left: Vec<_> = std::fs::read_dir(&caches)
+            .expect("list")
+            .map(|e| e.expect("entry").file_name())
+            .collect();
+        assert_eq!(left, ["p2"]);
     }
 
     #[tokio::test]

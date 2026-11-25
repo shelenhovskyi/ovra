@@ -401,6 +401,29 @@ async fn removing_a_project_stops_its_servers_and_forgets_their_caches() {
     assert_eq!(test.servers.forgotten(), [ProjectId("p1".into())]);
 }
 
+#[tokio::test]
+async fn a_server_that_was_starting_as_its_project_was_removed_leaves_no_cache() {
+    let test = setup(FakeLanguageServers::default(), true).await;
+    let gate = test.servers.hold_starts();
+    let core = test.core.clone();
+    let starting = tokio::spawn(async move { start(&core, "rust").await });
+    while test.core.lsp_servers().lock().servers.is_empty() {
+        tokio::task::yield_now().await;
+    }
+    let remove = json!({"method": "projects.remove", "params": {"id": "p1"}});
+    ok(call(&test.core, remove).await);
+    assert_eq!(test.servers.forgotten(), [ProjectId("p1".into())]);
+    gate.add_permits(1);
+    let started = starting.await.unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(code(started), ErrorCode::Internal);
+    assert!(server(&test).stopped());
+    // Forgotten again, after the service made the server's cache folder.
+    assert_eq!(
+        test.servers.forgotten(),
+        [ProjectId("p1".into()), ProjectId("p1".into())]
+    );
+}
+
 #[test]
 fn server_uris_that_could_leave_the_project_never_reach_the_client_as_files() {
     let root = Path::new(ROOT);
