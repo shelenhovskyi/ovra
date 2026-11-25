@@ -1,7 +1,15 @@
 // Test-only fake of the core's `netproxy.*` and `secrets.*`: keeps one
 // project's hosts and secrets, checks nothing but what a test asks it to.
 
-import type { AllowedHost, CoreEvent, Request, ResponseFor, SecretInfo, SecretStoreStatus } from "../lib/protocol";
+import type {
+  AllowedHost,
+  CoreEvent,
+  Request,
+  ResponseFor,
+  SecretInfo,
+  SecretStoreStatus,
+  SessionInfo,
+} from "../lib/protocol";
 import type { Transport } from "../lib/transport";
 
 export class FakeAccessCore implements Transport {
@@ -13,13 +21,18 @@ export class FakeAccessCore implements Transport {
   /** Values the core received, so a test can check where they went. */
   values = new Map<string, string>();
   store: SecretStoreStatus = { state: "available", name: "Secret Service" };
-  refuse: string | null = null;
+  sessions: SessionInfo[] = [];
+  /** Errors to answer with, by method. */
+  refuse = new Map<string, string>();
   private listeners = new Set<(event: CoreEvent) => void>();
 
   async call<R extends Request>(request: R): Promise<ResponseFor<R>> {
     this.calls.push(request);
-    if (this.refuse) throw new Error(this.refuse);
+    const refused = this.refuse.get(request.method);
+    if (refused) throw new Error(refused);
     switch (request.method) {
+      case "agents.list":
+        return { type: "agents.list", data: this.sessions } as ResponseFor<R>;
       case "netproxy.get_allowlist":
         return this.allowlist() as ResponseFor<R>;
       case "netproxy.set_allowlist":

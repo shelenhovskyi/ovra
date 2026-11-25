@@ -71,6 +71,8 @@ export class ProjectAccess {
   async setHosts(hosts: AllowedHost[]): Promise<void> {
     const project = this.project;
     if (!project) return;
+    // The core replaces the whole list: without the current one, an add would drop it.
+    if (!this.allowlist) throw new Error("The project's hosts are not loaded yet.");
     const kept = await this.transport.call({
       method: "netproxy.set_allowlist",
       params: { project, allowlist: { hosts } },

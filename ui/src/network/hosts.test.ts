@@ -18,6 +18,8 @@ describe("parseHost", () => {
       "a.com:0",
       "a.com:x",
       "a.com:70000",
+      "::1",
+      "[::1]:443",
     ]) {
       expect(parseHost(typed), typed).toHaveProperty("error");
     }

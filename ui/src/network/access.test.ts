@@ -23,7 +23,7 @@ describe("ProjectAccess", () => {
     const before = core.calls.length;
     core.emit({ type: "secrets.changed", data: { project: "other" } });
     expect(core.calls.length).toBe(before);
-    core.refuse = "core went away";
+    core.refuse.set("secrets.list", "core went away");
     await access.reload();
     expect(access.error).toBe("core went away");
     access.dispose();

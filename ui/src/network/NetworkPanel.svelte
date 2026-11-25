@@ -3,15 +3,17 @@
 // command) opens a dialog with the hosts the open project's agents may reach
 // and the tokens the netproxy adds for them. A token's value is typed here,
 // sent to the core once and never shown again. Escape closes.
-import { tick } from "svelte";
+import { tick, untrack } from "svelte";
+import { agentSessions } from "../agents/sessions.svelte";
 import { registerCommand } from "../keys/commands";
-import type { AllowedHost } from "../lib/protocol";
+import type { AllowedHost, SessionInfo } from "../lib/protocol";
 import { useOvra } from "../shell/context";
 import { message, ProjectAccess } from "./access.svelte";
 import { hostLabel, parseHost, reaches } from "./hosts";
 
 const { transport, workspace } = useOvra();
 const access = new ProjectAccess(transport);
+const sessions = agentSessions(transport);
 
 let opened = $state(false);
 let dialog = $state<HTMLElement>();
@@ -31,6 +33,9 @@ const own = $derived(access.allowlist?.project.hosts ?? []);
 const base = $derived(access.allowlist?.base.hosts ?? []);
 const broad = $derived(new Set(access.allowlist?.broad ?? []));
 const storeReady = $derived(access.store?.state === "available");
+// Sessions this page does not protect: the allowlist does not limit them and
+// they can read the keychain like any program the person runs.
+const exposed = $derived(workspace.project ? sessions.inProject(workspace.project.id).filter(unprotected) : []);
 const unreachable = $derived(
   new Set(access.allowlist ? access.secrets.filter((s) => !reaches([...base, ...own], s.host)).map((s) => s.name) : []),
 );
@@ -38,10 +43,31 @@ const unreachable = $derived(
 $effect(() => () => access.dispose());
 $effect(() => registerCommand({ id: "network.toggle", title: "Network and secrets", run: toggle }));
 
+// Read the settings when the dialog opens, and again for another project.
+// Whatever was typed for one project is never sent for another.
 $effect(() => {
   const project = workspace.project?.id ?? null;
-  if (opened) void access.show(project);
+  if (!opened) return;
+  untrack(() => {
+    clearForm();
+    void access.show(project);
+    if (project) sessions.load(project).catch(() => {});
+  });
 });
+
+function unprotected(session: SessionInfo): boolean {
+  if (session.status.state === "stopped" || session.status.state === "failed") return false;
+  return session.sandbox === null || session.sandbox.network === "open";
+}
+
+function clearForm(): void {
+  newHost = "";
+  hostError = null;
+  name = "";
+  host = "";
+  value = "";
+  secretError = null;
+}
 
 async function show(): Promise<void> {
   const active = document.activeElement;
@@ -53,7 +79,7 @@ async function show(): Promise<void> {
 
 function close(): void {
   opened = false;
-  value = "";
+  clearForm();
   if (returnTo?.isConnected) returnTo.focus();
   returnTo = null;
 }
@@ -149,17 +175,21 @@ function onDialogKeydown(event: KeyboardEvent): void {
     return;
   }
   if (event.code !== "Tab") return;
-  // Keep Tab inside the dialog (aria-modal).
+  // Keep Tab inside the dialog (aria-modal), also from the heading.
   const focusable = [...(dialog?.querySelectorAll<HTMLElement>("button, input, summary, [tabindex]") ?? [])].filter(
-    (el) => el.tabIndex >= 0 && !(el as HTMLButtonElement).disabled,
+    (el) => el.tabIndex >= 0 && !el.matches(":disabled"),
   );
   const first = focusable[0];
   const last = focusable[focusable.length - 1];
   if (!first || !last) return;
-  if (event.shiftKey && document.activeElement === first) {
+  const at = focusable.indexOf(document.activeElement as HTMLElement);
+  if (at < 0) {
+    event.preventDefault();
+    (event.shiftKey ? last : first).focus();
+  } else if (event.shiftKey && at === 0) {
     event.preventDefault();
     last.focus();
-  } else if (!event.shiftKey && document.activeElement === last) {
+  } else if (!event.shiftKey && at === focusable.length - 1) {
     event.preventDefault();
     first.focus();
   }
@@ -171,7 +201,8 @@ function onDialogKeydown(event: KeyboardEvent): void {
 </button>
 
 {#if opened}
-  <div class="backdrop">
+  <!-- A click beside the dialog must not take focus out of it. -->
+  <div class="backdrop" role="presentation" onmousedown={(event) => event.target === event.currentTarget && event.preventDefault()}>
     <div
       class="network"
       role="dialog"
@@ -193,6 +224,13 @@ function onDialogKeydown(event: KeyboardEvent): void {
         {#if access.error}
           <p class="error" role="alert">Could not read the project's network settings: {access.error}</p>
         {/if}
+        {#if exposed.length > 0}
+          <p class="warn note" role="note" data-testid="unsandboxed">
+            {exposed.length === 1 ? "One session of this project runs" : `${exposed.length} sessions of this project run`}
+            without Ovra's sandbox. These hosts do not limit it, and it can read stored secrets from the keychain like any
+            program you run.
+          </p>
+        {/if}
         <div class="body">
           <section aria-labelledby="hosts-title">
             <h3 id="hosts-title">Allowed hosts</h3>
@@ -200,7 +238,7 @@ function onDialogKeydown(event: KeyboardEvent): void {
               Sandboxed agents reach only these hosts, through Ovra's proxy. Everything else is refused and shows in the
               audit log.
             </p>
-            {#if own.length === 0}
+            {#if own.length === 0 && !access.error}
               <p class="muted" data-testid="hosts-empty">
                 {access.loading && !access.allowlist ? "Loading…" : "No hosts added for this project."}
               </p>
@@ -217,7 +255,6 @@ function onDialogKeydown(event: KeyboardEvent): void {
                     <button
                       type="button"
                       aria-label={`Remove ${hostLabel(entry)}`}
-                     
                       onclick={() => removeHost(entry)}>Remove</button
                     >
                   </li>
@@ -225,6 +262,8 @@ function onDialogKeydown(event: KeyboardEvent): void {
               </ul>
             {/if}
             <form onsubmit={addHost}>
+              <!-- The core replaces the whole list, so adding waits until it is known. -->
+              <fieldset disabled={!access.allowlist}>
               <label>
                 Add host
                 <input
@@ -236,6 +275,7 @@ function onDialogKeydown(event: KeyboardEvent): void {
                 />
               </label>
               <button type="submit">Allow</button>
+              </fieldset>
             </form>
             {#if hostError}
               <p class="error" role="alert">{hostError}</p>
@@ -282,7 +322,6 @@ function onDialogKeydown(event: KeyboardEvent): void {
                     <button
                       type="button"
                       aria-label={`Remove secret ${secret.name}`}
-                     
                       onclick={() => void removeSecret(secret.name)}>Remove</button
                     >
                   </li>
@@ -295,19 +334,24 @@ function onDialogKeydown(event: KeyboardEvent): void {
                 <label>Host <input bind:value={host} placeholder="api.github.com" autocomplete="off" spellcheck="false" data-testid="secret-host" /></label>
                 <label>Header <input bind:value={header} autocomplete="off" spellcheck="false" /></label>
                 <label>Prefix <input bind:value={prefix} autocomplete="off" spellcheck="false" /></label>
+                <!-- Not type=password: browsers would offer to keep the token in their own password store. -->
                 <label
                   >Value <input
-                    type="password"
+                    class="token"
                     bind:value
                     autocomplete="off"
+                    autocapitalize="off"
                     spellcheck="false"
+                    aria-describedby="secret-value-note"
+                    data-1p-ignore
+                    data-lpignore="true"
                     data-testid="secret-value"
                   /></label
                 >
                 <button type="submit">Save secret</button>
               </fieldset>
             </form>
-            <p class="muted">
+            <p class="muted" id="secret-value-note">
               The value goes to the keychain and is never shown again. Saving under an existing name replaces it.
             </p>
             {#if secretError}
@@ -437,6 +481,9 @@ function onDialogKeydown(event: KeyboardEvent): void {
     gap: 2px;
     font-size: 12px;
     color: #c8c8d2;
+  }
+  .token {
+    -webkit-text-security: disc;
   }
   details {
     margin-top: 6px;

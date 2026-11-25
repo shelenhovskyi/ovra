@@ -1,5 +1,6 @@
 import { flushSync, mount, unmount } from "svelte";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { SessionInfo } from "../lib/protocol";
 import { Workspace } from "../shell/workspace.svelte";
 import { FakeAccessCore } from "./fake-access";
 import TestHost from "./TestHost.svelte";
@@ -26,8 +27,23 @@ async function settle() {
   flushSync();
 }
 
+let workspace: Workspace;
+
+const session = (id: string, sandbox: SessionInfo["sandbox"]): SessionInfo => ({
+  id,
+  project: "p1",
+  agent: "claude",
+  mode: "direct",
+  status: { state: "idle" },
+  title: "fix it",
+  usage: { input_tokens: 0, output_tokens: 0, cost_micro_usd: null },
+  resumable: false,
+  billing: null,
+  sandbox,
+});
+
 async function open(core = new FakeAccessCore()) {
-  const workspace = new Workspace();
+  workspace = new Workspace();
   workspace.project = { id: "p1", name: "demo", root: "/demo", last_opened_ms: null, trusted: false };
   app = mount(TestHost, { target, props: { transport: core, workspace } });
   await settle();
@@ -128,5 +144,66 @@ describe("NetworkPanel", () => {
     $<HTMLButtonElement>("[data-testid=open-network]")?.click();
     await settle();
     expect($<HTMLInputElement>("[data-testid=secret-value]")?.value).toBe("");
+  });
+
+  it("never replaces the hosts with a partial list when they could not be read", async () => {
+    const core = new FakeAccessCore();
+    core.hosts = [{ host: "pypi.org" }];
+    core.refuse.set("netproxy.get_allowlist", "core went away");
+    await open(core);
+    expect($("[role=alert]")?.textContent).toContain("core went away");
+    expect($("[data-testid=hosts-empty]")).toBeNull();
+    type("[data-testid=add-host]", "example.com");
+    submit($("[data-testid=add-host]")?.closest("form"));
+    await settle();
+    expect(core.calls.some((c) => c.method === "netproxy.set_allowlist")).toBe(false);
+    expect(core.hosts).toEqual([{ host: "pypi.org" }]);
+  });
+
+  it("warns while a live session of the project runs without the sandbox", async () => {
+    const core = new FakeAccessCore();
+    core.sessions = [session("s1", { name: "bubblewrap", network: "proxy" })];
+    await open(core);
+    expect($("[data-testid=unsandboxed]")).toBeNull();
+    unmount(app ?? {});
+    app = null;
+    core.sessions = [session("s1", { name: "bubblewrap", network: "proxy" }), session("s2", null)];
+    await open(core);
+    expect($("[data-testid=unsandboxed]")?.textContent).toMatch(/One session of this project runs\s+without/);
+  });
+
+  it("keeps Tab inside the dialog, from the heading and past a disabled form", async () => {
+    const core = new FakeAccessCore();
+    core.store = { state: "unavailable", reason: "no keychain" };
+    await open(core);
+    const dialog = $("[data-testid=network]");
+    const tab = (shiftKey: boolean) =>
+      document.activeElement?.dispatchEvent(
+        new KeyboardEvent("keydown", { code: "Tab", key: "Tab", shiftKey, bubbles: true }),
+      );
+    expect(document.activeElement?.id).toBe("network-title");
+    tab(true);
+    const last = document.activeElement as HTMLElement;
+    expect(dialog?.contains(last)).toBe(true);
+    expect(last.matches(":disabled")).toBe(false);
+    tab(false);
+    expect(document.activeElement?.textContent?.trim()).toBe("Close");
+  });
+
+  it("clears what was typed when another project opens", async () => {
+    await open();
+    type("[data-testid=secret-value]", "for-p1");
+    type("[data-testid=secret-name]", "github");
+    workspace.project = { id: "p2", name: "other", root: "/other", last_opened_ms: null, trusted: false };
+    await settle();
+    expect($<HTMLInputElement>("[data-testid=secret-value]")?.value).toBe("");
+    expect($<HTMLInputElement>("[data-testid=secret-name]")?.value).toBe("");
+  });
+
+  it("does not offer the token to the browser's password store", async () => {
+    await open();
+    const input = $<HTMLInputElement>("[data-testid=secret-value]");
+    expect(input?.type).toBe("text");
+    expect(input?.autocomplete).toBe("off");
   });
 });

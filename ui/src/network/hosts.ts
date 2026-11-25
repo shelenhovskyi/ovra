@@ -9,6 +9,9 @@ export function parseHost(text: string): AllowedHost | { error: string } {
   if (/[\s/@*]/.test(typed) || typed.includes("://")) {
     return { error: "Type only the host name, without a scheme, path or wildcard." };
   }
+  if (typed.includes("[") || typed.split(":").length > 2) {
+    return { error: "IPv6 addresses cannot be added here." };
+  }
   const colon = typed.lastIndexOf(":");
   if (colon < 0) return { host: typed };
   const port = Number(typed.slice(colon + 1));
