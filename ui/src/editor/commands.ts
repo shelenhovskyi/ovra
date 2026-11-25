@@ -10,7 +10,9 @@ import {
   closeSavedTabs,
   closeTabsToTheRight,
   focusMain,
+  reopenClosedTab,
   requestClose,
+  saveAll,
   show,
   tabs,
 } from "./open-files.svelte";
@@ -117,6 +119,14 @@ export function registerEditorCommands(workspace: Target): () => void {
     }),
     // Registered in every mode, so Mod+S never reaches the browser's "Save page".
     registerCommand({ id: "editor.save", title: "Save file", keys: "Mod+S", run: () => saveActive(workspace) }),
+    // Mod+Alt+S shows Servers; Mod+Shift+S is the closest free key (Ovra has no Save as).
+    registerCommand({ id: "editor.save_all", title: "Save all", keys: "Mod+Shift+S", run: saveAll }),
+    registerCommand({
+      id: "editor.reopen_closed_tab",
+      title: "Reopen closed tab",
+      keys: "Mod+Shift+T",
+      run: () => reopenClosedTab(workspace),
+    }),
     registerCommand({ id: "editor.next_tab", title: "Next tab", keys: "Ctrl+Tab", run: step(1) }),
     registerCommand({ id: "editor.previous_tab", title: "Previous tab", keys: "Ctrl+Shift+Tab", run: step(-1) }),
     // Alt+F5 and Alt+Shift+F5 as in VS Code; neither browsers nor CodeMirror use them.

@@ -213,3 +213,40 @@ test("find, replace and go to line have VS Code's keys, which no other editor co
   expect(new Set(all).size).toBe(all.length);
   unregister();
 });
+
+test("reopen closed tab brings back the last closed files, newest first, skipping deleted ones", async () => {
+  const { core, files, workspace, unregister } = setup();
+  for (const path of ["a", "b", "c", "d"]) {
+    core.put(path, path);
+    await files.opened(path);
+    files.makePermanent(path);
+  }
+  files.close("a");
+  files.closeOthers("d");
+  expect(files.files).toEqual(["d"]);
+  core.files.delete("c");
+  await run("editor.reopen_closed_tab");
+  expect([workspace.openPath, files.files, files.preview]).toEqual(["b", ["d", "b"], null]);
+  await run("editor.reopen_closed_tab");
+  expect(workspace.openPath).toBe("a");
+  workspace.openFile("d");
+  await run("editor.reopen_closed_tab");
+  expect(workspace.openPath).toBe("d");
+  unregister();
+});
+
+test("save all writes every unsaved file and names the ones it could not save", async () => {
+  const { core, drafts, files, unregister } = setup();
+  for (const path of ["a", "b", "c"]) {
+    core.put(path, path);
+    await files.opened(path);
+    files.makePermanent(path);
+  }
+  drafts.set("p1", "a", { text: "a2", mtime: 101 });
+  // A draft against an older version of b is a conflict, never overwritten.
+  drafts.set("p1", "b", { text: "b2", mtime: 1 });
+  await run("editor.save_all");
+  expect(core.writes).toEqual([{ path: "a", text: "a2", expected: 101 }]);
+  expect([files.buffers.get("b")?.conflict, tabs.notice]).toEqual([true, "Not saved, open to see why: b."]);
+  unregister();
+});

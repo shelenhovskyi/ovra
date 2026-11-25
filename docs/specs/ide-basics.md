@@ -70,8 +70,8 @@ remembered View or Edit per file type). This list only adds the menu.
 | Tab context menu: close, close others, close to the right, close saved, close all | yes     | yes | yes       | yes    | no                         | P0       |
 | Tab menu: copy path, reveal in tree, reveal in file manager                       | yes     | yes | yes       | yes    | no                         | P0       |
 | Preview tab, pinned tabs                                                          | yes     | yes | yes       | yes    | in progress (other thread) | P0       |
-| Reopen closed tab (Mod+Shift+T)                                                   | yes     | yes | yes       | yes    | no                         | P1       |
-| Save all (Mod+Alt+S)                                                              | yes     | yes | yes       | yes    | no                         | P1       |
+| Reopen closed tab (Mod+Shift+T)                                                   | yes     | yes | yes       | yes    | yes                        | done     |
+| Save all (Mod+Alt+S)                                                              | yes     | yes | yes       | yes    | yes (Mod+Shift+S)          | done     |
 | Drag tabs to reorder                                                              | yes     | yes | yes       | yes    | no                         | P1       |
 | Split editor (side by side)                                                       | yes     | yes | yes       | yes    | no                         | P1       |
 | Recent files (Mod+E in JetBrains)                                                 | yes     | yes | yes       | yes    | no                         | P1       |

@@ -8,7 +8,7 @@
 
 import { tick, untrack } from "svelte";
 import type { ProjectId, ProjectStatePatch } from "../lib/protocol";
-import type { Transport } from "../lib/transport";
+import { CoreError, type Transport } from "../lib/transport";
 import type { MainMode, Workspace } from "../shell/workspace.svelte";
 import { movedPath } from "../tree/ops";
 import { Buffers } from "./buffers.svelte";
@@ -19,6 +19,9 @@ import { modeMemory } from "./mode-memory";
 
 /** Beyond this many tabs, the leftmost inactive unpinned tab without unsaved text is closed. */
 const MAX_OPEN_FILES = 20;
+
+/** How many closed tabs Reopen closed tab remembers. */
+const MAX_CLOSED = 20;
 
 export class OpenFiles {
   /** Tab order; the pinned tabs come first. */
@@ -36,6 +39,8 @@ export class OpenFiles {
   /** The project's language servers, once the shell wires them up. */
   lsp: LanguageClients | null = null;
   private writes = Promise.resolve();
+  /** Tabs closed this session, the last one last, for Reopen closed tab. */
+  private closed: string[] = [];
 
   constructor(
     private readonly transport: Transport,
@@ -143,6 +148,7 @@ export class OpenFiles {
     const closing = unpinned.filter((p) => !unsaved.includes(p));
     const stays = (p: string) => !closing.includes(p);
     for (const p of closing) this.forget(p);
+    this.remember(closing);
     this.files = this.files.filter(stays);
     if (this.preview && !stays(this.preview)) this.preview = null;
     if (this.active && !stays(this.active)) this.active = next ?? this.files[0] ?? null;
@@ -166,6 +172,7 @@ export class OpenFiles {
     const index = this.files.indexOf(path);
     if (index === -1) return this.active;
     this.forget(path);
+    this.remember([path]);
     this.files = this.files.filter((p) => p !== path);
     this.pinned = this.pinned.filter((p) => p !== path);
     if (this.preview === path) this.preview = null;
@@ -191,6 +198,7 @@ export class OpenFiles {
       if (mode) this.modes.set(target, mode);
     }
     this.files = this.files.map(next);
+    this.closed = this.closed.map(next);
     this.pinned = this.pinned.map(next);
     if (this.preview) this.preview = next(this.preview);
     if (this.active) this.active = next(this.active);
@@ -204,6 +212,7 @@ export class OpenFiles {
    */
   forgetPaths(paths: string[]): string | null {
     const gone = (path: string) => paths.some((dir) => movedPath(path, dir, dir) !== null);
+    this.closed = this.closed.filter((path) => !gone(path));
     const closing = this.files.filter((path) => gone(path) && !this.buffers.isDirty(path));
     for (const path of this.files)
       if (gone(path) && !closing.includes(path)) void this.buffers.get(path)?.diskChanged();
@@ -221,12 +230,36 @@ export class OpenFiles {
     return this.active;
   }
 
+  /**
+   * Takes the most recently closed tab back, skipping files that no longer
+   * exist; null when none is left. The caller shows it.
+   */
+  async reopen(): Promise<string | null> {
+    for (let path = this.closed.pop(); path !== undefined; path = this.closed.pop()) {
+      if (this.files.includes(path)) continue;
+      try {
+        await this.transport.call({ method: "fs.read_file", params: { project: this.project, path } });
+      } catch (err) {
+        // Gone files are skipped; any other error is the viewer's to show.
+        if (err instanceof CoreError && err.code === "not_found") continue;
+      }
+      await this.opened(path);
+      this.makePermanent(path);
+      return path;
+    }
+    return null;
+  }
+
   /** The tab `offset` places away from the active one, wrapping around. */
   neighbour(offset: number): string | null {
     if (this.files.length === 0) return null;
     const index = this.active ? this.files.indexOf(this.active) : -1;
     const count = this.files.length;
     return this.files[(((index + offset) % count) + count) % count] ?? null;
+  }
+
+  private remember(paths: string[]): void {
+    this.closed = [...this.closed.filter((p) => !paths.includes(p)), ...paths].slice(-MAX_CLOSED);
   }
 
   private forget(path: string): void {
@@ -313,6 +346,34 @@ export async function answerClose(workspace: Target, answer: "save" | "discard" 
   tabs.closing = null;
   if (!current || !path || answer === "cancel") return;
   closeTab(workspace, current, path);
+}
+
+/** Shows the most recently closed tab again, if one of them still exists. */
+export async function reopenClosedTab(workspace: Target): Promise<void> {
+  const path = await tabs.current?.reopen();
+  if (path) show(workspace, path);
+}
+
+/**
+ * Saves every file with unsaved text, loaded or only a draft. Files that
+ * could not be saved (changed on disk, or an error) keep their text, show
+ * why in their editor as Save does, and are named in a notice.
+ */
+export async function saveAll(): Promise<void> {
+  const current = tabs.current;
+  if (!current) return;
+  const { buffers } = current;
+  const paths = [...new Set([...current.files.filter((p) => buffers.isDirty(p)), ...buffers.unsavedPaths()])];
+  const saveOne = async (path: string) => {
+    const buffer = buffers.open(path);
+    await buffer.loaded;
+    // A draft made against another version is a conflict the person settles, never overwritten here.
+    if (buffer.conflict) return false;
+    return !buffer.dirty || buffer.save();
+  };
+  const saved = await Promise.all(paths.map(saveOne));
+  const failed = paths.filter((_, i) => !saved[i]);
+  tabs.notice = failed.length > 0 ? `Not saved, open to see why: ${failed.join(", ")}.` : null;
 }
 
 /** Closes all tabs but `path` (or all with `null`) except pinned ones; unsaved ones stay and say so. */
