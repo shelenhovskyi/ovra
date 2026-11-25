@@ -3,6 +3,7 @@
 import { registerCommand } from "../keys/commands";
 import type { Workspace } from "../shell/workspace.svelte";
 import { editorReady, goToChange, readBlame, showChangeAtCursor, toggleBlame } from "./git/extension";
+import type { LspAction } from "./lsp/actions";
 import { focusMain, requestClose, show, tabs } from "./open-files.svelte";
 
 type Target = Pick<Workspace, "openPath" | "mode" | "openFile">;
@@ -61,6 +62,17 @@ async function saveActive(workspace: Target): Promise<void> {
   await buffers.open(path).save();
 }
 
+/** The language-server actions, with the keys the editor binds for them (shown in the palette). */
+const LSP_ACTIONS: [LspAction, string, string?][] = [
+  ["definition", "Go to definition", "F12"],
+  ["references", "Find references", "Shift+F12"],
+  ["rename", "Rename symbol", "F2"],
+  ["format", "Format file", "Shift+Alt+F"],
+  ["hover", "Show hover at cursor (Mod+K Mod+I)"],
+  ["problems", "Show problems", "Mod+Shift+M"],
+  ["next_problem", "Go to next problem", "F8"],
+];
+
 /** Registers the editor and tab commands; returns a function that unregisters them. */
 export function registerEditorCommands(workspace: Target): () => void {
   const step = (offset: number) => () => {
@@ -103,6 +115,14 @@ export function registerEditorCommands(workspace: Target): () => void {
         if (active) requestClose(workspace, active);
       },
     }),
+    ...LSP_ACTIONS.map(([action, title, keys]) =>
+      registerCommand({
+        id: `editor.lsp_${action}`,
+        title: `Language: ${title}`,
+        keys,
+        run: inEditor(workspace, () => tabs.current?.lsp?.action(action)),
+      }),
+    ),
   ];
   return () => {
     for (const off of unregister) off();

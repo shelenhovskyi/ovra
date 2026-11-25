@@ -157,7 +157,9 @@ test("a definition outside the project is never opened, only noted", async () =>
   await show("src/a b.ts");
   await until(() => expect(core.got("s1", "textDocument/didOpen")).toHaveLength(1));
   jumpToDefinition(view);
-  await until(() => expect(notes).toEqual(["lib.rs is outside the project and cannot be opened."]));
+  await until(() =>
+    expect(notes).toEqual(["/usr/lib/rustlib/src/lib.rs is outside the project and cannot be opened."]),
+  );
   expect(read.mock.calls.filter(([r]) => r.method === "fs.read_file")).toHaveLength(1);
   expect(view.state.doc.toString()).toBe("const x = 1;\nx;\n");
 });
@@ -251,6 +253,53 @@ test("references list files the editor does not show, read from disk, and open t
   await until(() => expect(view.state.doc.toString()).toBe("export const y = 2;\n  y;\n"));
   await until(() => expect(core.got("s1", "textDocument/didOpen")).toHaveLength(2));
   expect(core.got("s1", "textDocument/didOpen")[1]?.params).toMatchObject({ textDocument: { uri: B } });
+});
+
+test("actions the server cannot do say so, and failed requests become a note", async () => {
+  const { core, view, notes, show } = setup();
+  await show("src/a b.ts");
+  await until(() => expect(core.got("s1", "textDocument/didOpen")).toHaveLength(1));
+  const key = (init: KeyboardEventInit) => view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", init));
+  await until(() => expect(LSPPlugin.get(view)?.client.serverCapabilities).toBeTruthy());
+  key({ key: "f", code: "KeyF", keyCode: 70, shiftKey: true, altKey: true });
+  expect(notes).toEqual(["fake cannot format this file."]);
+  expect(core.got("s1", "textDocument/formatting")).toHaveLength(0);
+  LSPPlugin.get(view)?.reportError("Rename request failed", new Error("boom"));
+  expect(notes.at(-1)).toBe("Rename request failed: boom");
+  expect(view.dom.querySelector(".cm-lsp-message")).toBeNull();
+});
+
+test("hover and problems are reachable from the keyboard", async () => {
+  const { core, view, notes, show } = setup();
+  core.answers["textDocument/hover"] = { contents: { kind: "plaintext", value: "const x: 1" } };
+  await show("src/a b.ts");
+  await until(() => expect(core.got("s1", "textDocument/didOpen")).toHaveLength(1));
+  view.dispatch({ selection: { anchor: 6 } });
+  view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "k", code: "KeyK", ctrlKey: true }));
+  view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "i", code: "KeyI", ctrlKey: true }));
+  await until(() => expect(view.dom.querySelector(".cm-tooltip")?.textContent).toContain("const x: 1"));
+  view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape" }));
+  expect(view.dom.querySelector(".cm-lsp-hover-tooltip")).toBeNull();
+  const range = { start: { line: 1, character: 0 }, end: { line: 1, character: 1 } };
+  core.push("s1", {
+    method: "textDocument/publishDiagnostics",
+    params: { uri: A, diagnostics: [{ range, message: "m" }] },
+  });
+  view.dispatch({ selection: { anchor: 0 } });
+  view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: "F8", code: "F8" }));
+  expect(view.state.selection.main.from).toBe(13);
+  expect(notes).toEqual([]);
+});
+
+test("an untrusted project says once why its files get no language server", async () => {
+  const core = new FakeLspCore();
+  core.trusted = false;
+  const { notes, show } = setup(core);
+  await show("src/a b.ts");
+  await until(() => expect(notes).toEqual([expect.stringContaining("only once you trust the project")]));
+  await show("src/b.ts");
+  await until(() => expect(methods(core)).toEqual(["lsp.status", "lsp.status"]));
+  expect(notes).toHaveLength(1);
 });
 
 test("links in docs open through the core, never in this window", async () => {

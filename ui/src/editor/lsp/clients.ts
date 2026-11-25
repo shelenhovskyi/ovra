@@ -4,14 +4,15 @@
 // installed. One LSPClient per running server; a server that stops or fails
 // drops its client, and the next file shown starts a new one.
 
-import { setDiagnostics } from "@codemirror/lint";
+import { lintGutter, setDiagnostics } from "@codemirror/lint";
 import { findReferences, LSPClient, LSPPlugin, languageServerExtensions } from "@codemirror/lsp-client";
 import { Prec, Text } from "@codemirror/state";
-import { type EditorView, keymap, ViewPlugin } from "@codemirror/view";
+import { EditorView, keymap, ViewPlugin } from "@codemirror/view";
 import type { LspStatus, ProjectId, ServerId, ServerInfo } from "../../lib/protocol";
 import type { Transport } from "../../lib/transport";
 import { languageServers } from "../../lsp/servers.svelte";
 import type { Buffer } from "../buffers.svelte";
+import { actionKeys, keyboardHover, type LspAction, runAction } from "./actions";
 import { ServerChannel } from "./channel";
 import { safeHref, sanitizeHtml } from "./sanitize";
 import { pathOf, ROOT_URI, uriOf } from "./uris";
@@ -52,6 +53,20 @@ type WorkspaceEdit = { changes?: Record<string, unknown[]> } | null;
 
 type Location = { uri: string };
 
+/** Where each client's errors go: the library would show a bar per error that Escape cannot close. */
+const notes = new WeakMap<LSPClient, (text: string) => void>();
+LSPPlugin.prototype.reportError = function (this: LSPPlugin, text: string, err: unknown) {
+  const line = `${text}: ${err instanceof Error ? err.message : String((err as { message?: unknown })?.message ?? err)}`;
+  const note = notes.get(this.client);
+  if (note) note(line);
+  else console.warn(`[lsp] ${line}`);
+};
+
+/** Hover-doc links: readable, and they say where they go. */
+const linkTheme = EditorView.baseTheme({
+  ".cm-lsp-documentation a": { color: "#8fb4ff", textDecoration: "underline" },
+});
+
 export class LanguageClients {
   private readonly servers = new Map<string, Server>();
   private readonly starting = new Map<string, Promise<Server | null>>();
@@ -60,6 +75,7 @@ export class LanguageClients {
   private shown: { buffer: Buffer; view: EditorView } | null = null;
   private waiters: { path: string; resolve: (view: EditorView | null) => void }[] = [];
   private closed = false;
+  private toldUntrusted = false;
   private readonly unsubscribe: () => void;
 
   constructor(private readonly options: Options) {
@@ -87,6 +103,38 @@ export class LanguageClients {
   /** The editor stopped showing `buffer`. */
   hiding(buffer: Buffer): void {
     if (this.shown?.buffer === buffer) this.shown = null;
+  }
+
+  /** Runs a language-server action in the shown file, or says why it cannot. */
+  action(action: LspAction): void {
+    const view = this.shown?.view;
+    const language = this.shown?.buffer.language;
+    if (
+      !view ||
+      !runAction(
+        view,
+        action,
+        this.context(() => LSPPlugin.get(view)?.client ?? null),
+      )
+    ) {
+      this.options.note(
+        view && language && LANGUAGES[language.id]
+          ? "No language server is running for this file."
+          : "Open a file for editing (Mod+E) to use language features.",
+      );
+    }
+  }
+
+  private context(client: () => LSPClient | null) {
+    return {
+      note: this.options.note,
+      references: (view: EditorView) => this.references(view),
+      serverName: () => {
+        const mine = client();
+        for (const server of this.servers.values()) if (server.client === mine) return server.info.name;
+        return "This language server";
+      },
+    };
   }
 
   /** Forgets every client. Servers keep running (a reload does not restart them). */
@@ -124,6 +172,12 @@ export class LanguageClients {
     // A known server that cannot start gets the footer's hint.
     if (status && known && (!status.trusted || !known.path))
       languageServers(this.options.transport).needServer(language);
+    if (status && known?.path && !status.trusted && !this.toldUntrusted) {
+      this.toldUntrusted = true;
+      this.options.note(
+        `No ${known.name} here: language servers run the project's code, so they start only once you trust the project (Project settings).`,
+      );
+    }
     if (!status?.trusted || !known?.path || this.closed) return null;
     let info = await this.startServer(language);
     if (info && status.servers.some((s) => s.id === info?.id)) {
@@ -142,13 +196,17 @@ export class LanguageClients {
         ...languageServerExtensions(),
         { clientCapabilities: { workspace: { workspaceFolders: true } } },
         this.docLinks(),
-        Prec.high(keymap.of([{ key: "Shift-F12", run: (view) => this.references(view), preventDefault: true }])),
+        Prec.high(keymap.of(actionKeys(this.context(() => client)))),
+        keyboardHover,
+        lintGutter(),
+        linkTheme,
       ],
     });
     const channel = new ServerChannel(this.options.transport, info.id, {
       folderName: this.options.name,
       renamed: (result) => this.renamed(client, result as WorkspaceEdit),
     });
+    notes.set(client, this.options.note);
     const server: Server = { language, info, client, channel, buffers: new Set() };
     this.servers.set(language, server);
     client.connect(channel);
@@ -263,8 +321,7 @@ export class LanguageClients {
    */
   private references(view: EditorView): boolean {
     const plugin = LSPPlugin.get(view);
-    const capabilities = plugin?.client.serverCapabilities;
-    if (!plugin || (capabilities && !capabilities.referencesProvider)) return false;
+    if (!plugin) return false;
     const workspace = plugin.client.workspace as BufferWorkspace;
     workspace.unpeek();
     plugin.client.sync();
@@ -330,11 +387,13 @@ export class LanguageClients {
   }
 }
 
-/** A readable name for a URI outside the project. */
+/** A readable name for a URI outside the project: the whole path of a file, so `/etc/passwd` is not just "passwd". */
 function outsideName(uri: string): string {
   try {
-    return decodeURIComponent(new URL(uri).pathname.split("/").at(-1) ?? uri) || uri;
+    const url = new URL(uri);
+    if (url.protocol !== "file:") return "A location";
+    return decodeURIComponent(url.pathname) || uri;
   } catch {
-    return uri;
+    return "A location";
   }
 }

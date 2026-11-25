@@ -68,7 +68,11 @@ function copy(from: Node, to: Element): void {
     const cls = safeClass(node.getAttribute("class"));
     if (cls) clean.setAttribute("class", cls);
     const href = tag === "a" ? safeHref(node.getAttribute("href")) : null;
-    if (href) clean.setAttribute("href", href);
+    if (href) {
+      clean.setAttribute("href", href);
+      // Where it goes, since the system browser opens it in one click.
+      clean.setAttribute("title", href);
+    }
     to.appendChild(clean);
     copy(node, clean);
   }

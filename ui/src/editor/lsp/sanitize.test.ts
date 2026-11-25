@@ -15,13 +15,13 @@ test("drops scripts, styles and svg with their content", () => {
   expect(sanitizeHtml("<math><mi>x</mi></math><iframe src=x></iframe><template><p>t</p></template>ok")).toBe("ok");
 });
 
-test("drops event handlers and every attribute but class and a safe href", () => {
+test("drops event handlers and every attribute but class and a safe href, which links also show as a title", () => {
   expect(sanitizeHtml('<img src=x onerror="alert(1)"><p onclick="x()" style="color:red" id="i">t</p>')).toBe(
     "<p>t</p>",
   );
   expect(sanitizeHtml('<span class="tok-c" title="t" data-x="1">s</span>')).toBe('<span class="tok-c">s</span>');
   expect(sanitizeHtml('<a href="https://docs.rs/x" target="_blank" onmouseover="x()">d</a>')).toBe(
-    '<a href="https://docs.rs/x">d</a>',
+    '<a href="https://docs.rs/x" title="https://docs.rs/x">d</a>',
   );
 });
 
@@ -37,7 +37,7 @@ test("links keep only http and https targets", () => {
   ];
   for (const href of unsafe) expect(sanitizeHtml(`<a href="${href}">x</a>`)).toBe("<a>x</a>");
   expect(sanitizeHtml('<a href="http://example.com/a?b=1&amp;c=2">x</a>')).toBe(
-    '<a href="http://example.com/a?b=1&amp;c=2">x</a>',
+    '<a href="http://example.com/a?b=1&amp;c=2" title="http://example.com/a?b=1&amp;c=2">x</a>',
   );
 });
 

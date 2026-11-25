@@ -118,6 +118,12 @@ makes on disk still reach them.
 - A server stops when the person stops it, its project loses trust or is
   removed, or it exits. It keeps running when the project closes in every
   client, so a reload does not restart it.
+- Keys: F12 definition, Shift+F12 references, F2 rename, Shift+Alt+F
+  format, Mod+K Mod+I hover at the cursor, Mod+Shift+M problems, F8 and
+  Shift+F8 next and previous problem; all are in the palette under
+  "Language:", and from the viewer they open the file for editing first.
+  An action the server cannot do, and a failed request, says so in the
+  editor's notice line.
 - Find references (Shift+F12) lists references in files the editor does
   not show by reading up to 50 of them from disk; the server is not told
   they were opened until the person picks one.

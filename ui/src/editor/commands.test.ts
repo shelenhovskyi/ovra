@@ -119,3 +119,23 @@ test("git change commands in view mode switch the file to editing and then act",
   view.destroy();
   unregister();
 });
+
+test("a language action from the viewer opens the file for editing, then runs in the editor", async () => {
+  const { core, files, workspace, unregister } = setup();
+  const action = vi.fn();
+  files.lsp = { action } as unknown as NonNullable<typeof files.lsp>;
+  core.put("a.rs", "fn a() {}");
+  workspace.openFile("a.rs");
+  const done = run("editor.lsp_definition");
+  const buffer = files.buffers.open("a.rs");
+  await buffer.loaded;
+  expect(workspace.mode).toBe("edit");
+  const view = new EditorView({ parent: document.body });
+  buffer.attach(view);
+  await done;
+  expect(action).toHaveBeenCalledWith("definition");
+  expect(listCommands().find((c) => c.id === "editor.lsp_references")?.keys).toBe("Shift+F12");
+  buffer.detach();
+  view.destroy();
+  unregister();
+});
