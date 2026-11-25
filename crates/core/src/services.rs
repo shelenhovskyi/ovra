@@ -974,7 +974,8 @@ pub trait Worktrees: Send + Sync + Debug {
     /// Writes `paths` as they are in `tree` (a snapshot or look of a
     /// worktree of the same repository: what the person reviewed, not what
     /// is on disk by now) into `into`. A file in `into` that no longer
-    /// matches `base` is skipped and returned as a conflict.
+    /// matches `base` is skipped and returned as a conflict, unless it
+    /// already matches `tree` (another worker's identical version was kept).
     fn apply(
         &self,
         tree: String,

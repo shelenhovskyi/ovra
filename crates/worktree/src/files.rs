@@ -156,7 +156,8 @@ pub(crate) fn restore(dir: &Path, base: &str, paths: &[RelPath]) -> Result<()> {
 
 /// Writes `paths` as they are in `tree` (a snapshot or look of a worker's
 /// worktree in the same repository) into `into`, unless the file in `into`
-/// no longer matches `base`: those are returned as conflicts.
+/// no longer matches `base`: those are returned as conflicts. A file that
+/// already matches `tree` is no conflict.
 pub(crate) fn apply(tree: &str, base: &str, into: &Path, paths: &[RelPath]) -> Result<Vec<String>> {
     let base = git::commit_id(into, base)?;
     copy_over(tree, into, paths, Some(&blobs(into, &base, paths)?))
@@ -171,7 +172,7 @@ pub(crate) fn take(tree: &str, into: &Path, paths: &[RelPath]) -> Result<Vec<Str
 /// Writes `paths` from `tree` into `into`: the versions someone reviewed,
 /// never what is on a worker's disk by then. With `expected` (blob ids by
 /// path; a missing entry means no file), a file of `into` that differs is
-/// skipped and returned as a conflict.
+/// skipped and returned as a conflict, unless it is already as in `tree`.
 fn copy_over(
     tree: &str,
     into: &Path,
@@ -246,6 +247,19 @@ fn copy_over(
         // way may have changed since (an agent in direct mode works here
         // too). What changes between this look and the write is not seen.
         let changed = expected.is_some_and(|e| current.get(key).copied() != e.get(key));
+        // Already as the tree has it (another worker's identical version
+        // was kept first, or the person wrote the same): nothing to copy,
+        // and nothing for the person to settle.
+        let same = match (&source, wanted.get(key)) {
+            (Source::Written, Some((mode, id))) => {
+                current.get(key).is_some_and(|c| *c == id) && mode_matches(into, path, mode)
+            }
+            (Source::Missing, _) => here == OnDisk::Missing,
+            (Source::Written, None) => false,
+        };
+        if changed && same && on_disk(into, path)? == here && !is_symlink(into, path) {
+            continue;
+        }
         if changed || on_disk(into, path)? != here || is_symlink(into, path) {
             conflicts.push(key.to_owned());
             continue;
@@ -353,6 +367,26 @@ fn link(dir: &Path, path: &RelPath, id: &str) -> Result<Option<Source>> {
 /// Whether `path` under `dir` is a symlink itself (not followed).
 fn is_symlink(dir: &Path, path: &RelPath) -> bool {
     fs::symlink_metadata(path.under(dir)).is_ok_and(|m| m.is_symlink())
+}
+
+/// Whether the regular file at `path` has the tree's `mode` (`100644` or
+/// `100755`); a link's mode never matches a file. Without an executable
+/// bit (Windows), both regular modes match.
+fn mode_matches(dir: &Path, path: &RelPath, mode: &str) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let Ok(meta) = fs::symlink_metadata(path.under(dir)) else {
+            return false;
+        };
+        let executable = meta.permissions().mode() & 0o111 != 0;
+        meta.is_file() && mode == if executable { "100755" } else { "100644" }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (dir, path);
+        mode == "100644" || mode == "100755"
+    }
 }
 
 /// Whether a symlink at `path` with `target` stays inside the checkout,

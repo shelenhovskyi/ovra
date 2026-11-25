@@ -1550,6 +1550,43 @@ async fn a_worktree_git_will_not_remove_is_kept_and_says_why() {
 }
 
 #[tokio::test]
+async fn a_second_workers_identical_file_counts_as_copied() {
+    let f = fx(say()).await;
+    let mut rx = f.core.subscribe();
+    start_task(&f.core, 3).await;
+    let boss = caller("s1", ToolRole::Coordinator);
+    let mut trees = Vec::new();
+    for (session, name) in [("s2", "lint"), ("s3", "docs")] {
+        let worker = f.core.spawn_agent(&boss, name, "x").await;
+        let worker = worker.unwrap_or_else(|e| panic!("{e}"));
+        until(&mut rx, session, AgentStatus::Idle).await;
+        f.wt.put(&worker.worktree, "NOTES.md", "Notes from a worker.\n");
+        trees.push(worker.worktree);
+    }
+    f.wt.put(&trees[1], "b.rs", "docs\n");
+    f.wt.put(ROOT, "b.rs", "mine\n");
+    let items = reviews(&f.core).await;
+    let id_of = |session: &str| {
+        let found = items.iter().find(|i| i.session.0 == session);
+        found.map(|i| i.id.0.clone()).unwrap_or_default()
+    };
+    ok(&f.core, approval(&f.core, &id_of("s2"), json!(null)).await).await;
+    let done = ok(&f.core, approval(&f.core, &id_of("s3"), json!(null)).await).await;
+    let Response::Review(ReviewResponse::Done {
+        item, conflicts, ..
+    }) = done
+    else {
+        panic!("unexpected {done:?}");
+    };
+    // NOTES.md is already the same: only the person's own b.rs is left.
+    assert_eq!(conflicts, ["b.rs"]);
+    assert_eq!(
+        (item.state, item.not_copied),
+        (ReviewState::PartlyApproved, vec!["b.rs".to_owned()])
+    );
+}
+
+#[tokio::test]
 async fn the_workers_version_can_be_copied_over_mine_and_back() {
     let f = fx(say()).await;
     let mut rx = f.core.subscribe();

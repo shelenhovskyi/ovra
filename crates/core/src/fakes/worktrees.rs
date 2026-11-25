@@ -293,6 +293,10 @@ impl Worktrees for MemoryWorktrees {
             let mut conflicts = Vec::new();
             for path in paths {
                 let key = path.as_str();
+                // Already as in `tree`: nothing to copy, no conflict.
+                if target.get(key) == source.get(key) {
+                    continue;
+                }
                 if target.get(key) != old.get(key) {
                     conflicts.push(key.to_owned());
                     continue;
