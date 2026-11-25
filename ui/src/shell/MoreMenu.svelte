@@ -1,5 +1,5 @@
 <script lang="ts">
-// The header's "More" menu: the panels a newcomer rarely needs, each with a
+// The header's "More" menu: the terminal and the panels a newcomer rarely needs, each with a
 // line on what it is for and its shortcut. An item runs the panel's own
 // command and carries its name, so the menu, the palette and the shortcuts
 // open the same dialog under the same name. Arrow keys, Home, End and a first
@@ -12,6 +12,8 @@ import { useOvra } from "./context";
 import { menuTarget } from "./menu";
 
 const ITEMS = [
+  // The start panel's "Open a terminal" goes once a file is open; this stays.
+  { command: "terminal.toggle", id: "terminal", about: "A shell in the project folder, under the open file" },
   { command: "audit.toggle", id: "audit", about: "Everything agents did, and who approved it" },
   { command: "policy.toggle", id: "policy", about: "Rules for what agents may do in this project" },
   { command: "network.toggle", id: "network", about: "Which websites agents may reach, and secrets" },

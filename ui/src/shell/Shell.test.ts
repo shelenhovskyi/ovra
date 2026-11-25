@@ -1,5 +1,6 @@
 import { flushSync, mount, unmount } from "svelte";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { registerCommand } from "../keys/commands";
 import type { Request } from "../lib/protocol";
 import { FrameRouter, type Transport } from "../lib/transport";
 import Shell from "./Shell.svelte";
@@ -160,14 +161,16 @@ describe("Shell", () => {
         document.getElementById(item.getAttribute("aria-describedby") ?? "")?.textContent,
       ]);
       expect(described).toEqual([
+        ["Toggle terminal", "Ctrl+`", "A shell in the project folder, under the open file"],
         ["Audit log", null, "Everything agents did, and who approved it"],
         ["Project policies", null, "Rules for what agents may do in this project"],
         ["Network and secrets", null, "Which websites agents may reach, and secrets"],
         ["Servers", "Ctrl+Shift+S", "Your project's dev servers, run for agents"],
         ["Agent browser", "Ctrl+Shift+B", "The web browser an agent uses"],
       ]);
-      expect(items()[3]?.getAttribute("aria-keyshortcuts")).toBe("Mod+Shift+S");
+      expect(items()[4]?.getAttribute("aria-keyshortcuts")).toBe("Mod+Shift+S");
       expect(items().map((item) => item.dataset.testid)).toEqual([
+        "open-terminal",
         "open-audit",
         "open-policy",
         "open-network",
@@ -184,16 +187,16 @@ describe("Shell", () => {
 
       expect(document.activeElement).toBe(items()[0]);
       key(document.activeElement, "ArrowUp");
-      expect(document.activeElement).toBe(items()[4]);
+      expect(document.activeElement).toBe(items()[5]);
       key(document.activeElement, "ArrowDown");
       expect(document.activeElement).toBe(items()[0]);
       key(document.activeElement, "End");
-      expect(document.activeElement).toBe(items()[4]);
+      expect(document.activeElement).toBe(items()[5]);
       // First-letter typeahead: P is Project policies, A goes on to Agent browser.
       key(document.activeElement, "KeyP");
-      expect(document.activeElement).toBe(items()[1]);
+      expect(document.activeElement).toBe(items()[2]);
       key(document.activeElement, "KeyA");
-      expect(document.activeElement).toBe(items()[4]);
+      expect(document.activeElement).toBe(items()[5]);
       key(document.activeElement, "Escape");
       flushSync();
       expect(menu()).toBeNull();
@@ -216,7 +219,7 @@ describe("Shell", () => {
       const { target, more, items, done } = mountShell();
       more?.click();
       flushSync();
-      items()[0]?.click();
+      items()[1]?.click();
       flushSync();
       await Promise.resolve();
       flushSync();
@@ -229,16 +232,28 @@ describe("Shell", () => {
       done();
     });
 
+    it("opens the terminal, a mouse way that stays once a file is open", () => {
+      const { more, items, done } = mountShell();
+      const run = vi.fn();
+      const off = registerCommand({ id: "terminal.toggle", title: "Toggle terminal", run });
+      more?.click();
+      flushSync();
+      items()[0]?.click();
+      expect(run).toHaveBeenCalledOnce();
+      off();
+      done();
+    });
+
     it("toggles the agent browser and shows that it is open", () => {
       const { target, more, items, done } = mountShell();
       more?.click();
       flushSync();
-      items()[4]?.click();
+      items()[5]?.click();
       flushSync();
       expect(target.querySelector("[data-testid=browser]")).not.toBeNull();
       more?.click();
       flushSync();
-      expect(items()[4]?.getAttribute("aria-checked")).toBe("true");
+      expect(items()[5]?.getAttribute("aria-checked")).toBe("true");
       done();
     });
   });
