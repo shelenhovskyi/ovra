@@ -47,7 +47,8 @@ test("side panels resize, fold and swap, and the layout survives a reload", asyn
 
   // Swap sides from the palette: the rail goes with Files. Then fold Files
   // with the title bar's toggle: no strip, the rail unfolds it. Agents folds
-  // on Alt+Mod+0 and comes back the same way.
+  // on Alt+Mod+0 and comes back the same way, or with New task (Alt+N in a
+  // browser tab, Mod+N in the app).
   const agents = page.getByTestId("agents");
   const rail = page.getByRole("navigation", { name: "Views" });
   const files = rail.getByRole("button", { name: "Files", exact: true });
@@ -66,6 +67,11 @@ test("side panels resize, fold and swap, and the layout survives a reload", asyn
   await expect(agents.getByRole("button", { name: /^Show Agents/ })).toBeVisible();
   await page.keyboard.press("Alt+ControlOrMeta+0");
   await expect(agentsToggle).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("Alt+ControlOrMeta+0");
+  await expect(agentsToggle).toHaveAttribute("aria-pressed", "false");
+  await page.keyboard.press("Alt+N");
+  await expect(agentsToggle).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("textbox", { name: "Give Claude a task" })).toBeFocused();
   // The rail's bottom: Terminal and Settings, which lists the settings in the palette.
   await rail.getByRole("button", { name: "Settings" }).click();
   await expect(page.getByRole("dialog", { name: "Command palette" })).toBeVisible();

@@ -2,7 +2,7 @@ import { flushSync, mount, unmount } from "svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { browserPicks } from "../browser/picks.svelte";
 import { handleOpenFor } from "../inbox/open";
-import { registerCommand } from "../keys/commands";
+import { listCommands, registerCommand } from "../keys/commands";
 import type { FileChange, Pick, ReviewItem } from "../lib/protocol";
 import { Workspace } from "../shell/workspace.svelte";
 import { FakeAgentCore } from "./fake-core";
@@ -764,6 +764,31 @@ describe("AgentsPanel", () => {
     await settle();
     expect(changes()).toBeNull();
     off();
+  });
+
+  it("unfolds a folded Agents column for New task, from its command and Mod+N", async () => {
+    const core = new FakeAgentCore();
+    core.addSession("p1", "Fix the typo", { state: "idle" });
+    await setup(core);
+    selectRow("Fix the typo");
+    const column = document.createElement("div");
+    column.dataset.testid = "agents";
+    column.innerHTML = '<div class="strip"></div>';
+    document.body.append(column);
+    const unfold = vi.fn(() => column.querySelector(".strip")?.remove());
+    const off = registerCommand({ id: "layout.toggle_agents", title: "t", run: unfold });
+    const task = listCommands().find((c) => c.id === "agents.new_session");
+    expect(task?.keys).toBe("Mod+N");
+    await task?.run();
+    await settle();
+    expect(unfold).toHaveBeenCalledOnce();
+    expect(document.activeElement?.id).toBe("agent-prompt");
+    // Unfolded, it stays as it is.
+    await task?.run();
+    await settle();
+    expect(unfold).toHaveBeenCalledOnce();
+    off();
+    column.remove();
   });
 });
 

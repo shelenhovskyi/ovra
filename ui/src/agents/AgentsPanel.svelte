@@ -7,7 +7,7 @@ import { tick, untrack } from "svelte";
 import { describeTool } from "../approvals/describe";
 import { approvalQueue } from "../approvals/queue.svelte";
 import { browserPicks, pickLabel } from "../browser/picks.svelte";
-import { registerCommand } from "../keys/commands";
+import { listCommands, registerCommand } from "../keys/commands";
 import type { AccountState, FileChange, SessionId, SessionInfo } from "../lib/protocol";
 import { CoreError } from "../lib/transport";
 import { useOvra } from "../shell/context";
@@ -246,7 +246,7 @@ $effect(() => {
 
 $effect(() => {
   const off = [
-    registerCommand({ id: "agents.new_session", title: "New task for Claude", run: newTask }),
+    registerCommand({ id: "agents.new_session", title: "New task for Claude", keys: "Mod+N", run: newTask }),
     registerCommand({
       id: "agents.add_account",
       title: "Use another account…",
@@ -294,7 +294,12 @@ async function askSetup(what: "path" | "account"): Promise<void> {
   await openSetup();
 }
 
+/** From a folded Agents column, New task unfolds it first, through the shell's own command. */
 async function newTask(): Promise<void> {
+  if (document.querySelector("[data-testid=agents] .strip"))
+    await listCommands()
+      .find((c) => c.id === "layout.toggle_agents")
+      ?.run();
   selected = null;
   await tick();
   promptField?.focus();
