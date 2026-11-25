@@ -76,8 +76,8 @@ const GAPS: [&str; 5] = [
     "DNS lookups",
     "loopback services",
     "Windows file sharing (SMB, WebDAV, BITS)",
-    "reads and deletes in other sandboxed projects",
-    "processes started through WMI or the task scheduler",
+    "reads in other sandboxed projects, caches and temp folders",
+    "processes started through WMI, the task scheduler or COM servers",
 ];
 
 /// The Windows sandbox: the sandbox user and a write-restricted token.

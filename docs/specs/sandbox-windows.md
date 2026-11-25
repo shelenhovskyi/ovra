@@ -153,10 +153,11 @@ Closing these needs WFP filters for the sandbox user (and stopping
 WebClient and BITS for it), a follow-up.
 
 **What is not isolated.** The token's restricting SIDs are checked only
-for what Windows counts as writing, which leaves out reading, `DELETE` and
-changing an ACL. So a session reads, and can delete files in, every
-project, cache and temp folder ever granted to the sandbox user, unlike
-Linux; it cannot write or create there. Protected paths hold, because
+for what Windows counts as writing, which leaves out reading. So a session
+reads every project, cache and temp folder ever granted to the sandbox
+user, unlike Linux. It cannot write, create, delete, move or re-ACL files
+there, even with a request for `DELETE` alone or on a file the sandbox
+user made (the setup test on CI checks each). Protected paths hold, because
 their deny ACEs name the sandbox user itself (CI checks both). Processes started through WMI, the Task
 Scheduler or COM servers run outside the job and can outlive the session;
 ending the sandbox user's processes of a logon session when it ends is a

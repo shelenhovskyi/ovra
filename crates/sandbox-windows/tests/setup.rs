@@ -47,6 +47,7 @@ fn the_sandbox_user_writes_its_project_only_and_reaches_nothing() {
     let other = root.join("other");
     fs::create_dir_all(&other).unwrap();
     fs::write(other.join("kept.txt"), "kept").unwrap();
+    fs::write(other.join("moved.txt"), "moved").unwrap();
     let other_sid = "S-1-5-21-1000000031-1000000032-1000000033-1000000034";
     let out = Command::new(PROBE)
         .args([
@@ -59,6 +60,7 @@ fn the_sandbox_user_writes_its_project_only_and_reaches_nothing() {
         .args(["--m", &text(&other)])
         .args(["--rx", &text(Path::new(PROBE).parent().unwrap())])
         .args(["--env", "SystemRoot", "--", PROBE])
+        .args(["write", &text(&other.join("mine.txt"))])
         .current_dir(&other)
         .output()
         .unwrap();
@@ -70,45 +72,73 @@ fn the_sandbox_user_writes_its_project_only_and_reaches_nothing() {
 
     let sid = "S-1-5-21-1000000011-1000000012-1000000013-1000000014";
     let probe_dir = text(Path::new(PROBE).parent().unwrap());
-    let out = Command::new(PROBE)
-        .args([
-            "--ovra-sandbox-helper",
-            "--sid",
-            sid,
-            "--data",
-            &text(&data),
-        ])
-        .args(["--m", &text(&work), "--deny", &text(&work.join(".git"))])
-        .args(["--rx", &probe_dir, "--env", "SystemRoot", "--", PROBE])
-        .args(["write", &text(&work.join("a.txt"))])
-        .args(["write", &text(&work.join(".git").join("config"))])
-        .args(["read", &text(&secret)])
-        .args(["write", &text(&home.join("planted.txt"))])
-        .args(["connect", "1.1.1.1:443"])
-        .args(["remove", &text(&work.join(".git"))])
-        .args(["write", &text(&other.join("kept.txt"))])
-        .args(["remove", &text(&other.join("kept.txt"))])
-        .current_dir(&work)
-        .output()
-        .unwrap();
+    // `CreateProcessWithLogonW` takes at most 1024 characters of command
+    // line, so the probes are split over two sessions in the same project.
+    let session = |probes: &[String]| {
+        Command::new(PROBE)
+            .args([
+                "--ovra-sandbox-helper",
+                "--sid",
+                sid,
+                "--data",
+                &text(&data),
+            ])
+            .args(["--m", &text(&work), "--deny", &text(&work.join(".git"))])
+            .args(["--rx", &probe_dir, "--env", "SystemRoot", "--", PROBE])
+            .args(probes)
+            .current_dir(&work)
+            .output()
+            .unwrap()
+    };
+    let pairs = |pairs: &[(&str, String)]| -> Vec<String> {
+        pairs
+            .iter()
+            .flat_map(|(what, path)| [what.to_string(), path.clone()])
+            .collect()
+    };
+    let own = session(&pairs(&[
+        ("write", text(&work.join("a.txt"))),
+        ("write", text(&work.join(".git").join("config"))),
+        ("read", text(&secret)),
+        ("write", text(&home.join("planted.txt"))),
+        ("connect", "1.1.1.1:443".into()),
+        ("remove", text(&work.join(".git"))),
+    ]));
+    let across = session(&pairs(&[
+        ("write", text(&other.join("kept.txt"))),
+        ("remove", text(&other.join("kept.txt"))),
+        ("delete", text(&other.join("kept.txt"))),
+        (
+            "rename",
+            format!(
+                "{}|{}",
+                text(&other.join("moved.txt")),
+                text(&work.join("moved.txt"))
+            ),
+        ),
+        ("acl", format!("{}|{sid}", text(&other.join("mine.txt")))),
+        ("write", text(&other.join("mine.txt"))),
+    ]));
     let removed = probe(&["--ovra-sandbox-remove"]);
     let _ = fs::remove_file(&secret);
     let _ = fs::remove_dir_all(&root);
-    assert!(
-        out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
+    for out in [&own, &across] {
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
     assert!(
         removed.status.success(),
         "{}",
         String::from_utf8_lossy(&removed.stderr)
     );
-    // The last line is a known limit (docs/specs/sandbox-windows.md):
-    // Windows does not count DELETE as a write, so the token's project SID
-    // does not stop it, and the sandbox user may delete in every project it
-    // was ever granted.
-    let shown = String::from_utf8_lossy(&out.stdout)
+    // The last lines probe another project: a delete asking for DELETE
+    // alone, a move out, and an ACL change on a file the sandbox user made
+    // there are all refused.
+    let shown = [own.stdout, across.stdout].concat();
+    let shown = String::from_utf8_lossy(&shown)
         .replace(&text(&work), "WORK")
         .replace(&text(&other), "OTHER")
         .replace(&text(&home), "HOME")
@@ -121,6 +151,10 @@ fn the_sandbox_user_writes_its_project_only_and_reaches_nothing() {
     connect 1.1.1.1:443: no
     remove WORK\.git: no
     write OTHER\kept.txt: no
-    remove OTHER\kept.txt: yes
+    remove OTHER\kept.txt: no
+    delete OTHER\kept.txt: no
+    rename OTHER\moved.txt|WORK\moved.txt: no
+    acl OTHER\mine.txt|S-1-5-21-1000000011-1000000012-1000000013-1000000014: no
+    write OTHER\mine.txt: no
     ");
 }
