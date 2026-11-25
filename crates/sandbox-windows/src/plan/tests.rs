@@ -122,6 +122,8 @@ fn a_direct_session_behind_a_proxy() {
     let profile = SandboxProfile {
         kind: ovra_core::services::ProfileKind::Agent,
         claude_dir: None,
+        project: None,
+        work_env: None,
         work_dir: work.clone(),
         read: Vec::new(),
         write: Vec::new(),
@@ -150,6 +152,8 @@ fn a_worker_reads_its_git_folder() {
     let profile = SandboxProfile {
         kind: ovra_core::services::ProfileKind::Agent,
         claude_dir: None,
+        project: None,
+        work_env: None,
         work_dir: work.clone(),
         read: vec![main_git],
         write: Vec::new(),
@@ -172,6 +176,8 @@ fn folders_holding_the_home_folder_or_ovras_data_are_refused() {
         let profile = SandboxProfile {
             kind: ovra_core::services::ProfileKind::Agent,
             claude_dir: None,
+            project: None,
+            work_env: None,
             work_dir: work.clone(),
             read: Vec::new(),
             write: Vec::new(),
@@ -199,6 +205,8 @@ fn a_protected_path_that_is_a_link_refuses_the_session() {
     let profile = SandboxProfile {
         kind: ovra_core::services::ProfileKind::Agent,
         claude_dir: None,
+        project: None,
+        work_env: None,
         work_dir: work,
         read: Vec::new(),
         write: Vec::new(),
@@ -219,6 +227,8 @@ fn variable_names_match_without_case() {
     let profile = SandboxProfile {
         kind: ovra_core::services::ProfileKind::Agent,
         claude_dir: None,
+        project: None,
+        work_env: None,
         work_dir: work.clone(),
         read: Vec::new(),
         write: Vec::new(),
@@ -270,6 +280,8 @@ fn a_helper_installed_in_the_home_folder_can_be_started() {
     let profile = SandboxProfile {
         kind: ovra_core::services::ProfileKind::Agent,
         claude_dir: None,
+        project: None,
+        work_env: None,
         work_dir: work,
         read: Vec::new(),
         write: Vec::new(),
@@ -292,6 +304,8 @@ fn secret_folders_stay_hidden_whatever_the_case_of_their_name() {
     let profile = SandboxProfile {
         kind: ovra_core::services::ProfileKind::Agent,
         claude_dir: None,
+        project: None,
+        work_env: None,
         work_dir: work,
         read: Vec::new(),
         write: Vec::new(),
@@ -305,6 +319,8 @@ fn secret_folders_stay_hidden_whatever_the_case_of_their_name() {
     let profile = SandboxProfile {
         kind: ovra_core::services::ProfileKind::Agent,
         claude_dir: None,
+        project: None,
+        work_env: None,
         work_dir: home_claude,
         read: Vec::new(),
         write: Vec::new(),
@@ -324,6 +340,8 @@ fn server_pods_are_refused_and_forwards_left_out() {
     let mut profile = SandboxProfile {
         kind: ovra_core::services::ProfileKind::Agent,
         claude_dir: None,
+        project: None,
+        work_env: None,
         work_dir: work,
         read: Vec::new(),
         write: Vec::new(),
@@ -346,6 +364,8 @@ fn an_account_with_its_own_folder_is_refused() {
     let profile = SandboxProfile {
         kind: ovra_core::services::ProfileKind::Agent,
         claude_dir: Some(root.dir("home/.claude-work")),
+        project: None,
+        work_env: None,
         work_dir: work,
         read: Vec::new(),
         write: Vec::new(),

@@ -264,6 +264,26 @@ pub struct SandboxProfile {
     /// has one: the sandbox gives back this folder instead of `~/.claude`
     /// and `~/.claude.json`, and no other account's.
     pub claude_dir: Option<PathBuf>,
+    /// The project the work dir belongs to: its package caches are that
+    /// project's own copy, shared by all its worktrees
+    /// (`docs/specs/worktree-setup.md`).
+    pub project: Option<ProjectId>,
+    /// `OVRA_PORT`, `OVRA_WORKTREE_ROOT` and `OVRA_MAIN_ROOT`, set on the
+    /// sandbox's own line when present.
+    pub work_env: Option<WorkEnv>,
+}
+
+/// What code in a work dir is told about it (`docs/specs/worktree-setup.md`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkEnv {
+    /// `OVRA_PORT`: the first of the work dir's block of ports.
+    pub port: u16,
+    /// `OVRA_WORKTREE_ROOT`: the work dir's checkout, a worktree or the
+    /// main checkout.
+    pub worktree_root: PathBuf,
+    /// `OVRA_MAIN_ROOT`: the main checkout, named but not readable inside
+    /// a sandbox.
+    pub main_root: PathBuf,
 }
 
 /// Whom a sandbox is for.

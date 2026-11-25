@@ -223,6 +223,8 @@ mod tests {
             profile: SandboxProfile {
                 kind: crate::services::ProfileKind::Pod,
                 claude_dir: None,
+                project: None,
+                work_env: None,
                 work_dir: work_dir.into(),
                 read: Vec::new(),
                 write: Vec::new(),

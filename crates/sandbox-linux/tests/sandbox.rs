@@ -104,6 +104,8 @@ fn profile(work_dir: &Path, network: ProfileNetwork) -> SandboxProfile {
     SandboxProfile {
         kind: ovra_core::services::ProfileKind::Agent,
         claude_dir: None,
+        project: None,
+        work_env: None,
         work_dir: work_dir.to_path_buf(),
         read: Vec::new(),
         write: Vec::new(),

@@ -353,6 +353,8 @@ mod tests {
         SandboxProfile {
             kind: crate::services::ProfileKind::Browser,
             claude_dir: None,
+            project: None,
+            work_env: None,
             work_dir: "/w".into(),
             read: Vec::new(),
             write: Vec::new(),

@@ -505,6 +505,8 @@ pub(crate) fn profile(
     SandboxProfile {
         kind: crate::services::ProfileKind::Agent,
         claude_dir,
+        project: Some(project.id.clone()),
+        work_env: None,
         work_dir: cwd.to_path_buf(),
         read: match mode {
             SessionMode::Isolated => vec![PathBuf::from(&project.root).join(".git")],

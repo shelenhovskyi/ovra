@@ -160,6 +160,8 @@ mod tests {
         let profile = SandboxProfile {
             kind: ovra_core::services::ProfileKind::Agent,
             claude_dir: None,
+            project: None,
+            work_env: None,
             work_dir: "w".into(),
             read: Vec::new(),
             write: Vec::new(),
