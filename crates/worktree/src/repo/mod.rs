@@ -6,6 +6,7 @@
 //! repository: git runs in the project folder, so pathspecs mean the same
 //! there, and paths git prints from the top are translated back.
 
+mod blame;
 mod diff;
 mod status;
 #[cfg(test)]
@@ -345,15 +346,6 @@ fn log(root: &Path, limit: u32) -> Result<Vec<CommitInfo>> {
         .collect())
 }
 
-fn later<T: Send + 'static>() -> BoxFuture<'static, Result<T>> {
-    Box::pin(async {
-        Err(ProtocolError::new(
-            ErrorCode::Unavailable,
-            "this part of the git panel is not implemented yet",
-        ))
-    })
-}
-
 impl GitService for GitRepo {
     fn status(&self, root: PathBuf) -> BoxFuture<'_, Result<Option<RepoStatus>>> {
         blocking(move || status::status(&root))
@@ -409,8 +401,8 @@ impl GitService for GitRepo {
     ) -> BoxFuture<'_, Result<GitFileText>> {
         blocking(move || show(&root, &path, rev))
     }
-    fn blame(&self, _: PathBuf, _: RelPath) -> BoxFuture<'_, Result<Blame>> {
-        later()
+    fn blame(&self, root: PathBuf, path: RelPath) -> BoxFuture<'_, Result<Blame>> {
+        blocking(move || blame::blame(&root, &path))
     }
     fn log(&self, root: PathBuf, limit: u32) -> BoxFuture<'_, Result<Vec<CommitInfo>>> {
         blocking(move || log(&root, limit))

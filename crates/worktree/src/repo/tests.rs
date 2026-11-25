@@ -281,6 +281,34 @@ async fn branches_are_created_checked_and_never_switched_over_changes() {
 }
 
 #[tokio::test]
+async fn blame_groups_lines_by_commit_and_leaves_new_lines_uncommitted() {
+    let repo = Repo::new(&[("a.txt", "1\n2\n3\n")]);
+    let root = &repo.root;
+    put(root, "a.txt", "1\n2 two\n3\n");
+    git(root, &["commit", "--quiet", "-am", "two"]);
+    put(root, "a.txt", "1\n2 two\n3\n4\n5\n");
+
+    let blame = ok(GitRepo::new().blame(root.clone(), rel("a.txt")).await);
+    let commits: Vec<_> = blame.commits.values().map(|c| c.summary.as_str()).collect();
+    let summary = |id: &Option<String>| id.as_ref().map(|id| blame.commits[id].summary.as_str());
+    let ranges: Vec<_> = blame
+        .ranges
+        .iter()
+        .map(|r| (r.start, r.lines, summary(&r.commit)))
+        .collect();
+    assert_eq!(
+        ranges,
+        [
+            (1, 1, Some("start")),
+            (2, 1, Some("two")),
+            (3, 1, Some("start")),
+            (4, 2, None)
+        ]
+    );
+    assert_eq!(commits.len(), 2);
+}
+
+#[tokio::test]
 async fn before_the_first_commit_the_branch_is_listed_and_files_unstage() {
     let repo = Repo::new(&[]);
     let root = &repo.root;
@@ -305,6 +333,16 @@ async fn before_the_first_commit_the_branch_is_listed_and_files_unstage() {
     ok(g.unstage(root.clone(), rels(&["a.txt"])).await);
     let status = ok(g.status(root.clone()).await).unwrap_or_default();
     assert_eq!(status.files[0].unstaged, Some(GitChange::Untracked));
+
+    let blame = ok(g.blame(root.clone(), rel("a.txt")).await);
+    assert_eq!(
+        (
+            blame.ranges.len(),
+            blame.ranges[0].lines,
+            &blame.ranges[0].commit
+        ),
+        (1, 2, &None)
+    );
 }
 
 #[test]
