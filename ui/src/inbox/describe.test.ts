@@ -25,25 +25,37 @@ describe("inbox wording", () => {
     );
   });
 
-  it("marks protected files first and lists them for approve", () => {
+  it("marks protected files first and lists what a worker's approve would copy", () => {
     const item = review("r1", {
+      mode: "isolated",
       files: [
         change("src/a.ts"),
         change(".claude/settings.json", { protected: true }),
         change("docs/CLAUDE.md", { protected: true, kind: "renamed", from: "CLAUDE.md" }),
+        change(".mcp.json", { protected: true, blocked: true }),
       ],
     });
     expect(fileMarkers(change("a", { protected: true, by: "outside" }))).toEqual([
       "Protected: agent or tool configuration",
       "Changed outside the agent",
     ]);
-    expect(itemSummary(item)).toBe("3 files, 2 protected");
+    expect(itemSummary(item)).toBe("4 files, 3 protected, 1 waiting for the direct agent");
     expect(protectedHint(item)).toBe(
-      "Changes agent configuration or code that tools run on their own: .claude/settings.json, docs/CLAUDE.md (from CLAUDE.md). Approve applies these too; check their diffs first.",
+      "Changes agent configuration or code that tools run on their own: .claude/settings.json, docs/CLAUDE.md (from CLAUDE.md), .mcp.json (waits for the direct agent). Approve copies these into your project folder too; check their diffs first.",
     );
     expect(protectedHint(review("r2"))).toBeNull();
     expect(itemSummary(review("r3", { files: [change(".envrc", { by: "outside", protected: true })] }))).toBe(
       "1 file, 1 protected, all changed outside the agent",
+    );
+  });
+
+  it("says a direct session's protected files are already in the project folder", () => {
+    const item = review("r1", {
+      mode: "direct",
+      files: [change("CLAUDE.md", { protected: true }), change("src/a.ts")],
+    });
+    expect(protectedHint(item)).toBe(
+      "Changes agent configuration or code that tools run on their own, already in your project folder: CLAUDE.md. Approve keeps them; Reject restores the agent's changes to them.",
     );
   });
 

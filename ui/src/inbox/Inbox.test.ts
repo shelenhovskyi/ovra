@@ -103,9 +103,15 @@ describe("Inbox", () => {
     expect($("[data-file='README.md'] .marker")).toBeNull();
     expect($("[data-item=r1]")?.textContent).toContain("2 files, 1 protected");
     expect($("[data-testid=inbox-protected]")?.textContent).toContain(
-      "Changes agent configuration or code that tools run on their own: .claude/settings.json.",
+      "already in your project folder: .claude/settings.json. Approve keeps them",
     );
     expect(button(/^Approve$/)?.getAttribute("aria-describedby")).toBe("inbox-protected");
+    // With a commit but no message, Approve says both why it waits and what it keeps.
+    $<HTMLInputElement>("[data-testid=inbox] input[type=checkbox]")?.click();
+    flushSync();
+    expect(button(/^Approve and commit$/)?.getAttribute("aria-describedby")).toBe("inbox-commit-why inbox-protected");
+    $<HTMLInputElement>("[data-testid=inbox] input[type=checkbox]")?.click();
+    flushSync();
     // Approve stays possible: one press, as for any other item.
     button(/^Approve$/)?.click();
     await settle();

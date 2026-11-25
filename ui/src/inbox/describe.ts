@@ -86,13 +86,20 @@ export function approveHint(item: ReviewItem): string {
 
 /**
  * Said beside Approve before it is pressed when the item changes protected
- * paths: approve applies them too, so the person checks them first. Null
- * when it changes none.
+ * paths, so the person checks them first. A direct session's files are
+ * already in the project folder; a worker's are copied on approve, except
+ * those that wait for the direct agent. Null when it changes none.
  */
 export function protectedHint(item: ReviewItem): string | null {
-  const paths = item.files.filter((f) => f.protected).map((f) => (f.from ? `${f.path} (from ${f.from})` : f.path));
-  if (paths.length === 0) return null;
-  return `Changes agent configuration or code that tools run on their own: ${paths.join(", ")}. Approve applies these too; check their diffs first.`;
+  const files = item.files.filter((f) => f.protected);
+  if (files.length === 0) return null;
+  const what = "agent configuration or code that tools run on their own";
+  const name = (f: FileChange) => (f.from ? `${f.path} (from ${f.from})` : f.path);
+  if (item.mode === "direct") {
+    return `Changes ${what}, already in your project folder: ${files.map(name).join(", ")}. Approve keeps them; Reject restores the agent's changes to them.`;
+  }
+  const listed = files.map((f) => (f.blocked ? `${name(f)} (waits for the direct agent)` : name(f)));
+  return `Changes ${what}: ${listed.join(", ")}. Approve copies these into your project folder too; check their diffs first.`;
 }
 
 /** What a partly approved item left, and what the person can do about it. */
