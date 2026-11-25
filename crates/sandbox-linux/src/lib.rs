@@ -60,9 +60,6 @@ pub struct Setup {
     /// Where sessions keep their package caches, one folder per project, so
     /// what an agent puts in a cache never reaches the user's own builds.
     pub caches: PathBuf,
-    /// The names in Ovra's own environment: a session keeps only those
-    /// the sandbox allows.
-    pub env: Vec<std::ffi::OsString>,
     /// The protected paths every platform shares (`ovra-sandbox`).
     pub protected: Protected,
 }
@@ -83,7 +80,6 @@ impl Setup {
         Some(Self {
             helper: std::env::current_exe().ok()?,
             caches: data_dir.join("sandbox-caches"),
-            env: std::env::vars_os().map(|(name, _)| name).collect(),
             path: std::env::var_os("PATH").unwrap_or_default(),
             toolchains: vec![
                 var("CARGO_HOME", ".cargo"),
@@ -190,7 +186,15 @@ impl Bubblewrap {
             cwd: work,
         };
         let out = plan::Plan::new(&setup, &profile)
-            .and_then(|plan| plan.line(&self.bwrap, &setup.helper, Landlock::Report, line))
+            .and_then(|plan| {
+                plan.line(
+                    &self.bwrap,
+                    &setup.helper,
+                    Landlock::Report,
+                    line,
+                    &outer_env(),
+                )
+            })
             .map_err(|e| e.message)
             .and_then(|line| {
                 Command::new(&line.program)
@@ -228,12 +232,23 @@ impl Sandbox for Bubblewrap {
         } else {
             Landlock::Try
         };
-        plan.line(&self.bwrap, &self.setup.helper, landlock, line)
+        plan.line(
+            &self.bwrap,
+            &self.setup.helper,
+            landlock,
+            line,
+            &outer_env(),
+        )
     }
 }
 
 fn invalid(what: impl std::fmt::Display) -> ProtocolError {
     ProtocolError::new(ErrorCode::BadRequest, what.to_string())
+}
+
+/// The names in Ovra's environment now, when the session starts.
+fn outer_env() -> Vec<OsString> {
+    std::env::vars_os().map(|(name, _)| name).collect()
 }
 
 fn os(s: impl AsRef<OsStr>) -> OsString {

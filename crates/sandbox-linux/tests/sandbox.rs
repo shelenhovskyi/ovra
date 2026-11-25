@@ -83,7 +83,6 @@ fn sandbox_on(home: &Path, hidden: Vec<PathBuf>, path: &str) -> Option<Bubblewra
         path: path.into(),
         toolchains: vec![home.join(".cargo")],
         caches: home.with_file_name("ovra-caches"),
-        env: std::env::vars_os().map(|(name, _)| name).collect(),
         hidden,
         protected: PROTECTED,
     });

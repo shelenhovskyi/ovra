@@ -183,8 +183,6 @@ pub(crate) struct Plan {
     writable: Vec<PathBuf>,
     network: ProfileNetwork,
     path: OsString,
-    /// The names in Ovra's environment ([`Setup::env`]).
-    outer_env: Vec<OsString>,
 }
 
 impl Plan {
@@ -223,7 +221,6 @@ impl Plan {
             writable: vec!["/tmp".into(), "/dev".into(), home.clone()],
             network: profile.network.clone(),
             path: OsString::new(),
-            outer_env: setup.env.clone(),
         };
         plan.hide(setup, &home);
         let shown: Vec<PathBuf> = std::iter::once(work_dir.clone())
@@ -504,6 +501,7 @@ impl Plan {
         helper: &Path,
         landlock: Landlock,
         line: CommandLine,
+        outer_env: &[OsString],
     ) -> Result<CommandLine> {
         let program = real(&line.program)?;
         let helper = real(helper)?;
@@ -572,7 +570,7 @@ impl Plan {
         }
         env.push((os("PATH"), Some(self.path.clone())));
         env.push((os("TMPDIR"), Some(os("/tmp"))));
-        self.allowlist(&mut env);
+        allowlist(outer_env, &mut env);
         // The helper keeps only these: the plan removes the rest, and
         // whatever Ovra's environment gains later.
         let mut kept: Vec<OsString> = ENV_KEPT.iter().map(os).collect();
@@ -593,17 +591,6 @@ impl Plan {
             env,
             cwd,
         })
-    }
-
-    /// Removes every variable of Ovra's environment that is neither kept
-    /// nor set by `env`.
-    fn allowlist(&self, env: &mut Vec<(OsString, Option<OsString>)>) {
-        for name in &self.outer_env {
-            let kept = ENV_KEPT.iter().any(|k| name == k);
-            if !kept && !env.iter().any(|(n, _)| n == name) {
-                env.push((name.clone(), None));
-            }
-        }
     }
 
     /// What to bind so that `program` runs: its folder when it is installed
@@ -800,6 +787,18 @@ fn config_files(work_dir: &Path, home: &Path) -> Vec<PathBuf> {
         .into_iter()
         .filter(|file| lexically_inside(file, work_dir))
         .collect()
+}
+
+/// Removes every variable of Ovra's environment (`outer_env`, its names)
+/// that is neither kept nor set by `env`, so bubblewrap's own processes,
+/// whose environment the agent may read, hold none of them.
+fn allowlist(outer_env: &[OsString], env: &mut Vec<(OsString, Option<OsString>)>) {
+    for name in outer_env {
+        let kept = ENV_KEPT.iter().any(|k| name == k);
+        if !kept && !env.iter().any(|(n, _)| n == name) {
+            env.push((name.clone(), None));
+        }
+    }
 }
 
 /// Whether the last word on `name` in `env` removes it.

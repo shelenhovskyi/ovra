@@ -139,10 +139,13 @@ its changes on approve.
     field).
 
   On Linux the list is `ENV_KEPT` in `crates/sandbox-linux`. The wrapped
-  command line removes every other variable of Ovra's environment, so
-  bubblewrap's own processes never hold them, and the helper starts the
-  agent with only the kept names, so a variable set later is dropped too.
-  The netproxy bridge gets no environment.
+  command line removes every other variable Ovra's environment holds when
+  the session starts, so bubblewrap's own processes (whose environment
+  the agent can read where Landlock does not hold) have none of them. The
+  helper starts the agent with only the kept names, so one the runtime
+  adds to that line later still never reaches the agent. The netproxy
+  bridge gets no environment. A kept URL with a password in it
+  (`ANTHROPIC_BASE_URL=https://user:pass@...`) passes as it is.
 
 **Protected paths.** They stay read-only. The list lives in
 `crates/sandbox`, so every platform uses the same one:
@@ -176,6 +179,10 @@ Known gaps on Linux, left to the backstop below:
   (`core.fsmonitor = ./x`, `filter.*.clean`, `diff.*.textconv`,
   `credential.helper`, `alias.* = !./...`): the file stays writable;
 - a submodule the user adds while a session runs;
+- package caches are keyed by the session's folder, so each worker's
+  worktree starts with an empty cache, nothing removes old ones, and two
+  projects whose keys match (`/a/b-c` and `/a/b_c`) share one; both
+  sides are sandboxed, so that only reaches the other project's agents;
 - a bind mount of the home folder outside `/mnt`, `/media`, `/sysroot` and
   `/.snapshots` (for example `/srv`) stays readable.
 

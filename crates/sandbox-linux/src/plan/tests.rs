@@ -41,18 +41,22 @@ impl Root {
             toolchains: vec![self.0.join("home/.cargo")],
             hidden: vec![self.0.join("data")],
             caches: self.0.join("data/sandbox-caches"),
-            env: [
-                "HOME",
-                "LANG",
-                "GITHUB_TOKEN",
-                "SSH_AUTH_SOCK",
-                "CLAUDE_CODE_OAUTH_TOKEN",
-                "CLAUDECODE",
-            ]
-            .map(Into::into)
-            .to_vec(),
             protected: PROTECTED,
         }
+    }
+
+    /// Ovra's environment in these tests: two kept names, the rest removed.
+    fn outer_env() -> Vec<OsString> {
+        [
+            "HOME",
+            "LANG",
+            "GITHUB_TOKEN",
+            "SSH_AUTH_SOCK",
+            "CLAUDE_CODE_OAUTH_TOKEN",
+            "CLAUDECODE",
+        ]
+        .map(Into::into)
+        .to_vec()
     }
 
     /// The arguments of `line`, one per line, with this root as `ROOT`.
@@ -145,6 +149,7 @@ fn a_direct_session_in_a_repository() {
         &setup.helper,
         Landlock::Require,
         line(&claude, &project),
+        &Root::outer_env(),
     );
     let line = line.unwrap();
     assert_eq!(line.program, Path::new("/usr/bin/bwrap"));
@@ -185,6 +190,7 @@ fn a_worker_reads_its_git_folder_behind_a_proxy() {
         &setup.helper,
         Landlock::Try,
         line(Path::new("/bin/sh"), &worktree),
+        &Root::outer_env(),
     );
     insta::assert_snapshot!(root.show(&line.unwrap()));
     // Its git folder stays read-only with the rest of the repository's.
@@ -305,6 +311,7 @@ fn path_entries_inside_the_project_and_nested_repositories() {
         &setup.helper,
         Landlock::Try,
         line(Path::new("/bin/sh"), &project),
+        &Root::outer_env(),
     );
     assert!(line.is_ok(), "{:?}", line.err());
     assert!(
@@ -327,6 +334,7 @@ fn hidden_folders_inside_each_other_are_hidden_once() {
         &setup.helper,
         Landlock::Try,
         line(Path::new("/bin/sh"), &project),
+        &Root::outer_env(),
     );
     assert!(line.is_ok(), "{:?}", line.err());
 }
