@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
-members = ["crates/*", "app"]
-default-members = ["crates/*"]
+members = ["crates/*", "app", "tests/security"]
+default-members = ["crates/*", "tests/security"]
 
 [workspace.package]
 version = "0.1.0"

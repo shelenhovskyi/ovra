@@ -1,0 +1,21 @@
+[package]
+name = "ovra-security-tests"
+description = "Attack tests (task 4.F): the real sandbox and netproxy around scripted agents that try to get out."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+# The sandbox helper, as the daemon and the app are, plus a few probes
+# that a shell script cannot do on its own.
+name = "ovra-security-agent"
+path = "src/main.rs"
+test = false
+
+[dependencies]
+ovra-sandbox.workspace = true
+
+[lints]
+workspace = true

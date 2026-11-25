@@ -3536,6 +3536,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ovra-security-tests"
+version = "0.1.0"
+dependencies = [
+ "ovra-sandbox",
+]
+
+[[package]]
 name = "ovra-store"
 version = "0.1.0"
 dependencies = [
