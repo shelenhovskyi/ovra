@@ -1,5 +1,8 @@
 //! The helper on a real Windows machine: the plan's ACEs and the
 //! write-restricted token around the probe binary, never a real agent.
+//! They start real processes under a new token, which takes seconds on a
+//! CI runner, so they are ignored unless asked for: the Windows CI job
+//! runs them with `cargo test -- --ignored`.
 
 #![cfg(windows)]
 #![allow(clippy::unwrap_used)]
@@ -64,6 +67,7 @@ fn root_text(work: &Path) -> String {
 }
 
 #[test]
+#[ignore = "a real Windows token and ACEs; the Windows CI job runs it"]
 fn the_token_writes_only_what_the_plan_grants() {
     let root = Root::new("writes");
     let work = root.0.join("work");
@@ -106,6 +110,7 @@ fn the_token_writes_only_what_the_plan_grants() {
 }
 
 #[test]
+#[ignore = "a real Windows token and ACEs; the Windows CI job runs it"]
 fn grants_never_follow_a_junction_out_of_the_project() {
     let root = Root::new("junction");
     let work = root.0.join("work");
