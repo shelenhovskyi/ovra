@@ -19,6 +19,7 @@ mod cdp;
 mod input;
 mod launch;
 mod logs;
+mod pick;
 mod snapshot;
 
 const NOT_YET: &str = "the agent browser is not built yet";

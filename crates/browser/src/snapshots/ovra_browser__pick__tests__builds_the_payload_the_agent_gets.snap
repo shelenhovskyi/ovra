@@ -1,0 +1,39 @@
+---
+source: crates/browser/src/pick.rs
+expression: "Pick\n{\n    html: format!(\"{}... ({} bytes)\", &pick.html[..18], pick.html.len()),\n    ..pick\n}"
+---
+{
+  "pick_id": "pk1",
+  "url": "http://localhost:5173/",
+  "selector": "main > form > button:nth-of-type(2)",
+  "locator": "button \"Save changes\"",
+  "tag": "button",
+  "id": "save",
+  "classes": [
+    "btn",
+    "primary"
+  ],
+  "attributes": {
+    "data-component": "SaveButton",
+    "data-source": "src/components/Save.tsx:12:5",
+    "type": "submit"
+  },
+  "text": "Save changes",
+  "html": "<button id=\"save\">... (2048 bytes)",
+  "rect": {
+    "x": 10,
+    "y": 21,
+    "width": 80,
+    "height": 24
+  },
+  "styles": {
+    "color": "rgb(255, 255, 255)",
+    "display": "inline-block"
+  },
+  "source": {
+    "component": "SaveButton",
+    "file": "src/components/Save.tsx",
+    "line": 12
+  },
+  "note": ""
+}
