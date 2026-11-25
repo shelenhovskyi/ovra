@@ -36,14 +36,17 @@ pub(crate) fn internal(what: impl std::fmt::Display) -> ProtocolError {
 }
 
 /// The git to run. On Windows `git` on the PATH is usually a launcher that
-/// starts the real `git.exe` as a second process; with dozens of git calls
-/// per review, that doubles the cost, so the real one is used if it works.
+/// starts the real `git.exe` as a second process, and on macOS
+/// `/usr/bin/git` is a shim that asks `xcrun` for the developer tools'
+/// git first (26 ms a call instead of 11 ms measured on a CI Mac). With
+/// dozens of git calls per review that adds up, so the real one is used if
+/// it works.
 pub(crate) fn program() -> &'static OsStr {
     static PROGRAM: OnceLock<PathBuf> = OnceLock::new();
     PROGRAM
         .get_or_init(|| {
             let launcher = PathBuf::from("git");
-            if cfg!(windows) {
+            if cfg!(any(windows, target_os = "macos")) {
                 real_git().unwrap_or(launcher)
             } else {
                 launcher
@@ -52,7 +55,7 @@ pub(crate) fn program() -> &'static OsStr {
         .as_os_str()
 }
 
-/// `<prefix>/bin/git.exe` next to its libraries, found from the exec path
+/// `<prefix>/bin/git` next to its libraries, found from the exec path
 /// `<prefix>/libexec/git-core`, if it runs.
 fn real_git() -> Option<PathBuf> {
     let ok = |program: &OsStr, arg: &str| {
@@ -66,7 +69,8 @@ fn real_git() -> Option<PathBuf> {
     };
     let exec_path = ok(OsStr::new("git"), "--exec-path")?;
     let exec_path = PathBuf::from(String::from_utf8_lossy(&exec_path.stdout).trim());
-    let real = exec_path.parent()?.parent()?.join("bin").join("git.exe");
+    let name = if cfg!(windows) { "git.exe" } else { "git" };
+    let real = exec_path.parent()?.parent()?.join("bin").join(name);
     ok(real.as_os_str(), "--version").map(|_| real)
 }
 
