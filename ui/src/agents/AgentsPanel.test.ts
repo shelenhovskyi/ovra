@@ -46,17 +46,68 @@ const modEnter = () =>
     new KeyboardEvent("keydown", { code: "Enter", key: "Enter", ctrlKey: true, bubbles: true, cancelable: true }),
   );
 
+/** Picks how the next task runs, as a click on its option would. */
+function choose(label: string) {
+  const option = [...target.querySelectorAll<HTMLLabelElement>(".modes label")].find(
+    (l) => l.textContent?.trim() === label,
+  );
+  option?.querySelector("input")?.click();
+  flushSync();
+}
+
+const startButton = () =>
+  [...target.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Start");
+
 const panel = () => target.querySelector<HTMLElement>("[data-testid=agents-panel]");
 const transcript = () =>
   [...target.querySelectorAll("[data-testid=transcript] li")].map((li) => li.textContent?.replace(/\s+/g, " ").trim());
 
 describe("AgentsPanel", () => {
+  it("offers one Start button and two plainly worded ways to work, one agent here by default", async () => {
+    await setup();
+    const buttons = [...target.querySelectorAll("form.new button")].map((b) => b.textContent);
+    expect(buttons).toEqual(["Start"]);
+    expect(target.querySelector("label[for=agent-prompt]")?.textContent).toBe("What should Claude do?");
+    const options = () =>
+      [...target.querySelectorAll<HTMLInputElement>("input[name=agent-mode]")].map((i) => [
+        i.closest("label")?.textContent?.trim(),
+        i.checked,
+      ]);
+    const hint = () => target.querySelector("#agent-mode-hint")?.textContent;
+    expect(options()).toEqual([
+      ["One agent, here", true],
+      ["Plan and split", false],
+    ]);
+    expect(hint()).toBe("Claude works directly in this folder. You approve risky steps as it goes.");
+    choose("Plan and split");
+    expect(options()).toEqual([
+      ["One agent, here", false],
+      ["Plan and split", true],
+    ]);
+    expect(hint()).toContain("up to 3 agents, each on its own copy of the project");
+    expect(panel()?.querySelector("[data-testid=agents-empty]")?.textContent?.trim()).toBe(
+      "Describe a task and press Start. Claude asks before risky steps; its answers appear here.",
+    );
+  });
+
+  it("plans and splits a task when asked, from Mod+Enter too, and keeps the choice", async () => {
+    const core = await setup();
+    choose("Plan and split");
+    type(target.querySelector("#agent-prompt"), "Write the notes");
+    modEnter();
+    await settle();
+    expect(core.sent("orchestration.start")).toHaveLength(1);
+    expect(core.sent("agents.start")).toEqual([]);
+    expect(target.querySelector<HTMLInputElement>("input[value=split]")?.checked).toBe(true);
+    expect(panel()?.querySelector("[data-testid=agents-empty]")).toBeNull();
+  });
+
   it("starts a task whose coordinator splits the work among workers", async () => {
     const core = await setup();
+    choose("Plan and split");
     type(target.querySelector("#agent-prompt"), "Write the notes");
     flushSync();
-    const button = [...target.querySelectorAll("button")].find((b) => b.textContent === "Start task");
-    button?.click();
+    startButton()?.click();
     await settle();
     expect(core.sent("orchestration.start").map((c) => c.params)).toEqual([
       { project: "p1", prompt: "Write the notes" },
@@ -68,9 +119,10 @@ describe("AgentsPanel", () => {
 
   it("names a task's workers and lists them under their coordinator", async () => {
     const core = await setup();
+    choose("Plan and split");
     type(target.querySelector("#agent-prompt"), "Write the notes");
     flushSync();
-    [...target.querySelectorAll("button")].find((b) => b.textContent === "Start task")?.click();
+    startButton()?.click();
     await settle();
     const docs = core.addSession("p1", "Write the docs notes.");
     core.addSession("p1", "A plain session");
@@ -130,7 +182,7 @@ describe("AgentsPanel", () => {
     core.emit({ type: "agents.billing", data: { session: "s1", billing: { kind: "api_key" } } });
     await settle();
     const billed = panel()?.querySelector("[data-testid=agent-billing]");
-    expect(billed?.textContent?.trim()).toBe("This session: Usage is billed to an Anthropic API key, at API prices.");
+    expect(billed?.textContent?.trim()).toBe("This agent: Usage is billed to an Anthropic API key, at API prices.");
     expect(billed?.classList.contains("billed-key")).toBe(true);
   });
 
@@ -367,6 +419,29 @@ describe("AgentsPanel", () => {
     expect(transcript()).toEqual(["You Earlier task", "Claude Missed"]);
   });
 
+  it("says next to the form when Claude fails right after starting, and points to the setup", async () => {
+    const core = await setup();
+    type(target.querySelector("#agent-prompt"), "Fix the typo");
+    flushSync();
+    startButton()?.click();
+    await settle();
+    const alert = () => panel()?.querySelector("[data-testid=agent-start-error]")?.textContent?.replace(/\s+/g, " ");
+    core.status("s1", { state: "working" });
+    await settle();
+    core.status("s1", { state: "failed", message: "later" });
+    await settle();
+    // Failing after it got going is not a start problem.
+    expect(alert()).toBeUndefined();
+    type(target.querySelector("#agent-prompt"), "Again");
+    modEnter();
+    await settle();
+    core.status("s2", { state: "failed", message: "claude was not found." });
+    await settle();
+    expect(alert()?.trim()).toBe(
+      "Claude could not start: claude was not found. If Claude is not set up yet, the Claude section above says what to do; then press Start again.",
+    );
+  });
+
   it("shows why a session could not start", async () => {
     const core = new FakeAgentCore();
     const { CoreError } = await import("../lib/transport");
@@ -378,8 +453,8 @@ describe("AgentsPanel", () => {
     type(target.querySelector("#agent-prompt"), "Second task");
     modEnter();
     await settle();
-    expect(panel()?.querySelector("[role=alert]")?.textContent).toBe(
-      "another agent already works in this project's main checkout",
+    expect(panel()?.querySelector("[role=alert]")?.textContent?.trim()).toBe(
+      "Could not start: another agent already works in this project's main checkout",
     );
   });
 });

@@ -41,7 +41,7 @@ async function open(page: Page, dir: string): Promise<void> {
 }
 
 async function startSession(page: Page, prompt: string): Promise<Locator> {
-  await page.getByRole("textbox", { name: "Task for a new Claude session" }).fill(prompt);
+  await page.getByRole("textbox", { name: "What should Claude do?" }).fill(prompt);
   await page.getByRole("button", { name: "Start", exact: true }).click();
   return page.getByTestId("agent-session");
 }

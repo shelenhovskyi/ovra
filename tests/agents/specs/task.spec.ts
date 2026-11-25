@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 
-// A task on the real `claude` CLI: "Start task" starts a coordinator, which
+// A task on the real `claude` CLI: "Plan and split" starts a coordinator, which
 // starts two workers through Ovra's MCP tools; each worker writes one file in
 // its own worktree and asks for review. Small on purpose: the suite's model
 // (haiku unless OVRA_LIVE_MODEL says otherwise) and a cost check keep it cheap.
@@ -66,14 +66,15 @@ test("a coordinator splits a small task between two workers whose work waits for
   if (!projectId) throw new Error(`no project for ${dir}`);
 
   await page
-    .getByRole("textbox", { name: "Task for a new Claude session" })
+    .getByRole("textbox", { name: "What should Claude do?" })
     .fill(
       "Do not read any files. Start exactly two workers with spawn_agent: one named alpha whose task is " +
         '"Create the file alpha.txt containing the single word alpha, then call request_review", and one ' +
         'named beta whose task is "Create the file beta.txt containing the single word beta, then call ' +
         'request_review". Then end your turn without waiting for them.',
     );
-  await page.getByRole("button", { name: "Start task" }).click();
+  await page.getByRole("radio", { name: "Plan and split" }).check();
+  await page.getByRole("button", { name: "Start", exact: true }).click();
 
   // Allow what the workers ask for (writing their file) until both asked
   // for review.

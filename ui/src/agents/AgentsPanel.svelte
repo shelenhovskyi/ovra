@@ -1,6 +1,7 @@
 <script lang="ts">
-// Agent sessions of the open project: start one, pick one, read its
-// transcript, reply and stop. Ctrl+Enter (Cmd+Enter) sends from a text field.
+// Agent sessions of the open project: start one (one agent here, or a task
+// planned and split among workers), pick one, read its transcript, reply and
+// stop. Ctrl+Enter (Cmd+Enter) sends from a text field.
 import { untrack } from "svelte";
 import { browserPicks, pickLabel } from "../browser/picks.svelte";
 import { registerCommand } from "../keys/commands";
@@ -21,11 +22,32 @@ const sessions = agentSessions(transport);
 const picks = browserPicks(transport);
 const modEnter = formatShortcut("Mod+Enter", isApple());
 
+type Mode = "here" | "split";
+const MODES: { id: Mode; label: string; hint: string }[] = [
+  {
+    id: "here",
+    label: "One agent, here",
+    hint: "Claude works directly in this folder. You approve risky steps as it goes.",
+  },
+  {
+    id: "split",
+    label: "Plan and split",
+    hint: "Claude plans the work and gives parts to up to 3 agents, each on its own copy of the project. You review their changes before anything is merged.",
+  },
+];
+
 let selected = $state<SessionId | null>(null);
 let prompt = $state("");
 let reply = $state("");
 let busy = $state(false);
 let error = $state<string | null>(null);
+/** Why the last start failed, shown next to the form; `setup` adds a pointer
+ * to the Claude setup card above. */
+let startError = $state<{ text: string; setup: boolean } | null>(null);
+/** Started from the form and not yet past starting: its failure is a start error. */
+let launched = $state<SessionId | null>(null);
+/** How the next task runs; the last choice stays for this window. */
+let mode = $state<Mode>("here");
 let promptField = $state<HTMLTextAreaElement>();
 
 const project = $derived(workspace.project);
@@ -36,6 +58,7 @@ const messages = $derived(current ? sessions.transcripts.get(current.id) : undef
 const chips = $derived(current ? picks.of(current.id) : []);
 const sandbox = $derived(current ? sandboxLine(sandboxState(current), isEnded(current.status)) : null);
 const gaps = $derived(current ? sandboxGaps(sandboxState(current), isEnded(current.status)) : null);
+const modeHint = $derived(MODES.find((m) => m.id === mode)?.hint);
 
 $effect(() => {
   const id = project?.id;
@@ -43,6 +66,8 @@ $effect(() => {
   untrack(() => {
     selected = null;
     error = null;
+    startError = null;
+    launched = null;
     sessions.load(id).catch((err: unknown) => (error = `Could not list sessions: ${text(err)}`));
   });
 });
@@ -50,6 +75,14 @@ $effect(() => {
 // Pick the newest session when none is chosen.
 $effect(() => {
   if (!current && list.length > 0) selected = list[list.length - 1]?.id ?? null;
+});
+
+// A session that fails before it gets going (claude missing, say) failed to start.
+$effect(() => {
+  const status = list.find((s) => s.id === launched)?.status;
+  if (!status || status.state === "starting") return;
+  if (status.state === "failed") startError = { text: `Claude could not start: ${status.message}`, setup: true };
+  launched = null;
 });
 
 // Sessions that existed before this window: fetch their transcript once.
@@ -60,7 +93,7 @@ $effect(() => {
 
 $effect(() => {
   const off = [
-    registerCommand({ id: "agents.new_session", title: "New agent session", run: () => promptField?.focus() }),
+    registerCommand({ id: "agents.new_session", title: "New task for Claude", run: () => promptField?.focus() }),
     registerCommand({
       id: "agents.interrupt",
       title: "Interrupt the agent's turn",
@@ -70,7 +103,7 @@ $effect(() => {
     }),
     registerCommand({
       id: "agents.stop",
-      title: "Stop the agent session",
+      title: "Stop the agent",
       run: () => {
         if (current && !isEnded(current.status)) void stop(current.id);
       },
@@ -99,25 +132,23 @@ async function run(action: () => Promise<void>): Promise<void> {
   }
 }
 
-function start(): Promise<void> {
+async function start(): Promise<void> {
   const id = project?.id;
   const body = prompt.trim();
-  if (!id || !body) return Promise.resolve();
-  return run(async () => {
-    const info = await sessions.start(id, body);
-    selected = info.id;
+  if (!id || !body || busy) return;
+  busy = true;
+  startError = null;
+  try {
+    selected = mode === "here" ? (await sessions.start(id, body)).id : await sessions.startTask(id, body);
+    launched = selected;
     prompt = "";
-  });
-}
-
-function startTask(): Promise<void> {
-  const id = project?.id;
-  const body = prompt.trim();
-  if (!id || !body) return Promise.resolve();
-  return run(async () => {
-    selected = await sessions.startTask(id, body);
-    prompt = "";
-  });
+  } catch (err) {
+    // A conflict (another agent already works here) is not a setup problem.
+    const setup = !(err instanceof CoreError && err.error.code === "conflict");
+    startError = { text: `Could not start: ${text(err)}`, setup };
+  } finally {
+    busy = false;
+  }
 }
 
 function send(): Promise<void> {
@@ -178,30 +209,48 @@ const canReply = $derived(current !== null && current.status.state === "idle");
         void start();
       }}
     >
-      <label for="agent-prompt">Task for a new Claude session</label>
+      <label for="agent-prompt">What should Claude do?</label>
       <textarea
         id="agent-prompt"
         rows="3"
+        placeholder="e.g. Fix the failing login test"
         bind:this={promptField}
         bind:value={prompt}
-        aria-describedby="agent-prompt-hint"
+        aria-describedby="agent-mode-hint"
         onkeydown={(event) => submitOnModEnter(event, start)}
       ></textarea>
+      <fieldset class="modes">
+        <legend class="visually-hidden">How Claude works on it</legend>
+        {#each MODES as option (option.id)}
+          <label class="mode">
+            <input type="radio" name="agent-mode" value={option.id} bind:group={mode} aria-describedby="agent-mode-hint" />
+            {option.label}
+          </label>
+        {/each}
+      </fieldset>
+      <p class="hint" id="agent-mode-hint">{modeHint}</p>
       <div class="row">
-        <span class="hint" id="agent-prompt-hint"
-          ><strong>Start</strong> ({modEnter}): one session works in the project folder.
-          <strong>Start task</strong>: Claude plans the work and hands it to up to 3 workers, each in its own copy of
-          the repository (a git worktree); their changes wait for you in Reviews.</span
-        >
-        <button type="button" disabled={busy || !prompt.trim()} onclick={() => void startTask()}>Start task</button>
-        <button type="submit" disabled={busy || !prompt.trim()}>Start</button>
+        <span class="hint">{modEnter} starts.</span>
+        <button type="submit" class="primary" disabled={busy || !prompt.trim()}>Start</button>
       </div>
+      {#if startError}
+        <p class="error" role="alert" data-testid="agent-start-error">
+          {startError.text}
+          {#if startError.setup}
+            <span class="fix">If Claude is not set up yet, the Claude section above says what to do; then press Start again.</span>
+          {/if}
+        </p>
+      {/if}
     </form>
     {#if error}
       <p class="error" role="alert">{error}</p>
     {/if}
-    {#if list.length > 0}
-      <h3 id="sessions-heading">Sessions</h3>
+    {#if list.length === 0}
+      <p class="empty" data-testid="agents-empty">
+        Describe a task and press Start. Claude asks before risky steps; its answers appear here.
+      </p>
+    {:else}
+      <h3 id="sessions-heading">Tasks</h3>
       <ul class="sessions" aria-labelledby="sessions-heading">
         {#each list as session (session.id)}
           {@const role = sessions.roles.get(session.id)}
@@ -246,7 +295,7 @@ const canReply = $derived(current !== null && current.status.state === "idle");
         {#if current.billing}
           <!-- An API key bills at API prices, often not what a plan user expects. -->
           <p class={current.billing.kind === "api_key" ? "status billed-key" : "status"} data-testid="agent-billing">
-            This session: {paidText(current.billing)}
+            This agent: {paidText(current.billing)}
           </p>
         {/if}
         {#if sandbox}
@@ -306,7 +355,7 @@ const canReply = $derived(current !== null && current.status.state === "idle");
               onkeydown={(event) => submitOnModEnter(event, resume)}
             ></textarea>
             <div class="row">
-              <span class="hint">Continues this session where it ended. {modEnter} resumes.</span>
+              <span class="hint">Claude picks up where it stopped. {modEnter} resumes.</span>
               <button type="submit" disabled={busy || !reply.trim()}>Resume</button>
             </div>
           </form>
@@ -486,9 +535,70 @@ const canReply = $derived(current !== null && current.status.state === "idle");
   }
   .error {
     color: #ff8f8f;
+    font-size: 12px;
+    margin: 0;
+  }
+  .fix {
+    display: block;
+    color: #b4b4c0;
+  }
+  .new .hint {
+    margin: 0;
+  }
+  .modes {
+    display: flex;
+    margin: 4px 0 0;
+    padding: 0;
+    border: none;
+  }
+  .mode {
+    flex: 1;
+    position: relative;
+    padding: 4px 8px;
+    text-align: center;
+    color: #e6e6e6;
+    background: #1b1b21;
+    border: 1px solid #4a4a57;
+    cursor: pointer;
+  }
+  .mode:first-of-type {
+    border-radius: 3px 0 0 3px;
+  }
+  .mode:last-of-type {
+    border-left: none;
+    border-radius: 0 3px 3px 0;
+  }
+  .mode:has(input:checked) {
+    background: #2f3a5c;
+    border-color: #7aa2ff;
+  }
+  .mode:has(input:focus-visible) {
+    outline: 2px solid #7aa2ff;
+    outline-offset: 1px;
+  }
+  /* The native radio keeps arrow keys and screen readers; the label is the button. */
+  .mode input {
+    position: absolute;
+    opacity: 0;
+    inset: 0;
+    margin: 0;
+    cursor: pointer;
+  }
+  button.primary:not(:disabled) {
+    background: #3b5bdb;
+    border-color: #5c7cfa;
+  }
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
   @media (forced-colors: active) {
-    .sessions button[aria-current="true"] {
+    .sessions button[aria-current="true"],
+    .mode:has(input:checked) {
       border: 2px solid Highlight;
     }
   }
