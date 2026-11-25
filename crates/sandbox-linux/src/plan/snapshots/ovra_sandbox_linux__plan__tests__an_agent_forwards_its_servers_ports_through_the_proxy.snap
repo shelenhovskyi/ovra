@@ -1,0 +1,185 @@
+---
+source: crates/sandbox-linux/src/plan/tests.rs
+expression: root.show(&line.unwrap())
+---
+--ovra-sandbox-outer
+ROOT/projects/app/.claude
+--
+/usr/bin/bwrap
+--unshare-user
+--unshare-pid
+--unshare-ipc
+--unshare-uts
+--unshare-cgroup-try
+--die-with-parent
+--new-session
+--cap-drop ALL
+--unshare-net
+--ro-bind /
+--dev /dev
+--proc /proc
+--tmpfs /tmp
+--tmpfs /var/tmp
+--tmpfs /run
+--tmpfs /mnt
+--tmpfs /media
+--tmpfs ROOT/home
+--ro-bind ROOT/home/.claude
+--tmpfs ROOT/home/.claude/backups
+--tmpfs ROOT/home/.claude/cache
+--tmpfs ROOT/home/.claude/debug
+--tmpfs ROOT/home/.claude/file-history
+--tmpfs ROOT/home/.claude/ide
+--tmpfs ROOT/home/.claude/logs
+--tmpfs ROOT/home/.claude/paste-cache
+--tmpfs ROOT/home/.claude/plans
+--tmpfs ROOT/home/.claude/session-env
+--tmpfs ROOT/home/.claude/sessions
+--tmpfs ROOT/home/.claude/shell-snapshots
+--tmpfs ROOT/home/.claude/statsig
+--tmpfs ROOT/home/.claude/telemetry
+--tmpfs ROOT/home/.claude/todos
+--bind ROOT/home/.claude/projects/-ROOT-projects-app
+--ro-bind ROOT/home/.claude/projects/-ROOT-projects-app/memory
+--bind ROOT/home/.claude/history.jsonl
+--bind ROOT/projects/app
+--ro-bind ROOT/projects/app/.claude
+--ro-bind ROOT/data/proxy/s.sock
+--ro-bind ROOT/bin/ovra
+--ro-bind /usr/bin/dash
+--chdir ROOT/projects/app
+--
+ROOT/bin/ovra
+--ovra-sandbox-helper
+--landlock require
+--rw /tmp
+--rw /dev
+--rw ROOT/home
+--rw ROOT/home/.claude/backups
+--rw ROOT/home/.claude/cache
+--rw ROOT/home/.claude/debug
+--rw ROOT/home/.claude/file-history
+--rw ROOT/home/.claude/ide
+--rw ROOT/home/.claude/logs
+--rw ROOT/home/.claude/paste-cache
+--rw ROOT/home/.claude/plans
+--rw ROOT/home/.claude/session-env
+--rw ROOT/home/.claude/sessions
+--rw ROOT/home/.claude/shell-snapshots
+--rw ROOT/home/.claude/statsig
+--rw ROOT/home/.claude/telemetry
+--rw ROOT/home/.claude/todos
+--rw ROOT/home/.claude/projects/-ROOT-projects-app
+--rw ROOT/home/.claude/history.jsonl
+--rw ROOT/projects/app
+--bridge
+ROOT/data/proxy/s.sock
+3128
+--forward
+5173
+--forward
+8080
+--env
+HOME
+--env
+USER
+--env
+LOGNAME
+--env
+SHELL
+--env
+LANG
+--env
+LANGUAGE
+--env
+LC_ALL
+--env
+LC_CTYPE
+--env
+TZ
+--env
+TERM
+--env
+COLORTERM
+--env
+NO_COLOR
+--env
+ANTHROPIC_API_KEY
+--env
+ANTHROPIC_AUTH_TOKEN
+--env
+ANTHROPIC_BASE_URL
+--env
+ANTHROPIC_MODEL
+--env
+ANTHROPIC_SMALL_FAST_MODEL
+--env
+CLAUDE_CODE_USE_BEDROCK
+--env
+CLAUDE_CODE_USE_VERTEX
+--env
+CLAUDE_CODE_USE_FOUNDRY
+--env
+ANTHROPIC_BEDROCK_BASE_URL
+--env
+ANTHROPIC_VERTEX_BASE_URL
+--env
+ANTHROPIC_VERTEX_PROJECT_ID
+--env
+ANTHROPIC_FOUNDRY_RESOURCE
+--env
+ANTHROPIC_FOUNDRY_BASE_URL
+--env
+AWS_REGION
+--env
+CLOUD_ML_REGION
+--env
+GOOGLE_CLOUD_PROJECT
+--env
+SSL_CERT_FILE
+--env
+SSL_CERT_DIR
+--env
+NODE_EXTRA_CA_CERTS
+--env
+CARGO_HOME
+--env
+RUSTUP_HOME
+--env
+NVM_DIR
+--env
+GOPATH
+--env
+OVRA_FAKE_CLAUDE_FIXTURE
+--env
+HTTP_PROXY
+--env
+HTTPS_PROXY
+--env
+http_proxy
+--env
+https_proxy
+--env
+NODE_USE_ENV_PROXY
+--env
+PATH
+--env
+TMPDIR
+--
+/usr/bin/dash
+-p
+env CLAUDECODE = None
+env HTTP_PROXY = Some("http://127.0.0.1:3128")
+env HTTPS_PROXY = Some("http://127.0.0.1:3128")
+env http_proxy = Some("http://127.0.0.1:3128")
+env https_proxy = Some("http://127.0.0.1:3128")
+env NO_PROXY = None
+env no_proxy = None
+env ALL_PROXY = None
+env all_proxy = None
+env NODE_USE_ENV_PROXY = Some("1")
+env PATH = Some("/usr/bin")
+env TMPDIR = Some("/tmp")
+env GITHUB_TOKEN = None
+env SSH_AUTH_SOCK = None
+env CLAUDE_CODE_OAUTH_TOKEN = None

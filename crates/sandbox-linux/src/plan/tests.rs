@@ -361,4 +361,85 @@ fn hidden_folders_inside_each_other_are_hidden_once() {
     assert!(line.is_ok(), "{:?}", line.err());
 }
 
+fn proxied(root: &Root, work_dir: &Path) -> SandboxProfile {
+    let mut profile = profile(work_dir);
+    profile.network = ProfileNetwork::Proxy {
+        address: root.file("data/proxy/s.sock").display().to_string(),
+        ca_bundle: None,
+    };
+    profile
+}
+
+#[test]
+fn a_server_pod_listens_in_its_own_network_and_writes_its_pod_folder() {
+    let root = Root::new("pod");
+    let project = root.dir("projects/app");
+    let pod = root.dir("data/pods/p1");
+    let setup = root.setup("/usr/bin");
+    let mut profile = proxied(&root, &project);
+    profile.write.push(pod.clone());
+    profile.expose = vec![5173, 8080];
+    let plan = Plan::new(&setup, &profile).unwrap();
+    let line = plan.line(
+        Path::new("/usr/bin/bwrap"),
+        &setup.helper,
+        Landlock::Require,
+        CommandLine {
+            program: setup.helper.clone(),
+            args: vec!["--ovra-pod".into(), pod.into()],
+            env: Vec::new(),
+            cwd: project.clone(),
+        },
+        &Root::outer_env(),
+    );
+    insta::assert_snapshot!(root.show(&line.unwrap()));
+}
+
+#[test]
+fn an_agent_forwards_its_servers_ports_through_the_proxy() {
+    let root = Root::new("forward");
+    let project = root.dir("projects/app");
+    let setup = root.setup("/usr/bin");
+    let mut profile = proxied(&root, &project);
+    profile.forward = vec![8080, 5173, 8080];
+    let plan = Plan::new(&setup, &profile).unwrap();
+    let line = plan.line(
+        Path::new("/usr/bin/bwrap"),
+        &setup.helper,
+        Landlock::Require,
+        line(Path::new("/bin/sh"), &project),
+        &Root::outer_env(),
+    );
+    insta::assert_snapshot!(root.show(&line.unwrap()));
+}
+
+#[test]
+fn ports_a_sandbox_cannot_keep_to_itself_are_refused() {
+    let root = Root::new("ports");
+    let project = root.dir("project");
+    let setup = root.setup("/usr/bin");
+    let refused = |profile: &SandboxProfile| Plan::new(&setup, profile).unwrap_err().message;
+    let mut open = profile(&project);
+    open.forward = vec![5173];
+    assert_eq!(
+        refused(&open),
+        "forwarding ports to servers needs the session's netproxy"
+    );
+    open.network = ProfileNetwork::Blocked;
+    assert!(refused(&open).contains("needs the session's netproxy"));
+    let mut pod = profile(&project);
+    pod.expose = vec![5173];
+    assert!(refused(&pod).contains("needs a network of its own"));
+    pod.network = ProfileNetwork::Blocked;
+    assert!(Plan::new(&setup, &pod).is_ok());
+    let mut proxy = proxied(&root, &project);
+    proxy.forward = vec![PROXY_PORT];
+    assert!(refused(&proxy).contains("port 3128"));
+    proxy.forward = vec![0];
+    assert!(refused(&proxy).contains("port 0"));
+    proxy.forward = vec![5173];
+    proxy.expose = vec![5173];
+    assert!(refused(&proxy).contains("both exposed and forwarded"));
+}
+
 mod server;

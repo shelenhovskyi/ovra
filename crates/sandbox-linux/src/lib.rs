@@ -5,8 +5,9 @@
 //! namespace, the system read-only, the home folder and `/run` hidden, and
 //! only what [`plan`] lists bound back. Inside it, the helper (the program
 //! [`Setup::helper`] names, started with [`HELPER_FLAG`]) applies Landlock
-//! and a seccomp filter, bridges the netproxy socket to a local port, and
-//! then runs `claude`. Contract: `ovra_core::services::Sandbox`;
+//! and a seccomp filter, bridges the netproxy socket to a local port (and
+//! the profile's `forward` ports to it with `OVRA-LOCAL <port>`), and then
+//! runs `claude`, or a server pod's supervisor. Contract: `ovra_core::services::Sandbox`;
 //! `ovra-sandbox` picks it.
 //!
 //! [`Bubblewrap::wrap_server`](Sandbox::wrap_server) does the same for a

@@ -66,6 +66,8 @@ core only builds profiles.
 | `work_dir` | The session's folder: its worktree, or the project root in direct mode. Readable and writable, except the protected paths (below). |
 | `read`     | More folders the agent may read but not write. A worker's main repository git folder goes here: object store, refs, packed refs.   |
 | `write`    | More folders the agent may write.                                                                                                  |
+| `expose`   | A server pod's ports (`docs/specs/servers-and-browser.md`). Non-empty makes the sandbox a pod; `network` must not be `Open`.        |
+| `forward`  | Ports of the work dir's servers the helper forwards to the netproxy as `OVRA-LOCAL <port>`. Needs `network` to be `Proxy`.         |
 | `network`  | `Blocked`, or `Proxy { address }` for the session's netproxy. `Open` exists only for platforms that cannot limit the network.      |
 
 A worker's own `<git dir>/worktrees/<name>` (its index and HEAD) stays
@@ -308,7 +310,14 @@ pub trait NetProxy: Send + Sync + Debug {
   records this. The platform's helper bridges the
   socket to a local port inside the sandbox. `wrap` sets `HTTP_PROXY` and
   `HTTPS_PROXY` to that port, clears `NO_PROXY`, and sets
-  `NODE_USE_ENV_PROXY=1` (4.A, 4.B). Until a platform sandbox exists the
+  `NODE_USE_ENV_PROXY=1` (4.A, 4.B). For each port in the profile's
+  `forward`, the same bridge also listens on `127.0.0.1:<port>` inside the
+  sandbox and opens each connection to the socket with
+  `OVRA-LOCAL <port>\r\n` (the loopback rule in
+  `docs/specs/servers-and-browser.md`). On Linux the plan refuses a port
+  the bridge needs itself (3128), port 0, a port both exposed and
+  forwarded, `forward` without a proxy, and a pod (`expose`) with an open
+  network. Until a platform sandbox exists the
   proxy runs but nothing uses it, and the session reports no sandbox.
 - **Requests.** `CONNECT host:port` for TLS, and plain `http://` requests
   in absolute form. A plain request is passed on as one request with

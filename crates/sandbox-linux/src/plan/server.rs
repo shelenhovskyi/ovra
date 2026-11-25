@@ -102,6 +102,7 @@ impl Plan {
             // is written there.
             writable: vec!["/tmp".into(), "/dev".into()],
             network: ProfileNetwork::Blocked,
+            forward: Vec::new(),
             path: OsString::new(),
             temporary: Vec::new(),
             kind: Kind::Server {

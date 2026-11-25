@@ -70,11 +70,16 @@ The person defines servers in `.ovra/servers.json` in the project:
   the protected paths, the same hidden paths, the same environment
   allowlist), with its own netproxy for the way out: the project's
   allowlist, refusals reported for the pod.
-- Inside the pod the helper exposes each defined port: it listens on
+- Inside the pod its supervisor (`ovra-servers` pod-init, the pod's only
+  program) exposes each defined port: it listens on
   `<pod dir>/<port>.sock` and connects each connection to
   `127.0.0.1:<port>` inside the pod. `<pod dir>` is a private folder Ovra
-  makes per pod, like the netproxy's socket folders. Nothing in the pod
-  listens on the host.
+  makes per pod, like the netproxy's socket folders, and is in the
+  profile's `write`. Nothing in the pod listens on the host. On Linux the
+  sandbox's part is what every session gets (its own PID and network
+  namespaces, `--die-with-parent`; Landlock and seccomp allow TCP listeners
+  inside the network namespace and Unix sockets in writable folders),
+  plus a refusal to run a pod with an open network.
 - A pod starts with its first server and ends with its last. Stop sends
   SIGTERM to the server's process group, SIGKILL after `grace_ms`
   (default 5000). Ending a pod kills its PID namespace, so no process

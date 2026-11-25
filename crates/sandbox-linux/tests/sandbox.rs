@@ -418,6 +418,97 @@ fn a_blocked_network_reaches_nothing_and_a_proxy_only_its_socket() {
 }
 
 #[test]
+fn a_forwarded_port_reaches_the_proxy_with_its_preamble() {
+    let root = Dir::new("forward");
+    let home = root.0.join("home");
+    let work = root.0.join("work");
+    fs::create_dir_all(&home).unwrap();
+    fs::create_dir_all(&work).unwrap();
+    let Some(sandbox) = sandbox(&home, Vec::new()) else {
+        return;
+    };
+    let socket = root.0.join("proxy.sock");
+    let proxy = UnixListener::bind(&socket).unwrap();
+    let answer = std::thread::spawn(move || {
+        let (mut stream, _) = proxy.accept().unwrap();
+        let mut buf = [0; 22];
+        stream.read_exact(&mut buf).unwrap();
+        stream.write_all(b"pong\n").unwrap();
+        buf
+    });
+    let mut forwarded = profile(
+        &work,
+        ProfileNetwork::Proxy {
+            address: socket.display().to_string(),
+            ca_bundle: None,
+        },
+    );
+    forwarded.forward = vec![5173];
+    let out = run(
+        &sandbox,
+        &forwarded,
+        "bash -c 'exec 3<>/dev/tcp/127.0.0.1/5173; printf \"ping\\n\" >&3; head -c 5 <&3'",
+    );
+    assert_eq!(&answer.join().unwrap(), b"OVRA-LOCAL 5173\r\nping\n");
+    assert_eq!(out, "pong\n");
+}
+
+#[test]
+fn a_server_pod_cannot_reach_the_hosts_loopback() {
+    let root = Dir::new("pod");
+    let home = root.0.join("home");
+    let work = root.0.join("work");
+    let pod = root.0.join("pod");
+    for dir in [&home, &work, &pod] {
+        fs::create_dir_all(dir).unwrap();
+    }
+    let Some(sandbox) = sandbox(&home, Vec::new()) else {
+        return;
+    };
+    let outside = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = outside.local_addr().unwrap().port();
+    let mut pod_profile = profile(&work, ProfileNetwork::Blocked);
+    pod_profile.write.push(pod.clone());
+    pod_profile.expose = vec![port];
+    let checks = format!(
+        "reach the host: bash -c 'echo > /dev/tcp/127.0.0.1/{port}'
+        write its pod folder: echo x > {}/x",
+        pod.display()
+    );
+    assert_eq!(
+        run(&sandbox, &pod_profile, &script(&checks)),
+        "reach the host: no\nwrite its pod folder: yes\n"
+    );
+    // Its servers listen inside it, and its supervisor on Unix sockets in
+    // its folder; a shell cannot listen, Python can where it is installed.
+    if !Path::new("/usr/bin/python3").exists() {
+        eprintln!("skipped the listeners: no /usr/bin/python3");
+        return;
+    }
+    let listen = format!(
+        "import socket\n\
+         t = socket.socket(); t.bind(('127.0.0.1', {port})); t.listen()\n\
+         u = socket.socket(socket.AF_UNIX); u.bind('{}/{port}.sock'); u.listen()\n\
+         print('listening')",
+        pod.display()
+    );
+    let line = CommandLine {
+        program: "/usr/bin/python3".into(),
+        args: vec!["-I".into(), "-c".into(), listen.into()],
+        env: Vec::new(),
+        cwd: work.clone(),
+    };
+    let out = spawn(&sandbox.wrap(&pod_profile, line).unwrap());
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout),
+        "listening\n",
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(pod.join(format!("{port}.sock")).exists());
+}
+
+#[test]
 fn landlock_and_seccomp_hold_without_bubblewrap_too() {
     let root = Dir::new("helper");
     let allowed = root.0.join("allowed");
