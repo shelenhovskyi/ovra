@@ -1,40 +1,57 @@
 <script lang="ts">
+// The window's frame (docs/specs/quiet-style.md): the title bar, the icon
+// rail, the rail's panel and Agents on either side of the main area, and a
+// quiet status bar. The side panels resize, fold to a strip and swap sides
+// (layout.svelte.ts). The window itself never scrolls: every frame area
+// clips, and the panels inside scroll on their own.
 import { untrack } from "svelte";
 import AgentsPanel from "../agents/AgentsPanel.svelte";
+import { agentSessions } from "../agents/sessions.svelte";
 import Approvals from "../approvals/Approvals.svelte";
-import AuditLog from "../audit/AuditLog.svelte";
-import BrowserButton from "../browser/BrowserButton.svelte";
+import { approvalQueue } from "../approvals/queue.svelte";
 import BrowserPane from "../browser/BrowserPane.svelte";
 import Editor from "../editor/Editor.svelte";
 import { persistOpenFiles } from "../editor/open-files.svelte";
 import Tabs from "../editor/Tabs.svelte";
 import Git from "../git/Git.svelte";
 import GitDiff from "../git/GitDiff.svelte";
-import Inbox from "../inbox/Inbox.svelte";
+import { registerCommand } from "../keys/commands";
 import Keybindings from "../keys/Keybindings.svelte";
 import type { CoreInfo } from "../lib/protocol";
 import type { ConnectionStatus, Transport } from "../lib/transport";
 import LanguageServers from "../lsp/LanguageServers.svelte";
-import NetworkPanel from "../network/NetworkPanel.svelte";
 import Notifications from "../notify/Notifications.svelte";
 import Palette from "../palette/Palette.svelte";
-import PolicyPanel from "../policy/PolicyPanel.svelte";
 import Search from "../search/Search.svelte";
-import ServersPanel from "../servers/ServersPanel.svelte";
 import Terminals from "../terminal/Terminals.svelte";
 import Tree from "../tree/Tree.svelte";
 import Viewer from "../viewers/Viewer.svelte";
 import { provideOvra } from "./context";
+import Icon from "./Icon.svelte";
+import type { IconName } from "./icons";
 import { rememberProject, restoreProject } from "./last-project";
-import MoreMenu from "./MoreMenu.svelte";
-import ProjectSwitcher from "./ProjectSwitcher.svelte";
-import { Workspace } from "./workspace.svelte";
+import { Layout, type Panel } from "./layout.svelte";
+import Rail from "./Rail.svelte";
+import Splitter from "./Splitter.svelte";
+import TitleBar from "./TitleBar.svelte";
+import { type SidebarView, Workspace } from "./workspace.svelte";
 
 let { transport }: { transport: Transport } = $props();
 
 const workspace = new Workspace();
 // svelte-ignore state_referenced_locally
 provideOvra({ transport, workspace });
+const layout = new Layout();
+// svelte-ignore state_referenced_locally
+const sessions = agentSessions(transport);
+// svelte-ignore state_referenced_locally
+const approvals = approvalQueue(transport);
+
+const VIEWS: Record<SidebarView, { name: string; icon: IconName }> = {
+  files: { name: "Files", icon: "files" },
+  search: { name: "Search", icon: "search" },
+  git: { name: "Git", icon: "branch" },
+};
 
 let info = $state<CoreInfo | null>(null);
 let error = $state<string | null>(null);
@@ -110,51 +127,97 @@ const status = $derived.by((): { text: string; ok: boolean } => {
   if (everClosed || error) return { text: `Core unavailable: ${error ?? "could not connect, retrying…"}`, ok: false };
   return { text: "Connecting…", ok: true };
 });
+
+$effect(() => registerCommand({ id: "layout.swap", title: "Swap side panels", run: () => layout.swap() }));
+
+const view = $derived(VIEWS[workspace.sidebar]);
+const capacity = $derived(workspace.project ? sessions.capacity.get(workspace.project.id) : undefined);
+/** Folded panels. Agents unfolds while a request waits for a person, so approvals stay in sight. */
+const folded = $derived({
+  side: !!workspace.project && layout.side.collapsed,
+  agents: layout.agents.collapsed && approvals.pending.length === 0,
+});
+
+/** The grid's tracks and areas; narrow windows replace them in the stylesheet. */
+const grid = $derived.by(() => {
+  const left = layout.left;
+  const right: Panel = left === "side" ? "agents" : "side";
+  const track = (panel: Panel) => (folded[panel] ? "48px" : `minmax(0, ${layout[panel].width}px)`);
+  const handle = (panel: Panel) => (folded[panel] ? "0" : "8px");
+  const main = "minmax(320px, 1fr)";
+  let tracks = `${track(left)} ${handle(left)} ${main} ${handle(right)} ${track(right)}`;
+  let row = `${left} ${left}-handle main ${right}-handle ${right}`;
+  if (!workspace.project) {
+    // The start screen: the project list takes the main area's place.
+    tracks =
+      left === "side" ? `0 0 ${main} ${handle(right)} ${track(right)}` : `${track(left)} ${handle(left)} ${main} 0 0`;
+    row = left === "side" ? "side side side agents-handle agents" : "agents agents-handle side side side";
+  }
+  return `--tracks: 52px ${tracks}; --row: "rail ${row}";`;
+});
+
+const PANELS: Panel[] = ["side", "agents"];
+
+function edge(panel: Panel): "left" | "right" {
+  return layout.left === panel ? "left" : "right";
+}
 </script>
 
+{#snippet controls(panel: Panel, name: string)}
+  <span class="controls">
+    <button
+      type="button"
+      title="Move to the other side"
+      aria-label={`Move ${name} to the other side`}
+      onclick={() => layout.swap()}><Icon name="swap" small /></button
+    >
+    <button
+      type="button"
+      title="Collapse"
+      aria-label={`Collapse ${name}`}
+      onclick={() => layout.setCollapsed(panel, true)}><Icon name="collapse" small /></button
+    >
+  </span>
+{/snippet}
+
 <Keybindings />
-<div class="shell">
-  <header>
-    <h1>Ovra</h1>
-    {#if workspace.project}
-      <ProjectSwitcher project={workspace.project} />
-    {:else}
-      <span class="project muted" data-testid="project-name">No project open</span>
-    {/if}
-    <Inbox />
-    <MoreMenu />
-    <!-- Opened from the "More" menu, the palette or their shortcuts. -->
-    <AuditLog trigger={false} />
-    <PolicyPanel trigger={false} />
-    <NetworkPanel trigger={false} />
-    <ServersPanel trigger={false} />
-    <BrowserButton trigger={false} />
-  </header>
-  <aside data-testid="sidebar">
-    {#if workspace.project}
-      <div class="sidebar-tabs" role="group" aria-label="Sidebar view">
-        <button
-          type="button"
-          aria-pressed={workspace.sidebar === "files"}
-          onclick={() => (workspace.sidebar = "files")}>Files</button
-        >
-        <button
-          type="button"
-          aria-pressed={workspace.sidebar === "search"}
-          onclick={() => (workspace.sidebar = "search")}>Search</button
-        >
-        <button
-          type="button"
-          aria-pressed={workspace.sidebar === "git"}
-          onclick={() => (workspace.sidebar = "git")}>Git</button
+<div class="shell" class:start={!workspace.project} style={grid}>
+  <div class="title-area"><TitleBar /></div>
+  <div class="rail-area"><Rail {layout} /></div>
+  <aside class="panel side" data-testid="sidebar" aria-label={workspace.project ? view.name : "Projects"}>
+    {#if folded.side}
+      <div class="strip">
+        <button type="button" title={`Show ${view.name}`} aria-label={`Show ${view.name}`} onclick={() => layout.setCollapsed("side", false)}
+          ><Icon name={view.icon} /></button
         >
       </div>
     {/if}
-    <div class="sidebar-view" hidden={!!workspace.project && workspace.sidebar !== "files"}><Tree /></div>
-    <div class="sidebar-view" hidden={!workspace.project || workspace.sidebar !== "search"}><Search /></div>
-    <div class="sidebar-view" hidden={!workspace.project || workspace.sidebar !== "git"}><Git /></div>
+    <div class="body" hidden={folded.side}>
+      {#if workspace.project}
+        <div class="head">
+          <span class="name">{view.name}</span>
+          {@render controls("side", view.name)}
+        </div>
+      {/if}
+      <div class="sidebar-view" hidden={!!workspace.project && workspace.sidebar !== "files"}><Tree /></div>
+      <div class="sidebar-view" hidden={!workspace.project || workspace.sidebar !== "search"}><Search /></div>
+      <div class="sidebar-view" hidden={!workspace.project || workspace.sidebar !== "git"}><Git /></div>
+    </div>
   </aside>
-  <main data-testid="main">
+  {#each PANELS as panel (panel)}
+    {#if !folded[panel] && (panel === "agents" || workspace.project)}
+      <div class="handle {panel}-handle">
+        <Splitter
+          label={panel === "side" ? `Resize ${view.name}` : "Resize Agents"}
+          width={layout[panel].width}
+          edge={edge(panel)}
+          onresize={(width) => layout.resize(panel, width)}
+          onreset={() => layout.reset(panel)}
+        />
+      </div>
+    {/if}
+  {/each}
+  <main data-testid="main" hidden={!workspace.project}>
     <Tabs />
     <!-- The selected tab: a git diff (a tab of its own) or the open file, which stays mounted under the diff. -->
     <div
@@ -179,18 +242,43 @@ const status = $derived.by((): { text: string; ok: boolean } => {
     <BrowserPane />
     <Terminals />
   </main>
-  <aside class="agents" data-testid="agents" aria-label="Agents and approvals">
-    <Approvals />
-    <AgentsPanel />
+  <aside class="panel agents" data-testid="agents" aria-label="Agents and approvals">
+    {#if folded.agents}
+      <div class="strip">
+        <button
+          type="button"
+          title="Show Agents"
+          aria-label={capacity?.working ? `Show Agents, ${capacity.working} working` : "Show Agents"}
+          onclick={() => layout.setCollapsed("agents", false)}
+          ><Icon name="agent" />{#if capacity?.working}<span class="badge" aria-hidden="true">{capacity.working}</span
+            >{/if}</button
+        >
+      </div>
+    {/if}
+    <div class="body" hidden={folded.agents}>
+      <div class="head">
+        <span class="name">Agents</span>
+        {#if capacity}
+          <span class="capacity">{capacity.working} of {capacity.limit}</span>
+          <span class="slots" aria-hidden="true">
+            {#each { length: capacity.limit } as _, slot}<i class:on={slot < capacity.working}></i>{/each}
+          </span>
+        {/if}
+        {@render controls("agents", "Agents")}
+      </div>
+      <Approvals />
+      <AgentsPanel />
+    </div>
   </aside>
   <footer>
+    <LanguageServers />
     <span
+      class="status"
       data-testid="status"
       role="status"
       class:error={!status.ok}
       title={info ? `${info.name} ${info.version} (${info.mode})` : undefined}>{status.text}</span
     >
-    <LanguageServers />
   </footer>
   <Notifications />
   {#if connection === "refused"}
@@ -210,108 +298,169 @@ const status = $derived.by((): { text: string; ok: boolean } => {
 
 <style>
   .shell {
+    position: relative;
     display: grid;
     height: 100%;
-    /* Side columns give way before the main area does (WCAG 1.4.10 Reflow). */
-    grid-template-columns: minmax(160px, 260px) minmax(300px, 1fr) minmax(220px, 340px);
-    grid-template-rows: 36px minmax(0, 1fr) 24px;
+    /* Nothing in the frame scrolls, not even through scrollIntoView: only the panels' own lists do. */
+    overflow: clip;
+    background: var(--s0);
+    grid-template-columns: var(--tracks);
+    grid-template-rows: 44px minmax(0, 1fr) 28px;
     grid-template-areas:
-      "header header header"
-      "sidebar main agents"
-      "footer footer footer";
+      "title title title title title title"
+      var(--row)
+      "footer footer footer footer footer footer";
   }
-  header {
-    grid-area: header;
+  .title-area {
+    grid-area: title;
     min-width: 0;
-    overflow: hidden;
+    overflow: clip;
+  }
+  .rail-area {
+    grid-area: rail;
     display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 0 12px;
-    border-bottom: 1px solid #2a2a31;
+    flex-direction: column;
   }
-  h1 {
-    margin: 0;
-    font-size: 14px;
+  .rail-area > :global(nav) {
+    flex: 1;
   }
-  .project {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-weight: 600;
-  }
-  .muted {
-    font-weight: normal;
-    color: #9a9aa6;
-  }
-  aside {
-    grid-area: sidebar;
+  .panel {
     display: flex;
     flex-direction: column;
     min-width: 0;
-    overflow: hidden;
-    border-right: 1px solid #2a2a31;
+    min-height: 0;
+    overflow: clip;
+    background: var(--s1);
   }
-  .sidebar-tabs {
+  .side {
+    grid-area: side;
+  }
+  .agents {
+    grid-area: agents;
+  }
+  .start .side {
+    background: var(--s1);
+  }
+  .body {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .body[hidden],
+  .sidebar-view[hidden],
+  main[hidden],
+  .file[hidden] {
+    display: none;
+  }
+  .head {
     display: flex;
     flex: none;
-    border-bottom: 1px solid #2a2a31;
+    align-items: center;
+    gap: 6px;
+    height: 40px;
+    padding: 0 8px 0 18px;
+    font-weight: 500;
+    color: var(--text-2);
   }
-  .sidebar-tabs button {
-    flex: 1;
-    padding: 4px 8px;
-    font: inherit;
-    color: #9a9aa6;
-    background: transparent;
-    border: none;
-    border-bottom: 2px solid transparent;
+  .head .name {
+    color: var(--text);
+  }
+  .capacity {
+    font-size: 13px;
+    font-weight: 400;
+    color: var(--text-2);
+  }
+  .slots {
+    display: inline-flex;
+    gap: 3px;
+  }
+  .slots i {
+    width: 14px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--s4);
+  }
+  .slots i.on {
+    background: var(--accent);
+  }
+  .controls {
+    display: flex;
+    gap: 2px;
+    margin-left: auto;
+    opacity: 0.6;
+  }
+  .head:hover .controls,
+  .controls:focus-within {
+    opacity: 1;
+  }
+  .controls button,
+  .strip button {
+    position: relative;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    color: var(--text-2);
+    background: none;
+    border: 0;
+    border-radius: 7px;
     cursor: pointer;
   }
-  .sidebar-tabs button[aria-pressed="true"] {
-    color: #e6e6e6;
-    border-bottom-color: #4a6bb0;
+  .controls button {
+    width: 26px;
+    height: 26px;
   }
-  /* Forced colours replace both colours above: a system colour and a
-     heavier weight tell the shown view apart. */
-  @media (forced-colors: active) {
-    .sidebar-tabs button {
-      border-bottom-color: Canvas;
-    }
-    .sidebar-tabs button[aria-pressed="true"] {
-      font-weight: 600;
-      border-bottom-color: Highlight;
-    }
+  .controls button:hover,
+  .strip button:hover {
+    color: var(--text);
+    background: var(--s3);
+  }
+  .strip {
+    display: flex;
+    justify-content: center;
+    padding-top: 10px;
+  }
+  .strip button {
+    width: 34px;
+    height: 34px;
+  }
+  .badge {
+    position: absolute;
+    top: 0;
+    right: -2px;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    font: 600 12px / 16px var(--font);
+    color: var(--accent-ink);
+    background: var(--accent);
+    border-radius: 8px;
   }
   .sidebar-view {
     flex: 1;
     min-height: 0;
   }
-  .sidebar-view[hidden] {
-    display: none;
+  .handle {
+    min-width: 0;
+    background: var(--s1);
   }
-  .agents {
-    grid-area: agents;
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-    overflow: hidden;
-    border-right: none;
-    border-left: 1px solid #2a2a31;
+  .side-handle {
+    grid-area: side-handle;
+  }
+  .agents-handle {
+    grid-area: agents-handle;
   }
   main {
     grid-area: main;
     display: flex;
     flex-direction: column;
     min-width: 0;
-    overflow: hidden;
+    overflow: clip;
+    background: var(--s2);
   }
   .view {
     flex: 1;
     min-height: 0;
-  }
-  .file[hidden] {
-    display: none;
   }
   .file {
     height: 100%;
@@ -320,10 +469,32 @@ const status = $derived.by((): { text: string; ok: boolean } => {
     grid-area: footer;
     display: flex;
     align-items: center;
-    padding: 0 12px;
-    font-size: 12px;
-    color: #9a9aa6;
-    border-top: 1px solid #2a2a31;
+    gap: 18px;
+    min-width: 0;
+    padding: 0 16px;
+    overflow: clip;
+    font-size: 13px;
+    color: var(--text-2);
+  }
+  .status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+    white-space: nowrap;
+  }
+  .status::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--ok);
+  }
+  .status.error {
+    color: var(--danger);
+  }
+  .status.error::before {
+    background: var(--danger);
   }
   .refused {
     position: fixed;
@@ -333,52 +504,66 @@ const status = $derived.by((): { text: string; ok: boolean } => {
     flex-direction: column;
     justify-content: center;
     padding: 0 max(16px, calc(50vw - 280px));
-    background: #16161a;
+    background: var(--s1);
   }
   .refused h2 {
     margin: 0 0 12px;
-    font-size: 18px;
+    font-size: 20px;
+    font-weight: 600;
   }
   .refused p {
     margin: 0 0 8px;
-    line-height: 1.5;
+    color: var(--text-2);
   }
-  .error {
-    color: #ff6b6b;
+  @media (forced-colors: active) {
+    .handle {
+      border-inline: 1px solid CanvasText;
+    }
   }
-  /* About 200% zoom on a laptop: agents and approvals move under the main area. */
+  /* About 200% zoom on a laptop: Agents moves under the main area and nothing resizes. */
   @media (max-width: 900px) {
-    .shell {
-      grid-template-columns: minmax(140px, 220px) minmax(0, 1fr);
-      grid-template-rows: 36px minmax(240px, 1fr) minmax(160px, 35%) 24px;
+    .shell,
+    .shell.start {
+      grid-template-columns: 52px minmax(0, 220px) minmax(0, 1fr);
+      grid-template-rows: 44px minmax(240px, 1fr) minmax(160px, 35%) 28px;
       grid-template-areas:
-        "header header"
-        "sidebar main"
-        "agents agents"
-        "footer footer";
+        "title title title"
+        "rail side main"
+        "rail agents agents"
+        "footer footer footer";
     }
-    .agents {
-      border-left: none;
-      border-top: 1px solid #2a2a31;
+    .shell.start {
+      grid-template-areas:
+        "title title title"
+        "rail side side"
+        "rail agents agents"
+        "footer footer footer";
+    }
+    .handle {
+      display: none;
     }
   }
-  /* Narrower still: one column; the page scrolls down, never sideways. */
+  /* Narrower still: one column, the rail a row; the page scrolls down, never sideways. */
   @media (max-width: 600px) {
-    .shell {
+    .shell,
+    .shell.start {
       height: auto;
       min-height: 100%;
+      overflow-x: clip;
+      overflow-y: visible;
       grid-template-columns: minmax(0, 1fr);
-      grid-template-rows: 36px minmax(320px, 70vh) minmax(200px, 40vh) minmax(200px, 40vh) 24px;
+      grid-template-rows: 44px 44px minmax(320px, 70vh) minmax(200px, 40vh) minmax(200px, 40vh) 28px;
       grid-template-areas:
-        "header"
+        "title"
+        "rail"
         "main"
-        "sidebar"
+        "side"
         "agents"
         "footer";
     }
-    aside {
-      border-right: none;
-      border-top: 1px solid #2a2a31;
+    .rail-area > :global(nav) {
+      flex-direction: row;
+      padding: 0 8px;
     }
   }
 </style>

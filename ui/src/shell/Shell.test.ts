@@ -97,7 +97,7 @@ describe("Shell", () => {
     flushSync();
     await new Promise((resolve) => setImmediate(resolve));
     flushSync();
-    expect(target.querySelector("[data-testid=project-name]")?.textContent).toMatch(/Project\s+demo-app/);
+    expect(target.querySelector("[data-testid=project-name]")?.textContent).toMatch(/^\s*demo-app\s*$/);
     expect(localStorage.getItem("ovra.project")).toBe("p1");
     unmount(app);
     localStorage.clear();
@@ -139,10 +139,10 @@ describe("Shell", () => {
 
     it("keeps Reviews in the header and the other panels behind More, each explained", () => {
       const { target, more, menu, items, done } = mountShell();
-      const header = target.querySelector("header");
+      const actions = target.querySelector("header .actions");
       expect(
-        [...(header?.querySelectorAll(":scope > button, :scope > .more > button") ?? [])].map((b) =>
-          b.textContent?.trim(),
+        [...(actions?.querySelectorAll(":scope > button, :scope > .more > button") ?? [])].map(
+          (b) => b.getAttribute("aria-label") ?? b.textContent?.trim(),
         ),
       ).toEqual([expect.stringMatching(/^Reviews/), "More"]);
       expect(target.querySelector("[data-testid=open-audit], [data-testid=open-browser]")).toBeNull();
@@ -167,6 +167,7 @@ describe("Shell", () => {
         ["Network and secrets", null, "Which websites agents may reach, and secrets"],
         ["Servers", "Ctrl+Shift+S", "Your project's dev servers, run for agents"],
         ["Agent browser", "Ctrl+Shift+B", "The web browser an agent uses"],
+        ["Swap side panels", null, "Agents and files change sides"],
       ]);
       expect(items()[4]?.getAttribute("aria-keyshortcuts")).toBe("Mod+Shift+S");
       expect(items().map((item) => item.dataset.testid)).toEqual([
@@ -176,6 +177,7 @@ describe("Shell", () => {
         "open-network",
         "open-servers",
         "open-browser",
+        "open-swap",
       ]);
       done();
     });
@@ -187,11 +189,11 @@ describe("Shell", () => {
 
       expect(document.activeElement).toBe(items()[0]);
       key(document.activeElement, "ArrowUp");
-      expect(document.activeElement).toBe(items()[5]);
+      expect(document.activeElement).toBe(items()[6]);
       key(document.activeElement, "ArrowDown");
       expect(document.activeElement).toBe(items()[0]);
       key(document.activeElement, "End");
-      expect(document.activeElement).toBe(items()[5]);
+      expect(document.activeElement).toBe(items()[6]);
       // First-letter typeahead: P is Project policies, A goes on to Agent browser.
       key(document.activeElement, "KeyP");
       expect(document.activeElement).toBe(items()[2]);

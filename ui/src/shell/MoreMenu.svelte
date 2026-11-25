@@ -9,6 +9,7 @@ import { sessionBrowsers } from "../browser/browser.svelte";
 import { type Command, listCommands } from "../keys/commands";
 import { formatShortcut, inBrowserTab, isApple, liveKeys } from "../keys/shortcut";
 import { useOvra } from "./context";
+import Icon from "./Icon.svelte";
 import { menuTarget } from "./menu";
 
 const ITEMS = [
@@ -19,6 +20,7 @@ const ITEMS = [
   { command: "network.toggle", id: "network", about: "Which websites agents may reach, and secrets" },
   { command: "servers.toggle", id: "servers", about: "Your project's dev servers, run for agents" },
   { command: "browser.toggle", id: "browser", about: "The web browser an agent uses" },
+  { command: "layout.swap", id: "swap", about: "Agents and files change sides" },
 ] as const;
 
 const { transport } = useOvra();
@@ -114,11 +116,12 @@ $effect(() => {
     aria-expanded={open}
     aria-controls={open ? "more-menu" : undefined}
     aria-label={waiting > 0 ? `More, ${waiting} waiting for you` : "More"}
+    title="More"
     bind:this={button}
     onclick={() => (open ? close(false) : void show("first"))}
     onkeydown={onButtonKeydown}
   >
-    More
+    <Icon name="more" />
     {#if waiting > 0}<span class="badge" aria-hidden="true">{waiting}</span>{/if}
   </button>
   {#if open}
@@ -154,43 +157,49 @@ $effect(() => {
   }
   button {
     font: inherit;
-    color: #e6e6e6;
+    color: var(--text);
     cursor: pointer;
   }
   .more > button {
-    padding: 2px 10px;
-    background: #2a2a33;
-    border: 1px solid #4a4a57;
-    border-radius: 3px;
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    color: var(--text-2);
+    background: none;
+    border: 0;
+    border-radius: 7px;
   }
-  button:focus-visible {
-    outline: 2px solid #7aa2ff;
-    outline-offset: 1px;
+  .more > button:hover,
+  .more > button[aria-expanded="true"] {
+    color: var(--text);
+    background: var(--s3);
   }
   .menu {
     position: fixed;
     z-index: 100;
-    min-width: 280px;
-    padding: 4px;
-    background: #1e1e24;
-    border: 1px solid #4a4a57;
-    border-radius: 4px;
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+    min-width: 300px;
+    padding: 6px;
+    background: var(--s4);
+    border-radius: var(--radius);
+    box-shadow: var(--card-shadow);
   }
   .menu button {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
     width: 100%;
-    padding: 6px 8px;
+    padding: 7px 10px;
     text-align: left;
     background: transparent;
     border: none;
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
   }
   .menu button:hover,
   .menu button:focus {
-    background: #2a2a33;
+    background: var(--s3);
   }
   .name {
     display: flex;
@@ -200,20 +209,32 @@ $effect(() => {
   kbd {
     margin-left: auto;
     padding-left: 16px;
-    font: inherit;
-    font-size: 12px;
-    color: #9a9aa6;
+    font: 500 12px var(--font);
+    color: var(--text-2);
   }
   .about {
-    font-size: 12px;
-    color: #9a9aa6;
+    font-size: 13px;
+    color: var(--text-2);
   }
   .badge {
     margin-left: 4px;
-    padding: 0 5px;
-    font-size: 11px;
-    color: #101013;
-    background: #ffd36b;
+    min-width: 16px;
+    padding: 0 4px;
+    font: 600 12px / 16px var(--font);
+    text-align: center;
+    color: var(--accent-ink);
+    background: var(--warn);
     border-radius: 8px;
+  }
+  .more > button .badge {
+    position: absolute;
+    top: -2px;
+    right: -4px;
+    margin: 0;
+  }
+  @media (forced-colors: active) {
+    .menu {
+      border: 1px solid CanvasText;
+    }
   }
 </style>
