@@ -340,7 +340,10 @@ function stop(id: SessionId): Promise<void> {
 function close(id: SessionId): Promise<void> {
   if (sessions.roles.get(id)?.kind === "coordinator" && confirming !== id) {
     confirming = id;
-    return Promise.resolve();
+    // The question shows under the row, which may sit at the list's end.
+    return tick().then(() => {
+      document.querySelector("[data-testid=agents-close-confirm]")?.scrollIntoView?.({ block: "nearest" });
+    });
   }
   confirming = null;
   return run(async () => {
@@ -376,11 +379,12 @@ const canReply = $derived(current !== null && current.status.state === "idle");
 {#snippet confirmClose(id: SessionId)}
   {@const workers = sessions.workers(id).length}
   {@const kept = sessions.waitingInTask(id)}
+  {@const working = sessions.workers(id).some((w) => isBusy(sessions.byId.get(w)?.status ?? null))}
   <div class="confirm" role="group" aria-label="Close this task?" data-testid="agents-close-confirm">
     <p>
       Close this task{workers > 0 ? ` and its ${workers === 1 ? "worker" : `${workers} workers`}` : ""}?{kept > 0
         ? " Their changes stay in Reviews."
-        : ""}
+        : ""}{working ? " Working ones stop." : ""}
     </p>
     <span class="buttons">
       <button type="button" class="quiet" onclick={() => (confirming = null)}>Cancel</button>
@@ -686,8 +690,7 @@ const canReply = $derived(current !== null && current.status.state === "idle");
           </label>
         {/each}
       </fieldset>
-      <!-- Shown while the box is in use; screen readers always hear it with the options. -->
-      <p class="line hint" class:shown={prompt.trim() !== ""} id="agent-mode-hint">{modeHint}</p>
+      <p class="line" id="agent-mode-hint">{modeHint}</p>
       {#if blocked}
         <p class="blocked" role="note" data-testid="agent-account-blocked">
           <span
@@ -1156,14 +1159,6 @@ const canReply = $derived(current !== null && current.status.state === "idle");
     flex: 0 1 auto;
     min-height: 0;
     overflow-y: auto;
-  }
-  .compose.new:not(:focus-within) .hint:not(.shown) {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
   }
   .compose:focus-within {
     box-shadow: 0 0 0 2px var(--accent-soft);
