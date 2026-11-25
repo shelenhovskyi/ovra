@@ -15,6 +15,10 @@ use crate::protocol::projects::ProjectId;
 use crate::protocol::review::ReviewEvent;
 use crate::services::EventSink;
 
+/// Each watch is a full one (tree walk, OS watches per folder, `git status`),
+/// so a worker on a large repository uses watches the main checkout may
+/// then lack; a worker's own watch limit is not reported to anyone.
+///
 /// At most one `review.changed` per worker this often: each one makes the
 /// inbox list and diff again, while an agent may write many times a second.
 const EVERY: Duration = Duration::from_secs(1);
@@ -58,6 +62,12 @@ pub(super) fn start(core: &Core, session: &SessionId) {
         .watch(id(session), entry.workspace.dir, EventSink(tx));
     if watched.is_err() {
         state.lock().watches.remove(session);
+        return;
+    }
+    // The worker ended while the watch was set up: `stop` found nothing
+    // to unwatch yet, so let go here.
+    if !state.lock().watches.contains(session) {
+        core.fs_service().unwatch(&id(session));
         return;
     }
     runtime.spawn(forward(core.downgrade(), session.clone(), rx));

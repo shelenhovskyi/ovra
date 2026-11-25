@@ -450,7 +450,14 @@ pub(super) async fn spawn(
     super::watch::start(core, &worker.session);
     // The person stopped the task while this worker was set up: it must not
     // work on without its coordinator ([`stop_workers_of`] missed it).
-    if stopped(core, coordinator) {
+    // A coordinator that failed leaves its workers running, this one too.
+    let asked_to_stop = core
+        .sessions()
+        .find(coordinator, |s| {
+            s.stopping() || *s.status() == AgentStatus::Stopped
+        })
+        .unwrap_or(false);
+    if asked_to_stop {
         let _ = agents::stop(&core.agents_ctx(), worker.session.clone());
     }
     core.emit(OrchestrationEvent::Changed {

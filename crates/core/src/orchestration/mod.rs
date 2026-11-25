@@ -1,7 +1,8 @@
 //! Orchestration and review state (`docs/specs/orchestration.md`): tasks of
 //! a coordinator and its workers, their limits, review items, the holds
 //! running sessions keep on their projects and workers on their worktrees,
-//! and the answers to Ovra's own tools. Pure state: worktrees and agents are reached through services.
+//! and the answers to Ovra's own tools. Pure state: worktrees and agents
+//! are reached through services.
 //!
 //! Lock order: this state's lock may be held while taking the sessions'
 //! lock, never the other way round; sessions call in here only without

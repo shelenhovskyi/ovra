@@ -150,8 +150,9 @@ The person stops a task with `orchestration.stop` or by stopping its
 coordinator. Either way every running or queued worker of the task stops
 too, and so does a worker that was still being set up when the stop came;
 a coordinator that is stopping starts no more workers. Worktrees and review
-items stay. A coordinator that fails, or ends because Ovra shuts down,
-leaves its workers alone, and its task can be resumed.
+items stay. A coordinator that fails leaves its workers running, and its
+task can be resumed; one that stops for another reason (Ovra shuts down)
+takes its workers with it, but its task too can be resumed.
 
 ## Cleaning up worktrees and branches
 

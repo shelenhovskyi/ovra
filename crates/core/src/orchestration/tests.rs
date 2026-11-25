@@ -2797,7 +2797,9 @@ async fn a_workers_review_follows_its_worktree_while_it_runs() {
     )
     .await;
     until(&mut rx, "s2", AgentStatus::Idle).await;
+    let mut rx = f.core.subscribe();
     touch_worktree(&f.fs, "s2");
+    assert!(review_changed(&mut rx, &item).await.is_some());
 }
 
 /// The id of `session`'s latest review item.
