@@ -5,7 +5,7 @@ import { Workspace } from "../shell/workspace.svelte";
 import { Buffers } from "./buffers.svelte";
 import { Drafts } from "./drafts.svelte";
 import { FakeCore, MemoryStorage } from "./fake-core";
-import { answerClose, OpenFiles, persistOpenFiles, requestClose, tabs } from "./open-files.svelte";
+import { answerClose, modeOf, OpenFiles, persistOpenFiles, requestClose, show, tabs } from "./open-files.svelte";
 
 const project: Project = { id: "p1", name: "p", root: "/p", last_opened_ms: null, trusted: false };
 
@@ -42,6 +42,7 @@ test("keep adds a tab at the end without making it active", async () => {
   await files.opened("a");
   expect(core.state.open_files).toEqual(["a", "b"]);
   expect(files.active).toBe("a");
+  expect(files.modes.get("b")).toBe("edit");
 });
 
 test("closing the active tab activates its right neighbour, else its left", async () => {
@@ -130,5 +131,25 @@ test("reopens the active file when a project opens, then records changes", async
   flushSync();
   await vi.waitFor(() => expect(core.state.active_file).toBe("lib.rs"));
   expect(core.state.open_files).toEqual(["main.rs", "lib.rs"]);
+  stop();
+});
+
+test("each tab keeps its own mode; a file without a tab opens in View", async () => {
+  const core = new FakeCore();
+  core.state = { open_files: [], active_file: null, expanded_dirs: [] };
+  const workspace = new Workspace();
+  const stop = persistOpenFiles(core, workspace);
+  workspace.project = project;
+  flushSync();
+  await vi.waitFor(() => expect(tabs.current).not.toBeNull());
+  workspace.openFile("main.rs", "edit");
+  flushSync();
+  workspace.openFile("lib.rs", modeOf("lib.rs"));
+  flushSync();
+  expect(workspace.mode).toBe("view");
+  show(workspace, "main.rs");
+  expect(workspace.mode).toBe("edit");
+  show(workspace, "lib.rs");
+  expect(workspace.mode).toBe("view");
   stop();
 });

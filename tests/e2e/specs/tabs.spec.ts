@@ -39,11 +39,11 @@ test("tabs switch with the keyboard, keep undo and focus, and ask before closing
   await page.keyboard.type("edited ");
   await expect(tabs.getByRole("tab", { name: "a.txt, unsaved changes" })).toBeVisible();
 
-  // Arrows move between tabs; the edits and their undo history stay.
+  // Arrows move between tabs, each in its own mode; the edits and their undo history stay.
   await tabs.getByRole("tab", { name: /a\.txt/ }).focus();
   await page.keyboard.press("ArrowRight");
   await expect(tabs.getByRole("tab", { name: "b.txt" })).toBeFocused();
-  await expect(content).toHaveText("beta");
+  await expect(page.getByTestId("text-view")).toHaveText("beta");
   await page.keyboard.press("Home");
   await expect(content).toContainText("edited alpha");
   await content.click();
@@ -66,13 +66,18 @@ test("tabs switch with the keyboard, keep undo and focus, and ask before closing
   await question.getByRole("button", { name: "Save", exact: true }).click();
   await expect(tabs.getByRole("tab")).toHaveText(["b.txt"]);
   await expect.poll(() => readFileSync(join(dir, "a.txt"), "utf8")).toBe("edited alpha\n");
-  await expect(page.getByTestId("editor-path")).toHaveText("b.txt");
+  await expect(page.getByTestId("text-view")).toHaveText("beta");
 
-  // Ctrl+S while the question is open saves and closes it.
-  await content.click();
+  // Cancel goes back to the text; Ctrl+S while the question is open saves and closes it.
+  await page.keyboard.press("ControlOrMeta+E");
+  await expect(content).toBeFocused();
   await page.keyboard.type("more ");
   await page.keyboard.press("Alt+W");
-  await expect(question.or(page.getByRole("dialog"))).toBeVisible();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(content).toBeFocused();
+  await page.keyboard.press("Alt+W");
+  await expect(page.getByRole("dialog")).toBeVisible();
   await page.keyboard.press("ControlOrMeta+S");
   await expect(page.getByRole("dialog")).toBeHidden();
   // The question closes as the save starts; the file is written a moment later.
@@ -83,18 +88,24 @@ test("tabs switch with the keyboard, keep undo and focus, and ask before closing
   await expect(page.getByRole("tree", { name: "Files" })).toBeFocused();
 });
 
-test("a visible Edit button switches modes, and focus follows into the viewer", async ({ page }) => {
+test("Edit sits in the file's bar and switches modes, and focus follows into the viewer", async ({ page }) => {
   const dir = project({ "sub/notes.txt": "hello\n" });
   await open(page, dir);
   await page.getByRole("treeitem", { name: /sub/ }).click();
   await page.getByRole("treeitem", { name: /notes\.txt/ }).click();
   const tabs = page.getByRole("tablist", { name: "Open files" });
-  await tabs.getByRole("button", { name: "Edit" }).click();
-  const content = page.getByTestId("main").locator(".cm-content");
+  const main = page.getByTestId("main");
+  // Typing into the read-only view says how to edit.
+  await page.locator("#ovra-tabpanel .content").focus();
+  await page.keyboard.type("x");
+  await expect(main.getByText(/^This is a read-only view\. Press Edit/)).toBeVisible();
+  await main.getByRole("button", { name: /^Edit/ }).click();
+  const content = main.locator(".cm-content");
   await expect(content).toBeFocused();
+  await expect(content).toHaveAccessibleName("Edit sub/notes.txt");
   await page.keyboard.type("x");
   await page.keyboard.press("ControlOrMeta+E");
-  await expect(tabs.getByRole("button", { name: "Edit" })).toBeVisible();
+  await expect(main.getByRole("button", { name: /^Edit/ })).toBeVisible();
   await expect(page.locator("#ovra-tabpanel .content")).toBeFocused();
 
   // The close question names the file by its path.

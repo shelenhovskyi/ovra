@@ -1,7 +1,13 @@
 <script lang="ts">
 // Shows workspace.openPath in view mode: markdown, images, diffs, plain text.
+// The bar above the file has Edit, so it is always in sight; typing into the
+// view says that it is read-only and how to edit.
+import { toggle } from "../editor/commands";
+import { serverFor } from "../editor/lsp/clients";
 import { unsavedText } from "../editor/open-files.svelte";
+import { formatShortcut, inBrowserTab, isApple, liveKeys } from "../keys/shortcut";
 import { CoreError } from "../lib/transport";
+import { languageServers } from "../lsp/servers.svelte";
 import { useOvra } from "../shell/context";
 import ImageView from "./ImageView.svelte";
 import Lines from "./Lines.svelte";
@@ -11,6 +17,10 @@ import PatchView from "./PatchView.svelte";
 import StartPanel from "./StartPanel.svelte";
 
 const { transport, workspace } = useOvra();
+const lsp = languageServers(transport);
+// The viewer has no language features: say where they are.
+const lspHint = $derived(workspace.openPath ? serverFor(workspace.openPath, lsp.status)?.name : undefined);
+const editKeys = formatShortcut(liveKeys("Mod+E", inBrowserTab()), isApple());
 
 let loaded = $state<Loaded | null>(null);
 // Unsaved editor text wins over the file on disk, so the preview matches what will be saved.
@@ -62,6 +72,18 @@ $effect(() => {
   }
 });
 
+/** Text kinds open in the editor; images and files too big or binary do not. */
+const editable = $derived(!loaded || "error" in loaded || ["markdown", "patch", "text"].includes(loaded.view.kind));
+
+/** A printable key typed into the read-only view: say so instead of dropping it. */
+function ontyping(event: KeyboardEvent): void {
+  if (event.key.length !== 1 || event.key === " " || event.ctrlKey || event.metaKey || event.altKey) return;
+  if (event.target instanceof HTMLElement && event.target.closest("input, textarea, select, [contenteditable]")) return;
+  notice = editable
+    ? `This is a read-only view. Press Edit (${editKeys}) to change this file.`
+    : "This file cannot be edited here.";
+}
+
 async function openExternal() {
   const project = workspace.project?.id;
   const path = workspace.openPath;
@@ -93,12 +115,24 @@ async function openExternal() {
   {:else}
     <div class="bar">
       <span class="path" title={workspace.openPath}>{workspace.openPath}</span>
+      {#if lspHint}<span class="lsp-hint" data-testid="lsp-edit-hint">{lspHint} in Edit</span>{/if}
+      {#if editable}
+        <button
+          type="button"
+          class="quiet edit"
+          aria-keyshortcuts={isApple() ? "Meta+E" : "Control+E"}
+          title="Edit this file ({editKeys})"
+          onclick={() => toggle(workspace)}>Edit <kbd>{editKeys}</kbd></button
+        >
+      {/if}
       {#if loaded && "view" in loaded && loaded.view.kind !== "binary" && loaded.view.kind !== "too_large"}
         <button type="button" class="quiet" onclick={openExternal}>Open in default app</button>
       {/if}
     </div>
     <p class="notice" role="status">{notice}</p>
-    <div class="content" bind:this={content} tabindex="-1">
+    <!-- A scroll area; the key handler only explains why typing does nothing. -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="content" bind:this={content} tabindex="-1" onkeydown={ontyping}>
       {#if unsaved !== null}
         <p class="note unsaved" data-testid="unsaved-preview">Showing unsaved changes from the editor.</p>
       {/if}
@@ -179,6 +213,23 @@ async function openExternal() {
   }
   .quiet:hover {
     color: #e6e6e6;
+  }
+  .quiet:focus-visible {
+    outline: 2px solid #7aa2ff;
+    outline-offset: 1px;
+  }
+  .edit {
+    color: #e6e6e6;
+    border-color: #4a6bb0;
+  }
+  kbd {
+    font: inherit;
+    font-size: 11px;
+    color: #9a9aa6;
+  }
+  .lsp-hint {
+    color: #9a9aa6;
+    white-space: nowrap;
   }
   .content {
     flex: 1;

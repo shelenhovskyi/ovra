@@ -7,7 +7,7 @@
 import { tick, untrack } from "svelte";
 import type { ProjectId, ProjectStatePatch } from "../lib/protocol";
 import type { Transport } from "../lib/transport";
-import type { Workspace } from "../shell/workspace.svelte";
+import type { MainMode, Workspace } from "../shell/workspace.svelte";
 import { Buffers } from "./buffers.svelte";
 import { drafts } from "./drafts.svelte";
 import { highlighter } from "./highlight/highlighter";
@@ -20,6 +20,8 @@ export class OpenFiles {
   /** Tab order. */
   files = $state<string[]>([]);
   active = $state<string | null>(null);
+  /** The mode each tab was last shown in, so switching tabs does not carry one tab's mode to the next. */
+  readonly modes = new Map<string, MainMode>();
   /** The project's language servers, once the shell wires them up. */
   lsp: LanguageClients | null = null;
   private writes = Promise.resolve();
@@ -54,6 +56,7 @@ export class OpenFiles {
         } else {
           files.splice(i, 1);
           this.buffers.discard(candidate);
+          this.modes.delete(candidate);
         }
       }
       this.files = files;
@@ -61,10 +64,14 @@ export class OpenFiles {
     return this.write();
   }
 
-  /** Adds a tab for `path` at the end without showing it, as a rename does for the files it changed. */
+  /**
+   * Adds a tab for `path` at the end without showing it, as a rename does for
+   * the files it changed. The tab opens in the editor, where those changes wait.
+   */
   keep(path: string): void {
     if (this.files.includes(path)) return;
     this.files = [...this.files, path];
+    this.modes.set(path, "edit");
     void this.write();
   }
 
@@ -73,6 +80,7 @@ export class OpenFiles {
     const index = this.files.indexOf(path);
     if (index === -1) return this.active;
     this.buffers.discard(path);
+    this.modes.delete(path);
     this.files = this.files.filter((p) => p !== path);
     if (this.active === path) this.active = this.files[index] ?? this.files[index - 1] ?? null;
     void this.write();
@@ -179,9 +187,14 @@ export async function focusMain(): Promise<void> {
   target?.focus();
 }
 
-/** Shows the file at `path` (or nothing), keeping the current mode unless one is given. */
-export function show(workspace: Target, path: string | null, mode = workspace.mode): void {
-  if (path) workspace.openFile(path, mode);
+/** The mode `path` was last shown in, as its tab remembers it; a file without a tab opens in `fresh`. */
+export function modeOf(path: string, fresh: MainMode = "view"): MainMode {
+  return tabs.current?.modes.get(path) ?? fresh;
+}
+
+/** Shows the file at `path` (or nothing) in the mode its tab remembers, unless one is given. */
+export function show(workspace: Target, path: string | null, mode?: MainMode): void {
+  if (path) workspace.openFile(path, mode ?? modeOf(path));
   else workspace.openPath = null;
 }
 
@@ -241,6 +254,13 @@ export function persistOpenFiles(transport: Transport, workspace: Workspace): ()
         tabs.notice = null;
         void current?.opened(path);
       });
+    });
+
+    $effect(() => {
+      const path = workspace.openPath;
+      const mode = workspace.mode;
+      const current = tabs.current;
+      if (path && current) untrack(() => current.modes.set(path, mode));
     });
   });
 }

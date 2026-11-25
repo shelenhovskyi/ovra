@@ -1,5 +1,6 @@
 // What each palette mode lists and what choosing an entry does.
 
+import { modeOf } from "../editor/open-files.svelte";
 import { listCommands } from "../keys/commands";
 import type { Project } from "../lib/protocol";
 import type { Transport } from "../lib/transport";
@@ -59,8 +60,9 @@ export function source(mode: PaletteMode, transport: Transport, workspace: Targe
             ? (await projectFiles(transport, project.id)).map((path) => ({
                 id: path,
                 label: path,
-                // Keep the mode: going to a file while editing keeps editing.
-                run: () => workspace.openFile(path, workspace.mode),
+                // An open file comes back in the mode its tab had; a new one keeps
+                // the current mode, so going to a file while editing keeps editing.
+                run: () => workspace.openFile(path, modeOf(path, workspace.mode)),
               }))
             : [],
       };

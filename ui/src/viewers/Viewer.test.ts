@@ -129,6 +129,22 @@ describe("Viewer", () => {
     expect(target.querySelector("b")).toBeNull();
   });
 
+  it("keeps Edit in the file's bar and answers typing with how to edit", async () => {
+    const { target, workspace } = show({ "a.txt": { kind: "text", text: "hi" } }, "a.txt");
+    await settle();
+    const keys = formatShortcut(liveKeys("Mod+E", true), isApple());
+    const edit = target.querySelector<HTMLButtonElement>(".bar .edit");
+    expect(edit?.textContent).toBe(`Edit ${keys}`);
+    target.querySelector(".content")?.dispatchEvent(new KeyboardEvent("keydown", { key: "x", bubbles: true }));
+    flushSync();
+    expect(target.querySelector(".notice")?.textContent).toBe(
+      `This is a read-only view. Press Edit (${keys}) to change this file.`,
+    );
+    edit?.click();
+    await settle();
+    expect(workspace.mode).toBe("edit");
+  });
+
   it("shows images and reports missing files", async () => {
     const { target, workspace } = show({ "a.png": { kind: "binary", mime: "image/png", base64: "AAA=" } }, "a.png");
     await settle();
@@ -142,6 +158,7 @@ describe("Viewer", () => {
     flushSync();
     expect(img?.style.width).toBe("64px");
     expect(target.querySelector("figcaption")?.textContent).toBe("a.png, 2 × 1 pixels, shown 32× larger");
+    expect(target.querySelector(".edit")).toBeNull();
     workspace.openFile("x.patch");
     await settle();
     expect(target.textContent).toContain("x.patch no longer exists.");
@@ -257,9 +274,11 @@ describe("Viewer", () => {
     await settle();
     expect(target.textContent).toContain("v2");
     expect(reads).toEqual(["a.txt", "a.txt"]);
+    // The language-server status keeps its own listener for the transport.
+    const watching = listeners.size;
     workspace.openPath = null;
     flushSync();
-    expect(listeners.size).toBe(0);
+    expect(listeners.size).toBe(watching - 1);
   });
 
   it("renders markdown, follows project links and loads project images", async () => {
