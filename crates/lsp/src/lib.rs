@@ -5,7 +5,9 @@
 //! Contract: `ovra_core::services::LanguageServers`; fake:
 //! `ovra_core::fakes::FakeLanguageServers`.
 
+mod frame;
 mod known;
+mod process;
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -94,12 +96,12 @@ impl LanguageServers for Servers {
                 }
                 SandboxStatus::Unavailable { .. } => (line, None),
             };
-            // Spawning and framing come in the next change.
-            let _ = (line, sandbox, host);
-            Err(ProtocolError::new(
-                ErrorCode::Unavailable,
-                format!("{} cannot be started yet", def.name),
-            ))
+            let process = process::spawn(&line, &def.name, host)?;
+            Ok(StartedServer {
+                process: Box::new(process),
+                name: def.name.clone(),
+                sandbox,
+            })
         })
     }
 }
