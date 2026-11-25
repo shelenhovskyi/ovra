@@ -1,0 +1,11 @@
+---
+source: crates/browser/src/snapshot.rs
+expression: text
+---
+- RootWebArea "Demo" [ref=e1]
+  - heading "Sign in" [level=1] [ref=e2]
+  - form [ref=e3]
+    - textbox "Email" [value="a@b.c"] [ref=e4]
+    - button "Save \"now\"" [disabled] [ref=e5]
+  - link "Help" [ref=e6]
+    - text "Need help?"
