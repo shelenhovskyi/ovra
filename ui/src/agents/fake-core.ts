@@ -129,7 +129,8 @@ export class FakeAgentCore implements Transport {
       case "agents.resume": {
         const info = this.sessions.find((s) => s.id === request.params.session);
         if (!info) throw new CoreError({ code: "not_found", message: "no such session" });
-        info.resumable = false;
+        // Like the core, a restart forgets how the last process ran.
+        Object.assign(info, { resumable: false, sandbox: null, sandbox_reported: false });
         this.status(info.id, { state: "starting" });
         this.message(info.id, { kind: "user_text", text: request.params.prompt, from: "person" });
         return { type: "agents.session", data: { ...info } };

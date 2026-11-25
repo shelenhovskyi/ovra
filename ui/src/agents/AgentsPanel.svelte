@@ -30,7 +30,7 @@ const project = $derived(workspace.project);
 const list = $derived(project ? sessions.grouped(project.id) : []);
 const current = $derived(list.find((s) => s.id === selected) ?? null);
 const messages = $derived(current ? sessions.transcripts.get(current.id) : undefined);
-const sandbox = $derived(current ? sandboxLine(sandboxState(current)) : null);
+const sandbox = $derived(current ? sandboxLine(sandboxState(current), isEnded(current.status)) : null);
 
 $effect(() => {
   const id = project?.id;
@@ -211,7 +211,7 @@ const canReply = $derived(current !== null && current.status.state === "idle");
             >
               <span class="title">{sessions.name(session.id)}</span>
               {#if badge}
-                <span class="badge" class:unsandboxed={!session.sandbox} data-testid="agent-sandbox-badge">{badge}</span>
+                <span class="badge" class:unsandboxed={badge.warning} data-testid="agent-sandbox-badge">{badge.text}</span>
               {/if}
               <span class="state" data-state={session.status.state}>{statusLabel(session.status)}</span>
             </button>

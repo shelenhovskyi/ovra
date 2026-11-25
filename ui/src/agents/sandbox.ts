@@ -24,13 +24,19 @@ const NETWORK: Record<SandboxReport["network"], string> = {
   open: "network not limited",
 };
 
-/** One line for the session detail; `warning` lines use the warning style. */
-export function sandboxLine(state: SandboxState): { text: string; warning: boolean } | null {
+/** One line for the session detail, in the past tense once it `ended`;
+ * `warning` lines use the warning style. */
+export function sandboxLine(state: SandboxState, ended: boolean): { text: string; warning: boolean } | null {
   switch (state.kind) {
-    case "sandboxed":
-      return { text: `Runs in a sandbox (${state.report.name}), ${NETWORK[state.report.network]}.`, warning: false };
+    case "sandboxed": {
+      const { name, network } = state.report;
+      const verb = ended ? "Ran" : "Runs";
+      return { text: `${verb} in a sandbox (${name}), ${NETWORK[network]}.`, warning: network === "open" };
+    }
     case "none":
-      return { text: "No sandbox: the agent can read and change anything your user can.", warning: true };
+      return ended
+        ? { text: "Ran without a sandbox: the agent could read and change anything your user can.", warning: true }
+        : { text: "No sandbox: the agent can read and change anything your user can.", warning: true };
     case "pending":
       return { text: "Sandbox: starting…", warning: false };
     case "unknown":
@@ -38,8 +44,11 @@ export function sandboxLine(state: SandboxState): { text: string; warning: boole
   }
 }
 
-/** A word for the session list, where there is no room for a sentence. */
-export function sandboxBadge(state: SandboxState): string | null {
-  if (state.kind === "sandboxed") return "Sandboxed";
-  return state.kind === "none" ? "No sandbox" : null;
+/** A word or two for the session list, where there is no room for a sentence. */
+export function sandboxBadge(state: SandboxState): { text: string; warning: boolean } | null {
+  if (state.kind === "none") return { text: "No sandbox", warning: true };
+  if (state.kind !== "sandboxed") return null;
+  return state.report.network === "open"
+    ? { text: "Sandboxed, open network", warning: true }
+    : { text: "Sandboxed", warning: false };
 }

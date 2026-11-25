@@ -128,7 +128,10 @@ export class AgentSessions {
       method: "agents.start",
       params: { project, agent: "claude", mode: "direct", prompt },
     });
-    this.byId.set(data.id, { ...data, status: this.byId.get(data.id)?.status ?? data.status });
+    const known = this.byId.get(data.id);
+    // agents.sandbox may also have come before the reply: keep what it said.
+    const sandbox = known?.sandbox_reported ? { sandbox: known.sandbox, sandbox_reported: true } : {};
+    this.byId.set(data.id, { ...data, status: known?.status ?? data.status, ...sandbox });
     return data;
   }
 
@@ -159,7 +162,9 @@ export class AgentSessions {
       const { session, project, status } = event.data;
       const known = this.byId.get(session);
       if (known) {
-        this.byId.set(session, { ...known, status });
+        // A restart clears the sandbox report without an event of its own.
+        const fresh = status.state === "starting" ? { sandbox: null, sandbox_reported: false } : {};
+        this.byId.set(session, { ...known, status, ...fresh });
         // Whether it can be resumed comes only with the list.
         if (status.state === "stopped" || status.state === "failed") void this.load(project).catch(() => {});
         return;

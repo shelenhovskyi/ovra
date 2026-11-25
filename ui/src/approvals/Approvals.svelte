@@ -268,10 +268,15 @@ function folderOf(request: PermissionRequest, project: Project | undefined): { p
   return { path, name: own ? "the project folder" : "the agent's working folder" };
 }
 
-/** Whether the runtime said the session runs without a sandbox; unknown sessions say nothing. */
-function unsandboxed(session: SessionId): boolean {
+/** A warning when the runtime said the session runs without a sandbox, or
+ * in one with an open network; unknown sessions say nothing. */
+function sandboxWarning(session: SessionId): string | null {
   const info = sessions.byId.get(session);
-  return info !== undefined && sandboxState(info).kind === "none";
+  const state = info ? sandboxState(info) : null;
+  if (state?.kind === "none") return "No sandbox: what you allow can reach anything your user can.";
+  if (state?.kind === "sandboxed" && state.report.network === "open")
+    return "Sandboxed, but its network is not limited.";
+  return null;
 }
 
 /** A worker acts on its own copy of the project, not on the project itself. */
@@ -324,6 +329,7 @@ function workerCopy(session: SessionId): string {
       {@const domId = `approval-${request.id}`}
       {@const project = projects.get(request.project)}
       {@const folder = folderOf(request, project)}
+      {@const sandboxNote = sandboxWarning(request.session)}
       <li>
         <!-- A focusable group is how the keys reach one request (Y, N, arrows). -->
         <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
@@ -344,10 +350,8 @@ function workerCopy(session: SessionId): string {
           {#if sessions.roles.get(request.session)?.kind === "worker"}
             <p class="where" data-testid="approval-worker-copy">{workerCopy(request.session)}</p>
           {/if}
-          {#if unsandboxed(request.session)}
-            <p class="other" data-testid="approval-unsandboxed">
-              No sandbox: what you allow can reach anything your user can.
-            </p>
+          {#if sandboxNote}
+            <p class="other" data-testid="approval-unsandboxed">{sandboxNote}</p>
           {/if}
           <h3 id="{domId}-action">{summary.action}</h3>
           {#if request.project !== workspace.project?.id}
