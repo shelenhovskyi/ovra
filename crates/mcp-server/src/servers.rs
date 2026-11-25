@@ -16,8 +16,9 @@ use crate::untrusted::untrusted;
 /// The longest `wait_ms`, and how long a start waits without one.
 const MAX_WAIT_MS: u64 = 60_000;
 const DEFAULT_WAIT_MS: u64 = 30_000;
-/// The most lines one look at a server's log returns.
+/// The most lines `server_logs` returns, and how many without a `limit`.
 const MAX_LINES: usize = 500;
+const DEFAULT_LINES: usize = 100;
 /// Lines of its output a start or restart answers with.
 const FIRST_LINES: usize = 20;
 
@@ -34,6 +35,23 @@ struct Server {
     id: String,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Restart {
+    id: String,
+    wait_ms: Option<u64>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Logs {
+    id: String,
+    #[serde(default)]
+    since: u64,
+    limit: Option<usize>,
+    grep: Option<String>,
+}
+
 /// Runs the server tool `name`; `None` when there is no such tool.
 pub(crate) async fn call(
     core: &Core,
@@ -45,6 +63,8 @@ pub(crate) async fn call(
         "server_list" => list(core, caller, arguments).await,
         "server_start" => start(core, caller, arguments).await,
         "server_stop" => stop(core, caller, arguments).await,
+        "server_restart" => restart(core, caller, arguments).await,
+        "server_logs" => logs(core, caller, arguments).await,
         _ => return None,
     })
 }
@@ -90,6 +110,33 @@ async fn stop(core: &Core, caller: &ToolCaller, arguments: Value) -> Result<Stri
     Ok(text(&server_json(&info)))
 }
 
+async fn restart(core: &Core, caller: &ToolCaller, arguments: Value) -> Result<String, String> {
+    let Restart { id, wait_ms } = parse(arguments)?;
+    let (id, wait) = (ServerId(id), wait(wait_ms)?);
+    let before = log_end(core, caller, &id)?;
+    let info = core
+        .server_restart(caller, &id, wait)
+        .await
+        .map_err(failed)?;
+    started(core, caller, &info, before)
+}
+
+async fn logs(core: &Core, caller: &ToolCaller, arguments: Value) -> Result<String, String> {
+    let args: Logs = parse(arguments)?;
+    let limit = args.limit.unwrap_or(DEFAULT_LINES);
+    if !(1..=MAX_LINES).contains(&limit) {
+        return Err(format!("limit is 1 to {MAX_LINES}"));
+    }
+    let id = ServerId(args.id);
+    let name = name_of(core, caller, &id).await?;
+    let page = core
+        .server_logs(caller, &id, args.since, limit, args.grep.as_deref())
+        .map_err(failed)?;
+    Ok(text(
+        &json!({"output": output(&name, &page), "next": page.next}),
+    ))
+}
+
 fn wait(wait_ms: Option<u64>) -> Result<Duration, String> {
     let ms = wait_ms.unwrap_or(DEFAULT_WAIT_MS);
     if ms > MAX_WAIT_MS {
@@ -126,6 +173,14 @@ fn log_end(core: &Core, caller: &ToolCaller, id: &ServerId) -> Result<u64, Strin
         }
         end = page.next;
     }
+}
+
+async fn name_of(core: &Core, caller: &ToolCaller, id: &ServerId) -> Result<String, String> {
+    let list = core.server_list(caller).await.map_err(failed)?;
+    let server = list.servers.into_iter().find(|s| s.id == *id);
+    server
+        .map(|s| s.name)
+        .ok_or_else(|| format!("server {} not found", id.0))
 }
 
 /// The lines of `page`, one per line, as data from server `name`.

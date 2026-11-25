@@ -25,12 +25,14 @@ const PROTOCOL_VERSIONS: [&str; 2] = ["2025-11-25", "2025-06-18"];
 const METHOD_NOT_FOUND: i64 = -32601;
 
 /// Tools every role may call; the coordinator may call all of them.
-const SHARED_TOOLS: [&str; 5] = [
+const SHARED_TOOLS: [&str; 7] = [
     "request_review",
     "open_in_ui",
     "server_list",
     "server_start",
     "server_stop",
+    "server_restart",
+    "server_logs",
 ];
 
 /// The IDE tools server.
