@@ -537,6 +537,9 @@ async fn a_workers_servers_end_before_its_changes_land_and_with_it() {
         .unwrap_or_else(|e| panic!("{e}"));
     stop_session(&f, "s2").await;
     assert_eq!(stopped(), [own.id.0.clone(), own.id.0.clone()]);
+    // An ended worker's worktree gets no new servers, a restart neither.
+    let again = starts_in(&f, "web", Some("s2")).await;
+    assert_eq!(again.err().map(|e| e.code), Some(ErrorCode::Conflict));
     // The main checkout's server belongs to nobody: it runs on.
     let running = f.dev.running.lock().map(|r| r.contains_key(&main.id));
     assert_eq!(running.ok(), Some(true));

@@ -246,6 +246,14 @@ async fn start(core: &Core, place: Place, name: &str, by: StartedBy) -> Result<S
     if let SandboxStatus::Unavailable { reason } = servers.dev.status() {
         return Err(ProtocolError::new(ErrorCode::Unavailable, reason));
     }
+    if let Some(worker) = &place.session {
+        let ended = core.sessions().find(worker, |s| s.status().is_ended());
+        if ended == Ok(true) {
+            return Err(conflict(
+                "this worker has ended: its worktree's servers stay stopped",
+            ));
+        }
+    }
     let _one = servers.starting.lock().await;
     let defs = defs::read(core.fs_service(), &place.dir)
         .await
