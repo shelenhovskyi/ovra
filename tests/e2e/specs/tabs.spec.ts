@@ -25,7 +25,7 @@ async function open(page: Page, dir: string): Promise<void> {
 test("tabs switch with the keyboard, keep undo and focus, and ask before closing unsaved text", async ({ page }) => {
   const dir = project({ "a.txt": "alpha\n", "b.txt": "beta\n" });
   await open(page, dir);
-  await page.getByRole("treeitem", { name: /a\.txt/ }).click();
+  await page.getByRole("treeitem", { name: /a\.txt/ }).dblclick();
   await page.getByRole("treeitem", { name: /b\.txt/ }).click();
 
   const tabs = page.getByRole("tablist", { name: "Open files" });
@@ -86,6 +86,44 @@ test("tabs switch with the keyboard, keep undo and focus, and ask before closing
   // With the last tab gone, focus goes to the file tree, not the page body.
   await expect(tabs).toBeHidden();
   await expect(page.getByRole("tree", { name: "Files" })).toBeFocused();
+});
+
+test("a single click previews in one tab, a double click keeps it, pinned tabs outlast Close others", async ({
+  page,
+}) => {
+  const dir = project({ "a.txt": "a\n", "b.txt": "b\n", "c.txt": "c\n" });
+  await open(page, dir);
+  const tabs = page.getByRole("tablist", { name: "Open files" });
+  const row = (name: RegExp) => page.getByRole("treeitem", { name });
+  const command = async (title: string) => {
+    await page.keyboard.press("ControlOrMeta+Shift+P");
+    await page.getByRole("combobox", { name: "Type a command" }).fill(title);
+    await page.keyboard.press("Enter");
+  };
+
+  await row(/a\.txt/).click();
+  await expect(tabs.getByRole("tab", { name: "a.txt, preview" })).toBeVisible();
+  await row(/b\.txt/).click();
+  await expect(tabs.getByRole("tab")).toHaveText(["b.txt"]);
+  await row(/b\.txt/).dblclick();
+  await expect(tabs.getByRole("tab", { name: "b.txt", exact: true })).toBeVisible();
+  await row(/c\.txt/).click();
+  await expect(tabs.getByRole("tab")).toHaveText(["b.txt", "c.txt"]);
+
+  // Pinning moves the tab first and keeps it.
+  await tabs.getByRole("tab", { name: /c\.txt/ }).hover();
+  await tabs.getByRole("button", { name: "Pin c.txt" }).click();
+  await expect(tabs.getByRole("tab")).toHaveText(["c.txt", "b.txt"]);
+  await expect(tabs.getByRole("tab", { name: "c.txt, pinned" })).toBeVisible();
+
+  await row(/a\.txt/).dblclick();
+  await command("Close other tabs");
+  await expect(tabs.getByRole("tab")).toHaveText(["c.txt", "a.txt"]);
+  await command("Close all tabs");
+  await expect(tabs.getByRole("tab")).toHaveText(["c.txt"]);
+
+  await page.reload();
+  await expect(tabs.getByRole("tab", { name: "c.txt, pinned" })).toBeVisible();
 });
 
 test("Edit sits in the file's bar and switches modes, and focus follows into the viewer", async ({ page }) => {

@@ -4,7 +4,7 @@ import { registerCommand } from "../keys/commands";
 import type { Workspace } from "../shell/workspace.svelte";
 import { editorReady, goToChange, readBlame, showChangeAtCursor, toggleBlame } from "./git/extension";
 import type { LspAction } from "./lsp/actions";
-import { focusMain, requestClose, show, tabs } from "./open-files.svelte";
+import { closeOtherTabs, focusMain, requestClose, show, tabs } from "./open-files.svelte";
 import { runSearch, type SearchAction } from "./search";
 
 type Target = Pick<Workspace, "openPath" | "mode" | "openFile">;
@@ -124,6 +124,24 @@ export function registerEditorCommands(workspace: Target): () => void {
       run: () => {
         const active = tabs.current?.active;
         if (active) requestClose(workspace, active);
+      },
+    }),
+    registerCommand({
+      id: "editor.close_other_tabs",
+      title: "Close other tabs",
+      run: () => closeOtherTabs(workspace, tabs.current?.active ?? null),
+    }),
+    registerCommand({
+      id: "editor.close_all_tabs",
+      title: "Close all tabs",
+      run: () => closeOtherTabs(workspace, null),
+    }),
+    registerCommand({
+      id: "editor.toggle_pin",
+      title: "Pin or unpin tab",
+      run: () => {
+        const active = tabs.current?.active;
+        if (active) tabs.current?.togglePin(active);
       },
     }),
     ...LSP_ACTIONS.map(([action, title, keys]) =>

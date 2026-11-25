@@ -1,8 +1,10 @@
 // The open files of a project, shown as tabs and kept in the project state
 // so the active file comes back when the project is reopened. Writes are
-// partial (`open_files` and `active_file` only), so fields of other panels,
-// like the tree's expanded folders, stay as they are. Each tab may have an
-// editor buffer; a tab with unsaved text is never closed without asking.
+// partial (`open_files`, `active_file` and `pinned_files` only), so fields of
+// other panels, like the tree's expanded folders, stay as they are. Each tab
+// may have an editor buffer; a tab with unsaved text is never closed without
+// asking. A file opened with a single click is a preview tab that the next
+// one replaces; pinned tabs sit first and outlast Close others / Close all.
 
 import { tick, untrack } from "svelte";
 import type { ProjectId, ProjectStatePatch } from "../lib/protocol";
@@ -13,13 +15,20 @@ import { drafts } from "./drafts.svelte";
 import { highlighter } from "./highlight/highlighter";
 import { LanguageClients } from "./lsp/clients";
 
-/** Beyond this many tabs, the leftmost inactive tab without unsaved text is closed. */
+/** Beyond this many tabs, the leftmost inactive unpinned tab without unsaved text is closed. */
 const MAX_OPEN_FILES = 20;
 
 export class OpenFiles {
-  /** Tab order. */
+  /** Tab order; the pinned tabs come first. */
   files = $state<string[]>([]);
   active = $state<string | null>(null);
+  /** Pinned tabs, in tab order: shown compact, kept by Close others and Close all. */
+  pinned = $state<string[]>([]);
+  /**
+   * The preview tab, if any: the last file opened without being kept. The next
+   * such file replaces it; editing it, a double click or pinning keeps it.
+   */
+  preview = $state<string | null>(null);
   /** The mode each tab was last shown in, so switching tabs does not carry one tab's mode to the next. */
   readonly modes = new Map<string, MainMode>();
   /** The project's language servers, once the shell wires them up. */
@@ -38,30 +47,77 @@ export class OpenFiles {
       method: "projects.get_state",
       params: { id: this.project },
     });
-    this.files = state.open_files;
+    const pinned = (state.pinned_files ?? []).filter((path) => state.open_files.includes(path));
+    this.pinned = pinned;
+    this.files = [...pinned, ...state.open_files.filter((path) => !pinned.includes(path))];
     this.active = state.active_file;
     return state.active_file;
   }
 
-  /** Makes `path` (or nothing) the active file, adding a tab at the end if needed. */
+  isPinned(path: string): boolean {
+    return this.pinned.includes(path);
+  }
+
+  /**
+   * Makes `path` (or nothing) the active file. A file without a tab becomes
+   * the preview tab, in the place of the old one unless that has unsaved text.
+   */
   opened(path: string | null): Promise<void> {
     if (path === this.active) return this.writes;
     this.active = path;
     if (path && !this.files.includes(path)) {
-      const files = [...this.files, path];
+      const files = [...this.files];
+      const old = this.preview;
+      const at = old && !this.buffers.isDirty(old) ? files.indexOf(old) : -1;
+      if (old && at >= 0) {
+        files.splice(at, 1, path);
+        this.forget(old);
+      } else files.push(path);
+      this.preview = path;
       for (let i = 0; files.length > MAX_OPEN_FILES && i < files.length; ) {
         const candidate = files[i] as string;
-        if (candidate === path || this.buffers.isDirty(candidate)) {
+        if (candidate === path || this.isPinned(candidate) || this.buffers.isDirty(candidate)) {
           i++;
         } else {
           files.splice(i, 1);
-          this.buffers.discard(candidate);
-          this.modes.delete(candidate);
+          this.forget(candidate);
         }
       }
       this.files = files;
     }
     return this.write();
+  }
+
+  /** Turns the preview tab `path` into a tab that stays. */
+  makePermanent(path: string): void {
+    if (this.preview === path) this.preview = null;
+  }
+
+  /** Pins `path` after the other pinned tabs, or unpins it to the first unpinned place. */
+  togglePin(path: string): void {
+    if (!this.files.includes(path)) return;
+    this.makePermanent(path);
+    const pinned = this.isPinned(path) ? this.pinned.filter((p) => p !== path) : [...this.pinned, path];
+    const rest = this.files.filter((p) => !pinned.includes(p) && p !== path);
+    this.pinned = pinned;
+    this.files = this.isPinned(path) ? [...pinned, ...rest] : [...pinned, path, ...rest];
+    void this.write();
+  }
+
+  /**
+   * Closes every tab except `path`, the pinned ones and those with unsaved
+   * text (which would need asking); `null` closes all of them. Returns how
+   * many tabs stayed open only because of unsaved text.
+   */
+  closeOthers(path: string | null): number {
+    const unsaved = this.files.filter((p) => p !== path && !this.isPinned(p) && this.buffers.isDirty(p));
+    const stays = (p: string) => p === path || this.isPinned(p) || unsaved.includes(p);
+    for (const p of this.files) if (!stays(p)) this.forget(p);
+    this.files = this.files.filter(stays);
+    if (this.preview && !this.files.includes(this.preview)) this.preview = null;
+    if (this.active && !this.files.includes(this.active)) this.active = path ?? this.files[0] ?? null;
+    void this.write();
+    return unsaved.length;
   }
 
   /**
@@ -79,9 +135,10 @@ export class OpenFiles {
   close(path: string): string | null {
     const index = this.files.indexOf(path);
     if (index === -1) return this.active;
-    this.buffers.discard(path);
-    this.modes.delete(path);
+    this.forget(path);
     this.files = this.files.filter((p) => p !== path);
+    this.pinned = this.pinned.filter((p) => p !== path);
+    if (this.preview === path) this.preview = null;
     if (this.active === path) this.active = this.files[index] ?? this.files[index - 1] ?? null;
     void this.write();
     return this.active;
@@ -95,8 +152,17 @@ export class OpenFiles {
     return this.files[(((index + offset) % count) + count) % count] ?? null;
   }
 
+  private forget(path: string): void {
+    this.buffers.discard(path);
+    this.modes.delete(path);
+  }
+
   private write(): Promise<void> {
-    const state: ProjectStatePatch = { open_files: this.files, active_file: this.active };
+    const state: ProjectStatePatch = {
+      open_files: this.files,
+      active_file: this.active,
+      pinned_files: this.pinned,
+    };
     this.writes = this.writes
       .then(async () => {
         await this.transport.call({ method: "projects.set_state", params: { id: this.project, state } });
@@ -170,6 +236,17 @@ export async function answerClose(workspace: Target, answer: "save" | "discard" 
   tabs.closing = null;
   if (!current || !path || answer === "cancel") return;
   closeTab(workspace, current, path);
+}
+
+/** Closes all tabs but `path` (or all with `null`) except pinned ones; unsaved ones stay and say so. */
+export function closeOtherTabs(workspace: Target, path: string | null): void {
+  const current = tabs.current;
+  if (!current) return;
+  const before = current.active;
+  const unsaved = current.closeOthers(path);
+  tabs.notice = unsaved > 0 ? `${unsaved === 1 ? "A tab" : `${unsaved} tabs`} with unsaved changes stayed open.` : null;
+  if (current.active !== before) show(workspace, current.active);
+  void keepFocus(current.files.length === 0);
 }
 
 function closeTab(workspace: Target, current: OpenFiles, path: string): void {
@@ -279,6 +356,13 @@ export function persistOpenFiles(transport: Transport, workspace: Workspace): ()
       const mode = workspace.mode;
       const current = tabs.current;
       if (path && current) untrack(() => current.modes.set(path, mode));
+    });
+
+    // Typing in the preview tab keeps it.
+    $effect(() => {
+      const current = tabs.current;
+      const preview = current?.preview;
+      if (current && preview && current.buffers.isDirty(preview)) untrack(() => current.makePermanent(preview));
     });
   });
 }

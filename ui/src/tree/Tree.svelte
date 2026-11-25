@@ -96,6 +96,7 @@ $effect(() => {
       openPath={workspace.openPath}
       root={workspace.project.root}
       onopen={(path, mode) => workspace.openFile(path, mode ?? modeOf(path))}
+      onkeep={(path) => tabs.current?.makePermanent(path)}
       onreveal={() => (workspace.sidebar = "files")}
       onmoved={moved}
       ontrashed={trashed}

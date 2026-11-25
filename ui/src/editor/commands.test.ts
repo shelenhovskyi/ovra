@@ -59,7 +59,10 @@ test("editor.toggle on a binary file stays in view mode and says why", async () 
 
 test("tab commands switch, wrap around and close, each tab in its own mode", async () => {
   const { files, workspace, unregister } = setup();
-  for (const path of ["a", "b", "c"]) void files.opened(path);
+  for (const path of ["a", "b", "c"]) {
+    void files.opened(path);
+    files.makePermanent(path);
+  }
   workspace.openFile("c", "edit");
   files.modes.set("c", "edit");
 
@@ -73,6 +76,26 @@ test("tab commands switch, wrap around and close, each tab in its own mode", asy
   await run("editor.close_tab");
   expect(files.files).toEqual(["a", "b"]);
   expect(workspace.openPath).toBe("b");
+  unregister();
+});
+
+test("pin, close other tabs and close all tabs keep pinned and unsaved tabs, and say why", async () => {
+  const { drafts, files, workspace, unregister } = setup();
+  for (const path of ["a", "b", "c", "d"]) {
+    void files.opened(path);
+    files.makePermanent(path);
+  }
+  workspace.openFile("b");
+  await files.opened("b");
+  await run("editor.toggle_pin");
+  expect([files.files, files.pinned]).toEqual([["b", "a", "c", "d"], ["b"]]);
+  drafts.set("p1", "d", { text: "draft", mtime: 1 });
+  workspace.openFile("a");
+  await files.opened("a");
+  await run("editor.close_other_tabs");
+  expect([files.files, tabs.notice]).toEqual([["b", "a", "d"], "A tab with unsaved changes stayed open."]);
+  await run("editor.close_all_tabs");
+  expect([files.files, workspace.openPath]).toEqual([["b", "d"], "b"]);
   unregister();
 });
 

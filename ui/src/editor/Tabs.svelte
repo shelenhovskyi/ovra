@@ -5,6 +5,9 @@
 // modal dialog; Cancel puts focus back where it was. Edit / View lives in
 // the file's own bar, so it never scrolls away with the tabs. The strip fades
 // at an edge that has more tabs beyond it.
+// The preview tab (a file opened with a single click) has an italic name;
+// a double click keeps it. Pinned tabs come first, show only their name and
+// trade the close button for an unpin one; others show a pin button on hover.
 // A git diff shown in the main area is the last tab, selected while it shows.
 import { tick } from "svelte";
 import { useOvra } from "../shell/context";
@@ -43,6 +46,11 @@ $effect(() => {
 function label(path: string): string {
   const entry = labels.get(path);
   return entry?.hint ? `${entry.name} - ${entry.hint}` : (entry?.name ?? path);
+}
+
+function togglePin(path: string): void {
+  tabs.current?.togglePin(path);
+  void focusTab(path);
 }
 
 /**
@@ -188,22 +196,44 @@ function scrollToActive(): void {
     {#each files as path (path)}
       {@const active = path === selected}
       {@const dirty = tabs.current?.buffers.isDirty(path) ?? false}
-      <div class="tab" class:active title={path}>
+      {@const pinned = tabs.current?.isPinned(path) ?? false}
+      {@const preview = tabs.current?.preview === path}
+      <div class="tab" class:active class:pinned class:preview title={preview ? `${path} (preview)` : path}>
         <button
           type="button"
           role="tab"
           data-path={path}
           aria-selected={active}
           aria-controls="ovra-tabpanel"
-          aria-label={`${label(path)}${dirty ? ", unsaved changes" : ""}`}
+          aria-label={`${label(path)}${pinned ? ", pinned" : ""}${preview ? ", preview" : ""}${dirty ? ", unsaved changes" : ""}`}
           tabindex={active || (!diff && !selected && path === files[0]) ? 0 : -1}
           onclick={() => select(path)}
+          ondblclick={() => tabs.current?.makePermanent(path)}
           onkeydown={(event) => onkeydown(event, path)}
         >
           <span class="name">{labels.get(path)?.name}</span>
-          {#if labels.get(path)?.hint}<span class="hint">{labels.get(path)?.hint}</span>{/if}
+          {#if labels.get(path)?.hint && !pinned}<span class="hint">{labels.get(path)?.hint}</span>{/if}
         </button>
-        <button
+        {#if pinned}
+          <button
+            type="button"
+            class="close"
+            class:dirty
+            tabindex="-1"
+            aria-label={`Unpin ${label(path)}`}
+            onclick={() => togglePin(path)}
+            ><span class="x"><Icon name="pin" small /></span>{#if dirty}<span class="dot"><Icon name="dot" small /></span
+              >{/if}</button
+          >
+        {:else}
+          <button
+            type="button"
+            class="pin"
+            tabindex="-1"
+            aria-label={`Pin ${label(path)}`}
+            onclick={() => togglePin(path)}><Icon name="pin" small /></button
+          >
+          <button
           type="button"
           class="close"
           class:dirty
@@ -212,7 +242,8 @@ function scrollToActive(): void {
           onclick={() => close(path)}
           ><span class="x"><Icon name="close" small /></span>{#if dirty}<span class="dot"><Icon name="dot" small /></span
             >{/if}</button
-        >
+          >
+        {/if}
       </div>
     {/each}
     {#if diff}
@@ -269,13 +300,16 @@ function scrollToActive(): void {
 {/if}
 
 <style>
+  /* The strip sits on --s1; the selected tab takes the editor's --s2 and joins it. */
   .tabs {
     display: flex;
     flex-shrink: 0;
+    align-items: flex-end;
     gap: 2px;
     overflow-x: auto;
-    padding: 6px 10px;
-    background: var(--s2);
+    padding: 4px 8px 0;
+    background: var(--s1);
+    user-select: none;
     scrollbar-width: thin;
     --fade-start: 0px;
     --fade-end: 0px;
@@ -296,13 +330,21 @@ function scrollToActive(): void {
   .more-end {
     --fade-end: 32px;
   }
-  /* Tone, not lines: the active tab is a --s3 pill. */
+  /* Tone, not lines: no underline, no borders. */
   .tab {
     display: flex;
     align-items: center;
     flex-shrink: 0;
-    border-radius: var(--radius-sm);
+    height: 32px;
+    box-sizing: border-box;
+    border-radius: var(--radius-sm) var(--radius-sm) 0 0;
     color: var(--text-2);
+  }
+  .tab.preview .name {
+    font-style: italic;
+  }
+  .tab.pinned [role="tab"] {
+    max-width: 120px;
   }
   .tab:hover {
     color: var(--text);
@@ -310,21 +352,22 @@ function scrollToActive(): void {
   .tab.active {
     color: var(--text);
     font-weight: 500;
-    background: var(--s3);
+    background: var(--s2);
   }
   button {
     font: inherit;
     color: inherit;
     background: none;
     border: none;
-    cursor: pointer;
+    cursor: default;
   }
   [role="tab"] {
     display: flex;
-    align-items: baseline;
     gap: 6px;
     max-width: 240px;
-    padding: 6px 2px 6px 10px;
+    padding: 0 2px 0 10px;
+    align-self: stretch;
+    align-items: center;
     white-space: nowrap;
   }
   .name,
@@ -342,7 +385,8 @@ function scrollToActive(): void {
     font-weight: 400;
     color: var(--text-2);
   }
-  .close {
+  .close,
+  .pin {
     display: grid;
     place-items: center;
     width: 24px;
@@ -351,6 +395,15 @@ function scrollToActive(): void {
     border-radius: var(--radius-sm);
     color: var(--text-2);
     opacity: 0;
+  }
+  /* Pin on demand: only on the pointed-at tab, before its close button. */
+  .pin {
+    margin-right: 0;
+  }
+  .tab:hover .pin,
+  .pin:focus-visible,
+  .tab.pinned .close {
+    opacity: 1;
   }
   /* Chrome on demand: the close button shows on the active or pointed-at tab. */
   .tab.active .close,
@@ -373,7 +426,8 @@ function scrollToActive(): void {
   .close.dirty:hover .x {
     display: grid;
   }
-  .close:hover {
+  .close:hover,
+  .pin:hover {
     background: var(--s4);
     color: var(--text);
   }
@@ -382,7 +436,8 @@ function scrollToActive(): void {
       outline: 2px solid Highlight;
       outline-offset: -2px;
     }
-    .close {
+    .close,
+    .pin {
       opacity: 1;
     }
   }

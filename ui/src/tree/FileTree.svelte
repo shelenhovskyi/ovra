@@ -26,6 +26,7 @@ let {
   root = "",
   openPath = null,
   onopen,
+  onkeep,
   onreveal,
   onmoved,
   ontrashed,
@@ -37,6 +38,8 @@ let {
   openPath?: string | null;
   /** Opens a file; a file the person just made opens in `"edit"`. */
   onopen: (path: string, mode?: MainMode) => void;
+  /** A double click on a file: keep its tab instead of letting the next file replace it. */
+  onkeep?: (path: string) => void;
   /** Before a reveal: make the tree visible (the sidebar may show another view). */
   onreveal?: () => void;
   /** A file or folder was renamed or moved by the person. */
@@ -547,6 +550,7 @@ function onkeydown(e: KeyboardEvent): void {
             style:top="{index * ROW_HEIGHT}px"
             style:padding-left="{10 + row.depth * 16}px"
             onclick={() => activate(row)}
+            ondblclick={() => row.kind !== "dir" && row.git !== "deleted" && onkeep?.(row.path)}
           >
             <span class="twisty" aria-hidden="true"
               >{#if row.kind === "dir"}<Icon name={row.expanded ? "chevron" : "chevron-right"} small />{/if}</span

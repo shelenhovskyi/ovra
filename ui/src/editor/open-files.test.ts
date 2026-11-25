@@ -27,10 +27,15 @@ test("writes only its own fields and keeps the tab order", async () => {
   core.state = { open_files: ["a.rs", "b.rs"], active_file: "b.rs", expanded_dirs: ["src"] };
   expect(await files.restore()).toBe("b.rs");
   await files.opened("a.rs");
-  expect(core.sentStates.at(-1)).toEqual({ open_files: ["a.rs", "b.rs"], active_file: "a.rs" });
+  expect(core.sentStates.at(-1)).toEqual({ open_files: ["a.rs", "b.rs"], active_file: "a.rs", pinned_files: [] });
   await core.call({ method: "projects.set_state", params: { id: "p1", state: { expanded_dirs: ["docs"] } } });
   await files.opened(null);
-  expect(core.state).toEqual({ open_files: ["a.rs", "b.rs"], active_file: null, expanded_dirs: ["docs"] });
+  expect(core.state).toEqual({
+    open_files: ["a.rs", "b.rs"],
+    active_file: null,
+    expanded_dirs: ["docs"],
+    pinned_files: [],
+  });
 });
 
 test("keep adds a tab at the end without making it active", async () => {
@@ -60,7 +65,10 @@ test("the tab limit closes the leftmost clean tab, never one with unsaved text",
   const { core, drafts, files } = setup();
   await files.restore();
   drafts.set("p1", "f0", { text: "draft", mtime: 1 });
-  for (let i = 0; i < 20; i++) void files.opened(`f${i}`);
+  for (let i = 0; i < 20; i++) {
+    void files.opened(`f${i}`);
+    files.makePermanent(`f${i}`);
+  }
   await files.opened("f20");
   expect(files.files).toHaveLength(20);
   expect(files.files.slice(0, 2)).toEqual(["f0", "f2"]);
@@ -78,6 +86,7 @@ test("closing a tab with unsaved text asks first: cancel, don't save, save", asy
   for (const path of ["a.txt", "b.txt"]) {
     workspace.openFile(path, "edit");
     await files.opened(path);
+    files.makePermanent(path);
   }
   const b = buffers.open("b.txt");
   await b.loaded;
@@ -150,6 +159,7 @@ test("each tab keeps its own mode; a file without a tab opens in View", async ()
   await vi.waitFor(() => expect(tabs.current).not.toBeNull());
   workspace.openFile("main.rs", "edit");
   flushSync();
+  tabs.current?.makePermanent("main.rs");
   workspace.openFile("lib.rs", modeOf("lib.rs"));
   flushSync();
   expect(workspace.mode).toBe("view");
@@ -157,5 +167,67 @@ test("each tab keeps its own mode; a file without a tab opens in View", async ()
   expect(workspace.mode).toBe("edit");
   show(workspace, "lib.rs");
   expect(workspace.mode).toBe("view");
+  stop();
+});
+
+test("a file opened without a tab is the preview, replaced in place by the next until kept", async () => {
+  const { core, drafts, files } = setup();
+  core.state = { open_files: ["a"], active_file: "a", expanded_dirs: [] };
+  await files.restore();
+  await files.opened("b");
+  expect([files.files, files.preview]).toEqual([["a", "b"], "b"]);
+  files.modes.set("b", "edit");
+  await files.opened("a");
+  await files.opened("c");
+  expect([files.files, files.preview, files.modes.has("b")]).toEqual([["a", "c"], "c", false]);
+  files.makePermanent("c");
+  await files.opened("d");
+  expect([files.files, files.preview]).toEqual([["a", "c", "d"], "d"]);
+  // A preview with unsaved text is never replaced.
+  drafts.set("p1", "d", { text: "draft", mtime: 1 });
+  await files.opened("e");
+  expect([files.files, files.preview]).toEqual([["a", "c", "d", "e"], "e"]);
+  files.close("e");
+  expect(files.preview).toBeNull();
+});
+
+test("pinned tabs come first and stay through close others and close all", async () => {
+  const { core, drafts, files } = setup();
+  const open_files = ["a", "b", "c", "d", "e"];
+  core.state = { open_files, active_file: "e", expanded_dirs: [], pinned_files: ["c", "gone"] };
+  await files.restore();
+  expect([files.files, files.pinned]).toEqual([["c", "a", "b", "d", "e"], ["c"]]);
+  files.togglePin("b");
+  expect(files.files).toEqual(["c", "b", "a", "d", "e"]);
+  drafts.set("p1", "d", { text: "draft", mtime: 1 });
+  expect(files.closeOthers("a")).toBe(1);
+  expect([files.files, files.active]).toEqual([["c", "b", "a", "d"], "a"]);
+  expect(files.closeOthers(null)).toBe(1);
+  expect([files.files, files.active]).toEqual([["c", "b", "d"], "c"]);
+  files.togglePin("c");
+  await files.opened("b");
+  expect([files.files, files.pinned]).toEqual([["b", "c", "d"], ["b"]]);
+  expect(core.state).toMatchObject({ open_files: ["b", "c", "d"], pinned_files: ["b"] });
+  files.close("b");
+  expect(files.pinned).toEqual([]);
+});
+
+test("typing in the preview tab keeps it", async () => {
+  const core = new FakeCore();
+  core.put("a.zz", "one");
+  const workspace = new Workspace();
+  const stop = persistOpenFiles(core, workspace);
+  workspace.project = project;
+  flushSync();
+  await vi.waitFor(() => expect(tabs.current).not.toBeNull());
+  workspace.openFile("a.zz");
+  flushSync();
+  const files = tabs.current as OpenFiles;
+  expect(files.preview).toBe("a.zz");
+  const a = files.buffers.open("a.zz");
+  await a.loaded;
+  a.dirty = true;
+  flushSync();
+  expect(files.preview).toBeNull();
   stop();
 });
