@@ -11,12 +11,13 @@ use anyhow::Context;
 use clap::Parser;
 use ovra_agent_runtime::ClaudeCli;
 use ovra_core::Core;
-use ovra_core::services::{AgentRuntime, LanguageServers, Secrets};
+use ovra_core::services::{AgentRuntime, DevServers, LanguageServers, Secrets};
 use ovra_fs_index::FsIndex;
 use ovra_mcp_server::IdeServer;
 use ovra_opener::SystemOpener;
 use ovra_pty::Pty;
 use ovra_secrets::KeychainSecrets;
+use ovra_servers::PodServers;
 use ovra_store::Store;
 use ovra_transport::ws::{self, Access};
 use ovra_worktree::{GitRepo, GitWorktrees};
@@ -92,6 +93,8 @@ async fn serve() -> anyhow::Result<()> {
     std::fs::create_dir_all(&args.data_dir).context("creating the data directory")?;
     let store = Arc::new(Store::open(&args.data_dir)?);
     let secrets: Arc<dyn Secrets> = Arc::new(KeychainSecrets::new(&args.data_dir));
+    // Dropped last, after the core and its pods.
+    let (dev_servers, _servers_dir) = dev_servers(&args)?;
     let core = Core::builder("headless")
         .secrets(secrets.clone())
         .projects(store.clone())
@@ -106,14 +109,8 @@ async fn serve() -> anyhow::Result<()> {
         .terminals(Arc::new(Pty::new()))
         .netproxy(Arc::new(ovra_netproxy::NetProxies::from_env(secrets)?))
         .lsp(language_servers(&args))
-        .agents(agents(&args));
-    #[cfg(feature = "fake-agent")]
-    let core = if args.fake_servers {
-        tracing::warn!("using fake dev servers");
-        core.dev_servers(Arc::new(PresetServers::default()))
-    } else {
-        core
-    };
+        .agents(agents(&args))
+        .dev_servers(dev_servers);
     #[cfg(feature = "fake-agent")]
     let core = if args.fake_browser {
         tracing::warn!("using the fake agent browser");
@@ -331,6 +328,40 @@ impl AgentRuntime for FakeAgent {
     > {
         self.claude.project_config(root)
     }
+}
+
+/// The pods' folder (`ovra_servers::servers_dir`), removed when the daemon
+/// shuts down; one killed outright leaves it behind.
+#[derive(Debug)]
+struct ServersDir(Option<PathBuf>);
+
+impl Drop for ServersDir {
+    fn drop(&mut self) {
+        if let Some(dir) = &self.0 {
+            let _ = std::fs::remove_dir_all(dir);
+        }
+    }
+}
+
+/// Servers in sandbox pods, with the pods' sockets in a new private folder.
+fn pod_servers(args: &Args) -> anyhow::Result<(Arc<dyn DevServers>, ServersDir)> {
+    let dir = ovra_servers::servers_dir().context("making the folder for server pods")?;
+    let servers = PodServers::new(ovra_sandbox::for_this_os(&args.data_dir), dir.clone());
+    Ok((Arc::new(servers), ServersDir(Some(dir))))
+}
+
+#[cfg(not(feature = "fake-agent"))]
+fn dev_servers(args: &Args) -> anyhow::Result<(Arc<dyn DevServers>, ServersDir)> {
+    pod_servers(args)
+}
+
+#[cfg(feature = "fake-agent")]
+fn dev_servers(args: &Args) -> anyhow::Result<(Arc<dyn DevServers>, ServersDir)> {
+    if !args.fake_servers {
+        return pod_servers(args);
+    }
+    tracing::warn!("using fake dev servers");
+    Ok((Arc::new(PresetServers::default()), ServersDir(None)))
 }
 
 /// [`ovra_core::fakes::FakeDevServers`] that report by themselves, after

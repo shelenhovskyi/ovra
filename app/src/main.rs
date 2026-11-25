@@ -13,6 +13,7 @@ use ovra_mcp_server::IdeServer;
 use ovra_opener::SystemOpener;
 use ovra_pty::Pty;
 use ovra_secrets::KeychainSecrets;
+use ovra_servers::PodServers;
 use ovra_store::Store;
 use ovra_worktree::{GitRepo, GitWorktrees};
 use tauri::{Emitter, Manager};
@@ -22,6 +23,10 @@ use tauri::{Emitter, Manager};
 async fn ovra_call(client: tauri::State<'_, Client>, frame: String) -> Result<String, ()> {
     Ok(ovra_transport::dispatch(&client, &frame).await)
 }
+
+/// The pods' folder (`ovra_servers::servers_dir`), removed when the app
+/// exits.
+struct ServersDir(std::path::PathBuf);
 
 fn main() {
     // Inside an agent's sandbox this process is the sandbox's helper.
@@ -36,6 +41,7 @@ fn main() {
             std::fs::create_dir_all(&data_dir)?;
             let store = Arc::new(Store::open(&data_dir)?);
             let secrets: Arc<dyn Secrets> = Arc::new(KeychainSecrets::new(&data_dir));
+            let servers_dir = ovra_servers::servers_dir()?;
             let core = Core::builder("tauri")
                 .secrets(secrets.clone())
                 .projects(store.clone())
@@ -57,7 +63,12 @@ fn main() {
                     None,
                     ovra_sandbox::for_this_os(&data_dir),
                 )))
+                .dev_servers(Arc::new(PodServers::new(
+                    ovra_sandbox::for_this_os(&data_dir),
+                    servers_dir.clone(),
+                )))
                 .build();
+            app.manage(ServersDir(servers_dir));
             let mut events = core.subscribe();
             // One window, one client.
             app.manage(core.connect());
@@ -71,9 +82,18 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![ovra_call])
-        .run(tauri::generate_context!());
-    if let Err(err) = result {
-        eprintln!("ovra failed to start: {err}");
-        std::process::exit(1);
+        .build(tauri::generate_context!());
+    match result {
+        Ok(app) => app.run(|app, event| {
+            if let tauri::RunEvent::Exit = event
+                && let Some(dir) = app.try_state::<ServersDir>()
+            {
+                let _ = std::fs::remove_dir_all(&dir.0);
+            }
+        }),
+        Err(err) => {
+            eprintln!("ovra failed to start: {err}");
+            std::process::exit(1);
+        }
     }
 }
