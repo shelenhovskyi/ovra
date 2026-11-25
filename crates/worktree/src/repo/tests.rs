@@ -4,7 +4,7 @@
 use std::fs;
 
 use ovra_core::protocol::ErrorCode;
-use ovra_core::protocol::git::GitOperation;
+use ovra_core::protocol::git::{GitChange, GitOperation};
 use ovra_core::services::{GitService, Result};
 
 use super::GitRepo;
@@ -141,4 +141,77 @@ async fn a_failing_hook_is_a_conflict_with_its_output() {
         .unwrap_or_else(|| panic!("the hook let it through"));
     assert_eq!(err.code, ErrorCode::Conflict);
     assert!(err.message.contains("lint: 3 problems"), "{}", err.message);
+}
+
+#[tokio::test]
+async fn branches_are_created_checked_and_never_switched_over_changes() {
+    let repo = Repo::new(&[("a.txt", "a\n")]);
+    let root = &repo.root;
+    let g = GitRepo::new();
+    ok(g.create_branch(root.clone(), "plain".into(), false).await);
+    assert_eq!(
+        code(g.create_branch(root.clone(), "plain".into(), true).await),
+        ErrorCode::Conflict
+    );
+    assert_eq!(
+        code(
+            g.create_branch(root.clone(), "bad..name".into(), false)
+                .await
+        ),
+        ErrorCode::BadRequest
+    );
+    assert_eq!(
+        code(g.switch(root.clone(), "missing".into()).await),
+        ErrorCode::NotFound
+    );
+
+    ok(g.create_branch(root.clone(), "feature".into(), true).await);
+    put(root, "a.txt", "feature\n");
+    git(root, &["commit", "--quiet", "-am", "on feature"]);
+    ok(g.switch(root.clone(), "main".into()).await);
+    put(root, "a.txt", "mine\n");
+    assert_eq!(
+        code(g.switch(root.clone(), "feature".into()).await),
+        ErrorCode::Conflict
+    );
+    assert_eq!(read(root, "a.txt").as_deref(), Some("mine\n"));
+
+    let branches = ok(g.branches(root.clone()).await);
+    let listed: Vec<_> = branches
+        .iter()
+        .map(|b| (b.name.as_str(), b.current))
+        .collect();
+    assert_eq!(listed[0], ("feature", false), "newest commit first");
+    assert!(listed.contains(&("main", true)) && listed.contains(&("plain", false)));
+    assert_eq!(
+        branches[0].commit.as_ref().map(|c| c.summary.as_str()),
+        Some("on feature")
+    );
+}
+
+#[tokio::test]
+async fn before_the_first_commit_the_branch_is_listed_and_files_unstage() {
+    let repo = Repo::new(&[]);
+    let root = &repo.root;
+    put(root, "a.txt", "a\nb\n");
+    let g = GitRepo::new();
+    let branches = ok(g.branches(root.clone()).await);
+    let listed: Vec<_> = branches
+        .iter()
+        .map(|b| (b.name.as_str(), b.current, b.commit.is_none()))
+        .collect();
+    assert_eq!(listed, [("main", true, true)]);
+    assert!(ok(g.log(root.clone(), 5).await).is_empty());
+    assert_eq!(
+        code(g.create_branch(root.clone(), "x".into(), false).await),
+        ErrorCode::BadRequest
+    );
+
+    ok(g.stage(root.clone(), rels(&["a.txt"])).await);
+    let status = ok(g.status(root.clone()).await).unwrap_or_default();
+    assert_eq!(status.head, None);
+    assert_eq!(status.files[0].staged, Some(GitChange::Added));
+    ok(g.unstage(root.clone(), rels(&["a.txt"])).await);
+    let status = ok(g.status(root.clone()).await).unwrap_or_default();
+    assert_eq!(status.files[0].unstaged, Some(GitChange::Untracked));
 }

@@ -180,6 +180,114 @@ fn commit(root: &Path, message: &str, amend: bool) -> Result<Committed> {
     })
 }
 
+fn branches(root: &Path) -> Result<Vec<BranchInfo>> {
+    git::dirs(root)?;
+    let out = Git::new(root, "for-each-ref")
+        .args(["--sort=-committerdate", "--no-color"])
+        .arg(
+            "--format=%(refname)%00%(HEAD)%00%(upstream:short)%00\
+             %(objectname)%00%(authorname)%00%(authordate:unix)%00%(contents:subject)",
+        )
+        .arg("refs/heads")
+        .run()?;
+    let out = String::from_utf8_lossy(&out);
+    let mut list = Vec::new();
+    for line in out.lines() {
+        let mut parts = line.splitn(4, '\0');
+        let (Some(name), Some(head), Some(upstream), Some(commit)) =
+            (parts.next(), parts.next(), parts.next(), parts.next())
+        else {
+            continue;
+        };
+        let Some(name) = name.strip_prefix("refs/heads/") else {
+            continue;
+        };
+        list.push(BranchInfo {
+            name: name.to_owned(),
+            current: head == "*",
+            upstream: (!upstream.is_empty()).then(|| upstream.to_owned()),
+            commit: commit_info(commit),
+        });
+    }
+    // A branch without commits has no ref yet; HEAD still names it.
+    if !list.iter().any(|b| b.current) {
+        let head = Git::new(root, "symbolic-ref")
+            .args(["--quiet", "HEAD"])
+            .try_text()?;
+        if let Some(name) = head.as_deref().and_then(|h| h.strip_prefix("refs/heads/")) {
+            list.insert(
+                0,
+                BranchInfo {
+                    name: name.to_owned(),
+                    current: true,
+                    upstream: None,
+                    commit: None,
+                },
+            );
+        }
+    }
+    Ok(list)
+}
+
+/// The branch name git makes of `name`, or `BadRequest`.
+fn branch_name(root: &Path, name: &str) -> Result<String> {
+    Git::new(root, "check-ref-format")
+        .args(["--branch", name])
+        .try_text()?
+        .filter(|n| !n.is_empty())
+        .ok_or_else(|| bad(format!("{name:?} is not a valid branch name")))
+}
+
+fn has_branch(root: &Path, name: &str) -> Result<bool> {
+    Ok(Git::new(root, "rev-parse")
+        .args(["--verify", "--quiet"])
+        .arg(format!("refs/heads/{name}"))
+        .try_text()?
+        .is_some())
+}
+
+fn switch(root: &Path, name: &str) -> Result<()> {
+    git::dirs(root)?;
+    let name = branch_name(root, name)?;
+    if !has_branch(root, &name)? {
+        return Err(ProtocolError::new(
+            ErrorCode::NotFound,
+            format!("there is no branch {name}"),
+        ));
+    }
+    // Never forced: git refuses when changes would be overwritten.
+    let out = Git::new(root, "switch")
+        .args(["--quiet", "--no-guess", "--", &name])
+        .output()?;
+    if !out.status.success() {
+        return Err(conflict(format!(
+            "cannot switch to {name}: {}",
+            printed(&out)
+        )));
+    }
+    Ok(())
+}
+
+fn create_branch(root: &Path, name: &str, switch: bool) -> Result<()> {
+    git::dirs(root)?;
+    let name = branch_name(root, name)?;
+    if has_branch(root, &name)? {
+        return Err(conflict(format!("a branch named {name} already exists")));
+    }
+    if switch {
+        // Also before the first commit: HEAD then names the new branch.
+        Git::new(root, "switch")
+            .args(["--quiet", "-c", &name])
+            .run()?;
+    } else {
+        if git::head(root)?.is_none() {
+            return Err(bad("a branch needs a commit to start from; commit first"));
+        }
+        Git::new(root, "branch").args(["--", &name]).run()?;
+    }
+    Ok(())
+}
+
 /// Whether `bytes` look like a binary file, as git judges it.
 fn is_binary(bytes: &[u8]) -> bool {
     bytes.iter().take(8000).any(|b| *b == 0)
@@ -269,14 +377,19 @@ impl GitService for GitRepo {
     ) -> BoxFuture<'_, Result<Committed>> {
         blocking(move || commit(&root, &message, amend))
     }
-    fn branches(&self, _: PathBuf) -> BoxFuture<'_, Result<Vec<BranchInfo>>> {
-        later()
+    fn branches(&self, root: PathBuf) -> BoxFuture<'_, Result<Vec<BranchInfo>>> {
+        blocking(move || branches(&root))
     }
-    fn switch(&self, _: PathBuf, _: String) -> BoxFuture<'_, Result<()>> {
-        later()
+    fn switch(&self, root: PathBuf, branch: String) -> BoxFuture<'_, Result<()>> {
+        blocking(move || switch(&root, &branch))
     }
-    fn create_branch(&self, _: PathBuf, _: String, _: bool) -> BoxFuture<'_, Result<()>> {
-        later()
+    fn create_branch(
+        &self,
+        root: PathBuf,
+        name: String,
+        switch: bool,
+    ) -> BoxFuture<'_, Result<()>> {
+        blocking(move || create_branch(&root, &name, switch))
     }
     fn diff(&self, _: PathBuf, _: RelPath, _: bool) -> BoxFuture<'_, Result<FileDiff>> {
         later()
