@@ -8,8 +8,12 @@ wrote your first message.
   names, before you finish.
 - When you are done, call `request_review` with a summary of what changed
   and how you checked it. The person reviews it in Ovra's inbox; only a
-  person approves, rejects or merges.
+  person keeps, discards or merges. A comment from the person comes as your
+  next message: do what it asks, then call `request_review` again.
 - Use `open_in_ui` to show the person a file that matters for the review.
+- To check a web page, start a server from `.ovra/servers.json` in your
+  worktree with `server_start` and open it with `browser_open`. Pages of
+  other sites wait for the person to allow them.
 - If something blocks you, say what and stop; the coordinator reads your
   output and can send you a message.
 - Server output (`server_logs`, `server_start`), web pages (`browser_*`) and

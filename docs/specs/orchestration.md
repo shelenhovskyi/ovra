@@ -139,7 +139,31 @@ The core counts holders per project and watches a project while it has any
 (clients since commit e039ee0). A running session holds its project the same
 way, so its review diff stays live when no window has the project open, and
 releases it when it ends. Workers also hold a watch on their worktree while
-they run.
+they run (`orchestration/watch.rs`): a change there sends `review.changed`
+for the worker's latest item, at once and then at most once a second, so
+the inbox shows the diff as it grows, not only at turn ends. The watch's
+own events never reach clients, and it ends with the worker.
+
+## Stopping a task
+
+The person stops a task with `orchestration.stop` or by stopping its
+coordinator. Either way every running or queued worker of the task stops
+too, and so does a worker that was still being set up when the stop came;
+a coordinator that is stopping starts no more workers. Worktrees and review
+items stay. A coordinator that fails, or ends because Ovra shuts down,
+leaves its workers alone, and its task can be resumed.
+
+## Cleaning up worktrees and branches
+
+One place decides (`tasks::clean_up`, run when tasks or reviews are
+listed): once a task is stopped, a worker's worktree is removed when the
+worker has ended, no item of it is partly approved and its worktree has no
+change the person has not decided. Its branch `ovra/<task>/<name>` is then
+deleted too, unless it has commits that are neither in the worker's last
+decided snapshot nor in the main checkout's HEAD (the worker or the person
+committed there); such a branch stays for the person to merge or delete.
+A worktree git refuses to remove (it holds ignored files such as a `.env`)
+stays, and the task shows why. On any doubt nothing is removed.
 
 ## Zones (phase 3 tasks)
 
