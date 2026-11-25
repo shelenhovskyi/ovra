@@ -21,6 +21,8 @@ export class FakeServersCore implements Transport {
   fileError: string | null = null;
   logs = new Map<string, LogLine[]>();
   sessions: SessionInfo[] = [];
+  /** Project files by path, for `fs.read_file` and `fs.write_file`. */
+  files = new Map<string, { text: string; mtime_ms: number }>();
   /** Errors to answer with, by method. */
   refuse = new Map<string, ProtocolError>();
   private nextId = 1;
@@ -60,6 +62,25 @@ export class FakeServersCore implements Transport {
         };
         this.servers.push(info);
         return { type: "servers.server", data: info } as ResponseFor<R>;
+      }
+      case "fs.read_file": {
+        const { path } = request.params;
+        const file = this.files.get(path);
+        if (!file) throw new CoreError({ code: "not_found", message: `${path}: No such file or directory` });
+        const data = { path, size: file.text.length, mtime_ms: file.mtime_ms, body: { kind: "text", text: file.text } };
+        return { type: "fs.file", data } as ResponseFor<R>;
+      }
+      case "fs.write_file": {
+        const { path, text, expected_mtime_ms } = request.params;
+        const known = this.files.get(path);
+        // Like the core: a time given must be the file's; none writes whatever is there.
+        if (expected_mtime_ms !== null && known?.mtime_ms !== expected_mtime_ms)
+          throw new CoreError({ code: "conflict", message: `${path} changed on disk` });
+        const mtime_ms = (known?.mtime_ms ?? 0) + 1;
+        this.files.set(path, { text, mtime_ms });
+        // The core reads the servers file again on the next list.
+        if (path === ".ovra/servers.json") this.definitions = JSON.parse(text).servers;
+        return { type: "fs.written", data: { mtime_ms } } as ResponseFor<R>;
       }
       case "servers.stop":
         return { type: "ok" } as ResponseFor<R>;
