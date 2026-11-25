@@ -61,8 +61,8 @@ pub fn servers_dir() -> std::io::Result<PathBuf> {
     let dir = runtime
         .map(|base| base.join(&name))
         .filter(|dir| socket_paths_fit(dir))
-        .unwrap_or_else(|| Path::new("/var/tmp").join(&name));
-    if !socket_paths_fit(&dir) {
+        .unwrap_or_else(|| fallback().join(&name));
+    if cfg!(unix) && !socket_paths_fit(&dir) {
         return Err(too_long(&dir));
     }
     let mut builder = std::fs::DirBuilder::new();
@@ -70,6 +70,16 @@ pub fn servers_dir() -> std::io::Result<PathBuf> {
     std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
     builder.create(&dir)?;
     Ok(dir)
+}
+
+/// Where pods' folders go without a runtime folder. Pods run only on
+/// Unix; elsewhere the folder stays empty, but Ovra still starts.
+fn fallback() -> PathBuf {
+    if cfg!(unix) {
+        PathBuf::from("/var/tmp")
+    } else {
+        std::env::temp_dir()
+    }
 }
 
 /// Whether every socket of a pod in `dir` has a path short enough.
