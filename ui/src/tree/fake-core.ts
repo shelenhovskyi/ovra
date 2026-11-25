@@ -13,7 +13,7 @@ import type {
   ResponseFor,
 } from "../lib/protocol";
 import { type ConnectionStatus, CoreError, type Transport } from "../lib/transport";
-import { joinPath } from "./model";
+import { joinPath, parentOf } from "./model";
 
 export type Dirs = Map<string, DirEntry[]>;
 
@@ -94,8 +94,69 @@ export class FakeCore implements Transport {
     return this.calls.flatMap((c) => (c.method === "fs.list_dir" ? [c.params.path] : []));
   }
 
+  /** Paths `open.reveal` was asked to show. */
+  revealed: string[] = [];
+
+  private entry(path: string): DirEntry | undefined {
+    const name = path.slice(path.lastIndexOf("/") + 1);
+    return this.dirs.get(parentOf(path))?.find((e) => e.name === name);
+  }
+
+  /** Adds `entry` at `path`, making missing parent folders; `conflict` if something is there. */
+  private put(path: string, entry: DirEntry): void {
+    if (this.entry(path)) throw new CoreError({ code: "conflict", message: `${path} exists` });
+    const parent = parentOf(path);
+    if (!this.dirs.has(parent))
+      this.put(parent, { name: parent.slice(parent.lastIndexOf("/") + 1), kind: "dir", ignored: false, git: null });
+    const list = this.dirs.get(parent) as DirEntry[];
+    list.push({ ...entry, name: path.slice(path.lastIndexOf("/") + 1) });
+    list.sort((a, b) => sortKey(a).localeCompare(sortKey(b)));
+    if (entry.kind === "dir" && !this.dirs.has(path)) this.dirs.set(path, []);
+  }
+
+  /** Copies (or with `keep: false` moves) `from` and everything under it to `to`. */
+  private carry(from: string, to: string, keep: boolean): void {
+    const entry = this.entry(from);
+    if (!entry) throw new CoreError({ code: "not_found", message: `${from} not found` });
+    this.put(to, entry);
+    for (const [dir, list] of [...this.dirs]) {
+      if (dir === from || dir.startsWith(`${from}/`)) this.dirs.set(to + dir.slice(from.length), [...list]);
+    }
+    if (!keep) this.remove(from);
+  }
+
+  private remove(path: string): void {
+    const list = this.dirs.get(parentOf(path)) ?? [];
+    this.dirs.set(
+      parentOf(path),
+      list.filter((e) => joinPath(parentOf(path), e.name) !== path),
+    );
+    for (const dir of [...this.dirs.keys()]) if (dir === path || dir.startsWith(`${path}/`)) this.dirs.delete(dir);
+  }
+
   private answer(request: Request): unknown {
     switch (request.method) {
+      case "fs.create":
+        this.put(request.params.path, {
+          name: "",
+          kind: request.params.dir ? "dir" : "file",
+          ignored: false,
+          git: null,
+        });
+        return { type: "ok" };
+      case "fs.rename":
+      case "fs.copy":
+        this.carry(request.params.from, request.params.to, request.method === "fs.copy");
+        return { type: "ok" };
+      case "fs.trash":
+        for (const path of request.params.paths) {
+          if (!this.entry(path)) throw new CoreError({ code: "not_found", message: `${path} not found` });
+          this.remove(path);
+        }
+        return { type: "ok" };
+      case "open.reveal":
+        this.revealed.push(request.params.path);
+        return { type: "ok" };
       case "fs.list_dir": {
         const entries = this.dirs.get(request.params.path);
         if (!entries) throw new CoreError({ code: "not_found", message: `no such directory: ${request.params.path}` });

@@ -23,6 +23,8 @@ export type Row = {
   /** Position among its siblings (from 1) and their count, for `aria-posinset` / `aria-setsize`. */
   posinset: number;
   setsize: number;
+  /** The row where a new file or folder gets its name (see `TreeModel.setDraft`). */
+  draft?: true;
 };
 
 export type Filter = "all" | "changed";
@@ -32,6 +34,11 @@ export type LoadDir = (path: string) => Promise<DirEntry[]>;
 
 export function joinPath(dir: string, name: string): string {
   return dir === "" ? name : `${dir}/${name}`;
+}
+
+/** The path of the draft row in `dir`; no real path ends with a slash. */
+export function draftPath(dir: string): string {
+  return `${dir}/`;
 }
 
 export function parentOf(path: string): string {
@@ -84,6 +91,8 @@ export class TreeModel {
   private pumping: Promise<void> | null = null;
   /** Expanded directories before the "changed" filter opened more. */
   private expandedBeforeFilter: Set<string> | null = null;
+  /** A new file or folder being named, shown as the first row of its folder. */
+  private draft: { dir: string; kind: EntryKind } | null = null;
 
   constructor(
     private readonly load: LoadDir,
@@ -112,6 +121,25 @@ export class TreeModel {
 
   isLoading(path: string): boolean {
     return this.loading.has(path);
+  }
+
+  /** The loaded listing of `dir`, or undefined if it is not loaded. */
+  entries(dir: string): DirEntry[] | undefined {
+    return this.dirs.get(dir);
+  }
+
+  /** Shows (or with null removes) a draft row as the first child of `dir`, which should be expanded. */
+  setDraft(draft: { dir: string; kind: EntryKind } | null): void {
+    this.draft = draft;
+    this.rebuild();
+  }
+
+  /** Reloads a loaded listing now, shown or not (after the person changed it). */
+  async reload(dir: string): Promise<void> {
+    if (!this.dirs.has(dir)) return;
+    this.stale.delete(dir);
+    await this.fetch(dir);
+    this.rebuild();
   }
 
   isExpanded(path: string): boolean {
@@ -335,6 +363,25 @@ export class TreeModel {
     this.ignoredDirs.clear();
     const walk = (dir: string, depth: number, ignoredDir: boolean): void => {
       const entries = (this.dirs.get(dir) ?? []).filter((e) => !changedOnly || e.git);
+      const draft = this.draft?.dir === dir ? this.draft : null;
+      const setsize = entries.length + (draft ? 1 : 0);
+      if (draft) {
+        rows.push({
+          path: draftPath(dir),
+          name: "",
+          depth,
+          kind: draft.kind,
+          git: null,
+          renamedFrom: null,
+          ignored: false,
+          expanded: false,
+          loading: false,
+          failed: false,
+          posinset: 1,
+          setsize,
+          draft: true,
+        });
+      }
       entries.forEach((entry, i) => {
         const path = joinPath(dir, entry.name);
         const isDir = entry.kind === "dir";
@@ -352,8 +399,8 @@ export class TreeModel {
           expanded,
           loading: expanded && !this.dirs.has(path) && !this.failed.has(path),
           failed: expanded && this.failed.has(path) && !this.dirs.has(path),
-          posinset: i + 1,
-          setsize: entries.length,
+          posinset: i + 1 + (draft ? 1 : 0),
+          setsize,
         });
         if (expanded) walk(path, depth + 1, ignored);
       });
