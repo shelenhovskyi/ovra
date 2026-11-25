@@ -3,7 +3,7 @@
 // project's agents may reach and the tokens the netproxy adds for them. A
 // token's value is typed here, sent to the core once and never shown again.
 import { tick, untrack } from "svelte";
-import { NO_SANDBOX } from "../agents/sandbox";
+import { NO_SANDBOX, sandboxState } from "../agents/sandbox";
 import { agentSessions } from "../agents/sessions.svelte";
 import type { AllowedHost, SessionInfo } from "../lib/protocol";
 import { projectSandbox } from "../settings/sandbox";
@@ -33,7 +33,7 @@ const storeReady = $derived(access.store?.state === "available");
 // they can read the keychain like any program the person runs.
 const exposed = $derived(workspace.project ? sessions.inProject(workspace.project.id).filter(unprotected) : []);
 // Without a sandbox a session can also read the keychain like any program the person runs.
-const bare = $derived(exposed.filter((s) => s.sandbox === null).length);
+const bare = $derived(exposed.filter((s) => sandboxState(s).kind === "none").length);
 /** How agents run here, as the session says it: also known after they ended. */
 const sandbox = $derived(workspace.project ? projectSandbox(sessions.inProject(workspace.project.id)) : null);
 /** The person is adding a secret: only then the form, and whether the keychain can keep it. */
@@ -86,8 +86,10 @@ function live(session: SessionInfo): boolean {
 }
 
 function unprotected(session: SessionInfo): boolean {
+  // A session that has not said how it runs yet is neither: the note waits for its report.
   if (!live(session)) return false;
-  return session.sandbox === null || session.sandbox.network === "open";
+  const state = sandboxState(session);
+  return state.kind === "none" || (state.kind === "sandboxed" && state.report.network === "open");
 }
 
 function clearForm(): void {

@@ -212,6 +212,15 @@ describe("NetworkPanel", () => {
     expect($("[data-testid=unsandboxed]")?.textContent).toContain("Could not check");
   });
 
+  it("claims neither way while no session reported how it runs", async () => {
+    const core = new FakeAccessCore();
+    core.sessions = [{ ...session("s1", null), sandbox_reported: false }];
+    await open(core);
+    expect($("[data-testid=unsandboxed]")).toBeNull();
+    expect($("[data-testid=sandbox-gaps]")).toBeNull();
+    expect(target.textContent).not.toMatch(/runs? in a sandbox|are sandboxed/i);
+  });
+
   it("lists what the sandbox of the project's live sessions does not cover, each once", async () => {
     const core = new FakeAccessCore();
     core.sessions = [session("s1", { name: "bubblewrap", network: "proxy", gaps: [] })];
