@@ -6,6 +6,8 @@ import { registerCommand } from "../keys/commands";
 import { useOvra } from "../shell/context";
 import { sessionBrowsers } from "./browser.svelte";
 
+/** Whether to show the header button; the shell opens this from its "More" menu instead. */
+let { trigger = true }: { trigger?: boolean } = $props();
 const { transport } = useOvra();
 const browsers = sessionBrowsers(transport);
 
@@ -36,18 +38,20 @@ function toggle(): void {
 }
 </script>
 
-<button
-  type="button"
-  class="open-browser"
-  data-testid="open-browser"
-  aria-expanded={browsers.shown}
-  aria-label={waiting > 0 ? `Browser, ${waiting} waiting for you` : "Browser"}
-  bind:this={button}
-  onclick={toggle}
->
-  Browser
-  {#if waiting > 0}<span class="badge" aria-hidden="true">{waiting}</span>{/if}
-</button>
+{#if trigger}
+  <button
+    type="button"
+    class="open-browser"
+    data-testid="open-browser"
+    aria-expanded={browsers.shown}
+    aria-label={waiting > 0 ? `Browser, ${waiting} waiting for you` : "Browser"}
+    bind:this={button}
+    onclick={toggle}
+  >
+    Browser
+    {#if waiting > 0}<span class="badge" aria-hidden="true">{waiting}</span>{/if}
+  </button>
+{/if}
 
 <style>
   button {

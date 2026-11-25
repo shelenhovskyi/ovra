@@ -11,6 +11,8 @@ import { useOvra } from "../shell/context";
 import { ChangedElsewhere, ProjectPolicy, reason } from "./policy.svelte";
 import { ACTIONS, byPrecedence, caveats, formRule, KNOWN_TOOLS, matchHint, ruleText, toolWarning } from "./rules";
 
+/** Whether to show the header button; the shell opens this from its "More" menu instead. */
+let { trigger = true }: { trigger?: boolean } = $props();
 const { transport, workspace } = useOvra();
 const policy = new ProjectPolicy(transport);
 
@@ -235,13 +237,15 @@ function onDialogKeydown(event: KeyboardEvent): void {
 }
 </script>
 
-<button
-  type="button"
-  class="open-policy"
-  data-testid="open-policy"
-  bind:this={openButton} aria-haspopup="dialog" onclick={() => void show()}>
-  Policies
-</button>
+{#if trigger}
+  <button
+    type="button"
+    class="open-policy"
+    data-testid="open-policy"
+    bind:this={openButton} aria-haspopup="dialog" onclick={() => void show()}>
+    Policies
+  </button>
+{/if}
 
 {#if opened}
   <!-- A click beside the dialog must not take focus out of it. -->

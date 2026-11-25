@@ -12,6 +12,8 @@ import { useOvra } from "../shell/context";
 import LogView from "./LogView.svelte";
 import { ProjectServers, running, statusText } from "./servers.svelte";
 
+/** Whether to show the header button; the shell opens this from its "More" menu instead. */
+let { trigger = true }: { trigger?: boolean } = $props();
 const { transport, workspace } = useOvra();
 const servers = new ProjectServers(transport);
 const sessions = agentSessions(transport);
@@ -182,9 +184,11 @@ function onDialogKeydown(event: KeyboardEvent): void {
 }
 </script>
 
-<button type="button" class="open-servers" data-testid="open-servers" aria-haspopup="dialog" onclick={() => void show()}>
-  Servers
-</button>
+{#if trigger}
+  <button type="button" class="open-servers" data-testid="open-servers" aria-haspopup="dialog" onclick={() => void show()}>
+    Servers
+  </button>
+{/if}
 
 {#if opened}
   <div class="backdrop" role="presentation" onmousedown={(event) => event.target === event.currentTarget && event.preventDefault()}>

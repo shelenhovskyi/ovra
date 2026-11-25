@@ -45,7 +45,8 @@ test("a defined server starts, gets ready, shows its output and stops", async ({
   await projects.getByRole("button", { name: "Open", exact: true }).click();
   await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();
 
-  await page.getByTestId("open-servers").click();
+  await page.getByTestId("more").click();
+  await page.getByRole("menuitem", { name: "Servers" }).click();
   const dialog = page.getByRole("dialog", { name: "Servers" });
   await dialog.getByRole("button", { name: "Start web", exact: true }).click();
   const server = dialog.getByTestId("server");

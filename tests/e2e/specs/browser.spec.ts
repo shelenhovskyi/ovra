@@ -21,7 +21,8 @@ test("the person opens a page, sees it, and picks an element for the next reply"
   await page.keyboard.press("ControlOrMeta+Enter");
   await expect(page.getByTestId("transcript").getByText("I will look at the page.")).toBeVisible();
 
-  await page.getByTestId("open-browser").click();
+  await page.getByTestId("more").click();
+  await page.getByRole("menuitemcheckbox", { name: "Browser" }).click();
   const browser = page.getByTestId("browser");
   await browser.getByRole("textbox", { name: "Address" }).fill("localhost:5173");
   await browser.getByRole("button", { name: "Open in new tab" }).click();

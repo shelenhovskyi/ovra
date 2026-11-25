@@ -25,6 +25,7 @@ import Terminals from "../terminal/Terminals.svelte";
 import Tree from "../tree/Tree.svelte";
 import Viewer from "../viewers/Viewer.svelte";
 import { provideOvra } from "./context";
+import MoreMenu from "./MoreMenu.svelte";
 import { Workspace } from "./workspace.svelte";
 
 let { transport }: { transport: Transport } = $props();
@@ -97,13 +98,22 @@ const status = $derived.by((): { text: string; ok: boolean } => {
 <div class="shell">
   <header>
     <h1>Ovra</h1>
-    <span class="project">{workspace.project?.name ?? "No project"}</span>
+    {#if workspace.project}
+      <span class="project" data-testid="project-name" title={workspace.project.root}>
+        <span class="muted">Project</span>
+        {workspace.project.name}
+      </span>
+    {:else}
+      <span class="project muted" data-testid="project-name">No project open</span>
+    {/if}
     <Inbox />
-    <AuditLog />
-    <PolicyPanel />
-    <NetworkPanel />
-    <ServersPanel />
-    <BrowserButton />
+    <MoreMenu />
+    <!-- Opened from the "More" menu, the palette or their shortcuts. -->
+    <AuditLog trigger={false} />
+    <PolicyPanel trigger={false} />
+    <NetworkPanel trigger={false} />
+    <ServersPanel trigger={false} />
+    <BrowserButton trigger={false} />
   </header>
   <aside data-testid="sidebar">
     {#if workspace.project}
@@ -219,6 +229,10 @@ const status = $derived.by((): { text: string; ok: boolean } => {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    font-weight: 600;
+  }
+  .muted {
+    font-weight: normal;
     color: #9a9aa6;
   }
   aside {

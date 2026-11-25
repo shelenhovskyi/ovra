@@ -14,7 +14,8 @@ test("a project's allowed hosts are added in the network dialog and kept", async
   await projects.getByRole("button", { name: "Open", exact: true }).click();
   await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();
 
-  await page.getByTestId("open-network").click();
+  await page.getByTestId("more").click();
+  await page.getByRole("menuitem", { name: "Network" }).click();
   const dialog = page.getByRole("dialog", { name: "Network and secrets" });
   await expect(dialog.getByRole("heading", { name: "Network and secrets" })).toBeFocused();
   await dialog.getByTestId("add-host").fill("registry.npmjs.org");
@@ -30,6 +31,7 @@ test("a project's allowed hosts are added in the network dialog and kept", async
   await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
   await projects.getByRole("button", { name: "Open", exact: true }).click();
   await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();
-  await page.getByTestId("open-network").click();
+  await page.getByTestId("more").click();
+  await page.getByRole("menuitem", { name: "Network" }).click();
   await expect(page.getByTestId("allowed-host")).toHaveText(/registry\.npmjs\.org/);
 });

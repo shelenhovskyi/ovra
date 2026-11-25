@@ -124,7 +124,8 @@ test("reply to an agent, allow with the mouse and stop it while it waits", async
   await expect(session.getByRole("textbox", { name: "Reply to Claude" })).toBeHidden();
 
   // The audit log says what was decided and by whom, newest first.
-  await page.getByRole("button", { name: "Audit log", exact: true }).click();
+  await page.getByTestId("more").click();
+  await page.getByRole("menuitem", { name: "Audit log" }).click();
   const audit = page.getByRole("dialog", { name: "Audit log" });
   const entries = audit.getByTestId("audit-entry");
   await expect(entries).toHaveCount(4);

@@ -11,6 +11,8 @@ import { useOvra } from "../shell/context";
 import { describe, FILTERS, type Filter, shows, when } from "./describe";
 import { AuditTrail } from "./trail.svelte";
 
+/** Whether to show the header button; the shell opens this from its "More" menu instead. */
+let { trigger = true }: { trigger?: boolean } = $props();
 const { transport, workspace } = useOvra();
 const trail = new AuditTrail(transport);
 const sessions = agentSessions(transport);
@@ -97,9 +99,11 @@ function who(session: string | null): string {
 }
 </script>
 
-<button type="button" class="open-audit" data-testid="open-audit" aria-haspopup="dialog" onclick={() => void show()}>
-  Audit log
-</button>
+{#if trigger}
+  <button type="button" class="open-audit" data-testid="open-audit" aria-haspopup="dialog" onclick={() => void show()}>
+    Audit log
+  </button>
+{/if}
 
 {#if opened}
   <div class="backdrop">

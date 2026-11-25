@@ -11,6 +11,8 @@ import { useOvra } from "../shell/context";
 import { message, ProjectAccess } from "./access.svelte";
 import { hostLabel, parseHost, reaches } from "./hosts";
 
+/** Whether to show the header button; the shell opens this from its "More" menu instead. */
+let { trigger = true }: { trigger?: boolean } = $props();
 const { transport, workspace } = useOvra();
 const access = new ProjectAccess(transport);
 const sessions = agentSessions(transport);
@@ -220,9 +222,11 @@ function onDialogKeydown(event: KeyboardEvent): void {
 }
 </script>
 
-<button type="button" class="open-network" data-testid="open-network" aria-haspopup="dialog" onclick={() => void show()}>
-  Network
-</button>
+{#if trigger}
+  <button type="button" class="open-network" data-testid="open-network" aria-haspopup="dialog" onclick={() => void show()}>
+    Network
+  </button>
+{/if}
 
 {#if opened}
   <!-- A click beside the dialog must not take focus out of it. -->

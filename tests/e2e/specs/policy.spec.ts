@@ -14,7 +14,8 @@ test("a project's policy rules are added in the policies dialog, refused inline 
   await projects.getByRole("button", { name: "Open", exact: true }).click();
   await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();
 
-  await page.getByTestId("open-policy").click();
+  await page.getByTestId("more").click();
+  await page.getByRole("menuitem", { name: "Policies" }).click();
   const dialog = page.getByRole("dialog", { name: "Project policies" });
   await expect(dialog.getByRole("heading", { name: "Project policies" })).toBeFocused();
   await expect(dialog.getByTestId("policy-empty")).toHaveText(/No rules yet/);
@@ -38,6 +39,7 @@ test("a project's policy rules are added in the policies dialog, refused inline 
   await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
   await projects.getByRole("button", { name: "Open", exact: true }).click();
   await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();
-  await page.getByTestId("open-policy").click();
+  await page.getByTestId("more").click();
+  await page.getByRole("menuitem", { name: "Policies" }).click();
   await expect(page.getByTestId("policy-rule")).toHaveText(/Bash\(git push\)/);
 });
