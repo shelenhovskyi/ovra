@@ -7,6 +7,7 @@ import { tick } from "svelte";
 import { registerCommand } from "../keys/commands";
 import { formatShortcut, inBrowserTab, isApple, liveKeys } from "../keys/shortcut";
 import { useOvra } from "../shell/context";
+import { loadScreenReader, saveScreenReader } from "./prefs";
 import { exitNotice, LOST_NOTICE, type TerminalSession, TerminalSessions } from "./sessions.svelte";
 import TerminalView from "./TerminalView.svelte";
 
@@ -17,7 +18,9 @@ const TOGGLE_KEYS = "Ctrl+`";
 const NEW_KEYS = "Ctrl+Shift+`";
 
 let open = $state(false);
-let screenReader = $state(false);
+let screenReader = $state(loadScreenReader());
+/** Confirms a screen reader mode change to assistive technology. */
+let readerNotice = $state("");
 let panel: HTMLElement | undefined = $state();
 const tabButtons: Record<number, HTMLButtonElement> = {};
 const xterms = new Map<number, Terminal>();
@@ -109,6 +112,22 @@ function onTabKeydown(event: KeyboardEvent, session: TerminalSession): void {
   }
 }
 
+function setScreenReader(on: boolean): void {
+  screenReader = on;
+  saveScreenReader(on);
+  readerNotice = on ? "Screen reader mode on: terminal output is read out." : "Screen reader mode off.";
+}
+
+/** Shift+Tab in a terminal lands on its tab, the start of the panel. */
+function leave(session: TerminalSession): void {
+  tabButtons[session.key]?.focus();
+}
+
+async function restart(session: TerminalSession): Promise<void> {
+  sessions.restart(session);
+  await focusActive();
+}
+
 function status(session: TerminalSession): string {
   switch (session.state.kind) {
     case "exited":
@@ -145,9 +164,7 @@ $effect(() => {
     registerCommand({
       id: "terminal.screen_reader",
       title: "Toggle screen reader mode in terminals",
-      run: () => {
-        screenReader = !screenReader;
-      },
+      run: () => setScreenReader(!screenReader),
     }),
   ];
   return () => {
@@ -197,12 +214,25 @@ $effect(() => {
       >
       <button
         type="button"
+        class="reader"
+        aria-pressed={screenReader}
+        title="Read terminal output to a screen reader"
+        onclick={() => setScreenReader(!screenReader)}>Screen reader</button
+      >
+      <button
+        type="button"
+        class="hide"
         aria-label="Hide terminals"
         title="Hide terminals ({label(TOGGLE_KEYS)})"
-        onclick={hide}>×</button
+        onclick={hide}
+        ><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"
+          ><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" /></svg
+        ></button
       >
     </div>
   </div>
+  <p id="terminal-hint" class="sr-only">Shift+Tab leaves the terminal. {label(TOGGLE_KEYS)} hides the panel.</p>
+  <p class="sr-only" role="status">{readerNotice}</p>
   <div class="body">
     {#if !project}
       <p class="empty">Open a project to use terminals.</p>
@@ -224,15 +254,20 @@ $effect(() => {
       >
         {#if session.state.kind === "failed"}
           <p class="failed" role="alert">Could not start the terminal: {session.state.message}</p>
-        {:else if session.state.kind === "exited"}
-          <p class="sr-only" role="status">{session.title}: {exitNotice(session.state.code)}</p>
-        {:else if session.state.kind === "lost"}
-          <p class="sr-only" role="status">{session.title}: {LOST_NOTICE}</p>
+        {:else if session.state.kind === "exited" || session.state.kind === "lost"}
+          <div class="ended">
+            <p role="status">
+              {session.title}: {session.state.kind === "exited" ? exitNotice(session.state.code) : LOST_NOTICE}
+            </p>
+            <button type="button" class="link" onclick={() => restart(session)}>Restart</button>
+          </div>
         {/if}
         <TerminalView
           {session}
           {sessions}
           {screenReader}
+          hint="terminal-hint"
+          onleave={() => leave(session)}
           visible={open && shown}
           onterminal={(terminal) => {
             if (terminal) xterms.set(session.key, terminal);
@@ -326,6 +361,33 @@ $effect(() => {
     border-radius: 3px;
     font-size: 15px;
   }
+  .actions .reader {
+    width: auto;
+    padding: 0 6px;
+    font-size: 12px;
+    color: #9a9aa6;
+  }
+  .actions .reader[aria-pressed="true"] {
+    background: #2a2a31;
+    color: #e6e6e6;
+    box-shadow: inset 0 -2px 0 #6b8afd;
+  }
+  .hide {
+    display: grid;
+    place-items: center;
+  }
+  .ended {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    padding: 6px 12px;
+    background: #121215;
+    border-bottom: 1px solid #2a2a31;
+    color: #b4b4c0;
+  }
+  .ended p {
+    margin: 0;
+  }
   .body {
     position: relative;
     flex: 1;
@@ -369,6 +431,10 @@ $effect(() => {
     white-space: nowrap;
   }
   @media (forced-colors: active) {
+    .actions .reader[aria-pressed="true"] {
+      outline: 2px solid Highlight;
+      outline-offset: -2px;
+    }
     .tab.selected {
       border-bottom-color: Highlight;
       forced-color-adjust: none;

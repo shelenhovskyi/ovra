@@ -167,7 +167,22 @@ export class TerminalSessions {
       if (next && next !== session) this.activate(next);
       else delete this.activeKeys[session.project];
     }
-    // An ended shell is closed too, so the core can forget its scrollback.
+    this.forget(session);
+  }
+
+  /** Replaces a tab with a new shell under the same title, in the same place, and activates it. */
+  restart(session: TerminalSession): TerminalSession | undefined {
+    const index = this.sessions.indexOf(session);
+    if (index < 0) return undefined;
+    const fresh = new TerminalSession(this.nextKey++, session.project, session.title);
+    this.sessions[index] = fresh;
+    this.activate(fresh);
+    this.forget(session);
+    return fresh;
+  }
+
+  /** Closes a removed tab's shell, also an ended one, so the core can forget its scrollback. */
+  private forget(session: TerminalSession): void {
     const id = session.coreId;
     if (id !== null && session.state.kind !== "lost") {
       this.transport.call({ method: "terminals.close", params: { id } }).catch(() => {});
