@@ -26,6 +26,8 @@ tokio = { workspace = true, features = ["io-util", "net", "process", "rt", "sync
 
 [target.'cfg(unix)'.dev-dependencies]
 insta.workspace = true
+tempfile = "3"
+tokio = { workspace = true, features = ["macros", "test-util"] }
 
 [lints]
 workspace = true

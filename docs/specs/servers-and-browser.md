@@ -85,6 +85,19 @@ The person defines servers in `.ovra/servers.json` in the project:
   (default 5000). Ending a pod kills its PID namespace, so no process
   survives it. A pod ends when Ovra quits; the session or person that
   started a server does not own it.
+- **Pod-init.** A pod's first process is Ovra itself in pod mode
+  (`<ovra> --ovra-pod <pod dir>`, `ovra_servers::pod_init_if_asked`). It
+  prints `ovra-pod: listening` once `<pod dir>/control.sock` listens,
+  takes the first connection only, and speaks JSON lines: requests
+  `spawn { id, argv, env, cwd, port }` and `signal { id, sig: term|kill }`;
+  events `output { id, line }`, `listening { id, port }`,
+  `exited { id, code }` and `failed { id, reason }` (it never ran).
+  `listening` comes once `127.0.0.1:<port>` accepts a connection inside the
+  pod, so the port check runs there. Each server is its own process group;
+  when its main process ends, the rest of its group is killed. When the
+  control connection closes, pod-init kills every server and exits.
+- A `ready.http` check passes on any answer below 500. There is no ready
+  timeout: a server stays `starting` until it is ready or ends.
 
 ### States
 
