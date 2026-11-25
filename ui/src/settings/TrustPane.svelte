@@ -3,7 +3,7 @@
 // and the full list of what they bring (hooks, rules, skills, ...). It only
 // reads; trusting stays on the trust card in the Agents column ("Review and
 // trust…"), where Trust sits under the same list, armed after a moment.
-import { untrack } from "svelte";
+import { tick, untrack } from "svelte";
 import { changes, groups, KIND_LABELS, runsCode, summary, touchesConfig } from "../agents/setup/texts";
 import { listCommands } from "../keys/commands";
 import type { ProjectConfigReview } from "../lib/protocol";
@@ -90,10 +90,15 @@ async function load(id: string): Promise<void> {
   }
 }
 
-function reviewAndTrust(): void {
-  void listCommands()
-    .find((c) => c.id === "projects.review_trust")
-    ?.run();
+async function reviewAndTrust(): Promise<void> {
+  const run = (id: string) =>
+    listCommands()
+      .find((c) => c.id === id)
+      ?.run();
+  // The trust card lives in the Agents column: a folded column shows it first.
+  if (document.querySelector("[data-testid=agents] .strip")) await run("layout.toggle_agents");
+  await tick();
+  await run("projects.review_trust");
 }
 </script>
 
@@ -107,7 +112,7 @@ function reviewAndTrust(): void {
     {#if items.length > 0}
       <p class="muted">{summary(items)}</p>
       {#if !project?.trusted || changed}
-        <button type="button" onclick={reviewAndTrust}>Review and trust…</button>
+        <button type="button" onclick={() => void reviewAndTrust()}>Review and trust…</button>
       {/if}
       {#each listed as group (group.kind)}
         <section aria-label={KIND_LABELS[group.kind]}>

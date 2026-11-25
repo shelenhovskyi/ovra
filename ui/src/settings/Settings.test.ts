@@ -118,6 +118,21 @@ it("shows only the open project's Claude settings, and re-reads them when they m
   await settle();
   expect(pane()).toContain("Not trusted");
 
+  // "Review and trust…" unfolds a folded Agents column before it opens the trust card there.
+  const ran: string[] = [];
+  const column = document.createElement("div");
+  column.dataset.testid = "agents";
+  column.innerHTML = `<div class="strip"></div>`;
+  document.body.append(column);
+  cleanup.push(
+    () => column.remove(),
+    registerCommand({ id: "layout.toggle_agents", title: "Agents", run: () => void ran.push("unfold") }),
+    registerCommand({ id: "projects.review_trust", title: "Trust", run: () => void ran.push("trust card") }),
+  );
+  [...target.querySelectorAll("button")].find((b) => b.textContent === "Review and trust…")?.click();
+  await settle();
+  expect(ran).toEqual(["unfold", "trust card"]);
+
   // A read for p1 still on its way when p2 opens: p1's list neither stays nor comes back.
   emit({ type: "fs.changed", data: { project: "p1", paths: [".claude/skills/a/SKILL.md"] } });
   workspace.project = project("p2");

@@ -95,5 +95,6 @@ it("lists what trusting the project would load and leaves trusting to the trust 
   expect(pane?.querySelector("section h4")?.textContent).toBe("Hooks: commands that run on agent events");
   expect(pane?.querySelector("li")?.textContent).toBe("npm run lint");
   [...(pane?.querySelectorAll("button") ?? [])].find((b) => b.textContent === "Review and trust…")?.click();
+  await new Promise((resolve) => setImmediate(resolve));
   expect(asked).toBe(1);
 });
