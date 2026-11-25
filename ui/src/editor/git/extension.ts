@@ -466,13 +466,13 @@ const styles = EditorView.baseTheme({
   ".cm-git-gutter .cm-gutterElement": { width: "8px", padding: "0 2px", cursor: "pointer" },
   // Kinds differ by shape, not only by colour: a solid bar, a striped bar, a triangle.
   ".cm-git-marker": { display: "block", boxSizing: "border-box", width: "4px", height: "100%" },
-  ".cm-git-added": { borderLeft: "4px solid #4caf50" },
-  ".cm-git-modified": { background: "repeating-linear-gradient(#4f8fd8 0 3px, transparent 3px 5px)" },
+  ".cm-git-added": { borderLeft: "4px solid var(--ok)" },
+  ".cm-git-modified": { background: "repeating-linear-gradient(var(--accent) 0 3px, transparent 3px 5px)" },
   ".cm-git-deleted": {
     width: "0",
     height: "0",
     marginTop: "calc(1.5em - 5px)",
-    borderLeft: "6px solid #e05252",
+    borderLeft: "6px solid var(--danger)",
     borderTop: "5px solid transparent",
     borderBottom: "5px solid transparent",
   },
@@ -482,11 +482,11 @@ const styles = EditorView.baseTheme({
     ".cm-git-modified": { background: "repeating-linear-gradient(Highlight 0 3px, transparent 3px 5px)" },
     ".cm-git-deleted": { borderLeftColor: "LinkText" },
   },
-  ".cm-git-popup": { padding: "6px 8px", maxWidth: "60ch", backgroundColor: "#1d1d23", color: "#e6e6e6" },
-  ".cm-git-old": { margin: "4px 0", maxHeight: "12em", overflow: "auto", color: "#e8a0a0" },
+  ".cm-git-popup": { padding: "8px 10px", maxWidth: "60ch", backgroundColor: "var(--s4)", color: "var(--text)" },
+  ".cm-git-old": { margin: "4px 0", maxHeight: "12em", overflow: "auto", color: "var(--danger)" },
   ".cm-git-caption, .cm-git-status": { margin: "0" },
   ".cm-git-actions": { display: "flex", gap: "6px", margin: "4px 0" },
-  ".cm-git-note": { padding: "2px 8px", color: "#9a9aa6" },
+  ".cm-git-note": { padding: "2px 8px", color: "var(--text-2)" },
 });
 
 /** The git extension of one buffer. */

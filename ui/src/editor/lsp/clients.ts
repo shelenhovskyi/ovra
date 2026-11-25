@@ -84,7 +84,7 @@ LSPPlugin.prototype.reportError = function (this: LSPPlugin, text: string, err: 
 
 /** Hover-doc links: readable, and they say where they go. */
 const linkTheme = EditorView.baseTheme({
-  ".cm-lsp-documentation a": { color: "#8fb4ff", textDecoration: "underline" },
+  ".cm-lsp-documentation a": { color: "var(--accent)", textDecoration: "underline" },
 });
 
 export class LanguageClients {

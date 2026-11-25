@@ -118,7 +118,7 @@ function discard(path: string): void {
         <span class="dirty" title="Unsaved changes" data-testid="editor-dirty">●<span class="visually-hidden">Unsaved changes</span></span>
       {/if}
       <span class="language" data-testid="editor-language"
-        >{buffer.heavy ? "Plain text (large file, highlighting off)" : (buffer.language?.name ?? "Plain text")}</span
+        >{buffer.heavy ? "Plain text (large file)" : (buffer.language?.name ?? "Plain text")}</span
       >
       <button type="button" title="Back to the read-only view ({viewKeys})" onclick={() => toggle(workspace)}
         >View <kbd>{viewKeys}</kbd></button
@@ -149,9 +149,9 @@ function discard(path: string): void {
       <div class="notice" role="alert">{buffer.error}</div>
     {/if}
     {#if buffer.status === "binary"}
-      <p class="message">This is a binary file and cannot be edited here.</p>
+      <p class="message">Binary file: not editable.</p>
     {:else if buffer.status === "too_large"}
-      <p class="message">This file is too large to edit here.</p>
+      <p class="message">Too large to edit.</p>
     {/if}
   {:else}
     <p class="message">No file open.</p>
@@ -164,69 +164,76 @@ function discard(path: string): void {
     display: flex;
     flex-direction: column;
     height: 100%;
+    background: var(--s2);
   }
   .bar {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 4px 12px;
-    border-bottom: 1px solid #2a2a31;
-    color: #9a9aa6;
+    padding: 4px 12px 4px 16px;
+    font-size: 13px;
+    color: var(--text-2);
   }
   .path {
-    color: #e6e6e6;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--mono);
+  }
+  .dirty {
+    color: var(--accent);
   }
   .language {
     margin-left: auto;
+    white-space: nowrap;
   }
   button {
-    padding: 1px 8px;
+    padding: 2px 10px;
     font: inherit;
-    font-size: 12px;
-    color: #e6e6e6;
+    color: var(--text-2);
     background: none;
-    border: 1px solid #4a4a57;
-    border-radius: 3px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
     cursor: pointer;
   }
   button:hover:not(:disabled) {
-    background: #2a2a31;
+    color: var(--text);
+    background: var(--s3);
   }
-  button:focus-visible {
-    outline: 2px solid #7aa2ff;
-    outline-offset: 1px;
-  }
-  .primary {
-    background: #2f3d5c;
-    border-color: #4a6bb0;
-  }
+  /* Save is filled only while there is something to save. */
+  .primary:not(:disabled),
   .primary:hover:not(:disabled) {
-    background: #3a4b70;
+    color: var(--accent-ink);
+    background: var(--accent);
+    font-weight: 500;
   }
-  /* Disabled stays readable (#b4b4c0 on the bar, 8.8:1); the flat border says it is off. */
   button:disabled {
-    color: #b4b4c0;
-    background: none;
-    border-color: #2a2a31;
+    color: var(--text-2);
     cursor: default;
   }
   kbd {
-    font: inherit;
-    font-size: 11px;
-    color: #9a9aa6;
+    font: 12px var(--mono);
+    color: var(--text-2);
   }
   .notice {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 8px;
-    padding: 6px 12px;
-    background: #3a2a1a;
-    color: #ffd7a8;
+    margin: 0 12px 6px;
+    padding: 8px 12px;
+    border-radius: var(--radius);
+    background: var(--warn-soft);
+    color: var(--text);
+  }
+  .notice button {
+    color: var(--text);
+    background: var(--s3);
   }
   .message {
-    padding: 12px;
-    color: #9a9aa6;
+    padding: 16px;
+    color: var(--text-2);
   }
   .host {
     flex: 1;
@@ -242,5 +249,10 @@ function discard(path: string): void {
     overflow: hidden;
     clip-path: inset(50%);
     white-space: nowrap;
+  }
+  @media (forced-colors: active) {
+    button {
+      border-color: ButtonText;
+    }
   }
 </style>

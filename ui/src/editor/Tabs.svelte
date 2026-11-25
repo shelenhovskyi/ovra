@@ -269,9 +269,10 @@ function scrollToActive(): void {
   .tabs {
     display: flex;
     flex-shrink: 0;
+    gap: 2px;
     overflow-x: auto;
-    border-bottom: 1px solid #2a2a31;
-    background: #121215;
+    padding: 6px 10px 0;
+    background: var(--s2);
     scrollbar-width: thin;
     --fade-start: 0px;
     --fade-end: 0px;
@@ -281,8 +282,8 @@ function scrollToActive(): void {
     mask-image: linear-gradient(
       to right,
       transparent,
-      #000 var(--fade-start),
-      #000 calc(100% - var(--fade-end)),
+      black var(--fade-start),
+      black calc(100% - var(--fade-end)),
       transparent
     );
   }
@@ -292,18 +293,22 @@ function scrollToActive(): void {
   .more-end {
     --fade-end: 32px;
   }
+  /* No boxes: the active tab is told by its text and a slim accent underline. */
   .tab {
     display: flex;
     align-items: center;
     flex-shrink: 0;
-    border-right: 1px solid #2a2a31;
     border-bottom: 2px solid transparent;
-    color: #9a9aa6;
+    border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+    color: var(--text-2);
+  }
+  .tab:hover {
+    color: var(--text);
   }
   .tab.active {
-    background: #16161a;
-    color: #e6e6e6;
-    border-bottom-color: #82aaff;
+    color: var(--text);
+    font-weight: 500;
+    border-bottom-color: var(--accent);
   }
   button {
     font: inherit;
@@ -317,7 +322,7 @@ function scrollToActive(): void {
     align-items: baseline;
     gap: 6px;
     max-width: 240px;
-    padding: 6px 4px 6px 12px;
+    padding: 6px 2px 6px 10px;
     white-space: nowrap;
   }
   .name,
@@ -331,52 +336,73 @@ function scrollToActive(): void {
   }
   .hint {
     min-width: 0;
-    font-size: 11px;
-    color: #9a9aa6;
+    font-size: 13px;
+    font-weight: 400;
+    color: var(--text-2);
   }
   .close {
-    width: 20px;
-    height: 20px;
-    margin-right: 6px;
-    border-radius: 3px;
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    margin-right: 4px;
+    border-radius: var(--radius-sm);
+    color: var(--text-2);
+    opacity: 0;
+  }
+  /* Chrome on demand: the close button shows on the active or pointed-at tab. */
+  .tab.active .close,
+  .tab:hover .close,
+  .close:focus-visible,
+  .close.dirty {
+    opacity: 1;
   }
   .close::before {
     content: "×";
+    font-size: 16px;
+    line-height: 1;
   }
   .close.dirty::before {
     content: "●";
     font-size: 10px;
+    color: var(--accent);
   }
   .close:hover {
-    background: #2a2a31;
+    background: var(--s3);
+    color: var(--text);
   }
   .close.dirty:hover::before {
     content: "×";
-    font-size: inherit;
+    font-size: 16px;
+    color: inherit;
   }
   @media (forced-colors: active) {
     .tab.active {
       border-bottom-color: Highlight;
     }
+    .close {
+      opacity: 1;
+    }
   }
   .notice {
     margin: 0;
-    padding: 6px 12px;
-    background: #2a2a3a;
-    color: #e6e6e6;
+    padding: 8px 16px;
+    background: var(--accent-soft);
+    color: var(--text);
   }
   .confirm {
-    padding: 16px;
-    border: 1px solid #4a4a5a;
-    border-radius: 6px;
-    background: #1d1d23;
-    color: #e6e6e6;
+    padding: 18px 20px;
+    border: 0;
+    border-radius: var(--radius);
+    background: var(--s4);
+    box-shadow: var(--card-shadow);
+    color: var(--text);
   }
   .confirm::backdrop {
-    background: rgb(0 0 0 / 40%);
+    background: var(--scrim);
   }
   .confirm p {
-    margin: 0 0 12px;
+    margin: 0 0 14px;
     overflow-wrap: anywhere;
   }
   .answers {
@@ -385,8 +411,23 @@ function scrollToActive(): void {
     justify-content: flex-end;
   }
   .confirm button {
-    padding: 2px 8px;
-    border: 1px solid #4a4a5a;
-    border-radius: 3px;
+    padding: 4px 12px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    color: var(--text-2);
+  }
+  .confirm button:hover {
+    background: var(--s3);
+    color: var(--text);
+  }
+  .confirm button:first-child {
+    background: var(--accent);
+    color: var(--accent-ink);
+    font-weight: 500;
+  }
+  @media (forced-colors: active) {
+    .confirm {
+      border: 1px solid CanvasText;
+    }
   }
 </style>

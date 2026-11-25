@@ -137,15 +137,15 @@ export function inlineBlameEffect(state: EditorState, blame: Blame, map: ToDisk)
 }
 
 const styles = EditorView.baseTheme({
-  // At least 4.5:1 on the editor's backgrounds (#16161a, active line #1d1d23).
-  ".cm-git-blame-gutter .cm-gutterElement": { padding: "0 8px", color: "#9a9aa6" },
+  // At least 4.5:1 on the editor's background and its active line (--text-2).
+  ".cm-git-blame-gutter .cm-gutterElement": { padding: "0 8px", color: "var(--text-2)" },
   ".cm-git-blame": { display: "inline-block", maxWidth: "22ch", overflow: "hidden", textOverflow: "ellipsis" },
   // Upright and after a rule, so it does not read as a comment in the code.
   ".cm-git-inline-blame": {
     marginLeft: "2em",
     paddingLeft: "0.75em",
-    borderLeft: "1px solid #3a3a44",
-    color: "#8a8a96",
+    borderLeft: "1px solid var(--s4)",
+    color: "var(--text-2)",
   },
 });
 
