@@ -152,13 +152,15 @@ async fn gitignore_applies_outside_git_and_project_may_be_a_repo_subfolder() {
     put(tmp.path(), "own/.cache/.gitignore", "# made by a tool\n*\n");
     put(tmp.path(), "own/.cache/shot.png", "");
     put(tmp.path(), "own/kept/.gitignore", "*.log\n");
+    // Keeps its own .gitignore in git, so git does not ignore the folder.
+    put(tmp.path(), "own/logs/.gitignore", "*\n!.gitignore\n");
     let own = list(&fs, &tmp.path().join("own"), "").await.expect("list");
     let flags: Vec<_> = own
         .entries
         .iter()
         .map(|e| (e.name.as_str(), e.ignored))
         .collect();
-    assert_eq!(flags, [(".cache", true), ("kept", false)]);
+    assert_eq!(flags, [(".cache", true), ("kept", false), ("logs", false)]);
 
     git(tmp.path(), &["init", "-q"]);
     put(tmp.path(), "repo/app/new.txt", "");
