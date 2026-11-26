@@ -464,6 +464,27 @@ test("a research agent changes nothing and its report is saved as a doc", async 
   await expect(page.getByTestId("agent-report")).toContainText(`Saved as ${path}`);
   expect(readIfThere(join(dir, path))).toContain("# How does the readme read?");
   expect(readFileSync(join(dir, "README.md"), "utf8")).toBe("teh readme\n");
+
+test("add a file with @ and send it with the task", async ({ page }) => {
+  await openProject(page, "ovra-agents-context-");
+  const field = page.getByRole("textbox", { name: "Give Claude a task" });
+  await field.fill("Fix the typo in ");
+  await field.press("End");
+  await page.keyboard.type("@READ");
+  const option = page.getByTestId("context-menu").getByRole("option", { name: /README\.md/ });
+  await expect(option.first()).toBeVisible();
+  await page.keyboard.press("Enter");
+  await expect(field).toHaveValue("Fix the typo in ");
+  await expect(page.getByTestId("context-chip")).toHaveText(/README\.md/);
+  await page.keyboard.press("Enter");
+
+  // The agent gets the file's name after the task; the transcript folds it.
+  const session = page.getByTestId("agent-session");
+  await expect(session.getByTestId("transcript-context")).toContainText("Context sent");
+  await session.getByTestId("transcript-context").locator("summary").click();
+  await expect(session.getByTestId("transcript-context")).toContainText("File: `README.md`");
+  await session.getByRole("button", { name: "Stop" }).click();
+  await expect(session.getByRole("status")).toHaveText("Stopped");
 });
 
 test("keep the computer awake while an agent works", async ({ page }) => {

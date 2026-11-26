@@ -11,6 +11,7 @@ import { EditorView, keymap, ViewPlugin } from "@codemirror/view";
 import type { KnownServer, LspStatus, ProjectId, ServerId, ServerInfo } from "../../lib/protocol";
 import type { Transport } from "../../lib/transport";
 import { languageServers } from "../../lsp/servers.svelte";
+import { askOnProblems } from "../agent-context";
 import type { Buffer, Buffers } from "../buffers.svelte";
 import { languageFor } from "../languages";
 import { actionKeys, keyboardHover, type LspAction, runAction } from "./actions";
@@ -227,6 +228,10 @@ export class LanguageClients {
         Prec.high(keymap.of(actionKeys(this.context(() => client)))),
         keyboardHover,
         lintGutter(),
+        askOnProblems((view) => {
+          const uri = LSPPlugin.get(view)?.uri;
+          return uri ? pathOf(uri) : null;
+        }),
         linkTheme,
       ],
     });

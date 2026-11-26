@@ -5,6 +5,7 @@ import { registerCommand } from "../keys/commands";
 import { formatShortcut, inBrowserTab, isApple, liveKeys } from "../keys/shortcut";
 import { showList } from "../palette/mode.svelte";
 import type { Workspace } from "../shell/workspace.svelte";
+import { registerEditorContext } from "./agent-context";
 import { foldCommands } from "./folding";
 import { editorReady, goToChange, readBlame, showChangeAtCursor, toggleBlame } from "./git/extension";
 import type { LspAction } from "./lsp/actions";
@@ -146,6 +147,7 @@ export function registerEditorCommands(workspace: Target): () => void {
   const readCursorBlame = inEditor(workspace, readBlame);
   const showChange = inEditor(workspace, showChangeAtCursor);
   const unregister = [
+    registerEditorContext(workspace),
     registerCommand({
       id: "editor.toggle",
       title: "Toggle editing the open file",

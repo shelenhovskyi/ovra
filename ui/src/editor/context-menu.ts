@@ -4,6 +4,7 @@
 import { selectAll } from "@codemirror/commands";
 import type { EditorView } from "@codemirror/view";
 import { commandItem, type MenuEntry } from "../menu/context-menu.svelte";
+import { askAbout } from "./agent-context";
 import { canRun } from "./lsp/actions";
 import { REPLACE_KEYS, runSearch } from "./search";
 
@@ -76,6 +77,9 @@ export function editorMenu(view: EditorView, root: string | null, path: string, 
     canRun(view, "references") && commandItem("editor.lsp_references", "Find references"),
     canRun(view, "rename") && !state.readOnly && commandItem("editor.lsp_rename", "Rename symbol"),
     canRun(view, "format") && !state.readOnly && commandItem("editor.lsp_format", "Format document"),
+    "separator",
+    // The selection, else the problem at the cursor, else the file.
+    { label: "Ask agent", run: () => askAbout(view, path) },
     "separator",
     ...pathEntries(root, path),
   ];
