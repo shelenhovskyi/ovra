@@ -540,6 +540,46 @@ describe("AgentsPanel", () => {
     expect(target.querySelectorAll("[data-testid=board-entry]")).toHaveLength(4);
   });
 
+  it("marks files two workers claim or change on the Board tab and lists who changes what", async () => {
+    const core = new FakeAgentCore();
+    core.addSession("p1", "Rename the flag", { state: "idle" });
+    for (const name of ["docs", "lint"]) core.addSession("p1", `${name} work`, { state: "idle" });
+    core.tasks.push({
+      id: "t1",
+      project: "p1",
+      coordinator: "s1",
+      workers: ["s2", "s3"].map((session, n) => ({
+        session,
+        name: n === 0 ? "docs" : "lint",
+        branch: `ovra/t1/${n}`,
+        worktree: `/wt/${n}`,
+        kept: null,
+      })),
+      limits: { max_workers: 3, budget_micro_usd: null },
+      spent_micro_usd: 0,
+    });
+    core.boards.set("t1", [
+      {
+        id: "b1",
+        author: { kind: "worker", name: "lint" },
+        body: { kind: "claim", worker: "lint", paths: ["src/**"], note: "" },
+      },
+    ]);
+    core.reviews = [{ ...review("s2", [file("src/flag.ts", "agent"), file("README.md", "agent")]), mode: "isolated" }];
+    await setup(core);
+    target.querySelector<HTMLButtonElement>(".sessions .row-button")?.click();
+    await settle();
+    expect(target.querySelector("[data-testid=agent-board-tab]")?.textContent).toBe("Board · 1 overlap");
+    target.querySelector<HTMLButtonElement>("[data-testid=agent-board-tab]")?.click();
+    await settle();
+    expect(target.querySelector<HTMLDetailsElement>("[data-testid=board-who]")?.open).toBe(true);
+    expect(
+      [...target.querySelectorAll("[data-testid=board-who-row]")].map((e) =>
+        e.textContent?.replace(/\s+/g, " ").trim(),
+      ),
+    ).toEqual(["src/flag.ts lint claims it · docs changed it · Overlap", "README.md docs changed it"]);
+  });
+
   it("answers a question with options in one tap and marks the recommended one", async () => {
     const core = new FakeAgentCore();
     core.addSession("p1", "Rename the flag", { state: "idle" });

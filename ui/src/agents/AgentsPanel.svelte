@@ -20,6 +20,7 @@ import { tick, untrack } from "svelte";
 import { describeTool } from "../approvals/describe";
 import { approvalQueue } from "../approvals/queue.svelte";
 import Board from "../board/Board.svelte";
+import { type WorkerChanges, whoChanges } from "../board/describe";
 import { taskBoards } from "../board/boards.svelte";
 import { sessionBrowsers } from "../browser/browser.svelte";
 import { browserPicks, pickLabel } from "../browser/picks.svelte";
@@ -128,6 +129,18 @@ const currentTask = $derived.by(() => {
   const role = current ? sessions.roles.get(current.id) : undefined;
   return role?.kind === "coordinator" ? role.task : null;
 });
+/** What each worker of the open task changed, for the board's "Who changes what". */
+const taskChanges = $derived.by((): WorkerChanges[] => {
+  if (!current || !currentTask) return [];
+  return sessions.workers(current.id).map((id) => ({
+    worker: workerName(id) ?? id,
+    paths: sessions.changes(id).flatMap((f) => (f.from ? [f.path, f.from] : [f.path])),
+  }));
+});
+/** Files two workers of the open task claim or change: the Board tab says so. */
+const taskOverlaps = $derived(
+  currentTask ? whoChanges(boards.entries.get(currentTask) ?? [], taskChanges).filter((r) => r.overlap).length : 0,
+);
 /** A task shows its conversation or its board; a task opens on its conversation. */
 let tab = $state<"talk" | "board">("talk");
 /** The open session's id: unlike `current`, it changes only when another session opens. */
@@ -1280,12 +1293,17 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
             aria-controls="task-panel-board"
             tabindex={tab === "board" ? 0 : -1}
             data-testid="agent-board-tab"
-            onclick={() => (tab = "board")}>Board{questions > 0 ? ` (${questions})` : ""}</button
+            onclick={() => (tab = "board")}
+            >Board{questions > 0 ? ` (${questions})` : ""}{#if taskOverlaps > 0}<span
+                class="overlap-mark"
+                data-testid="agent-board-overlap"
+              >{` · ${taskOverlaps === 1 ? "1 overlap" : `${taskOverlaps} overlaps`}`}</span
+              >{/if}</button
           >
         </div>
       {/if}
       {#if currentTask && tab === "board"}
-        <Board task={currentTask} id="task-panel-board" labelledby="task-tab-board" />
+        <Board task={currentTask} id="task-panel-board" labelledby="task-tab-board" changes={taskChanges} />
       {:else}
       <div
         class="talk"
@@ -1810,6 +1828,9 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
     display: flex;
     gap: 2px;
     padding: 0 16px 6px;
+  }
+  .overlap-mark {
+    color: var(--warn);
   }
   .tabs button {
     height: 24px;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ReviewCheck } from "../lib/protocol";
+import type { ReviewCheck, ReviewItem } from "../lib/protocol";
 import {
   approveDetail,
   approveHint,
@@ -11,6 +11,7 @@ import {
   gitWarning,
   itemSummary,
   itemTitle,
+  keepFirst,
   keptFirst,
   notCopiedHint,
   plainLog,
@@ -228,6 +229,23 @@ describe("inbox wording", () => {
       "b also changed x. Only the version you keep first is copied; a later one that differs is left for you to choose, and one that is the same counts as copied.",
     );
     expect(itemSummary(a)).toBe("3 files, 1 changed outside the agent's file tools");
+  });
+
+  it("suggests keeping first the worker that changes the most lines in the shared files", () => {
+    const isolated = "isolated" as const;
+    const big = review("big", { mode: isolated, files: [change("x", { additions: 40 }), change("y")] });
+    const small = review("small", { mode: isolated, files: [change("x"), change("y", { additions: 9 })] });
+    const items = [big, small];
+    const name = (o: ReviewItem) => `${o.id} · task`;
+    expect(sharedHint(big, items, name)).toContain(
+      "Keep this one first: it changes the most lines in these files, so less is left for you to choose.",
+    );
+    expect(sharedHint(small, items, name)).toContain("Keep big first: it changes the most lines in these files");
+    // Lines outside the shared files do not count; a tie leaves the order to the person.
+    const even = review("even", { mode: isolated, files: [change("x"), change("z", { additions: 99 })] });
+    const other = review("other", { mode: isolated, files: [change("x")] });
+    expect(keepFirst([even, other], new Set(["x"]))).toBeNull();
+    expect(sharedHint(even, [even, other], name)).not.toContain("Keep");
   });
 
   it("says once a worker's version of a shared file is kept, instead of the shared marker", () => {

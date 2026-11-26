@@ -159,7 +159,29 @@ export function sharedHint(
   const who = others.map((o) => workerName(nameOf(o)));
   const names = who.length > 1 ? `${who.slice(0, -1).join(", ")} and ${who.at(-1)}` : (who[0] ?? "");
   const files = [...shared].join(", ");
-  return `${names} also changed ${files}. Only the version you keep first is copied; a later one that differs is left for you to choose, and one that is the same counts as copied.`;
+  const first = keepFirst([item, ...others], shared);
+  const order =
+    first === item
+      ? ` Keep this one first: it changes the most lines in ${shared.size === 1 ? "that file" : "these files"}, so less is left for you to choose.`
+      : first
+        ? ` Keep ${workerName(nameOf(first))} first: it changes the most lines in ${shared.size === 1 ? "that file" : "these files"}, so less is left for you to choose.`
+        : "";
+  return `${names} also changed ${files}. Only the version you keep first is copied; a later one that differs is left for you to choose, and one that is the same counts as copied.${order}`;
+}
+
+/**
+ * Which of open worker items that changed the same files to keep first: the
+ * one that changes the most lines in `shared`, so the smaller versions are
+ * the ones left for the person to choose. Null when two change as much:
+ * then the order is the person's.
+ */
+export function keepFirst(candidates: readonly ReviewItem[], shared: ReadonlySet<string>): ReviewItem | null {
+  const lines = (i: ReviewItem) =>
+    i.files
+      .filter((f) => f.by !== "outside" && shared.has(f.path))
+      .reduce((sum, f) => sum + f.additions + f.deletions, 0);
+  const [top, next] = [...candidates].sort((a, b) => lines(b) - lines(a));
+  return top && next && lines(top) > lines(next) ? top : null;
 }
 
 /**

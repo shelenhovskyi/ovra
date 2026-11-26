@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BoardEntry } from "../lib/protocol";
-import { authorName, entryHead, entryText, entryTime, held, summary } from "./describe";
+import { authorName, covers, entryHead, entryText, entryTime, held, summary, whoChanges, whoText } from "./describe";
 
 const lint = { kind: "worker", name: "lint" } as const;
 const entries: BoardEntry[] = [
@@ -42,5 +42,31 @@ describe("board entries in words", () => {
     expect(entryTime(at(new Date(2026, 10, 26, 9, 5)), now)).toBe("09:05");
     expect(entryTime(at(new Date(2026, 10, 25, 23, 59)), now)).toBe("Nov 25, 23:59");
     expect(entryTime(note, now)).toBe("");
+  });
+
+  it("matches claims as the core does", () => {
+    expect(covers("src/*.ts", "src/a.ts")).toBe(true);
+    expect(covers("src/*.ts", "src/x/a.ts")).toBe(false);
+    expect(covers("src/**", "src/x/a.ts")).toBe(true);
+    expect(covers("docs/", "docs")).toBe(true);
+    expect(covers("docs/", "docs/a.md")).toBe(true);
+    expect(covers("docs/", "docsx/a.md")).toBe(false);
+    expect(covers("a+b(1).md", "a+b(1).md")).toBe(true);
+    expect(covers("a.md", "aXmd")).toBe(false);
+  });
+
+  it("lists who changes what, where two workers meet first", () => {
+    const rows = whoChanges(entries, [
+      { worker: "docs", paths: ["src/b.ts", "docs/guide.md"] },
+      { worker: "lint", paths: ["src/c.ts"] },
+    ]);
+    expect(rows.map((r) => `${r.path}: ${whoText(r)}${r.overlap ? " (overlap)" : ""}`)).toEqual([
+      "src/b.ts: lint claims it · docs changed it (overlap)",
+      "docs/guide.md: docs claims it · docs changed it",
+      "src/c.ts: lint changed it",
+    ]);
+    // A claim no change falls under shows as itself.
+    expect(whoChanges(entries, []).map((r) => r.path)).toEqual(["docs/", "src/b.ts"]);
+    expect(summary(entries, 0, 1)).toBe("lint holds 1 path · docs holds 1 path · 1 file shared between workers");
   });
 });

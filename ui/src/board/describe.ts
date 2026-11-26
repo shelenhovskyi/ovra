@@ -66,10 +66,78 @@ export function held(entries: BoardEntry[]): Map<string, string[]> {
   return byWorker;
 }
 
-/** The board in one line: who holds what, and what waits on the person. */
-export function summary(entries: BoardEntry[], openForPerson: number): string {
-  if (entries.length === 0) return "Nothing on the board yet.";
+/** The files one worker changed, from its review item. */
+export type WorkerChanges = { worker: string; paths: string[] };
+
+/** One line of "Who changes what": a file, or a claimed path nobody changed yet. */
+export type WhoRow = {
+  path: string;
+  /** Workers whose claims cover it, the one that claimed first first. */
+  claims: string[];
+  /** Workers that changed it. */
+  changes: string[];
+  /** Two or more workers claim or change it. */
+  overlap: boolean;
+};
+
+/**
+ * File to workers, from the claims held now and the files workers changed:
+ * the rows where two workers meet first, then by path.
+ */
+export function whoChanges(entries: BoardEntry[], changes: WorkerChanges[]): WhoRow[] {
+  const holders = [...held(entries)].flatMap(([worker, patterns]) => patterns.map((pattern) => ({ worker, pattern })));
+  const rows = new Map<string, WhoRow>();
+  const row = (path: string): WhoRow => {
+    let found = rows.get(path);
+    if (!found) {
+      const claims = [...new Set(holders.filter((h) => covers(h.pattern, path)).map((h) => h.worker))];
+      found = { path, claims, changes: [], overlap: false };
+      rows.set(path, found);
+    }
+    return found;
+  };
+  for (const { worker, paths } of changes)
+    for (const path of paths) {
+      const r = row(path);
+      if (!r.changes.includes(worker)) r.changes.push(worker);
+    }
+  // A claim that covers no changed file shows as itself.
+  for (const { pattern } of holders) if (![...rows.keys()].some((path) => covers(pattern, path))) row(pattern);
+  for (const r of rows.values()) r.overlap = new Set([...r.claims, ...r.changes]).size > 1;
+  return [...rows.values()].sort((a, b) => Number(b.overlap) - Number(a.overlap) || a.path.localeCompare(b.path));
+}
+
+/** A row's workers in words: "lint claims it · docs changed it". */
+export function whoText(row: WhoRow): string {
+  const parts: string[] = [];
+  if (row.claims.length > 0) parts.push(`${names(row.claims)} ${row.claims.length === 1 ? "claims" : "claim"} it`);
+  if (row.changes.length > 0) parts.push(`${names(row.changes)} changed it`);
+  return parts.join(" · ");
+}
+
+function names(list: string[]): string {
+  return list.length > 1 ? `${list.slice(0, -1).join(", ")} and ${list.at(-1)}` : (list[0] ?? "");
+}
+
+/**
+ * Whether a claimed path covers `path`, as the core matches claims: `*`
+ * within a folder, `**` across folders, a trailing `/` for a whole folder.
+ */
+export function covers(pattern: string, path: string): boolean {
+  if (pattern.endsWith("/")) return path === pattern.slice(0, -1) || path.startsWith(pattern);
+  let source = "";
+  for (const part of pattern.split(/(\*+)/))
+    if (part.startsWith("**")) source += ".*";
+    else if (part === "*") source += "[^/]*";
+    else source += part.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^${source}$`, "s").test(path);
+}
+
+/** The board in one line: who holds what, what overlaps, and what waits on the person. */
+export function summary(entries: BoardEntry[], openForPerson: number, overlaps = 0): string {
+  if (entries.length === 0 && overlaps === 0) return "Nothing on the board yet.";
   const parts = [...held(entries)].map(([worker, paths]) => `${worker} holds ${count(paths.length, "path")}`);
+  if (overlaps > 0) parts.push(`${count(overlaps, "file")} shared between workers`);
   if (openForPerson > 0) parts.push(`${count(openForPerson, "question")} for you`);
   return parts.length > 0 ? parts.join(" · ") : count(entries.length, "entry", "entries");
 }

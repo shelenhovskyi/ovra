@@ -7,10 +7,27 @@ import type { EntryId, TaskId } from "../lib/protocol";
 import { CoreError } from "../lib/transport";
 import { useOvra } from "../shell/context";
 import { taskBoards } from "./boards.svelte";
-import { authorName, entryHead, entryText, entryTime, summary } from "./describe";
+import {
+  authorName,
+  entryHead,
+  entryText,
+  entryTime,
+  summary,
+  type WorkerChanges,
+  whoChanges,
+  whoText,
+} from "./describe";
 
-/** `id` and `labelledby`: the tab panel's own id and its tab's. */
-let { task, id, labelledby }: { task: TaskId; id?: string; labelledby?: string } = $props();
+/**
+ * `id` and `labelledby`: the tab panel's own id and its tab's. `changes`:
+ * the files each worker of the task changed, for "Who changes what".
+ */
+let {
+  task,
+  id,
+  labelledby,
+  changes = [],
+}: { task: TaskId; id?: string; labelledby?: string; changes?: WorkerChanges[] } = $props();
 
 const { transport } = useOvra();
 const boards = taskBoards(transport);
@@ -19,6 +36,8 @@ $effect(() => boards.watch(task));
 
 const entries = $derived(boards.entries.get(task) ?? []);
 const open = $derived(boards.openForPerson(task));
+const who = $derived(whoChanges(entries, changes));
+const overlaps = $derived(who.filter((row) => row.overlap).length);
 const answers = $state<Record<EntryId, string>>({});
 let note = $state("");
 let busy = $state(false);
@@ -72,7 +91,27 @@ function onEnter(event: KeyboardEvent, send: () => void): void {
   aria-labelledby={labelledby}
   data-testid="task-board"
 >
-  <p class="summary" data-testid="board-summary">{summary(entries, open.length)}</p>
+  <p class="summary" data-testid="board-summary">{summary(entries, open.length, overlaps)}</p>
+  {#if who.length > 0}
+    <!-- Open by itself while two workers meet on a file: that is what needs a look. -->
+    <details class="who-changes" open={overlaps > 0} data-testid="board-who">
+      <summary>Who changes what</summary>
+      <ul>
+        {#each who as row (row.path)}
+          <li class:overlap={row.overlap} data-testid="board-who-row">
+            <code>{row.path}</code>
+            <span>{whoText(row)}{#if row.overlap}<strong>{" · Overlap"}</strong>{/if}</span>
+          </li>
+        {/each}
+      </ul>
+      {#if overlaps > 0}
+        <p class="why">
+          Only one worker's version of a shared file can be kept as it is. Ovra refuses file edits by other workers to
+          a file a worker claimed; leave a note here to say who keeps which.
+        </p>
+      {/if}
+    </details>
+  {/if}
   {#each open as question (question.id)}
     <form
       class="ask"
@@ -198,6 +237,35 @@ function onEnter(event: KeyboardEvent, send: () => void): void {
   .why {
     font-size: 13px;
     color: var(--text-2);
+  }
+  .who-changes summary {
+    font-size: 13px;
+    color: var(--text-2);
+    cursor: pointer;
+  }
+  .who-changes ul {
+    list-style: none;
+    margin: 6px 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 13px;
+  }
+  .who-changes li {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 8px;
+    overflow-wrap: anywhere;
+  }
+  .who-changes li span {
+    color: var(--text-2);
+  }
+  .who-changes .overlap span {
+    color: var(--warn);
+  }
+  .who-changes strong {
+    font-weight: 500;
   }
   .entries {
     list-style: none;
