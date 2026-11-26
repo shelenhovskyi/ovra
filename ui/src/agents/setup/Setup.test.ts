@@ -527,6 +527,30 @@ describe("ProjectTrust", () => {
     expect(groups[1]?.querySelectorAll("li")).toHaveLength(7);
   });
 
+  it("keeps one line in an open task while the decision waits, and Review goes back to the card", async () => {
+    const core = new FakeAgentCore();
+    core.config = {
+      fingerprint: "f1",
+      items: [{ path: ".claude/settings.json", kind: "broad_allow_rules", entries: ["Bash(*)"] }],
+    };
+    core.addSession("p1", "Tidy up", { state: "working" });
+    await show(core);
+    [...target.querySelectorAll<HTMLButtonElement>(".sessions .row-button")]
+      .find((b) => b.querySelector(".title")?.textContent === "Tidy up")
+      ?.click();
+    await settle();
+    expect(trustCard()).toBeNull();
+    const line = () => target.querySelector<HTMLElement>("[data-testid=project-trust-line]");
+    expect(line()?.textContent?.replace(/\s+/g, " ").trim()).toBe(
+      "Project settings: not trusted, so Claude runs without them Review",
+    );
+    Element.prototype.scrollIntoView = vi.fn();
+    button(line(), "Review")?.click();
+    await settle();
+    expect(line()).toBeNull();
+    expect(trustCard()?.querySelector("#trust-details")).not.toBeNull();
+  });
+
   it("shows no card without Claude settings, until the review command asks for one", async () => {
     const core = new FakeAgentCore();
     const workspace = await show(core);

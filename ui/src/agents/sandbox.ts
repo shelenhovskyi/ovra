@@ -46,7 +46,9 @@ export function sandboxLine(
   switch (state.kind) {
     case "sandboxed": {
       const { name, network, gaps } = state.report;
-      const text = ["Sandboxed", gaps.length > 0 ? "gaps" : "", NETWORK_SHORT[network]].filter(Boolean).join(" · ");
+      const text = ["Sandboxed", gaps.length > 0 ? "some gaps (see Details)" : "", NETWORK_SHORT[network]]
+        .filter(Boolean)
+        .join(" · ");
       const more = `${ended ? "Ran" : "Runs"} in a sandbox (${name}), ${NETWORK[network]}.`;
       return { text, warning: network === "open", more };
     }

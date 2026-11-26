@@ -795,7 +795,7 @@ describe("AgentsPanel", () => {
       gaps: ["DNS lookups", "loopback services"],
     });
     await settle();
-    expect(line()?.textContent?.trim()).toBe("Sandboxed · gaps");
+    expect(line()?.textContent?.trim()).toBe("Sandboxed · some gaps (see Details)");
     expect(gaps()).toBe("Not covered: DNS lookups, loopback services.");
     core.status("s2", { state: "stopped" });
     await settle();
@@ -961,11 +961,12 @@ describe("AgentsPanel", () => {
     const button = (name: string) =>
       [...target.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === name);
     // Both say what they do before the press.
-    expect([button("Interrupt")?.title, button("Stop")?.title]).toEqual([
+    // One plain Stop is the safe one; both say what they do before the press.
+    expect([button("Stop")?.title, button("End task")?.title]).toEqual([
       "Stops this step; you can reply",
       "Ends the session",
     ]);
-    button("Interrupt")?.click();
+    button("Stop")?.click();
     await settle();
     expect(core.sent("agents.interrupt").map((c) => c.params)).toEqual([{ session: "s1" }]);
     type(target.querySelector("#agent-reply"), "and the docs");
@@ -974,16 +975,16 @@ describe("AgentsPanel", () => {
     core.status("s1", { state: "idle" });
     await settle();
     expect(send()?.disabled).toBe(false);
-    expect(button("Interrupt")).toBeUndefined();
-    // Done: nothing to stop; Close is there.
     expect(button("Stop")).toBeUndefined();
-    expect(button("Close")).toBeDefined();
+    // Done: nothing to stop; Close task is there and names the task.
+    expect(button("End task")).toBeUndefined();
+    expect(button("Close task")?.getAttribute("aria-label")).toBe("Close task Earlier task");
     modEnter();
     await settle();
     expect(core.sent("agents.send").map((c) => c.params)).toEqual([{ session: "s1", text: "and the docs" }]);
     core.status("s1", { state: "working" });
     await settle();
-    button("Stop")?.click();
+    button("End task")?.click();
     await settle();
     expect(core.sent("agents.stop")).toHaveLength(1);
     core.status("s1", { state: "failed", message: "claude exited with code 1" });
@@ -991,7 +992,7 @@ describe("AgentsPanel", () => {
     expect(panel()?.querySelector("[role=status]")?.textContent).toBe("Failed: claude exited with code 1");
     expect(target.querySelector("#agent-reply")).toBeNull();
     // Closed: off the list, in this browser for good; the core keeps it.
-    button("Close")?.click();
+    button("Close task")?.click();
     await settle();
     expect(panel()?.querySelector("[data-testid=agents-empty]")).not.toBeNull();
     expect(localStorage.getItem("ovra.agents.closed.p1")).toBe(JSON.stringify(["s1"]));
@@ -1362,8 +1363,10 @@ describe("@ context", () => {
     expect(field()?.getAttribute("aria-expanded")).toBe("true");
     key("Enter");
     await settle();
-    expect(field()?.value).toBe("Fix ");
+    // The name stays in the sentence; the chip is said.
+    expect(field()?.value).toBe("Fix lib.rs ");
     expect(chips()).toEqual(["lib.rs"]);
+    expect(target.querySelector(".ctx-said")?.textContent).toBe("Added lib.rs");
     expect(core.sent("agents.start")).toHaveLength(0);
     // What the box holds is not offered again; nothing that fits says so.
     type(field(), "Fix @lib.rs");
@@ -1380,6 +1383,15 @@ describe("@ context", () => {
     key("Escape");
     await settle();
     expect(options()).toEqual([]);
+    // Typing more of it opens the menu again, and Tab takes the match.
+    type(field(), "@src/ma");
+    await settle();
+    expect(options()[0]).toBe("main.rs");
+    key("Tab");
+    await settle();
+    expect(chips()).toEqual(["lib.rs", "main.rs"]);
+    target.querySelector<HTMLButtonElement>("[aria-label='Remove main.rs']")?.click();
+    await settle();
     type(field(), "Fix the parser");
     key("Enter");
     await settle();
@@ -1415,10 +1427,14 @@ describe("@ context", () => {
       await settle();
       expect(chips()).toEqual(["lib.rs", "shot.png"]);
     });
-    // A key pasted from elsewhere is copied into the project only after Copy anyway.
+    // The first copy says why the folder is in the project.
+    expect(target.querySelector("[data-testid=context-copied-note]")?.textContent).toContain("Git ignores the folder");
+    // A key pasted from elsewhere is copied into the project only after Copy
+    // anyway; a log pasted with it goes in at once.
     const key2 = new File(["k"], "id_ed25519");
+    const log = new File(["l"], "crash.log");
     const paste2 = new Event("paste", { bubbles: true, cancelable: true });
-    Object.defineProperty(paste2, "clipboardData", { value: { files: [key2], getData: () => "" } });
+    Object.defineProperty(paste2, "clipboardData", { value: { files: [key2, log], getData: () => "" } });
     core.contextNotes.set(".ovra-attachments/id_ed25519", "secret_file");
     field()?.dispatchEvent(paste2);
     await vi.waitFor(async () => {
@@ -1427,19 +1443,21 @@ describe("@ context", () => {
         "id_ed25519 may hold secrets",
       );
     });
-    expect(core.calls.filter((c) => c.method === "context.attach")).toHaveLength(1);
+    await vi.waitFor(() => expect(chips()).toEqual(["lib.rs", "shot.png", "crash.log"]));
+    expect(core.calls.filter((c) => c.method === "context.attach")).toHaveLength(2);
     [...target.querySelectorAll<HTMLButtonElement>("[data-testid=context-copy-ask] button")]
-      .find((b) => b.textContent === "Cancel")
+      .find((b) => b.textContent === "Skip id_ed25519")
       ?.click();
     await settle();
     expect(target.querySelector("[data-testid=context-copy-ask]")).toBeNull();
-    expect(core.calls.filter((c) => c.method === "context.attach")).toHaveLength(1);
+    expect(core.calls.filter((c) => c.method === "context.attach")).toHaveLength(2);
     type(field(), "What is wrong here?");
     key("Enter");
     await settle();
     expect(core.sent("agents.start")[0]?.params.context).toEqual([
       { kind: "file", path: "src/lib.rs", confirmed: false },
       { kind: "file", path: ".ovra-attachments/shot.png", confirmed: false },
+      { kind: "file", path: ".ovra-attachments/crash.log", confirmed: false },
     ]);
   });
 

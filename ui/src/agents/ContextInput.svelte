@@ -20,6 +20,7 @@ import {
   type Target,
   WARNINGS,
 } from "./context.svelte";
+import { hints } from "./hints.svelte";
 
 let {
   field,
@@ -46,8 +47,8 @@ const chips = $derived(drafts.of(target));
 const MAX_ROWS = 8;
 
 let at = $state<{ start: number; query: string } | null>(null);
-/** Where an `@` starts that the person closed with Escape: it stays text. */
-let dismissed = $state<number | null>(null);
+/** The `@query` the person closed with Escape: it stays text until they type more of it. */
+let dismissed = $state<{ start: number; query: string } | null>(null);
 let active = $state(0);
 let error = $state<string | null>(null);
 let files = $state<string[] | null>(null);
@@ -213,8 +214,14 @@ function message(err: unknown): string {
   return err instanceof CoreError ? err.error.message : err instanceof Error ? err.message : String(err);
 }
 
-/** Files from outside the project whose names look like secrets, waiting for Copy anyway. */
-let pendingCopy = $state<{ names: string[]; copy: () => Promise<string[]> } | null>(null);
+/**
+ * Files from outside the project whose names look like secrets, waiting for
+ * Copy anyway. `others` counts the files of the same drop that wait with
+ * them: a drop is copied as one.
+ */
+let pendingCopy = $state<{ names: string[]; others: number; copy: () => Promise<string[]> } | null>(null);
+/** A file was just copied into the attachments folder for the first time: say why it is there. */
+let copiedNote = $state(false);
 
 function addDrop(drop: WindowDrop): Promise<void> {
   let inside: string[] | null;
@@ -231,34 +238,62 @@ function addDrop(drop: WindowDrop): Promise<void> {
   return copyChecked(drop.paths, () => copyDrop(transport, project, drop));
 }
 
-function addFiles(files: File[]): Promise<void> {
-  return copyChecked(
-    files.map((file) => file.name || "pasted"),
-    () => attachFiles(transport, project, files),
-  );
+/** Pasted files are copied one by one: the safe ones go in at once, only the rest wait. */
+async function addFiles(files: File[]): Promise<void> {
+  const name = (file: File) => file.name || "pasted";
+  const risky = await riskyNames(files.map(name));
+  if (risky === null) return;
+  const safe = files.filter((file) => !risky.includes(name(file)));
+  const held = files.filter((file) => risky.includes(name(file)));
+  if (safe.length > 0) await addCopies(() => attachFiles(transport, project, safe));
+  if (held.length > 0)
+    pendingCopy = { names: held.map(name), others: 0, copy: () => attachFiles(transport, project, held) };
 }
 
-/** Copies into the project, after Copy anyway when a name looks like a secret: a copy is there for every agent. */
+/** Copies a drop into the project, after Copy anyway when a name looks like a secret: a copy is there for every agent. */
 async function copyChecked(names: string[], copy: () => Promise<string[]>): Promise<void> {
+  const risky = await riskyNames(names);
+  if (risky === null) return;
+  if (risky.length > 0) {
+    pendingCopy = { names: risky, others: names.length - risky.length, copy };
+    return;
+  }
+  await addCopies(copy);
+}
+
+/** The names that look like secrets; null when the check failed (and says so). */
+async function riskyNames(names: string[]): Promise<string[] | null> {
   error = null;
   pendingCopy = null;
   try {
-    const risky = await secretLooking(transport, project, names);
-    if (risky.length > 0) {
-      pendingCopy = { names: risky, copy };
-      return;
-    }
+    return await secretLooking(transport, project, names);
   } catch (err) {
     error = message(err);
-    return;
+    return null;
   }
-  await addPaths(copy);
+}
+
+/** Adds copies as chips; the first time, says why the attachments folder is in the project. */
+async function addCopies(copy: () => Promise<string[]>): Promise<void> {
+  await addPaths(async () => {
+    const paths = await copy();
+    if (paths.length > 0 && !hints.has("attached")) {
+      copiedNote = true;
+      hints.mark("attached");
+    }
+    return paths;
+  });
 }
 
 function copyAnyway(): void {
   const waiting = pendingCopy;
   pendingCopy = null;
-  if (waiting) void addPaths(waiting.copy);
+  if (waiting) void addCopies(waiting.copy);
+}
+
+/** "Copy .env anyway" for one name; "Copy them anyway" for several or a whole drop. */
+function askNames(ask: { names: string[]; others: number }): string {
+  return ask.names.length === 1 && ask.others === 0 ? (ask.names[0] ?? "") : "them";
 }
 
 /** Adds the project paths `get` resolves to as chips; says what failed. */
@@ -278,11 +313,12 @@ async function addPaths(get: () => Promise<string[]>): Promise<void> {
 export function refresh(): void {
   const box = field;
   const found = box ? atQuery(value, box.selectionStart ?? value.length) : null;
-  if (found && found.start === dismissed) {
+  if (found && found.start === dismissed?.start && found.query === dismissed.query) {
     at = null;
     return;
   }
-  if (dismissed !== null && (!found || found.start !== dismissed)) dismissed = null;
+  // Moving away from the closed `@query`, or typing more of it, opens the menu again.
+  if (dismissed !== null) dismissed = null;
   if (found?.start !== at?.start || found?.query !== at?.query) active = 0;
   at = found;
   if (found && box) {
@@ -333,7 +369,7 @@ export function keydown(event: KeyboardEvent): boolean {
         return take();
       }
       case "Escape":
-        dismissed = at.start;
+        dismissed = { start: at.start, query: at.query };
         at = null;
         event.stopPropagation();
         return take();
@@ -361,17 +397,24 @@ function sendAnyway(key: string): void {
   field?.focus();
 }
 
+/** Adds the chosen item as a chip; its name takes the typed `@query`'s place, so the sentence still reads. */
 function choose(option: Suggestion): void {
   const typed = at;
   if (!typed) return;
-  value = value.slice(0, typed.start) + value.slice(typed.start + 1 + typed.query.length);
+  const rest = value.slice(typed.start + 1 + typed.query.length);
+  const name = /^\s/.test(rest) ? option.label : `${option.label} `;
+  value = value.slice(0, typed.start) + name + rest;
   at = null;
   error = null;
   const box = field;
-  queueMicrotask(() => box?.setSelectionRange(typed.start, typed.start));
-  drafts.add(project, target, option.what).catch((err: unknown) => {
-    error = err instanceof CoreError ? err.error.message : String(err);
-  });
+  const caret = typed.start + name.length;
+  queueMicrotask(() => box?.setSelectionRange(caret, caret));
+  drafts.add(project, target, option.what).then(
+    () => (said = `Added ${option.label}`),
+    (err: unknown) => {
+      error = err instanceof CoreError ? err.error.message : String(err);
+    },
+  );
 }
 </script>
 
@@ -413,10 +456,16 @@ function choose(option: Suggestion): void {
   <p class="ctx-drop" data-testid="context-drop">Drop to add to the message</p>
 {/if}
 {#if pendingCopy}
+  {@const them = askNames(pendingCopy)}
   <p class="ctx-ask" role="alert" data-testid="context-copy-ask">
-    <span>{pendingCopy.names.join(", ")} may hold secrets. A copy in the project can be read by every agent.</span>
-    <button type="button" class="include" onclick={copyAnyway}>Copy anyway</button>
-    <button type="button" onclick={() => (pendingCopy = null)}>Cancel</button>
+    <span
+      >{pendingCopy.names.join(", ")} may hold secrets. A copy in the project can be read by every agent.{#if pendingCopy.others > 0}
+        The drop goes in as one, so skipping leaves out its {pendingCopy.others} other {pendingCopy.others === 1
+          ? "file"
+          : "files"} too.{/if}</span
+    >
+    <button type="button" class="include" onclick={copyAnyway}>Copy {them} anyway</button>
+    <button type="button" onclick={() => (pendingCopy = null)}>Skip {them}</button>
   </p>
 {/if}
 {#if chips.length > 0}
@@ -448,6 +497,11 @@ function choose(option: Suggestion): void {
       </li>
     {/each}
   </ul>
+{/if}
+{#if copiedNote && chips.some((chip) => chip.title.startsWith(".ovra-attachments/"))}
+  <p class="ctx-note" data-testid="context-copied-note">
+    Copied into the project's .ovra-attachments folder so the agent can read it. Git ignores the folder.
+  </p>
 {/if}
 {#if error}
   <p class="ctx-error" role="alert">{error}</p>
@@ -599,6 +653,11 @@ function choose(option: Suggestion): void {
   }
   :global(form[data-file-over]) {
     box-shadow: inset 0 0 0 2px var(--accent);
+  }
+  .ctx-note {
+    margin: 0;
+    font-size: 12px;
+    color: var(--text-2);
   }
   .ctx-error {
     margin: 0;

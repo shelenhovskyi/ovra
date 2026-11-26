@@ -24,15 +24,17 @@ adds one menu and compact chips, and nothing more.
     What the box holds already is left out. When nothing fits, the menu says
     "No matches" and Enter sends the message as typed. A full-width `＠`
     opens it too.
-- Up/Down move, Enter or Tab adds, Escape closes and keeps the typed `@`;
+- Up/Down move, Enter or Tab adds, Escape closes and keeps the typed `@`
+  (typing more of it opens the menu again);
   the menu follows the caret and closes when the field loses focus.
   Ctrl/Cmd+Enter never chooses an item.
-  Choosing an item removes the typed `@query` and adds a **chip** under the
+  Choosing an item puts its short name in place of the typed `@query`, so
+  the sentence still reads, and adds a **chip** under the
   field: an icon and a short name (`lib.rs`, `src/`, `lib.rs:12-18`,
   the terminal's title, `Screenshot`). The tooltip has the full name and, for
   text items, the first lines that will be sent. × removes it; so does
   Backspace in an empty field (last chip; a held Backspace takes only one),
-  and the removal is announced to screen readers. Focus returns to the field.
+  and adding or removing one is announced to screen readers. Focus returns to the field.
 - **Ask agent** (editor menu, the problem's hover card, a Problems row,
   the terminal menu with a selection) adds the selection, the problem or the terminal
   selection as a chip to the Agents panel's open box (the reply box of the

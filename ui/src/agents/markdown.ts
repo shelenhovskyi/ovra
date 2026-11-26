@@ -45,14 +45,33 @@ const ATTRS: Record<string, readonly string[]> = {
 
 /** Renders an agent's Markdown `text` to sanitized HTML. */
 export function renderChat(text: string): string {
-  const html = micromark(text, { extensions: [gfm()], htmlExtensions: [gfmHtml()] });
+  const html = micromark(text, {
+    extensions: [gfm()],
+    htmlExtensions: [gfmHtml()],
+  });
   const doc = new DOMParser().parseFromString(`<body>${html}</body>`, "text/html");
   for (const img of doc.body.querySelectorAll("img")) {
     const alt = img.getAttribute("alt") ?? "";
     img.replaceWith(alt ? `[${alt}]` : "");
   }
   clean(doc.body);
+  nestHeadings(doc.body);
   return doc.body.innerHTML;
+}
+
+/**
+ * The agent's headings sit under the task's own (an h3), so they never
+ * join the page outline at the app's levels: `#` becomes an h4, `##` an h5,
+ * the rest h6. A class keeps how big each one looks.
+ */
+function nestHeadings(body: HTMLElement): void {
+  for (const old of body.querySelectorAll("h1, h2, h3, h4, h5, h6")) {
+    const level = Number(old.localName.slice(1));
+    const heading = old.ownerDocument.createElement(`h${Math.min(level + 3, 6)}`);
+    heading.className = `md-h${level}`;
+    heading.append(...old.childNodes);
+    old.replaceWith(heading);
+  }
 }
 
 /** The words of an agent's Markdown `text`, without its marks: what a screen reader says. */

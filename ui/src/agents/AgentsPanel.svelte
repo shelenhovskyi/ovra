@@ -436,6 +436,15 @@ async function answer(id: SessionId): Promise<void> {
     ?.run();
 }
 
+/** Back to the task list, where the trust card opens its lists. */
+async function reviewTrust(): Promise<void> {
+  open(null);
+  await tick();
+  await listCommands()
+    .find((c) => c.id === "projects.review_trust")
+    ?.run();
+}
+
 /** Opens Reviews on a task's changes: a task's all its workers', a session's its own. */
 function reviewOf(id: SessionId): void {
   openReviews(sessions.roles.get(id)?.kind === "coordinator" ? sessions.workers(id) : [id]);
@@ -1115,7 +1124,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
               class="quiet"
               disabled={busy}
               title="Stops this step; you can reply"
-              onclick={() => interrupt(current.id)}>Interrupt</button
+              onclick={() => interrupt(current.id)}>Stop</button
             >
           {/if}
           {#if stoppable}
@@ -1128,7 +1137,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
                 : current.status.state === "queued"
                   ? "Takes it out of line; it never starts"
                   : "Ends the session"}
-              onclick={() => stop(current.id)}>{current.status.state === "queued" ? "Cancel" : "Stop"}</button
+              onclick={() => stop(current.id)}>{current.status.state === "queued" ? "Cancel" : "End task"}</button
             >
           {/if}
           {#if closable(current)}
@@ -1136,8 +1145,9 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
               type="button"
               class="quiet"
               disabled={busy}
-              title="Hide it from the list; its record stays on this computer"
-              onclick={() => close(current.id)}>Close</button
+              aria-label="Close task {sessions.name(current.id)}"
+              title="Hides it from the list and frees its folder for a new task; its record stays on this computer"
+              onclick={() => close(current.id)}>Close task</button
             >
           {/if}
         </span>
@@ -1157,6 +1167,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
               {accounts.list.length > 1 ? `${accounts.name(current.account)} · ` : ""}{billedShort(current.billing)}
             </p>
           {/if}
+          <ProjectTrust line onreview={reviewTrust} />
           <div class="meta-row">
             {#if sandbox}
               <!-- One line, never hidden; what the sandbox covers, and what not, is under Details. -->
@@ -1523,6 +1534,9 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
         ready={usable !== undefined}
         started={list.length > 0}
         ask={asking ? () => asking && answer(asking.id) : undefined}
+        asks={list.filter((s) => chip(s)?.tone === "warn").length}
+        shown={approvals.pending.length > 0}
+        compact={list.length > 1}
         review={reviewable ? () => reviewable && reviewOf(reviewable.id) : undefined}
         {ended}
       />

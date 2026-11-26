@@ -59,7 +59,7 @@ describe("sandbox words", () => {
     expect(sandboxGaps(boxed, false)).toBe("Not covered: DNS lookups, loopback services, shared folders.");
     expect(sandboxGaps(boxed, true)).toBe("Did not cover: DNS lookups, loopback services, shared folders.");
     // The line only says there are gaps; the list is under Details.
-    expect(sandboxLine(boxed, false)?.text).toBe("Sandboxed · gaps");
+    expect(sandboxLine(boxed, false)?.text).toBe("Sandboxed · some gaps (see Details)");
     const tight = sandboxState(info({ sandbox: { name: "x", network: "proxy", gaps: [] }, sandbox_reported: true }));
     expect(sandboxGaps(tight, false)).toBeNull();
     expect(sandboxGaps({ kind: "none" }, false)).toBeNull();

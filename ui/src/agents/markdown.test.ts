@@ -3,7 +3,9 @@ import { plainChat, renderChat } from "./markdown";
 
 it("shows lists, emphasis, code and headings", () => {
   const html = renderChat("## Plan\n\n- **one** and `two`\n- _three_\n\n```rust\nfn main() {}\n```");
-  expect(html).toContain("<h2>Plan</h2>");
+  // Headings sit under the task's h3 in the page outline.
+  expect(html).toContain('<h5 class="md-h2">Plan</h5>');
+  expect(renderChat("# A\n\n### B")).toBe('<h4 class="md-h1">A</h4>\n<h6 class="md-h3">B</h6>');
   expect(html).toContain("<li><strong>one</strong> and <code>two</code></li>");
   expect(html).toContain("<em>three</em>");
   expect(html).toContain('<pre><code class="language-rust">fn main() {}\n</code></pre>');

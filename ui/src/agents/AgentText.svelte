@@ -92,10 +92,10 @@ function onclick(event: MouseEvent): void {
     font-size: 14px;
     font-weight: 600;
   }
-  .md :global(h1) {
+  .md :global(.md-h1) {
     font-size: 16px;
   }
-  .md :global(h2) {
+  .md :global(.md-h2) {
     font-size: 15px;
   }
   .md :global(a) {

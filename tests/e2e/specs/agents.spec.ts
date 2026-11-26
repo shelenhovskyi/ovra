@@ -145,7 +145,7 @@ test("a working agent's text streams in under a live row until the turn ends", a
   await page.clock.fastForward(3000);
   await expect(live).toHaveText(/Writing\s*· 3s/);
 
-  await page.getByTestId("agent-session").getByRole("button", { name: "Interrupt" }).click();
+  await page.getByTestId("agent-session").getByRole("button", { name: "Stop", exact: true }).click();
   await expect(page.getByTestId("agent-session").getByRole("status")).toHaveText("Done");
   await expect(live).toHaveCount(0);
   await expect(transcript.getByTestId("streaming-text")).toHaveCount(0);
@@ -261,7 +261,7 @@ test("reply to an agent, allow with the mouse and stop it while it waits", async
   await expect(session.getByRole("status")).toHaveText("Needs approval");
 
   // Stopping denies what the agent still waits for.
-  await session.getByRole("button", { name: "Stop" }).click();
+  await session.getByRole("button", { name: "End task" }).click();
   await expect(session.getByRole("status")).toHaveText("Stopped");
   await expect(status).toBeHidden();
   await expect(session.getByRole("textbox", { name: "Reply" })).toBeHidden();
@@ -527,7 +527,7 @@ test("add a file with @ and send it with the task", async ({ page }) => {
   const option = page.getByTestId("context-menu").getByRole("option", { name: /README\.md/ });
   await expect(option.first()).toBeVisible();
   await page.keyboard.press("Enter");
-  await expect(field).toHaveValue("Fix the typo in ");
+  await expect(field).toHaveValue("Fix the typo in README.md ");
   await expect(page.getByTestId("context-chip")).toHaveText(/README\.md/);
   await page.keyboard.press("Enter");
 
@@ -537,7 +537,7 @@ test("add a file with @ and send it with the task", async ({ page }) => {
   await expect(sent).toBeVisible();
   await sent.locator("summary").click();
   await expect(sent).toContainText("File: `README.md`");
-  await session.getByRole("button", { name: "Stop" }).click();
+  await session.getByRole("button", { name: "End task" }).click();
   await expect(session.getByRole("status")).toHaveText("Stopped");
 });
 
@@ -558,7 +558,7 @@ test("keep the computer awake while an agent works", async ({ page }) => {
   await expect(page.getByTestId("keep-awake-tip")).toContainText("Keeping the computer awake");
 
   const session = page.getByTestId("agent-session");
-  await session.getByRole("button", { name: "Stop" }).click();
+  await session.getByRole("button", { name: "End task" }).click();
   await expect(session.getByRole("status")).toHaveText("Stopped");
   await expect(awake).not.toHaveClass(held);
   await expect(awake).toHaveAttribute("aria-pressed", "true");
@@ -684,7 +684,7 @@ test("a worker is prepared, its setup fails, and Start anyway starts it", async 
 
   // Stopping the task stops the workers still waiting on their setup.
   await agents.locator(".row-button", { hasText: "Write the notes" }).first().click();
-  await page.getByTestId("agent-session").getByRole("button", { name: "Stop" }).click();
+  await page.getByTestId("agent-session").getByRole("button", { name: "End task" }).click();
   await agents.getByRole("button", { name: "Tasks" }).click();
   await expect(docs).toBeVisible();
   await expect(agents.getByTestId("worker-setup")).toHaveCount(0);

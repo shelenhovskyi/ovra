@@ -82,8 +82,8 @@ test("a recorded Claude session runs through the real driver", async ({ page }) 
   await expect(transcript).toContainText(/Claude\s*Done\./);
   await expect(session.getByRole("status")).toHaveText("Done");
 
-  // A Done session shows no Stop button; the palette still stops it.
-  await expect(session.getByRole("button", { name: "Stop" })).toHaveCount(0);
+  // A Done session shows no End task button; the palette still stops it.
+  await expect(session.getByRole("button", { name: "End task" })).toHaveCount(0);
   await stop(page);
 });
 
@@ -94,7 +94,7 @@ test("an interrupted turn says the person stopped it, and the session goes on", 
   );
   await allow(page, /^Run ping -c 120 127\.0\.0\.1$/);
   const session = page.getByTestId("agent-session");
-  await session.getByRole("button", { name: "Interrupt" }).click();
+  await session.getByRole("button", { name: "Stop", exact: true }).click();
 
   const transcript = page.getByTestId("transcript");
   await expect(transcript).toContainText("You interrupted this turn.");

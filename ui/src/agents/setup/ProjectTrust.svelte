@@ -30,6 +30,16 @@ import {
   weight,
 } from "./texts";
 
+let {
+  line = false,
+  onreview,
+}: {
+  /** One line for an open task: the settings wait for a decision, with Review. */
+  line?: boolean;
+  /** Review on the line: the full card is in the task list. */
+  onreview?: () => void;
+} = $props();
+
 /** Entries shown per file before "+N more". */
 const SHOWN = 5;
 
@@ -116,8 +126,9 @@ const deciding = $derived(changed || project?.trusted !== true);
 const warningCount = $derived([risk.broad, risk.code, risk.env, risk.unreadable].filter(Boolean).length);
 
 // The language servers' footer links here: trusting is what starts them.
-$effect(() =>
-  registerCommand({
+$effect(() => {
+  if (line) return;
+  return registerCommand({
     id: "projects.review_trust",
     title: "Review and trust this project",
     run: async () => {
@@ -129,8 +140,8 @@ $effect(() =>
       section?.querySelector<HTMLElement>("#trust-heading")?.focus();
       rearm();
     },
-  }),
-);
+  });
+});
 
 /** Opens or closes the lists; opened, they are scrolled into view. */
 async function toggleLists(): Promise<void> {
@@ -257,8 +268,18 @@ async function onkeydown(event: KeyboardEvent): Promise<void> {
 }
 </script>
 
-<!-- No settings of its own: nothing to trust here until someone asks (the command). -->
-{#if project && (review || error) && !(empty && !details)}
+{#if line}
+  <!-- While a task is open the card is in the list: one line says the decision still waits. -->
+  {#if project && review && deciding && !empty}
+    <p class="trust-line" data-testid="project-trust-line">
+      <Icon name="shield-alert" small /><span
+        >Project settings: {changed ? "changed, not trusted" : "not trusted"}, so Claude runs without them</span
+      >
+      <button type="button" class="link" onclick={onreview}>Review</button>
+    </p>
+  {/if}
+  <!-- No settings of its own: nothing to trust here until someone asks (the command). -->
+{:else if project && (review || error) && !(empty && !details)}
   <!-- Escape from any of its controls folds the details. -->
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <section
@@ -628,6 +649,17 @@ async function onkeydown(event: KeyboardEvent): Promise<void> {
     .trust.changed {
       border: 2px solid Highlight;
     }
+  }
+  .trust-line {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+    font-size: 12px;
+    color: var(--text-2);
+  }
+  .trust-line span {
+    min-width: 0;
   }
 </style>
 

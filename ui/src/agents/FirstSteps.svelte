@@ -14,6 +14,9 @@ let {
   ask,
   review,
   ended,
+  asks = 1,
+  shown = false,
+  compact = false,
 }: {
   /** The provider's display name, such as `Claude`. */
   agent: string;
@@ -25,6 +28,12 @@ let {
   review?: (() => void) | undefined;
   /** Opens a task that ended with nothing to review: its answer, or why it failed. */
   ended?: { failed: boolean; open: () => void } | undefined;
+  /** How many tasks ask the person something. */
+  asks?: number;
+  /** The requests are on screen already (the approvals card above): no need for Open. */
+  shown?: boolean;
+  /** Several tasks run: only the step to do next shows, so the list keeps the room. */
+  compact?: boolean;
 } = $props();
 
 /** The card goes away: focus moves on to the task box under it, not to the page. */
@@ -42,7 +51,12 @@ function read(open: () => void): void {
 const isStarted = $derived(started || hints.has("started"));
 /** The third step's line and button: what to do now, or what to wait for. */
 const check = $derived.by((): { detail: string; action?: { label: string; run: () => void } } => {
-  if (ask) return { detail: `${agent} asks you something.`, action: { label: "Open", run: ask } };
+  if (ask && shown) return { detail: asks > 1 ? `Answer the ${asks} requests above.` : "Answer the request above." };
+  if (ask)
+    return {
+      detail: asks > 1 ? `${asks} tasks ask you something.` : `${agent} asks you something.`,
+      action: { label: "Open", run: ask },
+    };
   if (review) return { detail: "Its changes are ready.", action: { label: "Review", run: review } };
   if (ended?.failed)
     return { detail: "The task stopped with an error.", action: { label: "Open", run: () => read(ended.open) } };
@@ -71,6 +85,7 @@ const next = $derived(steps.findIndex((s) => !s.done));
     </div>
     <ol>
       {#each steps as step, n (step.text)}
+        {#if !compact || n === next}
         <li class:done={step.done} class:next={n === next} aria-current={n === next ? "step" : undefined}>
           <span class="mark" aria-hidden="true">{#if step.done}<Icon name="check" small />{:else}{n + 1}{/if}</span>
           <span class="text">
@@ -82,6 +97,7 @@ const next = $derived(steps.findIndex((s) => !s.done));
             <button type="button" class="act" onclick={step.action.run}>{step.action.label}</button>
           {/if}
         </li>
+        {/if}
       {/each}
     </ol>
   </section>

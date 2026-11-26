@@ -12,6 +12,8 @@ export type Hint =
   | "reviewed"
   /** Saw the "Done · Changed …" line. */
   | "done_line"
+  /** Was told why pasted files are copied into the project. */
+  | "attached"
   /** Closed the first steps. */
   | "steps_hidden";
 
