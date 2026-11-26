@@ -3594,6 +3594,7 @@ version = "0.1.0"
 dependencies = [
  "insta",
  "ovra-core",
+ "rustix",
  "serde_json",
  "tempfile",
  "tokio",

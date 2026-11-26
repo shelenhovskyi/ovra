@@ -405,6 +405,15 @@ async fn view_and_failed_log_ask_for_exactly_what_they_read() {
     );
     assert_eq!(fake.calls(), [vec!["run", "view", "9", "--log-failed"]]);
 
+    // The 32 KiB cut falls inside the URL's user part.
+    let wide = format!(
+        "https://user:secret@h.example {}",
+        "z".repeat(32 * 1024 - 15)
+    );
+    fake.write("out", &wide);
+    let tail = ok(fake.forge(false).failed_log(dir.path().into(), 9).await);
+    assert!(!tail.contains("cret") && tail.ends_with('z'), "{tail:.40}");
+
     fake.write("code", "1");
     fake.write("out", "");
     let failed = fake.forge(false).failed_log(dir.path().into(), 9).await;

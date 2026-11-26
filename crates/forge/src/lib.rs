@@ -236,7 +236,8 @@ impl GhForge {
         if !log.success {
             return Err(failed("gh run view", &log));
         }
-        Ok(parse::scrub(parse::log_tail(&log.stdout)))
+        // Scrubbed whole: a cut inside a URL would hide its `://`.
+        Ok(parse::log_tail(&parse::scrub(&log.stdout)).to_owned())
     }
 }
 
