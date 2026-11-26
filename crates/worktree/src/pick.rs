@@ -27,7 +27,7 @@ pub(crate) fn pick(
     let base = git::commit_id(root, base)?;
     let start = git::commit_id(root, start)?;
     let reviewed = git::commit_id(root, reviewed)?;
-    let out = Git::new(root, "merge-tree")
+    let out = Git::without_hooks(root, "merge-tree")
         .args(["--write-tree", "-z", "--name-only", "--no-messages"])
         .arg(format!("--merge-base={start}"))
         .args([&base, &reviewed])
@@ -46,7 +46,7 @@ pub(crate) fn pick(
         let stderr = String::from_utf8_lossy(&out.stderr);
         return Err(internal(format!("git merge-tree: {}", stderr.trim())));
     };
-    let mut commit = Git::new(root, "commit-tree")
+    let mut commit = Git::without_hooks(root, "commit-tree")
         .args([&tree, "-p", &base, "-F", "-"])
         .input(message);
     // Plumbing ignores `commit.gpgsign`; git signs with the configured key
@@ -193,6 +193,37 @@ mod tests {
             raw.contains("gpgsig -----BEGIN PGP SIGNATURE-----"),
             "{raw}"
         );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_pick_runs_no_hook_of_the_repository() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let repo = Repo::new(&[("a.txt", "a\n")]);
+        let root = &repo.root;
+        let w = GitWorktrees::new();
+        let (start, wt) = repo.worker(&w).await;
+        put(&wt, "a.txt", "worker\n");
+        let reviewed = w
+            .snapshot(wt.clone())
+            .await
+            .unwrap_or_else(|e| panic!("{e:?}"));
+        let ran = repo.tmp.path().join("ran");
+        // `core.hooksPath` of the test repositories.
+        for hook in ["reference-transaction", "pre-commit", "post-commit"] {
+            let path = format!("no-hooks/{hook}");
+            put(
+                root,
+                &path,
+                &format!("#!/bin/sh\necho {hook} >> '{}'\n", ran.display()),
+            );
+            std::fs::set_permissions(root.join(&path), std::fs::Permissions::from_mode(0o755))
+                .unwrap_or_else(|e| panic!("{e}"));
+        }
+        let base = git(root, &["rev-parse", "HEAD"]);
+        let picked = w.pick(root.clone(), base, start, reviewed, "x".into(), None);
+        assert!(matches!(picked.await, Ok(Picked::Commit(_))));
+        assert!(!ran.exists(), "{:?}", std::fs::read_to_string(&ran));
     }
 
     #[tokio::test]

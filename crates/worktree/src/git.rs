@@ -85,7 +85,15 @@ impl Git {
     /// `git <subcommand>` in `dir`. Pathspecs are literal: file names with
     /// `*` or a leading `:` mean exactly that file.
     pub(crate) fn new(dir: &Path, subcommand: &str) -> Self {
-        Self::build(dir, subcommand, true)
+        Self::build(dir, subcommand, true, false)
+    }
+
+    /// As [`Git::new`], and no hook of the repository can run, whatever
+    /// `core.hooksPath` says (`reference-transaction` runs on any ref
+    /// update). Not for commands that read where hooks are. On Windows
+    /// `NUL` is a device in every folder, so no hook is found below it.
+    pub(crate) fn without_hooks(dir: &Path, subcommand: &str) -> Self {
+        Self::build(dir, subcommand, true, true)
     }
 
     /// `git <subcommand>` that runs the person's hooks (commit, switch), as
@@ -95,10 +103,10 @@ impl Git {
     /// content from running or writing `.git` are given; the ones that
     /// change how pathspecs and names read are not.
     pub(crate) fn with_hooks(dir: &Path, subcommand: &str) -> Self {
-        Self::build(dir, subcommand, false)
+        Self::build(dir, subcommand, false, false)
     }
 
-    fn build(dir: &Path, subcommand: &str, ours: bool) -> Self {
+    fn build(dir: &Path, subcommand: &str, ours: bool, no_hooks: bool) -> Self {
         let mut command = Command::new(program());
         if let Some(path) = ovra_core::child_path::login() {
             command.env("PATH", path);
@@ -115,6 +123,10 @@ impl Git {
             // changed one, and git would run that repository's config.
             .args(["-c", "diff.ignoreSubmodules=all"])
             .args(["-c", "submodule.recurse=false"]);
+        if no_hooks {
+            let none = if cfg!(windows) { "NUL" } else { "/dev/null" };
+            command.arg("-c").arg(format!("core.hooksPath={none}"));
+        }
         command
             .arg(subcommand)
             .current_dir(dir)
