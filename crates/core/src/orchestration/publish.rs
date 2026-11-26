@@ -101,9 +101,13 @@ pub(super) async fn handle(core: &Core, request: PrRequest) -> Result<Response> 
             ask_update(core, &id, remote, base).await?;
             Ok(Response::Ok(OkResponse::Ok))
         }
-        PrRequest::Status { .. } => Err(ProtocolError::new(
+        PrRequest::Status { .. }
+        | PrRequest::Issues { .. }
+        | PrRequest::Issue { .. }
+        | PrRequest::BranchChecks { .. }
+        | PrRequest::CheckLog { .. } => Err(ProtocolError::new(
             ErrorCode::BadRequest,
-            "pr.status is answered by the core",
+            "this pr method is answered by the core",
         )),
     }
 }

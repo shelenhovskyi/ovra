@@ -86,6 +86,18 @@ export type PrPrepared = {
   gh: GhStatus;
 };
 
+/** An open issue as `gh issue list` names it, for the @ menu. */
+export type IssueSummary = { number: number; title: string; url: string };
+
+/** An issue with its body and latest comments, cut to fit one context item. Written by anyone who can open issues. */
+export type Issue = IssueSummary & { text: string };
+
+/** The open pull request from the main checkout's branch and its failed GitHub Actions checks (each has a `run`). */
+export type BranchPr = { number: number; url: string; branch: string; failed: PrCheck[] };
+
+/** The end of a failed check's log, cut to fit one context item. `pr` is the pull request's number. */
+export type CheckLog = { pr: number; name: string; url: string | null; text: string };
+
 export type PrRequest =
   /** `remote` null: `origin`. */
   | { method: "pr.status"; params: { project: ProjectId; remote?: string | null } }
@@ -106,12 +118,23 @@ export type PrRequest =
   /** Sends a failed check's log to the worker as a comment. Answers `ok`. */
   | { method: "pr.send_log"; params: { id: ReviewId; run: number } }
   /** Asks the worker to merge the base branch its changes conflict with. Answers `ok`. */
-  | { method: "pr.ask_update"; params: { id: ReviewId; remote?: string | null; base?: string | null } };
+  | { method: "pr.ask_update"; params: { id: ReviewId; remote?: string | null; base?: string | null } }
+  /** Open issues of `origin`'s repository, newest first, 30 at most. */
+  | { method: "pr.issues"; params: { project: ProjectId } }
+  | { method: "pr.issue"; params: { project: ProjectId; number: number } }
+  /** The open pull request from the main checkout's branch (by its upstream); null without one. */
+  | { method: "pr.branch_checks"; params: { project: ProjectId } }
+  /** The log of a failed check run of that pull request. */
+  | { method: "pr.check_log"; params: { project: ProjectId; run: number } };
 
 export type PrResponse =
   | { type: "pr.status"; data: GhStatus }
   | { type: "pr.prepared"; data: PrPrepared }
-  | { type: "pr.pull_request"; data: PullRequest };
+  | { type: "pr.pull_request"; data: PullRequest }
+  | { type: "pr.issues"; data: IssueSummary[] }
+  | { type: "pr.issue"; data: Issue }
+  | { type: "pr.branch_checks"; data: BranchPr | null }
+  | { type: "pr.check_log"; data: CheckLog };
 
 export type PrEvent =
   /** An item's pull request or its checks changed; re-fetch `review.list`. */
@@ -124,4 +147,6 @@ export type PrResponseFor<M extends PrRequest["method"]> = M extends "pr.status"
     ? Extract<PrResponse, { type: "pr.prepared" }>
     : M extends "pr.send_log" | "pr.ask_update"
       ? { type: "ok" }
-      : Extract<PrResponse, { type: "pr.pull_request" }>;
+      : M extends "pr.issues" | "pr.issue" | "pr.branch_checks" | "pr.check_log"
+        ? Extract<PrResponse, { type: M }>
+        : Extract<PrResponse, { type: "pr.pull_request" }>;

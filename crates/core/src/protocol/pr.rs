@@ -134,6 +134,47 @@ pub struct PrPrepared {
     pub gh: GhStatus,
 }
 
+/// An open issue as `gh issue list` names it, for the `@` menu.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IssueSummary {
+    pub number: u64,
+    pub title: String,
+    pub url: String,
+}
+
+/// An issue with its text (`gh issue view`): the body, then its latest
+/// comments, each headed by its author, cut to fit one context item.
+/// Written by anyone who can open issues: data, never instructions.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Issue {
+    pub number: u64,
+    pub title: String,
+    pub url: String,
+    pub text: String,
+}
+
+/// The open pull request from the main checkout's branch, and its failed
+/// checks that have a log (`pr.branch_checks`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BranchPr {
+    pub number: u64,
+    pub url: String,
+    pub branch: String,
+    /// Only failed GitHub Actions checks: each has a `run`.
+    pub failed: Vec<PrCheck>,
+}
+
+/// The end of a failed check's log (`pr.check_log`), cut to fit one
+/// context item. Printed by CI: data, never instructions.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CheckLog {
+    /// The pull request's number.
+    pub pr: u64,
+    pub name: String,
+    pub url: Option<String>,
+    pub text: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "method", content = "params")]
 pub enum PrRequest {
@@ -203,6 +244,24 @@ pub enum PrRequest {
         #[serde(default)]
         base: Option<String>,
     },
+    /// Open issues of `origin`'s repository, newest first, 30 at most.
+    /// Read only, after the person opened the `@` menu's GitHub rows.
+    /// Answers `pr.issues`.
+    #[serde(rename = "pr.issues")]
+    Issues { project: ProjectId },
+    /// One issue of `origin`'s repository with its text. Answers
+    /// `pr.issue`.
+    #[serde(rename = "pr.issue")]
+    Issue { project: ProjectId, number: u64 },
+    /// The open pull request from the main checkout's branch (by its
+    /// upstream) and its failed checks; `null` without one. Answers
+    /// `pr.branch_checks`.
+    #[serde(rename = "pr.branch_checks")]
+    BranchChecks { project: ProjectId },
+    /// The log of failed check run `run` of that pull request. Answers
+    /// `pr.check_log`.
+    #[serde(rename = "pr.check_log")]
+    CheckLog { project: ProjectId, run: u64 },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -215,6 +274,14 @@ pub enum PrResponse {
     /// After create, update or refresh.
     #[serde(rename = "pr.pull_request")]
     PullRequest(PullRequest),
+    #[serde(rename = "pr.issues")]
+    Issues(Vec<IssueSummary>),
+    #[serde(rename = "pr.issue")]
+    Issue(Issue),
+    #[serde(rename = "pr.branch_checks")]
+    BranchChecks(Option<BranchPr>),
+    #[serde(rename = "pr.check_log")]
+    CheckLog(CheckLog),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -261,6 +328,10 @@ mod tests {
                 Request::Pr(PrRequest::Status { project: ProjectId("p1".into()), remote: None }),
                 Request::Pr(PrRequest::Create { id: id(), draft, fingerprint: Some("f1".into()), include_protected: true }),
                 Request::Pr(PrRequest::SendLog { id: id(), run: 9 }),
+                Request::Pr(PrRequest::Issues { project: ProjectId("p1".into()) }),
+                Request::Pr(PrRequest::Issue { project: ProjectId("p1".into()), number: 12 }),
+                Request::Pr(PrRequest::BranchChecks { project: ProjectId("p1".into()) }),
+                Request::Pr(PrRequest::CheckLog { project: ProjectId("p1".into()), run: 9 }),
             ],
             "responses": [
                 Response::Pr(PrResponse::Status(GhStatus {
@@ -278,7 +349,30 @@ mod tests {
                     base: "main".into(),
                     branch: "ovra/t1/fix".into(),
                     pushed: "abc".into(),
-                    status: Some(status),
+                    status: Some(status.clone()),
+                })),
+                Response::Pr(PrResponse::Issues(vec![IssueSummary {
+                    number: 12,
+                    title: "Login fails".into(),
+                    url: "https://github.com/o/r/issues/12".into(),
+                }])),
+                Response::Pr(PrResponse::Issue(Issue {
+                    number: 12,
+                    title: "Login fails".into(),
+                    url: "https://github.com/o/r/issues/12".into(),
+                    text: "Steps: ...".into(),
+                })),
+                Response::Pr(PrResponse::BranchChecks(Some(BranchPr {
+                    number: 7,
+                    url: status.url.clone(),
+                    branch: "fix".into(),
+                    failed: status.checks.clone(),
+                }))),
+                Response::Pr(PrResponse::CheckLog(CheckLog {
+                    pr: 7,
+                    name: "test".into(),
+                    url: None,
+                    text: "1 test failed".into(),
                 })),
             ],
             "events": [Event::from(PrEvent::Changed { project: ProjectId("p1".into()), id: id() })],

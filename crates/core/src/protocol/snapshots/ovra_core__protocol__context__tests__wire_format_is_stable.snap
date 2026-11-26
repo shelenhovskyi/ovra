@@ -1,6 +1,6 @@
 ---
 source: crates/core/src/protocol/context.rs
-expression: "serde_json::json!({\n    \"requests\":\n    [Request::Context(ContextRequest::Check\n    {\n        project: ProjectId(\"p1\".into()), session:\n        Some(SessionId(\"s1\".into())), items:\n        vec![item(ContextWhat::File { path: \"src/lib.rs\".into() }),\n        item(ContextWhat::Folder { path: \"src\".into() }), ContextItem\n        {\n            what: ContextWhat::Selection\n            {\n                path: \".env\".into(), from_line: 1, to_line: 2, text:\n                \"A=1\".into(),\n            }, confirmed: true,\n        },\n        item(ContextWhat::Problem\n        {\n            path: \"src/lib.rs\".into(), line: 3, severity: \"error\".into(),\n            message: \"unused\".into(), source: Some(\"rustc\".into()),\n        }),\n        item(ContextWhat::Terminal\n        { title: \"zsh\".into(), text: \"ok\".into() }),\n        item(ContextWhat::Page { page: PageId(\"g1\".into()) }),],\n    }),\n    Request::Context(ContextRequest::Attach\n    {\n        project: ProjectId(\"p1\".into()), name: \"shot.png\".into(), data:\n        \"iVBORw0K\".into(),\n    }),\n    Request::Context(ContextRequest::Attachments\n    { project: ProjectId(\"p1\".into()), })], \"responses\":\n    [Response::Context(ContextResponse::Checked\n    { notes: vec![None, Some(ContextWarning::SecretFile)], }),\n    Response::Context(ContextResponse::Attached\n    { path: \".ovra-attachments/shot.png\".into(), })],\n})"
+expression: "serde_json::json!({\n    \"requests\":\n    [Request::Context(ContextRequest::Check\n    {\n        project: ProjectId(\"p1\".into()), session:\n        Some(SessionId(\"s1\".into())), items:\n        vec![item(ContextWhat::File { path: \"src/lib.rs\".into() }),\n        item(ContextWhat::Folder { path: \"src\".into() }), ContextItem\n        {\n            what: ContextWhat::Selection\n            {\n                path: \".env\".into(), from_line: 1, to_line: 2, text:\n                \"A=1\".into(),\n            }, confirmed: true,\n        },\n        item(ContextWhat::Problem\n        {\n            path: \"src/lib.rs\".into(), line: 3, severity: \"error\".into(),\n            message: \"unused\".into(), source: Some(\"rustc\".into()),\n        }),\n        item(ContextWhat::Terminal\n        { title: \"zsh\".into(), text: \"ok\".into() }),\n        item(ContextWhat::Page { page: PageId(\"g1\".into()) }),\n        item(ContextWhat::Issue\n        {\n            number: 12, title: \"Login fails\".into(), url:\n            \"https://github.com/o/r/issues/12\".into(), text: \"Steps\".into(),\n        }),\n        item(ContextWhat::Check\n        {\n            pr: 7, name: \"test\".into(), url: None, text: \"1 failed\".into(),\n        }),],\n    }),\n    Request::Context(ContextRequest::Attach\n    {\n        project: ProjectId(\"p1\".into()), name: \"shot.png\".into(), data:\n        \"iVBORw0K\".into(),\n    }),\n    Request::Context(ContextRequest::Attachments\n    { project: ProjectId(\"p1\".into()), })], \"responses\":\n    [Response::Context(ContextResponse::Checked\n    { notes: vec![None, Some(ContextWarning::SecretFile)], }),\n    Response::Context(ContextResponse::Attached\n    { path: \".ovra-attachments/shot.png\".into(), })],\n})"
 ---
 {
   "requests": [
@@ -45,6 +45,22 @@ expression: "serde_json::json!({\n    \"requests\":\n    [Request::Context(Conte
             "confirmed": false,
             "kind": "page",
             "page": "g1"
+          },
+          {
+            "confirmed": false,
+            "kind": "issue",
+            "number": 12,
+            "text": "Steps",
+            "title": "Login fails",
+            "url": "https://github.com/o/r/issues/12"
+          },
+          {
+            "confirmed": false,
+            "kind": "check",
+            "name": "test",
+            "pr": 7,
+            "text": "1 failed",
+            "url": null
           }
         ],
         "project": "p1",

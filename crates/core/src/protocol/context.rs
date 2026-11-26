@@ -54,6 +54,22 @@ pub enum ContextWhat {
     Page {
         page: PageId,
     },
+    /// A GitHub issue as `pr.issue` read it.
+    Issue {
+        number: u64,
+        title: String,
+        url: String,
+        text: String,
+    },
+    /// The end of a failed CI check's log as `pr.check_log` read it.
+    Check {
+        /// The pull request's number.
+        pr: u64,
+        name: String,
+        #[serde(default)]
+        url: Option<String>,
+        text: String,
+    },
 }
 
 /// Why an item needs the person's Include before it is sent.
@@ -146,6 +162,18 @@ mod tests {
                     }),
                     item(ContextWhat::Terminal { title: "zsh".into(), text: "ok".into() }),
                     item(ContextWhat::Page { page: PageId("g1".into()) }),
+                    item(ContextWhat::Issue {
+                        number: 12,
+                        title: "Login fails".into(),
+                        url: "https://github.com/o/r/issues/12".into(),
+                        text: "Steps".into(),
+                    }),
+                    item(ContextWhat::Check {
+                        pr: 7,
+                        name: "test".into(),
+                        url: None,
+                        text: "1 failed".into(),
+                    }),
                 ],
             }), Request::Context(ContextRequest::Attach {
                 project: ProjectId("p1".into()),

@@ -1,6 +1,6 @@
 ---
 source: crates/core/src/protocol/pr.rs
-expression: "serde_json::json!({\n    \"requests\":\n    [Request::Pr(PrRequest::Status\n    { project: ProjectId(\"p1\".into()), remote: None }),\n    Request::Pr(PrRequest::Create\n    {\n        id: id(), draft, fingerprint: Some(\"f1\".into()), include_protected:\n        true\n    }), Request::Pr(PrRequest::SendLog { id: id(), run: 9 }),], \"responses\":\n    [Response::Pr(PrResponse::Status(GhStatus\n    {\n        installed: true, version: Some(\"2.60.0\".into()), host:\n        Some(\"github.com\".into()), login: Some(\"octo\".into()), signed_in:\n        true,\n    })),\n    Response::Pr(PrResponse::PullRequest(PullRequest\n    {\n        number: 7, url: status.url.clone(), remote: \"origin\".into(), repo:\n        Some(\"github.com/o/r\".into()), base: \"main\".into(), branch:\n        \"ovra/t1/fix\".into(), pushed: \"abc\".into(), status: Some(status),\n    })),], \"events\":\n    [Event::from(PrEvent::Changed\n    { project: ProjectId(\"p1\".into()), id: id() })],\n})"
+expression: "serde_json::json!({\n    \"requests\":\n    [Request::Pr(PrRequest::Status\n    { project: ProjectId(\"p1\".into()), remote: None }),\n    Request::Pr(PrRequest::Create\n    {\n        id: id(), draft, fingerprint: Some(\"f1\".into()), include_protected:\n        true\n    }), Request::Pr(PrRequest::SendLog { id: id(), run: 9 }),\n    Request::Pr(PrRequest::Issues { project: ProjectId(\"p1\".into()) }),\n    Request::Pr(PrRequest::Issue\n    { project: ProjectId(\"p1\".into()), number: 12 }),\n    Request::Pr(PrRequest::BranchChecks { project: ProjectId(\"p1\".into()) }),\n    Request::Pr(PrRequest::CheckLog\n    { project: ProjectId(\"p1\".into()), run: 9 }),], \"responses\":\n    [Response::Pr(PrResponse::Status(GhStatus\n    {\n        installed: true, version: Some(\"2.60.0\".into()), host:\n        Some(\"github.com\".into()), login: Some(\"octo\".into()), signed_in:\n        true,\n    })),\n    Response::Pr(PrResponse::PullRequest(PullRequest\n    {\n        number: 7, url: status.url.clone(), remote: \"origin\".into(), repo:\n        Some(\"github.com/o/r\".into()), base: \"main\".into(), branch:\n        \"ovra/t1/fix\".into(), pushed: \"abc\".into(), status:\n        Some(status.clone()),\n    })),\n    Response::Pr(PrResponse::Issues(vec![IssueSummary\n    {\n        number: 12, title: \"Login fails\".into(), url:\n        \"https://github.com/o/r/issues/12\".into(),\n    }])),\n    Response::Pr(PrResponse::Issue(Issue\n    {\n        number: 12, title: \"Login fails\".into(), url:\n        \"https://github.com/o/r/issues/12\".into(), text: \"Steps: ...\".into(),\n    })),\n    Response::Pr(PrResponse::BranchChecks(Some(BranchPr\n    {\n        number: 7, url: status.url.clone(), branch: \"fix\".into(), failed:\n        status.checks.clone(),\n    }))),\n    Response::Pr(PrResponse::CheckLog(CheckLog\n    {\n        pr: 7, name: \"test\".into(), url: None, text: \"1 test failed\".into(),\n    })),], \"events\":\n    [Event::from(PrEvent::Changed\n    { project: ProjectId(\"p1\".into()), id: id() })],\n})"
 ---
 {
   "events": [
@@ -40,6 +40,32 @@ expression: "serde_json::json!({\n    \"requests\":\n    [Request::Pr(PrRequest:
       "method": "pr.send_log",
       "params": {
         "id": "r1",
+        "run": 9
+      }
+    },
+    {
+      "method": "pr.issues",
+      "params": {
+        "project": "p1"
+      }
+    },
+    {
+      "method": "pr.issue",
+      "params": {
+        "number": 12,
+        "project": "p1"
+      }
+    },
+    {
+      "method": "pr.branch_checks",
+      "params": {
+        "project": "p1"
+      }
+    },
+    {
+      "method": "pr.check_log",
+      "params": {
+        "project": "p1",
         "run": 9
       }
     }
@@ -82,6 +108,50 @@ expression: "serde_json::json!({\n    \"requests\":\n    [Request::Pr(PrRequest:
         "url": "https://github.com/o/r/pull/7"
       },
       "type": "pr.pull_request"
+    },
+    {
+      "data": [
+        {
+          "number": 12,
+          "title": "Login fails",
+          "url": "https://github.com/o/r/issues/12"
+        }
+      ],
+      "type": "pr.issues"
+    },
+    {
+      "data": {
+        "number": 12,
+        "text": "Steps: ...",
+        "title": "Login fails",
+        "url": "https://github.com/o/r/issues/12"
+      },
+      "type": "pr.issue"
+    },
+    {
+      "data": {
+        "branch": "fix",
+        "failed": [
+          {
+            "name": "test",
+            "run": 9,
+            "state": "failed",
+            "url": "https://github.com/o/r/actions/runs/9"
+          }
+        ],
+        "number": 7,
+        "url": "https://github.com/o/r/pull/7"
+      },
+      "type": "pr.branch_checks"
+    },
+    {
+      "data": {
+        "name": "test",
+        "pr": 7,
+        "text": "1 test failed",
+        "url": null
+      },
+      "type": "pr.check_log"
     }
   ]
 }
