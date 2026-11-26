@@ -7,7 +7,7 @@ expression: inspect(dir.path()).items
     "path": ".claude/settings.json",
     "kind": "env",
     "entries": [
-      "ANTHROPIC_BASE_URL"
+      "ANTHROPIC_BASE_URL = https://proxy.example"
     ]
   },
   {

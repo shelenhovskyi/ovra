@@ -221,7 +221,11 @@ export function warnings(items: { path: string; kind: ConfigKind; entries: strin
   const run = once ? "will run" : total === 1 ? "runs" : "run";
 
   const vars = items.filter((item) => item.kind === "env").flatMap((item) => item.entries);
-  const risky = vars.filter((name) => !CUT.test(name) && riskyEnv(name));
+  // Entries read `NAME = value` (a secret's value masked); older answers hold the name only.
+  const risky = vars
+    .filter((entry) => !CUT.test(entry))
+    .map((entry) => entry.split(" = ")[0] ?? entry)
+    .filter(riskyEnv);
   const unlisted = vars.reduce((sum, name) => sum + (Number(CUT.exec(name)?.[1]) || 0), 0);
   const env = [
     risky.length > 0

@@ -219,6 +219,10 @@ describe("trust summary", () => {
       "New project settings set PATH: once you trust the changes, it can send your prompts and code elsewhere or run code.",
     );
     expect(warnings(env(["NODE_ENV"]), "untrusted").env).toBeNull();
+    // The core sends `NAME = value`, so a changed value is a new entry and warns again.
+    expect(warnings(env(["ANTHROPIC_BASE_URL = https://attacker.example", "RUST_LOG = info"]), "changed").env).toBe(
+      "New project settings set ANTHROPIC_BASE_URL: once you trust the changes, it can send your prompts and code elsewhere or run code.",
+    );
     // Names the core cut from the list cannot be checked: said, not assumed harmless.
     expect(warnings(env(["NODE_ENV", "… and 3 more"]), "untrusted").env).toBe(
       "3 environment variables are not listed, so Ovra could not check them: read the settings files.",
@@ -609,6 +613,21 @@ describe("ProjectTrust", () => {
     release();
     await settle();
     expect(trustCard()?.querySelector("h3")?.textContent).toBe("Project settings changed");
+  });
+
+  it("warns when only file contents changed, since no list names them", async () => {
+    const core = new FakeAgentCore();
+    const skill = { path: ".claude/skills", kind: "skills" as const, entries: ["release"] };
+    core.trustedConfig.set("p1", { fingerprint: "old", items: [skill] });
+    core.config = { fingerprint: "new", items: [skill] };
+    const workspace = new Workspace();
+    workspace.project = { id: "p1", name: "demo", root: "/demo", last_opened_ms: null, trusted: true };
+    app = mount(TestHost, { target, props: { transport: core, workspace } });
+    await settle();
+    expect(heading()).toBe("Project settings changed");
+    const line = trustCard()?.querySelector("[data-testid=trust-summary]");
+    expect(line?.classList.contains("warning")).toBe(true);
+    expect(line?.textContent?.trim()).toMatch(/^⚠ The list is the same, but files under \.claude\/ changed/);
   });
 
   it("stops saying trusted once an approved review or a file changes the settings", async () => {

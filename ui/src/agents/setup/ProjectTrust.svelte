@@ -74,7 +74,7 @@ const risk = $derived(
 );
 const counts = $derived(
   changeSummary(diff) ||
-    "The list is the same, but file contents changed (a hook script, a skill or an environment value, for example).",
+    "The list is the same, but files under .claude/ changed (a skill, an agent or a command, for example). Open them to see what changed.",
 );
 const shownGroups = $derived(
   groups(
@@ -306,7 +306,10 @@ function trust(trusted: boolean): Promise<void> {
         <div id="trust-body" class="body">
           <p class="detail">{lead}</p>
           {#if changed}
-            <p data-testid="trust-summary">{counts}</p>
+            <!-- Only file contents changed (a skill's script, say): nothing below names it, so it warns. -->
+            <p class:warning={diff.length === 0} data-testid="trust-summary">
+              {diff.length === 0 ? "⚠ " : ""}{counts}
+            </p>
           {/if}
           <!-- "⚠" marks warnings by shape, not only by colour. -->
           {#if risk.broad}

@@ -229,7 +229,7 @@ export type ConfigItem = {
   /** Relative to the project root. */
   path: string;
   kind: ConfigKind;
-  /** Hook commands, variable names, rules or names. */
+  /** Hook commands, `NAME = value` variables (secrets masked), rules or names. */
   entries: string[];
 };
 

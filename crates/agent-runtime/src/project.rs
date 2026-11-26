@@ -173,7 +173,7 @@ fn settings(path: &str, file: &Path, items: &mut Vec<ConfigItem>) {
         match key.as_str() {
             "$schema" => {}
             "hooks" => push(items, path, ConfigKind::Hooks, hooks(value)),
-            "env" => push(items, path, ConfigKind::Env, keys(value)),
+            "env" => push(items, path, ConfigKind::Env, env(value)),
             "permissions" => {
                 let Some(permissions) = value.as_object() else {
                     other.push(key.clone());
@@ -210,7 +210,7 @@ fn settings(path: &str, file: &Path, items: &mut Vec<ConfigItem>) {
 }
 
 /// Programs that run whatever they are given.
-const INTERPRETERS: [&str; 16] = [
+const INTERPRETERS: [&str; 22] = [
     "sh",
     "bash",
     "zsh",
@@ -227,13 +227,44 @@ const INTERPRETERS: [&str; 16] = [
     "eval",
     "env",
     "sudo",
+    "perl",
+    "ruby",
+    "php",
+    "xargs",
+    "osascript",
+    "doas",
 ];
 
-/// Whether an allow rule lets a whole tool through, or any command: a bare
-/// tool name (`Bash`, `Edit`, `mcp__server`), a spec of only wildcards
-/// (`Bash(*)`, `Write(**)`, `Edit(//**)`), or a shell command that starts an
-/// interpreter (`Bash(python:*)`, `Bash(sh -c *)`). Read-only tools are left
-/// out: allowing them asks nothing that changes the machine.
+/// Programs that reach the network or the rest of the machine whatever the
+/// project is: they send data out, publish, or delete anywhere.
+const REACH: [&str; 17] = [
+    "curl", "wget", "ssh", "scp", "sftp", "rsync", "nc", "ncat", "netcat", "telnet", "ftp", "gh",
+    "rm", "dd", "chmod", "chown", "open",
+];
+
+/// `program subcommand` pairs that publish or push.
+const PUBLISH: [(&str, &str); 8] = [
+    ("git", "push"),
+    ("npm", "publish"),
+    ("pnpm", "publish"),
+    ("yarn", "publish"),
+    ("cargo", "publish"),
+    ("twine", "upload"),
+    ("gem", "push"),
+    ("docker", "push"),
+];
+
+/// Tools whose rule spec is a path.
+const PATH_TOOLS: [&str; 4] = ["Edit", "Write", "MultiEdit", "NotebookEdit"];
+
+/// Whether an allow rule lets a whole tool through, any command, or reaches
+/// past the project: a bare tool name (`Bash`, `Edit`, `mcp__server`), a
+/// spec of only wildcards (`Bash(*)`, `Write(**)`, `Edit(//**)`), a shell
+/// command that starts an interpreter (`Bash(python:*)`, `Bash(sh -c *)`),
+/// reaches the network, publishes or deletes (`Bash(curl:*)`,
+/// `Bash(git push:*)`, `Bash(rm:*)`), or an edit outside the project
+/// (`Edit(~/.bashrc)`, `Write(//etc/hosts)`, `Edit(../x)`). Read-only tools
+/// are left out: allowing them asks nothing that changes the machine.
 fn broad(rule: &str) -> bool {
     let (tool, spec) = match rule.split_once('(') {
         Some((tool, rest)) => (tool.trim(), rest.strip_suffix(')').map(str::trim)),
@@ -249,14 +280,72 @@ fn broad(rule: &str) -> bool {
     {
         return true;
     }
+    if PATH_TOOLS.contains(&tool) {
+        return outside(spec);
+    }
     if tool != "Bash" && tool != "PowerShell" {
         return false;
     }
-    let program = spec
+    let mut words = spec
         .split(|c: char| c == ':' || c.is_whitespace())
-        .next()
-        .unwrap_or_default();
-    INTERPRETERS.contains(&program.trim_end_matches('*'))
+        .filter(|w| !w.is_empty())
+        .map(|w| w.trim_end_matches('*'));
+    let program = words.next().unwrap_or_default();
+    // `/usr/bin/curl` is curl.
+    let program = program.rsplit(['/', '\\']).next().unwrap_or_default();
+    let next = words.next().unwrap_or_default();
+    INTERPRETERS.contains(&program)
+        || REACH.contains(&program)
+        || PUBLISH.contains(&(program, next))
+}
+
+/// Whether a path rule names something outside the project: absolute
+/// (`//etc`, `C:`), in the home folder (`~`), or up from it (`..`). In
+/// Claude's rules `/x` is relative to the settings file, so it stays inside.
+fn outside(spec: &str) -> bool {
+    let spec = spec.trim();
+    spec.starts_with("//")
+        || spec.starts_with('~')
+        || spec.starts_with('\\')
+        || spec.as_bytes().get(1) == Some(&b':')
+        || spec.split(['/', '\\']).any(|part| part == "..")
+}
+
+/// Names that look like they hold a secret: their values are not shown.
+const SECRET: [&str; 6] = ["KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL", "AUTH"];
+
+/// `NAME = value` for every variable, so a changed value shows as a change.
+/// Secret-looking values are masked down to a short digest that still
+/// changes with them.
+fn env(value: &Value) -> Vec<String> {
+    let Some(vars) = value.as_object() else {
+        return vec![short(value)];
+    };
+    vars.iter()
+        .map(|(name, value)| {
+            let text = value.as_str().map_or_else(|| short(value), str::to_owned);
+            let upper = name.to_uppercase();
+            if SECRET.iter().any(|s| upper.contains(s)) {
+                let digest: String = Sha256::digest(text.as_bytes())
+                    .iter()
+                    .take(3)
+                    .map(|b| format!("{b:02x}"))
+                    .collect();
+                format!("{name} = (hidden, #{digest})")
+            } else {
+                format!("{name} = {}", clip(&text))
+            }
+        })
+        .collect()
+}
+
+/// Text on one line, cut to 120 characters.
+fn clip(text: &str) -> String {
+    let text = text.replace(['\n', '\r'], " ");
+    match text.char_indices().nth(120) {
+        Some((cut, _)) => format!("{}…", &text[..cut]),
+        None => text,
+    }
 }
 
 /// `Event (matcher): command` for every hook.
@@ -362,6 +451,8 @@ mod tests {
         )
         .unwrap_or_else(|e| panic!("{e}"));
         assert_ne!(inspect(dir.path()).fingerprint, script.fingerprint);
+        // A changed value is a changed entry, so the review shows it.
+        assert_eq!(inspect(dir.path()).items[0].entries, ["A = 2"]);
         // CLAUDE.md loads either way, so it is not part of what is trusted.
         std::fs::write(dir.path().join("CLAUDE.md"), "new rules").unwrap_or_else(|e| panic!("{e}"));
         let unchanged = inspect(dir.path()).fingerprint;
@@ -410,13 +501,27 @@ mod tests {
             "Bash(sudo *)",
             "mcp__github",
             "WebFetch",
+            "Bash(curl:*)",
+            "Bash(/usr/bin/curl https://x)",
+            "Bash(git push:*)",
+            "Bash(npm publish)",
+            "Bash(rm -rf *)",
+            "Bash(perl -e *)",
+            "Edit(~/.bashrc)",
+            "Write(//etc/hosts)",
+            "Edit(../other/**)",
+            "Write(C:\\Windows\\x)",
         ] {
             assert!(broad(rule), "{rule}");
         }
         for rule in [
             "Bash(npm test)",
             "Bash(git status:*)",
+            "Bash(git pushd)",
+            "Bash(npm run publish-docs)",
             "Edit(src/**)",
+            "Edit(/src/**)",
+            "Write(./docs/a..b.md)",
             "WebFetch(domain:example.com)",
             "Read",
             "Read(**)",
@@ -424,6 +529,24 @@ mod tests {
         ] {
             assert!(!broad(rule), "{rule}");
         }
+    }
+
+    #[test]
+    fn env_values_are_shown_and_secrets_masked_by_a_digest() {
+        let entries = |text: &str| {
+            let dir = project(&[(".claude/settings.json", text)]);
+            inspect(dir.path()).items[0].entries.clone()
+        };
+        let first = entries(r#"{"env": {"ANTHROPIC_BASE_URL": "https://a", "API_TOKEN": "one"}}"#);
+        assert_eq!(first[0], "ANTHROPIC_BASE_URL = https://a");
+        assert!(
+            first[1].starts_with("API_TOKEN = (hidden, #"),
+            "{}",
+            first[1]
+        );
+        assert!(!first[1].contains("one"));
+        let second = entries(r#"{"env": {"ANTHROPIC_BASE_URL": "https://a", "API_TOKEN": "two"}}"#);
+        assert_ne!(first[1], second[1]);
     }
 
     #[test]

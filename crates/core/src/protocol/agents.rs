@@ -538,7 +538,8 @@ pub struct ConfigItem {
     /// Relative to the project root, `/`-separated.
     pub path: String,
     pub kind: ConfigKind,
-    /// The specific entries: hook commands, variable names, rules, names.
+    /// The specific entries: hook commands, `NAME = value` variables (a
+    /// secret-looking value masked to a digest), rules, names.
     pub entries: Vec<String>,
 }
 
@@ -553,7 +554,8 @@ pub enum ConfigKind {
     Plugins,
     /// Environment variables set for the agent and its tools.
     Env,
-    /// Whole tools, or anything a shell or interpreter can do, allowed
+    /// Whole tools, anything a shell or interpreter can do, network,
+    /// publish or delete commands, or edits outside the project, allowed
     /// without asking: Ovra's approvals no longer see these calls.
     BroadAllowRules,
     /// Tool uses allowed without asking.
