@@ -287,20 +287,22 @@ impl Forge for FakeForge {
     fn view(
         &self,
         root: PathBuf,
+        repo: String,
         number: u64,
     ) -> ovra_core::services::BoxFuture<
         '_,
         ovra_core::services::Result<ovra_core::protocol::pr::PrStatus>,
     > {
-        self.0.view(root, number)
+        self.0.view(root, repo, number)
     }
 
     fn failed_log(
         &self,
         root: PathBuf,
+        repo: String,
         run: u64,
     ) -> ovra_core::services::BoxFuture<'_, ovra_core::services::Result<String>> {
-        self.0.failed_log(root, run)
+        self.0.failed_log(root, repo, run)
     }
 }
 

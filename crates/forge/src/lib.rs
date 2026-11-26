@@ -81,10 +81,11 @@ impl GhForge {
         let programs = self.programs();
         let mut host = None;
         if let Some(git) = &programs.git {
-            let args = ["remote", "get-url", remote];
-            let url = run(git, root, "git remote", &args, None, GH_TIMEOUT).await?;
             // The URL may hold a token: only its host is kept.
-            host = url.success.then(|| parse::host(&url.stdout)).flatten();
+            host = remote_url(git, root, remote)
+                .await?
+                .as_deref()
+                .and_then(parse::host);
         }
         let Some(gh) = &programs.gh else {
             return Ok(GhStatus {
@@ -202,10 +203,21 @@ impl GhForge {
         parse::branch(&draft.base)?;
         parse::branch(&draft.branch)?;
         let gh = self.gh()?;
+        // Named on every gh call: without it gh may pick another remote,
+        // such as `upstream`.
+        let url = remote_url(&self.git()?, root, &draft.remote).await?;
+        let repo = url.as_deref().and_then(parse::repo).ok_or_else(|| {
+            ProtocolError::new(
+                ErrorCode::BadRequest,
+                "the remote's URL names no repository on a host, such as github.com/owner/repo",
+            )
+        })?;
         let title = format!("--title={}", draft.title);
         let mut args = vec![
             "pr",
             "create",
+            "--repo",
+            &repo,
             "--base",
             &draft.base,
             "--head",
@@ -227,15 +239,16 @@ impl GhForge {
         if !made.success {
             return Err(failed("gh pr create", &made));
         }
-        parse::created(&made.stdout)
+        parse::created(&made.stdout, repo)
     }
 
-    async fn view_pr(&self, root: &Path, number: u64) -> Result<PrStatus> {
+    async fn view_pr(&self, root: &Path, repo: &str, number: u64) -> Result<PrStatus> {
+        parse::repo_name(repo)?;
         let gh = self.gh()?;
         let number = number.to_string();
         let fields =
             "state,isDraft,url,headRefOid,statusCheckRollup,reviewDecision,mergeStateStatus";
-        let args = ["pr", "view", &number, "--json", fields];
+        let args = ["pr", "view", &number, "--repo", repo, "--json", fields];
         let view = run(&gh, root, "gh pr view", &args, None, GH_TIMEOUT).await?;
         if !view.success {
             return Err(failed("gh pr view", &view));
@@ -243,10 +256,11 @@ impl GhForge {
         parse::pr_status(&view.stdout)
     }
 
-    async fn run_log(&self, root: &Path, id: u64) -> Result<String> {
+    async fn run_log(&self, root: &Path, repo: &str, id: u64) -> Result<String> {
+        parse::repo_name(repo)?;
         let gh = self.gh()?;
         let id = id.to_string();
-        let args = ["run", "view", &id, "--log-failed"];
+        let args = ["run", "view", &id, "--repo", repo, "--log-failed"];
         let log = run(&gh, root, "gh run view", &args, None, GH_TIMEOUT).await?;
         if !log.success {
             return Err(failed("gh run view", &log));
@@ -254,6 +268,14 @@ impl GhForge {
         // Scrubbed whole: a cut inside a URL would hide its `://`.
         Ok(parse::log_tail(&parse::scrub(&log.stdout)).to_owned())
     }
+}
+
+/// `remote`'s URL; `None` when git knows no such remote. It may hold a
+/// token: callers keep only what `parse` takes from it.
+async fn remote_url(git: &Path, root: &Path, remote: &str) -> Result<Option<String>> {
+    let args = ["remote", "get-url", remote];
+    let url = run(git, root, "git remote", &args, None, GH_TIMEOUT).await?;
+    Ok(url.success.then_some(url.stdout))
 }
 
 /// Fetches `branch` of `remote` into the ref `into` and returns its commit.
@@ -317,11 +339,11 @@ impl Forge for GhForge {
         Box::pin(async move { self.create_pr(&root, &draft).await })
     }
 
-    fn view(&self, root: PathBuf, number: u64) -> BoxFuture<'_, Result<PrStatus>> {
-        Box::pin(async move { self.view_pr(&root, number).await })
+    fn view(&self, root: PathBuf, repo: String, number: u64) -> BoxFuture<'_, Result<PrStatus>> {
+        Box::pin(async move { self.view_pr(&root, &repo, number).await })
     }
 
-    fn failed_log(&self, root: PathBuf, run: u64) -> BoxFuture<'_, Result<String>> {
-        Box::pin(async move { self.run_log(&root, run).await })
+    fn failed_log(&self, root: PathBuf, repo: String, run: u64) -> BoxFuture<'_, Result<String>> {
+        Box::pin(async move { self.run_log(&root, &repo, run).await })
     }
 }

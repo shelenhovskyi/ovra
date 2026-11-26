@@ -12,7 +12,8 @@ use crate::services::{BoxFuture, Forge, Result};
 /// Records every call. Branches are `(remote, branch)` to commit; `push`
 /// moves one only from where the caller expects it. `create` opens pull
 /// requests 1, 2, ... as open with no checks; tests change `pulls` to move
-/// them on.
+/// them on. The remote's repository is [`MemoryForge::REPO`]; `view` and
+/// `failed_log` find nothing in another.
 #[derive(Debug)]
 pub struct MemoryForge {
     /// What `status` answers; signed in to `github.com` as `octo` at first.
@@ -47,6 +48,10 @@ impl Default for MemoryForge {
             logs: Mutex::default(),
         }
     }
+}
+
+impl MemoryForge {
+    pub const REPO: &str = "github.com/o/r";
 }
 
 impl Forge for MemoryForge {
@@ -107,19 +112,29 @@ impl Forge for MemoryForge {
                 };
                 lock(&self.pulls).insert(number, status);
                 created.push(draft);
-                Ok(PrInfo { number, url })
+                Ok(PrInfo {
+                    number,
+                    url,
+                    repo: Self::REPO.to_owned(),
+                })
             }
         };
         Box::pin(async move { result })
     }
 
-    fn view(&self, _: PathBuf, number: u64) -> BoxFuture<'_, Result<PrStatus>> {
-        let found = lock(&self.pulls).get(&number).cloned();
+    fn view(&self, _: PathBuf, repo: String, number: u64) -> BoxFuture<'_, Result<PrStatus>> {
+        let found = lock(&self.pulls)
+            .get(&number)
+            .filter(|_| repo == Self::REPO)
+            .cloned();
         Box::pin(async move { found.ok_or_else(|| not_found(format!("pull request {number}"))) })
     }
 
-    fn failed_log(&self, _: PathBuf, run: u64) -> BoxFuture<'_, Result<String>> {
-        let found = lock(&self.logs).get(&run).cloned();
+    fn failed_log(&self, _: PathBuf, repo: String, run: u64) -> BoxFuture<'_, Result<String>> {
+        let found = lock(&self.logs)
+            .get(&run)
+            .filter(|_| repo == Self::REPO)
+            .cloned();
         Box::pin(async move { found.ok_or_else(|| not_found(format!("run {run}"))) })
     }
 }
@@ -161,7 +176,9 @@ mod tests {
         };
         let info = forge.create(root.clone(), draft).await;
         assert_eq!(info.map(|i| i.number).ok(), Some(1));
-        let view = forge.view(root, 1).await;
+        let elsewhere = forge.view(root.clone(), "github.com/up/r".into(), 1).await;
+        assert!(elsewhere.is_err());
+        let view = forge.view(root, MemoryForge::REPO.into(), 1).await;
         assert_eq!(
             view.map(|v| (v.head, v.draft)).ok(),
             Some(("c2".into(), true))

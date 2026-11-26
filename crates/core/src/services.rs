@@ -1328,13 +1328,15 @@ pub trait Forge: Send + Sync + Debug {
         branch: String,
         expect: Option<String>,
     ) -> BoxFuture<'_, Result<()>>;
-    /// `gh pr create` from a pushed branch.
+    /// `gh pr create` from a pushed branch, in the repository the remote's
+    /// URL names (`PrInfo::repo`).
     fn create(&self, root: PathBuf, draft: PrDraft) -> BoxFuture<'_, Result<PrInfo>>;
-    /// `gh pr view`: state and checks of pull request `number`.
-    fn view(&self, root: PathBuf, number: u64) -> BoxFuture<'_, Result<PrStatus>>;
-    /// The failed steps' log of workflow run `run`: its last 200 lines, at
-    /// most 32 KiB.
-    fn failed_log(&self, root: PathBuf, run: u64) -> BoxFuture<'_, Result<String>>;
+    /// `gh pr view`: state and checks of pull request `number` of `repo`
+    /// (`HOST/OWNER/REPO`, as `create` answered).
+    fn view(&self, root: PathBuf, repo: String, number: u64) -> BoxFuture<'_, Result<PrStatus>>;
+    /// The failed steps' log of workflow run `run` of `repo`: its last 200
+    /// lines, at most 32 KiB.
+    fn failed_log(&self, root: PathBuf, repo: String, run: u64) -> BoxFuture<'_, Result<String>>;
 }
 
 /// The git panel's operations on a project's main checkout (implemented by
@@ -1774,10 +1776,10 @@ impl Forge for Unavailable {
     fn create(&self, _: PathBuf, _: PrDraft) -> BoxFuture<'_, Result<PrInfo>> {
         self.later()
     }
-    fn view(&self, _: PathBuf, _: u64) -> BoxFuture<'_, Result<PrStatus>> {
+    fn view(&self, _: PathBuf, _: String, _: u64) -> BoxFuture<'_, Result<PrStatus>> {
         self.later()
     }
-    fn failed_log(&self, _: PathBuf, _: u64) -> BoxFuture<'_, Result<String>> {
+    fn failed_log(&self, _: PathBuf, _: String, _: u64) -> BoxFuture<'_, Result<String>> {
         self.later()
     }
 }

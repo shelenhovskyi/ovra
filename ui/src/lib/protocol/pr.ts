@@ -59,6 +59,8 @@ export type PullRequest = {
   number: number;
   url: string;
   remote: string;
+  /** The repository it was opened in, `HOST/OWNER/REPO`; absent or null in older state. */
+  repo?: string | null;
   base: string;
   branch: string;
   /** The last commit Ovra pushed: an update is refused when the remote branch moved from it. */

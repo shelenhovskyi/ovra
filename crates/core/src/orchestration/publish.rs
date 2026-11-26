@@ -371,6 +371,7 @@ async fn create(
         number: info.number,
         url: info.url,
         remote,
+        repo: Some(info.repo),
         base,
         branch,
         pushed: commit,
@@ -465,7 +466,7 @@ async fn refresh(core: &Core, id: &ReviewId) -> Result<PullRequest> {
     let Some(pr) = entry.pull_request.clone() else {
         return Err(conflict("this item has no pull request"));
     };
-    let status = core.forge().view(root, pr.number).await?;
+    let status = core.forge().view(root, repo(&pr), pr.number).await?;
     let pr = PullRequest {
         status: Some(status),
         ..pr
@@ -476,6 +477,18 @@ async fn refresh(core: &Core, id: &ReviewId) -> Result<PullRequest> {
         poll(core, &entry);
     }
     Ok(pr)
+}
+
+/// The repository a pull request is in; for one saved before Ovra kept
+/// it, read from its URL (`https://HOST/OWNER/REPO/pull/N`). The forge
+/// refuses anything else.
+fn repo(pr: &PullRequest) -> String {
+    pr.repo.clone().unwrap_or_else(|| {
+        let url = pr.url.strip_prefix("https://").unwrap_or_default();
+        url.rsplit_once("/pull/")
+            .map_or("", |(repo, _)| repo)
+            .to_owned()
+    })
 }
 
 /// Whether a pull request is worth asking about again: open, and its
@@ -585,7 +598,7 @@ async fn polling(weak: WeakCore, id: ReviewId, generation: u64, begun: Instant) 
         let Ok(root) = core.root(&project) else {
             return;
         };
-        let Ok(status) = core.forge().view(root, pr.number).await else {
+        let Ok(status) = core.forge().view(root, repo(&pr), pr.number).await else {
             continue;
         };
         let pr = PullRequest {
@@ -661,7 +674,7 @@ async fn send_log(core: &Core, id: &ReviewId, run: u64) -> Result<()> {
         .find(|c| c.run == Some(run) && c.state == CheckState::Failed)
         .cloned()
         .ok_or_else(|| not_found(format!("a failed check of run {run}")))?;
-    let log = tail(&core.forge().failed_log(root, run).await?);
+    let log = tail(&core.forge().failed_log(root, repo(&pr), run).await?);
     let mut log = log.as_str();
     let text = loop {
         let text = format!(

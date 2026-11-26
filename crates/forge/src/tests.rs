@@ -393,27 +393,43 @@ async fn status_asks_gh_about_the_remotes_host_without_the_token_flag() {
 
 #[tokio::test]
 async fn create_passes_the_title_as_one_argument_and_the_body_on_stdin() {
-    let dir = ok(tempfile::tempdir());
-    let fake = FakeGh::new("https://github.com/o/r/pull/42\n");
-    let made = ok(fake
-        .forge(false)
-        .create(dir.path().into(), draft(true))
-        .await);
-    assert_eq!(
-        (made.number, made.url.as_str()),
-        (42, "https://github.com/o/r/pull/42")
+    let repo = Repo::new();
+    let dir = repo.work.clone();
+    // A local remote names no repository: gh is not asked.
+    let fake = FakeGh::new("https://github.com/o/r/pull/41\n");
+    let local = fake.forge(true).create(dir.clone(), draft(true)).await;
+    assert_eq!(local.err().map(|e| e.code), Some(ErrorCode::BadRequest));
+    assert!(fake.calls().is_empty());
+
+    let url = "https://x:ghp_SECRET@github.com/o/r.git";
+    git(&dir, &["remote", "set-url", "origin", url]);
+    git(
+        &dir,
+        &["remote", "add", "upstream", "https://github.com/up/r.git"],
     );
-    let args = ["pr", "create", "--base", "main", "--head", "ovra/t1/fix"];
+    let fake = FakeGh::new("https://github.com/o/r/pull/42\n");
+    let made = ok(fake.forge(true).create(dir.clone(), draft(true)).await);
+    assert_eq!(
+        (made.number, made.url.as_str(), made.repo.as_str()),
+        (42, "https://github.com/o/r/pull/42", "github.com/o/r")
+    );
+    let args = [
+        "pr",
+        "create",
+        "--repo",
+        "github.com/o/r",
+        "--base",
+        "main",
+        "--head",
+        "ovra/t1/fix",
+    ];
     let mut want: Vec<&str> = args.to_vec();
     want.extend(["--title=--fix the login", "--body-file", "-", "--draft"]);
     assert_eq!(fake.calls(), [want.clone()]);
     assert_eq!(fake.read("stdin"), "Why:\n--draft is text here\n");
 
     let fake = FakeGh::new("https://github.com/o/r/pull/43\n");
-    ok(fake
-        .forge(false)
-        .create(dir.path().into(), draft(false))
-        .await);
+    ok(fake.forge(true).create(dir, draft(false)).await);
     want.pop();
     assert_eq!(fake.calls(), [want]);
 }
@@ -424,22 +440,55 @@ async fn view_and_failed_log_ask_for_exactly_what_they_read() {
     let fake = FakeGh::new(
         r#"{"state":"MERGED","isDraft":false,"url":"https://github.com/o/r/pull/7","headRefOid":"abc"}"#,
     );
-    let view = ok(fake.forge(false).view(dir.path().into(), 7).await);
+    let repo = || "github.com/o/r".to_owned();
+    let view = ok(fake.forge(false).view(dir.path().into(), repo(), 7).await);
     assert_eq!((view.head.as_str(), view.checks.len()), ("abc", 0));
     let fields = "state,isDraft,url,headRefOid,statusCheckRollup,reviewDecision,mergeStateStatus";
-    assert_eq!(fake.calls(), [vec!["pr", "view", "7", "--json", fields]]);
+    assert_eq!(
+        fake.calls(),
+        [vec![
+            "pr",
+            "view",
+            "7",
+            "--repo",
+            "github.com/o/r",
+            "--json",
+            fields
+        ]]
+    );
+    for bad in ["--repo=x/o/r", "o/r", ""] {
+        let refused = fake
+            .forge(false)
+            .view(dir.path().into(), bad.into(), 7)
+            .await;
+        assert_eq!(refused.err().map(|e| e.code), Some(ErrorCode::BadRequest));
+    }
+    assert_eq!(fake.calls().len(), 1);
 
     let log: String = (0..250)
         .map(|i| format!("step {i} https://u:tok@h.example/x\n"))
         .collect();
     let fake = FakeGh::new(&log);
-    let tail = ok(fake.forge(false).failed_log(dir.path().into(), 9).await);
+    let tail = ok(fake
+        .forge(false)
+        .failed_log(dir.path().into(), repo(), 9)
+        .await);
     assert_eq!(tail.lines().count(), 200);
     assert!(
         tail.starts_with("step 50 ") && !tail.contains("tok@"),
         "{tail}"
     );
-    assert_eq!(fake.calls(), [vec!["run", "view", "9", "--log-failed"]]);
+    assert_eq!(
+        fake.calls(),
+        [vec![
+            "run",
+            "view",
+            "9",
+            "--repo",
+            "github.com/o/r",
+            "--log-failed"
+        ]]
+    );
 
     // The 32 KiB cut falls inside the URL's user part.
     let wide = format!(
@@ -447,15 +496,21 @@ async fn view_and_failed_log_ask_for_exactly_what_they_read() {
         "z".repeat(32 * 1024 - 15)
     );
     fake.write("out", &wide);
-    let tail = ok(fake.forge(false).failed_log(dir.path().into(), 9).await);
+    let tail = ok(fake
+        .forge(false)
+        .failed_log(dir.path().into(), repo(), 9)
+        .await);
     assert!(!tail.contains("cret") && tail.ends_with('z'), "{tail:.40}");
 
     fake.write("code", "1");
     fake.write("out", "");
-    let failed = fake.forge(false).failed_log(dir.path().into(), 9).await;
+    let failed = fake
+        .forge(false)
+        .failed_log(dir.path().into(), repo(), 9)
+        .await;
     assert_eq!(failed.err().map(|e| e.code), Some(ErrorCode::Internal));
     let none = GhForge::with(Programs::default())
-        .view(dir.path().into(), 7)
+        .view(dir.path().into(), repo(), 7)
         .await;
     assert_eq!(none.err().map(|e| e.code), Some(ErrorCode::Unavailable));
 }
@@ -466,7 +521,10 @@ async fn a_gh_that_hangs_is_stopped_after_its_timeout() {
     let fake = FakeGh::new("");
     fake.write("gh", "#!/bin/sh\nexec sleep 600\n");
     let started = tokio::time::Instant::now();
-    let hung = fake.forge(false).view(dir.path().into(), 1).await;
+    let forge = fake.forge(false);
+    let hung = forge
+        .view(dir.path().into(), "github.com/o/r".into(), 1)
+        .await;
     let err = hung.err().unwrap_or_else(|| panic!("no timeout"));
     assert_eq!(err.code, ErrorCode::Unavailable);
     assert_eq!(err.message, "gh pr view did not finish within 30 s");

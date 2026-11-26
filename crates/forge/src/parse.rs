@@ -97,6 +97,42 @@ pub(crate) fn host(url: &str) -> Option<String> {
     (plain && host.contains('.') && !host.starts_with(['-', '.'])).then_some(host)
 }
 
+/// The repository a remote URL names, `HOST/OWNER/REPO`, for `gh --repo`;
+/// `None` when it names no host or no `OWNER/REPO` path. The user part
+/// is never kept.
+pub(crate) fn repo(url: &str) -> Option<String> {
+    let url = url.trim();
+    let host = host(url)?;
+    let path = match url.split_once("://") {
+        Some((_, rest)) => rest.split_once('/')?.1,
+        None => url.split_once(':')?.1,
+    };
+    let path = path.split(['?', '#']).next()?.trim_matches('/');
+    let path = path.strip_suffix(".git").unwrap_or(path);
+    let repo = format!("{host}/{path}");
+    repo_name(&repo).is_ok().then_some(repo)
+}
+
+/// A repository as `gh --repo` takes it: `HOST/OWNER/REPO` of plain names,
+/// none of which can read as an option.
+pub(crate) fn repo_name(repo: &str) -> Result<()> {
+    let plain = |part: &str| {
+        !part.is_empty()
+            && part.len() <= 100
+            && !part.starts_with(['-', '.'])
+            && part
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c))
+    };
+    let parts: Vec<&str> = repo.split('/').collect();
+    if parts.len() != 3 || !parts.iter().all(|p| plain(p)) || !parts[0].contains('.') {
+        return Err(bad(
+            "not a repository on a host, such as github.com/owner/repo",
+        ));
+    }
+    Ok(())
+}
+
 /// `text` with the user part (`user:token@`) removed from every URL in it.
 pub(crate) fn scrub(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
@@ -142,8 +178,8 @@ pub(crate) fn gh_auth(stdout: &str, host: &str) -> (Option<String>, bool) {
     (login, account["state"].as_str() == Some("success"))
 }
 
-/// The pull request `gh pr create` printed the URL of.
-pub(crate) fn created(stdout: &str) -> Result<PrInfo> {
+/// The pull request `gh pr create` printed the URL of, in `repo`.
+pub(crate) fn created(stdout: &str, repo: String) -> Result<PrInfo> {
     let url = stdout
         .split_whitespace()
         .rev()
@@ -154,6 +190,7 @@ pub(crate) fn created(stdout: &str) -> Result<PrInfo> {
     Ok(PrInfo {
         number,
         url: scrub(url),
+        repo,
     })
 }
 
@@ -304,6 +341,32 @@ mod tests {
     }
 
     #[test]
+    fn the_repository_comes_from_the_remote_url_without_its_user_part() {
+        let cases = [
+            ("https://github.com/o/r.git", Some("github.com/o/r")),
+            ("https://u:ghp_x@GitHub.com/o/r/", Some("github.com/o/r")),
+            (
+                "ssh://git@ghe.example.com:2222/o/r.git",
+                Some("ghe.example.com/o/r"),
+            ),
+            ("git@github.com:o/r.git", Some("github.com/o/r")),
+            ("git@github.com:o/r.git\n", Some("github.com/o/r")),
+            ("https://github.com/o", None),
+            ("https://github.com/o/r/x", None),
+            ("https://github.com/-o/r", None),
+            ("https://github.com/o/r%20x", None),
+            ("/srv/git/o/r.git", None),
+        ];
+        for (url, want) in cases {
+            assert_eq!(repo(url).as_deref(), want, "{url}");
+        }
+        assert!(repo_name("github.com/o/r").is_ok());
+        for no in ["", "o/r", "github.com/o/r/x", "--repo=x/o/r", "h.com/o/.r"] {
+            assert!(repo_name(no).is_err(), "{no}");
+        }
+    }
+
+    #[test]
     fn scrubbing_removes_the_user_part_of_every_url() {
         let text = "fatal: unable to access 'https://user:ghp_secret@github.com/o/r.git/': \
                     and http://tok@h.example/x, ssh://git@github.com:22/o and https://github.com/ok";
@@ -332,12 +395,15 @@ mod tests {
         let failed = r#"{"hosts":{"github.com":[{"state":"error","login":"octo"}]}}"#;
         assert_eq!(gh_auth(failed, "github.com"), (Some("octo".into()), false));
         assert_eq!(gh_auth("not json", "github.com"), (None, false));
-        let made = created("Creating pull request\nhttps://github.com/o/r/pull/12\n");
+        let made = created(
+            "Creating pull request\nhttps://github.com/o/r/pull/12\n",
+            "github.com/o/r".into(),
+        );
         assert_eq!(
             made.map(|p| (p.number, p.url)).ok(),
             Some((12, "https://github.com/o/r/pull/12".into()))
         );
-        assert!(created("oops").is_err());
+        assert!(created("oops", String::new()).is_err());
     }
 
     #[test]

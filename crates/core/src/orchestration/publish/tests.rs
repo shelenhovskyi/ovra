@@ -210,6 +210,8 @@ async fn the_reviewed_changes_become_a_draft_pull_request_on_the_fetched_base() 
 
     let pr = pull_request(ok(&f.core, create(&prepared, &shown.id.0)).await);
     assert_eq!((pr.number, pr.branch.as_str()), (1, "ovra/t1/w"));
+    // Later gh calls name the repository it was opened in.
+    assert_eq!(pr.repo.as_deref(), Some(MemoryForge::REPO));
     let pushed = lock(&f.forge.pushed).clone();
     assert_eq!(
         pushed,
@@ -431,6 +433,27 @@ fn at_most_five_pull_requests_of_a_project_are_polled() {
     };
     assert!(!polled("p1", "r0"));
     assert!(polled("p1", "r1") && polled("p1", "r5") && polled("p2", "r6"));
+}
+
+#[test]
+fn a_pull_request_saved_without_its_repository_is_read_from_its_url() {
+    let pr = |repo: Option<&str>, url: &str| PullRequest {
+        number: 3,
+        url: url.into(),
+        remote: "origin".into(),
+        repo: repo.map(str::to_owned),
+        base: "main".into(),
+        branch: "ovra/t1/w".into(),
+        pushed: "c1".into(),
+        status: None,
+    };
+    let url = "https://ghe.example.com/o/r/pull/3";
+    assert_eq!(super::repo(&pr(None, url)), "ghe.example.com/o/r");
+    assert_eq!(
+        super::repo(&pr(Some("github.com/a/b"), url)),
+        "github.com/a/b"
+    );
+    assert_eq!(super::repo(&pr(None, "http://h/o/r/pull/3")), "");
 }
 
 #[tokio::test]

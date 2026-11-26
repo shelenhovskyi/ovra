@@ -1,6 +1,6 @@
 ---
 source: crates/core/src/protocol/pr.rs
-expression: "serde_json::json!({\n    \"requests\":\n    [Request::Pr(PrRequest::Status\n    { project: ProjectId(\"p1\".into()), remote: None }),\n    Request::Pr(PrRequest::Create\n    { id: id(), draft, fingerprint: Some(\"f1\".into()) }),\n    Request::Pr(PrRequest::SendLog { id: id(), run: 9 }),], \"responses\":\n    [Response::Pr(PrResponse::Status(GhStatus\n    {\n        installed: true, version: Some(\"2.60.0\".into()), host:\n        Some(\"github.com\".into()), login: Some(\"octo\".into()), signed_in:\n        true,\n    })),\n    Response::Pr(PrResponse::PullRequest(PullRequest\n    {\n        number: 7, url: status.url.clone(), remote: \"origin\".into(), base:\n        \"main\".into(), branch: \"ovra/t1/fix\".into(), pushed: \"abc\".into(),\n        status: Some(status),\n    })),], \"events\":\n    [Event::from(PrEvent::Changed\n    { project: ProjectId(\"p1\".into()), id: id() })],\n})"
+expression: "serde_json::json!({\n    \"requests\":\n    [Request::Pr(PrRequest::Status\n    { project: ProjectId(\"p1\".into()), remote: None }),\n    Request::Pr(PrRequest::Create\n    { id: id(), draft, fingerprint: Some(\"f1\".into()) }),\n    Request::Pr(PrRequest::SendLog { id: id(), run: 9 }),], \"responses\":\n    [Response::Pr(PrResponse::Status(GhStatus\n    {\n        installed: true, version: Some(\"2.60.0\".into()), host:\n        Some(\"github.com\".into()), login: Some(\"octo\".into()), signed_in:\n        true,\n    })),\n    Response::Pr(PrResponse::PullRequest(PullRequest\n    {\n        number: 7, url: status.url.clone(), remote: \"origin\".into(), repo:\n        Some(\"github.com/o/r\".into()), base: \"main\".into(), branch:\n        \"ovra/t1/fix\".into(), pushed: \"abc\".into(), status: Some(status),\n    })),], \"events\":\n    [Event::from(PrEvent::Changed\n    { project: ProjectId(\"p1\".into()), id: id() })],\n})"
 ---
 {
   "events": [
@@ -61,6 +61,7 @@ expression: "serde_json::json!({\n    \"requests\":\n    [Request::Pr(PrRequest:
         "number": 7,
         "pushed": "abc",
         "remote": "origin",
+        "repo": "github.com/o/r",
         "status": {
           "checks": [
             {

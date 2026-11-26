@@ -39,6 +39,8 @@ pub struct PrDraft {
 pub struct PrInfo {
     pub number: u64,
     pub url: String,
+    /// The repository it was opened in, `HOST/OWNER/REPO`.
+    pub repo: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -95,6 +97,11 @@ pub struct PullRequest {
     pub number: u64,
     pub url: String,
     pub remote: String,
+    /// The repository it was opened in, `HOST/OWNER/REPO`: every later
+    /// `gh` call names it, whatever the remote's URL became since. `None`
+    /// in what was saved before it was kept.
+    #[serde(default)]
+    pub repo: Option<String>,
     pub base: String,
     pub branch: String,
     /// The last commit Ovra pushed to `branch`: an update is refused when
@@ -255,6 +262,7 @@ mod tests {
                     number: 7,
                     url: status.url.clone(),
                     remote: "origin".into(),
+                    repo: Some("github.com/o/r".into()),
                     base: "main".into(),
                     branch: "ovra/t1/fix".into(),
                     pushed: "abc".into(),
