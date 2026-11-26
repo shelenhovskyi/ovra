@@ -700,7 +700,7 @@ fn words(text: &str) -> Vec<&str> {
 
 /// `path` relative to `work_dir`, with `/` separators, if it stays inside.
 /// Lexical: the sandbox, not this, contains symbolic links.
-fn inside(work_dir: &Path, path: &Path) -> Option<String> {
+pub(crate) fn inside(work_dir: &Path, path: &Path) -> Option<String> {
     let full = if path.is_absolute() {
         path.to_path_buf()
     } else {
@@ -741,7 +741,7 @@ fn glob(pattern: &str, path: &str) -> bool {
 }
 
 /// A file name as the file system compares it.
-fn fold(name: &str) -> String {
+pub(crate) fn fold(name: &str) -> String {
     if cfg!(any(target_os = "macos", target_os = "windows")) {
         name.to_lowercase()
     } else {

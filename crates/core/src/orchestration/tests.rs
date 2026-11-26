@@ -3616,3 +3616,109 @@ async fn a_workers_worktree_is_watched_once_and_let_go_when_it_ends() {
 }
 
 mod check;
+
+/// A file change by `session` in its worktree, as the runtime maps one.
+fn edit_in(worker: &str, path: &str) -> crate::protocol::agents::ToolCall {
+    let file = std::path::Path::new(WORKTREES)
+        .join("p1")
+        .join("t1")
+        .join(worker)
+        .join(path);
+    crate::protocol::agents::ToolCall {
+        kind: crate::protocol::agents::ToolKind::Edit,
+        paths: vec![file.to_string_lossy().into_owned()],
+        command: None,
+        url: None,
+    }
+}
+
+fn worktree(worker: &str) -> PathBuf {
+    std::path::Path::new(WORKTREES)
+        .join("p1")
+        .join("t1")
+        .join(worker)
+}
+
+#[tokio::test]
+async fn a_worker_cannot_edit_a_file_another_worker_claimed_first() {
+    let edit = Step::Use {
+        tool: "Write",
+        input: json!({"file_path": "src/a.rs", "content": "mine\n"}),
+    };
+    let f = fx(vec![vec![Step::Say("on it")], vec![edit]]).await;
+    let mut rx = f.core.subscribe();
+    start_task(&f.core, 3).await;
+    until(&mut rx, "s1", AgentStatus::Idle).await;
+    let boss = caller("s1", ToolRole::Coordinator);
+    for (session, name) in [("s2", "lint"), ("s3", "docs")] {
+        assert!(f.core.spawn_agent(&boss, name, "x", false).await.is_ok());
+        until(&mut rx, session, AgentStatus::Idle).await;
+    }
+    let lint = caller("s2", ToolRole::Worker);
+    let docs = caller("s3", ToolRole::Worker);
+    let claimed = f.core.board_claim(&lint, None, &["src/**".into()], "");
+    assert!(claimed.is_ok(), "{claimed:?}");
+    // Docs' Write to it is refused before anyone is asked.
+    let send = json!({"method": "agents.send", "params": {"session": "s3", "text": "go"}});
+    ok(&f.core, send).await;
+    until(&mut rx, "s3", AgentStatus::Idle).await;
+    let refused: Vec<String> = transcript(&f.core, "s3")
+        .await
+        .into_iter()
+        .filter_map(|m| match m {
+            AgentMessage::ToolResult {
+                output,
+                is_error: true,
+                ..
+            } => Some(output),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(refused.len(), 1, "{refused:?}");
+    assert!(refused[0].starts_with("Worker lint of your task claimed src/a.rs"));
+
+    let write = |who: &str, worker: &str, path: &str| {
+        crate::orchestration::claimed_write(
+            &f.core,
+            &sid(who),
+            &edit_in(worker, path),
+            &worktree(worker),
+        )
+    };
+    // The holder edits it; files nobody claimed, reads and files outside
+    // the worktree are not the board's to refuse.
+    assert_eq!(write("s2", "lint", "src/a.rs"), None);
+    assert_eq!(write("s3", "docs", "README.md"), None);
+    let mut read = edit_in("docs", "src/a.rs");
+    read.kind = crate::protocol::agents::ToolKind::Read;
+    assert_eq!(
+        crate::orchestration::claimed_write(&f.core, &sid("s3"), &read, &worktree("docs")),
+        None
+    );
+    // A later claim of the same file does not take it from the first.
+    assert!(
+        f.core
+            .board_claim(&docs, None, &["src/a.rs".into()], "")
+            .is_ok()
+    );
+    assert!(write("s3", "docs", "src/a.rs").is_some());
+    // A name Ovra would not repeat is not repeated.
+    let odd = write("s3", "docs", "src/x\ny.rs").unwrap_or_default();
+    assert!(odd.contains("claimed this file"), "{odd}");
+    // Given back, the file is docs' now, and lint's edits of it are refused.
+    assert!(
+        f.core
+            .board_release(&lint, None, &["src/**".into()])
+            .is_ok()
+    );
+    assert_eq!(write("s3", "docs", "src/a.rs"), None);
+    assert!(write("s2", "lint", "src/a.rs").is_some());
+    // A worker that ended holds nothing.
+    ok(
+        &f.core,
+        json!({"method": "agents.stop", "params": {"session": "s3"}}),
+    )
+    .await;
+    until(&mut rx, "s3", AgentStatus::Stopped).await;
+    assert_eq!(write("s2", "lint", "src/a.rs"), None);
+}

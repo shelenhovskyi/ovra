@@ -30,7 +30,16 @@ the author from the caller (the pipe the tool call came on, or the UI
 request), never from the text. Paths go through `RelPath::parse`. A text
 is at most 2000 characters; a claim at most 50 paths.
 
-Claims end when their worker ends or its work is discarded. The existing
+Claims end when their worker ends or its work is discarded. While a
+worker holds a file, Ovra refuses other workers' file tools (`Write`,
+`Edit`, deletes and moves: calls of kind `edit`, `delete`, `move`) on it,
+before anyone is asked, with a reason that names the holder (D4 of
+`docs/research/agent-messaging.md`; it only narrows what agents can do).
+Of two claims that cover a file the first holds it, so a later claim
+takes nothing; giving a path back and claiming it again counts from then.
+A shell command can still write the file: review shows the overlap, and
+the person decides. Paths outside the worker's worktree are the sandbox's.
+The existing
 overlap notes (`orchestration/overlap.rs`) become `ovra` entries and also
 compare a new change with other workers' claims, not only with their
 changes.
@@ -138,9 +147,12 @@ limits, persistence and the Board tab. Decisions made while building it:
 Left for later: entries in the audit log; a time on each entry; the watch
 tick comparing a new change with other workers' claims (it compares
 changes only); saving boards apart from the rest of the orchestration
-state; approval cards that name a preceding entry; the task row's "who
-changes what" view; the e2e test; keeping two sends that race to one
+state; approval cards that name a preceding entry; the e2e test; keeping two sends that race to one
 agent from carrying the same entry twice.
+
+On 2026-11-26 the claims became binding (above), the Board tab got "Who
+changes what", and Reviews suggest which of two overlapping workers to keep
+first.
 
 ## Protocol (`board.*`)
 

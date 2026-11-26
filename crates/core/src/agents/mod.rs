@@ -727,7 +727,10 @@ impl AgentHost {
     /// reach [`Self::ask`] unless the hook tells the CLI to ask.
     pub async fn before_tool(&self, id: Option<&str>, tool: &ToolRequest) -> BeforeTool {
         let name = tool.name.as_str();
-        if let Some(why) = self.outside_research(name) {
+        if let Some(why) = self
+            .outside_research(name)
+            .or_else(|| self.claimed_by_other(tool))
+        {
             self.audit_tool(tool, false, DecidedBy::Role).await;
             return BeforeTool::Deny(why);
         }
@@ -868,7 +871,10 @@ impl AgentHost {
         title: Option<String>,
         reason: Option<PermissionReason>,
     ) -> PermissionAnswer {
-        if let Some(why) = self.outside_research(&tool.name) {
+        if let Some(why) = self
+            .outside_research(&tool.name)
+            .or_else(|| self.claimed_by_other(&tool))
+        {
             let answer = PermissionAnswer::deny(why);
             return self.decided(&tool, answer, DecidedBy::Role).await;
         }
@@ -1014,6 +1020,18 @@ impl AgentHost {
 
     /// Why `tool` is refused, if this is a research session and the tool is
     /// not one of [`RESEARCH_TOOLS`].
+    /// Why a worker's file change is refused because another worker of
+    /// its task holds the file on the board (`docs/specs/task-board.md`).
+    fn claimed_by_other(&self, tool: &ToolRequest) -> Option<String> {
+        let core = self.sessions.core()?;
+        let cwd = self
+            .sessions
+            .find(&self.session, |s| s.launch().map(|l| l.cwd))
+            .ok()
+            .flatten()?;
+        crate::orchestration::claimed_write(&core, &self.session, &tool.call, &cwd)
+    }
+
     fn outside_research(&self, tool: &str) -> Option<String> {
         let Ok((research, no_web)) = self.sessions.find(&self.session, |s| {
             let info = s.info();

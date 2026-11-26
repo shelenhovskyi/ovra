@@ -7,6 +7,7 @@
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
+use std::path::Path;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -16,7 +17,7 @@ use super::{Result, conflict, forbidden, not_found, tasks};
 use crate::Core;
 use crate::agents;
 use crate::path::RelPath;
-use crate::protocol::agents::{AgentStatus, SessionId};
+use crate::protocol::agents::{AgentStatus, SessionId, ToolCall, ToolKind};
 use crate::protocol::audit::{AuditEvent, BoardEntryKind};
 use crate::protocol::board::{
     Author, BoardEntry, BoardEvent, BoardRequest, BoardResponse, Choices, EntryBody, EntryId,
@@ -932,6 +933,113 @@ pub(super) fn claimed(
         }
     }
     found
+}
+
+/// Refuses `call`, a file change by `session` in its folder `cwd`, when a
+/// file it changes is held by another worker of its task: claimed on the
+/// board, not given back, by a worker that has not ended and whose work was
+/// not discarded (`docs/specs/task-board.md`, D4). Of two workers that claim
+/// the same file, the first holds it. Files outside `cwd` are left to the
+/// sandbox. `None` for a session that is not a worker, and for calls that
+/// change no file.
+///
+/// It narrows file tools only: a shell command can still write the file,
+/// and review shows the overlap.
+pub(crate) fn claimed_write(
+    core: &Core,
+    session: &SessionId,
+    call: &ToolCall,
+    cwd: &Path,
+) -> Option<String> {
+    if !matches!(
+        call.kind,
+        ToolKind::Edit | ToolKind::Delete | ToolKind::Move
+    ) {
+        return None;
+    }
+    let task = tasks::of_worker(core, session)?;
+    let me = task
+        .workers
+        .iter()
+        .find(|w| &w.session == session)?
+        .name
+        .clone();
+    let entries = entries_of(core, &task.id);
+    // Claims that count: the caller's own, and those of other workers that
+    // still work on the task.
+    let held: Vec<(String, String)> = holders(&entries)
+        .into_iter()
+        .filter(|(worker, _)| {
+            *worker == me || worker_session(&task, worker).is_some_and(|s| active(core, &s))
+        })
+        .collect();
+    if held.iter().all(|(worker, _)| *worker == me) {
+        return None;
+    }
+    let mut budget = MATCH_BUDGET;
+    for path in &call.paths {
+        let Some(rel) = crate::policy::inside(cwd, Path::new(path)) else {
+            continue;
+        };
+        // The first claim that covers the file holds it, also one of the
+        // caller's own: a later claim does not take a file from a worker
+        // that claimed it first.
+        let first = held
+            .iter()
+            .find(|(_, pattern)| covers(&crate::policy::fold(pattern), &rel, &mut budget));
+        if budget == 0 {
+            return Some(
+                "Ovra could not check this file against the claims on the task board, so it \
+                 refuses the change. Ask the coordinator."
+                    .to_owned(),
+            );
+        }
+        let Some((worker, _)) = first.filter(|(worker, _)| *worker != me) else {
+            continue;
+        };
+        let file = if plain_path(&rel) {
+            rel.as_str()
+        } else {
+            "this file"
+        };
+        return Some(format!(
+            "Worker {worker} of your task claimed {file} on the task board, so Ovra refuses \
+             changes to it from other workers while {worker} holds it. Leave it to {worker}, \
+             ask {worker} with ask, or ask the coordinator to split the work differently."
+        ));
+    }
+    None
+}
+
+/// The claims held now, as (worker, path or glob), in the order they were
+/// first claimed; a path given back and claimed again counts from then.
+fn holders(entries: &[BoardEntry]) -> Vec<(String, String)> {
+    let mut held: Vec<(String, String)> = Vec::new();
+    for entry in entries {
+        match &entry.body {
+            EntryBody::Claim { worker, paths, .. } => {
+                for p in paths {
+                    let pair = (worker.clone(), p.clone());
+                    if !held.contains(&pair) {
+                        held.push(pair);
+                    }
+                }
+            }
+            EntryBody::Release { worker, paths } => {
+                held.retain(|(w, p)| w != worker || !paths.contains(p));
+            }
+            _ => {}
+        }
+    }
+    held
+}
+
+/// Whether a file name may appear in Ovra's own words.
+fn plain_path(path: &str) -> bool {
+    (1..=200).contains(&path.len())
+        && path
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'/' | b'-'))
 }
 
 /// A copy of `task`'s entries, so no lock is held while they are read.

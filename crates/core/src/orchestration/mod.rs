@@ -28,6 +28,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+pub(crate) use board::claimed_write;
 pub use ide::{Output, WorkerState};
 pub(crate) use policy::{IDE_TOOL_PREFIX, decide};
 pub use push::{PushArgs, Pushed};
