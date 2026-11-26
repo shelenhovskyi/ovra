@@ -1007,11 +1007,21 @@ pub(crate) fn claimed_write(
         // The first claim that covers the file holds it, also one of the
         // caller's own: a later claim does not take a file from a worker
         // that claimed it first.
-        let first = held.iter().find(|(_, pattern)| {
-            let pattern = crate::policy::fold(pattern);
-            covers(&pattern, &rel, &mut budget)
-                || (whole && inside_folder(&pattern, &rel, &mut budget))
-        });
+        let first = held
+            .iter()
+            .find(|(_, pattern)| covers(&crate::policy::fold(pattern), &rel, &mut budget));
+        // A folder holds many files: any other worker's claim inside it
+        // counts, also behind one of the caller's own.
+        let mut inside = || {
+            held.iter().find(|(worker, pattern)| {
+                *worker != me && inside_folder(&crate::policy::fold(pattern), &rel, &mut budget)
+            })
+        };
+        let (first, in_folder) = match first.filter(|(worker, _)| *worker != me) {
+            Some(held) => (Some(held), false),
+            None if whole => (inside(), true),
+            None => (None, false),
+        };
         if budget == 0 {
             return Some(
                 "Ovra could not check this file against the claims on the task board, so it \
@@ -1019,13 +1029,15 @@ pub(crate) fn claimed_write(
                     .to_owned(),
             );
         }
-        let Some((worker, _)) = first.filter(|(worker, _)| *worker != me) else {
+        let Some((worker, _)) = first else {
             continue;
         };
-        let file = if plain_path(&rel) {
-            rel.as_str()
-        } else {
-            "this file"
+        let file = match (in_folder, plain_path(&rel)) {
+            (true, _) if rel.is_empty() => "a file in this worktree".to_owned(),
+            (true, true) => format!("a file in {rel}"),
+            (true, false) => "a file in this folder".to_owned(),
+            (false, true) => rel.clone(),
+            (false, false) => "this file".to_owned(),
         };
         return Some(format!(
             "Worker {worker} of your task claimed {file} on the task board, so Ovra refuses \

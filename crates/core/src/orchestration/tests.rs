@@ -3800,6 +3800,26 @@ async fn a_worker_cannot_edit_a_file_another_worker_claimed_first() {
                 .is_err()
         );
     }
+    // The caller's own claim does not hide another's inside the folder.
+    assert!(
+        f.core
+            .board_claim(&docs, None, &["notes/x.md".into()], "")
+            .is_ok()
+    );
+    let behind = crate::orchestration::claimed_write(&f.core, &sid("s3"), &root, &worktree("docs"));
+    assert!(
+        behind
+            .as_deref()
+            .is_some_and(|m| m.contains("claimed a file in this worktree")),
+        "{behind:?}"
+    );
+    let in_src = crate::orchestration::claimed_write(&f.core, &sid("s3"), &gone, &worktree("docs"));
+    assert!(
+        in_src
+            .as_deref()
+            .is_some_and(|m| m.contains("claimed a file in src")),
+        "{in_src:?}"
+    );
     // A later claim of the same file does not take it from the first.
     assert!(
         f.core
