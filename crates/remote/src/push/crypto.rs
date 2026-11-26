@@ -14,6 +14,9 @@ use ring::{aead, hkdf};
 /// The one record's size: the content, its delimiter and the tag fit in it.
 const RECORD_SIZE: u32 = 4096;
 const TAG: usize = 16;
+/// Every message's content, delimiter and padding together, so its size
+/// tells a watcher nothing of its kind.
+const PADDED: usize = 128;
 /// Apple requires a contact; this names the project, not the person.
 const SUBJECT: &str = "https://github.com/shelenhovskyi/ovra";
 
@@ -53,7 +56,8 @@ fn keys(
 }
 
 /// The body of a push message once the ECDH secret is known: the header
-/// (salt, record size, `as_public`) and one encrypted record.
+/// (salt, record size, `as_public`) and one encrypted record, padded with
+/// zeros after its delimiter (RFC 8188) to `padded` bytes before the tag.
 pub(crate) fn seal(
     ecdh_secret: &[u8],
     ua_public: &[u8],
@@ -61,8 +65,10 @@ pub(crate) fn seal(
     auth: &[u8],
     salt: &[u8; 16],
     plaintext: &[u8],
+    padded: usize,
 ) -> Result<Vec<u8>, Unspecified> {
-    if plaintext.len() + 1 + TAG > RECORD_SIZE as usize || as_public.len() > 255 {
+    let padded = padded.max(plaintext.len() + 1);
+    if padded + TAG > RECORD_SIZE as usize || as_public.len() > 255 {
         return Err(Unspecified);
     }
     let (cek, nonce) = keys(ecdh_secret, ua_public, as_public, auth, salt)?;
@@ -70,6 +76,7 @@ pub(crate) fn seal(
     let mut record = plaintext.to_vec();
     // The last (and only) record's padding delimiter.
     record.push(2);
+    record.resize(padded, 0);
     key.seal_in_place_append_tag(
         aead::Nonce::assume_unique_for_key(nonce),
         aead::Aad::empty(),
@@ -106,6 +113,7 @@ pub(crate) fn encrypt(
                 auth,
                 &salt,
                 plaintext,
+                PADDED,
             )
         },
     )?
@@ -175,7 +183,8 @@ pub(crate) mod tests {
         URL_SAFE_NO_PAD.decode(s).expect("base64url")
     }
 
-    /// Opens a body made by [`seal`] with the ECDH secret.
+    /// Opens a body made by [`seal`] with the ECDH secret and drops its
+    /// padding.
     pub(crate) fn open(ecdh_secret: &[u8], ua_public: &[u8], auth: &[u8], body: &[u8]) -> Vec<u8> {
         let (salt, rest) = body.split_at(16);
         let id_len = rest[4] as usize;
@@ -191,8 +200,9 @@ pub(crate) mod tests {
                 &mut record,
             )
             .expect("decrypts");
-        assert_eq!(plain.last(), Some(&2), "one last record");
-        plain[..plain.len() - 1].to_vec()
+        let end = plain.iter().rposition(|b| *b != 0).expect("delimiter");
+        assert_eq!(plain[end], 2, "one last record");
+        plain[..end].to_vec()
     }
 
     #[test]
@@ -206,6 +216,7 @@ pub(crate) mod tests {
             &b64("BTBZMqHH6r4Tts7J_aSIgg"),
             &b64("DGv6ra1nlYgDCS1FRnbzlw").try_into().expect("salt"),
             b"When I grow up, I want to be a watermelon",
+            0,
         )
         .expect("seal");
         let expected = b64(

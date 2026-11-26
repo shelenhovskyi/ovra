@@ -333,3 +333,22 @@ fn only_push_services_are_subscribed() {
     sub.keys.p256dh = "not base64!".into();
     assert!(sub.check().is_err());
 }
+
+#[test]
+fn every_kind_of_push_is_the_same_size() {
+    let dir = tempfile::tempdir().expect("dir");
+    let vapid = Vapid::load_or_create(dir.path()).expect("vapid");
+    let phone = Phone::new();
+    let sub = phone.subscription("https://fcm.googleapis.com/fcm/send/x");
+    let sizes: Vec<_> = [Kind::Approval, Kind::Review, Kind::Failed]
+        .into_iter()
+        .map(|kind| message(&vapid, &sub, kind).expect("push").body.len())
+        .collect();
+    assert!(sizes.iter().all(|n| *n == sizes[0]), "{sizes:?}");
+    let push = message(&vapid, &sub, Kind::Failed).expect("push");
+    assert_eq!(
+        phone.read(&push.body)["kind"],
+        "failed",
+        "the padding is dropped"
+    );
+}
