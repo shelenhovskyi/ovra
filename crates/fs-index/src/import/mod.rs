@@ -5,7 +5,9 @@
 //! drop event and keeps under a drop id (`Drops`); they never come from a
 //! client frame, so neither headless mode nor agents can reach this. The
 //! target folder is checked like `fs.copy`'s: it resolves inside the root
-//! and outside `.git`.
+//! and outside `.git`; it must not be reached through a link either. As an
+//! agent may change the project while the person's import runs, the walk
+//! goes by handle (`node`), not by paths it resolves again.
 //!
 //! An import is planned first, without following links and before anything
 //! changes: links are skipped (and named in the result), a device, pipe or
@@ -19,9 +21,11 @@
 //! but not a partly copied file.
 
 pub(crate) mod drops;
+mod node;
 
 use std::collections::HashSet;
-use std::fs::{self, OpenOptions};
+use std::ffi::OsStr;
+use std::fs;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -32,6 +36,7 @@ use ovra_core::services::Result;
 use unicode_normalization::UnicodeNormalization;
 
 use self::drops::Drops;
+use self::node::Kind;
 use crate::edit::{self, Trash};
 use crate::resolve;
 
@@ -132,7 +137,9 @@ struct Step<'a> {
 }
 
 pub(crate) struct Plan<'a> {
-    dir: PathBuf,
+    /// The target folder, opened at the plan: the copy goes where the
+    /// checks looked.
+    dir: node::Dir,
     steps: Vec<Step<'a>>,
     links: Vec<String>,
 }
@@ -150,7 +157,7 @@ pub(crate) fn plan<'a>(
     shown: &[String],
     limits: Limits,
 ) -> Result<Planned<'a>> {
-    let dir = target_dir(to.root, to.into)?;
+    let (dir, handle) = target_dir(to.root, to.into)?;
     let mut scan = Walk::new(limits);
     // The source, its name, and the source with its parent resolved.
     let mut items: Vec<(&Path, String, PathBuf)> = Vec::new();
@@ -167,7 +174,8 @@ pub(crate) fn plan<'a>(
         }
         let real = real_source(source, &name)?;
         edit::not_inside(&real, &dir)?;
-        scan.visit(source, None, &name, 0)?;
+        let (parent, in_parent) = node::parent_of(source).map_err(|e| failure(&name, &e))?;
+        scan.visit(&parent, &in_parent, None, &name, 0)?;
         items.push((source, name, real));
     }
     let clashes: Vec<String> = items
@@ -208,7 +216,7 @@ pub(crate) fn plan<'a>(
         steps.push(step);
     }
     Ok(Planned::Ready(Plan {
-        dir,
+        dir: handle,
         steps,
         links: scan.links,
     }))
@@ -228,8 +236,10 @@ pub(crate) fn run(
         if step.replace {
             edit::trash(to.root, &[to.into.join(&step.name)?], trash)?;
         }
-        let target = plan.dir.join(&step.target);
-        copy.visit(step.source, Some(&target), &step.name, 0)?;
+        let fail = |e: io::Error| failure(&step.name, &e);
+        let (parent, in_parent) = node::parent_of(step.source).map_err(fail)?;
+        let target = (&plan.dir, OsStr::new(&step.target));
+        copy.visit(&parent, &in_parent, Some(target), &step.name, 0)?;
         paths.push(to.into.join(&step.target)?);
     }
     // Also the links that replaced a file or folder since the plan.
@@ -272,14 +282,29 @@ fn fold(name: &str) -> String {
     name.nfc().collect::<String>().to_lowercase()
 }
 
-/// The existing folder `into`, resolved inside the root and outside `.git`.
-fn target_dir(root: &Path, into: &RelPath) -> Result<PathBuf> {
-    let (_, real) = resolve::existing(root, into)?;
+/// The existing folder `into`, inside the root, outside `.git` and not
+/// through a link, so a folder an agent swapped for a link to another one
+/// (`.ovra-attachments` for `src`, say) is refused. Also opened, so the
+/// copy goes where these checks looked.
+fn target_dir(root: &Path, into: &RelPath) -> Result<(PathBuf, node::Dir)> {
+    let (root, real) = resolve::existing(root, into)?;
     if !real.is_dir() {
         return Err(bad(format!("{into} is not a folder.")));
     }
-    edit::check_parent(root, &real, into)?;
-    Ok(real)
+    edit::check_parent(&root, &real, into)?;
+    let through_link = || {
+        ProtocolError::new(
+            ErrorCode::Forbidden,
+            format!("{into} goes through a link; drop onto the folder it points to."),
+        )
+    };
+    if real != into.under(&root) {
+        return Err(through_link());
+    }
+    let handle = node::target(&root, into)
+        .map_err(|e| resolve::io_error(into, &e))?
+        .ok_or_else(through_link)?;
+    Ok((real, handle))
 }
 
 /// The name a dropped `source` gets in `into`, refused unless it is a name
@@ -361,11 +386,20 @@ impl Walk {
         Ok(())
     }
 
-    fn visit(&mut self, from: &Path, to: Option<&Path>, shown: &str, depth: usize) -> Result<()> {
+    /// Visits `name` in `dir`, and copies it to `to` (a folder and a name
+    /// in it) when given one. Children are reached through their folder's
+    /// handle, so a folder swapped for a link meanwhile is not followed.
+    fn visit(
+        &mut self,
+        dir: &node::Dir,
+        name: &OsStr,
+        to: Option<(&node::Dir, &OsStr)>,
+        shown: &str,
+        depth: usize,
+    ) -> Result<()> {
         let fail = |e: io::Error| failure(shown, &e);
-        let meta = fs::symlink_metadata(from).map_err(fail)?;
-        let kind = meta.file_type();
-        if kind.is_symlink() {
+        let meta = node::stat(dir, name).map_err(fail)?;
+        if meta.kind == Kind::Link {
             self.links.push(shown.to_owned());
             return Ok(());
         }
@@ -376,50 +410,49 @@ impl Walk {
                 self.limits.entries
             )));
         }
-        if kind.is_dir() {
-            if depth >= self.limits.depth {
-                return Err(bad(format!(
-                    "{shown} is more than {} folders deep; Ovra copies at most that deep.",
-                    self.limits.depth
-                )));
+        match meta.kind {
+            Kind::Dir => {
+                if depth >= self.limits.depth {
+                    return Err(bad(format!(
+                        "{shown} is more than {} folders deep; Ovra copies at most that deep.",
+                        self.limits.depth
+                    )));
+                }
+                let from = node::open_dir(dir, name, &meta).map_err(fail)?;
+                let made = match to {
+                    Some((to, name)) => Some(node::make_dir(to, name).map_err(fail)?),
+                    None => None,
+                };
+                #[cfg(test)]
+                tests::opened(shown);
+                for child in node::names(&from).map_err(fail)? {
+                    let shown = format!("{shown}/{}", child.to_string_lossy());
+                    let to = made.as_ref().map(|made| (made, child.as_os_str()));
+                    self.visit(&from, &child, to, &shown, depth + 1)?;
+                }
+                // Last, so a read-only folder still gets its children.
+                if let Some(made) = &made {
+                    node::set_perms(made, &meta.perms).map_err(fail)?;
+                }
+                Ok(())
             }
-            edit::check_dir(from, &meta).map_err(fail)?;
-            if let Some(to) = to {
-                fs::create_dir(to).map_err(fail)?;
+            Kind::File => {
+                let Some((to, to_name)) = to else {
+                    return self.add_bytes(meta.len);
+                };
+                let source = node::open_file(dir, name, &meta).map_err(fail)?;
+                let mut target = node::make_file(to, to_name).map_err(fail)?;
+                let copied = self.copy_file(source, &mut target, &meta.perms, shown);
+                if copied.is_err() {
+                    // Ours (made new), and only part of the source.
+                    drop(target);
+                    let _ = node::remove_file(to, to_name);
+                }
+                copied
             }
-            for entry in fs::read_dir(from).map_err(fail)? {
-                let entry = entry.map_err(fail)?;
-                let name = entry.file_name();
-                let shown = format!("{shown}/{}", name.to_string_lossy());
-                let to = to.map(|to| to.join(&name));
-                self.visit(&entry.path(), to.as_deref(), &shown, depth + 1)?;
-            }
-            // Last, so a read-only folder still gets its children.
-            if let Some(to) = to {
-                fs::set_permissions(to, permissions(&meta)).map_err(fail)?;
-            }
-            Ok(())
-        } else if kind.is_file() {
-            let Some(to) = to else {
-                return self.add_bytes(meta.len());
-            };
-            let source = edit::open_file(from, &meta).map_err(fail)?;
-            let mut target = OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(to)
-                .map_err(fail)?;
-            let copied = self.copy_file(source, &mut target, &meta, shown);
-            if copied.is_err() {
-                // Ours (`create_new`), and only part of the source.
-                drop(target);
-                let _ = fs::remove_file(to);
-            }
-            copied
-        } else {
-            Err(bad(format!(
+            Kind::Link | Kind::Other => Err(bad(format!(
                 "{shown} is not a file or folder (a device, pipe or socket), so Ovra does not copy it."
-            )))
+            ))),
         }
     }
 
@@ -427,7 +460,7 @@ impl Walk {
         &mut self,
         source: fs::File,
         target: &mut fs::File,
-        meta: &fs::Metadata,
+        perms: &fs::Permissions,
         shown: &str,
     ) -> Result<()> {
         // A file that grew since the scan stops at the limit.
@@ -436,22 +469,9 @@ impl Walk {
             io::copy(&mut source.take(left + 1), target).map_err(|e| failure(shown, &e))?;
         self.add_bytes(copied)?;
         target
-            .set_permissions(permissions(meta))
+            .set_permissions(perms.clone())
             .map_err(|e| failure(shown, &e))
     }
-}
-
-/// The source's permission bits up to 0o755: never setuid, setgid, sticky,
-/// or writable by anyone but the owner.
-#[cfg(unix)]
-fn permissions(meta: &fs::Metadata) -> fs::Permissions {
-    use std::os::unix::fs::PermissionsExt;
-    fs::Permissions::from_mode(meta.permissions().mode() & 0o755)
-}
-
-#[cfg(not(unix))]
-fn permissions(meta: &fs::Metadata) -> fs::Permissions {
-    meta.permissions()
 }
 
 #[cfg(test)]

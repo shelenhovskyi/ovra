@@ -369,3 +369,118 @@ fn a_link_swapped_in_after_the_plan_is_skipped_and_named_once() {
     assert_eq!(done, copied(&["d"], &["d/passwd", "d/x.txt"]));
     assert!(fs::symlink_metadata(root.join("d/x.txt")).is_err());
 }
+
+type Hook = Box<dyn FnMut(&str)>;
+
+std::thread_local! {
+    static ON_OPEN: std::cell::RefCell<Option<Hook>> = std::cell::RefCell::new(None);
+}
+
+/// Called by the walk once it opened the dropped folder `shown` (and made
+/// its copy), before it lists it: where a test swaps things.
+pub(super) fn opened(shown: &str) {
+    ON_OPEN.with(|hook| {
+        if let Some(hook) = hook.borrow_mut().as_mut() {
+            hook(shown);
+        }
+    });
+}
+
+/// Plans an import of `sources` into `into`, then runs it with `hook`
+/// called as each folder is opened.
+fn run_with_hook(
+    root: &Path,
+    sources: &[PathBuf],
+    into: &str,
+    hook: impl FnMut(&str) + 'static,
+) -> Result<Imported> {
+    let into = rel(into);
+    let to = Target {
+        root,
+        into: &into,
+        clash: Clash::Ask,
+    };
+    let Planned::Ready(plan) = plan(&to, sources, &[], LIMITS)? else {
+        panic!("no clash");
+    };
+    ON_OPEN.with(|h| *h.borrow_mut() = Some(Box::new(hook)));
+    let done = run(&to, &plan, &trash().0, LIMITS);
+    ON_OPEN.with(|h| *h.borrow_mut() = None);
+    done
+}
+
+#[cfg(unix)]
+#[test]
+fn a_dropped_folder_swapped_for_a_link_mid_copy_is_not_followed() {
+    let (tmp, root, out) = setup();
+    let secret = tmp.path().join("ssh");
+    fs::create_dir(&secret).expect("mkdir");
+    fs::write(secret.join("id_ed25519"), "key").expect("write");
+    fs::create_dir(out.join("d/sub")).expect("mkdir");
+    fs::write(out.join("d/sub/inner.txt"), "inner").expect("write");
+    let sub = out.join("d/sub");
+    let done = run_with_hook(&root, &[out.join("d")], "", move |shown| {
+        if shown == "d/sub" {
+            fs::rename(&sub, sub.with_file_name("sub-old")).expect("rename");
+            std::os::unix::fs::symlink(&secret, &sub).expect("link");
+        }
+    });
+    assert_eq!(done.expect("import"), copied(&["d"], &[]));
+    assert_eq!(read(&root.join("d/sub/inner.txt")), "inner");
+    assert!(!root.join("d/sub/id_ed25519").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_new_folder_swapped_for_a_link_is_not_chmodded_through_it() {
+    use std::os::unix::fs::PermissionsExt;
+    let (tmp, root, out) = setup();
+    let secret = tmp.path().join("id_ed25519");
+    fs::write(&secret, "key").expect("write");
+    fs::set_permissions(&secret, fs::Permissions::from_mode(0o600)).expect("chmod");
+    fs::create_dir(out.join("e")).expect("mkdir");
+    let made = root.join("e");
+    let link_to = secret.clone();
+    let done = run_with_hook(&root, &[out.join("e")], "", move |shown| {
+        if shown == "e" {
+            fs::rename(&made, made.with_file_name("e-old")).expect("rename");
+            std::os::unix::fs::symlink(&link_to, &made).expect("link");
+        }
+    });
+    done.expect("import");
+    let mode = fs::metadata(&secret).expect("stat").permissions().mode() & 0o777;
+    assert_eq!(mode, 0o600);
+    assert!(root.join("e-old").is_dir());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_target_through_a_link_is_refused_and_a_swap_after_the_plan_is_not_followed() {
+    let (_tmp, root, out) = setup();
+    let attachments = root.join(".ovra-attachments");
+    std::os::unix::fs::symlink(root.join("src"), &attachments).expect("link");
+    std::os::unix::fs::symlink("src", root.join("lnk")).expect("link");
+    for into in [".ovra-attachments", "lnk"] {
+        let done = run_import(&root, &[out.join("d")], into, Clash::Ask);
+        assert_eq!(code(done), ErrorCode::Forbidden, "{into}");
+    }
+    assert!(!root.join("src/d").exists());
+
+    fs::remove_file(&attachments).expect("rm");
+    fs::create_dir(&attachments).expect("mkdir");
+    let into = rel(".ovra-attachments");
+    let to = Target {
+        root: &root,
+        into: &into,
+        clash: Clash::Ask,
+    };
+    let sources = [out.join("d")];
+    let Planned::Ready(plan) = plan(&to, &sources, &[], LIMITS).expect("plan") else {
+        panic!("no clash");
+    };
+    fs::rename(&attachments, root.join("att-old")).expect("rename");
+    std::os::unix::fs::symlink("src", &attachments).expect("link");
+    run(&to, &plan, &trash().0, LIMITS).expect("import");
+    assert!(!root.join("src/d").exists());
+    assert_eq!(read(&root.join("att-old/d/x.txt")), "x");
+}
