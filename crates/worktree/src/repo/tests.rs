@@ -778,3 +778,41 @@ async fn the_upstream_is_read_from_config_recorded_and_only_fast_forwarded() {
         ErrorCode::Conflict
     );
 }
+
+#[tokio::test]
+async fn a_branch_is_published_to_the_remote_it_would_push_to() {
+    let repo = Repo::new(&[("a.txt", "a\n")]);
+    let root = &repo.root;
+    let g = GitRepo::new();
+    let to = || async { ok(g.status(root.clone()).await).and_then(|s| s.publish_to) };
+    assert_eq!(to().await, None);
+    git(
+        root,
+        &["remote", "add", "fork", "https://example.invalid/f.git"],
+    );
+    assert_eq!(to().await, Some("fork".into()));
+    git(
+        root,
+        &["remote", "add", "origin", "https://example.invalid/o.git"],
+    );
+    assert_eq!(to().await, Some("origin".into()));
+    git(root, &["config", "remote.pushDefault", "fork"]);
+    assert_eq!(to().await, Some("fork".into()));
+
+    let head = git(root, &["rev-parse", "HEAD"]).trim().to_owned();
+    git(root, &["switch", "--quiet", "-c", "topic"]);
+    let set =
+        |branch: &str| g.set_upstream(root.clone(), branch.into(), "origin".into(), head.clone());
+    // Not the current branch: refused, nothing written.
+    assert_eq!(code(set("main").await), ErrorCode::Conflict);
+    ok(set("topic").await);
+    let upstream = ok(g.upstream(root.clone()).await);
+    assert_eq!(
+        upstream.map(|u| (u.remote, u.branch)),
+        Some(("origin".into(), "topic".into()))
+    );
+    assert_eq!(git(root, &["rev-parse", "origin/topic"]).trim(), head);
+    // Connected now: a second publish is refused, and nothing is offered.
+    assert_eq!(code(set("topic").await), ErrorCode::Conflict);
+    assert_eq!(to().await, None);
+}

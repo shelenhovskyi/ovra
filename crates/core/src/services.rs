@@ -1493,6 +1493,17 @@ pub trait GitService: Send + Sync + Debug {
         expect: RemoteBranch,
         commit: String,
     ) -> BoxFuture<'_, Result<()>>;
+    /// Makes `remote`'s branch of the same name, just pushed at `commit`,
+    /// the upstream of `branch`: records the tracking ref and git's config,
+    /// as `git push -u` would. `Conflict` when `branch` is no longer the
+    /// current branch or has an upstream already.
+    fn set_upstream(
+        &self,
+        root: PathBuf,
+        branch: String,
+        remote: String,
+        commit: String,
+    ) -> BoxFuture<'_, Result<()>>;
 }
 
 /// A branch on a remote: `git push <remote> HEAD:<branch>` reaches it.
@@ -1595,6 +1606,15 @@ impl GitService for Unavailable {
         self.later()
     }
     fn fast_forward(&self, _: PathBuf, _: RemoteBranch, _: String) -> BoxFuture<'_, Result<()>> {
+        self.later()
+    }
+    fn set_upstream(
+        &self,
+        _: PathBuf,
+        _: String,
+        _: String,
+        _: String,
+    ) -> BoxFuture<'_, Result<()>> {
         self.later()
     }
 }

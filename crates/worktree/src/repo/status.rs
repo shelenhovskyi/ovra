@@ -27,6 +27,9 @@ pub(super) fn status(root: &Path) -> Result<Option<RepoStatus>> {
     }
     let mut status = parse(&run.run()?, &dirs.prefix);
     status.operation = operation(&dirs);
+    if status.branch.is_some() && status.upstream.is_none() {
+        status.publish_to = super::publish_remote(root)?;
+    }
     Ok(Some(status))
 }
 

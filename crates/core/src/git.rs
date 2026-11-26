@@ -200,6 +200,54 @@ pub(crate) async fn handle(core: &Core, request: GitRequest) -> Result<Response,
             git.record_upstream(root, expect, head).await?;
             ok()
         }
+        GitRequest::Publish { project } => {
+            let root = core.root(&project)?;
+            let status = git.status(root.clone()).await?;
+            let status = status.ok_or_else(|| bad("this project is not a git repository"))?;
+            let branch = status
+                .branch
+                .ok_or_else(|| bad("HEAD is not on a branch; switch to one first"))?;
+            let head = status
+                .head
+                .ok_or_else(|| bad("the branch has no commits yet; commit first"))?;
+            if status.upstream.is_some() || git.upstream(root.clone()).await?.is_some() {
+                return Err(bad(
+                    "this branch is connected to a remote branch already; send its commits",
+                ));
+            }
+            check_branch_name(&branch)?;
+            let remote = status.publish_to.ok_or_else(|| {
+                bad(
+                    "this repository has no remote to send to; add one in a terminal \
+                     (git remote add)",
+                )
+            })?;
+            // No commit as the remote branch's last one: it must not exist yet.
+            let pushed = core
+                .forge()
+                .push(
+                    root.clone(),
+                    remote.clone(),
+                    head.clone(),
+                    branch.clone(),
+                    None,
+                )
+                .await;
+            if let Err(e) = pushed {
+                return Err(match e.code {
+                    ErrorCode::Conflict => ProtocolError::new(
+                        ErrorCode::Conflict,
+                        format!(
+                            "{remote} has a branch named {branch} already: give this branch \
+                             another name, or connect the two in a terminal (git branch -u)"
+                        ),
+                    ),
+                    _ => e,
+                });
+            }
+            git.set_upstream(root, branch, remote, head).await?;
+            ok()
+        }
     })
 }
 
@@ -230,10 +278,8 @@ async fn upstream(
     root: &std::path::Path,
 ) -> Result<(RemoteBranch, String), ProtocolError> {
     let git = core.git_service();
-    let not_connected = || {
-        bad("this branch is not connected to a branch on a remote; \
-             send it once in a terminal (git push -u)")
-    };
+    let not_connected =
+        || bad("this branch is not connected to a branch on a remote; publish it first");
     let upstream = git
         .upstream(root.to_path_buf())
         .await?

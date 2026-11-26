@@ -533,6 +533,63 @@ fn record_upstream(root: &Path, expect: &RemoteBranch, commit: &str) -> Result<A
     })
 }
 
+/// See [`RepoStatus::publish_to`](ovra_core::protocol::git::RepoStatus).
+pub(super) fn publish_remote(root: &Path) -> Result<Option<String>> {
+    git::dirs(root)?;
+    let listed = Git::new(root, "remote").text()?;
+    let remotes: Vec<&str> = listed.lines().filter(|r| !r.is_empty()).collect();
+    let configured = Git::new(root, "config")
+        .args(["--get", "remote.pushDefault"])
+        .try_text()?;
+    if let Some(name) = configured.filter(|n| remotes.contains(&n.as_str())) {
+        return Ok(Some(name));
+    }
+    Ok(match remotes.as_slice() {
+        [only] => Some((*only).to_owned()),
+        _ if remotes.contains(&"origin") => Some("origin".to_owned()),
+        _ => None,
+    })
+}
+
+/// See [`GitService::set_upstream`].
+fn set_upstream(root: &Path, branch: &str, remote: &str, commit: &str) -> Result<()> {
+    check_commit_id(commit)?;
+    let current = Git::new(root, "symbolic-ref")
+        .args(["--quiet", "HEAD"])
+        .try_text()?;
+    if current.as_deref() != Some(format!("refs/heads/{branch}").as_str())
+        || tracking(root)?.is_some()
+    {
+        return Err(conflict(format!(
+            "the branch changed meanwhile; {branch} is no longer the current branch \
+             without an upstream"
+        )));
+    }
+    let remotes = Git::new(root, "remote").text()?;
+    if !remotes.lines().any(|r| r == remote) {
+        return Err(bad("not a remote of this repository"));
+    }
+    for (key, value) in [
+        (format!("branch.{branch}.remote"), remote.to_owned()),
+        (
+            format!("branch.{branch}.merge"),
+            format!("refs/heads/{branch}"),
+        ),
+    ] {
+        Git::without_hooks(root, "config")
+            .args(["--local", "--end-of-options", &key, &value])
+            .run()?;
+    }
+    // Where the remote's fetch refspec keeps that branch; a remote whose
+    // refspec does not take it has no tracking ref to record.
+    if let Some((_, local)) = tracking(root)? {
+        Git::without_hooks(root, "update-ref")
+            .args(["--end-of-options", &local, commit])
+            .run()?;
+    }
+    Ok(())
+}
+
 /// See [`GitService::fast_forward`].
 fn fast_forward(root: &Path, expect: &RemoteBranch, commit: &str, watch: Watch) -> Result<()> {
     check_commit_id(commit)?;
@@ -848,5 +905,14 @@ impl GitService for GitRepo {
         self.watched(root, move |root, watch| {
             fast_forward(root, &expect, &commit, watch)
         })
+    }
+    fn set_upstream(
+        &self,
+        root: PathBuf,
+        branch: String,
+        remote: String,
+        commit: String,
+    ) -> BoxFuture<'_, Result<()>> {
+        blocking(move || set_upstream(&root, &branch, &remote, &commit))
     }
 }

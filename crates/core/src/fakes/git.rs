@@ -244,4 +244,32 @@ impl GitService for MemoryGit {
     ) -> BoxFuture<'_, Result<()>> {
         self.on_upstream("fast_forward", &root, expect, &commit, ())
     }
+    /// Sets the status's upstream to `remote/branch` when `branch` is still
+    /// current and has none.
+    fn set_upstream(
+        &self,
+        root: PathBuf,
+        branch: String,
+        remote: String,
+        commit: String,
+    ) -> BoxFuture<'_, Result<()>> {
+        let mut status = lock(&self.status);
+        let current = status
+            .as_mut()
+            .filter(|s| s.branch.as_deref() == Some(branch.as_str()) && s.upstream.is_none());
+        let Some(current) = current else {
+            drop(status);
+            self.record("set_upstream", &root, &commit);
+            let changed = ProtocolError::new(ErrorCode::Conflict, "the branch changed");
+            return Box::pin(async move { Err(changed) });
+        };
+        current.upstream = Some(format!("{remote}/{branch}"));
+        drop(status);
+        self.change(
+            "set_upstream",
+            &root,
+            &format!("{remote} {branch} {commit}"),
+            (),
+        )
+    }
 }

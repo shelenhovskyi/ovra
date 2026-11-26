@@ -167,6 +167,15 @@ pub enum GitRequest {
     /// agent tool.
     #[serde(rename = "git.push")]
     Push { project: ProjectId },
+    /// Sends a branch without upstream to a new branch of the same name on
+    /// the remote it would go to (`remote.pushDefault`, `origin`, or the only
+    /// remote), never forced and without hooks, and makes that its upstream;
+    /// the panel's "Publish branch". `bad_request` for a detached HEAD, a
+    /// branch without commits or with an upstream, or no remote; `conflict`
+    /// when the remote has a branch of that name already. A person's
+    /// action, not an agent tool.
+    #[serde(rename = "git.publish")]
+    Publish { project: ProjectId },
 }
 
 fn default_log_limit() -> u32 {
@@ -246,6 +255,11 @@ pub struct RepoStatus {
     pub head: Option<String>,
     /// The branch's upstream, such as `origin/main`.
     pub upstream: Option<String>,
+    /// For a branch without upstream, the remote `git.publish` would send
+    /// it to: git's `remote.pushDefault` if it names a remote, else
+    /// `origin`, else the only remote. `None` with no remote to choose.
+    #[serde(default)]
+    pub publish_to: Option<String>,
     /// Commits the branch has that its upstream lacks, and the reverse.
     pub ahead: u32,
     pub behind: u32,

@@ -469,3 +469,79 @@ async fn push_goes_on_top_of_the_remote_branch_and_needs_an_upstream() {
         ErrorCode::BadRequest
     );
 }
+
+#[tokio::test]
+async fn publish_sends_a_new_branch_and_connects_it_once() {
+    let f = fixture().await;
+    *f.git.status.lock().unwrap_or_else(|e| e.into_inner()) = Some(RepoStatus {
+        branch: Some("topic".into()),
+        head: Some("c4".into()),
+        publish_to: Some("origin".into()),
+        ..RepoStatus::default()
+    });
+    let done = call(&f.core, git("publish", json!({}))).await;
+    assert_eq!(done, Ok(Response::Ok(OkResponse::Ok)));
+    let pushed = f
+        .forge
+        .pushed
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
+    assert_eq!(pushed, [("origin".into(), "c4".into(), "topic".into())]);
+    assert_eq!(
+        f.git.calls().last(),
+        Some(&format!("set_upstream {ROOT} origin topic c4"))
+    );
+    // Connected now: Send, not Publish.
+    assert_eq!(
+        code(&f.core, git("publish", json!({}))).await,
+        ErrorCode::BadRequest
+    );
+
+    // The remote has a branch of that name: nothing is overwritten.
+    *f.git.status.lock().unwrap_or_else(|e| e.into_inner()) = Some(RepoStatus {
+        branch: Some("taken".into()),
+        head: Some("c5".into()),
+        publish_to: Some("origin".into()),
+        ..RepoStatus::default()
+    });
+    f.forge
+        .branches
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(("origin".into(), "taken".into()), "c9".into());
+    let refused = call(&f.core, git("publish", json!({}))).await;
+    assert_eq!(refused.map_err(|e| e.code), Err(ErrorCode::Conflict));
+    assert!(!f.git.calls().iter().any(|c| c.contains("origin taken")));
+
+    // No remote, or a detached HEAD: nowhere to publish.
+    if let Some(status) = f
+        .git
+        .status
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_mut()
+    {
+        status.publish_to = None;
+    }
+    assert_eq!(
+        code(&f.core, git("publish", json!({}))).await,
+        ErrorCode::BadRequest
+    );
+    *f.git.status.lock().unwrap_or_else(|e| e.into_inner()) = Some(RepoStatus {
+        head: Some("c5".into()),
+        ..RepoStatus::default()
+    });
+    assert_eq!(
+        code(&f.core, git("publish", json!({}))).await,
+        ErrorCode::BadRequest
+    );
+    assert_eq!(
+        f.forge
+            .pushed
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .len(),
+        1
+    );
+}

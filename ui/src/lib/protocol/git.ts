@@ -84,7 +84,12 @@ export type GitRequest =
    */
   | { method: "git.pull"; params: { project: ProjectId } }
   /** Sends the current branch's commits to its upstream, never forced ("Send commits"). */
-  | { method: "git.push"; params: { project: ProjectId } };
+  | { method: "git.push"; params: { project: ProjectId } }
+  /**
+   * Sends a branch without upstream to a new branch of its name on the remote, never forced, and
+   * makes that its upstream ("Publish branch"). `conflict` when the remote has that branch already.
+   */
+  | { method: "git.publish"; params: { project: ProjectId } };
 
 export type GitOperation = "merge" | "rebase" | "cherry_pick" | "revert" | "bisect";
 
@@ -114,6 +119,8 @@ export type RepoStatus = {
   /** Null before the first commit. */
   head: string | null;
   upstream: string | null;
+  /** For a branch without upstream, the remote "Publish branch" sends it to; null with no remote. */
+  publish_to?: string | null;
   ahead: number;
   behind: number;
   operation: GitOperation | null;
