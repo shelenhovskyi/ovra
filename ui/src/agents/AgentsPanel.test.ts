@@ -116,11 +116,14 @@ describe("AgentsPanel", () => {
     ]);
     expect(options).toEqual([
       ["One agent, hereWorks in this folder. Asks before risky steps.", "true"],
+      ["One agent, own copyWorks on its own copy of the project. You review before anything is merged.", "false"],
       ["Plan and splitUp to 3 agents, each on its own copy. You review before anything is merged.", "false"],
       ["ResearchReads the project and searches the web. Changes nothing.", "false"],
     ]);
     expect(document.activeElement?.getAttribute("aria-checked")).toBe("true");
     // Arrow keys move in the menu; the pick closes it.
+    document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { code: "ArrowDown", bubbles: true }));
+    expect(document.activeElement?.textContent).toMatch(/^One agent, own copy/);
     document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { code: "ArrowDown", bubbles: true }));
     expect(document.activeElement?.textContent).toMatch(/^Plan and split/);
     (document.activeElement as HTMLElement).click();
