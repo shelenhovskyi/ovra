@@ -20,6 +20,7 @@
     "ovra-browser": ["ovra-core"],
     "ovra-forge": ["ovra-core"],
     "ovra-resources": ["ovra-core"],
+    "ovra-power": ["ovra-core"],
     "ovra-security-tests": ["ovra-sandbox"],
     "ovra-daemon": [
       "ovra-core",
@@ -38,7 +39,8 @@
       "ovra-servers",
       "ovra-browser",
       "ovra-forge",
-      "ovra-resources"
+      "ovra-resources",
+      "ovra-power"
     ],
     "ovra-app": [
       "ovra-core",
@@ -57,7 +59,8 @@
       "ovra-servers",
       "ovra-browser",
       "ovra-forge",
-      "ovra-resources"
+      "ovra-resources",
+      "ovra-power"
     ]
   },
   "banned": {

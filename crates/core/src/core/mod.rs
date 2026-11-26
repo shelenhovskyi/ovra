@@ -22,8 +22,7 @@ use crate::servers::DevServerState;
 use crate::services::{
     AgentRuntime, AuditLog, Browser, DevServers, EventSink, Forge, FsService, GitService, IdeTools,
     KeepAwake, LanguageServers, NetProxy, Opener, ProjectStore, ResourceMonitor, Secrets,
-    SessionStore,
-    TerminalService, Unavailable, Worktrees,
+    SessionStore, TerminalService, Unavailable, Worktrees,
 };
 
 const EVENT_CAPACITY: usize = 1024;

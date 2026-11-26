@@ -12,7 +12,7 @@ use clap::Parser;
 use ovra_agent_runtime::ClaudeCli;
 use ovra_core::Core;
 use ovra_core::services::{
-    AgentRuntime, Browser, DevServers, LanguageServers, ResourceMonitor, Secrets,
+    AgentRuntime, Browser, DevServers, KeepAwake, LanguageServers, ResourceMonitor, Secrets,
 };
 use ovra_forge::GhForge;
 use ovra_fs_index::FsIndex;
@@ -118,6 +118,7 @@ async fn serve() -> anyhow::Result<()> {
         .browser(agent_browser(&args))
         .forge(Arc::new(GhForge::new()))
         .resources(resources(&args))
+        .keep_awake(keep_awake(&args))
         .build();
     let app = ws::router(
         core,
@@ -137,6 +138,20 @@ async fn serve() -> anyhow::Result<()> {
         })
         .await?;
     Ok(())
+}
+
+#[cfg(not(feature = "fake-agent"))]
+fn keep_awake(_: &Args) -> Arc<dyn KeepAwake> {
+    Arc::new(ovra_power::SystemKeepAwake::default())
+}
+
+/// With the fake agent, a fake hold: tests must not keep the machine awake.
+#[cfg(feature = "fake-agent")]
+fn keep_awake(args: &Args) -> Arc<dyn KeepAwake> {
+    if args.fake_agent {
+        return Arc::new(ovra_core::fakes::FakeKeepAwake::default());
+    }
+    Arc::new(ovra_power::SystemKeepAwake::default())
 }
 
 #[cfg(not(feature = "fake-agent"))]

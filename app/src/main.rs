@@ -111,6 +111,7 @@ fn main() {
                 .git(Arc::new(GitRepo::new()))
                 .forge(Arc::new(GhForge::new()))
                 .resources(Arc::new(SysResources::new()))
+                .keep_awake(Arc::new(ovra_power::SystemKeepAwake::default()))
                 .worktrees_dir(data_dir.join("worktrees"))
                 .ide_tools(Arc::new(IdeServer::new()))
                 .terminals(Arc::new(Pty::new()))
