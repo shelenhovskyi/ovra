@@ -525,6 +525,50 @@ impl Direct {
         Ok(outcome)
     }
 
+    /// Runs `write`, a change to `path` the person asked Ovra for in the
+    /// review (a discarded hunk, or its undo), with none of the agent's
+    /// tools running and under the tracker's lock. Its change is neither the
+    /// agent's nor someone else's: the file stays marked as it was, so a
+    /// reject still reverts an agent's file. Anything else that changed
+    /// meanwhile counts as changed outside.
+    pub(super) async fn person_edit<T>(
+        &self,
+        session: &SessionId,
+        path: &str,
+        write: impl std::future::Future<Output = Result<T>>,
+    ) -> Result<T> {
+        let worktrees = &*self.worktrees;
+        let (_, writer) = self.held(session)?;
+        let mut tracker = writer.lock(worktrees).await;
+        let t = tracker.as_mut().ok_or_else(not_direct)?;
+        t.idle()?;
+        let dir = writer.dir.clone();
+        let pre = worktrees.look(dir.clone()).await.ok();
+        t.catch_up(worktrees, &dir, pre.as_ref()).await;
+        let done = write.await;
+        let post = worktrees.look(dir.clone()).await.ok();
+        let changed = match (&pre, &post) {
+            (Some(pre), Some(post)) => between(worktrees, dir, pre, post).await.ok(),
+            _ => None,
+        };
+        match changed {
+            Some(changed) => {
+                let others: Vec<String> = changed
+                    .iter()
+                    .flat_map(delta_paths)
+                    .filter(|p| p != path)
+                    .collect();
+                for other in others {
+                    t.changed_outside(other);
+                }
+            }
+            // Unknown: whatever the agent wrote may have changed meanwhile.
+            None => t.taint_all(),
+        }
+        t.last = post;
+        done
+    }
+
     /// Puts the agent's own files back as they were in the baseline. Files changed by both are left alone and listed
     /// as conflicts, and so is any file the revert could not restore.
     /// Refused while one of the agent's tools runs.

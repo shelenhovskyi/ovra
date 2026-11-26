@@ -205,6 +205,9 @@ pub enum ReviewAction {
     UndoneReject,
     Taken,
     UndoneTake,
+    /// One hunk of a file was discarded (`review.discard_hunk`).
+    HunkDiscarded,
+    UndoneDiscard,
 }
 
 /// The most entries one `audit.list` returns.

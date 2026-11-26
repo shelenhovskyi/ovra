@@ -3780,3 +3780,200 @@ async fn a_worker_cannot_edit_a_file_another_worker_claimed_first() {
     until(&mut rx, "s3", AgentStatus::Stopped).await;
     assert_eq!(write("s2", "lint", "src/a.rs"), None);
 }
+
+/// A `review.discard_hunk` of `path` in item `id` with `hunk`.
+fn discard(id: &str, path: &str, hunk: serde_json::Value) -> serde_json::Value {
+    json!({"method": "review.discard_hunk", "params": {"id": id, "path": path, "hunk": hunk}})
+}
+
+fn hunk(old: (u32, u32), new: (u32, u32), lines: &[&str]) -> serde_json::Value {
+    json!({"old_start": old.0, "old_lines": old.1, "new_start": new.0, "new_lines": new.1,
+        "header": "", "lines": lines})
+}
+
+#[tokio::test]
+async fn the_person_discards_one_hunk_of_a_worker_and_keeps_the_rest() {
+    let f = fx(say()).await;
+    let mut rx = f.core.subscribe();
+    start_task(&f.core, 3).await;
+    let boss = caller("s1", ToolRole::Coordinator);
+    let worker = f.core.spawn_agent(&boss, "w", "x", false).await;
+    let worker = worker.unwrap_or_else(|e| panic!("{e}"));
+    until(&mut rx, "s2", AgentStatus::Idle).await;
+    f.wt.put(&worker.worktree, "a.rs", "zero\none\nend\n");
+    f.wt.put(&worker.worktree, "b.rs", "new\n");
+    let first = hunk((1, 1), (1, 2), &["+zero", " one"]);
+
+    ok(&f.core, discard("r1", "a.rs", first.clone())).await;
+    let text = |path: &str| f.wt.files(&worker.worktree).get(path).cloned();
+    assert_eq!(text("a.rs").as_deref(), Some("one\nend\n"));
+    // What the diff showed is gone: the same hunk no longer applies.
+    assert_eq!(
+        code(call(&f.core, discard("r1", "a.rs", first.clone())).await),
+        ErrorCode::Conflict
+    );
+    let item = reviews(&f.core).await.remove(0);
+    assert!(item.can_undo_discard);
+    ok(
+        &f.core,
+        json!({"method": "review.undo_discard", "params": {"id": "r1"}}),
+    )
+    .await;
+    assert_eq!(text("a.rs").as_deref(), Some("zero\none\nend\n"));
+    ok(&f.core, discard("r1", "a.rs", first)).await;
+    // Undo puts back only a file nobody changed since.
+    f.wt.put(&worker.worktree, "a.rs", "one\nend\nmine\n");
+    let undo = json!({"method": "review.undo_discard", "params": {"id": "r1"}});
+    assert_eq!(code(call(&f.core, undo).await), ErrorCode::Conflict);
+    f.wt.put(&worker.worktree, "a.rs", "one\nend\n");
+
+    // A deleted file comes back as in the base.
+    f.wt.delete(&worker.worktree, "a.rs");
+    ok(
+        &f.core,
+        discard("r1", "a.rs", hunk((1, 1), (0, 0), &["-one"])),
+    )
+    .await;
+    assert_eq!(text("a.rs").as_deref(), Some("one\n"));
+    f.wt.put(&worker.worktree, "a.rs", "one\nend\n");
+
+    // An added file is one hunk: it goes as a whole, never in part.
+    let partly = hunk((0, 0), (1, 2), &["+new", "+more"]);
+    assert_eq!(
+        code(call(&f.core, discard("r1", "b.rs", partly)).await),
+        ErrorCode::BadRequest
+    );
+    ok(
+        &f.core,
+        discard("r1", "b.rs", hunk((0, 0), (1, 1), &["+new"])),
+    )
+    .await;
+    assert_eq!(text("b.rs"), None);
+    // A file the item does not list has nothing to discard.
+    assert_eq!(
+        code(
+            call(
+                &f.core,
+                discard("r1", "c.rs", hunk((0, 0), (1, 1), &["+c"]))
+            )
+            .await
+        ),
+        ErrorCode::NotFound
+    );
+
+    // Keep takes what is left.
+    ok(&f.core, approval(&f.core, "r1", json!(null)).await).await;
+    assert_eq!(
+        f.wt.files(ROOT).get("a.rs").map(String::as_str),
+        Some("one\nend\n")
+    );
+    assert!(!f.wt.files(ROOT).contains_key("b.rs"));
+    let actions: Vec<ReviewAction> = audited(&f)
+        .into_iter()
+        .filter_map(|(_, e)| match e {
+            AuditEvent::ReviewDecided { action, .. } => Some(action),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        actions,
+        [
+            ReviewAction::HunkDiscarded,
+            ReviewAction::UndoneDiscard,
+            ReviewAction::HunkDiscarded,
+            ReviewAction::HunkDiscarded,
+            ReviewAction::HunkDiscarded,
+            ReviewAction::Approved,
+        ]
+    );
+
+    // The next comment carries the line comments, and tells the agent once
+    // which files changed under it.
+    let comment = json!({"method": "review.comment", "params": {"id": "r1", "text": "thanks",
+        "lines": [{"path": "a.rs", "line": 2, "text": "keep end"}]}});
+    ok(&f.core, comment).await;
+    until(&mut rx, "s2", AgentStatus::Idle).await;
+    ok(
+        &f.core,
+        json!({"method": "review.comment", "params": {"id": "r1", "text": "again"}}),
+    )
+    .await;
+    until(&mut rx, "s2", AgentStatus::Idle).await;
+    let sent: Vec<(MessageFrom, String)> = transcript(&f.core, "s2")
+        .await
+        .into_iter()
+        .filter_map(|m| match m {
+            AgentMessage::UserText { text, from } => Some((from, text)),
+            _ => None,
+        })
+        .skip(1)
+        .collect();
+    assert_eq!(sent.len(), 3, "{sent:?}");
+    assert_eq!(
+        sent[0],
+        (
+            MessageFrom::Person,
+            "thanks\n\nComments on lines:\n- a.rs:2: keep end".to_owned()
+        )
+    );
+    assert_eq!(sent[1].0, MessageFrom::Ovra);
+    assert!(sent[1].1.contains("discarded parts of your changes"));
+    assert!(sent[1].1.contains("a.rs\nb.rs"), "{}", sent[1].1);
+    assert_eq!(sent[2], (MessageFrom::Person, "again".to_owned()));
+}
+
+#[tokio::test]
+async fn a_discarded_hunk_of_a_direct_agent_keeps_the_file_the_agents() {
+    let f = DirectFx::start().await;
+    f.direct_writes("a.rs", "zero\none\ntwo\n").await;
+    f.wt.put(ROOT, "mine.rs", "mine\n");
+    let item = idle_direct_item(&f).await;
+    let id = item.id.0.clone();
+
+    // The person's own change is theirs to edit, not to discard here.
+    let theirs = hunk((0, 0), (1, 1), &["+mine"]);
+    assert_eq!(
+        code(call(&f.core, discard(&id, "mine.rs", theirs)).await),
+        ErrorCode::Conflict
+    );
+    // Nor a file both changed: its lines may be the person's.
+    f.direct_writes("both.rs", "agent\n").await;
+    f.wt.put(ROOT, "both.rs", "agent\nperson\n");
+    idle_direct_item(&f).await;
+    let both = hunk((0, 0), (1, 2), &["+agent", "+person"]);
+    assert_eq!(
+        code(call(&f.core, discard(&id, "both.rs", both)).await),
+        ErrorCode::Conflict
+    );
+    ok(
+        &f.core,
+        discard(&id, "a.rs", hunk((1, 1), (1, 2), &["+zero", " one"])),
+    )
+    .await;
+    assert_eq!(
+        f.wt.files(ROOT).get("a.rs").map(String::as_str),
+        Some("one\ntwo\n")
+    );
+    let item = idle_direct_item(&f).await;
+    let a = item.files.iter().find(|f| f.path == "a.rs");
+    assert_eq!(
+        a.map(|a| a.by),
+        Some(crate::protocol::review::ChangedBy::Agent)
+    );
+
+    // Still the agent's: a reject reverts the rest, and leaves the person's.
+    ok(
+        &f.core,
+        json!({"method": "review.reject", "params": {"id": id}}),
+    )
+    .await;
+    let files = f.wt.files(ROOT);
+    assert_eq!(files.get("a.rs").map(String::as_str), Some("one\n"));
+    assert_eq!(files.get("mine.rs").map(String::as_str), Some("mine\n"));
+    // A decided item has no parts left to discard.
+    let late = hunk((1, 1), (1, 1), &[" one"]);
+    assert_eq!(
+        code(call(&f.core, discard(&id, "a.rs", late)).await),
+        ErrorCode::Conflict
+    );
+}

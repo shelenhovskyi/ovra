@@ -55,6 +55,8 @@ const REVIEW: Record<ReviewAction, string> = {
   undone_reject: "discard undone",
   taken: "replaced with the worker's version",
   undone_take: "replace undone",
+  hunk_discarded: "part of a file discarded",
+  undone_discard: "discarded part put back",
 };
 
 const BOARD_ENTRY: Record<BoardEntryKind, string> = {

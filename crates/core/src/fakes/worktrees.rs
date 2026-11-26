@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use super::{lock, not_found};
 use crate::path::RelPath;
+use crate::protocol::git::Hunk;
 use crate::protocol::orchestration::DiskUsage;
 use crate::protocol::review::ChangeKind;
 use crate::protocol::{ErrorCode, ProtocolError};
@@ -294,6 +295,45 @@ impl Worktrees for MemoryWorktrees {
                     None => files.remove(path.as_str()),
                 };
             }
+            Ok(())
+        })
+    }
+
+    fn revert_hunk(&self, dir: PathBuf, path: RelPath, hunk: Hunk) -> BoxFuture<'_, Result<()>> {
+        Box::pin(async move {
+            hunk.check()?;
+            let mut dirs = lock(&self.dirs);
+            let files = dirs
+                .get_mut(&dir)
+                .ok_or_else(|| not_found(format!("working tree {}", dir.display())))?;
+            let gone = || {
+                ProtocolError::new(
+                    ErrorCode::Conflict,
+                    format!("the change no longer applies to {path}"),
+                )
+            };
+            let text = files.get(path.as_str()).ok_or_else(gone)?;
+            let side = |keep: char| -> Vec<&str> {
+                hunk.lines
+                    .iter()
+                    .filter(|l| l.starts_with(' ') || l.starts_with(keep))
+                    .map(|l| &l[1..])
+                    .collect()
+            };
+            let (old, new) = (side('-'), side('+'));
+            let mut lines: Vec<&str> = text.lines().collect();
+            let at = usize::try_from(hunk.new_start.saturating_sub(1)).unwrap_or(usize::MAX);
+            // Like git: a hunk with nothing on its old side is the whole file.
+            let whole = hunk.old_lines == 0 && lines.len() != new.len();
+            if whole || lines.get(at..at + new.len()) != Some(&new[..]) {
+                return Err(gone());
+            }
+            lines.splice(at..at + new.len(), old);
+            let mut out = lines.join("\n");
+            if !out.is_empty() && (text.ends_with('\n') || text.is_empty()) {
+                out.push('\n');
+            }
+            files.insert(path.as_str().to_owned(), out);
             Ok(())
         })
     }

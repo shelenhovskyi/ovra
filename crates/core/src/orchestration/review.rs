@@ -75,6 +75,13 @@ pub(super) struct Entry {
     /// its pull request, pick from its snapshot onto it.
     #[serde(default)]
     pub(super) agent_pushed: Option<super::push::AgentPush>,
+    /// The last `review.discard_hunk`, while it can be undone.
+    #[serde(default)]
+    pub(super) discarded: Option<super::hunks::Discarded>,
+    /// Files the person discarded parts of since the agent last heard
+    /// from them: the next comment tells it.
+    #[serde(default)]
+    pub(super) discards: BTreeSet<String>,
 }
 
 /// Open, or published and so still the worker's live work.
@@ -148,6 +155,8 @@ pub(crate) fn set_workspace(core: &Core, session: &SessionId, workspace: Workspa
         published_from: None,
         pending_push: None,
         agent_pushed: None,
+        discarded: None,
+        discards: BTreeSet::new(),
     });
     orchestration.save(&state);
 }
@@ -333,7 +342,18 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
             audit(core, &outcome.0, ReviewAction::UndoneReject);
             Ok(done(outcome))
         }
-        ReviewRequest::Comment { id, text } => {
+        ReviewRequest::DiscardHunk { id, path, hunk } => {
+            let outcome = super::hunks::discard(core, &id, &path, hunk).await?;
+            audit(core, &outcome.0, ReviewAction::HunkDiscarded);
+            Ok(done(outcome))
+        }
+        ReviewRequest::UndoDiscard { id } => {
+            let outcome = super::hunks::undo(core, &id).await?;
+            audit(core, &outcome.0, ReviewAction::UndoneDiscard);
+            Ok(done(outcome))
+        }
+        ReviewRequest::Comment { id, text, lines } => {
+            let text = super::hunks::with_lines(&text, &lines)?;
             comment(core, &id, text).await?;
             Ok(Response::Ok(OkResponse::Ok))
         }
@@ -454,6 +474,7 @@ async fn current(core: &Core, entry: &Entry) -> Result<(ReviewItem, Option<Strin
             && core.sessions().direct.can_undo(&entry.session),
         not_copied: entry.not_copied.clone(),
         can_undo_take: entry.taken.is_some(),
+        can_undo_discard: entry.discarded.is_some() && live(entry.state),
         fingerprint,
         git_changes: git.changes,
         git_unchecked: git.unchecked,
@@ -733,7 +754,7 @@ async fn direct_touched(core: &Core, project: &ProjectId) -> BTreeSet<String> {
     touched
 }
 
-fn check_open(entry: &Entry) -> Result<()> {
+pub(super) fn check_open(entry: &Entry) -> Result<()> {
     match entry.state {
         // Keep and discard stay possible for a published item.
         ReviewState::Open | ReviewState::Published => Ok(()),
@@ -1189,12 +1210,17 @@ async fn comment(core: &Core, id: &ReviewId, text: String) -> Result<()> {
     // The person's words and Ovra's note of what was rejected go as one
     // message, each part shown with its author.
     let mut message = vec![(text, MessageFrom::Person)];
+    if !entry.discards.is_empty() {
+        let note = super::hunks::discards_note(&entry.discards);
+        message.push((note, MessageFrom::Ovra));
+    }
     if let Some(diff) = entry
         .rejected
         .as_ref()
         .filter(|_| entry.state == ReviewState::Rejected)
     {
-        let note = rejected_note(message[0].0.len(), diff);
+        let used = message.iter().map(|(t, _)| t.len()).sum();
+        let note = rejected_note(used, diff);
         message.push((note, MessageFrom::Ovra));
     }
     // A decided item stays the record of its decision: what the session
@@ -1205,6 +1231,9 @@ async fn comment(core: &Core, id: &ReviewId, text: String) -> Result<()> {
         update(core, id, |e| e.state = ReviewState::Open)?;
     }
     continue_session(core, &entry.session, message).await?;
+    if !entry.discards.is_empty() {
+        update(core, id, |e| e.discards.clear())?;
+    }
     Ok(())
 }
 
@@ -1332,6 +1361,7 @@ fn open_after(core: &Core, decided: &Entry) -> Entry {
         published_from: None,
         pending_push: None,
         agent_pushed: None,
+        discarded: None,
         ..decided.clone()
     };
     // New work ends the undo of the decided item's last replace.
@@ -1424,7 +1454,10 @@ async fn prune(core: &Core, project: &ProjectId) {
         .into_iter()
         .flat_map(|e| {
             let taken = e.taken.map(|t| [t.before, t.after]).into_iter().flatten();
-            std::iter::once(e.workspace.base).chain(taken)
+            let discarded = e.discarded.map(|d| d.snapshots()).into_iter().flatten();
+            std::iter::once(e.workspace.base)
+                .chain(taken)
+                .chain(discarded)
         })
         .collect();
     if let Ok(root) = core.root(project) {

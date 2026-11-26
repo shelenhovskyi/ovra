@@ -11,6 +11,7 @@ use serde_json::{Value, json};
 use super::*;
 use crate::fakes::MemoryWorktrees;
 use crate::orchestration::review::Guard;
+use crate::protocol::git::Hunk;
 use crate::protocol::orchestration::DiskUsage;
 use crate::protocol::review::ChangeKind;
 use crate::services::{
@@ -100,6 +101,9 @@ impl Worktrees for Trees {
             .filter(|p| !skip.contains(p.as_str()))
             .collect();
         self.mem.restore(dir, base, paths)
+    }
+    fn revert_hunk(&self, dir: PathBuf, path: RelPath, hunk: Hunk) -> BoxFuture<'_, Result<()>> {
+        self.mem.revert_hunk(dir, path, hunk)
     }
     fn apply(
         &self,

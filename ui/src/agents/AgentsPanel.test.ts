@@ -1547,6 +1547,7 @@ function review(session: string, files: FileChange[]): ReviewItem {
     can_undo: false,
     not_copied: [],
     can_undo_take: false,
+    can_undo_discard: false,
     fingerprint: null,
     git_changes: [],
     git_unchecked: false,

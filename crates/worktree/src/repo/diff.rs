@@ -204,6 +204,32 @@ pub(super) fn patch(path: &str, hunk: &Hunk) -> String {
     patch
 }
 
+/// `Worktrees::revert_hunk`: `hunk` taken back out of the working tree of
+/// `dir`, the worktree or checkout an agent works in.
+pub(crate) fn revert_hunk(dir: &Path, path: &RelPath, hunk: &Hunk) -> Result<()> {
+    hunk.check()?;
+    let dirs = git::dirs(dir)?;
+    // Never through a symlink, whatever `git apply` would do with it.
+    let plain = files::on_disk(dir, path)? == OnDisk::File
+        && std::fs::symlink_metadata(dir.join(path.as_str())).is_ok_and(|m| m.is_file());
+    if !plain {
+        return Err(conflict(format!(
+            "{path} is not a plain file any more; look at its diff again"
+        )));
+    }
+    let out = Git::new(&dirs.top, "apply")
+        .args(["--reverse", "--whitespace=nowarn"])
+        .input(patch(&format!("{}{path}", dirs.prefix), hunk))
+        .output()?;
+    if !out.status.success() {
+        return Err(conflict(format!(
+            "the change no longer applies to {path}; look at its diff again: {}",
+            printed(&out)
+        )));
+    }
+    Ok(())
+}
+
 pub(super) fn stage_hunk(root: &Path, path: &RelPath, hunk: &Hunk, unstage: bool) -> Result<()> {
     // The core checked it too; a patch must never reach other files.
     hunk.check()?;

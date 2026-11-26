@@ -565,7 +565,7 @@ fn a_protected_file_change_round_trips() {
     use crate::protocol::review::{FileChange, ReviewResponse};
     let json = serde_json::json!({"type": "review.list", "data": [{
         "id": "r1", "project": "p1", "session": "s1", "mode": "isolated", "state": "open",
-        "summary": null, "can_undo": false, "not_copied": [], "can_undo_take": false,
+        "summary": null, "can_undo": false, "not_copied": [], "can_undo_take": false, "can_undo_discard": false,
         "fingerprint": "f1",
         "git_changes": [{"path": ".git/hooks/pre-commit", "kind": "added"}], "git_unchecked": false,
         "files": [{"path": ".claude/settings.json", "kind": "modified", "from": null,

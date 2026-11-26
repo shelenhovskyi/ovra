@@ -1218,6 +1218,13 @@ pub trait Worktrees: Send + Sync + Debug {
     /// Puts `paths` back as they are in `base` (deleting files `base` lacks).
     fn restore(&self, dir: PathBuf, base: String, paths: Vec<RelPath>)
     -> BoxFuture<'_, Result<()>>;
+    /// Takes one hunk back out of the working tree of `dir`: `hunk` is a
+    /// hunk of the diff of `path` from some base to the working tree (with
+    /// three lines of context), and the lines it covers go back to its old
+    /// side. Refused (`Conflict`) when the file no longer holds the hunk's
+    /// new side, and when `path` is not a plain file (a folder, a symlink,
+    /// a file under a symlinked folder).
+    fn revert_hunk(&self, dir: PathBuf, path: RelPath, hunk: Hunk) -> BoxFuture<'_, Result<()>>;
     /// Writes `paths` as they are in `tree` (a snapshot or look of a
     /// worktree of the same repository: what the person reviewed, not what
     /// is on disk by now) into `into`. A file in `into` that no longer
@@ -1874,6 +1881,9 @@ impl Worktrees for Unavailable {
         Box::pin(async move { self.err() })
     }
     fn restore(&self, _: PathBuf, _: String, _: Vec<RelPath>) -> BoxFuture<'_, Result<()>> {
+        Box::pin(async move { self.err() })
+    }
+    fn revert_hunk(&self, _: PathBuf, _: RelPath, _: Hunk) -> BoxFuture<'_, Result<()>> {
         Box::pin(async move { self.err() })
     }
     fn apply(

@@ -62,7 +62,15 @@ export type BoardEntryKind = "claim" | "release" | "question" | "answer" | "note
 
 export type NavigationBy = "person" | "no_answer" | "session_ended";
 
-export type ReviewAction = "approved" | "partly_approved" | "rejected" | "undone_reject" | "taken" | "undone_take";
+export type ReviewAction =
+  | "approved"
+  | "partly_approved"
+  | "rejected"
+  | "undone_reject"
+  | "taken"
+  | "undone_take"
+  | "hunk_discarded"
+  | "undone_discard";
 
 /** `newest_first` without `before` opens the end of the log; `before` pages back. */
 export type AuditOrder = "oldest_first" | "newest_first";

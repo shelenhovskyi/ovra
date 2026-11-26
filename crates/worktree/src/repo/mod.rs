@@ -12,6 +12,8 @@ mod status;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use diff::revert_hunk;
+
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::process::Output;

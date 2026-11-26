@@ -1,4 +1,5 @@
 import type { SessionId, SessionMode } from "./agents";
+import type { Hunk } from "./git";
 import type { PullRequest } from "./pr";
 import type { ProjectId } from "./projects";
 
@@ -45,6 +46,8 @@ export type ReviewItem = {
   not_copied: string[];
   /** The last `review.take` can be undone (`review.undo_take`). */
   can_undo_take: boolean;
+  /** The last `review.discard_hunk` can be undone (`review.undo_discard`). */
+  can_undo_discard: boolean;
   /**
    * An open worker item's files as listed here; `review.approve` sends it
    * back and is refused if the worker's files changed since. For an open
@@ -81,6 +84,9 @@ export type ReviewCheck = {
 /** A changed file of the git folder or hooks folder, such as `.git/hooks/pre-commit`. */
 export type GitFileChange = { path: string; kind: ChangeKind };
 
+/** The person's comment on one line: from 1, in the agent's version, or with `old` in the base (a removed line). */
+export type LineComment = { path: string; line: number; old?: boolean; text: string };
+
 export type ReviewRequest =
   | { method: "review.list"; params: { project: ProjectId } }
   | { method: "review.diff"; params: { id: ReviewId; path: string } }
@@ -108,8 +114,21 @@ export type ReviewRequest =
   | { method: "review.take"; params: { id: ReviewId; include_protected?: boolean } }
   /** Puts back the person's versions from just before the last take. */
   | { method: "review.undo_take"; params: { id: ReviewId } }
-  /** The same session continues with the comment; a decided item stays decided. */
-  | { method: "review.comment"; params: { id: ReviewId; text: string } }
+  /**
+   * Throws away one hunk of an open item's file, as `review.diff` showed it,
+   * in the agent's workspace. An added or deleted file goes back as a whole.
+   * Refused while the agent works, for a rename, for a direct item's file
+   * changed only outside the agent, and when the file no longer holds it.
+   */
+  | { method: "review.discard_hunk"; params: { id: ReviewId; path: string; hunk: Hunk } }
+  /** Puts back the file of the last discard, if nobody changed it since. */
+  | { method: "review.undo_discard"; params: { id: ReviewId } }
+  /**
+   * The same session continues with the comment and the comments on lines,
+   * as one message; `text` may be empty when `lines` is not. A decided item
+   * stays decided.
+   */
+  | { method: "review.comment"; params: { id: ReviewId; text: string; lines?: LineComment[] } }
   /** The last lines of the item's check output. */
   | { method: "review.check_log"; params: { id: ReviewId } };
 

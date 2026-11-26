@@ -9,6 +9,7 @@ use std::process::Command;
 
 use ovra_core::path::RelPath;
 use ovra_core::protocol::ErrorCode;
+use ovra_core::protocol::git::Hunk;
 use ovra_core::protocol::review::ChangeKind;
 use ovra_core::services::Worktrees;
 use tempfile::TempDir;
@@ -586,6 +587,73 @@ async fn a_lock_names_its_task_and_both_lock_and_unlock_can_repeat() {
     assert!(w.unlock(root.clone(), wt.clone()).await.is_ok());
     let listed = git(root, &["worktree", "list", "--porcelain"]);
     assert!(!listed.contains("locked"), "{listed}");
+}
+
+#[tokio::test]
+async fn reverting_a_hunk_puts_back_only_its_lines() {
+    let lines: String = (1..=10).map(|n| format!("{n}\n")).collect();
+    let repo = Repo::new(&[("a.txt", lines.as_str())]);
+    let root = &repo.root;
+    let w = GitWorktrees::new();
+    let edited = lines.replace("1\n", "one\n").replace("10\n", "ten\n");
+    put(root, "a.txt", &edited);
+    let index = fs::read(root.join(".git/index")).unwrap_or_default();
+    let first = Hunk {
+        old_start: 1,
+        old_lines: 4,
+        new_start: 1,
+        new_lines: 4,
+        header: String::new(),
+        lines: ["-1", "+one", " 2", " 3", " 4"].map(String::from).to_vec(),
+    };
+    let path = rels(&["a.txt"]).remove(0);
+    let revert = |hunk: &Hunk| w.revert_hunk(root.clone(), path.clone(), hunk.clone());
+    let new = rels(&["new.txt"]).remove(0);
+    let revert_new = |hunk: Hunk| w.revert_hunk(root.clone(), new.clone(), hunk);
+    assert!(revert(&first).await.is_ok());
+    let want = lines.replace("10\n", "ten\n");
+    assert_eq!(read(root, "a.txt").as_deref(), Some(want.as_str()));
+    assert_eq!(fs::read(root.join(".git/index")).unwrap_or_default(), index);
+    // Once its lines are gone the hunk no longer applies.
+    let again = revert(&first).await.map_err(|e| e.code);
+    assert_eq!(again, Err(ErrorCode::Conflict));
+    // An added file's one hunk leaves it empty, for `restore` to remove;
+    // never a part of it.
+    put(root, "new.txt", "new\nmore\n");
+    let part = Hunk {
+        old_start: 0,
+        old_lines: 0,
+        new_start: 1,
+        new_lines: 1,
+        header: String::new(),
+        lines: vec!["+new".into()],
+    };
+    let partly = revert_new(part.clone()).await.map_err(|e| e.code);
+    assert_eq!(partly, Err(ErrorCode::Conflict));
+    assert_eq!(read(root, "new.txt").as_deref(), Some("new\nmore\n"));
+    put(root, "new.txt", "new\n");
+    let added = Hunk {
+        old_start: 0,
+        old_lines: 0,
+        new_start: 1,
+        new_lines: 1,
+        header: String::new(),
+        lines: vec!["+new".into()],
+    };
+    assert!(revert_new(added).await.is_ok());
+    assert_eq!(read(root, "new.txt").as_deref(), Some(""));
+
+    #[cfg(unix)]
+    {
+        // Never through a symlink.
+        let outside = repo.tmp.path().join("outside.txt");
+        fs::write(&outside, &edited).unwrap_or_else(|e| panic!("{e}"));
+        fs::remove_file(root.join("a.txt")).unwrap_or_else(|e| panic!("{e}"));
+        std::os::unix::fs::symlink(&outside, root.join("a.txt")).unwrap_or_else(|e| panic!("{e}"));
+        let linked = revert(&first).await.map_err(|e| e.code);
+        assert_eq!(linked, Err(ErrorCode::Conflict));
+        assert_eq!(fs::read_to_string(&outside).ok(), Some(edited));
+    }
 }
 
 #[tokio::test]

@@ -11,6 +11,7 @@
 mod board;
 mod check;
 pub(crate) mod direct;
+mod hunks;
 mod ide;
 mod overlap;
 mod policy;

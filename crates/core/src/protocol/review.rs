@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::agents::{SessionId, SessionMode};
+use super::git::Hunk;
 use super::pr::PullRequest;
 use super::projects::ProjectId;
 
@@ -90,6 +91,9 @@ pub struct ReviewItem {
     /// The last `review.take` can be undone (`review.undo_take`).
     #[serde(default)]
     pub can_undo_take: bool,
+    /// The last `review.discard_hunk` can be undone (`review.undo_discard`).
+    #[serde(default)]
+    pub can_undo_discard: bool,
     /// An open worker item's files as listed here (paths and contents);
     /// `review.approve` sends it back and is refused if the worker's files
     /// changed since. For an open direct item with protected files: those
@@ -206,15 +210,51 @@ pub enum ReviewRequest {
     /// `review.take`; the item is partly approved again.
     #[serde(rename = "review.undo_take")]
     UndoTake { id: ReviewId },
-    /// Sends the comment to the same session, which continues. An open item
-    /// stays open; a decided one stays decided, and the session's next
-    /// changes open a new item. Answers `ok`.
+    /// Throws away one hunk of an open item's file, as `review.diff` showed
+    /// it, in the agent's workspace: a worker's worktree, or the project
+    /// for a direct session. An added or deleted file is one hunk: it goes
+    /// back to the base as a whole. Refused while the agent works, for a
+    /// rename, for a direct item's file changed only outside the agent, and
+    /// when the file no longer holds the hunk. Answers `review.done` with
+    /// the path in `restored`.
+    #[serde(rename = "review.discard_hunk")]
+    DiscardHunk {
+        id: ReviewId,
+        path: String,
+        hunk: Hunk,
+    },
+    /// Puts back the file of the item's last `review.discard_hunk` as it was
+    /// just before, if nobody changed it since; else answers `conflict`.
+    #[serde(rename = "review.undo_discard")]
+    UndoDiscard { id: ReviewId },
+    /// Sends the comment, and the comments on `lines`, to the same session
+    /// as one message, and it continues. `text` may be empty when `lines`
+    /// is not. An open item stays open; a decided one stays decided, and
+    /// the session's next changes open a new item. Answers `ok`.
     #[serde(rename = "review.comment")]
-    Comment { id: ReviewId, text: String },
+    Comment {
+        id: ReviewId,
+        text: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        lines: Vec<LineComment>,
+    },
     /// The output of the item's check (`ReviewItem::check`), its last
     /// lines. Answers `review.check_log`.
     #[serde(rename = "review.check_log")]
     CheckLog { id: ReviewId },
+}
+
+/// The person's comment on one line of a file's diff (`review.comment`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LineComment {
+    /// Relative to the project root.
+    pub path: String,
+    /// From 1, in the agent's version of the file; with `old`, in the base
+    /// version: a line the agent removed.
+    pub line: u32,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub old: bool,
+    pub text: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

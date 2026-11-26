@@ -26,6 +26,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use ovra_core::path::RelPath;
+use ovra_core::protocol::git::Hunk;
 use ovra_core::protocol::orchestration::DiskUsage;
 use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::{
@@ -389,6 +390,10 @@ impl Worktrees for GitWorktrees {
         paths: Vec<RelPath>,
     ) -> BoxFuture<'_, Result<()>> {
         blocking(move || files::restore(&dir, &base, &paths))
+    }
+
+    fn revert_hunk(&self, dir: PathBuf, path: RelPath, hunk: Hunk) -> BoxFuture<'_, Result<()>> {
+        blocking(move || repo::revert_hunk(&dir, &path, &hunk))
     }
 
     fn apply(
