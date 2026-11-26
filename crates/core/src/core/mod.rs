@@ -21,7 +21,8 @@ use crate::search::{self, Searches};
 use crate::servers::DevServerState;
 use crate::services::{
     AgentRuntime, AuditLog, Browser, DevServers, EventSink, Forge, FsService, GitService, IdeTools,
-    LanguageServers, NetProxy, Opener, ProjectStore, ResourceMonitor, Secrets, SessionStore,
+    KeepAwake, LanguageServers, NetProxy, Opener, ProjectStore, ResourceMonitor, Secrets,
+    SessionStore,
     TerminalService, Unavailable, Worktrees,
 };
 
@@ -49,6 +50,7 @@ pub struct CoreBuilder {
     browser: Arc<dyn Browser>,
     forge: Arc<dyn Forge>,
     resources: Option<Arc<dyn ResourceMonitor>>,
+    keep_awake: Arc<dyn KeepAwake>,
 }
 
 impl CoreBuilder {
@@ -158,6 +160,12 @@ impl CoreBuilder {
         self
     }
 
+    /// Keeps the computer awake while agents work (`power.*`).
+    pub fn keep_awake(mut self, keep_awake: Arc<dyn KeepAwake>) -> Self {
+        self.keep_awake = keep_awake;
+        self
+    }
+
     pub fn build(self) -> Core {
         let (events, _) = broadcast::channel(EVENT_CAPACITY);
         let kept = self.sessions.clone();
@@ -190,6 +198,7 @@ impl CoreBuilder {
                 lsp: self.lsp,
                 lsp_servers: crate::lsp::Servers::default(),
                 audit_state: crate::audit::State::default(),
+                power: crate::power::State::new(self.keep_awake),
             }),
             events,
         };
@@ -237,6 +246,7 @@ struct Inner {
     browser: crate::browser::BrowserState,
     forge: Arc<dyn Forge>,
     resources: crate::resources::Resources,
+    power: crate::power::State,
 }
 
 /// A [`Core`] that does not keep it alive; sessions hold one so their IDE
@@ -318,6 +328,7 @@ impl Core {
             browser: Arc::new(Unavailable("the agent browser")),
             forge: Arc::new(Unavailable("pull requests")),
             resources: None,
+            keep_awake: Arc::new(Unavailable("keeping the computer awake")),
         }
     }
 
@@ -410,6 +421,7 @@ impl Core {
             Request::Servers(r) => crate::servers::handle(self, r).await,
             Request::Browser(r) => crate::browser::handle(self, r).await,
             Request::Pr(r) => crate::pr::handle(self, r).await,
+            Request::Power(r) => crate::power::handle(self, r),
         }
     }
 
@@ -460,6 +472,10 @@ impl Core {
 
     pub(crate) fn lsp_servers(&self) -> &crate::lsp::Servers {
         &self.inner.lsp_servers
+    }
+
+    pub(crate) fn power(&self) -> &crate::power::State {
+        &self.inner.power
     }
 
     pub(crate) fn audit_state(&self) -> &crate::audit::State {

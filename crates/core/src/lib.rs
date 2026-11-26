@@ -19,6 +19,7 @@ pub mod netproxy;
 mod orchestration;
 pub mod path;
 mod policy;
+mod power;
 mod pr;
 pub mod protected;
 pub mod protocol;

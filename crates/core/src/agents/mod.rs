@@ -220,6 +220,10 @@ impl Sessions {
             }
             !forget
         });
+        drop(list);
+        if let Some(core) = self.core() {
+            crate::power::sessions_changed(&core);
+        }
     }
 
     pub(crate) fn list(&self, project: &ProjectId) -> Vec<SessionInfo> {
@@ -278,6 +282,14 @@ impl Sessions {
                 && s.info.mode == SessionMode::Direct
                 && s.launch.as_ref().and_then(|l| l.tools) != Some(ToolRole::Coordinator)
         })
+    }
+
+    /// Whether any session of any project is queued, starting, working or
+    /// waiting for a person: what keeps the computer awake.
+    pub(crate) fn any_working(&self) -> bool {
+        lock(&self.list)
+            .iter()
+            .any(|s| !s.info.status.is_ended() && s.info.status != AgentStatus::Idle)
     }
 
     /// Sessions of `project` that have not ended, with their state and
@@ -836,6 +848,7 @@ impl AgentHost {
             if let Some(core) = self.sessions.core() {
                 crate::resources::wake(&core);
                 crate::orchestration::on_status(&core, &self.session, &status);
+                crate::power::sessions_changed(&core);
                 if status.is_ended() {
                     crate::servers::session_ended(&core, &self.session, run);
                     crate::browser::session_ended(&core, &self.session);
