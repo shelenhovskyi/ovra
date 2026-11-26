@@ -300,6 +300,47 @@ describe("TerminalSessions", () => {
       expect(screen.screen).toBe("done\r\n\r\nProcess ended.\r\n");
     });
 
+    it("waits for the connection instead of starting a second shell", async () => {
+      const core = new FakeTerminals();
+      const store = memory();
+      const before = new TerminalSessions(core, store);
+      await before.start(before.add("p1"), SIZE);
+      core.output("t1", "one\r\n");
+
+      core.down = true;
+      const sessions = new TerminalSessions(core, store);
+      sessions.listen();
+      sessions.restore("p1");
+      const [tab] = sessions.of("p1");
+      if (!tab) throw new Error("no tab");
+      const screen = view();
+      tab.attach(screen);
+      await sessions.start(tab, SIZE);
+      sessions.resize(tab, { cols: 100, rows: 30 });
+      expect(tab.state.kind).toBe("starting");
+      expect(store.saved.get("p1")?.tabs).toEqual([{ id: "t1", title: "Terminal 1" }]);
+
+      core.down = false;
+      core.emit({ type: "info.resync", data: { skipped: 0 } });
+      await settle();
+      expect(tab.state).toEqual({ kind: "running", id: "t1" });
+      expect(screen.screen).toBe("one\r\n");
+      expect(core.open.get("t1")?.size).toEqual({ cols: 100, rows: 30 });
+      expect(core.methods().filter((m) => m === "terminals.open")).toHaveLength(1);
+    });
+
+    it("closes a saved shell whose tab is closed before it was taken back", async () => {
+      const store = memory();
+      store.save("p1", { tabs: [{ id: "t1", title: "Terminal 1" }], active: 0 });
+      const core = new FakeTerminals();
+      const sessions = new TerminalSessions(core, store);
+      sessions.restore("p1");
+      const [tab] = sessions.of("p1");
+      if (!tab) throw new Error("no tab");
+      sessions.close(tab);
+      expect(core.calls).toEqual([{ method: "terminals.close", params: { id: "t1" } }]);
+    });
+
     it("starts a new shell in the tab's folder when the core no longer knows the old one", async () => {
       const store = memory();
       store.save("p1", { tabs: [{ id: "t9", title: "Terminal 4", cwd: "src" }], active: 0 });

@@ -10,7 +10,8 @@
 // Shells belong to the core, not to the page, so they outlive a reload. Each
 // project's tabs are saved (title, folder, the core's id); after a reload a
 // saved tab takes its shell back from the core's scrollback, and when the core
-// no longer knows it (the app was restarted) a new shell starts in its place.
+// no longer knows it (the app was restarted) a new shell starts in its place;
+// when the connection is down instead, the tab waits for the next resync.
 
 import type { CoreEvent, ProjectId, TerminalId, TermSize } from "../lib/protocol";
 import { CoreError, type Transport } from "../lib/transport";
@@ -41,6 +42,8 @@ export class TerminalSession {
   held: Output[] | null = null;
   /** The core's id of the shell this tab had before a reload; `start` takes it back. */
   saved: TerminalId | null = null;
+  /** Size to take the saved shell back at once the connection is back; set while it is down. */
+  retry: TermSize | null = null;
   private sink: Sink | null = null;
   private pending: string[] = [];
 
@@ -225,10 +228,15 @@ export class TerminalSessions {
     let scrollback: { data: string; seq: number };
     try {
       ({ data: scrollback } = await this.transport.call({ method: "terminals.scrollback", params: { id } }));
-    } catch {
+    } catch (error) {
       session.coreId = null;
       session.held = null;
-      return false;
+      if (error instanceof CoreError && error.code === "not_found") return false;
+      // No answer about the shell (the connection is down): keep it and take
+      // it back on the next resync instead of starting a second one.
+      session.saved = id;
+      session.retry = size;
+      return true;
     }
     // Closed meanwhile: `close` already ended the shell.
     if (!this.sessions.includes(session)) return true;
@@ -266,6 +274,7 @@ export class TerminalSessions {
   }
 
   resize(session: TerminalSession, size: TermSize): void {
+    if (session.retry) session.retry = size;
     const id = session.id;
     if (id === null) return;
     this.transport.call({ method: "terminals.resize", params: { id, size } }).catch(() => {});
@@ -299,7 +308,8 @@ export class TerminalSessions {
 
   /** Closes a removed tab's shell, also an ended one, so the core can forget its scrollback. */
   private forget(session: TerminalSession): void {
-    const id = session.coreId;
+    // A saved shell not taken back yet is closed too, best effort.
+    const id = session.coreId ?? session.saved;
     if (id !== null && session.state.kind !== "lost") {
       this.transport.call({ method: "terminals.close", params: { id } }).catch(() => {});
     }
@@ -359,7 +369,12 @@ export class TerminalSessions {
       // During a redraw the notice is written after the scrollback.
       if (!session.held) session.write(`\r\n${exitNotice(event.data.code)}\r\n`);
     } else if (event.type === "info.resync") {
-      for (const session of this.sessions) void this.redraw(session);
+      for (const session of this.sessions) {
+        const size = session.retry;
+        session.retry = null;
+        if (size) void this.start(session, size);
+        else void this.redraw(session);
+      }
     }
   }
 }

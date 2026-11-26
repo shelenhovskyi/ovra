@@ -17,11 +17,14 @@ export class FakeTerminals implements Transport {
   openGate: Promise<void> | null = null;
   /** When set, `terminals.scrollback` waits for this promise before answering. */
   scrollbackGate: Promise<void> | null = null;
+  /** While true, every call fails at once, as the transport's do while the socket is closed. */
+  down = false;
   private opened = 0;
   private listeners = new Set<(event: CoreEvent) => void>();
 
   async call<R extends Request>(request: R): Promise<ResponseFor<R>> {
     this.calls.push(request);
+    if (this.down) throw new Error("connection to core closed");
     return (await this.answer(request)) as ResponseFor<R>;
   }
 
