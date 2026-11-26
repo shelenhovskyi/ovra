@@ -417,9 +417,18 @@ mod unix {
                     unwritten("over the 256 MiB for plain copies", self.out);
                     return Ok(());
                 }
-                if let Err(e) = io::copy(&mut &source, &mut &target) {
-                    unwritten(&format!("cannot be copied: {e}"), self.out);
-                    return Ok(());
+                // At most the size checked against the cap, and only a
+                // file that kept it: one being written may grow meanwhile.
+                match io::copy(&mut io::Read::take(&source, bytes), &mut &target) {
+                    Ok(n) if n == bytes => {}
+                    Ok(_) => {
+                        unwritten("changed while it was copied", self.out);
+                        return Ok(());
+                    }
+                    Err(e) => {
+                        unwritten(&format!("cannot be copied: {e}"), self.out);
+                        return Ok(());
+                    }
                 }
                 self.plain += bytes;
             }
@@ -556,6 +565,48 @@ mod tests {
         let over = "over the 256 MiB for plain copies";
         assert_eq!(skipped(&included), [("sub/.env", over)]);
         assert!(!wt.join("sub/.env").exists());
+    }
+
+    /// `(file, length)`: [`resize`] sets `file` to `length` bytes.
+    static RESIZE: std::sync::Mutex<Option<(std::path::PathBuf, u64)>> =
+        std::sync::Mutex::new(None);
+
+    /// Cannot clone, and changes the source's size between its check
+    /// and its copy, as a file being written would.
+    fn resize(_: &File, _: &File) -> io::Result<()> {
+        let to = RESIZE.lock().ok().and_then(|mut r| r.take());
+        if let Some((file, len)) = to {
+            fs::OpenOptions::new()
+                .write(true)
+                .open(file)?
+                .set_len(len)?;
+        }
+        Err(io::ErrorKind::Unsupported.into())
+    }
+
+    #[tokio::test]
+    async fn a_file_that_grows_or_shrinks_while_copied_keeps_to_the_cap() {
+        let (repo, wt) = setup(".env\n").await;
+        let set = |len| {
+            let file = repo.root.join(".env");
+            *RESIZE.lock().unwrap_or_else(|e| e.into_inner()) = Some((file, len));
+        };
+        set(1 << 20);
+        let included = copy_in(&repo.root, &wt, 10, resize);
+        let included = included.unwrap_or_else(|e| panic!("{e:?}"));
+        // The 8 bytes it had when checked, not the MiB it grew to.
+        assert_eq!(copied(&included), [(".env", 8)]);
+        assert_eq!(fs::metadata(wt.join(".env")).map(|m| m.len()).ok(), Some(8));
+
+        fs::remove_file(wt.join(".env")).unwrap_or_else(|e| panic!("{e}"));
+        set(2);
+        fs::write(repo.root.join(".env"), "A=1\nB=2\n").unwrap_or_else(|e| panic!("{e}"));
+        let included = copy_in(&repo.root, &wt, 10, resize);
+        let included = included.unwrap_or_else(|e| panic!("{e:?}"));
+        assert_eq!(copied(&included), [("sub/.env", 6)]);
+        let changed = "changed while it was copied";
+        assert_eq!(skipped(&included), [(".env", changed)]);
+        assert!(!wt.join(".env").exists());
     }
 
     #[tokio::test]
