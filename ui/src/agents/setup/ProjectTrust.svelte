@@ -74,7 +74,7 @@ const risk = $derived(
 );
 const counts = $derived(
   changeSummary(diff) ||
-    "The list is the same, but files under .claude/ changed (a skill, an agent or a command, for example). Open them to see what changed.",
+    "The list is the same, but files under .claude/ changed (a skill, an agent, a command or a setting not fully shown, for example). Open them to see what changed.",
 );
 const shownGroups = $derived(
   groups(

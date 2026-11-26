@@ -209,41 +209,67 @@ fn settings(path: &str, file: &Path, items: &mut Vec<ConfigItem>) {
     push(items, path, ConfigKind::Settings, other);
 }
 
-/// Programs that run whatever they are given.
-const INTERPRETERS: [&str; 22] = [
+/// Programs that run whatever they are given, or launch another program.
+const INTERPRETERS: [&str; 46] = [
     "sh",
     "bash",
     "zsh",
     "fish",
+    "ksh",
+    "dash",
+    "csh",
+    "tcsh",
     "pwsh",
     "powershell",
     "cmd",
     "python",
     "python3",
+    "py",
     "node",
     "npx",
+    "pnpx",
+    "bunx",
     "bun",
     "deno",
-    "eval",
-    "env",
-    "sudo",
+    "uv",
+    "uvx",
     "perl",
     "ruby",
     "php",
+    "java",
+    "lua",
+    "eval",
+    "env",
+    "sudo",
+    "doas",
     "xargs",
     "osascript",
-    "doas",
+    "nohup",
+    "timeout",
+    "nice",
+    "command",
+    "exec",
+    "source",
+    "busybox",
+    "find",
+    "awk",
+    "sed",
+    "make",
+    "docker",
+    "podman",
 ];
 
 /// Programs that reach the network or the rest of the machine whatever the
-/// project is: they send data out, publish, or delete anywhere.
-const REACH: [&str; 17] = [
+/// project is: they send data out, delete, move or overwrite anywhere.
+const REACH: [&str; 22] = [
     "curl", "wget", "ssh", "scp", "sftp", "rsync", "nc", "ncat", "netcat", "telnet", "ftp", "gh",
-    "rm", "dd", "chmod", "chown", "open",
+    "kubectl", "rm", "dd", "chmod", "chown", "open", "cp", "mv", "tee", "ln",
 ];
 
-/// `program subcommand` pairs that publish or push.
-const PUBLISH: [(&str, &str); 8] = [
+/// Programs whose subcommands run code or publish (`npm exec`, `git push`,
+/// a build script): broad unless the rule names a harmless subcommand.
+/// The pairs are the subcommands that publish or push.
+const PUBLISH: [(&str, &str); 7] = [
     ("git", "push"),
     ("npm", "publish"),
     ("pnpm", "publish"),
@@ -251,26 +277,51 @@ const PUBLISH: [(&str, &str); 8] = [
     ("cargo", "publish"),
     ("twine", "upload"),
     ("gem", "push"),
-    ("docker", "push"),
+];
+
+/// PowerShell commands (compared in lower case) that run code, fetch,
+/// start programs or delete.
+const POWERSHELL: [&str; 16] = [
+    "iex",
+    "invoke-expression",
+    "iwr",
+    "invoke-webrequest",
+    "irm",
+    "invoke-restmethod",
+    "start-process",
+    "saps",
+    "remove-item",
+    "ri",
+    "del",
+    "rd",
+    "invoke-command",
+    "icm",
+    "set-executionpolicy",
+    "invoke-item",
 ];
 
 /// Tools whose rule spec is a path.
 const PATH_TOOLS: [&str; 4] = ["Edit", "Write", "MultiEdit", "NotebookEdit"];
+const READ_TOOLS: [&str; 4] = ["Read", "Glob", "Grep", "LS"];
 
 /// Whether an allow rule lets a whole tool through, any command, or reaches
 /// past the project: a bare tool name (`Bash`, `Edit`, `mcp__server`), a
 /// spec of only wildcards (`Bash(*)`, `Write(**)`, `Edit(//**)`), a shell
-/// command that starts an interpreter (`Bash(python:*)`, `Bash(sh -c *)`),
-/// reaches the network, publishes or deletes (`Bash(curl:*)`,
-/// `Bash(git push:*)`, `Bash(rm:*)`), or an edit outside the project
-/// (`Edit(~/.bashrc)`, `Write(//etc/hosts)`, `Edit(../x)`). Read-only tools
-/// are left out: allowing them asks nothing that changes the machine.
+/// command that starts an interpreter or launcher (`Bash(python:*)`,
+/// `Bash(sh -c *)`), reaches the network, publishes or deletes
+/// (`Bash(curl:*)`, `Bash(git push:*)`, `Bash(rm:*)`), a program named by
+/// a wildcard (`Bash(py*)`), or a path outside the project, read or
+/// written (`Edit(~/.bashrc)`, `Read(~/.ssh/**)`, `Edit(../x)`). Reading
+/// inside the project is left out: it changes nothing.
 fn broad(rule: &str) -> bool {
     let (tool, spec) = match rule.split_once('(') {
         Some((tool, rest)) => (tool.trim(), rest.strip_suffix(')').map(str::trim)),
         None => (rule.trim(), None),
     };
-    if matches!(tool, "Read" | "Glob" | "Grep" | "LS" | "TodoWrite") {
+    if READ_TOOLS.contains(&tool) {
+        return spec.is_some_and(outside);
+    }
+    if tool == "TodoWrite" {
         return false;
     }
     let Some(spec) = spec else { return true };
@@ -283,69 +334,164 @@ fn broad(rule: &str) -> bool {
     if PATH_TOOLS.contains(&tool) {
         return outside(spec);
     }
+    if tool == "WebFetch" {
+        // `domain:*` or `domain:*.com` is any site.
+        return spec
+            .strip_prefix("domain:")
+            .is_some_and(|domain| domain.trim().starts_with('*'));
+    }
     if tool != "Bash" && tool != "PowerShell" {
         return false;
     }
-    let mut words = spec
-        .split(|c: char| c == ':' || c.is_whitespace())
-        .filter(|w| !w.is_empty())
-        .map(|w| w.trim_end_matches('*'));
-    let program = words.next().unwrap_or_default();
-    // `/usr/bin/curl` is curl.
-    let program = program.rsplit(['/', '\\']).next().unwrap_or_default();
-    let next = words.next().unwrap_or_default();
+    command_reaches(spec)
+}
+
+/// Whether a shell rule's command runs anything, reaches out or publishes.
+fn command_reaches(spec: &str) -> bool {
+    // `curl:*` is `curl *`, but `C:\x` keeps its drive letter.
+    let bytes = spec.as_bytes();
+    let spaced: String = spec
+        .char_indices()
+        .map(|(i, c)| {
+            let drive = i > 0
+                && bytes[i - 1].is_ascii_alphabetic()
+                && (i == 1 || bytes[i - 2].is_ascii_whitespace())
+                && matches!(bytes.get(i + 1), Some(b'\\' | b'/'));
+            if c == ':' && !drive { ' ' } else { c }
+        })
+        .collect();
+    let mut words = spaced
+        .split_whitespace()
+        // `FOO=1 curl …` runs curl.
+        .skip_while(|w| w.contains('=') && !w.starts_with('='));
+    let first = words.next().unwrap_or_default();
+    // A wildcard in the program's name could be any program.
+    if first.contains(['*', '?', '[', '{', '$', '`']) {
+        return true;
+    }
+    // `/usr/bin/curl`, `C:\Windows\curl.exe` and `Curl` are curl.
+    let program = first
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or_default()
+        .to_lowercase();
+    let program = [".exe", ".cmd", ".bat", ".ps1"]
+        .iter()
+        .find_map(|ext| program.strip_suffix(ext))
+        .unwrap_or(&program);
+    let next = words.next().unwrap_or_default().trim_end_matches('*');
+    let runs_code = ["git", "npm", "pnpm", "yarn", "cargo", "twine", "gem"].contains(&program);
     INTERPRETERS.contains(&program)
         || REACH.contains(&program)
+        || POWERSHELL.contains(&program)
         || PUBLISH.contains(&(program, next))
+        // `Bash(npm:*)`: every subcommand, `npm exec` and `git push` too.
+        || (runs_code && next.is_empty())
 }
 
 /// Whether a path rule names something outside the project: absolute
-/// (`//etc`, `C:`), in the home folder (`~`), or up from it (`..`). In
-/// Claude's rules `/x` is relative to the settings file, so it stays inside.
+/// (`//etc`, `C:`), in the home folder (`~`), up from it (`..`), or a
+/// brace or class pattern that could spell `..`. In Claude's rules `/x` is
+/// relative to the settings file, so it stays inside.
 fn outside(spec: &str) -> bool {
     let spec = spec.trim();
     spec.starts_with("//")
         || spec.starts_with('~')
         || spec.starts_with('\\')
+        || spec.starts_with('$')
         || spec.as_bytes().get(1) == Some(&b':')
         || spec.split(['/', '\\']).any(|part| part == "..")
+        || (spec.contains('.') && spec.contains(['{', '[']))
 }
 
 /// Names that look like they hold a secret: their values are not shown.
-const SECRET: [&str; 6] = ["KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL", "AUTH"];
+const SECRET: [&str; 14] = [
+    "KEY",
+    "TOKEN",
+    "SECRET",
+    "PASS",
+    "PWD",
+    "CREDENTIAL",
+    "AUTH",
+    "COOKIE",
+    "SESSION",
+    "PRIVATE",
+    "HEADER",
+    "DSN",
+    "CERT",
+    "SIGN",
+];
+
+/// Values that look like they hold a secret whatever their name.
+const SECRET_VALUES: [&str; 4] = ["bearer ", "basic ", "authorization", "token "];
 
 /// `NAME = value` for every variable, so a changed value shows as a change.
 /// Secret-looking values are masked down to a short digest that still
-/// changes with them.
+/// changes with them, and credentials in a URL are masked; a value cut for
+/// length carries the digest of the whole, so a change at its end shows.
 fn env(value: &Value) -> Vec<String> {
     let Some(vars) = value.as_object() else {
         return vec![short(value)];
     };
     vars.iter()
         .map(|(name, value)| {
-            let text = value.as_str().map_or_else(|| short(value), str::to_owned);
+            let text = value
+                .as_str()
+                .map_or_else(|| value.to_string(), str::to_owned);
             let upper = name.to_uppercase();
-            if SECRET.iter().any(|s| upper.contains(s)) {
-                let digest: String = Sha256::digest(text.as_bytes())
-                    .iter()
-                    .take(3)
-                    .map(|b| format!("{b:02x}"))
-                    .collect();
-                format!("{name} = (hidden, #{digest})")
-            } else {
-                format!("{name} = {}", clip(&text))
+            let lower = text.to_lowercase();
+            // `GH_PAT` is a token; `PATH` is not.
+            if SECRET.iter().any(|s| upper.contains(s))
+                || upper.ends_with("_PAT")
+                || SECRET_VALUES.iter().any(|s| lower.contains(s))
+            {
+                return format!("{name} = (hidden, #{})", digest(name, &text));
+            }
+            let shown = without_credentials(&text).replace(['\n', '\r'], " ");
+            match shown.char_indices().nth(100) {
+                Some((cut, _)) => format!("{name} = {}… #{}", &shown[..cut], digest(name, &text)),
+                None => format!("{name} = {shown}"),
             }
         })
         .collect()
 }
 
-/// Text on one line, cut to 120 characters.
-fn clip(text: &str) -> String {
-    let text = text.replace(['\n', '\r'], " ");
-    match text.char_indices().nth(120) {
-        Some((cut, _)) => format!("{}…", &text[..cut]),
-        None => text,
+/// Six hex characters that change with the value, tied to its name and to
+/// Ovra so the same secret does not give the same tag elsewhere.
+fn digest(name: &str, value: &str) -> String {
+    let mut hash = Sha256::new();
+    hash.update(b"ovra-env-v1\0");
+    hash.update(name.as_bytes());
+    hash.update(b"\0");
+    hash.update(value.as_bytes());
+    hash.finalize()
+        .iter()
+        .take(3)
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+/// `scheme://user:pass@host` as `scheme://***@host`, wherever it appears.
+fn without_credentials(text: &str) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(start) = rest.find("://") {
+        let (head, tail) = rest.split_at(start + 3);
+        out.push_str(head);
+        let end = tail
+            .find(|c: char| c == '/' || c.is_whitespace())
+            .unwrap_or(tail.len());
+        match tail[..end].rfind('@') {
+            Some(at) => {
+                out.push_str("***");
+                out.push_str(&tail[at..end]);
+            }
+            None => out.push_str(&tail[..end]),
+        }
+        rest = &tail[end..];
     }
+    out.push_str(rest);
+    out
 }
 
 /// `Event (matcher): command` for every hook.
@@ -511,6 +657,22 @@ mod tests {
             "Write(//etc/hosts)",
             "Edit(../other/**)",
             "Write(C:\\Windows\\x)",
+            "Bash(git:*)",
+            "Bash(npm:*)",
+            "Bash(docker run *)",
+            "Bash(* install)",
+            "Bash(py*)",
+            "Bash(curl.exe:*)",
+            "Bash(C:\\Windows\\System32\\cmd.exe /c *)",
+            "PowerShell(Invoke-WebRequest *)",
+            "PowerShell(iex *)",
+            "Bash(FOO=1 curl:*)",
+            "Bash(nohup *)",
+            "Read(~/.ssh/**)",
+            "Read(//etc/**)",
+            "Grep(../secrets)",
+            "WebFetch(domain:*)",
+            "Edit({..,src}/x)",
         ] {
             assert!(broad(rule), "{rule}");
         }
@@ -522,6 +684,10 @@ mod tests {
             "Edit(src/**)",
             "Edit(/src/**)",
             "Write(./docs/a..b.md)",
+            "Bash(npm test:*)",
+            "Bash(cargo build)",
+            "Read(./docs/**)",
+            "WebFetch(domain:docs.rs)",
             "WebFetch(domain:example.com)",
             "Read",
             "Read(**)",
@@ -547,6 +713,27 @@ mod tests {
         assert!(!first[1].contains("one"));
         let second = entries(r#"{"env": {"ANTHROPIC_BASE_URL": "https://a", "API_TOKEN": "two"}}"#);
         assert_ne!(first[1], second[1]);
+        // Secrets hide in values and URLs too.
+        let more = entries(
+            r#"{"env": {"ANTHROPIC_CUSTOM_HEADERS": "x: y", "OTEL": "Authorization: Bearer abc", "BASE_URL": "https://u:p@h.example/v1 and ftp://h2"}}"#,
+        );
+        assert!(
+            more[0].starts_with("ANTHROPIC_CUSTOM_HEADERS = (hidden, #"),
+            "{}",
+            more[0]
+        );
+        assert_eq!(more[1], "BASE_URL = https://***@h.example/v1 and ftp://h2");
+        assert!(more[2].starts_with("OTEL = (hidden, #"), "{}", more[2]);
+        // A change past the shown part still changes the entry.
+        let long = |tail: &str| {
+            entries(&format!(
+                r#"{{"env": {{"PATH": "{}{tail}"}}}}"#,
+                "/usr/bin:".repeat(20)
+            ))[0]
+                .clone()
+        };
+        assert_ne!(long("/a"), long("/b"));
+        assert!(long("/a").contains("… #"));
     }
 
     #[test]
