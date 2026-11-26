@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::agents::SessionId;
+use super::agents::{AgentKind, SessionId};
 use super::context::ContextItem;
 use super::projects::ProjectId;
 use super::review::{ChangeKind, ReviewId};
@@ -109,7 +109,9 @@ pub struct FailedWorker {
 pub struct Task {
     pub id: TaskId,
     pub project: ProjectId,
-    pub coordinator: SessionId,
+    /// `None` for one agent in its own copy (`solo`), which has one worker
+    /// and no coordinator.
+    pub coordinator: Option<SessionId>,
     pub workers: Vec<Worker>,
     /// Workers that never started, so they have no session to show.
     #[serde(default)]
@@ -173,7 +175,7 @@ pub struct PushedFile {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "method", content = "params")]
 pub enum OrchestrationRequest {
-    /// Starts a coordinator session on a task.
+    /// Starts a coordinator session on a task, or with `solo` one worker.
     #[serde(rename = "orchestration.start")]
     Start {
         project: ProjectId,
@@ -183,6 +185,13 @@ pub enum OrchestrationRequest {
         /// What the person added with `@`; it follows the prompt as Ovra's.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         context: Vec<ContextItem>,
+        /// The provider that works on it.
+        #[serde(default, skip_serializing_if = "is_default")]
+        agent: AgentKind,
+        /// One agent in its own worktree, without a coordinator: the task's
+        /// only worker gets the prompt (`docs/specs/more-agents.md`).
+        #[serde(default, skip_serializing_if = "is_default")]
+        solo: bool,
     },
     /// Tasks of a project, oldest first.
     #[serde(rename = "orchestration.list")]
@@ -205,6 +214,10 @@ pub enum OrchestrationRequest {
     /// person asks. Answers `ok`.
     #[serde(rename = "orchestration.remove_leftover")]
     RemoveLeftover { project: ProjectId, path: String },
+}
+
+fn is_default<T: Default + PartialEq>(value: &T) -> bool {
+    *value == T::default()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

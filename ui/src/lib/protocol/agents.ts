@@ -3,8 +3,11 @@ import type { ProjectId } from "./projects";
 
 export type SessionId = string;
 
-/** A provider (ADR 0011). `claude`: the user's installed Claude Code (ADR 0006). */
-export type AgentKind = "claude";
+/**
+ * A provider (ADR 0011). `claude`: the user's installed Claude Code (ADR 0006);
+ * `gemini`: Gemini CLI and `codex`: Codex (through `codex-acp`), both over ACP.
+ */
+export type AgentKind = "claude" | "gemini" | "codex";
 
 /** A provider the runtime can start sessions of (`agents.providers`). */
 export type ProviderInfo = {

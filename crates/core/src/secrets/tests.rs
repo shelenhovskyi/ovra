@@ -73,6 +73,11 @@ fn only_what_the_netproxy_can_send_safely_is_kept() {
         "bedrock-runtime.cn-north-1.amazonaws.com.cn",
         "us-central1-aiplatform.googleapis.com",
         "x.services.ai.azure.com",
+        "generativelanguage.googleapis.com",
+        "oauth2.googleapis.com",
+        "accounts.google.com",
+        "api.openai.com",
+        "chatgpt.com",
     ] {
         let got = ok(info("gh", host, "Authorization", ""));
         assert!(got.contains("host"), "{host:?}: {got}");
@@ -310,7 +315,9 @@ fn every_provider_has_its_own_hosts_refused() {
     // does not compile here until it is chained in, and then fails below
     // until it is in `PROVIDERS` (its own hosts never take a secret by omission).
     let next = |agent: AgentKind| match agent {
-        AgentKind::Claude => None,
+        AgentKind::Claude => Some(AgentKind::Gemini),
+        AgentKind::Gemini => Some(AgentKind::Codex),
+        AgentKind::Codex => None,
     };
     let mut agent = Some(AgentKind::default());
     while let Some(this) = agent {

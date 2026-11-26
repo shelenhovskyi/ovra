@@ -700,6 +700,7 @@ fn every_request_round_trips() {
         serde_json::json!({"method": "review.take", "params": {"id": "r1", "include_protected": true}}),
         serde_json::json!({"method": "review.undo_take", "params": {"id": "r1"}}),
         serde_json::json!({"method": "orchestration.start", "params": {"project": "p1", "prompt": "x", "limits": {"max_workers": 2, "budget_micro_usd": null}}}),
+        serde_json::json!({"method": "orchestration.start", "params": {"project": "p1", "prompt": "x", "limits": {"max_workers": 1, "budget_micro_usd": null}, "agent": "gemini", "solo": true}}),
         serde_json::json!({"method": "orchestration.list", "params": {"project": "p1"}}),
         serde_json::json!({"method": "orchestration.stop", "params": {"task": "task1"}}),
         serde_json::json!({"method": "audit.list", "params": {"project": "p1", "after": 3, "before": null, "order": "oldest_first", "limit": 50}}),

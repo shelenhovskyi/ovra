@@ -22,11 +22,20 @@ export function watchAgents(transport: Transport, notifier: Notifier, review: (i
   const state = (id: SessionId) => last.get(id) ?? sessions.byId.get(id)?.status.state;
   const busy = (id: SessionId) => ["starting", "working", "waiting_for_approval"].includes(state(id) ?? "");
 
-  /** The task `session` belongs to, asked of the core: the roles known here may lag behind a spawn. */
-  async function taskOf(project: ProjectId, session: SessionId): Promise<Task | undefined> {
+  /**
+   * The task `session` belongs to, asked of the core: the roles known here may lag behind a spawn.
+   * One agent in its own copy has no coordinator and is told about like any one session.
+   */
+  async function taskOf(
+    project: ProjectId,
+    session: SessionId,
+  ): Promise<(Task & { coordinator: SessionId }) | undefined> {
     try {
       const { data } = await transport.call({ method: "orchestration.list", params: { project } });
-      return data.find((t) => t.coordinator === session || t.workers.some((w) => w.session === session));
+      return data.find(
+        (t): t is Task & { coordinator: SessionId } =>
+          t.coordinator !== null && (t.coordinator === session || t.workers.some((w) => w.session === session)),
+      );
     } catch {
       return undefined; // A front end without tasks.
     }

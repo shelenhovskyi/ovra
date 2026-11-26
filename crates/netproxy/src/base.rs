@@ -7,12 +7,15 @@ use crate::rules::Rule;
 
 /// Every provider with a base list. A new provider goes here and in
 /// [`rules`].
-pub(crate) const PROVIDERS: [AgentKind; 1] = [AgentKind::Claude];
+pub(crate) const PROVIDERS: [AgentKind; 3] =
+    [AgentKind::Claude, AgentKind::Gemini, AgentKind::Codex];
 
 /// The base rules of `agent` for the environment `var` reads.
 pub(crate) fn rules(agent: AgentKind, var: &dyn Fn(&str) -> Option<String>) -> Vec<Rule> {
     match agent {
         AgentKind::Claude => claude(var),
+        AgentKind::Gemini => gemini(var),
+        AgentKind::Codex => codex(var),
     }
 }
 
@@ -86,6 +89,58 @@ pub(crate) fn claude(var: &dyn Fn(&str) -> Option<String>) -> Vec<Rule> {
                 resource.to_ascii_lowercase()
             )));
         }
+    }
+    rules
+}
+
+/// Hosts Gemini CLI needs for a Google login or a Gemini API key: the
+/// Gemini API, Code Assist (what a personal Google login uses), and token
+/// refresh with the account's user info. Its telemetry host is left out.
+const GOOGLE: [&str; 4] = [
+    "generativelanguage.googleapis.com",
+    "cloudcode-pa.googleapis.com",
+    "oauth2.googleapis.com",
+    "www.googleapis.com",
+];
+
+/// What `gemini` needs: Google's hosts, the gateway `GOOGLE_GEMINI_BASE_URL`
+/// names, and Vertex AI's host for its location when
+/// `GOOGLE_GENAI_USE_VERTEXAI` is on.
+pub(crate) fn gemini(var: &dyn Fn(&str) -> Option<String>) -> Vec<Rule> {
+    let mut rules: Vec<Rule> = GOOGLE.iter().map(|h| Rule::named(h)).collect();
+    if let Some(gateway) = var("GOOGLE_GEMINI_BASE_URL")
+        .as_deref()
+        .and_then(crate::url::Authority::parse)
+    {
+        rules.push(Rule::configured(gateway));
+    }
+    let vertex = var("GOOGLE_GENAI_USE_VERTEXAI")
+        .is_some_and(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true"));
+    if vertex {
+        let host = match var("GOOGLE_CLOUD_LOCATION").filter(|l| label(l)) {
+            Some(l) if l != "global" => {
+                format!("{}-aiplatform.googleapis.com", l.to_ascii_lowercase())
+            }
+            _ => "aiplatform.googleapis.com".to_owned(),
+        };
+        rules.push(Rule::named(&host));
+    }
+    rules
+}
+
+/// Hosts Codex needs for a ChatGPT login or an OpenAI API key: the API,
+/// ChatGPT's backend that a ChatGPT login uses, and token refresh.
+const OPENAI: [&str; 3] = ["api.openai.com", "chatgpt.com", "auth.openai.com"];
+
+/// What `codex-acp` needs: OpenAI's hosts and the gateway
+/// `OPENAI_BASE_URL` names.
+pub(crate) fn codex(var: &dyn Fn(&str) -> Option<String>) -> Vec<Rule> {
+    let mut rules: Vec<Rule> = OPENAI.iter().map(|h| Rule::named(h)).collect();
+    if let Some(gateway) = var("OPENAI_BASE_URL")
+        .as_deref()
+        .and_then(crate::url::Authority::parse)
+    {
+        rules.push(Rule::configured(gateway));
     }
     rules
 }

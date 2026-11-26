@@ -137,6 +137,8 @@ impl AgentRuntime for ClaudeCli {
     fn tool_call(&self, agent: AgentKind, name: &str, input: &serde_json::Value) -> ToolCall {
         match agent {
             AgentKind::Claude => tools::tool(name, input.clone()).call,
+            // Another provider's sessions never ran here.
+            AgentKind::Gemini | AgentKind::Codex => ToolCall::default(),
         }
     }
 

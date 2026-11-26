@@ -92,7 +92,15 @@ pub(super) async fn handle(core: &Core, request: OrchestrationRequest) -> Result
             prompt,
             limits,
             context,
+            agent,
+            solo,
         } => {
+            if solo || agent != AgentKind::Claude {
+                return Err(ProtocolError::new(
+                    ErrorCode::Unavailable,
+                    "only Claude can plan and split a task here yet",
+                ));
+            }
             let context = crate::context::message(core, &project, None, &context).await?;
             let task = start(core, project, prompt, context, limits).await?;
             Ok(Response::Orchestration(OrchestrationResponse::Task(task)))
@@ -323,7 +331,7 @@ pub(super) fn view(core: &Core, entry: &Entry) -> Task {
     Task {
         id: entry.id.clone(),
         project: entry.project.clone(),
-        coordinator: entry.coordinator.clone(),
+        coordinator: Some(entry.coordinator.clone()),
         workers: entry.workers.clone(),
         failed: entry.failed.clone(),
         limits: entry.limits.clone(),

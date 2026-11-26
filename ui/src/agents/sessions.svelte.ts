@@ -52,7 +52,8 @@ export type SessionRole =
       waiting: string | null;
       /** Paths copied into its worktree through `.worktreeinclude`. */
       included: string[];
-      coordinator: SessionId;
+      /** `null` for one agent in its own copy, which has no coordinator. */
+      coordinator: SessionId | null;
     };
 
 export class AgentSessions {
@@ -202,8 +203,10 @@ export class AgentSessions {
       if (total) this.disk.set(project, total);
       else this.disk.delete(project);
       for (const task of data) {
-        this.roles.set(task.coordinator, { kind: "coordinator", task: task.id });
-        this.failedStarts.set(task.coordinator, task.failed ?? []);
+        if (task.coordinator !== null) {
+          this.roles.set(task.coordinator, { kind: "coordinator", task: task.id });
+          this.failedStarts.set(task.coordinator, task.failed ?? []);
+        }
         for (const w of task.workers)
           this.roles.set(w.session, {
             kind: "worker",
@@ -253,7 +256,8 @@ export class AgentSessions {
   name(id: SessionId): string {
     const role = this.roles.get(id);
     const base = sessionName(this.byId.get(id), id);
-    if (role?.kind === "worker") {
+    // One agent in its own copy is named by its own title.
+    if (role?.kind === "worker" && role.coordinator !== null) {
       const task = this.byId.get(role.coordinator)?.title;
       return task ? `${role.name} · ${task}` : `Worker ${role.name}`;
     }
@@ -395,7 +399,7 @@ export class AgentSessions {
       params: { project, prompt, ...(context.length > 0 ? { context } : {}) },
     });
     await this.load(project);
-    return data.coordinator;
+    return data.coordinator ?? data.workers[0]?.session ?? "";
   }
 
   async loadTranscript(session: SessionId): Promise<void> {

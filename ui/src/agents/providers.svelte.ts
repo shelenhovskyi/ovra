@@ -6,7 +6,7 @@ import type { AgentKind, ProviderInfo } from "../lib/protocol";
 import type { Transport } from "../lib/transport";
 
 /** What each provider is called until `agents.providers` answers, or if it fails. */
-const FALLBACK: Record<AgentKind, string> = { claude: "Claude" };
+const FALLBACK: Record<AgentKind, string> = { claude: "Claude", gemini: "Gemini", codex: "Codex" };
 
 export class Providers {
   list = $state<ProviderInfo[] | null>(null);

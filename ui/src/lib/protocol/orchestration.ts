@@ -1,4 +1,4 @@
-import type { SessionId } from "./agents";
+import type { AgentKind, SessionId } from "./agents";
 import type { ContextItem } from "./context";
 import type { ProjectId } from "./projects";
 import type { ChangeKind, ReviewId } from "./review";
@@ -103,7 +103,8 @@ export type FailedWorker = {
 export type Task = {
   id: TaskId;
   project: ProjectId;
-  coordinator: SessionId;
+  /** `null` for one agent in its own copy (`solo`). */
+  coordinator: SessionId | null;
   workers: Worker[];
   /** Workers that never started, so they have no session to show (absent from older cores). */
   failed?: FailedWorker[];
@@ -119,7 +120,16 @@ export type ShowTarget =
 export type OrchestrationRequest =
   | {
       method: "orchestration.start";
-      params: { project: ProjectId; prompt: string; limits?: TaskLimits; context?: ContextItem[] };
+      params: {
+        project: ProjectId;
+        prompt: string;
+        limits?: TaskLimits;
+        context?: ContextItem[];
+        /** The provider that works on it; `claude` when left out. */
+        agent?: AgentKind;
+        /** One agent in its own worktree, without a coordinator. */
+        solo?: boolean;
+      };
     }
   | { method: "orchestration.list"; params: { project: ProjectId } }
   | { method: "orchestration.stop"; params: { task: TaskId } }

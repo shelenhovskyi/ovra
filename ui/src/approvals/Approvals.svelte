@@ -584,7 +584,7 @@ function billedTo(session: SessionId): { text: string; key: boolean } | null {
 /** The task a request belongs to: a worker's coordinator, else its own session. */
 function taskOf(session: SessionId): SessionId {
   const role = sessions.roles.get(session);
-  return role?.kind === "worker" ? role.coordinator : session;
+  return role?.kind === "worker" ? (role.coordinator ?? session) : session;
 }
 
 /** Requests that would do exactly the same: one card answers them, one at a time. */

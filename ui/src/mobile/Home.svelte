@@ -67,7 +67,7 @@ function where(session: SessionInfo | undefined, project: string): string {
       {#each phone.tasks as task (task.id)}
         <li>
           <a class="row" href={href({ screen: "task", id: task.id })}>
-            <span class="what">{phone.session(task.coordinator)?.title ?? "Task"}</span>
+            <span class="what">{phone.session(task.coordinator ?? task.workers[0]?.session ?? "")?.title ?? "Task"}</span>
             <span class="who"
               >{task.workers.length === 1 ? "1 worker" : `${task.workers.length} workers`} · {phone.project(task.project)
                 ?.name ?? ""}</span

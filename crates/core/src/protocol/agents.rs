@@ -23,6 +23,10 @@ pub enum AgentKind {
     /// The user's installed Claude Code (ADR 0006).
     #[default]
     Claude,
+    /// The user's installed Gemini CLI, over ACP (`docs/specs/more-agents.md`).
+    Gemini,
+    /// The user's installed Codex, through Zed's `codex-acp`, over ACP.
+    Codex,
 }
 
 /// A provider the runtime can start sessions of, and what it can do
@@ -392,6 +396,9 @@ pub enum SetupState {
 pub struct AgentSettings {
     /// Absolute path of the `claude` executable; `None` searches for it.
     pub claude_path: Option<String>,
+    /// Absolute paths of the other providers' executables the user chose;
+    /// a provider not listed is searched for.
+    pub paths: std::collections::BTreeMap<AgentKind, String>,
     /// The Claude accounts the user added. The default account is
     /// [`Account::default_account`] unless an entry with its id
     /// renames it.
@@ -418,6 +425,27 @@ pub struct AgentLimit {
 }
 
 impl AgentSettings {
+    /// The executable the user chose for `agent`, if any.
+    pub fn path(&self, agent: AgentKind) -> Option<&str> {
+        match agent {
+            AgentKind::Claude => self.claude_path.as_deref(),
+            other => self.paths.get(&other).map(String::as_str),
+        }
+    }
+
+    /// Chooses (or with `None` clears) the executable of `agent`.
+    pub fn set_path(&mut self, agent: AgentKind, path: Option<String>) {
+        match (agent, path) {
+            (AgentKind::Claude, path) => self.claude_path = path,
+            (other, Some(path)) => {
+                self.paths.insert(other, path);
+            }
+            (other, None) => {
+                self.paths.remove(&other);
+            }
+        }
+    }
+
     /// Every account, the default one first.
     pub fn all_accounts(&self) -> Vec<Account> {
         let default = self

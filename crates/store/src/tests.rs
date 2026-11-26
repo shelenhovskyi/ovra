@@ -118,6 +118,11 @@ fn contract(store: &dyn ProjectStore, folders: &Folders) {
     assert_eq!(store.agent_settings(), Ok(AgentSettings::default()));
     let settings = AgentSettings {
         claude_path: Some("/opt/claude".into()),
+        paths: [(
+            ovra_core::protocol::agents::AgentKind::Gemini,
+            "/opt/gemini".into(),
+        )]
+        .into(),
         accounts: vec![ovra_core::protocol::agents::Account {
             provider: ovra_core::protocol::agents::AgentKind::Claude,
             id: "account-1".into(),

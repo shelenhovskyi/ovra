@@ -17,12 +17,23 @@ const MAX_VALUE: usize = 16 * 1024;
 
 /// Every provider whose own hosts no secret is sent to. A new provider
 /// goes here and in [`own_host`].
-const PROVIDERS: [AgentKind; 1] = [AgentKind::Claude];
+const PROVIDERS: [AgentKind; 3] = [AgentKind::Claude, AgentKind::Gemini, AgentKind::Codex];
 
 /// Domains `claude` itself talks to; the proxy must never decrypt them
 /// (ADR 0006). Their subdomains are refused too, and so are the cloud
 /// providers' model endpoints it can use ([`own_host`]).
 const CLAUDE_DOMAINS: [&str; 3] = ["anthropic.com", "claude.ai", "claude.com"];
+/// Google's hosts a Gemini CLI login or API key goes to: the Gemini API,
+/// Code Assist, sign-in and token refresh.
+const GEMINI_HOSTS: [&str; 5] = [
+    "generativelanguage.googleapis.com",
+    "cloudcode-pa.googleapis.com",
+    "oauth2.googleapis.com",
+    "www.googleapis.com",
+    "accounts.google.com",
+];
+/// OpenAI's domains a Codex login or API key goes to.
+const CODEX_DOMAINS: [&str; 3] = ["openai.com", "chatgpt.com", "oaistatic.com"];
 
 /// Headers that frame or route a request; a secret never replaces them.
 /// Every `Proxy-*` header is refused as well.
@@ -227,9 +238,20 @@ fn own_host(agent: AgentKind, name: &str, labels: &[&str]) -> Option<&'static st
                 || name.ends_with(".services.ai.azure.com");
             claude || cloud_model
         }
+        AgentKind::Gemini => {
+            GEMINI_HOSTS
+                .iter()
+                .any(|h| name == *h || name.ends_with(&format!(".{h}")))
+                || name.ends_with("aiplatform.googleapis.com")
+        }
+        AgentKind::Codex => CODEX_DOMAINS
+            .iter()
+            .any(|d| name == *d || name.ends_with(&format!(".{d}"))),
     };
     own.then_some(match agent {
         AgentKind::Claude => "Claude's own hosts carry its login; a secret is never sent to them",
+        AgentKind::Gemini => "Gemini's own hosts carry its login; a secret is never sent to them",
+        AgentKind::Codex => "Codex's own hosts carry its login; a secret is never sent to them",
     })
 }
 

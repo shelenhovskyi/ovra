@@ -509,9 +509,82 @@ fn a_session_gets_its_own_providers_base_list() {
     .unwrap_or_else(|e| panic!("{e}"));
     let claude: Arc<[crate::rules::Rule]> = crate::base::claude(&vars).into();
     assert_eq!(proxies.base_of(Some(AgentKind::Claude)), claude);
-    // Claude is the only provider: every provider's list is its list.
-    assert_eq!(proxies.base_of(None), claude);
-    assert_eq!(proxies.base(), crate::rules::as_allowlist(&claude));
+    let gemini: Arc<[crate::rules::Rule]> = crate::base::gemini(&vars).into();
+    assert_eq!(proxies.base_of(Some(AgentKind::Gemini)), gemini);
+    // A Gemini session reaches none of Anthropic's or OpenAI's hosts.
+    let reaches = |agent, host: &str| proxies.base_of(Some(agent)).iter().any(|r| r.host == host);
+    assert!(!reaches(AgentKind::Gemini, "api.anthropic.com"));
+    assert!(!reaches(AgentKind::Gemini, "api.openai.com"));
+    assert!(!reaches(AgentKind::Codex, "api.anthropic.com"));
+    assert!(!reaches(AgentKind::Claude, "api.openai.com"));
+    // A server pod's is every provider's.
+    let all = proxies.base_of(None);
+    for agent in crate::base::PROVIDERS {
+        assert!(
+            proxies.base_of(Some(agent)).iter().all(|r| all.contains(r)),
+            "{agent:?}"
+        );
+    }
+}
+
+#[test]
+fn gemini_and_codex_get_their_vendors_hosts() {
+    let hosts = |rules: Vec<crate::rules::Rule>| {
+        rules
+            .into_iter()
+            .map(|r| match r.port {
+                Some(port) => format!("{}:{port}", r.host),
+                None => r.host,
+            })
+            .collect::<Vec<_>>()
+    };
+    let vars = |pairs: &'static [(&'static str, &'static str)]| {
+        move |name: &str| {
+            pairs
+                .iter()
+                .find(|(k, _)| *k == name)
+                .map(|(_, v)| (*v).to_owned())
+        }
+    };
+    let google = [
+        "generativelanguage.googleapis.com",
+        "cloudcode-pa.googleapis.com",
+        "oauth2.googleapis.com",
+        "www.googleapis.com",
+    ];
+    assert_eq!(hosts(crate::base::gemini(&vars(&[]))), google);
+    assert_eq!(
+        hosts(crate::base::gemini(&vars(&[
+            ("GOOGLE_GENAI_USE_VERTEXAI", "true"),
+            ("GOOGLE_CLOUD_LOCATION", "europe-west4"),
+        ])))[4..],
+        ["europe-west4-aiplatform.googleapis.com"]
+    );
+    assert_eq!(
+        hosts(crate::base::gemini(&vars(&[
+            ("GOOGLE_GENAI_USE_VERTEXAI", "1"),
+            ("GOOGLE_CLOUD_LOCATION", "x.evil.com/"),
+        ])))[4..],
+        ["aiplatform.googleapis.com"]
+    );
+    assert_eq!(
+        hosts(crate::base::gemini(&vars(&[(
+            "GOOGLE_GEMINI_BASE_URL",
+            "https://llm.corp.example/google"
+        )])))[4..],
+        ["llm.corp.example:443"]
+    );
+    assert_eq!(
+        hosts(crate::base::codex(&vars(&[]))),
+        ["api.openai.com", "chatgpt.com", "auth.openai.com"]
+    );
+    assert_eq!(
+        hosts(crate::base::codex(&vars(&[(
+            "OPENAI_BASE_URL",
+            "http://gateway.lan:4000/v1"
+        )])))[3..],
+        ["gateway.lan:4000"]
+    );
 }
 
 #[test]
@@ -896,7 +969,9 @@ fn every_provider_has_a_base_list() {
     // does not compile here until it is chained in, and then fails below
     // until it is in `PROVIDERS` (its sessions get their own base list).
     let next = |agent: AgentKind| match agent {
-        AgentKind::Claude => None,
+        AgentKind::Claude => Some(AgentKind::Gemini),
+        AgentKind::Gemini => Some(AgentKind::Codex),
+        AgentKind::Codex => None,
     };
     let mut agent = Some(AgentKind::default());
     while let Some(this) = agent {

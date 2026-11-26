@@ -22,14 +22,20 @@ const REVIEW: Record<ReviewState, string> = {
 };
 </script>
 
-<Header title={task ? (phone.session(task.coordinator)?.title ?? "Task") : "Task"} status={phone.status} />
+<!-- One agent in its own copy has no coordinator: its one worker names the task. -->
+<Header
+  title={task ? (phone.session(task.coordinator ?? task.workers[0]?.session ?? "")?.title ?? "Task") : "Task"}
+  status={phone.status}
+/>
 
 {#if task}
   <p class="where">{phone.project(task.project)?.name ?? ""}</p>
-  <a class="row" href={href({ screen: "agent", session: task.coordinator })}>
-    <span class="what">Coordinator</span>
-    <span class="who">{statusLabel(phone.session(task.coordinator)?.status ?? { state: "idle" })}</span>
-  </a>
+  {#if task.coordinator}
+    <a class="row" href={href({ screen: "agent", session: task.coordinator })}>
+      <span class="what">Coordinator</span>
+      <span class="who">{statusLabel(phone.session(task.coordinator)?.status ?? { state: "idle" })}</span>
+    </a>
+  {/if}
 
   <h2>Workers</h2>
   {#if task.workers.length === 0 && !task.failed?.length}

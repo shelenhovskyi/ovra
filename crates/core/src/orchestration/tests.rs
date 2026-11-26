@@ -153,12 +153,21 @@ async fn transcript(core: &Core, session: &str) -> Vec<AgentMessage> {
 }
 
 #[tokio::test]
+async fn only_claude_plans_and_splits_a_task() {
+    let f = fx(say()).await;
+    let start = json!({"method": "orchestration.start", "params": {
+        "project": "p1", "prompt": "split the work", "agent": "gemini"}});
+    assert_eq!(code(call(&f.core, start).await), ErrorCode::Unavailable);
+    assert!(f.core.sessions().list(&ProjectId("p1".into())).is_empty());
+}
+
+#[tokio::test]
 async fn a_coordinator_reads_the_main_checkout_next_to_a_direct_session() {
     let f = fx(say()).await;
     let task = start_task(&f.core, 3).await;
     assert_eq!(
-        (task.id.0.as_str(), task.coordinator.0.as_str()),
-        ("t1", "s1")
+        (task.id.0.as_str(), task.coordinator.map(|c| c.0).as_deref()),
+        ("t1", Some("s1"))
     );
     let direct = json!({"method": "agents.start", "params": {
         "project": "p1", "agent": "claude", "mode": "direct", "prompt": "fix it"}});
@@ -2647,7 +2656,10 @@ async fn workers_past_the_projects_cap_wait_and_start_when_a_place_frees() {
         let worker = f.core.spawn_agent(&a, name, "x", false).await;
         first.push(worker.unwrap_or_else(|e| panic!("{e}")).session);
     }
-    let b = start_task(&f.core, 3).await.coordinator;
+    let b = start_task(&f.core, 3)
+        .await
+        .coordinator
+        .expect("a coordinator");
     let b = caller(&b.0, ToolRole::Coordinator);
     let waits = f.core.spawn_agent(&b, "four", "do four", false).await;
     let waits = waits.unwrap_or_else(|e| panic!("{e}")).session;
