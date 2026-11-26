@@ -39,6 +39,23 @@ describe("ReviewInbox", () => {
     expect(inbox.changes).toBe(1);
   });
 
+  it("follows pr.changed, and a created pull request shows at once with its checks asked for", async () => {
+    const { core, inbox } = await setup();
+    core.items[0] = review("r1", { mode: "isolated", fingerprint: "f1" });
+    core.emit({ type: "pr.changed", data: { project: "p1", id: "r1" } });
+    await vi.waitFor(() => expect(inbox.items[0]?.mode).toBe("isolated"));
+    const draft = { remote: "origin", base: "main", branch: "b", title: "t", body: "", draft: true };
+    const pr = await inbox.createPr("r1", draft, "f1");
+    expect(pr?.number).toBe(7);
+    expect(inbox.items[0]?.state).toBe("published");
+    expect(core.sent("pr.refresh")).toEqual([{ method: "pr.refresh", params: { id: "r1" } }]);
+    await vi.waitFor(() => expect(inbox.busy).toEqual([]));
+    // A refusal says why.
+    core.failNext.set("pr.create", new CoreError({ code: "conflict", message: "review them again" }));
+    expect(await inbox.createPr("r1", draft, "f1")).toBeNull();
+    expect(inbox.error).toBe("review them again");
+  });
+
   it("keeps the item the core answers and what it left for the person", async () => {
     const { core, inbox } = await setup();
     core.conflicts = ["notes.md"];

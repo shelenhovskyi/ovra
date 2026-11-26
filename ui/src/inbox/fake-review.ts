@@ -1,7 +1,7 @@
 // Test-only fake of the core's review requests: records calls, answers them
 // like the core (task 3.B) and lets a test push events.
 
-import type { CoreEvent, FileChange, Request, ResponseFor, ReviewItem } from "../lib/protocol";
+import type { CoreEvent, FileChange, GhStatus, PrStatus, Request, ResponseFor, ReviewItem } from "../lib/protocol";
 import { CoreError, type Transport } from "../lib/transport";
 
 export const change = (path: string, extra: Partial<FileChange> = {}): FileChange => ({
@@ -50,6 +50,12 @@ export class FakeReviewCore implements Transport {
   diffFingerprint: string | null = null;
   /** What `review.check_log` answers, by item. */
   checkLogs = new Map<string, string[]>();
+  /** What `pr.prepare` says of the person's `gh`. */
+  gh: GhStatus = { installed: true, version: "2.60.0", host: "github.com", login: "octo", signed_in: true };
+  /** Files `pr.prepare` says conflict with the base. */
+  prConflicts: string[] = [];
+  /** What `pr.refresh` finds. */
+  prStatus: PrStatus | null = null;
   private listeners = new Set<(event: CoreEvent) => void>();
 
   async call<R extends Request>(request: R): Promise<ResponseFor<R>> {
@@ -164,6 +170,47 @@ export class FakeReviewCore implements Transport {
         if (!lines) throw new CoreError({ code: "not_found", message: "a check of this review not found" });
         return { type: "review.check_log", data: { lines } };
       }
+      case "pr.prepare": {
+        const item = this.find(request.params.id);
+        const data = {
+          remote: "origin",
+          host: this.gh.host,
+          base: request.params.base ?? "main",
+          branch: "ovra/t1/docs",
+          title: "Write the notes",
+          body: item.summary ?? "",
+          files: structuredClone(item.files),
+          conflicts: [...this.prConflicts],
+          fingerprint: item.fingerprint,
+          gh: { ...this.gh },
+        };
+        return { type: "pr.prepared", data };
+      }
+      case "pr.create": {
+        const item = this.find(request.params.id);
+        const { remote, base, branch } = request.params.draft;
+        const url = "https://github.com/o/r/pull/7";
+        item.state = "published";
+        item.pull_request = { number: 7, url, remote, base, branch, pushed: "c1", status: null };
+        return { type: "pr.pull_request", data: structuredClone(item.pull_request) };
+      }
+      case "pr.update":
+      case "pr.refresh": {
+        const item = this.find(request.params.id);
+        const pr = item.pull_request;
+        if (!pr) throw new CoreError({ code: "conflict", message: "this item has no pull request" });
+        if (request.method === "pr.update") {
+          pr.pushed = "c2";
+          item.state = "published";
+        } else pr.status = structuredClone(this.prStatus);
+        return { type: "pr.pull_request", data: structuredClone(pr) };
+      }
+      case "pr.send_log":
+      case "pr.ask_update":
+        this.find(request.params.id);
+        return { type: "ok" };
+      case "open.url":
+        return { type: "ok" };
       case "agents.list":
         return { type: "agents.list", data: [] };
       default:

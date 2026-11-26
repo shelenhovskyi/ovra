@@ -2,7 +2,7 @@
 // events. The core is the source of truth: nothing here approves, rejects or
 // merges on its own; every action is one call made for a person's press.
 
-import type { CoreEvent, ProjectId, ReviewId, ReviewItem } from "../lib/protocol";
+import type { CoreEvent, PrDraft, ProjectId, PrPrepared, PullRequest, ReviewId, ReviewItem } from "../lib/protocol";
 import { CoreError, type Transport } from "../lib/transport";
 
 /** What the last approve, reject or undo did, and what it left for the person. */
@@ -15,6 +15,8 @@ export type Outcome = {
   /** The commit message an approve committed with. */
   commit?: string | null;
 };
+
+const LIST_FAILED = "Could not list reviews: ";
 
 export class ReviewInbox {
   /** Items of `project`, newest first, as the core lists them. */
@@ -90,10 +92,11 @@ export class ReviewInbox {
       const { data } = await this.transport.call({ method: "review.list", params: { project } });
       if (mine !== this.latest) return;
       this.items = data;
-      this.error = null;
+      // A refused action's reason stays: the reload only shows the item as it is now.
+      if (this.error?.startsWith(LIST_FAILED)) this.error = null;
     } catch (err) {
       if (mine !== this.latest) return;
-      this.error = `Could not list reviews: ${message(err)}`;
+      this.error = `${LIST_FAILED}${message(err)}`;
     } finally {
       if (mine === this.latest) this.loading = false;
     }
@@ -188,6 +191,60 @@ export class ReviewInbox {
     });
   }
 
+  /** What a pull request of the item would send; the dialog shows it. Throws what the core refused. */
+  async preparePr(id: ReviewId, base: string | null = null): Promise<PrPrepared> {
+    const { data } = await this.transport.call({ method: "pr.prepare", params: { id, base } });
+    return data;
+  }
+
+  /**
+   * Pushes what the person reviewed (`fingerprint`) and opens the pull
+   * request, then asks for its checks once. Null when refused; the
+   * error is in `error`.
+   */
+  async createPr(id: ReviewId, draft: PrDraft, fingerprint: string | null): Promise<PullRequest | null> {
+    let pr: PullRequest | null = null;
+    const done = await this.act(id, async () => {
+      ({ data: pr } = await this.transport.call({ method: "pr.create", params: { id, draft, fingerprint } }));
+    });
+    if (!done) return null;
+    // The item is published now: show it so, chip and all, before the dialog goes.
+    await this.reload();
+    void this.refreshPr(id);
+    return pr;
+  }
+
+  /** Pushes the worker's new reviewed work to its pull request. */
+  async updatePr(id: ReviewId): Promise<boolean> {
+    const fingerprint = this.items.find((i) => i.id === id)?.fingerprint ?? null;
+    const done = await this.act(id, async () => {
+      await this.transport.call({ method: "pr.update", params: { id, fingerprint } });
+    });
+    if (done) void this.refreshPr(id);
+    return done;
+  }
+
+  /** Asks `gh` about the pull request and its checks now. */
+  refreshPr(id: ReviewId): Promise<boolean> {
+    return this.act(id, async () => {
+      await this.transport.call({ method: "pr.refresh", params: { id } });
+    });
+  }
+
+  /** Sends a failed check's log to the worker as a comment. */
+  sendLog(id: ReviewId, run: number): Promise<boolean> {
+    return this.act(id, async () => {
+      await this.transport.call({ method: "pr.send_log", params: { id, run } });
+    });
+  }
+
+  /** Asks the worker to merge `base`, which its changes conflict with. */
+  askUpdate(id: ReviewId, remote: string, base: string): Promise<boolean> {
+    return this.act(id, async () => {
+      await this.transport.call({ method: "pr.ask_update", params: { id, remote, base } });
+    });
+  }
+
   private async act(id: ReviewId, run: () => Promise<void>): Promise<boolean> {
     if (this.busy.includes(id)) return false;
     this.busy = [...this.busy, id];
@@ -242,6 +299,7 @@ export class ReviewInbox {
       // A file changed (the person's editor, a formatter, git): an open
       // review's files and markers may have changed with it.
       case "review.changed":
+      case "pr.changed":
       case "fs.changed":
       case "fs.files_changed":
         if (event.data.project === this.project) void this.refresh();
