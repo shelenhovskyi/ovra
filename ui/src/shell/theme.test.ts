@@ -87,6 +87,11 @@ describe.each([
     expect(low).toEqual([]);
   });
 
+  it("draws hairlines at 3:1 in increased contrast, where they are the panels' only edge", () => {
+    for (const s of ["s0", "s1", "s2"]) check(`separator on ${s}`, ratio(over(parse(more.separator), c(s)), c(s)), 3);
+    expect(low).toEqual([]);
+  });
+
   it("tells the rail, panels and editor apart by tone", () => {
     check("s0 to s1", ratio(c("s0"), c("s1")), step);
     check("s1 to s2", ratio(c("s1"), c("s2")), step);

@@ -671,6 +671,9 @@ it("lets an agent suggest commits that the person edits and makes, and draft a m
   await settle();
   const items = [...target.querySelectorAll("[role=menuitem]")].map((i) => i.textContent);
   expect(items).toEqual(["Suggest commits", "Write commit message", "Summarize what's new"]);
+  // The button says what it is in words, and the menu that each item starts an agent.
+  expect(target.querySelector("[data-testid=git-assist]")?.textContent?.trim()).toBe("Ask agent");
+  expect(target.querySelector("[role=menu] .note")?.textContent).toBe("Each starts an agent on your plan.");
   // A letter jumps to the next item it starts; Up on the button opens on the last one.
   const focused = () => document.activeElement?.textContent;
   press("KeyW");

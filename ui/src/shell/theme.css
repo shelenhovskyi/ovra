@@ -172,19 +172,20 @@
   }
 }
 /* Increased contrast: secondary text moves toward --text, --text-3 takes
-   the old --text-2, and control edges get stronger. */
+   the old --text-2, and control edges get stronger. The hairlines are the
+   only edge of the panels and their splitters, so they reach 3:1. */
 @media (prefers-contrast: more) {
   :root {
     --text-2: #c3c9d1;
     --text-3: #9ba3ae;
-    --separator: rgba(255, 255, 255, 0.24);
+    --separator: rgba(255, 255, 255, 0.4);
   }
 }
 @media (prefers-contrast: more) and (prefers-color-scheme: light) {
   :root {
     --text-2: #3a424d;
     --text-3: #535d6b;
-    --separator: rgba(0, 0, 0, 0.32);
+    --separator: rgba(0, 0, 0, 0.45);
   }
 }
 /* Menus are opaque without blur when transparency is reduced or colours forced. */

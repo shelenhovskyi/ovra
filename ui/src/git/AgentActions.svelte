@@ -105,18 +105,17 @@ function onfocusout(event: FocusEvent): void {
       type="button"
       class="toggle"
       data-testid="git-assist"
-      aria-label="Agent actions"
-      title={assist.busy ? "An agent is working on it" : "Agent actions"}
+      title={assist.busy ? "An agent is working on it" : "Ask an agent about these changes"}
       aria-haspopup="menu"
       aria-expanded={open}
       aria-disabled={assist.busy}
       bind:this={toggle}
       onkeydown={ontogglekey}
-      onclick={() => void show()}><Icon name="sparkles" small /></button
+      onclick={() => void show()}><Icon name="sparkles" small />Ask agent</button
     >
     {#if open}
       <!-- svelte-ignore a11y_interactive_supports_focus -->
-      <div class="menu" role="menu" aria-label="Agent actions" tabindex="-1" bind:this={menu} {onkeydown}>
+      <div class="menu" role="menu" aria-label="Ask agent" tabindex="-1" bind:this={menu} {onkeydown}>
         {#each actions as action (action)}
           <button
             type="button"
@@ -127,6 +126,8 @@ function onfocusout(event: FocusEvent): void {
             onclick={() => choose(action)}>{ACTION_LABEL[action]}</button
           >
         {/each}
+        <!-- Not an item: says what every item does before the press. -->
+        <p class="note" role="none">Each starts an agent on your plan.</p>
       </div>
     {/if}
   </div>
@@ -154,10 +155,18 @@ function onfocusout(event: FocusEvent): void {
     outline-offset: -2px;
   }
   .toggle {
-    display: grid;
-    place-items: center;
-    width: 28px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
     height: 28px;
+    padding: 0 6px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .note {
+    margin: 4px 8px 2px;
+    font-size: 12px;
+    color: var(--text-2);
   }
   .toggle[aria-disabled="true"] {
     opacity: 0.6;

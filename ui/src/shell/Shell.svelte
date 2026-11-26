@@ -582,11 +582,13 @@ async function showApprovals(): Promise<void> {
     --title-h: 40px;
   }
   /* A hairline under the title bar and above the status bar, like the ones
-     the splitters draw between the panels. */
+     the splitters draw between the panels: a border, which forced colours
+     keep, unlike a shadow. */
   .title-area {
     grid-area: title;
     z-index: 2;
-    box-shadow: 0 1px 0 var(--separator);
+    box-sizing: border-box;
+    border-bottom: 1px solid var(--separator);
     min-width: 0;
     /* Sideways only: the title bar's tooltips hang below it. */
     overflow-x: clip;

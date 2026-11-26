@@ -171,8 +171,8 @@ test("an agent suggests commits that the person makes, and sums up a pull", asyn
   const panel = page.getByTestId("git");
 
   // One quiet button; its menu has only what applies (no conflicts here).
-  await panel.getByRole("button", { name: "Agent actions" }).click();
-  const menu = panel.getByRole("menu", { name: "Agent actions" });
+  await panel.getByRole("button", { name: "Ask agent" }).click();
+  const menu = panel.getByRole("menu", { name: "Ask agent" });
   await expect(menu.getByRole("menuitem")).toHaveText(["Suggest commits", "Summarize what's new"]);
   await expect(menu.getByRole("menuitem").first()).toBeFocused();
   await page.keyboard.press("Enter");
@@ -194,7 +194,7 @@ test("an agent suggests commits that the person makes, and sums up a pull", asyn
   git(dir, "commit", "-q", "-m", "Add other.txt");
   git(dir, "switch", "-q", "main");
   git(dir, "merge", "-q", "--no-edit", "other");
-  await panel.getByRole("button", { name: "Agent actions" }).click();
+  await panel.getByRole("button", { name: "Ask agent" }).click();
   await menu.getByRole("menuitem", { name: "Summarize what's new" }).click();
   const news = panel.getByRole("region", { name: "What's new" });
   await expect(news.getByRole("listitem").first()).toHaveText("A new file, other.txt, came in.");

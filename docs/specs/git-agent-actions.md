@@ -14,7 +14,8 @@ answer back into the git panel.
 
 ## Goals
 
-- One quiet ✨ button in the git panel opens a short menu of agent actions.
+- One quiet "✨ Ask agent" button in the git panel opens a short menu of
+  agent actions; its last line says each one starts an agent on the plan.
   No new panel, no new view, no settings.
 - The agent only proposes. The person sees the proposal in the git panel and
   presses the button that acts on it. The agent never commits, stages,
@@ -29,7 +30,7 @@ starts only from a press, ADR 0006).
 
 ## The actions
 
-The ✨ button sits at the end of the branch row, the panel's first row. Its
+The "✨ Ask agent" button sits at the end of the branch row, the panel's first row. Its
 menu shows only the items that apply right now:
 
 | Item                 | Shown when                                          | Result in the panel                             |
