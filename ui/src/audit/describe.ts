@@ -65,6 +65,8 @@ function decidedBy(by: DecidedBy): string {
   switch (by.kind) {
     case "person":
       return "by a person";
+    case "phone":
+      return `by a person on the phone "${by.device}"`;
     case "policy":
       return `by the project's policy (${by.rule})`;
     case "role":

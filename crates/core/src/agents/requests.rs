@@ -993,7 +993,12 @@ fn conflict(message: &str) -> ProtocolError {
     ProtocolError::new(ErrorCode::Conflict, message)
 }
 
-pub(crate) fn permissions(ctx: &Ctx<'_>, request: PermissionsRequest) -> Result<Response> {
+/// `by`: who answers, for the audit log.
+pub(crate) fn permissions(
+    ctx: &Ctx<'_>,
+    request: PermissionsRequest,
+    by: DecidedBy,
+) -> Result<Response> {
     let permissions = &ctx.sessions.permissions;
     match request {
         PermissionsRequest::Pending => Ok(Response::Permissions(PermissionsResponse::Pending(
@@ -1001,7 +1006,7 @@ pub(crate) fn permissions(ctx: &Ctx<'_>, request: PermissionsRequest) -> Result<
         ))),
         PermissionsRequest::Answer { id, answer, .. } => {
             let decision = answer.decision;
-            if !permissions.answer(&id, answer) {
+            if !permissions.answer(&id, answer, by) {
                 return Err(ProtocolError::new(
                     ErrorCode::NotFound,
                     format!("permission request {} is not pending", id.0),

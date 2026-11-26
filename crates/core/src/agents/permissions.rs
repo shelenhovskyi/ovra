@@ -60,7 +60,12 @@ impl Permissions {
 
     /// Passes the person's answer to the waiting agent. `false` if nothing
     /// waits for `id`.
-    pub(crate) fn answer(&self, id: &PermissionId, answer: PermissionAnswer) -> bool {
+    pub(crate) fn answer(
+        &self,
+        id: &PermissionId,
+        answer: PermissionAnswer,
+        by: DecidedBy,
+    ) -> bool {
         let mut state = lock(&self.state);
         let Some(index) = state.pending.iter().position(|(r, _)| &r.id == id) else {
             return false;
@@ -68,7 +73,7 @@ impl Permissions {
         let (_, tx) = state.pending.remove(index);
         drop(state);
         // The agent may have stopped waiting; then the answer has no effect.
-        let _ = tx.send((answer, DecidedBy::Person));
+        let _ = tx.send((answer, by));
         true
     }
 

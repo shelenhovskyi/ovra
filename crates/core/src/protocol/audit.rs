@@ -156,6 +156,10 @@ pub enum AuditInput {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum DecidedBy {
     Person,
+    /// A person on a paired phone (ADR 0014), by the phone's name.
+    Phone {
+        device: String,
+    },
     /// A project policy rule, as text.
     Policy {
         rule: String,

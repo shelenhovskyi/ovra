@@ -10,6 +10,7 @@ mod agents;
 mod audit;
 mod browser;
 pub mod child_path;
+mod companion;
 mod context;
 mod core;
 #[cfg(any(test, feature = "fakes"))]

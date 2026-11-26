@@ -7,7 +7,7 @@ use tokio::sync::broadcast;
 use crate::agents::{self, Sessions};
 use crate::orchestration::{self, Orchestration};
 use crate::path::RelPath;
-use crate::protocol::audit::AuditEvent;
+use crate::protocol::audit::{AuditEvent, DecidedBy};
 use crate::protocol::fs::{EntryKind, FsRequest, FsResponse, MAX_FILES_PAGE};
 use crate::protocol::info::{CoreInfo, InfoEvent, InfoRequest, InfoResponse};
 use crate::protocol::open::OpenRequest;
@@ -281,12 +281,35 @@ impl WeakCore {
 pub struct Client {
     core: Core,
     held: Mutex<Option<ProjectId>>,
+    /// The paired phone's name, for a companion client (ADR 0014).
+    phone: Option<String>,
 }
 
 impl Client {
-    /// Handles one request on behalf of this client.
+    /// Handles one request on behalf of this client. A phone gets
+    /// `forbidden` for anything outside `companion::allows`.
     pub async fn handle(&self, request: Request) -> Result<Response, ProtocolError> {
-        self.core.handle_for(request, &self.held).await
+        let by = match &self.phone {
+            None => DecidedBy::Person,
+            Some(device) => {
+                if !crate::companion::allows(&request) {
+                    return Err(ProtocolError::new(
+                        ErrorCode::Forbidden,
+                        "this is not available from a phone",
+                    ));
+                }
+                DecidedBy::Phone {
+                    device: device.clone(),
+                }
+            }
+        };
+        self.core.handle_for(request, &self.held, by).await
+    }
+
+    /// Whether this client gets `event`: a phone only gets
+    /// `companion::shows`.
+    pub fn shows(&self, event: &Event) -> bool {
+        self.phone.is_none() || crate::companion::shows(event)
     }
 }
 
@@ -376,19 +399,32 @@ impl Core {
         Client {
             core: self.clone(),
             held: Mutex::new(None),
+            phone: None,
+        }
+    }
+
+    /// A client for a paired phone named `device`: it may only use what
+    /// `companion::allows`, and its answers are recorded as the phone's.
+    pub fn connect_phone(&self, device: impl Into<String>) -> Client {
+        Client {
+            core: self.clone(),
+            held: Mutex::new(None),
+            phone: Some(device.into()),
         }
     }
 
     /// Handles one request as a single implicit client (tests, one-window
     /// front ends).
     pub async fn handle(&self, request: Request) -> Result<Response, ProtocolError> {
-        self.handle_for(request, &self.inner.held).await
+        self.handle_for(request, &self.inner.held, DecidedBy::Person)
+            .await
     }
 
     async fn handle_for(
         &self,
         request: Request,
         held: &Mutex<Option<ProjectId>>,
+        by: DecidedBy,
     ) -> Result<Response, ProtocolError> {
         match request {
             Request::Info(InfoRequest::Get) => Ok(Response::Info(InfoResponse::Info(CoreInfo {
@@ -407,7 +443,7 @@ impl Core {
                 always: true,
             }) => crate::policy::answer_always(self, &id, answer)
                 .map(|()| Response::Ok(OkResponse::Ok)),
-            Request::Permissions(r) => agents::handle_permissions(&self.agents_ctx(), r),
+            Request::Permissions(r) => agents::handle_permissions(&self.agents_ctx(), r, by),
             Request::Review(r) => orchestration::review(self, r).await,
             Request::Orchestration(r) => orchestration::orchestration(self, r).await,
             Request::Board(r) => orchestration::board(self, r),

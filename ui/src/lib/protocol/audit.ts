@@ -47,6 +47,8 @@ export type AuditInput = { kind: "file"; path: string; sha256: string | null } |
 
 export type DecidedBy =
   | { kind: "person" }
+  /** A person on a paired phone (ADR 0014), by the phone's name. */
+  | { kind: "phone"; device: string }
   | { kind: "policy"; rule: string }
   | { kind: "role" }
   | { kind: "session_ended" };
