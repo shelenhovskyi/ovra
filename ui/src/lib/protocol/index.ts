@@ -259,20 +259,23 @@ type PhaseThreeResponseFor<R extends Request> = R extends { method: "review.list
                                 ? Extract<Response, { type: "lsp.server" }>
                                 : R extends { method: "lsp.send" | "lsp.stop" }
                                   ? { type: "ok" }
-                                  : R extends ServersRequest
-                                    ? ServersResponseFor<R["method"]>
-                                    : R extends BrowserRequest
-                                      ? BrowserResponseFor<R["method"]>
-                                      : R extends { method: CheckpointMethod }
-                                        ? CheckpointResponseFor<R["method"]>
-                                        : R extends PrRequest
-                                          ? PrResponseFor<R["method"]>
-                                          : R extends PowerRequest
-                                            ? PowerResponse
-                                            : R extends ContextRequest
-                                              ? ContextResponse
-                                              : R extends BoardRequest
-                                                ? BoardResponseFor<R["method"]>
-                                                : R extends RemoteRequest
-                                                  ? RemoteResponseFor<R["method"]>
-                                                  : never;
+                                  : LaterResponseFor<R>;
+
+/** The rest of `ResponseFor`, split off so TypeScript keeps up. */
+type LaterResponseFor<R extends Request> = R extends ServersRequest
+  ? ServersResponseFor<R["method"]>
+  : R extends BrowserRequest
+    ? BrowserResponseFor<R["method"]>
+    : R extends { method: CheckpointMethod }
+      ? CheckpointResponseFor<R["method"]>
+      : R extends PrRequest
+        ? PrResponseFor<R["method"]>
+        : R extends PowerRequest
+          ? PowerResponse
+          : R extends ContextRequest
+            ? ContextResponse
+            : R extends BoardRequest
+              ? BoardResponseFor<R["method"]>
+              : R extends RemoteRequest
+                ? RemoteResponseFor<R["method"]>
+                : never;

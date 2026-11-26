@@ -24,7 +24,6 @@ time = "0.3"
 tokio = { workspace = true, features = ["io-util", "net", "rt", "sync", "time"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 tokio-util = "0.7"
-tower-http = { workspace = true }
 tracing.workspace = true
 
 [dev-dependencies]

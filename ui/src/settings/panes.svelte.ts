@@ -11,6 +11,7 @@ export type PaneId =
   | "claude"
   | "keyboard"
   | "notifications"
+  | "phone"
   | "accessibility"
   | "about";
 
@@ -74,6 +75,13 @@ export const PANES: Pane[] = [
     line: "How Ovra tells you that an agent needs you.",
     group: "ovra",
     keywords: ["alerts", "toasts"],
+  },
+  {
+    id: "phone",
+    title: "Phone",
+    line: "See and answer your agents from your phone, on the same Wi-Fi.",
+    group: "ovra",
+    keywords: ["mobile", "remote", "pair", "qr", "companion"],
   },
   {
     id: "keyboard",

@@ -59,7 +59,8 @@ describe("project files", () => {
     let fail = true;
     const core = new FilesCore(["a"]);
     const call = core.call;
-    core.call = ((request: Request) => (fail ? Promise.reject(new Error("down")) : call(request))) as Transport["call"];
+    core.call = ((request: Request) =>
+      fail ? Promise.reject(new Error("down")) : call(request)) as unknown as Transport["call"];
     await expect(projectFiles(core, "p3")).rejects.toThrow("down");
     fail = false;
     expect(await projectFiles(core, "p3")).toEqual(["a"]);

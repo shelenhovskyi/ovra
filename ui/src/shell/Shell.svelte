@@ -32,6 +32,7 @@ import LanguageServers from "../lsp/LanguageServers.svelte";
 import ContextMenu from "../menu/ContextMenu.svelte";
 import Notifications from "../notify/Notifications.svelte";
 import Palette from "../palette/Palette.svelte";
+import PairingPrompt from "../remote/PairingPrompt.svelte";
 import Search from "../search/Search.svelte";
 import { serversDock } from "../servers/dock.svelte";
 import ServersDock from "../servers/ServersDock.svelte";
@@ -506,6 +507,7 @@ async function showApprovals(): Promise<void> {
         >
       {/if}
       <LanguageServers />
+      <PairingPrompt />
     </span>
   </footer>
   <Notifications />

@@ -11,6 +11,7 @@ import type { CoreInfo } from "../lib/protocol";
 import NetworkPanel from "../network/NetworkPanel.svelte";
 import PolicyPanel from "../policy/PolicyPanel.svelte";
 import KeepAwakeField from "../power/KeepAwakeField.svelte";
+import PhonePane from "../remote/PhonePane.svelte";
 import ServersPanel from "../servers/ServersPanel.svelte";
 import { useOvra } from "../shell/context";
 import ViewFrame from "../shell/ViewFrame.svelte";
@@ -189,6 +190,8 @@ function onListKeydown(event: KeyboardEvent): void {
             <p class="note">Allow them for Ovra in your system's settings.</p>
           {/if}
           <p class="note">Shown only while Ovra is in the background. Inside the window, toasts say the same.</p>
+        {:else if pane.id === "phone"}
+          <PhonePane />
         {:else if pane.id === "keyboard"}
           <input
             type="search"
