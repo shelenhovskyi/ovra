@@ -56,7 +56,8 @@ pub(super) async fn pod(core: &Core, place: &Place, defs: &[ServerDef]) -> Resul
 }
 
 /// Starts a pod's netproxy as `pod-<n>` with the project's allowlist and
-/// no secrets; refusals are reported for that id.
+/// no secrets; refusals are reported for that id. It belongs to no agent:
+/// every provider's base list, as before providers (ADR 0011).
 async fn start_proxy(core: &Core, project: &ProjectId) -> Result<(SessionId, ProfileNetwork)> {
     let servers = core.dev_servers();
     let session = {
@@ -72,7 +73,7 @@ async fn start_proxy(core: &Core, project: &ProjectId) -> Result<(SessionId, Pro
     let reporter = NetReporter::new(project.clone(), session.clone(), core.sink())
         .with_core(Some(core.downgrade()));
     let started = net
-        .start(session.clone(), allow.clone(), reporter, Vec::new())
+        .start(session.clone(), None, allow.clone(), reporter, Vec::new())
         .await?;
     // The allowlist may have changed while it started.
     if let Ok(now) = store.allowlist(project)

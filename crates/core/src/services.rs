@@ -514,16 +514,19 @@ pub trait RunningServer: Send + Sync + Debug {
 /// [`NetProxy::base`] plus the project's allowlist and refuses everything
 /// else, loopback and private addresses whatever the name.
 pub trait NetProxy: Send + Sync + Debug {
-    /// What every session may reach: the hosts `claude` itself needs.
+    /// What sessions may reach whatever their project: the hosts each
+    /// provider's agent itself needs, every provider's together.
     fn base(&self) -> Allowlist;
-    /// Starts the proxy of `session`, which allows `base()` and `allow`,
-    /// until [`NetProxy::stop`]. It adds each of `secrets` (the project's,
-    /// fixed for this run) to requests for its host
-    /// (`docs/specs/secrets.md`). Returns what [`ProfileNetwork::Proxy`]
-    /// needs.
+    /// Starts the proxy of `session`, which allows `allow` and the hosts
+    /// `agent`'s provider itself needs (ADR 0011) until
+    /// [`NetProxy::stop`]; a server pod's (`agent` is `None`) allows
+    /// `base()`. It adds each of `secrets` (the project's, fixed for this
+    /// run) to requests for its host (`docs/specs/secrets.md`). Returns
+    /// what [`ProfileNetwork::Proxy`] needs.
     fn start(
         &self,
         session: SessionId,
+        agent: Option<AgentKind>,
         allow: Allowlist,
         refusals: NetReporter,
         secrets: Vec<SecretInfo>,

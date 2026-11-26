@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use ovra_core::Core;
 use ovra_core::protocol::Event;
-use ovra_core::protocol::agents::SessionId;
+use ovra_core::protocol::agents::{AgentKind, SessionId};
 use ovra_core::protocol::netproxy::{AllowedHost, Allowlist, NetproxyEvent};
 use ovra_core::protocol::projects::ProjectId;
 use ovra_core::services::{BoxFuture, NetProxy, NetReporter};
@@ -368,7 +368,7 @@ async fn a_gateway_on_localhost_is_reached_here_not_through_the_users_proxy() {
     let p = proxy(
         fake,
         Rules {
-            base: crate::base::rules(&var).into(),
+            base: crate::base::claude(&var).into(),
             project: Vec::new(),
         },
         Upstream::from_env(&var),
@@ -390,7 +390,7 @@ async fn an_endpoint_the_user_configured_may_be_local() {
     let var = |name: &str| {
         (name == "ANTHROPIC_BASE_URL").then(|| "http://Gateway.lan:4000/v1".to_owned())
     };
-    let base = crate::base::rules(&var);
+    let base = crate::base::claude(&var);
     let p = proxy(
         fake,
         Rules {
@@ -499,6 +499,22 @@ async fn the_users_own_proxy_carries_tunnels_unless_no_proxy_says_otherwise() {
 }
 
 #[test]
+fn a_session_gets_its_own_providers_base_list() {
+    let vars = |name: &str| (name == "CLAUDE_CODE_USE_BEDROCK").then(|| "1".to_owned());
+    let proxies = NetProxies::new(
+        &vars,
+        Arc::new(web()),
+        Arc::new(ovra_core::fakes::MemorySecrets::default()),
+    )
+    .unwrap_or_else(|e| panic!("{e}"));
+    let claude: Arc<[crate::rules::Rule]> = crate::base::claude(&vars).into();
+    assert_eq!(proxies.base_of(Some(AgentKind::Claude)), claude);
+    // Claude is the only provider: every provider's list is its list.
+    assert_eq!(proxies.base_of(None), claude);
+    assert_eq!(proxies.base(), crate::rules::as_allowlist(&claude));
+}
+
+#[test]
 fn the_base_list_follows_the_users_provider() {
     let hosts = |vars: &[(&str, &str)]| {
         let vars: BTreeMap<String, String> = vars
@@ -506,7 +522,7 @@ fn the_base_list_follows_the_users_provider() {
             .map(|(k, v)| ((*k).into(), (*v).into()))
             .collect();
         let var = move |name: &str| vars.get(name).cloned();
-        crate::base::rules(&var)
+        crate::base::claude(&var)
             .into_iter()
             .map(|r| match r.port {
                 Some(port) => format!("{}:{port}", r.host),
@@ -579,7 +595,13 @@ async fn each_session_gets_a_socket_that_follows_updates_and_closes_on_stop() {
             .collect(),
     };
     let address = proxies
-        .start(session.clone(), allow(&["crates.io"]), reporter, Vec::new())
+        .start(
+            session.clone(),
+            Some(AgentKind::Claude),
+            allow(&["crates.io"]),
+            reporter,
+            Vec::new(),
+        )
         .await
         .unwrap_or_else(|e| panic!("{e}"))
         .address;
@@ -717,7 +739,7 @@ async fn a_configured_gateway_lends_its_private_pass_to_no_other_entry() {
     let p = proxy(
         fake,
         Rules {
-            base: crate::base::rules(&var).into(),
+            base: crate::base::claude(&var).into(),
             project: vec![AllowedHost {
                 host: "gateway.lan".into(),
                 port: None,
@@ -800,6 +822,7 @@ async fn a_session_with_secrets_gets_a_private_bundle_and_never_binds_claudes_ho
     let none = proxies
         .start(
             SessionId("s0".into()),
+            Some(AgentKind::Claude),
             Allowlist::default(),
             reporter("s0"),
             Vec::new(),
@@ -810,6 +833,7 @@ async fn a_session_with_secrets_gets_a_private_bundle_and_never_binds_claudes_ho
     let only_claude = proxies
         .start(
             SessionId("s1".into()),
+            Some(AgentKind::Claude),
             Allowlist::default(),
             reporter("s1"),
             vec![secret("gw", "gateway.corp.example")],
@@ -824,6 +848,7 @@ async fn a_session_with_secrets_gets_a_private_bundle_and_never_binds_claudes_ho
     let started = proxies
         .start(
             SessionId("s2".into()),
+            Some(AgentKind::Claude),
             Allowlist::default(),
             reporter("s2"),
             vec![
@@ -863,4 +888,19 @@ fn a_deep_temporary_folder_still_gets_sockets_that_bind() {
     assert_eq!(crate::socket_base(longest.clone()), longest);
     let deeper = PathBuf::from(format!("/{}", "a".repeat(53)));
     assert_eq!(crate::socket_base(deeper), Path::new("/tmp"));
+}
+
+#[test]
+fn every_provider_has_a_base_list() {
+    // Every variant in turn: the match is exhaustive, so a new provider
+    // does not compile here until it is chained in, and then fails below
+    // until it is in `PROVIDERS` (its sessions get their own base list).
+    let next = |agent: AgentKind| match agent {
+        AgentKind::Claude => None,
+    };
+    let mut agent = Some(AgentKind::default());
+    while let Some(this) = agent {
+        assert!(crate::base::PROVIDERS.contains(&this), "{this:?}");
+        agent = next(this);
+    }
 }

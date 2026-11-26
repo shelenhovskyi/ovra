@@ -630,6 +630,7 @@ impl NetProxy for FakeNetProxy {
     fn start(
         &self,
         session: SessionId,
+        _agent: Option<crate::protocol::agents::AgentKind>,
         allow: Allowlist,
         refusals: NetReporter,
         secrets: Vec<SecretInfo>,

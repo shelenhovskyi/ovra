@@ -1,16 +1,31 @@
-//! The base allowlist: what `claude` itself needs, from where Ovra runs.
+//! The base allowlists: what each provider's agent itself needs, from where
+//! Ovra runs (ADR 0011). A session gets its own provider's.
+
+use ovra_core::protocol::agents::AgentKind;
 
 use crate::rules::Rule;
+
+/// Every provider with a base list. A new provider goes here and in
+/// [`rules`].
+pub(crate) const PROVIDERS: [AgentKind; 1] = [AgentKind::Claude];
+
+/// The base rules of `agent` for the environment `var` reads.
+pub(crate) fn rules(agent: AgentKind, var: &dyn Fn(&str) -> Option<String>) -> Vec<Rule> {
+    match agent {
+        AgentKind::Claude => claude(var),
+    }
+}
 
 /// Hosts a claude.ai or Anthropic API login needs: the API, sign-in and
 /// token refresh (`code.claude.com/docs/en/network-config`). Telemetry
 /// intake hosts are left out: anyone with an account there receives data.
 const ANTHROPIC: [&str; 3] = ["api.anthropic.com", "claude.ai", "platform.claude.com"];
 
-/// The base rules for the environment `var` reads. Endpoints the user set
-/// in a `*_BASE_URL` variable may be on this machine or the local network
-/// (a gateway); only that exact host and port is let through there.
-pub(crate) fn rules(var: &dyn Fn(&str) -> Option<String>) -> Vec<Rule> {
+/// What `claude` needs: Anthropic's hosts, and the gateway and cloud
+/// provider its variables name. Endpoints the user set in a `*_BASE_URL`
+/// variable may be on this machine or the local network (a gateway); only
+/// that exact host and port is let through there.
+pub(crate) fn claude(var: &dyn Fn(&str) -> Option<String>) -> Vec<Rule> {
     let mut rules: Vec<Rule> = ANTHROPIC.iter().map(|h| Rule::named(h)).collect();
     let on = |name: &str| {
         var(name).is_some_and(|v| {

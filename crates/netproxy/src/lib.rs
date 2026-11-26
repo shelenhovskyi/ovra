@@ -27,7 +27,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError, RwLock};
 
-use ovra_core::protocol::agents::SessionId;
+use ovra_core::protocol::agents::{AgentKind, SessionId};
 use ovra_core::protocol::netproxy::Allowlist;
 use ovra_core::protocol::projects::ProjectId;
 use ovra_core::protocol::secrets::SecretInfo;
@@ -54,6 +54,11 @@ const MAX_SESSION_CONNECTIONS: usize = 64;
 /// The netproxies of every session.
 #[derive(Debug)]
 pub struct NetProxies {
+    /// Each provider's base rules: what its sessions reach besides the
+    /// project's list.
+    bases: BTreeMap<AgentKind, Arc<[Rule]>>,
+    /// Every provider's base rules together: what a server pod reaches,
+    /// and the hosts no secret is ever added for.
     base: Arc<[Rule]>,
     shared: Arc<Shared>,
     /// A private folder for the sockets (Unix).
@@ -110,8 +115,19 @@ impl NetProxies {
         dial: Arc<dyn Dial>,
         secrets: Arc<dyn Secrets>,
     ) -> Result<Self> {
+        let bases: BTreeMap<AgentKind, Arc<[Rule]>> = base::PROVIDERS
+            .into_iter()
+            .map(|agent| (agent, base::rules(agent, var).into()))
+            .collect();
+        let mut every: Vec<Rule> = Vec::new();
+        for rule in bases.values().flat_map(|rules| rules.iter()) {
+            if !every.contains(rule) {
+                every.push(rule.clone());
+            }
+        }
         Ok(Self {
-            base: base::rules(var).into(),
+            bases,
+            base: every.into(),
             shared: Arc::new(Shared {
                 dial,
                 upstream: Upstream::from_env(var),
@@ -124,9 +140,19 @@ impl NetProxies {
         })
     }
 
+    /// The base rules of a proxy for `agent`'s session: that provider's
+    /// own; a server pod's (`None`) every provider's, as before providers.
+    fn base_of(&self, agent: Option<AgentKind>) -> Arc<[Rule]> {
+        match agent {
+            Some(agent) => self.bases.get(&agent).cloned().unwrap_or_default(),
+            None => self.base.clone(),
+        }
+    }
+
     /// What the session's proxy needs to add `secrets`, and the CA bundle
     /// it writes into `folder`; `None` if no secret is left to add.
-    /// Secrets for `claude`'s own hosts (the base list) are never added.
+    /// Secrets for any provider's own hosts (the base lists) are never
+    /// added.
     async fn bind_secrets(
         &self,
         project: ProjectId,
@@ -263,6 +289,7 @@ impl NetProxy for NetProxies {
     fn start(
         &self,
         session: SessionId,
+        agent: Option<AgentKind>,
         allow: Allowlist,
         refusals: NetReporter,
         secrets: Vec<SecretInfo>,
@@ -300,7 +327,7 @@ impl NetProxy for NetProxies {
             }
             let net = Arc::new(SessionNet {
                 rules: RwLock::new(Rules {
-                    base: self.base.clone(),
+                    base: self.base_of(agent),
                     project: allow.hosts,
                 }),
                 reporter: refusals,

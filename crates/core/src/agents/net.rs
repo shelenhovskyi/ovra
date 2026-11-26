@@ -40,8 +40,10 @@ impl Sessions {
         // The bindings, never values: the proxy reads a value when it
         // adds it.
         let bound = secrets.list(project)?;
+        // It reaches its own provider's hosts, no other's (ADR 0011).
+        let agent = self.find(session, |s| s.info().agent)?;
         let started = net
-            .start(session.clone(), allow.clone(), reporter, bound)
+            .start(session.clone(), Some(agent), allow.clone(), reporter, bound)
             .await?;
         // The allowlist may have changed while the proxy started, and the
         // session may have ended: a running session gets the stored list,

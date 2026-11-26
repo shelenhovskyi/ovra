@@ -561,7 +561,13 @@ async fn grants_reach_a_running_proxy_through_its_socket() {
     let session = SessionId("s1".into());
     let reporter = NetReporter::new(ProjectId("p1".into()), session.clone(), p._core.sink());
     let address = proxies
-        .start(session.clone(), Allowlist::default(), reporter, Vec::new())
+        .start(
+            session.clone(),
+            Some(ovra_core::protocol::agents::AgentKind::Claude),
+            Allowlist::default(),
+            reporter,
+            Vec::new(),
+        )
         .await
         .unwrap_or_else(|e| panic!("{e}"))
         .address;

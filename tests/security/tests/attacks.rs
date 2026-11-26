@@ -19,7 +19,7 @@ use std::process::{Command, Output, Stdio};
 
 use ovra_core::Core;
 use ovra_core::protocol::Event;
-use ovra_core::protocol::agents::SessionId;
+use ovra_core::protocol::agents::{AgentKind, SessionId};
 use ovra_core::protocol::netproxy::{AllowedHost, Allowlist, NetproxyEvent};
 use ovra_core::protocol::projects::ProjectId;
 use ovra_core::services::{
@@ -34,6 +34,9 @@ use ovra_sandbox_linux::{Bubblewrap, Protected, Setup};
 /// runtime out of these tests.
 #[path = "../../../crates/agent-runtime/src/claude_lists.rs"]
 mod claude_lists;
+
+/// The provider of the sessions whose netproxies these tests start.
+const CLAUDE: Option<AgentKind> = Some(AgentKind::Claude);
 
 /// The sandbox helper, as the daemon is, plus the probes in `src/main.rs`.
 const AGENT: &str = env!("CARGO_BIN_EXE_ovra-security-agent");
@@ -654,12 +657,13 @@ fn the_netproxy_is_the_only_way_out_and_holds() {
             .collect(),
     };
     let address = rt
-        .block_on(proxies.start(ours.clone(), allow, reporter(&ours), Vec::new()))
+        .block_on(proxies.start(ours.clone(), CLAUDE, allow, reporter(&ours), Vec::new()))
         .unwrap()
         .address;
     let other = rt
         .block_on(proxies.start(
             theirs.clone(),
+            CLAUDE,
             Allowlist::default(),
             reporter(&theirs),
             Vec::new(),
@@ -917,6 +921,7 @@ fn secret_proxy() {
     let started = rt
         .block_on(proxies.start(
             session,
+            CLAUDE,
             Allowlist {
                 hosts: vec![AllowedHost {
                     host: BOUND.into(),
@@ -1148,7 +1153,7 @@ fn hosts_proxy() {
         }],
     };
     let started = rt
-        .block_on(proxies.start(session, allow, reporter, Vec::new()))
+        .block_on(proxies.start(session, CLAUDE, allow, reporter, Vec::new()))
         .unwrap();
     let mut out = std::io::stdout();
     writeln!(out, "ovra-address={}", started.address).unwrap();
