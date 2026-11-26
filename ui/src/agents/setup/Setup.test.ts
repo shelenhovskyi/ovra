@@ -447,6 +447,8 @@ describe("ProjectTrust", () => {
     await settle();
     expect(core.sent("projects.trust").map((c) => c.params)).toEqual([{ id: "p1", trusted: true, fingerprint: "f1" }]);
     expect(workspace.project?.trusted).toBe(true);
+    // The button went with the details: focus stays on the card.
+    expect(document.activeElement?.id).toBe("trust-heading");
     // Trusted: one quiet line with the warning count in its Details button; the rest under it.
     expect(heading()).toBe("Project's own settings are on");
     expect(testid("trust-warning-count")).toBe("⚠ 2 warnings");
@@ -468,6 +470,16 @@ describe("ProjectTrust", () => {
     button(trustCard(), "What's included")?.click();
     await settle();
     expect(testid("trust-details")).toContain("./check.sh");
+    // Escape folds it all again, back to the card's heading.
+    toggle?.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true }));
+    await settle();
+    expect(testid("trust-details")).toBeNull();
+    expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement?.id).toBe("trust-heading");
+    toggle?.click();
+    await settle();
+    button(trustCard(), "What's included")?.click();
+    await settle();
     // Trusted, nothing to decide: only the risky groups start open.
     const open = [...(trustCard()?.querySelectorAll<HTMLDetailsElement>("details.group") ?? [])].map((g) => g.open);
     expect(open).toEqual([true, true, false]);
@@ -507,7 +519,7 @@ describe("ProjectTrust", () => {
     expect(groups.map((g) => g.querySelector(".count")?.textContent)).toEqual(["1", "7"]);
     expect(testid("trust-details")).toContain("./check.sh");
     expect(testid("trust-language-servers")).toMatch(
-      /Trusting also lets Ovra start language servers.*run the project's code.*Stop trusting stops them.*sessions started afterwards/s,
+      /Trusting also lets Ovra start code help \(language servers\).*runs the project's code.*Stop trusting stops it.*sessions started afterwards/s,
     );
     expect(groups[1]?.querySelectorAll("li")).toHaveLength(5);
     button(trustCard(), "+2 more")?.click();
@@ -525,7 +537,7 @@ describe("ProjectTrust", () => {
       ?.run();
     await settle();
     expect(heading()).toBe("No Claude settings in this project");
-    expect(testid("trust-language-servers")).toContain("starts language servers");
+    expect(testid("trust-language-servers")).toContain("starts code help (language servers)");
     expect(trustCard()?.querySelector("[role=note]")).toBeNull();
     expect(button(trustCard(), "Show details")).toBeUndefined();
     await armed();
@@ -717,7 +729,7 @@ describe("ProjectTrust", () => {
     button(trustCard(), "Review and trust…")?.click();
     flushSync();
     const servers = trustCard()?.querySelector("[data-testid=trust-details] [data-testid=trust-language-servers]");
-    expect(servers?.textContent).toContain("in the sandbox, which keeps them to the project");
+    expect(servers?.textContent).toContain("in the sandbox, kept to the project and without network");
     expect(servers?.textContent).not.toMatch(/bubblewrap|Landlock|seccomp/);
     expect(servers?.querySelector("[title]")?.getAttribute("title")).toBe("bubblewrap, Landlock, seccomp");
   });

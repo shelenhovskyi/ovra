@@ -106,7 +106,7 @@ const lead = $derived(
     ? "Claude runs without them until you trust the changes."
     : project?.trusted
       ? "Claude uses this project's own commands, hooks and skills. If they change, Ovra asks again."
-      : "Trusting lets Claude use this project's own commands, hooks and skills, and starts language servers. Trust only a project whose authors you trust; Claude works without it.",
+      : "Trusting lets Claude use this project's own commands, hooks and skills, and turns on code help (language servers). Trust only a project whose authors you trust; Claude works without it.",
 );
 const sandbox = $derived(lsp.status?.sandbox);
 /** Trusted and unchanged: nothing to decide, so one quiet line until Details opens. */
@@ -236,12 +236,31 @@ function trust(trusted: boolean): Promise<void> {
       await load(id);
       busy = false;
     }
+    // The pressed button went with the details: focus stays on the card, not the page.
+    await tick();
+    focusHeading();
   })();
+}
+
+function focusHeading(): void {
+  section?.querySelector<HTMLElement>("#trust-heading")?.focus();
+}
+
+/** Escape folds the details, as it closes other panels' extras; focus stays on the card. */
+async function onkeydown(event: KeyboardEvent): Promise<void> {
+  if (event.code !== "Escape" || !details) return;
+  event.stopPropagation();
+  details = false;
+  lists = false;
+  await tick();
+  focusHeading();
 }
 </script>
 
 <!-- No settings of its own: nothing to trust here until someone asks (the command). -->
 {#if project && (review || error) && !(empty && !details)}
+  <!-- Escape from any of its controls folds the details. -->
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <section
     class="trust"
     class:changed
@@ -249,6 +268,7 @@ function trust(trusted: boolean): Promise<void> {
     aria-labelledby="trust-heading"
     data-testid="project-trust"
     bind:this={section}
+    {onkeydown}
   >
     {#if !review}
       <h3 id="trust-heading" tabindex="-1">Project settings</h3>
@@ -275,7 +295,7 @@ function trust(trusted: boolean): Promise<void> {
       <p class="wait" aria-live="polite" data-testid="trust-wait">{early && !armed ? EARLY : ""}</p>
       {#if !project.trusted}
         <p data-testid="trust-language-servers">
-          Trusting it starts language servers, which run the project's code{sandbox
+          Trusting it also starts code help (language servers), which runs the project's code{sandbox
             ? " in the sandbox"
             : " without a sandbox on this computer"}.
         </p>
@@ -382,11 +402,11 @@ function trust(trusted: boolean): Promise<void> {
                 </details>
               {/each}
               <p class="detail note" data-testid="trust-language-servers">
-                {project.trusted ? "Ovra starts" : "Trusting also lets Ovra start"} language servers for the files you
-                edit. They run the project's code (build scripts, for example){#if sandbox}{" "}in the <span
+                {project.trusted ? "Ovra starts" : "Trusting also lets Ovra start"} code help (language servers) for
+                the files you edit. It runs the project's code, such as build scripts,{#if sandbox}{" "}in the <span
                     title={sandbox}>sandbox</span
-                  >, which keeps them to the project and their cache, without network{:else}, without a sandbox on
-                  this computer{/if}. Stop trusting stops them. Changes apply to sessions started afterwards.
+                  >, kept to the project and without network{:else}{" "}without a sandbox on this computer{/if}. Stop trusting stops it.
+                Changes apply to sessions started afterwards.
               </p>
               {#if changed || !project.trusted}
                 <!-- Trust at the bottom of the lists: what it loads was in front of the person first. -->

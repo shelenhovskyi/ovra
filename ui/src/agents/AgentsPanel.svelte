@@ -2225,6 +2225,10 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
   .compose:focus-within {
     box-shadow: 0 0 0 2px var(--accent-soft);
   }
+  /* Typing goes into the box: its ring is the one every control has (3:1 or more). */
+  .compose:has(textarea:focus-visible) {
+    box-shadow: 0 0 0 2px var(--accent);
+  }
   .compose .row {
     flex-wrap: wrap;
     justify-content: flex-start;
