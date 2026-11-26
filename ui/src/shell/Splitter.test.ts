@@ -19,7 +19,7 @@ function setup() {
         width: 200,
         max: 600,
         edge: "bottom",
-        onresize: (h) => sizes.push(h),
+        onresize: (h: number) => sizes.push(h),
         onreset: () => {},
       },
     }),
