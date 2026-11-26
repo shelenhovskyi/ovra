@@ -12,7 +12,7 @@ mod v1;
 pub use agents::{Known, codex, gemini, known};
 
 use std::ffi::OsString;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
 
@@ -111,7 +111,9 @@ impl AgentRuntime for AcpAgents {
             let Some(agent) = described else {
                 return setup_of(shown, None, None, SetupState::NotFound);
             };
-            let program = path.unwrap_or_else(|| agent.program.clone());
+            let Some(program) = find(&path.unwrap_or_else(|| agent.program.clone()), PATH()) else {
+                return setup_of(shown, None, None, SetupState::NotFound);
+            };
             let check = agent.known.map_or(&["--version"][..], |k| k.check);
             let run = Process::new(&program)
                 .args(check)
@@ -218,6 +220,50 @@ impl AgentRuntime for AcpAgents {
     }
 }
 
+/// Ovra's own `PATH`, for `find` when the login shell's is unknown.
+#[allow(non_snake_case)]
+fn PATH() -> Option<OsString> {
+    std::env::var_os("PATH")
+}
+
+/// The program to run: a path as given, or a bare name looked up in the
+/// absolute directories of the login shell's `PATH` (else `inherited`).
+/// `None` when no executable file of that name is there.
+fn find(program: &Path, inherited: Option<OsString>) -> Option<PathBuf> {
+    if program.components().count() != 1 || program.is_absolute() {
+        return Some(program.to_path_buf());
+    }
+    let dirs = ovra_core::child_path::absolute(inherited);
+    std::env::split_paths(&dirs)
+        .flat_map(|dir| names(program).into_iter().map(move |n| dir.join(n)))
+        .find(|candidate| executable(candidate))
+}
+
+#[cfg(windows)]
+fn names(program: &Path) -> Vec<PathBuf> {
+    ["exe", "cmd", "bat"]
+        .iter()
+        .map(|ext| program.with_extension(ext))
+        .chain([program.to_path_buf()])
+        .collect()
+}
+
+#[cfg(not(windows))]
+fn names(program: &Path) -> Vec<PathBuf> {
+    vec![program.to_path_buf()]
+}
+
+#[cfg(unix)]
+fn executable(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+}
+
+#[cfg(not(unix))]
+fn executable(path: &Path) -> bool {
+    path.is_file()
+}
+
 /// How long a setup check may take.
 const CHECK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
@@ -300,11 +346,19 @@ async fn session(
 ) -> AgentStatus {
     let failed = |message: String| AgentStatus::Failed { message };
     let name = agent.info.name.clone();
+    let asked = spec
+        .executable
+        .clone()
+        .unwrap_or_else(|| agent.program.clone());
+    // The sandbox wraps an absolute path: it has no `PATH` of the host's.
+    let Some(program) = find(&asked, PATH()) else {
+        return failed(format!(
+            "{name} is not installed: Ovra did not find {} on PATH",
+            asked.display()
+        ));
+    };
     let line = CommandLine {
-        program: spec
-            .executable
-            .clone()
-            .unwrap_or_else(|| agent.program.clone()),
+        program,
         args: agent.args.clone(),
         env: Vec::new(),
         cwd: spec.cwd.clone(),

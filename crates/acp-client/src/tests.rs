@@ -520,6 +520,7 @@ static LISTS: ProviderLists = ProviderLists {
     private: &[],
     in_place: &[],
     files: &[],
+    layered: false,
     files_made: &[],
     projects: "projects",
     project_memory: "MEMORY.md",
@@ -544,7 +545,7 @@ fn described(program: &str, args: &[&str]) -> AcpAgent {
 
 /// How a session through `sandbox` ends; the agent never runs.
 async fn through(sandbox: FakeSandbox) -> AgentStatus {
-    let agent = described("fake-acp", &[]);
+    let agent = described("/fake-acp", &[]);
     ended_in(AcpAgents::new(vec![agent], Arc::new(sandbox)), ROOT).await
 }
 
@@ -883,5 +884,27 @@ async fn setup_runs_the_check_and_remembers_a_missing_sign_in() {
     );
     lock(&agents.signed_out).insert(AgentKind::Gemini);
     assert_eq!(check(ok).await.state, SetupState::SignedOut);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_bare_name_is_found_in_an_absolute_path_folder_only() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = std::env::temp_dir().join(format!("ovra-acp-find-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a folder");
+    let agent = dir.join("agent");
+    std::fs::write(&agent, "#!/bin/sh\n").expect("a script");
+    std::fs::set_permissions(&agent, std::fs::Permissions::from_mode(0o755)).expect("mode");
+    std::fs::write(dir.join("plain"), "").expect("a file");
+    let path = std::env::join_paths([PathBuf::from("."), PathBuf::from("rel"), dir.clone()]).ok();
+    assert_eq!(find(Path::new("agent"), path.clone()), Some(agent));
+    assert_eq!(find(Path::new("plain"), path.clone()), None);
+    assert_eq!(find(Path::new("none"), path.clone()), None);
+    assert_eq!(
+        find(Path::new("./x/agent"), path),
+        Some(PathBuf::from("./x/agent"))
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
