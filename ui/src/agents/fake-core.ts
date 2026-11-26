@@ -8,6 +8,7 @@ import type {
   AgentMessage,
   AgentSetup,
   AgentStatus,
+  BoardEntry,
   ContextWarning,
   CoreEvent,
   PermissionRequest,
@@ -31,6 +32,8 @@ export class FakeAgentCore implements Transport {
   pending: PermissionRequest[] = [];
   /** Tasks `orchestration.start` made; a test adds their workers. */
   tasks: Task[] = [];
+  /** Each task's board; `board.post` and `board.answer` add the person's entries. */
+  boards = new Map<string, BoardEntry[]>();
   /** What `review.list` answers, newest first. */
   reviews: ReviewItem[] = [];
   /** What `projects.list` answers. */
@@ -149,6 +152,28 @@ export class FakeAgentCore implements Transport {
       }
       case "orchestration.list":
         return { type: "orchestration.list", data: this.tasks.filter((t) => t.project === request.params.project) };
+      case "board.list": {
+        const entries = this.boards.get(request.params.task) ?? [];
+        return {
+          type: "board.entries",
+          data: { entries: entries.slice(request.params.since ?? 0), next: entries.length, open_for_person: [] },
+        };
+      }
+      case "board.post":
+      case "board.answer": {
+        const entries = this.boards.get(request.params.task) ?? [];
+        const { params } = request;
+        const entry: BoardEntry = {
+          id: `b${entries.length + 1}`,
+          author: { kind: "person" },
+          body:
+            "question" in params
+              ? { kind: "answer", question: params.question, text: params.text }
+              : { kind: "note", text: params.text },
+        };
+        this.boards.set(params.task, [...entries, entry]);
+        return { type: "board.entry", data: entry };
+      }
       case "agents.transcript":
         return { type: "agents.transcript", data: this.transcripts.get(request.params.session) ?? [] };
       case "agents.capacity":

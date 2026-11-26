@@ -19,6 +19,8 @@ import KeepAwakeButton from "../power/KeepAwakeButton.svelte";
 import { tick, untrack } from "svelte";
 import { describeTool } from "../approvals/describe";
 import { approvalQueue } from "../approvals/queue.svelte";
+import Board from "../board/Board.svelte";
+import { taskBoards } from "../board/boards.svelte";
 import { sessionBrowsers } from "../browser/browser.svelte";
 import { browserPicks, pickLabel } from "../browser/picks.svelte";
 import { listCommands, registerCommand } from "../keys/commands";
@@ -58,6 +60,7 @@ const accounts = claudeAccounts(transport);
 const approvals = approvalQueue(transport);
 const drafts = contextDrafts(transport);
 const browsers = sessionBrowsers(transport);
+const boards = taskBoards(transport);
 
 /** `more`: what choosing it means, in the menu; the hint under the box adds the sandbox. */
 const MODES: { id: TaskMode; label: string; more: string }[] = [
@@ -108,6 +111,24 @@ const pressure = $derived(project ? sessions.pressure.get(project.id) : undefine
 const unsandboxed = $derived(listWarning(list));
 const current = $derived(list.find((s) => s.id === selected) ?? null);
 const messages = $derived(current ? sessions.transcripts.get(current.id) : undefined);
+/** The open task's board, if the open session is a task's coordinator. */
+const currentTask = $derived.by(() => {
+  const role = current ? sessions.roles.get(current.id) : undefined;
+  return role?.kind === "coordinator" ? role.task : null;
+});
+/** A task shows its conversation or its board; a task opens on its conversation. */
+let tab = $state<"talk" | "board">("talk");
+$effect.pre(() => {
+  void current?.id;
+  tab = "talk";
+});
+// Every listed task's board is watched, so a question for the person shows on its row.
+$effect(() => {
+  for (const s of list) {
+    const role = sessions.roles.get(s.id);
+    if (role?.kind === "coordinator") boards.watch(role.task);
+  }
+});
 /** Elements picked in the session's browser, sent with the next reply. */
 const chips = $derived(current ? picks.of(current.id) : []);
 /** The open session's browser pages, offered as screenshots in the reply's @ menu. */
@@ -537,10 +558,11 @@ function step(id: SessionId): string | null {
  */
 function chip(s: SessionInfo): { text: string; tone: "warn" | "ok" } | null {
   if (s.status.state === "waiting_for_approval") return { text: "Approve", tone: "warn" };
+  const role = sessions.roles.get(s.id);
+  if (role?.kind === "coordinator" && boards.openForPerson(role.task).length > 0) return { text: "Answer", tone: "warn" };
   if (isBusy(s.status)) return null;
   const inTask = sessions.waitingInTask(s.id);
   if (inTask > 0) return { text: inTask > 1 ? `Review ${inTask}` : "Review", tone: "ok" };
-  const role = sessions.roles.get(s.id);
   const told = role?.kind === "worker" && list.some((t) => t.id === role.coordinator && chip(t)?.tone === "ok");
   return sessions.waitsForReview(s.id) && !told ? { text: "Review", tone: "ok" } : null;
 }
@@ -1071,6 +1093,29 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
           </div>
         {/if}
       </div>
+      {#if currentTask}
+        {@const questions = boards.openForPerson(currentTask).length}
+        <div class="tabs" role="tablist" aria-label="Task">
+          <button
+            type="button"
+            role="tab"
+            class="quiet"
+            aria-selected={tab === "talk"}
+            onclick={() => (tab = "talk")}>Conversation</button
+          >
+          <button
+            type="button"
+            role="tab"
+            class="quiet"
+            aria-selected={tab === "board"}
+            data-testid="agent-board-tab"
+            onclick={() => (tab = "board")}>Board{questions > 0 ? ` (${questions})` : ""}</button
+          >
+        </div>
+      {/if}
+      {#if currentTask && tab === "board"}
+        <Board task={currentTask} />
+      {:else}
       <Transcript
         messages={messages ?? []}
         billing={current.billing}
@@ -1152,6 +1197,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
             <button type="submit" class="primary" disabled={busy || !reply.trim()}>Resume</button>
           </div>
         </form>
+      {/if}
       {/if}
     </div>
   {:else}
@@ -1528,6 +1574,17 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
     font-weight: 500;
     color: var(--accent-ink);
     background: var(--accent);
+  }
+
+  /* A task's Conversation and Board */
+  .tabs {
+    display: flex;
+    gap: 4px;
+    padding: 0 16px 8px;
+  }
+  .tabs [aria-selected="true"] {
+    color: var(--text);
+    background: var(--s3);
   }
 
   /* The list */

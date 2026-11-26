@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { browserPicks } from "../browser/picks.svelte";
 import { handleOpenFor } from "../inbox/open";
 import { listCommands, registerCommand } from "../keys/commands";
-import type { FileChange, Pick, ReviewItem } from "../lib/protocol";
+import type { BoardEntry, FileChange, Pick, ReviewItem } from "../lib/protocol";
 import { closeContextMenu, contextMenu } from "../menu/context-menu.svelte";
 import { Workspace } from "../shell/workspace.svelte";
 import { askAgent } from "./context.svelte";
@@ -464,6 +464,64 @@ describe("AgentsPanel", () => {
     await settle();
     expect(core.sent("agents.stop").map((c) => c.params)).toEqual([{ session: "s1" }]);
     expect(rows()).toEqual([]);
+  });
+
+  it("shows a question for the person quietly on the task's row and Board, and answers it there", async () => {
+    const core = new FakeAgentCore();
+    core.addSession("p1", "Rename the flag", { state: "idle" });
+    core.tasks.push({
+      id: "t1",
+      project: "p1",
+      coordinator: "s1",
+      workers: [],
+      limits: { max_workers: 3, budget_micro_usd: null },
+      spent_micro_usd: 0,
+    });
+    const lint = { kind: "worker", name: "lint" } as const;
+    core.boards.set("t1", [
+      { id: "b1", author: lint, body: { kind: "claim", worker: "lint", paths: ["src/flag.ts"], note: "" } },
+    ]);
+    await setup(core);
+    const row = () => target.querySelector(".sessions .row-button")?.textContent?.replace(/\s+/g, " ").trim();
+    expect(row()).toBe("Rename the flag Done");
+    // A worker asks the person: the row says so, nothing pops up.
+    const question: BoardEntry = {
+      id: "b2",
+      author: lint,
+      body: { kind: "question", to: { kind: "person" }, text: "Keep the old flag?" },
+    };
+    core.boards.get("t1")?.push(question);
+    core.emit({ type: "board.changed", data: { project: "p1", task: "t1", entry: question } });
+    await settle();
+    expect(row()).toBe("Rename the flag Done Answer");
+    target.querySelector<HTMLButtonElement>(".sessions .row-button")?.click();
+    await settle();
+    target.querySelector<HTMLButtonElement>("[data-testid=agent-board-tab]")?.click();
+    await settle();
+    expect(target.querySelector("[data-testid=agent-board-tab]")?.textContent).toBe("Board (1)");
+    expect(target.querySelector("[data-testid=board-summary]")?.textContent).toBe(
+      "lint holds 1 path · 1 question for you",
+    );
+    expect(
+      [...target.querySelectorAll("[data-testid=board-entry]")].map((e) => e.textContent?.replace(/\s+/g, " ").trim()),
+    ).toEqual(["lint · Takes src/flag.ts", "lint · Asks you Keep the old flag?"]);
+    type(target.querySelector<HTMLTextAreaElement>("[data-testid=board-question] textarea"), "No, drop it.");
+    flushSync();
+    target.querySelector<HTMLButtonElement>("[data-testid=board-question] button")?.click();
+    await settle();
+    expect(core.sent("board.answer").map((c) => c.params)).toEqual([
+      { task: "t1", question: "b2", text: "No, drop it." },
+    ]);
+    expect(target.querySelector("[data-testid=board-question]")).toBeNull();
+    expect(target.querySelector("[data-testid=agent-board-tab]")?.textContent).toBe("Board");
+    // The person's own note goes on the board too.
+    type(target.querySelector<HTMLTextAreaElement>(".board .note textarea"), "Keep the tests fast.");
+    target
+      .querySelector<HTMLTextAreaElement>(".board .note textarea")
+      ?.dispatchEvent(new KeyboardEvent("keydown", { code: "Enter", key: "Enter", bubbles: true, cancelable: true }));
+    await settle();
+    expect(core.sent("board.post").map((c) => c.params)).toEqual([{ task: "t1", text: "Keep the tests fast." }]);
+    expect(target.querySelectorAll("[data-testid=board-entry]")).toHaveLength(4);
   });
 
   it("lists a task's workers in the order it started them", async () => {
