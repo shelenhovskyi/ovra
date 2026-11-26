@@ -908,7 +908,8 @@ function onkeydown(e: KeyboardEvent): void {
     outline: none;
     contain: strict;
   }
-  .viewport:focus-visible {
+  /* The whole tree rings only while no row can: else the row's own ring is enough. */
+  .viewport:focus-visible:not(:has(.row.active)) {
     box-shadow: inset 0 0 0 2px var(--accent);
   }
   .spacer {
