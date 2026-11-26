@@ -38,6 +38,7 @@ import { signedOutError } from "./errors";
 import FirstSteps from "./FirstSteps.svelte";
 import { hints } from "./hints.svelte";
 import { agentPrefs } from "./prefs.svelte";
+import Leftovers from "./Leftovers.svelte";
 import { diskLabel, pressureNote, resourcesLine, resourcesTip } from "./resources";
 import { listWarning, sandboxGaps, sandboxLine, sandboxState } from "./sandbox";
 import { agentSessions, openReviews, usageText } from "./sessions.svelte";
@@ -1400,6 +1401,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
           {/each}
         </ul>
       {/if}
+      {#if project}<Leftovers project={project.id} />{/if}
       {#if reviewHint}
         <p class="line hint" data-testid="agents-review-hint">Changes wait for you: Review keeps or discards them.</p>
       {/if}

@@ -132,3 +132,43 @@ it("shows each worktree's disk use, the project's total, and why a worker waits"
   expect(target.querySelector("[data-testid=agents-disk]")?.textContent).toBe("more than 2.0 GB on disk");
   expect(row("lint")?.querySelector(".state")?.textContent).toBe("Waiting for disk space");
 });
+
+it("lists leftover worktrees only when there are any, and removes one only after a confirmation", async () => {
+  const empty = new FakeAgentCore();
+  await open(empty);
+  expect(target.querySelector("[data-testid=leftovers]")).toBeNull();
+  if (app) unmount(app);
+  app = null;
+
+  const core = new FakeAgentCore();
+  core.leftovers = [
+    { path: "/data/worktrees/p1/old-docs", disk: { bytes: 2 * GB, complete: true } },
+    { path: "/data/worktrees/p1/crashed", disk: null },
+  ];
+  await open(core);
+  const list = target.querySelector("[data-testid=leftovers]");
+  expect(list?.querySelector("h3")?.textContent).toBe("Leftover worktrees");
+  expect([...(list?.querySelectorAll("li") ?? [])].map((li) => li.textContent?.replace(/\s+/g, " ").trim())).toEqual([
+    "old-docs up to 2.0 GB on disk Remove",
+    "crashed size unknown Remove",
+  ]);
+  list?.querySelector<HTMLButtonElement>("[aria-label='Remove old-docs']")?.click();
+  await settle();
+  const confirm = target.querySelector("[data-testid=leftover-confirm]");
+  expect(confirm?.textContent).toContain("Delete old-docs and everything in it?");
+  expect(document.activeElement?.textContent).toBe("Delete");
+  // Escape keeps it.
+  confirm?.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", key: "Escape", bubbles: true }));
+  flushSync();
+  expect(target.querySelector("[data-testid=leftover-confirm]")).toBeNull();
+  expect(core.sent("orchestration.remove_leftover")).toEqual([]);
+
+  list?.querySelector<HTMLButtonElement>("[aria-label='Remove old-docs']")?.click();
+  await settle();
+  button("Delete")?.click();
+  await settle();
+  expect(core.sent("orchestration.remove_leftover").map((c) => c.params)).toEqual([
+    { project: "p1", path: "/data/worktrees/p1/old-docs" },
+  ]);
+  expect(target.querySelectorAll("[data-testid=leftovers] li")).toHaveLength(1);
+});
