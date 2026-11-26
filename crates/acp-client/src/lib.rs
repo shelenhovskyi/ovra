@@ -4,6 +4,9 @@
 //! Contract: `ovra_core::services::AgentRuntime`; fake:
 //! `ovra_core::fakes::ScriptedAgent`.
 
+#[expect(dead_code, reason = "the session driver uses it")]
+mod v1;
+
 use ovra_core::protocol::agents::ProviderInfo;
 use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::{AgentHost, AgentRuntime, AgentSpec, Result, RunningAgent};

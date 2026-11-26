@@ -1,0 +1,11 @@
+---
+source: crates/acp-client/src/v1.rs
+expression: "lines.join(\"\\n\")"
+---
+{"id":0,"jsonrpc":"2.0","method":"initialize","params":{"clientCapabilities":{"fs":{"readTextFile":false,"writeTextFile":false},"terminal":false},"protocolVersion":1}}
+{"id":1,"jsonrpc":"2.0","method":"session/new","params":{"cwd":"/w","mcpServers":[]}}
+{"id":2,"jsonrpc":"2.0","method":"session/prompt","params":{"prompt":[{"text":"Fix the bug","type":"text"}],"sessionId":"sess-1"}}
+{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"sess-1"}}
+{"id":7,"jsonrpc":"2.0","result":{"outcome":{"optionId":"allow","outcome":"selected"}}}
+{"id":7,"jsonrpc":"2.0","result":{"outcome":{"outcome":"cancelled"}}}
+{"error":{"code":-32601,"message":"Ovra does not serve fs/read_text_file"},"id":7,"jsonrpc":"2.0"}

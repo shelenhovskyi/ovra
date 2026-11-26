@@ -3488,7 +3488,10 @@ dependencies = [
 name = "ovra-acp-client"
 version = "0.1.0"
 dependencies = [
+ "insta",
  "ovra-core",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

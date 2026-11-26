@@ -1,0 +1,20 @@
+---
+source: crates/acp-client/src/v1.rs
+expression: "parsed.join(\"\\n\")"
+---
+Response { id: 0, result: Ok(Object {"agentCapabilities": Object {}, "protocolVersion": Number(1)}) }
+Response { id: 1, result: Err("Authentication required") }
+Ignored
+Update(AgentMessageChunk { content: Text { text: "Hi" } })
+Update(AgentMessageChunk { content: Other })
+Update(AgentThoughtChunk)
+Update(Tool(ToolCallFields { tool_call_id: "c1", title: Some("Edit a.rs"), kind: Some(Edit), status: Some(Running), content: Some([Diff { new_text: "y" }]), locations: Some([Location { path: "/w/a.rs" }]), raw_input: Some(Object {"path": String("/w/a.rs")}), raw_output: None }))
+Update(Tool(ToolCallFields { tool_call_id: "c1", title: None, kind: None, status: Some(Completed), content: Some([Content { content: Text { text: "done" } }, Other]), locations: None, raw_input: None, raw_output: None }))
+Update(Tool(ToolCallFields { tool_call_id: "c2", title: None, kind: Some(Other), status: Some(Running), content: None, locations: None, raw_input: None, raw_output: None }))
+Update(Other)
+Ignored
+Ignored
+Permission { id: Number(5), request: PermissionRequest { tool_call: ToolCallFields { tool_call_id: "c1", title: Some("Run ls"), kind: Some(Execute), status: None, content: None, locations: None, raw_input: Some(Object {"command": String("ls")}), raw_output: None }, options: [PermissionOption { option_id: "a1", kind: AllowOnce }, PermissionOption { option_id: "a2", kind: Lasting }, PermissionOption { option_id: "r1", kind: RejectOnce }] } }
+Refused { id: Number(6), refusal: Refusal { code: -32602, message: "missing field `toolCall`" } }
+Refused { id: String("r7"), refusal: Refusal { code: -32601, message: "Ovra does not serve fs/read_text_file" } }
+Response { id: 2, result: Ok(Object {"stopReason": String("end_turn")}) }
