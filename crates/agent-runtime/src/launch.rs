@@ -128,6 +128,8 @@ const RESEARCH_PROMPT: &str = include_str!("../../../agents/roles/research.md");
 /// The built-in tools of a research session (ADR 0013): it reads and
 /// searches, nothing else. The core refuses any other tool too.
 const RESEARCH_TOOLS: &str = "Read,Grep,Glob,WebSearch";
+/// The same without `WebSearch`, for prompts that carry other people's text.
+const RESEARCH_TOOLS_OFFLINE: &str = "Read,Grep,Glob";
 
 /// The arguments for one session. Ovra never passes `--bare` (it ignores the
 /// subscription login) and never touches credentials; the environment is an
@@ -144,6 +146,7 @@ pub(crate) fn args(
     trusted: bool,
     ide: Option<ToolRole>,
     research: bool,
+    web: bool,
 ) -> Vec<OsString> {
     let ide = ide.filter(|_| !research);
     let mut args: Vec<&str> = vec![
@@ -191,7 +194,11 @@ pub(crate) fn args(
         Some(ToolRole::Worker) => args.extend(["--append-system-prompt", WORKER_PROMPT]),
         None if research => args.extend([
             "--tools",
-            RESEARCH_TOOLS,
+            if web {
+                RESEARCH_TOOLS
+            } else {
+                RESEARCH_TOOLS_OFFLINE
+            },
             "--append-system-prompt",
             RESEARCH_PROMPT,
         ]),
@@ -324,7 +331,7 @@ mod tests {
     }
 
     fn line_text(conversation: &Conversation, trusted: bool) -> String {
-        args(conversation, trusted, None, false)
+        args(conversation, trusted, None, false, true)
             .iter()
             .map(|a| a.to_string_lossy().into_owned())
             .collect::<Vec<_>>()
@@ -349,7 +356,13 @@ mod tests {
     #[test]
     fn sessions_with_ide_tools_get_the_in_process_ovra_server() {
         let after = |role, flag: &str| {
-            let args = args(&Conversation::New("id".into()), false, Some(role), false);
+            let args = args(
+                &Conversation::New("id".into()),
+                false,
+                Some(role),
+                false,
+                true,
+            );
             let args: Vec<_> = args
                 .iter()
                 .map(|a| a.to_string_lossy().into_owned())
@@ -388,6 +401,7 @@ mod tests {
             false,
             Some(ToolRole::Worker),
             true,
+            true,
         )
         .iter()
         .map(|a| a.to_string_lossy().into_owned())
@@ -400,11 +414,22 @@ mod tests {
         assert_eq!(after("--append-system-prompt"), Some(RESEARCH_PROMPT));
         assert_eq!(after("--mcp-config"), Some(r#"{"mcpServers":{}}"#));
         assert_eq!(after("--permission-mode"), Some("default"));
+        let offline: Vec<String> =
+            super::args(&Conversation::New("id".into()), false, None, true, false)
+                .iter()
+                .map(|a| a.to_string_lossy().into_owned())
+                .collect();
+        let at = offline.iter().position(|a| a == "--tools").unwrap_or(0);
+        assert_eq!(
+            offline.get(at + 1).map(String::as_str),
+            Some("Read,Grep,Glob")
+        );
         // A project's hooks could change files unseen: research has no review.
-        let trusted: Vec<String> = super::args(&Conversation::New("id".into()), true, None, true)
-            .iter()
-            .map(|a| a.to_string_lossy().into_owned())
-            .collect();
+        let trusted: Vec<String> =
+            super::args(&Conversation::New("id".into()), true, None, true, true)
+                .iter()
+                .map(|a| a.to_string_lossy().into_owned())
+                .collect();
         let at = trusted
             .iter()
             .position(|a| a == "--setting-sources")
@@ -432,6 +457,7 @@ mod tests {
             config_dir: None,
             trusted: false,
             resume: None,
+            no_web: false,
             sandbox: ovra_core::services::SandboxProfile {
                 kind: ovra_core::services::ProfileKind::Agent,
                 claude_dir: None,

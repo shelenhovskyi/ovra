@@ -91,6 +91,8 @@ export type SessionInfo = {
   undone_from?: number | null;
   /** `agents.undo_go_back` can put back what the last go-back restored (absent from older cores). */
   can_undo_go_back?: boolean;
+  /** A research session started without WebSearch. */
+  no_web?: boolean;
 };
 
 /** A direct session's turn whose files can be set back to before it. */
@@ -244,6 +246,8 @@ export type AgentsRequest =
         account?: string | null;
         /** What the person added with `@`; it follows the prompt as Ovra's message. */
         context?: ContextItem[];
+        /** Research only: no WebSearch either, for prompts that carry other people's text (ADR 0013). */
+        no_web?: boolean;
       };
     }
   | { method: "agents.send"; params: { session: SessionId; text: string; context?: ContextItem[] } }

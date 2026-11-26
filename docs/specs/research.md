@@ -44,7 +44,11 @@ should not flood the person with approvals for a job that changes nothing.
   outside `RESEARCH_TOOLS` (`Read`, `Grep`, `Glob`, `WebSearch`) in a
   research session; `ask` allows `WebSearch` there unless a policy rule
   decides it.
-- Runtime: `--tools Read,Grep,Glob,WebSearch`, `--setting-sources user`
+- `agents.start { no_web: true }` (research only, kept as
+  `SessionInfo::no_web`): no `WebSearch` either, for prompts that carry
+  other people's text, such as the git panel's commit bodies and diffs.
+- Runtime: `--tools Read,Grep,Glob,WebSearch` (`Read,Grep,Glob` with
+  `no_web`), `--setting-sources user`
   and `agents/roles/research.md` as the appended system prompt; no IDE
   tools.
 

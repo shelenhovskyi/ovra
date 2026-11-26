@@ -30,7 +30,10 @@ reader uses no disk and runs no builds. ADR 0005 knows only two modes,
   rule asks or denies. Residual risk: a prompt injection in a file or a
   search result could put project text into a query, which reaches the
   search provider's logs (the transcript reaches Anthropic anyway). Every
-  call is in the audit log; a `deny WebSearch` rule turns it off.
+  call is in the audit log; a `deny WebSearch` rule turns it off. A
+  start with `no_web` drops `WebSearch` for one session: Ovra's own
+  features whose prompts carry other people's text (the git panel's
+  commit bodies and diffs) use it.
 - Only the user's own Claude settings load (`--setting-sources user`), even
   in a trusted project: a project hook would run outside the tool list,
   and research has no review that would show what it changed.

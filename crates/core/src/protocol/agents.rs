@@ -155,6 +155,10 @@ pub struct SessionInfo {
     /// no turn started since.
     #[serde(default)]
     pub can_undo_go_back: bool,
+    /// A research session started without `WebSearch` (`agents.start`'s
+    /// `no_web`): it only reads the project.
+    #[serde(default)]
+    pub no_web: bool,
 }
 
 /// A turn of a direct session whose files can be set back to how they
@@ -580,6 +584,10 @@ pub enum AgentsRequest {
         /// What the person added with `@`; it follows the prompt as Ovra's.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         context: Vec<ContextItem>,
+        /// Research only: no `WebSearch` either, for prompts that carry
+        /// other people's text (ADR 0013).
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        no_web: bool,
     },
     /// Sends the next message. Answers `ok`.
     #[serde(rename = "agents.send")]

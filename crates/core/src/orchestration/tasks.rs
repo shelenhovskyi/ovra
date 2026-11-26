@@ -175,6 +175,7 @@ async fn start(
         ));
     }
     let new = NewSession {
+        no_web: false,
         project: project.clone(),
         agent: AgentKind::Claude,
         mode: SessionMode::Direct,
@@ -645,6 +646,7 @@ async fn create_worker(
         .flatten()
         .unwrap_or_else(|| crate::protocol::agents::DEFAULT_ACCOUNT.to_owned());
     let new = NewSession {
+        no_web: false,
         project: task.project.clone(),
         agent: AgentKind::Claude,
         mode: SessionMode::Isolated,

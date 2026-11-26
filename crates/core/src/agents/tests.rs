@@ -1621,3 +1621,41 @@ fn an_account_saved_before_providers_is_claudes() {
             .unwrap_or_else(|e| panic!("{e}"));
     assert_eq!(account.provider, crate::protocol::agents::AgentKind::Claude);
 }
+
+#[tokio::test]
+async fn a_research_session_without_the_web_cannot_search() {
+    use crate::protocol::permissions::Decision;
+
+    let agent = Arc::new(ScriptedAgent::new(vec![vec![Step::Say("hi")]]));
+    let core = Core::builder("test")
+        .projects(Arc::new(MemoryProjects::default()))
+        .agents(agent.clone())
+        .build();
+    project(&core).await;
+    let offline = |mode: &str| {
+        json!({"method": "agents.start", "params": {
+            "project": "p1", "agent": "claude", "mode": mode, "prompt": "Read the diff",
+            "no_web": true}})
+    };
+    assert_eq!(code(&core, offline("direct")).await, ErrorCode::BadRequest);
+    match ok(&core, offline("research")).await {
+        Response::Agents(AgentsResponse::Session(info)) => assert!(info.no_web),
+        other => panic!("unexpected {other:?}"),
+    }
+    assert!(lock_started(&agent, 0).no_web);
+    let host = host(&core);
+    let search = host
+        .ask("WebSearch".into(), json!({"query": "x"}), None, None)
+        .await;
+    assert_eq!(search.decision, Decision::Deny);
+    let hook = json!({"tool_name": "WebSearch", "tool_input": {}});
+    assert!(matches!(
+        host.before_tool(&hook).await,
+        crate::agents::BeforeTool::Deny(_)
+    ));
+    let read = json!({"tool_name": "Read", "tool_input": {}});
+    assert_eq!(
+        host.before_tool(&read).await,
+        crate::agents::BeforeTool::Proceed
+    );
+}

@@ -117,7 +117,14 @@ pub(crate) async fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Resp
             prompt,
             account,
             context,
+            no_web,
         } => {
+            if no_web && mode != SessionMode::Research {
+                return Err(ProtocolError::new(
+                    ErrorCode::BadRequest,
+                    "only a research session can be started without web search",
+                ));
+            }
             if mode == SessionMode::Isolated {
                 return Err(ProtocolError::new(
                     ErrorCode::Unavailable,
@@ -141,6 +148,7 @@ pub(crate) async fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Resp
                 account,
                 queued: false,
                 preparing: false,
+                no_web,
             };
             let info = start(ctx, new).await?;
             Ok(Response::Agents(AgentsResponse::Session(info)))
@@ -323,6 +331,8 @@ pub(crate) struct NewSession {
     /// The Claude account ([`crate::protocol::agents::Account::id`]);
     /// `None` uses the project's.
     pub(crate) account: Option<String>,
+    /// A research session without `WebSearch`.
+    pub(crate) no_web: bool,
     /// Waits `queued` for [`start_queued`] instead of starting now.
     pub(crate) queued: bool,
     /// Waits `preparing` while its worktree is set up, then
@@ -380,6 +390,7 @@ pub(crate) async fn start(ctx: &Ctx<'_>, new: NewSession) -> Result<SessionInfo>
         account: target.account.id.clone(),
         undone_from: None,
         can_undo_go_back: false,
+        no_web: new.no_web,
     };
     // With its folder and role from the start, so that it counts in its
     // role, and its first message if it waits.
@@ -685,9 +696,9 @@ async fn run(
         host.message(AgentMessage::UserText { text, from });
     }
     turn_started(ctx, id, &parts);
-    let (agent, mode) = sessions.find(id, |s| {
+    let (agent, mode, no_web) = sessions.find(id, |s| {
         let info = s.info();
-        (info.agent, info.mode)
+        (info.agent, info.mode, info.no_web)
     })?;
     let network = sessions
         .net_start(
@@ -747,6 +758,7 @@ async fn run(
         trusted: target.trusted,
         resume,
         sandbox,
+        no_web,
     };
     match ctx.runtime.start(spec, host.clone()) {
         Ok(process) => sessions.find(id, |s| s.set_process(Arc::from(process)))?,

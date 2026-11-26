@@ -236,6 +236,8 @@ pub struct AgentSpec {
     pub resume: Option<String>,
     /// What the session may touch if the runtime sandboxes it.
     pub sandbox: SandboxProfile,
+    /// A research session without `WebSearch` ([`SessionInfo::no_web`]).
+    pub no_web: bool,
 }
 
 /// A program to start: plain data, so the core can pass it around without

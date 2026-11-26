@@ -152,6 +152,7 @@ mod tests {
                 account: None,
                 undone_from: None,
                 can_undo_go_back: false,
+                no_web: false,
             },
             agent_session: None,
         }
