@@ -106,6 +106,10 @@ impl AgentRuntime for AcpAgents {
     ) -> BoxFuture<'_, AgentSetup> {
         let described = self.agent(agent).cloned();
         let signed_out = lock(&self.signed_out).contains(&agent);
+        let unsandboxed = match self.sandbox.status() {
+            SandboxStatus::Unavailable { reason } => Some(reason),
+            SandboxStatus::Available { .. } => None,
+        };
         Box::pin(async move {
             let shown = path.as_ref().map(|p| p.to_string_lossy().into_owned());
             let Some(agent) = described else {
@@ -158,7 +162,15 @@ impl AgentRuntime for AcpAgents {
                 ),
                 Ok(Ok(out)) => {
                     let version = version(&String::from_utf8_lossy(&out.stdout));
-                    let state = if signed_out {
+                    // Installed, but it runs only inside the sandbox.
+                    let state = if let Some(reason) = unsandboxed {
+                        SetupState::Broken {
+                            message: format!(
+                                "{} runs only inside the sandbox, which is not available here: {reason}",
+                                agent.info.name
+                            ),
+                        }
+                    } else if signed_out {
                         SetupState::SignedOut
                     } else {
                         SetupState::Ready

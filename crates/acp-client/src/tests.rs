@@ -883,7 +883,25 @@ async fn setup_runs_the_check_and_remembers_a_missing_sign_in() {
         SetupState::NotFound
     );
     lock(&agents.signed_out).insert(AgentKind::Gemini);
-    assert_eq!(check(ok).await.state, SetupState::SignedOut);
+    assert_eq!(check(ok.clone()).await.state, SetupState::SignedOut);
+    // Installed, but with no sandbox it cannot start: not ready.
+    let unsandboxed = AcpAgents::new(
+        vec![crate::gemini()],
+        Arc::new(FakeSandbox {
+            status: SandboxStatus::Unavailable {
+                reason: "none here".into(),
+            },
+            ..FakeSandbox::available()
+        }),
+    );
+    let state = unsandboxed
+        .setup(AgentKind::Gemini, Some(ok), None)
+        .await
+        .state;
+    assert!(
+        matches!(&state, SetupState::Broken { message } if message.contains("sandbox")),
+        "{state:?}"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
