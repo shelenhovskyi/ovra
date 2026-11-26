@@ -30,7 +30,7 @@ const MAX_TEXT: usize = 48 * 1024;
 
 /// File names that usually hold secrets, compared in lower case; a name
 /// ending in `*` matches by its start.
-const SECRET_NAMES: [&str; 19] = [
+const SECRET_NAMES: [&str; 30] = [
     ".env*",
     "*.env",
     "*.pem",
@@ -50,11 +50,34 @@ const SECRET_NAMES: [&str; 19] = [
     "service-account*",
     "kubeconfig*",
     "secrets.*",
+    // Agent and command-line logins: Claude's, Codex's, gcloud's, gh's.
+    ".credentials*",
+    "auth.json",
+    "application_default_credentials*",
+    "hosts.yml",
+    ".pypirc",
+    ".vault-token",
+    "id_dsa*",
+    "*.ppk",
+    "*.kdbx",
+    "*.jks",
+    "*.keystore",
 ];
 
 /// Folder names whose files usually are secrets, compared in lower case.
-const SECRET_FOLDERS: [&str; 7] = [
-    "secrets", ".ssh", ".aws", ".kube", ".docker", ".gnupg", ".git",
+const SECRET_FOLDERS: [&str; 12] = [
+    "secrets",
+    ".ssh",
+    ".aws",
+    ".kube",
+    ".docker",
+    ".gnupg",
+    ".git",
+    ".claude",
+    ".codex",
+    ".gemini",
+    "gcloud",
+    ".password-store",
 ];
 
 /// Words that start a secret's assignment in config text, compared in
