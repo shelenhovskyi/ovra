@@ -285,4 +285,11 @@ fn ids_of_one_run_share_a_suffix_another_run_does_not_know() {
         ErrorCode::NotFound
     );
     pty.close(&first).expect("close");
+    // The pid and the time stay apart, so two runs cannot run together.
+    let parts: Vec<&str> = first.0.split('-').collect();
+    assert_eq!(parts.len(), 3, "{first:?}");
+    assert_eq!(
+        u32::from_str_radix(parts[1], 16).ok(),
+        Some(std::process::id())
+    );
 }

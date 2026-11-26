@@ -61,11 +61,13 @@ impl std::fmt::Debug for Session {
 
 impl Pty {
     pub fn new() -> Self {
+        // The whole time, not its sub-second part, and apart from the pid:
+        // pid 0x1a at 0xbc and pid 0x1 at 0xabc must not read the same.
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.subsec_nanos());
+            .map_or(0, |d| d.as_nanos());
         Self {
-            run: format!("-{:x}{nanos:x}", std::process::id()),
+            run: format!("-{:x}-{nanos:x}", std::process::id()),
             ..Self::default()
         }
     }
