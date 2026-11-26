@@ -3,7 +3,7 @@
 //! the core's.
 
 use ovra_core::Core;
-use ovra_core::protocol::board::EntryId;
+use ovra_core::protocol::board::{Choices, EntryId};
 use ovra_core::provenance::escaped;
 use ovra_core::services::ToolCaller;
 use serde::Deserialize;
@@ -32,6 +32,10 @@ struct Release {
 struct Ask {
     to: String,
     question: String,
+    #[serde(default)]
+    options: Vec<String>,
+    recommended: Option<usize>,
+    reason: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -80,7 +84,14 @@ pub(crate) fn call(
             Ok(json!({ "entry": entry }))
         }),
         "ask" => parse(arguments).and_then(|a: Ask| {
-            let (entry, later) = core.board_ask(caller, &a.to, &a.question).map_err(failed)?;
+            let choices = Choices {
+                options: a.options,
+                recommended: a.recommended,
+                reason: a.reason,
+            };
+            let (entry, later) = core
+                .board_ask_choosing(caller, &a.to, &a.question, choices)
+                .map_err(failed)?;
             Ok(json!({"question_id": entry.id, "note": later}))
         }),
         "answer" => parse(arguments).and_then(|a: Answer| {

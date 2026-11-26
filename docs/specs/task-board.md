@@ -78,6 +78,14 @@ because it comes from the UI. The asker keeps working while it waits.
 **B2:** workers may ask the person directly; the coordinator sees the
 question and the answer.
 
+A question may carry 2 to 4 options (one line, at most 80 characters
+each), the index of the one the asker recommends and a one-line reason
+(at most 200 characters), so the person answers with one tap (owner,
+2026-11-26, D2 of `docs/specs/focus-mode.md`). The tap sends the option's
+text as an ordinary `board.answer`; options are agent text and escaped
+like the rest. The `ask` tool tells agents to give options when they ask
+the person.
+
 ## Limits
 
 - Per agent: 10 entries a minute and 200 a task; past that the tool

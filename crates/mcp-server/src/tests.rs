@@ -560,6 +560,26 @@ async fn workers_use_the_board_through_the_tools() {
     let read = parsed(&read);
     assert_eq!(read["next"], 2);
     assert_eq!(read["entries"][0]["body"]["kind"], "claim");
-    let (refused, error) = tool(&core, me, "claim", json!({"paths": ["a"], "worker": "x"})).await;
+    let (refused, error) = tool(
+        &core,
+        me.clone(),
+        "claim",
+        json!({"paths": ["a"], "worker": "x"}),
+    )
+    .await;
     assert!(error && refused.contains("for itself"), "{refused}");
+    // A question to the person offers answers to tap, one recommended.
+    let ask = json!({"to": "person", "question": "Keep the flag?", "options": ["Keep", "Drop"], "recommended": 1, "reason": "Nobody uses it"});
+    let (asked, error) = tool(&core, me.clone(), "ask", ask).await;
+    assert!(!error, "{asked}");
+    let (read, _) = tool(&core, me.clone(), "read_board", json!({"since": 2})).await;
+    let body = &parsed(&read)["entries"][0]["body"];
+    assert_eq!(body["options"], json!(["Keep", "Drop"]));
+    assert_eq!(
+        (body["recommended"].clone(), body["reason"].clone()),
+        (json!(1), json!("Nobody uses it"))
+    );
+    let bad = json!({"to": "person", "question": "?", "options": ["Only one"]});
+    let (refused, error) = tool(&core, me, "ask", bad).await;
+    assert!(error && refused.contains("2 to 4"), "{refused}");
 }
