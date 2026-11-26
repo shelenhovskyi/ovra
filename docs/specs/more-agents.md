@@ -74,6 +74,11 @@ macOS sandbox (see "Open question").
      `generativelanguage.googleapis.com`, `cloudcode-pa.googleapis.com`,
      `oauth2.googleapis.com`, `www.googleapis.com` (token refresh and
      user info), plus Vertex's regional host when its variables say so.
+   - Both write lock, temporary and database files right in their home
+     folder, so the Linux sandbox shows it as a private layer (`layered`):
+     its entries bound back read-only, its sign-in files writable, what
+     the agent adds lost with the session. A bare program name is looked
+     up on the login shell's `PATH` before the sandbox wraps it.
    - Codex: program `codex-acp`, no args, home folder `.codex` with
      `sessions/`, `log/` and `tmp/` private and `auth.json` rewritable,
      no variables, hosts `api.openai.com`, `chatgpt.com`, `auth.openai.com`.
@@ -102,6 +107,13 @@ macOS sandbox (see "Open question").
    role, exactly as `orchestration/policy.rs` does for Claude. It gets the
    independent reviewer's verdict before it lands. Until it lands, ACP
    workers run without IDE tools and their turn's end asks for review.
+
+Still open after the first real runs (2026-11-26): Gemini reads the
+project's `.gemini/settings.json` (MCP servers, hooks) in an untrusted
+project too, and Ovra cannot switch that off with a flag as it does for
+Claude; Codex is said to load `.codex/config.toml` only for folders
+trusted in Codex itself (to verify). The next step is a tightening: an
+untrusted ACP session gets those folders hidden by its sandbox.
 
 ## macOS
 
