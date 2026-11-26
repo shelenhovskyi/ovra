@@ -3513,4 +3513,78 @@ async fn a_change_to_a_file_another_worker_claimed_is_told_once() {
     assert_eq!(board, 1);
 }
 
+#[tokio::test]
+async fn a_coordinator_that_fails_while_a_worker_is_set_up_leaves_it_working() {
+    // The coordinator's second turn fails, as a crashed process does.
+    let f = fx(vec![vec![Step::Say("on it")], vec![Step::Fail("killed")]]).await;
+    let mut rx = f.core.subscribe();
+    start_task(&f.core, 3).await;
+    until(&mut rx, "s1", AgentStatus::Idle).await;
+    let boss = caller("s1", ToolRole::Coordinator);
+    f.wt.slow_snapshot
+        .store(true, std::sync::atomic::Ordering::Relaxed);
+    let fail = async {
+        tokio::task::yield_now().await;
+        let send = json!({"method": "agents.send", "params": {"session": "s1", "text": "go"}});
+        ok(&f.core, send).await;
+    };
+    let (spawned, ()) = tokio::join!(f.core.spawn_agent(&boss, "late", "x", false), fail);
+    let worker = spawned.unwrap_or_else(|e| panic!("{e}"));
+    loop {
+        if let Some(Event::Agents(AgentsEvent::Status {
+            session,
+            status: AgentStatus::Failed { .. },
+            ..
+        })) = Core::next_event(&mut rx).await
+            && session.0 == "s1"
+        {
+            break;
+        }
+    }
+    until(&mut rx, &worker.session.0, AgentStatus::Idle).await;
+    let stopping = f.core.sessions().find(&worker.session, |s| s.stopping());
+    assert_eq!(stopping.ok(), Some(false), "a crash is no stop");
+    // Nothing removes its worktree: the task may be resumed.
+    ok(
+        &f.core,
+        json!({"method": "orchestration.list", "params": {"project": "p1"}}),
+    )
+    .await;
+    assert!(f.wt.has(&worker.worktree));
+}
+
+#[tokio::test]
+async fn a_workers_worktree_is_watched_once_and_let_go_when_it_ends() {
+    let f = fx(say()).await;
+    let mut rx = f.core.subscribe();
+    start_task(&f.core, 3).await;
+    let boss = caller("s1", ToolRole::Coordinator);
+    let worker = f.core.spawn_agent(&boss, "w", "x", false).await;
+    let worker = worker.unwrap_or_else(|e| panic!("{e}")).session;
+    until(&mut rx, &worker.0, AgentStatus::Idle).await;
+    let watched = || {
+        f.fs.watched_ids()
+            .into_iter()
+            .filter(|id| id.0.starts_with("worktree:"))
+            .count()
+    };
+    assert_eq!(watched(), 1);
+    // A second start (a resume racing the spawn) adds no second watch.
+    super::watch::start(&f.core, &worker);
+    assert_eq!(watched(), 1);
+    assert!(f.core.stop_agent(&boss, &worker).is_ok());
+    until(&mut rx, &worker.0, AgentStatus::Stopped).await;
+    assert_eq!(watched(), 0);
+    // A start that comes after the end watches nothing.
+    super::watch::start(&f.core, &worker);
+    assert_eq!(watched(), 0);
+    assert!(
+        !f.core
+            .orchestration_state()
+            .lock()
+            .watches
+            .contains(&worker)
+    );
+}
+
 mod check;
