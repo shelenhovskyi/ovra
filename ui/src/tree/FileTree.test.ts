@@ -58,7 +58,7 @@ describe("FileTree", () => {
     t.row("src").click();
     await settle();
     expect(t.row("src").getAttribute("aria-expanded")).toBe("true");
-    expect(t.row("src/a.ts").querySelector(".dot")?.getAttribute("title")).toBe("A: added");
+    expect(t.row("src/a.ts").querySelector(".mark")?.getAttribute("title")).toBe("A: added");
 
     t.row("src/a.ts").click();
     expect(t.opened).toEqual(["src/a.ts"]);
@@ -108,8 +108,9 @@ describe("FileTree", () => {
     core.emit({ type: "fs.changed", data: { project: "p1", paths: ["b.ts"] } });
     await settle();
     expect(t.rows().map((r) => r.dataset.path)).toEqual(["a.ts", "b.ts"]);
-    // The status is a dot with its letter in the tooltip, and a word for screen readers.
-    expect(t.row("a.ts").querySelector(".dot")?.getAttribute("title")).toBe("M: modified");
+    // The status is a coloured letter, and a word for screen readers.
+    expect(t.row("a.ts").querySelector(".mark.git-modified")?.textContent).toBe("M");
+    expect(t.row("a.ts").querySelector(".name.git-modified")).not.toBeNull();
     expect(t.row("a.ts").textContent).toContain("modified");
   });
 

@@ -48,6 +48,7 @@ import NameInput from "./NameInput.svelte";
 import { keyAction, moveTarget, stemRange } from "./ops";
 import { ExpandedSaver, loadExpanded } from "./persist";
 import { clickKind, rangeOf, toggled, topLevel } from "./selection";
+import { iconUrl, loadIcons } from "./icons/icons.svelte";
 import TrashConfirm from "./TrashConfirm.svelte";
 import WatchLimitNotice from "./WatchLimitNotice.svelte";
 
@@ -79,6 +80,7 @@ let {
 } = $props();
 
 const ROW_HEIGHT = 28;
+void loadIcons();
 const OVERSCAN = 8;
 const TYPEAHEAD_RESET_MS = 700;
 const ID = `tree-${Math.random().toString(36).slice(2, 8)}`;
@@ -827,14 +829,22 @@ function onkeydown(e: KeyboardEvent): void {
                 oncancel={() => actions.cancel()}
               />
             {:else}
+              {@const icon = iconUrl(row.name, row.kind, row.expanded)}
+              {#if icon}<img class="icon" src={icon} alt="" width="16" height="16" draggable="false" />{:else}<span
+                  class="icon"
+                  aria-hidden="true"
+                ></span>{/if}
               <span class="name git-{row.git ?? 'clean'}">{row.name}</span>
             {/if}
             {#if row.loading}<span class="hint" aria-hidden="true">…</span>{/if}
             {#if row.failed}<span class="failed" aria-hidden="true">!</span>{/if}
             {#if describe(row)}<span id="{rowId(index)}-d" class="visually-hidden">{describe(row)}</span>{/if}
-            {#if row.git}
-              <span class="dot git-{row.git}" aria-hidden="true" title={`${GIT_LETTER[row.git]}: ${describe(row)}`}
-              ></span>
+            {#if row.git && row.kind === "dir"}
+              <span class="dot git-{row.git}" aria-hidden="true" title={describe(row)}></span>
+            {:else if row.git}
+              <span class="mark git-{row.git}" aria-hidden="true" title={`${GIT_LETTER[row.git]}: ${describe(row)}`}
+                >{GIT_LETTER[row.git]}</span
+              >
             {/if}
           </div>
         {/if}
@@ -946,12 +956,21 @@ function onkeydown(e: KeyboardEvent): void {
     outline-offset: -2px;
   }
   /* Cut and waiting for Paste. */
-  .row.cut > :not(.dot) {
+  .row.cut > :not(.dot, .mark) {
     opacity: 0.5;
   }
   .ignored .name {
     color: var(--text-2);
     font-style: italic;
+  }
+  .ignored .icon {
+    opacity: 0.55;
+  }
+  /* 16 px, the slot kept empty while the icon table loads. */
+  .icon {
+    flex: none;
+    width: var(--icon-sm);
+    height: var(--icon-sm);
   }
   /* A 12 px chevron in a 16 px column, turned down while the folder is open. */
   .twisty {
@@ -974,8 +993,18 @@ function onkeydown(e: KeyboardEvent): void {
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  /* Git status as a 6 px dot in the change's colour: the letter in its
-     tooltip, the word in the row's description. */
+  /* A file's git status: its name and a letter at the end in the change's
+     colour (the word in the row's description). A folder holding changes
+     gets the colour and a 6 px dot. */
+  .mark {
+    flex: none;
+    width: 1ch;
+    margin-right: var(--sp-1);
+    font-size: 11px;
+    font-weight: 600;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
   .dot {
     flex: none;
     width: 6px;
@@ -1008,22 +1037,21 @@ function onkeydown(e: KeyboardEvent): void {
     flex: none;
     font-weight: 600;
   }
-  /* Names keep the row's colour; the dot carries the status. */
-  .dot.git-modified {
+  .git-modified {
     color: var(--warn);
   }
-  .dot.git-added,
-  .dot.git-untracked {
+  .git-added,
+  .git-untracked {
     color: var(--ok);
   }
   .name.git-deleted {
     text-decoration: line-through;
   }
-  .dot.git-deleted,
-  .dot.git-conflicted {
+  .git-deleted,
+  .git-conflicted {
     color: var(--danger);
   }
-  .dot.git-renamed {
+  .git-renamed {
     color: var(--accent);
   }
   @media (forced-colors: active) {

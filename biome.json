@@ -6,7 +6,15 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!**/dist", "!target", "!app/gen", "!**/*.snap", "!.claude/worktrees"]
+    "includes": [
+      "**",
+      "!**/dist",
+      "!target",
+      "!app/gen",
+      "!**/*.snap",
+      "!.claude/worktrees",
+      "!ui/src/tree/icons/data.ts"
+    ]
   },
   "formatter": {
     "indentStyle": "space",
