@@ -240,4 +240,28 @@ describe("FocusView", () => {
       account: null,
     });
   });
+
+  it("takes files dropped on the task box as context chips", async () => {
+    const core = await setup(() => {});
+    const box = target.querySelector<HTMLTextAreaElement>("#focus-task");
+    if (!box) throw new Error("no task field");
+    const drop = new Event("drop", { bubbles: true, cancelable: true });
+    Object.defineProperty(drop, "dataTransfer", {
+      value: { types: [PATHS_DRAG_TYPE], getData: () => "src/sync.rs", files: [] },
+    });
+    box.dispatchEvent(drop);
+    await vi.waitFor(() =>
+      expect(target.querySelector("[data-testid=focus-compose] [data-testid=context-chip]")?.textContent).toContain(
+        "sync.rs",
+      ),
+    );
+    box.value = "Make it retry";
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+    flushSync();
+    target.querySelector<HTMLButtonElement>("[data-testid=focus-start]")?.click();
+    await vi.waitFor(() => expect(core.calls.some((c) => c.method === "agents.start")).toBe(true));
+    expect(core.calls.find((c) => c.method === "agents.start")?.params).toMatchObject({
+      context: [{ kind: "file", path: "src/sync.rs", confirmed: false }],
+    });
+  });
 });

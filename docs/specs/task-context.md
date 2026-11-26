@@ -70,7 +70,8 @@ the file tree does.
   tree. A name that is taken gets `-2`, `-3` (`copy` for a desktop drop).
   The core refuses to write when `.ovra-attachments` is not a folder (an
   agent could make it a link into the code).
-- **Focus**: a question's answer is text to the board, and the asking
+- **Focus**: the task box there takes @ context, drops and pastes like
+  the panel's task box (it shares that box's chips). A question's answer is text to the board, and the asking
   worker's worktree does not get the attachments folder, so only project
   files can be dropped there; they go in as paths, and one that looks like a
   secret store is refused ("type the path if you mean it"). Pasted files

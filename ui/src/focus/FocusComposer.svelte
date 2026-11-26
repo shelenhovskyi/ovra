@@ -1,8 +1,11 @@
 <script lang="ts">
 // The next task for the agents, given without leaving Focus. It starts the
 // same way as the Agents panel's form, with the project's account and the
-// way of working last chosen in this project; the IDE keeps the rest
-// (context chips, accounts, setup).
+// way of working last chosen in this project, and takes @ context and
+// dropped or pasted files as the panel's box does (its chips are the same
+// box's); the IDE keeps the rest (accounts, setup).
+import ContextInput from "../agents/ContextInput.svelte";
+import { contextDrafts } from "../agents/context.svelte";
 import { agentSessions } from "../agents/sessions.svelte";
 import { rememberedMode, rememberMode, type TaskMode } from "../agents/task-mode";
 import { CoreError } from "../lib/transport";
@@ -16,6 +19,11 @@ const MODES: { id: TaskMode; label: string }[] = [
 
 const { transport, workspace } = useOvra();
 const sessions = agentSessions(transport);
+const drafts = contextDrafts(transport);
+let field = $state<HTMLTextAreaElement>();
+let context = $state<ContextInput>();
+const box = $derived(`new:${workspace.project?.id ?? ""}`);
+const waiting = $derived(drafts.unconfirmed(box).length > 0);
 
 let text = $state("");
 let busy = $state(false);
@@ -31,12 +39,19 @@ async function start(): Promise<void> {
   const project = workspace.project?.id;
   const body = text.trim();
   if (!project || !body || busy) return;
+  if (waiting) {
+    error = "Choose Send anyway or remove the marked item first.";
+    return;
+  }
   busy = true;
   error = null;
+  const target = box;
+  const items = drafts.items(target);
   try {
-    if (mode === "split") await sessions.startTask(project, body);
-    else await sessions.start(project, body, null, mode === "research" ? "research" : "direct");
+    if (mode === "split") await sessions.startTask(project, body, items);
+    else await sessions.start(project, body, null, mode === "research" ? "research" : "direct", items);
     rememberMode(project, mode);
+    drafts.clear(target);
     text = "";
   } catch (e) {
     const why = e instanceof CoreError ? e.error.message : e instanceof Error ? e.message : String(e);
@@ -48,6 +63,7 @@ async function start(): Promise<void> {
 
 /** Enter starts, Shift+Enter starts a new line. */
 function onkeydown(event: KeyboardEvent): void {
+  if (context?.keydown(event)) return;
   if (event.code !== "Enter" && event.code !== "NumpadEnter") return;
   if (event.shiftKey || event.isComposing || event.keyCode === 229) return;
   event.preventDefault();
@@ -64,13 +80,32 @@ function onkeydown(event: KeyboardEvent): void {
   }}
 >
   <label class="visually-hidden" for="focus-task">Next task</label>
-  <textarea id="focus-task" rows="2" placeholder="Give the agents a task" bind:value={text} {onkeydown}></textarea>
+  <textarea
+    id="focus-task"
+    rows="2"
+    placeholder="Give the agents a task"
+    bind:this={field}
+    bind:value={text}
+    oninput={() => context?.refresh()}
+    onclick={() => context?.refresh()}
+    {onkeydown}
+  ></textarea>
+  {#if workspace.project}
+    <ContextInput
+      bind:this={context}
+      {field}
+      bind:value={text}
+      project={workspace.project.id}
+      target={box}
+      id="focus-task-context"
+    />
+  {/if}
   <div class="acts">
     <label class="visually-hidden" for="focus-mode">How</label>
     <select id="focus-mode" bind:value={mode} data-testid="focus-mode">
       {#each MODES as option (option.id)}<option value={option.id}>{option.label}</option>{/each}
     </select>
-    <button type="submit" class="primary" disabled={busy || !text.trim()} data-testid="focus-start">Start</button>
+    <button type="submit" class="primary" disabled={busy || !text.trim() || waiting} data-testid="focus-start">Start</button>
   </div>
   {#if error}<p class="error" role="alert">{error}</p>{/if}
 </form>
