@@ -63,6 +63,9 @@ struct Importer {
     fs: Arc<FsIndex>,
     projects: Arc<Store>,
     drops: Arc<Drops>,
+    /// Told what an import changed, so a direct session never counts it
+    /// as its agent's.
+    core: Core,
 }
 
 /// What the window learns about a drop: its id, the paths (for opening a
@@ -115,7 +118,7 @@ fn on_drop(window: &tauri::Window, paths: &[std::path::PathBuf], at: tauri::Phys
         x: at.x,
         y: at.y,
     };
-    let _ = window.emit("ovra://drop", frame);
+    let _ = window.emit_to("main", "ovra://drop", frame);
 }
 
 /// Copies the drop `drop_id` into the folder `target_dir` of `project`
@@ -149,10 +152,14 @@ async fn ovra_import_drop(
         Imported::Copied {
             paths,
             skipped_links,
-        } => ImportReply::Copied {
-            paths: paths.iter().map(|p| p.as_str().to_owned()).collect(),
-            skipped_links,
-        },
+        } => {
+            // Replaced entries are among `paths`: they keep their names.
+            importer.core.person_changed(&project, &paths);
+            ImportReply::Copied {
+                paths: paths.iter().map(|p| p.as_str().to_owned()).collect(),
+                skipped_links,
+            }
+        }
     })
 }
 
@@ -205,16 +212,11 @@ fn main() {
             let secrets: Arc<dyn Secrets> = Arc::new(KeychainSecrets::new(&data_dir));
             let servers_dir = ovra_servers::servers_dir()?;
             let fs = Arc::new(FsIndex::new());
-            app.manage(Importer {
-                fs: fs.clone(),
-                projects: store.clone(),
-                drops: Arc::new(Drops::new()),
-            });
             let core = Core::builder("tauri")
                 .secrets(secrets.clone())
                 .projects(store.clone())
                 .sessions(store.clone())
-                .audit(store)
+                .audit(store.clone())
                 .fs(fs.clone())
                 .opener(Arc::new(SystemOpener::new()))
                 .worktrees(Arc::new(GitWorktrees::new()))
@@ -244,6 +246,12 @@ fn main() {
                 )))
                 .build();
             app.manage(ServersDir(servers_dir));
+            app.manage(Importer {
+                fs: fs.clone(),
+                projects: store.clone(),
+                drops: Arc::new(Drops::new()),
+                core: core.clone(),
+            });
             let mut events = core.subscribe();
             // One window, one client.
             app.manage(core.connect());

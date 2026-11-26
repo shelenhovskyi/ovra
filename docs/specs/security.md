@@ -770,6 +770,10 @@ headless mode has no drops, and agents have no tool for it.
 
 - The target folder is checked like `fs.copy`'s, so the parent-swap race
   described above applies here too.
+- The same race exists on the source side: every source entry is opened
+  without following a link and must keep its device and inode, but a
+  folder above it that another process swaps for a link after the plan
+  can make the copy read from where that link leads.
 - The import is planned before anything changes: links are skipped and
   named, a device, pipe or socket refuses the drop, and so do more than
   10,000 entries, 1 GB or 256 nested folders. Two dropped names that one
