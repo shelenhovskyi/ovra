@@ -362,8 +362,32 @@ fn agents(args: &Args) -> Arc<dyn AgentRuntime> {
     let streaming = ScriptedAgent::new(vec![vec![Step::Partial(
         "Reading the code first, then I will run the tests",
     )]]);
+    // The git panel's agent actions (docs/specs/git-agent-actions.md): each
+    // answers as the real agent is asked to, for the e2e repository's files.
+    let say = |text: &'static str| ScriptedAgent::new(vec![vec![Step::Say(text)]]);
+    let git_actions = vec![
+        (
+            "Suggest commits",
+            say("Two commits.\n```json\n{\"commits\": [\
+                 {\"message\": \"docs: greet the world\", \"files\": [\"README.md\"]},\
+                 {\"message\": \"chore: add new.txt\", \"files\": [\"new.txt\"]}]}\n```"),
+        ),
+        (
+            "Write a commit message",
+            say("```text\nchore: update the staged files\n```"),
+        ),
+        (
+            "Summarize what's new",
+            say("- A new file, other.txt, came in.\n- Nothing else changed."),
+        ),
+        (
+            "Explain the conflicts",
+            say("Both sides changed the same line; keep the one you want and stage the file."),
+        ),
+    ];
     Arc::new(FakeAgent {
         script,
+        git_actions,
         browsing,
         sandboxed,
         streaming,
@@ -404,6 +428,8 @@ struct FakeAgent {
     sandboxed: ovra_core::fakes::ScriptedAgent,
     /// For tasks that start with "Stream".
     streaming: ovra_core::fakes::ScriptedAgent,
+    /// For the git panel's agent actions, by the start of their prompt.
+    git_actions: Vec<(&'static str, ovra_core::fakes::ScriptedAgent)>,
     claude: ClaudeCli,
 }
 
@@ -423,6 +449,13 @@ impl AgentRuntime for FakeAgent {
         }
         if spec.prompt.starts_with("Sandboxed") {
             return self.sandboxed.start(spec, host);
+        }
+        if let Some((_, agent)) = self
+            .git_actions
+            .iter()
+            .find(|(start, _)| spec.prompt.starts_with(start))
+        {
+            return agent.start(spec, host);
         }
         if spec.prompt.starts_with("Stream") {
             return self.streaming.start(spec, host);
