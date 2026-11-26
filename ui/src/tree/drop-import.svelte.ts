@@ -2,7 +2,9 @@
 // tree into the project. The app keeps the dropped paths; the tree only
 // names the drop's id and the folder under the pointer (`importDrop`). A
 // name that looks like a secret store is asked about first (Copy anyway or
-// Cancel: a copy in the project is there for every agent), and so is a name
+// Cancel: a copy in the project is there for every agent; only the dropped
+// names and their folders are checked, not what a dropped folder holds), and
+// so is a name
 // that exists already: Replace (the old one goes to the Trash), Keep both,
 // or Cancel.
 
