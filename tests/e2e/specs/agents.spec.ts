@@ -45,9 +45,12 @@ async function openGitProject(page: Page, prefix: string, files: Record<string, 
     mkdirSync(join(dir, path, ".."), { recursive: true });
     writeFileSync(join(dir, path), text);
   }
-  const git = (...args: string[]) =>
-    execFileSync("git", ["-c", "user.name=e2e", "-c", "user.email=e2e@example.invalid", ...args], { cwd: dir });
+  const git = (...args: string[]) => execFileSync("git", args, { cwd: dir });
   git("init", "-q", "-b", "main");
+  // In the repository, not on the command line: Ovra's own git commits a
+  // pull request's work too, and CI has no identity of its own.
+  git("config", "user.name", "e2e");
+  git("config", "user.email", "e2e@example.invalid");
   git("add", ".");
   git("commit", "-q", "-m", "start");
   await page.clock.install();
