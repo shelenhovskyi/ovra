@@ -1,6 +1,6 @@
 <script lang="ts">
-// The current branch, and a menu to switch to another local branch or
-// create one. Errors (an agent writes the checkout, changes would be
+// The current branch, and a popover over the panel (it moves nothing) to
+// switch to another local branch or create one. Errors (an agent writes the checkout, changes would be
 // overwritten, a bad name) stay in the menu, next to what was pressed.
 // Up, Down, Home and End move between branches; typing on one goes to the
 // filter field above them, where Enter switches to the first match.
@@ -86,6 +86,20 @@ $effect(() => {
   });
 });
 
+// A press outside the open menu (and its button) closes it, as other popovers do.
+$effect(() => {
+  if (!open) return;
+  const outside = (event: PointerEvent) => {
+    const target = event.target as Node | null;
+    if (!menu?.contains(target) && !toggleButton?.contains(target)) {
+      open = false;
+      creating = false;
+    }
+  };
+  document.addEventListener("pointerdown", outside, true);
+  return () => document.removeEventListener("pointerdown", outside, true);
+});
+
 function onkeydown(event: KeyboardEvent): void {
   if (event.code !== "Escape") return;
   event.preventDefault();
@@ -136,22 +150,11 @@ function onfilterkeydown(event: KeyboardEvent): void {
     bind:this={toggleButton}
     onclick={show}
   >
+    <Icon name="branch" small />
     <span class="visually-hidden">Branch:</span>
     <span class="label">{label}</span>
     <Icon name="chevron" small />
   </button>
-  {#if status.upstream}
-    <p class="upstream" title={status.upstream}>
-      <span class="name">{status.upstream}</span>
-      <span class="counts"
-        >{status.ahead === 0 && status.behind === 0
-          ? "up to date"
-          : [status.ahead ? `${status.ahead} ahead` : "", status.behind ? `${status.behind} behind` : ""]
-              .filter(Boolean)
-              .join(", ")}</span
-      >
-    </p>
-  {/if}
   {#if !status.head}
     <p class="upstream">No commits yet.</p>
   {/if}
@@ -162,9 +165,10 @@ function onfilterkeydown(event: KeyboardEvent): void {
         <p class="hint">Loading branches…</p>
       {:else}
         <label class="filter">
-          Filter branches
+          <span class="visually-hidden">Filter branches</span>
           <input
             type="text"
+            placeholder="Find a branch"
             data-filter
             spellcheck="false"
             autocomplete="off"
@@ -220,7 +224,7 @@ function onfilterkeydown(event: KeyboardEvent): void {
           </div>
         </form>
       {:else}
-        <button type="button" class="new" onclick={startCreate}>New branch…</button>
+        <button type="button" class="new" onclick={startCreate}><Icon name="plus" small />New branch…</button>
       {/if}
       {#if model.error?.scope === "branch"}
         <p class="error" role="alert" data-testid="git-branch-error">{model.error.message}</p>
@@ -231,6 +235,7 @@ function onfilterkeydown(event: KeyboardEvent): void {
 
 <style>
   .branch {
+    position: relative;
     display: flex;
     flex-direction: column;
     gap: 2px;
@@ -283,22 +288,25 @@ function onfilterkeydown(event: KeyboardEvent): void {
     color: var(--text-2);
     min-width: 0;
   }
-  .upstream .name {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .counts {
-    flex: none;
-  }
+  /* Over the panel, under the button: opening it moves nothing. */
   .menu {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    width: max(100%, 240px);
+    max-height: min(26em, 70vh);
     padding: 6px;
-    background: var(--s2);
+    background: var(--s4);
     border-radius: var(--radius);
+    box-shadow: var(--card-shadow);
   }
   ul {
-    max-height: 14em;
+    flex: 1 1 auto;
+    min-height: 3em;
     margin: 0;
     padding: 0;
     overflow-y: auto;
@@ -334,14 +342,28 @@ function onfilterkeydown(event: KeyboardEvent): void {
     gap: 4px;
     margin-top: 4px;
   }
-  .buttons button,
-  .new {
+  .buttons button {
     padding: 2px 10px;
     color: var(--text-2);
     background: var(--s3);
   }
+  /* Its own row under a line, never over the list. */
   .new {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 6px;
     margin-top: 4px;
+    padding: 6px;
+    border-top: 1px solid var(--separator);
+    border-radius: 0;
+    text-align: left;
+  }
+  form {
+    flex: none;
+    margin-top: 4px;
+    padding-top: 6px;
+    border-top: 1px solid var(--separator);
   }
   .hint,
   .error {

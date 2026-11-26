@@ -68,6 +68,22 @@ function click(selector: string): void {
   if (!element) throw new Error(`nothing matches ${selector}`);
   element.click();
 }
+/** Turns staging on, as "Choose files to commit" in the More menu does. */
+function choose(): void {
+  const model = gitModel("p1");
+  if (!model) throw new Error("no model");
+  model.choosing = true;
+  flushSync();
+}
+/** Runs the More menu's item `label`. */
+async function more(label: string): Promise<void> {
+  click("[data-testid=git-more]");
+  const item = contextMenu.open?.entries.find((e) => e !== "separator" && e.label === label);
+  closeContextMenu(false);
+  if (!item || item === "separator") throw new Error(`no ${label} in the More menu`);
+  await item.run();
+  await settle();
+}
 /** The path of the focused file row, if a row has focus. */
 const focusedRow = () => (document.activeElement as HTMLElement | null)?.dataset.path;
 function press(code: string, init: KeyboardEventInit = {}): void {
@@ -95,7 +111,7 @@ it("shows the branch and the lists, stages and unstages files and opens them", a
   await setup(core);
 
   expect(text("[data-testid=git-branch]")).toBe("Branch: main");
-  expect(text(".upstream")).toBe("origin/main 2 ahead");
+  expect(text("[data-testid=git-sync] strong")).toBe("2 commits not sent yet");
   expect(names("conflicts")).toEqual(["c.ts , conflicted"]);
   // A file in both lists has two rows with different names: one reads "staged".
   expect(names("staged")).toEqual(["a.ts src , modified, staged"]);
@@ -118,6 +134,37 @@ it("shows the branch and the lists, stages and unstages files and opens them", a
 
   click("[aria-label='Open src/a.ts']");
   expect(workspace.openPath).toBe("src/a.ts");
+});
+
+it("gets and sends commits from the sync card, and says why it could not", async () => {
+  const core = new FakeGitCore();
+  core.status = repo({ upstream: "origin/main", ahead: 1, behind: 3 });
+  await setup(core);
+  expect([...target.querySelectorAll("[data-testid=git-sync] strong")].map((s) => s.textContent)).toEqual([
+    "3 new commits on origin/main",
+    "1 commit not sent yet",
+  ]);
+  // Sending waits until the new commits are in.
+  expect($("[data-testid=git-push]")).toBeNull();
+  core.failNext.set(
+    "git.pull",
+    new CoreError({ code: "conflict", message: "this branch and origin/main both have new commits" }),
+  );
+  click("[data-testid=git-pull]");
+  await settle();
+  expect(text("[data-testid=git-sync-error]")).toBe(
+    "Could not get the commits. This branch and origin/main both have new commits.",
+  );
+  click("[data-testid=git-pull]");
+  await settle();
+  expect(core.calls.filter((c) => c.method === "git.pull")).toHaveLength(2);
+  expect(text("[data-testid=git-got] strong")).toBe("Got 3 commits");
+  expect(text("[data-testid=git-announce]")).toBe("Got 3 commits.");
+  click("[data-testid=git-push]");
+  await settle();
+  expect(core.methods()).toContain("git.push");
+  expect($("[data-testid=git-sync]")).toBeNull();
+  expect(text("[data-testid=git-announce]")).toBe("Sent 1 commit.");
 });
 
 it("says when the project is not a repository and sets up git in one press", async () => {
@@ -147,7 +194,6 @@ it("says when the project is not a repository and sets up git in one press", asy
   core.emit({ type: "fs.git_changed", data: { project: "p1" } });
   await settle();
   expect(text("[data-testid=git-branch]")).toBe("Branch: No branch, at commit abc1234 (detached HEAD)");
-  expect(text("[data-testid=git-remote-hint]")).toBe("Push or pull in a terminal");
   // With no commits and no changes there is nothing to commit or list: one line.
   core.status = repo({ head: null });
   core.emit({ type: "fs.git_changed", data: { project: "p1" } });
@@ -158,15 +204,21 @@ it("says when the project is not a repository and sets up git in one press", asy
   core.status = repo({ head: null, files: [changed("a.ts", { unstaged: "untracked" })] });
   core.emit({ type: "fs.git_changed", data: { project: "p1" } });
   await settle();
-  expect(text("#git-commit-why")).toBe("Stage files first.");
-  expect(text("[data-testid=git-staged] .empty")).toBe("Nothing staged.");
-  // The first commit is suggested until something is staged; Stage all then leads to the message.
-  expect(text("[data-testid=git-first-commit] p")).toBe("Git is set up. Commit your files to keep a first version.");
-  click("[data-testid=git-first-commit] button");
+  // No staging: one list, and Commit names what it takes.
+  expect(names("changes")).toEqual(["a.ts , untracked"]);
+  expect($("[data-testid=git-staged]")).toBeNull();
+  expect(text("[data-testid=git-first-commit]")).toBe(
+    "A commit saves a version of your files that you can go back to.",
+  );
+  expect($("[data-testid=git-commit]")?.firstChild?.textContent).toBe("Commit 1 file");
+  const box = $<HTMLTextAreaElement>("textarea");
+  if (box) box.value = "First version";
+  box?.dispatchEvent(new Event("input", { bubbles: true }));
+  click("[data-testid=git-commit]");
   await settle();
+  // Every change is staged first, then committed.
   expect(core.calls.find((c) => c.method === "git.stage")?.params).toEqual({ project: "p1", paths: ["a.ts"] });
-  expect(document.activeElement?.tagName).toBe("TEXTAREA");
-  expect($("[data-testid=git-first-commit]")).toBeNull();
+  expect(core.calls.find((c) => c.method === "git.commit")?.params).toMatchObject({ message: "First version" });
 });
 
 it("opens on the first change while nothing is staged, else on the commit message", async () => {
@@ -198,6 +250,12 @@ it("discards only after a confirmation and offers Undo until the next discard", 
   const core = new FakeGitCore();
   core.status = repo({ files: [changed("new.md", { unstaged: "untracked" }), changed("b.ts")] });
   await setup(core);
+  // Without staging the hover slot only opens the file.
+  const simple = $("[data-testid=git-changes] [data-path='new.md']")?.parentElement;
+  expect([...(simple?.querySelectorAll("button.icon") ?? [])].map((b) => b.getAttribute("aria-label"))).toEqual([
+    "Open new.md",
+  ]);
+  choose();
   // The hover slot holds two drawn icons, Stage first; Discard is never there.
   const button = $("[data-testid=git-changes] [data-path='new.md']");
   const actions = [...(button?.parentElement?.querySelectorAll<HTMLButtonElement>("button.icon") ?? [])];
@@ -252,16 +310,15 @@ it("commits with Mod+Enter, says why it waits and shows a hook's output", async 
   if (!box) throw new Error("no commit message");
   const commit = $("[data-testid=git-commit]");
   expect(commit?.getAttribute("aria-disabled")).toBe("true");
-  expect(text("#git-commit-why")).toBe("Stage files, or amend.");
+  // Why it waits shows only once Commit is pressed.
+  expect($("#git-commit-why")).toBeNull();
   box.dispatchEvent(new KeyboardEvent("keydown", { code: "Enter", ctrlKey: true, bubbles: true }));
   await settle();
   // Said once, under the button, and read out from there.
   expect(text("[data-testid=git-announce]")).toBe("");
   expect($("#git-commit-why")?.closest("[role=status]")).not.toBeNull();
-  expect(text("#git-commit-why")).toBe("Stage files, or amend.");
+  expect(text("#git-commit-why")).toBe("Write what you changed first.");
 
-  click("[aria-label='Stage a.ts']");
-  await settle();
   box.value = "Fix the thing\n\nBody";
   box.dispatchEvent(new Event("input", { bubbles: true }));
   core.failNext.set("git.commit", new CoreError({ code: "conflict", message: "pre-commit: lint failed" }));
@@ -272,24 +329,28 @@ it("commits with Mod+Enter, says why it waits and shows a hook's output", async 
 
   click("[data-testid=git-commit]");
   await settle();
-  expect(core.calls.at(-2)).toMatchObject({ method: "git.commit", params: { message: "Fix the thing\n\nBody" } });
+  expect(core.calls.filter((c) => c.method === "git.commit").at(-1)).toMatchObject({
+    params: { message: "Fix the thing\n\nBody" },
+  });
   expect(text("[data-testid=git-committed]")).toBe("Committed c100000: Fix the thing");
   expect(text("[data-testid=git-announce]")).toBe("");
-  expect(box.value).toBe("");
-  // Recent commits read with the short id only: no title with the full one.
+  // Nothing left to commit: one line, no commit box.
+  expect(text("[data-testid=git-clean] h2")).toBe("Everything is saved");
+  expect($("[data-testid=git-commit]")).toBeNull();
+  // History reads with the short id only: no title with the full one.
   click(".log .toggle");
   await settle();
   const entry = $("[data-testid=git-log] li");
   expect(entry?.hasAttribute("title")).toBe(false);
   expect(text("[data-testid=git-log] li .meta")).toMatch(/^c100000 · Ada · /);
 
-  // Amend with an empty message keeps the last commit's message.
-  $<HTMLInputElement>("input[type=checkbox]")?.click();
-  await settle();
-  expect(box.value).toBe("");
-  expect(text(".commit .hint")).toMatch(/empty message keeps/);
-  // Mod+Enter commits from anywhere in the box, here the checkbox.
-  $<HTMLInputElement>("input[type=checkbox]")?.focus();
+  // Changing the last commit, from the More menu: an empty message keeps its message.
+  await more("Change last commit…");
+  const again = $<HTMLTextAreaElement>("textarea");
+  expect(again?.value).toBe("");
+  expect(document.activeElement).toBe(again);
+  expect(text("[data-testid=git-amend]")).toMatch(/empty message keeps/);
+  expect($("[data-testid=git-commit]")?.firstChild?.textContent).toBe("Change last commit");
   press("Enter", { ctrlKey: true });
   await settle();
   expect(core.calls.filter((c) => c.method === "git.commit").at(-1)).toMatchObject({
@@ -491,6 +552,7 @@ it("follows the file's changes to the staged side, and says where they went afte
   });
   core.diffs.set("a.ts", diff(["-old", "+new"]));
   await setup(core);
+  choose();
   click("[data-testid=git-changes] [data-path='a.ts']");
   await settle();
 

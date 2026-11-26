@@ -14,14 +14,14 @@ export type GitState =
   | { kind: "error"; message: string };
 
 /** Where a failure is shown: next to what the person pressed. */
-export type GitErrorScope = "files" | "commit" | "branch" | "diff" | "setup";
+export type GitErrorScope = "files" | "commit" | "branch" | "diff" | "setup" | "sync";
 
 /** A failed action; `output` is a hook's or git's text, shown as is. */
 export type GitError = { scope: GitErrorScope; message: string; output?: string };
 
 export type Discarded = { undo: string; paths: string[] };
 
-/** Commits shown under "Recent commits". */
+/** Commits shown under "History". */
 const LOG_LIMIT = 20;
 
 /** After this long a commit or a branch switch says it still runs, and offers Cancel. */
@@ -100,6 +100,22 @@ export function fileLists(files: readonly StatusFile[]): {
   return { conflicts, staged, changes };
 }
 
+/**
+ * Whether the panel shows staging (two lists, Stage and Unstage): the person
+ * asked for it, a merge or the like is under way, or part of the changes is
+ * staged already (in a terminal, or a hunk), which committing everything
+ * would sweep in. Otherwise Commit takes every change.
+ */
+export function showsStaging(status: RepoStatus, choosing: boolean): boolean {
+  const { conflicts, staged, changes } = fileLists(status.files);
+  return choosing || !!status.operation || conflicts.length > 0 || (staged.length > 0 && changes.length > 0);
+}
+
+/** Every changed file once, for the one list the panel shows without staging. */
+export function changedFiles(files: readonly StatusFile[]): StatusFile[] {
+  return files.filter((f) => f.unstaged !== "conflicted");
+}
+
 const live = new SvelteMap<ProjectId, GitModel>();
 
 /** The panel's model of `project`, while the panel is mounted. */
@@ -111,7 +127,7 @@ export class GitModel {
   state = $state<GitState>({ kind: "loading" });
   /** Null until the branch menu first opens. */
   branches = $state.raw<BranchInfo[] | null>(null);
-  /** Null until "Recent commits" first opens. */
+  /** Null until "History" first opens. */
   log = $state.raw<CommitInfo[] | null>(null);
   logOpen = $state(false);
   /** An action is running; others wait. */
@@ -131,6 +147,14 @@ export class GitModel {
   stopping = $state(false);
   /** A palette command asks the branch menu to open, to switch or to create; the menu clears it. */
   branchMenu = $state<"switch" | "create" | null>(null);
+  /** The person chose which files go in the commit ("Choose files to commit"): staging shows. */
+  choosing = $state(false);
+  /** The next commit replaces the last one ("Change last commit…"). */
+  amend = $state(false);
+  /** "Get commits" or "Send commits" is under way. */
+  syncing = $state<"pull" | "push" | null>(null);
+  /** How many commits the last "Get commits" brought, until dismissed. */
+  got = $state<number | null>(null);
 
   private loading: Promise<void> | null = null;
   private again = false;
@@ -259,6 +283,8 @@ export class GitModel {
   /** Commits what is staged; true when a commit was made. */
   commit(text: string, amend: boolean): Promise<boolean> {
     this.committed = null;
+    // "Got N commits" is old news once the person moves on.
+    this.got = null;
     return this.act(
       "commit",
       async () => {
@@ -318,6 +344,32 @@ export class GitModel {
       (err) => ({ message: `Could not create ${name}: ${message(err)}` }),
       "branch",
     );
+  }
+
+  /** Fetches the upstream and fast-forwards to it; `count` is what the status said was new. */
+  pull(count: number): Promise<boolean> {
+    return this.sync("pull", count);
+  }
+
+  /** Sends the branch's commits to its upstream. */
+  push(count: number): Promise<boolean> {
+    return this.sync("push", count);
+  }
+
+  private async sync(what: "pull" | "push", count: number): Promise<boolean> {
+    if (this.busy) return false;
+    this.syncing = what;
+    this.got = null;
+    const commits = `${count} ${count === 1 ? "commit" : "commits"}`;
+    const done = await this.act(
+      "sync",
+      () => this.call({ method: what === "pull" ? "git.pull" : "git.push", params: { project: this.project } }),
+      what === "pull" ? `Got ${commits}.` : `Sent ${commits}.`,
+      (err) => ({ message: `Could not ${what === "pull" ? "get" : "send"} the commits. ${sentence(message(err))}` }),
+    );
+    this.syncing = null;
+    if (done && what === "pull") this.got = count;
+    return done;
   }
 
   stageHunk(path: string, hunk: Hunk, unstage: boolean): Promise<boolean> {

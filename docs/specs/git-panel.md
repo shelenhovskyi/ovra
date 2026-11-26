@@ -22,10 +22,13 @@ In v1:
   from the gutter, blame of the current line and a blame toggle.
 - A short log of HEAD.
 
-Not in v1: push, pull and fetch (they need the person's credentials and
-prompts; the panel offers to open a terminal with the command typed but not
-run), resolving conflicts (the panel shows them and opens the file), stash,
-remote branches, submodules.
+Added 2026-11-26 (the owner: "nothing is clear"): "Get commits" (`git.pull`:
+fetch the current branch's upstream through the `Forge`, then fast-forward
+only) and "Send commits" (`git.push`: `Forge::push`, never forced, on top
+of the remote branch only). Both are the person's buttons, not agent tools.
+
+Not in v1: resolving conflicts (the panel shows them and opens the file),
+stash, remote branches, publishing a branch that has no upstream, submodules.
 
 ## Protocol
 
@@ -111,13 +114,28 @@ under the budgets in `scripts/test-budgets.json`.
 `ui/src/git/`: a "Git" tab in the left sidebar, `Mod+Shift+G` (browser
 stand-in `Alt+Shift+G`), command "Git: open panel" (the palette also has
 "Git: stage all changes", "Git: commit", "Git: new branch…" and "Git:
-switch branch…"). It shows the branch
-(with a switch/create menu), a commit box (Mod+Enter commits, "Amend"
-checkbox), staged and unstaged/untracked lists with stage, unstage and
-discard buttons and "Stage all", and a conflicts list. Selecting a file
-shows its diff in the main area with per-hunk Stage/Unstage. Discard shows
-an Undo that stays until the next discard. English only, keyboard reachable,
-announcements through `aria-live`.
+switch branch…"). Made for people new to git (redesign of 2026-11-26):
+
+- Top row: the branch (a popover over the panel to switch or create, which
+  moves nothing), the agent actions and a More menu ("Choose files to
+  commit", "Change last commit…", "Open terminal").
+- A sync card when the branch's upstream has new commits ("Get N commits",
+  then "What's new?") or this branch has commits not sent ("Send N
+  commits"; only once nothing new waits).
+- Nothing changed: one line, "Everything is saved", and no commit box.
+- Changes: one list "N changed files" (no staging) and a commit box whose
+  button names what it commits ("Commit 3 files", Mod+Enter); it stages
+  every change, then commits. Why Commit waits shows only once pressed.
+- Staging (staged and unstaged lists with Stage, Unstage, "Stage all")
+  shows when chosen in the More menu, during a merge or the like, with
+  conflicts, or when part of the changes is staged already (a terminal, a
+  hunk), so that Commit never sweeps in more than the person picked.
+- History, collapsed, at the bottom.
+
+Selecting a file shows its diff in the main area with per-hunk
+Stage/Unstage. Discard (in a row's menu) shows an Undo that stays until the
+next discard. English only, keyboard reachable, announcements through
+`aria-live`.
 
 `ui/src/editor/`: gutter markers (added, changed, deleted) from a line diff
 of the buffer against `git.show` of the index, so unsaved edits show too;

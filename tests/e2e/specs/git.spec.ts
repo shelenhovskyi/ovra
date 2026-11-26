@@ -63,10 +63,16 @@ test("stage a file and one hunk, commit, and switch to a new branch", async ({ p
   await page.keyboard.press("Alt+Shift+G");
   const panel = page.getByTestId("git");
   const changes = panel.getByTestId("git-changes");
-  // Nothing is staged yet: focus is on the first change (git lists tracked files first), where S stages it.
+  // Nothing is staged yet: focus is on the first change (git lists tracked files first).
   const row = changes.locator('[data-row][data-path="notes.txt"]');
   await expect(row).toBeFocused();
   await expect(panel.getByTestId("git-branch")).toHaveAccessibleName("Branch: main");
+  // One list without staging; the More menu turns staging on.
+  await expect(changes.getByRole("heading")).toHaveText("2 changed files");
+  await expect(changes.getByRole("button", { name: "Stage new.txt" })).toHaveCount(0);
+  await panel.getByRole("button", { name: "More" }).click();
+  await page.getByRole("menuitem", { name: "Choose files to commit" }).click();
+  await row.focus();
   await expect(changes.getByRole("button", { name: "Stage new.txt" })).toBeVisible();
   // A row's hover slot also shows while the row has focus, for keyboard users.
   const slot = row.locator("xpath=..").getByTestId("git-row-actions");
@@ -147,8 +153,9 @@ test("set up git in a folder without it", async ({ page }) => {
   const panel = page.getByTestId("git");
   await expect(panel.getByTestId("git-no-repo")).toContainText("Not a git repository");
   await panel.getByRole("button", { name: "Set up git" }).click();
-  await expect(panel.getByTestId("git-changes").getByRole("button", { name: "Stage README.md" })).toBeVisible();
-  await expect(panel.getByTestId("git-first-commit")).toContainText("Commit your files to keep a first version.");
+  await expect(panel.getByTestId("git-changes").locator('[data-row][data-path="README.md"]')).toBeVisible();
+  await expect(panel.getByTestId("git-first-commit")).toContainText("A commit saves a version of your files");
+  await expect(panel.getByTestId("git-commit")).toContainText("Commit 1 file");
   expect(existsSync(join(dir, ".git"))).toBe(true);
   // The tree agrees with the panel in a repository without commits.
   await page.keyboard.press("ControlOrMeta+Shift+E");

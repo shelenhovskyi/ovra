@@ -1,5 +1,5 @@
 <script lang="ts">
-// One list of the git panel: "Conflicts", "Staged changes" or "Changes".
+// One list of the git panel: "Conflicts", "Staged", "Changes", or without staging the one list of every change.
 // A row shows its diff (a conflict opens its file); its hover slot stages,
 // unstages or opens it, and its context menu (right click, Shift+F10, the
 // Menu key) has every action, Discard last. The list is one Tab stop: arrows,
@@ -25,6 +25,7 @@ let {
   onopen,
   ondiff,
   onfocuslost,
+  simple = false,
 }: {
   model: GitModel;
   kind: Kind;
@@ -36,6 +37,8 @@ let {
   ondiff: (path: string, staged: boolean) => void;
   /** Focus had nowhere to go in this list after an action. */
   onfocuslost: () => void;
+  /** The one list of every change, without staging: no Stage, no count, the title says it. */
+  simple?: boolean;
 } = $props();
 
 let list = $state<HTMLElement>();
@@ -45,6 +48,8 @@ let current = $state<string | null>(null);
 /** A row or one of its buttons has focus: the keys show under the list. */
 let focused = $state(false);
 const stop = $derived(files.some((f) => f.path === current) ? current : (files[0]?.path ?? null));
+
+const SIMPLE_KEYS = "Enter: show the diff. Delete: discard. O: open the file.";
 
 const KEYS: Record<Kind, string> = {
   conflicts: "Enter or O: open the file. S: mark resolved.",
@@ -65,7 +70,10 @@ const NO_KEY: Record<Kind, Partial<Record<string, string>>> = {
   changes: { KeyU: "This file is not staged: there is nothing to unstage." },
 };
 
-const change = (file: StatusFile): GitChange => (kind === "staged" ? file.staged : file.unstaged) ?? "modified";
+const change = (file: StatusFile): GitChange =>
+  (kind === "staged" ? file.staged : simple ? (file.unstaged ?? file.staged) : file.unstaged) ?? "modified";
+/** A file of the simple list with nothing left to stage: its changes are on the staged side. */
+const stagedOnly = (file: StatusFile) => kind === "staged" || (simple && file.unstaged === null);
 const name = (path: string) => path.slice(path.lastIndexOf("/") + 1);
 const folder = (path: string) => path.slice(0, Math.max(path.lastIndexOf("/"), 0));
 const rows = () => [...(list?.querySelectorAll<HTMLElement>("[data-row]") ?? [])];
@@ -98,7 +106,7 @@ async function cancelDiscard(): Promise<void> {
 /** The row's main action: its diff, or for a conflict its file in the editor. */
 function primary(file: StatusFile): void {
   if (kind === "conflicts") onopen(file.path);
-  else ondiff(file.path, kind === "staged");
+  else ondiff(file.path, stagedOnly(file));
 }
 
 const stage = (file: StatusFile, i: number) => run(i, () => model.stage([file.path]));
@@ -112,17 +120,18 @@ function rowMenu(file: StatusFile, i: number): MenuEntry[] {
     kind !== "conflicts" && { label: "Show diff", run: () => primary(file) },
     what !== "deleted" && { label: "Open file", keys: "O", run: () => onopen(file.path) },
     "separator",
-    kind === "changes" && { label: "Stage", keys: "S", disabled: model.busy, run: () => stage(file, i) },
+    kind === "changes" && !simple && { label: "Stage", keys: "S", disabled: model.busy, run: () => stage(file, i) },
     kind === "conflicts" && { label: "Mark resolved", keys: "S", disabled: model.busy, run: () => stage(file, i) },
     kind === "staged" && { label: "Unstage", keys: "U", disabled: model.busy, run: () => unstage(file, i) },
     "separator",
-    kind === "changes" && {
-      label: "Discard changes…",
-      keys: "Delete",
-      danger: true,
-      disabled: model.busy,
-      run: () => askDiscard(file.path),
-    },
+    kind === "changes" &&
+      !stagedOnly(file) && {
+        label: "Discard changes…",
+        keys: "Delete",
+        danger: true,
+        disabled: model.busy,
+        run: () => askDiscard(file.path),
+      },
   ];
 }
 
@@ -141,12 +150,19 @@ function onrowkeydown(event: KeyboardEvent, file: StatusFile, i: number): void {
   const to = { ArrowDown: i + 1, ArrowUp: i - 1, Home: 0, End: files.length - 1 }[event.code];
   const code = event.code === "Backspace" ? "Delete" : event.code;
   const action = {
-    KeyS: kind !== "staged" ? () => stage(file, i) : null,
+    KeyS: kind !== "staged" && !simple ? () => stage(file, i) : null,
     KeyU: kind === "staged" ? () => unstage(file, i) : null,
-    Delete: kind === "changes" ? () => askDiscard(file.path) : null,
+    Delete: kind === "changes" && !stagedOnly(file) ? () => askDiscard(file.path) : null,
     KeyO: change(file) !== "deleted" ? () => onopen(file.path) : null,
   }[code];
-  const why = code === "KeyO" ? "This file is deleted: there is nothing to open." : NO_KEY[kind][code];
+  const why =
+    code === "KeyO"
+      ? "This file is deleted: there is nothing to open."
+      : simple
+        ? code === "Delete"
+          ? "This file's changes are staged: choose files to commit (in the More menu) to unstage them."
+          : undefined
+        : NO_KEY[kind][code];
   if (to !== undefined) {
     event.preventDefault();
     rows()[Math.max(0, Math.min(to, files.length - 1))]?.focus();
@@ -164,8 +180,10 @@ const all = $derived(files.flatMap((f) => (kind === "staged" && f.from ? [f.path
 
 <section class="files" aria-labelledby={`git-${kind}-title`} data-testid={`git-${kind}`}>
   <div class="head">
-    <h3 id={`git-${kind}-title`}>{title} <span class="count">({files.length})</span></h3>
-    {#if kind === "changes"}
+    <h3 id={`git-${kind}-title`}>{title}{#if !simple}{" "}<span class="count">({files.length})</span>{/if}</h3>
+    {#if simple}
+      <!-- Nothing to stage here: Commit takes every change. -->
+    {:else if kind === "changes"}
       <button type="button" aria-disabled={model.busy || files.length === 0} onclick={() => run(0, () => model.stage(all))}
         >Stage all</button
       >
@@ -216,7 +234,9 @@ const all = $derived(files.flatMap((f) => (kind === "staged" && f.from ? [f.path
           <span class="dot {what}" aria-hidden="true" title={`${CHANGE_LETTER[what]}: ${CHANGE_LABEL[what]}`}></span>
           <!-- The hover slot: always laid out, so showing it moves nothing. Discard is in the menu, never here. -->
           <span class="slot" data-testid="git-row-actions">
-            {#if kind === "staged"}
+            {#if simple}
+              <!-- Open only: Commit takes every change. -->
+            {:else if kind === "staged"}
               <button
                 type="button"
                 class="icon"
@@ -285,7 +305,9 @@ const all = $derived(files.flatMap((f) => (kind === "staged" && f.from ? [f.path
       </li>
     {/each}
   </ul>
-  <p id={`git-${kind}-keys`} class="keys" data-testid={`git-${kind}-keys`} hidden={!focused}>{KEYS[kind]}</p>
+  <p id={`git-${kind}-keys`} class="keys" data-testid={`git-${kind}-keys`} hidden={!focused}>
+    {simple ? SIMPLE_KEYS : KEYS[kind]}
+  </p>
 </section>
 
 <style>

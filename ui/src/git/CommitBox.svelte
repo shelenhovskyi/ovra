@@ -1,21 +1,25 @@
 <script lang="ts">
-// The commit box: a message, "Amend last commit" and Commit. Mod+Enter
-// anywhere in the box commits. Commit says why it waits; a hook's output is shown
-// when the commit fails, and a short line names the commit when it is made.
+// The commit box: what changed, and one Commit button that names what it
+// commits. Without staging it commits every change (staging them first);
+// with staging, what is staged. Mod+Enter anywhere in the box commits. Commit
+// says why it waits only once pressed; a hook's output is shown when the
+// commit fails, and a short line names the commit when it is made.
 import { tick } from "svelte";
 import { formatShortcut, isApple } from "../keys/shortcut";
 import type { RepoStatus } from "../lib/protocol";
 import type { Assist } from "./assist.svelte";
-import type { GitModel } from "./model.svelte";
+import { changedFiles, fileLists, type GitModel } from "./model.svelte";
 
-let { model, status, assist }: { model: GitModel; status: RepoStatus; assist: Assist } = $props();
+let { model, status, assist, staging }: { model: GitModel; status: RepoStatus; assist: Assist; staging: boolean } =
+  $props();
 
 const shortcut = formatShortcut("Mod+Enter", isApple());
 let text = $state("");
-let amend = $state(false);
 /** The person's own text that an agent's draft replaced, for Undo. */
 let replaced = $state<string | null>(null);
 let box = $state<HTMLTextAreaElement>();
+/** Commit was pressed while it could not commit: say why. */
+let tried = $state(false);
 
 // An agent drafted a message: it goes in the box, for the person to edit and commit.
 $effect(() => {
@@ -34,10 +38,17 @@ function undoDraft(): void {
   box?.focus();
 }
 
-const staged = $derived(status.files.filter((f) => f.staged !== null && f.unstaged !== "conflicted").length);
+/** Files the commit takes: what is staged, or without staging every change. */
+const count = $derived(staging ? fileLists(status.files).staged.length : changedFiles(status.files).length);
+/** Changes to stage before committing, without staging. */
+const unstaged = $derived(
+  staging ? [] : fileLists(status.files).changes.flatMap((f) => (f.from ? [f.path, f.from] : [f.path])),
+);
+const files = (n: number) => `${n} ${n === 1 ? "file" : "files"}`;
+const label = $derived(model.amend ? "Change last commit" : count === 0 ? "Commit" : `Commit ${files(count)}`);
 const why = $derived.by(() => {
-  if (!amend && staged === 0) return status.head ? "Stage files, or amend." : "Stage files first.";
-  if (!text.trim() && !amend) return "Write a commit message.";
+  if (!model.amend && count === 0) return "Stage the files to commit first.";
+  if (!text.trim() && !model.amend) return "Write what you changed first.";
   return null;
 });
 
@@ -47,17 +58,26 @@ let repeating = $state(false);
 async function commit(): Promise<void> {
   if (model.busy) return;
   if (why) {
-    // Mod+Enter from the message: say why nothing happened, where it shows.
+    // Say why nothing happened, where it shows, and once more on each press.
+    tried = true;
     repeating = true;
     await tick();
     repeating = false;
+    if (!text.trim()) box?.focus();
     return;
   }
-  if (await model.commit(text.trim(), amend)) {
+  if (unstaged.length > 0 && !(await model.stage(unstaged))) return;
+  if (await model.commit(text.trim(), model.amend)) {
     text = "";
     replaced = null;
-    amend = false;
+    tried = false;
+    model.amend = false;
   }
+}
+
+function cancelAmend(): void {
+  model.amend = false;
+  box?.focus();
 }
 
 function onkeydown(event: KeyboardEvent): void {
@@ -69,12 +89,18 @@ function onkeydown(event: KeyboardEvent): void {
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div class="commit" role="group" aria-label="Commit" {onkeydown}>
+  {#if model.amend}
+    <p class="hint" data-testid="git-amend">
+      Changes the last commit: its message{count ? ", and adds these files" : ""}. An empty message keeps the old one.
+      <button type="button" class="link" onclick={cancelAmend}>Cancel</button>
+    </p>
+  {/if}
   <label class="message">
     <span>Commit message</span>
     <textarea
       rows="3"
       spellcheck="true"
-      placeholder={`${shortcut} commits`}
+      placeholder="What did you change? For example: Fix the login button"
       aria-keyshortcuts={isApple() ? "Meta+Enter" : "Control+Enter"}
       bind:value={text}
       bind:this={box}
@@ -86,28 +112,18 @@ function onkeydown(event: KeyboardEvent): void {
       <button type="button" class="link" onclick={undoDraft}>Undo</button>
     </p>
   {/if}
-  {#if status.head}
-    <label class="check">
-      <input type="checkbox" bind:checked={amend} />
-      Amend last commit
-    </label>
-    {#if amend}
-      <p class="hint">
-        Replaces the last commit with what is staged. An empty message keeps the old one.
-      </p>
-    {/if}
-  {/if}
   <button
     type="button"
     class="primary"
     data-testid="git-commit"
     aria-disabled={!!why || model.busy}
-    aria-describedby={why ? "git-commit-why" : undefined}
-    onclick={commit}>{amend ? "Amend commit" : "Commit"}</button
+    aria-describedby={why && tried ? "git-commit-why" : undefined}
+    aria-keyshortcuts={isApple() ? "Meta+Enter" : "Control+Enter"}
+    onclick={commit}>{label}<kbd aria-hidden="true">{shortcut}</kbd></button
   >
   <!-- Each message shows once, here, and is read out from here. -->
   <div class="said" role="status">
-    {#if why}
+    {#if why && tried}
       <p class="hint" id="git-commit-why">{repeating ? "" : why}</p>
     {/if}
     {#if model.committed && model.error?.scope !== "commit"}
@@ -116,6 +132,9 @@ function onkeydown(event: KeyboardEvent): void {
       </p>
     {/if}
   </div>
+  {#if !status.head && !model.committed}
+    <p class="hint" data-testid="git-first-commit">A commit saves a version of your files that you can go back to.</p>
+  {/if}
   {#if model.error?.scope === "commit"}
     <div class="error" role="alert" data-testid="git-commit-error">
       <p>{model.error.message}</p>
@@ -159,20 +178,18 @@ function onkeydown(event: KeyboardEvent): void {
     resize: vertical;
   }
   textarea:focus-visible,
-  input:focus-visible,
   button:focus-visible,
   summary:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 1px;
   }
-  .check {
-    display: flex;
-    gap: 4px;
-    align-items: center;
-    font-size: 13px;
-  }
   .primary {
-    padding: 5px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: var(--control-h);
+    padding: 0 12px;
     font: inherit;
     font-weight: 500;
     color: var(--accent-ink);
@@ -180,6 +197,12 @@ function onkeydown(event: KeyboardEvent): void {
     border: 1px solid transparent;
     border-radius: var(--radius-sm);
     cursor: pointer;
+  }
+  kbd {
+    font: inherit;
+    font-size: 11px;
+    font-weight: 400;
+    opacity: 0.7;
   }
   .primary[aria-disabled="true"] {
     opacity: 0.5;

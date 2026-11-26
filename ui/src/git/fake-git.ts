@@ -187,6 +187,12 @@ export class FakeGitCore implements Transport {
       }
       case "git.pulled":
         return { type: "git.pulled", data: structuredClone(this.pulled) };
+      case "git.pull":
+        status.behind = 0;
+        return { type: "ok" };
+      case "git.push":
+        status.ahead = 0;
+        return { type: "ok" };
       case "git.log":
         return { type: "git.log", data: { commits: this.commits.slice(0, request.params.limit ?? 50) } };
       default:

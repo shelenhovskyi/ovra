@@ -1,10 +1,14 @@
 <script lang="ts">
-// The git panel of one project: branch, commit box, conflicts, staged and
-// unstaged files, the Undo of the last discard and recent commits. Results
-// are announced in a live region; focus stays on the list after an action.
+// The git panel of one project, for people new to git: the branch, what is
+// new on the remote or not sent yet, then either "Everything is saved" or the
+// changed files and one Commit. Staging (two lists) shows only when asked for
+// in the More menu, during a merge or the like, or when part of the changes
+// is staged already. Results are announced in a live region; focus stays on
+// the list after an action.
 import { tick } from "svelte";
 import { listCommands } from "../keys/commands";
 import type { GitOperation, ProjectId } from "../lib/protocol";
+import { openContextMenu } from "../menu/context-menu.svelte";
 import { useOvra } from "../shell/context";
 import EmptyState from "../shell/EmptyState.svelte";
 import Icon from "../shell/Icon.svelte";
@@ -15,7 +19,7 @@ import Branches from "./Branches.svelte";
 import CommitBox from "./CommitBox.svelte";
 import FileSection from "./FileSection.svelte";
 import { diffOpened, focusList, focusMessage, focusRow } from "./focus";
-import { describePaths, fileLists, GitModel } from "./model.svelte";
+import { changedFiles, describePaths, fileLists, GitModel, showsStaging } from "./model.svelte";
 
 let { project }: { project: ProjectId } = $props();
 const { transport, workspace } = useOvra();
@@ -43,16 +47,37 @@ const fresh = $derived(
     !model.discarded,
 );
 
-/** A repository with no commits whose files are not staged yet: the next step is a first commit. */
-const firstCommit = $derived(
-  !!status && !status.head && !status.operation && lists.changes.length > 0 && lists.staged.length === 0,
-);
+/** Staging shows: the commit takes what is staged, not every change. */
+const staging = $derived(!!status && showsStaging(status, model.choosing));
+/** Nothing to commit: no change, no merge or the like under way. */
+const clean = $derived(!!status && status.files.length === 0 && !status.operation && status.truncated === 0);
+const changed = $derived(changedFiles(status?.files ?? []));
+const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 
-/** Stages every change, then hands over to the message: Commit stays the one primary. */
-async function stageAll(): Promise<void> {
-  if (model.busy || !(await model.stage(lists.changes.map((f) => f.path)))) return;
-  await tick();
-  focusMessage();
+let moreButton = $state<HTMLElement>();
+
+/** The More menu: staging, changing the last commit, a terminal. */
+function more(): void {
+  const box = moreButton?.getBoundingClientRect();
+  const forced = !!status && showsStaging(status, false);
+  openContextMenu({ x: box?.left ?? 0, y: box?.bottom ?? 0, returnFocus: moreButton }, [
+    !forced && {
+      label: model.choosing ? "Commit all changes" : "Choose files to commit",
+      run: () => {
+        model.choosing = !model.choosing;
+      },
+    },
+    !!status?.head && {
+      label: model.amend ? "Keep the last commit as it is" : "Change last commit…",
+      run: async () => {
+        model.amend = !model.amend;
+        await tick();
+        if (model.amend) focusMessage();
+      },
+    },
+    "separator",
+    { label: "Open terminal", run: openTerminal },
+  ]);
 }
 
 const OPERATION: Record<GitOperation, string> = {
@@ -151,20 +176,87 @@ function ago(seconds: number, now = Date.now() / 1000): string {
     <div class="top">
       <Branches {model} {status} />
       <AgentActions {assist} {status} />
+      <button
+        type="button"
+        class="icon"
+        aria-label="More"
+        title="More"
+        aria-haspopup="menu"
+        data-testid="git-more"
+        bind:this={moreButton}
+        onclick={more}><Icon name="more" /></button
+      >
     </div>
-    <AssistCard {assist} />
-    {#if firstCommit}
-      <div class="first" data-testid="git-first-commit">
-        <p>Git is set up. Commit your files to keep a first version.</p>
-        <button type="button" class="bordered" aria-disabled={model.busy} onclick={stageAll}>Stage all</button>
+    {#if status.upstream && (status.behind > 0 || status.ahead > 0 || model.error?.scope === "sync")}
+      <div class="sync" data-testid="git-sync">
+        {#if status.behind > 0}
+          <div class="line">
+            <p>
+              <strong>{plural(status.behind, "new commit")} on {status.upstream}</strong>
+              <span>Someone sent them from elsewhere. Get them to stay up to date.</span>
+            </p>
+            <button
+              type="button"
+              class="primary"
+              data-testid="git-pull"
+              aria-disabled={model.busy}
+              onclick={() => void model.pull(status.behind)}
+              >{model.syncing === "pull" ? "Getting…" : `Get ${plural(status.behind, "commit")}`}</button
+            >
+          </div>
+        {/if}
+        {#if status.ahead > 0}
+          <div class="line">
+            <p>
+              <strong>{plural(status.ahead, "commit")} not sent yet</strong>
+              <span
+                >{status.behind > 0
+                  ? "Get the new commits first, then send yours."
+                  : `They are only on this computer. Send them to ${status.upstream}.`}</span
+              >
+            </p>
+            {#if status.behind === 0}
+              <button
+                type="button"
+                class="bordered"
+                data-testid="git-push"
+                aria-disabled={model.busy}
+                onclick={() => void model.push(status.ahead)}
+                >{model.syncing === "push" ? "Sending…" : `Send ${plural(status.ahead, "commit")}`}</button
+              >
+            {/if}
+          </div>
+        {/if}
+        {#if model.error?.scope === "sync"}
+          <p class="error" role="alert" data-testid="git-sync-error">{model.error.message}</p>
+          <button type="button" class="bordered" onclick={openTerminal}>Open terminal</button>
+        {/if}
       </div>
     {/if}
+    {#if model.got !== null}
+      <div class="sync" data-testid="git-got">
+        <p><strong>Got {plural(model.got, "commit")}</strong></p>
+        <div class="buttons">
+          {#if status.head && !assist.busy}
+            <button
+              type="button"
+              class="bordered"
+              onclick={() => {
+                model.got = null;
+                void assist.run("pulled");
+              }}>What's new?</button
+            >
+          {/if}
+          <button type="button" onclick={() => (model.got = null)}>Dismiss</button>
+        </div>
+      </div>
+    {/if}
+    <AssistCard {assist} />
     {#if status.operation}
       <p class="operation" data-testid="git-operation">
         {OPERATION[status.operation]} Resolve, stage and commit to finish.
       </p>
     {/if}
-    <CommitBox {model} {status} {assist} />
     {#if model.discarded}
       <div class="undo" role="group" aria-label="Undo discard">
         <p>Discarded the changes to {describePaths(model.discarded.paths)}.</p>
@@ -173,6 +265,18 @@ function ago(seconds: number, now = Date.now() / 1000): string {
     {/if}
     {#if model.error?.scope === "files"}
       <p class="error" role="alert" data-testid="git-files-error">{model.error.message}</p>
+    {/if}
+    {#if clean}
+      <EmptyState
+        testid="git-clean"
+        headline="Everything is saved"
+        line="No changes since your last commit. Edit files, or give an agent a task, and they show up here."
+      />
+      {#if model.committed && !model.amend}
+        <p class="ok" role="status" data-testid="git-committed">
+          Committed {model.committed.commit.id.slice(0, 7)}: {model.committed.commit.summary}
+        </p>
+      {/if}
     {/if}
     {#if lists.conflicts.length > 0}
       <FileSection
@@ -186,40 +290,51 @@ function ago(seconds: number, now = Date.now() / 1000): string {
         onfocuslost={focusMessage}
       />
     {/if}
-    <FileSection
-      {model}
-      kind="staged"
-      title="Staged changes"
-      files={lists.staged}
-      shownDiff={shownDiff(true)}
-      onopen={(path) => workspace.openFile(path)}
-      ondiff={showDiff}
-      onfocuslost={() => focusList("changes")}
-    />
-    <FileSection
-      {model}
-      kind="changes"
-      title="Changes"
-      files={lists.changes}
-      shownDiff={shownDiff(false)}
-      onopen={(path) => workspace.openFile(path)}
-      ondiff={showDiff}
-      onfocuslost={focusMessage}
-    />
+    {#if staging}
+      <FileSection
+        {model}
+        kind="staged"
+        title="Staged: goes in the commit"
+        files={lists.staged}
+        shownDiff={shownDiff(true)}
+        onopen={(path) => workspace.openFile(path)}
+        ondiff={showDiff}
+        onfocuslost={() => focusList("changes")}
+      />
+      <FileSection
+        {model}
+        kind="changes"
+        title="Changes"
+        files={lists.changes}
+        shownDiff={shownDiff(false)}
+        onopen={(path) => workspace.openFile(path)}
+        ondiff={showDiff}
+        onfocuslost={focusMessage}
+      />
+    {:else if changed.length > 0}
+      <FileSection
+        {model}
+        kind="changes"
+        simple
+        title={`${plural(changed.length, "changed file")}`}
+        files={changed}
+        shownDiff={shownDiff(false) ?? shownDiff(true)}
+        onopen={(path) => workspace.openFile(path)}
+        ondiff={showDiff}
+        onfocuslost={focusMessage}
+      />
+    {/if}
     {#if status.truncated > 0}
       <p class="hint" data-testid="git-truncated">
         {status.truncated.toLocaleString("en-US")} more changed {status.truncated === 1 ? "file is" : "files are"} not shown.
       </p>
     {/if}
-    <!-- Push and pull stay git's own: a terminal is one press away. -->
-    <div class="remote">
-      <button type="button" data-testid="git-remote-hint" title="git push, git pull" onclick={openTerminal}
-        ><Icon name="terminal" small />Push or pull in a terminal</button
-      >
-    </div>
+    {#if !clean || model.amend}
+      <CommitBox {model} {status} {assist} {staging} />
+    {/if}
     <div class="log">
       <button type="button" class="toggle" aria-expanded={model.logOpen} onclick={() => model.toggleLog()}>
-        <Icon name={model.logOpen ? "chevron" : "chevron-right"} small /> Recent commits
+        <Icon name={model.logOpen ? "chevron" : "chevron-right"} small /> History
       </button>
       {#if model.logOpen}
         {#if model.log === null}
@@ -227,7 +342,7 @@ function ago(seconds: number, now = Date.now() / 1000): string {
         {:else if model.log.length === 0}
           <p class="hint">No commits yet.</p>
         {:else}
-          <ul aria-label="Recent commits" data-testid="git-log">
+          <ul aria-label="History" data-testid="git-log">
             {#each model.log as commit (commit.id)}
               <!-- No title: it would read the full 40-character id before each summary. -->
               <li>
@@ -254,6 +369,44 @@ function ago(seconds: number, now = Date.now() / 1000): string {
   .top > :global(:first-child) {
     flex: 1;
   }
+  .icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--control-h-sm);
+    height: var(--control-h-sm);
+    padding: 0;
+  }
+  .sync {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 12px;
+    font-size: 13px;
+    background: var(--accent-soft);
+    border-radius: var(--radius);
+  }
+  .sync .line {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .sync p {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .sync .buttons {
+    display: flex;
+    gap: 4px;
+  }
+  .sync span {
+    color: var(--text-2);
+  }
+  /* History sits at the bottom of the panel. */
+  .log {
+    margin-top: auto;
+  }
   .git {
     display: flex;
     flex-direction: column;
@@ -277,6 +430,10 @@ function ago(seconds: number, now = Date.now() / 1000): string {
   .error {
     font-size: 13px;
     color: var(--danger);
+  }
+  .ok {
+    font-size: 13px;
+    color: var(--ok);
   }
   .operation {
     padding: 8px 10px;
@@ -353,18 +510,6 @@ function ago(seconds: number, now = Date.now() / 1000): string {
   .undo p {
     flex: 1 1 8em;
     min-width: 0;
-  }
-  .remote {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-    align-items: center;
-    margin-top: 6px;
-  }
-  .remote button {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
   }
   .log .toggle {
     display: inline-flex;
