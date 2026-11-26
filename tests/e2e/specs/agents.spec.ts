@@ -73,8 +73,9 @@ test("start an agent and answer its requests from the keyboard", async ({ page }
   // The fake agent runs without a sandbox, and the session and card say so.
   await expect(page.getByTestId("agent-sandbox")).toHaveText("No sandbox: the agent can change anything you can");
   await expect(approvals.getByTestId("approval-unsandboxed")).toBeVisible();
-  // The card is in sight, so no toast repeats it.
-  await expect(page.getByTestId("toast")).toHaveCount(0);
+  // The card is in sight, so no toast repeats it. (Toasts about other
+  // tests' agents can show up: they share the daemon.)
+  await expect(page.getByTestId("toast").filter({ hasText: "approval" })).toHaveCount(0);
   // The task opens, ready for a reply; nothing moves focus to the request.
   await expect(page.getByRole("textbox", { name: "Reply" })).toBeFocused();
   // In a 1280x720 window the request, the header and the reply box all fit:
@@ -168,7 +169,7 @@ test("in a short window, the shortcut shows the whole request and the title coun
   await expect(run).toBeVisible();
   await expect(page).toHaveTitle("(1) Ovra");
   // The card is in sight: no toast repeats it.
-  await expect(page.getByTestId("toast")).toHaveCount(0);
+  await expect(page.getByTestId("toast").filter({ hasText: "approval" })).toHaveCount(0);
   await page.keyboard.press("Alt+Shift+A");
   await expect(run).toBeFocused();
   await expect(run.locator("[data-details]")).toBeInViewport({ ratio: 1 });
@@ -315,7 +316,7 @@ test("a task's three workers wait in Reviews to be kept, discarded or sent back"
   await expect(page.getByTestId("toast")).toContainText("3 requests need approval");
   expect((await approvals.boundingBox())?.height).toBeLessThan(48);
   await approvals.getByRole("button", { name: "Show" }).click();
-  await expect(page.getByTestId("toast")).toHaveCount(0);
+  await expect(page.getByTestId("toast").filter({ hasText: "approval" })).toHaveCount(0);
   for (let allowed = 0; allowed < 3; allowed++) {
     const card = approvals.getByRole("group", { name: "Write NOTES.md" }).first();
     await expect(card).toBeVisible();
@@ -579,7 +580,7 @@ test("Focus shows only the agents' work and answers approvals there", async ({ p
   await expect(page.getByTestId("focus-progress")).toContainText("Fix the typo");
   await expect(run).toBeVisible();
   // The card is on screen: no toast repeats it.
-  await expect(page.getByTestId("toast")).toHaveCount(0);
+  await expect(page.getByTestId("toast").filter({ hasText: "approval" })).toHaveCount(0);
   await expect(approvals.getByTestId("approval-always")).toHaveCount(0);
 
   await page.keyboard.press("Alt+Shift+A");

@@ -266,9 +266,11 @@ test("the viewer shows unsaved text, and binary files explain why they cannot be
 
 for (const width of [640, 512]) {
   test(`at 200% zoom (${width} px wide) the main area keeps a usable width`, async ({ page }) => {
-    await page.setViewportSize({ width, height: 400 });
     const dir = project({ "a.txt": "alpha\n" });
+    // Open first: in a window this small, approvals other tests' agents wait
+    // on (they share the daemon) can cover the start page's form.
     await open(page, dir);
+    await page.setViewportSize({ width, height: 400 });
     await page.getByRole("treeitem", { name: /a\.txt/ }).click();
     const main = await page.getByTestId("main").boundingBox();
     expect(main?.width).toBeGreaterThanOrEqual(300);
