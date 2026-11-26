@@ -59,7 +59,7 @@ function type(selector: string, value: string) {
 
 function work(state: AccountState["setup"]["state"] = { state: "ready" }): AccountState {
   return {
-    account: { id: "account-1", name: "Work", config_dir: "/Users/me/.claude-work" },
+    account: { provider: "claude", id: "account-1", name: "Work", config_dir: "/Users/me/.claude-work" },
     setup: {
       path: null,
       executable: "/usr/bin/claude",
@@ -128,7 +128,7 @@ describe("accounts in the agents panel", () => {
     button("Add as Work")?.click();
     await settle();
     expect(core.sent("agents.save_account").map((c) => c.params.account)).toEqual([
-      { id: "", name: "Work", config_dir: "/Users/me/.claude-work" },
+      { provider: "claude", id: "", name: "Work", config_dir: "/Users/me/.claude-work" },
     ]);
     expect(summary()).toBe("Accounts: Default, Work");
     expect(target.querySelector("[data-testid=claude-account-found]")).toBeNull();
@@ -223,6 +223,7 @@ describe("accounts in the agents panel", () => {
     button("Save")?.click();
     await settle();
     expect(core.sent("agents.save_account").at(-1)?.params.account).toEqual({
+      provider: "claude",
       id: "default",
       name: "Personal",
       config_dir: null,
@@ -232,7 +233,7 @@ describe("accounts in the agents panel", () => {
   it("says in the picker which account bills a key and which is signed out", async () => {
     const core = new FakeAgentCore();
     const out = work({ state: "signed_out" });
-    out.account = { id: "account-2", name: "Old", config_dir: "/Users/me/.claude-old" };
+    out.account = { provider: "claude", id: "account-2", name: "Old", config_dir: "/Users/me/.claude-old" };
     core.accounts = [...core.accounts, work(), out];
     await show(core);
     const options = [...(picker()?.options ?? [])].map((o) => o.textContent);

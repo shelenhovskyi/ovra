@@ -1,0 +1,25 @@
+---
+source: crates/core/src/agents/tests.rs
+expression: providers
+---
+[
+  {
+    "id": "claude",
+    "name": "Claude",
+    "capabilities": {
+      "approvals": true,
+      "enforced_policy": true,
+      "ide_tools": true,
+      "read_only_role": true,
+      "resume": true,
+      "fork": true,
+      "interrupt": true,
+      "text_deltas": true,
+      "subagents": true,
+      "usage": true,
+      "cost": true,
+      "billing": true,
+      "accounts": true
+    }
+  }
+]

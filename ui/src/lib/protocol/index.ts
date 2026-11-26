@@ -160,40 +160,42 @@ export type ResponseFor<R extends Request> = R extends { method: "info.get" }
                             ? Extract<Response, { type: "agents.session" }>
                             : R extends { method: "agents.transcript" }
                               ? Extract<Response, { type: "agents.transcript" }>
-                              : R extends { method: "agents.setup" | "agents.set_path" }
-                                ? Extract<Response, { type: "agents.setup" }>
-                                : R extends {
-                                      method: "agents.accounts" | "agents.save_account" | "agents.remove_account";
-                                    }
-                                  ? Extract<Response, { type: "agents.accounts" }>
-                                  : R extends { method: "agents.project_config" }
-                                    ? Extract<Response, { type: "agents.project_config" }>
-                                    : R extends { method: "agents.capacity" }
-                                      ? Extract<Response, { type: "agents.capacity" }>
-                                      : R extends { method: "agents.limit" | "agents.set_limit" }
-                                        ? Extract<Response, { type: "agents.limit" }>
-                                        : R extends { method: "agents.research_limit" | "agents.set_research_limit" }
-                                          ? Extract<Response, { type: "agents.research_limit" }>
-                                          : R extends { method: "permissions.pending" }
-                                            ? Extract<Response, { type: "permissions.pending" }>
-                                            : R extends {
-                                                  method:
-                                                    | "terminals.input"
-                                                    | "terminals.resize"
-                                                    | "terminals.close"
-                                                    | "agents.send"
-                                                    | "agents.interrupt"
-                                                    | "agents.stop"
-                                                    | "agents.set_project_account"
-                                                    | "permissions.answer"
-                                                    | "review.comment"
-                                                    | "orchestration.stop"
-                                                    | "orchestration.retry_setup"
-                                                    | "orchestration.remove_leftover"
-                                                    | "search.cancel";
-                                                }
-                                              ? { type: "ok" }
-                                              : PhaseThreeResponseFor<R>;
+                              : R extends { method: "agents.providers" }
+                                ? Extract<Response, { type: "agents.providers" }>
+                                : R extends { method: "agents.setup" | "agents.set_path" }
+                                  ? Extract<Response, { type: "agents.setup" }>
+                                  : R extends {
+                                        method: "agents.accounts" | "agents.save_account" | "agents.remove_account";
+                                      }
+                                    ? Extract<Response, { type: "agents.accounts" }>
+                                    : R extends { method: "agents.project_config" }
+                                      ? Extract<Response, { type: "agents.project_config" }>
+                                      : R extends { method: "agents.capacity" }
+                                        ? Extract<Response, { type: "agents.capacity" }>
+                                        : R extends { method: "agents.limit" | "agents.set_limit" }
+                                          ? Extract<Response, { type: "agents.limit" }>
+                                          : R extends { method: "agents.research_limit" | "agents.set_research_limit" }
+                                            ? Extract<Response, { type: "agents.research_limit" }>
+                                            : R extends { method: "permissions.pending" }
+                                              ? Extract<Response, { type: "permissions.pending" }>
+                                              : R extends {
+                                                    method:
+                                                      | "terminals.input"
+                                                      | "terminals.resize"
+                                                      | "terminals.close"
+                                                      | "agents.send"
+                                                      | "agents.interrupt"
+                                                      | "agents.stop"
+                                                      | "agents.set_project_account"
+                                                      | "permissions.answer"
+                                                      | "review.comment"
+                                                      | "orchestration.stop"
+                                                      | "orchestration.retry_setup"
+                                                      | "orchestration.remove_leftover"
+                                                      | "search.cancel";
+                                                  }
+                                                ? { type: "ok" }
+                                                : PhaseThreeResponseFor<R>;
 
 /** `ResponseFor` for the review and orchestration domains. */
 type PhaseThreeResponseFor<R extends Request> = R extends { method: "review.list" }

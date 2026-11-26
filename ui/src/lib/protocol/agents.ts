@@ -2,8 +2,40 @@ import type { ProjectId } from "./projects";
 
 export type SessionId = string;
 
-/** `claude`: the user's installed Claude Code (ADR 0006). */
+/** A provider (ADR 0011). `claude`: the user's installed Claude Code (ADR 0006). */
 export type AgentKind = "claude";
+
+/** A provider the runtime can start sessions of (`agents.providers`). */
+export type ProviderInfo = {
+  id: AgentKind;
+  /** What the UI calls it, such as `Claude`. */
+  name: string;
+  capabilities: Capabilities;
+};
+
+/** What a provider's sessions can do; leave out what one cannot. */
+export type Capabilities = {
+  /** Asks before each tool call that needs approval. */
+  approvals: boolean;
+  /** Ovra's policies hold even in modes that skip approvals; without it the agent alone decides when to ask. */
+  enforced_policy: boolean;
+  /** Reaches Ovra's IDE tools (coordinator, workers, servers, browser). */
+  ide_tools: boolean;
+  /** Can run as a read-only coordinator. */
+  read_only_role: boolean;
+  resume: boolean;
+  fork: boolean;
+  interrupt: boolean;
+  /** Streams the text it is writing (`agents.text_delta`). */
+  text_deltas: boolean;
+  subagents: boolean;
+  usage: boolean;
+  cost: boolean;
+  /** Says who pays (`agents.billing`). */
+  billing: boolean;
+  /** Runs accounts with configuration folders of their own. */
+  accounts: boolean;
+};
 
 /** ADR 0005: `direct` works in the main checkout, `isolated` in a worktree (phase 3). */
 /** `research` reads the main checkout and searches the web, changes nothing; own cap (ADR 0013). */
@@ -52,7 +84,7 @@ export type SessionInfo = {
   sandbox: SandboxReport | null;
   /** Whether the runtime reported how it runs the current process: false while it starts. Sessions saved before the field read as false; a set `sandbox` counts as reported. */
   sandbox_reported: boolean;
-  /** The Claude account it runs with (`ClaudeAccount.id`); null for the default account. */
+  /** The Claude account it runs with (`Account.id`); null for the default account. */
   account: string | null;
   /** Files were set back to before this turn (from 1): it and later turns show as undone (absent from older cores). */
   undone_from?: number | null;
@@ -126,8 +158,10 @@ export type SetupState =
   | { state: "signed_out" }
   | { state: "broken"; message: string };
 
-/** A Claude account: a Claude Code configuration folder with its own sign-in, given to claude as CLAUDE_CONFIG_DIR. */
-export type ClaudeAccount = {
+/** An account of one provider; for Claude, a Claude Code configuration folder with its own sign-in, given to claude as CLAUDE_CONFIG_DIR. */
+export type Account = {
+  /** Whose account it is; accounts saved before providers existed are Claude's. */
+  provider: AgentKind;
   /** Chosen by the core when added (send ""); `"default"` for the default account, which runs claude as the user set it up. */
   id: string;
   name: string;
@@ -136,7 +170,7 @@ export type ClaudeAccount = {
 };
 
 /** One account and whether it is ready to run sessions. */
-export type AccountState = { account: ClaudeAccount; setup: AgentSetup };
+export type AccountState = { account: Account; setup: AgentSetup };
 
 export type AccountsOverview = {
   /** The default account first. */
@@ -185,12 +219,13 @@ export type ConfigKind =
   | "unreadable";
 
 export type AgentsRequest =
+  | { method: "agents.providers" }
   | { method: "agents.setup"; params: { agent: AgentKind } }
   /** `path: null` clears the chosen executable. Answers `agents.setup`. */
   | { method: "agents.set_path"; params: { agent: AgentKind; path: string | null } }
   | { method: "agents.accounts"; params: { project: ProjectId | null } }
   /** `id: ""` adds an account. Answers `agents.accounts`. */
-  | { method: "agents.save_account"; params: { account: ClaudeAccount } }
+  | { method: "agents.save_account"; params: { account: Account } }
   /** Projects that used it go back to the default account. Answers `agents.accounts`. */
   | { method: "agents.remove_account"; params: { id: string } }
   /** `account: null` goes back to the default account. Answers `ok`. */
@@ -199,7 +234,7 @@ export type AgentsRequest =
   | { method: "agents.list"; params: { project: ProjectId } }
   | {
       method: "agents.start";
-      /** `account`: a `ClaudeAccount.id`; null or left out uses the project's. */
+      /** `account`: a `Account.id`; null or left out uses the project's. */
       params: {
         project: ProjectId;
         agent: AgentKind;
@@ -228,6 +263,7 @@ export type AgentsRequest =
   | { method: "agents.undo_go_back"; params: { session: SessionId } };
 
 export type AgentsResponse =
+  | { type: "agents.providers"; data: ProviderInfo[] }
   | { type: "agents.setup"; data: AgentSetup }
   | { type: "agents.accounts"; data: AccountsOverview }
   | { type: "agents.project_config"; data: ProjectConfigReview }

@@ -394,6 +394,10 @@ struct FakeAgent {
 
 #[cfg(feature = "fake-agent")]
 impl AgentRuntime for FakeAgent {
+    fn providers(&self) -> Vec<ovra_core::protocol::agents::ProviderInfo> {
+        self.claude.providers()
+    }
+
     fn start(
         &self,
         spec: ovra_core::services::AgentSpec,

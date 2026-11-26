@@ -996,3 +996,15 @@ async fn messages_for_the_ovra_mcp_server_reach_the_ide_tools() {
         None => panic!("the session did not start"),
     }
 }
+
+#[test]
+fn claude_is_the_one_provider_and_can_do_everything() {
+    let sandbox = Arc::new(ovra_core::fakes::FakeSandbox::available());
+    let providers = ClaudeCli::new(None, sandbox).providers();
+    assert_eq!(providers.len(), 1);
+    assert_eq!(
+        providers[0].id,
+        ovra_core::protocol::agents::AgentKind::Claude
+    );
+    assert_eq!(providers[0].capabilities, CLAUDE);
+}

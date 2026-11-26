@@ -38,6 +38,9 @@ const OK: Response = Response::Ok(OkResponse::Ok);
 pub(crate) async fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Response> {
     let sessions = ctx.sessions;
     match request {
+        AgentsRequest::Providers => Ok(Response::Agents(AgentsResponse::Providers(
+            ctx.runtime.providers(),
+        ))),
         AgentsRequest::Setup { agent: _ } => {
             let path = ctx.projects.agent_settings()?.claude_path;
             let setup = ctx.runtime.setup(path.map(PathBuf::from), None).await;
@@ -294,7 +297,7 @@ pub(crate) struct NewSession {
     pub(crate) tools: Option<ToolRole>,
     /// Who wrote `prompt`.
     pub(crate) from: MessageFrom,
-    /// The Claude account ([`crate::protocol::agents::ClaudeAccount::id`]);
+    /// The Claude account ([`crate::protocol::agents::Account::id`]);
     /// `None` uses the project's.
     pub(crate) account: Option<String>,
     /// Waits `queued` for [`start_queued`] instead of starting now.

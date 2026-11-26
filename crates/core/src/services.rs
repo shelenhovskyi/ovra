@@ -19,8 +19,8 @@ pub use crate::agents::{AgentHost, BeforeTool};
 pub use crate::lsp::ServerHost;
 use crate::path::RelPath;
 use crate::protocol::agents::{
-    AgentKind, AgentMessage, AgentSettings, AgentSetup, ProjectAgentConfig, SessionId, SessionInfo,
-    SessionMode, SetupState,
+    AgentKind, AgentMessage, AgentSettings, AgentSetup, ProjectAgentConfig, ProviderInfo,
+    SessionId, SessionInfo, SessionMode, SetupState,
 };
 use crate::protocol::audit::{AuditEntry, AuditEvent, AuditRange};
 use crate::protocol::browser::{
@@ -918,6 +918,11 @@ pub trait Secrets: Send + Sync + Debug {
 /// Starts agent sessions (implemented by `ovra-agent-runtime`). One runtime
 /// serves every session of the agents it supports.
 pub trait AgentRuntime: Send + Sync + Debug {
+    /// The providers this runtime starts sessions of, with what they can
+    /// do (ADR 0011). A runtime that names none starts none.
+    fn providers(&self) -> Vec<ProviderInfo> {
+        Vec::new()
+    }
     /// Starts a session and returns at once; the agent then works in the
     /// background and reports through `host` until it ends.
     fn start(&self, spec: AgentSpec, host: AgentHost) -> Result<Box<dyn RunningAgent>>;

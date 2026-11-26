@@ -39,8 +39,11 @@ Agent SDK, which ADR 0006 avoids.
     rules files, known tool names, and its capabilities.
   - A native adapter for another agent is added only when ACP misses
     something essential for it (a candidate: `codex app-server`).
-- **Providers.** `AgentKind` becomes an open provider id (`claude` for all
-  existing sessions and settings). `agents.providers` lists the adapters'
+- **Providers.** `AgentKind` is the provider id (`claude` for all existing
+  sessions and settings). It stays an enum with one variant per provider
+  an adapter knows (amended 2026-11-26, step 3): the wire format is the
+  same as an open id, and code that must treat providers apart does not
+  compile until it does. `agents.providers` lists the adapters'
   descriptors and capabilities: `approvals`, `enforced_policy`,
   `ide_tools`, `read_only_role`, `resume`, `fork`, `interrupt`,
   `text_deltas`, `subagents`, `usage`, `cost`, `billing`, `accounts`. The

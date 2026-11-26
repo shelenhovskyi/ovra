@@ -7,7 +7,7 @@ use std::path::{Component, Path, PathBuf};
 
 use super::requests::Ctx;
 use crate::protocol::agents::{
-    AccountState, AccountsOverview, AgentSettings, ClaudeAccount, DEFAULT_ACCOUNT,
+    Account, AccountState, AccountsOverview, AgentSettings, DEFAULT_ACCOUNT,
 };
 use crate::protocol::projects::ProjectId;
 use crate::protocol::{ErrorCode, ProtocolError};
@@ -43,7 +43,7 @@ pub(crate) fn choose(
             .unwrap_or_else(|| {
                 settings
                     .account(None)
-                    .unwrap_or_else(ClaudeAccount::default_account)
+                    .unwrap_or_else(Account::default_account)
             }),
     };
     Ok(Chosen {
@@ -106,7 +106,7 @@ pub(crate) async fn overview(
 
 /// Adds `account` (an empty id) or renames the one with its id: an
 /// account's folder holds its conversations, so it never changes.
-pub(crate) fn save(settings: &mut AgentSettings, mut account: ClaudeAccount) -> Result<()> {
+pub(crate) fn save(settings: &mut AgentSettings, mut account: Account) -> Result<()> {
     account.name = account.name.trim().to_owned();
     if account.name.is_empty() {
         return Err(bad("the account needs a name"));
@@ -238,8 +238,9 @@ fn bad(message: &str) -> ProtocolError {
 mod tests {
     use super::*;
 
-    fn work() -> ClaudeAccount {
-        ClaudeAccount {
+    fn work() -> Account {
+        Account {
+            provider: crate::protocol::agents::AgentKind::Claude,
             id: String::new(),
             name: " Work ".into(),
             config_dir: Some(crate::test_path!("/home/me/.claude-work/").into()),
@@ -252,7 +253,7 @@ mod tests {
         save(&mut settings, work()).unwrap_or_else(|e| panic!("{e:?}"));
         let all = settings.all_accounts();
         assert_eq!(all.len(), 2);
-        assert_eq!(all[0], ClaudeAccount::default_account());
+        assert_eq!(all[0], Account::default_account());
         assert_eq!(all[1].id, "account-1");
         assert_eq!(all[1].name, "Work");
         assert_eq!(
@@ -268,7 +269,7 @@ mod tests {
     #[test]
     fn bad_accounts_are_refused() {
         let mut settings = AgentSettings::default();
-        let refused = |settings: &mut AgentSettings, account: ClaudeAccount| {
+        let refused = |settings: &mut AgentSettings, account: Account| {
             save(settings, account).err().map(|e| e.message)
         };
         let mut relative = work();
@@ -321,7 +322,7 @@ mod tests {
     #[test]
     fn the_default_account_can_be_renamed_but_not_removed() {
         let mut settings = AgentSettings::default();
-        let mut personal = ClaudeAccount::default_account();
+        let mut personal = Account::default_account();
         personal.name = "Personal".into();
         save(&mut settings, personal).unwrap_or_else(|e| panic!("{e:?}"));
         save(&mut settings, work()).unwrap_or_else(|e| panic!("{e:?}"));
@@ -379,7 +380,7 @@ mod tests {
         let old: AgentSettings = serde_json::from_str(r#"{"claude_path": "/opt/claude"}"#)
             .unwrap_or_else(|e| panic!("{e}"));
         assert_eq!(old.claude_path.as_deref(), Some("/opt/claude"));
-        assert_eq!(old.all_accounts(), [ClaudeAccount::default_account()]);
+        assert_eq!(old.all_accounts(), [Account::default_account()]);
         let session: crate::protocol::agents::SessionInfo =
             serde_json::from_value(serde_json::json!({
                 "id": "s1", "project": "p1", "agent": "claude", "mode": "direct",

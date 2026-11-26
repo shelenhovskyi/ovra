@@ -1602,3 +1602,22 @@ async fn a_research_session_gets_only_its_tools_and_searches_without_asking() {
     .await;
     assert_eq!(search().await.decision, Decision::Deny);
 }
+
+#[tokio::test]
+async fn providers_lists_what_the_runtime_can_start() {
+    let core = core_with(ScriptedAgent::new(Vec::new()));
+    let Response::Agents(AgentsResponse::Providers(providers)) =
+        ok(&core, json!({"method": "agents.providers"})).await
+    else {
+        panic!("not a providers answer");
+    };
+    insta::assert_json_snapshot!(providers);
+}
+
+#[test]
+fn an_account_saved_before_providers_is_claudes() {
+    let account: crate::protocol::agents::Account =
+        serde_json::from_value(json!({"id": "account-1", "name": "Work", "config_dir": null}))
+            .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(account.provider, crate::protocol::agents::AgentKind::Claude);
+}

@@ -46,7 +46,7 @@ export class FakeAgentCore implements Transport {
   /** The accounts `agents.accounts` reports; the default one first. */
   accounts: AccountState[] = [
     {
-      account: { id: "default", name: "Default", config_dir: null },
+      account: { provider: "claude", id: "default", name: "Default", config_dir: null },
       setup: { ...this.setup },
     },
   ];
