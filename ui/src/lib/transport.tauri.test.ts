@@ -1,11 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { connectTauri } from "./transport";
 
-type DragDrop = { payload: { type: string; position?: { x: number; y: number } } };
-
 const tauri = vi.hoisted(() => ({
   invoke: vi.fn(async (_command: string, _args?: unknown): Promise<unknown> => "/work/picked"),
-  dragDrop: null as ((event: DragDrop) => void) | null,
   events: new Map<string, (event: { payload: unknown }) => void>(),
 }));
 
@@ -16,15 +13,6 @@ vi.mock("@tauri-apps/api/event", () => ({
     return () => {};
   },
 }));
-vi.mock("@tauri-apps/api/webview", () => ({
-  getCurrentWebview: () => ({
-    onDragDropEvent: async (handler: (event: DragDrop) => void) => {
-      tauri.dragDrop = handler;
-      return () => {};
-    },
-  }),
-}));
-
 describe("the Tauri transport", () => {
   it("picks a folder through the window's own command", async () => {
     const transport = connectTauri();
@@ -45,19 +33,18 @@ describe("the Tauri transport", () => {
     expect(dropped).toEqual([drop]);
   });
 
-  it("follows a drag from outside in CSS pixels, and its end", async () => {
-    tauri.dragDrop = null;
+  it("follows a drag from outside as the app reports it, and its end", async () => {
+    tauri.events.clear();
     const transport = connectTauri();
     const seen: unknown[] = [];
-    transport.onDragOver?.((at) => seen.push(at));
-    await vi.waitFor(() => expect(tauri.dragDrop).not.toBeNull());
-    const dragDrop = (event: DragDrop) => tauri.dragDrop?.(event);
-    window.devicePixelRatio = 2;
-    dragDrop({ payload: { type: "enter", position: { x: 20, y: 40 } } });
-    dragDrop({ payload: { type: "over", position: { x: 30, y: 40 } } });
-    dragDrop({ payload: { type: "leave" } });
-    window.devicePixelRatio = 1;
-    expect(seen).toEqual([{ x: 10, y: 20 }, { x: 15, y: 20 }, null]);
+    const off = transport.onDragOver?.((at) => seen.push(at));
+    await vi.waitFor(() => expect(tauri.events.has("ovra://drag-over")).toBe(true));
+    const over = (payload: unknown) => tauri.events.get("ovra://drag-over")?.({ payload });
+    over({ x: 10, y: 20 });
+    over(null);
+    off?.();
+    over({ x: 30, y: 40 });
+    expect(seen).toEqual([{ x: 10, y: 20 }, null]);
   });
 
   it("imports a drop by its id through the window's own command", async () => {

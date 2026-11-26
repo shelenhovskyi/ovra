@@ -108,7 +108,7 @@ fn on_drop(window: &tauri::Window, paths: &[std::path::PathBuf], at: tauri::Phys
         return;
     };
     let id = importer.drops.put(paths.to_vec(), Instant::now());
-    let at = at.to_logical::<f64>(window.scale_factor().unwrap_or(1.0));
+    let at = css_point(window, at);
     let frame = DropFrame {
         id,
         paths: paths
@@ -119,6 +119,31 @@ fn on_drop(window: &tauri::Window, paths: &[std::path::PathBuf], at: tauri::Phys
         y: at.y,
     };
     let _ = window.emit_to("main", "ovra://drop", frame);
+}
+
+/// Where files dragged in from outside are while they are over the main
+/// window, in CSS pixels (`ovra://drag-over`); null once they leave or drop.
+fn on_drag_over(window: &tauri::Window, at: Option<tauri::PhysicalPosition<f64>>) {
+    if window.label() != "main" {
+        return;
+    }
+    let at = at.map(|at| css_point(window, at));
+    let _ = window.emit_to("main", "ovra://drag-over", at);
+}
+
+/// A drag position from the window's drop handler in CSS pixels. Tauri
+/// calls it physical, but only WebView2 reports device pixels: WebKit on
+/// macOS (points) and WebKitGTK report CSS pixels already, so dividing
+/// there put a Retina drop at half its place.
+fn css_point(
+    window: &tauri::Window,
+    at: tauri::PhysicalPosition<f64>,
+) -> tauri::LogicalPosition<f64> {
+    if cfg!(windows) {
+        at.to_logical(window.scale_factor().unwrap_or(1.0))
+    } else {
+        tauri::LogicalPosition::new(at.x, at.y)
+    }
 }
 
 /// Copies the drop `drop_id` into the folder `target_dir` of `project`
@@ -281,10 +306,17 @@ fn main() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, position }) =
-                event
-            {
-                on_drop(window, paths, *position);
+            let tauri::WindowEvent::DragDrop(drag) = event else {
+                return;
+            };
+            match drag {
+                tauri::DragDropEvent::Enter { position, .. }
+                | tauri::DragDropEvent::Over { position } => on_drag_over(window, Some(*position)),
+                tauri::DragDropEvent::Drop { paths, position } => {
+                    on_drag_over(window, None);
+                    on_drop(window, paths, *position);
+                }
+                _ => on_drag_over(window, None),
             }
         })
         .invoke_handler(tauri::generate_handler![
