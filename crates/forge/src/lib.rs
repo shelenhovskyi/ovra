@@ -25,16 +25,43 @@ use run::{GH_TIMEOUT, GIT_TIMEOUT, Programs, failed, run};
 
 /// Given to the git calls that update refs: no hook of the repository runs
 /// (`reference-transaction` runs on every ref update, `pre-push` is also
-/// skipped by `--no-verify`). On Windows `NUL` is a device in every
-/// folder, so no hook can be found below it either.
-const NO_HOOKS: [&str; 2] = [
-    "-c",
-    if cfg!(windows) {
-        "core.hooksPath=NUL"
-    } else {
+/// skipped by `--no-verify`). `/dev/null` is no folder, so no hook is
+/// found below it; Windows has no such file, so an empty folder of
+/// Ovra's own stands in.
+fn no_hooks() -> &'static str {
+    #[cfg(windows)]
+    {
+        static ARG: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+        ARG.get_or_init(|| format!("core.hooksPath={}", empty_dir()))
+    }
+    #[cfg(not(windows))]
+    {
         "core.hooksPath=/dev/null"
-    },
-];
+    }
+}
+
+#[cfg(windows)]
+const TAG: &str = "forge";
+
+/// An empty folder this process made in the user's temporary folder, else
+/// `NUL` (a device in every folder, so no hook is found below it either,
+/// though that is not verified on every Windows).
+#[cfg(windows)]
+fn empty_dir() -> String {
+    static DIR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    let made = || {
+        let base = std::env::temp_dir();
+        let pid = std::process::id();
+        // Made here, not found: one someone else made may hold hooks.
+        (0..100).find_map(|n| {
+            let dir = base.join(format!("ovra-no-hooks-{TAG}-{pid}-{n}"));
+            std::fs::create_dir(&dir).ok()?;
+            dir.into_os_string().into_string().ok()
+        })
+    };
+    DIR.get_or_init(|| made().unwrap_or_else(|| "NUL".to_owned()))
+        .clone()
+}
 
 /// Numbers this process's fetches, for their private refs.
 static FETCHES: AtomicU64 = AtomicU64::new(0);
@@ -126,7 +153,7 @@ impl GhForge {
         let private = format!("refs/ovra/fetch/{}-{fetches}", std::process::id());
         let fetched = fetch_into(&git, root, remote, branch, &private).await;
         // Deleted however the fetch ended: a failed one may have written it.
-        let args = [NO_HOOKS[0], NO_HOOKS[1], "update-ref", "-d", &private];
+        let args = ["-c", no_hooks(), "update-ref", "-d", &private];
         let deleted = run(&git, root, "git update-ref", &args, None, GH_TIMEOUT).await?;
         let head = fetched?;
         if !deleted.success {
@@ -172,8 +199,8 @@ impl GhForge {
         );
         let refspec = format!("{commit}:refs/heads/{branch}");
         let args = [
-            NO_HOOKS[0],
-            NO_HOOKS[1],
+            "-c",
+            no_hooks(),
             "push",
             "--no-verify",
             "--porcelain",
@@ -316,7 +343,7 @@ async fn fetch_into(
     into: &str,
 ) -> Result<String> {
     let refspec = format!("+refs/heads/{branch}:{into}");
-    let args = [NO_HOOKS[0], NO_HOOKS[1], "fetch", remote, &refspec];
+    let args = ["-c", no_hooks(), "fetch", remote, &refspec];
     let fetched = run(git, root, "git fetch", &args, None, GIT_TIMEOUT).await?;
     if !fetched.success {
         if fetched.stderr.contains("couldn't find remote ref") {

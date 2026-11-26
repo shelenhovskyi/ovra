@@ -73,6 +73,29 @@ fn real_git() -> Option<PathBuf> {
     ok(real.as_os_str(), "--version").map(|_| real)
 }
 
+#[cfg(windows)]
+const TAG: &str = "worktree";
+
+/// An empty folder this process made in the user's temporary folder, else
+/// `NUL` (a device in every folder, so no hook is found below it either,
+/// though that is not verified on every Windows).
+#[cfg(windows)]
+fn empty_dir() -> String {
+    static DIR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    let made = || {
+        let base = std::env::temp_dir();
+        let pid = std::process::id();
+        // Made here, not found: one someone else made may hold hooks.
+        (0..100).find_map(|n| {
+            let dir = base.join(format!("ovra-no-hooks-{TAG}-{pid}-{n}"));
+            std::fs::create_dir(&dir).ok()?;
+            dir.into_os_string().into_string().ok()
+        })
+    };
+    DIR.get_or_init(|| made().unwrap_or_else(|| "NUL".to_owned()))
+        .clone()
+}
+
 /// One `git` invocation in a directory.
 #[derive(Debug)]
 pub(crate) struct Git {
@@ -90,8 +113,9 @@ impl Git {
 
     /// As [`Git::new`], and no hook of the repository can run, whatever
     /// `core.hooksPath` says (`reference-transaction` runs on any ref
-    /// update). Not for commands that read where hooks are. On Windows
-    /// `NUL` is a device in every folder, so no hook is found below it.
+    /// update). Not for commands that read where hooks are. `/dev/null` is
+    /// no folder, so no hook is found below it; Windows has no such file,
+    /// so an empty folder of Ovra's own stands in.
     pub(crate) fn without_hooks(dir: &Path, subcommand: &str) -> Self {
         Self::build(dir, subcommand, true, true)
     }
@@ -125,7 +149,10 @@ impl Git {
             .args(["-c", "diff.ignoreSubmodules=all"])
             .args(["-c", "submodule.recurse=false"]);
         if no_hooks {
-            let none = if cfg!(windows) { "NUL" } else { "/dev/null" };
+            #[cfg(windows)]
+            let none = empty_dir();
+            #[cfg(not(windows))]
+            let none = "/dev/null";
             command.arg("-c").arg(format!("core.hooksPath={none}"));
         }
         command
@@ -683,6 +710,30 @@ fn forget_ignored(dir: &Path, index: &TempIndex) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Where hook-less calls look for hooks: no folder at all, or an empty
+    /// one this process made.
+    #[test]
+    fn hooks_are_looked_for_where_there_are_none() {
+        let git = Git::without_hooks(Path::new("."), "update-ref");
+        let args: Vec<_> = git.command.get_args().collect();
+        let at = args
+            .iter()
+            .position(|a| a.to_string_lossy().starts_with("core.hooksPath="));
+        let arg = at
+            .map(|i| args[i].to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let dir = arg.trim_start_matches("core.hooksPath=");
+        #[cfg(not(windows))]
+        assert_eq!(dir, "/dev/null");
+        #[cfg(windows)]
+        {
+            assert!(Path::new(dir).is_absolute(), "{dir}");
+            let entries = std::fs::read_dir(dir).map(|d| d.count()).ok();
+            assert_eq!(entries, Some(0));
+            assert_eq!(empty_dir(), dir);
+        }
+    }
 
     #[test]
     fn git_and_the_filters_it_runs_get_the_login_shells_path() {
