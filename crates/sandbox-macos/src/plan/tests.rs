@@ -87,8 +87,10 @@ impl Root {
     fn clean(&self, text: &str) -> String {
         let key = project_key(&self.0);
         let folded = crate::sbpl::fold_for_tests(&self.0.display().to_string());
+        let temp = cache_key(None, &self.0.join("projects/app"));
         let folded_key = crate::sbpl::fold_for_tests(&key);
-        text.replace(&folded, "ROOT")
+        text.replace(&temp, "WORK-DIR-KEY")
+            .replace(&folded, "ROOT")
             .replace(&folded_key, "-ROOT")
             .replace(&key, "-ROOT")
             .replace(&self.0.display().to_string(), "ROOT")

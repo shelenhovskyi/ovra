@@ -67,7 +67,7 @@ env:
   npm_config_cache=ROOT/data/sandbox-caches/p-f5f849dca255a577b897e3534bd4462d/npm
   PIP_CACHE_DIR=ROOT/data/sandbox-caches/p-f5f849dca255a577b897e3534bd4462d/pip
   npm_config_store_dir=ROOT/data/sandbox-caches/p-f5f849dca255a577b897e3534bd4462d/pnpm
-  TMPDIR=ROOT/data/sandbox-temp/f-d79a19e67084fe98d811c63bc5543441
+  TMPDIR=ROOT/data/sandbox-temp/WORK-DIR-KEY
   SSL_CERT_FILE=ROOT/tmp/ca.pem
   NODE_EXTRA_CA_CERTS=ROOT/tmp/ca.pem
   REQUESTS_CA_BUNDLE=ROOT/tmp/ca.pem
