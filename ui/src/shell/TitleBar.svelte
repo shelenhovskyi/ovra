@@ -38,6 +38,8 @@ let {
 
 // Mod+K: "Search or run", files and commands.
 const SEARCH = "palette.search";
+// Focus mode (docs/specs/focus-mode.md): shown by name, so people find it.
+const FOCUS = "focus.toggle";
 const TOGGLES: Record<Panel, { name: string; command: string }> = {
   side: { name: "Sidebar", command: "layout.toggle_side" },
   agents: { name: "Agents", command: "layout.toggle_agents" },
@@ -156,7 +158,16 @@ function tip(panel: Panel): string {
         onclick={showApprovals}>{waiting} waiting</button
       >
     {/if}
-    {#if workspace.project}<InboxButton {inbox} />{/if}
+    {#if workspace.project}
+      <button
+        type="button"
+        class="focus-switch tip"
+        data-tip={`Only the agents' work${keys[FOCUS] ? ` ${formatShortcut(keys[FOCUS], isApple())}` : ""}`}
+        data-testid="focus-switch"
+        onclick={() => run(FOCUS)}>Focus</button
+      >
+      <InboxButton {inbox} />
+    {/if}
     {#if workspace.project}{@render panelToggle("agents")}{/if}
     <MoreMenu />
   </div>
@@ -250,6 +261,22 @@ function tip(panel: Panel): string {
     color: var(--accent-ink);
     background: var(--accent);
     border-radius: 8px;
+  }
+  .focus-switch {
+    position: relative;
+    height: 24px;
+    margin-right: 4px;
+    padding: 0 10px;
+    font: 500 12px var(--font);
+    color: var(--text-2);
+    background: none;
+    border: 1px solid var(--separator);
+    border-radius: 12px;
+    cursor: pointer;
+  }
+  .focus-switch:hover {
+    color: var(--text);
+    background: var(--s3);
   }
   .waiting {
     height: 24px;

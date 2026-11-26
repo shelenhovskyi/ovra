@@ -498,15 +498,16 @@ async function showApprovals(): Promise<void> {
       title={info ? `${info.name} ${info.version} (${info.mode})` : undefined}>{status.text}</span
     >
     <span class="footer-end">
-      <ProblemCounts />
+      <!-- Focus shows no code: no problems, file facts or language servers. -->
+      {#if !focusing}<ProblemCounts />{/if}
       <!-- Quiet facts about the open file, while it is what the main area shows. -->
-      {#if !gitDiff && !mainView.current}<FileStatus />{/if}
-      {#if serversDock.running > 0 && !serversDock.shown}
+      {#if !gitDiff && !mainView.current && !focusing}<FileStatus />{/if}
+      {#if serversDock.running > 0 && !serversDock.shown && !focusing}
         <button type="button" class="running" onclick={() => (serversDock.shown = true)}
           >{serversDock.running === 1 ? "1 server running" : `${serversDock.running} servers running`}</button
         >
       {/if}
-      <LanguageServers />
+      {#if !focusing}<LanguageServers />{/if}
       <PairingPrompt />
     </span>
   </footer>
@@ -667,7 +668,7 @@ async function showApprovals(): Promise<void> {
     display: none;
   }
 
-  /* Focus: only the agents' work, in one centred grid; the IDE stays mounted, hidden. */
+  /* Focus: only the agents' work, in one centred column; the IDE stays mounted, hidden. */
   .shell.focus {
     height: 100%;
     overflow: clip;
@@ -685,42 +686,38 @@ async function showApprovals(): Promise<void> {
   .focus .title-area > :global(header.title) {
     display: none;
   }
-  .focus .agents {
+  .focus .agents,
+  .focus footer {
     background: var(--s1);
+  }
+  .focus .agents {
     overflow-y: auto;
   }
   .focus .column {
     display: grid;
     flex: none;
     box-sizing: border-box;
-    width: min(100%, 980px);
+    width: min(100%, 680px);
+    min-height: 100%;
     margin: 0 auto;
-    padding: 24px 20px 32px;
+    padding: 28px 20px 0;
     overflow: visible;
-    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
     grid-template-areas:
-      "head head"
-      "approvals status"
-      "reviews status"
-      ". status";
-    grid-template-rows: auto auto auto 1fr;
-    gap: 16px 32px;
+      "head"
+      "wait"
+      "approvals"
+      "reviews"
+      "status"
+      "compose";
+    grid-template-rows: auto auto auto auto 1fr auto;
+    gap: 12px;
     align-content: start;
   }
   .focus .column > :global(section.approvals:not(.idle)) {
     grid-area: approvals;
     max-height: none;
     padding: 0;
-  }
-  @media (max-width: 760px) {
-    .focus .column {
-      grid-template-columns: minmax(0, 1fr);
-      grid-template-areas:
-        "head"
-        "approvals"
-        "reviews"
-        "status";
-    }
   }
   .strip button {
     position: relative;

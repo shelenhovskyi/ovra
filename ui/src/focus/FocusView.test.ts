@@ -178,17 +178,50 @@ describe("FocusView", () => {
     off();
   });
 
-  it("leaves Focus for the IDE and for a new task", async () => {
-    const started = vi.fn();
-    const off = registerCommand({ id: "agents.new_session", title: "New task", run: started });
+  it("leaves Focus for the IDE and hides parts with nothing in them", async () => {
     await setup(() => {});
     expect(text("focus-head")).toBe("demo No agents yet");
+    expect(target.querySelector("[data-testid=focus-progress]")).toBeNull();
+    expect(target.querySelector("[data-testid=focus-next]")).toBeNull();
+    expect(target.querySelector("[data-testid=focus-done]")).toBeNull();
     target.querySelector<HTMLButtonElement>("[data-testid=focus-open-ide]")?.click();
     expect(focusMode.on).toBe(false);
-    focusMode.set(true);
-    target.querySelector<HTMLButtonElement>("[data-testid=focus-new-task]")?.click();
-    expect(focusMode.on).toBe(false);
-    await vi.waitFor(() => expect(started).toHaveBeenCalled());
-    off();
+  });
+
+  it("gives the agents a new task without leaving Focus, the way last chosen", async () => {
+    localStorage.setItem("ovra.task-mode.p1", "split");
+    const core = await setup(() => {});
+    const select = target.querySelector<HTMLSelectElement>("[data-testid=focus-mode]");
+    expect(select?.value).toBe("split");
+    const box = target.querySelector<HTMLTextAreaElement>("#focus-task");
+    if (!box) throw new Error("no task field");
+    box.value = "Add offline mode";
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+    flushSync();
+    box.dispatchEvent(new KeyboardEvent("keydown", { code: "Enter", bubbles: true }));
+    await vi.waitFor(() => expect(box.value).toBe(""));
+    expect(core.calls.find((c) => c.method === "orchestration.start")?.params).toEqual({
+      project: "p1",
+      prompt: "Add offline mode",
+    });
+    expect(focusMode.on).toBe(true);
+    localStorage.removeItem("ovra.task-mode.p1");
+  });
+
+  it("starts one agent here when that is the way chosen", async () => {
+    const core = await setup(() => {});
+    const box = target.querySelector<HTMLTextAreaElement>("#focus-task");
+    if (!box) throw new Error("no task field");
+    box.value = "Fix the typo";
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+    flushSync();
+    target.querySelector<HTMLButtonElement>("[data-testid=focus-start]")?.click();
+    await vi.waitFor(() => expect(text("focus-progress")).toContain("Fix the typo"));
+    expect(core.calls.find((c) => c.method === "agents.start")?.params).toMatchObject({
+      project: "p1",
+      prompt: "Fix the typo",
+      mode: "direct",
+      account: null,
+    });
   });
 });

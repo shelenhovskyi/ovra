@@ -16,6 +16,7 @@ productivity.
 
 ## Turning it on and off
 
+- A **Focus** button in the IDE title bar, beside Reviews.
 - Command `focus.toggle`, "Focus: agents only", category View, keys
   `Mod+Shift+.` (matched on `KeyboardEvent.code`, `Period`).
 - In Focus the title bar shows the project, a "Focus" label and **Open IDE**
@@ -27,7 +28,7 @@ productivity.
 
 ## The screen
 
-Two columns on wide windows, one on narrow ones:
+One centred column (at most 680 px wide); parts with nothing in them are left out:
 
 | Part           | Content                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -36,7 +37,10 @@ Two columns on wide windows, one on narrow ones:
 | In progress    | One row per session that starts, works or waits for an approval, with the words `AgentSessions.status` gives ("Working", "Needs approval", "Workers are on it").                                                                                                                                                                                                                                                                                                                                                                             |
 | Next           | Sessions waiting for a free agent or preparing a worktree, then the pending steps of each agent at work from its latest to-do list (Claude's `TodoWrite`), "Planned by <name>": at most 8 per agent, 160 characters each, shown as text.                                                                                                                                                                                                                                                                                                     |
 | Done           | Sessions that finished, stopped or failed, with their words ("Done", "Failed: …").                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| New task       | **New task** leaves Focus and opens the Agents composer (`agents.new_session`).                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| New task       | At the bottom: a field for the next task, the way of working last chosen in the project ("One agent, here", "Plan and split", "Research") and **Start**; the task starts with the project's account without leaving Focus. Context chips, accounts and setup stay in the IDE.                                                                                                                                                                                                                                                                |
+
+The status bar keeps the connection and phone pairing but not the open
+file's facts, problems or language servers.
 
 Rows show names and words only: no counters ticking, no moving lines, no
 usage. Sessions the person closed are not shown.
@@ -69,7 +73,7 @@ cards on screen already say what waits. System notifications are unchanged
 
 - Unit: the model sorts sessions into In progress, Next and Done and lists
   waiting reviews; closed sessions are left out.
-- Component: Focus shows the sections, hides Always allow, See changes and
-  New task leave Focus.
+- Component: Focus shows the sections, hides Always allow, See changes leaves Focus,
+  New task starts a task in Focus.
 - e2e: turn Focus on with a fake agent waiting for approval, allow it from
   Focus, open the IDE again.

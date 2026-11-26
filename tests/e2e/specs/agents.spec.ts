@@ -570,7 +570,8 @@ test("Focus shows only the agents' work and answers approvals there", async ({ p
   const run = approvals.getByRole("group", { name: "Run ls -la" });
   await expect(run).toBeVisible();
 
-  await page.keyboard.press("ControlOrMeta+Shift+Period");
+  // Found by name in the title bar.
+  await page.getByTestId("focus-switch").click();
   await expect(page.getByTestId("focus-bar")).toBeVisible();
   // What had focus is hidden: it moves to the way back.
   await expect(page.getByTestId("focus-open-ide")).toBeFocused();
@@ -593,7 +594,7 @@ test("Focus shows only the agents' work and answers approvals there", async ({ p
   await page.keyboard.press("n");
   await expect(page.getByTestId("focus-nothing")).toHaveText("Nothing waits for you.");
 
-  await page.getByTestId("focus-open-ide").click();
+  await page.keyboard.press("ControlOrMeta+Shift+Period");
   await expect(page.getByTestId("focus-bar")).toHaveCount(0);
   await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();
 });

@@ -28,13 +28,13 @@ const { workspace } = useOvra();
     gap: 10px;
     box-sizing: border-box;
     height: 100%;
-    padding: 0 8px 0 12px;
+    padding: 0 12px;
     background: var(--s0);
     user-select: none;
   }
   /* The desktop app's overlay title bar: room for the traffic lights, as in TitleBar. */
   :global([data-chrome="overlay"]) .bar {
-    padding-left: 80px;
+    padding-left: 88px;
   }
   .project {
     color: var(--text-2);

@@ -1,16 +1,16 @@
 <script lang="ts">
-// Focus (docs/specs/focus-mode.md): the agents' work without the IDE. The
-// shell places the approval cards in the "Waiting on you" column; this adds
-// the header, the reviews that wait, and what is in progress, next and
-// done. Its root is `display: contents`, so its parts sit in the shell's
-// Focus grid beside the approvals.
-import { tick } from "svelte";
+// Focus (docs/specs/focus-mode.md): the agents' work without the IDE, in
+// one column. The shell places the approval cards under "Waiting on you";
+// this adds the header, the questions and reviews that wait, what is in
+// progress, next and done, and the field for the next task. Its root is
+// `display: contents`, so its parts sit in the shell's Focus grid around
+// the approvals.
 import { agentSessions, openReviews } from "../agents/sessions.svelte";
 import { approvalQueue } from "../approvals/queue.svelte";
 import { taskBoards } from "../board/boards.svelte";
-import { listCommands } from "../keys/commands";
 import type { BoardEntry, SessionId, TaskId } from "../lib/protocol";
 import { useOvra } from "../shell/context";
+import FocusComposer from "./FocusComposer.svelte";
 import FocusQuestion from "./FocusQuestion.svelte";
 import { focusMode } from "./mode.svelte";
 import { countLine, type FocusRow, focusSections } from "./model";
@@ -66,31 +66,19 @@ function seeChanges(id: SessionId): void {
   focusMode.set(false);
   openReviews([id]);
 }
-
-async function newTask(): Promise<void> {
-  focusMode.set(false);
-  await tick();
-  void listCommands()
-    .find((c) => c.id === "agents.new_session")
-    ?.run();
-}
 </script>
 
 {#snippet rows(name: string, list: FocusRow[], mark: string)}
-  <section class="part" aria-label={name} data-testid={`focus-${mark}`}>
+  {#if list.length}<section class="part" aria-label={name} data-testid={`focus-${mark}`}>
     <h3>{name}{#if list.length}<span class="n">{list.length}</span>{/if}</h3>
-    {#if list.length}
-      <ul>
+    <ul>
         {#each list as row (`${row.id}:${row.step ?? ""}`)}
           <li><span class="mark {mark}" aria-hidden="true"></span><span class="name">{row.name}</span><span
               class="status">{row.status}</span
             ></li>
         {/each}
       </ul>
-    {:else}
-      <p class="none">None</p>
-    {/if}
-  </section>
+  </section>{/if}
 {/snippet}
 
 <div class="focus-root">
@@ -98,6 +86,8 @@ async function newTask(): Promise<void> {
     <h2>{workspace.project?.name ?? "No project"}</h2>
     {#if sections}<p>{countLine(sections)}</p>{/if}
   </header>
+
+  <h3 class="focus-label">Waiting on you</h3>
 
   <section class="focus-waiting" aria-label="Questions and changes to review">
     {#if nothingWaits}
@@ -126,8 +116,9 @@ async function newTask(): Promise<void> {
       {@render rows("Next", sections.next, "next")}
       {@render rows("Done", sections.done, "done")}
     {/if}
-    <button type="button" class="new" onclick={newTask} data-testid="focus-new-task">New task…</button>
   </div>
+
+  <div class="focus-compose"><FocusComposer /></div>
 </div>
 
 <style>
@@ -155,13 +146,29 @@ async function newTask(): Promise<void> {
     gap: 10px;
     min-width: 0;
   }
+  .focus-label,
+  .part h3 {
+    display: flex;
+    gap: 8px;
+    margin: 0;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-2);
+  }
+  .focus-label {
+    grid-area: wait;
+  }
   .quiet {
     margin: 0;
-    padding: 18px;
-    border-radius: var(--r-lg);
-    background: var(--s2);
-    text-align: center;
-    color: var(--text-2);
+    padding: 2px 2px 0;
+    color: var(--text-3);
+  }
+  .focus-compose {
+    grid-area: compose;
+    position: sticky;
+    bottom: 0;
+    padding: 8px 0 16px;
+    background: var(--s1);
   }
   .card {
     display: flex;
@@ -202,12 +209,7 @@ async function newTask(): Promise<void> {
     min-width: 0;
   }
   .part h3 {
-    display: flex;
-    gap: 8px;
-    margin: 0 0 6px;
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--text-2);
+    margin-bottom: 6px;
   }
   .n {
     font-weight: 400;
@@ -252,14 +254,6 @@ async function newTask(): Promise<void> {
     font-size: 12px;
     color: var(--text-2);
     overflow-wrap: anywhere;
-  }
-  .none {
-    margin: 0;
-    padding: 4px 2px;
-    color: var(--text-3);
-  }
-  .new {
-    align-self: flex-start;
   }
   button {
     min-height: var(--control-h);
