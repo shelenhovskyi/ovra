@@ -261,22 +261,24 @@ async fn push(core: &Core, caller: &ToolCaller, args: PushArgs) -> Result<Pushed
         commit: commit.clone(),
         snapshot: snapshot.clone(),
     };
-    review::update(core, &entry.id, |e| e.agent_pushed = Some(last))?;
     // The item's pull request follows its branch, so the person's next
-    // Update builds on this push instead of failing on the lease.
+    // Update builds on this push instead of failing on the lease. Only the
+    // lease follows: what the person reviewed stays where it was, so the
+    // review still shows what went out without them.
     let pr_branch = entry
         .pull_request
         .as_ref()
         .is_some_and(|pr| pr.remote == remote && pr.branch == branch);
-    if pr_branch {
-        // Only the lease follows: what the person reviewed stays where it
-        // was, so the review still shows what went out without them.
-        let entry = review::update(core, &entry.id, |e| {
-            if let Some(pr) = &mut e.pull_request {
-                pr.pushed = commit.clone();
-            }
-        })?;
-        publish::emit(core, &entry);
+    let updated = review::update(core, &entry.id, |e| {
+        e.agent_pushed = Some(last);
+        if let Some(pr) = e.pull_request.as_mut().filter(|_| pr_branch) {
+            pr.pushed = commit.clone();
+        }
+    });
+    // The push went out either way: an item removed meanwhile has nothing
+    // left to record it on.
+    if let (true, Ok(entry)) = (pr_branch, &updated) {
+        publish::emit(core, entry);
     }
     let what = format!("pushed its work to {remote}/{branch}");
     super::tasks::tell_coordinator(core, &entry.session, &what);

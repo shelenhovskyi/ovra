@@ -414,5 +414,14 @@ async fn a_file_changed_again_after_a_push_goes_out_in_the_next_push_and_update(
     let update =
         json!({"method": "pr.update", "params": {"id": id, "fingerprint": item.fingerprint}});
     let updated = call(&f.core, update).await;
-    assert!(updated.is_ok(), "{updated:?}");
+    let Ok(crate::protocol::Response::Pr(crate::protocol::pr::PrResponse::PullRequest(pr))) =
+        updated
+    else {
+        panic!("not updated: {updated:?}");
+    };
+    let files = files_of(&f.wt, &pr.pushed).await;
+    assert!(
+        files.contains(&("b.rs".to_owned(), "two v4\n".to_owned())),
+        "{files:?}"
+    );
 }
