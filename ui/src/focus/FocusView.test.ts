@@ -53,6 +53,66 @@ describe("FocusView", () => {
     expect(text("focus-nothing")).toBe("Nothing waits for you.");
   });
 
+  it("loads the plan of an agent at work and shows its next steps", async () => {
+    await setup((core) => {
+      core.addSession("p1", "Fix sync", { state: "working" });
+      core.transcripts.set("s1", [
+        {
+          kind: "tool_use",
+          id: "t1",
+          name: "TodoWrite",
+          input: { todos: [{ content: "Write a <i>test</i>", status: "pending" }] },
+        },
+      ]);
+    });
+    await vi.waitFor(() => expect(text("focus-next")).toBe("Next1 Write a <i>test</i>Planned by Fix sync"));
+    expect(target.querySelector("[data-testid=focus-next] i")).toBeNull();
+  });
+
+  it("shows an agent's question from its task's board and sends the answer as text", async () => {
+    const core = await setup((core) => {
+      const coordinator = core.addSession("p1", "Make sync robust", { state: "idle" });
+      core.tasks = [
+        {
+          id: "t1",
+          project: "p1",
+          coordinator: coordinator.id,
+          workers: [],
+          limits: { max_workers: 3, budget_micro_usd: null },
+          spent_micro_usd: 0,
+        },
+      ];
+      core.boards.set("t1", [
+        {
+          id: "b1",
+          author: { kind: "worker", name: "retry" },
+          body: { kind: "question", to: { kind: "person" }, text: "Give up after 5 tries?" },
+        },
+        {
+          id: "b2",
+          author: { kind: "worker", name: "docs" },
+          body: { kind: "question", to: { kind: "coordinator" }, text: "Not for you" },
+        },
+      ]);
+    });
+    await vi.waitFor(() => expect(target.querySelectorAll("[data-testid=focus-question]")).toHaveLength(1));
+    const card = target.querySelector("[data-testid=focus-question]");
+    expect(card?.querySelector(".who")?.textContent).toBe("Question from retry · Make sync robust");
+    expect(card?.querySelector("h3")?.textContent).toBe("Give up after 5 tries?");
+    expect(target.querySelector("[data-testid=focus-nothing]")).toBeNull();
+    const box = card?.querySelector("textarea") as HTMLTextAreaElement;
+    box.value = "Yes, after 5";
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+    flushSync();
+    card?.querySelector<HTMLButtonElement>("button[type=submit]")?.click();
+    await vi.waitFor(() => expect(target.querySelectorAll("[data-testid=focus-question]")).toHaveLength(0));
+    expect(core.calls.find((c) => c.method === "board.answer")?.params).toEqual({
+      task: "t1",
+      question: "b1",
+      text: "Yes, after 5",
+    });
+  });
+
   it("shows a review that waits, and See changes leaves Focus for Reviews", async () => {
     const opened = vi.fn();
     const off = registerCommand({ id: "inbox.toggle", title: "Reviews", run: opened });

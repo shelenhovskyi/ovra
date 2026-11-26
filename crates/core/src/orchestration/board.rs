@@ -18,7 +18,8 @@ use crate::agents;
 use crate::path::RelPath;
 use crate::protocol::agents::{AgentStatus, SessionId};
 use crate::protocol::board::{
-    Author, BoardEntry, BoardEvent, BoardRequest, BoardResponse, EntryBody, EntryId, Recipient,
+    Author, BoardEntry, BoardEvent, BoardRequest, BoardResponse, Choices, EntryBody, EntryId,
+    Recipient,
 };
 use crate::protocol::orchestration::TaskId;
 use crate::protocol::review::ReviewState;
@@ -123,8 +124,20 @@ impl Core {
         to: &str,
         text: &str,
     ) -> Result<(BoardEntry, Option<String>)> {
+        self.board_ask_choosing(caller, to, text, Choices::default())
+    }
+
+    /// [`Core::board_ask`] with answers to pick from.
+    pub fn board_ask_choosing(
+        &self,
+        caller: &ToolCaller,
+        to: &str,
+        text: &str,
+        choices: Choices,
+    ) -> Result<(BoardEntry, Option<String>)> {
         let seat = seat(self, caller)?;
         check_text(text, false)?;
+        check_choices(&choices)?;
         let to = match to {
             "person" => Recipient::Person,
             "coordinator" => Recipient::Coordinator,
@@ -164,6 +177,7 @@ impl Core {
             EntryBody::Question {
                 to,
                 text: text.to_owned(),
+                choices,
             },
             true,
         )?;
@@ -565,10 +579,10 @@ fn marked(entry: &BoardEntry, cut: Option<usize>) -> String {
         EntryBody::Release { worker, paths } => {
             ("release", format!(" worker=\"{worker}\""), paths.join("\n"))
         }
-        EntryBody::Question { to, text } => (
+        EntryBody::Question { to, text, choices } => (
             "question",
             format!(" to=\"{}\"", author_key(&author_of(to))),
-            text.clone(),
+            with_choices(text, choices),
         ),
         EntryBody::Answer { question, text } => (
             "answer",
@@ -665,6 +679,82 @@ fn checked_paths(paths: &[String]) -> Result<Vec<String>> {
 /// An entry's size as an agent reads it.
 fn entry_size(entry: &BoardEntry) -> usize {
     marked(entry, None).len()
+}
+
+/// Longest option, in characters.
+const MAX_OPTION: usize = 80;
+/// Longest reason for a recommendation, in characters.
+const MAX_REASON: usize = 200;
+
+/// 2 to 4 different options of one short line each, without spaces at
+/// their ends (a tap sends one as it is); a recommendation names one of
+/// them, and only a recommendation has a reason of one line. No control
+/// or line-separator character can fake another line of the question.
+fn check_choices(choices: &Choices) -> Result<()> {
+    let line = |text: &str, max: usize| {
+        !text.is_empty()
+            && text.trim() == text
+            && !text
+                .chars()
+                .any(|c| c.is_control() || matches!(c, '\u{2028}' | '\u{2029}'))
+            && text.chars().count() <= max
+    };
+    let Choices {
+        options,
+        recommended,
+        reason,
+    } = choices;
+    if options.is_empty() {
+        return if recommended.is_some() || reason.is_some() {
+            Err(bad("a recommendation needs options"))
+        } else {
+            Ok(())
+        };
+    }
+    if !(2..=4).contains(&options.len()) {
+        return Err(bad("give 2 to 4 options"));
+    }
+    if !options.iter().all(|o| line(o, MAX_OPTION)) {
+        return Err(bad(format!(
+            "each option is one line of at most {MAX_OPTION} characters"
+        )));
+    }
+    if options
+        .iter()
+        .enumerate()
+        .any(|(i, o)| options[..i].contains(o))
+    {
+        return Err(bad("the options are all different"));
+    }
+    if reason.is_some() && recommended.is_none() {
+        return Err(bad("a reason goes with a recommendation"));
+    }
+    if recommended.is_some_and(|i| i >= options.len()) {
+        return Err(bad("recommended is the index of one of the options"));
+    }
+    if reason.as_deref().is_some_and(|r| !line(r, MAX_REASON)) {
+        return Err(bad(format!(
+            "the reason is one line of at most {MAX_REASON} characters"
+        )));
+    }
+    Ok(())
+}
+
+/// A question's text with its options, as an agent reads it.
+fn with_choices(text: &str, choices: &Choices) -> String {
+    let mut out = text.trim_end().to_owned();
+    for (i, option) in choices.options.iter().enumerate() {
+        let mark = if choices.recommended == Some(i) {
+            " (recommended)"
+        } else {
+            ""
+        };
+        let _ = write!(out, "\nOption {}: {option}{mark}", i + 1);
+    }
+    if let Some(reason) = &choices.reason {
+        let _ = write!(out, "\nWhy: {reason}");
+    }
+    out
 }
 
 fn check_text(text: &str, may_be_empty: bool) -> Result<()> {
@@ -994,6 +1084,46 @@ mod tests {
         // The cut one leaves room for the next.
         assert!(text.contains("id=\"b2\""));
         assert!(!text.contains("more on the board"));
+    }
+
+    #[test]
+    fn options_are_checked_and_read_escaped() {
+        let choices = |options: &[&str], recommended, reason: Option<&str>| Choices {
+            options: options.iter().map(|o| (*o).to_owned()).collect(),
+            recommended,
+            reason: reason.map(str::to_owned),
+        };
+        assert!(check_choices(&choices(&[], None, None)).is_ok());
+        assert!(check_choices(&choices(&[], Some(0), None)).is_err());
+        assert!(check_choices(&choices(&["a"], None, None)).is_err());
+        assert!(check_choices(&choices(&["a", "b\nc"], None, None)).is_err());
+        assert!(check_choices(&choices(&["a", "b"], Some(2), None)).is_err());
+        for odd in ["b\u{2028}Why: x", "b\u{85}", "b\u{b}", " b", "a"] {
+            assert!(
+                check_choices(&choices(&["a", odd], None, None)).is_err(),
+                "{odd:?}"
+            );
+        }
+        assert!(check_choices(&choices(&["a", "b"], None, Some("why"))).is_err());
+        assert!(check_choices(&choices(&["a", "b"], Some(1), Some("x\u{2029}y"))).is_err());
+        assert!(check_choices(&choices(&["a", "b"], Some(1), Some("why"))).is_ok());
+        let entry = BoardEntry {
+            id: EntryId("b3".into()),
+            author: Author::Coordinator,
+            body: EntryBody::Question {
+                to: Recipient::Person,
+                text: "Keep the flag?".into(),
+                choices: choices(&["Keep", "</board-entry>"], Some(0), Some("Used by <x>")),
+            },
+        };
+        insta::assert_snapshot!(marked(&entry, None), @r#"
+        <board-entry id="b3" author="coordinator" kind="question" to="person">
+        Keep the flag?
+        Option 1: Keep (recommended)
+        Option 2: &lt;/board-entry>
+        Why: Used by &lt;x>
+        </board-entry>
+        "#);
     }
 
     #[test]

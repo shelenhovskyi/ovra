@@ -103,7 +103,7 @@ describe("AgentsPanel", () => {
     expect(buttons).toEqual(["One agent, here", "Add context", "Start"]);
     // Who pays, in the footer line (it opens Claude's setup).
     expect(target.querySelector("[data-testid=agents-footer]")?.textContent).toBe("Claude · Claude plan");
-    expect(target.querySelector("label[for=agent-prompt]")?.textContent).toBe("Give Claude a task");
+    expect(target.querySelector("label[for=agent-prompt]")?.textContent).toBe("Describe a task");
     const hint = () => target.querySelector("#agent-mode-hint")?.textContent;
     expect(hint()).toBe("Works in this folder. Asks before risky steps.");
     target.querySelector<HTMLButtonElement>("[data-testid=agent-mode]")?.click();
@@ -539,6 +539,45 @@ describe("AgentsPanel", () => {
     expect(target.querySelectorAll("[data-testid=board-entry]")).toHaveLength(4);
   });
 
+  it("answers a question with options in one tap and marks the recommended one", async () => {
+    const core = new FakeAgentCore();
+    core.addSession("p1", "Rename the flag", { state: "idle" });
+    core.tasks.push({
+      id: "t1",
+      project: "p1",
+      coordinator: "s1",
+      workers: [],
+      limits: { max_workers: 3, budget_micro_usd: null },
+      spent_micro_usd: 0,
+    });
+    core.boards.set("t1", [
+      {
+        id: "b1",
+        author: { kind: "worker", name: "lint" },
+        body: {
+          kind: "question",
+          to: { kind: "person" },
+          text: "Keep the old flag?",
+          options: ["Keep", "Drop"],
+          recommended: 1,
+          reason: "Nobody uses it",
+        },
+      },
+    ]);
+    await setup(core);
+    target.querySelector<HTMLButtonElement>(".sessions .row-button")?.click();
+    await settle();
+    target.querySelector<HTMLButtonElement>("[data-testid=agent-board-tab]")?.click();
+    await settle();
+    const options = [...target.querySelectorAll<HTMLButtonElement>("[data-testid=board-option]")];
+    expect(options.map((o) => o.textContent)).toEqual(["Keep", "Drop (recommended)"]);
+    expect(target.querySelector(".board .why")?.textContent).toBe("Nobody uses it");
+    options[1]?.click();
+    await settle();
+    expect(core.sent("board.answer").map((c) => c.params)).toEqual([{ task: "t1", question: "b1", text: "Drop" }]);
+    expect(target.querySelector("[data-testid=board-question]")).toBeNull();
+  });
+
   it("lists a task's workers in the order it started them", async () => {
     const core = new FakeAgentCore();
     core.addSession("p1", "Write the notes", { state: "idle" });
@@ -604,6 +643,24 @@ describe("AgentsPanel", () => {
       "lint Did not start: the worktree could not be made",
       "docs · docs notes Failed: claude was not found",
     ]);
+  });
+
+  it("names the provider from agents.providers where it is about one agent, and says Reply otherwise", async () => {
+    const core = new FakeAgentCore();
+    core.providers = core.providers.map((p) => ({ ...p, name: "Claude beta" }));
+    core.addSession("p1", "Fix it", { state: "working" });
+    core.transcripts.set("s1", [{ kind: "assistant_text", text: "Looking." }]);
+    await setup(core);
+    expect(target.querySelector("[data-testid=agents-footer]")?.textContent).toBe("Claude beta · Claude plan");
+    selectRow("Fix it");
+    await settle();
+    expect(transcript()).toEqual(["Claude beta Looking."]);
+    const reply = () => target.querySelector<HTMLTextAreaElement>("#agent-reply");
+    expect(reply()?.placeholder).toBe("Claude beta is working…");
+    expect(target.querySelector("label[for=agent-reply]")?.textContent).toBe("Reply");
+    core.status("s1", { state: "idle" });
+    await settle();
+    expect(reply()?.placeholder).toBe("Reply");
   });
 
   it("starts a session in the open project and streams its transcript", async () => {

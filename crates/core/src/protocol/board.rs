@@ -50,6 +50,9 @@ pub enum EntryBody {
     Question {
         to: Recipient,
         text: String,
+        /// Answers to pick from, so the person can answer with one tap.
+        #[serde(flatten)]
+        choices: Choices,
     },
     Answer {
         question: EntryId,
@@ -62,6 +65,19 @@ pub enum EntryBody {
     Ovra {
         text: String,
     },
+}
+
+/// A question's answers to pick from (2 to 4, each one short line), the
+/// one the asker recommends and why. All empty for a free-text question.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Choices {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub options: Vec<String>,
+    /// An index into `options`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recommended: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -134,6 +150,7 @@ mod tests {
             body: EntryBody::Question {
                 to: Recipient::Person,
                 text: "Keep the old flag?".into(),
+                choices: Choices::default(),
             },
         };
         insta::assert_json_snapshot!(entry, @r#"
@@ -152,5 +169,38 @@ mod tests {
           }
         }
         "#);
+    }
+
+    #[test]
+    fn a_question_with_options_reads_as_the_ui_expects_and_old_ones_still_load() {
+        let body = EntryBody::Question {
+            to: Recipient::Person,
+            text: "Keep the old flag?".into(),
+            choices: Choices {
+                options: vec!["Keep".into(), "Drop".into()],
+                recommended: Some(1),
+                reason: Some("Nobody uses it".into()),
+            },
+        };
+        insta::assert_json_snapshot!(body, @r#"
+        {
+          "kind": "question",
+          "to": {
+            "kind": "person"
+          },
+          "text": "Keep the old flag?",
+          "options": [
+            "Keep",
+            "Drop"
+          ],
+          "recommended": 1,
+          "reason": "Nobody uses it"
+        }
+        "#);
+        let old: Result<EntryBody, _> =
+            serde_json::from_str(r#"{"kind":"question","to":{"kind":"person"},"text":"?"}"#);
+        assert!(
+            matches!(old, Ok(EntryBody::Question { choices, .. }) if choices == Choices::default())
+        );
     }
 }

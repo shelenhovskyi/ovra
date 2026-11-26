@@ -9,6 +9,7 @@ import { useOvra } from "../../shell/context";
 import { accountStatus, accountsSummary, nameFromFolder } from "./account-texts";
 import { setupAsks } from "./asks.svelte";
 import { claudeAccounts, DEFAULT_ACCOUNT } from "./claude-accounts.svelte";
+import { DEFAULT_FOLDER, FOLDER_HINT } from "./claude-texts";
 
 /** `quiet`: the setup card is one line; with one account and none found,
  * nothing shows until the person opens the card. */
@@ -154,7 +155,7 @@ function startRename(state: AccountState): void {
             </span>
           </div>
         {/if}
-        <span class="detail">{state.account.config_dir ?? "Claude Code's own folder (~/.claude)"}</span>
+        <span class="detail">{state.account.config_dir ?? DEFAULT_FOLDER}</span>
         <span class:problem={!status.ok} class="detail" data-testid="claude-account-status">{status.text}</span>
         {#if status.command}
           <code>{status.command}</code>
@@ -192,7 +193,7 @@ function startRename(state: AccountState): void {
         aria-describedby="account-folder-hint"
       />
       <span class="detail" id="account-folder-hint"
-        >The folder you give Claude Code as CLAUDE_CONFIG_DIR for this account. Use the full path.</span
+        >{FOLDER_HINT}</span
       >
       <div class="row end">
         <button type="button" onclick={() => (adding = false)}>Cancel</button>

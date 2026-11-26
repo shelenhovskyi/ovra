@@ -1,5 +1,5 @@
 <script lang="ts">
-// Settings > Claude: how many agents may work at once in a project, or with
+// Settings > Agents: how many agents may work at once in a project, or with
 // `research` how many research agents (ADR 0013), which have their own cap.
 // The core checks the range and keeps the choice; the field shows what it kept.
 import { untrack } from "svelte";

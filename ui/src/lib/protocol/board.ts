@@ -13,12 +13,15 @@ export type Author = { kind: "person" } | { kind: "coordinator" } | { kind: "wor
 /** Whom a question is for. */
 export type Recipient = { kind: "person" } | { kind: "coordinator" } | { kind: "worker"; name: string };
 
+/** A question's answers to pick from (2 to 4), the one the asker recommends and why; absent for free text. */
+export type Choices = { options?: string[]; recommended?: number; reason?: string };
+
 export type EntryBody =
   /** A worker takes these paths (relative, globs allowed). */
   | { kind: "claim"; worker: string; paths: string[]; note: string }
   /** The worker gives these paths back. */
   | { kind: "release"; worker: string; paths: string[] }
-  | { kind: "question"; to: Recipient; text: string }
+  | ({ kind: "question"; to: Recipient; text: string } & Choices)
   | { kind: "answer"; question: EntryId; text: string }
   | { kind: "note"; text: string }
   /** Something Ovra saw: an overlap, a review asked for, a stop. */

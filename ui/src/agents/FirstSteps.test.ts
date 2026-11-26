@@ -4,7 +4,7 @@ import FirstSteps from "./FirstSteps.svelte";
 import { hints } from "./hints.svelte";
 
 it("ticks the first steps off as they are done, and hides for good", () => {
-  const app = mount(FirstSteps, { target: document.body, props: { ready: true, started: false } });
+  const app = mount(FirstSteps, { target: document.body, props: { agent: "Claude", ready: true, started: false } });
   const card = () => document.querySelector("[data-testid=first-steps]");
   const words = () => card()?.textContent?.replace(/\s+/g, " ").trim();
   expect(words()).toMatch(/^Get started 1 of 3 Hide/);

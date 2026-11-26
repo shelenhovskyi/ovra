@@ -1,18 +1,19 @@
 <script lang="ts">
-// The end of a working session's transcript: the text Claude is writing as it
+// The end of a working session's transcript: the text the agent is writing as it
 // streams in, and one line with what it does now and for how long, so a long
 // turn never looks frozen. Not a live region: the transcript's own region
-// speaks Claude's finished text.
+// speaks the agent's finished text.
 import type { AgentMessage, AgentStatus } from "../lib/protocol";
 import { elapsed, liveStep } from "./steps";
 
-/** `root`: the session's folder; files in it show relative to it. */
+/** `agent`: the provider's display name. `root`: the session's folder; files in it show relative to it. */
 let {
+  agent = "Agent",
   status,
   messages,
   partial = "",
   root = null,
-}: { status: AgentStatus; messages: AgentMessage[]; partial?: string; root?: string | null } = $props();
+}: { agent?: string; status: AgentStatus; messages: AgentMessage[]; partial?: string; root?: string | null } = $props();
 
 const step = $derived(liveStep(status, messages, partial !== "", root));
 let since = $state(Date.now());
@@ -36,7 +37,7 @@ const time = $derived(now - since >= 1000 ? elapsed(now - since) : "");
 
 {#if partial && status.state === "working"}
   <li class="assistant_text streaming" data-testid="streaming-text">
-    <span class="who">Claude</span>
+    <span class="who">{agent}</span>
     <p>{partial}</p>
   </li>
 {/if}

@@ -33,7 +33,7 @@ import Palette from "../palette/Palette.svelte";
 import Search from "../search/Search.svelte";
 import { serversDock } from "../servers/dock.svelte";
 import ServersDock from "../servers/ServersDock.svelte";
-import ClaudePane from "../settings/ClaudePane.svelte";
+import AgentsPane from "../settings/AgentsPane.svelte";
 import { registerSettingsCommands } from "../settings/commands";
 import Settings from "../settings/Settings.svelte";
 import Terminals from "../terminal/Terminals.svelte";
@@ -349,10 +349,10 @@ async function showApprovals(): Promise<void> {
       <div class="sidebar-view" hidden={!workspace.project || workspace.sidebar !== "search"}><Search /></div>
       <div class="sidebar-view" hidden={!workspace.project || workspace.sidebar !== "git"}><Git /></div>
       {#if !workspace.project}
-        <!-- The start screen's second column: whether Claude is ready, before any project is open. -->
+        <!-- The start screen's second column: whether the agents are ready, before any project is open. -->
         <section class="claude-column" aria-labelledby="start-claude">
-          <h2 id="start-claude">Claude</h2>
-          {#key claudeCheck}<ClaudePane />{/key}
+          <h2 id="start-claude">Agents</h2>
+          {#key claudeCheck}<AgentsPane />{/key}
         </section>
       {/if}
     </div>

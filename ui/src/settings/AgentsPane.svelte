@@ -1,19 +1,21 @@
 <script lang="ts">
-// Claude in plain facts, for Settings > Claude and the start screen: when
+// Claude in plain facts, for Settings > Agents and the start screen: when
 // Claude is ready, who pays, the version and the program that runs, with
 // quiet ways to check again or choose another path; repair (install, sign
 // in, find the program) only when something is wrong. A billing warning
 // (an API key in the environment) always stays on top; the setup card says
 // it itself when something is wrong.
 import { untrack } from "svelte";
+import { providers } from "../agents/providers.svelte";
 import Accounts from "../agents/setup/Accounts.svelte";
-import ClaudeSetup from "../agents/setup/ClaudeSetup.svelte";
-import { advice, billingText } from "../agents/setup/texts";
+import SetupCard from "../agents/setup/AgentSetup.svelte";
+import { advice, billingText } from "../agents/setup/claude-texts";
 import type { AgentSetup } from "../lib/protocol";
 import { CoreError } from "../lib/transport";
 import { useOvra } from "../shell/context";
 
 const { transport } = useOvra();
+const names = providers(transport);
 
 let setup = $state<AgentSetup | null>(null);
 let error = $state<string | null>(null);
@@ -67,9 +69,9 @@ async function savePath(value: string | null): Promise<void> {
     <p class="warn" role="note" data-testid="claude-api-key">{billing.warning}</p>
   {/if}
   {#if setup === null && !error}
-    <p class="muted">Checking Claude…</p>
+    <p class="muted">Checking {names.name()}…</p>
   {:else if setup && ready}
-    <p class="ready"><strong>{advice(setup).title}</strong></p>
+    <p class="ready"><strong>{advice(setup, names.name()).title}</strong></p>
     <dl>
       {#if billing?.paid}<dt>Billing</dt><dd data-testid="claude-billing">{billing.paid}</dd>{/if}
       <dt>Program</dt>
@@ -110,8 +112,8 @@ async function savePath(value: string | null): Promise<void> {
     <Accounts quiet />
   {:else}
     <!-- Something is wrong: the setup card says what, and how to fix it. -->
-    {#if error}<p class="error" role="alert">Could not check Claude: {error}</p>{/if}
-    <ClaudeSetup open />
+    {#if error}<p class="error" role="alert">Could not check {names.name()}: {error}</p>{/if}
+    <SetupCard open />
   {/if}
 </div>
 

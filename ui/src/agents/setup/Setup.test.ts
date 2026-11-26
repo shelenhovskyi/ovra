@@ -7,19 +7,8 @@ import { languageServers } from "../../lsp/servers.svelte";
 import { Workspace } from "../../shell/workspace.svelte";
 import { FakeAgentCore } from "../fake-core";
 import TestHost from "../TestHost.svelte";
-import {
-  advice,
-  billingText,
-  changeSummary,
-  changes,
-  countText,
-  paidShort,
-  paidText,
-  riskyEnv,
-  summary,
-  TRUST_ARM_MS,
-  warnings,
-} from "./texts";
+import { advice, billingText, paidShort, paidText } from "./claude-texts";
+import { changeSummary, changes, countText, riskyEnv, summary, TRUST_ARM_MS, warnings } from "./texts";
 
 let app: Record<string, unknown> | null = null;
 let target: HTMLElement;
@@ -73,26 +62,27 @@ function setup(state: AgentSetup["state"], extra: Partial<AgentSetup> = {}): Age
 
 describe("setup advice", () => {
   it("says what to do in every state", () => {
-    expect(advice(setup({ state: "ready" })).title).toBe("Claude 2.1.331 is ready");
-    expect(advice(setup({ state: "not_found" }, { version: null })).install).toBe(true);
-    expect(advice(setup({ state: "not_found" }, { version: null })).detail).toContain(
+    expect(advice(setup({ state: "ready" }), "Claude").title).toBe("Claude 2.1.331 is ready");
+    expect(advice(setup({ state: "not_found" }, { version: null }), "Claude").install).toBe(true);
+    expect(advice(setup({ state: "not_found" }, { version: null }), "Claude").detail).toContain(
       "Signing in to the Claude desktop app or claude.ai does not sign in the claude command line program",
     );
-    expect(advice(setup({ state: "not_found" }, { path: "/opt/c" }))).toEqual({
+    expect(advice(setup({ state: "not_found" }, { path: "/opt/c" }), "Claude")).toEqual({
       title: "Claude was not found",
       detail: "There is no program at /opt/c.",
       findAutomatically: true,
     });
-    expect(advice(setup({ state: "outdated", minimum: "2.1.331" }, { version: "2.0.0" }))).toMatchObject({
+    expect(advice(setup({ state: "outdated", minimum: "2.1.331" }, { version: "2.0.0" }), "Claude")).toMatchObject({
       title: "Claude 2.0.0 is too old",
       command: "claude update",
     });
-    expect(advice(setup({ state: "too_new", below: "3.0.0" })).detail).toContain("Update Ovra");
-    expect(advice(setup({ state: "signed_out" }))).toMatchObject({
+    expect(advice(setup({ state: "too_new", below: "3.0.0" }), "Claude").detail).toContain("Update Ovra");
+    expect(advice(setup({ state: "signed_out" }), "Claude beta")).toMatchObject({
+      title: "Sign in to Claude beta",
       command: "claude auth login",
       detail: expect.stringMatching(/^Run claude once in a terminal and sign in there.*desktop app or claude\.ai/),
     });
-    expect(advice(setup({ state: "broken", message: "boom" })).detail).toBe("boom");
+    expect(advice(setup({ state: "broken", message: "boom" }), "Claude").detail).toBe("boom");
   });
 });
 
@@ -236,7 +226,7 @@ describe("trust summary", () => {
   });
 });
 
-describe("ClaudeSetup", () => {
+describe("AgentSetup", () => {
   it("shows nothing until the first check answers, nor once Claude is ready", async () => {
     const core = new FakeAgentCore();
     const call = core.call.bind(core);
@@ -298,7 +288,7 @@ describe("ClaudeSetup", () => {
       warning:
         "Usage may be billed to the API key in ANTHROPIC_API_KEY, at API prices, not to your Claude plan. To use your plan, unset it and restart Ovra.",
     });
-    expect(advice(keyed).detail).toBeNull();
+    expect(advice(keyed, "Claude").detail).toBeNull();
     const keyBilled = setup({ state: "ready" }, { billing: { kind: "api_key" }, api_key_in_env: true });
     expect(billingText(keyBilled).warning).toMatch(/^Usage is billed to the API key in ANTHROPIC_API_KEY/);
     const cloud = setup({ state: "ready" }, { billing: { kind: "cloud", provider: "bedrock" }, api_key_in_env: true });

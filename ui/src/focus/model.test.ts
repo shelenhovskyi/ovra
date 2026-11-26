@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import { FakeAgentCore } from "../agents/fake-core";
 import { AgentSessions } from "../agents/sessions.svelte";
 import { review } from "../inbox/fake-review";
-import { countLine, focusSections } from "./model";
+import type { AgentMessage } from "../lib/protocol";
+import { countLine, focusSections, pendingSteps } from "./model";
+
+const todo = (input: unknown, id = "t1"): AgentMessage => ({ kind: "tool_use", id, name: "TodoWrite", input });
 
 async function loaded(core: FakeAgentCore): Promise<AgentSessions> {
   const sessions = new AgentSessions(core);
@@ -60,6 +63,42 @@ describe("focusSections", () => {
     ];
     const sections = focusSections(await loaded(core), "p1");
     expect(sections.progress.map((r) => r.status)).toEqual(["Workers are on it", "Working"]);
+  });
+
+  it("adds the pending steps of an agent at work to Next, after the agents that wait", async () => {
+    const core = new FakeAgentCore();
+    core.addSession("p1", "Fix sync", { state: "working" });
+    core.addSession("p1", "Update docs", { state: "queued" });
+    core.addSession("p1", "Old one", { state: "idle" });
+    const sessions = await loaded(core);
+    const plan = {
+      todos: [
+        { content: "Read the sync code", status: "completed" },
+        { content: "Add retries", status: "in_progress" },
+        { content: "Write a test\nfor retries", status: "pending" },
+      ],
+    };
+    sessions.transcripts.set("s1", [todo(plan)]);
+    // A finished agent's leftover plan is not "next".
+    sessions.transcripts.set("s3", [todo({ todos: [{ content: "Never mind", status: "pending" }] })]);
+    const sections = focusSections(sessions, "p1");
+    expect(sections.next.map((r) => [r.name, r.status])).toEqual([
+      ["Update docs", "Waiting for a free agent"],
+      ["Write a test for retries", "Planned by Fix sync"],
+    ]);
+  });
+
+  it("reads only the latest to-do list, and nothing from one of another shape", () => {
+    const first = todo({ todos: [{ content: "Old step", status: "pending" }] });
+    const latest = todo({ todos: [{ content: "New step", status: "pending" }] }, "t2");
+    expect(pendingSteps([first, latest])).toEqual(["New step"]);
+    expect(pendingSteps([first, todo({ todos: "all of it" }, "t3")])).toEqual([]);
+    expect(pendingSteps([todo(null)])).toEqual([]);
+    expect(pendingSteps([todo({ todos: [{ content: 7, status: "pending" }, { status: "pending" }] })])).toEqual([]);
+    const long = "x".repeat(400);
+    expect(pendingSteps([todo({ todos: [{ content: long, status: "pending" }] })])[0]).toHaveLength(160);
+    const many = Array.from({ length: 20 }, (_, i) => ({ content: `Step ${i}`, status: "pending" }));
+    expect(pendingSteps([todo({ todos: many })])).toHaveLength(8);
   });
 
   it("says when there is nothing yet", () => {

@@ -14,7 +14,7 @@ import { menuTarget } from "./menu";
 
 /** `name` where the menu says it shorter than the palette ("Open settings"). */
 const ITEMS: { command: string; id: string; about: string; name?: string }[] = [
-  { command: "settings.open", id: "settings", name: "Settings…", about: "Rules, network, Claude and more" },
+  { command: "settings.open", id: "settings", name: "Settings…", about: "Rules, network, agents and more" },
   { command: "audit.toggle", id: "audit", about: "Everything agents did, and who approved it" },
   { command: "browser.toggle", id: "browser", about: "The web browser an agent uses" },
   { command: "palette.shortcuts", id: "shortcuts", about: "Every command with a shortcut" },

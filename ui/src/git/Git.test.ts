@@ -576,7 +576,7 @@ it("lets an agent suggest commits that the person edits and makes, and draft a m
   click("[data-testid=git-assist-commits]");
   await settle();
   const start = core.calls.find((c) => c.method === "agents.start");
-  expect(start?.params).toMatchObject({ project: "p1", mode: "research" });
+  expect(start?.params).toMatchObject({ project: "p1", mode: "research", no_web: true });
   expect(core.methods()).toContain("agents.stop");
   expect(text("[data-testid=git-assist-plan] h3")).toBe("2 suggested commits");
 
