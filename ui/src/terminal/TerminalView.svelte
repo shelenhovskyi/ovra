@@ -42,7 +42,7 @@ function colours(): { background: string; foreground: string; cursor: string; se
   const css = getComputedStyle(document.documentElement);
   const token = (name: string, fallback: string) => css.getPropertyValue(name).trim() || fallback;
   return {
-    background: token("--s2", "black"),
+    background: token("--s1", "black"),
     foreground: token("--text", "white"),
     cursor: token("--text", "white"),
     selectionBackground: token("--s4", "gray"),
@@ -145,6 +145,6 @@ $effect(() => {
     height: 100%;
     padding: 6px 0 0 14px;
     box-sizing: border-box;
-    background: var(--s2);
+    background: var(--s1);
   }
 </style>

@@ -163,7 +163,7 @@ const starts = $derived(files.map((_, i) => files.slice(0, i).reduce((n, f) => n
     flex-direction: column;
     min-width: 0;
     min-height: 0;
-    background: var(--s2);
+    background: var(--s1);
   }
   .problems-dock[hidden] {
     display: none;

@@ -71,7 +71,7 @@ gets 8 px rows. These replace `--radius`, `--radius-sm` and the stray values.
 | ------------------ | ----------------------- | ----------------------- | ------------------------------------------------------------------------- |
 | `--sel`            | `#262a32`               | `#dfe3e8`               | selection while the list is not focused                                   |
 | `--sel-focus`      | `rgba(95,191,220,.18)`  | `rgba(8,118,156,.14)`   | selection while the list is focused                                       |
-| `--separator`      | `rgba(255,255,255,.08)` | `rgba(0,0,0,.10)`       | control edges; area lines only in increased contrast                      |
+| `--separator`      | `rgba(255,255,255,.08)` | `rgba(0,0,0,.10)`       | control edges; the hairline where two areas meet                          |
 | `--menu`           | `rgba(43,48,57,.86)`    | `rgba(255,255,255,.88)` | menus, palette, tooltips over `backdrop-filter: blur(24px) saturate(1.6)` |
 | `--selection-text` | `rgba(95,191,220,.32)`  | `rgba(8,118,156,.22)`   | `::selection`                                                             |
 | `--danger-soft`    | `rgba(236,123,123,.13)` | `rgba(201,60,60,.10)`   | danger chips, failed cards                                                |
@@ -91,7 +91,7 @@ Light-theme fixes (warnings and primaries were under 4.5:1):
 Media queries:
 
 - `prefers-contrast: more`: `--text-2` moves toward `--text`, `--text-3`
-  takes `--text-2`, and `--separator` lines appear between areas.
+  takes `--text-2`, and the `--separator` lines between areas get stronger.
 - `prefers-reduced-transparency: reduce` and forced colours: `--menu` is the
   opaque `--s4`, no blur.
 

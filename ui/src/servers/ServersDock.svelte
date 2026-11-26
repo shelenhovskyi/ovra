@@ -268,7 +268,7 @@ function onkeydown(event: KeyboardEvent): void {
     flex-direction: column;
     min-width: 0;
     min-height: 0;
-    background: var(--s2);
+    background: var(--s1);
   }
   .servers-dock[hidden] {
     display: none;

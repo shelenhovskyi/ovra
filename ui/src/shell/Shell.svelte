@@ -549,9 +549,12 @@ async function showApprovals(): Promise<void> {
   :global([data-chrome="overlay"]) .shell {
     --title-h: 40px;
   }
+  /* A hairline under the title bar and above the status bar, like the ones
+     the splitters draw between the panels. */
   .title-area {
     grid-area: title;
     z-index: 2;
+    box-shadow: 0 1px 0 var(--separator);
     min-width: 0;
     /* Sideways only: the title bar's tooltips hang below it. */
     overflow-x: clip;
@@ -864,6 +867,7 @@ async function showApprovals(): Promise<void> {
   }
   footer {
     grid-area: footer;
+    border-top: 1px solid var(--separator);
     display: flex;
     align-items: center;
     gap: 18px;
@@ -873,13 +877,18 @@ async function showApprovals(): Promise<void> {
     font-size: 13px;
     color: var(--text-2);
   }
-  /* Terminals and servers share the dock side by side; it takes no room while both are hidden. */
+  /* Terminals and servers share the dock side by side; it takes no room while both are hidden.
+     The dock is a panel, in the side panels' tone under a hairline, so it never
+     reads as more of the file above it. */
   .dock {
     display: flex;
     flex: 0 0 40%;
-    gap: 2px;
     min-height: 120px;
     background: var(--s1);
+    border-top: 1px solid var(--separator);
+  }
+  .dock > :global(section:not([hidden]) ~ section:not([hidden])) {
+    border-left: 1px solid var(--separator);
   }
   .dock:not(:has(> :not([hidden]))) {
     display: none;

@@ -1,8 +1,9 @@
 /* Ovra's look ("Quiet", chosen by the owner 2026-11-25). Every area takes its
    colours from these tokens, never from hex values of its own.
    Surfaces: --page < --s0 (rail, title bar) < --s1 (side panels) < --s2 (editor)
-   < --s3 (hover, inputs) < --s4 (raised: tooltips, menus). No hairlines:
-   areas are told apart by tone. Text: --text, --text-2 (secondary), --text-3
+   < --s3 (hover, inputs) < --s4 (raised: tooltips, menus). Areas are told
+   apart by tone and by one --separator hairline where two areas meet; no
+   lines inside an area. Text: --text, --text-2 (secondary), --text-3
    (icons and large text only: 3:1, not 4.5:1). --text, --text-2, --accent,
    --warn, --ok, --danger and --com keep 4.5:1 on every surface and on the
    -soft fills over --s1 and --s2; theme.test.ts checks it. Sizes, type
@@ -31,7 +32,7 @@
   --sel: #262a32;
   /* 0.18, not 0.22 as in tokens.md: --text-2 keeps 4.5:1 on it over --s2. */
   --sel-focus: rgba(95, 191, 220, 0.18);
-  /* Control edges; lines between areas only in increased contrast. */
+  /* Control edges and the hairlines between areas (stronger in increased contrast). */
   --separator: rgba(255, 255, 255, 0.08);
   /* Menus, palette and tooltips, over --menu-blur. */
   --menu: rgba(43, 48, 57, 0.86);

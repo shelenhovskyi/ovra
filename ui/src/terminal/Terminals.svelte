@@ -331,7 +331,7 @@ $effect(() => {
     flex-direction: column;
     flex: 0 0 40%;
     min-height: 120px;
-    background: var(--s2);
+    background: var(--s1);
   }
   .terminals[hidden] {
     display: none;
@@ -340,7 +340,6 @@ $effect(() => {
     display: flex;
     align-items: stretch;
     padding: 4px 8px 4px 10px;
-    background: var(--s2);
   }
   .tabs {
     display: flex;

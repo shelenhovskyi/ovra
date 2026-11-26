@@ -38,7 +38,10 @@ Sizes and colours refer to [tokens.md](tokens.md).
   "…" menu. Collapse is the title-bar toggles (Mod+0, Alt+Mod+0); swap is in
   the palette, the View menu and the header's context menu.
 - Resize from 160 px to 60% of the window (the main area keeps 320 px),
-  collapse to a 48 px strip; the hit area of a split is 8 px and shows a 2 px `--separator` on hover.
+  collapse to a 48 px strip; the hit area of a split is 8 px; a 1 px `--separator`
+  line on the side facing the main area marks the edge, and on hover, focus or drag it
+  turns into a 2 px `--accent` line with a grip. The bottom dock (terminals, servers,
+  problems) is `--s1` under the same hairline, so it never reads as part of the file.
 - Rows: `--row` 28 px with a 4 px inset so the selection reads as a pill
   (`--r-xs`). `--sel-focus` while the list has focus, `--sel` otherwise.
   Indent 16 px per level; chevron 12 px rotating over `--dur-2`; 16 px

@@ -61,7 +61,7 @@ function onkeydown(event: KeyboardEvent): void {
 <!-- A focusable separator is a WAI-ARIA window splitter, a widget. -->
 <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
 <div
-  class="handle"
+  class="handle {edge}"
   class:active={drag !== null}
   role="separator"
   tabindex="0"
@@ -87,12 +87,21 @@ function onkeydown(event: KeyboardEvent): void {
     cursor: col-resize;
     touch-action: none;
   }
-  /* A thin line on hover or focus; a grip in the middle. */
+  /* A hairline on the side that faces the main area marks where the panel
+     ends; hover, focus and dragging thicken it to the accent and show a grip. */
   .handle::before {
     content: "";
     position: absolute;
-    inset: 0 calc(50% - 1px);
-    border-radius: 1px;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: var(--separator);
+  }
+  .left::before {
+    right: 0;
+  }
+  .right::before {
+    left: 0;
   }
   .handle::after {
     content: "";
@@ -102,14 +111,20 @@ function onkeydown(event: KeyboardEvent): void {
     width: 4px;
     height: 28px;
     border-radius: 2px;
-    background: var(--s4);
+    opacity: 0;
+    background: var(--accent);
+    transition: opacity var(--dur-1) var(--ease-out);
   }
   .handle:hover::before,
   .handle:focus-visible::before,
-  .active::before,
-  .handle:hover::after,
-  .active::after {
+  .active::before {
+    width: 2px;
     background: var(--accent);
+  }
+  .handle:hover::after,
+  .handle:focus-visible::after,
+  .active::after {
+    opacity: 1;
   }
   .handle:focus-visible {
     outline: none;
