@@ -6,6 +6,7 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use ovra_core::protocol::orchestration::DiskUsage;
+use ovra_core::services::Result;
 
 /// Adds up what the files under `dir` take on disk, never following a
 /// link, for at most `budget`. Cloned blocks count in full, so a complete
@@ -39,6 +40,17 @@ pub(crate) fn usage(dir: &Path, budget: Duration) -> DiskUsage {
     usage
 }
 
+/// Bytes an unprivileged process may still write on the volume that holds
+/// `dir`: the blocks free for non-root users (`f_bavail`), not the ones
+/// kept for root.
+#[cfg(unix)]
+pub(crate) fn free_space(dir: &Path) -> Result<u64> {
+    let stat = rustix::fs::statvfs(dir).map_err(|e| {
+        crate::git::internal(format!("cannot ask {} for free space: {e}", dir.display()))
+    })?;
+    Ok(stat.f_bavail.saturating_mul(stat.f_frsize))
+}
+
 #[cfg(unix)]
 fn on_disk(meta: &Metadata) -> u64 {
     use std::os::unix::fs::MetadataExt as _;
@@ -54,7 +66,7 @@ fn on_disk(meta: &Metadata) -> u64 {
 mod tests {
     use std::time::Duration;
 
-    use super::usage;
+    use super::{free_space, usage};
     use crate::tests::put;
 
     #[test]
@@ -75,5 +87,15 @@ mod tests {
         let cut = usage(dir, Duration::ZERO);
         assert!(!cut.complete);
         assert!(cut.bytes < full.bytes);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn free_space_is_known_for_a_folder_and_an_error_for_none() {
+        let tmp = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+        let free = free_space(tmp.path()).unwrap_or_else(|e| panic!("{e}"));
+        assert!(free > 0);
+        let missing = free_space(&tmp.path().join("gone"));
+        assert!(missing.is_err());
     }
 }

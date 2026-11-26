@@ -447,6 +447,12 @@ impl Worktrees for GitWorktrees {
         blocking(move || unlock(&root, &dir))
     }
 
+    // Windows keeps the default (unavailable) until it is asked there.
+    #[cfg(unix)]
+    fn free_space(&self, dir: PathBuf) -> BoxFuture<'_, Result<u64>> {
+        blocking(move || usage::free_space(&dir))
+    }
+
     fn take(
         &self,
         tree: String,
