@@ -28,7 +28,8 @@ use crate::protocol::browser::{
 };
 use crate::protocol::fs::{DirListing, FileContent, FileList};
 use crate::protocol::git::{
-    Blame, BranchInfo, CommitInfo, Committed, FileDiff, GitFileText, GitRev, Hunk, RepoStatus,
+    Blame, BranchInfo, CommitInfo, Committed, FileDiff, GitFileText, GitRev, Hunk, Pulled,
+    RepoStatus,
 };
 use crate::protocol::lsp::KnownServer;
 use crate::protocol::netproxy::{Allowlist, NetproxyEvent};
@@ -1358,6 +1359,8 @@ pub trait GitService: Send + Sync + Debug {
     -> BoxFuture<'_, Result<GitFileText>>;
     fn blame(&self, root: PathBuf, path: RelPath) -> BoxFuture<'_, Result<Blame>>;
     fn log(&self, root: PathBuf, limit: u32) -> BoxFuture<'_, Result<Vec<CommitInfo>>>;
+    /// `ORIG_HEAD..HEAD`, as `git.pulled` describes it.
+    fn pulled(&self, root: PathBuf) -> BoxFuture<'_, Result<Pulled>>;
 }
 
 /// Placeholder for services a front end has not wired in.
@@ -1424,6 +1427,9 @@ impl GitService for Unavailable {
         self.later()
     }
     fn log(&self, _: PathBuf, _: u32) -> BoxFuture<'_, Result<Vec<CommitInfo>>> {
+        self.later()
+    }
+    fn pulled(&self, _: PathBuf) -> BoxFuture<'_, Result<Pulled>> {
         self.later()
     }
 }

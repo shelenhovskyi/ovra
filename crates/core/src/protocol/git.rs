@@ -20,6 +20,12 @@ pub const MAX_DIFF_LINES: u32 = 20_000;
 pub const MAX_GIT_FILE: u64 = 4 * 1024 * 1024;
 /// The most commits `git.log` returns.
 pub const MAX_LOG: u32 = 200;
+/// The most commits `git.pulled` returns.
+pub const MAX_PULLED: u32 = 100;
+/// The longest commit message body `git.pulled` returns, in bytes.
+pub const MAX_PULLED_BODY: usize = 2 * 1024;
+/// The most changed files `git.pulled` lists for one commit.
+pub const MAX_PULLED_FILES: u32 = 50;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "method", content = "params")]
@@ -139,6 +145,12 @@ pub enum GitRequest {
         #[serde(default = "default_log_limit")]
         limit: u32,
     },
+    /// The commits HEAD gained since the last pull, merge, rebase or reset
+    /// (`ORIG_HEAD..HEAD`), newest first, at most [`MAX_PULLED`], with
+    /// their messages and changed files. None when git has no `ORIG_HEAD`.
+    /// Read-only; for the git panel's "Summarize what's new".
+    #[serde(rename = "git.pulled")]
+    Pulled { project: ProjectId },
 }
 
 fn default_log_limit() -> u32 {
@@ -177,6 +189,37 @@ pub enum GitResponse {
     Blame(Blame),
     #[serde(rename = "git.log")]
     Log { commits: Vec<CommitInfo> },
+    #[serde(rename = "git.pulled")]
+    Pulled(Pulled),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct Pulled {
+    /// Where HEAD was before (`ORIG_HEAD`); `None` when git has none.
+    pub from: Option<String>,
+    pub commits: Vec<CommitDetail>,
+    /// Commits left out after [`MAX_PULLED`].
+    pub truncated: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommitDetail {
+    pub commit: CommitInfo,
+    /// The message after its first line, trimmed, cut to
+    /// [`MAX_PULLED_BODY`] bytes.
+    pub body: String,
+    /// At most [`MAX_PULLED_FILES`].
+    pub files: Vec<CommitFile>,
+    /// Files left out after [`MAX_PULLED_FILES`].
+    pub more_files: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommitFile {
+    pub path: String,
+    /// Lines added and removed; `None` for a binary file.
+    pub added: Option<u32>,
+    pub removed: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]

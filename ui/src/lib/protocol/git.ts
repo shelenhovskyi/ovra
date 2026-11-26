@@ -72,7 +72,12 @@ export type GitRequest =
   /** Who last changed each line of the file in the working tree. */
   | { method: "git.blame"; params: { project: ProjectId; path: string } }
   /** Latest commits of HEAD, newest first; `limit` defaults to 50, at most 200 (MAX_LOG in Rust). */
-  | { method: "git.log"; params: { project: ProjectId; limit?: number } };
+  | { method: "git.log"; params: { project: ProjectId; limit?: number } }
+  /**
+   * Commits HEAD gained since the last pull, merge, rebase or reset (`ORIG_HEAD..HEAD`),
+   * newest first, at most 100 (MAX_PULLED in Rust), with messages and changed files.
+   */
+  | { method: "git.pulled"; params: { project: ProjectId } };
 
 export type GitOperation = "merge" | "rebase" | "cherry_pick" | "revert" | "bisect";
 
@@ -153,6 +158,29 @@ export type BlameRange = {
 
 export type Blame = { ranges: BlameRange[]; commits: Record<string, CommitInfo> };
 
+export type CommitFile = {
+  path: string;
+  /** Null for a binary file. */
+  added: number | null;
+  removed: number | null;
+};
+
+export type CommitDetail = {
+  commit: CommitInfo;
+  /** The message after its first line, cut to 2 KiB. */
+  body: string;
+  /** At most 50 (MAX_PULLED_FILES in Rust). */
+  files: CommitFile[];
+  more_files: number;
+};
+
+export type Pulled = {
+  /** `ORIG_HEAD`; null when git has none. */
+  from: string | null;
+  commits: CommitDetail[];
+  truncated: number;
+};
+
 export type GitResponse =
   | { type: "git.status"; data: RepoStatus }
   | { type: "git.no_repo" }
@@ -162,7 +190,8 @@ export type GitResponse =
   | { type: "git.diff"; data: FileDiff }
   | { type: "git.file"; data: GitFileText }
   | { type: "git.blame"; data: Blame }
-  | { type: "git.log"; data: { commits: CommitInfo[] } };
+  | { type: "git.log"; data: { commits: CommitInfo[] } }
+  | { type: "git.pulled"; data: Pulled };
 
 /** `ResponseFor` for the git domain. */
 export type GitResponseFor<M extends GitRequest["method"]> = M extends "git.status"
@@ -181,4 +210,6 @@ export type GitResponseFor<M extends GitRequest["method"]> = M extends "git.stat
               ? Extract<GitResponse, { type: "git.blame" }>
               : M extends "git.log"
                 ? Extract<GitResponse, { type: "git.log" }>
-                : { type: "ok" };
+                : M extends "git.pulled"
+                  ? Extract<GitResponse, { type: "git.pulled" }>
+                  : { type: "ok" };

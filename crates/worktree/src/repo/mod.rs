@@ -21,8 +21,8 @@ use std::time::Duration;
 
 use ovra_core::path::RelPath;
 use ovra_core::protocol::git::{
-    Blame, BranchInfo, CommitInfo, Committed, FileDiff, GitFileText, GitRev, Hunk, MAX_GIT_FILE,
-    RepoStatus,
+    Blame, BranchInfo, CommitDetail, CommitFile, CommitInfo, Committed, FileDiff, GitFileText,
+    GitRev, Hunk, MAX_GIT_FILE, MAX_PULLED, MAX_PULLED_BODY, MAX_PULLED_FILES, Pulled, RepoStatus,
 };
 use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::{BoxFuture, GitService, Result};
@@ -555,6 +555,102 @@ fn log(root: &Path, limit: u32) -> Result<Vec<CommitInfo>> {
         .collect())
 }
 
+/// `ORIG_HEAD..HEAD` with each commit's body and changed files. One `git
+/// log` with `--numstat`: each commit starts with a NUL-led header record,
+/// then its files as `added\tremoved\tpath` (`-` for binary files).
+fn pulled(root: &Path) -> Result<Pulled> {
+    git::dirs(root)?;
+    let Some(head) = git::head(root)? else {
+        return Ok(Pulled::default());
+    };
+    let from = Git::new(root, "rev-parse")
+        .args(["--verify", "--quiet", "ORIG_HEAD^{commit}"])
+        .try_text()?
+        .filter(|id| !id.is_empty());
+    let Some(from) = from else {
+        return Ok(Pulled::default());
+    };
+    let total: u32 = Git::new(root, "rev-list")
+        // Only commits that touch the project, which may be a folder inside
+        // the repository (pathspecs are literal).
+        .args(["--count", &format!("{from}..{head}"), "--", "."])
+        .text()?
+        .parse()
+        .map_err(|_| internal("git rev-list printed a bad count"))?;
+    let out = Git::new(root, "log")
+        .arg(format!("--max-count={MAX_PULLED}"))
+        .args([
+            "--no-show-signature",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-renames",
+            // Paths relative to the project, which may be a folder inside
+            // the repository; files outside it are left out.
+            "--relative",
+            "--numstat",
+            "-z",
+            "--format=%x01%H%x00%an%x00%at%x00%s%x00%b%x02",
+        ])
+        .arg(format!("{from}..{head}"))
+        .args(["--", "."])
+        .run()?;
+    let text = String::from_utf8_lossy(&out);
+    let commits: Vec<CommitDetail> = text.split('\u{1}').filter_map(commit_detail).collect();
+    // Commits beyond the limit; one whose message holds the separators is
+    // not listed either, nor counted here.
+    let truncated = total.saturating_sub(MAX_PULLED);
+    Ok(Pulled {
+        from: Some(from),
+        commits,
+        truncated,
+    })
+}
+
+/// One record of [`pulled`]'s `git log`: the header up to `\x02`, then the
+/// NUL-separated numstat fields.
+fn commit_detail(record: &str) -> Option<CommitDetail> {
+    let (header, stats) = record.split_once('\u{2}')?;
+    let mut parts = header.splitn(5, '\0');
+    let (id, author, time, summary) = (parts.next()?, parts.next()?, parts.next()?, parts.next()?);
+    // A record split inside a message (a \x01 or \x02 in it) is no commit.
+    let hex = |s: &str| matches!(s.len(), 40 | 64) && s.bytes().all(|b| b.is_ascii_hexdigit());
+    if !hex(id) {
+        return None;
+    }
+    let commit = CommitInfo {
+        id: id.to_owned(),
+        author: author.to_owned(),
+        time: time.parse().ok()?,
+        summary: summary.to_owned(),
+    };
+    let body = cut(parts.next().unwrap_or_default().trim(), MAX_PULLED_BODY);
+    let mut files = Vec::new();
+    let mut more_files = 0;
+    for field in stats.split('\0') {
+        let field = field.trim_start_matches('\n');
+        let mut cols = field.splitn(3, '\t');
+        let (Some(added), Some(removed), Some(path)) = (cols.next(), cols.next(), cols.next())
+        else {
+            continue;
+        };
+        if files.len() as u32 >= MAX_PULLED_FILES {
+            more_files += 1;
+            continue;
+        }
+        files.push(CommitFile {
+            path: path.to_owned(),
+            added: added.parse().ok(),
+            removed: removed.parse().ok(),
+        });
+    }
+    Some(CommitDetail {
+        commit,
+        body,
+        files,
+        more_files,
+    })
+}
+
 impl GitService for GitRepo {
     fn status(&self, root: PathBuf) -> BoxFuture<'_, Result<Option<RepoStatus>>> {
         blocking(move || status::status(&root))
@@ -626,5 +722,8 @@ impl GitService for GitRepo {
     }
     fn log(&self, root: PathBuf, limit: u32) -> BoxFuture<'_, Result<Vec<CommitInfo>>> {
         blocking(move || log(&root, limit))
+    }
+    fn pulled(&self, root: PathBuf) -> BoxFuture<'_, Result<Pulled>> {
+        blocking(move || pulled(&root))
     }
 }

@@ -128,6 +128,9 @@ pub(crate) async fn handle(core: &Core, request: GitRequest) -> Result<Response,
                 .log(core.root(&project)?, limit.clamp(1, MAX_LOG))
                 .await?,
         }),
+        GitRequest::Pulled { project } => {
+            answer(GitResponse::Pulled(git.pulled(core.root(&project)?).await?))
+        }
     })
 }
 
