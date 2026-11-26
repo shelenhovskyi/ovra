@@ -9,6 +9,7 @@ export type PaneId =
   | "servers"
   | "editor"
   | "claude"
+  | "setup"
   | "keyboard"
   | "notifications"
   | "phone"
@@ -68,6 +69,13 @@ export const PANES: Pane[] = [
     line: "The agents on this computer that run your tasks, and who pays for them.",
     group: "ovra",
     keywords: ["account", "billing", "path", "sign in", "agents at once", "parallel", "limit"],
+  },
+  {
+    id: "setup",
+    title: "Setup check",
+    line: "Whether this computer has what Ovra needs, with one way to fix each problem.",
+    group: "ovra",
+    keywords: ["check setup", "doctor", "troubleshoot", "install", "git", "gh", "github", "sandbox", "bubblewrap"],
   },
   {
     id: "notifications",

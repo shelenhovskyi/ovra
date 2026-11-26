@@ -66,3 +66,24 @@ test("review what a project would load, trust it and stop trusting it", async ({
   await trust.getByRole("button", { name: "Stop trusting" }).click();
   await expect(trust.getByRole("heading")).toHaveText("This project has its own Claude settings");
 });
+
+test("check setup lists each thing Ovra needs, with what was found", async ({ page }) => {
+  const dir = mkdtempSync(join(tmpdir(), "ovra-setup-"));
+  writeFileSync(join(dir, "README.md"), "readme\n");
+  await loadProject(page, dir);
+  await expect(page.getByTestId("agents-footer")).toHaveText("Claude · Ready");
+
+  await page.keyboard.press("ControlOrMeta+K");
+  await page.getByRole("combobox", { name: "Search files, or type > for commands" }).fill(">check setup");
+  await expect(page.getByRole("option", { selected: true })).toContainText(/Settings\s*Setup check\b/);
+  await page.keyboard.press("Enter");
+
+  const pane = page.getByTestId("setup-check");
+  await expect(pane.getByTestId("setup-agent:claude")).toContainText("is ready");
+  await expect(pane.getByTestId("setup-git")).toContainText(/git [\d.]+ is installed/);
+  // A folder without an origin: gh's sign-in has no host to be checked for.
+  await expect(pane.getByTestId("setup-gh")).toContainText(/gh|GitHub/);
+  await expect(pane.getByTestId("setup-sandbox")).toBeVisible();
+  await pane.getByRole("button", { name: "Check again" }).click();
+  await expect(pane.getByRole("status")).not.toHaveText("Checking…");
+});
