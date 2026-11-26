@@ -202,7 +202,22 @@ fn forge(args: &Args) -> Arc<dyn Forge> {
         return Arc::new(GhForge::new());
     }
     tracing::warn!("using the fake forge");
-    Arc::new(FakeForge::default())
+    let fake = FakeForge::default();
+    if let Ok(mut issues) = fake.0.issues.lock() {
+        let issue = |number: u64, title: &str, text: &str| ovra_core::protocol::pr::Issue {
+            number,
+            title: title.to_owned(),
+            url: format!("https://github.com/o/r/issues/{number}"),
+            text: text.to_owned(),
+        };
+        issues.push(issue(
+            12,
+            "Login button does nothing",
+            "Clicking Log in on the start page does nothing.",
+        ));
+        issues.push(issue(9, "Dark theme contrast", "Labels are hard to read."));
+    }
+    Arc::new(fake)
 }
 
 /// [`ovra_core::fakes::MemoryForge`] whose `origin` has the project's
@@ -326,6 +341,29 @@ impl Forge for FakeForge {
         run: u64,
     ) -> ovra_core::services::BoxFuture<'_, ovra_core::services::Result<String>> {
         self.0.failed_log(root, repo, run)
+    }
+
+    fn issues(
+        &self,
+        root: PathBuf,
+        remote: String,
+    ) -> ovra_core::services::BoxFuture<
+        '_,
+        ovra_core::services::Result<Vec<ovra_core::protocol::pr::IssueSummary>>,
+    > {
+        self.0.issues(root, remote)
+    }
+
+    fn issue(
+        &self,
+        root: PathBuf,
+        remote: String,
+        number: u64,
+    ) -> ovra_core::services::BoxFuture<
+        '_,
+        ovra_core::services::Result<ovra_core::protocol::pr::Issue>,
+    > {
+        self.0.issue(root, remote, number)
     }
 }
 

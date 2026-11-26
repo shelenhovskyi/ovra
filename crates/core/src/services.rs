@@ -36,7 +36,7 @@ use crate::protocol::lsp::KnownServer;
 use crate::protocol::netproxy::{Allowlist, NetproxyEvent};
 use crate::protocol::orchestration::DiskUsage;
 use crate::protocol::policy::Policy;
-use crate::protocol::pr::{GhStatus, PrDraft, PrInfo, PrStatus};
+use crate::protocol::pr::{GhStatus, Issue, IssueSummary, PrDraft, PrInfo, PrStatus};
 use crate::protocol::projects::{Project, ProjectId, ProjectState, ProjectStatePatch};
 use crate::protocol::resources::{SystemLoad, Usage};
 use crate::protocol::review::ChangeKind;
@@ -1441,6 +1441,12 @@ pub trait Forge: Send + Sync + Debug {
     /// The failed steps' log of workflow run `run` of `repo`: its last 200
     /// lines, at most 32 KiB.
     fn failed_log(&self, root: PathBuf, repo: String, run: u64) -> BoxFuture<'_, Result<String>>;
+    /// Open issues of the repository `remote`'s URL names, newest first,
+    /// 30 at most. Only reads.
+    fn issues(&self, root: PathBuf, remote: String) -> BoxFuture<'_, Result<Vec<IssueSummary>>>;
+    /// Issue `number` of that repository: its body, then its latest
+    /// comments, 15 KiB of text at most. Only reads.
+    fn issue(&self, root: PathBuf, remote: String, number: u64) -> BoxFuture<'_, Result<Issue>>;
 }
 
 /// The git panel's operations on a project's main checkout (implemented by
@@ -1986,6 +1992,12 @@ impl Forge for Unavailable {
         self.later()
     }
     fn failed_log(&self, _: PathBuf, _: String, _: u64) -> BoxFuture<'_, Result<String>> {
+        self.later()
+    }
+    fn issues(&self, _: PathBuf, _: String) -> BoxFuture<'_, Result<Vec<IssueSummary>>> {
+        self.later()
+    }
+    fn issue(&self, _: PathBuf, _: String, _: u64) -> BoxFuture<'_, Result<Issue>> {
         self.later()
     }
 }

@@ -17,7 +17,7 @@ mod tests;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use ovra_core::protocol::pr::{GhStatus, PrDraft, PrInfo, PrStatus};
+use ovra_core::protocol::pr::{GhStatus, Issue, IssueSummary, PrDraft, PrInfo, PrStatus};
 use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::{BoxFuture, Forge, Result};
 
@@ -324,6 +324,50 @@ impl GhForge {
         // Scrubbed whole: a cut inside a URL would hide its `://`.
         Ok(parse::log_tail(&parse::scrub(&log.stdout)).to_owned())
     }
+
+    async fn list_issues(&self, root: &Path, remote: &str) -> Result<Vec<IssueSummary>> {
+        parse::remote(remote)?;
+        let gh = self.gh()?;
+        let repo = self.repo(root, remote).await?;
+        let args = [
+            "issue",
+            "list",
+            "--repo",
+            &repo,
+            "--state",
+            "open",
+            "--limit",
+            "30",
+            "--json",
+            "number,title,url",
+        ];
+        let list = run(&gh, root, "gh issue list", &args, None, GH_TIMEOUT).await?;
+        if !list.success {
+            return Err(failed("gh issue list", &list));
+        }
+        parse::issues(&list.stdout)
+    }
+
+    async fn view_issue(&self, root: &Path, remote: &str, number: u64) -> Result<Issue> {
+        parse::remote(remote)?;
+        let gh = self.gh()?;
+        let repo = self.repo(root, remote).await?;
+        let number = number.to_string();
+        let args = [
+            "issue",
+            "view",
+            &number,
+            "--repo",
+            &repo,
+            "--json",
+            "number,title,url,body,comments",
+        ];
+        let view = run(&gh, root, "gh issue view", &args, None, GH_TIMEOUT).await?;
+        if !view.success {
+            return Err(failed("gh issue view", &view));
+        }
+        parse::issue(&view.stdout)
+    }
 }
 
 /// `remote`'s URL; `None` when git knows no such remote. It may hold a
@@ -410,5 +454,13 @@ impl Forge for GhForge {
 
     fn failed_log(&self, root: PathBuf, repo: String, run: u64) -> BoxFuture<'_, Result<String>> {
         Box::pin(async move { self.run_log(&root, &repo, run).await })
+    }
+
+    fn issues(&self, root: PathBuf, remote: String) -> BoxFuture<'_, Result<Vec<IssueSummary>>> {
+        Box::pin(async move { self.list_issues(&root, &remote).await })
+    }
+
+    fn issue(&self, root: PathBuf, remote: String, number: u64) -> BoxFuture<'_, Result<Issue>> {
+        Box::pin(async move { self.view_issue(&root, &remote, number).await })
     }
 }

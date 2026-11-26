@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 use super::{lock, not_found};
-use crate::protocol::pr::{GhStatus, PrDraft, PrInfo, PrState, PrStatus};
+use crate::protocol::pr::{GhStatus, Issue, IssueSummary, PrDraft, PrInfo, PrState, PrStatus};
 use crate::protocol::{ErrorCode, ProtocolError};
 use crate::services::{BoxFuture, Forge, Result};
 
@@ -28,6 +28,8 @@ pub struct MemoryForge {
     pub pulls: Mutex<BTreeMap<u64, PrStatus>>,
     /// Failed logs by workflow run.
     pub logs: Mutex<BTreeMap<u64, String>>,
+    /// The remote's open issues, newest first.
+    pub issues: Mutex<Vec<Issue>>,
     /// While set, `create` fails (`Unavailable`), as when GitHub is down.
     pub refuse_create: Mutex<bool>,
     /// While set, `create` opens the pull request but fails, as when
@@ -51,6 +53,7 @@ impl Default for MemoryForge {
             created: Mutex::default(),
             pulls: Mutex::default(),
             logs: Mutex::default(),
+            issues: Mutex::default(),
             refuse_create: Mutex::default(),
             lose_create: Mutex::default(),
         }
@@ -185,6 +188,27 @@ impl Forge for MemoryForge {
             .filter(|_| repo == Self::REPO)
             .cloned();
         Box::pin(async move { found.ok_or_else(|| not_found(format!("run {run}"))) })
+    }
+
+    fn issues(&self, _: PathBuf, _: String) -> BoxFuture<'_, Result<Vec<IssueSummary>>> {
+        let found = lock(&self.issues)
+            .iter()
+            .take(30)
+            .map(|i| IssueSummary {
+                number: i.number,
+                title: i.title.clone(),
+                url: i.url.clone(),
+            })
+            .collect();
+        Box::pin(async move { Ok(found) })
+    }
+
+    fn issue(&self, _: PathBuf, _: String, number: u64) -> BoxFuture<'_, Result<Issue>> {
+        let found = lock(&self.issues)
+            .iter()
+            .find(|i| i.number == number)
+            .cloned();
+        Box::pin(async move { found.ok_or_else(|| not_found(format!("issue {number}"))) })
     }
 }
 

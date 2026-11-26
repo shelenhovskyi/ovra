@@ -576,3 +576,94 @@ async fn a_gh_that_hangs_is_stopped_after_its_timeout() {
     assert_eq!(err.message, "gh pr view did not finish within 30 s");
     assert_eq!(started.elapsed(), crate::run::GH_TIMEOUT);
 }
+
+#[tokio::test]
+async fn issues_are_only_read_from_the_remotes_repository() {
+    let repo = Repo::new();
+    let dir = repo.work.clone();
+    git(
+        &dir,
+        &[
+            "remote",
+            "set-url",
+            "origin",
+            "https://tok@github.com/o/r.git",
+        ],
+    );
+    let out = r#"[{"number":12,"title":"Login fails","url":"https://github.com/o/r/issues/12"}]"#;
+    let fake = FakeGh::new(out);
+    let forge = fake.forge(true);
+    let found = ok(forge.issues(dir.clone(), "origin".into()).await);
+    assert_eq!(
+        found
+            .iter()
+            .map(|i| (i.number, i.title.as_str()))
+            .collect::<Vec<_>>(),
+        [(12, "Login fails")]
+    );
+    let list = [
+        "issue",
+        "list",
+        "--repo",
+        "github.com/o/r",
+        "--state",
+        "open",
+        "--limit",
+        "30",
+        "--json",
+        "number,title,url",
+    ];
+    assert_eq!(fake.calls(), [list.to_vec()]);
+    let refused = forge.issues(dir.clone(), "--upload-pack=x".into()).await;
+    assert_eq!(refused.err().map(|e| e.code), Some(ErrorCode::BadRequest));
+    assert_eq!(fake.calls().len(), 1);
+
+    let comments: Vec<String> = (0..12)
+        .map(|i| {
+            format!(r#"{{"author":{{"login":"u{i}"}},"body":"note {i} https://a:b@h.example/x"}}"#)
+        })
+        .collect();
+    let view = format!(
+        r#"{{"number":12,"title":"Login fails","url":"https://github.com/o/r/issues/12",
+        "body":"Steps:\n1. Log in","comments":[{}]}}"#,
+        comments.join(",")
+    );
+    let fake = FakeGh::new(&view);
+    let issue = ok(fake
+        .forge(true)
+        .issue(dir.clone(), "origin".into(), 12)
+        .await);
+    // The latest ten comments, URLs without their user part.
+    assert!(
+        issue
+            .text
+            .starts_with("Steps:\n1. Log in\n\nComment by @u2:\nnote 2 https://h.example/x")
+    );
+    assert!(
+        issue
+            .text
+            .ends_with("Comment by @u11:\nnote 11 https://h.example/x")
+    );
+    assert_eq!(
+        fake.calls(),
+        [vec![
+            "issue",
+            "view",
+            "12",
+            "--repo",
+            "github.com/o/r",
+            "--json",
+            "number,title,url,body,comments"
+        ]]
+    );
+
+    // Long comments go first, then the body's end.
+    let long = format!(
+        r#"{{"number":3,"title":"t","url":"u","body":"{}","comments":[{{"author":{{"login":"a"}},"body":"{}"}}]}}"#,
+        "b".repeat(20 * 1024),
+        "c".repeat(100)
+    );
+    let fake = FakeGh::new(&long);
+    let issue = ok(fake.forge(true).issue(dir, "origin".into(), 3).await);
+    assert!(issue.text.len() == 15 * 1024 && !issue.text.contains('c'));
+}

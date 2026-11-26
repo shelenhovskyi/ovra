@@ -2,7 +2,9 @@
 //! before they become arguments, and URLs lose their user part before they
 //! are shown. No process is started here.
 
-use ovra_core::protocol::pr::{CheckState, PrCheck, PrInfo, PrState, PrStatus};
+use ovra_core::protocol::pr::{
+    CheckState, Issue, IssueSummary, PrCheck, PrInfo, PrState, PrStatus,
+};
 use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::Result;
 use serde_json::Value;
@@ -211,6 +213,76 @@ pub(crate) fn found(stdout: &str, repo: String) -> Result<Option<PrInfo>> {
         url: scrub(url),
         repo,
     }))
+}
+
+/// An issue's text, at most: one `@` context item holds 16 KiB.
+const ISSUE_BYTES: usize = 15 * 1024;
+/// The latest comments an issue's text keeps, at most.
+const ISSUE_COMMENTS: usize = 10;
+
+/// `gh issue list --json number,title,url`.
+pub(crate) fn issues(stdout: &str) -> Result<Vec<IssueSummary>> {
+    let json: Value = serde_json::from_str(stdout).map_err(|_| garbled("gh issue list"))?;
+    let list = json.as_array().ok_or_else(|| garbled("gh issue list"))?;
+    list.iter()
+        .map(|item| {
+            let number = item["number"]
+                .as_u64()
+                .ok_or_else(|| garbled("gh issue list"))?;
+            Ok(IssueSummary {
+                number,
+                title: item["title"].as_str().unwrap_or_default().to_owned(),
+                url: scrub(item["url"].as_str().unwrap_or_default()),
+            })
+        })
+        .collect()
+}
+
+/// `gh issue view --json number,title,url,body,comments`: the body, then
+/// the latest comments, each under its author's login, cut to
+/// [`ISSUE_BYTES`] by dropping the oldest comments first, then the
+/// body's end. URLs lose their user part.
+pub(crate) fn issue(stdout: &str) -> Result<Issue> {
+    let json: Value = serde_json::from_str(stdout).map_err(|_| garbled("gh issue view"))?;
+    let number = json["number"]
+        .as_u64()
+        .ok_or_else(|| garbled("gh issue view"))?;
+    let body = scrub(json["body"].as_str().unwrap_or_default().trim());
+    let comments: Vec<String> = json["comments"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|c| {
+            let author = c["author"]["login"].as_str().unwrap_or("someone");
+            let text = scrub(c["body"].as_str().unwrap_or_default().trim());
+            format!("Comment by @{author}:\n{text}")
+        })
+        .collect();
+    let mut kept = &comments[comments.len().saturating_sub(ISSUE_COMMENTS)..];
+    let joined = |kept: &[String]| {
+        let mut text = body.clone();
+        for comment in kept {
+            text.push_str("\n\n");
+            text.push_str(comment);
+        }
+        text
+    };
+    let mut text = joined(kept);
+    while text.len() > ISSUE_BYTES && !kept.is_empty() {
+        kept = &kept[1..];
+        text = joined(kept);
+    }
+    let mut end = text.len().min(ISSUE_BYTES);
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    text.truncate(end);
+    Ok(Issue {
+        number,
+        title: json["title"].as_str().unwrap_or_default().to_owned(),
+        url: scrub(json["url"].as_str().unwrap_or_default()),
+        text,
+    })
 }
 
 /// `gh pr view --json state,isDraft,url,headRefOid,statusCheckRollup,
