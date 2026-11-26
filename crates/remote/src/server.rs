@@ -407,10 +407,16 @@ async fn guard(
     }
     let mut response = next.run(request).await;
     let headers = response.headers_mut();
-    // The origin is an IP address and port, always a valid header value.
-    if let Ok(csp) = HeaderValue::from_str(&csp(&origin)) {
-        headers.insert(header::CONTENT_SECURITY_POLICY, csp);
-    }
+    // The origin is an IP address and port, always a valid header value;
+    // should it not be, the page still gets a strict policy.
+    let csp = HeaderValue::from_str(&csp(&origin)).unwrap_or_else(|_| {
+        HeaderValue::from_static(
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; \
+             img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; \
+             base-uri 'none'; form-action 'none'",
+        )
+    });
+    headers.insert(header::CONTENT_SECURITY_POLICY, csp);
     headers.insert(
         header::X_CONTENT_TYPE_OPTIONS,
         HeaderValue::from_static("nosniff"),

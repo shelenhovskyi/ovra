@@ -10,7 +10,12 @@ export type Route =
 
 export function parseRoute(hash: string): Route {
   const [, screen, id] = /^#\/([a-z]+)(?:\/(.+))?$/.exec(hash) ?? [];
-  const arg = id ? decodeURIComponent(id) : "";
+  let arg = "";
+  try {
+    arg = id ? decodeURIComponent(id) : "";
+  } catch {
+    return { screen: "home" };
+  }
   if (screen === "approval" && arg) return { screen, id: arg };
   if (screen === "agent" && arg) return { screen, session: arg };
   if (screen === "task" && arg) return { screen, id: arg };

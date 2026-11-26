@@ -113,11 +113,29 @@ Task (workers, review items read-only), Computer (keep awake, agents
 against the cap, Forget this phone). e2e on a phone viewport against
 headless mode with a fake device key.
 
+Done (2026-11-26): `mobile.html` and `ui/src/mobile`, `ui/public/sw.js`
+and `mobile.webmanifest`. The phone's own requests are answered by the
+listener and never reach the core, so they live in `crates/remote`
+(`src/phone.rs`) and `ui/src/mobile/phone.svelte.ts`, not in the protocol:
+`phone.forget` (this device only, then the socket closes), `phone.push_key`
+(`{key}`, the VAPID public key) and `phone.push_subscribe {subscription |
+null}`. After an answer the phone shows the same agent's next request,
+never another agent's. Home does not use Focus's view model yet
+(follow-up).
+
 ## 6. Web Push
 
 VAPID keys per install; subscriptions stored per device; messages carry
 only a kind ("approval", "review", "failed") and an opaque id, encrypted
 per RFC 8291. Opt-in from a tap on the phone.
+
+Done (2026-11-26): `crates/remote/src/push`. Endpoints only on
+`fcm.googleapis.com`, `*.push.apple.com`, `*.push.services.mozilla.com`
+and `*.notify.windows.com`, https on the default port. Only to paired
+phones that are not connected; one push per kind per 30 s and 30 an hour
+per phone. Kinds sent today: `approval` and `failed`. `review` waits for
+a core event that says an agent asked for review: `review.changed` comes
+for every file change, Keep and Discard too.
 
 ## Not in this spec
 

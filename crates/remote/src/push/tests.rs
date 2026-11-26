@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use ovra_core::protocol::agents::{AgentStatus, AgentsEvent, SessionId};
 use ovra_core::protocol::permissions::PermissionsEvent;
 use ovra_core::protocol::projects::ProjectId;
+use ovra_core::protocol::review::{ReviewEvent, ReviewId};
 use ring::agreement::{ECDH_P256, EphemeralPrivateKey, UnparsedPublicKey};
 use ring::rand::SystemRandom;
 use serde_json::{Value, json};
@@ -249,7 +250,7 @@ fn throttle_allows_30_pushes_an_hour() {
     assert!(throttle.take("d", Kind::Approval, at(0)));
     assert!(!throttle.take("d", Kind::Approval, at(29)));
     assert!(
-        throttle.take("d", Kind::Review, at(29)),
+        throttle.take("d", Kind::Failed, at(29)),
         "kinds count apart"
     );
     assert!(
@@ -271,23 +272,20 @@ fn throttle_allows_30_pushes_an_hour() {
 }
 
 #[test]
-fn each_review_item_pushes_once() {
-    let mut seen = HashSet::new();
-    let changed = |id: &str| {
-        Event::Review(ReviewEvent::Changed {
-            project: ProjectId("p".into()),
-            id: ReviewId(id.into()),
-        })
-    };
-    assert_eq!(kind_of(&changed("r1"), &mut seen), Some(Kind::Review));
-    assert_eq!(kind_of(&changed("r1"), &mut seen), None);
-    assert_eq!(kind_of(&changed("r2"), &mut seen), Some(Kind::Review));
+fn review_changes_do_not_push() {
+    // Changed comes for every file change, Keep and Discard: not a signal
+    // that work waits for the person.
+    let changed = Event::Review(ReviewEvent::Changed {
+        project: ProjectId("p".into()),
+        id: ReviewId("r1".into()),
+    });
+    assert_eq!(kind_of(&changed), None);
     let working = Event::Agents(AgentsEvent::Status {
         session: SessionId("s".into()),
         project: ProjectId("p".into()),
         status: AgentStatus::Working,
     });
-    assert_eq!(kind_of(&working, &mut seen), None);
+    assert_eq!(kind_of(&working), None);
 }
 
 #[test]

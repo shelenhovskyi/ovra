@@ -6,7 +6,7 @@
 mod crypto;
 mod http;
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -18,7 +18,6 @@ use ovra_core::Core;
 use ovra_core::protocol::Event;
 use ovra_core::protocol::agents::{AgentStatus, AgentsEvent};
 use ovra_core::protocol::permissions::PermissionsEvent;
-use ovra_core::protocol::review::{ReviewEvent, ReviewId};
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use tokio::time::Instant;
@@ -46,8 +45,6 @@ const PUSH_DOMAINS: [&str; 3] = [
     ".push.services.mozilla.com",
     ".notify.windows.com",
 ];
-/// Review ids remembered, so each new one pushes once.
-const MAX_SEEN: usize = 4096;
 
 /// A browser's `PushSubscription`, as its `toJSON()` gives it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -103,7 +100,6 @@ impl Subscription {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Kind {
     Approval,
-    Review,
     Failed,
 }
 
@@ -111,27 +107,23 @@ impl Kind {
     fn as_str(self) -> &'static str {
         match self {
             Self::Approval => "approval",
-            Self::Review => "review",
             Self::Failed => "failed",
         }
     }
 }
 
-/// What an event tells a phone, if anything: a permission request, an
-/// agent session that failed, or a review item seen for the first time.
-fn kind_of(event: &Event, reviews: &mut HashSet<ReviewId>) -> Option<Kind> {
+/// What an event tells a phone, if anything: a permission request or an
+/// agent session that failed. Work ready for review does not push yet: the
+/// core says only that a review item changed (every file change, Keep and
+/// Discard too), not that an agent asked for review; that needs its own
+/// core event first.
+fn kind_of(event: &Event) -> Option<Kind> {
     match event {
         Event::Permissions(PermissionsEvent::Requested(_)) => Some(Kind::Approval),
         Event::Agents(AgentsEvent::Status {
             status: AgentStatus::Failed { .. },
             ..
         }) => Some(Kind::Failed),
-        Event::Review(ReviewEvent::Changed { id, .. }) => {
-            if reviews.len() >= MAX_SEEN {
-                reviews.clear();
-            }
-            reviews.insert(id.clone()).then_some(Kind::Review)
-        }
         _ => None,
     }
 }
@@ -212,7 +204,6 @@ pub(crate) async fn run(
     stop: CancellationToken,
 ) {
     let mut throttle = Throttle::default();
-    let mut reviews = HashSet::new();
     loop {
         let event = tokio::select! {
             () = stop.cancelled() => return,
@@ -221,7 +212,7 @@ pub(crate) async fn run(
                 None => return,
             },
         };
-        let Some(kind) = kind_of(&event, &mut reviews) else {
+        let Some(kind) = kind_of(&event) else {
             continue;
         };
         let now = Instant::now();

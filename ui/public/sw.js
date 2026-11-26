@@ -4,7 +4,6 @@
 
 const TEXT = {
   approval: "An agent needs your approval.",
-  review: "An agent's work is ready for review.",
   failed: "An agent stopped with an error.",
 };
 
@@ -15,7 +14,7 @@ self.addEventListener("push", (event) => {
   let kind = "approval";
   try {
     const data = event.data?.json();
-    if (data && typeof data.kind === "string" && data.kind in TEXT) kind = data.kind;
+    if (data && typeof data.kind === "string" && Object.hasOwn(TEXT, data.kind)) kind = data.kind;
   } catch {
     // Not JSON: still say that something waits.
   }
