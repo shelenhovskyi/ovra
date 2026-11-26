@@ -44,7 +44,7 @@ it("stops following once scrolled up, offers Jump to latest, and Retry on a turn
   log.scrollTop = 600;
   log.dispatchEvent(new Event("scroll"));
   flushSync();
-  expect(jump()?.textContent).toBe("Jump to latest");
+  expect(jump()?.getAttribute("aria-label")).toBe("Jump to latest");
   jump()?.click();
   flushSync();
   expect(log.scrollTop).toBe(1000);
@@ -218,4 +218,21 @@ it("offers no Retry on an error that later messages answered", () => {
   });
   flushSync();
   expect(retries()).toHaveLength(0);
+});
+
+it("shows what the agent said as Markdown, and hands clicked links to onlink", () => {
+  const onlink = vi.fn();
+  app = mount(Transcript, {
+    target: document.body,
+    props: {
+      messages: [{ kind: "assistant_text", text: "Done:\n\n- fixed `main.rs`\n- see [docs](https://example.com)" }],
+      onlink,
+    },
+  });
+  flushSync();
+  const text = document.querySelector("[data-testid=agent-text]");
+  expect(text?.querySelectorAll("li").length).toBe(2);
+  expect(text?.querySelector("code")?.textContent).toBe("main.rs");
+  text?.querySelector("a")?.click();
+  expect(onlink).toHaveBeenCalledWith("https://example.com");
 });

@@ -4,6 +4,7 @@
 // turn never looks frozen. Not a live region: the transcript's own region
 // speaks the agent's finished text.
 import type { AgentMessage, AgentStatus } from "../lib/protocol";
+import AgentText from "./AgentText.svelte";
 import { elapsed, liveStep } from "./steps";
 
 /** `agent`: the provider's display name. `root`: the session's folder; files in it show relative to it. */
@@ -13,7 +14,15 @@ let {
   messages,
   partial = "",
   root = null,
-}: { agent?: string; status: AgentStatus; messages: AgentMessage[]; partial?: string; root?: string | null } = $props();
+  onlink,
+}: {
+  agent?: string;
+  status: AgentStatus;
+  messages: AgentMessage[];
+  partial?: string;
+  root?: string | null;
+  onlink?: (href: string) => void;
+} = $props();
 
 const step = $derived(liveStep(status, messages, partial !== "", root));
 let since = $state(Date.now());
@@ -38,7 +47,7 @@ const time = $derived(now - since >= 1000 ? elapsed(now - since) : "");
 {#if partial && status.state === "working"}
   <li class="assistant_text streaming" data-testid="streaming-text">
     <span class="who">{agent}</span>
-    <p>{partial}</p>
+    <AgentText text={partial} streaming {onlink} />
   </li>
 {/if}
 {#if step}
@@ -54,11 +63,6 @@ const time = $derived(now - since >= 1000 ? elapsed(now - since) : "");
     display: block;
     font-size: 13px;
     color: var(--text-2);
-  }
-  p {
-    margin: 2px 0 0;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
   }
   .live {
     display: flex;

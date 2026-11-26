@@ -39,6 +39,7 @@ import FirstSteps from "./FirstSteps.svelte";
 import { hints } from "./hints.svelte";
 import { agentPrefs } from "./prefs.svelte";
 import Leftovers from "./Leftovers.svelte";
+import { chatLink } from "./links";
 import { diskLabel, pressureNote, resourcesLine, resourcesTip } from "./resources";
 import { listWarning, sandboxGaps, sandboxLine, sandboxState } from "./sandbox";
 import { agentSessions, openReviews, usageText } from "./sessions.svelte";
@@ -554,6 +555,13 @@ function workerName(id: SessionId): string | undefined {
 function folder(id: SessionId): string | null {
   const role = sessions.roles.get(id);
   return role?.kind === "worker" ? role.worktree : (project?.root ?? null);
+}
+
+/** A link the person clicked in what the agent said: a web page in the browser, a project file in the editor. */
+function openLink(id: SessionId, href: string): void {
+  const link = chatLink(href, project?.root ?? null, folder(id));
+  if (link?.kind === "web") void transport.call({ method: "open.url", params: { url: link.url } }).catch(() => {});
+  else if (link?.kind === "file") workspace.openFile(link.path);
 }
 
 /** What a working session does now: its newest tool call, in words. */
@@ -1221,6 +1229,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
         goBackBlocked={isBusy(current.status) ? "Stop the agent first" : null}
         {undone}
         ongoback={goesBack ? (turn, text) => void goBack(turn, text) : undefined}
+        onlink={(href) => openLink(current.id, href)}
       />
       {#if wentBackLine || (goesBack && current.can_undo_go_back)}
         <div class="went-back" data-testid="go-back-result">

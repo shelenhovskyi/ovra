@@ -1077,11 +1077,11 @@ describe("AgentsPanel", () => {
     log.dispatchEvent(new Event("scroll"));
     flushSync();
     const jump = () => target.querySelector<HTMLButtonElement>("[data-testid=jump-to-latest]");
-    expect(jump()?.textContent).toBe("Jump to latest");
+    expect(jump()?.getAttribute("aria-label")).toBe("Jump to latest");
     core.message("s1", { kind: "assistant_text", text: "Looking." });
     core.message("s1", { kind: "assistant_text", text: "Found it." });
     await settle();
-    expect(jump()?.textContent).toBe("2 new · Jump to latest");
+    expect(jump()?.getAttribute("aria-label")).toBe("2 new · Jump to latest");
     // Its own row after the log, so it never covers a line.
     expect(jump()?.previousElementSibling).toBe(log);
     jump()?.click();

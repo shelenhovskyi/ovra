@@ -9,6 +9,7 @@ import { untrack } from "svelte";
 import { describeTool } from "../approvals/describe";
 import type { AgentMessage, AgentStatus, Billing, MessageFrom, ToolCall } from "../lib/protocol";
 import Icon from "../shell/Icon.svelte";
+import AgentText from "./AgentText.svelte";
 import { turnsOf, turnsText } from "./checkpoints";
 import { isAuthFailure, isInterrupt, withoutEchoes } from "./errors";
 import LiveActivity from "./LiveActivity.svelte";
@@ -41,6 +42,7 @@ import { ideResult } from "./tool-results";
  * back to here" on the person's message of each turn in `checkpoints`
  * (`docs/specs/checkpoints.md`); `goBackBlocked` says why it cannot now.
  * `undone`: the turns a go-back undid, shown greyed under a divider.
+ * `onlink`: a link the person clicked in what the agent said.
  */
 let {
   messages,
@@ -56,6 +58,7 @@ let {
   goBackBlocked = null,
   undone = null,
   ongoback,
+  onlink,
 }: {
   messages: AgentMessage[];
   agent?: string;
@@ -71,6 +74,7 @@ let {
   goBackBlocked?: string | null;
   undone?: { from: number; to: number } | null;
   ongoback?: (turn: number, text: string) => void;
+  onlink?: (href: string) => void;
 } = $props();
 
 /** Who wrote what an agent was sent: never "You" for text the person did not write. */
@@ -372,7 +376,7 @@ const lastError = $derived.by(() => {
           {/if}
         {:else if message.kind === "assistant_text"}
           <span class="who">{sub}{agent}</span>
-          <p>{message.text}</p>
+          <AgentText text={message.text} {onlink} />
         {:else if message.kind === "turn_end"}
           <!-- A thin divider, not a row: the full numbers on hover. -->
           <span class="divider" title={usageText(message.usage, billing)}>Turn ended · {turnCost(message.usage, billing)}</span>
@@ -389,11 +393,13 @@ const lastError = $derived.by(() => {
       </li>
     {/if}
   {/each}
-  {#if status}<LiveActivity {agent} {status} {messages} {partial} {root} />{/if}
+  {#if status}<LiveActivity {agent} {status} {messages} {partial} {root} {onlink} />{/if}
 </ol>
 {#if detached}
-  <button type="button" class="jump" data-testid="jump-to-latest" onclick={jump}
-    >{fresh > 0 ? `${fresh} new · ` : ""}Jump to latest</button
+  <!-- A small round button in its own row under the log: it never covers a line. -->
+  {@const label = `${fresh > 0 ? `${fresh} new · ` : ""}Jump to latest`}
+  <button type="button" class="jump" class:fresh={fresh > 0} data-testid="jump-to-latest" aria-label={label} title={label} onclick={jump}
+    ><Icon name="chevron" small /></button
   >
 {/if}
 </div>
@@ -407,19 +413,34 @@ const lastError = $derived.by(() => {
     flex-direction: column;
   }
   .jump {
-    /* Its own row under the log: it never covers a line. */
+    position: relative;
     flex: none;
-    align-self: center;
-    margin: 4px 0;
+    align-self: flex-end;
+    margin: 2px 12px 4px;
+    width: 28px;
     height: 28px;
-    padding: 0 12px;
-    font: inherit;
-    font-size: 13px;
+    padding: 0;
+    display: grid;
+    place-items: center;
+    color: var(--text-2);
+    background: var(--s3);
+    border: none;
+    border-radius: 50%;
+  }
+  .jump:hover {
     color: var(--text);
     background: var(--s4);
-    border: none;
-    border-radius: 14px;
-    box-shadow: var(--card-shadow);
+  }
+  /* New messages below: a dot, the count is in its name. */
+  .jump.fresh::after {
+    content: "";
+    position: absolute;
+    top: 1px;
+    right: 1px;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
   }
   .divider {
     display: flex;
