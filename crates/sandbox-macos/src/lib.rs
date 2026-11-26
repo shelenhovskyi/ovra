@@ -111,11 +111,11 @@ impl Setup {
 /// (`docs/specs/sandbox-macos.md`, "Known gaps"). Keep it in step with
 /// that list.
 const GAPS: [&str; 8] = [
-    "the keychain: items command-line tools may read or change, the gh login among them",
+    "the keychain: items command-line tools may read or change, the gh login among them, also through a downloaded git-credential-osxkeychain",
     "other apps' preferences (read)",
     "whether a file exists, and its size, anywhere on the Mac",
-    "the session's proxy port, for other users of this Mac",
-    "processes an agent leaves running after its session, which keep its port",
+    "the session's proxy and its token, for the person's other programs that read the agent's environment",
+    "processes an agent leaves running after its session (they stay sandboxed)",
     "a dev build of Ovra inside a writable work dir",
     "git config values that name project files",
     "the session's own folders in the agent's settings (todos, logs, ...)",
