@@ -454,3 +454,27 @@ async fn a_wide_rule_does_not_push_into_the_items_pull_request() {
     push.abort();
     assert_eq!(lock(&f.forge.pushed).len(), before);
 }
+
+#[tokio::test]
+async fn work_decided_on_while_the_card_waited_is_not_pushed() {
+    let f = fx().await;
+    let before = lock(&f.forge.pushed).len();
+    let mut rx = f.core.subscribe();
+    let core = f.core.clone();
+    let push =
+        tokio::spawn(async move { core.push_work(&caller(ToolRole::Worker), args(None)).await });
+    let request = asked(&mut rx).await;
+    for entry in f.core.orchestration_state().lock().reviews.iter_mut() {
+        entry.state = crate::protocol::review::ReviewState::Rejected;
+    }
+    let params = json!({"id": request.id, "decision": "allow"});
+    let sent = call(
+        &f.core,
+        json!({"method": "permissions.answer", "params": params}),
+    )
+    .await;
+    assert!(sent.is_ok());
+    let refused = push.await.unwrap_or_else(|e| panic!("{e}")).err();
+    assert_eq!(refused.map(|e| e.code), Some(ErrorCode::Conflict));
+    assert_eq!(lock(&f.forge.pushed).len(), before);
+}

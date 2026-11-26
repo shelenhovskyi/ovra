@@ -256,6 +256,16 @@ async fn push(core: &Core, caller: &ToolCaller, args: PushArgs) -> Result<Pushed
             .collect(),
     };
     approved(core, caller, &plan).await?;
+    // The card may have waited: work the person kept or discarded
+    // meanwhile is not pushed from here.
+    let still_open = review::of_session(core, &caller.session).is_some_and(|e| {
+        e.id == entry.id && matches!(e.state, ReviewState::Open | ReviewState::Published)
+    });
+    if !still_open {
+        return Err(conflict(
+            "the person decided on this work while the push waited; nothing was pushed",
+        ));
+    }
 
     forge
         .push(root, remote.clone(), commit.clone(), branch.clone(), expect)
