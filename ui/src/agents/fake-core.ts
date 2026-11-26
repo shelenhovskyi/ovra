@@ -65,7 +65,7 @@ export class FakeAgentCore implements Transport {
   /** `git.status` answers that the project is not a git repository. */
   noRepo = false;
   /** The project's files, for the @ menu (`fs.list_files`). */
-  files: string[] = [];
+  listed: string[] = [];
   /** What `context.check` answers for an item's path or text. */
   contextNotes = new Map<string, ContextWarning>();
   /** Makes the next call of this method fail with this error. */
@@ -229,7 +229,7 @@ export class FakeAgentCore implements Transport {
           },
         };
       case "fs.list_files":
-        return { type: "fs.files", data: { paths: [...this.files], total: this.files.length, version: 1 } };
+        return { type: "fs.files", data: { paths: [...this.listed], total: this.listed.length, version: 1 } };
       case "context.check":
         return {
           type: "context.checked",

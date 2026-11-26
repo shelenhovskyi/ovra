@@ -464,6 +464,7 @@ test("a research agent changes nothing and its report is saved as a doc", async 
   await expect(page.getByTestId("agent-report")).toContainText(`Saved as ${path}`);
   expect(readIfThere(join(dir, path))).toContain("# How does the readme read?");
   expect(readFileSync(join(dir, "README.md"), "utf8")).toBe("teh readme\n");
+});
 
 test("add a file with @ and send it with the task", async ({ page }) => {
   await openProject(page, "ovra-agents-context-");

@@ -1118,7 +1118,7 @@ describe("@ context", () => {
 
   it("finds a file after @, adds it as a chip and starts the task with it", async () => {
     const core = new FakeAgentCore();
-    core.files = FILES;
+    core.listed = FILES;
     await setup(core);
     type(field(), "Fix @lib");
     await settle();
@@ -1146,7 +1146,7 @@ describe("@ context", () => {
 
   it("holds a chip that may hold a secret until the person chooses Include", async () => {
     const core = new FakeAgentCore();
-    core.files = FILES;
+    core.listed = FILES;
     core.contextNotes.set(".env", "secret_file");
     await setup(core);
     type(field(), "@.env");
