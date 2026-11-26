@@ -121,7 +121,8 @@ pub(super) async fn handle(core: &Core, request: OrchestrationRequest) -> Result
                     "only one agent in its own copy can be another attempt",
                 ));
             }
-            let context = crate::context::message(core, &project, None, &context).await?;
+            let sees = agents::sees_images(&core.agents_ctx(), agent);
+            let context = crate::context::message(core, &project, None, &context, sees).await?;
             let task = if solo {
                 start_solo(core, project, prompt, context, agent, attempt_of).await?
             } else {
@@ -198,7 +199,7 @@ async fn start(
     core: &Core,
     project: ProjectId,
     prompt: String,
-    context: Option<String>,
+    context: Option<crate::context::Context>,
     limits: TaskLimits,
     agent: AgentKind,
 ) -> Result<Task> {
@@ -283,7 +284,7 @@ async fn start_solo(
     core: &Core,
     project: ProjectId,
     prompt: String,
-    context: Option<String>,
+    context: Option<crate::context::Context>,
     agent: AgentKind,
     attempt_of: Option<TaskId>,
 ) -> Result<Task> {
@@ -792,8 +793,9 @@ fn worker_now(core: &Core, session: &SessionId) -> Option<Worker> {
 struct NewWorker<'a> {
     name: &'a str,
     prompt: String,
-    /// Ovra's message after the prompt: the person's `@` context.
-    context: Option<String>,
+    /// Ovra's message after the prompt, the person's `@` context, and its
+    /// images.
+    context: Option<crate::context::Context>,
     agent: AgentKind,
     /// Who wrote `prompt`.
     from: MessageFrom,

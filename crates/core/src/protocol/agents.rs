@@ -70,6 +70,9 @@ pub struct Capabilities {
     pub billing: bool,
     /// Runs accounts with configuration folders of their own.
     pub accounts: bool,
+    /// Sees images sent with a message (pasted screenshots).
+    #[serde(default)]
+    pub images: bool,
 }
 
 /// Where the agent works (ADR 0005).

@@ -54,6 +54,7 @@ describe("task mode", () => {
       cost: false,
       billing: false,
       accounts: false,
+      images: false,
     };
     expect(modesFor("claude", undefined)).toEqual(["here", "own", "split", "research"]);
     expect(modesFor("gemini", none)).toEqual(["own"]);

@@ -47,6 +47,7 @@ const GEMINI: ProviderInfo = {
     cost: false,
     billing: false,
     accounts: false,
+    images: false,
   },
 };
 

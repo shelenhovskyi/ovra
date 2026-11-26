@@ -85,6 +85,7 @@ export class FakeAgentCore implements Transport {
         cost: true,
         billing: true,
         accounts: true,
+        images: true,
       },
     },
   ];
@@ -347,6 +348,14 @@ export class FakeAgentCore implements Transport {
         throw new CoreError({ code: "not_found", message: "not a folder" });
       case "context.attach":
         return { type: "context.attached", data: { path: `.ovra-attachments/${request.params.name}` } };
+      case "fs.read_file": {
+        // Pasted PNGs read back as small images; other files are not there.
+        const path = request.params.path;
+        if (!path.startsWith(".ovra-attachments/") || !path.endsWith(".png"))
+          throw new CoreError({ code: "not_found", message: `${path} not found` });
+        const body = { kind: "binary" as const, mime: "image/png", base64: "iVBO" };
+        return { type: "fs.file", data: { path, size: 3, mtime_ms: 1, body } };
+      }
       case "fs.list_files":
         return { type: "fs.files", data: { paths: [...this.listed], total: this.listed.length, version: 1 } };
       case "context.check":

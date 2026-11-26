@@ -58,10 +58,10 @@ use crate::protocol::secrets::{SecretInfo, SecretStoreStatus, SecretValue};
 use crate::protocol::terminals::{TermSize, TerminalId, TerminalsEvent};
 use crate::protocol::{ErrorCode, ProtocolError};
 use crate::services::{
-    AgentHost, AgentRuntime, AgentSpec, AuditLog, BeforeTool, BoxFuture, CommandLine, EventSink,
-    FsService, LoopbackGrant, NetProxy, NetReporter, NetStarted, Opener, ProjectStore, Result,
-    RunningAgent, Sandbox, SandboxProfile, SandboxStatus, SearchCancel, Secrets, ServerProfile,
-    SessionStore, StoredSession, TerminalService, ToolRole,
+    AgentHost, AgentImage, AgentRuntime, AgentSpec, AuditLog, BeforeTool, BoxFuture, CommandLine,
+    EventSink, FsService, LoopbackGrant, NetProxy, NetReporter, NetStarted, Opener, ProjectStore,
+    Result, RunningAgent, Sandbox, SandboxProfile, SandboxStatus, SearchCancel, Secrets,
+    ServerProfile, SessionStore, StoredSession, TerminalService, ToolRole,
 };
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -221,6 +221,9 @@ pub struct MemoryFs {
     files: Mutex<BTreeMap<(PathBuf, String), (String, u64)>>,
     /// Directories made by `create`; others exist only through their files.
     dirs: Mutex<BTreeSet<(PathBuf, String)>>,
+    /// The bytes of files that are not text, such as images; `read_file`
+    /// answers them as binaries.
+    binaries: Mutex<BTreeMap<(PathBuf, String), Vec<u8>>>,
     /// Everything `trash` moved away, as `path` under `root`.
     pub trashed: Mutex<Vec<PathBuf>>,
     clock: Mutex<u64>,
@@ -233,11 +236,18 @@ pub struct MemoryFs {
 impl MemoryFs {
     /// Adds or replaces a file.
     pub fn put(&self, root: &Path, path: &str, text: &str) {
+        lock(&self.binaries).remove(&(root.to_path_buf(), path.to_owned()));
         let mtime = self.tick();
         lock(&self.files).insert(
             (root.to_path_buf(), path.to_owned()),
             (text.to_owned(), mtime),
         );
+    }
+
+    /// Adds or replaces a file that is not text.
+    pub fn put_bytes(&self, root: &Path, path: &str, bytes: &[u8]) {
+        self.put(root, path, "");
+        lock(&self.binaries).insert((root.to_path_buf(), path.to_owned()), bytes.to_vec());
     }
 
     fn tick(&self) -> u64 {
@@ -359,15 +369,25 @@ impl FsService for MemoryFs {
 
     fn read_file(&self, root: PathBuf, path: RelPath) -> BoxFuture<'_, Result<FileContent>> {
         Box::pin(async move {
+            use base64::Engine as _;
+            let key = (root, path.to_string());
             let files = lock(&self.files);
-            let (text, mtime) = files
-                .get(&(root, path.to_string()))
-                .ok_or_else(|| not_found(&path))?;
+            let (text, mtime) = files.get(&key).ok_or_else(|| not_found(&path))?;
+            let (size, body) = match lock(&self.binaries).get(&key) {
+                Some(bytes) => (
+                    bytes.len(),
+                    FileBody::Binary {
+                        mime: "application/octet-stream".to_owned(),
+                        base64: base64::engine::general_purpose::STANDARD.encode(bytes),
+                    },
+                ),
+                None => (text.len(), FileBody::Text { text: text.clone() }),
+            };
             Ok(FileContent {
                 path: path.to_string(),
-                size: text.len() as u64,
+                size: size as u64,
                 mtime_ms: *mtime,
-                body: FileBody::Text { text: text.clone() },
+                body,
             })
         })
     }
@@ -416,6 +436,7 @@ impl FsService for MemoryFs {
                 ));
             }
             let mtime = self.tick();
+            lock(&self.binaries).remove(&key);
             lock(&self.files).insert(key, (text, mtime));
             Ok(mtime)
         })
@@ -453,8 +474,15 @@ impl FsService for MemoryFs {
                 ));
             }
             let mtime = self.tick();
-            let text = String::from_utf8_lossy(&bytes).into_owned();
-            lock(&self.files).insert((root, path.to_string()), (text, mtime));
+            let key = (root, path.to_string());
+            let text = match String::from_utf8(bytes) {
+                Ok(text) => text,
+                Err(e) => {
+                    lock(&self.binaries).insert(key.clone(), e.into_bytes());
+                    String::new()
+                }
+            };
+            lock(&self.files).insert(key, (text, mtime));
             Ok(())
         })
     }
@@ -475,6 +503,7 @@ impl FsService for MemoryFs {
                 }
                 let inside = |p: &String| p == path.as_str() || p.starts_with(&format!("{path}/"));
                 lock(&self.files).retain(|(r, p), _| *r != root || !inside(p));
+                lock(&self.binaries).retain(|(r, p), _| *r != root || !inside(p));
                 lock(&self.dirs).retain(|(r, p)| *r != root || !inside(p));
                 lock(&self.trashed).push(path.under(&root));
             }
@@ -1016,6 +1045,8 @@ pub struct ScriptedAgent {
     hooks: bool,
     /// Every spec it was started with.
     pub started: Mutex<Vec<AgentSpec>>,
+    /// The images sent with messages after a start, in order.
+    pub images: Arc<Mutex<Vec<AgentImage>>>,
     /// What `project_config` reports for every project...
     pub config: Mutex<ProjectAgentConfig>,
     /// ...except for these folders.
@@ -1128,6 +1159,7 @@ impl AgentRuntime for ScriptedAgent {
             cost: true,
             billing: true,
             accounts: true,
+            images: true,
         };
         vec![ProviderInfo {
             id: AgentKind::Claude,
@@ -1162,6 +1194,7 @@ impl AgentRuntime for ScriptedAgent {
         let process = ScriptedProcess {
             tx,
             interrupted: interrupted.clone(),
+            images: self.images.clone(),
         };
         tokio::spawn(async move {
             let mut turns = turns.into_iter();
@@ -1366,6 +1399,7 @@ impl Interrupted {
 struct ScriptedProcess {
     tx: tokio::sync::mpsc::UnboundedSender<Option<String>>,
     interrupted: Arc<Interrupted>,
+    images: Arc<Mutex<Vec<AgentImage>>>,
 }
 
 impl RunningAgent for ScriptedProcess {
@@ -1373,6 +1407,11 @@ impl RunningAgent for ScriptedProcess {
         self.tx
             .send(Some(text))
             .map_err(|_| ProtocolError::new(ErrorCode::Conflict, "the session has ended"))
+    }
+
+    fn send_with_images(&self, text: String, images: Vec<AgentImage>) -> Result<()> {
+        lock(&self.images).extend(images);
+        self.send(text)
     }
 
     fn interrupt(&self) -> Result<()> {

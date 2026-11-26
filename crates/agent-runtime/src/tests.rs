@@ -132,7 +132,7 @@ impl AgentRuntime for Replay {
                 spec.cwd,
                 host.clone(),
                 ide,
-                spec.prompt,
+                (spec.prompt, spec.images),
                 rx,
             )
             .await;
@@ -984,7 +984,7 @@ async fn messages_for_the_ovra_mcp_server_reach_the_ide_tools() {
         json!({"ovra": wire::initialize()}),
         json!({"cli": {"type": "control_response",
             "response": {"subtype": "success", "request_id": "init", "response": {}}}}),
-        json!({"ovra": wire::user("go")}),
+        json!({"ovra": wire::user("go", &[])}),
         mcp(
             "m1",
             "ovra",

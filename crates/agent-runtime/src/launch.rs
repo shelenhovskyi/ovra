@@ -478,6 +478,7 @@ mod tests {
             trusted: false,
             resume: None,
             no_web: false,
+            images: Vec::new(),
             sandbox: ovra_core::services::SandboxProfile {
                 kind: ovra_core::services::ProfileKind::Agent,
                 agent_state: None,

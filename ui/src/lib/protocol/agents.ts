@@ -39,6 +39,8 @@ export type Capabilities = {
   billing: boolean;
   /** Runs accounts with configuration folders of their own. */
   accounts: boolean;
+  /** Sees images sent with a message (pasted screenshots). */
+  images: boolean;
 };
 
 /** ADR 0005: `direct` works in the main checkout, `isolated` in a worktree (phase 3). */

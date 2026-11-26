@@ -411,3 +411,200 @@ fn agent_and_cli_logins_look_secret() {
         );
     }
 }
+
+/// The first bytes of a PNG file, then `rest`.
+fn png(rest: &[u8]) -> Vec<u8> {
+    [b"\x89PNG\r\n\x1a\n".as_slice(), rest].concat()
+}
+
+async fn with_image(agent: ScriptedAgent) -> (Core, Arc<ScriptedAgent>, Arc<MemoryFs>) {
+    let agent = Arc::new(agent);
+    let fs = Arc::new(MemoryFs::default());
+    let core = Core::builder("test")
+        .projects(Arc::new(MemoryProjects::default()))
+        .fs(fs.clone())
+        .agents(agent.clone())
+        .secrets(Arc::new(MemorySecrets::default()))
+        .build();
+    call(
+        &core,
+        json!({"method": "projects.add", "params": {"root": ROOT}}),
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{e}"));
+    fs.put_bytes(
+        std::path::Path::new(ROOT),
+        ".ovra-attachments/shot.png",
+        &png(b"pixels"),
+    );
+    (core, agent, fs)
+}
+
+fn start_with(items: serde_json::Value) -> serde_json::Value {
+    json!({"method": "agents.start", "params": {
+        "project": "p1", "agent": "claude", "mode": "direct", "prompt": "what is wrong here",
+        "context": items}})
+}
+
+#[tokio::test]
+async fn an_agent_that_sees_images_gets_them_with_the_message() {
+    use base64::Engine as _;
+    let turns = vec![vec![Step::Say("on it")], vec![Step::Say("again")]];
+    let (core, agent, _) = with_image(ScriptedAgent::new(turns)).await;
+    let image = json!([{"kind": "image", "path": ".ovra-attachments/shot.png"}]);
+    call(&core, start_with(image.clone()))
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    let expected = crate::services::AgentImage {
+        media_type: "image/png",
+        data: base64::engine::general_purpose::STANDARD.encode(png(b"pixels")),
+    };
+    let spec = agent
+        .started
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)[0]
+        .clone();
+    assert_eq!(spec.images, vec![expected.clone()]);
+    assert!(
+        spec.prompt
+            .contains("Image: `.ovra-attachments/shot.png`, attached to this message"),
+        "{}",
+        spec.prompt
+    );
+    let send = json!({"method": "agents.send", "params": {"session": "s1", "text": "and now",
+        "context": image}});
+    call(&core, send).await.unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(
+        *agent
+            .images
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner),
+        vec![expected]
+    );
+    // A resumed session starts with its new prompt only.
+    call(
+        &core,
+        json!({"method": "agents.stop", "params": {"session": "s1"}}),
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{e}"));
+    let resume = json!({"method": "agents.resume", "params": {"session": "s1", "prompt": "go on"}});
+    let resumed = async {
+        loop {
+            match call(&core, resume.clone()).await {
+                Err(e) if e.code == ErrorCode::Conflict => tokio::task::yield_now().await,
+                other => break other,
+            }
+        }
+    };
+    resumed.await.unwrap_or_else(|e| panic!("{e}"));
+    let specs = agent
+        .started
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone();
+    assert_eq!(specs.len(), 2);
+    assert!(specs[1].images.is_empty());
+}
+
+#[tokio::test]
+async fn an_agent_that_does_not_see_images_gets_their_names() {
+    use crate::protocol::agents::{AgentKind, Capabilities, ProviderInfo};
+    let blind = ScriptedAgent::new(vec![vec![Step::Say("on it")]]).as_provider(ProviderInfo {
+        id: AgentKind::Claude,
+        name: "Blind".into(),
+        capabilities: Capabilities {
+            approvals: true,
+            enforced_policy: true,
+            ..Capabilities::default()
+        },
+    });
+    let (core, agent, _) = with_image(blind).await;
+    let image = json!([{"kind": "image", "path": ".ovra-attachments/shot.png"}]);
+    call(&core, start_with(image))
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    let spec = agent
+        .started
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)[0]
+        .clone();
+    assert!(spec.images.is_empty());
+    assert!(
+        spec.prompt
+            .contains("\n\nImage: `.ovra-attachments/shot.png`")
+            && !spec.prompt.contains("attached to this message"),
+        "{}",
+        spec.prompt
+    );
+}
+
+#[tokio::test]
+async fn only_real_images_of_a_size_a_model_takes_are_sent() {
+    let (core, agent, fs) = with_image(ScriptedAgent::new(vec![vec![Step::Say("on it")]])).await;
+    let root = std::path::Path::new(ROOT);
+    fs.put(root, "notes.png", "not an image");
+    fs.put_bytes(root, "big.png", &png(&vec![0; 3_750_000]));
+    fs.put_bytes(root, "fake.gif", &png(b""));
+    let image = |path: &str| json!({"kind": "image", "path": path});
+    let refused = |items: serde_json::Value| {
+        let core = &core;
+        async move {
+            call(core, start_with(items))
+                .await
+                .err()
+                .map(|e| (e.code, e.message))
+        }
+    };
+    let not_image = refused(json!([image("notes.png")])).await;
+    assert_eq!(
+        not_image,
+        Some((
+            ErrorCode::BadRequest,
+            "`notes.png` is not a PNG, JPEG, GIF or WebP image".into()
+        ))
+    );
+    let wrong_name = refused(json!([image("src/lib.rs")])).await;
+    assert_eq!(wrong_name.map(|e| e.0), Some(ErrorCode::BadRequest));
+    let big = refused(json!([image("big.png")])).await;
+    assert!(
+        big.as_ref()
+            .is_some_and(|e| e.1.contains("larger than 3.75 MB")),
+        "{big:?}"
+    );
+    // A GIF's name does not make a PNG one: the bytes give the type.
+    call(&core, start_with(json!([image("fake.gif")])))
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    let started = agent
+        .started
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)[0]
+        .images[0]
+        .media_type;
+    assert_eq!(started, "image/png");
+    let nine: Vec<_> = (0..9)
+        .map(|_| image(".ovra-attachments/shot.png"))
+        .collect();
+    let many = refused(json!(nine)).await;
+    assert_eq!(
+        many.map(|e| e.1),
+        Some("a message carries 8 images at most".into())
+    );
+}
+
+#[test]
+fn image_types_come_from_their_bytes() {
+    assert_eq!(super::image_type(&png(b"")), Some("image/png"));
+    assert_eq!(
+        super::image_type(&[0xff, 0xd8, 0xff, 0xe0]),
+        Some("image/jpeg")
+    );
+    assert_eq!(super::image_type(b"GIF89a..."), Some("image/gif"));
+    assert_eq!(
+        super::image_type(b"RIFF\0\0\0\0WEBPVP8 "),
+        Some("image/webp")
+    );
+    assert_eq!(super::image_type(b"RIFF\0\0\0\0WAVE"), None);
+    assert_eq!(super::image_type(b"<svg>"), None);
+}
