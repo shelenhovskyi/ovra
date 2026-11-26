@@ -646,6 +646,20 @@ async fn an_agent_that_closes_stdout_and_lives_on_is_killed() {
     assert!(message.starts_with("Fake exited with signal"), "{message}");
 }
 
+#[test]
+fn no_acp_agent_claims_an_enforced_policy() {
+    let mut agent = described("fake-acp", &[]);
+    agent.info.capabilities = Capabilities {
+        enforced_policy: true,
+        approvals: true,
+        ..Capabilities::default()
+    };
+    let runtime = AcpAgents::new(vec![agent.clone()], Arc::new(FakeSandbox::available()));
+    let mut expected = agent.info;
+    expected.capabilities.enforced_policy = false;
+    assert_eq!(runtime.providers(), vec![expected]);
+}
+
 fn spec() -> AgentSpec {
     use ovra_core::protocol::agents::{SessionId, SessionMode};
     use ovra_core::services::{ProfileKind, ProfileNetwork};

@@ -58,8 +58,18 @@ impl AcpAgents {
 }
 
 impl AgentRuntime for AcpAgents {
+    /// The agents it describes. None has an enforced policy, whatever its
+    /// descriptor says: ACP has no hook that holds in an agent's auto
+    /// modes, so the agent alone decides when to ask (ADR 0011).
     fn providers(&self) -> Vec<ProviderInfo> {
-        self.agents.iter().map(|a| a.info.clone()).collect()
+        self.agents
+            .iter()
+            .map(|a| {
+                let mut info = a.info.clone();
+                info.capabilities.enforced_policy = false;
+                info
+            })
+            .collect()
     }
 
     fn start(&self, spec: AgentSpec, host: AgentHost) -> Result<Box<dyn RunningAgent>> {
