@@ -94,6 +94,10 @@ export class AgentSessions {
   private readonly loaded = new Set<ProjectId>();
   /** The latest `agents.capacity` call per project: older replies are stale. */
   private readonly asked = new Map<ProjectId, number>();
+  /** The `load` per project that runs now. */
+  private readonly loads = new Map<ProjectId, Promise<void>>();
+  /** The `review.list` reading per project that runs now, and whether another must follow it. */
+  private readonly reviewsLoading = new Map<ProjectId, { again: boolean; done: Promise<void> }>();
 
   constructor(private readonly transport: Transport) {
     transport.onEvent((event) => this.apply(event));
@@ -111,7 +115,20 @@ export class AgentSessions {
     return [...this.byId.values()].filter((s) => s.project === project);
   }
 
-  async load(project: ProjectId): Promise<void> {
+  load(project: ProjectId): Promise<void> {
+    const load = this.read(project).finally(() => {
+      if (this.loads.get(project) === load) this.loads.delete(project);
+    });
+    this.loads.set(project, load);
+    return load;
+  }
+
+  /** Like `load`, but shares a load of `project` that runs now: panels that open together ask once. */
+  show(project: ProjectId): Promise<void> {
+    return this.loads.get(project) ?? this.load(project);
+  }
+
+  private async read(project: ProjectId): Promise<void> {
     const { data } = await this.transport.call({ method: "agents.list", params: { project } });
     this.loaded.add(project);
     for (const id of readClosed(project)) this.closed.add(id);
@@ -124,8 +141,34 @@ export class AgentSessions {
     ]);
   }
 
-  /** Each session's newest review item. Front ends without reviews have none. */
-  async loadReviews(project: ProjectId): Promise<void> {
+  /**
+   * Each session's newest review item. Front ends without reviews have none.
+   * Calls while one runs share one more reading after it: workers that write
+   * send `review.changed` every second, and each `review.list` looks at every
+   * open item's worktree.
+   */
+  loadReviews(project: ProjectId): Promise<void> {
+    const running = this.reviewsLoading.get(project);
+    if (running) {
+      running.again = true;
+      return running.done;
+    }
+    const load = { again: false, done: Promise.resolve() };
+    this.reviewsLoading.set(project, load);
+    load.done = (async () => {
+      try {
+        do {
+          load.again = false;
+          await this.readReviews(project);
+        } while (load.again);
+      } finally {
+        this.reviewsLoading.delete(project);
+      }
+    })();
+    return load.done;
+  }
+
+  private async readReviews(project: ProjectId): Promise<void> {
     let items: ReviewItem[];
     try {
       ({ data: items } = await this.transport.call({ method: "review.list", params: { project } }));

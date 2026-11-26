@@ -497,7 +497,7 @@ $effect(() => {
     error = null;
     startError = null;
     launched = null;
-    sessions.load(id).catch((err: unknown) => (error = `Could not list sessions: ${text(err)}`));
+    sessions.show(id).catch((err: unknown) => (error = `Could not list sessions: ${text(err)}`));
   });
 });
 
