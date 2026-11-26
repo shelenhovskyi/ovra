@@ -166,8 +166,13 @@ impl World {
     /// Everything under the world: files with their content, folders, and
     /// links with their target, to compare before and after an attack.
     fn files(&self) -> Vec<(PathBuf, Vec<u8>)> {
+        self.files_in(&self.root)
+    }
+
+    /// The same for everything under `root`.
+    fn files_in(&self, root: &Path) -> Vec<(PathBuf, Vec<u8>)> {
         let mut files = Vec::new();
-        let mut stack = vec![self.root.clone()];
+        let mut stack = vec![root.to_path_buf()];
         while let Some(dir) = stack.pop() {
             for entry in fs::read_dir(dir).unwrap() {
                 let path = entry.unwrap().path();
@@ -780,6 +785,110 @@ fn the_known_limits_are_what_the_threat_model_says() {
         &[],
     );
     insta::assert_snapshot!(out);
+}
+
+/// Gemini's and Codex's sessions, with the state their descriptions in
+/// `ovra-acp-client` give back: each reads its own login and nothing else
+/// of the person's, not the prompts of other projects (Codex's
+/// `history.jsonl` is global) nor MCP servers' OAuth tokens, and leaves
+/// their settings as they were, whether the file was there or not.
+#[test]
+fn gemini_and_codex_sessions_keep_to_their_own_state() {
+    other_agents_sessions("existing", true);
+}
+
+/// The same with no settings files: one an agent makes lands in its
+/// session's own layer and is gone with it.
+#[test]
+fn gemini_and_codex_sessions_leave_missing_settings_missing() {
+    other_agents_sessions("missing", false);
+}
+
+/// A Codex and a Gemini session in a home with planted markers;
+/// `settings`: whether their settings files exist. `round` names the
+/// snapshots.
+fn other_agents_sessions(round: &str, settings: bool) {
+    let world = World::new(&format!("agents-{round}"));
+    for (path, text) in [
+        (
+            "home/.codex/history.jsonl",
+            "{\"text\":\"other project\"}\n",
+        ),
+        ("home/.codex/.credentials.json", SECRET),
+        ("home/.codex/auth.json", "codex login"),
+        ("home/.gemini/mcp-oauth-tokens.json", SECRET),
+        ("home/.gemini/mcp-oauth-tokens-v2.json", SECRET),
+        ("home/.gemini/oauth_creds.json", "gemini login"),
+    ] {
+        world.file(path, text);
+    }
+    if settings {
+        world.file("home/.codex/config.toml", "model = \"m\"\n");
+        world.file("home/.gemini/settings.json", "{}\n");
+    }
+    let Some(sandbox) = world.sandbox() else {
+        return;
+    };
+    let checks = format!(
+        "read the prompt of another project: grep -q 'other project' {home}/.codex/history.jsonl
+        read the MCP tokens of codex: grep -q {SECRET} {home}/.codex/.credentials.json
+        read the MCP tokens of gemini: grep -q {SECRET} {home}/.gemini/mcp-oauth-tokens.json
+        read the newer MCP tokens of gemini: grep -q {SECRET} {home}/.gemini/mcp-oauth-tokens-v2.json
+        read the login of codex: grep -q 'codex login' {home}/.codex/auth.json
+        read the login of gemini: grep -q 'gemini login' {home}/.gemini/oauth_creds.json
+        read the login of claude: grep -q login {home}/.claude/.credentials.json
+        add a Codex MCP server: printf '[mcp_servers.x]\\ncommand = \"/bin/x\"\\n' >> {home}/.codex/config.toml
+        add a Gemini hook: echo '{{\"hooks\":{{\"BeforeTool\":[]}}}}' >> {home}/.gemini/settings.json",
+        home = world.home.display(),
+    );
+    let script = attacks(&checks);
+    let profiles: Vec<_> = [ovra_acp_client::codex(), ovra_acp_client::gemini()]
+        .into_iter()
+        .map(|agent| {
+            let mut profile = world.profile(ProfileNetwork::Blocked);
+            profile.agent_state = Some(ovra_core::services::AgentState {
+                lists: agent.lists,
+                config_dir: None,
+            });
+            (agent.info.name, profile)
+        })
+        .collect();
+    // Planning makes the folders it binds: wrap once first, so only
+    // the attacks change files.
+    for (_, profile) in &profiles {
+        let noop = CommandLine {
+            program: "/bin/true".into(),
+            args: Vec::new(),
+            env: Vec::new(),
+            cwd: world.project.clone(),
+        };
+        sandbox.wrap(profile, noop).unwrap();
+    }
+    let before = world.files_in(&world.home);
+    let mut results = String::new();
+    for (name, profile) in &profiles {
+        let out = run(&sandbox, profile, &script, &[]);
+        results.push_str(&format!("{name}, settings {round}:\n{out}\n"));
+    }
+    // Only the home folder: the project's cleaner may still be removing
+    // the files planning made there.
+    let after = world.files_in(&world.home);
+    let changed: Vec<String> = after
+        .iter()
+        .filter(|f| !before.contains(f))
+        .chain(before.iter().filter(|f| !after.contains(f)))
+        .map(|(path, _)| {
+            format!(
+                "{round}: {}",
+                path.strip_prefix(&world.root).unwrap().display()
+            )
+        })
+        .collect();
+    // The control: without the sandbox every attack works.
+    let control = outside(&world.project, &script, &[]);
+    assert_eq!(failed(&control), Vec::<&str>::new(), "{control}");
+    insta::assert_snapshot!(format!("agents_{round}"), results);
+    insta::assert_debug_snapshot!(format!("agents_{round}_changed_on_the_host"), changed);
 }
 
 /// A language server (ADR 0007) runs the project's code: `build.rs`, proc

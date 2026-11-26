@@ -1,0 +1,26 @@
+---
+source: tests/security/tests/attacks.rs
+assertion_line: 890
+expression: results
+---
+Codex, settings missing:
+read the prompt of another project: no
+read the MCP tokens of codex: no
+read the MCP tokens of gemini: no
+read the newer MCP tokens of gemini: no
+read the login of codex: yes
+read the login of gemini: no
+read the login of claude: no
+add a Codex MCP server: yes
+add a Gemini hook: no
+
+Gemini, settings missing:
+read the prompt of another project: no
+read the MCP tokens of codex: no
+read the MCP tokens of gemini: no
+read the newer MCP tokens of gemini: no
+read the login of codex: no
+read the login of gemini: yes
+read the login of claude: no
+add a Codex MCP server: no
+add a Gemini hook: yes

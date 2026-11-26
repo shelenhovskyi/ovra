@@ -18,6 +18,7 @@ test = false
 ovra-sandbox.workspace = true
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]
+ovra-acp-client.workspace = true
 ovra-core = { workspace = true, features = ["fakes"] }
 ovra-netproxy.workspace = true
 ovra-sandbox-linux.workspace = true

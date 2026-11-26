@@ -1,0 +1,6 @@
+---
+source: tests/security/tests/attacks.rs
+assertion_line: 891
+expression: changed
+---
+[]
