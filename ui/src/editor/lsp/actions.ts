@@ -3,12 +3,12 @@
 // silence. Hover at the cursor is ours: the library shows hover only for the
 // pointer.
 
-import { nextDiagnostic, openLintPanel, previousDiagnostic } from "@codemirror/lint";
+import { nextDiagnostic, previousDiagnostic } from "@codemirror/lint";
 import { formatDocument, jumpToDefinition, LSPPlugin, renameSymbol } from "@codemirror/lsp-client";
 import { StateEffect, StateField } from "@codemirror/state";
 import { type EditorView, type KeyBinding, showTooltip, type Tooltip } from "@codemirror/view";
 
-export type LspAction = "definition" | "references" | "rename" | "format" | "hover" | "problems" | "next_problem";
+export type LspAction = "definition" | "references" | "rename" | "format" | "hover" | "next_problem";
 
 type Context = {
   /** Tells the person something short. */
@@ -43,7 +43,6 @@ export function canRun(view: EditorView, action: LspAction): boolean {
 /** Runs `action` in `view`; returns false only when no language server is attached. */
 export function runAction(view: EditorView, action: LspAction, context: Context): boolean {
   const plugin = LSPPlugin.get(view);
-  if (action === "problems") return openLintPanel(view);
   if (action === "next_problem") return nextDiagnostic(view);
   if (!plugin) return false;
   const need = NEEDS[action];
@@ -76,7 +75,6 @@ export function actionKeys(context: Context): KeyBinding[] {
     { key: "Shift-Alt-f", run: run("format"), preventDefault: true },
     // One press: a Mod-k chord would take the global Mod+K (Search or run).
     { key: "Mod-i", run: run("hover"), preventDefault: true },
-    { key: "Mod-Shift-m", run: run("problems"), preventDefault: true },
     { key: "F8", run: run("next_problem"), preventDefault: true },
     { key: "Shift-F8", run: previousDiagnostic, preventDefault: true },
     { key: "Escape", run: closeHover },

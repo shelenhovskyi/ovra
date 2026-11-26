@@ -25,12 +25,12 @@ adds one menu and compact chips, and nothing more.
   field: an icon and a short name (`lib.rs`, `src/`, `lib.rs:12-18`,
   `Terminal`, `Screenshot`). The full path is its tooltip. × removes it; so
   does Backspace in an empty field (last chip).
-- **Ask agent** (editor menu, the problem's hover card, the terminal menu
-  with a selection) adds the selection, the problem or the terminal
+- **Ask agent** (editor menu, the problem's hover card, a Problems row,
+  the terminal menu with a selection) adds the selection, the problem or the terminal
   selection as a chip to the Agents panel's open box (the reply box of the
   open task, else the new-task box), shows the panel and focuses the field.
-  Ovra has no Problems list or test runner view yet: the problem hover and
-  the terminal (where a failed test prints) are where those live today.
+  Ovra has no test runner view yet: the terminal (where a failed test
+  prints) is where that lives today.
 - Chips go with the message and are cleared after it is sent. The
   transcript shows the person's text; the context goes to the agent as
   Ovra's message after it, like browser picks.
@@ -73,4 +73,4 @@ take an optional `context: ContextItem[]`.
 ## Out of scope
 
 Limits and cost display; reading file contents into the message; images in
-messages; a Problems list or test view; saved context sets.
+messages; a test view; saved context sets.

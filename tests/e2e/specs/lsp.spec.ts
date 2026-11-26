@@ -43,6 +43,14 @@ test("a trusted project's rust file gets diagnostics and hover from its language
   const editor = page.getByTestId("main");
   await expect(editor.locator(".cm-lintRange-error")).toHaveCount(1);
 
+  // The status bar counts it, and the Problems list opens it at its spot.
+  await page.getByTestId("problem-counts").filter({ hasText: "1 error" }).click();
+  const problem = page.getByTestId("problems").getByRole("option", { name: /fake: TODO found/ });
+  await expect(problem).toContainText("2:8");
+  await expect(problem).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(editor.locator(".cm-content")).toBeFocused();
+
   // A hover only asks once the pointer moves onto the word; until the
   // server has answered `initialize` it is not asked at all, so move again.
   const word = editor.locator(".cm-content").getByText("main").first();
@@ -63,6 +71,8 @@ test("a trusted project's rust file gets diagnostics and hover from its language
   await item.click();
   await page.getByRole("button", { name: "Stop fake-lsp" }).click();
   await expect(editor.locator(".cm-lintRange-error")).toHaveCount(0);
+  await expect(page.getByTestId("problem-counts")).toHaveCount(0);
+  await expect(page.getByTestId("problems")).toContainText("No problems.");
 });
 
 test("references and rename reach files that are not open; renamed files wait unsaved", async ({ page }) => {

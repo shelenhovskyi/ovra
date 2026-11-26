@@ -7,6 +7,7 @@ import type { Extension } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import { askAgent, registerContextSource, type Suggestion } from "../agents/context.svelte";
 import type { ContextWhat } from "../lib/protocol";
+import type { Problem } from "./lsp/problems.svelte";
 import { shownView } from "./search";
 
 /** What the core takes of one text item, in UTF-8 bytes. */
@@ -125,5 +126,17 @@ export function askOnProblems(path: (view: EditorView) => string | null): Extens
           },
         ],
       })),
+  });
+}
+
+/** Ask agent from a row of the Problems list. */
+export function askAboutProblem(path: string, item: Problem): void {
+  askAgent({
+    kind: "problem",
+    path,
+    line: item.line,
+    severity: item.severity,
+    message: fitBytes(item.message, 4096),
+    source: item.source,
   });
 }

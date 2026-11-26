@@ -13,6 +13,8 @@ import AuditLog from "../audit/AuditLog.svelte";
 import BrowserPane from "../browser/BrowserPane.svelte";
 import FileStatus from "../editor/FileStatus.svelte";
 import { persistOpenFiles } from "../editor/open-files.svelte";
+import ProblemCounts from "../editor/ProblemCounts.svelte";
+import ProblemsDock from "../editor/ProblemsDock.svelte";
 import FocusBar from "../focus/FocusBar.svelte";
 import FocusView from "../focus/FocusView.svelte";
 import { FOCUS_KEYS } from "../focus/keys";
@@ -445,10 +447,11 @@ async function showApprovals(): Promise<void> {
     <!-- Reviews stays mounted while closed: it keeps the choice and drafts, and agents' asks. -->
     <Inbox inbox={reviews} />
     <BrowserPane />
-    <!-- The bottom dock: terminals and, next to them, the dev servers that run. -->
+    <!-- The bottom dock: terminals and, next to them, the dev servers that run and the problems. -->
     <div class="dock">
       <Terminals />
       <ServersDock />
+      <ProblemsDock />
     </div>
   </main>
   <aside class="panel agents" data-testid="agents" aria-label="Agents and approvals">
@@ -494,6 +497,7 @@ async function showApprovals(): Promise<void> {
       title={info ? `${info.name} ${info.version} (${info.mode})` : undefined}>{status.text}</span
     >
     <span class="footer-end">
+      <ProblemCounts />
       <!-- Quiet facts about the open file, while it is what the main area shows. -->
       {#if !gitDiff && !mainView.current}<FileStatus />{/if}
       {#if serversDock.running > 0 && !serversDock.shown}

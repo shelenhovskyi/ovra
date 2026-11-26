@@ -8,5 +8,5 @@ test("an action applies when the server offers it, or before its capabilities ar
   expect(supports({}, "format")).toBe(false);
   expect(supports(null, "format")).toBe(true);
   // Problems need nothing from the server.
-  expect(supports({}, "problems")).toBe(true);
+  expect(supports({}, "next_problem")).toBe(true);
 });

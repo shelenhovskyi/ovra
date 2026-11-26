@@ -119,9 +119,15 @@ makes on disk still reach them.
   removed, or it exits. It keeps running when the project closes in every
   client, so a reload does not restart it.
 - Keys: F12 definition, Shift+F12 references, F2 rename, Shift+Alt+F
-  format, Mod+I hover at the cursor, Mod+Shift+M problems, F8 and
-  Shift+F8 next and previous problem; all are in the palette under
-  "Language:", and from the viewer they open the file for editing first.
+  format, Mod+I hover at the cursor, F8 and Shift+F8 next and previous
+  problem; all are in the palette under "Language:", and from the viewer
+  they open the file for editing first.
+- Problems: every diagnostic the project's servers published, also for
+  files not open, in the Problems tab of the bottom dock ("Show problems",
+  Mod+Shift+M; the status bar's "2 errors, 1 warning" opens it too),
+  grouped by file, errors first. A server that stops takes its problems.
+- Format on save (Settings > Editor, off by default) formats a shown file
+  before it is written; no answer within 1 s or an error saves it as is.
   An action the server cannot do, and a failed request, says so in the
   editor's notice line.
 - Find references (Shift+F12) lists references in files the editor does

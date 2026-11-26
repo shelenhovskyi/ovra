@@ -110,7 +110,7 @@ remembered View or Edit per file type). This list only adds the menu.
 | Settings UI (theme, font, tab size, auto save)  | yes     | yes | yes       | yes    | no                     | P1       |
 | Keyboard shortcuts list and rebinding           | yes     | yes | yes       | yes    | list in palette        | P2       |
 | Status bar: line and column, language, encoding | yes     | yes | yes       | yes    | no                     | P1       |
-| Problems list (all diagnostics)                 | yes     | yes | yes       | yes    | no                     | P2       |
+| Problems list (all diagnostics)                 | yes     | yes | yes       | yes    | yes (Mod+Shift+M)      | done     |
 | Zen / focus mode                                | yes     | yes | yes       | yes    | panels fold            | P2       |
 
 ## P0 plan

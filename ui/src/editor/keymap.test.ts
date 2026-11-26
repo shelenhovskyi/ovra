@@ -23,16 +23,7 @@ const sources = import.meta.glob<string>(["../**/*.ts", "../**/*.svelte", "!../*
 });
 
 /** The editor's own commands, which its keymap runs itself: the same action either way. */
-const SAME_ACTION = new Set([
-  "Mod+S",
-  "Mod+F",
-  "Mod+Alt+F",
-  "Ctrl+G",
-  "Shift+F12",
-  "Shift+Alt+F",
-  "Mod+Shift+M",
-  "Mod+/",
-]);
+const SAME_ACTION = new Set(["Mod+S", "Mod+F", "Mod+Alt+F", "Ctrl+G", "Shift+F12", "Shift+Alt+F", "Mod+/"]);
 
 /** Every `keys` given to `registerCommand`, as a literal or a constant of the same file. */
 function globalShortcuts(): { id: string; keys: string }[] {
