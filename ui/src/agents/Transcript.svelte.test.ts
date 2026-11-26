@@ -1,5 +1,6 @@
 import { flushSync, mount, unmount } from "svelte";
 import { afterEach, expect, it, vi } from "vitest";
+import type { AgentMessage } from "../lib/protocol";
 import Transcript from "./Transcript.svelte";
 
 let app: Record<string, unknown> | null = null;
@@ -49,8 +50,34 @@ it("stops following once scrolled up, offers Jump to latest, and Retry on a turn
   flushSync();
   expect(log.scrollTop).toBe(1000);
   expect(jump()).toBeNull();
+  // The button went away: focus is on the log it scrolled, not on the page.
+  expect(document.activeElement).toBe(log);
   [...document.querySelectorAll("button")].find((b) => b.textContent === "Retry")?.click();
   expect(onretry).toHaveBeenCalledOnce();
+});
+
+it("counts new messages in words while scrolled up, and follows again once the person writes", () => {
+  const props = $state<{ messages: AgentMessage[] }>({
+    messages: [{ kind: "user_text", text: "Fix it", from: "person" }],
+  });
+  app = mount(Transcript, { target: document.body, props });
+  flushSync();
+  const log = document.querySelector<HTMLElement>("[role=log]");
+  if (!log) throw new Error("no log");
+  Object.defineProperty(log, "scrollHeight", { value: 1000 });
+  Object.defineProperty(log, "clientHeight", { value: 200 });
+  log.scrollTop = 100;
+  log.dispatchEvent(new Event("scroll"));
+  flushSync();
+  props.messages = [...props.messages, { kind: "assistant_text", text: "Done." }];
+  flushSync();
+  const jump = () => document.querySelector<HTMLButtonElement>("[data-testid=jump-to-latest]");
+  expect(jump()?.textContent).toBe("1 new");
+  expect(log.scrollTop).toBe(100);
+  props.messages = [...props.messages, { kind: "user_text", text: "Thanks, now the tests", from: "person" }];
+  flushSync();
+  expect(log.scrollTop).toBe(1000);
+  expect(jump()).toBeNull();
 });
 
 const retries = () => [...document.querySelectorAll("button")].filter((b) => b.textContent === "Retry");

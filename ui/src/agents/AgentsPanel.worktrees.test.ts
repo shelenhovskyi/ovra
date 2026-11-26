@@ -5,6 +5,7 @@ import { settings } from "../settings/panes.svelte";
 import { mainView } from "../shell/main-view.svelte";
 import { Workspace } from "../shell/workspace.svelte";
 import { FakeAgentCore } from "./fake-core";
+import { agentPrefs } from "./prefs.svelte";
 import TestHost from "./TestHost.svelte";
 
 const GB = 2 ** 30;
@@ -154,7 +155,12 @@ it("shows each worktree's disk use, the project's total, and why a worker waits"
     "more than 819 MB on disk",
     undefined,
   ]);
+  // The project's total is a resource number: shown only when the person turned those on.
+  expect(target.querySelector("[data-testid=agents-disk]")).toBeNull();
+  agentPrefs.showResources = true;
+  flushSync();
   expect(target.querySelector("[data-testid=agents-disk]")?.textContent).toBe("more than 2.0 GB on disk");
+  agentPrefs.showResources = false;
   expect(row("lint")?.querySelector(".state")?.textContent).toBe("Waiting for disk space");
 });
 

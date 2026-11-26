@@ -205,9 +205,25 @@ function jump(): void {
 }
 
 // Follow new messages, and the text that streams in, unless scrolled away.
+// The person's own message always brings the view down: they want to see the answer.
 $effect(() => {
   void [messages.length, partial, status];
-  if (box && !untrack(() => detached)) box.scrollTop = box.scrollHeight;
+  const last = messages[messages.length - 1];
+  const sent = last?.kind === "user_text" && last.from === "person";
+  if (!box || (!sent && untrack(() => detached))) return;
+  box.scrollTop = box.scrollHeight;
+  detached = false;
+});
+
+// A card opening under the log makes it shorter without a scroll: keep the end in view.
+$effect(() => {
+  if (!box || typeof ResizeObserver === "undefined") return;
+  const log = box;
+  const observer = new ResizeObserver(() => {
+    if (!untrack(() => detached)) log.scrollTop = log.scrollHeight;
+  });
+  observer.observe(log);
+  return () => observer.disconnect();
 });
 
 /**
@@ -403,16 +419,17 @@ const lastError = $derived.by(() => {
   <!-- A small round button in its own row under the log: it never covers a line. -->
   {@const label = `${fresh > 0 ? `${fresh} new · ` : ""}Jump to latest`}
   <button type="button" class="jump" class:fresh={fresh > 0} data-testid="jump-to-latest" aria-label={label} title={label} onclick={jump}
-    ><Icon name="chevron" small /></button
+    >{#if fresh > 0}<span aria-hidden="true">{fresh} new</span>{/if}<Icon name="chevron" small /></button
   >
 {/if}
 </div>
 
 <style>
+  /* Never squeezed to nothing by the cards under it: they scroll instead. */
   .frame {
     position: relative;
     flex: 1;
-    min-height: 0;
+    min-height: 96px;
     display: flex;
     flex-direction: column;
   }
@@ -435,16 +452,16 @@ const lastError = $derived.by(() => {
     color: var(--text);
     background: var(--s4);
   }
-  /* New messages below: a dot, the count is in its name. */
-  .jump.fresh::after {
-    content: "";
-    position: absolute;
-    top: 1px;
-    right: 1px;
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--accent);
+  /* New messages below: the count in words, on a pill that grows from the circle. */
+  .jump.fresh {
+    width: auto;
+    padding: 0 8px 0 10px;
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    font: var(--t-small);
+    color: var(--accent);
+    border-radius: var(--r-pill);
   }
   .divider {
     display: flex;

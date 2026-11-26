@@ -1024,7 +1024,8 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
         {#each { length: capacity.limit } as _, n (n)}<i class:on={n < capacity.working}></i>{/each}
       </span>
     {/if}
-    {#if projectDisk}
+    <!-- Resource numbers are opt-in (Settings > Agents): they distract. -->
+    {#if projectDisk && agentPrefs.showResources}
       <span class="capacity" data-testid="agents-disk" title="Disk used by this project's worktrees"
         >{diskLabel(projectDisk)}</span
       >
@@ -1636,7 +1637,11 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
     font-size: 14px;
     font-weight: 600;
   }
+  /* The words give way before the buttons at the end: those always stay in view. */
   .capacity {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
     font-size: 13px;
     color: var(--text-2);
     white-space: nowrap;
