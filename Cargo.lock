@@ -3741,6 +3741,7 @@ version = "0.1.0"
 dependencies = [
  "ovra-core",
  "ovra-sandbox-linux",
+ "ovra-sandbox-macos",
  "ovra-sandbox-windows",
  "tempfile",
 ]
@@ -3755,6 +3756,15 @@ dependencies = [
  "ovra-core",
  "rustix",
  "seccompiler",
+ "sha2 0.10.9",
+]
+
+[[package]]
+name = "ovra-sandbox-macos"
+version = "0.1.0"
+dependencies = [
+ "insta",
+ "ovra-core",
  "sha2 0.10.9",
 ]
 

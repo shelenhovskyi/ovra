@@ -1,0 +1,78 @@
+---
+source: crates/sandbox-macos/src/plan/tests.rs
+expression: root.show(&line)
+---
+--ovra-sandbox-helper
+--bridge ROOT/tmp/net/p.sock
+--env HOME
+--env USER
+--env LOGNAME
+--env SHELL
+--env LANG
+--env LANGUAGE
+--env LC_ALL
+--env LC_CTYPE
+--env TZ
+--env TERM
+--env COLORTERM
+--env NO_COLOR
+--env ANTHROPIC_API_KEY
+--env ANTHROPIC_AUTH_TOKEN
+--env ANTHROPIC_BASE_URL
+--env ANTHROPIC_MODEL
+--env ANTHROPIC_SMALL_FAST_MODEL
+--env CLAUDE_CODE_USE_BEDROCK
+--env CLAUDE_CODE_USE_VERTEX
+--env CLAUDE_CODE_USE_FOUNDRY
+--env ANTHROPIC_BEDROCK_BASE_URL
+--env ANTHROPIC_VERTEX_BASE_URL
+--env ANTHROPIC_VERTEX_PROJECT_ID
+--env ANTHROPIC_FOUNDRY_RESOURCE
+--env ANTHROPIC_FOUNDRY_BASE_URL
+--env AWS_REGION
+--env CLOUD_ML_REGION
+--env GOOGLE_CLOUD_PROJECT
+--env SSL_CERT_FILE
+--env NODE_EXTRA_CA_CERTS
+--env CARGO_HOME
+--env RUSTUP_HOME
+--env NVM_DIR
+--env GOPATH
+--env OVRA_FAKE_CLAUDE_FIXTURE
+--env PATH
+--env npm_config_cache
+--env PIP_CACHE_DIR
+--env npm_config_store_dir
+--env TMPDIR
+--env REQUESTS_CA_BUNDLE
+--env CURL_CA_BUNDLE
+--env GIT_SSL_CAINFO
+--env OVRA_PORT
+--env OVRA_WORKTREE_ROOT
+--env OVRA_MAIN_ROOT
+--profile <profile>
+--
+ROOT/home/.local/share/claude/versions/2.0
+-p
+env:
+  -CLAUDECODE
+  PATH=ROOT/home/.cargo/bin:ROOT/home/.docker/bin:ROOT/usr/bin
+  CARGO_HOME=ROOT/data/sandbox-caches/p-f5f849dca255a577b897e3534bd4462d/cargo
+  npm_config_cache=ROOT/data/sandbox-caches/p-f5f849dca255a577b897e3534bd4462d/npm
+  PIP_CACHE_DIR=ROOT/data/sandbox-caches/p-f5f849dca255a577b897e3534bd4462d/pip
+  npm_config_store_dir=ROOT/data/sandbox-caches/p-f5f849dca255a577b897e3534bd4462d/pnpm
+  TMPDIR=ROOT/data/sandbox-temp/p-f5f849dca255a577b897e3534bd4462d
+  SSL_CERT_FILE=ROOT/tmp/ca.pem
+  NODE_EXTRA_CA_CERTS=ROOT/tmp/ca.pem
+  REQUESTS_CA_BUNDLE=ROOT/tmp/ca.pem
+  CURL_CA_BUNDLE=ROOT/tmp/ca.pem
+  GIT_SSL_CAINFO=ROOT/tmp/ca.pem
+  -SSL_CERT_DIR
+  OVRA_PORT=41000
+  OVRA_WORKTREE_ROOT=ROOT/projects/app
+  OVRA_MAIN_ROOT=ROOT/projects/main
+  -GITHUB_TOKEN
+  -SSH_AUTH_SOCK
+  -NO_PROXY
+  -CLAUDE_CODE_OAUTH_TOKEN
+cwd: ROOT/projects/app

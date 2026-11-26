@@ -1,0 +1,18 @@
+[package]
+name = "ovra-sandbox-macos"
+description = "The agent sandbox on macOS: Seatbelt through /usr/bin/sandbox-exec, with a helper that bridges the netproxy (implements ovra_core::services::Sandbox)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+ovra-core.workspace = true
+sha2 = "0.10"
+
+[dev-dependencies]
+insta.workspace = true
+
+[lints]
+workspace = true

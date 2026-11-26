@@ -24,6 +24,7 @@ ovra-sandbox = { path = "crates/sandbox" }
 ovra-secrets = { path = "crates/secrets" }
 ovra-sandbox-linux = { path = "crates/sandbox-linux" }
 ovra-sandbox-windows = { path = "crates/sandbox-windows" }
+ovra-sandbox-macos = { path = "crates/sandbox-macos" }
 ovra-netproxy = { path = "crates/netproxy" }
 ovra-lsp = { path = "crates/lsp" }
 ovra-servers = { path = "crates/servers" }
