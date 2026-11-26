@@ -538,6 +538,7 @@ fn described(program: &str, args: &[&str]) -> AcpAgent {
         program: program.into(),
         args: args.iter().map(Into::into).collect(),
         lists: &LISTS,
+        known: None,
     }
 }
 
@@ -843,4 +844,44 @@ async fn an_interrupt_before_the_session_drops_its_first_prompt() {
     let (transcript, ended) = s.stop().await;
     assert_eq!(ended, Ended::Closed { stopped: true });
     assert!(transcript.contains(&AgentMessage::Interrupted));
+}
+
+#[test]
+fn a_version_is_the_first_word_that_reads_like_one() {
+    assert_eq!(version("0.71.1\n").as_deref(), Some("0.71.1"));
+    assert_eq!(version("codex-acp v0.16.0").as_deref(), Some("0.16.0"));
+    assert_eq!(version("Usage: codex-acp [OPTIONS]"), None);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn setup_runs_the_check_and_remembers_a_missing_sign_in() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = std::env::temp_dir().join(format!("ovra-acp-setup-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a folder");
+    let script = |name: &str, body: &str| {
+        let path = dir.join(name);
+        std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).expect("a script");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).expect("mode");
+        path
+    };
+    let ok = script("ok", "echo 1.2.3");
+    let bad = script("bad", "exit 4");
+    let agents = AcpAgents::new(vec![crate::gemini()], Arc::new(FakeSandbox::available()));
+    let check = |path: PathBuf| agents.setup(AgentKind::Gemini, Some(path), None);
+    let ready = check(ok.clone()).await;
+    assert_eq!(
+        (ready.state, ready.version.as_deref()),
+        (SetupState::Ready, Some("1.2.3"))
+    );
+    assert!(matches!(check(bad).await.state, SetupState::Broken { .. }));
+    assert_eq!(check(dir.join("none")).await.state, SetupState::NotFound);
+    assert_eq!(
+        agents.setup(AgentKind::Codex, None, None).await.state,
+        SetupState::NotFound
+    );
+    lock(&agents.signed_out).insert(AgentKind::Gemini);
+    assert_eq!(check(ok).await.state, SetupState::SignedOut);
+    let _ = std::fs::remove_dir_all(&dir);
 }

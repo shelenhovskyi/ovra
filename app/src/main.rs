@@ -242,10 +242,13 @@ fn main() {
                     ovra_sandbox::for_this_os(&data_dir),
                     data_dir.join("lsp"),
                 )))
-                .agents(Arc::new(ClaudeCli::new(
-                    None,
-                    ovra_sandbox::for_this_os(&data_dir),
-                )))
+                .agents(Arc::new(ovra_core::runtimes::AgentRuntimes::new(vec![
+                    Arc::new(ClaudeCli::new(None, ovra_sandbox::for_this_os(&data_dir))),
+                    Arc::new(ovra_acp_client::AcpAgents::new(
+                        ovra_acp_client::known(),
+                        ovra_sandbox::for_this_os(&data_dir),
+                    )),
+                ])))
                 .dev_servers(Arc::new(PodServers::new(
                     ovra_sandbox::for_this_os(&data_dir),
                     servers_dir.clone(),

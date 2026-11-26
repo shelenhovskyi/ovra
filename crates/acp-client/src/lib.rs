@@ -4,22 +4,29 @@
 //! Contract: `ovra_core::services::AgentRuntime`; fake:
 //! `ovra_core::fakes::ScriptedAgent`.
 
+mod agents;
 mod driver;
 mod tools;
 mod v1;
+
+pub use agents::{Known, codex, gemini, known};
 
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
 
+use std::collections::BTreeSet;
+use std::sync::{Mutex, PoisonError};
+
 use ovra_core::protocol::agents::{
-    AgentStatus, ProviderInfo, SandboxNetwork, SandboxReport, SessionMode,
+    AgentKind, AgentSetup, AgentStatus, ProviderInfo, SandboxNetwork, SandboxReport, SessionMode,
+    SetupState,
 };
 use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::{
-    AgentHost, AgentRuntime, AgentSpec, AgentState, CommandLine, ProfileNetwork, ProviderLists,
-    Result, RunningAgent, Sandbox, SandboxProfile, SandboxStatus,
+    AgentHost, AgentRuntime, AgentSpec, AgentState, BoxFuture, CommandLine, ProfileNetwork,
+    ProviderLists, Result, RunningAgent, Sandbox, SandboxProfile, SandboxStatus,
 };
 use tokio::io::{AsyncRead, AsyncReadExt, BufReader};
 use tokio::process::Command as Process;
@@ -41,6 +48,8 @@ pub struct AcpAgent {
     pub args: Vec<OsString>,
     /// Its own state and the variables it needs, for its sandbox.
     pub lists: &'static ProviderLists,
+    /// How Ovra checks it and tells its sign-in, for an agent Ovra knows.
+    pub known: Option<Known>,
 }
 
 /// Starts sessions of the ACP agents it describes.
@@ -49,12 +58,26 @@ pub struct AcpAgents {
     agents: Vec<AcpAgent>,
     /// Wraps every session's process; without one no session starts.
     sandbox: Arc<dyn Sandbox>,
+    /// The agents whose last session found no sign-in, until one starts.
+    signed_out: Arc<Mutex<BTreeSet<AgentKind>>>,
 }
 
 impl AcpAgents {
     pub fn new(agents: Vec<AcpAgent>, sandbox: Arc<dyn Sandbox>) -> Self {
-        Self { agents, sandbox }
+        Self {
+            agents,
+            sandbox,
+            signed_out: Arc::default(),
+        }
     }
+
+    fn agent(&self, id: AgentKind) -> Option<&AcpAgent> {
+        self.agents.iter().find(|a| a.info.id == id)
+    }
+}
+
+fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 impl AgentRuntime for AcpAgents {
@@ -72,13 +95,80 @@ impl AgentRuntime for AcpAgents {
             .collect()
     }
 
+    /// Runs the program with its check arguments, outside the sandbox
+    /// (as `claude --version` runs): found, broken or ready, or signed out
+    /// when its last session said so.
+    fn setup(
+        &self,
+        agent: AgentKind,
+        path: Option<PathBuf>,
+        _config_dir: Option<PathBuf>,
+    ) -> BoxFuture<'_, AgentSetup> {
+        let described = self.agent(agent).cloned();
+        let signed_out = lock(&self.signed_out).contains(&agent);
+        Box::pin(async move {
+            let shown = path.as_ref().map(|p| p.to_string_lossy().into_owned());
+            let Some(agent) = described else {
+                return setup_of(shown, None, None, SetupState::NotFound);
+            };
+            let program = path.unwrap_or_else(|| agent.program.clone());
+            let check = agent.known.map_or(&["--version"][..], |k| k.check);
+            let run = Process::new(&program)
+                .args(check)
+                .envs(
+                    ovra_core::child_path::env(&[])
+                        .into_iter()
+                        .filter_map(|(k, v)| v.map(|v| (k, v))),
+                )
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .kill_on_drop(true)
+                .output();
+            let executable = Some(program.to_string_lossy().into_owned());
+            match tokio::time::timeout(CHECK_TIMEOUT, run).await {
+                Err(_) => setup_of(
+                    shown,
+                    executable,
+                    None,
+                    SetupState::Broken {
+                        message: format!("{} did not answer within 10 seconds", agent.info.name),
+                    },
+                ),
+                Ok(Err(e)) if e.kind() == std::io::ErrorKind::NotFound => {
+                    setup_of(shown, None, None, SetupState::NotFound)
+                }
+                Ok(Err(e)) => setup_of(
+                    shown,
+                    executable,
+                    None,
+                    SetupState::Broken {
+                        message: format!("could not run {}: {e}", program.display()),
+                    },
+                ),
+                Ok(Ok(out)) if !out.status.success() => setup_of(
+                    shown,
+                    executable,
+                    None,
+                    SetupState::Broken {
+                        message: format!("{} exited with {}", program.display(), out.status),
+                    },
+                ),
+                Ok(Ok(out)) => {
+                    let version = version(&String::from_utf8_lossy(&out.stdout));
+                    let state = if signed_out {
+                        SetupState::SignedOut
+                    } else {
+                        SetupState::Ready
+                    };
+                    setup_of(shown, executable, version, state)
+                }
+            }
+        })
+    }
+
     fn start(&self, spec: AgentSpec, host: AgentHost) -> Result<Box<dyn RunningAgent>> {
-        let Some(agent) = self
-            .agents
-            .iter()
-            .find(|a| a.info.id == spec.agent)
-            .cloned()
-        else {
+        let Some(agent) = self.agent(spec.agent).cloned() else {
             return Err(ProtocolError::new(
                 ErrorCode::Unavailable,
                 format!("no agent {:?} speaks ACP here", spec.agent),
@@ -99,12 +189,66 @@ impl AgentRuntime for AcpAgents {
         let (commands, rx) = mpsc::unbounded_channel();
         let sandbox = self.sandbox.clone();
         let reporter = host.clone();
+        let signed_out = self.signed_out.clone();
+        let id = agent.info.id;
+        let known = agent.known;
+        let name = agent.info.name.clone();
         tokio::spawn(async move {
             let status = guarded(async move { session(agent, &*sandbox, spec, host, rx).await });
-            reporter.status(status.await);
+            let status = match (status.await, known) {
+                (AgentStatus::Failed { message }, Some(known)) => {
+                    match agents::signed_out(&known, &message) {
+                        Some(hint) => {
+                            lock(&signed_out).insert(id);
+                            AgentStatus::Failed {
+                                message: format!("{name} is not signed in. {hint}"),
+                            }
+                        }
+                        None => AgentStatus::Failed { message },
+                    }
+                }
+                (status, _) => {
+                    lock(&signed_out).remove(&id);
+                    status
+                }
+            };
+            reporter.status(status);
         });
         Ok(Box::new(AcpProcess(commands)))
     }
+}
+
+/// How long a setup check may take.
+const CHECK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+fn setup_of(
+    path: Option<String>,
+    executable: Option<String>,
+    version: Option<String>,
+    state: SetupState,
+) -> AgentSetup {
+    AgentSetup {
+        path,
+        executable,
+        version,
+        state,
+        billing: None,
+        api_key_in_env: false,
+    }
+}
+
+/// The first word of `out` that reads like a version (`0.71.1`).
+fn version(out: &str) -> Option<String> {
+    out.split_whitespace()
+        .map(|w| w.trim_start_matches('v'))
+        .find(|w| {
+            let parts: Vec<_> = w.split('.').collect();
+            parts.len() >= 2
+                && parts
+                    .iter()
+                    .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
+        })
+        .map(str::to_owned)
 }
 
 /// What `spec` asks for that an ACP session cannot do, if anything: it is

@@ -25,6 +25,7 @@ ovra-power.workspace = true
 ovra-pty.workspace = true
 ovra-remote.workspace = true
 ovra-agent-runtime.workspace = true
+ovra-acp-client.workspace = true
 ovra-worktree.workspace = true
 ovra-mcp-server.workspace = true
 ovra-store.workspace = true

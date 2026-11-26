@@ -3513,6 +3513,7 @@ name = "ovra-app"
 version = "0.1.0"
 dependencies = [
  "insta",
+ "ovra-acp-client",
  "ovra-agent-runtime",
  "ovra-browser",
  "ovra-core",
@@ -3573,6 +3574,7 @@ dependencies = [
  "anyhow",
  "axum",
  "clap",
+ "ovra-acp-client",
  "ovra-agent-runtime",
  "ovra-browser",
  "ovra-core",

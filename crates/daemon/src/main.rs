@@ -425,12 +425,22 @@ fn resources(args: &Args) -> Arc<dyn ResourceMonitor> {
     Arc::new(fake)
 }
 
+/// Claude through its own runtime, every other provider over ACP, each
+/// sandboxed for this OS.
+fn real_agents(args: &Args) -> Arc<dyn AgentRuntime> {
+    let sandbox = || ovra_sandbox::for_this_os(&args.data_dir);
+    Arc::new(ovra_core::runtimes::AgentRuntimes::new(vec![
+        Arc::new(ClaudeCli::new(None, sandbox())),
+        Arc::new(ovra_acp_client::AcpAgents::new(
+            ovra_acp_client::known(),
+            sandbox(),
+        )),
+    ]))
+}
+
 #[cfg(not(feature = "fake-agent"))]
 fn agents(args: &Args) -> Arc<dyn AgentRuntime> {
-    Arc::new(ClaudeCli::new(
-        None,
-        ovra_sandbox::for_this_os(&args.data_dir),
-    ))
+    real_agents(args)
 }
 
 /// The fake agent asks to run a command and to edit a file, then waits for
@@ -440,10 +450,7 @@ fn agents(args: &Args) -> Arc<dyn AgentRuntime> {
 fn agents(args: &Args) -> Arc<dyn AgentRuntime> {
     use ovra_core::fakes::{ScriptedAgent, Step};
     if !args.fake_agent {
-        return Arc::new(ClaudeCli::new(
-            None,
-            ovra_sandbox::for_this_os(&args.data_dir),
-        ));
+        return real_agents(args);
     }
     tracing::warn!("using the scripted fake agent");
     let reply = || {

@@ -1,0 +1,151 @@
+---
+source: crates/acp-client/src/agents.rs
+expression: described
+---
+[
+    (
+        ProviderInfo {
+            id: Gemini,
+            name: "Gemini",
+            capabilities: Capabilities {
+                approvals: true,
+                enforced_policy: false,
+                ide_tools: false,
+                read_only_role: false,
+                resume: false,
+                fork: false,
+                interrupt: true,
+                text_deltas: true,
+                subagents: false,
+                usage: false,
+                cost: false,
+                billing: false,
+                accounts: false,
+            },
+        },
+        "gemini",
+        [
+            "--acp",
+        ],
+        ProviderLists {
+            name: "Gemini",
+            home_dir: ".gemini",
+            state_file: ".gemini.json",
+            config_var: "GEMINI_CLI_HOME",
+            private: [
+                "tmp",
+                "history",
+            ],
+            in_place: [
+                "tmp",
+                "history",
+            ],
+            files: [
+                "oauth_creds.json",
+                "google_accounts.json",
+                "projects.json",
+            ],
+            files_made: [],
+            projects: "tmp",
+            project_memory: "memory",
+            env: [
+                "GEMINI_API_KEY",
+                "GOOGLE_API_KEY",
+                "GEMINI_MODEL",
+                "GOOGLE_GEMINI_BASE_URL",
+                "GOOGLE_GENAI_USE_VERTEXAI",
+                "GOOGLE_GENAI_USE_GCA",
+                "GOOGLE_CLOUD_PROJECT",
+                "GOOGLE_CLOUD_LOCATION",
+            ],
+            windows_env: [],
+            fixture_var: "OVRA_FAKE_ACP_FIXTURE",
+        },
+        Some(
+            Known {
+                check: [
+                    "--version",
+                ],
+                signed_out: [
+                    "API key is missing",
+                    "Please set an Auth method",
+                    "must authenticate",
+                ],
+                sign_in: "Run gemini in a terminal once and sign in with Google, or set GEMINI_API_KEY.",
+            },
+        ),
+    ),
+    (
+        ProviderInfo {
+            id: Codex,
+            name: "Codex",
+            capabilities: Capabilities {
+                approvals: true,
+                enforced_policy: false,
+                ide_tools: false,
+                read_only_role: false,
+                resume: false,
+                fork: false,
+                interrupt: true,
+                text_deltas: true,
+                subagents: false,
+                usage: false,
+                cost: false,
+                billing: false,
+                accounts: false,
+            },
+        },
+        "codex-acp",
+        [],
+        ProviderLists {
+            name: "Codex",
+            home_dir: ".codex",
+            state_file: ".codex.json",
+            config_var: "CODEX_HOME",
+            private: [
+                "sessions",
+                "log",
+                "tmp",
+                "shell_snapshots",
+            ],
+            in_place: [
+                "sessions",
+                "log",
+                "tmp",
+            ],
+            files: [
+                "auth.json",
+                "history.jsonl",
+                "state_5.sqlite",
+                "state_5.sqlite-wal",
+                "state_5.sqlite-shm",
+                "logs_2.sqlite",
+                "logs_2.sqlite-wal",
+                "logs_2.sqlite-shm",
+            ],
+            files_made: [
+                "history.jsonl",
+            ],
+            projects: "sessions",
+            project_memory: "memory",
+            env: [
+                "OPENAI_API_KEY",
+                "CODEX_API_KEY",
+                "OPENAI_BASE_URL",
+            ],
+            windows_env: [],
+            fixture_var: "OVRA_FAKE_ACP_FIXTURE",
+        },
+        Some(
+            Known {
+                check: [
+                    "--help",
+                ],
+                signed_out: [
+                    "Authentication required",
+                ],
+                sign_in: "Run codex login in a terminal, or set OPENAI_API_KEY.",
+            },
+        ),
+    ),
+]

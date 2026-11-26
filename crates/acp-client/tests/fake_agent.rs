@@ -49,6 +49,7 @@ fn agent() -> AcpAgent {
         program: FAKE.into(),
         args: vec!["--acp".into()],
         lists: &LISTS,
+        known: None,
     }
 }
 
