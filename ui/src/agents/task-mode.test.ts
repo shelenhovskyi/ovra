@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { rememberedMode, rememberMode } from "./task-mode";
+import type { Capabilities } from "../lib/protocol";
+import { modesFor, rememberAgent, rememberedAgent, rememberedMode, rememberMode } from "./task-mode";
 
 describe("task mode", () => {
   it("remembers the last mode per project and survives a blocked storage", () => {
@@ -23,5 +24,39 @@ describe("task mode", () => {
     } as unknown as Storage;
     rememberMode("p1", "split", blocked);
     expect(rememberedMode("p1", blocked)).toBe("here");
+  });
+
+  it("remembers the agent per project", () => {
+    const items = new Map<string, string>();
+    const store = {
+      getItem: (key: string) => items.get(key) ?? null,
+      setItem: (key: string, value: string) => void items.set(key, value),
+    } as Storage;
+    expect(rememberedAgent("p1", store)).toBe("claude");
+    rememberAgent("p1", "codex", store);
+    expect(rememberedAgent("p1", store)).toBe("codex");
+    rememberMode("p1", "own", store);
+    expect(rememberedMode("p1", store)).toBe("own");
+  });
+
+  it("offers an agent only the modes it can run in", () => {
+    const none: Capabilities = {
+      approvals: true,
+      enforced_policy: false,
+      ide_tools: false,
+      read_only_role: false,
+      resume: false,
+      fork: false,
+      interrupt: true,
+      text_deltas: true,
+      subagents: false,
+      usage: false,
+      cost: false,
+      billing: false,
+      accounts: false,
+    };
+    expect(modesFor("claude", undefined)).toEqual(["here", "own", "split", "research"]);
+    expect(modesFor("gemini", none)).toEqual(["own"]);
+    expect(modesFor("codex", { ...none, enforced_policy: true })).toEqual(["here", "own"]);
   });
 });

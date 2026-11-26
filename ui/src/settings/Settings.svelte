@@ -4,6 +4,7 @@
 // beside it. Each pane has a noun for a title, one line on what it does and
 // one column of fields. Arrow keys move in the list.
 import { untrack } from "svelte";
+import { providers } from "../agents/providers.svelte";
 import { listCommands } from "../keys/commands";
 import { listContextKeys } from "../keys/context-keys";
 import { formatShortcut, inBrowserTab, isApple, liveKeys } from "../keys/shortcut";
@@ -19,12 +20,14 @@ import { loadScreenReader } from "../terminal/prefs";
 import AgentLimitField from "./AgentLimitField.svelte";
 import AgentsPane from "./AgentsPane.svelte";
 import EditorPane from "./EditorPane.svelte";
+import ProviderCard from "./ProviderCard.svelte";
 import { type PaneId, panesFor, settings } from "./panes.svelte";
 import ResourcesField from "./ResourcesField.svelte";
 import SetupPane from "./SetupPane.svelte";
 import TrustPane from "./TrustPane.svelte";
 
 const { transport, workspace } = useOvra();
+const names = providers(transport);
 /** The Keyboard pane's group for the commands' shortcuts. */
 const EVERYWHERE = "Everywhere";
 
@@ -168,6 +171,9 @@ function onListKeydown(event: KeyboardEvent): void {
           <EditorPane />
         {:else if pane.id === "claude"}
           <AgentsPane />
+          {#each (names.list ?? []).filter((p) => p.id !== "claude") as other (other.id)}
+            <ProviderCard id={other.id} />
+          {/each}
           <AgentLimitField />
           <AgentLimitField research />
           <ResourcesField />

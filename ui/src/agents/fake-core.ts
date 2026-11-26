@@ -6,6 +6,7 @@ import type {
   AccountState,
   AccountsOverview,
   AgentCapacity,
+  AgentKind,
   AgentMessage,
   AgentSetup,
   AgentStatus,
@@ -61,6 +62,8 @@ export class FakeAgentCore implements Transport {
   };
   /** What `setup.check` answers; `null`: it fails. */
   setupReport: SetupReport | null = null;
+  /** What `agents.setup` answers for a provider other than Claude, when set. */
+  setups: Partial<Record<AgentKind, AgentSetup>> = {};
   /** What `agents.providers` answers. */
   providers: ProviderInfo[] = [
     {
@@ -185,6 +188,23 @@ export class FakeAgentCore implements Transport {
         const { project, prompt } = request.params;
         const info = this.addSession(project, prompt.split("\n")[0] ?? "");
         this.status(info.id, { state: "starting" });
+        if (request.params.solo) {
+          info.agent = request.params.agent ?? "claude";
+          info.mode = "isolated";
+          const id = `t${this.tasks.length + 1}`;
+          const task: Task = {
+            id,
+            project,
+            coordinator: null,
+            workers: [
+              { session: info.id, name: "agent", branch: `ovra/${id}/agent`, worktree: `/wt/${id}/agent`, kept: null },
+            ],
+            limits: { max_workers: 1, budget_micro_usd: null },
+            spent_micro_usd: 0,
+          };
+          this.tasks.push(task);
+          return { type: "orchestration.task", data: { ...task } };
+        }
         const task: Task = {
           id: `t${this.tasks.length + 1}`,
           project,
@@ -252,7 +272,7 @@ export class FakeAgentCore implements Transport {
       case "agents.providers":
         return { type: "agents.providers", data: this.providers.map((p) => ({ ...p })) };
       case "agents.setup":
-        return { type: "agents.setup", data: { ...this.setup } };
+        return { type: "agents.setup", data: { ...(this.setups[request.params.agent] ?? this.setup) } };
       case "agents.set_path":
         this.setup = { ...this.setup, path: request.params.path };
         return { type: "agents.setup", data: { ...this.setup } };

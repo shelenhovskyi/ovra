@@ -26,7 +26,7 @@ import { focusMode } from "../focus/mode.svelte";
 import { sessionBrowsers } from "../browser/browser.svelte";
 import { browserPicks, pickLabel } from "../browser/picks.svelte";
 import { listCommands, registerCommand } from "../keys/commands";
-import type { AccountState, ContextItem, FileChange, SessionId, SessionInfo } from "../lib/protocol";
+import type { AccountState, AgentKind, ContextItem, FileChange, SessionId, SessionInfo } from "../lib/protocol";
 import { CoreError } from "../lib/transport";
 import { isMenuKey, type MenuEntry, openContextMenu } from "../menu/context-menu.svelte";
 import { projectSandbox } from "../settings/sandbox";
@@ -63,7 +63,14 @@ import { REPORT_DIR, reportFile, reportOf, reportPath, taskPrompt } from "./repo
 import { type Starter, starterMode } from "./starters";
 import { sessionSummary } from "./summary";
 import TaskSummary from "./TaskSummary.svelte";
-import { rememberedMode, rememberMode, type TaskMode } from "./task-mode";
+import {
+  modesFor,
+  rememberAgent,
+  rememberedAgent,
+  rememberedMode,
+  rememberMode,
+  type TaskMode,
+} from "./task-mode";
 
 const { transport, workspace } = useOvra();
 const sessions = agentSessions(transport);
@@ -78,6 +85,11 @@ const boards = taskBoards(transport);
 /** `more`: what choosing it means, in the menu; the hint under the box adds the sandbox. */
 const MODES: { id: TaskMode; label: string; more: string }[] = [
   { id: "here", label: "One agent, here", more: "Works in this folder. Asks before risky steps." },
+  {
+    id: "own",
+    label: "One agent, own copy",
+    more: "Works on its own copy of the project. You review before anything is merged.",
+  },
   {
     id: "split",
     label: "Plan and split",
@@ -100,6 +112,12 @@ let launched = $state<SessionId | null>(null);
 let launchedPrompt = "";
 /** How the next task runs; the last choice is kept per project. */
 let mode = $state<TaskMode>("here");
+/** Which agent runs the next task; the last choice is kept per project. */
+let agent = $state<AgentKind>("claude");
+/** The modes the chosen agent can run in. */
+const offered = $derived(modesFor(agent, names.info(agent)?.capabilities));
+/** The chosen mode, or the agent's first when it cannot run in that one. */
+const how = $derived(offered.includes(mode) ? mode : (offered[0] ?? "own"));
 let promptField = $state<HTMLTextAreaElement>();
 /** The agent's setup card is open although the agent is ready (from the start form's footer button). */
 let setupOpen = $state(false);
@@ -186,11 +204,15 @@ const sandboxWord = $derived.by(() => {
 /** The line under the header says "No sandbox" already: the hint does not say it again. */
 const modeSandbox = $derived(unsandboxed ? "" : sandboxWord);
 const modeHint = $derived(
-  mode === "here"
+  how === "here"
     ? `Works in this folder${modeSandbox}. Asks before risky steps.`
-    : mode === "research"
+    : how === "research"
       ? `Reads this folder and searches the web${modeSandbox}. Changes nothing.`
-      : `Up to 3 agents on their own copies${modeSandbox}. You review first.`,
+      : how === "own"
+        ? offered.includes("here")
+          ? `Works on its own copy${modeSandbox}. You review before anything is merged.`
+          : `${names.name(agent)} works only on its own copy: Ovra cannot enforce its rules in this folder. You review first.`
+        : `Up to 3 agents on their own copies${modeSandbox}. You review first.`,
 );
 /** The mode menu is open. */
 let modeMenu = $state(false);
@@ -216,7 +238,7 @@ const foldStart = $derived(
 let modeList = $state<HTMLElement>();
 /** Projects known not to be git repositories: Plan and split cannot run there. */
 let noRepo = $state<string | null>(null);
-const noGit = $derived(mode === "split" && project !== null && noRepo === project.id);
+const noGit = $derived((how === "split" || how === "own") && project !== null && noRepo === project.id);
 /** The open session cannot go on: its account is signed out. */
 const signedOut = $derived(current ? signedOutError(current.status, messages) : null);
 /** A signed-in account to start over with, other than the one that failed. */
@@ -225,12 +247,12 @@ const fallback = $derived.by((): AccountState | undefined => {
   return ready && ready.account.id !== (current?.account ?? DEFAULT_ACCOUNT) ? ready : undefined;
 });
 /** The account a new task would start with is known to be signed out. */
-const blocked = $derived(accounts.signedOut(account ?? accounts.projectAccount));
+const blocked = $derived(agent === "claude" && accounts.signedOut(account ?? accounts.projectAccount));
 /** Every place is taken: One agent, here waits in line (Plan and split queues its workers). */
-const atCap = $derived(mode === "here" && capacity !== undefined && capacity.working >= capacity.limit);
+const atCap = $derived((how === "here" || how === "own") && capacity !== undefined && capacity.working >= capacity.limit);
 /** Research has places of its own (ADR 0013); all taken, or none in Settings. */
 const researchFull = $derived(
-  mode === "research" && capacity !== undefined && capacity.research_working >= capacity.research_limit,
+  how === "research" && capacity !== undefined && capacity.research_working >= capacity.research_limit,
 );
 /** Why Start cannot work right now, said before the press instead of after it. */
 /**
@@ -247,7 +269,7 @@ const startBlock = $derived(
   blocked
     ? "The account is signed out"
     : noGit
-      ? "Plan and split needs git"
+      ? `${MODES.find((m) => m.id === how)?.label} needs git`
       : researchFull
         ? capacity?.research_limit === 0
           ? "Research is off in Settings"
@@ -259,6 +281,7 @@ const startBlock = $derived(
 const usable = $derived(accounts.signedIn);
 /** Who pays for the next task, in two or three words; it opens the agent's setup. */
 const billing = $derived.by(() => {
+  if (agent !== "claude") return "its own sign-in";
   const state = accounts.state(account ?? accounts.preferred);
   const paid = state?.setup.billing;
   if (!paid) return "Ready";
@@ -282,10 +305,10 @@ $effect(() => {
   if (prompt.trim()) typeFirst = false;
 });
 
-// Asked once Plan and split is chosen.
+// Asked once a mode that works on copies is chosen.
 $effect(() => {
   const id = project?.id;
-  if (!id || mode !== "split") return;
+  if (!id || (how !== "split" && how !== "own")) return;
   untrack(() => checkGit(id));
 });
 
@@ -470,6 +493,7 @@ $effect(() => {
   untrack(() => {
     selected = null;
     mode = rememberedMode(id);
+    agent = rememberedAgent(id);
     error = null;
     startError = null;
     launched = null;
@@ -749,8 +773,20 @@ async function run(action: () => Promise<void>): Promise<void> {
   }
 }
 
-/** Starts `body` with the account `use` (null: the project's) and opens it. */
-async function begin(body: string, how: TaskMode, use: string | null, context: ContextItem[] = []): Promise<SessionId> {
+/** Picks the agent for the next task in this project. */
+function pickAgent(id: AgentKind): void {
+  agent = id;
+  if (project) rememberAgent(project.id, id);
+}
+
+/** Starts `body` with `who` and the account `use` (null: the project's) and opens it. */
+async function begin(
+  body: string,
+  how: TaskMode,
+  use: string | null,
+  context: ContextItem[] = [],
+  who: AgentKind = "claude",
+): Promise<SessionId> {
   const id = project?.id;
   if (!id) throw new Error("No project is open");
   // A task's coordinator and workers use the project's account: make it
@@ -759,7 +795,9 @@ async function begin(body: string, how: TaskMode, use: string | null, context: C
   const started =
     how === "split"
       ? await sessions.startTask(id, body, context)
-      : (await sessions.start(id, body, use, how === "research" ? "research" : "direct", context)).id;
+      : how === "own"
+        ? await sessions.startSolo(id, body, who, context)
+        : (await sessions.start(id, body, use, how === "research" ? "research" : "direct", context)).id;
   selected = started;
   await tick();
   replyField?.focus();
@@ -776,7 +814,7 @@ async function start(): Promise<void> {
   busy = true;
   startError = null;
   try {
-    launched = await begin(body, mode, account, drafts.items(newBox));
+    launched = await begin(body, how, agent === "claude" ? account : null, drafts.items(newBox), agent);
     hints.mark("started");
     launchedPrompt = body;
     prompt = "";
@@ -812,10 +850,11 @@ async function startStarter(starter: Starter): Promise<void> {
 function retry(old: SessionInfo, use: AccountState): Promise<void> {
   const first = sessions.transcripts.get(old.id)?.find((m) => m.kind === "user_text" && m.from === "person");
   const body = first?.kind === "user_text" ? first.text : old.title;
+  const role = sessions.roles.get(old.id)?.kind;
   const how: TaskMode =
-    sessions.roles.get(old.id)?.kind === "coordinator" ? "split" : old.mode === "research" ? "research" : "here";
+    role === "coordinator" ? "split" : role === "worker" ? "own" : old.mode === "research" ? "research" : "here";
   return run(async () => {
-    await begin(body, how, use.account.id);
+    await begin(body, how, use.account.id, [], old.agent);
     await sessions.close(old.id);
   });
 }
@@ -900,7 +939,7 @@ function startOnModEnter(event: KeyboardEvent): void {
   if (event.target === promptField) return;
   event.preventDefault();
   const option = event.target instanceof HTMLElement ? event.target.dataset.mode : undefined;
-  if (option === "here" || option === "split") pickMode(option);
+  if (option === "here" || option === "own" || option === "split") pickMode(option);
   if (!prompt.trim()) {
     typeFirst = true;
     promptField?.focus();
@@ -1608,7 +1647,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
                 void toggleModes(true);
               }
             }}
-            >{MODES.find((m) => m.id === mode)?.label}<Icon name="chevron" small /></button
+            >{MODES.find((m) => m.id === how)?.label}<Icon name="chevron" small /></button
           >
           {#if modeMenu}
             <div
@@ -1627,12 +1666,12 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
                 if (!(to instanceof Node && (modeList?.contains(to) || to === toggle))) modeMenu = false;
               }}
             >
-              {#each MODES as option (option.id)}
+              {#each MODES.filter((m) => offered.includes(m.id)) as option (option.id)}
                 <button
                   type="button"
                   role="menuitemradio"
                   data-mode={option.id}
-                  aria-checked={mode === option.id}
+                  aria-checked={how === option.id}
                   onclick={() => pickMode(option.id)}
                   ><span class="name">{option.label}</span><span class="what">{option.more}</span></button
                 >
@@ -1641,7 +1680,19 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
           {/if}
         </span>
         {@render addContext(() => taskContext?.start())}
-        <AccountPicker project={project.id} bind:account />
+        {#if names.startable.length > 1}
+          <label class="agent-picker" data-testid="agent-picker" title="Remembered for this project">
+            <span class="visually-hidden">Agent</span>
+            <select value={agent} onchange={(event) => pickAgent(event.currentTarget.value as AgentKind)}>
+              {#each names.startable as id (id)}
+                <option value={id}>{names.name(id)}</option>
+              {/each}
+            </select>
+          </label>
+        {/if}
+        {#if agent === "claude"}
+          <AccountPicker project={project.id} bind:account />
+        {/if}
         <button
           type="submit"
           class="primary"
@@ -1671,7 +1722,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
         </p>
       {:else if noGit}
         <p class="blocked" role="note" data-testid="agent-needs-git">
-          <span>Needs git: Plan and split works on copies of a git repository.</span>
+          <span>Needs git: {MODES.find((m) => m.id === how)?.label} works on copies of a git repository.</span>
           <button type="button" class="quiet soft" onclick={() => project && setUpGit(project.id)}>Set up git</button>
         </p>
       {:else if heldHere && holder}
@@ -1704,10 +1755,10 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
         type="button"
         class="quiet"
         class:warn={billingKey}
-        title="{names.name()}: setup, accounts, billing"
+        title="{names.name(agent)}: setup, accounts, billing"
         aria-expanded={setupOpen}
         data-testid="agents-footer"
-        onclick={() => (setupOpen ? (setupOpen = false) : openSetup())}>{names.name()} · {billing}</button
+        onclick={() => (setupOpen ? (setupOpen = false) : openSetup())}>{names.name(agent)} · {billing}</button
       >
     </p>
   {/if}
@@ -2459,6 +2510,25 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
     }
     .close {
       opacity: 1;
+    }
+  }
+  .agent-picker {
+    min-width: 0;
+  }
+  .agent-picker select {
+    max-width: 100%;
+    height: 32px;
+    padding: 0 8px;
+    font: inherit;
+    font-size: 13px;
+    color: var(--text-2);
+    background: var(--s3);
+    border: none;
+    border-radius: var(--radius-sm);
+  }
+  @media (forced-colors: active) {
+    .agent-picker select {
+      border: 1px solid ButtonText;
     }
   }
 </style>

@@ -7,6 +7,7 @@ import { openInboxFor } from "../inbox/open";
 import { listCommands } from "../keys/commands";
 import type {
   AgentCapacity,
+  AgentKind,
   AgentMessage,
   Billing,
   ContextItem,
@@ -400,6 +401,26 @@ export class AgentSessions {
     });
     await this.load(project);
     return data.coordinator ?? data.workers[0]?.session ?? "";
+  }
+
+  /**
+   * Starts one agent of `agent` in its own worktree, without a coordinator
+   * ("One agent, own copy"). Resolves with its session.
+   */
+  async startSolo(
+    project: ProjectId,
+    prompt: string,
+    agent: AgentKind = "claude",
+    context: ContextItem[] = [],
+  ): Promise<SessionId> {
+    const { data } = await this.transport.call({
+      method: "orchestration.start",
+      params: { project, prompt, agent, solo: true, ...(context.length > 0 ? { context } : {}) },
+    });
+    await this.load(project);
+    const session = data.workers[0]?.session;
+    if (!session) throw new Error("The agent did not start");
+    return session;
   }
 
   async loadTranscript(session: SessionId): Promise<void> {
