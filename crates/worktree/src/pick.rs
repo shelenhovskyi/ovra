@@ -28,6 +28,19 @@ impl Drop for StopOnDrop {
     }
 }
 
+/// Why merge-tree printed no tree. `--merge-base` came with git 2.40: an
+/// older one answers with a usage error (exit 129, "unknown option").
+fn merge_failed(code: Option<i32>, stderr: &[u8]) -> ovra_core::protocol::ProtocolError {
+    let stderr = String::from_utf8_lossy(stderr);
+    if code == Some(129) || stderr.contains("unknown option") {
+        return ovra_core::protocol::ProtocolError::new(
+            ovra_core::protocol::ErrorCode::Unavailable,
+            "Pull requests need git 2.40 or later",
+        );
+    }
+    internal(format!("git merge-tree: {}", stderr.trim()))
+}
+
 fn stopped(what: &str) -> ovra_core::protocol::ProtocolError {
     internal(format!("git {what} was stopped"))
 }
@@ -72,8 +85,7 @@ pub(crate) fn pick(
         _ => None,
     };
     let Some(tree) = tree else {
-        let stderr = String::from_utf8_lossy(&out.stderr);
-        return Err(internal(format!("git merge-tree: {}", stderr.trim())));
+        return Err(merge_failed(out.status.code(), &out.stderr));
     };
     let mut commit = Git::without_hooks(root, "commit-tree")
         .args([&tree, "-p", &base, "-F", "-"])
@@ -320,6 +332,17 @@ mod tests {
             std::task::Poll::Ready(v) => Some(v),
             std::task::Poll::Pending => None,
         }
+    }
+
+    #[test]
+    fn an_old_git_is_named_as_too_old() {
+        let old = b"error: unknown option `merge-base=abc'\nusage: git merge-tree";
+        for (code, stderr) in [(Some(129), &b""[..]), (Some(128), &old[..])] {
+            let e = super::merge_failed(code, stderr);
+            assert_eq!(e.message, "Pull requests need git 2.40 or later");
+        }
+        let other = super::merge_failed(Some(128), b"fatal: bad object x\n");
+        assert_eq!(other.message, "git merge-tree: fatal: bad object x");
     }
 
     #[tokio::test]

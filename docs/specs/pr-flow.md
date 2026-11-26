@@ -63,7 +63,9 @@ author. Instead:
 2. Pick the worker's changes onto it without a working tree: the reviewed
    snapshot (the one the item's fingerprint names) as "theirs", the
    worker's start snapshot as the merge base, the fetched base as "ours"
-   (`git merge-tree --write-tree`, git 2.38 or later). The person's
+   (`git merge-tree --write-tree --merge-base`, git 2.40 or later; an
+   older git is refused with "Pull requests need git 2.40 or later"). The
+   person's
    uncommitted work is in both the start snapshot and the reviewed one, so
    it drops out; only the worker's changes remain.
 3. A conflict stops here and names the files. The item offers "Ask the
