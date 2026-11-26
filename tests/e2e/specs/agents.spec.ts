@@ -481,9 +481,10 @@ test("add a file with @ and send it with the task", async ({ page }) => {
 
   // The agent gets the file's name after the task; the transcript folds it.
   const session = page.getByTestId("agent-session");
-  await expect(session.getByTestId("transcript-context")).toContainText("Context sent");
-  await session.getByTestId("transcript-context").locator("summary").click();
-  await expect(session.getByTestId("transcript-context")).toContainText("File: `README.md`");
+  const sent = session.locator("details", { hasText: "Context sent" });
+  await expect(sent).toBeVisible();
+  await sent.locator("summary").click();
+  await expect(sent).toContainText("File: `README.md`");
   await session.getByRole("button", { name: "Stop" }).click();
   await expect(session.getByRole("status")).toHaveText("Stopped");
 });

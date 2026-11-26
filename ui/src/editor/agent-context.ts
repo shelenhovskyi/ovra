@@ -57,7 +57,7 @@ function problem(view: EditorView, path: string, diagnostic: Diagnostic, from: n
 }
 
 /** The file's problems, first ones first. */
-export function problemsOf(view: EditorView, path: string): ContextWhat[] {
+function problemsOf(view: EditorView, path: string): ContextWhat[] {
   const found: ContextWhat[] = [];
   forEachDiagnostic(view.state, (diagnostic, from) => {
     if (found.length < MAX_PROBLEMS) found.push(problem(view, path, diagnostic, from));
