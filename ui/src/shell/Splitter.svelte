@@ -44,6 +44,11 @@ function onpointerdown(event: PointerEvent): void {
 
 function onpointermove(event: PointerEvent): void {
   if (!drag) return;
+  // The button came up where the handle did not see it (capture was lost).
+  if (event.buttons === 0) {
+    drag = null;
+    return;
+  }
   const moved = along(event) - drag.x;
   onresize(drag.width + (edge === "left" ? moved : -moved));
 }
@@ -83,10 +88,19 @@ function onkeydown(event: KeyboardEvent): void {
   {onpointermove}
   onpointerup={() => (drag = null)}
   onpointercancel={() => (drag = null)}
+  onlostpointercapture={() => (drag = null)}
   ondblclick={onreset}
   {onkeydown}
 ></div>
-{#if drag}<div class="dragging" class:rows={vertical} aria-hidden="true"></div>{/if}
+<!-- Events reach the overlay only without capture, e.g. after the panel was hidden mid-drag. -->
+{#if drag}<div
+    class="dragging"
+    class:rows={vertical}
+    aria-hidden="true"
+    {onpointermove}
+    onpointerup={() => (drag = null)}
+    onpointerdown={() => (drag = null)}
+  ></div>{/if}
 
 <style>
   .handle {
