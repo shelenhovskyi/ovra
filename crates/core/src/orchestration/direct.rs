@@ -26,6 +26,11 @@
 //! (a tool waiting for the person is not running) and from tool results.
 //! Late or missing events only make files look changed outside, which keeps
 //! them.
+//!
+//! All of it but what runs right now (tools, open intervals) is kept across
+//! restarts ([`kept`]). Kept state is never newer than the files: whatever
+//! changed after it was saved counts as changed outside when the tracker
+//! next looks, so a stale or lost save only keeps more of the files.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path, PathBuf};
@@ -39,7 +44,9 @@ use crate::protocol::agents::{SessionId, ToolCall, ToolKind};
 use crate::protocol::projects::ProjectId;
 use crate::protocol::review::{ChangedBy, FileChange};
 use crate::protocol::{ErrorCode, ProtocolError};
-use crate::services::{Delta, Result, ToolRequest, Worktrees};
+use crate::services::{Delta, Result, SessionStore, ToolRequest, Worktrees};
+
+use kept::Keeper;
 
 /// Direct sessions with changes still to review, by session. At most one
 /// of a project's is active (its agent runs): the "direct writer" lock.
@@ -49,10 +56,13 @@ use crate::services::{Delta, Result, ToolRequest, Worktrees};
 pub(crate) struct Direct {
     worktrees: Arc<dyn Worktrees>,
     writers: Mutex<BTreeMap<SessionId, Arc<Writer>>>,
+    keeper: Arc<Keeper>,
 }
 
 #[derive(Debug)]
 struct Writer {
+    session: SessionId,
+    keeper: Arc<Keeper>,
     project: ProjectId,
     dir: PathBuf,
     /// The session's agent runs; cleared when it ends.
@@ -78,11 +88,12 @@ struct Writer {
 }
 
 /// Enough to put back what a reject reverted.
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 struct Undo {
     /// The tree just before the revert.
     snapshot: String,
     /// The files the revert restored from `baseline`.
+    #[serde(with = "kept::rel_paths")]
     reverted: Vec<RelPath>,
     baseline: String,
     /// The attribution before the reject, for an ended session.
@@ -113,8 +124,12 @@ impl Writer {
             }
         }
         let edges = std::mem::take(&mut *lock(&self.edges));
+        let recorded = !edges.is_empty();
         for edge in edges {
             self.record(worktrees, tracker.as_mut(), edge).await;
+        }
+        if recorded {
+            self.keep(&tracker);
         }
         tracker
     }
@@ -138,7 +153,7 @@ enum Claim {
     /// The session was here before.
     Known(Arc<Writer>),
     /// A new writer, its tracker locked until the baseline is recorded.
-    New(tokio::sync::OwnedMutexGuard<Option<Tracker>>),
+    New(Arc<Writer>, tokio::sync::OwnedMutexGuard<Option<Tracker>>),
 }
 
 /// What approve and reject did.
@@ -172,11 +187,52 @@ fn conflict(message: impl Into<String>) -> ProtocolError {
 }
 
 impl Direct {
-    pub(crate) fn new(worktrees: Arc<dyn Worktrees>) -> Self {
+    /// Direct mode with the sessions kept in `store` when Ovra last ran;
+    /// their agents no longer run. [`Self::keep_only`] then drops those of
+    /// forgotten sessions.
+    pub(crate) fn new(worktrees: Arc<dyn Worktrees>, store: Arc<dyn SessionStore>) -> Self {
+        let (keeper, loaded) = Keeper::load(store);
+        let keeper = Arc::new(keeper);
+        let writers = loaded
+            .into_iter()
+            .map(|(session, kept)| {
+                let writer = Writer {
+                    session: session.clone(),
+                    keeper: keeper.clone(),
+                    project: kept.project,
+                    dir: kept.dir,
+                    active: Mutex::new(false),
+                    tracker: Arc::new(tokio::sync::Mutex::new(kept.tracker)),
+                    ended: Mutex::new(Vec::new()),
+                    saved: Mutex::new(Vec::new()),
+                    undo: Mutex::new(kept.undo),
+                    turns: Mutex::new(kept.turns),
+                    edges: Mutex::new(Vec::new()),
+                };
+                (session, Arc::new(writer))
+            })
+            .collect();
         Self {
             worktrees,
-            writers: Mutex::new(BTreeMap::new()),
+            writers: Mutex::new(writers),
+            keeper,
         }
+    }
+
+    /// Forgets the kept sessions `keep` says no; those with nothing of the
+    /// agent's to review, too.
+    pub(crate) fn keep_only(&self, keep: impl Fn(&SessionId) -> bool) {
+        let mut writers = lock(&self.writers);
+        let gone: Vec<SessionId> = writers
+            .iter()
+            .filter(|(id, w)| !keep(id) || w.forgettable())
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in &gone {
+            writers.remove(id);
+        }
+        drop(writers);
+        self.keeper.forget(&gone);
     }
 
     /// Takes the direct-writer lock of `project` for `session` and records
@@ -191,7 +247,7 @@ impl Direct {
         dir: PathBuf,
     ) -> Result<String> {
         let worktrees = &*self.worktrees;
-        let mut guard = match self.claim(project, session, &dir)? {
+        let (writer, mut guard) = match self.claim(project, session, &dir)? {
             Claim::Known(writer) => {
                 let mut tracker = writer.lock(worktrees).await;
                 if let Some(t) = tracker.as_ref() {
@@ -201,12 +257,14 @@ impl Direct {
                 *lock(&writer.undo) = None;
                 let baseline = worktrees.snapshot(writer.dir.clone()).await?;
                 *tracker = Some(Tracker::new(baseline.clone()));
+                writer.keep(&tracker);
                 return Ok(baseline);
             }
-            Claim::New(guard) => guard,
+            Claim::New(writer, guard) => (writer, guard),
         };
         let baseline = worktrees.snapshot(dir).await?;
         *guard = Some(Tracker::new(baseline.clone()));
+        writer.keep(&guard);
         Ok(baseline)
     }
 
@@ -222,7 +280,15 @@ impl Direct {
                 id.0
             )));
         }
-        writers.retain(|id, w| id == session || !w.forgettable());
+        let gone: Vec<SessionId> = writers
+            .iter()
+            .filter(|(id, w)| *id != session && w.forgettable())
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in &gone {
+            writers.remove(id);
+        }
+        self.keeper.forget(&gone);
         if let Some(writer) = writers.get(session).cloned() {
             *lock(&writer.active) = true;
             return Ok(Claim::Known(writer));
@@ -233,6 +299,8 @@ impl Direct {
             .try_lock_owned()
             .map_err(|_| conflict("the baseline is being recorded"))?;
         let writer = Arc::new(Writer {
+            session: session.clone(),
+            keeper: self.keeper.clone(),
             project: project.clone(),
             dir: dir.to_path_buf(),
             active: Mutex::new(true),
@@ -243,8 +311,8 @@ impl Direct {
             turns: Mutex::new(turns::Turns::default()),
             edges: Mutex::new(Vec::new()),
         });
-        writers.insert(session.clone(), writer);
-        Ok(Claim::New(guard))
+        writers.insert(session.clone(), writer.clone());
+        Ok(Claim::New(writer, guard))
     }
 
     /// The session holding the direct-writer lock of `project`, if any.
@@ -263,6 +331,7 @@ impl Direct {
 
     fn release(&self, session: &SessionId) {
         lock(&self.writers).remove(session);
+        self.keeper.forget(std::slice::from_ref(session));
     }
 
     /// After approve or reject: a session whose agent still runs starts
@@ -278,6 +347,7 @@ impl Direct {
         lock(&writer.turns).decided();
         if *lock(&writer.active) {
             *tracker = base.clone().map(Tracker::new);
+            writer.keep(tracker);
         } else {
             self.release(session);
         }
@@ -518,6 +588,7 @@ impl Direct {
         if *lock(&writer.active) {
             *tracker = base.clone().map(Tracker::new);
         }
+        writer.keep(&tracker);
         Ok(Outcome {
             conflicts,
             snapshot: Some(snapshot.clone()),
@@ -584,6 +655,7 @@ impl Direct {
         } else {
             None
         };
+        writer.keep(&tracker);
         Ok(Outcome {
             conflicts,
             snapshot: None,
@@ -633,7 +705,7 @@ pub(crate) async fn review_from(
 fn not_direct() -> ProtocolError {
     conflict(
         "Ovra does not know which of these files the agent changed (it was already \
-         reviewed, or Ovra restarted since), so nothing was restored",
+         reviewed, or Ovra lost what it kept about the session), so nothing was restored",
     )
 }
 
@@ -702,7 +774,7 @@ struct Interval {
     saved: BTreeSet<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 struct Tracker {
     baseline: String,
     /// The tree at the end of the last interval (the baseline at first): a
@@ -712,7 +784,9 @@ struct Tracker {
     /// and every agent file counts as tainted.
     last: Option<String>,
     /// Tools started and not finished, by tool call id.
+    #[serde(skip)]
     tools: BTreeMap<String, Tool>,
+    #[serde(skip)]
     open: Option<Interval>,
     /// The agent's files, and whether someone else changed them too.
     agent: BTreeMap<String, bool>,
@@ -986,6 +1060,7 @@ fn names(files: &[FileChange], by: ChangedBy) -> Vec<String> {
         .collect()
 }
 
+mod kept;
 mod turns;
 
 #[cfg(test)]

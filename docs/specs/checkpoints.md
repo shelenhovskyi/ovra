@@ -75,10 +75,14 @@ to edit and send again (or to clear).
 - The review item needs nothing special: its diff is baseline to the
   working tree, so it shrinks by itself. Restored files count as the
   agent's, as they were.
-- After a restart the attribution is gone (it is in memory, as for
-  reject): files then count as changed outside, so going back restores
-  nothing and says so. Keeping attribution in `SessionStore` would fix
-  this for reject too; it is a separate follow-up.
+- Checkpoints, the attribution and what a go-back or reject can undo are
+  kept across restarts, in the `SessionStore` (`load_direct` /
+  `save_direct`, one JSON document). They are saved at every turn edge and
+  after every go back, undo, approve and reject, not after each tool: what
+  the agent changed after the last save (Ovra quit in the middle of a
+  turn) counts as changed outside and is kept, as is anything changed
+  while Ovra was closed. A session with nothing of the agent's is not
+  kept, and an unreadable save keeps nothing.
 
 ## The conversation
 
@@ -127,7 +131,8 @@ No new `Worktrees` method: `snapshot`, `diff` and `restore` cover it.
   writes `a.txt` and deletes `b.txt`, go back, both as before; a file the
   person changed after the turn is kept and listed; undo puts the agent's
   files back; go back while a turn runs is refused; the 101st turn drops
-  the first; after a restart nothing is restored and the reason says so.
+  the first; after a restart going back, its undo and reject still work,
+  and a file changed while Ovra was closed is kept.
 - `crates/worktree` against real git: snapshot, restore of a deleted and a
   created file, a rename.
 - e2e: two turns, go back to the second message, its file is gone, the

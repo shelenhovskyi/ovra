@@ -133,6 +133,7 @@ impl Sessions {
     ) -> Self {
         let mut started = 0;
         let mut list = Vec::new();
+        let direct = Direct::new(worktrees, store.clone());
         for (stored, messages) in store.load(transcript::MAX_MESSAGES).unwrap_or_default() {
             let number = stored
                 .info
@@ -161,21 +162,26 @@ impl Sessions {
                 queued: None,
                 pid: None,
             };
-            // What a go-back restored is no longer known (`Direct`).
-            session.info.can_undo_go_back = false;
+            // What a go-back restored is kept with the checkpoints, if it
+            // still can be undone.
+            session.info.can_undo_go_back = direct.can_undo_go_back(&session.info.id);
             if !session.info.status.is_ended() {
                 session.info.status = AgentStatus::Stopped;
                 let _ = store.save(&session.stored());
             }
             list.push(session);
         }
+        direct.keep_only(|id| {
+            list.iter()
+                .any(|s: &Session| &s.info.id == id && s.info.mode == SessionMode::Direct)
+        });
         Self {
             list: Mutex::new(list),
             store,
             started: Mutex::new(started),
             permissions: Permissions::default(),
             ide: Mutex::new(None),
-            direct: Direct::new(worktrees),
+            direct,
             net,
             allowlists: Mutex::new(()),
         }

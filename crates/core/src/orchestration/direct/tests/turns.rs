@@ -177,14 +177,79 @@ async fn the_101st_turn_drops_the_first() {
     assert!(dropped.message.contains("turn 2"), "{}", dropped.message);
 }
 
+impl Harness {
+    /// A new direct mode over the same files and store, as after Ovra
+    /// restarted: no agent runs.
+    fn restart(&self) -> Harness {
+        let direct = Direct::new(self.trees.clone(), self.store.clone());
+        direct.keep_only(|_| true);
+        Harness {
+            trees: self.trees.clone(),
+            store: self.store.clone(),
+            direct,
+            project: self.project.clone(),
+            session: self.session.clone(),
+        }
+    }
+}
+
 #[tokio::test]
-async fn after_a_restart_nothing_is_restored_and_the_reason_says_so() {
+async fn checkpoints_survive_a_restart_and_a_change_made_meanwhile_is_kept() {
+    let h = Harness::start(&[("b.txt", "base")]).await;
+    h.turn(1).await;
+    h.agent_runs("t1", |h| h.put("a.txt", "agent")).await;
+    h.turn_end().await;
+    h.turn(2).await;
+    h.agent_runs("t2", |h| h.put("b.txt", "agent")).await;
+    h.turn_end().await;
+    // The person edits b.txt while Ovra is closed.
+    h.put("b.txt", "agent + mine");
+
+    let h = h.restart();
+    assert_eq!(h.turns().await, [2, 1]);
+    assert_eq!(
+        h.go_back(1).await,
+        (strings(&["a.txt"]), strings(&["b.txt"]))
+    );
+    assert_eq!(h.text("a.txt"), None);
+    assert_eq!(h.text("b.txt").as_deref(), Some("agent + mine"));
+    assert!(h.direct.can_undo_go_back(&h.session));
+    assert!(h.direct.note(&h.session).is_some());
+
+    // The go-back can still be undone after another restart.
+    let h = h.restart();
+    assert!(h.direct.can_undo_go_back(&h.session));
+    let undone = h.direct.undo_go_back(&h.session).await;
+    assert_eq!(undone.ok(), Some((strings(&["a.txt"]), vec![])));
+    assert_eq!(h.text("a.txt").as_deref(), Some("agent"));
+}
+
+#[tokio::test]
+async fn what_the_agent_did_after_the_last_save_is_kept_after_a_restart() {
     let h = Harness::start(&[]).await;
     h.turn(1).await;
     h.agent_runs("t1", |h| h.put("a.txt", "agent")).await;
     h.turn_end().await;
-    // A new core over the same files: the attribution is gone.
-    let restarted = Direct::new(h.trees.clone());
+    h.turn(2).await;
+    h.agent_runs("t2", |h| h.put("b.txt", "agent")).await;
+    // Ovra quits before turn 2 ends: the last save was at its start.
+    let h = h.restart();
+    assert_eq!(h.turns().await, [2, 1]);
+    assert_eq!(
+        h.go_back(1).await,
+        (strings(&["a.txt"]), strings(&["b.txt"]))
+    );
+    assert_eq!(h.text("b.txt").as_deref(), Some("agent"));
+}
+
+#[tokio::test]
+async fn a_forgotten_session_has_no_checkpoints_after_a_restart() {
+    let h = Harness::start(&[]).await;
+    h.turn(1).await;
+    h.agent_runs("t1", |h| h.put("a.txt", "agent")).await;
+    h.turn_end().await;
+    let restarted = Direct::new(h.trees.clone(), h.store.clone());
+    restarted.keep_only(|_| false);
     assert!(
         restarted
             .checkpoints(&h.session)
@@ -194,10 +259,36 @@ async fn after_a_restart_nothing_is_restored_and_the_reason_says_so() {
     let refused = restarted.go_back(&h.session, 1).await;
     let refused = refused.err().unwrap_or_else(|| panic!("went back"));
     assert!(
-        refused.message.contains("restarted") && refused.message.contains("nothing was restored"),
+        refused.message.contains("nothing was restored"),
         "{}",
         refused.message
     );
+    assert_eq!(h.text("a.txt").as_deref(), Some("agent"));
+    // Nor after the next one.
+    let again = Direct::new(h.trees.clone(), h.store.clone());
+    assert!(
+        again
+            .checkpoints(&h.session)
+            .await
+            .is_ok_and(|l| l.is_empty())
+    );
+}
+
+#[tokio::test]
+async fn an_unreadable_save_keeps_nothing() {
+    let h = Harness::start(&[]).await;
+    h.turn(1).await;
+    h.agent_runs("t1", |h| h.put("a.txt", "agent")).await;
+    h.turn_end().await;
+    let _ = crate::services::SessionStore::save_direct(&*h.store, "{not json");
+    let h = h.restart();
+    assert!(
+        h.direct
+            .checkpoints(&h.session)
+            .await
+            .is_ok_and(|l| l.is_empty())
+    );
+    assert!(h.direct.go_back(&h.session, 1).await.is_err());
     assert_eq!(h.text("a.txt").as_deref(), Some("agent"));
 }
 
@@ -219,7 +310,7 @@ async fn a_decided_review_lets_its_checkpoints_go() {
 async fn a_session_without_a_baseline_has_no_checkpoints() {
     let trees = Arc::new(Trees::default());
     *lock(&trees.fail_snapshots) = true;
-    let direct = Direct::new(trees.clone());
+    let direct = Direct::new(trees.clone(), no_store());
     let (project, s) = (ProjectId("p1".into()), session("s1"));
     assert!(direct.begin(&project, &s, DIR.into()).await.is_err());
     assert!(direct.turn_started(&s, 1, "one".into()));

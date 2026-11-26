@@ -11,6 +11,8 @@
 use std::collections::{BTreeSet, VecDeque};
 use std::path::Path;
 
+use serde::{Deserialize, Serialize};
+
 use super::{Direct, Tracker, Writer, between, conflict, delta_paths, lock};
 use crate::path::RelPath;
 use crate::protected;
@@ -34,12 +36,15 @@ pub(super) enum Edge {
     },
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub(super) struct Turns {
     /// Oldest first.
     list: VecDeque<Turn>,
     /// The latest turn started, and whether it still runs.
     current: u32,
+    /// Not kept: after a restart no turn runs.
+    #[serde(skip)]
     running: bool,
     /// What the last go-back restored, until the next turn starts.
     undo: Option<GoneBack>,
@@ -47,7 +52,7 @@ pub(super) struct Turns {
     note: Option<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 struct Turn {
     turn: u32,
     at_ms: u64,
@@ -60,12 +65,13 @@ struct Turn {
     files_changed: u32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 struct GoneBack {
     /// The tree just before the go-back.
     snapshot: String,
     /// The checkpoint it went back to.
     before: String,
+    #[serde(with = "super::kept::rel_paths")]
     restored: Vec<RelPath>,
 }
 
@@ -195,8 +201,14 @@ impl Direct {
         lock(&writer.turns).note.clone()
     }
 
+    /// Whether the last go-back of `session` can still be undone.
+    pub(crate) fn can_undo_go_back(&self, session: &SessionId) -> bool {
+        self.find(session)
+            .is_some_and(|(_, w)| lock(&w.turns).undo.is_some())
+    }
+
     /// The turns that can be gone back to, newest first. None for a session
-    /// direct mode no longer tracks (Ovra restarted since).
+    /// direct mode no longer tracks (reviewed, or it changed nothing).
     pub(crate) async fn checkpoints(&self, session: &SessionId) -> Result<Vec<Checkpoint>> {
         let Some((_, writer)) = self.find(session) else {
             return Ok(Vec::new());
@@ -228,7 +240,7 @@ impl Direct {
         turn: u32,
     ) -> Result<(Vec<String>, Vec<String>)> {
         let worktrees = &*self.worktrees;
-        let (_, writer) = self.find(session).ok_or_else(restarted)?;
+        let (_, writer) = self.find(session).ok_or_else(untracked_session)?;
         let dir = writer.dir.clone();
         let mut tracker = writer.lock(worktrees).await;
         let t = tracker.as_mut().ok_or_else(|| untracked(&writer))?;
@@ -268,15 +280,18 @@ impl Direct {
         kept.sort();
         kept.dedup();
         let names = names(&restored);
-        let mut turns = lock(&writer.turns);
-        if !restored.is_empty() {
-            turns.note = Some(note(turn, latest, &kept));
-            turns.undo = Some(GoneBack {
-                snapshot: now,
-                before,
-                restored,
-            });
+        {
+            let mut turns = lock(&writer.turns);
+            if !restored.is_empty() {
+                turns.note = Some(note(turn, latest, &kept));
+                turns.undo = Some(GoneBack {
+                    snapshot: now,
+                    before,
+                    restored,
+                });
+            }
         }
+        writer.keep(&tracker);
         Ok((names, kept))
     }
 
@@ -287,7 +302,7 @@ impl Direct {
         session: &SessionId,
     ) -> Result<(Vec<String>, Vec<String>)> {
         let worktrees = &*self.worktrees;
-        let (_, writer) = self.find(session).ok_or_else(restarted)?;
+        let (_, writer) = self.find(session).ok_or_else(untracked_session)?;
         let dir = writer.dir.clone();
         let mut tracker = writer.lock(worktrees).await;
         let t = tracker.as_mut().ok_or_else(|| untracked(&writer))?;
@@ -314,6 +329,7 @@ impl Direct {
             back.into_iter().partition(|p| !left.contains(p.as_str()));
         kept.extend(failed);
         lock(&writer.turns).note = None;
+        writer.keep(&tracker);
         Ok((names(&restored), names(&kept)))
     }
 }
@@ -403,10 +419,10 @@ fn note(from: u32, to: u32, kept: &[String]) -> String {
     note
 }
 
-fn restarted() -> ProtocolError {
+fn untracked_session() -> ProtocolError {
     conflict(
-        "Ovra no longer knows which files the agent changed (Ovra restarted since, or the \
-         changes were already reviewed), so nothing was restored",
+        "Ovra keeps no checkpoints for this session any more (its changes were already \
+         reviewed, or it changed no files), so nothing was restored",
     )
 }
 

@@ -195,6 +195,8 @@ impl Worktrees for Trees {
 
 struct Harness {
     trees: Arc<Trees>,
+    /// Where direct mode keeps its state, for a restart.
+    store: Arc<crate::fakes::MemorySessions>,
     direct: Direct,
     project: ProjectId,
     session: SessionId,
@@ -217,8 +219,10 @@ impl Harness {
             trees.mem.put(DIR, path, text);
         }
         let trees = Arc::new(trees);
+        let store = Arc::new(crate::fakes::MemorySessions::default());
         let h = Self {
-            direct: Direct::new(trees.clone()),
+            direct: Direct::new(trees.clone(), store.clone()),
+            store,
             trees,
             project: ProjectId("p1".into()),
             session: session("s1"),
@@ -350,7 +354,7 @@ async fn to_an_earlier_session_a_later_ones_changes_are_outside() {
 
 #[tokio::test]
 async fn a_failed_baseline_holds_the_lock_untracked_until_the_session_ends() {
-    let direct = Direct::new(Arc::new(Trees::default()));
+    let direct = Direct::new(Arc::new(Trees::default()), no_store());
     let project = ProjectId("p1".into());
     // No working tree at /p: the snapshot fails.
     let first = direct.begin(&project, &session("s1"), DIR.into()).await;
@@ -1125,6 +1129,8 @@ mod through_the_core {
         trees: Arc<Trees>,
         core: Core,
         runtime: Arc<Manual>,
+        projects: Arc<MemoryProjects>,
+        store: Arc<crate::fakes::MemorySessions>,
     }
 
     async fn fixture(files: &[(&str, &str)]) -> Fixture {
@@ -1132,27 +1138,49 @@ mod through_the_core {
         for (path, text) in files {
             trees.put(DIR, path, text);
         }
-        let runtime = Arc::new(Manual::default());
-        let core = Core::builder("test")
-            .projects(Arc::new(MemoryProjects::default()))
-            .fs(Arc::new(EditorFs(trees.clone())))
-            .agents(runtime.clone())
-            .worktrees(trees.clone())
-            .build();
+        let f = Fixture::over(
+            trees,
+            Arc::new(MemoryProjects::default()),
+            Arc::new(crate::fakes::MemorySessions::default()),
+        );
         let added = call(
-            &core,
+            &f.core,
             json!({"method": "projects.add", "params": {"root": DIR}}),
         )
         .await;
         assert!(added.is_ok());
-        Fixture {
-            trees,
-            core,
-            runtime,
-        }
+        f
     }
 
     impl Fixture {
+        fn over(
+            trees: Arc<Trees>,
+            projects: Arc<MemoryProjects>,
+            store: Arc<crate::fakes::MemorySessions>,
+        ) -> Self {
+            let runtime = Arc::new(Manual::default());
+            let core = Core::builder("test")
+                .projects(projects.clone())
+                .sessions(store.clone())
+                .fs(Arc::new(EditorFs(trees.clone())))
+                .agents(runtime.clone())
+                .worktrees(trees.clone())
+                .build();
+            Self {
+                trees,
+                core,
+                runtime,
+                projects,
+                store,
+            }
+        }
+
+        /// A new core over the same projects, sessions and files, as after
+        /// Ovra restarted.
+        fn restart(self) -> Self {
+            Self::over(self.trees, self.projects, self.store)
+        }
+
         async fn start(&self) -> AgentHost {
             assert!(call(&self.core, start()).await.is_ok());
             lock(&self.runtime.hosts)
@@ -1349,4 +1377,73 @@ mod through_the_core {
         let refused = call(&f.core, undo).await;
         assert_eq!(refused.err().map(|e| e.code), Some(ErrorCode::Conflict));
     }
+
+    /// Checkpoints, a go-back's undo and reject all work after a restart.
+    #[tokio::test]
+    async fn checkpoints_and_reject_work_after_a_restart() {
+        use crate::protocol::agents::AgentsResponse;
+        let f = fixture(&[("a.rs", "a\n")]).await;
+        let host = f.start().await;
+        bash(&host, "t1", async {
+            f.trees.put(DIR, "gen.rs", "agent\n");
+        })
+        .await;
+        host.status(AgentStatus::Idle);
+        host.status(AgentStatus::Stopped);
+        drop(host);
+        // The turn's end is recorded (and saved) the next time anything
+        // looks at the session.
+        assert_eq!(f.list().await.len(), 1);
+
+        let f = f.restart();
+        let list = json!({"method": "agents.checkpoints", "params": {"session": "s1"}});
+        let Ok(Response::Agents(AgentsResponse::Checkpoints(list))) = call(&f.core, list).await
+        else {
+            panic!("no checkpoints");
+        };
+        let list: Vec<_> = list.iter().map(|c| (c.turn, c.files_changed)).collect();
+        assert_eq!(list, [(1, 1)]);
+        let back = json!({"method": "agents.go_back", "params": {"session": "s1", "turn": 1}});
+        let went = call(&f.core, back).await;
+        let Ok(Response::Agents(AgentsResponse::WentBack { restored, .. })) = went else {
+            panic!("{went:?}");
+        };
+        assert_eq!(restored, ["gen.rs"]);
+        assert!(!f.trees.files(DIR).contains_key("gen.rs"));
+
+        let f = f.restart();
+        let agents = json!({"method": "agents.list", "params": {"project": "p1"}});
+        let Ok(Response::Agents(AgentsResponse::List(sessions))) = call(&f.core, agents).await
+        else {
+            panic!("no sessions");
+        };
+        assert!(sessions[0].can_undo_go_back);
+        let undo = json!({"method": "agents.undo_go_back", "params": {"session": "s1"}});
+        assert!(call(&f.core, undo).await.is_ok());
+        assert!(f.trees.files(DIR).contains_key("gen.rs"));
+
+        // The review still knows the file is the agent's, and reject
+        // reverts it.
+        let f = f.restart();
+        let items = f.list().await;
+        let by: Vec<_> = items[0]
+            .files
+            .iter()
+            .map(|x| (x.path.as_str(), x.by))
+            .collect();
+        assert_eq!(by, [("gen.rs", Agent)]);
+        let reject = json!({"method": "review.reject", "params": {"id": items[0].id}});
+        let Ok(Response::Review(ReviewResponse::Done { restored, .. })) =
+            call(&f.core, reject).await
+        else {
+            panic!("reject failed");
+        };
+        assert_eq!(restored, ["gen.rs"]);
+        assert!(!f.trees.files(DIR).contains_key("gen.rs"));
+    }
+}
+
+/// A store that keeps nothing.
+fn no_store() -> Arc<dyn crate::services::SessionStore> {
+    Arc::new(crate::fakes::MemorySessions::default())
 }
