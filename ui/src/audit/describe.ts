@@ -1,7 +1,8 @@
 // Plain-language lines for audit entries. Kept apart from the component so
 // every kind of entry is tested without mounting it.
 
-import type { AuditEntry, AuditEvent, DecidedBy, NavigationBy, ReviewAction } from "../lib/protocol";
+import { authorName } from "../board/describe";
+import type { AuditEntry, AuditEvent, BoardEntryKind, DecidedBy, NavigationBy, ReviewAction } from "../lib/protocol";
 
 export type Described = {
   /** What happened, e.g. "Allowed Bash". */
@@ -24,6 +25,7 @@ export const FILTERS = {
   settings: { label: "Trust and policy", kinds: ["trust_changed", "policy_changed", "rule_added"] },
   reviews: { label: "Reviews", kinds: ["review_decided", "branch_pushed", "pull_request_opened"] },
   network: { label: "Network and secrets", kinds: ["network_refused", "secret_used", "browser_navigation"] },
+  board: { label: "Task boards", kinds: ["board_entry"] },
   servers: {
     label: "Servers",
     kinds: [
@@ -53,6 +55,15 @@ const REVIEW: Record<ReviewAction, string> = {
   undone_reject: "discard undone",
   taken: "replaced with the worker's version",
   undone_take: "replace undone",
+};
+
+const BOARD_ENTRY: Record<BoardEntryKind, string> = {
+  claim: "took files",
+  release: "gave files back",
+  question: "asked",
+  answer: "answered",
+  note: "wrote a note",
+  ovra: "noted",
 };
 
 const NAVIGATION_BY: Record<NavigationBy, string> = {
@@ -250,6 +261,14 @@ export function describe(entry: AuditEntry): Described {
         title: `Language server ${event.name} ${event.reason === null ? "stopped" : "failed"}`,
         detail: event.reason ?? `It served ${event.language} files.`,
         input: null,
+        raw: null,
+        tone: "plain",
+      };
+    case "board_entry":
+      return {
+        title: `${authorName(event.author).replace(/^You$/, "A person")} ${BOARD_ENTRY[event.what]} on a task board`,
+        detail: `Entry ${event.entry} of task ${event.task}.`,
+        input: event.text,
         raw: null,
         tone: "plain",
       };

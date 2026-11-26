@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BoardEntry } from "../lib/protocol";
-import { authorName, entryHead, entryText, held, summary } from "./describe";
+import { authorName, entryHead, entryText, entryTime, held, summary } from "./describe";
 
 const lint = { kind: "worker", name: "lint" } as const;
 const entries: BoardEntry[] = [
@@ -33,5 +33,13 @@ describe("board entries in words", () => {
     expect(summary([], 0)).toBe("Nothing on the board yet.");
     expect(summary(entries, 1)).toBe("lint holds 1 path · docs holds 1 path · 1 question for you");
     expect(summary(entries.slice(2, 4), 0)).toBe("2 entries");
+  });
+
+  it("says when an entry was written, with the day once it is not today", () => {
+    const now = new Date(2026, 10, 26, 18, 0);
+    const at = (d: Date): BoardEntry => ({ ...entries[0], at_ms: d.getTime() });
+    expect(entryTime(at(new Date(2026, 10, 26, 9, 5)), now)).toBe("09:05");
+    expect(entryTime(at(new Date(2026, 10, 25, 23, 59)), now)).toBe("Nov 25, 23:59");
+    expect(entryTime(entries[0], now)).toBe("");
   });
 });

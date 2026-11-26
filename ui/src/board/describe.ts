@@ -77,3 +77,18 @@ export function summary(entries: BoardEntry[], openForPerson: number): string {
 function count(n: number, one: string, many = `${one}s`): string {
   return `${n} ${n === 1 ? one : many}`;
 }
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/**
+ * When an entry was written, in local time: `14:05` today, `Nov 25, 14:05`
+ * on another day; empty for an entry saved before entries had a time.
+ */
+export function entryTime(entry: BoardEntry, now: Date): string {
+  if (entry.at_ms === undefined) return "";
+  const at = new Date(entry.at_ms);
+  const clock = `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`;
+  const today =
+    at.getFullYear() === now.getFullYear() && at.getMonth() === now.getMonth() && at.getDate() === now.getDate();
+  return today ? clock : `${MONTHS[at.getMonth()]} ${at.getDate()}, ${clock}`;
+}

@@ -7,7 +7,7 @@ import type { EntryId, TaskId } from "../lib/protocol";
 import { CoreError } from "../lib/transport";
 import { useOvra } from "../shell/context";
 import { taskBoards } from "./boards.svelte";
-import { authorName, entryHead, entryText, summary } from "./describe";
+import { authorName, entryHead, entryText, entryTime, summary } from "./describe";
 
 /** `id` and `labelledby`: the tab panel's own id and its tab's. */
 let { task, id, labelledby }: { task: TaskId; id?: string; labelledby?: string } = $props();
@@ -119,7 +119,12 @@ function onEnter(event: KeyboardEvent, send: () => void): void {
   <ol class="entries" aria-label="Entries">
     {#each entries as entry (entry.id)}
       <li data-testid="board-entry" data-kind={entry.body.kind}>
-        <span class="who">{authorName(entry.author)} · {entryHead(entry, entries)}</span>
+        {@const time = entryTime(entry, new Date())}
+        <span class="who"
+          >{authorName(entry.author)} · {entryHead(entry, entries)}{#if time}<time
+              datetime={new Date(entry.at_ms ?? 0).toISOString()}>{time}</time
+            >{/if}</span
+        >
         <p>{entryText(entry)}</p>
       </li>
     {/each}
@@ -165,6 +170,11 @@ function onEnter(event: KeyboardEvent, send: () => void): void {
   }
   .who {
     display: block;
+  }
+  time {
+    margin-left: 8px;
+    color: var(--text-3);
+    font-variant-numeric: tabular-nums;
   }
   .ask {
     display: flex;

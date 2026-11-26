@@ -168,6 +168,26 @@ group("describe", () => {
     expect(allowed.detail).toBe("The agent's browser was allowed by a person.");
   });
 
+  it("describes board entries by who wrote them", () => {
+    const question = entry(6, {
+      kind: "board_entry",
+      task: "t1",
+      entry: "b2",
+      author: { kind: "worker", name: "lint" },
+      what: "question",
+      text: "Keep the old flag?",
+    });
+    expect(describe(question)).toMatchObject({
+      title: "lint asked on a task board",
+      detail: "Entry b2 of task t1.",
+      input: "Keep the old flag?",
+    });
+    expect(line({ ...question.event, author: { kind: "person" }, what: "note" } as AuditEvent).title).toBe(
+      "A person wrote a note on a task board",
+    );
+    expect(shows("board", false, question)).toBe(true);
+  });
+
   it("filters by kind and by refusals", () => {
     const allowed = entry(1, bash(true));
     const refused = entry(2, bash(false));
