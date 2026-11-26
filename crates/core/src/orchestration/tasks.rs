@@ -22,6 +22,10 @@ const MAX_WORKERS_CAP: u32 = 16;
 /// life: each one is a branch and a worktree, and spawns need no approval.
 const SPAWNS_PER_PLACE: usize = 3;
 
+/// Most tasks that try one prompt: the first and its `attempt_of`s
+/// (`docs/specs/attempts.md`). Each is an agent, a worktree and a branch.
+const MAX_ATTEMPTS: usize = 3;
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(super) struct Entry {
     pub(super) id: TaskId,
@@ -34,6 +38,9 @@ pub(super) struct Entry {
     /// (`docs/specs/more-agents.md`).
     #[serde(default)]
     pub(super) solo: bool,
+    /// A solo task trying the prompt of that first solo task again.
+    #[serde(default)]
+    attempt_of: Option<TaskId>,
     /// Workers that could not start, latest attempt per name.
     #[serde(default)]
     failed: Vec<FailedWorker>,
@@ -106,10 +113,17 @@ pub(super) async fn handle(core: &Core, request: OrchestrationRequest) -> Result
             context,
             agent,
             solo,
+            attempt_of,
         } => {
+            if attempt_of.is_some() && !solo {
+                return Err(ProtocolError::new(
+                    ErrorCode::BadRequest,
+                    "only one agent in its own copy can be another attempt",
+                ));
+            }
             let context = crate::context::message(core, &project, None, &context).await?;
             let task = if solo {
-                start_solo(core, project, prompt, context, agent).await?
+                start_solo(core, project, prompt, context, agent, attempt_of).await?
             } else {
                 start(core, project, prompt, context, limits, agent).await?
             };
@@ -229,6 +243,7 @@ async fn start(
             ended: false,
             prep: Vec::new(),
             solo: false,
+            attempt_of: None,
         };
         state.tasks.push(entry.clone());
         orchestration.save(&state);
@@ -270,6 +285,7 @@ async fn start_solo(
     prompt: String,
     context: Option<String>,
     agent: AgentKind,
+    attempt_of: Option<TaskId>,
 ) -> Result<Task> {
     agents::check_text(&prompt)?;
     needs_git(core, &project, "One agent, own copy").await?;
@@ -284,6 +300,9 @@ async fn start_solo(
     let low = prepare::low_disk(core, &worktrees_dir).await;
     let (entry, queued, port) = {
         let mut guard = state.lock();
+        if let Some(first) = &attempt_of {
+            attempt_fits(&guard.tasks, &project, first)?;
+        }
         let queued = low.is_some()
             || slots::count(core, &guard, &project).0 >= limit
             || crate::resources::holds_back(core);
@@ -312,6 +331,7 @@ async fn start_solo(
             ended: false,
             prep: Vec::new(),
             solo: true,
+            attempt_of,
         };
         guard.tasks.push(entry.clone());
         (entry, queued, port)
@@ -370,6 +390,30 @@ async fn start_solo(
         prepare::joined(launching).await?;
     }
     find(core, &entry.id).map(|entry| view(core, &entry))
+}
+
+/// Refuses another attempt at `first` unless it is a solo task of
+/// `project` that is no attempt itself, with room for one more.
+fn attempt_fits(tasks: &[Entry], project: &ProjectId, first: &TaskId) -> Result<()> {
+    let Some(entry) = tasks.iter().find(|t| &t.id == first) else {
+        return Err(not_found(format!("task {}", first.0)));
+    };
+    if &entry.project != project || !entry.solo || entry.attempt_of.is_some() {
+        return Err(ProtocolError::new(
+            ErrorCode::BadRequest,
+            "another attempt needs the first attempt: one agent in its own copy, in this project",
+        ));
+    }
+    let made = tasks
+        .iter()
+        .filter(|t| t.attempt_of.as_ref() == Some(first))
+        .count();
+    if made + 1 >= MAX_ATTEMPTS {
+        return Err(conflict(format!(
+            "at most {MAX_ATTEMPTS} attempts try one task"
+        )));
+    }
+    Ok(())
 }
 
 pub(super) fn find(core: &Core, task: &TaskId) -> Result<Entry> {
@@ -479,6 +523,7 @@ pub(super) fn view(core: &Core, entry: &Entry) -> Task {
         failed: entry.failed.clone(),
         limits: entry.limits.clone(),
         spent_micro_usd: spent(core, entry),
+        attempt_of: entry.attempt_of.clone(),
     }
 }
 

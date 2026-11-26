@@ -110,6 +110,8 @@ export type Task = {
   failed?: FailedWorker[];
   limits: TaskLimits;
   spent_micro_usd: number;
+  /** Another attempt at that solo task's prompt (`docs/specs/attempts.md`); absent otherwise. */
+  attempt_of?: TaskId;
 };
 
 export type ShowTarget =
@@ -129,6 +131,8 @@ export type OrchestrationRequest =
         agent?: AgentKind;
         /** One agent in its own worktree, without a coordinator. */
         solo?: boolean;
+        /** With `solo`: one more attempt at that first solo task, at most three per prompt. */
+        attempt_of?: TaskId;
       };
     }
   | { method: "orchestration.list"; params: { project: ProjectId } }

@@ -256,3 +256,61 @@ async fn stopping_while_its_copy_is_made_keeps_the_agent_from_starting() {
         .unwrap_or(false);
     assert!(stopped, "its session ended");
 }
+
+#[tokio::test]
+async fn attempts_try_one_prompt_in_their_own_copies_up_to_three() {
+    let f = fx(say()).await;
+    let first = start_solo(&f.core, "claude").await;
+    assert_eq!(first.attempt_of, None);
+    let again = |of: &str| {
+        json!({"method": "orchestration.start", "params": {
+            "project": "p1", "prompt": "fix the typo", "solo": true, "attempt_of": of}})
+    };
+    let Response::Orchestration(OrchestrationResponse::Task(second)) =
+        ok(&f.core, again(&first.id.0)).await
+    else {
+        panic!("no task");
+    };
+    assert_eq!(second.attempt_of, Some(first.id.clone()));
+    assert_ne!(second.workers[0].worktree, first.workers[0].worktree);
+    assert_ne!(second.workers[0].branch, first.workers[0].branch);
+    // An attempt at an attempt, or a fourth one, is refused.
+    assert_eq!(
+        code(call(&f.core, again(&second.id.0)).await),
+        ErrorCode::BadRequest
+    );
+    ok(&f.core, again(&first.id.0)).await;
+    assert_eq!(
+        code(call(&f.core, again(&first.id.0)).await),
+        ErrorCode::Conflict
+    );
+    // Only one agent in its own copy has attempts.
+    let plan = json!({"method": "orchestration.start", "params": {
+        "project": "p1", "prompt": "x", "attempt_of": first.id.0}});
+    assert_eq!(code(call(&f.core, plan).await), ErrorCode::BadRequest);
+    let Response::Orchestration(OrchestrationResponse::List(tasks)) = ok(
+        &f.core,
+        json!({"method": "orchestration.list", "params": {"project": "p1"}}),
+    )
+    .await
+    else {
+        panic!("no list");
+    };
+    let of: Vec<_> = tasks.iter().map(|t| t.attempt_of.clone()).collect();
+    assert_eq!(of, [None, Some(first.id.clone()), Some(first.id.clone())]);
+}
+
+#[tokio::test]
+async fn an_attempt_needs_a_known_first_attempt() {
+    let f = fx(say()).await;
+    let again = json!({"method": "orchestration.start", "params": {
+        "project": "p1", "prompt": "x", "solo": true, "attempt_of": "t9"}});
+    assert_eq!(code(call(&f.core, again).await), ErrorCode::NotFound);
+    let plan = json!({"method": "orchestration.start", "params": {"project": "p1", "prompt": "x"}});
+    let Response::Orchestration(OrchestrationResponse::Task(task)) = ok(&f.core, plan).await else {
+        panic!("no task");
+    };
+    let again = json!({"method": "orchestration.start", "params": {
+        "project": "p1", "prompt": "x", "solo": true, "attempt_of": task.id.0}});
+    assert_eq!(code(call(&f.core, again).await), ErrorCode::BadRequest);
+}

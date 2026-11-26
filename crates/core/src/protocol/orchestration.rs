@@ -119,6 +119,10 @@ pub struct Task {
     pub limits: TaskLimits,
     /// Spent so far by all of its sessions.
     pub spent_micro_usd: u64,
+    /// Another attempt at that solo task's prompt
+    /// (`docs/specs/attempts.md`): the person keeps the best of them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attempt_of: Option<TaskId>,
 }
 
 /// What `open_in_ui` asks the UI to show.
@@ -192,6 +196,11 @@ pub enum OrchestrationRequest {
         /// only worker gets the prompt (`docs/specs/more-agents.md`).
         #[serde(default, skip_serializing_if = "is_default")]
         solo: bool,
+        /// With `solo`: one more attempt at that solo task, the first of
+        /// its attempts (`docs/specs/attempts.md`). At most three
+        /// tasks try one prompt.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        attempt_of: Option<TaskId>,
     },
     /// Tasks of a project, oldest first.
     #[serde(rename = "orchestration.list")]
