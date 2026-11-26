@@ -18,6 +18,9 @@ pub(crate) struct Transcript {
     /// Messages to the agent so far: each run of user texts is one, and
     /// starts a turn (`Checkpoint::turn`).
     turns: u32,
+    /// Messages added so far, the oldest ones that went included: the
+    /// number of the last one (`agents.message`'s `seq`).
+    seq: u64,
 }
 
 impl Transcript {
@@ -34,6 +37,7 @@ impl Transcript {
             self.messages.pop_front();
         }
         self.messages.push_back(message.clone());
+        self.seq += 1;
         message
     }
 
@@ -47,6 +51,7 @@ impl Transcript {
             previous = Some(message);
         }
         Self {
+            seq: messages.len() as u64,
             messages: messages.into(),
             usage,
             turns,
@@ -60,6 +65,11 @@ impl Transcript {
 
     pub(crate) fn messages(&self) -> Vec<AgentMessage> {
         self.messages.iter().cloned().collect()
+    }
+
+    /// The number of the last message added; 0 before the first.
+    pub(crate) fn seq(&self) -> u64 {
+        self.seq
     }
 
     pub(crate) fn usage(&self) -> &TurnUsage {
@@ -184,6 +194,12 @@ mod tests {
         let messages = transcript.messages();
         assert_eq!(messages.len(), MAX_MESSAGES);
         assert_eq!(messages[0], said("1".into()));
+        // The numbers count the messages that went too.
+        assert_eq!(transcript.seq(), MAX_MESSAGES as u64 + 1);
+        assert_eq!(
+            Transcript::restore(messages, TurnUsage::default()).seq(),
+            MAX_MESSAGES as u64
+        );
     }
 
     #[test]

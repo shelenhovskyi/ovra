@@ -199,7 +199,7 @@ async fn transcript(core: &Core) -> Vec<AgentMessage> {
     )
     .await
     {
-        Response::Agents(AgentsResponse::Transcript(t)) => t,
+        Response::Agents(AgentsResponse::Transcript(t)) => t.messages,
         other => panic!("unexpected {other:?}"),
     }
 }

@@ -509,6 +509,7 @@ fn wire_format_is_stable() {
                     call: ToolCall { kind: ToolKind::Subagent, ..ToolCall::default() },
                     parent: Some("tool0".into()),
                 },
+                seq: 3,
             }),
             Event::Agents(AgentsEvent::Sandbox {
                 session: SessionId("s1".into()),

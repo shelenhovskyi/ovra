@@ -82,7 +82,7 @@ async fn transcript(core: &Core) -> Vec<AgentMessage> {
     )
     .await
     {
-        Response::Agents(AgentsResponse::Transcript(t)) => t,
+        Response::Agents(AgentsResponse::Transcript(t)) => t.messages,
         other => panic!("unexpected {other:?}"),
     }
 }
@@ -1789,4 +1789,44 @@ async fn a_research_session_without_the_web_cannot_search() {
     )
     .await;
     assert!(lock_started(&agent, 1).no_web);
+}
+
+#[tokio::test]
+async fn each_message_has_a_number_and_the_transcript_says_its_last() {
+    let core = core_with(ScriptedAgent::new(vec![vec![
+        Step::Say("Looking."),
+        Step::Use {
+            tool: "Bash",
+            input: json!({"command": "ls"}),
+        },
+    ]]));
+    project(&core).await;
+    let mut rx = core.subscribe();
+    ok(&core, start("List the files")).await;
+    let mut seqs = Vec::new();
+    loop {
+        match Core::next_event(&mut rx).await {
+            Some(Event::Agents(AgentsEvent::Message { seq, .. })) => seqs.push(seq),
+            Some(Event::Agents(AgentsEvent::Status {
+                status: AgentStatus::WaitingForApproval,
+                ..
+            })) => break,
+            Some(_) => {}
+            None => panic!("core closed"),
+        }
+    }
+    let expected: Vec<u64> = (1..=seqs.len() as u64).collect();
+    assert_eq!(seqs, expected);
+    match ok(
+        &core,
+        json!({"method": "agents.transcript", "params": {"session": "s1"}}),
+    )
+    .await
+    {
+        Response::Agents(AgentsResponse::Transcript(t)) => {
+            assert_eq!(t.messages.len(), seqs.len());
+            assert_eq!(t.seq, seqs.len() as u64);
+        }
+        other => panic!("unexpected {other:?}"),
+    }
 }

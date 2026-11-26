@@ -50,7 +50,7 @@ function fake(sessions: SessionInfo[], pending: PermissionRequest[] = []) {
           case "agents.capacity":
             return { working: 1, limit: 3, queued: 0, research_working: 0, research_limit: 2, waiting: [] };
           case "agents.transcript":
-            return [{ kind: "user_text", text: "Fix it", from: "person" }];
+            return { messages: [{ kind: "user_text", text: "Fix it", from: "person" }], seq: 1 };
           default:
             return [];
         }
@@ -95,7 +95,12 @@ it("loads every project and sorts sessions into needs you, working and finished"
   expect(phone.power?.mode).toBe("always");
 
   await phone.loadTranscript("a");
-  emit({ type: "agents.message", data: { session: "a", message: { kind: "assistant_text", text: "On it" } } });
+  // The reply to agents.transcript can overtake the event of a message it holds: that one is not added again.
+  emit({
+    type: "agents.message",
+    data: { session: "a", message: { kind: "user_text", text: "Fix it", from: "person" }, seq: 1 },
+  });
+  emit({ type: "agents.message", data: { session: "a", message: { kind: "assistant_text", text: "On it" }, seq: 2 } });
   expect(phone.transcripts.get("a")).toHaveLength(2);
 
   await phone.reply("a", "go on");

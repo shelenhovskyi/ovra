@@ -1310,7 +1310,9 @@ mod through_the_core {
     /// the agent's next message starts with.
     #[tokio::test]
     async fn going_back_through_the_core_tells_the_agent() {
-        use crate::protocol::agents::{AgentMessage, AgentsResponse, MessageFrom, SessionInfo};
+        use crate::protocol::agents::{
+            AgentMessage, AgentsResponse, MessageFrom, SessionInfo, SessionTranscript,
+        };
         let f = fixture(&[("a.rs", "a\n")]).await;
         let host = f.start().await;
         bash(&host, "t1", async {
@@ -1353,8 +1355,9 @@ mod through_the_core {
         let send = json!({"method": "agents.send", "params": {"session": "s1", "text": "again"}});
         assert!(call(&f.core, send).await.is_ok());
         let transcript = json!({"method": "agents.transcript", "params": {"session": "s1"}});
-        let Ok(Response::Agents(AgentsResponse::Transcript(messages))) =
-            call(&f.core, transcript).await
+        let Ok(Response::Agents(AgentsResponse::Transcript(SessionTranscript {
+            messages, ..
+        }))) = call(&f.core, transcript).await
         else {
             panic!("no transcript");
         };

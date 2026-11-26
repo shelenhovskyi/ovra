@@ -209,7 +209,7 @@ impl Session {
         let ended = ended.await.expect("the driver ended");
         let session = json!({"method": "agents.transcript", "params": {"session": "s1"}});
         match call(&core, session).await {
-            Response::Agents(AgentsResponse::Transcript(t)) => (t, ended),
+            Response::Agents(AgentsResponse::Transcript(t)) => (t.messages, ended),
             other => panic!("unexpected {other:?}"),
         }
     }

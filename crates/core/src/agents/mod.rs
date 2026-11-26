@@ -429,11 +429,15 @@ impl SessionView<'_> {
     pub(crate) fn transcript(&self) -> Vec<AgentMessage> {
         self.session.transcript.messages()
     }
-    /// Adds a message and returns it as kept (long texts cut).
-    pub(crate) fn push(&mut self, message: AgentMessage) -> AgentMessage {
+    /// The number of the last message in [`Self::transcript`].
+    pub(crate) fn seq(&self) -> u64 {
+        self.session.transcript.seq()
+    }
+    /// Adds a message and returns it as kept (long texts cut), with its number.
+    pub(crate) fn push(&mut self, message: AgentMessage) -> (AgentMessage, u64) {
         let kept = self.session.transcript.push(message);
         let _ = self.store.append(&self.session.info.id, &kept);
-        kept
+        (kept, self.session.transcript.seq())
     }
     fn save(&self) {
         let _ = self.store.save(&self.session.stored());
@@ -789,10 +793,11 @@ impl AgentHost {
         if let AgentMessage::ToolResult { tool_use_id, .. } = &message {
             self.sessions.direct.tool_ended(&self.session, tool_use_id);
         }
-        if let Ok(message) = self.sessions.find(&self.session, |s| s.push(message)) {
+        if let Ok((message, seq)) = self.sessions.find(&self.session, |s| s.push(message)) {
             self.sink.emit(AgentsEvent::Message {
                 session: self.session.clone(),
                 message,
+                seq,
             });
         }
     }

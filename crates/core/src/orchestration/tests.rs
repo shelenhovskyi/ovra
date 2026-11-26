@@ -3089,6 +3089,7 @@ async fn a_turn_end_finds_an_overlap_and_a_discarded_worker_has_none() {
             Some(Event::Agents(AgentsEvent::Message {
                 session,
                 message: AgentMessage::UserText { text, .. },
+                ..
             })) if session.0 == "s1" && text.contains("both changed NOTES.md") => break,
             Some(_) => {}
             None => panic!("core closed"),

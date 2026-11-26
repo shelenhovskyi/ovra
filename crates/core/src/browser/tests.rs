@@ -429,7 +429,7 @@ async fn picks_go_with_the_next_message_as_data_from_their_page() {
     ok(&f.core, send).await;
     let transcript = json!({"method": "agents.transcript", "params": {"session": "s1"}});
     let transcript = serde_json::to_value(ok(&f.core, transcript).await).unwrap_or_default();
-    let sent: Vec<(String, String)> = transcript["data"]
+    let sent: Vec<(String, String)> = transcript["data"]["messages"]
         .as_array()
         .into_iter()
         .flatten()

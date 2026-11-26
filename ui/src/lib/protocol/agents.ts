@@ -153,6 +153,13 @@ export type ToolCall = {
   url?: string;
 };
 
+/**
+ * A session's transcript (`agents.transcript`). Replies and events travel
+ * apart, so a message can come here and again as an `agents.message` after:
+ * `seq`, the number of the last message here (0 when empty), tells them apart.
+ */
+export type SessionTranscript = { messages: AgentMessage[]; seq: number };
+
 /** `parent` is set when a subagent produced the message: the tool call that started it. */
 export type AgentMessage =
   | { kind: "user_text"; text: string; from: MessageFrom }
@@ -306,7 +313,7 @@ export type AgentsResponse =
   | { type: "agents.project_config"; data: ProjectConfigReview }
   | { type: "agents.list"; data: SessionInfo[] }
   | { type: "agents.session"; data: SessionInfo }
-  | { type: "agents.transcript"; data: AgentMessage[] }
+  | { type: "agents.transcript"; data: SessionTranscript }
   | { type: "agents.capacity"; data: AgentCapacity }
   | { type: "agents.limit"; data: AgentLimit }
   | { type: "agents.research_limit"; data: AgentLimit }
@@ -336,7 +343,8 @@ export type AgentsEvent =
   /** The person changed the limit; ask for capacities again. */
   | { type: "agents.limit_changed"; data: AgentLimit }
   | { type: "agents.research_limit_changed"; data: AgentLimit }
-  | { type: "agents.message"; data: { session: SessionId; message: AgentMessage } }
+  /** `seq`: the message's number in the session, from 1, counting every message ever added. */
+  | { type: "agents.message"; data: { session: SessionId; message: AgentMessage; seq: number } }
   | { type: "agents.status"; data: { session: SessionId; project: ProjectId; status: AgentStatus } }
   /** The agent said who pays for the session (`SessionInfo.billing`). */
   | { type: "agents.billing"; data: { session: SessionId; billing: Billing } }

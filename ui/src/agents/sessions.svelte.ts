@@ -70,6 +70,8 @@ export class AgentSessions {
   readonly byId = new SvelteMap<SessionId, SessionInfo>();
   /** Transcripts of sessions watched since they started or since `loadTranscript`. */
   readonly transcripts = new SvelteMap<SessionId, AgentMessage[]>();
+  /** The number of the last message in each of `transcripts`: a message event at or below it is already there. */
+  private readonly seqs = new Map<SessionId, number>();
   /** Each session's newest review item: what its agent changed, kept or not. */
   readonly reviews = new SvelteMap<SessionId, ReviewItem>();
   /** Sessions with an item that waits for the person, counted as the inbox counts them. */
@@ -474,7 +476,8 @@ export class AgentSessions {
 
   async loadTranscript(session: SessionId): Promise<void> {
     const { data } = await this.transport.call({ method: "agents.transcript", params: { session } });
-    this.transcripts.set(session, data);
+    this.seqs.set(session, data.seq);
+    this.transcripts.set(session, data.messages);
   }
 
   /** `account`: a Claude account's id; null uses the project's. `research` only reads and searches (ADR 0013). */
@@ -608,7 +611,10 @@ export class AgentSessions {
         if (status.state === "stopped" || status.state === "failed") void this.load(project).catch(() => {});
         return;
       }
-      if (status.state === "starting") this.transcripts.set(session, []);
+      if (status.state === "starting") {
+        this.seqs.set(session, 0);
+        this.transcripts.set(session, []);
+      }
       // Its title comes with the list (or the reply to agents.start).
       this.byId.set(session, {
         id: session,
@@ -641,7 +647,11 @@ export class AgentSessions {
       )
         this.partial.delete(session);
       const transcript = this.transcripts.get(session);
-      if (transcript) this.transcripts.set(session, [...transcript, message]);
+      // The reply to agents.transcript can overtake this event and hold the message already.
+      if (transcript && event.data.seq > (this.seqs.get(session) ?? 0)) {
+        this.seqs.set(session, event.data.seq);
+        this.transcripts.set(session, [...transcript, message]);
+      }
       const known = this.byId.get(session);
       if (known && message.kind === "turn_end")
         this.byId.set(session, { ...known, usage: add(known.usage, message.usage) });
@@ -650,6 +660,7 @@ export class AgentSessions {
 
   private resync(): void {
     this.transcripts.clear();
+    this.seqs.clear();
     this.partial.clear();
     for (const project of this.loaded) void this.load(project).catch(() => {});
   }

@@ -102,9 +102,12 @@ export class FakeGitCore implements Transport {
     if (answer !== null)
       // Before the caller sees the answer: messages can come first.
       queueMicrotask(() => {
-        this.emit({ type: "agents.message", data: { session, message: { kind: "assistant_text", text: answer } } });
+        this.emit({
+          type: "agents.message",
+          data: { session, message: { kind: "assistant_text", text: answer }, seq: 1 },
+        });
         const usage = { input_tokens: 0, output_tokens: 0, cost_micro_usd: null };
-        this.emit({ type: "agents.message", data: { session, message: { kind: "turn_end", usage } } });
+        this.emit({ type: "agents.message", data: { session, message: { kind: "turn_end", usage }, seq: 2 } });
       });
     return { type: "agents.session", data: { id: session } };
   }

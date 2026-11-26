@@ -29,3 +29,25 @@ it("lets panels that open together share one load, while a later load reads agai
   expect(lists()).toBe(2);
   expect(sessions.inProject("p1").map((s) => s.title)).toEqual(["Fix sync"]);
 });
+
+it("adds a message once when the transcript's reply overtook its event", async () => {
+  const core = new FakeAgentCore();
+  core.addSession("p1", "Browse the page", { state: "working" });
+  const sessions = new AgentSessions(core);
+  await sessions.load("p1");
+  const said = { kind: "assistant_text", text: "I will look at the page." } as const;
+  // The core added the message, and its reply to agents.transcript went out before the event.
+  core.transcripts.set("s1", [said]);
+  await sessions.loadTranscript("s1");
+  core.emit({ type: "agents.message", data: { session: "s1", message: said, seq: 1 } });
+  expect(sessions.transcripts.get("s1")).toEqual([said]);
+  // A message after it still comes in.
+  core.emit({
+    type: "agents.message",
+    data: { session: "s1", message: { kind: "assistant_text", text: "Done." }, seq: 2 },
+  });
+  expect(sessions.transcripts.get("s1")?.map((m) => (m.kind === "assistant_text" ? m.text : m.kind))).toEqual([
+    "I will look at the page.",
+    "Done.",
+  ]);
+});

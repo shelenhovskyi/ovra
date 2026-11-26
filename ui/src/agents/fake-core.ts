@@ -153,8 +153,9 @@ export class FakeAgentCore implements Transport {
   /** A tool call without `call` gets it as the Claude runtime maps it, as from a real core. */
   message(session: SessionId, given: AgentMessage): void {
     const message = mapped(given);
-    this.transcripts.set(session, [...(this.transcripts.get(session) ?? []), message]);
-    this.emit({ type: "agents.message", data: { session, message } });
+    const transcript = [...(this.transcripts.get(session) ?? []), message];
+    this.transcripts.set(session, transcript);
+    this.emit({ type: "agents.message", data: { session, message, seq: transcript.length } });
   }
 
   /** The runtime says how it runs the session (`null`: without a sandbox). */
@@ -240,8 +241,10 @@ export class FakeAgentCore implements Transport {
         this.boards.set(params.task, [...entries, entry]);
         return { type: "board.entry", data: entry };
       }
-      case "agents.transcript":
-        return { type: "agents.transcript", data: (this.transcripts.get(request.params.session) ?? []).map(mapped) };
+      case "agents.transcript": {
+        const messages = (this.transcripts.get(request.params.session) ?? []).map(mapped);
+        return { type: "agents.transcript", data: { messages, seq: messages.length } };
+      }
       case "agents.capacity":
         return { type: "agents.capacity", data: { ...this.capacity } };
       case "agents.stop":

@@ -124,7 +124,7 @@ impl Session {
 
     async fn transcript(&self) -> Vec<AgentMessage> {
         match call(&self.core, "agents.transcript", json!({"session": "s1"})).await {
-            Response::Agents(AgentsResponse::Transcript(t)) => t,
+            Response::Agents(AgentsResponse::Transcript(t)) => t.messages,
             other => panic!("unexpected {other:?}"),
         }
     }

@@ -64,6 +64,7 @@ expression: samples
           "name": "Task",
           "parent": "tool0"
         },
+        "seq": 3,
         "session": "s1"
       },
       "type": "agents.message"

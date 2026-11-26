@@ -9,7 +9,7 @@ use super::{AgentHost, Launch, Sessions};
 use crate::protocol::agents::{
     AgentKind, AgentMessage, AgentStatus, AgentsEvent, AgentsRequest, AgentsResponse,
     DEFAULT_ACCOUNT, MessageFrom, ProjectConfigReview, SessionId, SessionInfo, SessionMode,
-    SetupState, TurnUsage,
+    SessionTranscript, SetupState, TurnUsage,
 };
 use crate::protocol::audit::DecidedBy;
 use crate::protocol::permissions::{
@@ -216,8 +216,10 @@ pub(crate) async fn agents(
             Ok(OK)
         }
         AgentsRequest::Transcript { session } => {
-            let transcript = sessions.find(&session, |s| s.transcript())?;
-            Ok(Response::Agents(AgentsResponse::Transcript(transcript)))
+            let (messages, seq) = sessions.find(&session, |s| (s.transcript(), s.seq()))?;
+            Ok(Response::Agents(AgentsResponse::Transcript(
+                SessionTranscript { messages, seq },
+            )))
         }
         AgentsRequest::Capacity { project } => {
             ctx.projects.get(&project)?;

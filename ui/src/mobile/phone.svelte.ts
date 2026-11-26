@@ -49,6 +49,8 @@ export class Phone {
   readonly capacity = new SvelteMap<ProjectId, AgentCapacity>();
   /** Transcripts of the sessions opened on this phone. */
   readonly transcripts = new SvelteMap<SessionId, AgentMessage[]>();
+  /** The number of the last message in each of `transcripts`: a message event at or below it is already there. */
+  private readonly seqs = new Map<SessionId, number>();
   readonly approvals: ApprovalQueue;
   error = $state<string | null>(null);
   loaded = $state(false);
@@ -118,7 +120,8 @@ export class Phone {
   async loadTranscript(session: SessionId): Promise<void> {
     try {
       const { data } = await this.transport.call({ method: "agents.transcript", params: { session } });
-      this.transcripts.set(session, data);
+      this.seqs.set(session, data.seq);
+      this.transcripts.set(session, data.messages);
     } catch (err) {
       this.error = `Could not load the conversation: ${errorText(err)}`;
     }
@@ -177,8 +180,13 @@ export class Phone {
         return;
       }
       case "agents.message": {
-        const kept = this.transcripts.get(event.data.session);
-        if (kept) this.transcripts.set(event.data.session, [...kept, event.data.message]);
+        const { session, message, seq } = event.data;
+        const kept = this.transcripts.get(session);
+        // The reply to agents.transcript can overtake this event and hold the message already.
+        if (kept && seq > (this.seqs.get(session) ?? 0)) {
+          this.seqs.set(session, seq);
+          this.transcripts.set(session, [...kept, message]);
+        }
         return;
       }
       case "orchestration.changed":

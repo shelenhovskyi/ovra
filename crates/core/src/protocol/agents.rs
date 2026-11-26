@@ -230,6 +230,17 @@ pub enum MessageFrom {
     Unknown,
 }
 
+/// A session's transcript (`agents.transcript`). Replies and events travel
+/// apart, so a message can arrive both here and as an `agents.message`
+/// afterwards: `seq` tells them apart.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionTranscript {
+    /// The messages kept, oldest first.
+    pub messages: Vec<AgentMessage>,
+    /// The number of the last of them (`agents.message`'s `seq`); 0 when empty.
+    pub seq: u64,
+}
+
 /// One entry of a session transcript. Agent-neutral: each runtime maps its
 /// own messages to these.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -740,7 +751,7 @@ pub enum AgentsResponse {
     #[serde(rename = "agents.session")]
     Session(SessionInfo),
     #[serde(rename = "agents.transcript")]
-    Transcript(Vec<AgentMessage>),
+    Transcript(SessionTranscript),
     #[serde(rename = "agents.capacity")]
     Capacity(AgentCapacity),
     #[serde(rename = "agents.limit")]
@@ -781,6 +792,10 @@ pub enum AgentsEvent {
     Message {
         session: SessionId,
         message: AgentMessage,
+        /// The message's number in the session, from 1, counting every
+        /// message ever added: one a client already has from
+        /// `agents.transcript` (`seq` at most the transcript's) is not new.
+        seq: u64,
     },
     /// A session started or changed state.
     #[serde(rename = "agents.status")]

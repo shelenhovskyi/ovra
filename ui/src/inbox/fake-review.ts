@@ -240,8 +240,10 @@ export class FakeReviewCore implements Transport {
         return { type: "ok" };
       case "agents.list":
         return { type: "agents.list", data: [] };
-      case "agents.transcript":
-        return { type: "agents.transcript", data: this.transcripts.get(request.params.session) ?? [] };
+      case "agents.transcript": {
+        const messages = this.transcripts.get(request.params.session) ?? [];
+        return { type: "agents.transcript", data: { messages, seq: messages.length } };
+      }
       default:
         throw new CoreError({ code: "unavailable", message: `${request.method} is not faked` });
     }
