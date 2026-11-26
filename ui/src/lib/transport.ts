@@ -1,7 +1,7 @@
 // One transport interface for every front end (ADR 0002): Tauri IPC inside
 // the desktop window, WebSocket in headless mode. Both carry the same frames.
 
-import type { CoreEvent, ProtocolError, Request, Response, ResponseFor, ServerFrame } from "./protocol";
+import type { CoreEvent, ProjectId, ProtocolError, Request, Response, ResponseFor, ServerFrame } from "./protocol";
 
 /** A failed call; `code` is the core's error code. */
 export class CoreError extends Error {
@@ -30,11 +30,32 @@ export interface Transport {
    * (headless mode in a browser).
    */
   pickFolder?(): Promise<string | null>;
-  /** Paths of what the person drops onto the window. Absent where a page cannot see dropped paths. */
-  onDrop?(listener: (paths: string[]) => void): () => void;
+  /** What the person drops onto the window. Absent where a page cannot see dropped paths. */
+  onDrop?(listener: (drop: WindowDrop) => void): () => void;
+  /** Where files dragged in from outside the window are, while they are over it; null once they leave or drop. */
+  onDragOver?(listener: (at: Point | null) => void): () => void;
+  /**
+   * Copies the drop `id` into the folder `dir` of `project`. With `"ask"`, a
+   * name that exists already copies nothing and comes back in `names`; the
+   * drop then waits for the person's answer. Present with `onDrop`.
+   */
+  importDrop?(id: string, project: ProjectId, dir: string, clash: DropClash): Promise<DropImport>;
   /** Ids of the commands the person picks in the window's menu bar. Absent where there is none. */
   onMenu?(listener: (command: string) => void): () => void;
 }
+
+/** A point in the page, in CSS pixels. */
+export type Point = { x: number; y: number };
+
+/** A drop onto the window: the dropped paths, where it landed, and the id `importDrop` copies it by. */
+export type WindowDrop = Point & { id: string; paths: string[] };
+
+/** What to do with a dropped name that exists already. */
+export type DropClash = "ask" | "replace" | "keep_both";
+
+export type DropImport =
+  | { kind: "clashes"; names: string[] }
+  | { kind: "copied"; paths: string[]; skipped_links: string[] };
 
 /** Sends a serialized frame; replies and events arrive via `deliver`. */
 type Wire = (frame: string) => void;
@@ -118,10 +139,15 @@ function inTauri(): boolean {
 export function connectTauri(): Transport {
   let router: FrameRouter;
   const menuListeners = new Set<(command: string) => void>();
+  const dropListeners = new Set<(drop: WindowDrop) => void>();
+  const overListeners = new Set<(at: Point | null) => void>();
   const ready = Promise.all([import("@tauri-apps/api/core"), import("@tauri-apps/api/event")]).then(([core, event]) => {
     void event.listen<string>("ovra://frame", (e) => router.deliver(e.payload));
     void event.listen<string>("ovra://menu", (e) => {
       for (const listener of menuListeners) listener(e.payload);
+    });
+    void event.listen<WindowDrop>("ovra://drop", (e) => {
+      for (const listener of dropListeners) listener(e.payload);
     });
     return core.invoke;
   });
@@ -131,21 +157,34 @@ export function connectTauri(): Transport {
       .then((reply) => router.deliver(reply))
       .catch((err: unknown) => router.failAll(err instanceof Error ? err : new Error(String(err))));
   });
-  const dropListeners = new Set<(paths: string[]) => void>();
+  // The drop itself comes from the app (`ovra://drop`), which keeps its paths; this only follows the drag.
   import("@tauri-apps/api/webview")
     .then(({ getCurrentWebview }) =>
       getCurrentWebview().onDragDropEvent((e) => {
-        if (e.payload.type !== "drop") return;
-        for (const listener of dropListeners) listener(e.payload.paths);
+        const p = e.payload;
+        const scale = window.devicePixelRatio || 1;
+        const at =
+          p.type === "enter" || p.type === "over" ? { x: p.position.x / scale, y: p.position.y / scale } : null;
+        for (const listener of overListeners) listener(at);
       }),
     )
-    .catch((err: unknown) => console.error("dropping folders onto the window is unavailable", err));
+    .catch((err: unknown) => console.error("dragging files onto the window is unavailable", err));
   return Object.assign(router, {
     pickFolder: () => ready.then((invoke) => invoke<string | null>("ovra_pick_folder")),
-    onDrop: (listener: (paths: string[]) => void) => {
+    onDrop: (listener: (drop: WindowDrop) => void) => {
       dropListeners.add(listener);
       return () => dropListeners.delete(listener);
     },
+    onDragOver: (listener: (at: Point | null) => void) => {
+      overListeners.add(listener);
+      return () => overListeners.delete(listener);
+    },
+    importDrop: (id: string, project: ProjectId, dir: string, clash: DropClash) =>
+      ready
+        .then((invoke) => invoke<DropImport>("ovra_import_drop", { dropId: id, project, targetDir: dir, clash }))
+        .catch((err: unknown) => {
+          throw err instanceof Error ? err : new Error(String(err));
+        }),
     onMenu: (listener: (command: string) => void) => {
       menuListeners.add(listener);
       return () => menuListeners.delete(listener);

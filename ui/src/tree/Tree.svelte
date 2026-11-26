@@ -2,7 +2,8 @@
 // Sidebar: the start screen until a project is open, then its file tree.
 // Mod+O (the system's folder dialog) opens a folder from both; dropping a
 // folder onto the window opens it from the start screen only, so a drop on
-// the editor or a terminal never switches the project.
+// the editor or a terminal never switches the project. With a project open,
+// a drop on the file tree copies into it (FileTree).
 import { tick, untrack } from "svelte";
 import { forgetTabs, modeOf, renameTabs, tabs } from "../editor/open-files.svelte";
 import { registerCommand } from "../keys/commands";
@@ -39,8 +40,8 @@ $effect(() => {
 });
 
 $effect(() =>
-  transport.onDrop?.((paths) => {
-    if (!workspace.project) void opener.drop(paths);
+  transport.onDrop?.((drop) => {
+    if (!workspace.project) void opener.drop(drop.paths);
   }),
 );
 

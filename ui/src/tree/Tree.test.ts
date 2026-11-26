@@ -1,6 +1,7 @@
 import { flushSync, mount, unmount } from "svelte";
 import { afterEach, describe, expect, it } from "vitest";
 import { listCommands } from "../keys/commands";
+import type { WindowDrop } from "../lib/transport";
 import { Workspace } from "../shell/workspace.svelte";
 import { FakeCore } from "./fake-core";
 import TreeHarness from "./TreeHarness.svelte";
@@ -15,16 +16,16 @@ globalThis.ResizeObserver ??= class {
 /** A fake core in the desktop window: a folder dialog and dropped paths. */
 class DesktopCore extends FakeCore {
   picked: string | null = "/work/picked";
-  private drops = new Set<(paths: string[]) => void>();
+  private drops = new Set<(drop: WindowDrop) => void>();
   async pickFolder(): Promise<string | null> {
     return this.picked;
   }
-  onDrop(listener: (paths: string[]) => void): () => void {
+  onDrop(listener: (drop: WindowDrop) => void): () => void {
     this.drops.add(listener);
     return () => this.drops.delete(listener);
   }
   drop(paths: string[]): void {
-    for (const listener of this.drops) listener(paths);
+    for (const listener of this.drops) listener({ id: "d", paths, x: 0, y: 0 });
   }
 }
 
