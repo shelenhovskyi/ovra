@@ -43,7 +43,7 @@ async function openGitProject(page: Page, prefix: string): Promise<string> {
   writeFileSync(join(dir, "README.md"), "teh readme\n");
   const git = (...args: string[]) =>
     execFileSync("git", ["-c", "user.name=e2e", "-c", "user.email=e2e@example.invalid", ...args], { cwd: dir });
-  git("init", "-q");
+  git("init", "-q", "-b", "main");
   git("add", ".");
   git("commit", "-q", "-m", "start");
   await page.clock.install();
@@ -364,6 +364,48 @@ test("a task's three workers wait in Reviews to be kept, discarded or sent back"
   await expect(item).toContainText("Agent's summary: Reworked NOTES.md.");
   await expect(item.getByTestId("inbox-diff")).toContainText("Notes reworked after your comment.");
   await expect(item.locator(".state")).toHaveText("Waiting for review");
+});
+
+// The daemon's fake forge has the project's own branches on `origin`, and
+// gives each pull request three checks: build passed, test failed, lint runs.
+test("a worker's changes open as a draft pull request whose checks show on the item", async ({ page }) => {
+  await openGitProject(page, "ovra-agents-pr-");
+  await page.getByRole("textbox", { name: "Describe a task" }).fill("Write the notes");
+  await page.getByTestId("agent-mode").click();
+  await page.getByRole("menuitemradio", { name: /^Plan and split/ }).click();
+  await page.getByRole("button", { name: "Start", exact: true }).click();
+  const approvals = page.getByTestId("approvals");
+  for (let allowed = 0; allowed < 3; allowed++) {
+    const card = approvals.getByRole("group", { name: "Write NOTES.md" }).first();
+    await expect(card).toBeVisible();
+    await arm(page);
+    await card.getByRole("button", { name: "Allow" }).click();
+  }
+  await expect(approvals).toContainText("Nothing waits for your approval.");
+
+  await page.keyboard.press("Alt+Shift+R");
+  const inbox = page.getByTestId("inbox");
+  const item = inbox.getByTestId("inbox-item");
+  await expect(item).toContainText("Agent's summary: Wrote NOTES.md.");
+  await item.getByRole("button", { name: "Open pull request…" }).click();
+
+  const dialog = page.getByRole("dialog", { name: "Open pull request" });
+  await expect(dialog.getByRole("list", { name: "Files in the pull request" })).toContainText("NOTES.md");
+  await expect(dialog.getByTestId("pr-where")).toContainText("Signed in as octo on github.com");
+  await expect(dialog.getByRole("textbox", { name: "Base branch" })).toHaveValue("main");
+  await expect(dialog.getByRole("textbox", { name: "Title" })).toHaveValue("Wrote NOTES.md.");
+  await expect(dialog.getByRole("checkbox", { name: "Draft" })).toBeChecked();
+  await dialog.getByRole("textbox", { name: "Title" }).fill("Add the notes");
+  await dialog.getByRole("button", { name: "Create pull request" }).click();
+  await expect(dialog).toBeHidden();
+
+  await expect(item.getByTestId("pr-chip")).toHaveText(/^PR #\d+ · draft · 1 of 3 checks passed$/);
+  await expect(item.locator(".state").first()).toHaveText("Pull request opened");
+  const checks = item.getByRole("list", { name: "Checks" });
+  await expect(checks.getByRole("listitem")).toHaveText([/Passed\s*build/, /Failed\s*test/, /Running\s*lint/]);
+  await expect(checks.getByRole("button", { name: "Send the log of test to the worker" })).toBeVisible();
+  // Keep and Discard stay for work that should land locally too.
+  await expect(item.getByRole("button", { name: "Keep changes", exact: true })).toBeVisible();
 });
 
 test("a direct session's protected files and git hooks need a look before approve", async ({ page }) => {

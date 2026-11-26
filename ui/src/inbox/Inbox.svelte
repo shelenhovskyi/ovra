@@ -50,7 +50,9 @@ import {
 } from "./describe";
 import { REVIEWS_KEYS } from "./keys";
 import { handleOpenFor } from "./open";
+import PrDialog from "./PrDialog.svelte";
 import PrPanel from "./PrPanel.svelte";
+import { canOpenPr } from "./pull-request";
 import { message as errorText, type Outcome, type ReviewInbox } from "./reviews.svelte";
 
 /** The shell's inbox, shared with the title bar's Reviews button. */
@@ -81,6 +83,8 @@ let includeProtected = $state(false);
 /** The item's fingerprint when the person ticked: the version they included. */
 let includedFor = $state<string | null>(null);
 let dialog = $state<HTMLElement>();
+/** The item whose "Open pull request" dialog is open. */
+let prFor = $state<ReviewId | null>(null);
 
 const item = $derived(inbox.items.find((i) => i.id === selectedId) ?? null);
 const file = $derived(item?.files.find((f) => f.path === selectedPath) ?? null);
@@ -296,6 +300,7 @@ function select(id: ReviewId | null): void {
   commit = false;
   commitMessage = next ? defaultCommitMessage(next) : "";
   confirmingReject = false;
+  prFor = null;
   comment = (id !== null && drafts.get(id)) || "";
 }
 
@@ -329,8 +334,21 @@ async function showFor(wanted: SessionId[]): Promise<void> {
   if (!opened) await show(true);
 }
 
+/** The dialog closed: say what it sent, and give focus back to the item. */
+async function closePr(said?: string): Promise<void> {
+  prFor = null;
+  if (said) announcement = said;
+  await tick();
+  const target =
+    dialog?.querySelector<HTMLElement>("[data-open-pr]") ??
+    dialog?.querySelector<HTMLElement>("[data-testid=pr-chip]") ??
+    dialog?.querySelector<HTMLElement>("#inbox-item-title");
+  target?.focus();
+}
+
 function close(): void {
   confirmingReject = false;
+  prFor = null;
   mainView.close();
 }
 
@@ -759,6 +777,21 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                       </div>
                     </div>
                   {/if}
+                  {#if canOpenPr(item) && !confirmingReject}
+                    <!-- Another way to land the work, quieter than Keep and Discard. -->
+                    <button
+                      type="button"
+                      class="quiet"
+                      data-open-pr
+                      aria-disabled={busy}
+                      onclick={() => {
+                        if (!busy) prFor = item.id;
+                      }}>Open pull request…</button
+                    >
+                  {/if}
+                  {#if prFor === item.id}
+                    <PrDialog {inbox} {item} onclose={(said) => void closePr(said)} />
+                  {/if}
                 </div>
               {/if}
 
@@ -1086,6 +1119,14 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
   .state.approved,
   .state.published {
     color: var(--ok);
+  }
+  .quiet {
+    align-self: flex-start;
+    color: var(--text-2);
+    background: transparent;
+  }
+  .quiet:hover {
+    background: var(--s3);
   }
   .state.rejected {
     color: var(--danger);
