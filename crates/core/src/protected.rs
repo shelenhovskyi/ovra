@@ -5,15 +5,26 @@
 //! yet.
 
 /// Names right in the home folder that hold a known agent's own state: its
-/// settings, login and transcripts (`.claude`, `.claude.json`). No sandbox
+/// settings, login and transcripts (`.claude`, `.claude.json`, `.gemini`,
+/// `.codex`, and the state files Gemini and Codex are described with,
+/// which they do not keep today). No sandbox
 /// lets anything write in them, whoever it is for and whichever provider a
 /// session runs. On Linux every name that starts with one is refused too:
 /// an account's own folder such as `.claude-work`. Each provider's
 /// `ProviderLists::home_dir` and `state_file` must be in this list, or
 /// pods, the browser and other providers' sessions could write them; each
 /// provider's runtime tests that (for Claude,
-/// `claudes_own_state_is_protected_in_every_sandbox` in agent-runtime).
-pub const AGENT_STATE_IN_HOME: [&str; 2] = [".claude", ".claude.json"];
+/// `claudes_own_state_is_protected_in_every_sandbox` in agent-runtime; for
+/// ACP agents, `every_agents_own_state_is_protected_in_every_sandbox` in
+/// acp-client).
+pub const AGENT_STATE_IN_HOME: [&str; 6] = [
+    ".claude",
+    ".claude.json",
+    ".gemini",
+    ".gemini.json",
+    ".codex",
+    ".codex.json",
+];
 
 /// Paths under a session's `work_dir` that stay read-only: agent
 /// configuration and code that tools run on their own. `**/` matches any

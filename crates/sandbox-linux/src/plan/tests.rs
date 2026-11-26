@@ -385,6 +385,13 @@ fn claude_settings_are_never_a_session_folder() {
     let mut stateless = profile(&inside);
     stateless.agent_state = None;
     assert!(Plan::new(&setup, &stateless).is_err());
+    // Nor other agents' settings, whichever provider the session runs.
+    for other in ["home/.codex", "home/.gemini/extensions"] {
+        assert!(Plan::new(&setup, &profile(&root.dir(other))).is_err());
+        let mut write = profile(&root.dir("project"));
+        write.write.push(root.dir(other));
+        assert!(Plan::new(&setup, &write).is_err(), "{other}");
+    }
 }
 
 #[test]
