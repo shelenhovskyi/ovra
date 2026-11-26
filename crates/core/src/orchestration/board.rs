@@ -419,18 +419,24 @@ fn audited(core: &Core, task: &tasks::Entry, entry: &BoardEntry) {
         Author::Worker { name } => worker_session(task, name),
         Author::Person | Author::Ovra => None,
     };
-    crate::audit::record(
-        core,
-        &task.project,
-        session.as_ref(),
-        AuditEvent::BoardEntry {
-            task: task.id.clone(),
-            entry: entry.id.clone(),
-            author: entry.author.clone(),
+    let (task_id, id, author) = (task.id.clone(), entry.id.clone(), entry.author.clone());
+    let record = crate::audit::agent_text(
+        core.clone(),
+        task.project.clone(),
+        session,
+        text,
+        move |text| AuditEvent::BoardEntry {
+            task: task_id,
+            entry: id,
+            author,
             what,
-            text: crate::audit::redacted_text(&text),
+            text,
         },
     );
+    // The secrets' values may take a keychain read: the entry does not wait.
+    if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+        runtime.spawn(record);
+    }
 }
 
 /// Unix time in milliseconds; 0 for a clock before 1970.
@@ -584,10 +590,11 @@ pub(super) fn waiting(core: &Core, session: &SessionId) -> Option<Waiting> {
             continue;
         };
         let carried = board.sending.get(session);
+        // Only indices of entries the board has: a saved queue may be stale.
         let free: Vec<usize> = pending
             .iter()
             .copied()
-            .filter(|i| !carried.is_some_and(|c| c.contains(i)))
+            .filter(|i| *i < board.entries.len() && !carried.is_some_and(|c| c.contains(i)))
             .collect();
         if free.is_empty() {
             continue;
@@ -600,13 +607,14 @@ pub(super) fn waiting(core: &Core, session: &SessionId) -> Option<Waiting> {
             .extend(&free);
         taken.push((task.clone(), free));
     }
+    // Unlocked first: a `Waiting` that is dropped takes the lock.
+    drop(guard);
     let waiting = Waiting {
         text: delivery(&entries),
         taken,
         session: session.clone(),
         core: core.downgrade(),
     };
-    // Dropped when empty, which frees nothing.
     (!entries.is_empty()).then_some(waiting)
 }
 

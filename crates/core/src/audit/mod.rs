@@ -247,7 +247,22 @@ fn drain(core: Core, project: ProjectId) -> impl Future<Output = ()> + Send + 's
     }
 }
 
-pub(crate) use input::{holds_secret, redacted_text};
+pub(crate) use input::holds_secret;
+
+/// Records `event(text)` for `text` an agent wrote, once the project's
+/// secret values are known: without them, as tool inputs are kept, and
+/// `[redacted]` when they cannot be read.
+pub(crate) async fn agent_text(
+    core: Core,
+    project: ProjectId,
+    session: Option<SessionId>,
+    text: String,
+    event: impl FnOnce(String) -> AuditEvent,
+) {
+    let known = known_secrets(&core, &project).await;
+    let text = input::redacted_text(&text, known.as_deref());
+    record(&core, &project, session.as_ref(), event(text));
+}
 
 /// The values of the project's secrets for checking text the person adds
 /// to a message; `None` if they cannot be read now.

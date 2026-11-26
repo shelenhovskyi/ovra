@@ -736,6 +736,49 @@ mod recording {
         assert_eq!(refused_bash_input(secrets).await, AuditInput::Json { text });
     }
 
+    #[tokio::test]
+    async fn agent_text_is_kept_without_the_projects_secret_values() {
+        let secrets = Arc::new(MemorySecrets::default());
+        secrets
+            .set(
+                &project("p1"),
+                secret(),
+                SecretValue::new("known-value-123"),
+            )
+            .unwrap_or_else(|e| panic!("{e}"));
+        let log = Arc::new(MemoryAudit::default());
+        let core = Core::builder("test")
+            .projects(Arc::new(MemoryProjects::default()))
+            .secrets(secrets)
+            .audit(log.clone())
+            .build();
+        let note = |text| AuditEvent::NetworkRefused {
+            host: "x".into(),
+            reason: text,
+        };
+        let text = "use known-value-123 here".to_owned();
+        crate::audit::agent_text(core.clone(), project("p1"), None, text.clone(), note).await;
+        let locked = Core::builder("test")
+            .projects(Arc::new(MemoryProjects::default()))
+            .secrets(Arc::new(LockedKeychain))
+            .audit(log.clone())
+            .build();
+        crate::audit::agent_text(locked, project("p1"), None, text, note).await;
+        let reasons: Vec<String> = log
+            .list(&project("p1"), Default::default(), 10)
+            .unwrap_or_else(|e| panic!("{e}"))
+            .into_iter()
+            .filter_map(|e| match e.event {
+                AuditEvent::NetworkRefused { reason, .. } => Some(reason),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            reasons,
+            [format!("use {REDACTED} here"), REDACTED.to_owned()]
+        );
+    }
+
     /// Lists a secret whose value the keychain refuses.
     #[derive(Debug)]
     struct LockedKeychain;

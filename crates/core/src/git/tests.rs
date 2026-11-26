@@ -514,6 +514,22 @@ async fn publish_sends_a_new_branch_and_connects_it_once() {
     assert_eq!(refused.map_err(|e| e.code), Err(ErrorCode::Conflict));
     assert!(!f.git.calls().iter().any(|c| c.contains("origin taken")));
 
+    // Sent, but not connected: the person hears both.
+    *f.git.status.lock().unwrap_or_else(|e| e.into_inner()) = Some(RepoStatus {
+        branch: Some("late".into()),
+        head: Some("c6".into()),
+        publish_to: Some("origin".into()),
+        ..RepoStatus::default()
+    });
+    *f.git.refuse.lock().unwrap_or_else(|e| e.into_inner()) = Some("locked".into());
+    let half = call(&f.core, git("publish", json!({}))).await;
+    let half = half.err().map(|e| e.message).unwrap_or_default();
+    assert!(
+        half.starts_with("sent to origin/late, but could not connect"),
+        "{half}"
+    );
+    *f.git.refuse.lock().unwrap_or_else(|e| e.into_inner()) = None;
+
     // No remote, or a detached HEAD: nowhere to publish.
     if let Some(status) = f
         .git
@@ -542,6 +558,6 @@ async fn publish_sends_a_new_branch_and_connects_it_once() {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .len(),
-        1
+        2
     );
 }

@@ -245,7 +245,20 @@ pub(crate) async fn handle(core: &Core, request: GitRequest) -> Result<Response,
                     _ => e,
                 });
             }
-            git.set_upstream(root, branch, remote, head).await?;
+            // Sent already: say so, and how to connect it by hand.
+            let connected = git
+                .set_upstream(root, branch.clone(), remote.clone(), head)
+                .await;
+            if let Err(e) = connected {
+                return Err(ProtocolError::new(
+                    e.code,
+                    format!(
+                        "sent to {remote}/{branch}, but could not connect the two: {}; connect \
+                         them in a terminal (git branch -u {remote}/{branch})",
+                        e.message
+                    ),
+                ));
+            }
             ok()
         }
     })

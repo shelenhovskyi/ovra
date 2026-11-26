@@ -3432,13 +3432,29 @@ async fn an_entry_on_its_way_to_an_agent_is_not_carried_by_a_second_message() {
 
 #[tokio::test]
 async fn board_entries_carry_their_time_and_go_into_the_audit_log() {
-    let (f, _rx) = board_fx().await;
+    let (f, mut rx) = board_fx().await;
     let lint = caller("s2", ToolRole::Worker);
     let note = f
         .core
         .board_post(&lint, "Done with Authorization: Bearer abc.def.ghi")
         .unwrap_or_else(|e| panic!("{e}"));
     assert!(note.at_ms.is_some_and(|at| at > 1_700_000_000_000));
+    // Recorded once the secrets' values are read, after the entry.
+    let appended = async {
+        loop {
+            if let Some(Event::Audit(crate::protocol::audit::AuditLogEvent::Appended(e))) =
+                Core::next_event(&mut rx).await
+                && matches!(e.event, AuditEvent::BoardEntry { .. })
+            {
+                return;
+            }
+        }
+    };
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_secs(5), appended)
+            .await
+            .is_ok()
+    );
     let logged: Vec<_> = audited(&f)
         .into_iter()
         .filter_map(|(session, event)| match event {

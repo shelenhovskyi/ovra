@@ -569,12 +569,13 @@ fn set_upstream(root: &Path, branch: &str, remote: &str, commit: &str) -> Result
     if !remotes.lines().any(|r| r == remote) {
         return Err(bad("not a remote of this repository"));
     }
+    // `merge` first: without `remote`, a half-written pair is no upstream.
     for (key, value) in [
-        (format!("branch.{branch}.remote"), remote.to_owned()),
         (
             format!("branch.{branch}.merge"),
             format!("refs/heads/{branch}"),
         ),
+        (format!("branch.{branch}.remote"), remote.to_owned()),
     ] {
         Git::without_hooks(root, "config")
             .args(["--local", "--end-of-options", &key, &value])
