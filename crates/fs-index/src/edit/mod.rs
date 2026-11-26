@@ -50,7 +50,7 @@ impl Trash {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "linux"))]
     pub(crate) fn with_home(self, home: PathBuf) -> Self {
         Self {
             home: Some(home),
