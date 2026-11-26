@@ -37,7 +37,9 @@ pub use lsp::{FakeLanguageServers, FakeServer, HostRecord};
 pub use power::FakeKeepAwake;
 pub use remote::FakeRemote;
 pub use servers::{FakeDevServer, FakeDevServers};
-pub use tools::{before_hook, tool};
+#[cfg(test)]
+pub(crate) use tools::before_hook;
+pub use tools::tool;
 pub use worktrees::MemoryWorktrees;
 
 use crate::path::RelPath;

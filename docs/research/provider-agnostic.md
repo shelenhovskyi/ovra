@@ -316,6 +316,12 @@ neutral.
   texts and transcript one-liners match on `kind` and the normalized fields.
   Existing policies in Claude's rule syntax keep working: the parser turns
   `Bash(...)` into an execute rule, `Edit(...)` into an edit rule.
+- As built in step 4, this is a deliberate deviation for now: a rule stays
+  scoped to the tool it names. `Bash(...)` matches only `Bash` calls, read
+  through their `command` field, and an `auto` rule also needs the call's
+  kind to be the one its tool is for. Until deny and ask rules apply by kind
+  to other providers' tools (steps 7 and 9), no non-Claude provider gets
+  `enforced_policy`.
 
 ### 4.3 Accounts, sandbox, netproxy, secrets
 

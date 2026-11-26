@@ -4,7 +4,9 @@
 use serde_json::Value;
 
 use crate::protocol::agents::{ToolCall, ToolKind};
-use crate::services::{AgentHost, BeforeTool, ToolRequest};
+use crate::services::ToolRequest;
+#[cfg(test)]
+use crate::services::{AgentHost, BeforeTool};
 
 /// The call `name` with `input`, with its kind and fields as the Claude
 /// runtime reports them.
@@ -50,7 +52,8 @@ pub fn tool(name: &str, input: Value) -> ToolRequest {
 /// What [`AgentHost::before_tool`] says about the call a Claude
 /// `PreToolUse` hook input names (`tool_use_id`, `tool_name`,
 /// `tool_input`); `Proceed` without a tool name, as the Claude runtime.
-pub async fn before_hook(host: &AgentHost, hook: &Value) -> BeforeTool {
+#[cfg(test)]
+pub(crate) async fn before_hook(host: &AgentHost, hook: &Value) -> BeforeTool {
     let Some(name) = hook.get("tool_name").and_then(Value::as_str) else {
         return BeforeTool::Proceed;
     };
