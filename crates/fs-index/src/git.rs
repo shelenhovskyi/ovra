@@ -43,10 +43,23 @@ const INHERITED: &[&str] = &[
     "GIT_ICASE_PATHSPECS",
 ];
 
+/// `git` on the `PATH` it gets, by its path: a program the child's own
+/// `PATH` must find is started with a slower fork.
+fn program() -> &'static Path {
+    static PROGRAM: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    PROGRAM.get_or_init(|| {
+        let path = ovra_core::child_path::absolute(std::env::var_os("PATH"));
+        let name = if cfg!(windows) { "git.exe" } else { "git" };
+        let mut dirs = std::env::split_paths(&path);
+        let found = dirs.find_map(|dir| Some(dir.join(name)).filter(|git| git.is_file()));
+        found.unwrap_or_else(|| PathBuf::from("git"))
+    })
+}
+
 /// `git <args>` in `dir`: no prompt, no file monitor, no submodules, and
 /// only the repository of `dir`, whatever `GIT_*` variables Ovra inherited.
 fn command(dir: &Path, args: &[&str]) -> Command {
-    let mut command = Command::new("git");
+    let mut command = Command::new(program());
     command.env(
         "PATH",
         ovra_core::child_path::absolute(std::env::var_os("PATH")),

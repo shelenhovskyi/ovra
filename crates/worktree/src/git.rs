@@ -41,6 +41,8 @@ pub(crate) fn internal(what: impl std::fmt::Display) -> ProtocolError {
 /// The git to run. On Windows `git` on the PATH is usually a launcher that
 /// starts the real `git.exe` as a second process; with dozens of git calls
 /// per review, that doubles the cost, so the real one is used if it works.
+/// Elsewhere the one on the `PATH` git gets, by its path: a program the
+/// child's own `PATH` must find is started with a slower fork.
 pub(crate) fn program() -> &'static OsStr {
     static PROGRAM: OnceLock<PathBuf> = OnceLock::new();
     PROGRAM
@@ -49,7 +51,11 @@ pub(crate) fn program() -> &'static OsStr {
             if cfg!(windows) {
                 real_git().unwrap_or(launcher)
             } else {
-                launcher
+                let path = ovra_core::child_path::absolute(std::env::var_os("PATH"));
+                let dirs = std::env::split_paths(&path);
+                dirs.map(|dir| dir.join("git"))
+                    .find(|git| git.is_file())
+                    .unwrap_or(launcher)
             }
         })
         .as_os_str()
