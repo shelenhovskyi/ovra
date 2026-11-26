@@ -7,6 +7,20 @@ license.workspace = true
 rust-version.workspace = true
 publish = false
 
+[features]
+# `fake-acp`: a stand-in ACP agent that plays scripted sessions, for tests.
+fake-acp = []
+
+[[bin]]
+name = "fake-acp"
+path = "src/bin/fake-acp.rs"
+required-features = ["fake-acp"]
+test = false
+
+[[test]]
+name = "fake_agent"
+required-features = ["fake-acp"]
+
 [dependencies]
 ovra-core.workspace = true
 serde.workspace = true
