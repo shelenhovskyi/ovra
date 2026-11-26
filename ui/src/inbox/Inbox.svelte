@@ -15,7 +15,7 @@ import TaskSummary from "../agents/TaskSummary.svelte";
 import { registerCommand } from "../keys/commands";
 import { registerContextKeys } from "../keys/context-keys";
 import { formatShortcut, isApple } from "../keys/shortcut";
-import type { FileChange, ReviewId, ReviewItem, SessionId } from "../lib/protocol";
+import type { FileChange, Hunk, LineComment, ReviewId, ReviewItem, SessionId } from "../lib/protocol";
 import { useOvra } from "../shell/context";
 import EmptyState from "../shell/EmptyState.svelte";
 import Icon from "../shell/Icon.svelte";
@@ -50,6 +50,7 @@ import {
   taskOf,
   workerName,
 } from "./describe";
+import HunkDiff from "./HunkDiff.svelte";
 import { REVIEWS_KEYS } from "./keys";
 import { handleOpenFor } from "./open";
 import PrDialog from "./PrDialog.svelte";
@@ -73,6 +74,12 @@ let confirmingReject = $state(false);
 let comment = $state("");
 /** Unsent comments of the items not selected now, by item. */
 const drafts = new Map<ReviewId, string>();
+/** Comments on lines of the selected item, sent with the next comment. */
+let lineComments = $state<LineComment[]>([]);
+/** Unsent line comments of the items not selected now, by item. */
+const lineDrafts = new Map<ReviewId, LineComment[]>();
+/** Hunks marked kept, by item, file and hunk text: a mark of the person's, never sent. */
+let keptParts = $state(new Set<string>());
 let announcement = $state("");
 /** Approve was stopped because the diff shown was older than the item. */
 let staleDiff = $state(false);
@@ -154,6 +161,38 @@ $effect(() => {
   };
 });
 const diffKey = $derived(item && file ? `${item.id}\n${file.path}\n${inbox.changes}` : null);
+/** Prefix of the selected file's keys in `keptParts`. */
+const partPrefix = $derived(item && file ? `${item.id}\n${file.path}\n` : null);
+const keptHere = $derived(
+  new Set(
+    [...keptParts]
+      .filter((k) => partPrefix !== null && k.startsWith(partPrefix))
+      .map((k) => k.slice(partPrefix?.length ?? 0)),
+  ),
+);
+/** Whether the selected file's parts can be discarded, or why not. */
+const discardable = $derived.by((): true | string => {
+  if (!item || !file) return "";
+  if (file.kind === "renamed") return "A renamed file is kept or discarded with the whole review.";
+  if (item.mode === "direct" && file.by !== "agent")
+    return "This file was changed outside the agent too, so its parts are not discarded here: edit it yourself.";
+  return true;
+});
+
+function toggleKept(key: string): void {
+  if (partPrefix === null) return;
+  const next = new Set(keptParts);
+  if (!next.delete(partPrefix + key)) next.add(partPrefix + key);
+  keptParts = next;
+}
+
+async function discardPart(review: ReviewItem, path: string, hunk: Hunk): Promise<void> {
+  if ((await inbox.discardHunk(review.id, path, hunk)) && inbox.outcome) announcement = outcomeText(inbox.outcome);
+}
+
+async function undoDiscardPart(review: ReviewItem): Promise<void> {
+  if ((await inbox.undoDiscard(review.id)) && inbox.outcome) announcement = outcomeText(inbox.outcome);
+}
 /**
  * A worker's item, and a direct one with protected files, is approved only
  * with the current file's diff on screen, read from the same version of its
@@ -300,7 +339,10 @@ function seenKey(review: ReviewItem, f: FileChange): string {
 
 function select(id: ReviewId | null): void {
   if (id === selectedId) return;
-  if (selectedId !== null) drafts.set(selectedId, comment);
+  if (selectedId !== null) {
+    drafts.set(selectedId, comment);
+    lineDrafts.set(selectedId, lineComments);
+  }
   selectedId = id;
   staleDiff = false;
   const next = inbox.items.find((i) => i.id === id);
@@ -312,6 +354,7 @@ function select(id: ReviewId | null): void {
   confirmingReject = false;
   prFor = null;
   comment = (id !== null && drafts.get(id)) || "";
+  lineComments = (id !== null && lineDrafts.get(id)) || [];
 }
 
 /** Opens the inbox; `keep` keeps the item chosen for it. */
@@ -502,9 +545,10 @@ async function resolve(review: ReviewItem): Promise<void> {
 
 async function sendComment(review: ReviewItem): Promise<void> {
   const text = comment.trim();
-  if (!text) return;
-  if (await inbox.comment(review.id, text)) {
+  if (!text && lineComments.length === 0) return;
+  if (await inbox.comment(review.id, text, lineComments)) {
     comment = "";
+    lineComments = [];
     announcement = "Comment sent. The agent continues, and this review updates when its changes do.";
   }
 }
@@ -522,6 +566,9 @@ function outcomeText(outcome: Outcome): string {
           ` ${outcome.conflicts.length === 1 ? "One file was" : "Some files were"} not copied: see why below.`
         : ` Kept as you changed them: ${files}.`;
   if (outcome.action === "resolved") return "Marked done. The files stay as they are now.";
+  if (outcome.action === "discarded_part")
+    return `Discarded that part of ${outcome.restored.join(", ")}. The rest waits for you to keep or discard it.`;
+  if (outcome.action === "undone_part") return `Put back the discarded part of ${outcome.restored.join(", ")}.`;
   if (outcome.action === "taken") {
     const put =
       outcome.restored.length > 0 ? `Replaced with the worker's version: ${outcome.restored.join(", ")}.` : "";
@@ -889,6 +936,13 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                   }}
                 >
                   <label for="inbox-comment">Comment to the agent</label>
+                  {#if lineComments.length > 0}
+                    <p class="hint" data-testid="inbox-line-comments">
+                      {lineComments.length === 1 ? "1 comment on a line goes" : `${lineComments.length} comments on lines go`}
+                      with it.
+                      <button type="button" onclick={() => (lineComments = [])}>Remove them</button>
+                    </p>
+                  {/if}
                   <textarea
                     id="inbox-comment"
                     rows="2"
@@ -896,7 +950,9 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                     aria-keyshortcuts="Control+Enter Meta+Enter"
                     onkeydown={(e) => onCommentKeydown(e, item)}
                   ></textarea>
-                  <button type="submit" aria-disabled={busy || !comment.trim()}>Send comment ({modEnter})</button>
+                  <button type="submit" aria-disabled={busy || (!comment.trim() && lineComments.length === 0)}
+                    >Send comment ({modEnter})</button
+                  >
                 </form>
               {/if}
 
@@ -938,6 +994,18 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                 </ul>
               </div>
                 <div class="diff" data-testid="inbox-diff">
+                  {#if item.can_undo_discard}
+                    <p class="hint undo-part">
+                      <button
+                        type="button"
+                        data-testid="inbox-undo-part"
+                        aria-disabled={busy}
+                        onclick={() => {
+                          if (!busy) void undoDiscardPart(item);
+                        }}>Put back the last discarded part</button
+                      >
+                    </p>
+                  {/if}
                   {#if !file}
                     <p class="empty">
                       {item.git_changes.length > 0
@@ -950,6 +1018,19 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                     <p class="empty">Loading the diff…</p>
                   {:else if diff.patch === ""}
                     <p class="empty">No textual changes in {file.path}.</p>
+                  {:else if item.state === "open" || item.state === "published"}
+                    <HunkDiff
+                      patch={diff.patch}
+                      path={file.path}
+                      discard={discardable}
+                      {busy}
+                      kept={keptHere}
+                      comments={lineComments.filter((c) => c.path === file.path)}
+                      onkeep={toggleKept}
+                      ondiscard={(hunk) => void discardPart(item, file.path, hunk)}
+                      oncomment={(c) => (lineComments = [...lineComments, c])}
+                      onuncomment={(c) => (lineComments = lineComments.filter((x) => x !== c))}
+                    />
                   {:else}
                     <PatchView text={diff.patch} />
                   {/if}

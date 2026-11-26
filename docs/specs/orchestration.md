@@ -158,6 +158,35 @@ How direct mode tells them apart (`crates/core/src/orchestration/direct.rs`):
   message saying nothing was restored. Without a baseline (not a git
   repository) a direct session runs but has nothing to review.
 
+### Parts of a file and comments on lines
+
+The inbox shows an open item's diff hunk by hunk ("parts"). Each part has
+Keep, Discard and Comment:
+
+- Keep is only the person's mark: the part folds away as looked at. What is
+  left of the item lands, as before, with the item's Keep changes.
+- Discard (`review.discard_hunk`) takes that hunk back out of the agent's
+  workspace (the worker's worktree, or the project for a direct session)
+  with `git apply --reverse`, so it applies only while the file still holds
+  exactly what the diff showed, and never through a symlink. An added or
+  deleted file is one part and goes back to the base as a whole. Refused
+  while the agent works, for renames, for a decided item, and in direct mode
+  for a file changed only outside the agent (the person edits their own
+  work themselves). In direct mode the write runs under the tracker's lock
+  and counts as neither the agent's nor changed outside: the file keeps its
+  mark, so a later reject still reverts it.
+- `review.undo_discard` puts the file of the item's last discard back from
+  a snapshot taken just before, only if nobody changed the file since.
+  Pruning keeps both snapshots while the undo is possible.
+- Comment on a line adds a line comment to the draft; the next
+  `review.comment` sends them, sorted by file and line, after the person's
+  text as one message of theirs (`path:line: text`, or "line N of the old
+  version" for a removed line). The next message after a discard also
+  carries Ovra's note naming the files the agent lost parts of, so it reads
+  them again before changing them.
+
+Diffs over 2000 lines show whole, without parts.
+
 ## Project holds
 
 The core counts holders per project and watches a project while it has any

@@ -180,6 +180,13 @@ export class FakeReviewCore implements Transport {
         item.can_undo_take = false;
         return { type: "review.done", data: { item: structuredClone(item), conflicts: [], restored: [] } };
       }
+      case "review.discard_hunk":
+      case "review.undo_discard": {
+        const item = this.find(request.params.id);
+        item.can_undo_discard = request.method === "review.discard_hunk";
+        const path = request.method === "review.discard_hunk" ? request.params.path : (item.files[0]?.path ?? "");
+        return { type: "review.done", data: { item: structuredClone(item), conflicts: [], restored: [path] } };
+      }
       case "review.comment":
         this.find(request.params.id);
         return { type: "ok" };

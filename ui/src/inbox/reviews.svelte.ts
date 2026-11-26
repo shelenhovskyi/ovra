@@ -2,13 +2,23 @@
 // events. The core is the source of truth: nothing here approves, rejects or
 // merges on its own; every action is one call made for a person's press.
 
-import type { CoreEvent, PrDraft, ProjectId, PrPrepared, PullRequest, ReviewId, ReviewItem } from "../lib/protocol";
+import type {
+  CoreEvent,
+  Hunk,
+  LineComment,
+  PrDraft,
+  ProjectId,
+  PrPrepared,
+  PullRequest,
+  ReviewId,
+  ReviewItem,
+} from "../lib/protocol";
 import { CoreError, type Transport } from "../lib/transport";
 
 /** What the last approve, reject or undo did, and what it left for the person. */
 export type Outcome = {
   id: ReviewId;
-  action: "approved" | "rejected" | "undone" | "resolved" | "taken" | "untaken";
+  action: "approved" | "rejected" | "undone" | "resolved" | "taken" | "untaken" | "discarded_part" | "undone_part";
   conflicts: string[];
   /** Files a reject restored, or an undo put back. */
   restored: string[];
@@ -184,10 +194,27 @@ export class ReviewInbox {
     });
   }
 
-  /** The same session continues with `text`; a decided item stays decided. */
-  comment(id: ReviewId, text: string): Promise<boolean> {
+  /** Throws one hunk of `path` away in the agent's workspace, as the diff showed it. */
+  discardHunk(id: ReviewId, path: string, hunk: Hunk): Promise<boolean> {
     return this.act(id, async () => {
-      await this.transport.call({ method: "review.comment", params: { id, text } });
+      const { data } = await this.transport.call({ method: "review.discard_hunk", params: { id, path, hunk } });
+      this.settle("discarded_part", data);
+    });
+  }
+
+  /** Puts back the file of the item's last discarded hunk. */
+  undoDiscard(id: ReviewId): Promise<boolean> {
+    return this.act(id, async () => {
+      const { data } = await this.transport.call({ method: "review.undo_discard", params: { id } });
+      this.settle("undone_part", data);
+    });
+  }
+
+  /** The same session continues with `text` and the comments on `lines`; a decided item stays decided. */
+  comment(id: ReviewId, text: string, lines: LineComment[] = []): Promise<boolean> {
+    return this.act(id, async () => {
+      const params = { id, text, ...(lines.length > 0 ? { lines } : {}) };
+      await this.transport.call({ method: "review.comment", params });
     });
   }
 

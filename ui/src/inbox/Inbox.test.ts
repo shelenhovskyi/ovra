@@ -752,6 +752,61 @@ describe("Inbox", () => {
     );
   });
 
+  it("keeps, discards and comments on single parts of a file", async () => {
+    const core = await setup([review("r1", { mode: "isolated", fingerprint: "f1" })]);
+    await open();
+    const part = () => $("[data-testid=hunk]");
+    expect(part()?.getAttribute("aria-label")).toBe("Part 1 of 1, line 1");
+    // Keep is the person's mark: it folds the part and sends nothing.
+    $<HTMLButtonElement>("[data-testid=hunk-keep]")?.click();
+    await settle();
+    expect($("[data-testid=hunk-kept]")?.textContent).toBe("Looks good");
+    expect(part()?.textContent).not.toContain("the readme");
+    $<HTMLButtonElement>("[data-testid=hunk-keep]")?.click();
+    await settle();
+
+    // A comment on a line waits for the next comment to the agent.
+    $<HTMLButtonElement>("[data-testid=hunk-comment]")?.click();
+    await settle();
+    const field = $<HTMLTextAreaElement>("[id^=line-comment-]");
+    expect(document.activeElement).toBe(field);
+    if (field) {
+      field.value = "Spell it right";
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    $<HTMLButtonElement>("[data-testid=line-comment-add]")?.click();
+    await settle();
+    expect($("[data-testid=line-comment]")?.textContent).toContain("Spell it right");
+    expect($("[data-testid=inbox-line-comments]")?.textContent).toContain("1 comment on a line goes");
+    button(/^Send comment/)?.click();
+    await settle();
+    expect(core.sent("review.comment").at(-1)?.params).toEqual({
+      id: "r1",
+      text: "",
+      lines: [{ path: "README.md", line: 1, old: true, text: "Spell it right" }],
+    });
+    expect($("[data-testid=line-comment]")).toBeNull();
+
+    $<HTMLButtonElement>("[data-testid=hunk-discard]")?.click();
+    await settle();
+    expect(core.sent("review.discard_hunk").at(-1)?.params).toEqual({
+      id: "r1",
+      path: "README.md",
+      hunk: {
+        old_start: 1,
+        old_lines: 1,
+        new_start: 1,
+        new_lines: 1,
+        header: "",
+        lines: ["-teh readme", "+the readme"],
+      },
+    });
+    expect($("[data-testid=inbox-announce], [aria-live]")).not.toBeNull();
+    $<HTMLButtonElement>("[data-testid=inbox-undo-part]")?.click();
+    await settle();
+    expect(core.sent("review.undo_discard")).toHaveLength(1);
+  });
+
   it("says Keep and Discard, never Approve or Reject", async () => {
     await setup([
       review("r1", {

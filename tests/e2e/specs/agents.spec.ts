@@ -375,6 +375,13 @@ test("a task's three workers wait in Reviews to be kept, discarded or sent back"
   await expect(item).toContainText("Agent's summary: Reworked NOTES.md.");
   await expect(item.getByTestId("inbox-diff")).toContainText("Notes reworked after your comment.");
   await expect(item.locator(".state")).toHaveText("Waiting for review");
+
+  // Discard the one part of the new notes in the worker's worktree, then put it back.
+  const diff = item.getByTestId("inbox-diff");
+  await diff.getByRole("button", { name: /^Discard part 1/ }).click();
+  await expect(diff).toContainText("This review has no files.");
+  await diff.getByRole("button", { name: "Put back the last discarded part" }).click();
+  await expect(diff).toContainText("Notes reworked after your comment.");
 });
 
 // The daemon's fake forge has the project's own branches on `origin`, and
