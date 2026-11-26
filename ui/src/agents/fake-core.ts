@@ -25,6 +25,7 @@ import type {
   SandboxReport,
   SessionId,
   SessionInfo,
+  SetupReport,
   Task,
 } from "../lib/protocol";
 import { CoreError, type Transport } from "../lib/transport";
@@ -58,6 +59,8 @@ export class FakeAgentCore implements Transport {
     billing: { kind: "subscription" },
     api_key_in_env: false,
   };
+  /** What `setup.check` answers; `null`: it fails. */
+  setupReport: SetupReport | null = null;
   /** What `agents.providers` answers. */
   providers: ProviderInfo[] = [
     {
@@ -243,6 +246,9 @@ export class FakeAgentCore implements Transport {
         this.message(info.id, { kind: "user_text", text: request.params.prompt, from: "person" });
         return { type: "agents.session", data: { ...info } };
       }
+      case "setup.check":
+        if (!this.setupReport) throw new CoreError({ code: "unavailable", message: "setup.check is not faked" });
+        return { type: "setup.report", data: this.setupReport };
       case "agents.providers":
         return { type: "agents.providers", data: this.providers.map((p) => ({ ...p })) };
       case "agents.setup":

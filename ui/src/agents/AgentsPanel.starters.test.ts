@@ -1,5 +1,7 @@
 import { flushSync, mount, unmount } from "svelte";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { settings } from "../settings/panes.svelte";
+import { mainView } from "../shell/main-view.svelte";
 import { Workspace } from "../shell/workspace.svelte";
 import { FakeAgentCore } from "./fake-core";
 import { STARTERS } from "./starters";
@@ -86,5 +88,36 @@ describe("AgentsPanel starters and summary", () => {
       r.textContent?.replace(/\s+/g, " ").trim(),
     );
     expect(lines).toEqual(["Done fixed the typo", "Checked just test passed", "Left Nothing"]);
+  });
+});
+
+describe("AgentsPanel setup link", () => {
+  const link = () =>
+    [...target.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent?.trim() === "Check setup");
+
+  it("is a quiet link while the check finds nothing, or cannot run", async () => {
+    await setup();
+    expect(link()).toBeDefined();
+    expect(target.querySelector("[data-testid=agents-setup-problems]")).toBeNull();
+  });
+
+  it("names how many problems the check found and opens Setup check", async () => {
+    const core = new FakeAgentCore();
+    core.setupReport = {
+      agents: [{ id: "claude", name: "Claude", setup: { ...core.setup } }],
+      git: { state: "checked", found: { installed: false, version: null } },
+      gh: { state: "skipped" },
+      sandbox: { state: "unavailable", reason: "install bubblewrap (bwrap) to sandbox agents" },
+    };
+    await setup(core);
+    expect(core.sent("setup.check").map((c) => c.params)).toEqual([{ project: "p1" }]);
+    expect(target.querySelector("[data-testid=agents-setup-problems]")?.textContent).toContain(
+      "Setup check found 2 problems on this computer.",
+    );
+    link()?.click();
+    flushSync();
+    expect(settings.pane).toBe("setup");
+    expect(mainView.current).toBe("settings");
+    mainView.close(false);
   });
 });

@@ -41,6 +41,7 @@ import FirstSteps from "./FirstSteps.svelte";
 import { hints } from "./hints.svelte";
 import { agentPrefs } from "./prefs.svelte";
 import Leftovers from "./Leftovers.svelte";
+import SetupLink from "./SetupLink.svelte";
 import Starters from "./Starters.svelte";
 import { chatLink } from "./links";
 import { diskLabel, pressureNote, resourcesLine, resourcesTip } from "./resources";
@@ -1434,6 +1435,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
       {#if list.length === 0}
         <p class="intro" data-testid="agents-empty">No tasks yet.</p>
         <Starters disabled={busy || blocked} pick={(starter) => void startStarter(starter)} />
+        <SetupLink />
       {:else}
         <ul class="sessions" aria-label="Tasks">
           {#each ordered as session (session.id)}
