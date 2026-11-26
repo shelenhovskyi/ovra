@@ -101,7 +101,8 @@ async fn a_file_the_person_changed_after_the_checkpoint_is_kept_and_listed() {
     let note = h.direct.note(&h.session).unwrap_or_default();
     assert!(
         note.ends_with(
-            "changes from turns 1 to 2 are undone. Files the person changed are kept: p.txt."
+            "changes from turns 1 to 2 are undone. Files the person changed are kept:\n\
+             <untrusted origin=\"file names\">p.txt</untrusted>"
         ),
         "{note}"
     );
