@@ -11,13 +11,14 @@ mod edit;
 mod file_list;
 mod files;
 mod git;
+mod import;
 mod listing;
 mod resolve;
 mod search;
 mod watch;
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use ovra_core::path::RelPath;
@@ -28,6 +29,9 @@ use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::{BoxFuture, EventSink, FsService, Result, SearchCancel};
 
 use crate::watch::{SharedFiles, Timing, Watch};
+
+pub use crate::import::drops::{DROP_TTL, Dropped, Drops};
+pub use crate::import::{Clash, Imported};
 
 /// The real file service.
 #[derive(Debug, Default)]
@@ -61,6 +65,20 @@ impl FsIndex {
             trash,
             ..Self::default()
         }
+    }
+
+    /// Copies `sources`, absolute paths the person dropped onto the window,
+    /// into the folder `into` of the project at `root` (see `import`). Only
+    /// the desktop app calls this, with paths from the window's drop event;
+    /// it is not part of `FsService`, so no client frame reaches it. Blocks.
+    pub fn import(
+        &self,
+        root: &Path,
+        sources: &[PathBuf],
+        into: &RelPath,
+        clash: Clash,
+    ) -> Result<Imported> {
+        import::import(root, sources, into, clash, &self.trash, import::LIMITS)
     }
 
     fn watches(&self) -> MutexGuard<'_, HashMap<ProjectId, Watch>> {

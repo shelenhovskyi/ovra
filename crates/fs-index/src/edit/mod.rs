@@ -170,7 +170,7 @@ fn split(path: &RelPath) -> Result<(RelPath, &str)> {
 
 /// Refuses a resolved parent outside the root or inside a `.git` folder
 /// (reached through a symlink: the core refuses `.git` in the path itself).
-fn check_parent(root: &Path, real_parent: &Path, path: &RelPath) -> Result<()> {
+pub(crate) fn check_parent(root: &Path, real_parent: &Path, path: &RelPath) -> Result<()> {
     let root = resolve::root(root)?;
     let Ok(rest) = real_parent.strip_prefix(&root) else {
         return Err(forbidden(path, "points outside the project"));
@@ -224,7 +224,7 @@ fn make_parents(target: &Path, path: &RelPath) -> Result<()> {
 
 /// Refuses `target` inside the folder `source`, also when a symlink in
 /// `target`'s parents leads there.
-fn not_inside(source: &Path, target: &Path) -> Result<()> {
+pub(crate) fn not_inside(source: &Path, target: &Path) -> Result<()> {
     if target.starts_with(source) {
         return Err(ProtocolError::new(
             ErrorCode::BadRequest,
@@ -344,24 +344,24 @@ fn open_unchanged(path: &Path, meta: &fs::Metadata, dir: bool) -> io::Result<Fil
 
 /// The file `meta` describes, opened for reading.
 #[cfg(unix)]
-fn open_file(path: &Path, meta: &fs::Metadata) -> io::Result<File> {
+pub(crate) fn open_file(path: &Path, meta: &fs::Metadata) -> io::Result<File> {
     open_unchanged(path, meta, false)
 }
 
 /// Refuses a folder swapped (for a link, say) since `meta` was read, just
 /// before it is listed.
 #[cfg(unix)]
-fn check_dir(path: &Path, meta: &fs::Metadata) -> io::Result<()> {
+pub(crate) fn check_dir(path: &Path, meta: &fs::Metadata) -> io::Result<()> {
     open_unchanged(path, meta, true).map(drop)
 }
 
 #[cfg(not(unix))]
-fn open_file(path: &Path, _: &fs::Metadata) -> io::Result<File> {
+pub(crate) fn open_file(path: &Path, _: &fs::Metadata) -> io::Result<File> {
     File::open(path)
 }
 
 #[cfg(not(unix))]
-fn check_dir(_: &Path, _: &fs::Metadata) -> io::Result<()> {
+pub(crate) fn check_dir(_: &Path, _: &fs::Metadata) -> io::Result<()> {
     Ok(())
 }
 

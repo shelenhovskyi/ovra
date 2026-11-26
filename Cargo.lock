@@ -3598,6 +3598,7 @@ dependencies = [
  "insta",
  "notify",
  "ovra-core",
+ "rand 0.9.5",
  "rustix",
  "tempfile",
  "tokio",
