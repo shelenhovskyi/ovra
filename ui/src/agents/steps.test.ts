@@ -105,6 +105,6 @@ describe("notes", () => {
   it("shows the person's @ context as one line, the message folded under it", () => {
     const text = "The person added this context to the message. Read them yourself.\n\nFile: `a.rs`";
     const [shown] = entries([{ kind: "user_text", text, from: "ovra" }]);
-    expect(shown).toEqual({ kind: "notes", notes: [{ line: "Context sent", rest: text }] });
+    expect(shown).toMatchObject({ kind: "notes", notes: [{ line: "Context sent", rest: text }] });
   });
 });

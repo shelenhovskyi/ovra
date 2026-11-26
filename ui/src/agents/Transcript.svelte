@@ -9,6 +9,7 @@ import { untrack } from "svelte";
 import { describeTool } from "../approvals/describe";
 import type { AgentMessage, AgentStatus, Billing, MessageFrom } from "../lib/protocol";
 import Icon from "../shell/Icon.svelte";
+import { turnsOf, turnsText } from "./checkpoints";
 import { isAuthFailure, isInterrupt, withoutEchoes } from "./errors";
 import LiveActivity from "./LiveActivity.svelte";
 import { usageText } from "./sessions.svelte";
@@ -36,7 +37,10 @@ import { ideResult } from "./tool-results";
  * a working session does now. `onretry`, when given, puts Retry on an error
  * that ended the last turn. `root`: the session's folder; files in it show
  * relative to it. `denied` tells a step the person denied from one that
- * failed, whatever the agent was told.
+ * failed, whatever the agent was told. `ongoback`, when given, puts "Go
+ * back to here" on the person's message of each turn in `checkpoints`
+ * (`docs/specs/checkpoints.md`); `goBackBlocked` says why it cannot now.
+ * `undone`: the turns a go-back undid, shown greyed under a divider.
  */
 let {
   messages,
@@ -48,6 +52,10 @@ let {
   partial = "",
   onretry,
   denied: answeredNo = () => false,
+  checkpoints = new Set<number>(),
+  goBackBlocked = null,
+  undone = null,
+  ongoback,
 }: {
   messages: AgentMessage[];
   agent?: string;
@@ -59,6 +67,10 @@ let {
   onretry?: () => void;
   /** Whether the person's own answer denied this call (known while this window watched it). */
   denied?: (use: { name: string; input: unknown }) => boolean;
+  checkpoints?: ReadonlySet<number>;
+  goBackBlocked?: string | null;
+  undone?: { from: number; to: number } | null;
+  ongoback?: (turn: number, text: string) => void;
 } = $props();
 
 /** Who wrote what an agent was sent: never "You" for text the person did not write. */
@@ -107,6 +119,47 @@ const shown = $derived(
     withoutEchoes(messages).filter((m) => m.kind !== "turn_end" || m.usage.input_tokens + m.usage.output_tokens > 0),
   ),
 );
+
+const turnOf = $derived(turnsOf(messages));
+const latest = $derived(Math.max(0, ...turnOf.values()));
+/** Each entry's turn, from 1; 0 before the first message. */
+const turnAt = $derived(
+  shown.map((entry) => {
+    const key =
+      entry.kind === "message"
+        ? entry.message
+        : entry.kind === "notes"
+          ? entry.first
+          : (entry.steps[0]?.use ?? entry.steps[0]?.result);
+    return key ? (turnOf.get(key) ?? 0) : 0;
+  }),
+);
+/** The person's first message in each turn: "Go back to here" sits on it. */
+const opens = $derived.by(() => {
+  const seen = new Set<number>();
+  const out = new Set<AgentMessage>();
+  for (const message of messages) {
+    const turn = turnOf.get(message) ?? 0;
+    if (message.kind !== "user_text" || message.from !== "person" || seen.has(turn)) continue;
+    seen.add(turn);
+    out.add(message);
+  }
+  return out;
+});
+/** The turn whose go-back the person is asked to confirm. */
+let asking = $state<number | null>(null);
+const isUndone = (turn: number) => undone !== null && turn >= undone.from && turn <= undone.to;
+
+/** The question opens under its message: it scrolls into sight, its buttons too. */
+function inSight(node: HTMLElement): void {
+  node.scrollIntoView?.({ block: "nearest" });
+}
+
+function closeOnEscape(event: KeyboardEvent): void {
+  if (event.code !== "Escape") return;
+  event.stopPropagation();
+  asking = null;
+}
 
 function lines(text: string): string {
   const n = text.split("\n").length;
@@ -233,10 +286,16 @@ const lastError = $derived.by(() => {
   data-testid="transcript"
 >
   {#each shown as entry, i (i)}
+    {@const turn = turnAt[i] ?? 0}
+    {#if undone && turn === undone.from && turnAt[i - 1] !== turn}
+      <li class="set-back" data-testid="set-back-divider">
+        <span class="divider">Files set back to before this message</span>
+      </li>
+    {/if}
     {#if entry.kind === "steps" && entry.steps.length === 1 && entry.steps[0]}
-      <li class="steps">{@render card(entry.steps[0])}</li>
+      <li class="steps" class:undone={isUndone(turn)}>{@render card(entry.steps[0])}</li>
     {:else if entry.kind === "steps"}
-      <li class="steps">
+      <li class="steps" class:undone={isUndone(turn)}>
         <details class="group">
           <summary>{foldLabel(entry.steps)}</summary>
           <div class="cards">
@@ -246,7 +305,7 @@ const lastError = $derived.by(() => {
       </li>
     {:else if entry.kind === "notes"}
       <!-- What Ovra told the agent: one quiet line; what the agent read, folded. -->
-      <li class="notes">
+      <li class="notes" class:undone={isUndone(turn)}>
         {#if entry.notes.length === 1 && !entry.notes[0]?.rest}
           <span class="line">{notesLabel(entry.notes)}</span>
         {:else}
@@ -267,10 +326,55 @@ const lastError = $derived.by(() => {
     {:else}
       {@const message = entry.message}
       {@const sub = "parent" in message && message.parent ? "Subagent " : ""}
-      <li class={isInterrupt(message) ? "interrupted" : message.kind} class:sub={sub !== ""}>
+      <li
+        class={isInterrupt(message) ? "interrupted" : message.kind}
+        class:sub={sub !== ""}
+        class:undone={isUndone(turn)}
+      >
         {#if message.kind === "user_text"}
           <span class="who">{FROM[message.from]}</span>
           <p>{message.text}</p>
+          {#if ongoback && checkpoints.has(turn) && opens.has(message)}
+            <!-- Quiet until hovered or focused; while a turn runs it says why it waits. -->
+            <button
+              type="button"
+              class="back"
+              class:shown={asking === turn}
+              data-testid="go-back"
+              aria-disabled={goBackBlocked !== null}
+              aria-expanded={asking === turn}
+              title={goBackBlocked ?? "Set the files back to before this message"}
+              onclick={() => (asking = asking === turn ? null : turn)}>Go back to here</button
+            >
+            {#if asking === turn && goBackBlocked}
+              <p class="why">{goBackBlocked}</p>
+            {:else if asking === turn}
+              <!-- Escape from either button closes it. -->
+              <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+              <div
+                class="confirm"
+                role="group"
+                aria-label="Go back to here?"
+                data-testid="go-back-confirm"
+                onkeydown={closeOnEscape}
+                {@attach inSight}
+              >
+                <p>Undo the agent's changes from {turnsText(turn, Math.max(turn, latest))}?</p>
+                <p class="why">Your own changes are kept. Ignored files, such as node_modules, are not restored.</p>
+                <span class="buttons">
+                  <button type="button" class="quiet" onclick={() => (asking = null)}>Cancel</button>
+                  <button
+                    type="button"
+                    class="quiet strong"
+                    onclick={() => {
+                      asking = null;
+                      ongoback(turn, message.text);
+                    }}>Go back</button
+                  >
+                </span>
+              </div>
+            {/if}
+          {/if}
         {:else if message.kind === "assistant_text"}
           <span class="who">{sub}{agent}</span>
           <p>{message.text}</p>
@@ -335,6 +439,73 @@ const lastError = $derived.by(() => {
     flex: 1;
     height: 1px;
     background: var(--s3);
+  }
+  .back {
+    margin-top: 4px;
+    height: 24px;
+    padding: 0 8px;
+    font: inherit;
+    font-size: 13px;
+    color: var(--text-2);
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-sm);
+    opacity: 0;
+  }
+  .user_text:hover .back,
+  .back:focus-visible,
+  .back.shown {
+    opacity: 1;
+  }
+  .back:hover:not([aria-disabled="true"]),
+  .quiet:hover {
+    color: var(--text);
+    background: var(--s4);
+  }
+  .back[aria-disabled="true"] {
+    cursor: default;
+  }
+  .why {
+    font-size: 13px;
+    color: var(--text-2);
+  }
+  .confirm {
+    margin-top: 6px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 13px;
+    background: var(--s2);
+    border-radius: var(--radius);
+  }
+  .confirm .buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 4px;
+  }
+  .quiet {
+    height: 28px;
+    padding: 0 8px;
+    font: inherit;
+    font-size: 13px;
+    color: var(--text-2);
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-sm);
+  }
+  .strong {
+    color: var(--text);
+    font-weight: 500;
+  }
+  /* Turns a go-back undid: still there to read, set apart by tone. */
+  .undone {
+    opacity: 0.6;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .back {
+      transition: opacity 0.1s;
+    }
   }
   .object {
     min-width: 0;

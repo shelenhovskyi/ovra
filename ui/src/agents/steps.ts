@@ -19,8 +19,8 @@ export type Note = { line: string; rest: string };
 type Entry =
   | { kind: "message"; message: AgentMessage }
   | { kind: "steps"; steps: Step[] }
-  /** Ovra's notes in a row: one quiet line. */
-  | { kind: "notes"; notes: Note[] };
+  /** Ovra's notes in a row: one quiet line. `first`: the first note's message. */
+  | { kind: "notes"; notes: Note[]; first: AgentMessage };
 
 /** How the core's message with the person's @ context begins (crates/core/src/context.rs). */
 const CONTEXT_HEADER = "The person added this context to the message.";
@@ -116,7 +116,7 @@ export function entries(messages: AgentMessage[]): Entry[] {
     const last = out.at(-1);
     if (item.kind === "message" && item.message.kind === "user_text" && item.message.from === "ovra") {
       if (last?.kind === "notes") last.notes.push(note(item.message.text));
-      else out.push({ kind: "notes", notes: [note(item.message.text)] });
+      else out.push({ kind: "notes", notes: [note(item.message.text)], first: item.message });
       continue;
     }
     if (item.kind === "message") {
