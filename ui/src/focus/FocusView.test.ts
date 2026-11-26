@@ -113,6 +113,51 @@ describe("FocusView", () => {
     });
   });
 
+  it("offers the agent's answers to tap, marks the recommended one and sends its exact text", async () => {
+    const core = await setup((core) => {
+      const coordinator = core.addSession("p1", "Make sync robust", { state: "idle" });
+      core.tasks = [
+        {
+          id: "t1",
+          project: "p1",
+          coordinator: coordinator.id,
+          workers: [],
+          limits: { max_workers: 3, budget_micro_usd: null },
+          spent_micro_usd: 0,
+        },
+      ];
+      core.boards.set("t1", [
+        {
+          id: "b1",
+          author: { kind: "worker", name: "retry" },
+          body: {
+            kind: "question",
+            to: { kind: "person" },
+            text: "How many retries?",
+            options: ["3 tries", "<b>5</b> tries"],
+            recommended: 1,
+            reason: "The server is often slow at night.",
+          },
+        },
+      ]);
+    });
+    await vi.waitFor(() => expect(target.querySelectorAll("[data-testid=focus-option]")).toHaveLength(2));
+    const options = [...target.querySelectorAll<HTMLButtonElement>("[data-testid=focus-option]")];
+    expect(options.map((o) => o.textContent)).toEqual(["3 tries", "<b>5</b> triesRecommended"]);
+    expect(options[1]?.classList.contains("recommended")).toBe(true);
+    expect(options[0]?.classList.contains("recommended")).toBe(false);
+    expect(target.querySelector("[data-testid=focus-option] b")).toBeNull();
+    expect(text("focus-reason")).toBe("The server is often slow at night.");
+    expect(core.calls.some((c) => c.method === "board.answer")).toBe(false);
+    options[1]?.click();
+    await vi.waitFor(() => expect(target.querySelectorAll("[data-testid=focus-question]")).toHaveLength(0));
+    expect(core.calls.find((c) => c.method === "board.answer")?.params).toEqual({
+      task: "t1",
+      question: "b1",
+      text: "<b>5</b> tries",
+    });
+  });
+
   it("shows a review that waits, and See changes leaves Focus for Reviews", async () => {
     const opened = vi.fn();
     const off = registerCommand({ id: "inbox.toggle", title: "Reviews", run: opened });

@@ -17,6 +17,11 @@ let busy = $state(false);
 let error = $state<string | null>(null);
 
 const asked = $derived(question.body.kind === "question" ? question.body.text : "");
+// Answers to pick, from the agent. The recommended one is marked, never
+// picked for the person: a tap sends that option's exact text.
+const options = $derived(question.body.kind === "question" ? (question.body.options ?? []) : []);
+const recommended = $derived(question.body.kind === "question" ? question.body.recommended : undefined);
+const reason = $derived(question.body.kind === "question" ? question.body.reason : undefined);
 
 async function send(answer: string): Promise<void> {
   const value = answer.trim();
@@ -52,16 +57,31 @@ function onkeydown(event: KeyboardEvent): void {
 >
   <p class="who">Question from {authorName(question.author)} · {taskName}</p>
   <h3>{asked}</h3>
+  {#if options.length}
+    <div class="options" role="group" aria-label="Answers">
+      {#each options as option, i (i)}
+        <button
+          type="button"
+          class:recommended={recommended === i}
+          disabled={busy}
+          data-testid="focus-option"
+          onclick={() => void send(option)}
+          >{option}{#if recommended === i}<span class="tag">Recommended</span>{/if}</button
+        >
+      {/each}
+    </div>
+    {#if reason}<p class="why" data-testid="focus-reason">{reason}</p>{/if}
+  {/if}
   <label class="visually-hidden" for={`focus-answer-${task}-${question.id}`}>Your answer</label>
   <textarea
     id={`focus-answer-${task}-${question.id}`}
     rows="2"
-    placeholder="Your answer"
+    placeholder={options.length ? "Or answer in your words" : "Your answer"}
     bind:value={text}
     {onkeydown}
   ></textarea>
   <div class="acts">
-    <button type="submit" class="primary" disabled={busy || !text.trim()}>Answer</button>
+    <button type="submit" class:primary={!options.length} disabled={busy || !text.trim()}>Answer</button>
   </div>
   {#if error}<p class="error" role="alert">{error}</p>{/if}
 </form>
@@ -118,6 +138,31 @@ function onkeydown(event: KeyboardEvent): void {
     color: var(--accent-ink);
     background: var(--accent);
     font-weight: 500;
+  }
+  .options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .options button {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    text-align: start;
+    overflow-wrap: anywhere;
+  }
+  .options .recommended {
+    box-shadow: inset 0 0 0 1px var(--accent);
+  }
+  .tag {
+    font-size: 11px;
+    color: var(--accent);
+    font-weight: 500;
+  }
+  .why {
+    font-size: 13px;
+    color: var(--text-2);
+    overflow-wrap: anywhere;
   }
   .error {
     color: var(--danger);
