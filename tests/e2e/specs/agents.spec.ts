@@ -548,3 +548,51 @@ test("Focus shows only the agents' work and answers approvals there", async ({ p
   await expect(page.getByTestId("focus-bar")).toHaveCount(0);
   await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();
 });
+
+test("go back to a message: its file is gone, the message is back in the box, and undo brings it back", async ({
+  page,
+}) => {
+  // Tasks that start with "Checkpoint" write one.txt, then two.txt on the reply.
+  const dir = await openGitProject(page, "ovra-agents-checkpoints-");
+  const approvals = page.getByTestId("approvals");
+  const allow = async (name: string) => {
+    const card = approvals.getByRole("group", { name });
+    await expect(card).toBeVisible();
+    await arm(page);
+    const yes = card.getByRole("button", { name: "Allow" });
+    await expect(yes).toHaveAttribute("aria-disabled", "false");
+    await yes.click();
+  };
+  const session = page.getByTestId("agent-session");
+  await page.getByRole("textbox", { name: "Describe a task" }).fill("Checkpoint: write one");
+  await page.getByRole("button", { name: "Start", exact: true }).click();
+  await allow("Write one.txt");
+  await expect(session.getByTestId("transcript").getByText("Wrote one.txt.", { exact: true })).toBeVisible();
+  const reply = page.getByRole("textbox", { name: "Reply", exact: true });
+  await reply.fill("Now write two");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await allow("Write two.txt");
+  await expect(session.getByTestId("transcript").getByText("Wrote two.txt.", { exact: true })).toBeVisible();
+  await expect(session.getByRole("status")).toHaveText("Done");
+  expect(readIfThere(join(dir, "two.txt"))).toBe("two.txt from the agent\n");
+
+  // From the keyboard: the quiet action shows on focus.
+  const back = session.getByRole("button", { name: "Go back to here" });
+  await expect(back).toHaveCount(2);
+  await back.nth(1).focus();
+  await page.keyboard.press("Enter");
+  const confirm = session.getByTestId("go-back-confirm");
+  await expect(confirm).toContainText("Undo the agent's changes from turn 2?");
+  await confirm.getByRole("button", { name: "Go back", exact: true }).click();
+  const result = session.getByTestId("go-back-result");
+  await expect(result).toContainText("Set back: two.txt.");
+  expect(readIfThere(join(dir, "two.txt"))).toBeNull();
+  expect(readIfThere(join(dir, "one.txt"))).toBe("one.txt from the agent\n");
+  await expect(reply).toHaveValue("Now write two");
+  await expect(session.getByTestId("set-back-divider")).toBeVisible();
+
+  await result.getByRole("button", { name: "Undo go back" }).click();
+  await expect(result).toContainText("Put back: two.txt.");
+  expect(readIfThere(join(dir, "two.txt"))).toBe("two.txt from the agent\n");
+  await expect(session.getByTestId("set-back-divider")).toBeHidden();
+});
