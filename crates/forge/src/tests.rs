@@ -178,6 +178,42 @@ async fn fetch_returns_the_commit_the_remote_branch_is_at() {
     assert_eq!(missing.err().map(|e| e.code), Some(ErrorCode::NotFound));
 }
 
+#[tokio::test]
+async fn fetch_and_push_leave_no_ref_behind_and_run_no_hooks() {
+    let repo = Repo::new();
+    let two = repo.commit("two");
+    let hooks = repo.work.join(".git").join("hooks");
+    ok(std::fs::create_dir_all(&hooks));
+    let marker = repo.work.join("hook-ran");
+    for hook in ["reference-transaction", "pre-push", "post-update"] {
+        let path = hooks.join(hook);
+        let script = format!("#!/bin/sh\necho {hook} >> '{}'\n", marker.display());
+        ok(std::fs::write(&path, script));
+        ok(std::fs::set_permissions(
+            &path,
+            std::fs::Permissions::from_mode(0o755),
+        ));
+    }
+    // Someone's FETCH_HEAD names another commit: it is not read.
+    ok(std::fs::write(
+        repo.work.join(".git").join("FETCH_HEAD"),
+        format!("{two}\t\tbranch 'x' of elsewhere\n"),
+    ));
+    let fetched = repo
+        .forge()
+        .fetch(repo.work.clone(), "origin".into(), "main".into())
+        .await;
+    assert_eq!(ok(fetched), repo.remote_branch("main"));
+    assert_eq!(push(&repo, &two, None).await, None);
+    let missing = repo
+        .forge()
+        .fetch(repo.work.clone(), "origin".into(), "nope".into())
+        .await;
+    assert_eq!(missing.err().map(|e| e.code), Some(ErrorCode::NotFound));
+    assert_eq!(git(&repo.work, &["for-each-ref", "refs/ovra"]), "");
+    assert!(!marker.exists(), "{}", ok(std::fs::read_to_string(&marker)));
+}
+
 /// Pushes `commit` to `ovra/t1/fix` on `origin`; the error code if refused.
 async fn push(repo: &Repo, commit: &str, expect: Option<&str>) -> Option<ErrorCode> {
     let (commit, expect) = (commit.to_owned(), expect.map(str::to_owned));

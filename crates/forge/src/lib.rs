@@ -15,12 +15,29 @@ mod run;
 mod tests;
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use ovra_core::protocol::pr::{GhStatus, PrDraft, PrInfo, PrStatus};
 use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::{BoxFuture, Forge, Result};
 
 use run::{GH_TIMEOUT, GIT_TIMEOUT, Programs, failed, run};
+
+/// Given to the git calls that update refs: no hook of the repository runs
+/// (`reference-transaction` runs on every ref update, `pre-push` is also
+/// skipped by `--no-verify`). On Windows `NUL` is a device in every
+/// folder, so no hook can be found below it either.
+const NO_HOOKS: [&str; 2] = [
+    "-c",
+    if cfg!(windows) {
+        "core.hooksPath=NUL"
+    } else {
+        "core.hooksPath=/dev/null"
+    },
+];
+
+/// Numbers this process's fetches, for their private refs.
+static FETCHES: AtomicU64 = AtomicU64::new(0);
 
 /// The forge through the `gh` and `git` on the person's `PATH`.
 #[derive(Debug, Default)]
@@ -102,23 +119,19 @@ impl GhForge {
         parse::remote(remote)?;
         parse::branch(branch)?;
         let git = self.git()?;
-        let args = ["fetch", remote, branch];
-        let fetched = run(&git, root, "git fetch", &args, None, GIT_TIMEOUT).await?;
-        if !fetched.success {
-            if fetched.stderr.contains("couldn't find remote ref") {
-                return Err(ProtocolError::new(
-                    ErrorCode::NotFound,
-                    "the remote has no branch of that name",
-                ));
-            }
-            return Err(failed("git fetch", &fetched));
+        // A ref of this call's own: `FETCH_HEAD` is rewritten by any other
+        // fetch in the repository (the person's, an editor's) meanwhile.
+        let fetches = FETCHES.fetch_add(1, Ordering::Relaxed);
+        let private = format!("refs/ovra/fetch/{}-{fetches}", std::process::id());
+        let fetched = fetch_into(&git, root, remote, branch, &private).await;
+        // Deleted however the fetch ended: a failed one may have written it.
+        let args = [NO_HOOKS[0], NO_HOOKS[1], "update-ref", "-d", &private];
+        let deleted = run(&git, root, "git update-ref", &args, None, GH_TIMEOUT).await?;
+        let head = fetched?;
+        if !deleted.success {
+            return Err(failed("git update-ref", &deleted));
         }
-        let args = ["rev-parse", "--verify", "--quiet", "FETCH_HEAD^{commit}"];
-        let head = run(&git, root, "git rev-parse", &args, None, GH_TIMEOUT).await?;
-        if !head.success {
-            return Err(failed("git rev-parse", &head));
-        }
-        Ok(head.stdout.trim().to_owned())
+        Ok(head)
     }
 
     async fn push_commit(
@@ -158,6 +171,8 @@ impl GhForge {
         );
         let refspec = format!("{commit}:refs/heads/{branch}");
         let args = [
+            NO_HOOKS[0],
+            NO_HOOKS[1],
             "push",
             "--no-verify",
             "--porcelain",
@@ -239,6 +254,35 @@ impl GhForge {
         // Scrubbed whole: a cut inside a URL would hide its `://`.
         Ok(parse::log_tail(&parse::scrub(&log.stdout)).to_owned())
     }
+}
+
+/// Fetches `branch` of `remote` into the ref `into` and returns its commit.
+async fn fetch_into(
+    git: &Path,
+    root: &Path,
+    remote: &str,
+    branch: &str,
+    into: &str,
+) -> Result<String> {
+    let refspec = format!("+refs/heads/{branch}:{into}");
+    let args = [NO_HOOKS[0], NO_HOOKS[1], "fetch", remote, &refspec];
+    let fetched = run(git, root, "git fetch", &args, None, GIT_TIMEOUT).await?;
+    if !fetched.success {
+        if fetched.stderr.contains("couldn't find remote ref") {
+            return Err(ProtocolError::new(
+                ErrorCode::NotFound,
+                "the remote has no branch of that name",
+            ));
+        }
+        return Err(failed("git fetch", &fetched));
+    }
+    let commit = format!("{into}^{{commit}}");
+    let args = ["rev-parse", "--verify", "--quiet", &commit];
+    let head = run(git, root, "git rev-parse", &args, None, GH_TIMEOUT).await?;
+    if !head.success {
+        return Err(failed("git rev-parse", &head));
+    }
+    Ok(head.stdout.trim().to_owned())
 }
 
 impl Forge for GhForge {
