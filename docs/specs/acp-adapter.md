@@ -1,6 +1,7 @@
 # The generic ACP adapter
 
-Status: proposed, 2026-11-26; step 7 of `docs/research/provider-agnostic.md`
+Status: approved 2026-11-26 with the recommended option of every decision
+(the owner's 30-minute rule for unanswered reversible questions); step 7 of `docs/research/provider-agnostic.md`
 (migration plan), under ADR 0011. The crate stub (`crates/acp-client`) is on
 `main`.
 
@@ -37,12 +38,14 @@ Ovra.
    an async runtime layer and types for the whole protocol; the CDP client
    in `crates/browser` set the same precedent. Recommended.
    Alternative: the SDK crate, less code now, its release pace to follow.
-2. **A router in the daemon and app, not in the core.** A small
-   `AgentRuntimes` value (in `ovra-core`, next to the trait) holds one
-   runtime per `AgentKind` and forwards each call by `spec.agent`;
-   `providers()` joins their lists. The daemon and app build it from
-   `ClaudeCli` and `AcpAgents`. The new dependency edges are daemon and app
-   on `ovra-acp-client` (`scripts/crate-graph.json`).
+2. **A router comes with the second provider.** While `AgentKind` has one
+   variant, nothing can be routed, so the router lands with step 9: a small
+   `AgentRuntimes` value (in `ovra-core`, next to the trait) that holds one
+   runtime per `AgentKind`, forwards each call by `spec.agent` and joins
+   `providers()`; the daemon and app then build it from `ClaudeCli` and
+   `AcpAgents` (new edges in `scripts/crate-graph.json`). Until then the
+   adapter is tested inside its crate, its driver over in-memory pipes and
+   its process layer against the fake agent.
 3. **Permissions go through the core as Claude's do.**
    `session/request_permission` becomes a permission request with the
    call's neutral `ToolCall` (ACP sends `kind`, `locations` and the raw
@@ -74,13 +77,13 @@ Ovra.
 - Integration (crate seam): `AcpAgents` against the fake ACP agent through
   the fake sandbox: a turn with text, a tool call that asks and is allowed,
   one that is denied, an interrupt, an agent that crashes.
-- Core: the router sends each session to its provider's runtime and
-  refuses an unknown provider.
+- Core (with step 9): the router sends each session to its provider's
+  runtime and refuses an unknown provider.
 - e2e: none in v1; they come with the first real provider (step 9).
 
 ## Size
 
-Five commits of under ~400 lines each: router in the core, crate graph and
-daemon/app wiring, v1 types, session driver, fake agent and integration
-tests. The adapter starts processes through the sandbox, so its driver and
+Three or four commits of under ~400 lines each: v1 types with the session
+driver over pipes, the process layer through the sandbox, the fake agent and
+integration tests. The adapter starts processes through the sandbox, so its driver and
 the router get the independent reviewer's verdict before they land.
