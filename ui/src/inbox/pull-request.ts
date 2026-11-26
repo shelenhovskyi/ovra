@@ -19,6 +19,18 @@ export function canOpenPr(item: ReviewItem): boolean {
 }
 
 /** A comment reopened a published item and the worker's new work waits: it can be pushed to the same pull request. */
+/** GitHub runs these on a push, with the repository's secrets. */
+export function isWorkflow(path: string): boolean {
+  return /^\.github\/(workflows|actions)\//i.test(path);
+}
+
+/** What publishing the protected files `paths` means, in plain words. */
+export function protectedWarning(paths: string[]): string {
+  const files = `These files are protected: ${paths.join(", ")}.`;
+  if (!paths.some(isWorkflow)) return `${files} Publish them only if you checked their diffs.`;
+  return `${files} Workflow changes run on GitHub, with the repository's secrets, as soon as the branch is pushed, before anyone merges.`;
+}
+
 export function canUpdatePr(item: ReviewItem): boolean {
   return item.state === "open" && item.pull_request !== undefined && item.files.length > 0;
 }

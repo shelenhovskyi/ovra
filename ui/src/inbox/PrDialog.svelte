@@ -8,7 +8,7 @@ import { onMount, tick } from "svelte";
 import type { PrPrepared, ReviewItem } from "../lib/protocol";
 import { openTerminalIn } from "../terminal/open-in";
 import { fileSummary } from "./describe";
-import { ghAccount, ghProblem } from "./pull-request";
+import { ghAccount, ghProblem, protectedWarning } from "./pull-request";
 import { message as errorText, type ReviewInbox } from "./reviews.svelte";
 
 let {
@@ -32,6 +32,8 @@ let branch = $state("");
 let title = $state("");
 let body = $state("");
 let draft = $state(true);
+/** The person chose to publish the protected files listed too. */
+let includeProtected = $state(false);
 /** The files the person looked at in Reviews: what Create sends. */
 // svelte-ignore state_referenced_locally
 const reviewed = item.fingerprint;
@@ -40,10 +42,15 @@ const problem = $derived(prepared ? ghProblem(prepared.gh) : null);
 const account = $derived(prepared ? ghAccount(prepared.gh) : null);
 /** The worker's files moved on since the person looked at them in Reviews. */
 const moved = $derived(prepared !== null && prepared.fingerprint !== reviewed);
+/** Files the review marks: they go out only when the person ticks the box. */
+const marked = $derived(prepared ? prepared.files.filter((f) => f.protected).map((f) => f.path) : []);
 const missing = $derived(
-  [!title.trim() && "a title", !base.trim() && "a base branch", !branch.trim() && "a branch name"].filter(
-    (m): m is string => typeof m === "string",
-  ),
+  [
+    !title.trim() && "a title",
+    !base.trim() && "a base branch",
+    !branch.trim() && "a branch name",
+    marked.length > 0 && !includeProtected && "the box for the protected files ticked",
+  ].filter((m): m is string => typeof m === "string"),
 );
 const canCreate = $derived(
   prepared !== null && !problem && prepared.conflicts.length === 0 && !moved && missing.length === 0,
@@ -89,7 +96,7 @@ async function create(): Promise<void> {
     body,
     draft,
   };
-  const pr = await inbox.createPr(item.id, sent, reviewed);
+  const pr = await inbox.createPr(item.id, sent, reviewed, marked.length > 0 && includeProtected);
   sending = false;
   if (pr) onclose(`Pull request #${pr.number} opened.`);
   else error = inbox.error;
@@ -168,9 +175,22 @@ function onkeydown(event: KeyboardEvent): void {
 
     <ul class="files" aria-label="Files in the pull request">
       {#each prepared.files as file (file.path)}
-        <li><span class="mono">{file.path}</span> <span class="hint">{fileSummary(file)}</span></li>
+        <li>
+          <span class="mono">{file.path}</span> <span class="hint">{fileSummary(file)}</span>{#if file.protected}
+            <span class="tag">protected</span>{/if}
+        </li>
       {/each}
     </ul>
+
+    {#if marked.length > 0}
+      <div class="warn" role="note" data-testid="pr-protected">
+        <p>{protectedWarning(marked)}</p>
+        <label class="check">
+          <input type="checkbox" data-testid="pr-include-protected" bind:checked={includeProtected} />
+          Publish the protected files too
+        </label>
+      </div>
+    {/if}
 
     {#if prepared.conflicts.length > 0}
       <div class="warn" role="note" data-testid="pr-conflicts">
@@ -307,6 +327,13 @@ function onkeydown(event: KeyboardEvent): void {
   .files li {
     padding: 2px 0;
     overflow-wrap: anywhere;
+  }
+  .tag {
+    padding: 0 6px;
+    font-size: 12px;
+    color: var(--text);
+    background: var(--warn-soft);
+    border-radius: var(--radius-sm);
   }
   .check {
     display: flex;

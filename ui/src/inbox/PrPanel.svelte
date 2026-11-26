@@ -4,7 +4,7 @@
 // Send log for a failed check. Keep and Discard stay beside it in Reviews.
 import type { PullRequest, ReviewItem } from "../lib/protocol";
 import { useOvra } from "../shell/context";
-import { CHECK_LABEL, canUpdatePr, isWebUrl, prChip } from "./pull-request";
+import { CHECK_LABEL, canUpdatePr, isWebUrl, prChip, protectedWarning } from "./pull-request";
 import type { ReviewInbox } from "./reviews.svelte";
 
 let {
@@ -17,6 +17,12 @@ const { transport } = useOvra();
 
 const busy = $derived(inbox.busy.includes(item.id));
 const checks = $derived(pr.status?.checks ?? []);
+/** Files the review marks: an update pushes them only when the person ticks the box. */
+const marked = $derived(item.files.filter((f) => f.protected).map((f) => f.path));
+let includeProtected = $state(false);
+/** The version the tick was given for: new files need a new one. */
+let tickedFor = $state<string | null>(null);
+const canPush = $derived(marked.length === 0 || (includeProtected && tickedFor === item.fingerprint));
 
 /** Pages open in the system browser through the core, never in this window. */
 function openPage(event: MouseEvent, url: string): void {
@@ -32,8 +38,8 @@ async function refresh(): Promise<void> {
 }
 
 async function update(): Promise<void> {
-  if (busy) return;
-  if (await inbox.updatePr(item.id)) onsaid(`Pull request #${pr.number} updated.`);
+  if (busy || !canPush) return;
+  if (await inbox.updatePr(item.id, marked.length > 0)) onsaid(`Pull request #${pr.number} updated.`);
 }
 
 async function sendLog(run: number, name: string): Promise<void> {
@@ -83,8 +89,17 @@ async function sendLog(run: number, name: string): Promise<void> {
   {/if}
   {#if canUpdatePr(item)}
     <p class="hint">The worker has new changes since the last push.</p>
+    {#if marked.length > 0}
+      <p class="hint" data-testid="pr-update-protected">{protectedWarning(marked)}</p>
+      <label class="check">
+        <input type="checkbox" data-testid="pr-update-include-protected" bind:checked={includeProtected}
+          onchange={() => (tickedFor = item.fingerprint)}
+        />
+        Publish the protected files too
+      </label>
+    {/if}
     <div class="buttons">
-      <button type="button" aria-disabled={busy} onclick={update}>Update pull request</button>
+      <button type="button" aria-disabled={busy || !canPush} onclick={update}>Update pull request</button>
     </div>
   {/if}
 </div>
@@ -111,6 +126,15 @@ async function sendLog(run: number, name: string): Promise<void> {
   }
   .mono {
     font-family: var(--mono);
+  }
+  .check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+  }
+  input[type="checkbox"] {
+    accent-color: var(--accent);
   }
   .chip {
     padding: 2px 10px;

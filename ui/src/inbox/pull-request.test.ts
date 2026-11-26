@@ -1,7 +1,18 @@
 import { describe, expect, it } from "vitest";
 import type { PrCheck, PullRequest } from "../lib/protocol";
 import { review } from "./fake-review";
-import { canOpenPr, canUpdatePr, checksLine, ghAccount, ghProblem, isWebUrl, NO_GH, prChip } from "./pull-request";
+import {
+  canOpenPr,
+  canUpdatePr,
+  checksLine,
+  ghAccount,
+  ghProblem,
+  isWebUrl,
+  isWorkflow,
+  NO_GH,
+  prChip,
+  protectedWarning,
+} from "./pull-request";
 
 const check = (state: PrCheck["state"]): PrCheck => ({ name: state, state, url: null, run: null });
 const pr = (extra: Partial<PullRequest> = {}): PullRequest => ({
@@ -63,5 +74,17 @@ describe("pull request words", () => {
     expect(isWebUrl("https://github.com/o/r/pull/1")).toBe(true);
     expect(isWebUrl("javascript:alert(1)")).toBe(false);
     expect(isWebUrl(null)).toBe(false);
+  });
+
+  it("warns that workflows run on GitHub once pushed, and names the protected files", () => {
+    expect(isWorkflow(".github/workflows/ci.yml")).toBe(true);
+    expect(isWorkflow(".GitHub/Actions/setup/action.yml")).toBe(true);
+    expect(isWorkflow("docs/.github/workflows/ci.yml")).toBe(false);
+    expect(protectedWarning([".envrc"])).toBe(
+      "These files are protected: .envrc. Publish them only if you checked their diffs.",
+    );
+    expect(protectedWarning([".envrc", ".github/workflows/ci.yml"])).toContain(
+      "Workflow changes run on GitHub, with the repository's secrets, as soon as the branch is pushed",
+    );
   });
 });

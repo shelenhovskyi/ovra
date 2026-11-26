@@ -135,6 +135,31 @@ describe("Pull requests in Reviews", () => {
     expect(document.activeElement).toBe($("[data-testid=pr-chip]"));
   });
 
+  it("publishes protected files and workflows only once the person ticks the box under a plain warning", async () => {
+    const files = [change("NOTES.md"), change(".github/workflows/ci.yml", { protected: true })];
+    const core = await setup([worker({ files })]);
+    const dialog = await openDialog();
+    const list = dialog.querySelector("[aria-label='Files in the pull request']");
+    expect(list?.querySelectorAll(".tag")).toHaveLength(1);
+    expect(dialog.querySelector("[data-testid=pr-protected]")?.textContent).toContain(
+      "These files are protected: .github/workflows/ci.yml. Workflow changes run on GitHub, with the repository's secrets, as soon as the branch is pushed, before anyone merges.",
+    );
+    const create = button(/^Create pull request$/, dialog);
+    expect(create?.getAttribute("aria-disabled")).toBe("true");
+    expect(dialog.querySelector("#pr-dialog-missing")?.textContent).toContain("the box for the protected files ticked");
+    create?.click();
+    await settle();
+    expect(core.sent("pr.create")).toEqual([]);
+
+    $<HTMLInputElement>("[data-testid=pr-include-protected]")?.click();
+    await settle();
+    expect(create?.getAttribute("aria-disabled")).toBe("false");
+    create?.click();
+    await settle();
+    expect(core.sent("pr.create").map((c) => c.params.include_protected)).toEqual([true]);
+    expect(target.textContent).toContain("Pull request #7 opened.");
+  });
+
   it("asks again for a new base and keeps the person's edits", async () => {
     const core = await setup([worker()]);
     const dialog = await openDialog();
@@ -270,5 +295,32 @@ describe("Pull requests in Reviews", () => {
     expect(core.sent("pr.update")).toEqual([{ method: "pr.update", params: { id: "r1", fingerprint: "f3" } }]);
     expect(core.sent("pr.refresh")).toHaveLength(1);
     expect(target.textContent).toContain("Pull request #7 updated.");
+  });
+
+  it("an Update with protected files waits for the person's tick", async () => {
+    const pull_request = {
+      number: 7,
+      url: "https://github.com/o/r/pull/7",
+      remote: "origin",
+      base: "main",
+      branch: "ovra/t1/docs",
+      pushed: "c1",
+      status: null,
+    };
+    const files = [change(".github/actions/setup/action.yml", { protected: true })];
+    const core = await setup([worker({ state: "open", pull_request, files, fingerprint: "f3" })]);
+    expect($("[data-testid=pr-update-protected]")?.textContent).toContain("Workflow changes run on GitHub");
+    const update = button(/^Update pull request$/);
+    expect(update?.getAttribute("aria-disabled")).toBe("true");
+    update?.click();
+    await settle();
+    expect(core.sent("pr.update")).toEqual([]);
+    $<HTMLInputElement>("[data-testid=pr-update-include-protected]")?.click();
+    await settle();
+    button(/^Update pull request$/)?.click();
+    await settle();
+    expect(core.sent("pr.update")).toEqual([
+      { method: "pr.update", params: { id: "r1", fingerprint: "f3", include_protected: true } },
+    ]);
   });
 });

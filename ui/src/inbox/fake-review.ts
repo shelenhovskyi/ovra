@@ -87,6 +87,12 @@ export class FakeReviewCore implements Transport {
     return item;
   }
 
+  /** Like the core: protected files are published only when included. */
+  private publishable(item: ReviewItem, included: boolean): void {
+    if (!included && item.files.some((f) => f.protected))
+      throw new CoreError({ code: "bad_request", message: "these changes include protected files" });
+  }
+
   private answer(request: Request): unknown {
     switch (request.method) {
       case "review.list":
@@ -188,6 +194,7 @@ export class FakeReviewCore implements Transport {
       }
       case "pr.create": {
         const item = this.find(request.params.id);
+        this.publishable(item, request.params.include_protected === true);
         const { remote, base, branch } = request.params.draft;
         const url = "https://github.com/o/r/pull/7";
         item.state = "published";
@@ -200,6 +207,7 @@ export class FakeReviewCore implements Transport {
         const pr = item.pull_request;
         if (!pr) throw new CoreError({ code: "conflict", message: "this item has no pull request" });
         if (request.method === "pr.update") {
+          this.publishable(item, request.params.include_protected === true);
           pr.pushed = "c2";
           item.state = "published";
         } else pr.status = structuredClone(this.prStatus);

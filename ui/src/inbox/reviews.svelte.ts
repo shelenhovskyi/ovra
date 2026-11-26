@@ -199,13 +199,20 @@ export class ReviewInbox {
 
   /**
    * Pushes what the person reviewed (`fingerprint`) and opens the pull
-   * request, then asks for its checks once. Null when refused; the
+   * request, then asks for its checks once. Protected files go out only
+   * with `includeProtected`: the person chose so. Null when refused; the
    * error is in `error`.
    */
-  async createPr(id: ReviewId, draft: PrDraft, fingerprint: string | null): Promise<PullRequest | null> {
+  async createPr(
+    id: ReviewId,
+    draft: PrDraft,
+    fingerprint: string | null,
+    includeProtected = false,
+  ): Promise<PullRequest | null> {
     let pr: PullRequest | null = null;
+    const params = { id, draft, fingerprint, ...(includeProtected ? { include_protected: true } : {}) };
     const done = await this.act(id, async () => {
-      ({ data: pr } = await this.transport.call({ method: "pr.create", params: { id, draft, fingerprint } }));
+      ({ data: pr } = await this.transport.call({ method: "pr.create", params }));
     });
     if (!done) return null;
     // The item is published now: show it so, chip and all, before the dialog goes.
@@ -214,11 +221,12 @@ export class ReviewInbox {
     return pr;
   }
 
-  /** Pushes the worker's new reviewed work to its pull request. */
-  async updatePr(id: ReviewId): Promise<boolean> {
+  /** Pushes the worker's new reviewed work to its pull request; protected files as for `createPr`. */
+  async updatePr(id: ReviewId, includeProtected = false): Promise<boolean> {
     const fingerprint = this.items.find((i) => i.id === id)?.fingerprint ?? null;
+    const params = { id, fingerprint, ...(includeProtected ? { include_protected: true } : {}) };
     const done = await this.act(id, async () => {
-      await this.transport.call({ method: "pr.update", params: { id, fingerprint } });
+      await this.transport.call({ method: "pr.update", params });
     });
     if (done) void this.refreshPr(id);
     return done;
