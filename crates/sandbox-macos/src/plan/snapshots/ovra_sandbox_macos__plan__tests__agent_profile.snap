@@ -5,7 +5,7 @@ expression: root.profile_text(&plan)
 (version 1)
 (deny default)
 (allow process-exec
-  (require-not (regex #"/git-credential-osxkeychain$")))
+  (require-not (regex #"/[gG][iI][tT]-[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL]-[oO](s|S|ſ)[xX](k|K|K)[eE][yY][cC][hH][aA][iI][nN]$")))
 (allow process-fork)
 (allow signal (target same-sandbox))
 (allow process-info* (target same-sandbox))
@@ -16,13 +16,13 @@ expression: root.profile_text(&plan)
 (allow pseudo-tty)
 (allow file-read-metadata)
 (allow file-map-executable)
-(allow file-read* file-write* file-ioctl
+(allow file-read* file-write*
   (literal "/dev/null")
   (literal "/dev/zero")
-  (literal "/dev/tty")
-  (literal "/dev/ptmx")
-  (literal "/dev/dtracehelper")
   (regex #"^/dev/fd/[0-9]+$"))
+(allow file-read* file-write* file-ioctl
+  (literal "/dev/ptmx")
+  (literal "/dev/dtracehelper"))
 (allow file-read* file-write* file-ioctl
   (require-all
     (regex #"^/dev/ttys[0-9]+$")
@@ -99,7 +99,8 @@ expression: root.profile_text(&plan)
       (regex #"^ROOT/[hH][oO][mM][eE]/[.][cC][aA][rR][gG][oO]/(.*/)?[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL](s|S|ſ)[.][jJ](s|S|ſ)[oO][nN](/.*)?$")
       (regex #"^ROOT/[hH][oO][mM][eE]/[.][lL][oO][cC][aA][lL]/(s|S|ſ)[hH][aA][rR][eE]/[cC][lL][aA][uU][dD][eE]/[vV][eE][rR](s|S|ſ)[iI][oO][nN](s|S|ſ)/(.*/)?[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL](s|S|ſ)(/.*)?$")
       (regex #"^ROOT/[hH][oO][mM][eE]/[.][lL][oO][cC][aA][lL]/(s|S|ſ)[hH][aA][rR][eE]/[cC][lL][aA][uU][dD][eE]/[vV][eE][rR](s|S|ſ)[iI][oO][nN](s|S|ſ)/(.*/)?[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL](s|S|ſ)[.][tT][oO][mM][lL](/.*)?$")
-      (regex #"^ROOT/[hH][oO][mM][eE]/[.][lL][oO][cC][aA][lL]/(s|S|ſ)[hH][aA][rR][eE]/[cC][lL][aA][uU][dD][eE]/[vV][eE][rR](s|S|ſ)[iI][oO][nN](s|S|ſ)/(.*/)?[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL](s|S|ſ)[.][jJ](s|S|ſ)[oO][nN](/.*)?$")))))
+      (regex #"^ROOT/[hH][oO][mM][eE]/[.][lL][oO][cC][aA][lL]/(s|S|ſ)[hH][aA][rR][eE]/[cC][lL][aA][uU][dD][eE]/[vV][eE][rR](s|S|ſ)[iI][oO][nN](s|S|ſ)/(.*/)?[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL](s|S|ſ)[.][jJ](s|S|ſ)[oO][nN](/.*)?$")
+      (regex #"/[gG][iI][tT]-[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL]-[oO](s|S|ſ)[xX](k|K|K)[eE][yY][cC][hH][aA][iI][nN]$")))))
 (allow file-write*
   (require-all
     (require-any

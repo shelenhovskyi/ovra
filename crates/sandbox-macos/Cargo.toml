@@ -11,6 +11,9 @@ publish = false
 ovra-core.workspace = true
 sha2 = "0.10"
 
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1", features = ["process"] }
+
 [dev-dependencies]
 insta.workspace = true
 

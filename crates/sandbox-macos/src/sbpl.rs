@@ -25,17 +25,23 @@ use crate::plan::{Net, Pattern, Plan};
 /// Where the helper puts the bridge's port, once it has one.
 pub(crate) const PORT_MARK: &str = "@OVRA_PROXY_PORT@";
 
+/// The keychain's git credential helper, by name anywhere and in any
+/// case: it may neither run nor be read, so it cannot be copied and run
+/// from elsewhere (the keychain trusts its signature, not its path).
+const KEYCHAIN_HELPER: &str = r#"(regex #"/[gG][iI][tT]-[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL]-[oO](s|S|ſ)[xX](k|K|K)[eE][yY][cC][hH][aA][iI][nN]$")"#;
+
 /// What every sandboxed process needs, whatever the session: to run
 /// programs and fork, signal and inspect its own processes, read system
-/// settings, use terminals and `/dev/null`, and look up the few system
-/// services that resolve users, read preferences, log, and check
-/// certificates and the keychain (`claude` keeps its login there). No
-/// service that starts programs outside the sandbox (Launch Services,
+/// settings, use `/dev/null` and the ptys it opens itself (no `/dev/tty`:
+/// the helper leaves the person's terminal with `setsid`), and look up the
+/// few system services that resolve users, read preferences, log, and
+/// check certificates and the keychain (`claude` keeps its login there).
+/// No service that starts programs outside the sandbox (Launch Services,
 /// `launchd` jobs) and no DNS: names are resolved by the netproxy.
 const BASE: &str = r#"(version 1)
 (deny default)
 (allow process-exec
-  (require-not (regex #"/git-credential-osxkeychain$")))
+  (require-not (regex #"/[gG][iI][tT]-[cC][rR][eE][dD][eE][nN][tT][iI][aA][lL]-[oO](s|S|ſ)[xX](k|K|K)[eE][yY][cC][hH][aA][iI][nN]$")))
 (allow process-fork)
 (allow signal (target same-sandbox))
 (allow process-info* (target same-sandbox))
@@ -46,13 +52,13 @@ const BASE: &str = r#"(version 1)
 (allow pseudo-tty)
 (allow file-read-metadata)
 (allow file-map-executable)
-(allow file-read* file-write* file-ioctl
+(allow file-read* file-write*
   (literal "/dev/null")
   (literal "/dev/zero")
-  (literal "/dev/tty")
-  (literal "/dev/ptmx")
-  (literal "/dev/dtracehelper")
   (regex #"^/dev/fd/[0-9]+$"))
+(allow file-read* file-write* file-ioctl
+  (literal "/dev/ptmx")
+  (literal "/dev/dtracehelper"))
 (allow file-read* file-write* file-ioctl
   (require-all
     (regex #"^/dev/ttys[0-9]+$")
@@ -99,11 +105,11 @@ pub(crate) fn profile(plan: &Plan) -> Result<String> {
     let never = plan.never.iter().map(regex).collect::<Result<Vec<_>>>()?;
     let mut readable = vec![format!("(require-not {})", any(&hidden))];
     readable.extend(shown);
+    let mut unreadable = never.clone();
+    unreadable.push(KEYCHAIN_HELPER.to_owned());
     text.push_str("(allow file-read*\n  (require-all\n    ");
     text.push_str(&any(&readable));
-    if !never.is_empty() {
-        let _ = write!(text, "\n    (require-not {})", any(&never));
-    }
+    let _ = write!(text, "\n    (require-not {})", any(&unreadable));
     text.push_str("))\n");
     // Writing: only the plan's folders and files, never a protected path
     // or one kept out.
@@ -148,7 +154,9 @@ pub(crate) fn profile(plan: &Plan) -> Result<String> {
             );
         }
         Net::Open => {
-            text.push_str("(allow network*)\n(allow system-socket)\n");
+            // Any address, but Unix sockets only in the temporary folder
+            // (above): not the Docker socket or another app's.
+            text.push_str("(allow network-outbound (remote ip \"*:*\"))\n(allow system-socket)\n");
             text.push_str("(allow mach-lookup (global-name \"com.apple.dnssd.service\"))\n");
         }
     }
@@ -250,6 +258,13 @@ mod tests {
             regex(&named).ok().as_deref(),
             Some(r#"(regex #"^/[wW]/(.*/)?[.][gG][iI][tT](/.*)?$")"#)
         );
+    }
+
+    #[test]
+    fn the_keychain_helper_is_matched_in_any_case_by_exec_and_read() {
+        let pattern = format!("(regex #\"/{}$\")", fold("git-credential-osxkeychain"));
+        assert_eq!(KEYCHAIN_HELPER, pattern);
+        assert!(BASE.contains(&format!("(allow process-exec\n  (require-not {pattern}))")));
     }
 
     #[test]
