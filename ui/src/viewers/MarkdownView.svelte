@@ -1,9 +1,9 @@
 <script lang="ts">
-import { highlightLines, languageNamed } from "../editor/highlight/static";
 import { useOvra } from "../shell/context";
 import { resolveLink } from "./links";
 import { exists, loadView } from "./load";
 import { renderMarkdown } from "./markdown";
+import { paintCodeBlocks } from "./paint-code";
 
 let {
   text,
@@ -33,30 +33,10 @@ $effect(() => {
   }
 });
 
-// Code blocks with a known language get the editor's colours. The text is
-// set through textContent, never as HTML.
+// Code blocks with a known language get the editor's colours.
 $effect(() => {
   void html;
-  if (!root) return;
-  for (const code of root.querySelectorAll<HTMLElement>("pre > code[class^='language-']")) {
-    const language = languageNamed(code.className.slice("language-".length).split(" ")[0] ?? "");
-    const lines = (code.textContent ?? "").replace(/\n$/, "").split("\n");
-    void highlightLines(language, lines).then((painted) => {
-      if (!painted || !root?.contains(code)) return;
-      code.replaceChildren(
-        ...painted.flatMap((segments, i) => [
-          ...(i > 0 ? ["\n"] : []),
-          ...segments.map(({ text, cls }) => {
-            if (!cls) return text;
-            const span = document.createElement("span");
-            span.className = cls;
-            span.textContent = text;
-            return span;
-          }),
-        ]),
-      );
-    });
-  }
+  if (root) paintCodeBlocks(root);
 });
 
 function onclick(event: MouseEvent) {
