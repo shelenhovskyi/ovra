@@ -565,8 +565,9 @@ fn dollars(micro: u64) -> String {
 fn valid_name(name: &str) -> bool {
     let mut chars = name.chars();
     let lower = |c: char| c.is_ascii_lowercase() || c.is_ascii_digit();
-    // The board's `ask` names the person and the coordinator so.
-    let reserved = matches!(name, "person" | "coordinator");
+    // The board's `ask` names the person and the coordinator so, and the
+    // board shows Ovra's own lines and the person's as "Ovra" and "You".
+    let reserved = matches!(name, "person" | "coordinator" | "ovra" | "you");
     !reserved
         && name.len() <= 40
         && chars.next().is_some_and(lower)

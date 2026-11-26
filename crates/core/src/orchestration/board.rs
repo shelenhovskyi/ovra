@@ -51,6 +51,9 @@ const READ_BYTES: usize = 16 * 1024;
 /// stays cheap whatever an agent claims.
 const MAX_PATH: usize = 256;
 const MAX_STARS: usize = 8;
+/// Paths one worker may hold claimed at once, so that its claims cannot
+/// use up the budget that checks other workers' changes.
+const MAX_HELD: usize = 100;
 /// Pattern-by-path steps one overlap search may take, in all.
 const MATCH_BUDGET: usize = 4_000_000;
 
@@ -98,6 +101,19 @@ impl Core {
         let worker = for_worker(&seat, worker)?;
         let paths = checked_paths(paths)?;
         check_text(note, true)?;
+        let mut held = claims(&entries_of(self, &seat.task.id), &worker);
+        held.extend(
+            paths
+                .iter()
+                .filter(|p| !held.contains(p))
+                .cloned()
+                .collect::<Vec<_>>(),
+        );
+        if held.len() > MAX_HELD {
+            return Err(bad(format!(
+                "a worker holds at most {MAX_HELD} claimed paths; release some first"
+            )));
+        }
         let overlaps = overlaps(self, &seat.task, &worker, &paths);
         let body = EntryBody::Claim {
             worker,
@@ -770,10 +786,11 @@ fn checked_paths(paths: &[String]) -> Result<Vec<String>> {
                 return Err(bad(format!("a path has more than {MAX_STARS} wildcards")));
             }
             let parsed = RelPath::parse(p)?.as_str().to_owned();
-            if parsed.is_empty() {
-                // `.` or `./` would hold nothing; the whole worktree is `**`.
+            // `.` holds nothing, and a claim of everything would hold every
+            // file from the other workers: neither is one.
+            if parsed.split('/').all(|part| part.chars().all(|c| c == '*')) {
                 return Err(bad(
-                    "claim files or folders inside the worktree, or `**` for all of it",
+                    "claim the files or folders you change, not the whole worktree",
                 ));
             }
             // `src/` is the whole folder: parsing drops the slash that says so.
@@ -1376,6 +1393,10 @@ mod tests {
             Some(vec!["src/".to_owned(), "a/*.rs".to_owned()])
         );
         assert!(paths(&[&"*a".repeat(9)]).is_err());
+        for everything in ["*", "**", "**/*", "*/**", "./**"] {
+            assert!(paths(&[everything]).is_err(), "{everything}");
+        }
+        assert!(paths(&["src/**"]).is_ok());
         assert!(paths(&[&"a".repeat(MAX_PATH + 1)]).is_err());
     }
 

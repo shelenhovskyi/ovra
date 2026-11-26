@@ -3182,6 +3182,25 @@ async fn claims_that_meet_are_told_and_an_idle_worker_is_not_woken() {
 }
 
 #[tokio::test]
+async fn a_worker_cannot_claim_the_whole_project_or_without_end() {
+    let (f, _rx) = board_fx().await;
+    let lint = caller("s2", ToolRole::Worker);
+    assert_eq!(
+        code(f.core.board_claim(&lint, None, &["**".into()], "")),
+        ErrorCode::BadRequest
+    );
+    let batch = |at: usize| -> Vec<String> { (at..at + 50).map(|i| format!("f{i}.rs")).collect() };
+    assert!(f.core.board_claim(&lint, None, &batch(0), "").is_ok());
+    assert!(f.core.board_claim(&lint, None, &batch(50), "").is_ok());
+    // The same paths again hold nothing more.
+    assert!(f.core.board_claim(&lint, None, &batch(0), "").is_ok());
+    assert_eq!(
+        code(f.core.board_claim(&lint, None, &batch(100), "")),
+        ErrorCode::BadRequest
+    );
+}
+
+#[tokio::test]
 async fn the_person_answers_questions_on_the_board_and_only_they_do() {
     let (f, _rx) = board_fx().await;
     let lint = caller("s2", ToolRole::Worker);
