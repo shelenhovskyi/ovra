@@ -89,17 +89,33 @@ describe("LanguageServers", () => {
     languageServers(core).needServer("python");
     workspace.openPath = "main.py";
     flushSync();
-    expect(item()?.textContent?.trim()).toBe("!pyright not installed");
+    expect(item()?.textContent?.trim()).toBe("pyright not installed");
     workspace.openPath = "main.rs";
     flushSync();
     expect(item()?.textContent?.trim()).toBe("rust-analyzer +1");
+  });
+
+  it("closes when focus comes back to the page outside the panel", async () => {
+    const core = new FakeLspCore();
+    core.servers = [server("a")];
+    await mountWith(core);
+    const outside = document.body.appendChild(document.createElement("button"));
+    await openPanel();
+    // Tab past the panel's last control leaves the page (no relatedTarget), then focus returns elsewhere.
+    $<HTMLElement>("[data-testid=lsp-panel] h2")?.blur();
+    flushSync();
+    expect($("[data-testid=lsp-panel]")).not.toBeNull();
+    outside.focus();
+    flushSync();
+    expect($("[data-testid=lsp-panel]")).toBeNull();
+    outside.remove();
   });
 
   it("warns only about a server without a sandbox", async () => {
     const core = new FakeLspCore();
     core.servers = [server("a"), server("t", { language: "typescript", name: "tsserver", sandbox: null })];
     await mountWith(core);
-    expect(item()?.getAttribute("aria-label")).toBe("2 language servers, needs attention");
+    expect(item()?.getAttribute("aria-label")).toBe("2 language servers, runs without a sandbox");
     await openPanel();
     const warnings = [...target.querySelectorAll("[data-testid=lsp-unsandboxed]")];
     expect(warnings).toHaveLength(1);
@@ -114,7 +130,7 @@ describe("LanguageServers", () => {
     await mountWith(core);
     core.changed(server("a", { state: "failed", reason: "rust-analyzer exited with code 101" }));
     flushSync();
-    expect(item()?.getAttribute("aria-label")).toBe("rust-analyzer, needs attention");
+    expect(item()?.getAttribute("aria-label")).toBe("rust-analyzer, failed");
     await openPanel();
     expect($("[data-testid=lsp-reason]")?.textContent).toBe("rust-analyzer exited with code 101");
     expect($("[data-testid=lsp-server] button")).toBeNull();
@@ -194,8 +210,8 @@ describe("LanguageServers", () => {
     expect(item()).toBeNull();
     languageServers(core).needServer("go");
     flushSync();
-    expect(item()?.textContent?.trim()).toBe("!gopls not installed");
-    expect(item()?.getAttribute("aria-label")).toBe("gopls not installed, needs attention");
+    expect(item()?.textContent?.trim()).toBe("gopls not installed");
+    expect(item()?.getAttribute("aria-label")).toBe("gopls not installed");
     await openPanel();
     expect($("[data-testid=lsp-untrusted]")).toBeNull();
     expect($("[data-testid=lsp-missing]")?.textContent).toContain("gopls");

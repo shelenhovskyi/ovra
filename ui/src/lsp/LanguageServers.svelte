@@ -30,7 +30,12 @@ const shownHint = $derived(
   shownLanguage ? lsp.hints.find((k) => k.language === shownLanguage) : servers.length === 0 ? lsp.hints[0] : undefined,
 );
 const shownServer = $derived(servers.find((s) => s.language === shownLanguage));
-const attention = $derived(servers.some((s) => s.sandbox === null || s.state === "failed") || shownHint !== undefined);
+// The "!" means a server that failed or runs unsandboxed; a missing one says "not installed" instead.
+const attention = $derived.by(() => {
+  if (servers.some((s) => s.state === "failed")) return servers.length > 1 ? "one failed" : "failed";
+  if (servers.some((s) => s.sandbox === null)) return "runs without a sandbox";
+  return null;
+});
 const visible = $derived(servers.length > 0 || lsp.hints.length > 0 || (untrusted && lsp.needed.size > 0));
 const label = $derived.by(() => {
   if (untrusted) return "Code intelligence: off";
@@ -113,12 +118,17 @@ function onFocusout(event: FocusEvent): void {
 
 $effect(() => {
   if (!opened) return;
-  const away = (event: PointerEvent) => {
+  const away = (event: Event) => {
     const target = event.target;
     if (target instanceof Node && !panel?.contains(target) && !button?.contains(target)) opened = false;
   };
+  // Focus can leave the page from the panel (Tab past the last control) and come back elsewhere.
   window.addEventListener("pointerdown", away, true);
-  return () => window.removeEventListener("pointerdown", away, true);
+  window.addEventListener("focusin", away, true);
+  return () => {
+    window.removeEventListener("pointerdown", away, true);
+    window.removeEventListener("focusin", away, true);
+  };
 });
 
 function onKeydown(event: KeyboardEvent): void {
@@ -137,7 +147,8 @@ function onKeydown(event: KeyboardEvent): void {
       data-testid="lsp-status"
       aria-expanded={opened}
       aria-controls="lsp-panel"
-      aria-label={attention ? `${label}, needs attention` : label}
+      aria-label={attention ? `${label}, ${attention}` : label}
+      title={attention ? `Language server ${attention}` : undefined}
       bind:this={button}
       onclick={() => void toggle()}
     >
