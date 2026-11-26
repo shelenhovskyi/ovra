@@ -12,6 +12,7 @@ use tokio::time::Instant;
 use super::{Result, conflict, not_found, review, tasks};
 use crate::Core;
 use crate::core::WeakCore;
+use crate::protected;
 use crate::protocol::agents::{MessageFrom, SessionMode};
 use crate::protocol::audit::AuditEvent;
 use crate::protocol::orchestration::Worker;
@@ -39,6 +40,17 @@ const MAX_POLLED: usize = 5;
 /// A failed check's log as sent to the worker: its end, at most this much.
 const LOG_LINES: usize = 200;
 const LOG_BYTES: usize = 32 * 1024;
+
+/// What `pr.create` pushed before it asked `gh` to open the pull request.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(super) struct PendingPush {
+    remote: String,
+    base: String,
+    branch: String,
+    commit: String,
+    /// The worker's snapshot it was picked from.
+    snapshot: String,
+}
 
 /// One pull request being polled.
 #[derive(Debug)]
@@ -195,6 +207,25 @@ async fn reviewed(
             "the worker's files changed since you looked at them; review them again",
         ));
     }
+    // The review leaves the sandbox's placeholders out, the pick would
+    // not: the commit must hold exactly the files the dialog listed.
+    let ws = &entry.workspace;
+    let deltas = core
+        .worktrees()
+        .diff(ws.dir.clone(), ws.base.clone(), snapshot.clone())
+        .await?;
+    let placeholders: Vec<&str> = deltas
+        .iter()
+        .filter(|d| protected::is_placeholder(d))
+        .map(|d| d.path.as_str())
+        .collect();
+    if !placeholders.is_empty() {
+        return Err(conflict(format!(
+            "the sandbox's empty placeholder {} is still in the worker's folder and would be \
+             committed; stop what still runs there (its dev server), then try again",
+            placeholders.join(", ")
+        )));
+    }
     Ok(snapshot)
 }
 
@@ -321,36 +352,77 @@ async fn create(
     signed_in(core, root.clone(), &remote).await?;
     let snapshot = reviewed(core, &entry, fingerprint).await?;
     let forge = core.forge();
-    let head = forge
-        .fetch(root.clone(), remote.clone(), base.clone())
-        .await?;
-    let against = format!("{remote}/{base}");
-    let commit = pick(
-        core,
-        root.clone(),
-        head,
-        entry.workspace.base.clone(),
-        snapshot.clone(),
-        message(&title, &draft.body),
-        &against,
-    )
-    .await?;
-    forge
-        .push(
-            root.clone(),
-            remote.clone(),
-            commit.clone(),
-            branch.clone(),
-            None,
-        )
-        .await?;
-    let pushed = AuditEvent::BranchPushed {
-        review: id.clone(),
-        remote: remote.clone(),
-        branch: branch.clone(),
-        commit: commit.clone(),
+    // A retry after `gh pr create` failed: the branch is still where that
+    // attempt pushed it, so go on from there.
+    let resumed = match entry.pending_push.clone() {
+        Some(p) if (&p.remote, &p.base, &p.branch) == (&remote, &base, &branch) => {
+            let head = forge.fetch(root.clone(), remote.clone(), branch.clone());
+            (head.await.ok().as_ref() == Some(&p.commit)).then_some(p)
+        }
+        _ => None,
     };
-    audit(core, &entry, pushed);
+    // Snapshots of the same files may still be different commits.
+    let same = match &resumed {
+        Some(p) => {
+            let dir = entry.workspace.dir.clone();
+            let diff = core
+                .worktrees()
+                .diff(dir, p.snapshot.clone(), snapshot.clone());
+            diff.await?.is_empty()
+        }
+        None => false,
+    };
+    let commit = match resumed {
+        Some(p) if same => p.commit,
+        resumed => {
+            let (onto, start, expect, against) = match resumed {
+                Some(p) => {
+                    let against = format!("{remote}/{branch}");
+                    (p.commit.clone(), p.snapshot, Some(p.commit), against)
+                }
+                None => {
+                    let head = forge.fetch(root.clone(), remote.clone(), base.clone());
+                    let start = entry.workspace.base.clone();
+                    (head.await?, start, None, format!("{remote}/{base}"))
+                }
+            };
+            let message = message(&title, &draft.body);
+            let commit = pick(
+                core,
+                root.clone(),
+                onto,
+                start,
+                snapshot.clone(),
+                message,
+                &against,
+            );
+            let commit = commit.await?;
+            let push = forge.push(
+                root.clone(),
+                remote.clone(),
+                commit.clone(),
+                branch.clone(),
+                expect,
+            );
+            push.await?;
+            let pushed = AuditEvent::BranchPushed {
+                review: id.clone(),
+                remote: remote.clone(),
+                branch: branch.clone(),
+                commit: commit.clone(),
+            };
+            audit(core, &entry, pushed);
+            let pending = PendingPush {
+                remote: remote.clone(),
+                base: base.clone(),
+                branch: branch.clone(),
+                commit: commit.clone(),
+                snapshot: snapshot.clone(),
+            };
+            review::update(core, id, |e| e.pending_push = Some(pending))?;
+            commit
+        }
+    };
     let draft = PrDraft {
         remote: remote.clone(),
         base: base.clone(),
@@ -381,6 +453,7 @@ async fn create(
         e.state = ReviewState::Published;
         e.pull_request = Some(pr.clone());
         e.published_from = Some(snapshot);
+        e.pending_push = None;
     })?;
     emit(core, &entry);
     poll(core, &entry);

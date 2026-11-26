@@ -67,6 +67,10 @@ pub(super) struct Entry {
     /// next update picks from.
     #[serde(default)]
     pub(super) published_from: Option<String>,
+    /// A push `pr.create` made whose pull request was not opened yet: a
+    /// retry goes on from it instead of being refused by the lease.
+    #[serde(default)]
+    pub(super) pending_push: Option<super::publish::PendingPush>,
 }
 
 /// Open, or published and so still the worker's live work.
@@ -138,6 +142,7 @@ pub(crate) fn set_workspace(core: &Core, session: &SessionId, workspace: Workspa
         decided_git: None,
         pull_request: None,
         published_from: None,
+        pending_push: None,
     });
     orchestration.save(&state);
 }
@@ -1315,6 +1320,7 @@ fn open_after(core: &Core, decided: &Entry) -> Entry {
         decided_git: None,
         pull_request: None,
         published_from: None,
+        pending_push: None,
         ..decided.clone()
     };
     // New work ends the undo of the decided item's last replace.

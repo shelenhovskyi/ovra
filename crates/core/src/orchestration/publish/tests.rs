@@ -38,7 +38,12 @@ fn lock<T>(m: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 /// A task whose worker `w` (session `s2`) added `b.rs` and waits idle;
 /// the remote's `main` is the main checkout as the worker started.
 async fn fx() -> Fx {
-    let agent = Arc::new(ScriptedAgent::new(vec![vec![Step::Say("done")]]));
+    fx_with(vec![vec![Step::Say("done")]]).await
+}
+
+/// As [`fx`], with agents that play `turns`.
+async fn fx_with(turns: Vec<Vec<Step>>) -> Fx {
+    let agent = Arc::new(ScriptedAgent::new(turns));
     let wt = Arc::new(MemoryWorktrees::default());
     wt.put(ROOT, "a.rs", "one\n");
     let forge = Arc::new(MemoryForge::default());
@@ -249,6 +254,59 @@ async fn the_reviewed_changes_become_a_draft_pull_request_on_the_fetched_base() 
         code(call(&f.core, create(&prepared, &shown.id.0)).await),
         ErrorCode::Conflict
     );
+}
+
+#[tokio::test]
+async fn a_retry_after_gh_failed_goes_on_from_the_push_it_made() {
+    let f = fx().await;
+    let id = item(&f.core).await.id.0;
+    let prepared = prepare(&f.core, &id).await;
+    *lock(&f.forge.refuse_create) = true;
+    for _ in 0..2 {
+        let failed = call(&f.core, create(&prepared, &id)).await;
+        assert_eq!(code(failed), ErrorCode::Unavailable);
+    }
+    assert_eq!(lock(&f.forge.pushed).len(), 1, "the retry pushed again");
+
+    // The worker changed since: its new files build on that push.
+    f.wt.put(dir(), "c.rs", "three\n");
+    *lock(&f.forge.refuse_create) = false;
+    let prepared = prepare(&f.core, &id).await;
+    let pr = pull_request(ok(&f.core, create(&prepared, &id)).await);
+    let pushed = lock(&f.forge.pushed).clone();
+    assert_eq!(pushed.len(), 2);
+    assert_eq!(pr.pushed, pushed[1].1);
+    assert_eq!(files_of(&f.wt, &pr.pushed).await.len(), 3);
+    assert_eq!(item(&f.core).await.state, ReviewState::Published);
+}
+
+#[tokio::test]
+async fn a_placeholder_the_review_left_out_is_never_committed() {
+    let f = fx().await;
+    f.wt.put(dir(), "CLAUDE.md", "");
+    let shown = item(&f.core).await;
+    let paths: Vec<String> = shown.files.iter().map(|f| f.path.clone()).collect();
+    assert_eq!(paths, ["b.rs"]);
+    let prepared = prepare(&f.core, &shown.id.0).await;
+    let refused = call(&f.core, create(&prepared, &shown.id.0)).await;
+    let message = refused.err().map(|e| e.message).unwrap_or_default();
+    assert!(message.contains("placeholder CLAUDE.md"), "{message}");
+    assert!(lock(&f.forge.pushed).is_empty());
+}
+
+#[tokio::test]
+async fn nothing_is_published_while_the_worker_is_still_working() {
+    let f = fx_with(vec![vec![Step::Say("done")], vec![Step::Partial("more")]]).await;
+    let mut rx = f.core.subscribe();
+    let id = item(&f.core).await.id.0;
+    let prepared = prepare(&f.core, &id).await;
+    let comment = json!({"method": "review.comment", "params": {"id": id, "text": "also c"}});
+    ok(&f.core, comment).await;
+    until(&mut rx, "s2", AgentStatus::Working).await;
+    let refused = call(&f.core, create(&prepared, &id)).await;
+    let message = refused.err().map(|e| e.message).unwrap_or_default();
+    assert!(message.contains("still working"), "{message}");
+    assert!(lock(&f.forge.pushed).is_empty());
 }
 
 #[tokio::test]

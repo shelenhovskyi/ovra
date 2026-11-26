@@ -20,6 +20,8 @@ type Files = BTreeMap<String, String>;
 
 /// Working trees keyed by directory, and commits keyed `c1`, `c2`, ...
 /// Diffs count whole lines; a file moved with its exact text is a rename.
+/// A delta's version is the file's text, or git's for an empty file (as
+/// the sandbox's placeholders are).
 #[derive(Debug, Default)]
 pub struct MemoryWorktrees {
     dirs: Mutex<BTreeMap<PathBuf, Files>>,
@@ -165,7 +167,12 @@ fn delta(path: &str, old: Option<&String>, new: Option<&String>) -> Option<Delta
         from: None,
         additions: count(&new, &old),
         deletions: count(&old, &new),
-        version: new_text.cloned().unwrap_or_default(),
+        version: match new_text {
+            Some(text) if text.is_empty() => {
+                "100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391".to_owned()
+            }
+            text => text.cloned().unwrap_or_default(),
+        },
     })
 }
 

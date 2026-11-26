@@ -28,6 +28,8 @@ pub struct MemoryForge {
     pub pulls: Mutex<BTreeMap<u64, PrStatus>>,
     /// Failed logs by workflow run.
     pub logs: Mutex<BTreeMap<u64, String>>,
+    /// While set, `create` fails (`Unavailable`), as when GitHub is down.
+    pub refuse_create: Mutex<bool>,
 }
 
 impl Default for MemoryForge {
@@ -46,6 +48,7 @@ impl Default for MemoryForge {
             created: Mutex::default(),
             pulls: Mutex::default(),
             logs: Mutex::default(),
+            refuse_create: Mutex::default(),
         }
     }
 }
@@ -96,6 +99,10 @@ impl Forge for MemoryForge {
             .get(&(draft.remote.clone(), draft.branch.clone()))
             .cloned();
         let result = match head {
+            _ if *lock(&self.refuse_create) => Err(ProtocolError::new(
+                ErrorCode::Unavailable,
+                "gh pr create failed",
+            )),
             None => Err(not_found(format!("{}/{}", draft.remote, draft.branch))),
             Some(head) => {
                 let mut created = lock(&self.created);
