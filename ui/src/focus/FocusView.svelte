@@ -7,15 +7,18 @@
 import { tick } from "svelte";
 import { agentSessions, openReviews } from "../agents/sessions.svelte";
 import { approvalQueue } from "../approvals/queue.svelte";
+import { taskBoards } from "../board/boards.svelte";
 import { listCommands } from "../keys/commands";
-import type { SessionId } from "../lib/protocol";
+import type { BoardEntry, SessionId, TaskId } from "../lib/protocol";
 import { useOvra } from "../shell/context";
+import FocusQuestion from "./FocusQuestion.svelte";
 import { focusMode } from "./mode.svelte";
 import { countLine, type FocusRow, focusSections } from "./model";
 
 const { transport, workspace } = useOvra();
 const sessions = agentSessions(transport);
 const approvals = approvalQueue(transport);
+const boards = taskBoards(transport);
 
 const sections = $derived(workspace.project ? focusSections(sessions, workspace.project.id) : null);
 // Plans come from transcripts: load those of agents at work that this window has not watched.
@@ -28,7 +31,31 @@ $effect(() => {
   }
 });
 
-const nothingWaits = $derived(approvals.pending.length === 0 && (sections?.reviews.length ?? 0) === 0);
+/** The open project's tasks, by their coordinators: their boards hold the agents' questions to the person. */
+const tasks = $derived.by(() => {
+  const project = workspace.project?.id;
+  if (!project) return [];
+  return sessions.shown(project).flatMap((s) => {
+    const role = sessions.roles.get(s.id);
+    return role?.kind === "coordinator" ? [{ task: role.task, name: s.title || sessions.name(s.id) }] : [];
+  });
+});
+$effect(() => {
+  for (const { task } of tasks) boards.watch(task);
+});
+const questions = $derived(
+  tasks.flatMap(({ task, name }) =>
+    boards.openForPerson(task).map((question): { task: TaskId; name: string; question: BoardEntry } => ({
+      task,
+      name,
+      question,
+    })),
+  ),
+);
+
+const nothingWaits = $derived(
+  approvals.pending.length === 0 && questions.length === 0 && (sections?.reviews.length ?? 0) === 0,
+);
 
 function filesLine(id: SessionId): string {
   const n = sessions.changes(id).length;
@@ -72,10 +99,13 @@ async function newTask(): Promise<void> {
     {#if sections}<p>{countLine(sections)}</p>{/if}
   </header>
 
-  <section class="focus-waiting" aria-label="Changes to review">
+  <section class="focus-waiting" aria-label="Questions and changes to review">
     {#if nothingWaits}
       <p class="quiet" data-testid="focus-nothing">Nothing waits for you.</p>
     {/if}
+    {#each questions as { task, name, question } (`${task}:${question.id}`)}
+      <FocusQuestion {task} taskName={name} {question} />
+    {/each}
     {#each sections?.reviews ?? [] as id (id)}
       {@const summary = sessions.reviews.get(id)?.summary}
       <article class="card" data-testid="focus-review">
