@@ -19,12 +19,14 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use futures_util::stream::FuturesUnordered;
 use futures_util::{SinkExt, StreamExt};
+use hyper_util::rt::{TokioIo, TokioTimer};
+use hyper_util::service::TowerToHyperService;
 use ovra_core::Core;
 use ovra_core::protocol::info::InfoEvent;
 use serde::Deserialize;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio::time::Sleep;
 use tokio_rustls::TlsAcceptor;
 use tokio_rustls::rustls::ServerConfig;
@@ -37,6 +39,10 @@ use crate::{Shared, auth, phone};
 /// A WebSocket lasts this long; then the phone signs a new challenge.
 const SESSION_LIFE: Duration = Duration::from_secs(15 * 60);
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+/// How long a request's headers may take to arrive.
+const HEADER_TIMEOUT: Duration = Duration::from_secs(10);
+/// A plain HTTP connection only fetches the CA certificate or a redirect.
+const PLAIN_LIFE: Duration = Duration::from_secs(10);
 const MAX_FRAME: usize = 1 << 20;
 const PAIRS_PER_MINUTE: u32 = 10;
 const HANDSHAKES_PER_MINUTE: u32 = 30;
@@ -156,20 +162,33 @@ impl Drop for Slots {
     }
 }
 
-/// A connection that holds its slots and fails once idle for [`IDLE`].
+/// A connection that holds its slots and fails once idle for [`IDLE`];
+/// a plain HTTP one also fails [`PLAIN_LIFE`] after it opened, however
+/// busy.
 struct Io {
     inner: Inner,
     idle: Pin<Box<Sleep>>,
+    ends: Option<Pin<Box<Sleep>>>,
     _slots: Slots,
 }
 
 impl Io {
     fn new(inner: Inner, slots: Slots) -> Self {
+        let ends =
+            matches!(inner, Either::Right(_)).then(|| Box::pin(tokio::time::sleep(PLAIN_LIFE)));
         Self {
             inner,
             idle: Box::pin(tokio::time::sleep(IDLE)),
+            ends,
             _slots: slots,
         }
+    }
+
+    /// Whether a plain connection is past [`PLAIN_LIFE`].
+    fn ended(&mut self, cx: &mut Context<'_>) -> bool {
+        self.ends
+            .as_mut()
+            .is_some_and(|e| e.as_mut().poll(cx).is_ready())
     }
 
     fn active(&mut self) {
@@ -177,10 +196,10 @@ impl Io {
     }
 
     fn timed_out<T>(&mut self, cx: &mut Context<'_>) -> Poll<std::io::Result<T>> {
-        match self.idle.as_mut().poll(cx) {
-            Poll::Ready(()) => Poll::Ready(Err(std::io::ErrorKind::TimedOut.into())),
-            Poll::Pending => Poll::Pending,
+        if self.ended(cx) || self.idle.as_mut().poll(cx).is_ready() {
+            return Poll::Ready(Err(std::io::ErrorKind::TimedOut.into()));
         }
+        Poll::Pending
     }
 }
 
@@ -190,6 +209,9 @@ impl AsyncRead for Io {
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<std::io::Result<()>> {
+        if self.ended(cx) {
+            return Poll::Ready(Err(std::io::ErrorKind::TimedOut.into()));
+        }
         match Pin::new(&mut self.inner).poll_read(cx, buf) {
             Poll::Ready(r) => {
                 self.active();
@@ -206,6 +228,9 @@ impl AsyncWrite for Io {
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<std::io::Result<usize>> {
+        if self.ended(cx) {
+            return Poll::Ready(Err(std::io::ErrorKind::TimedOut.into()));
+        }
         match Pin::new(&mut self.inner).poll_write(cx, buf) {
             Poll::Ready(r) => {
                 self.active();
@@ -224,39 +249,6 @@ impl AsyncWrite for Io {
     }
 }
 
-struct PhoneListener {
-    rx: mpsc::Receiver<(Io, Peer)>,
-    local: SocketAddr,
-}
-
-impl axum::serve::Listener for PhoneListener {
-    type Io = Io;
-    type Addr = Peer;
-
-    async fn accept(&mut self) -> (Self::Io, Self::Addr) {
-        match self.rx.recv().await {
-            Some(next) => next,
-            // The accept loop stopped: wait for the shutdown that follows.
-            None => std::future::pending().await,
-        }
-    }
-
-    fn local_addr(&self) -> std::io::Result<Self::Addr> {
-        Ok(Peer {
-            addr: self.local,
-            tls: true,
-        })
-    }
-}
-
-impl axum::extract::connect_info::Connected<axum::serve::IncomingStream<'_, PhoneListener>>
-    for Peer
-{
-    fn connect_info(stream: axum::serve::IncomingStream<'_, PhoneListener>) -> Self {
-        *stream.remote_addr()
-    }
-}
-
 pub(crate) fn spawn(
     shared: Arc<Shared>,
     listener: std::net::TcpListener,
@@ -264,9 +256,6 @@ pub(crate) fn spawn(
     stop: CancellationToken,
 ) {
     tokio::spawn(async move {
-        let Ok(local) = listener.local_addr() else {
-            return;
-        };
         let listener = match listener
             .set_nonblocking(true)
             .and_then(|()| TcpListener::from_std(listener))
@@ -277,33 +266,17 @@ pub(crate) fn spawn(
                 return;
             }
         };
-        let (tx, rx) = mpsc::channel(32);
-        tokio::spawn(accept_loop(
-            listener,
-            TlsAcceptor::from(tls),
-            tx,
-            stop.clone(),
-        ));
-        let app = router(shared);
-        let served = axum::serve(
-            PhoneListener { rx, local },
-            app.into_make_service_with_connect_info::<Peer>(),
-        )
-        .with_graceful_shutdown(stop.cancelled_owned())
-        .await;
-        if let Err(e) = served {
-            tracing::warn!(error = %e, "phone access stopped");
-        }
+        accept_loop(listener, TlsAcceptor::from(tls), router(shared), stop).await;
     });
 }
 
 /// Accepts connections and sorts them by their first byte: a TLS
-/// handshake (`0x16`) or plain HTTP. Handshakes run on their own, so a
-/// slow one holds up nobody.
+/// handshake (`0x16`) or plain HTTP. Each runs on its own, so a slow one
+/// holds up nobody.
 async fn accept_loop(
     listener: TcpListener,
     tls: TlsAcceptor,
-    tx: mpsc::Sender<(Io, Peer)>,
+    app: Router,
     stop: CancellationToken,
 ) {
     let all = Arc::new(Semaphore::new(MAX_CONNECTIONS));
@@ -323,7 +296,7 @@ async fn accept_loop(
         let Some(slots) = Slots::take(&all, &by_ip, addr.ip()) else {
             continue;
         };
-        let (tls, tx) = (tls.clone(), tx.clone());
+        let (tls, app, stop) = (tls.clone(), app.clone(), stop.clone());
         tokio::spawn(async move {
             let mut first = [0u8; 1];
             let peeked = tokio::time::timeout(HANDSHAKE_TIMEOUT, stream.peek(&mut first)).await;
@@ -344,8 +317,29 @@ async fn accept_loop(
                     Peer { addr, tls: false },
                 )
             };
-            let _ = tx.send(next).await;
+            serve_http(next.0, next.1, app, &stop).await;
         });
+    }
+}
+
+/// HTTP/1.1 on one connection, until it closes or phone access stops.
+/// Request headers must arrive within [`HEADER_TIMEOUT`], so a client
+/// sending them a byte at a time cannot hold a slot.
+async fn serve_http(io: Io, peer: Peer, app: Router, stop: &CancellationToken) {
+    let service = TowerToHyperService::new(app.layer(axum::Extension(ConnectInfo(peer))));
+    let mut http = hyper::server::conn::http1::Builder::new();
+    http.timer(TokioTimer::new())
+        .header_read_timeout(HEADER_TIMEOUT);
+    let connection = http
+        .serve_connection(TokioIo::new(io), service)
+        .with_upgrades();
+    tokio::pin!(connection);
+    tokio::select! {
+        _ = connection.as_mut() => {}
+        () = stop.cancelled() => {
+            connection.as_mut().graceful_shutdown();
+            let _ = connection.await;
+        }
     }
 }
 
