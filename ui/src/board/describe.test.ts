@@ -69,4 +69,35 @@ describe("board entries in words", () => {
     expect(whoChanges(entries, []).map((r) => r.path)).toEqual(["docs/", "src/b.ts"]);
     expect(summary(entries, 0, 1)).toBe("lint holds 1 path · docs holds 1 path · 1 file shared between workers");
   });
+
+  it("orders the holders of a file by claim, as the core does", () => {
+    const claim = (id: string, worker: string, path: string): BoardEntry => ({
+      id,
+      author: { kind: "coordinator" },
+      body: { kind: "claim", worker, paths: [path], note: "" },
+    });
+    // lint appears first, but docs claimed src/** before lint claimed src/a.ts.
+    const board = [claim("c1", "lint", "README.md"), claim("c2", "docs", "src/**"), claim("c3", "lint", "src/a.ts")];
+    expect(whoChanges(board, []).find((r) => r.path === "src/a.ts")?.claims).toEqual(["docs", "lint"]);
+    // Given back and claimed again, a path counts from then.
+    const again: BoardEntry[] = [
+      claim("d1", "lint", "src/a.ts"),
+      claim("d2", "docs", "src/a.ts"),
+      { id: "d3", author: lint, body: { kind: "release", worker: "lint", paths: ["src/a.ts"] } },
+      claim("d4", "lint", "src/a.ts"),
+    ];
+    expect(whoChanges(again, [])[0]?.claims).toEqual(["docs", "lint"]);
+  });
+
+  it("leaves out the claims of workers that ended or whose work was discarded", () => {
+    const changes = [
+      { worker: "docs", paths: ["src/b.ts"] },
+      { worker: "lint", paths: [], active: false },
+    ];
+    expect(whoChanges(entries, changes).map((r) => `${r.path}: ${whoText(r)}${r.overlap ? " (overlap)" : ""}`)).toEqual(
+      ["docs/: docs claims it", "src/b.ts: docs changed it"],
+    );
+    expect([...held(entries, new Set(["lint"]))]).toEqual([["docs", ["docs/"]]]);
+    expect(summary(entries, 0, 0, new Set(["lint"]))).toBe("docs holds 1 path");
+  });
 });

@@ -12,6 +12,7 @@ import {
   entryHead,
   entryText,
   entryTime,
+  inactiveWorkers,
   summary,
   type WorkerChanges,
   whoChanges,
@@ -37,6 +38,7 @@ $effect(() => boards.watch(task));
 const entries = $derived(boards.entries.get(task) ?? []);
 const open = $derived(boards.openForPerson(task));
 const who = $derived(whoChanges(entries, changes));
+const inactive = $derived(inactiveWorkers(changes));
 const overlaps = $derived(who.filter((row) => row.overlap).length);
 const answers = $state<Record<EntryId, string>>({});
 let note = $state("");
@@ -91,7 +93,7 @@ function onEnter(event: KeyboardEvent, send: () => void): void {
   aria-labelledby={labelledby}
   data-testid="task-board"
 >
-  <p class="summary" data-testid="board-summary">{summary(entries, open.length, overlaps)}</p>
+  <p class="summary" data-testid="board-summary">{summary(entries, open.length, overlaps, inactive)}</p>
   {#if who.length > 0}
     <!-- Open by itself while two workers meet on a file: that is what needs a look. -->
     <details class="who-changes" open={overlaps > 0} data-testid="board-who">

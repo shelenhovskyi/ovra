@@ -50,29 +50,49 @@ export function entryText(entry: BoardEntry): string {
   return body.text;
 }
 
-/** Which paths each worker holds now: its claims less what it gave back, in claim order. */
-export function held(entries: BoardEntry[]): Map<string, string[]> {
-  const byWorker = new Map<string, string[]>();
+/**
+ * The claims held now as (worker, path) pairs, as the core orders them: by
+ * when each was claimed, a path given back and claimed again counting from
+ * then. Claims of `inactive` workers (ended, or their work discarded) no
+ * longer count, as in the core.
+ */
+function holders(entries: BoardEntry[], inactive: ReadonlySet<string>): { worker: string; pattern: string }[] {
+  let pairs: { worker: string; pattern: string }[] = [];
   for (const { body } of entries) {
     if (body.kind === "claim") {
-      const paths = byWorker.get(body.worker) ?? [];
-      byWorker.set(body.worker, [...paths, ...body.paths.filter((p) => !paths.includes(p))]);
+      for (const pattern of body.paths)
+        if (!pairs.some((h) => h.worker === body.worker && h.pattern === pattern))
+          pairs.push({ worker: body.worker, pattern });
     } else if (body.kind === "release") {
-      const left = (byWorker.get(body.worker) ?? []).filter((p) => !body.paths.includes(p));
-      if (left.length > 0) byWorker.set(body.worker, left);
-      else byWorker.delete(body.worker);
+      pairs = pairs.filter((h) => h.worker !== body.worker || !body.paths.includes(h.pattern));
     }
   }
+  return pairs.filter((h) => !inactive.has(h.worker));
+}
+
+/** Which paths each worker holds now: its claims less what it gave back, in claim order. */
+export function held(entries: BoardEntry[], inactive: ReadonlySet<string> = new Set()): Map<string, string[]> {
+  const byWorker = new Map<string, string[]>();
+  for (const { worker, pattern } of holders(entries, inactive))
+    byWorker.set(worker, [...(byWorker.get(worker) ?? []), pattern]);
   return byWorker;
 }
 
-/** The files one worker changed, from its review item. */
-export type WorkerChanges = { worker: string; paths: string[] };
+/** The workers whose claims no longer count. */
+export function inactiveWorkers(changes: WorkerChanges[]): Set<string> {
+  return new Set(changes.filter((c) => c.active === false).map((c) => c.worker));
+}
+
+/**
+ * The files one worker changed, from its review item. `active: false`: it
+ * ended or its work was discarded, so its claims no longer count.
+ */
+export type WorkerChanges = { worker: string; paths: string[]; active?: boolean };
 
 /** One line of "Who changes what": a file, or a claimed path nobody changed yet. */
 export type WhoRow = {
   path: string;
-  /** Workers whose claims cover it, the one that claimed first first. */
+  /** Workers whose claims cover it, the one that claimed first (the one the core lets change it) first. */
   claims: string[];
   /** Workers that changed it. */
   changes: string[];
@@ -85,12 +105,12 @@ export type WhoRow = {
  * the rows where two workers meet first, then by path.
  */
 export function whoChanges(entries: BoardEntry[], changes: WorkerChanges[]): WhoRow[] {
-  const holders = [...held(entries)].flatMap(([worker, patterns]) => patterns.map((pattern) => ({ worker, pattern })));
+  const claimed = holders(entries, inactiveWorkers(changes));
   const rows = new Map<string, WhoRow>();
   const row = (path: string): WhoRow => {
     let found = rows.get(path);
     if (!found) {
-      const claims = [...new Set(holders.filter((h) => covers(h.pattern, path)).map((h) => h.worker))];
+      const claims = [...new Set(claimed.filter((h) => covers(h.pattern, path)).map((h) => h.worker))];
       found = { path, claims, changes: [], overlap: false };
       rows.set(path, found);
     }
@@ -102,7 +122,7 @@ export function whoChanges(entries: BoardEntry[], changes: WorkerChanges[]): Who
       if (!r.changes.includes(worker)) r.changes.push(worker);
     }
   // A claim that covers no changed file shows as itself.
-  for (const { pattern } of holders) if (![...rows.keys()].some((path) => covers(pattern, path))) row(pattern);
+  for (const { pattern } of claimed) if (![...rows.keys()].some((path) => covers(pattern, path))) row(pattern);
   for (const r of rows.values()) r.overlap = new Set([...r.claims, ...r.changes]).size > 1;
   return [...rows.values()].sort((a, b) => Number(b.overlap) - Number(a.overlap) || a.path.localeCompare(b.path));
 }
@@ -134,9 +154,14 @@ export function covers(pattern: string, path: string): boolean {
 }
 
 /** The board in one line: who holds what, what overlaps, and what waits on the person. */
-export function summary(entries: BoardEntry[], openForPerson: number, overlaps = 0): string {
+export function summary(
+  entries: BoardEntry[],
+  openForPerson: number,
+  overlaps = 0,
+  inactive: ReadonlySet<string> = new Set(),
+): string {
   if (entries.length === 0 && overlaps === 0) return "Nothing on the board yet.";
-  const parts = [...held(entries)].map(([worker, paths]) => `${worker} holds ${count(paths.length, "path")}`);
+  const parts = [...held(entries, inactive)].map(([worker, paths]) => `${worker} holds ${count(paths.length, "path")}`);
   if (overlaps > 0) parts.push(`${count(overlaps, "file")} shared between workers`);
   if (openForPerson > 0) parts.push(`${count(openForPerson, "question")} for you`);
   return parts.length > 0 ? parts.join(" · ") : count(entries.length, "entry", "entries");
