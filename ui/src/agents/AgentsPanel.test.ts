@@ -6,6 +6,7 @@ import { listCommands, registerCommand } from "../keys/commands";
 import type { FileChange, Pick, ReviewItem } from "../lib/protocol";
 import { closeContextMenu, contextMenu } from "../menu/context-menu.svelte";
 import { Workspace } from "../shell/workspace.svelte";
+import { askAgent } from "./context.svelte";
 import { FakeAgentCore } from "./fake-core";
 import { agentPrefs } from "./prefs.svelte";
 import TestHost from "./TestHost.svelte";
@@ -96,8 +97,10 @@ const button = (name: string) =>
 describe("AgentsPanel", () => {
   it("offers one Start button and a mode menu that says what each way to work means", async () => {
     await setup();
-    const buttons = [...target.querySelectorAll("form.new button")].map((b) => b.textContent?.trim());
-    expect(buttons).toEqual(["One agent, here", "Start"]);
+    const buttons = [...target.querySelectorAll("form.new button")].map(
+      (b) => b.textContent?.trim() || b.getAttribute("aria-label"),
+    );
+    expect(buttons).toEqual(["One agent, here", "Add context", "Start"]);
     // Who pays, in the footer line (it opens Claude's setup).
     expect(target.querySelector("[data-testid=agents-footer]")?.textContent).toBe("Claude · Claude plan");
     expect(target.querySelector("label[for=agent-prompt]")?.textContent).toBe("Give Claude a task");
@@ -1097,6 +1100,85 @@ describe("AgentsPanel", () => {
     expect(unfold).toHaveBeenCalledOnce();
     off();
     column.remove();
+  });
+});
+
+describe("@ context", () => {
+  // The file list is cached per project for the whole run, as in the palette.
+  const FILES = [".env", "README.md", "src/lib.rs", "src/main.rs"];
+  const field = () => target.querySelector<HTMLTextAreaElement>("#agent-prompt");
+  const key = (code: string) =>
+    document.activeElement?.dispatchEvent(
+      new KeyboardEvent("keydown", { code, key: code, bubbles: true, cancelable: true }),
+    );
+  const options = () =>
+    [...target.querySelectorAll("[data-testid=context-menu] [role=option] .name")].map((o) => o.textContent);
+  const chips = () =>
+    [...target.querySelectorAll("[data-testid=context-chip]")].map((c) => c.textContent?.replace(/\s+/g, " ").trim());
+
+  it("finds a file after @, adds it as a chip and starts the task with it", async () => {
+    const core = new FakeAgentCore();
+    core.files = FILES;
+    await setup(core);
+    type(field(), "Fix @lib");
+    await settle();
+    expect(options()[0]).toBe("lib.rs");
+    expect(field()?.getAttribute("aria-expanded")).toBe("true");
+    key("Enter");
+    await settle();
+    expect(field()?.value).toBe("Fix ");
+    expect(chips()).toEqual(["lib.rs"]);
+    expect(core.sent("agents.start")).toHaveLength(0);
+    // Escape keeps a typed @ as text; Backspace in an empty box removes the last chip.
+    type(field(), "@src");
+    await settle();
+    key("Escape");
+    await settle();
+    expect(options()).toEqual([]);
+    type(field(), "Fix the parser");
+    key("Enter");
+    await settle();
+    expect(core.sent("agents.start")[0]?.params.context).toEqual([
+      { kind: "file", path: "src/lib.rs", confirmed: false },
+    ]);
+    expect(chips()).toEqual([]);
+  });
+
+  it("holds a chip that may hold a secret until the person chooses Include", async () => {
+    const core = new FakeAgentCore();
+    core.files = FILES;
+    core.contextNotes.set(".env", "secret_file");
+    await setup(core);
+    type(field(), "@.env");
+    await settle();
+    key("Enter");
+    await settle();
+    expect(chips()).toEqual([".env May hold secrets Include"]);
+    type(field(), "Use the keys");
+    key("Enter");
+    await settle();
+    expect(core.sent("agents.start")).toHaveLength(0);
+    expect(target.textContent).toContain("Choose Include or remove the marked item first.");
+    [...target.querySelectorAll<HTMLButtonElement>("[data-testid=context-chip] button")]
+      .find((b) => b.textContent === "Include")
+      ?.click();
+    field()?.focus();
+    key("Enter");
+    await settle();
+    expect(core.sent("agents.start")[0]?.params.context).toEqual([{ kind: "file", path: ".env", confirmed: true }]);
+  });
+
+  it("takes Ask agent from another area into the box and focuses it", async () => {
+    const core = await setup();
+    askAgent({ kind: "terminal", title: "zsh", text: "test failed" });
+    await settle();
+    expect(chips()).toEqual(["Terminal"]);
+    expect(document.activeElement).toBe(field());
+    // Backspace in the empty box takes it out again.
+    key("Backspace");
+    await settle();
+    expect(chips()).toEqual([]);
+    expect(core.sent("context.check")).toHaveLength(1);
   });
 });
 

@@ -9,6 +9,7 @@ import type {
   AgentCapacity,
   AgentMessage,
   Billing,
+  ContextItem,
   CoreEvent,
   DiskUsage,
   FailedWorker,
@@ -329,8 +330,11 @@ export class AgentSessions {
 
   /** Starts a task: a coordinator that splits the work among workers in
    * their own worktrees. Resolves with the coordinator's session. */
-  async startTask(project: ProjectId, prompt: string): Promise<SessionId> {
-    const { data } = await this.transport.call({ method: "orchestration.start", params: { project, prompt } });
+  async startTask(project: ProjectId, prompt: string, context: ContextItem[] = []): Promise<SessionId> {
+    const { data } = await this.transport.call({
+      method: "orchestration.start",
+      params: { project, prompt, ...(context.length > 0 ? { context } : {}) },
+    });
     await this.load(project);
     return data.coordinator;
   }
@@ -346,11 +350,12 @@ export class AgentSessions {
     prompt: string,
     account: string | null = null,
     mode: "direct" | "research" = "direct",
+    context: ContextItem[] = [],
   ): Promise<SessionInfo> {
     // Messages may arrive before the reply: collect them from the start.
     const { data } = await this.transport.call({
       method: "agents.start",
-      params: { project, agent: "claude", mode, prompt, account },
+      params: { project, agent: "claude", mode, prompt, account, ...(context.length > 0 ? { context } : {}) },
     });
     const known = this.byId.get(data.id);
     // agents.sandbox may also have come before the reply: keep what it said.
@@ -359,8 +364,9 @@ export class AgentSessions {
     return data;
   }
 
-  async send(session: SessionId, text: string): Promise<void> {
-    await this.transport.call({ method: "agents.send", params: { session, text } });
+  async send(session: SessionId, text: string, context: ContextItem[] = []): Promise<void> {
+    const params = { session, text, ...(context.length > 0 ? { context } : {}) };
+    await this.transport.call({ method: "agents.send", params });
   }
 
   /** Ends the current turn; the agent's pending requests are denied and it waits for a message. */

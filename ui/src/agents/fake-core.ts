@@ -8,6 +8,7 @@ import type {
   AgentMessage,
   AgentSetup,
   AgentStatus,
+  ContextWarning,
   CoreEvent,
   PermissionRequest,
   Project,
@@ -63,6 +64,10 @@ export class FakeAgentCore implements Transport {
   files = new Map<string, string>();
   /** `git.status` answers that the project is not a git repository. */
   noRepo = false;
+  /** The project's files, for the @ menu (`fs.list_files`). */
+  files: string[] = [];
+  /** What `context.check` answers for an item's path or text. */
+  contextNotes = new Map<string, ContextWarning>();
   /** Makes the next call of this method fail with this error. */
   failNext = new Map<Request["method"], CoreError>();
   private listeners = new Set<(event: CoreEvent) => void>();
@@ -221,6 +226,18 @@ export class FakeAgentCore implements Transport {
             operation: null,
             files: [],
             truncated: 0,
+          },
+        };
+      case "fs.list_files":
+        return { type: "fs.files", data: { paths: [...this.files], total: this.files.length, version: 1 } };
+      case "context.check":
+        return {
+          type: "context.checked",
+          data: {
+            notes: request.params.items.map((item) => {
+              const key = "path" in item ? item.path : "text" in item ? item.text : "";
+              return this.contextNotes.get(key) ?? null;
+            }),
           },
         };
       case "review.list":

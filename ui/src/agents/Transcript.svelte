@@ -65,6 +65,8 @@ const FROM: Record<MessageFrom, string> = {
   ovra: "Ovra",
   unknown: "Sender not recorded",
 };
+/** How the core's message with the person's @ context begins (crates/core/src/context.rs). */
+const CONTEXT_HEADER = "The person added this context to the message.";
 const MAX_OUTPUT = 2000;
 const MAX_SPOKEN = 300;
 /** How the claude CLI tells the model that a person denied or interrupted a tool call. */
@@ -265,7 +267,13 @@ const lastError = $derived.by(() => {
       {@const message = entry.message}
       {@const sub = "parent" in message && message.parent ? "Subagent " : ""}
       <li class={isInterrupt(message) ? "interrupted" : message.kind} class:sub={sub !== ""}>
-        {#if message.kind === "user_text"}
+        {#if message.kind === "user_text" && message.from === "ovra" && message.text.startsWith(CONTEXT_HEADER)}
+          <!-- The @ context, in the agent's words: folded, the person knows what they added. -->
+          <details class="context" data-testid="transcript-context">
+            <summary>Context sent</summary>
+            <p>{message.text.slice(message.text.indexOf("\n\n") + 2)}</p>
+          </details>
+        {:else if message.kind === "user_text"}
           <span class="who">{FROM[message.from]}</span>
           <p>{message.text}</p>
         {:else if message.kind === "assistant_text"}
@@ -406,6 +414,16 @@ const lastError = $derived.by(() => {
     overflow-wrap: anywhere;
   }
   /* What the person wrote stands apart by tone. */
+  .context summary {
+    font-size: 13px;
+    color: var(--text-2);
+    cursor: pointer;
+  }
+  .context p {
+    margin: 6px 0 0;
+    font-size: 12px;
+    white-space: pre-wrap;
+  }
   .user_text {
     padding: 8px 12px;
     background: var(--s3);
