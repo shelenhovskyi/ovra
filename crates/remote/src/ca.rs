@@ -163,7 +163,7 @@ impl Ca {
 
 /// Writes `text` to a new file only this user can read, in place of
 /// `path`.
-fn write_private(path: &PathBuf, text: &str) -> Result<(), String> {
+pub(crate) fn write_private(path: &PathBuf, text: &str) -> Result<(), String> {
     use std::io::Write;
     let tmp = path.with_extension("key.tmp");
     let _ = std::fs::remove_file(&tmp);

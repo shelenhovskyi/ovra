@@ -6,6 +6,8 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+pub(crate) use crate::push::Subscription;
+
 pub(crate) const MAX_DEVICES: usize = 5;
 pub(crate) const FORGET_AFTER_MS: u64 = 30 * 24 * 60 * 60 * 1000;
 
@@ -18,6 +20,9 @@ pub(crate) struct Stored {
     pub(crate) paired_at_ms: u64,
     #[serde(default)]
     pub(crate) seen_at_ms: Option<u64>,
+    /// Where Web Push reaches this phone, if it asked for notifications.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) push: Option<Subscription>,
 }
 
 #[derive(Debug)]
@@ -73,6 +78,20 @@ impl Devices {
         self.save().map(|()| true)
     }
 
+    /// Sets or clears `id`'s push subscription; `false` when there is no
+    /// such phone.
+    pub(crate) fn set_push(
+        &mut self,
+        id: &str,
+        push: Option<Subscription>,
+    ) -> Result<bool, String> {
+        let Some(d) = self.list.iter_mut().find(|d| d.id == id) else {
+            return Ok(false);
+        };
+        d.push = push;
+        self.save().map(|()| true)
+    }
+
     pub(crate) fn seen(&mut self, id: &str, now_ms: u64) {
         if let Some(d) = self.list.iter_mut().find(|d| d.id == id) {
             d.seen_at_ms = Some(now_ms);
@@ -110,6 +129,7 @@ mod tests {
             key: "k".into(),
             paired_at_ms: at,
             seen_at_ms: None,
+            push: None,
         }
     }
 
@@ -130,11 +150,18 @@ mod tests {
         assert_eq!(devices.list().len(), MAX_DEVICES);
         assert!(devices.get("d0").is_none(), "the oldest went");
         devices.seen("d1", FORGET_AFTER_MS);
+        let sub: Subscription = serde_json::from_value(serde_json::json!({
+            "endpoint": "https://fcm.googleapis.com/x", "keys": {"p256dh": "p", "auth": "a"},
+        }))
+        .expect("subscription");
+        assert!(devices.set_push("d1", Some(sub.clone())).expect("push"));
+        assert!(!devices.set_push("nobody", None).expect("push"));
         assert!(devices.forget("d2").expect("forget"));
         assert!(!devices.forget("d2").expect("forget"));
 
         let kept = Devices::load(path, FORGET_AFTER_MS + 10);
         let ids: Vec<_> = kept.list().iter().map(|d| d.id.as_str()).collect();
         assert_eq!(ids, ["d1"], "only the phone seen recently is kept");
+        assert_eq!(kept.list()[0].push, Some(sub), "its subscription is kept");
     }
 }

@@ -10,6 +10,7 @@ mod ca;
 mod devices;
 mod net;
 mod phone;
+mod push;
 mod server;
 
 use std::net::{IpAddr, SocketAddr};
@@ -104,6 +105,7 @@ pub(crate) struct Running {
     pub(crate) ip: IpAddr,
     pub(crate) port: u16,
     pub(crate) ca: Arc<ca::Ca>,
+    pub(crate) vapid: Arc<push::Vapid>,
     stop: CancellationToken,
 }
 
@@ -327,6 +329,10 @@ impl RemoteAccess for RemoteServer {
                 format!("making Ovra's certificate: {e}"),
             )
         })?);
+        let vapid = Arc::new(
+            push::Vapid::load_or_create(&self.shared.dir)
+                .map_err(|e| err(ErrorCode::Internal, format!("making the push key: {e}")))?,
+        );
         let tls = ca
             .server_for(ip)
             .map_err(|e| err(ErrorCode::Internal, format!("making the certificate: {e}")))?;
@@ -347,6 +353,7 @@ impl RemoteAccess for RemoteServer {
                 ip,
                 port,
                 ca,
+                vapid,
                 stop: stop.clone(),
             });
         }
@@ -448,7 +455,8 @@ impl Shared {
         lock(&self.state)
     }
 
-    /// Forgets `device` and closes its sessions.
+    /// Forgets `device` (its push subscription with it) and closes its
+    /// sessions.
     pub(crate) fn forget(&self, device: &str) -> Result<()> {
         let forgotten = self
             .lock()
@@ -528,6 +536,7 @@ impl Shared {
                     key: key.to_owned(),
                     paired_at_ms: now_ms(),
                     seen_at_ms: None,
+                    push: None,
                 })
                 .and_then(|device| {
                     let gone = state.devices.add(device.clone()).ok()?;

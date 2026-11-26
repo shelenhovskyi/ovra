@@ -329,6 +329,64 @@ async fn ask(ws: &mut Ws, frame: Value) -> Value {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_phone_subscribes_to_pushes_for_itself_only() {
+    let s = setup();
+    let (mut ws, device) = signed_in(&s).await;
+    let push = |s: &Setup| {
+        s.server
+            .shared
+            .lock()
+            .devices
+            .get(&device)
+            .and_then(|d| d.push.clone())
+    };
+
+    let reply = ask(&mut ws, json!({"id": 1, "method": "phone.push_key"})).await;
+    let vapid = s
+        .server
+        .shared
+        .lock()
+        .running
+        .as_ref()
+        .expect("running")
+        .vapid
+        .public();
+    assert_eq!(reply, json!({"id": 1, "result": {"key": vapid}}));
+
+    let key = TestKey::new().public();
+    let subscription = |endpoint: &str| {
+        json!({"endpoint": endpoint, "expirationTime": null,
+               "keys": {"p256dh": key, "auth": "AAAAAAAAAAAAAAAAAAAAAA"}})
+    };
+    let subscribe = |id: u64, sub: Value| json!({"id": id, "method": "phone.push_subscribe", "params": {"subscription": sub}});
+    for (id, bad) in [
+        (2, subscribe(2, subscription("https://evil.example/x"))),
+        (3, subscribe(3, subscription("http://fcm.googleapis.com/x"))),
+        (
+            4,
+            subscribe(4, json!({"endpoint": "https://fcm.googleapis.com/x"})),
+        ),
+        (5, json!({"id": 5, "method": "phone.push_subscribe"})),
+        (6, json!({"id": 6, "method": "phone.nope"})),
+    ] {
+        let reply = ask(&mut ws, bad).await;
+        assert_eq!(reply["id"], id);
+        assert_eq!(reply["error"]["code"], "bad_request", "{reply}");
+    }
+    assert!(push(&s).is_none());
+
+    let good = subscription("https://fcm.googleapis.com/fcm/send/abc");
+    let reply = ask(&mut ws, subscribe(7, good)).await;
+    assert_eq!(reply, json!({"id": 7, "result": null}));
+    let kept = push(&s).expect("subscribed");
+    assert_eq!(kept.endpoint, "https://fcm.googleapis.com/fcm/send/abc");
+
+    let reply = ask(&mut ws, subscribe(8, Value::Null)).await;
+    assert_eq!(reply, json!({"id": 8, "result": null}));
+    assert!(push(&s).is_none());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_phone_forgets_itself_and_its_session_closes() {
     let s = setup();
     let (mut ws, device) = signed_in(&s).await;
