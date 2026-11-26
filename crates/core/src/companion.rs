@@ -104,8 +104,10 @@ pub(crate) fn shows(event: &Event) -> bool {
         | Event::Orchestration(OrchestrationEvent::Changed { .. })
         | Event::Review(ReviewEvent::Changed { .. })
         | Event::Power(PowerEvent::Changed(_)) => true,
-        // What the agent asks to show is for the desktop.
-        Event::Orchestration(OrchestrationEvent::Show { .. }) => false,
+        // What the agent asks to show is for the desktop. A phone hears of
+        // a review request through push and re-reads on `review.changed`.
+        Event::Orchestration(OrchestrationEvent::Show { .. })
+        | Event::Review(ReviewEvent::Requested { .. }) => false,
         Event::Agents(e) => match e {
             AgentsEvent::LimitChanged(_)
             | AgentsEvent::Message { .. }

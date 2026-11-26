@@ -122,5 +122,8 @@ export type ReviewResponse =
   /** Stdout and stderr merged, oldest first. */
   | { type: "review.check_log"; data: { lines: string[] } };
 
-/** Re-fetch the list. */
-export type ReviewEvent = { type: "review.changed"; data: { project: ProjectId; id: ReviewId } };
+export type ReviewEvent =
+  /** Re-fetch the list. */
+  | { type: "review.changed"; data: { project: ProjectId; id: ReviewId } }
+  /** An agent asked for review of `id`; follows its `review.changed`, for notifications. */
+  | { type: "review.requested"; data: { project: ProjectId; id: ReviewId } };

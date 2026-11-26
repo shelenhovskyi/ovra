@@ -254,4 +254,9 @@ pub enum ReviewEvent {
     /// re-fetch the list.
     #[serde(rename = "review.changed")]
     Changed { project: ProjectId, id: ReviewId },
+    /// An agent asked the person to review `id` (`request_review`). It
+    /// follows the item's `review.changed`; it says only that work waits,
+    /// for notifications.
+    #[serde(rename = "review.requested")]
+    Requested { project: ProjectId, id: ReviewId },
 }

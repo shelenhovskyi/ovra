@@ -550,6 +550,7 @@ fn wire_format_is_stable() {
             Event::Terminals(TerminalsEvent::Output { id: TerminalId("t1".into()), data: "$ ".into(), seq: 1 }),
             Event::Terminals(TerminalsEvent::Exited { id: TerminalId("t1".into()), code: None }),
             Event::Review(ReviewEvent::Changed { project: ProjectId("p1".into()), id: ReviewId("r1".into()) }),
+            Event::Review(ReviewEvent::Requested { project: ProjectId("p1".into()), id: ReviewId("r1".into()) }),
             Event::Orchestration(OrchestrationEvent::Show {
                 project: ProjectId("p1".into()),
                 target: ShowTarget::File { path: "a.rs".into(), line: Some(3) },

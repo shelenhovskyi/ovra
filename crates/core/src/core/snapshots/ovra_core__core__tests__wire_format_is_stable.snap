@@ -141,6 +141,13 @@ expression: samples
     },
     {
       "data": {
+        "id": "r1",
+        "project": "p1"
+      },
+      "type": "review.requested"
+    },
+    {
+      "data": {
         "project": "p1",
         "target": {
           "kind": "file",
