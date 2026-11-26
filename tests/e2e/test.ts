@@ -57,7 +57,7 @@ function daemonUrl(): string {
 }
 
 /** Adds `root` to the daemon's projects over its WebSocket; resolves with the project's id. */
-async function addProject(url: string, root: string): Promise<string> {
+export async function addProject(url: string, root: string): Promise<string> {
   const { host, searchParams } = new URL(url);
   const socket = new WebSocket(`ws://${host}/ws?token=${encodeURIComponent(searchParams.get("token") ?? "")}`);
   try {

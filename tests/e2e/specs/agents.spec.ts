@@ -1,9 +1,9 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import type { Page } from "@playwright/test";
-import { clickWhenArmed, expect, loadProject, test } from "../test";
+import { addProject, clickWhenArmed, expect, loadProject, test } from "../test";
 
 // The daemon runs with --fake-agent: every session asks to run `ls -la` and to
 // edit README.md, then waits; each reply asks to run `git status`. A task's
@@ -738,4 +738,31 @@ test("a worker is prepared, its setup fails, and Start anyway starts it", async 
   await agents.getByRole("button", { name: "Tasks" }).click();
   await expect(docs).toBeVisible();
   await expect(agents.getByTestId("worker-setup")).toHaveCount(0);
+});
+
+test("History finds a past task of another project and opens it to continue", async ({ page }) => {
+  await openProject(page, "ovra-agents-history-a-");
+  const word = `zebra${Date.now()}`;
+  const agents = page.getByTestId("agents-panel");
+  await page.getByRole("textbox", { name: "Describe a task" }).fill(`Write a README.md about ${word}`);
+  await page.keyboard.press("ControlOrMeta+Enter");
+  await expect(agents.getByRole("definition")).toHaveText(["wrote README.md", "every command in it ran", "Nothing"]);
+
+  // Another project is open now; History still has the task.
+  const other = mkdtempSync(join(tmpdir(), "ovra-agents-history-b-"));
+  const id = await addProject(process.env.OVRA_URL ?? "", other);
+  await page.evaluate((project) => localStorage.setItem("ovra.project", project), id);
+  await page.reload();
+  await expect(page.getByRole("button", { name: `Project ${basename(other)}, switch project` })).toBeVisible();
+  await agents.getByTestId("agents-history").click();
+  const history = page.getByTestId("history");
+  await history.getByTestId("history-search").fill(word.toUpperCase());
+  const row = history.getByTestId("history-row");
+  await expect(row).toHaveCount(1);
+  await expect(row).toContainText(`Write a README.md about ${word}`);
+  await row.click();
+
+  await expect(history).toBeHidden();
+  await expect(agents.getByTestId("agent-session")).toContainText(`Write a README.md about ${word}`);
+  await expect(agents.getByRole("definition")).toHaveText(["wrote README.md", "every command in it ran", "Nothing"]);
 });

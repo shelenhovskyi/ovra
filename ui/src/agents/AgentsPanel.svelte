@@ -31,6 +31,7 @@ import { CoreError } from "../lib/transport";
 import { isMenuKey, type MenuEntry, openContextMenu } from "../menu/context-menu.svelte";
 import { projectSandbox } from "../settings/sandbox";
 import { useOvra } from "../shell/context";
+import { reveal } from "./reveal.svelte";
 import Icon from "../shell/Icon.svelte";
 import { menuTarget } from "../shell/menu";
 import ContextInput from "./ContextInput.svelte";
@@ -322,6 +323,13 @@ $effect(() => {
   untrack(() => checkGit(id));
 });
 
+/** Runs the shell's command `id` (History is the shell's view). */
+function runCommand(id: string): void {
+  void listCommands()
+    .find((c) => c.id === id)
+    ?.run();
+}
+
 /** The Git area's "Set up git" (`git init`), then the question again. */
 async function setUpGit(id: string): Promise<void> {
   await listCommands()
@@ -556,6 +564,17 @@ $effect(() => {
     startError = null;
     launched = null;
     sessions.show(id).catch((err: unknown) => (error = `Could not list sessions: ${text(err)}`));
+  });
+});
+
+// History asked for a session: it opens once it is among this project's (after the reset above).
+$effect(() => {
+  const id = reveal.session;
+  if (!id || !project || sessions.byId.get(id)?.project !== project.id) return;
+  untrack(() => {
+    reveal.session = null;
+    sessions.reopen(id);
+    open(id);
   });
 });
 
@@ -1200,6 +1219,17 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
     {/if}
     <span class="end">
       <KeepAwakeButton />
+      {#if project}
+        <button
+          type="button"
+          class="quiet icon-only"
+          title="History: past tasks of every project"
+          aria-label="History"
+          data-testid="agents-history"
+          onclick={() => runCommand("agents.history")}
+          >{@render icon("M3 12a9 9 0 1 0 3-6.7M3 4v4h4M12 7v5l3 2")}</button
+        >
+      {/if}
       {#if current}
         <button
           type="button"

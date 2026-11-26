@@ -394,6 +394,13 @@ export class AgentSessions {
     this.saveClosed(info.project);
   }
 
+  /** Shows a closed session in its project's list again (History opened it). */
+  reopen(id: SessionId): void {
+    const info = this.byId.get(id);
+    if (!info || !this.closed.delete(id)) return;
+    this.saveClosed(info.project);
+  }
+
   /**
    * Hides a session another panel started for a purpose of its own (the git
    * panel's agent actions), at once and in whatever state it is: that panel
