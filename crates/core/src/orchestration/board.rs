@@ -681,15 +681,23 @@ fn entry_size(entry: &BoardEntry) -> usize {
     marked(entry, None).len()
 }
 
-/// Longest option, and longest reason, in characters.
+/// Longest option, in characters.
 const MAX_OPTION: usize = 80;
+/// Longest reason for a recommendation, in characters.
 const MAX_REASON: usize = 200;
 
-/// 2 to 4 options of one short line each; a recommendation names one of
-/// them, with a reason of one line.
+/// 2 to 4 different options of one short line each, without spaces at
+/// their ends (a tap sends one as it is); a recommendation names one of
+/// them, and only a recommendation has a reason of one line. No control
+/// or line-separator character can fake another line of the question.
 fn check_choices(choices: &Choices) -> Result<()> {
     let line = |text: &str, max: usize| {
-        !text.trim().is_empty() && !text.contains(['\n', '\r']) && text.chars().count() <= max
+        !text.is_empty()
+            && text.trim() == text
+            && !text
+                .chars()
+                .any(|c| c.is_control() || matches!(c, '\u{2028}' | '\u{2029}'))
+            && text.chars().count() <= max
     };
     let Choices {
         options,
@@ -710,6 +718,16 @@ fn check_choices(choices: &Choices) -> Result<()> {
         return Err(bad(format!(
             "each option is one line of at most {MAX_OPTION} characters"
         )));
+    }
+    if options
+        .iter()
+        .enumerate()
+        .any(|(i, o)| options[..i].contains(o))
+    {
+        return Err(bad("the options are all different"));
+    }
+    if reason.is_some() && recommended.is_none() {
+        return Err(bad("a reason goes with a recommendation"));
     }
     if recommended.is_some_and(|i| i >= options.len()) {
         return Err(bad("recommended is the index of one of the options"));
@@ -1080,6 +1098,15 @@ mod tests {
         assert!(check_choices(&choices(&["a"], None, None)).is_err());
         assert!(check_choices(&choices(&["a", "b\nc"], None, None)).is_err());
         assert!(check_choices(&choices(&["a", "b"], Some(2), None)).is_err());
+        for odd in ["b\u{2028}Why: x", "b\u{85}", "b\u{b}", " b", "a"] {
+            assert!(
+                check_choices(&choices(&["a", odd], None, None)).is_err(),
+                "{odd:?}"
+            );
+        }
+        assert!(check_choices(&choices(&["a", "b"], None, Some("why"))).is_err());
+        assert!(check_choices(&choices(&["a", "b"], Some(1), Some("x\u{2029}y"))).is_err());
+        assert!(check_choices(&choices(&["a", "b"], Some(1), Some("why"))).is_ok());
         let entry = BoardEntry {
             id: EntryId("b3".into()),
             author: Author::Coordinator,

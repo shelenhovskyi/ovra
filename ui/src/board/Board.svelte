@@ -107,7 +107,12 @@ function onEnter(event: KeyboardEvent, send: () => void): void {
         bind:value={answers[question.id]}
         onkeydown={(event) => onEnter(event, () => void answer(question.id))}
       ></textarea>
-      <button type="submit" class="primary" disabled={busy || !answers[question.id]?.trim()}>Answer</button>
+      <!-- With options to tap, typing an answer is the second way, not the main one. -->
+      <button
+        type="submit"
+        class={question.body.kind === "question" && question.body.options?.length ? "soft" : "primary"}
+        disabled={busy || !answers[question.id]?.trim()}>Answer</button
+      >
     </form>
   {/each}
   {#if error}<p class="error" role="alert">{error}</p>{/if}

@@ -170,4 +170,37 @@ mod tests {
         }
         "#);
     }
+
+    #[test]
+    fn a_question_with_options_reads_as_the_ui_expects_and_old_ones_still_load() {
+        let body = EntryBody::Question {
+            to: Recipient::Person,
+            text: "Keep the old flag?".into(),
+            choices: Choices {
+                options: vec!["Keep".into(), "Drop".into()],
+                recommended: Some(1),
+                reason: Some("Nobody uses it".into()),
+            },
+        };
+        insta::assert_json_snapshot!(body, @r#"
+        {
+          "kind": "question",
+          "to": {
+            "kind": "person"
+          },
+          "text": "Keep the old flag?",
+          "options": [
+            "Keep",
+            "Drop"
+          ],
+          "recommended": 1,
+          "reason": "Nobody uses it"
+        }
+        "#);
+        let old: Result<EntryBody, _> =
+            serde_json::from_str(r#"{"kind":"question","to":{"kind":"person"},"text":"?"}"#);
+        assert!(
+            matches!(old, Ok(EntryBody::Question { choices, .. }) if choices == Choices::default())
+        );
+    }
 }
