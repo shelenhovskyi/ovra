@@ -35,7 +35,12 @@ pub(crate) struct Ctx<'a> {
 
 const OK: Response = Response::Ok(OkResponse::Ok);
 
-pub(crate) async fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Response> {
+/// `by`: who sends it, for the audit log of what an interrupt refuses.
+pub(crate) async fn agents(
+    ctx: &Ctx<'_>,
+    request: AgentsRequest,
+    by: DecidedBy,
+) -> Result<Response> {
     let sessions = ctx.sessions;
     match request {
         AgentsRequest::Providers => Ok(Response::Agents(AgentsResponse::Providers(
@@ -198,7 +203,7 @@ pub(crate) async fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Resp
             let denied = sessions.permissions.deny_session(
                 &session,
                 &PermissionAnswer::deny("the turn was interrupted"),
-                &DecidedBy::Person,
+                &by,
             );
             AgentHost::new(session, project, sessions.clone(), ctx.sink.clone())
                 .resolved(denied, Decision::Deny);

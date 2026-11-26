@@ -11,6 +11,7 @@ mod forge;
 mod git;
 mod lsp;
 mod power;
+mod remote;
 mod servers;
 mod worktrees;
 
@@ -33,6 +34,7 @@ pub use forge::MemoryForge;
 pub use git::MemoryGit;
 pub use lsp::{FakeLanguageServers, FakeServer, HostRecord};
 pub use power::FakeKeepAwake;
+pub use remote::FakeRemote;
 pub use servers::{FakeDevServer, FakeDevServers};
 pub use worktrees::MemoryWorktrees;
 

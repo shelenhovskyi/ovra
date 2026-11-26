@@ -52,6 +52,10 @@ has none and keeps code on the person's computer.
   the LAN during that minute could swap the certificate. Documented.
 - The CA key is kept with Ovra's data in a protected path; agents in the
   sandbox cannot read it and cannot reach LAN addresses (netproxy).
+- Transcripts and approvals carry tool inputs and results, so file
+  contents an agent read or wrote reach the phone. Stripping them would
+  protect little, since a phone may ask the agent to print a file; the
+  phone gets no direct way to read files, diffs or terminals.
 - Every connect, pairing, forget and every answer from a phone goes to the
   audit log with the device name.
 - Code in `crates/remote`, the companion allowlist and the CA are security

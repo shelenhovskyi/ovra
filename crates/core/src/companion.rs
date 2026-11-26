@@ -4,16 +4,19 @@
 //! someone decides; other domains are refused as a whole.
 
 use crate::protocol::agents::{AgentsEvent, AgentsRequest};
-use crate::protocol::orchestration::OrchestrationRequest;
-use crate::protocol::permissions::PermissionsRequest;
+use crate::protocol::info::{InfoEvent, InfoRequest};
+use crate::protocol::orchestration::{OrchestrationEvent, OrchestrationRequest};
+use crate::protocol::permissions::{PermissionsEvent, PermissionsRequest};
+use crate::protocol::power::{PowerEvent, PowerRequest};
 use crate::protocol::projects::ProjectsRequest;
-use crate::protocol::review::ReviewRequest;
+use crate::protocol::review::{ReviewEvent, ReviewRequest};
 use crate::protocol::{Event, Request};
 
 /// Whether a phone may send `request`.
 pub(crate) fn allows(request: &Request) -> bool {
     match request {
-        Request::Info(_) | Request::Power(_) => true,
+        Request::Info(InfoRequest::Get)
+        | Request::Power(PowerRequest::Get | PowerRequest::SetMode { .. }) => true,
         Request::Projects(r) => match r {
             ProjectsRequest::List => true,
             ProjectsRequest::Add { .. }
@@ -84,20 +87,23 @@ pub(crate) fn allows(request: &Request) -> bool {
         | Request::Lsp(_)
         | Request::Servers(_)
         | Request::Browser(_)
-        | Request::Pr(_) => false,
+        | Request::Pr(_)
+        | Request::Context(_)
+        | Request::Board(_)
+        | Request::Remote(_) => false,
     }
 }
 
 /// Whether a phone gets `event`.
 pub(crate) fn shows(event: &Event) -> bool {
     match event {
-        Event::Info(_)
-        | Event::Projects(_)
-        | Event::Permissions(_)
-        | Event::Orchestration(_)
-        | Event::Review(_)
-        | Event::Resources(_)
-        | Event::Power(_) => true,
+        Event::Info(InfoEvent::Ready | InfoEvent::Resync { .. })
+        | Event::Permissions(PermissionsEvent::Requested(_) | PermissionsEvent::Resolved { .. })
+        | Event::Orchestration(OrchestrationEvent::Changed { .. })
+        | Event::Review(ReviewEvent::Changed { .. })
+        | Event::Power(PowerEvent::Changed(_)) => true,
+        // What the agent asks to show is for the desktop.
+        Event::Orchestration(OrchestrationEvent::Show { .. }) => false,
         Event::Agents(e) => match e {
             AgentsEvent::LimitChanged(_)
             | AgentsEvent::Message { .. }
@@ -106,7 +112,9 @@ pub(crate) fn shows(event: &Event) -> bool {
             | AgentsEvent::Sandbox { .. } => true,
             AgentsEvent::ResearchLimitChanged(_) | AgentsEvent::TextDelta { .. } => false,
         },
-        Event::Fs(_)
+        Event::Projects(_)
+        | Event::Resources(_)
+        | Event::Fs(_)
         | Event::Terminals(_)
         | Event::Search(_)
         | Event::Policy(_)
@@ -116,7 +124,9 @@ pub(crate) fn shows(event: &Event) -> bool {
         | Event::Lsp(_)
         | Event::Servers(_)
         | Event::Browser(_)
-        | Event::Pr(_) => false,
+        | Event::Pr(_)
+        | Event::Board(_)
+        | Event::Remote(_) => false,
     }
 }
 

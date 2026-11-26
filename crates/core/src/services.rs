@@ -1,6 +1,7 @@
 //! Seams between the core and the outside world. Each trait has a real
 //! implementation in its own crate and a fake in [`crate::fakes`].
 
+use crate::protocol::remote::{Device, Pairing, RemoteStatus};
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fmt::Debug;
@@ -183,6 +184,26 @@ pub trait Opener: Send + Sync + Debug {
     /// [`Opener::open_in_editor`], a path that resolves outside `root` is
     /// refused.
     fn reveal(&self, root: &Path, path: &RelPath) -> Result<()>;
+}
+
+/// Phone access over the LAN (ADR 0014; implemented by `ovra-remote`): a
+/// listener on one private address that serves paired phones through
+/// [`crate::Core::connect_phone`].
+pub trait RemoteAccess: Send + Sync + Debug {
+    fn status(&self) -> Result<RemoteStatus>;
+    /// Starts listening on `address` (one of `RemoteStatus::addresses`;
+    /// the first when `None`) and keeps it on across restarts. The service
+    /// keeps `core` to serve phones until it is disabled.
+    fn enable(&self, core: crate::Core, address: Option<String>) -> Result<RemoteStatus>;
+    /// Stops listening and closes every phone's connection.
+    fn disable(&self) -> Result<RemoteStatus>;
+    /// Opens a pairing window for one phone; `Conflict` while off.
+    fn start_pairing(&self) -> Result<Pairing>;
+    /// The person's answer to a `remote.pairing_request`.
+    fn answer_pairing(&self, id: &str, allow: bool) -> Result<()>;
+    fn devices(&self) -> Result<Vec<Device>>;
+    /// Forgets a phone and closes its connections.
+    fn forget(&self, device: &str) -> Result<()>;
 }
 
 /// Keeps the computer from sleeping while it is idle (implemented by
@@ -1539,6 +1560,30 @@ impl Opener for Unavailable {
         self.err()
     }
     fn reveal(&self, _: &Path, _: &RelPath) -> Result<()> {
+        self.err()
+    }
+}
+
+impl RemoteAccess for Unavailable {
+    fn status(&self) -> Result<RemoteStatus> {
+        self.err()
+    }
+    fn enable(&self, _: crate::Core, _: Option<String>) -> Result<RemoteStatus> {
+        self.err()
+    }
+    fn disable(&self) -> Result<RemoteStatus> {
+        self.err()
+    }
+    fn start_pairing(&self) -> Result<Pairing> {
+        self.err()
+    }
+    fn answer_pairing(&self, _: &str, _: bool) -> Result<()> {
+        self.err()
+    }
+    fn devices(&self) -> Result<Vec<Device>> {
+        self.err()
+    }
+    fn forget(&self, _: &str) -> Result<()> {
         self.err()
     }
 }

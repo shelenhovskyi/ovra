@@ -17,6 +17,7 @@ import type { PolicyEvent, PolicyRequest, PolicyResponse } from "./policy";
 import type { PowerEvent, PowerRequest, PowerResponse } from "./power";
 import type { PrEvent, PrRequest, PrResponse, PrResponseFor } from "./pr";
 import type { ProjectsEvent, ProjectsRequest, ProjectsResponse } from "./projects";
+import type { RemoteEvent, RemoteRequest, RemoteResponse, RemoteResponseFor } from "./remote";
 import type { ResourcesEvent } from "./resources";
 import type { ReviewEvent, ReviewRequest, ReviewResponse } from "./review";
 import type { SearchEvent, SearchRequest, SearchResponse } from "./search";
@@ -47,6 +48,7 @@ export type * from "./policy";
 export type * from "./power";
 export type * from "./pr";
 export type * from "./projects";
+export type * from "./remote";
 export type * from "./resources";
 export type * from "./review";
 export type * from "./search";
@@ -77,7 +79,8 @@ export type Request =
   | PrRequest
   | PowerRequest
   | ContextRequest
-  | BoardRequest;
+  | BoardRequest
+  | RemoteRequest;
 
 export type Response =
   | InfoResponse
@@ -101,6 +104,7 @@ export type Response =
   | PowerResponse
   | ContextResponse
   | BoardResponse
+  | RemoteResponse
   | { type: "ok" };
 
 export type CoreEvent =
@@ -123,7 +127,8 @@ export type CoreEvent =
   | PrEvent
   | ResourcesEvent
   | PowerEvent
-  | BoardEvent;
+  | BoardEvent
+  | RemoteEvent;
 
 export type ErrorCode = "bad_request" | "not_found" | "conflict" | "forbidden" | "unavailable" | "internal";
 
@@ -268,4 +273,6 @@ type PhaseThreeResponseFor<R extends Request> = R extends { method: "review.list
                                               ? ContextResponse
                                               : R extends BoardRequest
                                                 ? BoardResponseFor<R["method"]>
-                                                : never;
+                                                : R extends RemoteRequest
+                                                  ? RemoteResponseFor<R["method"]>
+                                                  : never;

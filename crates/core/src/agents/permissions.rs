@@ -163,7 +163,8 @@ pub(crate) struct Taken {
 }
 
 impl Taken {
-    /// Passes the person's answer to the waiting agent.
+    /// Passes the answer of the person at the computer ("Always allow" is
+    /// never a phone's) to the waiting agent.
     pub(crate) fn answer(self, answer: PermissionAnswer) {
         // The agent may have stopped waiting; then the answer has no effect.
         let _ = self.tx.send((answer, DecidedBy::Person));

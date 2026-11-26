@@ -22,6 +22,7 @@ pub mod policy;
 pub mod power;
 pub mod pr;
 pub mod projects;
+pub mod remote;
 pub mod resources;
 pub mod review;
 pub mod search;
@@ -57,6 +58,7 @@ pub enum Request {
     Pr(pr::PrRequest),
     Power(power::PowerRequest),
     Context(context::ContextRequest),
+    Remote(remote::RemoteRequest),
 }
 
 /// The core's answer to a [`Request`]. Wire form: `{"type": "<domain>.<name>", "data": ...}`.
@@ -84,6 +86,7 @@ pub enum Response {
     Pr(pr::PrResponse),
     Power(power::PowerResponse),
     Context(context::ContextResponse),
+    Remote(remote::RemoteResponse),
     /// The request succeeded and has nothing to return.
     Ok(OkResponse),
 }
@@ -118,6 +121,7 @@ pub enum Event {
     Pr(pr::PrEvent),
     Resources(resources::ResourcesEvent),
     Power(power::PowerEvent),
+    Remote(remote::RemoteEvent),
 }
 
 /// An error returned instead of a [`Response`].
@@ -278,5 +282,11 @@ impl From<resources::ResourcesEvent> for Event {
 impl From<power::PowerEvent> for Event {
     fn from(e: power::PowerEvent) -> Self {
         Self::Power(e)
+    }
+}
+
+impl From<remote::RemoteEvent> for Event {
+    fn from(e: remote::RemoteEvent) -> Self {
+        Self::Remote(e)
     }
 }

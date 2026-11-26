@@ -31,24 +31,27 @@ Settings > Claude.
 
 ## 2. Companion clients
 
-- `Core::connect_companion(device)` returns a `Client` whose requests go
-  through `companion::allowed(&Request)`, and whose events go through
-  `companion::shows(&Event)`. Anything not listed answers `forbidden`
-  ("not available from a phone").
+- `Core::connect_phone(device)` returns a `Client` whose requests go
+  through `companion::allows(&Request)`; its transport skips events for
+  which `Client::shows` (`companion::shows`) is false. Anything not listed
+  answers `forbidden` ("this is not available from a phone"). `device` is
+  the name kept at pairing, never one the phone sends later.
+- The matches name every method of the domains a phone may use, so a new
+  method there does not compile until someone decides; other domains are
+  refused whole.
 - Allowed requests: `info.get`, `projects.list`, `agents.list`,
-  `agents.transcript`, `agents.capacity`, `agents.limit`, `permissions.pending`,
-  `permissions.answer` (allow or deny, never with `always`),
-  `agents.send`, `agents.interrupt`, `agents.stop`,
-  `orchestration.list` (read), `review.list` (read), `power.get`,
-  `power.set_mode`, `remote.forget_self`.
-- Shown events: `info.*`, `agents.status`, `agents.message`,
-  `agents.limit_changed`, `agents.billing`, `agents.sandbox`,
-  `permissions.*`, `orchestration.*`, `review.changed`, `power.changed`.
-  Never `terminals.*`, `fs.*`, `lsp.*`, `search.*`, `secrets.*`,
-  `browser.*`, text deltas.
-- Answers from a companion go to the audit log with the device name.
-- A test lists every request variant and checks the allowlist decision
-  for each, so a new method is refused until someone adds it on purpose.
+  `agents.transcript`, `agents.capacity`, `agents.limit`,
+  `permissions.pending`, `permissions.answer` (allow or deny, never with
+  `always`), `agents.send`, `agents.interrupt`, `agents.stop`,
+  `orchestration.list`, `review.list`, `power.get`, `power.set_mode`.
+- Shown events: `info.ready`, `info.resync`, `agents.status`,
+  `agents.message`, `agents.limit_changed`, `agents.billing`,
+  `agents.sandbox`, `permissions.requested`, `permissions.resolved`,
+  `orchestration.changed`, `review.changed`, `power.changed`. Never
+  `terminals.*`, `fs.*`, `lsp.*`, `search.*`, `secrets.*`, `browser.*`,
+  `remote.*`, text deltas, `orchestration.show`.
+- Answers from a phone, and what its interrupts refuse, go to the audit
+  log as `DecidedBy::Phone { device }`.
 
 ## 3. `crates/remote`
 

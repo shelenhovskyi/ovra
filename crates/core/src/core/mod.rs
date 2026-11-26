@@ -21,8 +21,8 @@ use crate::search::{self, Searches};
 use crate::servers::DevServerState;
 use crate::services::{
     AgentRuntime, AuditLog, Browser, DevServers, EventSink, Forge, FsService, GitService, IdeTools,
-    KeepAwake, LanguageServers, NetProxy, Opener, ProjectStore, ResourceMonitor, Secrets,
-    SessionStore, TerminalService, Unavailable, Worktrees,
+    KeepAwake, LanguageServers, NetProxy, Opener, ProjectStore, RemoteAccess, ResourceMonitor,
+    Secrets, SessionStore, TerminalService, Unavailable, Worktrees,
 };
 
 const EVENT_CAPACITY: usize = 1024;
@@ -50,6 +50,7 @@ pub struct CoreBuilder {
     forge: Arc<dyn Forge>,
     resources: Option<Arc<dyn ResourceMonitor>>,
     keep_awake: Arc<dyn KeepAwake>,
+    remote: Arc<dyn RemoteAccess>,
 }
 
 impl CoreBuilder {
@@ -165,6 +166,12 @@ impl CoreBuilder {
         self
     }
 
+    /// Phone access over the LAN (ADR 0014).
+    pub fn remote(mut self, remote: Arc<dyn RemoteAccess>) -> Self {
+        self.remote = remote;
+        self
+    }
+
     pub fn build(self) -> Core {
         let (events, _) = broadcast::channel(EVENT_CAPACITY);
         let kept = self.sessions.clone();
@@ -198,6 +205,7 @@ impl CoreBuilder {
                 lsp_servers: crate::lsp::Servers::default(),
                 audit_state: crate::audit::State::default(),
                 power: crate::power::State::new(self.keep_awake),
+                remote: self.remote,
             }),
             events,
         };
@@ -246,6 +254,7 @@ struct Inner {
     forge: Arc<dyn Forge>,
     resources: crate::resources::Resources,
     power: crate::power::State,
+    remote: Arc<dyn RemoteAccess>,
 }
 
 /// A [`Core`] that does not keep it alive; sessions hold one so their IDE
@@ -351,6 +360,7 @@ impl Core {
             forge: Arc::new(Unavailable("pull requests")),
             resources: None,
             keep_awake: Arc::new(Unavailable("keeping the computer awake")),
+            remote: Arc::new(Unavailable("phone access")),
         }
     }
 
@@ -405,6 +415,9 @@ impl Core {
 
     /// A client for a paired phone named `device`: it may only use what
     /// `companion::allows`, and its answers are recorded as the phone's.
+    /// `device` must be the name kept when the phone was paired, never one
+    /// the phone sends later. Its transport must skip events for which
+    /// [`Client::shows`] is false.
     pub fn connect_phone(&self, device: impl Into<String>) -> Client {
         Client {
             core: self.clone(),
@@ -436,7 +449,7 @@ impl Core {
             Request::Fs(r) => self.fs(r).await,
             Request::Open(r) => self.open(r).map(|()| Response::Ok(OkResponse::Ok)),
             Request::Terminals(r) => self.terminals(r).await,
-            Request::Agents(r) => agents::handle_agents(&self.agents_ctx(), r).await,
+            Request::Agents(r) => agents::handle_agents(&self.agents_ctx(), r, by.clone()).await,
             Request::Permissions(PermissionsRequest::Answer {
                 id,
                 answer,
@@ -459,6 +472,7 @@ impl Core {
             Request::Pr(r) => crate::pr::handle(self, r).await,
             Request::Power(r) => crate::power::handle(self, r),
             Request::Context(r) => crate::context::handle(self, r).await,
+            Request::Remote(r) => crate::remote::handle(self, r),
         }
     }
 
@@ -509,6 +523,10 @@ impl Core {
 
     pub(crate) fn lsp_servers(&self) -> &crate::lsp::Servers {
         &self.inner.lsp_servers
+    }
+
+    pub(crate) fn remote(&self) -> &dyn RemoteAccess {
+        self.inner.remote.as_ref()
     }
 
     pub(crate) fn power(&self) -> &crate::power::State {

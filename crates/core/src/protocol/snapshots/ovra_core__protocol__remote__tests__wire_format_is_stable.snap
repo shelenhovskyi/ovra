@@ -1,0 +1,101 @@
+---
+source: crates/core/src/protocol/remote.rs
+expression: "serde_json::json!({\n    \"requests\":\n    [Request::Remote(RemoteRequest::Status),\n    Request::Remote(RemoteRequest::Enable\n    { address: Some(\"192.168.1.20\".into()) }),\n    Request::Remote(RemoteRequest::Disable),\n    Request::Remote(RemoteRequest::StartPairing),\n    Request::Remote(RemoteRequest::AnswerPairing\n    { id: \"q1\".into(), allow: true }),\n    Request::Remote(RemoteRequest::Devices),\n    Request::Remote(RemoteRequest::Forget { device: \"d1\".into() }),],\n    \"responses\":\n    [Response::Remote(RemoteResponse::Status(status.clone())),\n    Response::Remote(RemoteResponse::Pairing(Pairing\n    {\n        url: \"https://192.168.1.20:52044/pair#secret\".into(), qr_svg:\n        \"<svg/>\".into(), certificate_url:\n        \"http://192.168.1.20:52044/ca.crt\".into(), certificate_fingerprint:\n        \"AB12 CD34\".into(), expires_in: 300,\n    })),\n    Response::Remote(RemoteResponse::Devices(vec![Device\n    {\n        id: \"d1\".into(), name: \"iPhone\".into(), paired_at_ms: 1, seen_at_ms:\n        Some(2), connected: true,\n    }])),], \"events\":\n    [Event::from(RemoteEvent::Changed(status)),\n    Event::from(RemoteEvent::PairingRequest(PairingRequest\n    { id: \"q1\".into(), name: \"iPhone\".into(), code: \"4821\".into(), })),\n    Event::from(RemoteEvent::PairingClosed),\n    Event::from(RemoteEvent::DevicesChanged),],\n})"
+---
+{
+  "events": [
+    {
+      "data": {
+        "addresses": [
+          "192.168.1.20"
+        ],
+        "connected": 1,
+        "enabled": true,
+        "url": "https://192.168.1.20:52044"
+      },
+      "type": "remote.changed"
+    },
+    {
+      "data": {
+        "code": "4821",
+        "id": "q1",
+        "name": "iPhone"
+      },
+      "type": "remote.pairing_request"
+    },
+    {
+      "type": "remote.pairing_closed"
+    },
+    {
+      "type": "remote.devices_changed"
+    }
+  ],
+  "requests": [
+    {
+      "method": "remote.status"
+    },
+    {
+      "method": "remote.enable",
+      "params": {
+        "address": "192.168.1.20"
+      }
+    },
+    {
+      "method": "remote.disable"
+    },
+    {
+      "method": "remote.start_pairing"
+    },
+    {
+      "method": "remote.answer_pairing",
+      "params": {
+        "allow": true,
+        "id": "q1"
+      }
+    },
+    {
+      "method": "remote.devices"
+    },
+    {
+      "method": "remote.forget",
+      "params": {
+        "device": "d1"
+      }
+    }
+  ],
+  "responses": [
+    {
+      "data": {
+        "addresses": [
+          "192.168.1.20"
+        ],
+        "connected": 1,
+        "enabled": true,
+        "url": "https://192.168.1.20:52044"
+      },
+      "type": "remote.status"
+    },
+    {
+      "data": {
+        "certificate_fingerprint": "AB12 CD34",
+        "certificate_url": "http://192.168.1.20:52044/ca.crt",
+        "expires_in": 300,
+        "qr_svg": "<svg/>",
+        "url": "https://192.168.1.20:52044/pair#secret"
+      },
+      "type": "remote.pairing"
+    },
+    {
+      "data": [
+        {
+          "connected": true,
+          "id": "d1",
+          "name": "iPhone",
+          "paired_at_ms": 1,
+          "seen_at_ms": 2
+        }
+      ],
+      "type": "remote.devices"
+    }
+  ]
+}

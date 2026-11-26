@@ -85,8 +85,20 @@ fn a_phone_gets_status_and_approvals_but_no_files_or_streamed_text() {
     })));
 }
 
-#[tokio::test]
-async fn a_phone_is_refused_outside_its_list_and_its_answers_are_recorded_as_its_own() {
+#[test]
+fn a_phone_client_filters_events_and_a_window_client_does_not() {
+    let core = Core::new("test");
+    let text = Event::from(AgentsEvent::TextDelta {
+        session: SessionId("s1".into()),
+        text: "x".into(),
+    });
+    assert!(!core.connect_phone("Pixel").shows(&text));
+    assert!(core.connect().shows(&text));
+}
+
+/// A core whose agent asks to run `ls` in project `p1`, and a phone
+/// "Pixel"; returns once the request waits. A phone may not add projects.
+async fn waiting() -> (Core, crate::Client, Arc<MemoryAudit>) {
     let log = Arc::new(MemoryAudit::default());
     let core = Core::builder("test")
         .projects(Arc::new(MemoryProjects::default()))
@@ -103,7 +115,6 @@ async fn a_phone_is_refused_outside_its_list_and_its_answers_are_recorded_as_its
     let refused = phone.handle(add.clone()).await.err().map(|e| e.code);
     assert_eq!(refused, Some(ErrorCode::Forbidden));
     core.handle(add).await.unwrap_or_else(|e| panic!("{e}"));
-
     let mut rx = core.subscribe();
     core.handle(request(json!({"method": "agents.start", "params": {
         "project": "p1", "agent": "claude", "mode": "direct", "prompt": "x"}})))
@@ -119,6 +130,36 @@ async fn a_phone_is_refused_outside_its_list_and_its_answers_are_recorded_as_its
             None => panic!("core closed"),
         }
     }
+    (core, phone, log)
+}
+
+/// Waits until the log has a tool decision and returns who made it.
+async fn decided_by(log: &MemoryAudit) -> DecidedBy {
+    loop {
+        let decided = log
+            .list(&ProjectId("p1".into()), Default::default(), 100)
+            .unwrap_or_else(|e| panic!("{e}"))
+            .into_iter()
+            .find_map(|entry| match entry.event {
+                AuditEvent::ToolDecided { by, .. } => Some(by),
+                _ => None,
+            });
+        if let Some(by) = decided {
+            return by;
+        }
+        tokio::task::yield_now().await;
+    }
+}
+
+fn pixel() -> DecidedBy {
+    DecidedBy::Phone {
+        device: "Pixel".into(),
+    }
+}
+
+#[tokio::test]
+async fn a_phone_answers_without_always_and_its_answers_are_recorded_as_its_own() {
+    let (_core, phone, log) = waiting().await;
     let id = match phone
         .handle(request(json!({"method": "permissions.pending"})))
         .await
@@ -138,25 +179,17 @@ async fn a_phone_is_refused_outside_its_list_and_its_answers_are_recorded_as_its
         ))
         .await
         .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(decided_by(&log).await, pixel());
+}
 
-    loop {
-        let decided = log
-            .list(&ProjectId("p1".into()), Default::default(), 100)
-            .unwrap_or_else(|e| panic!("{e}"))
-            .into_iter()
-            .find_map(|entry| match entry.event {
-                AuditEvent::ToolDecided { by, .. } => Some(by),
-                _ => None,
-            });
-        if let Some(by) = decided {
-            assert_eq!(
-                by,
-                DecidedBy::Phone {
-                    device: "Pixel".into()
-                }
-            );
-            break;
-        }
-        tokio::task::yield_now().await;
-    }
+#[tokio::test]
+async fn what_a_phone_interrupt_refuses_is_recorded_as_the_phones() {
+    let (_core, phone, log) = waiting().await;
+    phone
+        .handle(request(
+            json!({"method": "agents.interrupt", "params": {"session": "s1"}}),
+        ))
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(decided_by(&log).await, pixel());
 }
