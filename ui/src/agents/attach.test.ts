@@ -8,9 +8,11 @@ import {
   dropZone,
   insidePaths,
   itemFor,
+  MAX_IMAGE_BYTES,
   pastedFiles,
   relativeTo,
   secretLooking,
+  thumbnail,
 } from "./attach";
 
 /** A transport that answers the calls these helpers make and records them. */
@@ -38,6 +40,14 @@ function fake(withDrops = true) {
           };
         case "context.attach":
           return { type: "context.attached", data: { path: `.ovra-attachments/${request.params.name}` } };
+        case "fs.read_file": {
+          const path = request.params.path;
+          const size = path === "big.png" ? MAX_IMAGE_BYTES + 1 : 3;
+          const body = path.startsWith("text")
+            ? { kind: "text" as const, text: "hi" }
+            : { kind: "binary" as const, mime: "image/png", base64: "iVBO" };
+          return { type: "fs.file", data: { path, size, mtime_ms: 1, body } };
+        }
         default:
           throw new Error(`unexpected ${request.method}`);
       }
@@ -215,5 +225,18 @@ describe("dropZone", () => {
     browser.inner.dispatchEvent(event("drop", { Files: "" }, [file]));
     expect(browser.seen.over).toEqual([true, false]);
     expect(browser.seen.files).toEqual([[file]]);
+  });
+});
+
+describe("images", () => {
+  it("become image items with a thumbnail when a model takes them, else stay files", async () => {
+    const { transport } = fake();
+    expect(await itemFor(transport, "p1", "shots/a.PNG")).toEqual({ kind: "image", path: "shots/a.PNG" });
+    expect(thumbnail("p1", "shots/a.PNG")).toBe("data:image/png;base64,iVBO");
+    expect(thumbnail("p2", "shots/a.PNG")).toBeUndefined();
+    expect(await itemFor(transport, "p1", "big.png")).toEqual({ kind: "file", path: "big.png" });
+    expect(await itemFor(transport, "p1", "text.png")).toEqual({ kind: "file", path: "text.png" });
+    expect(await itemFor(transport, "p1", "notes.txt")).toEqual({ kind: "file", path: "notes.txt" });
+    expect(await itemFor(transport, "p1", "src")).toEqual({ kind: "folder", path: "src" });
   });
 });
