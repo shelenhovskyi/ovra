@@ -1,0 +1,37 @@
+[package]
+name = "ovra-remote"
+description = "Phone access over the LAN: TLS listener, pairing and device keys (implements ovra_core::services::RemoteAccess, ADR 0014)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+ovra-core.workspace = true
+ovra-transport.workspace = true
+axum.workspace = true
+base64 = "0.22"
+futures-util.workspace = true
+if-addrs = "0.13"
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+rand.workspace = true
+rcgen = "0.14"
+ring = "0.17"
+serde.workspace = true
+serde_json.workspace = true
+time = "0.3"
+tokio = { workspace = true, features = ["io-util", "net", "rt", "sync", "time"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+tokio-util = "0.7"
+tower-http = { workspace = true }
+tracing.workspace = true
+
+[dev-dependencies]
+ovra-core = { workspace = true, features = ["fakes"] }
+tempfile = "3"
+tokio = { workspace = true, features = ["macros", "test-util"] }
+tokio-tungstenite.workspace = true
+
+[lints]
+workspace = true

@@ -21,6 +21,7 @@
     "ovra-forge": ["ovra-core"],
     "ovra-resources": ["ovra-core"],
     "ovra-power": ["ovra-core"],
+    "ovra-remote": ["ovra-core", "ovra-transport"],
     "ovra-security-tests": ["ovra-sandbox"],
     "ovra-daemon": [
       "ovra-core",
@@ -40,7 +41,8 @@
       "ovra-browser",
       "ovra-forge",
       "ovra-resources",
-      "ovra-power"
+      "ovra-power",
+      "ovra-remote"
     ],
     "ovra-app": [
       "ovra-core",
@@ -60,7 +62,8 @@
       "ovra-browser",
       "ovra-forge",
       "ovra-resources",
-      "ovra-power"
+      "ovra-power",
+      "ovra-remote"
     ]
   },
   "banned": {
@@ -83,6 +86,7 @@
     "ovra-servers": ["tauri", "wry", "axum", "hyper", "tokio-tungstenite"],
     "ovra-browser": ["tauri", "wry", "axum", "hyper", "tokio-tungstenite"],
     "ovra-forge": ["tauri", "wry", "axum", "hyper", "tokio-tungstenite"],
-    "ovra-resources": ["tauri", "wry", "axum", "hyper", "tokio-tungstenite"]
+    "ovra-resources": ["tauri", "wry", "axum", "hyper", "tokio-tungstenite"],
+    "ovra-remote": ["tauri", "wry"]
   }
 }

@@ -31,6 +31,7 @@ ovra-browser = { path = "crates/browser" }
 ovra-forge = { path = "crates/forge" }
 ovra-resources = { path = "crates/resources" }
 ovra-power = { path = "crates/power" }
+ovra-remote = { path = "crates/remote" }
 anyhow = "1"
 axum = { version = "0.8", features = ["ws"] }
 futures-util = "0.3"
