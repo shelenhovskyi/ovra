@@ -72,18 +72,31 @@ export function watchAgents(transport: Transport, notifier: Notifier, review: (i
       return;
     }
     const members = [task.coordinator, ...task.workers.map((w) => w.session)];
-    // A worker waiting for a free agent has not started: the task is not done.
-    const unfinished = (id: SessionId) => busy(id) || state(id) === "queued";
+    // A worker whose setup failed waits for Retry or Start anyway: the task waits on the person.
+    const setupFailed = task.workers.filter((w) => state(w.session) === "preparing" && w.setup?.failed);
+    const stuck = new Set(setupFailed.map((w) => w.session));
+    // A worker waiting for a free agent, or being prepared, has not started: the task is not done.
+    const unfinished = (id: SessionId) =>
+      busy(id) || state(id) === "queued" || (state(id) === "preparing" && !stuck.has(id));
     if (members.some(unfinished)) return;
     await sessions.loadReviews(project);
     if (members.some(unfinished)) return;
+    const title = sessions.byId.get(task.coordinator)?.title || "A task";
+    if (setupFailed.length > 0) {
+      const which = setupFailed.length === 1 ? (setupFailed[0]?.name ?? "") : `${setupFailed.length} workers`;
+      notifier.notify(
+        { key: `task:${task.id}`, level: "attention", text: `${title}: setup failed for ${which}` },
+        "Setup failed",
+      );
+      return;
+    }
     const waiting = sessions.waitingInTask(task.coordinator);
     notifier.notify({
       key: `task:${task.id}`,
       level: "info",
       ...(waiting > 0
         ? {
-            text: `${sessions.byId.get(task.coordinator)?.title || "A task"}: ${waiting === 1 ? "1 change" : `${waiting} changes`} to review`,
+            text: `${title}: ${waiting === 1 ? "1 change" : `${waiting} changes`} to review`,
             action: { label: "Review", run: () => openReviews(task.workers.map((w) => w.session)) },
             review: true,
           }

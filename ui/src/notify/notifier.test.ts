@@ -279,4 +279,47 @@ describe("watchAgents", () => {
     core.status("s2", { state: "working" });
     expect(await texts()).toEqual([]);
   });
+
+  it("never calls a task done while its workers are prepared or their setup failed", async () => {
+    const core = new FakeAgentCore();
+    core.addSession("p1", "Add notes", { state: "working" });
+    const names = ["docs", "tests", "lint"];
+    for (const n of names) core.addSession("p1", `Write ${n}`, { state: "preparing" });
+    const setup = { step: 0, steps: 1, command: "pnpm install", log: [], failed: null as string | null };
+    core.tasks.push({
+      id: "t1",
+      project: "p1",
+      coordinator: "s1",
+      workers: names.map((name, i) => ({
+        session: `s${i + 2}`,
+        name,
+        branch: `ovra/t1/${name}`,
+        worktree: `/w/${name}`,
+        kept: null,
+        setup: { ...setup },
+      })),
+      limits: { max_workers: 3, budget_micro_usd: null },
+      spent_micro_usd: 0,
+    });
+    const notifier = new Notifier(system(false, true).api);
+    watchAgents(core, notifier, vi.fn());
+    const toasts = async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      return notifier.toasts.map((t) => [t.level, t.text]);
+    };
+    // Their setups still run: the task is under way.
+    core.status("s1", { state: "idle" });
+    expect(await toasts()).toEqual([]);
+    // Two failed, one still runs.
+    const workers = core.tasks[0]?.workers ?? [];
+    for (const w of workers.slice(0, 2)) w.setup = { ...setup, failed: "exited with code 1" };
+    core.status("s1", { state: "working" });
+    core.status("s1", { state: "idle" });
+    expect(await toasts()).toEqual([]);
+    // All failed: the task waits on the person, it is not done.
+    for (const w of workers) w.setup = { ...setup, failed: "exited with code 1" };
+    core.status("s1", { state: "working" });
+    core.status("s1", { state: "idle" });
+    expect(await toasts()).toEqual([["attention", "Add notes: setup failed for 3 workers"]]);
+  });
 });
