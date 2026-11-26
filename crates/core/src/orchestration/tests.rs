@@ -3838,6 +3838,29 @@ async fn a_worker_cannot_edit_a_file_another_worker_claimed_first() {
     );
     assert_eq!(write("s3", "docs", "src/a.rs"), None);
     assert!(write("s2", "lint", "src/a.rs").is_some());
+    // Docs' own claims come first now; lint's later one inside src still
+    // stops docs deleting src or the whole worktree.
+    assert!(
+        f.core
+            .board_claim(&lint, None, &["src/b.rs".into()], "")
+            .is_ok()
+    );
+    for (call, said) in [
+        (&gone, "claimed a file in src"),
+        (&root, "claimed a file in this worktree"),
+    ] {
+        let refused =
+            crate::orchestration::claimed_write(&f.core, &sid("s3"), call, &worktree("docs"));
+        assert!(
+            refused.as_deref().is_some_and(|m| m.contains(said)),
+            "{refused:?}"
+        );
+    }
+    assert!(
+        f.core
+            .board_release(&lint, None, &["src/b.rs".into()])
+            .is_ok()
+    );
     // A folder claim covers what is under it.
     assert!(
         f.core
