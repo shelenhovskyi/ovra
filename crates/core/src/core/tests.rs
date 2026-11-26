@@ -800,3 +800,33 @@ async fn open_external_refuses_escapes_and_the_root() {
     }
     assert_eq!(f.opener.opened.lock().map(|o| o.len()).ok(), Some(0));
 }
+
+#[tokio::test]
+async fn paths_the_person_changed_outside_the_frames_are_never_the_agents_alone() {
+    let wt = Arc::new(crate::fakes::MemoryWorktrees::default());
+    wt.put("/w", "a.rs", "a\n");
+    let core = Core::builder("test")
+        .projects(Arc::new(MemoryProjects::default()))
+        .worktrees(wt.clone())
+        .build();
+    let (project, session) = (ProjectId("p1".into()), SessionId("s1".into()));
+    let direct = &core.inner.sessions.direct;
+    let begun = direct.begin(&project, &session, "/w".into()).await;
+    assert!(begun.is_ok(), "{begun:?}");
+    let make = serde_json::json!({"command": "make"});
+    direct.tool_started(&session, "t1", "Bash", &make).await;
+    // A drop is imported while the agent's shell call runs.
+    wt.put("/w", "img/a.png", "png");
+    wt.put("/w", "out.o", "built");
+    let imported = RelPath::parse("img").unwrap_or_else(|e| panic!("{e:?}"));
+    core.person_changed(&project, &[imported]);
+    assert!(direct.tool_ended(&session, "t1"));
+    direct.catch_up(&session).await;
+    let files = direct
+        .files(&session)
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    let by: Vec<_> = files.iter().map(|f| (f.path.as_str(), f.by)).collect();
+    use crate::protocol::review::ChangedBy::{Agent, Both};
+    assert_eq!(by, [("img/a.png", Both), ("out.o", Agent)]);
+}

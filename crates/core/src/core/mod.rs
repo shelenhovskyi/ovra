@@ -725,7 +725,7 @@ impl Core {
             FsRequest::Create { project, path, dir } => {
                 let (root, path) = (self.root(&project)?, editable(&path)?);
                 fs.create(root, path.clone(), dir).await?;
-                self.person_changed(&project, [&path]);
+                self.changed_by_person(&project, [&path]);
                 return Ok(Response::Ok(OkResponse::Ok));
             }
             FsRequest::Rename { project, from, to } => {
@@ -733,7 +733,7 @@ impl Core {
                 let (from, to) = (editable(&from)?, editable(&to)?);
                 not_into_itself(&from, &to)?;
                 fs.rename(root, from.clone(), to.clone()).await?;
-                self.person_changed(&project, [&from, &to]);
+                self.changed_by_person(&project, [&from, &to]);
                 return Ok(Response::Ok(OkResponse::Ok));
             }
             FsRequest::Copy { project, from, to } => {
@@ -741,7 +741,7 @@ impl Core {
                 let (from, to) = (editable(&from)?, editable(&to)?);
                 not_into_itself(&from, &to)?;
                 fs.copy(root, from, to.clone()).await?;
-                self.person_changed(&project, [&to]);
+                self.changed_by_person(&project, [&to]);
                 return Ok(Response::Ok(OkResponse::Ok));
             }
             FsRequest::Trash { project, paths } => {
@@ -751,15 +751,22 @@ impl Core {
                     .map(|p| editable(p))
                     .collect::<Result<Vec<_>, _>>()?;
                 fs.trash(root, paths.clone()).await?;
-                self.person_changed(&project, &paths);
+                self.changed_by_person(&project, &paths);
                 return Ok(Response::Ok(OkResponse::Ok));
             }
         };
         response.map(Response::Fs)
     }
 
+    /// The person changed these paths outside the frames (the desktop
+    /// app's import of dropped files): never the direct agent's alone,
+    /// even while one of its tools runs.
+    pub fn person_changed(&self, project: &ProjectId, paths: &[RelPath]) {
+        self.changed_by_person(project, paths);
+    }
+
     /// The person changed these paths: never the direct agent's alone.
-    fn person_changed<'a>(
+    fn changed_by_person<'a>(
         &self,
         project: &ProjectId,
         paths: impl IntoIterator<Item = &'a RelPath>,
