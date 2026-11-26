@@ -16,6 +16,8 @@ import sys
 from pathlib import Path
 
 # File icons: languages, configs and tools common in the projects Ovra opens.
+# Never the Claude or Anthropic logo (CLAUDE.md): their files and folders get
+# the plain markdown, file and folder icons.
 FILE_ICONS = """
 file document markdown readme license changelog contributing lock json yaml toml xml
 settings tune log table pdf zip image svg font audio video
@@ -25,7 +27,7 @@ scala r julia powershell console docker database graphql proto terraform
 webassembly nodejs npm pnpm yarn bun deno vite vitest jest test-ts test-js test-jsx
 tsconfig biome eslint prettier knip commitlint renovate git github-actions-workflow
 just makefile cmake gradle tauri nix lefthook gemfile python-misc certificate key
-claude agent gemini-ai copilot storybook tailwindcss postcss playwright cypress
+agent gemini-ai copilot storybook tailwindcss postcss playwright cypress
 jupyter vercel netlify firebase nginx
 """.split()
 
@@ -33,7 +35,7 @@ jupyter vercel netlify firebase nginx
 FOLDER_ICONS = """
 folder folder-src folder-dist folder-test folder-docs folder-api folder-config
 folder-scripts folder-lib folder-public folder-images folder-components folder-node
-folder-git folder-github folder-vscode folder-claude folder-robot folder-ci
+folder-git folder-github folder-vscode folder-robot folder-ci
 folder-app folder-ui folder-tools folder-resource folder-target
 folder-rust folder-svelte folder-typescript folder-javascript folder-python
 folder-mock folder-temp folder-log folder-include folder-shared folder-core

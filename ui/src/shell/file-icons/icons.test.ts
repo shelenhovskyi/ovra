@@ -15,13 +15,16 @@ describe("iconName", () => {
     expect(file("main.RS")).toBe("rust");
     expect(file("README.md")).toBe("readme");
     expect(file("VERSION")).toBe("file");
+    // Never the Claude logo (CLAUDE.md): plain icons for its files and folder.
+    expect(file("CLAUDE.md")).toBe("markdown");
+    expect(dir(".claude")).toBe("folder");
     expect(file(".DS_Store")).toBe("file");
     // Inherited object keys are not names.
     expect(file("constructor")).toBe("file");
   });
 
   it("finds folders by name, case and leading dots or underscores aside", () => {
-    expect(dir(".claude")).toBe("folder-claude");
+    expect(dir(".github")).toBe("folder-github");
     expect(dir("Docs")).toBe("folder-docs");
     expect(dir("__tests__")).toBe("folder-test");
     expect(dir("Configs", true)).toBe("folder-config-open");
