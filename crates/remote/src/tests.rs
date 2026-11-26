@@ -219,6 +219,32 @@ async fn a_paired_phone_signs_in_uses_its_allowlist_and_is_forgotten() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn only_an_unknown_device_is_told_it_is_not_paired() {
+    let s = setup();
+    let pairing = s.server.start_pairing().expect("pairing");
+    let key = TestKey::new();
+    let (_, body) = pair(&s, &secret_of(&pairing.url), &key, true).await;
+    let paired: Value = serde_json::from_slice(&body).expect("json");
+    let device = paired["device"].as_str().expect("device").to_owned();
+
+    // A wrong signature or a garbled proof closes the socket and says
+    // nothing the phone would take for being forgotten.
+    let mut ws = open_ws(&s, &s.origin).await.expect("upgrade");
+    next_json(&mut ws).await.expect("challenge");
+    let proof = json!({"device": device, "signature": TestKey::new().sign("x")}).to_string();
+    ws.send(Message::Text(proof.into())).await.expect("send");
+    assert_eq!(next_json(&mut ws).await, None);
+
+    let mut ws = open_ws(&s, &s.origin).await.expect("upgrade");
+    next_json(&mut ws).await.expect("challenge");
+    ws.send(Message::Text("{".into())).await.expect("send");
+    assert_eq!(next_json(&mut ws).await, None);
+
+    let (_, answer) = sign_in(&s, &device, &key).await;
+    assert_eq!(answer["paired"], "Testphone");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_refused_or_used_secret_pairs_nobody() {
     let s = setup();
     let pairing = s.server.start_pairing().expect("pairing");

@@ -558,22 +558,30 @@ async fn session(
     // Subscribed before the device is looked up, so a forget from now on
     // reaches this session.
     let mut kicks = shared.kicks.subscribe();
-    let device = proof.and_then(|proof| {
+    // A missing, late or malformed proof, or a bad signature, only closes
+    // the socket: someone on the network can delay or cut frames, and the
+    // phone must not take that for being forgotten. `not_paired`, on which
+    // the phone drops its key, is said only for a device id not on the list.
+    let Some(proof) = proof else {
+        return;
+    };
+    let device = {
         let mut state = shared.lock();
         state.devices.expire(crate::now_ms());
-        let stored = state.devices.get(&proof.device)?;
-        auth::verify(
-            &stored.key,
-            &auth::message(&origin, &challenge),
-            &proof.signature,
-        )
-        .then(|| stored.clone())
-    });
+        state.devices.get(&proof.device).cloned()
+    };
     let Some(device) = device else {
         let refused = serde_json::json!({"error": "not_paired"}).to_string();
         let _ = socket.send(Message::Text(refused.into())).await;
         return;
     };
+    if !auth::verify(
+        &device.key,
+        &auth::message(&origin, &challenge),
+        &proof.signature,
+    ) {
+        return;
+    }
     let welcome = serde_json::json!({"paired": device.name}).to_string();
     if socket.send(Message::Text(welcome.into())).await.is_err() {
         return;
