@@ -3746,6 +3746,33 @@ async fn a_worker_cannot_edit_a_file_another_worker_claimed_first() {
         crate::orchestration::claimed_write(&f.core, &sid("s3"), &moved, &worktree("docs"))
             .is_some()
     );
+    // Deleting or moving the folder that holds a claimed file is refused too;
+    // an edit that names no file cannot be checked and is refused.
+    let mut gone = edit_in("docs", "src");
+    gone.kind = crate::protocol::agents::ToolKind::Delete;
+    assert!(
+        crate::orchestration::claimed_write(&f.core, &sid("s3"), &gone, &worktree("docs"))
+            .is_some()
+    );
+    let mut sibling = edit_in("docs", "srcs");
+    sibling.kind = crate::protocol::agents::ToolKind::Delete;
+    assert_eq!(
+        crate::orchestration::claimed_write(&f.core, &sid("s3"), &sibling, &worktree("docs")),
+        None
+    );
+    let mut nameless = edit_in("docs", "src/a.rs");
+    nameless.paths.clear();
+    assert!(
+        crate::orchestration::claimed_write(&f.core, &sid("s3"), &nameless, &worktree("docs"))
+            .is_some()
+    );
+    for whole in [".", "./"] {
+        assert!(
+            f.core
+                .board_claim(&docs, None, &[whole.into()], "")
+                .is_err()
+        );
+    }
     // A later claim of the same file does not take it from the first.
     assert!(
         f.core

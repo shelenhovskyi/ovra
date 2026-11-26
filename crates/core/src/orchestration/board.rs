@@ -770,6 +770,12 @@ fn checked_paths(paths: &[String]) -> Result<Vec<String>> {
                 return Err(bad(format!("a path has more than {MAX_STARS} wildcards")));
             }
             let parsed = RelPath::parse(p)?.as_str().to_owned();
+            if parsed.is_empty() {
+                // `.` or `./` would hold nothing; the whole worktree is `**`.
+                return Err(bad(
+                    "claim files or folders inside the worktree, or `**` for all of it",
+                ));
+            }
             // `src/` is the whole folder: parsing drops the slash that says so.
             Ok(if p.ends_with('/') {
                 format!("{parsed}/")
@@ -976,6 +982,18 @@ pub(crate) fn claimed_write(
     if held.iter().all(|(worker, _)| *worker == me) {
         return None;
     }
+    if call.paths.is_empty() {
+        // An agent that does not say which file it changes cannot be held
+        // to the claims: refuse rather than let it through.
+        return Some(
+            "Ovra could not tell which file this changes, so it cannot check it against the \
+             claims on the task board and refuses the change. Name the file, or ask the \
+             coordinator."
+                .to_owned(),
+        );
+    }
+    // Deleting or moving a folder also changes the claimed files inside it.
+    let whole = matches!(call.kind, ToolKind::Delete | ToolKind::Move);
     let mut budget = MATCH_BUDGET;
     for path in &call.paths {
         let Some(rel) = crate::policy::inside(cwd, Path::new(path)) else {
@@ -984,9 +1002,10 @@ pub(crate) fn claimed_write(
         // The first claim that covers the file holds it, also one of the
         // caller's own: a later claim does not take a file from a worker
         // that claimed it first.
-        let first = held
-            .iter()
-            .find(|(_, pattern)| covers(&crate::policy::fold(pattern), &rel, &mut budget));
+        let first = held.iter().find(|(_, pattern)| {
+            let pattern = crate::policy::fold(pattern);
+            covers(&pattern, &rel, &mut budget) || (whole && inside_folder(&pattern, &rel))
+        });
         if budget == 0 {
             return Some(
                 "Ovra could not check this file against the claims on the task board, so it \
@@ -1090,6 +1109,16 @@ fn active(core: &Core, session: &SessionId) -> bool {
 /// Whether two paths or globs (`*` within a folder, `**` across folders, a
 /// trailing `/` for a whole folder) can name the same file. Each match
 /// takes from `budget`; once it is spent nothing more meets.
+/// Whether a claim's path lies inside `folder`: its part before any
+/// wildcard starts with `folder/`, or the claim is the folder itself.
+fn inside_folder(pattern: &str, folder: &str) -> bool {
+    let literal = pattern.split('*').next().unwrap_or_default();
+    folder.is_empty()
+        || literal
+            .strip_prefix(folder)
+            .is_some_and(|rest| rest.starts_with('/'))
+}
+
 fn meets(a: &str, b: &str, budget: &mut usize) -> bool {
     covers(a, b, budget) || covers(b, a, budget)
 }
