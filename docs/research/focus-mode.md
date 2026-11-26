@@ -1,6 +1,6 @@
 # Focus mode
 
-Status: research, 2026-11-25. Nothing here is approved; the decisions at the
+Status: research, 2026-11-25, revised 2026-11-26. Nothing here is approved; the decisions at the
 end need the owner. Builds on the design guide (`docs/design/`), the Quiet
 style (`docs/specs/quiet-style.md`) and "Surfacing an approval" in
 `docs/design/patterns.md`. Mockup: `docs/research/focus-mode/mockup.html`.
@@ -14,18 +14,24 @@ anyone who is easily pulled out of their work.
 
 ## 1. Summary
 
-- **Recommendation:** build one switch, "Focus", that shows only the current
-  work, holds every interruption in one quiet place, and offers a single
-  "What next?" step instead of lists. Name it Focus, never after a diagnosis.
+Revised 2026-11-26 after the owner's feedback: Focus does not show code at
+all. It is an agents-only view.
+
+- **Recommendation:** one switch, "Focus", that replaces the IDE with one
+  quiet screen: what waits for you (agent questions with a recommended
+  answer, approvals, ready reviews), what is in progress, what comes next by
+  the plan, and what is done. Code, tree, terminal and panels are hidden;
+  "Open IDE" is one click away. Name it Focus, never after a diagnosis.
 - **Why Ovra is a good fit:** in an agent-first IDE the person's main job is
-  answering agents (approvals, reviews, questions). Agents are therefore the
-  biggest source of interruptions, and Ovra controls all of them. Other IDEs
-  can only hide panels; Ovra can decide _when_ the person is asked.
-- **MVP (UI only, no protocol change):** the switch, a one-pane layout, held
-  interruptions in a "Waiting on you" tray, "What next?", stilled motion and a
-  "Where you left off" line when the person comes back.
-- **Safety stays as it is:** holding an approval never allows it. The agent
-  waits. Warnings still show at the point of decision.
+  answering agents. Agents are the biggest source of interruptions, and Ovra
+  controls all of them. Other IDEs can only hide panels; Ovra can decide
+  _when_ the person is asked, and show the work without the code.
+- **One model, three places:** the Focus view, the task board's "Waiting on
+  you" and the phone companion's home screen are the same data and the same
+  components, with different limits.
+- **Safety stays as it is:** Allow is always an explicit tap, never
+  recommended, never pre-selected, armed after 500 ms. "Always allow", Keep
+  and Discard stay in the IDE, where the rule or the diff is in view.
 
 ## 2. What exists today
 
@@ -137,88 +143,167 @@ Checked in the code on `main`, 2026-11-25:
 So most building blocks exist; Focus mode mainly reroutes what is already
 there.
 
-## 5. Proposal
+## 5. Proposal: Focus, agents only
 
-One switch, **Focus**. In the View menu, the palette ("Turn on Focus"),
-Settings → Accessibility and one shortcut (to be chosen in the keys task;
-candidate `Mod+Shift+Period`, matched on `KeyboardEvent.code`). The title bar
-shows a small "Focus" chip while it is on; clicking it turns Focus off.
-The state is per window and remembered.
+The first draft of this page kept the editor and hid the rest. The owner
+asked for less: no code at all, only the state of the work and the agents'
+questions, short and with recommendations. This section replaces that
+draft; the research above still applies.
+
+One switch, **Focus**: View menu, the palette ("Turn on Focus"), Settings →
+Accessibility and one shortcut (candidate `Mod+Shift+Period`, matched on
+`KeyboardEvent.code`). The window shows one screen; "Open IDE" in the title
+bar (same shortcut) goes back to the full IDE, and coming back restores
+Focus. The state is per window and remembered.
+
+### The screen
+
+On the Mac, two columns; on the phone and narrow windows, one. From the top:
+
+| Part               | What it shows                                                                                                                            | Where the data comes from                                              |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| Goal               | The task's title, "3 agents · started 40 min ago". With several tasks, one line per task, the one that needs you first.                  | Tasks (`orchestration`)                                                |
+| **Waiting on you** | One card per item, oldest blocking first: agent questions, approvals, ready reviews. Nothing else is in this column.                     | Task board questions to `person`, the approval queue, the review inbox |
+| In progress        | One row per running agent: name, what it does now in words ("running the tests", "waits for your answer"), elapsed time as plain text.   | Session status and steps                                               |
+| Next               | What comes after, by the plan: planned steps and workers waiting for a free agent, with "after Retry backoff" when one waits on another. | See "The plan" below                                                   |
+| Done               | Finished items with their outcome ("kept", "answered", "discarded").                                                                     | Tasks and the review inbox                                             |
+| Composer           | "Tell the agents what to do next…": starts a task, the only way agents start (ADR 0006 rule).                                            | Existing composer                                                      |
+
+No toasts, banners, counters or moving lines. Rows change their words when
+an agent moves on; nothing slides or blinks. Desktop notifications are off
+while Focus is on and the window is visible.
+
+### Cards in "Waiting on you"
+
+- **Question.** The agent's question in one sentence, two to four options,
+  one marked "Recommended" with a one-line reason, and "Answer in your
+  words". One tap answers; the card becomes one line "You answered …" with
+  Undo for a few seconds, and the agent goes on.
+- **Approval.** What the agent wants in plain words, the command or path in
+  monospace, the facts that matter ("In the sandbox · no network", "Outside
+  the project folder", "No sandbox"), and **Allow once** and **Deny** of equal
+  weight. No recommendation: an agent does not advise on its own
+  permissions, and Ovra does not guess risk beyond the facts it knows.
+  Buttons arm after 500 ms, as on the desktop cards and the phone. "Always
+  allow" is not here; the card says it is in the IDE.
+- **Ready to review.** The agent's one-line summary, "2 files changed ·
+  tests pass" and **See changes**, which opens the diff. Keep and Discard
+  stay with the diff (see D3).
+
+### The plan ("Next")
+
+Ovra has no structured plan today: a coordinator spawns workers, and
+workers over the limit wait as "Waiting for a free agent". Options:
+
+1. **Queued workers only.** Works now, but shows "Next" only when the limit
+   is reached.
+2. **The coordinator's to-do list.** Claude keeps its plan with the
+   `TodoWrite` tool, which arrives in the stream we already read; the core
+   could keep the latest list per session as read-only data. No new tool,
+   but it depends on the CLI's tool shape (check with the live suite).
+3. **A `plan` entry on the task board.** The coordinator posts its steps
+   with a board tool; Ovra marks steps done as workers finish. Clearest,
+   but it changes the MCP tools (needs the owner and a human review of
+   `tools.json`).
+
+Recommended: 1 and 2 in the MVP, 3 later if 2 proves unreliable.
+
+### Recommended answers
+
+The task board's `ask(to: "person", question)` takes free text today. For
+one-tap answers it needs optional `options` (2-4 short labels),
+`recommended` (one of them) and `reason` (one line). Without them the card
+shows the question and a reply box. The role prompt asks agents to give
+options and a recommendation when they ask the person. This is a change to
+an MCP tool other areas depend on, so it needs the owner (D2).
+
+Agent text on the card is data: options, reasons and summaries are escaped
+like every board entry and never become buttons that do anything but send
+that answer back as text.
+
+### How it fits with the rest
+
+- **Task board (ADR 0012).** Focus is the person's side of the board: the
+  board's questions to `person` and Ovra's notes feed "Waiting on you" and
+  the rows; the full timeline, claims and overlaps stay in the IDE's Board
+  tab. The board already decided that questions to the person are quiet (no
+  toasts); Focus follows the same rule for everything.
+- **"Waiting on you".** Today it is spread over the attention area, the
+  title-bar review count and toasts. Focus makes it one list with one order
+  (blocking approvals, questions, reviews); the IDE shows the same list in
+  the Agents column, so the person sees the same thing in both.
+- **Phone companion.** Its home screen ("Needs you", "Working") is this
+  view on a small screen. Build the view model once in the UI (for example
+  `ui/src/focus/`) and use it in both; the phone keeps its stricter limits
+  (no Always allow, no Keep or Discard, no starting agents in the MVP),
+  enforced in the core by its method allowlist, not by the view.
 
 ### MVP
 
-| #   | Feature                                   | What the person sees                                                                                                                                                                                                                                                                                                                                                               | Builds on                                     |
-| --- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
-| F1  | **Switch**                                | One command turns everything below on or off together. No sub-settings in the MVP besides F5's.                                                                                                                                                                                                                                                                                    | View menu, palette, keys                      |
-| F2  | **One pane**                              | Rail, sidebar, Agents column, terminal dock and status bar fold away. The current file or the current task fills the window, text centred at a readable width (about 100 characters). The title bar keeps the project name, "Search or run", the Focus chip and the Waiting chip. Everything is still one shortcut or palette command away.                                        | Existing fold commands                        |
-| F3  | **Held interruptions ("Waiting on you")** | Approvals, questions, finished turns, review requests and failures go into one tray behind a quiet chip, "2 waiting". The chip changes its number without animation or colour flash; `--warn` tone only when an agent is blocked. No toasts, no banner, no system notifications while Focus is on. Agents keep working; an agent that needs approval waits.                        | Approval queue, notify, review inbox          |
-| F4  | **What next?**                            | One button (chip click, or a shortcut) shows _one_ card: the item that unblocks the most. Order: an approval that blocks an agent, a question, a review that is ready, a failed agent, a finished turn. Card actions are the usual ones (Allow once, Deny, Open review); "Later" puts it back at the end. After acting, the card offers the next one or says "Nothing else waits." | Approvals card, inbox                         |
-| F5  | **Still motion**                          | Loops stand still (activity line, thinking dots), status text updates at most every few seconds, no counters ticking. Also offered as its own switch in Settings → Accessibility, "Reduce motion in Ovra", for people who want it without Focus.                                                                                                                                   | `prefers-reduced-motion` rules in `tokens.md` |
-| F6  | **Where you left off**                    | After a break (window in the background or no input for 10 minutes, and when Focus is turned off), one line at the top of the pane: "You were editing `sync.ts`, line 42. Meanwhile "Fix sync" finished; 2 things wait." Actions: "Go back" (opens the file at that line), "What next?", dismiss. Nothing leaves the machine.                                                      | Editor state, sessions                        |
+| #   | Feature               | Notes                                                                                        |
+| --- | --------------------- | -------------------------------------------------------------------------------------------- |
+| F1  | Switch and "Open IDE" | View menu, palette, Settings, shortcut.                                                      |
+| F2  | The screen            | Goal, Waiting on you, In progress, Next (options 1 and 2), Done, composer.                   |
+| F3  | Quiet                 | No toasts, desktop notifications or moving lines while Focus is visible.                     |
+| F4  | Cards                 | Question (free text until D2 lands), approval (explicit, armed), review (See changes).       |
+| F5  | Where you left off    | After a break, one line at the top: "Meanwhile Fix sync finished and 2 things wait for you." |
 
 ### Next
 
-| #   | Feature                  | Notes                                                                                                                                                                                                                           |
-| --- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| F7  | **Short answers first**  | In Focus, an agent's turn shows a three-line summary with the full transcript behind "Details". Needs the agent to write a summary first (role prompt change) or reuses `request_review`'s summary; check with the agents area. |
-| F8  | **Steps, one at a time** | "Split into steps" in the composer: the coordinator proposes 3-7 steps; Focus shows the current step and "2 of 5" in text, not a progress ring. Uses existing orchestration.                                                    |
-| F9  | **Note for later**       | A quick capture (shortcut) for a stray thought; it goes into the tray as "Your note" and is offered by "What next?" at the end.                                                                                                 |
-| F10 | **Optional timer**       | Off by default (owner rule: such displays are opt-in). Shows elapsed time as text; at the end, a quiet line in the tray, never a sound or modal.                                                                                |
-| F11 | **Reading comfort**      | Stronger current-line highlight, a little more line height in Focus. Editor settings, not new UI.                                                                                                                               |
-
-### Later
-
-- macOS Focus filter (`SetFocusFilterIntent`): turn Ovra's Focus on with the
-  system's Work Focus. Needs native code in `app/` and is platform work.
-- Phone companion: held items can be answered from the phone (already only
-  contentless pushes); respect Focus there too.
+- One-tap answers with a recommendation (after D2).
+- A `plan` board entry if `TodoWrite` is not enough.
+- Several projects at once: one section per project.
+- "Reduce motion in Ovra" as its own switch in Settings → Accessibility, for
+  people who want it without Focus.
 
 ### Not doing
 
 - A mode named after a diagnosis, or copy that promises better focus,
   productivity or health.
-- Streaks, scores, badges, confetti or "time saved" counters.
-- Auto-allowing anything because the person is in Focus.
+- Streaks, scores, badges or "time saved" counters.
+- Recommending, pre-selecting or auto-allowing a permission; Always allow,
+  Keep or Discard without the rule or the diff in view.
 - Hiding safety facts: "No sandbox", trust warnings and the billing account
-  still show on the card where the decision is made (design principle 3).
+  stay on the card where the decision is made (design principle 3).
 
 ## 6. Copy
 
-- Switch: "Focus". Palette: "Turn on Focus" / "Turn off Focus".
-- Settings line: "Shows only the current work and holds interruptions until
-  you ask for them."
-- Chip: "2 waiting"; tooltip "2 things wait for you · What next?".
-- Empty: "Nothing waits for you."
-- Return line: "You were editing sync.ts, line 42. Meanwhile …".
+- Switch: "Focus". Palette: "Turn on Focus" / "Turn off Focus". Button:
+  "Open IDE".
+- Settings line: "Shows only what agents do and what they need from you.
+  Code stays one click away."
+- Sections: "Waiting on you", "In progress", "Next", "Done".
+- Empty: "Nothing waits for you. 2 agents working."
+- Approval note: "Always allow is in the IDE."
 
 Sentence case, verbs on buttons, no exclamation marks (patterns.md).
 
 ## 7. Shape of the work (no code yet)
 
-- MVP is UI only: `ui/src/shell` (layout and chips), `ui/src/notify` (hold
-  instead of show), `ui/src/approvals` and `ui/src/inbox` (the one-card view),
-  `ui/src/settings` (two switches). Shared hot spots that change first in
-  their own small task: `ui/src/shell/workspace.svelte.ts` (focus state, last
-  edit place) and `ui/src/keys/commands.ts` (the commands).
-- A new folder `ui/src/focus` could own the tray ordering and "What next?"
-  logic so parallel work does not collide.
-- No protocol, core or security change for the MVP. F7 and F8 touch agent
-  prompts; F11 is editor settings.
-- It is larger than a day, so a short spec in `docs/specs/focus-mode.md`
-  goes to the owner before code.
-- Tests: unit tests for ordering and holding (fake agents, fake clock for the
-  10-minute idle), one e2e flow: turn on Focus, get an approval, see the chip,
-  answer it through "What next?".
+- UI: a new folder `ui/src/focus` (view model shared with the phone, the
+  screen, the cards), small changes in `ui/src/shell` (the switch, hiding
+  the IDE), `ui/src/notify` (quiet while Focus is visible) and
+  `ui/src/settings`. Hot spots first, in their own small task:
+  `ui/src/shell/workspace.svelte.ts` (focus state) and
+  `ui/src/keys/commands.ts` (commands).
+- Core: the latest `TodoWrite` list per session as read-only data (plan
+  option 2), a small `agents` protocol field. With D2: `options`,
+  `recommended`, `reason` on board questions (protocol, MCP tool, UI).
+- Larger than a day, so a short spec `docs/specs/focus-mode.md` goes to the
+  owner before code.
+- Tests: unit tests for the order of "Waiting on you" and for rows from fake
+  sessions; one e2e flow with fake agents: turn on Focus, answer a
+  question, allow an approval, open the IDE and come back.
 
 ## 8. Decisions for the owner
 
-| #   | Question                                                             | Recommendation                                                                                                      |
-| --- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| D1  | Do approvals wait silently in Focus, or break through?               | Wait silently, with the chip in `--warn` while an agent is blocked. Agents only lose time; nothing runs unapproved. |
-| D2  | Name and place                                                       | "Focus", in View menu, palette and Settings → Accessibility, with a title-bar chip while on.                        |
-| D3  | Should "Reduce motion in Ovra" also exist on its own, outside Focus? | Yes, a separate switch; it costs little and helps people who only want that.                                        |
-| D4  | "Where you left off" after 10 minutes without input                  | Yes, on by default inside Focus; the idle time could later be a setting.                                            |
-| D5  | Scope of the MVP                                                     | F1-F6 as above; F7-F11 after the owner tries the MVP.                                                               |
+| #   | Question                                                                                              | Recommendation                                                                                                                          |
+| --- | ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| D1  | Focus is agents only: no code, tree or terminal; "Open IDE" to leave.                                 | Yes, as the owner asked.                                                                                                                |
+| D2  | Board questions to the person get optional options, a recommended one and a reason (MCP tool change). | Yes; until then cards show a reply box.                                                                                                 |
+| D3  | Keep and Discard in Focus                                                                             | Not in Focus: "See changes" opens the diff in the IDE, where Keep and Discard are. Reviewing without seeing the diff is easy to regret. |
+| D4  | Where "Next" comes from                                                                               | Queued workers plus the coordinator's `TodoWrite` list now; a board `plan` entry later if needed.                                       |
+| D5  | One view model for Focus and the phone companion                                                      | Yes; the phone keeps its stricter limits in the core.                                                                                   |
 
 ## Sources
 

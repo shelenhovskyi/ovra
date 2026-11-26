@@ -8,53 +8,45 @@
 <title>Ovra Focus Mode</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <style>
-/* Layout concept: a quiet gallery around one Mac window in Focus: only the
-   current file, two chips in the title bar, one card at a time.
+/* Layout concept: a quiet gallery around one Mac window in Focus. No code:
+   one narrow column of what waits for you, what runs, what comes next and
+   what is done. The same column is the phone companion's home screen.
    Tokens are the Quiet ones (docs/design/tokens.md). Dark-first. */
 :root {
   --page: #0a0c0f; --s0: #111318; --s1: #15181d; --s2: #1a1d23; --s3: #22262e; --s4: #2b3039;
-  --scrim: rgba(8, 10, 13, .55);
   --text: #e4e7ec; --text-2: #9ba3ae; --text-3: #6a727e;
   --accent: #5fbfdc; --accent-soft: rgba(95, 191, 220, .13); --accent-ink: #05161c;
-  --sel: #262a32; --warn: #e2b360; --warn-soft: rgba(226, 179, 96, .13);
-  --ok: #78c597; --separator: rgba(255, 255, 255, .08);
+  --warn: #e2b360; --warn-soft: rgba(226, 179, 96, .13);
+  --ok: #78c597; --ok-soft: rgba(120, 197, 151, .12);
+  --separator: rgba(255, 255, 255, .08);
   --shadow: 0 30px 80px -20px rgba(0, 0, 0, .7), 0 0 0 1px rgba(255, 255, 255, .05);
-  --card-shadow: 0 24px 60px -12px rgba(0, 0, 0, .6), 0 0 0 1px rgba(255, 255, 255, .06);
-  --kw: #86aef5; --ty: #72cfc4; --str: #a9d391; --num: #e3b07a; --com: #7a8491; --fn: #cfd8f0;
   --font: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", Roboto, "Noto Sans", sans-serif;
   --mono: ui-monospace, "SF Mono", Menlo, "Cascadia Mono", Consolas, "DejaVu Sans Mono", monospace;
-  --r-sm: 6px; --r-md: 8px; --r-lg: 12px;
+  --r-sm: 6px; --r-md: 8px; --r-lg: 12px; --r-xl: 28px;
   color-scheme: dark;
 }
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) {
     --page: #dfe3e9; --s0: #e8ebef; --s1: #f4f6f8; --s2: #ffffff; --s3: #e8ebef; --s4: #ffffff;
-    --scrim: rgba(225, 229, 235, .55);
     --text: #171a20; --text-2: #576170; --text-3: #8b94a1;
     --accent: #08769c; --accent-soft: rgba(8, 118, 156, .1); --accent-ink: #ffffff;
-    --sel: #dfe3e8; --warn: #8a5806; --warn-soft: rgba(196, 135, 30, .13); --ok: #1d7a50;
+    --warn: #8a5806; --warn-soft: rgba(196, 135, 30, .13); --ok: #1d7a50; --ok-soft: rgba(35, 136, 90, .1);
     --separator: rgba(0, 0, 0, .1);
     --shadow: 0 30px 70px -24px rgba(30, 40, 60, .35), 0 0 0 1px rgba(20, 30, 50, .07);
-    --card-shadow: 0 24px 60px -16px rgba(30, 40, 60, .35), 0 0 0 1px rgba(20, 30, 50, .08);
-    --kw: #2f5fc4; --ty: #0f7d72; --str: #3f7d23; --num: #a5610f; --com: #6f7884; --fn: #1f2633;
     color-scheme: light;
   }
 }
 :root[data-theme="light"] {
   --page: #dfe3e9; --s0: #e8ebef; --s1: #f4f6f8; --s2: #ffffff; --s3: #e8ebef; --s4: #ffffff;
-  --scrim: rgba(225, 229, 235, .55);
   --text: #171a20; --text-2: #576170; --text-3: #8b94a1;
   --accent: #08769c; --accent-soft: rgba(8, 118, 156, .1); --accent-ink: #ffffff;
-  --sel: #dfe3e8; --warn: #8a5806; --warn-soft: rgba(196, 135, 30, .13); --ok: #1d7a50;
+  --warn: #8a5806; --warn-soft: rgba(196, 135, 30, .13); --ok: #1d7a50; --ok-soft: rgba(35, 136, 90, .1);
   --separator: rgba(0, 0, 0, .1);
   --shadow: 0 30px 70px -24px rgba(30, 40, 60, .35), 0 0 0 1px rgba(20, 30, 50, .07);
-  --card-shadow: 0 24px 60px -16px rgba(30, 40, 60, .35), 0 0 0 1px rgba(20, 30, 50, .08);
-  --kw: #2f5fc4; --ty: #0f7d72; --str: #3f7d23; --num: #a5610f; --com: #6f7884; --fn: #1f2633;
   color-scheme: light;
 }
 
 * { box-sizing: border-box; }
-.back[hidden], .scrim[hidden] { display: none; }
 body {
   margin: 0; background: var(--page); color: var(--text);
   font: 400 14px/20px var(--font); -webkit-font-smoothing: antialiased;
@@ -65,97 +57,115 @@ body {
 button { font: inherit; color: inherit; background: none; border: 0; cursor: default; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: var(--r-sm); }
 kbd { font: 500 11px/16px var(--font); color: var(--text-3); padding: 0 5px; border-radius: 4px; background: var(--s3); }
+.mono { font-family: var(--mono); font-size: 12px; }
+.i { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
 
 .page { max-width: 1180px; margin: 0 auto; display: grid; gap: 18px; }
 .top { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 .top h1 { margin: 0; font-size: 14px; font-weight: 600; }
-.top h1 span { color: var(--text-2); font-weight: 400; }
+.top h1 .sub { color: var(--text-2); font-weight: 400; }
 .spacer { flex: 1; }
 .tabs { display: flex; flex-wrap: wrap; gap: 2px; padding: 2px; border-radius: var(--r-md); background: var(--s1); }
 .tabs button { padding: 4px 10px; border-radius: var(--r-sm); color: var(--text-2); }
 .tabs button[aria-selected="true"], .tabs button[aria-pressed="true"] { background: var(--s3); color: var(--text); }
 
-/* window */
-.stage { overflow-x: auto; }
-.win { min-width: 720px; height: 600px; border-radius: var(--r-lg); background: var(--s1); box-shadow: var(--shadow);
-  display: grid; grid-template-rows: 44px 1fr; overflow: hidden; position: relative; }
-.tb { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; padding: 0 12px; background: var(--s0); user-select: none; }
-.lead, .end { display: flex; align-items: center; gap: 8px; }
-.end { justify-content: flex-end; }
-.lights { display: flex; gap: 8px; margin-right: 8px; }
+/* frames */
+.stage { display: grid; justify-items: center; overflow-x: auto; }
+.win { width: 100%; min-width: 360px; height: 680px; border-radius: var(--r-lg); background: var(--s1); box-shadow: var(--shadow);
+  display: grid; grid-template-rows: 44px 1fr; overflow: hidden; }
+.stage.phone .win { width: 390px; min-width: 0; max-width: 100%; height: 780px; border-radius: var(--r-xl); grid-template-rows: 54px 1fr; }
+.tb { display: flex; align-items: center; gap: 10px; padding: 0 12px; background: var(--s0); user-select: none; }
+.lights { display: flex; gap: 8px; margin-right: 6px; }
 .lights i { width: 12px; height: 12px; border-radius: 50%; background: var(--s4); }
 .proj { color: var(--text-2); }
-.search { display: flex; align-items: center; gap: 8px; width: 300px; height: 28px; padding: 0 10px;
-  border-radius: var(--r-md); background: var(--s2); color: var(--text-3); }
-.search kbd { margin-left: auto; }
+.stage.phone .lights, .stage.phone .ide { display: none; }
+.stage.phone .tb { padding: 14px 18px 0; }
 .chip { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; border-radius: 12px;
-  background: var(--s2); color: var(--text-2); font-size: 12px; }
-.chip.focus { background: var(--accent-soft); color: var(--accent); }
-.chip.wait.blocked { background: var(--warn-soft); color: var(--warn); }
-.chip .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-.i { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-
-/* body: one pane */
-.pane { position: relative; overflow: hidden; display: grid; grid-template-rows: auto 1fr auto; }
-.crumb { display: flex; justify-content: center; padding: 14px 0 6px; color: var(--text-3); font-size: 12px; }
-.crumb b { color: var(--text-2); font-weight: 500; }
-.code { width: min(100%, 780px); margin: 0 auto; padding: 8px 24px; font: 13px/22px var(--mono); overflow: hidden; }
-.ln { display: grid; grid-template-columns: 36px 1fr; white-space: pre; }
-.ln .n { color: var(--text-3); text-align: right; padding-right: 16px; }
-.ln.cur { background: var(--sel); border-radius: 4px; }
-.ln.cur .n { color: var(--text); }
-.kw { color: var(--kw); } .ty { color: var(--ty); } .str { color: var(--str); } .num { color: var(--num); } .com { color: var(--com); } .fn { color: var(--fn); }
-.caret { display: inline-block; width: 2px; height: 16px; background: var(--accent); vertical-align: -3px; }
-.foot { display: flex; justify-content: center; gap: 18px; padding: 10px; color: var(--text-3); font-size: 12px; }
-
-/* return line */
-.back { width: min(calc(100% - 48px), 732px); margin: 10px auto 0; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px;
-  padding: 10px 14px; border-radius: var(--r-md); background: var(--s2); }
-.back p { margin: 0; flex: 1 1 320px; }
-.back p span { color: var(--text-2); }
-.btn { height: 26px; padding: 0 12px; border-radius: var(--r-sm); background: var(--s3); }
+  background: var(--accent-soft); color: var(--accent); font-size: 12px; }
+.btn { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 12px; border-radius: var(--r-sm); background: var(--s3); }
 .btn.pri { background: var(--accent); color: var(--accent-ink); font-weight: 500; }
 .btn.link { background: none; color: var(--text-2); padding: 0 6px; }
+.btn[disabled] { opacity: .5; }
+.stage.phone .btn { min-height: 44px; padding: 0 16px; }
 
-/* what next card */
-.scrim { position: absolute; inset: 0; background: var(--scrim); display: grid; place-items: start center; padding-top: 64px; }
-.card { width: 460px; max-width: calc(100% - 32px); border-radius: var(--r-lg); background: var(--s4); box-shadow: var(--card-shadow);
-  padding: 16px 18px; display: grid; gap: 10px; }
-.card .meta { display: flex; justify-content: space-between; color: var(--text-3); font-size: 12px; }
-.card h2 { margin: 0; font-size: 14px; line-height: 20px; font-weight: 600; text-wrap: balance; }
-.card .why { margin: 0; color: var(--text-2); }
-.card pre { margin: 0; padding: 8px 10px; border-radius: var(--r-sm); background: var(--s2); font: 12px/18px var(--mono); white-space: pre-wrap; }
-.card .fact { margin: 0; font-size: 12px; color: var(--text-2); display: flex; gap: 6px; align-items: center; }
-.card .acts { display: flex; gap: 8px; align-items: center; }
-.card .acts .spacer { flex: 1; }
-.card.done { text-align: center; }
+/* the column */
+.scroll { overflow-y: auto; }
+.col { width: min(100%, 980px); margin: 0 auto; padding: 22px 20px 28px; display: grid; gap: 22px; align-content: start; }
+.goal h2 { margin: 0; font-size: 17px; line-height: 24px; font-weight: 600; text-wrap: balance; }
+.goal p { margin: 2px 0 0; color: var(--text-2); }
+section { display: grid; gap: 8px; }
+.label { display: flex; align-items: baseline; gap: 8px; color: var(--text-2); font-size: 12px; font-weight: 600; letter-spacing: .02em; }
+.label .n { font-weight: 400; color: var(--text-3); font-variant-numeric: tabular-nums; }
+
+.card { border-radius: var(--r-lg); background: var(--s2); padding: 14px 16px; display: grid; gap: 10px; }
+.card.ask { box-shadow: inset 0 0 0 1px var(--warn-soft); }
+.card .who { display: flex; gap: 8px; color: var(--text-3); font-size: 12px; }
+.card h3 { margin: 0; font-size: 14px; line-height: 20px; font-weight: 600; text-wrap: pretty; }
+.card .facts { margin: 0; color: var(--text-2); font-size: 12px; display: flex; gap: 6px; align-items: center; }
+.card pre { margin: 0; padding: 8px 10px; border-radius: var(--r-sm); background: var(--s1); font: 12px/18px var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.opts { display: grid; gap: 6px; }
+.opt { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 2px 10px; text-align: left; padding: 9px 12px; border-radius: var(--r-md); background: var(--s3); }
+.opt small { grid-column: 1; color: var(--text-2); font-size: 12px; line-height: 16px; }
+.opt .tag { grid-row: 1; grid-column: 2; font-size: 11px; color: var(--accent); }
+.opt.rec { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
+.acts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.reply { flex: 1 1 180px; min-height: 28px; border-radius: var(--r-sm); background: var(--s1); color: var(--text-3); display: flex; align-items: center; padding: 0 10px; }
+.note { color: var(--text-3); font-size: 12px; }
+.answered { display: flex; gap: 8px; align-items: center; padding: 10px 14px; border-radius: var(--r-md); background: var(--s2); color: var(--text-2); }
+.answered b { color: var(--text); font-weight: 500; }
+.answered .i { color: var(--ok); }
+
+.quiet { display: grid; gap: 4px; justify-items: center; text-align: center; padding: 18px; border-radius: var(--r-lg); background: var(--s2); }
+.quiet b { font-weight: 600; }
+.quiet .sub { color: var(--text-2); }
+.compose { display: flex; gap: 8px; align-items: center; padding: 8px 8px 8px 14px; border-radius: var(--r-lg); background: var(--s2); color: var(--text-3); }
+.compose .hint { flex: 1; }
+.rows { display: grid; }
+.row { display: grid; grid-template-columns: 16px 1fr auto; gap: 10px; align-items: baseline; padding: 7px 2px; }
+.row + .row { box-shadow: 0 -1px 0 var(--separator); }
+.row .t { min-width: 0; }
+.row .t span { color: var(--text-2); }
+.row .m { color: var(--text-3); font-size: 12px; font-variant-numeric: tabular-nums; }
+.mark { width: 8px; height: 8px; border-radius: 50%; align-self: center; justify-self: center; }
+.mark.run { background: var(--accent); }
+.mark.wait { background: var(--warn); }
+.mark.next { box-shadow: inset 0 0 0 1.5px var(--text-3); }
+.mark.done { background: var(--ok); }
+.split { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 22px 32px; align-items: start; }
+.split > div { display: grid; gap: 22px; min-width: 0; }
+.stage.phone .split { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 760px) { .split { grid-template-columns: minmax(0, 1fr); } }
 
 /* notes */
 .notes { max-width: 760px; display: grid; gap: 8px; color: var(--text-2); }
 .notes h2 { margin: 0; color: var(--text); font-size: 14px; font-weight: 600; }
 .notes p { margin: 0; }
 .notes b { color: var(--text); font-weight: 600; }
-
-
 </style>
 
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <defs>
-    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
     <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/></symbol>
     <symbol id="i-shield" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+    <symbol id="i-code" viewBox="0 0 24 24"><path d="m16 18 6-6-6-6"/><path d="m8 6-6 6 6 6"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></symbol>
   </defs>
 </svg>
 
 <div class="page">
   <header class="top">
-    <h1>Ovra <span>· Focus mode mockup</span></h1>
+    <h1>Ovra <span class="sub">· Focus, agents only</span></h1>
     <div class="tabs" role="tablist" aria-label="States" id="stateTabs">
-      <button type="button" role="tab" data-s="focus" aria-selected="true">1 · Focus</button>
-      <button type="button" role="tab" data-s="next">2 · What next?</button>
-      <button type="button" role="tab" data-s="back">3 · Where you left off</button>
+      <button type="button" role="tab" data-s="ask" aria-selected="true">1 · Waiting on you</button>
+      <button type="button" role="tab" data-s="answered" aria-selected="false">2 · Answered</button>
+      <button type="button" role="tab" data-s="calm" aria-selected="false">3 · Nothing waits</button>
     </div>
     <div class="spacer"></div>
+    <div class="tabs" id="frameTabs">
+      <button type="button" data-f="mac" aria-pressed="true">Mac</button>
+      <button type="button" data-f="phone" aria-pressed="false">Phone</button>
+    </div>
     <div class="tabs" id="themeTabs">
       <button type="button" data-t="system" aria-pressed="true">System</button>
       <button type="button" data-t="dark" aria-pressed="false">Dark</button>
@@ -163,37 +173,18 @@ kbd { font: 500 11px/16px var(--font); color: var(--text-3); padding: 0 5px; bor
     </div>
   </header>
 
-  <div class="stage">
+  <div class="stage" id="stage">
     <div class="win">
       <div class="tb">
-        <div class="lead">
-          <div class="lights" aria-hidden="true"><i></i><i></i><i></i></div>
-          <span class="proj">demo-app</span>
-          <button type="button" class="chip focus" id="focusChip" title="Turn off Focus  ⇧⌘."><svg class="i" aria-hidden="true"><use href="#i-target"/></svg>Focus</button>
-        </div>
-        <button type="button" class="search" aria-label="Search or run"><svg class="i" aria-hidden="true"><use href="#i-search"/></svg>Search or run<kbd>⌘K</kbd></button>
-        <div class="end">
-          <button type="button" class="chip wait blocked" id="waitChip" title="Things wait for you · What next?"><span class="dot"></span><span id="waitText">3 waiting</span></button>
-        </div>
+        <div class="lights" aria-hidden="true"><i></i><i></i><i></i></div>
+        <span class="proj">demo-app</span>
+        <span class="chip"><svg class="i" aria-hidden="true"><use href="#i-target"/></svg>Focus</span>
+        <span class="spacer"></span>
+        <button type="button" class="btn ide" title="Open the IDE  ⇧⌘.">
+          <svg class="i" aria-hidden="true"><use href="#i-code"/></svg>Open IDE
+        </button>
       </div>
-
-      <div class="pane">
-        <div>
-          <div class="back" id="backLine" hidden>
-            <p>You were editing <b>sync.ts</b>, line 42. <span>Meanwhile “Fix sync” finished and 3 things wait for you.</span></p>
-            <button type="button" class="btn pri" id="goBack">Go back</button>
-            <button type="button" class="btn" data-go="next">What next?</button>
-            <button type="button" class="btn link" id="dismissBack" aria-label="Dismiss">Dismiss</button>
-          </div>
-          <div class="crumb"><span>src · <b>sync.ts</b></span></div>
-        </div>
-        <div class="code" id="code"></div>
-        <div class="foot"><span>2 agents working</span><span>Ln 42, Col 18</span></div>
-
-        <div class="scrim" id="scrim" hidden>
-          <div class="card" id="card" role="dialog" aria-modal="true" aria-labelledby="cardTitle"></div>
-        </div>
-      </div>
+      <div class="scroll"><div class="col" id="col"></div></div>
     </div>
   </div>
 
@@ -202,123 +193,126 @@ kbd { font: 500 11px/16px var(--font); color: var(--text-3); padding: 0 5px; bor
 
 <script>
 const $ = (s) => document.querySelector(s);
-const esc = (t) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+let state = "ask";
+let armed = false;
 
-// sample file
-const lines = [
-  ['<span class="kw">import</span> { <span class="ty">Store</span> } <span class="kw">from</span> <span class="str">"./store"</span>;'],
-  [''],
-  ['<span class="com">// Pushes local changes, then pulls remote ones.</span>'],
-  ['<span class="kw">export async function</span> <span class="fn">sync</span>(store: <span class="ty">Store</span>, retries = <span class="num">3</span>) {'],
-  ['  <span class="kw">const</span> pending = store.<span class="fn">pending</span>();'],
-  ['  <span class="kw">for</span> (<span class="kw">const</span> change <span class="kw">of</span> pending) {'],
-  ['    <span class="kw">await</span> <span class="fn">push</span>(change, retries);'],
-  ['  }'],
-  ['  <span class="kw">const</span> remote = <span class="kw">await</span> <span class="fn">pull</span>(store.cursor);'],
-  ['  store.<span class="fn">apply</span>(remote);<span class="caret"></span>', true],
-  ['  <span class="kw">return</span> { pushed: pending.length, pulled: remote.length };'],
-  ['}'],
-  [''],
-  ['<span class="kw">async function</span> <span class="fn">push</span>(change: <span class="ty">Change</span>, retries: <span class="ty">number</span>) {'],
-  ['  <span class="kw">for</span> (<span class="kw">let</span> i = <span class="num">0</span>; i &lt; retries; i++) {'],
-  ['    <span class="kw">if</span> (<span class="kw">await</span> <span class="fn">send</span>(change)) <span class="kw">return</span>;'],
-  ['  }'],
-  ['  <span class="kw">throw new</span> <span class="ty">Error</span>(<span class="str">`Could not push &#36;{change.id}`</span>);'],
-  ['}'],
-];
-$("#code").innerHTML = lines.map(([h, cur], i) =>
-  `<div class="ln${cur ? " cur" : ""}"><span class="n">${33 + i}</span><span>${h || " "}</span></div>`).join("");
+const goal = `<div class="goal"><h2>Make sync survive a flaky network</h2>
+  <p>Task · 3 agents · started 40 min ago</p></div>`;
 
-// waiting items, in "unblocks the most" order
-const items = [
-  { kind: "Approval", from: "Fix sync", title: "Fix sync wants to run a command",
-    why: "It is waiting for this before it goes on.", pre: "pnpm test src/sync.test.ts",
-    fact: "Runs in the sandbox · no network", acts: ['<button type="button" class="btn pri">Allow once</button>', '<button type="button" class="btn">Deny</button>'] },
-  { kind: "Review", from: "Add retry backoff", title: "“Add retry backoff” is ready to review",
-    why: "Agent’s summary: retries now wait 1, 2, 4 s. One test added. 2 files changed.",
-    acts: ['<button type="button" class="btn pri">Open review</button>'] },
-  { kind: "Finished", from: "Explain store.ts", title: "“Explain store.ts” answered",
-    why: "Store keeps changes in memory until sync pushes them; cursor marks the last pulled change.",
-    acts: ['<button type="button" class="btn pri">Read answer</button>'] },
-];
-let queue = [...items];
+const question = `<div class="card ask">
+  <div class="who"><span>Question</span><span>from “Retry backoff”</span></div>
+  <h3>After how many failed pushes should sync give up?</h3>
+  <div class="opts">
+    <button type="button" class="opt rec" data-answer="Give up after 5 tries">
+      Give up after 5 tries<span class="tag">Recommended</span>
+      <small>About 30 s in total with backoff; matches the current request timeout.</small>
+    </button>
+    <button type="button" class="opt" data-answer="Keep trying every minute">
+      Keep trying every minute<small>Never gives up; the app shows “Offline” meanwhile.</small>
+    </button>
+  </div>
+  <div class="acts"><span class="reply">Answer in your words…</span><button type="button" class="btn link">Later</button></div>
+</div>`;
 
-function renderCard() {
-  const card = $("#card");
-  if (queue.length === 0) {
-    card.className = "card done";
-    card.innerHTML = `<h2 id="cardTitle">Nothing else waits for you.</h2><p class="why">Agents keep working; new things collect here.</p>
-      <div class="acts"><span class="spacer"></span><button type="button" class="btn pri" data-close>Back to sync.ts</button><span class="spacer"></span></div>`;
-  } else {
-    const it = queue[0];
-    card.className = "card";
-    card.innerHTML = `<div class="meta"><span>${it.kind}</span><span>1 of ${queue.length}</span></div>
-      <h2 id="cardTitle">${esc(it.title)}</h2><p class="why">${esc(it.why)}</p>
-      ${it.pre ? `<pre>${esc(it.pre)}</pre>` : ""}
-      ${it.fact ? `<p class="fact"><svg class="i" aria-hidden="true"><use href="#i-shield"/></svg>${it.fact}</p>` : ""}
-      <div class="acts">${it.acts.join("")}<span class="spacer"></span><button type="button" class="btn link" data-later>Later</button></div>`;
-    for (const b of card.querySelectorAll(".acts .btn:not([data-later])")) { b.addEventListener("click", () => { queue.shift(); update(); }); }
-  }
-  card.querySelector("[data-later]")?.addEventListener("click", () => { if (queue.length > 1) queue.push(queue.shift()); update(); });
-  card.querySelector("[data-close]")?.addEventListener("click", () => setState("focus"));
-}
+const approval = `<div class="card ask">
+  <div class="who"><span>Approval</span><span>from “Fix sync”, which waits for it</span></div>
+  <h3>Run a command</h3>
+  <pre>pnpm test src/sync.test.ts</pre>
+  <p class="facts"><svg class="i" aria-hidden="true"><use href="#i-shield"/></svg>In the sandbox · no network · in its own copy of the project</p>
+  <div class="acts">
+    <button type="button" class="btn" id="allow" ${armed ? "" : "disabled"}>Allow once</button>
+    <button type="button" class="btn">Deny</button>
+    <span class="spacer"></span><button type="button" class="btn link">Later</button>
+  </div>
+  <p class="note">No recommendation here: an agent does not advise on its own permissions. Always allow is in the IDE.</p>
+</div>`;
 
-function update() {
-  const n = queue.length;
-  $("#waitText").textContent = n ? `${n} waiting` : "Nothing waits";
-  $("#waitChip").classList.toggle("blocked", queue.some((i) => i.kind === "Approval"));
-  if (!$("#scrim").hidden) renderCard();
+const review = `<div class="card">
+  <div class="who"><span>Ready to review</span><span>from “Offline banner”</span></div>
+  <h3>Shows “Offline” in the header while sync cannot reach the server</h3>
+  <p class="facts">2 files changed · tests pass</p>
+  <div class="acts"><button type="button" class="btn pri">See changes</button><button type="button" class="btn link">Later</button></div>
+</div>`;
+
+const rows = (list) => `<div class="rows">${list.map(([k, t, s, m]) =>
+  `<div class="row"><span class="mark ${k}"></span><div class="t">${t}${s ? ` <span>· ${s}</span>` : ""}</div><span class="m">${m || ""}</span></div>`).join("")}</div>`;
+
+const sec = (name, n, body) => `<section><div class="label">${name}<span class="n">${n}</span></div>${body}</section>`;
+
+function view() {
+  const waitingCards = state === "ask" ? [question, approval] : state === "answered" ? [approval, review] : [];
+  const answered = state === "answered"
+    ? `<div class="answered"><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span>You answered “Retry backoff”: <b>Give up after 5 tries</b></span><span class="spacer"></span><button type="button" class="btn link">Undo</button></div>`
+    : "";
+  const progress = state === "calm"
+    ? [["run", "Fix sync", "running the tests", "12 min"], ["run", "Retry backoff", "writing the backoff", "8 min"]]
+    : state === "answered"
+      ? [["wait", "Fix sync", "waits for your approval", "12 min"], ["run", "Retry backoff", "writing the backoff", "8 min"]]
+      : [["wait", "Fix sync", "waits for your approval", "12 min"], ["wait", "Retry backoff", "waits for your answer", "8 min"]];
+  const next = state === "calm"
+    ? [["next", "Update the sync docs"], ["next", "Remove the old retry flag"]]
+    : [["next", "Update the sync docs", "", "after Retry backoff"], ["next", "Remove the old retry flag"]];
+  const done = state === "calm"
+    ? [["done", "Offline banner", "kept", "2 files"], ["done", "Find why pushes time out", "answered", ""], ["done", "Add a sync test", "kept", "1 file"]]
+    : [["done", "Find why pushes time out", "answered", ""], ["done", "Add a sync test", "kept", "1 file"]];
+
+  let left = "";
+  if (waitingCards.length) left += sec("Waiting on you", waitingCards.length, answered + waitingCards.join(""));
+  else left += `<div class="quiet"><b>Nothing waits for you.</b><span class="sub">2 agents working. You will see it here when one needs you.</span></div>`;
+  const right = sec("In progress", progress.length, rows(progress)) + sec("Next", next.length, rows(next)) + sec("Done", done.length, rows(done));
+  let html = `${goal}<div class="split"><div>${left}</div><div>${right}</div></div>`;
+  html += `<div class="compose"><span class="hint">Tell the agents what to do next…</span><button type="button" class="btn pri" aria-label="Start"><svg class="i" aria-hidden="true"><use href="#i-send"/></svg></button></div>`;
+  $("#col").innerHTML = html;
+
+  for (const b of document.querySelectorAll("[data-answer]")) b.addEventListener("click", () => setState("answered"));
+  armed = false;
+  setTimeout(() => {
+    armed = true;
+    const a = $("#allow");
+    if (a) a.disabled = false;
+  }, 500);
 }
 
 const notes = {
-  focus: ["Focus", [
-    ["One pane. ", "Rail, sidebar, Agents column, terminal and status bar fold away; the file is centred at a readable width. Everything stays one shortcut or Search or run away."],
-    ["Held interruptions. ", "No toasts, banners or system notifications. Approvals, reviews and answers collect behind one chip. It is amber only while an agent waits for you; the number changes without animation."],
-    ["Still. ", "No moving activity lines or thinking dots. “2 agents working” is plain text."],
+  ask: ["Waiting on you", [
+    ["No code, tree or terminal. ", "Two columns on the Mac, one on the phone: what waits for you, then what runs, what comes next by the plan and what is done. Open IDE (or ⇧⌘.) is one click away and comes back to this view."],
+    ["Questions come with answers. ", "An agent's question shows its options, one marked Recommended with a one-line reason. One tap answers; “Answer in your words” stays for anything else."],
+    ["Approvals stay explicit. ", "Allow once and Deny have equal weight, nothing is pre-selected, and the buttons arm after 500 ms. Agents do not recommend on their own permissions; Always allow is only in the IDE."],
   ]],
-  next: ["What next?", [
-    ["One card, not a list. ", "Clicking the chip shows the item that unblocks the most: an approval that stops an agent, then reviews, then answers. “1 of 3” says how much is left without listing it."],
-    ["Same actions as usual. ", "Allow once, Deny, Open review. Safety facts stay on the card. Nothing is ever allowed because Focus is on: a held approval only makes its agent wait."],
-    ["Later ", "moves the item to the end. Try the buttons; after the last one the card says “Nothing else waits for you.”"],
+  answered: ["Answered", [
+    ["The answer becomes one line ", "with Undo for a few seconds, and “Retry backoff” goes back to work. Nothing else moves on the screen."],
+    ["Finished work waits for a look. ", "A ready review shows the agent's one-line summary. See changes opens the diff in the IDE; Keep and Discard stay where the changes are visible."],
   ]],
-  back: ["Where you left off", [
-    ["After a break ", "(window in the background, or no input for 10 minutes) and when Focus is turned off, one line says where you were and what changed meanwhile."],
-    ["Go back ", "opens the file at that line. What next? opens the card. It uses only what Ovra already knows on this computer."],
+  calm: ["Nothing waits", [
+    ["The calm state. ", "No counters ticking, no moving lines. Rows change their words when an agent moves on."],
+    ["Phone. ", "Switch the frame to Phone: the companion app uses this same column, with the phone's limits (no Always allow, no Keep or Discard)."],
   ]],
 };
 
 function setState(s) {
-  for (const b of document.querySelectorAll("#stateTabs button")) { b.setAttribute("aria-selected", String(b.dataset.s === s)); }
-  $("#scrim").hidden = s !== "next";
-  $("#backLine").hidden = s !== "back";
-  if (s === "next") { queue = queue.length ? queue : [...items]; renderCard(); }
+  state = s;
+  for (const b of document.querySelectorAll("#stateTabs button")) b.setAttribute("aria-selected", String(b.dataset.s === s));
   const [h, ps] = notes[s];
   $("#notes").innerHTML = `<h2>${h}</h2>${ps.map(([b, t]) => `<p><b>${b}</b>${t}</p>`).join("")}`;
-  update();
+  view();
 }
 
-for (const b of document.querySelectorAll("#stateTabs button")) {
+for (const b of document.querySelectorAll("#stateTabs button")) b.addEventListener("click", () => setState(b.dataset.s));
+for (const b of document.querySelectorAll("#frameTabs button")) {
   b.addEventListener("click", () => {
-    if (b.dataset.s !== "next") queue = [...items];
-    setState(b.dataset.s);
+    for (const x of document.querySelectorAll("#frameTabs button")) x.setAttribute("aria-pressed", String(x === b));
+    $("#stage").classList.toggle("phone", b.dataset.f === "phone");
   });
 }
-$("#waitChip").addEventListener("click", () => setState("next"));
-for (const b of document.querySelectorAll("[data-go]")) { b.addEventListener("click", () => setState(b.dataset.go)); }
-$("#goBack").addEventListener("click", () => setState("focus"));
-$("#dismissBack").addEventListener("click", () => setState("focus"));
-$("#scrim").addEventListener("click", (e) => { if (e.target.id === "scrim") setState("focus"); });
-document.addEventListener("keydown", (e) => { if (e.code === "Escape" && !$("#scrim").hidden) setState("focus"); });
-
 for (const b of document.querySelectorAll("#themeTabs button")) {
   b.addEventListener("click", () => {
-    for (const x of document.querySelectorAll("#themeTabs button")) { x.setAttribute("aria-pressed", String(x === b)); }
+    for (const x of document.querySelectorAll("#themeTabs button")) x.setAttribute("aria-pressed", String(x === b));
     if (b.dataset.t === "system") document.documentElement.removeAttribute("data-theme");
     else document.documentElement.setAttribute("data-theme", b.dataset.t);
   });
 }
 
-setState("focus");
+setState("ask");
 </script>
 </body>
 </html>
