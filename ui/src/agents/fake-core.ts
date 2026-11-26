@@ -306,6 +306,10 @@ export class FakeAgentCore implements Transport {
             truncated: 0,
           },
         };
+      case "fs.list_dir":
+        throw new CoreError({ code: "not_found", message: "not a folder" });
+      case "context.attach":
+        return { type: "context.attached", data: { path: `.ovra-attachments/${request.params.name}` } };
       case "fs.list_files":
         return { type: "fs.files", data: { paths: [...this.listed], total: this.listed.length, version: 1 } };
       case "context.check":

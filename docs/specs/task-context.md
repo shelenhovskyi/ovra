@@ -44,6 +44,40 @@ adds one menu and compact chips, and nothing more.
   the items; the context goes to the agent as Ovra's message after it, like
   browser picks.
 
+## Dropped and pasted files
+
+Added 2026-11-26: every box that talks to an agent takes files the way
+the file tree does.
+
+- **Dropping** files on the task box, the reply box or a question's answer
+  box in Focus adds them: rows from the file tree, and files from the
+  system's file manager (the desktop app reports those with their paths, as
+  for the tree; a browser in headless mode gives the page the files
+  themselves). The box shows an accent outline and "Drop to add to the
+  message" while files are over it.
+- **Pasting** (Cmd/Ctrl+V) a screenshot or a copied file adds it too; a
+  paste that also carries other text pastes the text.
+- A file or folder **inside the project** becomes a chip as if picked with
+  @: named, not read. A file **from elsewhere**, and anything pasted, is
+  first copied into the project's attachments folder
+  (`.ovra-attachments/`, which holds a `.gitignore` of `*`, so git never
+  shows it), because the agent reads only the project. The drop or the
+  paste is the person's explicit action, as a drop on the tree is. One
+  file is 20 MiB at most; a name that is taken gets `-2`, `-3`. The chip
+  then names the copy, and the usual checks apply (a dropped `.env` is
+  still amber).
+- In Focus the answer is text to the board, so the path goes into the
+  answer instead of a chip.
+- `context.attach { project, name, data }` (base64) saves one file under a
+  safe name (letters, digits, `.`, `_`, `-`, spaces; never only dots) and
+  answers `context.attached { path }`; `context.attachments { project }`
+  makes the folder for the desktop app's copy of a drop
+  (`ovra_import_drop`, clash "keep both"). The phone companion cannot call
+  either (`context.*` is not a phone method).
+- Not yet: workers in their own worktrees do not get the copies (the folder
+  is ignored, so a new worktree lacks it); a task started in the main
+  checkout does.
+
 ## Safety
 
 The core checks every item, when it is added (`context.check`) and again

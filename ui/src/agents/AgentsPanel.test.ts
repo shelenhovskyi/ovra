@@ -4,6 +4,7 @@ import { browserPicks } from "../browser/picks.svelte";
 import { handleOpenFor } from "../inbox/open";
 import { listCommands, registerCommand } from "../keys/commands";
 import type { BoardEntry, FileChange, Pick, ReviewItem } from "../lib/protocol";
+import type { WindowDrop } from "../lib/transport";
 import { closeContextMenu, contextMenu } from "../menu/context-menu.svelte";
 import { Workspace } from "../shell/workspace.svelte";
 import { askAgent } from "./context.svelte";
@@ -1329,6 +1330,41 @@ describe("@ context", () => {
       { kind: "file", path: "src/lib.rs", confirmed: false },
     ]);
     expect(chips()).toEqual([]);
+  });
+
+  it("adds files dropped on the box or pasted into it as chips", async () => {
+    const core = new FakeAgentCore();
+    const drops = new Set<(drop: WindowDrop) => void>();
+    Object.assign(core, {
+      onDrop: (listener: (drop: WindowDrop) => void) => {
+        drops.add(listener);
+        return () => drops.delete(listener);
+      },
+    });
+    await setup(core);
+    // A file of the project, dropped from the system's file manager onto the task box.
+    document.elementFromPoint = () => field();
+    for (const listener of drops) listener({ id: "d1", x: 5, y: 5, paths: ["/demo/src/lib.rs"] });
+    await settle();
+    Reflect.deleteProperty(document, "elementFromPoint");
+    expect(chips()).toEqual(["lib.rs"]);
+    // A screenshot pasted into the field is saved in the attachments folder.
+    const paste = new Event("paste", { bubbles: true, cancelable: true });
+    const shot = new File(["png"], "shot.png", { type: "image/png" });
+    Object.defineProperty(paste, "clipboardData", { value: { files: [shot], getData: () => "" } });
+    field()?.dispatchEvent(paste);
+    expect(paste.defaultPrevented).toBe(true);
+    await vi.waitFor(async () => {
+      await settle();
+      expect(chips()).toEqual(["lib.rs", "shot.png"]);
+    });
+    type(field(), "What is wrong here?");
+    key("Enter");
+    await settle();
+    expect(core.sent("agents.start")[0]?.params.context).toEqual([
+      { kind: "file", path: "src/lib.rs", confirmed: false },
+      { kind: "file", path: ".ovra-attachments/shot.png", confirmed: false },
+    ]);
   });
 
   it("holds a chip that may hold a secret until the person chooses Send anyway", async () => {

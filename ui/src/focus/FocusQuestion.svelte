@@ -1,6 +1,7 @@
 <script lang="ts">
 // A question an agent asked the person on its task's board, in Focus. The
 // answer is text sent back to the board; it allows nothing.
+import { attachFiles, droppedPaths, dropZone, pastedFiles } from "../agents/attach";
 import { taskBoards } from "../board/boards.svelte";
 import { authorName } from "../board/describe";
 import type { BoardEntry, TaskId } from "../lib/protocol";
@@ -9,7 +10,7 @@ import { useOvra } from "../shell/context";
 
 let { task, taskName, question }: { task: TaskId; taskName: string; question: BoardEntry } = $props();
 
-const { transport } = useOvra();
+const { transport, workspace } = useOvra();
 const boards = taskBoards(transport);
 
 let text = $state("");
@@ -38,6 +39,51 @@ async function send(answer: string): Promise<void> {
   }
 }
 
+let form = $state<HTMLFormElement>();
+let field = $state<HTMLTextAreaElement>();
+/** Files are dragged over the card. */
+let fileOver = $state(false);
+
+// A file dropped on the card or pasted into the answer goes in as its
+// project path (a copy in the attachments folder for one from elsewhere):
+// the answer is text, so the agent reads the file itself.
+$effect(() => {
+  const box = form;
+  const input = field;
+  const project = workspace.project;
+  if (!box || !input || !project) return;
+  const off = dropZone(box, transport, {
+    over: (on) => (fileOver = on),
+    window: (drop) => void insert(() => droppedPaths(transport, project.id, project.root, drop)),
+    rows: (paths) => void insert(async () => paths),
+    files: (files) => void insert(() => attachFiles(transport, project.id, files)),
+  });
+  const paste = (event: ClipboardEvent) => {
+    const files = pastedFiles(event.clipboardData);
+    if (files.length === 0) return;
+    event.preventDefault();
+    void insert(() => attachFiles(transport, project.id, files));
+  };
+  input.addEventListener("paste", paste);
+  return () => {
+    off();
+    input.removeEventListener("paste", paste);
+  };
+});
+
+async function insert(get: () => Promise<string[]>): Promise<void> {
+  error = null;
+  try {
+    const paths = await get();
+    if (paths.length === 0) return;
+    const gap = text === "" || /\s$/.test(text) ? "" : " ";
+    text = `${text}${gap}${paths.join(" ")} `;
+    field?.focus();
+  } catch (e) {
+    error = e instanceof CoreError ? e.message : e instanceof Error ? e.message : String(e);
+  }
+}
+
 /** Enter sends, Shift+Enter starts a new line, as on the board. */
 function onkeydown(event: KeyboardEvent): void {
   if (event.code !== "Enter" && event.code !== "NumpadEnter") return;
@@ -48,7 +94,9 @@ function onkeydown(event: KeyboardEvent): void {
 </script>
 
 <form
+  bind:this={form}
   class="card"
+  class:file-over={fileOver}
   data-testid="focus-question"
   onsubmit={(event) => {
     event.preventDefault();
@@ -77,6 +125,7 @@ function onkeydown(event: KeyboardEvent): void {
     id={`focus-answer-${task}-${question.id}`}
     rows="2"
     placeholder={options.length ? "Or answer in your words" : "Your answer"}
+    bind:this={field}
     bind:value={text}
     {onkeydown}
   ></textarea>
@@ -87,6 +136,9 @@ function onkeydown(event: KeyboardEvent): void {
 </form>
 
 <style>
+  .card.file-over {
+    box-shadow: inset 0 0 0 2px var(--accent);
+  }
   .card {
     display: flex;
     flex-direction: column;

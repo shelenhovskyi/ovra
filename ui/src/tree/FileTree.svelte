@@ -32,6 +32,7 @@ import { untrack } from "svelte";
 import { tabs, unsavedText } from "../editor/open-files.svelte";
 import { listCommands, registerCommand } from "../keys/commands";
 import type { GitStatus, ProjectId } from "../lib/protocol";
+import { PATHS_DRAG_TYPE } from "../lib/drag";
 import type { Transport } from "../lib/transport";
 import { isMenuKey, openContextMenu } from "../menu/context-menu.svelte";
 import EmptyState from "../shell/EmptyState.svelte";
@@ -325,7 +326,7 @@ function tooltip(row: Row): string {
 /** The paths being dragged inside the tree, and the folder they would drop into (`""` is the project folder). */
 let dragging: string[] | null = null;
 let dropDir = $state<string | null>(null);
-const DRAG_TYPE = "application/x-ovra-path";
+const DRAG_TYPE = PATHS_DRAG_TYPE;
 const hoverExpand = new HoverExpander((path) => void model.expand(path));
 $effect(() => () => hoverExpand.cancel());
 
@@ -346,7 +347,7 @@ function ondragstart(e: DragEvent): void {
   if (!path) return;
   dragging = picked.length > 1 && chosenSet.has(path) ? topLevel(picked) : [path];
   e.dataTransfer?.setData(DRAG_TYPE, dragging.join("\n"));
-  if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+  if (e.dataTransfer) e.dataTransfer.effectAllowed = "copyMove";
 }
 
 // Files dragged in from the system's file manager: the window reports them

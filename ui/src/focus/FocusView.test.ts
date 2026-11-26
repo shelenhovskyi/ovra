@@ -101,15 +101,22 @@ describe("FocusView", () => {
     expect(card?.querySelector("h3")?.textContent).toBe("Give up after 5 tries?");
     expect(target.querySelector("[data-testid=focus-nothing]")).toBeNull();
     const box = card?.querySelector("textarea") as HTMLTextAreaElement;
-    box.value = "Yes, after 5";
+    box.value = "Yes, after 5, see";
     box.dispatchEvent(new Event("input", { bubbles: true }));
     flushSync();
+    // A pasted screenshot goes in as the path of its saved copy: the answer is text.
+    const paste = new Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(paste, "clipboardData", {
+      value: { files: [new File(["png"], "log.png")], getData: () => "" },
+    });
+    box.dispatchEvent(paste);
+    await vi.waitFor(() => expect(box.value).toBe("Yes, after 5, see .ovra-attachments/log.png "));
     card?.querySelector<HTMLButtonElement>("button[type=submit]")?.click();
     await vi.waitFor(() => expect(target.querySelectorAll("[data-testid=focus-question]")).toHaveLength(0));
     expect(core.calls.find((c) => c.method === "board.answer")?.params).toEqual({
       task: "t1",
       question: "b1",
-      text: "Yes, after 5",
+      text: "Yes, after 5, see .ovra-attachments/log.png",
     });
   });
 
