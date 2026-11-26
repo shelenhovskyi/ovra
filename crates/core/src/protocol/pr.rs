@@ -163,6 +163,12 @@ pub enum PrRequest {
         draft: PrDraft,
         /// The `PrPrepared::fingerprint` the person saw.
         fingerprint: Option<String>,
+        /// The person chose to publish the protected files listed too
+        /// (`FileChange::protected`, which includes `.github/workflows`:
+        /// pushing the branch runs them on GitHub). Without it a
+        /// change with protected files is refused, as approve refuses it.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        include_protected: bool,
     },
     /// Pushes the worker's newer reviewed changes to the item's pull
     /// request as a fast-forward; refused (`conflict`) when the remote
@@ -171,6 +177,12 @@ pub enum PrRequest {
     Update {
         id: ReviewId,
         fingerprint: Option<String>,
+        /// The person chose to publish the protected files listed too
+        /// (`FileChange::protected`, which includes `.github/workflows`:
+        /// pushing the branch runs them on GitHub). Without it a
+        /// change with protected files is refused, as approve refuses it.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        include_protected: bool,
     },
     /// Asks `gh` about the item's pull request now.
     #[serde(rename = "pr.refresh")]
@@ -247,7 +259,7 @@ mod tests {
         insta::assert_json_snapshot!(serde_json::json!({
             "requests": [
                 Request::Pr(PrRequest::Status { project: ProjectId("p1".into()), remote: None }),
-                Request::Pr(PrRequest::Create { id: id(), draft, fingerprint: Some("f1".into()) }),
+                Request::Pr(PrRequest::Create { id: id(), draft, fingerprint: Some("f1".into()), include_protected: true }),
                 Request::Pr(PrRequest::SendLog { id: id(), run: 9 }),
             ],
             "responses": [

@@ -91,9 +91,17 @@ export type PrRequest =
   | { method: "pr.status"; params: { project: ProjectId; remote?: string | null } }
   /** Null picks `origin` and its default branch. */
   | { method: "pr.prepare"; params: { id: ReviewId; remote?: string | null; base?: string | null } }
-  | { method: "pr.create"; params: { id: ReviewId; draft: PrDraft; fingerprint: string | null } }
-  /** Refused (`conflict`) when the remote branch moved. */
-  | { method: "pr.update"; params: { id: ReviewId; fingerprint: string | null } }
+  /**
+   * `include_protected`: the person chose to publish the protected files
+   * listed too (`.github/workflows` among them: pushing runs them on
+   * GitHub); without it a change with protected files is refused.
+   */
+  | {
+      method: "pr.create";
+      params: { id: ReviewId; draft: PrDraft; fingerprint: string | null; include_protected?: boolean };
+    }
+  /** Refused (`conflict`) when the remote branch moved; `include_protected` as for `pr.create`. */
+  | { method: "pr.update"; params: { id: ReviewId; fingerprint: string | null; include_protected?: boolean } }
   | { method: "pr.refresh"; params: { id: ReviewId } }
   /** Sends a failed check's log to the worker as a comment. Answers `ok`. */
   | { method: "pr.send_log"; params: { id: ReviewId; run: number } }

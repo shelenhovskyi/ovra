@@ -73,9 +73,24 @@ pub(super) async fn handle(core: &Core, request: PrRequest) -> Result<Response> 
             id,
             draft,
             fingerprint,
-        } => pull_request(create(core, &id, draft, fingerprint).await?),
-        PrRequest::Update { id, fingerprint } => {
-            pull_request(update(core, &id, fingerprint).await?)
+            include_protected,
+        } => {
+            let seen = Seen {
+                fingerprint,
+                include_protected,
+            };
+            pull_request(create(core, &id, draft, seen).await?)
+        }
+        PrRequest::Update {
+            id,
+            fingerprint,
+            include_protected,
+        } => {
+            let seen = Seen {
+                fingerprint,
+                include_protected,
+            };
+            pull_request(update(core, &id, seen).await?)
         }
         PrRequest::Refresh { id } => pull_request(refresh(core, &id).await?),
         PrRequest::SendLog { id, run } => {
@@ -179,14 +194,18 @@ async fn signed_in(core: &Core, root: PathBuf, remote: &str) -> Result<()> {
     Err(ProtocolError::new(ErrorCode::Unavailable, NO_GH))
 }
 
+/// What the person saw in the dialog and chose.
+struct Seen {
+    /// The `PrPrepared::fingerprint` of the files listed.
+    fingerprint: Option<String>,
+    /// They chose to publish the protected files listed too.
+    include_protected: bool,
+}
+
 /// A snapshot of the worker's worktree, refused unless its files are what
 /// the person reviewed.
-async fn reviewed(
-    core: &Core,
-    entry: &review::Entry,
-    fingerprint: Option<String>,
-) -> Result<String> {
-    let Some(fingerprint) = fingerprint else {
+async fn reviewed(core: &Core, entry: &review::Entry, seen: Seen) -> Result<String> {
+    let Some(fingerprint) = seen.fingerprint else {
         return Err(ProtocolError::new(
             ErrorCode::BadRequest,
             "a pull request needs the fingerprint of the review you looked at",
@@ -201,10 +220,27 @@ async fn reviewed(
         .worktrees()
         .snapshot(entry.workspace.dir.clone())
         .await?;
-    let (_, now, _) = review::listed(core, entry, Some(&snapshot)).await?;
+    let (files, now, _) = review::listed(core, entry, Some(&snapshot)).await?;
     if now.as_ref() != Some(&fingerprint) {
         return Err(conflict(
             "the worker's files changed since you looked at them; review them again",
+        ));
+    }
+    // As approve: protected files go out only by the person's explicit
+    // choice. Pushing the branch already runs its workflows on GitHub.
+    let marked: Vec<&str> = files
+        .iter()
+        .filter(|f| f.protected)
+        .map(|f| f.path.as_str())
+        .collect();
+    if !marked.is_empty() && !seen.include_protected {
+        return Err(ProtocolError::new(
+            ErrorCode::BadRequest,
+            format!(
+                "these changes include protected files ({}); look at their diffs and publish \
+                 with include_protected",
+                marked.join(", ")
+            ),
         ));
     }
     // The review leaves the sandbox's placeholders out, the pick would
@@ -331,12 +367,7 @@ fn message(title: &str, body: &str) -> String {
     }
 }
 
-async fn create(
-    core: &Core,
-    id: &ReviewId,
-    draft: PrDraft,
-    fingerprint: Option<String>,
-) -> Result<PullRequest> {
+async fn create(core: &Core, id: &ReviewId, draft: PrDraft, seen: Seen) -> Result<PullRequest> {
     let (entry, _, root) = worker_item(core, id)?;
     if entry.pull_request.is_some() {
         return Err(conflict(
@@ -356,7 +387,7 @@ async fn create(
         ));
     }
     signed_in(core, root.clone(), &remote).await?;
-    let snapshot = reviewed(core, &entry, fingerprint).await?;
+    let snapshot = reviewed(core, &entry, seen).await?;
     let forge = core.forge();
     // A retry after `gh pr create` failed: the branch is still where that
     // attempt pushed it, so go on from there.
@@ -480,7 +511,7 @@ async fn create(
     Ok(pr)
 }
 
-async fn update(core: &Core, id: &ReviewId, fingerprint: Option<String>) -> Result<PullRequest> {
+async fn update(core: &Core, id: &ReviewId, seen: Seen) -> Result<PullRequest> {
     let (entry, _, root) = worker_item(core, id)?;
     let (Some(pr), Some(from)) = (entry.pull_request.clone(), entry.published_from.clone()) else {
         return Err(conflict("this item has no pull request to update"));
@@ -491,7 +522,7 @@ async fn update(core: &Core, id: &ReviewId, fingerprint: Option<String>) -> Resu
         ));
     }
     signed_in(core, root.clone(), &pr.remote).await?;
-    let snapshot = reviewed(core, &entry, fingerprint).await?;
+    let snapshot = reviewed(core, &entry, seen).await?;
     let forge = core.forge();
     let head = forge
         .fetch(root.clone(), pr.remote.clone(), pr.branch.clone())

@@ -422,6 +422,45 @@ async fn a_conflict_with_the_base_names_the_files_and_the_worker_is_asked_to_upd
 }
 
 #[tokio::test]
+async fn protected_files_and_workflows_are_published_only_when_included() {
+    let f = fx().await;
+    f.wt.put(dir(), ".github/workflows/ci.yml", "on: push\n");
+    let id = item(&f.core).await.id.0;
+    let prepared = prepare(&f.core, &id).await;
+    let marked: Vec<&str> = prepared
+        .files
+        .iter()
+        .filter(|f| f.protected)
+        .map(|f| f.path.as_str())
+        .collect();
+    assert_eq!(marked, [".github/workflows/ci.yml"]);
+    let refused = call(&f.core, create(&prepared, &id)).await.err();
+    let refused = refused.unwrap_or_else(|| panic!("published without the include"));
+    assert_eq!(refused.code, ErrorCode::BadRequest);
+    let message = refused.message;
+    assert!(message.contains("(.github/workflows/ci.yml)"), "{message}");
+    assert!(lock(&f.forge.pushed).is_empty(), "the branch was pushed");
+
+    let mut included = create(&prepared, &id);
+    included["params"]["include_protected"] = json!(true);
+    let pr = pull_request(ok(&f.core, included).await);
+    assert_eq!(files_of(&f.wt, &pr.pushed).await.len(), 3);
+
+    // An update asks again: the review still lists the workflow.
+    f.wt.put(dir(), "c.rs", "three\n");
+    let fingerprint = item(&f.core).await.fingerprint;
+    let update = |include: bool| {
+        json!({"method": "pr.update", "params": {"id": id, "fingerprint": fingerprint,
+            "include_protected": include}})
+    };
+    let refused = call(&f.core, update(false)).await;
+    assert_eq!(code(refused), ErrorCode::BadRequest);
+    assert_eq!(lock(&f.forge.pushed).len(), 1);
+    let updated = pull_request(ok(&f.core, update(true)).await);
+    assert_eq!(files_of(&f.wt, &updated.pushed).await.len(), 4);
+}
+
+#[tokio::test]
 async fn an_update_fast_forwards_and_never_overwrites_someone_elses_push() {
     let f = fx().await;
     let mut rx = f.core.subscribe();
