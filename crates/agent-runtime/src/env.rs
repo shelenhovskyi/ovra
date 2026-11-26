@@ -5,15 +5,18 @@
 
 use std::ffi::{OsStr, OsString};
 
-use ovra_core::services::CommandLine;
+use ovra_core::services::{CommandLine, ProviderLists};
 
-/// The names an unsandboxed session keeps from Ovra's environment:
-/// `ENV_KEPT` in `crates/sandbox-linux/src/plan.rs` (this crate cannot
-/// depend on it), plus what that sandbox sets itself and the session needs
-/// without it: `PATH`, `TMPDIR`, the person's proxy and CA bundle variables.
-/// Whole names only: a prefix such as `CLAUDE_CODE_` would let
-/// `CLAUDE_CODE_OAUTH_TOKEN` through.
-const KEPT: [&str; 50] = [
+use crate::claude_lists::CLAUDE_LISTS;
+
+/// The names an unsandboxed session keeps from Ovra's environment besides
+/// its provider's own ([`ProviderLists::env`] and `fixture_var`):
+/// `ENV_PERSON` and `ENV_TOOLS` in `crates/sandbox-linux/src/plan.rs` (this
+/// crate cannot depend on it), plus what that sandbox sets itself and the
+/// session needs without it: `PATH`, `TMPDIR`, the person's proxy and CA
+/// bundle variables. Whole names only: a prefix such as `CLAUDE_CODE_`
+/// would let `CLAUDE_CODE_OAUTH_TOKEN` through.
+const KEPT: [&str; 33] = [
     "HOME",
     "USER",
     "LOGNAME",
@@ -26,22 +29,6 @@ const KEPT: [&str; 50] = [
     "TERM",
     "COLORTERM",
     "NO_COLOR",
-    "ANTHROPIC_API_KEY",
-    "ANTHROPIC_AUTH_TOKEN",
-    "ANTHROPIC_BASE_URL",
-    "ANTHROPIC_MODEL",
-    "ANTHROPIC_SMALL_FAST_MODEL",
-    "CLAUDE_CODE_USE_BEDROCK",
-    "CLAUDE_CODE_USE_VERTEX",
-    "CLAUDE_CODE_USE_FOUNDRY",
-    "ANTHROPIC_BEDROCK_BASE_URL",
-    "ANTHROPIC_VERTEX_BASE_URL",
-    "ANTHROPIC_VERTEX_PROJECT_ID",
-    "ANTHROPIC_FOUNDRY_RESOURCE",
-    "ANTHROPIC_FOUNDRY_BASE_URL",
-    "AWS_REGION",
-    "CLOUD_ML_REGION",
-    "GOOGLE_CLOUD_PROJECT",
     "SSL_CERT_FILE",
     "SSL_CERT_DIR",
     "NODE_EXTRA_CA_CERTS",
@@ -49,7 +36,6 @@ const KEPT: [&str; 50] = [
     "RUSTUP_HOME",
     "NVM_DIR",
     "GOPATH",
-    "OVRA_FAKE_CLAUDE_FIXTURE",
     // Set by the Linux sandbox itself.
     "PATH",
     "TMPDIR",
@@ -68,12 +54,11 @@ const KEPT: [&str; 50] = [
     "NODE_USE_ENV_PROXY",
 ];
 
-/// What `claude` needs on Windows, as the Windows sandbox keeps it
-/// (`ENV_KEPT` in `crates/sandbox-windows/src/plan.rs`), plus `TEMP` and
-/// `TMP`, which that sandbox sets itself.
-const WINDOWS_KEPT: [&str; 25] = [
+/// What processes need on Windows, as the Windows sandbox keeps it
+/// (`ENV_PERSON` and `ENV_TOOLS` in `crates/sandbox-windows/src/plan.rs`),
+/// plus `TEMP` and `TMP`, which that sandbox sets itself.
+const WINDOWS_KEPT: [&str; 24] = [
     "USERNAME",
-    "CLAUDE_CODE_GIT_BASH_PATH",
     "NVM_HOME",
     "NVM_SYMLINK",
     "SystemRoot",
@@ -99,6 +84,20 @@ const WINDOWS_KEPT: [&str; 25] = [
     "TMP",
 ];
 
+/// The names an unsandboxed session of `lists`' agent keeps.
+fn kept(lists: &'static ProviderLists, windows: bool) -> impl Iterator<Item = &'static str> {
+    let on_windows = lists
+        .windows_env
+        .iter()
+        .chain(&WINDOWS_KEPT)
+        .filter(move |_| windows);
+    KEPT.iter()
+        .chain(lists.env)
+        .chain([&lists.fixture_var])
+        .chain(on_windows)
+        .copied()
+}
+
 /// The names of `outer` (Ovra's environment) a `claude` process must not
 /// get.
 pub(crate) fn removed(
@@ -109,12 +108,11 @@ pub(crate) fn removed(
         let Some(name) = name.to_str() else {
             return false;
         };
+        let mut kept = kept(&CLAUDE_LISTS, windows);
         if windows {
-            KEPT.iter()
-                .chain(&WINDOWS_KEPT)
-                .any(|k| k.eq_ignore_ascii_case(name))
+            kept.any(|k| k.eq_ignore_ascii_case(name))
         } else {
-            KEPT.contains(&name)
+            kept.any(|k| k == name)
         }
     };
     outer.into_iter().filter(move |name| !kept(name))
@@ -161,15 +159,25 @@ mod tests {
         expected.extend(["http_proxy", "https_proxy", "all_proxy", "no_proxy"]);
         expected.sort_unstable();
         expected.dedup();
-        let mut kept = KEPT.to_vec();
+        let mut kept: Vec<&str> = kept(&CLAUDE_LISTS, false).collect();
         kept.sort_unstable();
         assert_eq!(kept, expected);
 
         let windows = include_str!("../../sandbox-windows/src/plan.rs");
         for name in list(windows, "ENV_KEPT") {
-            let found = KEPT.iter().chain(&WINDOWS_KEPT).any(|k| *k == name);
+            let found = super::kept(&CLAUDE_LISTS, true).any(|k| k == name);
             assert!(found, "{name} of the Windows sandbox is not kept");
         }
+    }
+
+    #[test]
+    fn claudes_own_state_is_protected_in_every_sandbox() {
+        use ovra_core::protected::AGENT_STATE_IN_HOME;
+        let lists = &CLAUDE_LISTS;
+        assert!(AGENT_STATE_IN_HOME.contains(&lists.home_dir));
+        assert!(AGENT_STATE_IN_HOME.contains(&lists.state_file));
+        assert!(lists.in_place.iter().all(|d| lists.private.contains(d)));
+        assert!(lists.files_made.iter().all(|f| lists.files.contains(f)));
     }
 
     fn line() -> CommandLine {

@@ -29,7 +29,7 @@ pub(crate) const NESTED_SESSION_VARS: [&str; 9] = [
 
 /// Where `claude` keeps its settings, login and transcripts. Set only for
 /// an account the user added with its own folder (ADR 0006).
-pub(crate) const CONFIG_DIR_VAR: &str = "CLAUDE_CONFIG_DIR";
+pub(crate) const CONFIG_DIR_VAR: &str = crate::claude_lists::CLAUDE_LISTS.config_var;
 
 /// A command for `claude` (its version, its sign-in) with the environment a
 /// session gets, so a check sees what a session will: the allowlist of

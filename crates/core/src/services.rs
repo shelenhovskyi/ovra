@@ -310,6 +310,62 @@ pub struct SandboxProfile {
     pub work_env: Option<WorkEnv>,
 }
 
+/// What one provider's agent keeps of its own in the home folder and needs
+/// from Ovra's environment (ADR 0011): the sandboxes give its state back,
+/// and the environment allowlists keep its variables. Plain data, one per
+/// provider; that provider's runtime supplies it.
+#[derive(Debug, PartialEq, Eq)]
+pub struct ProviderLists {
+    /// What the person calls the agent in messages, such as `Claude`.
+    pub name: &'static str,
+    /// Its configuration folder right in the home folder (`.claude`),
+    /// read-only to a session. An account's own folder is a folder right in
+    /// the home folder whose name starts with this one (`.claude-work`).
+    pub home_dir: &'static str,
+    /// Its state file, which it rewrites: right in the home folder next to
+    /// `home_dir`, or inside an account's own folder (`.claude.json`).
+    pub state_file: &'static str,
+    /// The variable that points it at an account's own folder.
+    pub config_var: &'static str,
+    /// Folders in the configuration folder it writes during a session. The
+    /// person's own sessions read them too, so a sandbox makes them empty
+    /// and private to the session where it can.
+    pub private: &'static [&'static str],
+    /// Those of `private` a sandbox that cannot make folders private lets
+    /// it write in place: not those the person's own sessions run commands
+    /// from later.
+    pub in_place: &'static [&'static str],
+    /// Files in the configuration folder it rewrites.
+    pub files: &'static [&'static str],
+    /// Those of `files` made empty when missing.
+    pub files_made: &'static [&'static str],
+    /// The folder in the configuration folder that holds one folder per
+    /// work dir, named after its path, which a resume reads: only the
+    /// session's own is writable.
+    pub projects: &'static str,
+    /// In a work dir's folder of `projects`: what later sessions load like
+    /// a rules file, read-only.
+    pub project_memory: &'static str,
+    /// Variables it needs from Ovra's environment, by whole name: where
+    /// usage is billed, its gateway and cloud providers, never their keys.
+    pub env: &'static [&'static str],
+    /// More variables it needs on Windows.
+    pub windows_env: &'static [&'static str],
+    /// The variable naming the recording Ovra's stand-in for it plays in
+    /// e2e and UX runs: a file path, never a secret.
+    pub fixture_var: &'static str,
+}
+
+/// An agent session's own state, which its sandbox gives back.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentState {
+    pub lists: &'static ProviderLists,
+    /// The account's configuration folder when it has one: the sandbox
+    /// gives back this folder instead of the default one and its state
+    /// file, and no other account's.
+    pub config_dir: Option<PathBuf>,
+}
+
 /// What code in a work dir is told about it (`docs/specs/worktree-setup.md`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkEnv {

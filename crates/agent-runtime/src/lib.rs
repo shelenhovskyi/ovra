@@ -4,6 +4,7 @@
 //! Contract: `ovra_core::services::AgentRuntime`; fake:
 //! `ovra_core::fakes::ScriptedAgent`.
 
+mod claude_lists;
 mod detect;
 mod driver;
 mod env;
