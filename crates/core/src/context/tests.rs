@@ -245,3 +245,11 @@ async fn a_task_refuses_unconfirmed_items_and_big_context_too() {
     let err = notes(&core, json!(many)).await.err();
     assert_eq!(err.map(|e| e.code), Some(ErrorCode::BadRequest));
 }
+
+#[tokio::test]
+async fn a_reply_check_names_a_task_of_the_project() {
+    let (core, _) = core().await;
+    let check = json!({"method": "context.check", "params": {
+        "project": "p1", "session": "s9", "items": [{"kind": "file", "path": "a.rs"}]}});
+    assert!(call(&core, check).await.is_err());
+}

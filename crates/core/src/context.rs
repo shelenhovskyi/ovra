@@ -55,6 +55,18 @@ pub(crate) async fn handle(core: &Core, request: ContextRequest) -> Result<Respo
             items,
         } => {
             core.project_store().get(&project)?;
+            if let Some(session) = &session {
+                let of = core
+                    .agents_ctx()
+                    .sessions
+                    .find(session, |s| s.info().project)?;
+                if of != project {
+                    return Err(ProtocolError::new(
+                        ErrorCode::Forbidden,
+                        "the task belongs to another project",
+                    ));
+                }
+            }
             let known = known(core, &project).await;
             let notes = check(core, &items, known.as_deref(), session.as_ref())?;
             Ok(Response::Context(ContextResponse::Checked { notes }))
