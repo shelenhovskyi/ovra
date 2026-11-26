@@ -64,6 +64,7 @@ import { REPORT_DIR, reportFile, reportOf, reportPath, taskPrompt } from "./repo
 import { itemPrompt, listItems } from "./items";
 import ItemTasks from "./ItemTasks.svelte";
 import { type Starter, starterMode } from "./starters";
+import { TaskRows } from "./rows";
 import { sessionSummary } from "./summary";
 import TaskSummary from "./TaskSummary.svelte";
 import {
@@ -85,6 +86,7 @@ const approvals = approvalQueue(transport);
 const drafts = contextDrafts(transport);
 const browsers = sessionBrowsers(transport);
 const boards = taskBoards(transport);
+const rows = new TaskRows(sessions, boards);
 
 /** `more`: what choosing it means, in the menu; the hint under the box adds the sandbox. */
 const MODES: { id: TaskMode; label: string; more: string }[] = [
@@ -762,84 +764,20 @@ function step(id: SessionId): string | null {
   return null;
 }
 
-/**
- * The row's call to action, if the person is needed. A task says how many
- * of its workers' changes wait; its workers do not say it again.
- */
-function chip(s: SessionInfo): { text: string; tone: "warn" | "ok" } | null {
-  if (s.status.state === "waiting_for_approval") return { text: "Approve", tone: "warn" };
-  const role = sessions.roles.get(s.id);
-  if (role?.kind === "coordinator" && boards.openForPerson(role.task).length > 0) return { text: "Answer", tone: "warn" };
-  if (isBusy(s.status)) return null;
-  const inTask = sessions.waitingInTask(s.id);
-  if (inTask > 0) return { text: inTask > 1 ? `Review ${inTask}` : "Review", tone: "ok" };
-  const told = role?.kind === "worker" && list.some((t) => t.id === role.coordinator && chip(t)?.tone === "ok");
-  return sessions.waitsForReview(s.id) && !told ? { text: "Review", tone: "ok" } : null;
-}
-
-/**
- * A row's title: a worker under its task by its own name and what it was
- * asked to do (its first line), a task or a session by its title.
- */
-function rowTitle(s: SessionInfo): string {
-  const role = sessions.roles.get(s.id);
-  if (role?.kind === "worker") return s.title ? `${role.name} · ${s.title}` : role.name;
-  return s.title || sessions.name(s.id);
-}
-
-/** The row's tooltip: the whole title, and a worker's branch and kept folder. */
-function rowTip(s: SessionInfo): string {
-  const role = sessions.roles.get(s.id);
-  if (role?.kind !== "worker") return sessions.name(s.id);
-  const kept = role.kept ? `\nIts folder was kept: ${role.kept}` : "";
-  return `${role.name}${s.title ? `: ${s.title}` : ""}\nBranch ${role.branch}${kept}`;
-}
-
-/** Needs the person first, then working, then queued, then the rest. */
-function rank(s: SessionInfo): number {
-  if (chip(s)) return 0;
-  if (isBusy(s.status)) return 1;
-  return s.status.state === "queued" ? 2 : 3;
+function chip(s: SessionInfo) {
+  return rows.chip(s, list);
 }
 
 /** Tasks in the order "needs you" first; a task's workers stay under it, in their order. */
-const ordered = $derived.by(() => {
-  const groups: SessionInfo[][] = [];
-  for (const s of list) {
-    const role = sessions.roles.get(s.id);
-    const last = groups.at(-1);
-    if (role?.kind === "worker" && last?.[0]?.id === role.coordinator) last.push(s);
-    else groups.push([s]);
-  }
-  return groups
-    .map((group, at) => ({ group, at, rank: Math.min(...group.map(rank)) }))
-    .sort((a, b) => a.rank - b.rank || a.at - b.at)
-    .flatMap((g) => g.group);
-});
+const ordered = $derived(rows.ordered(list));
 /** The task row that takes Tab: the last one focused while it is listed, else the first. */
 const tabStop = $derived(ordered.some((s) => s.id === rowFocus) ? rowFocus : (ordered[0]?.id ?? null));
-
-/** How many of a task's workers are done (or wait for review), of how many; null without workers. */
-function progress(coordinator: SessionId): { done: number; total: number } | null {
-  const workers = sessions.workers(coordinator);
-  const total = workers.length + (sessions.failedStarts.get(coordinator)?.length ?? 0);
-  if (total === 0) return null;
-  const done = workers.filter((w) => sessions.waitsForReview(w) || sessions.status(w) === "Done").length;
-  return { done, total };
-}
 
 /** A session that is done or failed can be closed; one in a turn first needs a stop. */
 function closable(s: SessionInfo): boolean {
   return !isBusy(s.status) && s.status.state !== "queued";
 }
 
-function tone(s: SessionInfo): string {
-  const label = sessions.status(s.id);
-  if (s.status.state === "failed" || label.startsWith("Failed")) return "failed";
-  // A worker stopped with its task after it finished is done.
-  if (label === "Done") return "idle";
-  return s.status.state;
-}
 
 function text(err: unknown): string {
   if (err instanceof CoreError) return err.error.message;
@@ -1309,7 +1247,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
           <!-- Name and status share one line; the account and plan wait under Details. -->
           <div class="title-row">
             <h3 class="clamp" title={sessions.name(current.id)}>{sessions.name(current.id)}</h3>
-            <p class="status" role="status" data-state={tone(current)}>{sessions.status(current.id)}</p>
+            <p class="status" role="status" data-state={rows.tone(current)}>{sessions.status(current.id)}</p>
           </div>
           {#if current.billing?.kind === "api_key"}
             <!-- An API key bills at API prices, often not what a plan user expects: it stays in sight. -->
@@ -1589,7 +1527,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
           {#each ordered as session (session.id)}
             {@const role = sessions.roles.get(session.id)}
             {@const action = chip(session)}
-            {@const parts = role?.kind === "coordinator" ? progress(session.id) : null}
+            {@const parts = role?.kind === "coordinator" ? rows.progress(session.id) : null}
             {@const now = session.status.state === "working" ? step(session.id) : null}
             {@const taken = agentPrefs.showResources ? sessions.resources.get(session.id) : undefined}
             {@const disk = role?.kind === "worker" ? role.disk : null}
@@ -1598,9 +1536,9 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
               <button
                 type="button"
                 class="row-button"
-                data-state={tone(session)}
+                data-state={rows.tone(session)}
                 data-session={session.id}
-                title={rowTip(session)}
+                title={rows.tip(session)}
                 tabindex={session.id === tabStop ? 0 : -1}
                 aria-keyshortcuts={closable(session) ? "Delete Shift+F10" : "Shift+F10"}
                 onfocus={() => (rowFocus = session.id)}
@@ -1610,7 +1548,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
               >
                 <span class="state-mark" aria-hidden="true"></span>
                 <span class="text">
-                  <span class="title">{rowTitle(session)}</span>
+                  <span class="title">{rows.title(session)}</span>
                   <span class="state">{#if now}<span class="visually-hidden">Working: </span>{now}{:else}{sessions.status(
                         session.id,
                       )}{/if}</span>

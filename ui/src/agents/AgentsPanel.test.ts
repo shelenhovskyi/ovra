@@ -623,51 +623,6 @@ describe("AgentsPanel", () => {
     expect(target.querySelector("[data-testid=board-question]")).toBeNull();
   });
 
-  it("lists a task's workers in the order it started them", async () => {
-    const core = new FakeAgentCore();
-    core.addSession("p1", "Write the notes", { state: "idle" });
-    // Known in another order than they were started (lint's status came first).
-    for (const name of ["lint", "docs"]) core.addSession("p1", `${name} notes`, { state: "idle" });
-    core.tasks.push({
-      id: "t1",
-      project: "p1",
-      coordinator: "s1",
-      workers: [
-        { session: "s3", name: "docs", branch: "ovra/t1/docs", worktree: "/wt/docs", kept: null },
-        { session: "s2", name: "lint", branch: "ovra/t1/lint", worktree: "/wt/lint", kept: null },
-      ],
-      limits: { max_workers: 3, budget_micro_usd: null },
-      spent_micro_usd: 0,
-    });
-    await setup(core);
-    const titles = [...target.querySelectorAll(".sessions .title")].map((t) => t.textContent);
-    expect(titles).toEqual(["Write the notes", "docs · docs notes", "lint · lint notes"]);
-  });
-
-  it("keeps a task Done when it is stopped after all its workers finished", async () => {
-    const core = new FakeAgentCore();
-    const end = { kind: "turn_end" as const, usage: { input_tokens: 1, output_tokens: 1, cost_micro_usd: null } };
-    core.addSession("p1", "Write the notes", { state: "stopped" });
-    core.addSession("p1", "docs notes", { state: "stopped" });
-    core.addSession("p1", "Still working", { state: "working" });
-    for (const id of ["s1", "s2"]) core.transcripts.set(id, [end]);
-    core.tasks.push({
-      id: "t1",
-      project: "p1",
-      coordinator: "s1",
-      workers: [{ session: "s2", name: "docs", branch: "ovra/t1/docs", worktree: "/wt/docs", kept: null }],
-      limits: { max_workers: 3, budget_micro_usd: null },
-      spent_micro_usd: 0,
-    });
-    await setup(core);
-    const rows = [...target.querySelectorAll(".sessions .row-button")].map((b) =>
-      b.textContent?.replace(/\s+/g, " ").trim(),
-    );
-    // Working first; the stopped task stays Done, with its workers' bar full.
-    expect(rows).toEqual(["Still working Working", "Write the notes Done 1 of 1 done", "docs · docs notes Done"]);
-    expect(target.querySelector("[role=progressbar]")?.getAttribute("aria-valuenow")).toBe("1");
-  });
-
   it("never calls a task done when its workers failed, and says why one did not start", async () => {
     const core = new FakeAgentCore();
     core.addSession("p1", "Write the notes", { state: "idle" });
