@@ -2993,6 +2993,38 @@ async fn workers_changing_the_same_file_hear_of_it_once() {
     assert!(notes("s3").await.is_empty(), "an idle worker is not woken");
 }
 
+// The fake, not the core: a scripted worker reads Ovra's notes in a turn
+// of its own, so a note never plays the turn the person's message would.
+#[tokio::test]
+async fn a_scripted_worker_answers_ovras_notes_without_using_up_its_script() {
+    let f = fx(vec![vec![Step::Say("on it")], vec![Step::Say("again")]]).await;
+    let mut rx = f.core.subscribe();
+    start_task(&f.core, 3).await;
+    until(&mut rx, "s1", AgentStatus::Idle).await;
+    let boss = caller("s1", ToolRole::Coordinator);
+    let spawned = f.core.spawn_agent(&boss, "lint", "x", false).await;
+    assert!(spawned.is_ok(), "{spawned:?}");
+    until(&mut rx, "s2", AgentStatus::Idle).await;
+    let note = vec![("Ovra: a note.".to_owned(), MessageFrom::Ovra)];
+    assert!(crate::agents::send(&f.core.agents_ctx(), sid("s2"), note).is_ok());
+    until(&mut rx, "s2", AgentStatus::Idle).await;
+    assert!(f.core.send_message(&boss, &sid("s2"), "go on").is_ok());
+    until(&mut rx, "s2", AgentStatus::Idle).await;
+    let said: Vec<String> = transcript(&f.core, "s2")
+        .await
+        .into_iter()
+        .filter_map(|m| match m {
+            AgentMessage::AssistantText { text, .. } => Some(text),
+            AgentMessage::UserText { from, .. } => Some(format!("{from:?}")),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        said,
+        ["Coordinator", "on it", "Ovra", "Coordinator", "again"]
+    );
+}
+
 #[tokio::test]
 async fn a_turn_end_finds_an_overlap_and_a_discarded_worker_has_none() {
     let f = fx(say()).await;

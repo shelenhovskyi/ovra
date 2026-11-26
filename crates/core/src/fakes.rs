@@ -966,7 +966,8 @@ pub enum Step {
 }
 
 /// An agent that plays a script: turn 0 on start, turn N on the N-th
-/// message. After the last turn it waits idle. It reports `scripted-<id>` as
+/// message; a worker answers a message that is only a note from Ovra with
+/// an empty turn instead. After the last turn it waits idle. It reports `scripted-<id>` as
 /// its own session id, or keeps the one it resumes. An interrupt skips the rest of
 /// the turn. Needs a Tokio runtime.
 #[derive(Default)]
@@ -1106,6 +1107,14 @@ impl AgentRuntime for ScriptedAgent {
                 });
                 host.status(AgentStatus::Idle);
                 match rx.recv().await {
+                    // A worker reads a note from Ovra alone (an overlap,
+                    // say) in a turn of its own that does nothing, so the
+                    // note does not play the turn meant for a reply.
+                    Some(Some(text))
+                        if tools.role == Some(ToolRole::Worker) && only_a_note(&text) =>
+                    {
+                        next = Some(Vec::new());
+                    }
                     Some(Some(_)) => next = turns.next(),
                     Some(None) | None => break,
                 }
@@ -1125,6 +1134,14 @@ impl AgentRuntime for ScriptedAgent {
     fn config_dirs(&self) -> BoxFuture<'_, Vec<PathBuf>> {
         Box::pin(async move { lock(&self.config_dirs).clone() })
     }
+}
+
+/// Whether `text` is one note from Ovra and nothing else, as
+/// [`crate::provenance`] marks it.
+fn only_a_note(text: &str) -> bool {
+    text.strip_prefix("<ovra-note>\n")
+        .and_then(|rest| rest.strip_suffix("\n</ovra-note>"))
+        .is_some_and(|note| !note.contains("</ovra-note>"))
 }
 
 /// What a scripted session's allowed tool calls reach.
