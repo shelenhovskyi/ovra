@@ -66,7 +66,8 @@ export type ReviewItem = {
   check?: ReviewCheck;
 };
 
-export type ReviewCheckState = "running" | "passed" | "failed";
+/** `not_run`: it could not run here (no sandbox for it, for example); `detail` says why. */
+export type ReviewCheckState = "running" | "passed" | "failed" | "not_run";
 
 /** One run of the project's check (`.ovra/check.json`); its output comes from `review.check_log`. */
 export type ReviewCheck = {

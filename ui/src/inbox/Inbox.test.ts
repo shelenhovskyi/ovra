@@ -97,6 +97,43 @@ describe("Inbox", () => {
     expect(document.activeElement).toBe($("[data-testid=elsewhere]"));
   });
 
+  it("shows the check before review as one quiet line, with its log behind a click", async () => {
+    const core = await setup([
+      review("r1", {
+        session: "s2",
+        mode: "isolated",
+        check: { state: "failed", command: "just check", detail: "exit code 1" },
+      }),
+    ]);
+    core.checkLogs.set("r1", ["\u001b[31merror\u001b[0m: 1 test failed", "done"]);
+    await open();
+    const line = $("[data-testid=inbox-check]");
+    expect(line?.textContent?.replace(/\s+/g, " ").trim()).toBe("Check failed: exit code 1 Show log");
+    expect(line?.querySelector("span")?.title).toBe("just check");
+    expect($("[data-testid=inbox-check-log]")).toBeNull();
+    button(/^Show log$/)?.click();
+    await settle();
+    expect($("[data-testid=inbox-check-log]")?.textContent).toBe("error: 1 test failed\ndone");
+    expect(core.calls.filter((c) => c.method === "review.check_log")).toHaveLength(1);
+
+    // Passed on the next run: the core says the item changed, the open log is read again.
+    core.items = [{ ...core.items[0], check: { state: "passed", command: "just check" } } as (typeof core.items)[0]];
+    core.checkLogs.set("r1", ["ok"]);
+    core.emit({ type: "review.changed", data: { project: "p1", id: "r1" } });
+    await settle();
+    expect($("[data-testid=inbox-check]")?.textContent).toContain("Check passed");
+    expect($("[data-testid=inbox-check-log]")?.textContent).toBe("ok");
+    button(/^Hide log$/)?.click();
+    await settle();
+    expect($("[data-testid=inbox-check-log]")).toBeNull();
+  });
+
+  it("shows nothing about a check when the project has none", async () => {
+    await setup([review("r1", { session: "s2", mode: "isolated" })]);
+    await open();
+    expect($("[data-testid=inbox-check]")).toBeNull();
+  });
+
   it("keeps a direct item's protected files only after each one's diff was shown", async () => {
     const core = await setup([
       review("r1", {

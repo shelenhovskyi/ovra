@@ -48,6 +48,8 @@ export class FakeReviewCore implements Transport {
   failNext = new Map<Request["method"], CoreError>();
   /** Diffs say they were read with this fingerprint instead of the item's. */
   diffFingerprint: string | null = null;
+  /** What `review.check_log` answers, by item. */
+  checkLogs = new Map<string, string[]>();
   private listeners = new Set<(event: CoreEvent) => void>();
 
   async call<R extends Request>(request: R): Promise<ResponseFor<R>> {
@@ -157,6 +159,11 @@ export class FakeReviewCore implements Transport {
       case "review.comment":
         this.find(request.params.id);
         return { type: "ok" };
+      case "review.check_log": {
+        const lines = this.checkLogs.get(request.params.id);
+        if (!lines) throw new CoreError({ code: "not_found", message: "a check of this review not found" });
+        return { type: "review.check_log", data: { lines } };
+      }
       case "agents.list":
         return { type: "agents.list", data: [] };
       default:

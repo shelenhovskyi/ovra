@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
+import type { ReviewCheck } from "../lib/protocol";
 import {
   approveDetail,
   approveHint,
+  checkText,
   defaultCommitMessage,
   fileMarkers,
   fileSummary,
@@ -11,6 +13,7 @@ import {
   itemTitle,
   keptFirst,
   notCopiedHint,
+  plainLog,
   protectedHint,
   protectedReason,
   protectedTag,
@@ -239,5 +242,21 @@ describe("inbox wording", () => {
     expect(fileMarkers(change("NOTES.md"), false, null, null, "docs")).toEqual(["docs's version is already kept"]);
     // Not copied by docs: nothing was kept first.
     expect(keptFirst(lint, [{ ...kept, not_copied: ["NOTES.md"] }, lint]).size).toBe(0);
+  });
+});
+
+describe("checkText and plainLog", () => {
+  it("say the check's state in a few words and drop terminal escapes", () => {
+    const check = (state: ReviewCheck["state"], detail?: string): ReviewCheck => ({
+      state,
+      command: "just check",
+      detail,
+    });
+    expect(
+      [check("running"), check("passed"), check("failed", "timed out after 600 s"), check("not_run", "no sandbox")].map(
+        checkText,
+      ),
+    ).toEqual(["Check running", "Check passed", "Check failed: timed out after 600 s", "Check not run: no sandbox"]);
+    expect(plainLog(["\u001b[1;32mok\u001b[0m", "\u001b]8;;https://x\u0007link\u001b]8;;\u0007"])).toBe("ok\nlink");
   });
 });

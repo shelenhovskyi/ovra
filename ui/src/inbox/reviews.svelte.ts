@@ -105,6 +105,12 @@ export class ReviewInbox {
     return { patch: data.patch, fingerprint: data.fingerprint ?? null };
   }
 
+  /** The last lines of the item's check before review. */
+  async checkLog(id: ReviewId): Promise<string[]> {
+    const { data } = await this.transport.call({ method: "review.check_log", params: { id } });
+    return data.lines;
+  }
+
   /** Shows every item and open diff as they are now. */
   recheck(): Promise<void> {
     this.changes++;

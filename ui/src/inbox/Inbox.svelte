@@ -23,6 +23,7 @@ import PatchView from "../viewers/PatchView.svelte";
 import {
   approveDetail,
   approveHint,
+  checkText,
   defaultCommitMessage,
   fileMarkers,
   fileName,
@@ -35,6 +36,7 @@ import {
   keptFirst,
   notCopiedHint,
   PROTECTED_MARKER,
+  plainLog,
   protectedHint,
   protectedReason,
   protectedTag,
@@ -113,6 +115,29 @@ const groups = $derived.by(() => {
   return out;
 });
 const outcome = $derived(inbox.outcome && inbox.outcome.id === item?.id ? inbox.outcome : null);
+/** The item whose check log is open, and the log as last read. */
+let logFor = $state<ReviewId | null>(null);
+let checkLog = $state<string | null>(null);
+const logOpen = $derived(item !== null && logFor === item.id && item.check !== undefined);
+$effect(() => {
+  // Read again whenever the core says an item changed, while it is open.
+  const id = logOpen ? logFor : null;
+  void inbox.changes;
+  void item?.check?.state;
+  if (id === null) return;
+  let live = true;
+  inbox
+    .checkLog(id)
+    .then((lines) => {
+      if (live) checkLog = lines.length > 0 ? plainLog(lines) : "No output yet.";
+    })
+    .catch((e: unknown) => {
+      if (live) checkLog = errorText(e);
+    });
+  return () => {
+    live = false;
+  };
+});
 const diffKey = $derived(item && file ? `${item.id}\n${file.path}\n${inbox.changes}` : null);
 /**
  * A worker's item, and a direct one with protected files, is approved only
@@ -590,6 +615,25 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                 {#if item.summary}
                   <p class="summary">Agent's summary: {item.summary}</p>
                 {/if}
+                {#if item.check}
+                  <p class="check-line" data-state={item.check.state} data-testid="inbox-check">
+                    <span title={item.check.command}>{checkText(item.check)}</span>
+                    <button
+                      type="button"
+                      class="quiet"
+                      aria-expanded={logOpen}
+                      aria-controls="inbox-check-log"
+                      onclick={() => {
+                        checkLog = null;
+                        logFor = logOpen ? null : item.id;
+                      }}>{logOpen ? "Hide log" : "Show log"}</button
+                    >
+                  </p>
+                  {#if logOpen}
+                    <pre class="check-log" id="inbox-check-log" data-testid="inbox-check-log">{checkLog ??
+                        "Loading…"}</pre>
+                  {/if}
+                {/if}
                 {#if gitText}
                   <p class="protected" id="inbox-git" role="note" data-testid="inbox-git">{gitText}</p>
                 {/if}
@@ -909,6 +953,7 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
   .hint,
   .empty,
   .summary,
+  .check-line,
   .field {
     color: var(--text-2);
     font-size: 13px;
@@ -916,6 +961,28 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
   .empty {
     padding: 12px 20px;
     margin: 0;
+  }
+  /* Quiet: a word and the log behind a click; only a failure takes the danger colour. */
+  .check-line {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin: 4px 0 0;
+  }
+  .check-line[data-state="failed"] > span {
+    color: var(--danger);
+  }
+  .check-log {
+    max-height: 240px;
+    overflow: auto;
+    margin: 4px 0 0;
+    padding: 8px;
+    border-radius: var(--radius-sm);
+    background: var(--s2);
+    color: var(--text);
+    font: 12px/1.4 var(--mono);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
   .error {
     color: var(--danger);

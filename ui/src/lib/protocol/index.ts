@@ -216,54 +216,56 @@ type PhaseThreeResponseFor<R extends Request> = R extends { method: "review.list
   ? Extract<Response, { type: "review.list" }>
   : R extends { method: "review.diff" }
     ? Extract<Response, { type: "review.diff" }>
-    : R extends {
-          method:
-            | "review.approve"
-            | "review.reject"
-            | "review.undo_reject"
-            | "review.resolve"
-            | "review.take"
-            | "review.undo_take";
-        }
-      ? Extract<Response, { type: "review.done" }>
-      : R extends { method: "orchestration.start" }
-        ? Extract<Response, { type: "orchestration.task" }>
-        : R extends { method: "orchestration.list" }
-          ? Extract<Response, { type: "orchestration.list" }>
-          : R extends { method: "orchestration.leftovers" }
-            ? Extract<Response, { type: "orchestration.leftovers" }>
-            : R extends { method: "search.start" }
-              ? Extract<Response, { type: "search.started" }>
-              : R extends { method: "policy.get" | "policy.set" }
-                ? Extract<Response, { type: "policy.policy" }>
-                : R extends { method: "secrets.list" }
-                  ? Extract<Response, { type: "secrets.list" }>
-                  : R extends { method: "secrets.set" | "secrets.remove" }
-                    ? { type: "ok" }
-                    : R extends { method: "audit.list" }
-                      ? Extract<Response, { type: "audit.entries" }>
-                      : R extends { method: "netproxy.get_allowlist" | "netproxy.set_allowlist" }
-                        ? Extract<Response, { type: "netproxy.allowlist" }>
-                        : R extends GitRequest
-                          ? GitResponseFor<R["method"]>
-                          : R extends { method: "lsp.status" }
-                            ? Extract<Response, { type: "lsp.status" }>
-                            : R extends { method: "lsp.start" }
-                              ? Extract<Response, { type: "lsp.server" }>
-                              : R extends { method: "lsp.send" | "lsp.stop" }
-                                ? { type: "ok" }
-                                : R extends ServersRequest
-                                  ? ServersResponseFor<R["method"]>
-                                  : R extends BrowserRequest
-                                    ? BrowserResponseFor<R["method"]>
-                                    : R extends { method: CheckpointMethod }
-                                      ? CheckpointResponseFor<R["method"]>
-                                      : R extends PrRequest
-                                        ? PrResponseFor<R["method"]>
-                                        : R extends PowerRequest
-                                          ? PowerResponse
-                                          : R extends ContextRequest
-                                            ? ContextResponse
-                                            : R extends BoardRequest
-                                              ? BoardResponseFor<R["method"]>
-                                              : never;
+    : R extends { method: "review.check_log" }
+      ? Extract<Response, { type: "review.check_log" }>
+      : R extends {
+            method:
+              | "review.approve"
+              | "review.reject"
+              | "review.undo_reject"
+              | "review.resolve"
+              | "review.take"
+              | "review.undo_take";
+          }
+        ? Extract<Response, { type: "review.done" }>
+        : R extends { method: "orchestration.start" }
+          ? Extract<Response, { type: "orchestration.task" }>
+          : R extends { method: "orchestration.list" }
+            ? Extract<Response, { type: "orchestration.list" }>
+            : R extends { method: "orchestration.leftovers" }
+              ? Extract<Response, { type: "orchestration.leftovers" }>
+              : R extends { method: "search.start" }
+                ? Extract<Response, { type: "search.started" }>
+                : R extends { method: "policy.get" | "policy.set" }
+                  ? Extract<Response, { type: "policy.policy" }>
+                  : R extends { method: "secrets.list" }
+                    ? Extract<Response, { type: "secrets.list" }>
+                    : R extends { method: "secrets.set" | "secrets.remove" }
+                      ? { type: "ok" }
+                      : R extends { method: "audit.list" }
+                        ? Extract<Response, { type: "audit.entries" }>
+                        : R extends { method: "netproxy.get_allowlist" | "netproxy.set_allowlist" }
+                          ? Extract<Response, { type: "netproxy.allowlist" }>
+                          : R extends GitRequest
+                            ? GitResponseFor<R["method"]>
+                            : R extends { method: "lsp.status" }
+                              ? Extract<Response, { type: "lsp.status" }>
+                              : R extends { method: "lsp.start" }
+                                ? Extract<Response, { type: "lsp.server" }>
+                                : R extends { method: "lsp.send" | "lsp.stop" }
+                                  ? { type: "ok" }
+                                  : R extends ServersRequest
+                                    ? ServersResponseFor<R["method"]>
+                                    : R extends BrowserRequest
+                                      ? BrowserResponseFor<R["method"]>
+                                      : R extends { method: CheckpointMethod }
+                                        ? CheckpointResponseFor<R["method"]>
+                                        : R extends PrRequest
+                                          ? PrResponseFor<R["method"]>
+                                          : R extends PowerRequest
+                                            ? PowerResponse
+                                            : R extends ContextRequest
+                                              ? ContextResponse
+                                              : R extends BoardRequest
+                                                ? BoardResponseFor<R["method"]>
+                                                : never;

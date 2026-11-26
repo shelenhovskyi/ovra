@@ -1,6 +1,6 @@
 // Words the inbox uses for review items and their files.
 
-import type { ChangeKind, FileChange, ReviewItem, ReviewState } from "../lib/protocol";
+import type { ChangeKind, FileChange, ReviewCheck, ReviewItem, ReviewState } from "../lib/protocol";
 
 export const STATE_LABEL: Record<ReviewState, string> = {
   open: "Waiting for review",
@@ -356,4 +356,26 @@ export function rejectHint(item: ReviewItem): string {
 /** The commit message offered on approve: the first line of the agent's summary. */
 export function defaultCommitMessage(item: ReviewItem): string {
   return item.summary?.split("\n")[0]?.trim() ?? "";
+}
+
+/** The quiet line for the project's check before review. */
+export function checkText(check: ReviewCheck): string {
+  switch (check.state) {
+    case "running":
+      return "Check running";
+    case "passed":
+      return "Check passed";
+    case "failed":
+      return check.detail ? `Check failed: ${check.detail}` : "Check failed";
+    case "not_run":
+      return check.detail ? `Check not run: ${check.detail}` : "Check not run";
+  }
+}
+
+/** A check's output as plain text: colours and cursor moves are dropped. */
+export function plainLog(lines: string[]): string {
+  // ESC [ ... final byte (CSI), and ESC ] ... BEL or ESC \ (OSC).
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: escapes are what it removes
+  const escapes = /\u001b\[[0-?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)?/g;
+  return lines.map((line) => line.replace(escapes, "")).join("\n");
 }
