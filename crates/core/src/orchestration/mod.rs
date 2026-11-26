@@ -146,6 +146,12 @@ pub(crate) async fn orchestration(core: &Core, request: OrchestrationRequest) ->
 /// Called whenever a session changes state (and with `starting` when it
 /// starts or resumes). A running session holds its project like an open
 /// window does, so its review diff stays live; the end lets go.
+/// What waits for `session` on its task's board, as the text that goes
+/// with the message starting its next turn; taken off the board's queue.
+pub(crate) fn board_waiting(core: &Core, session: &SessionId) -> Option<String> {
+    board::take_waiting(core, session)
+}
+
 pub(crate) fn on_status(core: &Core, session: &SessionId, status: &AgentStatus) {
     let Ok(project) = core.sessions().find(session, |s| s.info().project) else {
         return;
@@ -201,10 +207,6 @@ pub(crate) fn on_status(core: &Core, session: &SessionId, status: &AgentStatus) 
             tasks::tell_coordinator(core, session, &format!("failed: {message}"));
         }
         _ => {}
-    }
-    if *status == AgentStatus::Working {
-        // What waited on the board comes with the turn.
-        board::turn_started(core, session);
     }
     if !(status.is_ended() || *status == AgentStatus::Idle) {
         return;

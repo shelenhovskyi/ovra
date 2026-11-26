@@ -289,12 +289,19 @@ fn writes_main(ctx: &Ctx<'_>, session: &SessionId) -> Result<()> {
     Err(ProtocolError::new(ErrorCode::BadRequest, refused))
 }
 
-/// `parts` after the note a go-back left for the agent, if any.
+/// `parts` after the note a go-back left for the agent, if any, and
+/// before what waits for it on its task's board: one message starts the
+/// turn, the sender's words first.
 fn with_note(ctx: &Ctx<'_>, session: &SessionId, parts: Parts) -> Parts {
     let note = ctx.sessions.direct.note(session);
+    let board = ctx
+        .sessions
+        .core()
+        .and_then(|core| crate::orchestration::board_waiting(&core, session));
     note.map(|n| (n, MessageFrom::Ovra))
         .into_iter()
         .chain(parts)
+        .chain(board.map(|b| (b, MessageFrom::Ovra)))
         .collect()
 }
 
@@ -825,8 +832,7 @@ pub(crate) async fn trust(
 
 /// Sends `parts` as the running session's next message.
 pub(crate) fn send(ctx: &Ctx<'_>, session: SessionId, parts: Parts) -> Result<()> {
-    let parts = with_note(ctx, &session, parts);
-    let text = joined(&parts)?;
+    joined(&parts)?;
     let sessions = ctx.sessions;
     let (process, info, stopping) =
         sessions.find(&session, |s| (s.process(), s.info(), s.stopping()))?;
@@ -845,6 +851,9 @@ pub(crate) fn send(ctx: &Ctx<'_>, session: SessionId, parts: Parts) -> Result<()
         }
         None => return Err(conflict("the session has ended")),
     };
+    // Taken only once the message can go: what waits stays otherwise.
+    let parts = with_note(ctx, &session, parts);
+    let text = joined(&parts)?;
     let host = AgentHost::new(
         session.clone(),
         info.project,

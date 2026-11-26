@@ -869,6 +869,8 @@ async fn tasks_and_open_reviews_survive_a_restart() {
             .is_ok()
     );
     assert!(before.board_post(&me, "a.rs is mine").is_ok());
+    // The idle worker has not read the coordinator's note yet.
+    assert!(before.board_post(&boss, "also look at b.rs").is_ok());
     drop(before);
 
     let agent = Arc::new(ScriptedAgent::new(say()));
@@ -882,7 +884,7 @@ async fn tasks_and_open_reviews_survive_a_restart() {
     )
     .await;
     assert!(
-        matches!(&board, Response::Board(crate::protocol::board::BoardResponse::Entries { entries, .. }) if entries.len() == 1),
+        matches!(&board, Response::Board(crate::protocol::board::BoardResponse::Entries { entries, .. }) if entries.len() == 2),
         "the board is kept: {board:?}"
     );
     assert_eq!(items[0].summary.as_deref(), Some("changed a.rs"));
@@ -908,6 +910,14 @@ async fn tasks_and_open_reviews_survive_a_restart() {
     let resumed = resumed.unwrap_or_else(|e| panic!("{e}"));
     assert_eq!(resumed.cwd, PathBuf::from(&worker.worktree));
     assert_eq!(resumed.tools, Some(ToolRole::Worker));
+    // What waited before the restart comes with its first message, once.
+    assert_eq!(
+        resumed.prompt.matches("also look at b.rs").count(),
+        1,
+        "{}",
+        resumed.prompt
+    );
+    assert!(board_notes(transcript(&after, "s2").await).len() == 1);
     ok(&after, approval(&after, "r1", json!(null)).await).await;
     assert_eq!(
         wt.files(ROOT).get("a.rs").map(String::as_str),
@@ -3221,8 +3231,23 @@ async fn what_waits_comes_with_the_next_turn_and_only_some_entries_wake_the_coor
     // docs gets lint's question with its next turn, and answers it.
     assert!(f.core.send_message(&boss, &sid("s3"), "go on").is_ok());
     until(&mut rx, "s3", AgentStatus::Idle).await;
-    let notes = board_notes(transcript(&f.core, "s3").await);
+    let docs_said = transcript(&f.core, "s3").await;
+    let notes = board_notes(docs_said.clone());
     assert_eq!(notes.len(), 1, "{notes:?}");
+    // One message: the coordinator's words, then what waited.
+    let texts: Vec<String> = docs_said
+        .into_iter()
+        .filter_map(|m| match m {
+            AgentMessage::UserText { text, .. } => Some(text),
+            _ => None,
+        })
+        .collect();
+    let go_on = texts.iter().position(|t| t == "go on");
+    let board = texts.iter().position(|t| t.starts_with("Ovra: New on"));
+    assert!(
+        go_on.is_some() && go_on.map(|g| g + 1) == board,
+        "{texts:?}"
+    );
     assert!(notes[0].contains(&format!(
         "id=\"{}\" author=\"worker:lint\" kind=\"question\"",
         asked.id.0
@@ -3272,4 +3297,18 @@ async fn read_board_returns_a_page_at_a_time() {
         .board_read(&lint, next)
         .unwrap_or_else(|e| panic!("{e}"));
     assert_eq!((rest.len() + page.len(), end), (9, 9));
+}
+
+#[tokio::test]
+async fn a_worker_may_ask_the_coordinator_as_often_as_it_needs() {
+    let (f, _rx) = board_fx().await;
+    let docs = caller("s3", ToolRole::Worker);
+    let boss = caller("s1", ToolRole::Coordinator);
+    for round in 0..4 {
+        let (q, _) = f
+            .core
+            .board_ask(&docs, "coordinator", "next?")
+            .unwrap_or_else(|e| panic!("round {round}: {e}"));
+        assert!(f.core.board_answer(&boss, &q.id, "this").is_ok());
+    }
 }

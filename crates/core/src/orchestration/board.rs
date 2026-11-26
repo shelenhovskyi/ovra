@@ -383,22 +383,25 @@ fn deliver(core: &Core, task: &tasks::Entry, index: usize, urgent: bool) {
     };
     let targets = targets(core, task, &entries, entry, urgent);
     for (session, wake) in targets {
-        let state = core.orchestration_state();
-        state
-            .lock()
-            .boards
-            .entry(task.id.clone())
-            .or_default()
-            .pending
-            .entry(session.clone())
-            .or_default()
-            .push(index);
+        {
+            let state = core.orchestration_state();
+            let mut guard = state.lock();
+            guard
+                .boards
+                .entry(task.id.clone())
+                .or_default()
+                .pending
+                .entry(session.clone())
+                .or_default()
+                .push(index);
+            state.save(&guard);
+        }
         let running = core
             .sessions()
             .find(&session, |s| !s.status().is_ended())
             .unwrap_or(false);
         if working(core, &session) || (wake && running) {
-            flush(core, task, &session);
+            flush(core, &session);
         }
     }
 }
@@ -464,57 +467,63 @@ fn targets(
     out
 }
 
-/// Gives `session` what waits for it on any board, once a turn of it
-/// starts (`docs/specs/task-board.md`, Delivery).
-pub(super) fn turn_started(core: &Core, session: &SessionId) {
-    let waiting: Vec<TaskId> = core
-        .orchestration_state()
-        .lock()
-        .boards
-        .iter()
-        .filter(|(_, b)| b.pending.contains_key(session))
-        .map(|(task, _)| task.clone())
-        .collect();
-    for task in waiting {
-        if let Ok(task) = tasks::find(core, &task) {
-            flush(core, &task, session);
-        }
-    }
+/// Takes what waits for `session` on its task's board, as one delivery's
+/// text (`docs/specs/task-board.md`, Delivery).
+pub(super) fn take_waiting(core: &Core, session: &SessionId) -> Option<String> {
+    let (_, entries) = take(core, session);
+    (!entries.is_empty()).then(|| delivery(&entries))
 }
 
-/// Sends `session` what waits for it, as one note from Ovra; what could
-/// not be sent waits on.
-fn flush(core: &Core, task: &tasks::Entry, session: &SessionId) {
-    let (waiting, entries) = {
-        let state = core.orchestration_state();
-        let mut state = state.lock();
-        let Some(board) = state.boards.get_mut(&task.id) else {
-            return;
-        };
-        let waiting = board.pending.remove(session).unwrap_or_default();
-        let entries: Vec<BoardEntry> = waiting
-            .iter()
-            .filter_map(|&i| board.entries.get(i).cloned())
-            .collect();
-        (waiting, entries)
-    };
+/// Takes `session`'s queue off every board, saved: (task, indices) and
+/// their entries.
+fn take(core: &Core, session: &SessionId) -> (Vec<(TaskId, Vec<usize>)>, Vec<BoardEntry>) {
+    let state = core.orchestration_state();
+    let mut guard = state.lock();
+    let mut taken = Vec::new();
+    let mut entries = Vec::new();
+    for (task, board) in &mut guard.boards {
+        if let Some(waiting) = board.pending.remove(session) {
+            entries.extend(
+                waiting
+                    .iter()
+                    .filter_map(|&i| board.entries.get(i).cloned()),
+            );
+            taken.push((task.clone(), waiting));
+        }
+    }
+    if !taken.is_empty() {
+        state.save(&guard);
+    }
+    (taken, entries)
+}
+
+/// Sends `session` what waits for it now; what a send cannot take (a
+/// queued or stopping session) goes back, before anything queued since.
+fn flush(core: &Core, session: &SessionId) {
+    let (taken, entries) = take(core, session);
     if entries.is_empty() {
         return;
     }
-    let sent = agents::send(
+    let text = delivery(&entries);
+    if agents::send(
         &core.agents_ctx(),
         session.clone(),
-        vec![(delivery(&entries), MessageFrom::Ovra)],
-    );
-    if sent.is_err() {
-        let state = core.orchestration_state();
-        let mut state = state.lock();
-        if let Some(board) = state.boards.get_mut(&task.id) {
+        vec![(text, MessageFrom::Ovra)],
+    )
+    .is_ok()
+    {
+        return;
+    }
+    let state = core.orchestration_state();
+    let mut guard = state.lock();
+    for (task, waiting) in taken {
+        if let Some(board) = guard.boards.get_mut(&task) {
             let pending = board.pending.entry(session.clone()).or_default();
             let later = std::mem::replace(pending, waiting);
             pending.extend(later);
         }
     }
+    state.save(&guard);
 }
 
 /// One delivery's text: up to [`DELIVER_ENTRIES`] entries or
@@ -768,8 +777,7 @@ fn covers(pattern: &str, path: &str, budget: &mut usize) -> bool {
     glob(pattern.as_bytes(), path.as_bytes(), budget)
 }
 
-/// A pattern's parts: a byte, `*` or `**` (any run of three or more
-/// stars, or `*` next to `**`, is `**`).
+/// A pattern's parts: a byte, `*` or `**` (any run of two or more stars).
 #[derive(Clone, Copy, PartialEq)]
 enum Part {
     Byte(u8),
@@ -784,10 +792,7 @@ fn parts(p: &[u8]) -> Vec<Part> {
         if p[i] == b'*' {
             let run = p[i..].iter().take_while(|&&c| c == b'*').count();
             let part = if run > 1 { Part::Stars } else { Part::Star };
-            match out.last_mut() {
-                Some(last @ (Part::Star | Part::Stars)) => *last = Part::Stars,
-                _ => out.push(part),
-            }
+            out.push(part);
             i += run;
         } else {
             out.push(Part::Byte(p[i]));
@@ -835,11 +840,12 @@ fn glob(p: &[u8], s: &[u8], budget: &mut usize) -> bool {
     row[s.len()]
 }
 
-/// Questions and answers between agents `a` and `b` since the person or
-/// the coordinator (when it is neither) last wrote; other entries by `a`
-/// or `b` do not end the run. Talk with the person is never limited.
+/// Questions and answers between workers `a` and `b` since the person or
+/// the coordinator last wrote; other entries by `a` or `b` do not end the
+/// run. Talk with the person or the coordinator is never limited.
 fn chain(core: &Core, task: &TaskId, a: &Author, b: &Author) -> usize {
-    if *a == Author::Person || *b == Author::Person {
+    let unlimited = [Author::Person, Author::Coordinator];
+    if unlimited.contains(a) || unlimited.contains(b) {
         return 0;
     }
     let state = core.orchestration_state();
@@ -848,9 +854,7 @@ fn chain(core: &Core, task: &TaskId, a: &Author, b: &Author) -> usize {
         return 0;
     };
     let between = |x: &Author, y: &Author| (x == a && y == b) || (x == b && y == a);
-    let steps_in = |e: &&BoardEntry| {
-        matches!(e.author, Author::Person | Author::Coordinator) && e.author != *a && e.author != *b
-    };
+    let steps_in = |e: &&BoardEntry| matches!(e.author, Author::Person | Author::Coordinator);
     let to_of = |e: &BoardEntry| -> Option<Author> {
         match &e.body {
             EntryBody::Question { to, .. } => Some(author_of(to)),
@@ -960,9 +964,10 @@ mod tests {
     fn many_wildcards_match_in_time_and_the_budget_ends_a_search() {
         let pattern = format!("{}x", "**a".repeat(8));
         let path = "a".repeat(200);
-        let started = std::time::Instant::now();
-        assert!(!meet(&pattern, &path));
-        assert!(started.elapsed() < Duration::from_millis(50));
+        // Steps are parts x bytes, far inside the budget.
+        let mut budget = MATCH_BUDGET;
+        assert!(!meets(&pattern, &path, &mut budget));
+        assert!(MATCH_BUDGET - budget < 2 * 26 * 201);
         let mut spent = 10;
         assert!(!meets("src/**", "src/a.rs", &mut spent));
         assert_eq!(spent, 0);
