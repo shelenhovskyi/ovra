@@ -85,6 +85,10 @@ pub struct BoardEntry {
     pub id: EntryId,
     pub author: Author,
     pub body: EntryBody,
+    /// When it was written, Unix time in milliseconds; missing on entries
+    /// saved before entries had a time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -152,6 +156,7 @@ mod tests {
                 text: "Keep the old flag?".into(),
                 choices: Choices::default(),
             },
+            at_ms: Some(1_700_000_000_000),
         };
         insta::assert_json_snapshot!(entry, @r#"
         {
@@ -166,9 +171,14 @@ mod tests {
               "kind": "person"
             },
             "text": "Keep the old flag?"
-          }
+          },
+          "at_ms": 1700000000000
         }
         "#);
+        let old: Result<BoardEntry, _> = serde_json::from_str(
+            r#"{"id":"b1","author":{"kind":"ovra"},"body":{"kind":"note","text":"x"}}"#,
+        );
+        assert!(matches!(old, Ok(BoardEntry { at_ms: None, .. })));
     }
 
     #[test]

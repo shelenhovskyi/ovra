@@ -4,6 +4,8 @@
 use serde::{Deserialize, Serialize};
 
 use super::agents::{SandboxReport, SessionId, SessionMode};
+use super::board::{Author, EntryId};
+use super::orchestration::TaskId;
 use super::policy::{Policy, PolicyRule};
 use super::projects::ProjectId;
 use super::review::ReviewId;
@@ -118,6 +120,17 @@ pub enum AuditEvent {
         number: u64,
         url: String,
     },
+    /// An entry on a task's board (`docs/specs/task-board.md`). `text`
+    /// is what it says (a claim's paths, a question, a note) without
+    /// header values or token-like words and cut to 4 KiB; the entry's
+    /// session is the agent that wrote it.
+    BoardEntry {
+        task: TaskId,
+        entry: EntryId,
+        author: Author,
+        what: BoardEntryKind,
+        text: String,
+    },
     /// Whether a session's browser may load `origin`, which is neither a
     /// granted server nor decided before for the session (ADR 0009).
     BrowserNavigation {
@@ -125,6 +138,18 @@ pub enum AuditEvent {
         allowed: bool,
         by: NavigationBy,
     },
+}
+
+/// What kind of entry a board entry is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BoardEntryKind {
+    Claim,
+    Release,
+    Question,
+    Answer,
+    Note,
+    Ovra,
 }
 
 /// Who decided a browser navigation.

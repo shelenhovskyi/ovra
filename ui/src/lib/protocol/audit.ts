@@ -1,7 +1,9 @@
 // Mirrors crates/core/src/protocol/audit.rs: the audit log's schema and `audit.*`.
 
 import type { SandboxReport, SessionId, SessionMode } from "./agents";
+import type { Author, EntryId } from "./board";
 import type { ServerId as LspServerId } from "./lsp";
+import type { TaskId } from "./orchestration";
 import type { Policy, PolicyRule } from "./policy";
 import type { ProjectId } from "./projects";
 import type { ReviewId } from "./review";
@@ -39,6 +41,8 @@ export type AuditEvent =
   | { kind: "branch_pushed"; review: ReviewId; remote: string; branch: string; commit: string }
   /** The person opened a pull request of a worker's item. */
   | { kind: "pull_request_opened"; review: ReviewId; remote: string; number: number; url: string }
+  /** An entry on a task's board; `text` without header values or token-like words, cut to 4 KiB. */
+  | { kind: "board_entry"; task: TaskId; entry: EntryId; author: Author; what: BoardEntryKind; text: string }
   /** Whether the session's browser may load an origin that is not a granted server. */
   | { kind: "browser_navigation"; origin: string; allowed: boolean; by: NavigationBy };
 
@@ -54,6 +58,8 @@ export type DecidedBy =
   | { kind: "session_ended" };
 
 /** Who decided a browser navigation; `no_answer` and `session_ended` refuse. */
+export type BoardEntryKind = "claim" | "release" | "question" | "answer" | "note" | "ovra";
+
 export type NavigationBy = "person" | "no_answer" | "session_ended";
 
 export type ReviewAction = "approved" | "partly_approved" | "rejected" | "undone_reject" | "taken" | "undone_take";

@@ -317,6 +317,12 @@ pub(crate) fn holds_secret(text: &str, known: &[SecretValue]) -> bool {
             .any(|value| !value.is_empty() && text.contains(value))
 }
 
+/// Text an agent wrote, as the log keeps it: without header values and
+/// token-like words, at most [`MAX_INPUT_BYTES`].
+pub(crate) fn redacted_text(text: &str) -> String {
+    cut(redact_text(clip(text)))
+}
+
 /// `text` without header values and token-like words.
 pub(crate) fn redact_text(text: &str) -> String {
     redact_tokens(&redact_headers(text))

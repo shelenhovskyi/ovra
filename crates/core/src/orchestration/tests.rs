@@ -3411,4 +3411,106 @@ async fn a_persons_start_past_the_cap_waits_in_line_and_can_be_cancelled() {
     );
 }
 
+#[tokio::test]
+async fn an_entry_on_its_way_to_an_agent_is_not_carried_by_a_second_message() {
+    let (f, _rx) = board_fx().await;
+    let lint = caller("s2", ToolRole::Worker);
+    let asked = f.core.board_ask(&lint, "docs", "Do you touch README?");
+    assert!(asked.is_ok(), "{asked:?}");
+    let docs = sid("s3");
+    let first = super::board_waiting(&f.core, &docs);
+    assert!(first.is_some());
+    // A send racing the first one finds nothing more to carry.
+    assert!(super::board_waiting(&f.core, &docs).is_none());
+    // The first message did not go: its entries wait again.
+    drop(first);
+    let again = super::board_waiting(&f.core, &docs);
+    let again = again.unwrap_or_else(|| panic!("the entry waits again"));
+    super::board_delivered(&f.core, &docs, again);
+    assert!(super::board_waiting(&f.core, &docs).is_none());
+}
+
+#[tokio::test]
+async fn board_entries_carry_their_time_and_go_into_the_audit_log() {
+    let (f, _rx) = board_fx().await;
+    let lint = caller("s2", ToolRole::Worker);
+    let note = f
+        .core
+        .board_post(&lint, "Done with Authorization: Bearer abc.def.ghi")
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert!(note.at_ms.is_some_and(|at| at > 1_700_000_000_000));
+    let logged: Vec<_> = audited(&f)
+        .into_iter()
+        .filter_map(|(session, event)| match event {
+            AuditEvent::BoardEntry {
+                entry, what, text, ..
+            } => Some((session, entry, what, text)),
+            _ => None,
+        })
+        .collect();
+    let [(session, entry, what, text)] = logged.as_slice() else {
+        panic!("one board entry in the log: {logged:?}");
+    };
+    assert_eq!(session.as_ref(), Some(&sid("s2")));
+    assert_eq!(entry, &note.id);
+    assert_eq!(*what, crate::protocol::audit::BoardEntryKind::Note);
+    assert!(text.starts_with("Done with Authorization:"), "{text}");
+    assert!(!text.contains("abc.def.ghi"), "{text}");
+}
+
+#[tokio::test]
+async fn a_change_to_a_file_another_worker_claimed_is_told_once() {
+    let bash = Step::Use {
+        tool: "Bash",
+        input: json!({"command": "make"}),
+    };
+    let f = fx(vec![vec![Step::Say("on it")], vec![bash]]).await;
+    let mut rx = f.core.subscribe();
+    start_task(&f.core, 3).await;
+    until(&mut rx, "s1", AgentStatus::Idle).await;
+    let boss = caller("s1", ToolRole::Coordinator);
+    let mut trees = Vec::new();
+    for (session, name) in [("s2", "lint"), ("s3", "docs")] {
+        let worker = f.core.spawn_agent(&boss, name, "x", false).await;
+        let worker = worker.unwrap_or_else(|e| panic!("{e}"));
+        until(&mut rx, session, AgentStatus::Idle).await;
+        trees.push(worker.worktree);
+    }
+    let docs = caller("s3", ToolRole::Worker);
+    let claimed = f.core.board_claim(&docs, None, &["docs/".to_owned()], "");
+    assert!(claimed.is_ok(), "{claimed:?}");
+    f.wt.put(&trees[0], "docs/guide.md", "lint\n");
+    assert!(f.core.send_message(&boss, &sid("s2"), "go on").is_ok());
+    until(&mut rx, "s2", AgentStatus::WaitingForApproval).await;
+    super::overlap::check(&f.core, &sid("s2")).await;
+    super::overlap::check(&f.core, &sid("s2")).await;
+
+    let told = |session: &'static str| {
+        let core = f.core.clone();
+        async move {
+            transcript(&core, session)
+                .await
+                .into_iter()
+                .filter(|m| {
+                    matches!(m, AgentMessage::UserText { text, from: MessageFrom::Ovra }
+                        if text.contains("docs/guide.md"))
+                })
+                .count()
+        }
+    };
+    assert_eq!(told("s1").await, 1, "the coordinator, once");
+    assert_eq!(told("s2").await, 1, "the working changer");
+    assert_eq!(told("s3").await, 0, "an idle claimer is not woken");
+    let board = f
+        .core
+        .orchestration_state()
+        .lock()
+        .boards
+        .values()
+        .flat_map(|b| b.entries.clone())
+        .filter(|e| e.author == crate::protocol::board::Author::Ovra)
+        .count();
+    assert_eq!(board, 1);
+}
+
 mod check;

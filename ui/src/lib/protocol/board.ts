@@ -27,7 +27,13 @@ export type EntryBody =
   /** Something Ovra saw: an overlap, a review asked for, a stop. */
   | { kind: "ovra"; text: string };
 
-export type BoardEntry = { id: EntryId; author: Author; body: EntryBody };
+export type BoardEntry = {
+  id: EntryId;
+  author: Author;
+  body: EntryBody;
+  /** When it was written, Unix time in milliseconds; missing on older entries. */
+  at_ms?: number;
+};
 
 export type BoardRequest =
   /** The task's entries from index `since`, oldest first. */

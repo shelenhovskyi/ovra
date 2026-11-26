@@ -80,12 +80,18 @@ pub(super) async fn check(core: &Core, session: &SessionId) {
         }
         found
     };
-    if found.is_empty() {
-        return;
+    if !found.is_empty() {
+        tell_changes(core, &task, &me, &found);
     }
+    tell_claims(core, &task, &me, &mine);
+}
+
+/// Tells of `found`: other workers whose changes meet `me`'s, with the
+/// files both changed.
+fn tell_changes(core: &Core, task: &tasks::Entry, me: &Worker, found: &[(&Worker, Vec<String>)]) {
     // The board keeps Ovra's words, as people read them there.
     let mut seen = String::new();
-    for (other, paths) in &found {
+    for (other, paths) in found {
         let _ = write!(
             seen,
             "Workers {} and {} both changed {}. ",
@@ -102,7 +108,7 @@ pub(super) async fn check(core: &Core, session: &SessionId) {
         .unwrap_or(false);
     if coordinator_running {
         let mut note = String::from("Ovra:");
-        for (other, paths) in &found {
+        for (other, paths) in found {
             let _ = write!(
                 note,
                 " Workers {} and {} both changed {}.",
@@ -130,8 +136,8 @@ pub(super) async fn check(core: &Core, session: &SessionId) {
     }
     // Waking a worker that waits would start a turn it did not ask for;
     // the coordinator decides about that one.
-    for (other, paths) in &found {
-        for (worker, neighbour) in [(&me, *other), (*other, &me)] {
+    for (other, paths) in found {
+        for (worker, neighbour) in [(me, *other), (*other, me)] {
             if working(core, &worker.session) {
                 let note = format!(
                     "Ovra: Worker {} of your task also changed {}. Leave these files to it \
@@ -149,6 +155,106 @@ pub(super) async fn check(core: &Core, session: &SessionId) {
     }
 }
 
+/// Tells of files `me` changed that other workers claimed on the board
+/// (`docs/specs/task-board.md`), once per changer and claimer, unless the
+/// two were told of an overlap of their changes already. The coordinator
+/// hears of it, and each of the two that is working.
+fn tell_claims(core: &Core, task: &tasks::Entry, me: &Worker, mine: &BTreeSet<String>) {
+    let claimed = super::board::claimed(core, task, &me.name, mine);
+    let found: Vec<(&Worker, Vec<String>)> = {
+        let state = core.orchestration_state();
+        let mut state = state.lock();
+        claimed
+            .into_iter()
+            .filter_map(|(name, paths)| {
+                let other = task.workers.iter().find(|w| w.name == name)?;
+                let told = state
+                    .overlaps
+                    .contains(&ordered(&me.session, &other.session));
+                let pair = (me.session.clone(), other.session.clone());
+                (!told && state.claim_overlaps.insert(pair)).then_some((other, paths))
+            })
+            .collect()
+    };
+    if found.is_empty() {
+        return;
+    }
+    let mut seen = String::new();
+    for (other, paths) in &found {
+        let _ = write!(
+            seen,
+            "Worker {} changed {}, which worker {} claimed. ",
+            me.name,
+            named(paths),
+            other.name
+        );
+    }
+    super::board::record(core, &task.id, seen.trim_end().to_owned());
+    let ctx = core.agents_ctx();
+    let coordinator_running = core
+        .sessions()
+        .find(&task.coordinator, |s| !s.status().is_ended())
+        .unwrap_or(false);
+    if coordinator_running {
+        let mut note = String::from("Ovra:");
+        for (other, paths) in &found {
+            let _ = write!(
+                note,
+                " Worker {} changed {}, which worker {} claimed on the board.",
+                me.name,
+                named(paths),
+                other.name
+            );
+        }
+        let ids: Vec<&str> = found.iter().map(|(o, _)| o.session.0.as_str()).collect();
+        let _ = write!(
+            note,
+            " Ovra does not repeat this for the same workers.\nFor the coordinator: \
+             the agent_ids are {} and {}. Tell one of them to leave these files, or \
+             split the work differently.",
+            me.session.0,
+            ids.join(", ")
+        );
+        let _ = agents::send(
+            &ctx,
+            task.coordinator.clone(),
+            vec![(note, MessageFrom::Ovra)],
+        );
+    }
+    for (other, paths) in &found {
+        let notes = [
+            (
+                me,
+                format!(
+                    "Ovra: Worker {} of your task claimed {} on the board, and you changed \
+                     them. Leave these files to it unless your subtask needs them; the \
+                     coordinator knows.",
+                    other.name,
+                    named(paths)
+                ),
+            ),
+            (
+                *other,
+                format!(
+                    "Ovra: Worker {} of your task changed {}, which you claimed. The \
+                     coordinator knows.",
+                    me.name,
+                    named(paths)
+                ),
+            ),
+        ];
+        for (worker, note) in notes {
+            if working(core, &worker.session) {
+                let _ = agents::send(
+                    &ctx,
+                    worker.session.clone(),
+                    vec![(note, MessageFrom::Ovra)],
+                );
+            }
+        }
+    }
+}
+
 /// The person discarded `session`'s work: it changes nothing any more
 /// until its next look, and new work of it that overlaps is told again.
 pub(super) fn discarded(core: &Core, session: &SessionId) {
@@ -156,6 +262,9 @@ pub(super) fn discarded(core: &Core, session: &SessionId) {
     let mut state = state.lock();
     state.changed.insert(session.clone(), BTreeSet::new());
     state.overlaps.retain(|(a, b)| a != session && b != session);
+    state
+        .claim_overlaps
+        .retain(|(a, b)| a != session && b != session);
 }
 
 fn working(core: &Core, session: &SessionId) -> bool {

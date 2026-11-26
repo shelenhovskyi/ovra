@@ -63,6 +63,7 @@ fn kind(event: &AuditEvent) -> &'static str {
         AuditEvent::BrowserNavigation { .. } => "browser_navigation",
         AuditEvent::BranchPushed { .. } => "branch_pushed",
         AuditEvent::PullRequestOpened { .. } => "pull_request_opened",
+        AuditEvent::BoardEntry { .. } => "board_entry",
     }
 }
 
@@ -246,7 +247,7 @@ fn drain(core: Core, project: ProjectId) -> impl Future<Output = ()> + Send + 's
     }
 }
 
-pub(crate) use input::holds_secret;
+pub(crate) use input::{holds_secret, redacted_text};
 
 /// The values of the project's secrets for checking text the person adds
 /// to a message; `None` if they cannot be read now.

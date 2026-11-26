@@ -87,6 +87,9 @@ struct State {
     changed: BTreeMap<SessionId, BTreeSet<String>>,
     /// Worker pairs [`overlap`] already told of; not saved.
     overlaps: BTreeSet<(SessionId, SessionId)>,
+    /// (changer, claimer) pairs [`overlap`] told of a change to a claimed
+    /// file; not saved.
+    claim_overlaps: BTreeSet<(SessionId, SessionId)>,
     /// Places a person's starts took while their sessions are set up
     /// ([`slots::reserve`]); not saved.
     reserved: BTreeMap<ProjectId, usize>,
