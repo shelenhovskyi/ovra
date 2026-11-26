@@ -30,7 +30,7 @@ use ovra_core::services::{BoxFuture, EventSink, FsService, Result, SearchCancel}
 
 use crate::watch::{SharedFiles, Timing, Watch};
 
-pub use crate::import::drops::{DROP_TTL, Dropped, Drops};
+pub use crate::import::drops::Drops;
 pub use crate::import::{Clash, Imported};
 
 /// The real file service.
@@ -67,18 +67,21 @@ impl FsIndex {
         }
     }
 
-    /// Copies `sources`, absolute paths the person dropped onto the window,
-    /// into the folder `into` of the project at `root` (see `import`). Only
-    /// the desktop app calls this, with paths from the window's drop event;
-    /// it is not part of `FsService`, so no client frame reaches it. Blocks.
-    pub fn import(
+    /// Copies the drop `id` (paths the person dropped onto the window,
+    /// kept in `drops`) into the folder `into` of the project at `root`,
+    /// as of `now` (see `import`). Only the desktop app calls this; it is
+    /// not part of `FsService`, so no client frame reaches it. Blocks.
+    pub fn import_drop(
         &self,
+        drops: &Drops,
+        id: &str,
+        now: std::time::Instant,
         root: &Path,
-        sources: &[PathBuf],
         into: &RelPath,
         clash: Clash,
     ) -> Result<Imported> {
-        import::import(root, sources, into, clash, &self.trash, import::LIMITS)
+        let to = import::Target { root, into, clash };
+        import::import_drop(drops, id, now, &to, &self.trash, import::LIMITS)
     }
 
     fn watches(&self) -> MutexGuard<'_, HashMap<ProjectId, Watch>> {
