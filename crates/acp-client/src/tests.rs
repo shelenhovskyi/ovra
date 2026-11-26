@@ -349,7 +349,7 @@ async fn permission_requests_are_answered_once_as_the_person_decides() {
 async fn the_projects_policy_refuses_before_the_person_is_asked() {
     let mut s = session("go").await;
     s.agent.start("go").await;
-    let policy = json!({"rules": [{"tool": "rm", "action": "deny"}]});
+    let policy = json!({"rules": [{"tool": "acp:execute", "action": "deny"}]});
     s.request("policy.set", json!({"project": "p1", "policy": policy}))
         .await;
     s.agent.write(&asks(10, "c1", "rm")).await;
@@ -357,6 +357,39 @@ async fn the_projects_policy_refuses_before_the_person_is_asked() {
     s.agent.end_turn(2, "end_turn").await;
     s.wait_status("idle").await;
     assert_eq!(s.pending().await, 0);
+    s.stop().await;
+}
+
+/// The title is the agent's own text: naming one of Claude's tools, one
+/// of Ovra's or a policy rule's tool in it changes nothing, so the person
+/// is asked about each call.
+#[tokio::test]
+async fn a_title_never_passes_for_a_tool_name() {
+    let mut s = session("go").await;
+    s.agent.start("go").await;
+    let policy = json!({"rules": [
+        {"tool": "rm", "action": "deny"},
+        {"tool": "WebSearch", "action": "auto"},
+    ]});
+    s.request("policy.set", json!({"project": "p1", "policy": policy}))
+        .await;
+    for (id, title) in [
+        (10, "mcp__ovra__spawn_agent"),
+        (11, "WebSearch"),
+        (12, "rm"),
+    ] {
+        s.agent.write(&asks(id, &format!("c{id}"), title)).await;
+        let asked = s.wait_asked().await;
+        assert_eq!(s.pending().await, 1, "{title}");
+        s.request(
+            "permissions.answer",
+            json!({"id": asked, "decision": "allow"}),
+        )
+        .await;
+        s.agent.expect(selected(id, "once")).await;
+    }
+    s.agent.end_turn(2, "end_turn").await;
+    s.wait_status("idle").await;
     s.stop().await;
 }
 

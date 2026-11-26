@@ -2,12 +2,12 @@
 source: crates/acp-client/src/tools.rs
 expression: "lines.join(\"\\n\")"
 ---
-ls {"command":"ls -la"} => {"kind":"execute","command":"ls -la"}
-Read a.rs null => {"kind":"read","paths":["/w/a.rs","b.rs"]}
-Edit a.rs null => {"kind":"edit","paths":["/w/a.rs"]} writes y
-Fetch {"url":"https://docs.rs/"} => {"kind":"fetch","url":"https://docs.rs/"}
-search {"pattern":"fn"} => {"kind":"search"}
-x {"command":"ls"} => {"kind":"think"}
-x {"command":["rm","-rf"]} => {"kind":"execute"}
-other null => {"kind":"other"}
-other null => {"kind":"other"}
+acp:execute {"command":"ls -la"} => {"kind":"execute","command":"ls -la"}
+acp:read null => {"kind":"read","paths":["/w/a.rs","b.rs"]}
+acp:edit null => {"kind":"edit","paths":["/w/a.rs"]} writes y
+acp:fetch {"url":"https://docs.rs/"} => {"kind":"fetch","url":"https://docs.rs/"}
+acp:search {"pattern":"fn"} => {"kind":"search"}
+acp:think {"command":"ls"} => {"kind":"think"}
+acp:execute {"command":["rm","-rf"]} => {"kind":"execute"}
+acp:other null => {"kind":"other"}
+acp:other null => {"kind":"other"}

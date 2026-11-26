@@ -8,12 +8,14 @@ use serde_json::Value;
 
 use crate::v1::{Content, ToolCallFields, ToolContent, ToolStatus};
 
-/// What Ovra names the call: ACP has titles, no tool names.
-pub(crate) fn name(call: &ToolCallFields) -> String {
-    call.title.clone().unwrap_or_else(|| {
-        let kind = serde_json::to_value(call.kind.unwrap_or_default()).unwrap_or_default();
-        kind.as_str().unwrap_or("other").to_owned()
-    })
+/// What Ovra names the call, which policies and roles match on: its kind
+/// in a namespace of its own (`acp:execute`). ACP has no tool names, and
+/// the title is the agent's free text, so it never names a call: a title
+/// such as `WebSearch` or `mcp__ovra__spawn_agent` must not pass for
+/// one of Claude's or Ovra's own tools.
+fn name(kind: ToolKind) -> String {
+    let kind = serde_json::to_value(kind).unwrap_or_default();
+    format!("acp:{}", kind.as_str().unwrap_or("other"))
 }
 
 pub(crate) fn request(call: &ToolCallFields) -> ToolRequest {
@@ -43,7 +45,7 @@ pub(crate) fn request(call: &ToolCallFields) -> ToolRequest {
         .collect();
     let written = (kind == ToolKind::Edit && !diffs.is_empty()).then(|| diffs.join("\n"));
     ToolRequest {
-        name: name(call),
+        name: name(kind),
         input,
         call: shared,
         written,
@@ -123,6 +125,22 @@ mod tests {
             })
             .collect();
         insta::assert_snapshot!(lines.join("\n"));
+    }
+
+    #[test]
+    fn a_calls_name_comes_from_its_kind_alone() {
+        for title in [
+            "mcp__ovra__spawn_agent",
+            "WebSearch",
+            "Grep",
+            "Read",
+            "acp:read",
+        ] {
+            let execute = call(json!({"toolCallId": "1", "title": title, "kind": "execute"}));
+            assert_eq!(request(&execute).name, "acp:execute", "{title}");
+            let untyped = call(json!({"toolCallId": "1", "title": title}));
+            assert_eq!(request(&untyped).name, "acp:other", "{title}");
+        }
     }
 
     #[test]

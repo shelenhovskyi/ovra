@@ -15,7 +15,7 @@ expression: transcript
   {
     "kind": "tool_use",
     "id": "c1",
-    "name": "Read a.rs",
+    "name": "acp:read",
     "input": {
       "path": "/w/a.rs"
     },
