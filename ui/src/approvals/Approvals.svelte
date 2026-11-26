@@ -47,6 +47,12 @@ import { describeTool } from "./describe";
 import { ARM_MS, approvalQueue, HOLD_MS } from "./queue.svelte";
 import { type PathScope, pathScopes, sameFolder } from "./scope";
 
+/**
+ * `offerAlways`: false hides "Always allow" (Focus, docs/specs/focus-mode.md):
+ * a rule for good is written where its reach is in view.
+ */
+let { offerAlways = true }: { offerAlways?: boolean } = $props();
+
 const { transport, workspace } = useOvra();
 const queue = approvalQueue(transport);
 const sessions = agentSessions(transport);
@@ -892,7 +898,7 @@ function verbAndObject(tool: string, action: string): { verb: string; object: st
             <button type="button" class="quiet" aria-keyshortcuts="Shift+N" onclick={() => openDeny(request)}
               >Deny with a message…</button
             >
-            {#if always}
+            {#if always && offerAlways}
               <!-- Writes a rule (Settings > Rules): the same wait and checks as Allow once, no key of its own. -->
               <button
                 type="button"
@@ -909,6 +915,8 @@ function verbAndObject(tool: string, action: string): { verb: string; object: st
                   >{ALWAYS_BASH_NOTE}</span
                 >
               {/if}
+            {:else if always}
+              <span class="always-note" data-testid="approval-always-elsewhere">Always allow is in the IDE.</span>
             {/if}
             <!-- Why a press did not answer: the fill says "not yet" on screen, this says it to screen readers. -->
             <span class="wait" class:sr-only={said?.text === EARLY} aria-live="polite" data-testid="approval-wait"

@@ -6,7 +6,11 @@ import { provideOvra } from "../shell/context";
 import type { Workspace } from "../shell/workspace.svelte";
 import Approvals from "./Approvals.svelte";
 
-let { transport, workspace }: { transport: Transport; workspace: Workspace } = $props();
+let {
+  transport,
+  workspace,
+  offerAlways = true,
+}: { transport: Transport; workspace: Workspace; offerAlways?: boolean } = $props();
 
 // svelte-ignore state_referenced_locally
 provideOvra({ transport, workspace });
@@ -14,4 +18,4 @@ provideOvra({ transport, workspace });
 
 <Keybindings />
 <button type="button" data-testid="elsewhere">Elsewhere</button>
-<Approvals />
+<Approvals {offerAlways} />
