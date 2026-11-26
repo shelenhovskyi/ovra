@@ -21,7 +21,7 @@ pub use crate::lsp::ServerHost;
 use crate::path::RelPath;
 use crate::protocol::agents::{
     AgentKind, AgentMessage, AgentSettings, AgentSetup, ProjectAgentConfig, ProviderInfo,
-    SessionId, SessionInfo, SessionMode, SetupState,
+    SessionId, SessionInfo, SessionMode, SetupState, ToolCall,
 };
 use crate::protocol::audit::{AuditEntry, AuditEvent, AuditRange};
 use crate::protocol::browser::{
@@ -1043,6 +1043,13 @@ pub trait AgentRuntime: Send + Sync + Debug {
     /// per-project configuration find nothing.
     fn project_config(&self, _root: PathBuf) -> BoxFuture<'_, Result<ProjectAgentConfig>> {
         Box::pin(async { Ok(ProjectAgentConfig::default()) })
+    }
+    /// What a tool call of `agent`'s, saved before transcripts carried it,
+    /// does in shared terms (ADR 0011): the core asks when it loads such a
+    /// transcript. Runtimes that never saved one leave it `other`.
+    fn tool_call(&self, agent: AgentKind, name: &str, input: &serde_json::Value) -> ToolCall {
+        let _ = (agent, name, input);
+        ToolCall::default()
     }
     /// Configuration folders of other accounts found on this computer, as
     /// suggestions. Runtimes without accounts find none.
