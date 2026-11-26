@@ -50,6 +50,7 @@ import {
 } from "./describe";
 import { REVIEWS_KEYS } from "./keys";
 import { handleOpenFor } from "./open";
+import PrPanel from "./PrPanel.svelte";
 import { message as errorText, type Outcome, type ReviewInbox } from "./reviews.svelte";
 
 /** The shell's inbox, shared with the title bar's Reviews button. */
@@ -645,7 +646,11 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                 {/if}
               </div>
 
-              {#if item.state === "open"}
+              {#if item.pull_request}
+                <PrPanel {inbox} {item} pr={item.pull_request} onsaid={(said) => (announcement = said)} />
+              {/if}
+
+              {#if item.state === "open" || item.state === "published"}
                 <div class="actions" role="group" aria-label="Decide on this review">
                   <p class="hint">{approveHint(item)}</p>
                   {#if protectedText}
@@ -1078,7 +1083,8 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
   .state.partly_approved {
     color: var(--warn);
   }
-  .state.approved {
+  .state.approved,
+  .state.published {
     color: var(--ok);
   }
   .state.rejected {
