@@ -19,12 +19,20 @@ adds one menu and compact chips, and nothing more.
   - **Terminal**: the active terminal's selection, else its last lines.
   - **Browser**: a screenshot of the session's browser page (reply box only;
     the browser belongs to a session).
-  - **Files and folders** of the project, fuzzy matched as in the palette.
-- Up/Down move, Enter or Tab adds, Escape closes and keeps the typed `@`.
+  - **Files and folders** of the project, fuzzy matched as in the palette;
+    with nothing typed yet, recent files and then the project's top level.
+    What the box holds already is left out. When nothing fits, the menu says
+    "No matches" and Enter sends the message as typed. A full-width `＠`
+    opens it too.
+- Up/Down move, Enter or Tab adds, Escape closes and keeps the typed `@`;
+  the menu follows the caret and closes when the field loses focus.
+  Ctrl/Cmd+Enter never chooses an item.
   Choosing an item removes the typed `@query` and adds a **chip** under the
   field: an icon and a short name (`lib.rs`, `src/`, `lib.rs:12-18`,
-  `Terminal`, `Screenshot`). The full path is its tooltip. × removes it; so
-  does Backspace in an empty field (last chip).
+  the terminal's title, `Screenshot`). The tooltip has the full name and, for
+  text items, the first lines that will be sent. × removes it; so does
+  Backspace in an empty field (last chip; a held Backspace takes only one),
+  and the removal is announced to screen readers. Focus returns to the field.
 - **Ask agent** (editor menu, the problem's hover card, a Problems row,
   the terminal menu with a selection) adds the selection, the problem or the terminal
   selection as a chip to the Agents panel's open box (the reply box of the
@@ -32,8 +40,9 @@ adds one menu and compact chips, and nothing more.
   Ovra has no test runner view yet: the terminal (where a failed test
   prints) is where that lives today.
 - Chips go with the message and are cleared after it is sent. The
-  transcript shows the person's text; the context goes to the agent as
-  Ovra's message after it, like browser picks.
+  transcript shows the person's text and a folded "Context sent" line with
+  the items; the context goes to the agent as Ovra's message after it, like
+  browser picks.
 
 ## Safety
 
@@ -44,12 +53,14 @@ when it is sent (`agents.start`, `agents.send`, `orchestration.start`):
 - Files and folders are **referenced, never read** by Ovra: the agent reads
   them with its own tools, so the sandbox and approvals apply as before.
 - An item is **sensitive** when its path is protected
-  (`ovra_core::protected`), or looks like a secret store (`.env*`, `*.pem`,
-  `*.key`, `id_rsa*`, `.npmrc`, `.netrc`, `credentials*`, `secrets/`), or its
-  text holds a token or a secret header (the audit log's detector) or one of
+  (`ovra_core::protected`), or looks like a secret store (`.env*`, `*.env`,
+  `*.pem`, `*.key`, `*.tfvars`, `id_rsa*`, `.npmrc`, `.netrc`,
+  `credentials*`, `service-account*`, `kubeconfig*`, `secrets/`, `.ssh/`,
+  `.aws/`, `.kube/` and the like), or its text holds a token, a secret
+  header, a `password=`-style pair or a URL with a password (the audit log's detector) or one of
   the project's secret values. A sensitive chip is amber with the reason
-  ("May hold a secret") and is not sent until the person chooses **Include**
-  on it; the core refuses a sensitive item without that confirmation.
+  ("May hold a secret") and is not sent until the person chooses **Send
+  anyway** on it (Start and Send stay disabled until then); the core refuses a sensitive item without that confirmation.
 - Text items (selection, problem, terminal) are cut to 16 KiB each and 48
   KiB together, names and titles included. Everything the person, the
   project or a program wrote reaches the agent either escaped (paths,

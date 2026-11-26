@@ -73,25 +73,47 @@ const paths = $derived.by((): Suggestion[] => {
   ];
 });
 
+/** What the box holds already, so the menu leaves it out. */
+const added = $derived(new Set(chips.map((chip) => JSON.stringify(chip.what))));
+
+function asFile(path: string): Suggestion {
+  return { what: { kind: "file", path }, label: base(path), detail: path };
+}
+
 const options = $derived.by((): Suggestion[] => {
   if (!at) return [];
   const query = at.query;
-  const offered = [...contextSuggestions(), ...extra];
+  const fresh = (s: Suggestion) => !added.has(JSON.stringify(s.what));
+  const offered = [...contextSuggestions(), ...extra].filter(fresh);
   const near = rank(offered, (s) => `${s.label} ${s.detail}`, query, 5).map((r) => r.item);
-  const found = query
-    ? rank(paths, (s) => s.detail, query, MAX_ROWS).map((r) => r.item)
-    : recentFiles(project)
-        .slice(0, 4)
-        .map((path) => ({ what: { kind: "file", path } as ContextWhat, label: base(path), detail: path }));
-  return [...near, ...found].slice(0, MAX_ROWS);
+  let found: Suggestion[];
+  if (query) found = rank(paths.filter(fresh), (s) => s.detail, query, MAX_ROWS).map((r) => r.item);
+  else {
+    // Recent files first, then the project's top level, so an empty @ always offers something.
+    const recent = recentFiles(project).slice(0, 4).map(asFile);
+    const top = paths.filter((s) => !s.detail.slice(0, -1).includes("/"));
+    found = [...recent, ...top].filter(fresh);
+  }
+  const seen = new Set<string>();
+  return [...near, ...found]
+    .filter((s) => {
+      const key = `${s.what.kind} ${s.detail}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, MAX_ROWS);
 });
 
-const open = $derived(at !== null && options.length > 0);
+/** The menu shows while an `@query` is typed, with a "No matches" row when nothing fits. */
+const open = $derived(at !== null);
+/** A chip removed or the menu's answer, for screen readers. */
+let said = $state("");
 
 $effect(() => {
   if (at && files === null) {
     files = [];
-    projectFiles(transport, project).then(
+    void projectFiles(transport, project).then(
       (list) => (files = list),
       () => (files = null),
     );
@@ -106,11 +128,30 @@ $effect(() => {
   box.setAttribute("aria-expanded", String(open));
   if (open) {
     box.setAttribute("aria-controls", `${id}-menu`);
-    box.setAttribute("aria-activedescendant", `${id}-option-${active}`);
+    if (options.length > 0) box.setAttribute("aria-activedescendant", `${id}-option-${active}`);
+    else box.removeAttribute("aria-activedescendant");
   } else {
     box.removeAttribute("aria-controls");
     box.removeAttribute("aria-activedescendant");
   }
+});
+
+// The menu follows the caret (arrow keys, clicks) and closes when the field loses focus.
+$effect(() => {
+  const box = field;
+  if (!box) return;
+  const follow = (event: KeyboardEvent) => {
+    if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.code)) refresh();
+  };
+  const leave = () => {
+    at = null;
+  };
+  box.addEventListener("keyup", follow);
+  box.addEventListener("blur", leave);
+  return () => {
+    box.removeEventListener("keyup", follow);
+    box.removeEventListener("blur", leave);
+  };
 });
 
 /** Reads the `@query` at the caret; the parent calls it on input and caret moves. */
@@ -148,24 +189,26 @@ export function start(): void {
 /** Handles the menu's keys and Backspace in an empty box; true when it took the key. */
 export function keydown(event: KeyboardEvent): boolean {
   if (event.isComposing) return false;
-  if (open && at) {
+  if (open && at && !event.ctrlKey && !event.metaKey && !event.altKey) {
     const take = () => {
       event.preventDefault();
       return true;
     };
     switch (event.code) {
       case "ArrowDown":
-        active = (active + 1) % options.length;
+        if (options.length > 0) active = (active + 1) % options.length;
         return take();
       case "ArrowUp":
-        active = (active - 1 + options.length) % options.length;
+        if (options.length > 0) active = (active - 1 + options.length) % options.length;
         return take();
       case "Enter":
       case "NumpadEnter":
       case "Tab": {
         if (event.shiftKey) return false;
         const chosen = options[active];
-        if (chosen) choose(chosen);
+        // With no match, Enter sends the message as typed and Tab moves on.
+        if (!chosen) return false;
+        choose(chosen);
         return take();
       }
       case "Escape":
@@ -176,12 +219,25 @@ export function keydown(event: KeyboardEvent): boolean {
     }
   }
   if (event.code === "Backspace" && value === "" && chips.length > 0) {
-    const last = chips.at(-1);
-    if (last) drafts.remove(target, last.key);
+    // A held Backspace stops at the chips: one press takes one out.
     event.preventDefault();
+    if (event.repeat) return true;
+    const last = chips.at(-1);
+    if (last) removeChip(last.key, last.label);
     return true;
   }
   return false;
+}
+
+function removeChip(key: string, label: string): void {
+  drafts.remove(target, key);
+  said = `Removed ${label}`;
+  field?.focus();
+}
+
+function sendAnyway(key: string): void {
+  drafts.confirm(target, key);
+  field?.focus();
 }
 
 function choose(option: Suggestion): void {
@@ -209,6 +265,11 @@ function choose(option: Suggestion): void {
     style:bottom="{place.bottom}px"
     style:width="{place.width}px"
   >
+    {#if options.length === 0}
+      <li class="none" role="option" aria-selected="false" aria-disabled="true">
+        {files === null || files.length > 0 || at?.query ? "No matches" : "Looking…"}
+      </li>
+    {/if}
     {#each options as option, i (`${option.what.kind} ${option.detail}`)}
       <li
         id="{id}-option-{i}"
@@ -231,14 +292,26 @@ function choose(option: Suggestion): void {
   <ul class="ctx-chips" aria-label="Context sent with the message">
     {#each chips as chip (chip.key)}
       {@const waits = chip.warning !== null && !chip.confirmed}
-      <li class="ctx-chip" class:waits data-testid="context-chip" title={chip.title}>
+      {@const included = chip.warning !== null && chip.confirmed}
+      <li
+        class="ctx-chip"
+        class:waits
+        class:included
+        data-testid="context-chip"
+        title={included ? `${chip.title}\nSent anyway` : chip.title}
+      >
         <Icon name={chip.icon} small />
         <span class="label">{chip.label}</span>
         {#if waits && chip.warning}
           <span class="why">{WARNINGS[chip.warning]}</span>
-          <button type="button" class="include" onclick={() => drafts.confirm(target, chip.key)}>Include</button>
+          <button
+            type="button"
+            class="include"
+            aria-label="Send {chip.label} anyway"
+            onclick={() => sendAnyway(chip.key)}>Send anyway</button
+          >
         {/if}
-        <button type="button" class="remove" aria-label="Remove {chip.label}" onclick={() => drafts.remove(target, chip.key)}
+        <button type="button" class="remove" aria-label="Remove {chip.label}" onclick={() => removeChip(chip.key, chip.label)}
           ><Icon name="close" small /></button
         >
       </li>
@@ -248,6 +321,7 @@ function choose(option: Suggestion): void {
 {#if error}
   <p class="ctx-error" role="alert">{error}</p>
 {/if}
+<span class="ctx-said" aria-live="polite">{said}</span>
 
 <style>
   .at-menu {
@@ -275,6 +349,9 @@ function choose(option: Suggestion): void {
   .at-menu li[aria-selected="true"] {
     color: var(--accent-ink);
     background: var(--accent);
+  }
+  .at-menu li.none {
+    opacity: 0.7;
   }
   .at-menu .name {
     flex: none;
@@ -312,6 +389,7 @@ function choose(option: Suggestion): void {
   }
   .ctx-chip .label {
     min-width: 0;
+    max-width: 24ch;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
@@ -319,6 +397,9 @@ function choose(option: Suggestion): void {
   }
   .ctx-chip.waits {
     box-shadow: inset 0 0 0 1px var(--warn);
+  }
+  .ctx-chip.included {
+    box-shadow: inset 0 0 0 1px var(--separator);
   }
   .ctx-chip .why {
     color: var(--warn);
@@ -336,6 +417,13 @@ function choose(option: Suggestion): void {
   }
   .ctx-chip .remove:hover {
     opacity: 1;
+  }
+  .ctx-said {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
   }
   .ctx-error {
     margin: 0;

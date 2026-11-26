@@ -20,7 +20,7 @@ export type Chip = {
   /** The full name, for the tooltip. */
   title: string;
   icon: IconName;
-  /** Why it waits for Include; null when it goes as it is. */
+  /** Why it waits for Send anyway; null when it goes as it is. */
   warning: ContextWarning | null;
   confirmed: boolean;
 };
@@ -60,7 +60,14 @@ function base(path: string): string {
   return trimmed.slice(trimmed.lastIndexOf("/") + 1) || trimmed;
 }
 
-/** A chip's short name, full name and icon. */
+/** The first lines of `text`, for a tooltip that shows what goes. */
+function preview(text: string): string {
+  const lines = text.split("\n");
+  const shown = lines.slice(0, 6).map((line) => (line.length > 80 ? `${line.slice(0, 80)}…` : line));
+  return lines.length > 6 ? [...shown, "…"].join("\n") : shown.join("\n");
+}
+
+/** A chip's short name, full name (with the text it sends) and icon. */
 export function describeItem(what: ContextWhat): Pick<Chip, "label" | "title" | "icon"> {
   switch (what.kind) {
     case "file":
@@ -69,7 +76,11 @@ export function describeItem(what: ContextWhat): Pick<Chip, "label" | "title" | 
       return { label: `${base(what.path)}/`, title: `${what.path.replace(/\/+$/, "")}/`, icon: "files" };
     case "selection": {
       const lines = what.from_line === what.to_line ? `${what.from_line}` : `${what.from_line}-${what.to_line}`;
-      return { label: `${base(what.path)}:${lines}`, title: `${what.path}, lines ${lines}`, icon: "selection" };
+      return {
+        label: `${base(what.path)}:${lines}`,
+        title: `${what.path}, lines ${lines}\n${preview(what.text)}`,
+        icon: "selection",
+      };
     }
     case "problem":
       return {
@@ -78,7 +89,11 @@ export function describeItem(what: ContextWhat): Pick<Chip, "label" | "title" | 
         icon: "problem",
       };
     case "terminal":
-      return { label: "Terminal", title: `Output of ${what.title}`, icon: "terminal" };
+      return {
+        label: what.title || "Terminal",
+        title: `Output of ${what.title}\n${preview(what.text)}`,
+        icon: "terminal",
+      };
     case "page":
       return { label: "Screenshot", title: "What the page shows when you send", icon: "image" };
   }
@@ -91,7 +106,7 @@ function same(a: ContextWhat, b: ContextWhat): boolean {
 
 /** The warning on a chip, in words. */
 export const WARNINGS: Record<ContextWarning, string> = {
-  protected: "Agent settings",
+  protected: "Agent settings file",
   secret_file: "May hold secrets",
   secret_text: "May hold a secret",
 };
@@ -127,7 +142,7 @@ export class ContextDrafts {
     this.chips.set(target, [...this.of(target), chip]);
   }
 
-  /** The person chose Include on its warning. */
+  /** The person chose Send anyway on its warning. */
   confirm(target: Target, key: string): void {
     this.set(
       target,
@@ -142,7 +157,7 @@ export class ContextDrafts {
     );
   }
 
-  /** Chips that wait for Include. */
+  /** Chips that wait for Send anyway. */
   unconfirmed(target: Target): Chip[] {
     return this.of(target).filter((chip) => chip.warning !== null && !chip.confirmed);
   }
@@ -173,10 +188,10 @@ export function contextDrafts(transport: Transport): ContextDrafts {
   return drafts;
 }
 
-/** The `@query` the caret is in: where it starts and what follows `@`; null outside one. */
+/** The `@query` (or full-width `＠query`) the caret is in: where it starts and what follows `@`; null outside one. */
 export function atQuery(text: string, caret: number): { start: number; query: string } | null {
   const before = text.slice(0, caret);
-  const found = /(^|\s)@([^\s@]*)$/.exec(before);
+  const found = /(^|\s)[@\uFF20]([^\s@\uFF20]*)$/.exec(before);
   if (!found) return null;
   const query = found[2] ?? "";
   return { start: caret - query.length - 1, query };

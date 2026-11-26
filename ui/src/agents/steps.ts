@@ -25,9 +25,19 @@ type Entry =
 /** How the core's message with the person's @ context begins (crates/core/src/context.rs). */
 const CONTEXT_HEADER = "The person added this context to the message.";
 
+/** The items of a context message as the person added them, without the wording meant for the agent. */
+function contextItems(text: string): string {
+  const body = text.slice(text.indexOf("\n\n") + 2);
+  return body
+    .replace(/<untrusted origin="[^"]*">/g, "")
+    .replace(/<\/untrusted>/g, "")
+    .replaceAll("&lt;", "<")
+    .trim();
+}
+
 function note(text: string): Note {
-  // The person knows what they added: one line, the message itself folded.
-  if (text.startsWith(CONTEXT_HEADER)) return { line: "Context sent", rest: text };
+  // The person knows what they added: one line, the items folded under it.
+  if (text.startsWith(CONTEXT_HEADER)) return { line: "Context sent", rest: contextItems(text) };
   const plain = text.startsWith("Ovra: ") ? text.slice("Ovra: ".length) : text;
   const end = plain.indexOf("\n");
   return end < 0 ? { line: plain, rest: "" } : { line: plain.slice(0, end), rest: plain.slice(end + 1).trim() };

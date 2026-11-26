@@ -10,6 +10,8 @@ describe("atQuery", () => {
     expect(atQuery("mail me@home", 12)).toBeNull();
     expect(atQuery("@lib then more", 14)).toBeNull();
     expect(atQuery("@lib then", 4)).toEqual({ start: 0, query: "lib" });
+    // A full-width ＠, as some input methods type it.
+    expect(atQuery("Fix ＠lib", 8)).toEqual({ start: 4, query: "lib" });
   });
 });
 
@@ -23,6 +25,12 @@ describe("chips", () => {
     expect(
       describeItem({ kind: "problem", path: "b.rs", line: 9, severity: "error", message: "unused" }),
     ).toMatchObject({ label: "b.rs:9", title: "b.rs:9 unused" });
+    // Text items show what they send in the tooltip; a terminal is named by its title.
+    const long = Array.from({ length: 8 }, (_, i) => `line ${i}`).join("\n");
+    expect(describeItem({ kind: "terminal", title: "zsh", text: long })).toMatchObject({
+      label: "zsh",
+      title: `Output of zsh\n${long.split("\n").slice(0, 6).join("\n")}\n…`,
+    });
   });
 
   it("are added once, marked by the core's check and sent with what the person chose", async () => {

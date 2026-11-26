@@ -103,8 +103,16 @@ describe("notes", () => {
   });
 
   it("shows the person's @ context as one line, the message folded under it", () => {
-    const text = "The person added this context to the message. Read them yourself.\n\nFile: `a.rs`";
+    const text =
+      "The person added this context to the message. Read them yourself.\n\nFile: `a.rs`\n\n" +
+      'Terminal output from "zsh", printed by commands:\n<untrusted origin="terminal">&lt;b> ok</untrusted>';
     const [shown] = entries([{ kind: "user_text", text, from: "ovra" }]);
-    expect(shown).toMatchObject({ kind: "notes", notes: [{ line: "Context sent", rest: text }] });
+    // The wording meant for the agent stays out of the person's view.
+    expect(shown).toMatchObject({
+      kind: "notes",
+      notes: [
+        { line: "Context sent", rest: 'File: `a.rs`\n\nTerminal output from "zsh", printed by commands:\n<b> ok' },
+      ],
+    });
   });
 });

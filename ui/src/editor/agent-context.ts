@@ -106,27 +106,53 @@ export function registerEditorContext(workspace: {
 
 /** Ask agent from the editor menu: the selection, else the problem at the cursor, else the file. */
 export function askAbout(view: EditorView, path: string): void {
-  askAgent(selectionOf(view, path) ?? problemAt(view, path, view.state.selection.main.head) ?? { kind: "file", path });
+  askAgent(
+    problemSelected(view, path) ??
+      selectionOf(view, path) ??
+      problemAt(view, path, view.state.selection.main.head) ?? { kind: "file", path },
+  );
 }
 
-/** Adds Ask agent to every problem's hover card; `path` names the view's file. */
-export function askOnProblems(path: (view: EditorView) => string | null): Extension {
-  return linter(null, {
-    tooltipFilter: (diagnostics) =>
-      diagnostics.map((diagnostic) => ({
-        ...diagnostic,
-        actions: [
-          ...(diagnostic.actions ?? []),
-          {
-            name: "Ask agent",
-            apply: (view: EditorView, from: number) => {
-              const file = path(view);
-              if (file) askAgent(problem(view, file, diagnostic, from));
-            },
-          },
-        ],
-      })),
+/** A problem whose range is the selection, as after F8 (next problem) selects it. */
+function problemSelected(view: EditorView, path: string): ContextWhat | null {
+  const { from, to, empty } = view.state.selection.main;
+  if (empty) return null;
+  let found: ContextWhat | null = null;
+  forEachDiagnostic(view.state, (diagnostic, start, end) => {
+    if (!found && start === from && end === to) found = problem(view, path, diagnostic, start);
   });
+  return found;
+}
+
+/** Diagnostics that already carry Ask agent. */
+const asked = new WeakSet<Diagnostic>();
+
+/**
+ * Adds Ask agent to every problem's hover card; `path` names the view's file.
+ * The action goes on the diagnostic itself: the lint card runs an action only
+ * for a diagnostic it finds, by identity, in the editor's state.
+ */
+export function askOnProblems(path: (view: EditorView) => string | null): Extension {
+  return linter(null, { tooltipFilter: (diagnostics) => withAsk(diagnostics, path) });
+}
+
+/** The same diagnostics, each given Ask agent once. */
+export function withAsk(diagnostics: readonly Diagnostic[], path: (view: EditorView) => string | null): Diagnostic[] {
+  for (const diagnostic of diagnostics) {
+    if (asked.has(diagnostic)) continue;
+    asked.add(diagnostic);
+    (diagnostic as { actions?: Diagnostic["actions"] }).actions = [
+      ...(diagnostic.actions ?? []),
+      {
+        name: "Ask agent",
+        apply: (view: EditorView, from: number) => {
+          const file = path(view);
+          if (file) askAgent(problem(view, file, diagnostic, from));
+        },
+      },
+    ];
+  }
+  return [...diagnostics];
 }
 
 /** Ask agent from a row of the Problems list. */

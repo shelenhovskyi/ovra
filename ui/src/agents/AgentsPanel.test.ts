@@ -1279,6 +1279,15 @@ describe("@ context", () => {
     expect(field()?.value).toBe("Fix ");
     expect(chips()).toEqual(["lib.rs"]);
     expect(core.sent("agents.start")).toHaveLength(0);
+    // What the box holds is not offered again; nothing that fits says so.
+    type(field(), "Fix @lib.rs");
+    await settle();
+    expect(options()).not.toContain("lib.rs");
+    type(field(), "Fix @zzzq");
+    await settle();
+    expect(target.querySelector("[data-testid=context-menu] .none")?.textContent?.trim()).toBe("No matches");
+    type(field(), "Fix ");
+    await settle();
     // Escape keeps a typed @ as text; Backspace in an empty box removes the last chip.
     type(field(), "@src");
     await settle();
@@ -1294,7 +1303,7 @@ describe("@ context", () => {
     expect(chips()).toEqual([]);
   });
 
-  it("holds a chip that may hold a secret until the person chooses Include", async () => {
+  it("holds a chip that may hold a secret until the person chooses Send anyway", async () => {
     const core = new FakeAgentCore();
     core.listed = FILES;
     core.contextNotes.set(".env", "secret_file");
@@ -1303,16 +1312,19 @@ describe("@ context", () => {
     await settle();
     key("Enter");
     await settle();
-    expect(chips()).toEqual([".env May hold secrets Include"]);
+    expect(chips()).toEqual([".env May hold secrets Send anyway"]);
+    const start = [...target.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "Start");
     type(field(), "Use the keys");
     key("Enter");
     await settle();
     expect(core.sent("agents.start")).toHaveLength(0);
-    expect(target.textContent).toContain("Choose Include or remove the marked item first.");
-    [...target.querySelectorAll<HTMLButtonElement>("[data-testid=context-chip] button")]
-      .find((b) => b.textContent === "Include")
-      ?.click();
-    field()?.focus();
+    expect(target.textContent).toContain("Choose Send anyway or remove the marked item first.");
+    expect(start?.disabled).toBe(true);
+    target.querySelector<HTMLButtonElement>("[aria-label='Send .env anyway']")?.click();
+    await settle();
+    // Focus goes back to the field, so Enter starts the task.
+    expect(document.activeElement).toBe(field());
+    expect(start?.disabled).toBe(false);
     key("Enter");
     await settle();
     expect(core.sent("agents.start")[0]?.params.context).toEqual([{ kind: "file", path: ".env", confirmed: true }]);
@@ -1322,7 +1334,7 @@ describe("@ context", () => {
     const core = await setup();
     askAgent({ kind: "terminal", title: "zsh", text: "test failed" });
     await settle();
-    expect(chips()).toEqual(["Terminal"]);
+    expect(chips()).toEqual(["zsh"]);
     expect(document.activeElement).toBe(field());
     // Chips belong to their project's box.
     workspace.project = { id: "p2", name: "other", root: "/other", last_opened_ms: null, trusted: false };
@@ -1330,12 +1342,18 @@ describe("@ context", () => {
     expect(chips()).toEqual([]);
     workspace.project = { id: "p1", name: "demo", root: "/demo", last_opened_ms: null, trusted: false };
     await settle();
-    expect(chips()).toEqual(["Terminal"]);
+    expect(chips()).toEqual(["zsh"]);
     field()?.focus();
-    // Backspace in the empty box takes it out again.
+    // A held Backspace does not take chips out; one press takes one and says so.
+    document.activeElement?.dispatchEvent(
+      new KeyboardEvent("keydown", { code: "Backspace", repeat: true, bubbles: true, cancelable: true }),
+    );
+    await settle();
+    expect(chips()).toEqual(["zsh"]);
     key("Backspace");
     await settle();
     expect(chips()).toEqual([]);
+    expect(target.querySelector(".ctx-said")?.textContent).toBe("Removed zsh");
     expect(core.sent("context.check")).toHaveLength(1);
   });
 });

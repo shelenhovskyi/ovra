@@ -680,7 +680,7 @@ async function start(): Promise<void> {
   const body = prompt.trim();
   if (!project || !body || busy || blocked) return;
   if (drafts.unconfirmed(newBox).length > 0) {
-    startError = { text: "Choose Include or remove the marked item first.", setup: false };
+    startError = { text: "Choose Send anyway or remove the marked item first.", setup: false };
     return;
   }
   busy = true;
@@ -717,7 +717,7 @@ function send(): Promise<void> {
   const body = reply.trim();
   if (!id || !body) return Promise.resolve();
   if (drafts.unconfirmed(id).length > 0) {
-    error = "Choose Include or remove the marked item first.";
+    error = "Choose Send anyway or remove the marked item first.";
     return Promise.resolve();
   }
   return run(async () => {
@@ -1268,7 +1268,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
           <div class="row">
             {@render addContext(() => replyContext?.start())}
             <span class="line">{canReply ? "Shift+Enter: new line" : ""}</span>
-            <button type="submit" class="primary" disabled={busy || !canReply || !reply.trim()}>Send</button>
+            <button type="submit" class="primary" disabled={busy || !canReply || !reply.trim() || drafts.unconfirmed(current.id).length > 0}>Send</button>
           </div>
         </form>
       {:else if current.resumable && !signedOut}
@@ -1494,7 +1494,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
               : atCap
                 ? "Starts when an agent finishes"
                 : "Enter starts · Shift+Enter: new line")}
-          disabled={busy || startBlock !== null || !prompt.trim()}>Start</button
+          disabled={busy || startBlock !== null || !prompt.trim() || drafts.unconfirmed(newBox).length > 0}>Start</button
         >
       </div>
       <p class="line" id="agent-mode-hint">{modeHint}</p>
