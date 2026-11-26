@@ -272,7 +272,7 @@ it("discards only after a confirmation and offers Undo until the next discard", 
   const actions = [...(button?.parentElement?.querySelectorAll<HTMLButtonElement>("button.icon") ?? [])];
   expect(actions.map((b) => b.getAttribute("aria-label"))).toEqual(["Stage new.md", "Open new.md"]);
   expect(actions.every((b) => b.querySelector("svg") && b.textContent?.trim() === "")).toBe(true);
-  expect(button?.parentElement?.querySelector(".dot")?.getAttribute("title")).toBe("U: untracked");
+  expect(button?.parentElement?.querySelector(".mark")?.getAttribute("title")).toBe("U: untracked");
 
   // The row's menu: show and open, then stage, Discard last; a right click focuses the row.
   button?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 5, clientY: 5 }));

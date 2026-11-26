@@ -13,6 +13,7 @@ import AgentText from "./AgentText.svelte";
 import { turnsOf, turnsText } from "./checkpoints";
 import { isAuthFailure, isInterrupt, withoutEchoes } from "./errors";
 import LiveActivity from "./LiveActivity.svelte";
+import { plainChat } from "./markdown";
 import { usageText } from "./sessions.svelte";
 import {
   entries,
@@ -170,7 +171,7 @@ const spoken = $derived.by(() => {
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i];
     if (message?.kind === "assistant_text") {
-      const text = message.text.trim();
+      const text = plainChat(message.text);
       return `${agent}: ${text.length > MAX_SPOKEN ? `${text.slice(0, MAX_SPOKEN)}…` : text}`;
     }
   }
@@ -196,7 +197,10 @@ function onscroll(): void {
 }
 
 function jump(): void {
-  if (box) box.scrollTop = box.scrollHeight;
+  if (!box) return;
+  box.scrollTop = box.scrollHeight;
+  // The button goes away: focus moves to the log it scrolled, not to the page.
+  box.focus({ preventScroll: true });
   detached = false;
 }
 

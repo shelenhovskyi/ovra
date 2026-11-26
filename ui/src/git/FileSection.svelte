@@ -231,7 +231,9 @@ const all = $derived(files.flatMap((f) => (kind === "staged" && f.from ? [f.path
             <span class="folder">{folder(file.path)}</span>
             <span class="visually-hidden">, {CHANGE_LABEL[what]}{kind === "staged" ? ", staged" : ""}</span>
           </button>
-          <span class="dot {what}" aria-hidden="true" title={`${CHANGE_LETTER[what]}: ${CHANGE_LABEL[what]}`}></span>
+          <span class="mark {what}" aria-hidden="true" title={`${CHANGE_LETTER[what]}: ${CHANGE_LABEL[what]}`}
+            >{CHANGE_LETTER[what]}</span
+          >
           <!-- The hover slot: always laid out, so showing it moves nothing. Discard is in the menu, never here. -->
           <span class="slot" data-testid="git-row-actions">
             {#if simple}
@@ -411,21 +413,24 @@ const all = $derived(files.flatMap((f) => (kind === "staged" && f.from ? [f.path
   .row.selected .name {
     font-weight: 500;
   }
-  /* Git status as a 6 px dot: the letter in its and the row's tooltip, the word in the row's name. */
-  .dot {
+  /* Git status as a letter in the change's colour, as in the file tree: it
+     stays readable without colour and in forced colours. The word is in the
+     row's name for screen readers. */
+  .mark {
     flex: none;
-    width: 6px;
-    height: 6px;
-    border-radius: var(--r-pill);
-    background: var(--warn);
+    width: 1ch;
+    font-size: 11px;
+    font-weight: 600;
+    text-align: center;
+    color: var(--warn);
   }
-  .dot.added,
-  .dot.untracked {
-    background: var(--ok);
+  .mark.added,
+  .mark.untracked {
+    color: var(--ok);
   }
-  .dot.deleted,
-  .dot.conflicted {
-    background: var(--danger);
+  .mark.deleted,
+  .mark.conflicted {
+    color: var(--danger);
   }
   .file {
     flex: none;

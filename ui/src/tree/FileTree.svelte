@@ -1000,8 +1000,10 @@ function onkeydown(e: KeyboardEvent): void {
     width: 6px;
     height: 6px;
     margin-right: var(--sp-1);
+    box-sizing: border-box;
+    /* A border, not a fill: forced colours keep borders and drop backgrounds. */
+    border: 3px solid currentColor;
     border-radius: var(--r-pill);
-    background: currentColor;
   }
   .visually-hidden {
     position: absolute;

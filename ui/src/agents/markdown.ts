@@ -55,6 +55,16 @@ export function renderChat(text: string): string {
   return doc.body.innerHTML;
 }
 
+/** The words of an agent's Markdown `text`, without its marks: what a screen reader says. */
+export function plainChat(text: string): string {
+  const doc = new DOMParser().parseFromString(`<body>${renderChat(text)}</body>`, "text/html");
+  // Blocks and cells end with a space, so their words never run together.
+  for (const block of doc.body.querySelectorAll("p, li, h1, h2, h3, h4, h5, h6, pre, blockquote, th, td")) {
+    block.append(" ");
+  }
+  return (doc.body.textContent ?? "").replace(/\s+/g, " ").trim();
+}
+
 function clean(parent: Element): void {
   for (const node of [...parent.childNodes]) {
     if (node.nodeType === Node.TEXT_NODE) continue;

@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { renderChat } from "./markdown";
+import { plainChat, renderChat } from "./markdown";
 
 it("shows lists, emphasis, code and headings", () => {
   const html = renderChat("## Plan\n\n- **one** and `two`\n- _three_\n\n```rust\nfn main() {}\n```");
@@ -42,4 +42,10 @@ it("keeps no target for links Ovra would not follow", () => {
   const links = [...doc.querySelectorAll("a")];
   expect(links.length).toBe(3);
   for (const a of links) expect(a.hasAttribute("href")).toBe(false);
+});
+
+it("gives screen readers the words without the Markdown marks", () => {
+  const text =
+    "# Summary\n\nFixed **two** bugs:\n\n- one\n- two\n\n| Step | Who |\n|---|---|\n| test | me |\n\n```rust\nfn main() {}\n```";
+  expect(plainChat(text)).toBe("Summary Fixed two bugs: one two Step Who test me fn main() {}");
 });

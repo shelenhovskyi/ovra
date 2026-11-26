@@ -6,6 +6,7 @@
 // (`data-chrome="overlay"` on the root, set by the app): the traffic lights
 // sit on its left and its empty space drags the window.
 import BrowserButton from "../browser/BrowserButton.svelte";
+import { focusMode } from "../focus/mode.svelte";
 import InboxButton from "../inbox/InboxButton.svelte";
 import type { ReviewInbox } from "../inbox/reviews.svelte";
 import { listCommands } from "../keys/commands";
@@ -162,8 +163,10 @@ function tip(panel: Panel): string {
       <button
         type="button"
         class="focus-switch tip"
-        data-tip={`Only the agents' work${keys[FOCUS] ? ` ${formatShortcut(keys[FOCUS], isApple())}` : ""}`}
+        data-tip={`Hide files and code, show only tasks${keys[FOCUS] ? ` ${formatShortcut(keys[FOCUS], isApple())}` : ""}`}
         data-testid="focus-switch"
+        aria-pressed={focusMode.on}
+        aria-keyshortcuts={keys[FOCUS]}
         onclick={() => run(FOCUS)}>Focus</button
       >
       <InboxButton {inbox} />
@@ -176,10 +179,12 @@ function tip(panel: Panel): string {
 </header>
 
 <style>
-  /* Three columns keep the search field in the middle of the window. */
+  /* Three columns keep the search field in the middle of the window. The
+     buttons on the right never shrink: when the window narrows, the search
+     field and the project name give way, so nothing sits on top of them. */
   .title {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 360px) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) minmax(0, 360px) minmax(max-content, 1fr);
     align-items: center;
     gap: 16px;
     min-width: 0;
