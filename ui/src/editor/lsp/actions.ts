@@ -8,7 +8,7 @@ import { formatDocument, jumpToDefinition, LSPPlugin, renameSymbol } from "@code
 import { StateEffect, StateField } from "@codemirror/state";
 import { type EditorView, type KeyBinding, showTooltip, type Tooltip } from "@codemirror/view";
 
-export type LspAction = "definition" | "references" | "rename" | "format" | "hover" | "next_problem";
+export type LspAction = "definition" | "references" | "rename" | "format" | "hover" | "quick_fix" | "next_problem";
 
 type Context = {
   /** Tells the person something short. */
@@ -17,6 +17,8 @@ type Context = {
   serverName: (plugin: LSPPlugin) => string;
   /** Lists references, also in files the editor does not show. */
   references: (view: EditorView) => boolean;
+  /** Offers the server's fixes at the cursor. */
+  quickFix: (view: EditorView) => boolean;
 };
 
 /** What each action needs from the server, and how to say it lacks it. */
@@ -26,6 +28,7 @@ const NEEDS: Partial<Record<LspAction, [capability: string, what: string]>> = {
   rename: ["renameProvider", "rename"],
   format: ["documentFormattingProvider", "format this file"],
   hover: ["hoverProvider", "describe the symbol here"],
+  quick_fix: ["codeActionProvider", "suggest fixes"],
 };
 
 /** Whether a server with `capabilities` can do `action`; capabilities not known yet count as yes. */
@@ -62,6 +65,8 @@ export function runAction(view: EditorView, action: LspAction, context: Context)
     case "hover":
       showHover(view, plugin, context);
       return true;
+    case "quick_fix":
+      return context.quickFix(view);
   }
 }
 
@@ -75,6 +80,7 @@ export function actionKeys(context: Context): KeyBinding[] {
     { key: "Shift-Alt-f", run: run("format"), preventDefault: true },
     // One press: a Mod-k chord would take the global Mod+K (Search or run).
     { key: "Mod-i", run: run("hover"), preventDefault: true },
+    { key: "Mod-.", run: run("quick_fix"), preventDefault: true },
     { key: "F8", run: run("next_problem"), preventDefault: true },
     { key: "Shift-F8", run: previousDiagnostic, preventDefault: true },
     { key: "Escape", run: closeHover },

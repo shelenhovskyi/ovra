@@ -111,6 +111,7 @@ const LSP_ACTIONS: [LspAction, string, string?][] = [
   ["rename", "Rename symbol", "F2"],
   ["format", "Format document", "Shift+Alt+F"],
   ["hover", "Show hover at cursor", "Mod+I"],
+  ["quick_fix", "Quick fix…", "Mod+."],
   ["next_problem", "Go to next problem", "F8"],
 ];
 

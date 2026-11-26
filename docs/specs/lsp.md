@@ -9,7 +9,7 @@ Status: approved by the owner on 2026-11-25 (research
 Opening a file in a trusted project starts the language server for its
 language, if one is installed: diagnostics in the gutter, hover, completion,
 signature help, go-to-definition (also into other files of the project),
-find references, rename and formatting. The status bar shows each running
+find references, rename, quick fixes and formatting. The status bar shows each running
 server, whether it is sandboxed, and lets the person stop it. A missing
 server shows its name and how to install it, once per language.
 
@@ -119,7 +119,7 @@ makes on disk still reach them.
   removed, or it exits. It keeps running when the project closes in every
   client, so a reload does not restart it.
 - Keys: F12 definition, Shift+F12 references, F2 rename, Shift+Alt+F
-  format, Mod+I hover at the cursor, F8 and Shift+F8 next and previous
+  format, Mod+I hover at the cursor, Mod+. quick fix, F8 and Shift+F8 next and previous
   problem; all are in the palette under "Language:", and from the viewer
   they open the file for editing first.
 - Problems: every diagnostic the project's servers published, also for
@@ -141,6 +141,13 @@ makes on disk still reach them.
   edited, or the edits do not fit it, nor when more than 50 files change.
   A rename is also refused while any file of the server's language has
   unsaved text the server is not shown (it reads that file from disk).
+- Quick fix (Mod+., also in the editor's context menu) asks the server for
+  `textDocument/codeAction` at the selection, with the diagnostics there,
+  and lists up to 20 in a menu, preferred ones first. A picked fix lands
+  like a rename: unsaved edits to review, every file or none. The client
+  offers `codeAction/resolve` for lazy edits; actions that are only a
+  server command, or disabled, are left out, since the core refuses the
+  `workspace/applyEdit` such a command would send.
 
 ## Sandbox profile
 

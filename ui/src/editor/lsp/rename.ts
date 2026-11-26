@@ -22,20 +22,25 @@ type Options = {
   /** Adds a tab for `path` without showing it. */
   keep: (path: string) => void;
   note: (text: string) => void;
+  /** What the edits are, for the notes: a rename (the default) or a quick fix. */
+  kind?: "rename" | "fix";
 };
 
 /** Applies `changes` (by URI) in open files and in the buffers of the others, or in none. */
 export async function renameAcross(changes: Record<string, unknown[]>, options: Options): Promise<void> {
   const { workspace, buffers, note } = options;
+  const fix = options.kind === "fix";
+  const failed = fix ? "Quick fix not applied" : "Rename not applied";
+  const again = fix ? "try the fix again" : "rename again";
   const files = Object.entries(changes).filter(([, edits]) => edits.length > 0) as [string, TextEdit[]][];
   if (files.length > MAX_FILES) {
-    note(`Rename not applied: it would change ${files.length} files, more than ${MAX_FILES}.`);
+    note(`${failed}: it would change ${files.length} files, more than ${MAX_FILES}.`);
     return;
   }
   const opened: string[] = [];
   const refuse = (why: string) => {
     for (const path of opened) buffers.discard(path);
-    note(`Rename not applied: ${why}`);
+    note(`${failed}: ${why}`);
   };
   type Target = { apply: (changes: ChangeSpec[]) => void; doc: Text; path: string | null; edits: TextEdit[] };
   const targets: Target[] = [];
@@ -49,14 +54,14 @@ export async function renameAcross(changes: Record<string, unknown[]>, options: 
         doc: file.doc,
         path: null,
         edits,
-        apply: (changes) => view.dispatch({ changes, userEvent: "rename" }),
+        apply: (changes) => view.dispatch({ changes, userEvent: fix ? "input.fix" : "rename" }),
       });
       continue;
     }
     const path = pathOf(uri);
     if (path === null) return refuse("it would change a file outside the project.");
     const known = buffers.get(path);
-    if (known?.dirty) return refuse(`${path} has unsaved changes. Save or revert it, then rename again.`);
+    if (known?.dirty) return refuse(`${path} has unsaved changes. Save or revert it, then ${again}.`);
     const buffer: Buffer = known ?? buffers.open(path);
     if (!known) opened.push(path);
     await buffer.loaded;
@@ -69,7 +74,7 @@ export async function renameAcross(changes: Record<string, unknown[]>, options: 
       path,
       edits,
       apply: (changes) => {
-        buffer.edit({ changes, userEvent: "rename" });
+        buffer.edit({ changes, userEvent: fix ? "input.fix" : "rename" });
       },
     });
   }
@@ -87,7 +92,7 @@ export async function renameAcross(changes: Record<string, unknown[]>, options: 
   const shown = planned.flatMap(([t]) => (t.path === null ? ["this file"] : []));
   if (others.length > 0) {
     note(
-      `Renamed in ${planned.length} files, none saved yet: ${[...shown, ...others].join(", ")}. Review each tab, then save, or undo there (Mod+Z).`,
+      `${fix ? "Changed" : "Renamed in"} ${planned.length} files, none saved yet: ${[...shown, ...others].join(", ")}. Review each tab, then save, or undo there (Mod+Z).`,
     );
   }
 }

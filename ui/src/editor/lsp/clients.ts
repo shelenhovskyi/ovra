@@ -11,12 +11,14 @@ import { EditorView, keymap, ViewPlugin } from "@codemirror/view";
 import type { JsonRpcMessage, KnownServer, LspStatus, ProjectId, ServerId, ServerInfo } from "../../lib/protocol";
 import type { Transport } from "../../lib/transport";
 import { languageServers } from "../../lsp/servers.svelte";
+import { openContextMenu } from "../../menu/context-menu.svelte";
 import { askOnProblems } from "../agent-context";
 import type { Buffer, Buffers } from "../buffers.svelte";
 import { languageFor } from "../languages";
 import { actionKeys, keyboardHover, type LspAction, runAction } from "./actions";
 import { ServerChannel } from "./channel";
 import { problems } from "./problems.svelte";
+import { CODE_ACTION_CAPABILITIES, type CodeAction, quickFix } from "./quick-fix";
 import { renameAcross } from "./rename";
 import { safeHref, sanitizeHtml } from "./sanitize";
 import { pathOf, ROOT_URI, uriOf } from "./uris";
@@ -68,7 +70,15 @@ type Options = {
   keep: (path: string) => void;
 };
 
-type Server = { language: string; info: ServerInfo; client: LSPClient; channel: ServerChannel; buffers: Set<Buffer> };
+type Server = {
+  language: string;
+  info: ServerInfo;
+  client: LSPClient;
+  channel: ServerChannel;
+  buffers: Set<Buffer>;
+  /** The diagnostics last published for each file, as the server sent them, for quick fixes. */
+  diagnostics: Map<string, unknown[]>;
+};
 
 /** Minimal `WorkspaceEdit`: the library applies only `changes`. */
 type WorkspaceEdit = { changes?: Record<string, unknown[]> } | null;
@@ -161,6 +171,7 @@ export class LanguageClients {
     return {
       note: this.options.note,
       references: (view: EditorView) => this.references(view),
+      quickFix: (view: EditorView) => this.quickFix(view),
       serverName: () => {
         const mine = client();
         for (const server of this.servers.values()) if (server.client === mine) return server.info.name;
@@ -226,7 +237,12 @@ export class LanguageClients {
       sanitizeHTML: sanitizeHtml,
       extensions: [
         ...languageServerExtensions(),
-        { clientCapabilities: { workspace: { workspaceFolders: true } } },
+        {
+          clientCapabilities: {
+            workspace: { workspaceFolders: true },
+            textDocument: { codeAction: CODE_ACTION_CAPABILITIES },
+          },
+        },
         this.docLinks(),
         Prec.high(keymap.of(actionKeys(this.context(() => client)))),
         keyboardHover,
@@ -243,7 +259,7 @@ export class LanguageClients {
       renamed: (result) => this.renamed(client, result as WorkspaceEdit),
     });
     notes.set(client, this.options.note);
-    const server: Server = { language, info, client, channel, buffers: new Set() };
+    const server: Server = { language, info, client, channel, buffers: new Set(), diagnostics: new Map() };
     this.servers.set(language, server);
     client.connect(channel);
     return server;
@@ -297,7 +313,11 @@ export class LanguageClients {
     if (message.method !== "textDocument/publishDiagnostics") return;
     const params = message.params as { uri?: unknown; diagnostics?: unknown } | undefined;
     const path = typeof params?.uri === "string" ? pathOf(params.uri) : null;
-    if (path !== null) problems.publish(this.options.project, server.info.id, path, params?.diagnostics);
+    if (path === null) return;
+    problems.publish(this.options.project, server.info.id, path, params?.diagnostics);
+    const list = Array.isArray(params?.diagnostics) ? params.diagnostics : [];
+    if (list.length > 0) server.diagnostics.set(params?.uri as string, list);
+    else server.diagnostics.delete(params?.uri as string);
   }
 
   private drop(server: Server): void {
@@ -409,6 +429,43 @@ export class LanguageClients {
           this.options.note(`Not listed: references only in the unsaved text of ${hidden.join(", ")}.`);
       })
       .catch((err: unknown) => plugin.reportError("Finding references failed", err));
+    return true;
+  }
+
+  /** Offers the server's fixes at the cursor; a picked one lands as unsaved edits to review. */
+  private quickFix(view: EditorView): boolean {
+    const plugin = LSPPlugin.get(view);
+    if (!plugin) return false;
+    if (view.state.readOnly) {
+      this.options.note("Open the file for editing (Mod+E) to apply a quick fix.");
+      return true;
+    }
+    const server = [...this.servers.values()].find((s) => s.client === plugin.client);
+    const workspace = plugin.client.workspace as BufferWorkspace;
+    const { buffers, keep, note } = this.options;
+    quickFix(view, plugin, {
+      diagnostics: server?.diagnostics.get(plugin.uri) ?? [],
+      note,
+      pick: (at, actions, run) =>
+        openContextMenu(
+          { ...at, returnFocus: view.contentDOM },
+          actions.map((action: CodeAction) => ({ label: action.title, run: () => run(action) })),
+        ),
+      apply: (changes) => {
+        const hidden = this.unsavedHidden(plugin.client);
+        const touched = Object.keys(changes).map(pathOf);
+        const stale = hidden.filter((path) => touched.includes(path));
+        if (stale.length > 0) {
+          note(
+            `Quick fix not applied: save or revert ${stale.join(", ")} first; the server only sees saved text there.`,
+          );
+          return;
+        }
+        void renameAcross(changes, { workspace, buffers, keep, note, kind: "fix" }).catch((err: unknown) =>
+          note(`Quick fix not applied: ${err instanceof Error ? err.message : String(err)}`),
+        );
+      },
+    });
     return true;
   }
 

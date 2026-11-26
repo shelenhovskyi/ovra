@@ -3,7 +3,8 @@
 //! (after asking the client for `workspace/configuration` once), reports a
 //! diagnostic on each line with `TODO`, answers hover, definition,
 //! completion, and references and rename by the word at the position (in
-//! open files and the `.rs` files at the root), and exits on `exit` or the
+//! open files and the `.rs` files at the root), offers a quick fix that
+//! replaces each `TODO` diagnostic given with `DONE`, and exits on `exit` or the
 //! end of its input. `fake/crash` makes it write to stderr and exit with
 //! code 3.
 
@@ -39,6 +40,7 @@ fn main() -> std::io::Result<()> {
                     "referencesProvider": true,
                     "renameProvider": true,
                     "completionProvider": {},
+                    "codeActionProvider": true,
                 }})
             }
             "textDocument/didOpen" => {
@@ -103,6 +105,27 @@ fn main() -> std::io::Result<()> {
                         })
                         .collect();
                 json!({"changes": changes})
+            }
+            "textDocument/codeAction" => {
+                let uri = &params["textDocument"]["uri"];
+                let fixes: Vec<Value> = params["context"]["diagnostics"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter(|d| d["message"] == "fake: TODO found")
+                    .map(|d| {
+                        let edit = json!({"range": d["range"], "newText": "DONE"});
+                        let mut changes = serde_json::Map::new();
+                        changes.insert(uri.as_str().unwrap_or_default().to_owned(), json!([edit]));
+                        json!({
+                            "title": "Replace TODO with DONE",
+                            "kind": "quickfix",
+                            "isPreferred": true,
+                            "edit": {"changes": changes},
+                        })
+                    })
+                    .collect();
+                json!(fixes)
             }
             "shutdown" => Value::Null,
             "exit" => std::process::exit(0),

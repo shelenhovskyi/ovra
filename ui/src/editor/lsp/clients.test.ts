@@ -4,6 +4,7 @@ import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { afterEach, beforeAll, expect, test, vi } from "vitest";
 import { languageServers } from "../../lsp/servers.svelte";
+import { closeContextMenu, contextMenu } from "../../menu/context-menu.svelte";
 import { type Buffer, Buffers } from "../buffers.svelte";
 import { Drafts } from "../drafts.svelte";
 import { MemoryStorage } from "../fake-core";
@@ -360,4 +361,64 @@ test("links in docs open through the core, never in this window", async () => {
   );
   expect(clicks).toEqual([false, false]); // both default actions prevented
   expect(core.opened).toEqual(["https://docs.rs/x"]);
+});
+
+test("quick fixes at the cursor land as unsaved edits; command-only fixes are not offered", async () => {
+  const { core, view, notes, show, buffers, kept } = setup();
+  const B = "ovra:///src/b.ts";
+  const edit = (line: number, character: number) => ({
+    range: { start: { line, character }, end: { line, character: character + 1 } },
+    newText: "z",
+  });
+  core.capabilities = { codeActionProvider: { resolveProvider: true } };
+  core.answers["textDocument/codeAction"] = [
+    { title: "Run a server command", command: { title: "x", command: "server.fix" } },
+    { title: "Rename x everywhere", kind: "refactor", data: { id: 7 } },
+    { title: "Disabled one", disabled: { reason: "no" }, edit: { changes: {} } },
+    { title: "Use z here", kind: "quickfix", isPreferred: true, edit: { changes: { [A]: [edit(1, 0)] } } },
+  ];
+  core.answers["codeAction/resolve"] = {
+    title: "Rename x everywhere",
+    edit: { changes: { [A]: [edit(1, 0)], [B]: [edit(1, 2)] } },
+  };
+  await show("src/a b.ts");
+  await until(() => expect(core.got("s1", "textDocument/didOpen")).toHaveLength(1));
+  await until(() => expect(LSPPlugin.get(view)?.client.serverCapabilities).toBeTruthy());
+  const range = { start: { line: 1, character: 0 }, end: { line: 1, character: 1 } };
+  const diagnostic = { range, severity: 1, message: "x is unused" };
+  const elsewhere = { range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, message: "far" };
+  core.push("s1", {
+    method: "textDocument/publishDiagnostics",
+    params: { uri: A, diagnostics: [diagnostic, elsewhere] },
+  });
+  view.dispatch({ selection: { anchor: 13 } });
+  const fix = () =>
+    view.contentDOM.dispatchEvent(new KeyboardEvent("keydown", { key: ".", code: "Period", ctrlKey: true }));
+  fix();
+  await until(() => expect(contextMenu.open).not.toBeNull());
+  expect(core.got("s1", "textDocument/codeAction")[0]?.params).toMatchObject({
+    textDocument: { uri: A },
+    context: { diagnostics: [diagnostic] },
+  });
+  const items = () => (contextMenu.open?.entries ?? []).filter((e) => e !== "separator");
+  expect(items().map((e) => e.label)).toEqual(["Use z here", "Rename x everywhere"]);
+  await items()[0]?.run();
+  closeContextMenu(false);
+  await until(() => expect(view.state.doc.toString()).toBe("const x = 1;\nz;\n"));
+  // A fix the server fills in on resolve, across files.
+  view.dispatch({ changes: { from: 13, to: 14, insert: "x" }, selection: { anchor: 13 } });
+  fix();
+  await until(() => expect(items()).toHaveLength(2));
+  await items()[1]?.run();
+  closeContextMenu(false);
+  await until(() => expect(buffers.get("src/b.ts")?.text).toBe("export const y = 2;\n  z;\n"));
+  expect(core.got("s1", "codeAction/resolve")[0]?.params).toMatchObject({ data: { id: 7 } });
+  expect(view.state.doc.toString()).toBe("const x = 1;\nz;\n");
+  expect(kept).toEqual(["src/b.ts"]);
+  expect(notes.at(-1)).toBe(
+    "Changed 2 files, none saved yet: this file, src/b.ts. Review each tab, then save, or undo there (Mod+Z).",
+  );
+  core.answers["textDocument/codeAction"] = [];
+  fix();
+  await until(() => expect(notes.at(-1)).toBe("No quick fixes here."));
 });

@@ -51,6 +51,14 @@ test("a trusted project's rust file gets diagnostics and hover from its language
   await page.keyboard.press("Enter");
   await expect(editor.locator(".cm-content")).toBeFocused();
 
+  // Quick fix at the problem: the fake offers to replace the TODO, which clears it (unsaved).
+  await page.keyboard.press("ControlOrMeta+Period");
+  await page.getByRole("menuitem", { name: "Replace TODO with DONE" }).click();
+  await expect(editor.locator(".cm-content")).toContainText("// DONE: greet");
+  await expect(editor.locator(".cm-lintRange-error")).toHaveCount(0);
+  await page.keyboard.press("ControlOrMeta+Z");
+  await expect(editor.locator(".cm-lintRange-error")).toHaveCount(1);
+
   // A hover only asks once the pointer moves onto the word; until the
   // server has answered `initialize` it is not asked at all, so move again.
   const word = editor.locator(".cm-content").getByText("main").first();

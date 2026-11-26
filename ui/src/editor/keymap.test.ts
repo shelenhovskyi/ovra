@@ -73,7 +73,7 @@ const same = (a: Shortcut, b: Shortcut) =>
   a.key === b.key && a.ctrl === b.ctrl && a.meta === b.meta && a.alt === b.alt && a.shift === b.shift;
 
 function editorBindings(): readonly KeyBinding[] {
-  const context = { note: () => {}, serverName: () => "", references: () => false };
+  const context = { note: () => {}, serverName: () => "", references: () => false, quickFix: () => false };
   return [
     ...editorKeymap(() => {}),
     ...actionKeys(context),
