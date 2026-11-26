@@ -37,7 +37,9 @@ export default defineConfig({
   optimizeDeps: { exclude: ["@xterm/xterm"] },
   clearScreen: false,
   server: { port: 5173, strictPort: true },
-  build: { target: "es2022" },
+  // Two pages: the desktop app and the phone app (`mobile.html`, served by
+  // the phone listener, ADR 0014). They share chunks only where both import.
+  build: { target: "es2022", rollupOptions: { input: { main: "index.html", mobile: "mobile.html" } } },
   // Vitest runs in Node; without the browser condition Svelte resolves to its
   // server build and component tests cannot call mount().
   resolve: process.env.VITEST ? { conditions: ["browser"] } : undefined,

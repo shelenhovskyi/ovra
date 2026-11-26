@@ -1,0 +1,14 @@
+{
+  "name": "Ovra",
+  "short_name": "Ovra",
+  "description": "Follow and answer your agents from your phone.",
+  "start_url": "/#/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#15181d",
+  "theme_color": "#15181d",
+  "icons": [
+    { "src": "/phone-icon-256.png", "sizes": "256x256", "type": "image/png" },
+    { "src": "/phone-icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
