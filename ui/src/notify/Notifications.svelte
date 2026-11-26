@@ -17,7 +17,7 @@ import { Notifier, overlaps, type SystemNotifications, type Toast } from "./noti
 
 let { system }: { system?: SystemNotifications } = $props();
 
-const { transport } = useOvra();
+const { transport, workspace } = useOvra();
 // svelte-ignore state_referenced_locally
 const notifier = new Notifier(system);
 
@@ -35,8 +35,9 @@ $effect(() => {
 });
 
 // Focus (docs/specs/focus-mode.md): its cards say what waits, so only errors get a toast.
+// It shows only with a project open; the start screen keeps its toasts.
 $effect(() => {
-  const on = focusMode.on;
+  const on = focusMode.on && !!workspace.project;
   untrack(() => notifier.quietForFocus(on));
 });
 

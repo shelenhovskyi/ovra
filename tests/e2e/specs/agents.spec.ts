@@ -523,6 +523,8 @@ test("Focus shows only the agents' work and answers approvals there", async ({ p
 
   await page.keyboard.press("ControlOrMeta+Shift+Period");
   await expect(page.getByTestId("focus-bar")).toBeVisible();
+  // What had focus is hidden: it moves to the way back.
+  await expect(page.getByTestId("focus-open-ide")).toBeFocused();
   // No code, tree or terminal: only the agents' work.
   await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeHidden();
   await expect(page.getByTestId("focus-progress")).toContainText("Fix the typo");

@@ -159,7 +159,16 @@ $effect(() => {
       category: "View",
       keywords: ["zen", "distraction", "quiet", "ide"],
       keys: FOCUS_KEYS,
-      run: () => focusMode.toggle(),
+      run: async () => {
+        focusMode.toggle();
+        if (!workspace.project) return;
+        // What had focus may be hidden now: put it where the person can go on.
+        await tick();
+        const to = focusMode.on
+          ? document.querySelector<HTMLElement>("[data-testid=focus-open-ide]")
+          : document.getElementById("ovra-tabpanel");
+        to?.focus();
+      },
     }),
     registerCommand({ id: "layout.swap", title: "Swap side panels", category: "View", run: () => layout.swap() }),
     registerCommand({ id: "layout.reset", title: "Reset layout", category: "View", run: () => layout.resetAll() }),

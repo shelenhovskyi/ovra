@@ -2,6 +2,7 @@ import { flushSync, mount, unmount } from "svelte";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { FakeAgentCore } from "../agents/fake-core";
 import { approvalQueue } from "../approvals/queue.svelte";
+import { focusMode } from "../focus/mode.svelte";
 import type { PermissionRequest } from "../lib/protocol";
 import { mainView } from "../shell/main-view.svelte";
 import { Workspace } from "../shell/workspace.svelte";
@@ -60,6 +61,29 @@ describe("Notifications", () => {
     queue.focused = null;
     flushSync();
     expect(toasts()).toHaveLength(1);
+  });
+
+  it("keeps toasts in Focus only while a project is open, as the shell shows Focus", async () => {
+    focusMode.set(true);
+    try {
+      const core = new FakeAgentCore();
+      core.addSession("p1", "Fix the typo", { state: "working" });
+      const workspace = new Workspace();
+      app = mount(TestHost, { target, props: { transport: core, workspace } });
+      flushSync();
+      core.status("s1", { state: "working" });
+      core.ask(bash("perm1"));
+      await new Promise((resolve) => setTimeout(resolve));
+      await settle();
+      const toasts = () => target.querySelectorAll("[data-testid=toast]").length;
+      // The start screen: Focus waits, so the toast shows.
+      expect(toasts()).toBe(1);
+      workspace.project = { id: "p1", name: "demo", root: "/demo", last_opened_ms: null, trusted: false };
+      await settle();
+      expect(toasts()).toBe(0);
+    } finally {
+      focusMode.set(false);
+    }
   });
 
   it("says what waits as soon as the cards are hidden, and steps aside when they are shown", async () => {
