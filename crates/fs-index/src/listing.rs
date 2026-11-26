@@ -95,7 +95,9 @@ fn on_disk(
         } else {
             EntryKind::File
         };
-        let ignored = name == ".git" || !visible.contains(&name);
+        let ignored = name == ".git"
+            || !visible.contains(&name)
+            || (kind == EntryKind::Dir && ignores_itself(&entry.path()));
         let child = statuses.get(&name);
         let git = match child {
             Some(child) => Some(child.status),
@@ -111,6 +113,18 @@ fn on_disk(
         });
     }
     Ok(entries)
+}
+
+/// A folder whose own `.gitignore` ignores everything in it (`*`), as
+/// Ovra's attachments folder or a tool's cache does: git shows it as
+/// ignored, so the tree does too.
+fn ignores_itself(dir: &Path) -> bool {
+    fs::read_to_string(dir.join(".gitignore")).is_ok_and(|text| {
+        text.lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty() && !line.starts_with('#'))
+            .any(|line| line == "*" || line == "/*")
+    })
 }
 
 /// Natural order: digit runs compare as numbers, the rest case-insensitively;
