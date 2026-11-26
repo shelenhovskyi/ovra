@@ -7,6 +7,10 @@
 //! outside, and the profile lets the sandbox reach only that port. It
 //! stops once the agent has ended.
 //!
+//! The helper starts a session of its own (`setsid`) before `exec`, so the
+//! agent has no controlling terminal: it cannot type into the person's
+//! shell when Ovra was started from one.
+//!
 //! The daemon and the app are the helper themselves: they call
 //! [`helper_if_asked`] before anything else.
 
@@ -99,6 +103,9 @@ fn run(args: Vec<OsString>) -> String {
         Ok(args) => args,
         Err(e) => return e,
     };
+    if let Err(e) = leave_terminal() {
+        return format!("cannot leave the terminal: {e}");
+    }
     let mut env: Vec<(OsString, OsString)> = args
         .env
         .iter()
@@ -124,6 +131,18 @@ fn run(args: Vec<OsString>) -> String {
         .envs(env)
         .exec();
     format!("{SANDBOX_EXEC} did not start: {error}")
+}
+
+/// Starts a new session, so this process (and the agent it becomes) has
+/// no controlling terminal. A process that already leads its own session
+/// (one Ovra started on a pty of its own) keeps it.
+fn leave_terminal() -> std::io::Result<()> {
+    use rustix::process::{getpid, getsid, setsid};
+    match setsid() {
+        Ok(_) => Ok(()),
+        Err(_) if getsid(None).is_ok_and(|sid| sid == getpid()) => Ok(()),
+        Err(e) => Err(e.into()),
+    }
 }
 
 /// The variables that send every HTTP client through the bridge on `port`.

@@ -187,6 +187,23 @@ fn a_research_session_writes_nothing_in_its_folder() {
 }
 
 #[test]
+fn an_open_network_reaches_any_address_but_no_unix_socket_outside_the_temp_folder() {
+    let root = Root::new("open");
+    let setup = root.setup();
+    let mut profile = root.profile();
+    profile.network = ProfileNetwork::Open;
+    let plan = Plan::agent(&setup, &profile, &root.line()).unwrap();
+    let text = root.profile_text(&plan);
+    assert!(
+        text.contains("(allow network-outbound (remote ip \"*:*\"))"),
+        "{text}"
+    );
+    assert!(!text.contains("network*"), "{text}");
+    let unix: Vec<_> = text.lines().filter(|l| l.contains("unix-socket")).collect();
+    assert!(unix.iter().all(|l| l.contains("(subpath ")), "{unix:?}");
+}
+
+#[test]
 fn a_protected_name_that_is_a_link_keeps_its_target_read_only() {
     let root = Root::new("link");
     let setup = root.setup();
