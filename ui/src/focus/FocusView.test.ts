@@ -174,6 +174,34 @@ describe("FocusView", () => {
     });
   });
 
+  it("says what ended while the person was away, until they dismiss it", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const core = await setup((core) => {
+        core.addSession("p1", "Fix sync", { state: "working" });
+      });
+      window.dispatchEvent(new Event("blur"));
+      core.status("s1", { state: "idle" });
+      vi.setSystemTime(Date.now() + 5 * 60_000);
+      window.dispatchEvent(new Event("focus"));
+      flushSync();
+      // Five minutes is not a break.
+      expect(target.querySelector("[data-testid=focus-away]")).toBeNull();
+      window.dispatchEvent(new Event("blur"));
+      core.addSession("p1", "Add a test", { state: "idle" });
+      await agentSessions(core).load("p1");
+      vi.setSystemTime(Date.now() + 10 * 60_000);
+      window.dispatchEvent(new Event("focus"));
+      flushSync();
+      expect(text("focus-away")).toBe("While you were away, Add a test finished. Got it");
+      target.querySelector<HTMLButtonElement>("[data-testid=focus-away] button")?.click();
+      flushSync();
+      expect(target.querySelector("[data-testid=focus-away]")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("shows a review that waits, and See changes leaves Focus for Reviews", async () => {
     const opened = vi.fn();
     const off = registerCommand({ id: "inbox.toggle", title: "Reviews", run: opened });

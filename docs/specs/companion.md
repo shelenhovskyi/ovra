@@ -105,7 +105,8 @@ on, the title bar shows a small "Phone access on" item.
 ## 5. Mobile PWA
 
 `ui/src/mobile/` is its own Vite entry with its own manifest and service
-worker, reusing `lib/transport.ts` and `lib/protocol/`. Screens: Home
+worker, reusing `lib/transport.ts`, `lib/protocol/` and Focus's view model
+(`ui/src/focus/model.ts`, `away.svelte.ts`; `docs/specs/focus-mode.md`). Screens: Home
 (Needs you, Working, keep-awake switch), Approval (Allow, Deny with
 reasons, armed after 500 ms), Agent (compact transcript, reply, Stop),
 Task (workers, review items read-only), Computer (keep awake, agents

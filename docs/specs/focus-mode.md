@@ -63,17 +63,34 @@ cards on screen already say what waits. System notifications are unchanged
   and opens Reviews on that session's item.
 - Agent text (titles, summaries) is shown as text, never as markup.
 
-## Later (not in this change)
+## Where you left off
 
-- One view model shared with the phone companion (D5), when the companion
-  is built; `ui/src/focus/model.ts` is written so it can be shared.
-- A "Where you left off" line after a break.
+After a break, one line under the header says what ended meanwhile and
+what waits now: "While you were away, Fix sync finished and 2 things wait
+for you." A break is ten minutes or more without the person: the window was
+in the background, or nothing was typed or clicked in it. The line names at
+most two sessions that finished, failed or stopped ("…, 3 more ended") and
+counts what waits; when nothing ended and nothing new waits there is no
+line. It stays until **Got it** or the next break, is announced politely
+(`role="status"`), and does not move. Turning Focus on starts afresh: what
+happened before is on screen already.
+
+## Shared with the phone
+
+One view model for Focus and the phone companion (D5):
+`ui/src/focus/model.ts` reads sessions through `FocusSource` (which
+`AgentSessions` satisfies) and imports nothing of the IDE, and
+`ui/src/focus/away.svelte.ts` words the return. The phone's Home screen
+uses both, so it sorts and words agents as Focus does; what a phone may do
+stays limited in the core (`crates/core/src/companion.rs`).
 
 ## Tests
 
 - Unit: the model sorts sessions into In progress, Next and Done and lists
-  waiting reviews; closed sessions are left out.
+  waiting reviews; closed sessions are left out. The return line names what
+  ended, counts what waits and stays quiet after a short absence.
 - Component: Focus shows the sections, hides Always allow, See changes leaves Focus,
-  New task starts a task in Focus.
+  New task starts a task in Focus, the return line shows after a break and
+  goes on Got it.
 - e2e: turn Focus on with a fake agent waiting for approval, allow it from
   Focus, open the IDE again.

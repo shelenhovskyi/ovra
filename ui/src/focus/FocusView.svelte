@@ -10,6 +10,7 @@ import { approvalQueue } from "../approvals/queue.svelte";
 import { taskBoards } from "../board/boards.svelte";
 import type { BoardEntry, SessionId, TaskId } from "../lib/protocol";
 import { useOvra } from "../shell/context";
+import { Away, type Moment } from "./away.svelte";
 import FocusComposer from "./FocusComposer.svelte";
 import FocusQuestion from "./FocusQuestion.svelte";
 import { focusMode } from "./mode.svelte";
@@ -53,9 +54,17 @@ const questions = $derived(
   ),
 );
 
-const nothingWaits = $derived(
-  approvals.pending.length === 0 && questions.length === 0 && (sections?.reviews.length ?? 0) === 0,
-);
+// "Where you left off": after a break, what ended meanwhile and what waits now.
+const away = new Away();
+const waiting = $derived(approvals.pending.length + questions.length + (sections?.reviews.length ?? 0));
+const nothingWaits = $derived(waiting === 0);
+const moment = (): Moment => ({ done: sections?.done ?? [], waiting });
+const here = () => away.here(Date.now(), moment());
+const left = () => away.left(Date.now(), moment());
+function visibility(): void {
+  if (document.visibilityState === "hidden") left();
+  else here();
+}
 
 function filesLine(id: SessionId): string {
   const n = sessions.changes(id).length;
@@ -81,10 +90,21 @@ function seeChanges(id: SessionId): void {
   </section>{/if}
 {/snippet}
 
+<svelte:window onkeydown={here} onpointerdown={here} onfocus={here} onblur={left} />
+<svelte:document onvisibilitychange={visibility} />
+
 <div class="focus-root">
-  <header class="focus-head" data-testid="focus-head">
-    <h2>{workspace.project?.name ?? "No project"}</h2>
-    {#if sections}<p>{countLine(sections)}</p>{/if}
+  <header class="focus-head">
+    <div data-testid="focus-head">
+      <h2>{workspace.project?.name ?? "No project"}</h2>
+      {#if sections}<p>{countLine(sections)}</p>{/if}
+    </div>
+    <div role="status" class="away-slot">
+      {#if away.line}<p class="away" data-testid="focus-away">
+          <span>{away.line}</span>
+          <button type="button" class="dismiss" onclick={() => away.dismiss()}>Got it</button>
+        </p>{/if}
+    </div>
   </header>
 
   <h3 class="focus-label">Waiting on you</h3>
@@ -138,6 +158,24 @@ function seeChanges(id: SessionId): void {
   .focus-head p {
     margin: 2px 0 0;
     color: var(--text-2);
+  }
+  .focus-head .away {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 12px;
+    padding: 8px 8px 8px 12px;
+    border-radius: var(--r-lg);
+    background: var(--s2);
+    color: var(--text);
+  }
+  .away span {
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .dismiss {
+    flex: none;
   }
   .focus-waiting {
     grid-area: reviews;

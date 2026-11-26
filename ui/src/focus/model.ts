@@ -2,10 +2,29 @@
 // for what is in progress, what comes next and what is done, and the
 // sessions whose changes wait for review. Words come from the agents'
 // own status labels, so Focus and the Agents panel say the same thing.
+//
+// One view model for Focus and the phone companion (D5 of
+// docs/research/focus-mode.md): it reads sessions through `FocusSource`, not
+// the IDE's own state, and imports nothing of the IDE, so the phone's Home
+// screen sorts and words agents the way Focus does. What a phone may do stays
+// limited in the core (`crates/core/src/companion.rs`).
 
-import type { AgentSessions } from "../agents/sessions.svelte";
 import { isBusy } from "../agents/status";
-import type { AgentMessage, AgentStatus, ProjectId, SessionId } from "../lib/protocol";
+import type { AgentMessage, AgentStatus, ProjectId, SessionId, SessionInfo } from "../lib/protocol";
+
+/** What the model reads of a project's sessions; `AgentSessions` is one. */
+export interface FocusSource {
+  /** The project's sessions the person has not closed. */
+  shown(project: ProjectId): SessionInfo[];
+  name(id: SessionId): string;
+  /** What the session does now, in words. */
+  status(id: SessionId): string;
+  waitsForReview(id: SessionId): boolean;
+  workers(coordinator: SessionId): SessionId[];
+  readonly byId: ReadonlyMap<SessionId, SessionInfo>;
+  readonly roles: ReadonlyMap<SessionId, { kind: string }>;
+  readonly transcripts: ReadonlyMap<SessionId, AgentMessage[]>;
+}
 
 /** `id` is the session's; a planned step's row carries its session's id and its place in the plan. */
 export type FocusRow = { id: SessionId; name: string; status: string; step?: number };
@@ -24,7 +43,7 @@ export type FocusSections = {
 
 type Part = "progress" | "next" | "done";
 
-export function focusSections(sessions: AgentSessions, project: ProjectId): FocusSections {
+export function focusSections(sessions: FocusSource, project: ProjectId): FocusSections {
   const out: FocusSections = { progress: [], next: [], done: [], reviews: [] };
   const planned: FocusRow[] = [];
   for (const info of sessions.shown(project)) {
@@ -76,7 +95,7 @@ export function countLine(sections: FocusSections): string {
   return parts.length ? parts.join(" · ") : "No agents yet";
 }
 
-function part(sessions: AgentSessions, id: SessionId, status: AgentStatus): Part {
+function part(sessions: FocusSource, id: SessionId, status: AgentStatus): Part {
   if (status.state === "queued" || status.state === "preparing") return "next";
   if (isBusy(status)) return "progress";
   // A task's coordinator that waits for its workers is still on it.
