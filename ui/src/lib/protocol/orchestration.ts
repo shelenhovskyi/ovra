@@ -27,6 +27,8 @@ export type Worker = {
   disk?: DiskUsage | null;
   /** Why it waits queued although a place may be free (too little disk space for its worktree); absent from older cores. */
   waiting?: string | null;
+  /** Paths copied into its worktree through `.worktreeinclude`, relative, shallowest first, at most 100 (absent from older cores). */
+  included?: string[];
 };
 
 /** Where a worktree's setup steps (`.ovra/worktree.json`) are. */

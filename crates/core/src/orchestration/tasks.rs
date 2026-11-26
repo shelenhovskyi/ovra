@@ -699,6 +699,7 @@ async fn create_worker(
         setup: None,
         disk: None,
         waiting: low,
+        included: Vec::new(),
     };
     let workspace = Workspace {
         dir: path,

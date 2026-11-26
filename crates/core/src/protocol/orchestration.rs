@@ -53,6 +53,12 @@ pub struct Worker {
     /// worktree, which is not made yet.
     #[serde(default)]
     pub waiting: Option<String>,
+    /// Paths (relative to its worktree, `/`-separated) copied into it from
+    /// the main checkout through `.worktreeinclude`, shallowest first, at
+    /// most 100; files inside a cloned folder count too. The UI names the
+    /// secret-looking ones, which the worker's agent can read.
+    #[serde(default)]
+    pub included: Vec<String>,
 }
 
 /// Where a worktree's setup steps (`.ovra/worktree.json`) are.
