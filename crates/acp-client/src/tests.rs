@@ -792,3 +792,55 @@ async fn stderr_keeps_a_bounded_tail_of_any_bytes() {
     assert!(tail.ends_with("\u{fffd} the end"));
     assert_eq!(tail.chars().count(), STDERR_TAIL + 2);
 }
+
+/// A request in a cancelled turn, or after the turn, has nothing left to
+/// decide: the agent hears `cancelled` and the person is not asked.
+#[tokio::test]
+async fn a_request_outside_a_running_turn_is_cancelled_at_once() {
+    let mut s = session("go").await;
+    s.agent.start("go").await;
+    let cancelled = |id: u64| v1::permission(&json!(id), &v1::Outcome::Cancelled);
+    s.request("agents.interrupt", json!({"session": "s1"}))
+        .await;
+    s.agent.expect(v1::cancel("acp-1")).await;
+    s.agent.write(&asks(10, "c1", "ls")).await;
+    s.agent.expect(cancelled(10)).await;
+    s.agent.end_turn(2, "cancelled").await;
+    s.wait_status("idle").await;
+    s.agent.write(&asks(11, "c2", "ls")).await;
+    s.agent.expect(cancelled(11)).await;
+    assert_eq!(s.pending().await, 0);
+    // The next turn asks again.
+    s.request("agents.send", json!({"session": "s1", "text": "again"}))
+        .await;
+    s.agent.expect(v1::prompt(3, "acp-1", "again")).await;
+    s.agent.write(&asks(12, "c3", "ls")).await;
+    s.wait_asked().await;
+    assert_eq!(s.pending().await, 1);
+    s.agent.end_turn(3, "end_turn").await;
+    s.wait_status("idle").await;
+    s.stop().await;
+}
+
+#[tokio::test]
+async fn an_interrupt_before_the_session_drops_its_first_prompt() {
+    let mut s = session("go").await;
+    s.agent.expect(v1::initialize(0)).await;
+    s.request("agents.interrupt", json!({"session": "s1"}))
+        .await;
+    s.wait_status("idle").await;
+    s.agent.answer(0, json!({"protocolVersion": 1})).await;
+    s.agent
+        .expect(v1::new_session(1, std::path::Path::new(ROOT)))
+        .await;
+    s.agent.answer(1, json!({"sessionId": "acp-1"})).await;
+    s.request("agents.send", json!({"session": "s1", "text": "again"}))
+        .await;
+    // The dropped prompt was never sent.
+    s.agent.expect(v1::prompt(2, "acp-1", "again")).await;
+    s.agent.end_turn(2, "end_turn").await;
+    s.wait_status("idle").await;
+    let (transcript, ended) = s.stop().await;
+    assert_eq!(ended, Ended::Closed { stopped: true });
+    assert!(transcript.contains(&AgentMessage::Interrupted));
+}

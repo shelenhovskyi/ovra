@@ -120,6 +120,8 @@ struct Driver {
     queued: VecDeque<String>,
     /// The id of the prompt whose turn runs.
     turn: Option<u64>,
+    /// The running turn was cancelled.
+    cancelled: bool,
     next_id: u64,
     /// The turn's assistant text since the last tool call.
     text: String,
@@ -149,6 +151,7 @@ impl Driver {
         self.next_id += 1;
         self.write(v1::prompt(id, session, &text));
         self.turn = Some(id);
+        self.cancelled = false;
         self.host.status(AgentStatus::Working);
     }
 
@@ -157,6 +160,7 @@ impl Driver {
     fn interrupt(&mut self) {
         if let (Some(session), Some(_)) = (&self.session, self.turn) {
             self.write(v1::cancel(session));
+            self.cancelled = true;
             for asking in &self.asking {
                 asking.cancelled.store(true, Ordering::Relaxed);
             }
@@ -168,6 +172,16 @@ impl Driver {
             Some(Command::Send(text)) => {
                 self.queued.push_back(text);
                 self.prompt();
+            }
+            // Before the agent has a session, the first turn has not
+            // started: its prompt and what waits with it are dropped.
+            Some(Command::Interrupt) if self.session.is_none() && !self.queued.is_empty() => {
+                self.queued.clear();
+                self.host.message(AgentMessage::Interrupted);
+                self.host.message(AgentMessage::TurnEnd {
+                    usage: TurnUsage::default(),
+                });
+                self.host.status(AgentStatus::Idle);
             }
             Some(Command::Interrupt) => self.interrupt(),
             // A dropped handle means the core forgot the session.
@@ -236,6 +250,7 @@ impl Driver {
             asking.task.abort();
             let _ = asking.task.await;
         }
+        forget_settled(&mut self.tools);
         self.flush_text();
         let reason = result.and_then(|result| {
             serde_json::from_value::<v1::PromptDone>(result)
@@ -331,6 +346,11 @@ impl Driver {
     /// Asks the core about a call and answers the agent when it decides:
     /// the project's policy first, then the person.
     fn ask(&mut self, id: Value, request: v1::PermissionRequest) {
+        // The agent asks after its turn ended, or after Ovra cancelled it.
+        if self.turn.is_none() || self.cancelled {
+            self.write(v1::permission(&id, &Outcome::Cancelled));
+            return;
+        }
         let Some(out) = self.out.clone() else {
             return;
         };
@@ -367,6 +387,12 @@ impl Driver {
     }
 }
 
+/// Forgets the calls that have their result, at the end of a turn: the
+/// session's calls are not kept for its whole life.
+fn forget_settled(tools: &mut HashMap<String, (ToolCallFields, bool)>) {
+    tools.retain(|_, (_, settled)| !*settled);
+}
+
 /// Talks to the agent until it closes stdout or ignores a stop. `prompt`
 /// is the first message.
 pub(crate) async fn run(
@@ -386,6 +412,7 @@ pub(crate) async fn run(
         session: None,
         queued: VecDeque::from([prompt]),
         turn: None,
+        cancelled: false,
         next_id: NEW_SESSION + 1,
         text: String::new(),
         tools: HashMap::new(),
@@ -428,4 +455,23 @@ pub(crate) async fn run(
         asking.task.abort();
     }
     ended
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_turns_end_forgets_settled_calls_only() {
+        let call = |id: &str| ToolCallFields {
+            tool_call_id: id.into(),
+            ..ToolCallFields::default()
+        };
+        let mut tools = HashMap::from([
+            ("done".to_owned(), (call("done"), true)),
+            ("running".to_owned(), (call("running"), false)),
+        ]);
+        forget_settled(&mut tools);
+        assert_eq!(tools.keys().collect::<Vec<_>>(), ["running"]);
+    }
 }
