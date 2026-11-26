@@ -27,10 +27,11 @@ const connected = $derived(phone.status?.connected ?? 0);
   >
 {/if}
 {#if phone.request}
-  <div class="prompt" role="alertdialog" aria-labelledby="pair-title" aria-describedby="pair-line" data-testid="pairing-prompt">
+  <div class="prompt" role="alertdialog" aria-labelledby="pair-title" aria-describedby="pair-line pair-warn" data-testid="pairing-prompt">
     <h2 id="pair-title">Let “{phone.request.name}” connect?</h2>
-    <p id="pair-line">Allow it only if your phone shows the same code:</p>
+    <p id="pair-line">Your phone should show the same code:</p>
     <p class="code" data-testid="pairing-code">{phone.request.code}</p>
+    <p id="pair-warn" class="warn">Allow only if your phone shows this code now.</p>
     <p class="hint">It will see your agents, answer their requests, send them messages and stop them.</p>
     <div class="actions">
       <button type="button" bind:this={deny} onclick={() => void phone.answer(false)}>Deny</button>
@@ -77,6 +78,9 @@ const connected = $derived(phone.status?.connected ?? 0);
     font-variant-numeric: tabular-nums;
     letter-spacing: 0.2em;
     text-align: center;
+  }
+  .warn {
+    font-weight: 600;
   }
   .hint {
     font: var(--t-small);
