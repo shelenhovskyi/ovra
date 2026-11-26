@@ -420,6 +420,9 @@ test("one agent works on its own copy and its change is kept from Reviews", asyn
   await expect(inbox.getByRole("navigation", { name: "Review items" }).getByRole("button")).toHaveCount(1);
   const item = inbox.getByTestId("inbox-item");
   await expect(item.getByTestId("inbox-diff")).toContainText("Notes from a worker.");
+  // "Explain these changes": a read-only agent's plain words, above the file's diff.
+  await item.getByTestId("inbox-explain").click();
+  await expect(item.getByTestId("inbox-file-explained")).toHaveText("Adds a line about the agent's work.");
   await item.getByRole("button", { name: "Keep changes" }).click();
   await expect.poll(() => readIfThere(join(dir, "NOTES.md"))).toBe("Notes from a worker.\n");
 });

@@ -590,6 +590,14 @@ fn agents(args: &Args) -> Arc<dyn AgentRuntime> {
         ),
         // Each item handed on from that answer ends at once, asking nothing.
         ("Item ", say("Done.")),
+        // Reviews' "Explain these changes" (ui/src/inbox/explain.ts).
+        (
+            "Explain these changes",
+            say(
+                "Here is what changed.\n```json\n{\"overall\": [\"The agent tidied up the notes so they read better.\"], \
+                 \"files\": [{\"path\": \"NOTES.md\", \"explanation\": \"Adds a line about the agent's work.\"}]}\n```",
+            ),
+        ),
         // The agents screen's "Write a README" starter: an answer that ends
         // with the three-line summary (agents/roles/task.md).
         (

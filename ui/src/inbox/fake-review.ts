@@ -68,6 +68,12 @@ export class FakeReviewCore implements Transport {
   prStatus: PrStatus | null = null;
   /** What `agents.transcript` answers, by session. */
   transcripts = new Map<string, AgentMessage[]>();
+  /**
+   * The agent's answer to the next `agents.start`: an assistant message and the turn's
+   * end right after the start answers. Null: the agent stays at work.
+   */
+  agentAnswer: string | null = null;
+  private sessions = 0;
   private listeners = new Set<(event: CoreEvent) => void>();
 
   async call<R extends Request>(request: R): Promise<ResponseFor<R>> {
@@ -237,6 +243,23 @@ export class FakeReviewCore implements Transport {
         this.find(request.params.id);
         return { type: "ok" };
       case "open.url":
+        return { type: "ok" };
+      case "agents.start": {
+        const session = `agent${++this.sessions}`;
+        const answer = this.agentAnswer;
+        if (answer !== null)
+          // Before the caller sees the answer: messages can come first.
+          queueMicrotask(() => {
+            this.emit({
+              type: "agents.message",
+              data: { session, message: { kind: "assistant_text", text: answer }, seq: 1 },
+            });
+            const usage = { input_tokens: 0, output_tokens: 0, cost_micro_usd: null };
+            this.emit({ type: "agents.message", data: { session, message: { kind: "turn_end", usage }, seq: 2 } });
+          });
+        return { type: "agents.session", data: { id: session } };
+      }
+      case "agents.stop":
         return { type: "ok" };
       case "agents.list":
         return { type: "agents.list", data: [] };

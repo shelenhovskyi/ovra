@@ -1,5 +1,6 @@
 import { flushSync, mount, unmount } from "svelte";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { CoreError } from "../lib/transport";
 import { mainView } from "../shell/main-view.svelte";
 import { Workspace } from "../shell/workspace.svelte";
 import { change, FakeReviewCore, review } from "./fake-review";
@@ -847,5 +848,58 @@ describe("Inbox", () => {
     }
     expect(said.join("\n")).toContain("Undo discard");
     expect(said.join("\n")).not.toMatch(/\b(approv|reject)/i);
+  });
+
+  it("explains the changes in plain words on a press, beside each file's diff", async () => {
+    const core = await setup([review("r1", { files: [change("README.md"), change("src/a.ts")] })]);
+    await open();
+    expect(core.sent("agents.start")).toEqual([]);
+    core.agentAnswer =
+      'Done.\n```json\n{"overall": ["The readme greets people properly now."], "files": [' +
+      '{"path": "README.md", "explanation": "Fixes a typo in the greeting."}]}\n```';
+    $<HTMLButtonElement>("[data-testid=inbox-explain]")?.click();
+    await settle();
+    const [start] = core.sent("agents.start");
+    expect(start?.params).toMatchObject({ project: "p1", mode: "research", no_web: true });
+    expect(start?.params.prompt).toContain("--- README.md");
+    expect(core.sent("agents.stop")).toHaveLength(1);
+    expect($("[data-testid=inbox-explanation]")?.textContent).toContain("The readme greets people properly now.");
+    expect($("[data-testid=inbox-file-explained]")?.textContent?.trim()).toBe("Fixes a typo in the greeting.");
+
+    // The other file has no line of its own; its name in the card selects it back.
+    $<HTMLButtonElement>("[data-file='src/a.ts']")?.click();
+    await settle();
+    expect($("[data-testid=inbox-file-explained]")).toBeNull();
+    [...target.querySelectorAll<HTMLButtonElement>("[data-testid=inbox-explanation] button")]
+      .find((b) => b.textContent === "README.md")
+      ?.click();
+    await settle();
+    expect($("[data-file='README.md']")?.getAttribute("aria-current")).toBe("true");
+
+    // The agent's files change: the explanation says it is out of date.
+    core.items = [review("r1", { files: [change("README.md", { additions: 4 }), change("src/a.ts")] })];
+    core.emit({ type: "review.changed", data: { project: "p1", id: "r1" } });
+    await settle();
+    expect($("[data-testid=inbox-explain-stale]")).not.toBeNull();
+
+    // A failed start says so and offers another try.
+    core.failNext.set("agents.start", new CoreError({ code: "conflict", message: "2 research agents already work" }));
+    button(/^Explain again$/)?.click();
+    await settle();
+    expect($("[data-testid=inbox-explain-error]")?.textContent).toContain(
+      "The agent did not start: 2 research agents already work",
+    );
+  });
+
+  it("stops the explaining agent on Stop and keeps nothing", async () => {
+    const core = await setup();
+    await open();
+    $<HTMLButtonElement>("[data-testid=inbox-explain]")?.click();
+    await settle();
+    expect($("[data-testid=inbox-explain-running]")?.textContent).toContain("Reading the changes…");
+    button(/^Stop$/)?.click();
+    await settle();
+    expect(core.sent("agents.stop")).toHaveLength(1);
+    expect($("[data-testid=inbox-explain]")).not.toBeNull();
   });
 });

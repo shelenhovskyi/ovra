@@ -50,6 +50,8 @@ import {
   taskOf,
   workerName,
 } from "./describe";
+import ExplainCard from "./ExplainCard.svelte";
+import { Explainer } from "./explain.svelte";
 import HunkDiff from "./HunkDiff.svelte";
 import { commentsAfterDiscard } from "./hunks";
 import { REVIEWS_KEYS } from "./keys";
@@ -63,6 +65,9 @@ import { message as errorText, type Outcome, type ReviewInbox } from "./reviews.
 let { inbox }: { inbox: ReviewInbox } = $props();
 const { transport, workspace } = useOvra();
 const sessions = agentSessions(transport);
+// svelte-ignore state_referenced_locally
+const explainer = new Explainer(transport, (id, path) => inbox.diff(id, path));
+$effect(() => () => explainer.dispose());
 const modEnter = formatShortcut("Mod+Enter", isApple());
 
 const opened = $derived(mainView.current === "reviews");
@@ -126,6 +131,11 @@ const keptBefore = $derived(
 const protectedText = $derived(item ? protectedHint(item) : null);
 const gitText = $derived(item ? gitWarning(item) : null);
 const busy = $derived(item ? inbox.busy.includes(item.id) : false);
+/** The agent's plain words on the selected file, once "Explain these changes" has them. */
+const fileExplained = $derived.by(() => {
+  const state = item ? explainer.state(item.id) : null;
+  return state?.kind === "done" && file ? (state.explanation.files[file.path] ?? null) : null;
+});
 /** The list, newest first as the core sends it, a task's workers under the task's name once. */
 const groups = $derived.by(() => {
   const out: { task: string | null; items: ReviewItem[] }[] = [];
@@ -963,6 +973,12 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                 </form>
               {/if}
 
+                <ExplainCard
+                  {explainer}
+                  {item}
+                  task={taskOf(item, sessions.name(item.session)) ?? sessions.name(item.session)}
+                  onselect={(path) => (selectedPath = path)}
+                />
                 <ul class="files" aria-label="Changed files">
                   {#each item.files as changed (changed.path)}
                     {@const markers = fileMarkers(
@@ -1001,6 +1017,11 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
                 </ul>
               </div>
                 <div class="diff" data-testid="inbox-diff">
+                  {#if fileExplained}
+                    <p class="explained" data-testid="inbox-file-explained">
+                      <Icon name="sparkles" small />{fileExplained}
+                    </p>
+                  {/if}
                   {#if item.can_undo_discard}
                     <p class="hint undo-part">
                       <button
@@ -1335,6 +1356,17 @@ function onCommentKeydown(event: KeyboardEvent, review: ReviewItem): void {
     overflow: hidden;
     background: var(--s1);
     border-top-left-radius: 10px;
+  }
+  .explained {
+    display: flex;
+    gap: 6px;
+    align-items: baseline;
+    margin: 0;
+    padding: 8px 12px;
+    font-size: 13px;
+    color: var(--text-2);
+    border-bottom: 1px solid var(--separator, transparent);
+    user-select: text;
   }
   .visually-hidden {
     position: absolute;
