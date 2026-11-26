@@ -576,6 +576,11 @@ impl Core {
         Ok(())
     }
 
+    /// Whether a window or a running session holds the project open.
+    pub(crate) fn is_open(&self, id: &ProjectId) -> bool {
+        lock(&self.inner.open).contains_key(id)
+    }
+
     /// Drops a reference; the last one stops watching.
     pub(crate) fn release(&self, id: &ProjectId) {
         let mut open = lock(&self.inner.open);

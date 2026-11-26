@@ -1,5 +1,6 @@
 //! `pr.*`: pull requests of reviewed workers (`docs/specs/pr-flow.md`).
-//! Only `pr.status` works yet; the rest comes with PR.C.
+//! `pr.status` asks the forge; the rest works on review items
+//! (`orchestration::publish`).
 
 use crate::Core;
 use crate::protocol::pr::{PrRequest, PrResponse};
@@ -16,21 +17,13 @@ pub(crate) async fn handle(core: &Core, request: PrRequest) -> Result<Response, 
             let status = core.forge().status(root, remote).await?;
             Ok(Response::Pr(PrResponse::Status(status)))
         }
-        PrRequest::Prepare { .. }
-        | PrRequest::Create { .. }
-        | PrRequest::Update { .. }
-        | PrRequest::Refresh { .. }
-        | PrRequest::SendLog { .. }
-        | PrRequest::AskUpdate { .. } => Err(ProtocolError::new(
-            ErrorCode::Unavailable,
-            "pull requests are not available yet",
-        )),
+        request => crate::orchestration::pull_request(core, request).await,
     }
 }
 
 /// A remote's name as git allows it on a command line: never a URL, a
 /// path or something `git` or `gh` would read as an option.
-fn remote_name(remote: Option<String>) -> Result<String, ProtocolError> {
+pub(crate) fn remote_name(remote: Option<String>) -> Result<String, ProtocolError> {
     let remote = remote.unwrap_or_else(|| DEFAULT_REMOTE.to_owned());
     let plain = |c: char| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.');
     if remote.is_empty() || remote.starts_with(['-', '.']) || !remote.chars().all(plain) {
@@ -59,7 +52,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn status_asks_the_forge_and_the_rest_is_not_available_yet() {
+    async fn status_asks_the_forge_and_refuses_what_is_not_a_remote() {
         let forge = Arc::new(MemoryForge::default());
         let core = Core::builder("test")
             .projects(Arc::new(MemoryProjects::default()))
@@ -84,9 +77,6 @@ mod tests {
             assert_eq!(call(&core, asked).await.err(), Some(ErrorCode::BadRequest));
         }
         let prepare = json!({"method": "pr.prepare", "params": {"id": "r1"}});
-        assert_eq!(
-            call(&core, prepare).await.err(),
-            Some(ErrorCode::Unavailable)
-        );
+        assert_eq!(call(&core, prepare).await.err(), Some(ErrorCode::NotFound));
     }
 }

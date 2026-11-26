@@ -13,6 +13,7 @@ mod ide;
 mod overlap;
 mod policy;
 mod prepare;
+mod publish;
 mod review;
 mod saved;
 mod setup;
@@ -90,6 +91,9 @@ struct State {
     reserved_research: BTreeMap<ProjectId, usize>,
     /// Workers whose worktree is being prepared ([`prepare`]).
     setups: BTreeMap<SessionId, tokio::task::AbortHandle>,
+    /// Pull requests whose checks are polled ([`publish`]).
+    polls: BTreeMap<crate::protocol::review::ReviewId, publish::Poll>,
+    polls_made: u64,
 }
 
 impl Orchestration {
@@ -116,6 +120,13 @@ impl Orchestration {
 
 pub(crate) async fn review(core: &Core, request: ReviewRequest) -> Result<Response> {
     review::handle(core, request).await
+}
+
+pub(crate) async fn pull_request(
+    core: &Core,
+    request: crate::protocol::pr::PrRequest,
+) -> Result<Response> {
+    publish::handle(core, request).await
 }
 
 pub(crate) async fn orchestration(core: &Core, request: OrchestrationRequest) -> Result<Response> {

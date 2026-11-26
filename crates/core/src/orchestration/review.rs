@@ -13,6 +13,7 @@ use crate::path::RelPath;
 use crate::protected;
 use crate::protocol::agents::{AgentStatus, MessageFrom, SessionId, SessionMode};
 use crate::protocol::audit::{AuditEvent, ReviewAction};
+use crate::protocol::pr::PullRequest;
 use crate::protocol::projects::ProjectId;
 use crate::protocol::review::{
     ChangeKind, ChangedBy, FileChange, GitFileChange, ReviewEvent, ReviewId, ReviewItem,
@@ -37,7 +38,7 @@ pub(super) struct Entry {
     pub(super) mode: SessionMode,
     pub(super) workspace: Workspace,
     pub(super) state: ReviewState,
-    summary: Option<String>,
+    pub(super) summary: Option<String>,
     /// The agent asked for a review, so the item shows even without changes.
     pub(super) requested: bool,
     /// The diff of the last reject, sent with the next comment.
@@ -59,6 +60,18 @@ pub(super) struct Entry {
     /// with `decided`.
     #[serde(default)]
     decided_git: Option<GitSeen>,
+    /// The pull request it was published as (`publish`).
+    #[serde(default)]
+    pub(super) pull_request: Option<PullRequest>,
+    /// The snapshot of the worker's worktree last pushed to it, which the
+    /// next update picks from.
+    #[serde(default)]
+    pub(super) published_from: Option<String>,
+}
+
+/// Open, or published and so still the worker's live work.
+fn live(state: ReviewState) -> bool {
+    matches!(state, ReviewState::Open | ReviewState::Published)
 }
 
 /// What changed in the repository's hooks and config since a session
@@ -123,6 +136,8 @@ pub(crate) fn set_workspace(core: &Core, session: &SessionId, workspace: Workspa
         decided: Vec::new(),
         decided_diffs: BTreeMap::new(),
         decided_git: None,
+        pull_request: None,
+        published_from: None,
     });
     orchestration.save(&state);
 }
@@ -148,6 +163,7 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
         ReviewRequest::List { project } => {
             core.project_store().get(&project)?;
             follow_up(core, &project).await;
+            super::publish::resume_polls(core, &project);
             let entries: Vec<Entry> = core
                 .orchestration_state()
                 .lock()
@@ -171,7 +187,7 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
         ReviewRequest::Diff { id, path } => {
             let entry = find(core, &id)?;
             let path = RelPath::parse(&path)?;
-            if entry.state != ReviewState::Open {
+            if !live(entry.state) {
                 let patch = entry.decided_diffs.get(path.as_str()).cloned();
                 let patch = patch.ok_or_else(|| {
                     not_found(format!(
@@ -311,7 +327,7 @@ pub(super) async fn handle(core: &Core, request: ReviewRequest) -> Result<Respon
     }
 }
 
-fn find(core: &Core, id: &ReviewId) -> Result<Entry> {
+pub(super) fn find(core: &Core, id: &ReviewId) -> Result<Entry> {
     core.orchestration_state()
         .lock()
         .reviews
@@ -344,13 +360,22 @@ pub(super) async fn settled(core: &Core, session: &SessionId) -> Option<String> 
         let partial = mine().any(|r| r.state == ReviewState::PartlyApproved || r.taken.is_some());
         (partial, mine().next_back().cloned())
     };
-    let ws = latest.filter(|_| !partial)?.workspace;
-    let changes = core.worktrees().changes(ws.dir, ws.base.clone()).await;
-    changes.is_ok_and(|c| c.is_empty()).then_some(ws.base)
+    let latest = latest.filter(|_| !partial)?;
+    // A published item's work is on the remote: what counts is what
+    // changed since it was pushed.
+    let base = match (&latest.state, &latest.published_from) {
+        (ReviewState::Published, Some(from)) => from.clone(),
+        _ => latest.workspace.base.clone(),
+    };
+    let changes = core
+        .worktrees()
+        .changes(latest.workspace.dir, base.clone())
+        .await;
+    changes.is_ok_and(|c| c.is_empty()).then_some(base)
 }
 
 /// Changes `id`'s entry and tells clients.
-fn update(core: &Core, id: &ReviewId, f: impl FnOnce(&mut Entry)) -> Result<Entry> {
+pub(super) fn update(core: &Core, id: &ReviewId, f: impl FnOnce(&mut Entry)) -> Result<Entry> {
     let entry = {
         let orchestration = core.orchestration_state();
         let mut state = orchestration.lock();
@@ -378,7 +403,7 @@ pub(super) async fn item(core: &Core, entry: &Entry) -> Result<ReviewItem> {
 /// The entry's item, and for an open item the tree its files were read
 /// from.
 async fn current(core: &Core, entry: &Entry) -> Result<(ReviewItem, Option<String>)> {
-    let (mut files, mut fingerprint, tree) = if entry.state != ReviewState::Open {
+    let (mut files, mut fingerprint, tree) = if !live(entry.state) {
         (entry.decided.clone(), None, None)
     } else if super::tasks::cleaned(core, &entry.session) {
         // Removed only once nothing in it changed (`clean_up`).
@@ -387,7 +412,7 @@ async fn current(core: &Core, entry: &Entry) -> Result<(ReviewItem, Option<Strin
         listed(core, entry, None).await?
     };
     let git = match &entry.decided_git {
-        Some(git) if entry.state != ReviewState::Open => git.clone(),
+        Some(git) if !live(entry.state) => git.clone(),
         _ => git_seen(core, entry).await,
     };
     mark_hooks(&mut files, git.hooks_in_tree.as_deref());
@@ -414,7 +439,7 @@ async fn current(core: &Core, entry: &Entry) -> Result<(ReviewItem, Option<Strin
         fingerprint,
         git_changes: git.changes,
         git_unchecked: git.unchecked,
-        pull_request: None,
+        pull_request: entry.pull_request.clone().map(Box::new),
     };
     Ok((item, tree))
 }
@@ -567,11 +592,11 @@ pub(super) async fn files(core: &Core, entry: &Entry) -> Result<Vec<FileChange>>
 
 /// What [`listed`] found: the files, a worker's fingerprint of them
 /// (`ReviewItem::fingerprint`), and the tree they were read from.
-type Listed = (Vec<FileChange>, Option<String>, Option<String>);
+pub(super) type Listed = (Vec<FileChange>, Option<String>, Option<String>);
 
 /// The entry's changed files as they are in `at` (a snapshot of its
 /// workspace), or else as they are now.
-async fn listed(core: &Core, entry: &Entry, at: Option<&String>) -> Result<Listed> {
+pub(super) async fn listed(core: &Core, entry: &Entry, at: Option<&String>) -> Result<Listed> {
     let ws = &entry.workspace;
     if entry.mode == SessionMode::Direct
         && let Ok((files, tree)) = core.sessions().direct.files_at(&entry.session).await
@@ -691,7 +716,8 @@ async fn direct_touched(core: &Core, project: &ProjectId) -> BTreeSet<String> {
 
 fn check_open(entry: &Entry) -> Result<()> {
     match entry.state {
-        ReviewState::Open => Ok(()),
+        // Keep and discard stay possible for a published item.
+        ReviewState::Open | ReviewState::Published => Ok(()),
         _ => Err(conflict(
             "the review is already decided; a comment continues the agent, and its next changes open a new item",
         )),
@@ -897,7 +923,7 @@ async fn servers_stopped(core: &Core, session: &SessionId) -> Result<()> {
     ))
 }
 
-fn busy(core: &Core, session: &SessionId) -> bool {
+pub(super) fn busy(core: &Core, session: &SessionId) -> bool {
     core.sessions()
         .find(session, |s| {
             !s.status().is_ended() && *s.status() != AgentStatus::Idle
@@ -1154,13 +1180,21 @@ async fn comment(core: &Core, id: &ReviewId, text: String) -> Result<()> {
     }
     // A decided item stays the record of its decision: what the session
     // changes next opens a new item (`follow_up`), so a rejected item never
-    // comes back open with nothing in it.
+    // comes back open with nothing in it. A published one opens again, to
+    // update its pull request.
+    if entry.state == ReviewState::Published {
+        update(core, id, |e| e.state = ReviewState::Open)?;
+    }
     continue_session(core, &entry.session, message).await?;
     Ok(())
 }
 
 /// Sends `text` as the session's next message, resuming it if it ended.
-async fn continue_session(core: &Core, session: &SessionId, parts: agents::Parts) -> Result<()> {
+pub(super) async fn continue_session(
+    core: &Core,
+    session: &SessionId,
+    parts: agents::Parts,
+) -> Result<()> {
     let ended = core.sessions().find(session, |s| s.status().is_ended())?;
     let ctx = core.agents_ctx();
     if ended {
@@ -1205,12 +1239,16 @@ fn rejected_note(comment_len: usize, diff: &str) -> String {
 pub(super) fn request(core: &Core, session: &SessionId, summary: String) -> Result<Entry> {
     let mut entry = of_session(core, session)
         .ok_or_else(|| conflict("this session has no changes to review"))?;
-    if entry.state != ReviewState::Open {
+    if entry.state == ReviewState::Published {
+        entry.state = ReviewState::Open;
+    } else if entry.state != ReviewState::Open {
         entry = open_after(core, &entry);
     }
+    let state = entry.state;
     update(core, &entry.id, |e| {
         e.summary = Some(summary);
         e.requested = true;
+        e.state = state;
     })
 }
 
@@ -1227,7 +1265,7 @@ async fn follow_up(core: &Core, project: &ProjectId) {
             .iter()
             .rev()
             .filter(|r| &r.project == project && seen.insert(r.session.clone()))
-            .filter(|r| r.state != ReviewState::Open)
+            .filter(|r| !live(r.state))
             .cloned()
             .collect()
     };
@@ -1266,6 +1304,8 @@ fn open_after(core: &Core, decided: &Entry) -> Entry {
         decided: Vec::new(),
         decided_diffs: BTreeMap::new(),
         decided_git: None,
+        pull_request: None,
+        published_from: None,
         ..decided.clone()
     };
     // New work ends the undo of the decided item's last replace.
