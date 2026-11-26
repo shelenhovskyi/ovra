@@ -110,11 +110,10 @@ impl Devices {
         }
     }
 
+    /// Only this user may read the file: it holds the push secrets.
     fn save(&self) -> Result<(), String> {
-        let json = serde_json::to_vec_pretty(&self.list).map_err(|e| e.to_string())?;
-        let tmp = self.path.with_extension("json.tmp");
-        std::fs::write(&tmp, json).map_err(|e| e.to_string())?;
-        std::fs::rename(&tmp, &self.path).map_err(|e| e.to_string())
+        let json = serde_json::to_string_pretty(&self.list).map_err(|e| e.to_string())?;
+        crate::ca::write_private(&self.path, &json)
     }
 }
 
@@ -159,9 +158,15 @@ mod tests {
         assert!(devices.forget("d2").expect("forget"));
         assert!(!devices.forget("d2").expect("forget"));
 
-        let kept = Devices::load(path, FORGET_AFTER_MS + 10);
+        let kept = Devices::load(path.clone(), FORGET_AFTER_MS + 10);
         let ids: Vec<_> = kept.list().iter().map(|d| d.id.as_str()).collect();
         assert_eq!(ids, ["d1"], "only the phone seen recently is kept");
         assert_eq!(kept.list()[0].push, Some(sub), "its subscription is kept");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).expect("file").permissions().mode();
+            assert_eq!(mode & 0o077, 0, "the push secrets are readable by others");
+        }
     }
 }
