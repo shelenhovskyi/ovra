@@ -232,9 +232,16 @@ pub(crate) fn run(
         copy.visit(step.source, Some(&target), &step.name, 0)?;
         paths.push(to.into.join(&step.target)?);
     }
+    // Also the links that replaced a file or folder since the plan.
+    let mut skipped_links = plan.links.clone();
+    for link in copy.links {
+        if !skipped_links.contains(&link) {
+            skipped_links.push(link);
+        }
+    }
     Ok(Imported::Copied {
         paths,
-        skipped_links: plan.links.clone(),
+        skipped_links,
     })
 }
 

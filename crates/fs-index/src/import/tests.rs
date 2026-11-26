@@ -347,3 +347,25 @@ fn a_drop_waits_for_the_answer_to_its_clash_and_is_then_used_up() {
     let again = import_drop(&drops, &id, now, &to(Clash::KeepBoth), &bin, LIMITS);
     assert_eq!(code(again), ErrorCode::NotFound);
 }
+
+#[cfg(unix)]
+#[test]
+fn a_link_swapped_in_after_the_plan_is_skipped_and_named_once() {
+    let (_tmp, root, out) = setup();
+    std::os::unix::fs::symlink("/etc/passwd", out.join("d/passwd")).expect("link");
+    let sources = [out.join("d")];
+    let into = RelPath::root();
+    let to = Target {
+        root: &root,
+        into: &into,
+        clash: Clash::Ask,
+    };
+    let Planned::Ready(plan) = plan(&to, &sources, &[], LIMITS).expect("plan") else {
+        panic!("no clash");
+    };
+    fs::remove_file(out.join("d/x.txt")).expect("rm");
+    std::os::unix::fs::symlink("/etc/passwd", out.join("d/x.txt")).expect("link");
+    let done = run(&to, &plan, &trash().0, LIMITS).expect("import");
+    assert_eq!(done, copied(&["d"], &["d/passwd", "d/x.txt"]));
+    assert!(fs::symlink_metadata(root.join("d/x.txt")).is_err());
+}
