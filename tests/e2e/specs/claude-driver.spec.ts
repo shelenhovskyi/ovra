@@ -1,4 +1,4 @@
-import { copyFileSync, mkdtempSync, writeFileSync } from "node:fs";
+import { copyFileSync, cpSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import type { Page } from "@playwright/test";
@@ -11,6 +11,11 @@ import { expect, test } from "../test";
 // shared one runs the scripted fake agent instead.
 test.describe.configure({ mode: "serial" });
 
+/** Where each project keeps a copy of the recordings. fake-claude runs in
+ * the sandbox, which hides the home folder (and so a checkout in it), but
+ * shows the work dir: a relative fixture path is read from there. */
+const fixtures = "fake-claude-fixtures";
+
 let daemon: { url: string; stop: () => void } | undefined;
 
 test.beforeAll(async () => {
@@ -20,7 +25,7 @@ test.beforeAll(async () => {
   daemon = await startDaemon([], {
     ...process.env,
     PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
-    OVRA_FAKE_CLAUDE_FIXTURE: resolve(root, "crates/agent-runtime/fixtures"),
+    OVRA_FAKE_CLAUDE_FIXTURE: fixtures,
   });
 });
 
@@ -39,6 +44,7 @@ async function start(page: Page, prompt: string): Promise<void> {
   if (!daemon) throw new Error("the daemon did not start");
   const dir = mkdtempSync(join(tmpdir(), "ovra-driver-"));
   writeFileSync(join(dir, "README.md"), "# Demo\n\nThis is teh demo.\n");
+  cpSync(resolve(root, "crates/agent-runtime/fixtures"), join(dir, fixtures), { recursive: true });
   await page.clock.install();
   await page.goto(daemon.url);
   const projects = page.getByTestId("project-list");
