@@ -131,11 +131,15 @@ pub(super) async fn handle(core: &Core, request: OrchestrationRequest) -> Result
             let _launching = prepare::retry(core, &session, skip_setup)?;
             Ok(Response::Ok(OkResponse::Ok))
         }
-        OrchestrationRequest::Leftovers { .. } | OrchestrationRequest::RemoveLeftover { .. } => {
-            Err(ProtocolError::new(
-                ErrorCode::Unavailable,
-                "worktree setup is not available yet",
-            ))
+        OrchestrationRequest::Leftovers { project } => {
+            let leftovers = prepare::leftovers(core, &project).await?;
+            Ok(Response::Orchestration(OrchestrationResponse::Leftovers(
+                leftovers,
+            )))
+        }
+        OrchestrationRequest::RemoveLeftover { project, path } => {
+            prepare::remove_leftover(core, &project, &path).await?;
+            Ok(Response::Ok(OkResponse::Ok))
         }
     }
 }

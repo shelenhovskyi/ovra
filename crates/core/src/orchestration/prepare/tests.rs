@@ -440,3 +440,39 @@ async fn disk_use_is_counted_at_most_once_a_minute() {
     }
     assert_eq!(now, first + 10);
 }
+
+#[tokio::test]
+async fn leftover_worktrees_are_listed_and_removed_only_when_asked() {
+    let f = fx().await;
+    assert!(
+        f.core
+            .spawn_agent(&boss(), "w", "do it", false)
+            .await
+            .is_ok()
+    );
+    let old = Path::new(WORKTREES).join("p1").join("t9").join("old");
+    let under = Path::new(WORKTREES).join("p1");
+    f.fs.put(&under, "t9/old/notes.txt", "kept\n");
+    f.fs.put(&under, "t1/w/a.rs", "one\n");
+    f.wt.put(&old, "notes.txt", "kept\n");
+    let list = json!({"method": "orchestration.leftovers", "params": {"project": "p1"}});
+    let Response::Orchestration(OrchestrationResponse::Leftovers(found)) = ok(&f.core, list).await
+    else {
+        panic!("no leftovers");
+    };
+    let path = old.to_string_lossy().into_owned();
+    assert_eq!(
+        found.iter().map(|l| l.path.as_str()).collect::<Vec<_>>(),
+        [path.as_str()]
+    );
+    assert_eq!(found[0].disk.map(|d| d.bytes), Some(5));
+
+    // Only a listed folder goes; a worker's worktree is not a leftover.
+    let worker = dir("w").to_string_lossy().into_owned();
+    let remove = |path: &str| json!({"method": "orchestration.remove_leftover", "params": {"project": "p1", "path": path}});
+    let refused = call(&f.core, remove(&worker)).await;
+    assert_eq!(refused.err().map(|e| e.code), Some(ErrorCode::NotFound));
+    assert!(f.wt.has(&old));
+    ok(&f.core, remove(&path)).await;
+    assert!(!f.wt.has(&old) && f.wt.has(dir("w")));
+}

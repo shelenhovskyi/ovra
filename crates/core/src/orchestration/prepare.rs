@@ -5,6 +5,7 @@
 //! takes a place; a failed step keeps it from starting until the
 //! coordinator or the person retries or starts it anyway.
 
+use std::collections::BTreeSet;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -19,8 +20,8 @@ use crate::core::WeakCore;
 use crate::path::RelPath;
 use crate::protocol::ErrorCode;
 use crate::protocol::agents::{AgentStatus, AgentsEvent, MessageFrom, SessionId};
-use crate::protocol::fs::FileBody;
-use crate::protocol::orchestration::{OrchestrationEvent, SetupProgress};
+use crate::protocol::fs::{DirListing, EntryKind, FileBody};
+use crate::protocol::orchestration::{Leftover, OrchestrationEvent, SetupProgress};
 use crate::protocol::projects::ProjectId;
 use crate::services::{CommandLine, IncludedFile, SetupEnd, SetupSink, SetupStep};
 use crate::untrusted::untrusted;
@@ -638,6 +639,80 @@ pub(super) fn count_disk(core: &Core, session: &SessionId) {
             changed(&core, &project, &task);
         }
     });
+}
+
+/// Folders under the project's worktrees folder that no task knows, with
+/// their size; Ovra never removes them on its own.
+pub(super) async fn leftovers(core: &Core, project: &ProjectId) -> Result<Vec<Leftover>> {
+    core.project_store().get(project)?;
+    let Some(dir) = core.orchestration_state().worktrees_dir.clone() else {
+        return Ok(Vec::new());
+    };
+    let known: BTreeSet<PathBuf> = core
+        .orchestration_state()
+        .lock()
+        .tasks
+        .iter()
+        .flat_map(|t| &t.workers)
+        .map(|w| PathBuf::from(&w.worktree))
+        .collect();
+    let fs = core.fs_service();
+    let folders = |listing: DirListing| {
+        listing
+            .entries
+            .into_iter()
+            .filter(|e| e.kind == EntryKind::Dir)
+            .map(|e| e.name)
+            .collect::<Vec<_>>()
+    };
+    let under = dir.join(&project.0);
+    let tasks = match fs.list_dir(under.clone(), RelPath::root()).await {
+        Ok(listing) => folders(listing),
+        Err(err) if err.code == ErrorCode::NotFound => return Ok(Vec::new()),
+        Err(err) => return Err(err),
+    };
+    let mut found = Vec::new();
+    for task in tasks {
+        let Ok(rel) = RelPath::parse(&task) else {
+            continue;
+        };
+        let Ok(listing) = fs.list_dir(under.clone(), rel).await else {
+            continue;
+        };
+        for name in folders(listing) {
+            let path = under.join(&task).join(name);
+            if !known.contains(&path) {
+                found.push(path);
+            }
+        }
+    }
+    let mut leftovers = Vec::new();
+    for path in found {
+        let disk = core
+            .worktrees()
+            .usage(path.clone(), USAGE_BUDGET)
+            .await
+            .ok();
+        leftovers.push(Leftover {
+            path: path.to_string_lossy().into_owned(),
+            disk,
+        });
+    }
+    Ok(leftovers)
+}
+
+/// Removes the leftover worktree at `path`, which must be one
+/// [`leftovers`] lists: the person asked.
+pub(super) async fn remove_leftover(core: &Core, project: &ProjectId, path: &str) -> Result<()> {
+    let listed = leftovers(core, project).await?;
+    if !listed.iter().any(|l| l.path == path) {
+        return Err(crate::protocol::ProtocolError::new(
+            ErrorCode::NotFound,
+            format!("{path} is not a leftover worktree of this project"),
+        ));
+    }
+    let root = core.root(project)?;
+    tasks::remove(core, &root, PathBuf::from(path), Vec::new()).await
 }
 
 #[cfg(test)]
