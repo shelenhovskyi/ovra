@@ -76,10 +76,10 @@ macOS sandbox (see "Open question").
    - Codex: program `codex-acp`, no args, home folder `.codex` with
      `sessions/`, `log/` and `tmp/` private and `auth.json` rewritable,
      no variables, hosts `api.openai.com`, `chatgpt.com`, `auth.openai.com`.
-   Like Claude's, API key variables are never passed into the sandbox; the
-   person signs in through the vendor's flow. The netproxy gets each
-   provider's base list, so a Gemini session cannot reach Anthropic or
-   OpenAI.
+     Like Claude's, API key variables are never passed into the sandbox; the
+     person signs in through the vendor's flow. The netproxy gets each
+     provider's base list, so a Gemini session cannot reach Anthropic or
+     OpenAI.
 5. **Setup and sign-in.** `setup` runs `<program> --version` outside the
    sandbox and reports `NotFound`, `Broken` or `Ready`. Sign-in is learned
    from the agent: a `session/new` error that says it needs a login ends
