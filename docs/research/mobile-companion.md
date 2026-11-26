@@ -287,7 +287,7 @@ goes to the audit log with the device name.
 Each step is its own small task, landed in order (CLAUDE.md "Parallel
 work").
 
-1. ADR 0012 (LAN companion, amends ADR 0003) and `docs/specs/companion.md`
+1. ADR 0014 (LAN companion, amends ADR 0003) and `docs/specs/companion.md`
    for owner approval.
 2. Stubs: `KeepAwake` and `RemoteAccess` traits with fakes;
    `crates/power`, `crates/remote`; crate graph entries.
@@ -305,7 +305,7 @@ Rough size: steps 2 to 7 are about a week of agent work in parallel threads.
 
 ## 6. Decisions for the owner
 
-1. **Build it as a LAN-only companion, off by default** (new ADR 0012,
+1. **Build it as a LAN-only companion, off by default** (new ADR 0014,
    deviates from ADR 0003). Recommended: yes.
 2. **TLS**: Ovra-made, name-constrained local CA installed on the phone once
    (recommended), with Tailscale as a documented option. Alternative:

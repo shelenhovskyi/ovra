@@ -1,6 +1,7 @@
 # 0003. Headless mode is loopback-only and token-protected
 
-- Status: accepted
+- Status: accepted; amended by 0014 (the phone companion listens on one
+  private LAN address with its own pairing and TLS)
 - Date: 2026-11-24
 
 ## Context
