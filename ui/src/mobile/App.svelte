@@ -8,8 +8,9 @@ import Computer from "./Computer.svelte";
 import Home from "./Home.svelte";
 import type { Identity, IdentityStore } from "./identity";
 import Pair from "./Pair.svelte";
-import { pairSecret } from "./pair";
+import { pairLink, pairSecret } from "./pair";
 import { Phone } from "./phone.svelte";
+import { homeScreen as browserHomeScreen } from "./push";
 import { parseRoute } from "./route";
 import { connectPhone, type RawSocket, socketUrl } from "./socket";
 import Task from "./Task.svelte";
@@ -19,12 +20,27 @@ let {
   origin,
   openSocket = (url: string) => new WebSocket(url),
   post = fetch,
+  homeScreen = browserHomeScreen(),
 }: {
   store: IdentityStore;
   origin: string;
   openSocket?: (url: string) => RawSocket;
   post?: typeof fetch;
+  homeScreen?: { standalone: boolean; appleMobile: boolean };
 } = $props();
+
+let pasted = $state("");
+let pasteError = $state<string | null>(null);
+
+function pairFromLink(event: SubmitEvent): void {
+  event.preventDefault();
+  const next = pairLink(pasted, origin);
+  pasteError = next ? null : "This is not a pairing link for this computer. Copy the link from a new code.";
+  if (next) {
+    secret = next;
+    pasted = "";
+  }
+}
 
 let hash = $state(location.hash);
 const onHash = () => (hash = location.hash);
@@ -81,7 +97,13 @@ const route = $derived(parseRoute(hash));
   {#if identity === "loading"}
     <p class="center" role="status">Loading…</p>
   {:else if secret && (identity === null || identity === "gone")}
-    <Pair {origin} {secret} {post} onPaired={paired} />
+    <Pair
+      {origin}
+      {secret}
+      {post}
+      onPaired={paired}
+      homeScreenFirst={homeScreen.appleMobile && !homeScreen.standalone}
+    />
   {:else if identity === null || identity === "gone"}
     <section class="center" aria-labelledby="unpaired">
       <h1 id="unpaired">{identity === "gone" ? "This phone is no longer paired" : "Pair this phone first"}</h1>
@@ -89,6 +111,14 @@ const route = $derived(parseRoute(hash));
         On your computer, open Ovra, go to Settings, then Phone, and choose Add a phone. Scan the code with
         this phone's camera.
       </p>
+      {#if homeScreen.standalone}
+        <form class="paste" onsubmit={pairFromLink}>
+          <label for="pair-link">Or paste the pairing link</label>
+          <input id="pair-link" type="url" bind:value={pasted} autocomplete="off" placeholder="https://" />
+          <button type="submit" class="primary">Pair</button>
+          {#if pasteError}<p role="alert">{pasteError}</p>{/if}
+        </form>
+      {/if}
     </section>
   {:else if phone}
     {#if route.screen === "approval"}
@@ -114,6 +144,12 @@ const route = $derived(parseRoute(hash));
   .center {
     text-align: center;
     padding-top: 20vh;
+  }
+  .paste {
+    display: grid;
+    gap: var(--sp-3);
+    text-align: start;
+    margin-top: var(--sp-6);
   }
   h1 {
     font: var(--t-title1);

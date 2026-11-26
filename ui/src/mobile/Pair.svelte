@@ -7,11 +7,29 @@ let {
   secret,
   post,
   onPaired,
-}: { origin: string; secret: string; post: typeof fetch; onPaired: (identity: Identity) => void } = $props();
+  homeScreenFirst = false,
+}: {
+  origin: string;
+  secret: string;
+  post: typeof fetch;
+  onPaired: (identity: Identity) => void;
+  /** Safari on an iPhone: notifications need the Home Screen app, which pairs on its own. */
+  homeScreenFirst?: boolean;
+} = $props();
 
 let name = $state(guessName(navigator.userAgent));
 let step = $state<PairStep | null>(null);
 let busy = $state(false);
+let copied = $state<"no" | "yes" | "failed">("no");
+
+async function copyLink(): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(`${origin}/#pair=${secret}`);
+    copied = "yes";
+  } catch {
+    copied = "failed";
+  }
+}
 
 async function start(event: SubmitEvent): Promise<void> {
   event.preventDefault();
@@ -41,6 +59,18 @@ async function start(event: SubmitEvent): Promise<void> {
     <p role="alert">{step.message}</p>
   {:else}
     <p>This phone will see your agents, answer their requests, reply to them and stop them.</p>
+    {#if homeScreenFirst}
+      <div class="first" data-testid="home-screen-first">
+        <p>
+          For notifications, use Ovra from the Home Screen. It pairs on its own: copy this link, tap Share, then Add
+          to Home Screen, open Ovra there and paste the link. The link works for 5 minutes.
+        </p>
+        <button type="button" onclick={() => void copyLink()}>Copy link</button>
+        {#if copied === "yes"}<p role="status">Copied.</p>{/if}
+        {#if copied === "failed"}<p role="alert">The link could not be copied. In the camera, press and hold the code's link and choose Copy instead.</p>{/if}
+        <p>Or pair here in the browser, without notifications:</p>
+      </div>
+    {/if}
     <form onsubmit={start}>
       <label for="phone-name">Name of this phone</label>
       <input id="phone-name" type="text" bind:value={name} maxlength="40" autocomplete="off" />
@@ -62,6 +92,11 @@ async function start(event: SubmitEvent): Promise<void> {
   }
   label {
     font: var(--t-headline);
+  }
+  .first {
+    display: grid;
+    gap: var(--sp-2);
+    margin-bottom: var(--sp-4);
   }
   .code {
     font: 600 44px / 52px var(--mono);

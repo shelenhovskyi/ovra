@@ -3,7 +3,7 @@ import { statusLabel } from "../agents/status";
 import { describeTool } from "../approvals/describe";
 import type { SessionInfo } from "../lib/protocol";
 import Header from "./Header.svelte";
-import { finished, type Phone, working } from "./phone.svelte";
+import { finished, forReview, type Phone, working } from "./phone.svelte";
 import { href } from "./route";
 
 let { phone }: { phone: Phone } = $props();
@@ -11,6 +11,7 @@ let { phone }: { phone: Phone } = $props();
 const pending = $derived(phone.approvals.pending);
 const busy = $derived(working(phone));
 const done = $derived(finished(phone));
+const ready = $derived(forReview(phone));
 const awake = $derived(phone.power?.mode !== undefined && phone.power.mode !== "off");
 
 function where(session: SessionInfo | undefined, project: string): string {
@@ -41,6 +42,23 @@ function where(session: SessionInfo | undefined, project: string): string {
     </ul>
   {/if}
 </section>
+
+{#if ready.length > 0}
+  <section aria-labelledby="for-review">
+    <h2 id="for-review">Ready for review</h2>
+    <ul data-testid="for-review">
+      {#each ready as item (item.id)}
+        <li>
+          <a class="row" href={href({ screen: "agent", session: item.session })}>
+            <span class="what">{item.summary}</span>
+            <span class="who">{where(phone.session(item.session), item.project)}</span>
+          </a>
+        </li>
+      {/each}
+    </ul>
+    <p class="empty">Keep or discard changes on your computer, where you can see them.</p>
+  </section>
+{/if}
 
 <section aria-labelledby="working">
   <h2 id="working">Working</h2>

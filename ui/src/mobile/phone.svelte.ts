@@ -216,3 +216,8 @@ export function finished(phone: Phone): SessionInfo[] {
   const asking = new Set(phone.approvals.pending.map((r) => r.session));
   return phone.sessions.filter((s) => ended.has(s.status.state) && !asking.has(s.id));
 }
+
+/** Work an agent asked the person to review (`request_review`) that is not decided yet. */
+export function forReview(phone: Phone): ReviewItem[] {
+  return phone.reviews.filter((r) => r.state === "open" && r.summary !== null);
+}

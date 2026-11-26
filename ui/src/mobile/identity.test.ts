@@ -12,7 +12,7 @@ import {
   publicKey,
   sign,
 } from "./identity";
-import { pair, pairSecret } from "./pair";
+import { pair, pairLink, pairSecret } from "./pair";
 
 it("makes a key whose private half cannot leave the browser and signs the server's text", async () => {
   const key = await makeKey();
@@ -53,6 +53,14 @@ it("reads the pairing secret only from a well-formed hash", () => {
   expect(pairSecret("#pair=short")).toBeNull();
   expect(pairSecret("#/agent/x")).toBeNull();
   expect(pairSecret("#pair=AbCdEfGhIjKlMnOp&x=1")).toBeNull();
+});
+
+it("takes a pasted pairing link only for this computer", () => {
+  const origin = "https://192.168.1.20:52044";
+  expect(pairLink(` ${origin}/#pair=AbCdEfGhIjKlMnOpQrStUv \n`, origin)).toBe("AbCdEfGhIjKlMnOpQrStUv");
+  expect(pairLink("https://192.168.1.21:52044/#pair=AbCdEfGhIjKlMnOpQrStUv", origin)).toBeNull();
+  expect(pairLink(`${origin}/#/agent/x`, origin)).toBeNull();
+  expect(pairLink("AbCdEfGhIjKlMnOpQrStUv", origin)).toBeNull();
 });
 
 it("pairs: shows the code, sends the public key and keeps what the computer answers", async () => {

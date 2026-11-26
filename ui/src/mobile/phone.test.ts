@@ -1,9 +1,11 @@
 import { flushSync, mount, unmount } from "svelte";
 import { afterEach, expect, it, vi } from "vitest";
-import type { CoreEvent, PermissionRequest, Request, SessionInfo } from "../lib/protocol";
+import type { CoreEvent, PermissionRequest, Request, ReviewItem, SessionInfo } from "../lib/protocol";
 import type { Transport } from "../lib/transport";
+import App from "./App.svelte";
 import Approval from "./Approval.svelte";
-import { finished, needsYou, Phone, working } from "./phone.svelte";
+import { memoryStore } from "./identity";
+import { finished, forReview, needsYou, Phone, working } from "./phone.svelte";
 import { pushSupport } from "./push";
 import { parseRoute } from "./route";
 
@@ -137,4 +139,47 @@ it("reads routes and where push works", () => {
   expect(pushSupport(env)).toBe("ready");
   expect(pushSupport({ ...env, pushManager: false })).toBe("add_to_home_screen");
   expect(pushSupport({ ...env, pushManager: false, appleMobile: false })).toBe("unsupported");
+});
+
+it("lists for review only open work an agent asked to have reviewed", async () => {
+  const phone = new Phone(fake([]).transport);
+  await vi.waitFor(() => expect(phone.loaded).toBe(true));
+  const item = (id: string, state: ReviewItem["state"], summary: string | null) =>
+    ({ id, session: "a", project: "p1", state, summary, files: [] }) as unknown as ReviewItem;
+  phone.reviews = [
+    item("r1", "open", "Fixed the tests"),
+    item("r2", "open", null),
+    item("r3", "approved", "Kept already"),
+  ];
+  expect(forReview(phone).map((r) => r.id)).toEqual(["r1"]);
+});
+
+it("the Home Screen app pairs from a pasted link; Safari on an iPhone says to do that first", async () => {
+  const origin = location.origin;
+  const target = document.body.appendChild(document.createElement("div"));
+  const homeScreen = { standalone: true, appleMobile: true };
+  app = mount(App, { target, props: { store: memoryStore(), origin, homeScreen } });
+  await vi.waitFor(() => expect(target.querySelector("#unpaired")).not.toBeNull());
+  const input = target.querySelector<HTMLInputElement>("#pair-link");
+  const form = input?.form;
+  if (!input || !form) throw new Error("no paste form");
+  input.value = "https://elsewhere.example/#pair=AbCdEfGhIjKlMnOpQrStUv";
+  input.dispatchEvent(new Event("input"));
+  form.requestSubmit();
+  flushSync();
+  expect(target.querySelector('[role="alert"]')?.textContent).toContain("not a pairing link");
+  input.value = `${origin}/#pair=AbCdEfGhIjKlMnOpQrStUv`;
+  input.dispatchEvent(new Event("input"));
+  form.requestSubmit();
+  flushSync();
+  expect(target.querySelector("#pair-title")).not.toBeNull();
+  expect(target.querySelector('[data-testid="home-screen-first"]')).toBeNull();
+  unmount(app);
+
+  history.replaceState(null, "", "/#pair=AbCdEfGhIjKlMnOpQrStUv");
+  const safari = { standalone: false, appleMobile: true };
+  app = mount(App, { target, props: { store: memoryStore(), origin, homeScreen: safari } });
+  await vi.waitFor(() => expect(target.querySelector('[data-testid="home-screen-first"]')).not.toBeNull());
+  expect(target.querySelector("#pair-link")).toBeNull();
+  target.remove();
 });

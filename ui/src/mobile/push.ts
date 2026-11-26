@@ -25,15 +25,22 @@ export function pushSupport(env: {
   return "unsupported";
 }
 
+/** How this page runs: from the Home Screen (`standalone`), and on an iPhone or iPad. */
+export function homeScreen(): { standalone: boolean; appleMobile: boolean } {
+  return {
+    standalone:
+      (typeof matchMedia === "function" && matchMedia("(display-mode: standalone)").matches) ||
+      (navigator as Navigator & { standalone?: boolean }).standalone === true,
+    appleMobile: /iPhone|iPad/.test(navigator.userAgent),
+  };
+}
+
 export function browserPushSupport(): PushSupport {
   return pushSupport({
     serviceWorker: "serviceWorker" in navigator,
     pushManager: "PushManager" in window,
     notification: "Notification" in window,
-    standalone:
-      matchMedia("(display-mode: standalone)").matches ||
-      (navigator as Navigator & { standalone?: boolean }).standalone === true,
-    appleMobile: /iPhone|iPad/.test(navigator.userAgent),
+    ...homeScreen(),
   });
 }
 

@@ -10,6 +10,21 @@ export function pairSecret(hash: string): string | null {
   return match?.[1] ?? null;
 }
 
+/**
+ * The secret in a pasted pairing link, if it is a link to `origin`. The
+ * Home Screen app on an iPhone keeps its own storage and cannot be opened
+ * by the camera, so it pairs from a link the person copied.
+ */
+export function pairLink(text: string, origin: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(text.trim());
+  } catch {
+    return null;
+  }
+  return url.origin === origin ? pairSecret(url.hash) : null;
+}
+
 /** `waiting`: the key is made and `code` is what the computer should show. */
 export type PairStep =
   | { kind: "waiting"; code: string }

@@ -107,7 +107,7 @@ on, the title bar shows a small "Phone access on" item.
 `ui/src/mobile/` is its own Vite entry with its own manifest and service
 worker, reusing `lib/transport.ts`, `lib/protocol/` and Focus's view model
 (`ui/src/focus/model.ts`, `away.svelte.ts`; `docs/specs/focus-mode.md`). Screens: Home
-(Needs you, Working, keep-awake switch), Approval (Allow, Deny with
+(Needs you, Ready for review, Working, keep-awake switch), Approval (Allow, Deny with
 reasons, armed after 500 ms), Agent (compact transcript, reply, Stop),
 Task (workers, review items read-only), Computer (keep awake, agents
 against the cap, Forget this phone). e2e on a phone viewport against
@@ -133,9 +133,19 @@ Done (2026-11-26): `crates/remote/src/push`. Endpoints only on
 `fcm.googleapis.com`, `*.push.apple.com`, `*.push.services.mozilla.com`
 and `*.notify.windows.com`, https on the default port. Only to paired
 phones that are not connected; one push per kind per 30 s and 30 an hour
-per phone. Kinds sent today: `approval` and `failed`. `review` waits for
-a core event that says an agent asked for review: `review.changed` comes
-for every file change, Keep and Discard too.
+per phone. `approval` comes from `permissions.requested`, `failed` from
+a session that failed, and `review` from `review.requested`, which the
+core emits once per `request_review` (never from `review.changed`, which
+comes for every file change, Keep and Discard too). Home lists that work
+under Ready for review, read-only.
+
+Home Screen: on an iPhone, push works only in the Home Screen app, and
+that app keeps its own storage, apart from Safari's, so a pairing made in
+Safari does not carry over. The Pair page in Safari on an iPhone says so
+and offers Copy link; the Home Screen app, which the camera cannot open,
+takes a pasted pairing link (same origin, same single-use secret, same
+Allow on the computer). Android shares one storage between Chrome and the
+installed app.
 
 ## Not in this spec
 

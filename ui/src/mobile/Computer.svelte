@@ -105,7 +105,7 @@ async function forget(): Promise<void> {
     </label>
     <p class="note">Notifications only say that something waits, never what. They pass through your phone maker's push service.</p>
   {:else if support === "add_to_home_screen"}
-    <p class="note">To get notifications, tap Share, then Add to Home Screen, and open Ovra from there.</p>
+    <p class="note">To get notifications, tap Share, then Add to Home Screen, and open Ovra from there. The Home Screen app pairs on its own, with a new code from the computer.</p>
   {:else}
     <p class="note">This browser cannot show notifications.</p>
   {/if}
