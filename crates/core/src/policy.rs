@@ -557,10 +557,16 @@ pub(crate) fn decide(
 /// `match` is tested against the field the rule's tool takes it for
 /// ([`MATCHED_TOOLS`]).
 fn matches(rule: &PolicyRule, call: &ToolCall, work_dir: &Path, action: PolicyAction) -> bool {
+    let kind = matched_kind(&rule.tool);
+    // An `auto` rule allows only the kind of call it was written for, even
+    // when a runtime maps the tool it names to another kind; a deny or ask
+    // holds whatever the call is mapped to.
+    if action == PolicyAction::Auto && kind.is_some() && kind != Some(call.kind) {
+        return false;
+    }
     let Some(pattern) = &rule.pattern else {
         return true;
     };
-    let kind = matched_kind(&rule.tool);
     if kind == Some(ToolKind::Execute) {
         let Some(command) = call.command.as_deref() else {
             return false;

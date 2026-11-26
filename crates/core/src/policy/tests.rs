@@ -111,6 +111,45 @@ fn rules_read_the_calls_shared_fields_and_still_name_its_tool() {
 }
 
 #[test]
+fn auto_allows_only_the_kind_its_tool_is_for() {
+    use crate::protocol::agents::{ToolCall, ToolKind};
+    let proxy = sandboxed(SandboxNetwork::Proxy);
+    let policy = Policy {
+        rules: vec![
+            rule("Read", Some("src/**"), PolicyAction::Auto),
+            rule("Read", None, PolicyAction::Auto),
+            rule("Edit", Some("docs/**"), PolicyAction::Deny),
+        ],
+    };
+    let call = |kind, path: &str| ToolCall {
+        kind,
+        paths: vec![format!("{WORK}/{path}")],
+        ..ToolCall::default()
+    };
+    let judged = |tool: &str, call: &ToolCall| match super::decide(
+        &policy,
+        tool,
+        call,
+        Path::new(WORK),
+        Some(&proxy),
+    ) {
+        Some((action, rule)) => format!("{action:?} {rule}"),
+        None => "ask".to_owned(),
+    };
+    assert_eq!(
+        judged("Read", &call(ToolKind::Read, "src/a.rs")),
+        "Auto Read(src/**)"
+    );
+    // A runtime that maps `Read` to an edit gets asked, not allowed.
+    assert_eq!(judged("Read", &call(ToolKind::Edit, "src/a.rs")), "ask");
+    // A deny still holds by the tool it names.
+    assert_eq!(
+        judged("Edit", &call(ToolKind::Read, "docs/a.md")),
+        "Deny Edit(docs/**)"
+    );
+}
+
+#[test]
 fn deny_wins_and_auto_needs_a_sandbox_that_limits_the_network() {
     let proxy = sandboxed(SandboxNetwork::Proxy);
     let open = sandboxed(SandboxNetwork::Open);
