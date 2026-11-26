@@ -1,5 +1,6 @@
 ---
 source: crates/acp-client/src/agents.rs
+assertion_line: 198
 expression: described
 ---
 [
@@ -36,6 +37,8 @@ expression: described
                 "tmp",
                 "history",
                 "projects.json",
+                "mcp-oauth-tokens.json",
+                "mcp-oauth-tokens-v2.json",
             ],
             in_place: [
                 "tmp",
@@ -105,6 +108,8 @@ expression: described
             config_var: "CODEX_HOME",
             private: [
                 "sessions",
+                "history.jsonl",
+                ".credentials.json",
                 "log",
                 "tmp",
                 "shell_snapshots",
@@ -122,12 +127,9 @@ expression: described
             ],
             files: [
                 "auth.json",
-                "history.jsonl",
             ],
             layered: true,
-            files_made: [
-                "history.jsonl",
-            ],
+            files_made: [],
             projects: "sessions",
             project_memory: "memory",
             env: [
