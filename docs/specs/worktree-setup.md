@@ -26,8 +26,10 @@ but nobody sees how much disk they use.
 
 Not goals: setup for the main checkout (the person already set it up),
 run scripts (servers are `.ovra/servers.json`), Windows and macOS until
-their sandbox exists (setup runs there only when sessions run unsandboxed,
-and says so), moving a session between the main checkout and a worktree.
+their sandbox exists, moving a session between the main checkout and a
+worktree. Where no sandbox exists, setup fails closed: it does not run,
+and the worker's setup says why (an earlier draft ran it unsandboxed;
+the implementation chose the safer way).
 
 ## Copying ignored files: `.worktreeinclude`
 

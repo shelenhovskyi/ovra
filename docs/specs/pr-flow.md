@@ -136,7 +136,16 @@ stops and says so instead of overwriting.
   event `pr.changed`. `ReviewItem` gains `pull_request`.
 - Processes run with timeouts (fetch and push 2 minutes, `gh` calls 30 s)
   and can be cancelled from the dialog, so a hanging credential prompt or
-  gpg never blocks the core.
+  gpg never blocks the core. Assumption: there is no `pr.cancel` request;
+  dropping the call cancels it (the client closing the dialog drops the
+  request). A dropped or timed-out call kills `gh` or `git`, and on Unix
+  its whole process group, so the `ssh` or credential helper git started
+  ends with it; on Windows only `gh` or `git` itself is killed for now.
+- Every `gh` call names the repository (`--repo HOST/OWNER/REPO`), taken
+  from the chosen remote's URL when the pull request is opened and kept
+  with it, so `gh` never picks another remote such as `upstream`. Fetch
+  and push run without the repository's hooks, and a fetch reads the
+  commit from a ref of its own, never `FETCH_HEAD`.
 
 | Step | Area                                 | What                                                          |
 | ---- | ------------------------------------ | ------------------------------------------------------------- |
