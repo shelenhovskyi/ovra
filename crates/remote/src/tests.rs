@@ -2,6 +2,7 @@
 //! confirmed on the computer, signed sessions, and what is refused.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
 use ovra_core::Core;
@@ -294,6 +295,56 @@ async fn an_unknown_key_or_a_strange_origin_or_host_gets_nothing() {
     let wss = s.origin.replacen("https://", "wss://", 1);
     assert!(csp.contains(&format!("connect-src 'self' {wss};")), "{csp}");
     assert_eq!(body, b"<p>phone</p>");
+}
+
+/// Sends `bytes` one a second until the peer closes; how long that took.
+async fn drip(mut io: impl AsyncRead + AsyncWrite + Unpin, bytes: &[u8]) -> Duration {
+    let start = tokio::time::Instant::now();
+    for byte in bytes.iter().cycle() {
+        if io.write_all(&[*byte]).await.is_err() {
+            break;
+        }
+        let mut buf = [0u8; 512];
+        let read = tokio::time::timeout(Duration::from_secs(1), io.read(&mut buf)).await;
+        if let Ok(Ok(0) | Err(_)) = read {
+            break;
+        }
+        assert!(start.elapsed() < Duration::from_secs(60), "never closed");
+    }
+    start.elapsed()
+}
+
+// On a paused clock: the waits are the runtime's, not real ones.
+#[tokio::test(start_paused = true)]
+async fn headers_sent_a_byte_at_a_time_and_long_plain_connections_are_closed() {
+    let s = setup();
+    let slow = b"GET / HTTP/1.1\r\nX-Slow: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let took = drip(tls(&s).await, slow).await;
+    assert!(took < Duration::from_secs(12), "TLS took {took:?}");
+    let plain = TcpStream::connect(&s.host).await.expect("connect");
+    let took = drip(plain, slow).await;
+    assert!(took < Duration::from_secs(12), "plain took {took:?}");
+
+    // Whole requests, one after another, on one plain connection.
+    let mut plain = TcpStream::connect(&s.host).await.expect("connect");
+    let start = tokio::time::Instant::now();
+    let request = format!("GET / HTTP/1.1\r\nHost: {}\r\n\r\n", s.host);
+    loop {
+        if plain.write_all(request.as_bytes()).await.is_err() {
+            break;
+        }
+        let mut buf = [0u8; 512];
+        if matches!(plain.read(&mut buf).await, Ok(0) | Err(_)) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        assert!(start.elapsed() < Duration::from_secs(60), "never closed");
+    }
+    assert!(
+        start.elapsed() <= Duration::from_secs(12),
+        "{:?}",
+        start.elapsed()
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

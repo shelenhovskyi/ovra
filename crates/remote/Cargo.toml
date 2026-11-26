@@ -14,8 +14,8 @@ axum.workspace = true
 base64 = "0.22"
 futures-util.workspace = true
 http-body-util = "0.1"
-hyper = { version = "1", default-features = false, features = ["client", "http1"] }
-hyper-util = { version = "0.1", default-features = false, features = ["tokio"] }
+hyper = { version = "1", default-features = false, features = ["client", "http1", "server"] }
+hyper-util = { version = "0.1", default-features = false, features = ["service", "tokio"] }
 if-addrs = "0.13"
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 rand.workspace = true
