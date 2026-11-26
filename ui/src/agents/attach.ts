@@ -65,8 +65,14 @@ export async function secretLooking(transport: Transport, project: ProjectId, pa
     return parts.slice(-2).join("/") || "file";
   };
   const items = paths.map((path) => ({ kind: "file" as const, path: `${ATTACHMENTS}/${tail(path)}` }));
-  const answer = await transport.call({ method: "context.check", params: { project, items } });
-  return paths.filter((_, i) => answer.data.notes[i] != null).map(baseName);
+  // The core checks 20 items a call at most.
+  const notes: unknown[] = [];
+  for (let at = 0; at < items.length; at += 20) {
+    const batch = items.slice(at, at + 20);
+    const answer = await transport.call({ method: "context.check", params: { project, items: batch } });
+    notes.push(...answer.data.notes);
+  }
+  return paths.filter((_, i) => notes[i] != null).map(baseName);
 }
 
 function baseName(path: string): string {

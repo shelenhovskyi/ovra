@@ -117,7 +117,12 @@ describe("files from a drop or a paste", () => {
       ".env",
     ]);
     expect(risky).toEqual(["id_ed25519", ".env"]);
-    expect(calls.at(-1)).toMatchObject({
+    // More than the core's 20 items a call go in batches.
+    const many = Array.from({ length: 25 }, (_, i) => `/tmp/f${i}.txt`);
+    expect(await secretLooking(transport, "p1", [...many, "/x/.env"])).toEqual([".env"]);
+    const checks = calls.filter((c) => c.method === "context.check");
+    expect(checks.slice(-2).map((c) => ("items" in c.params ? c.params.items.length : 0))).toEqual([20, 6]);
+    expect(calls.filter((c) => c.method === "context.check")[0]).toMatchObject({
       params: {
         items: [
           { kind: "file", path: ".ovra-attachments/.ssh/id_ed25519" },
