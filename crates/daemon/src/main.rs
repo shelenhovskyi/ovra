@@ -48,6 +48,7 @@ struct Args {
     fake_agent: bool,
     /// Runs dev servers that start nothing and play a preset named by their
     /// command: `ready` gets ready, `fail` fails, anything else exits with 1.
+    /// Worktree setup steps (`.ovra/worktree.json`) pass, except `fail`.
     #[cfg(feature = "fake-agent")]
     #[arg(long)]
     fake_servers: bool,
@@ -750,14 +751,30 @@ impl ovra_core::services::DevServers for PresetServers {
 
     fn setup(
         &self,
-        pod: &ovra_core::services::PodSpec,
+        _pod: &ovra_core::services::PodSpec,
         steps: Vec<ovra_core::services::SetupStep>,
         sink: Arc<dyn ovra_core::services::SetupSink>,
     ) -> ovra_core::services::BoxFuture<
         '_,
         ovra_core::services::Result<ovra_core::services::SetupEnd>,
     > {
-        self.0.setup(pod, steps, sink)
+        use ovra_core::services::SetupEnd;
+        // Each step says its program; a step whose program is `fail` exits with 1.
+        let mut end = SetupEnd::Done;
+        for (index, step) in steps.iter().enumerate() {
+            let program = step.line.program.to_string_lossy().into_owned();
+            sink.step(index);
+            sink.output(index, vec![format!("fake {program}")]);
+            if program == "fail" {
+                end = SetupEnd::Failed {
+                    step: index,
+                    code: Some(1),
+                    reason: None,
+                };
+                break;
+            }
+        }
+        Box::pin(async move { Ok(end) })
     }
 
     fn pod_ended(&self, work_dir: PathBuf) -> ovra_core::services::BoxFuture<'_, ()> {
