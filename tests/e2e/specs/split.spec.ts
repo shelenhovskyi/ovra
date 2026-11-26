@@ -52,7 +52,7 @@ test("split right shows one text in two groups; an edit on the right saves, a re
   await expect(strips.nth(1).getByRole("tab")).toHaveText(["a.txt"]);
 
   // Closing the right group's only tab closes the group.
-  await strips.nth(1).getByRole("button", { name: "Close a.txt" }).click();
+  await strips.nth(1).getByRole("button", { name: "Close a.txt", includeHidden: true }).click();
   await expect(strips).toHaveCount(1);
   await expect(right).toHaveCount(0);
 });

@@ -1,4 +1,5 @@
 import { basename } from "node:path";
+import AxeBuilder from "@axe-core/playwright";
 import { test as base, expect, type Locator, type Page } from "@playwright/test";
 
 // The desktop window runs with Tauri's `freezePrototype` (app/tauri.conf.json),
@@ -98,4 +99,31 @@ export async function loadProject(page: Page, dir: string, url = daemonUrl()): P
   }, id);
   await page.goto(url);
   await expect(page.getByRole("button", { name: `Project ${basename(dir)}, switch project` })).toBeVisible();
+}
+
+/**
+ * Fails when axe finds accessibility problems on the page as it is now (WCAG
+ * 2.2 A and AA plus axe's best practices), in the colour scheme and contrast
+ * the page emulates. Each problem is listed with the elements it was found on.
+ */
+export async function expectAccessible(page: Page, where: string): Promise<void> {
+  const { violations } = await new AxeBuilder({ page })
+    .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"])
+    // The panel splitters sit between the landmarks, as grid cells of their
+    // own; each is a labelled separator, so a screen reader still finds it.
+    .disableRules(["region"])
+    .analyze();
+  const found = violations.map(
+    (v) => `${v.id} (${v.impact}): ${v.help}\n${v.nodes.map((n) => `    ${n.target.join(" ")}`).join("\n")}`,
+  );
+  expect(found, `accessibility problems ${where}`).toEqual([]);
+}
+
+/** Presses Tab until `target` has focus; fails after `limit` presses. */
+export async function tabTo(page: Page, target: Locator, limit = 25): Promise<void> {
+  for (let presses = 0; presses < limit; presses++) {
+    if (await target.evaluate((element) => element === document.activeElement)) return;
+    await page.keyboard.press("Tab");
+  }
+  await expect(target, `not reached with ${limit} Tab presses`).toBeFocused({ timeout: 0 });
 }

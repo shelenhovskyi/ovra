@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
-import { expect, test } from "../test";
+import { expect, expectAccessible, test } from "../test";
 
 function daemonUrl(): string {
   const raw = process.env.OVRA_URL;
@@ -99,6 +99,7 @@ test("stage a file and one hunk, commit, and switch to a new branch", async ({ p
   const diff = page.getByRole("tabpanel", { name: "Diff of notes.txt" }).getByTestId("git-diff");
   const hunks = diff.locator("[data-hunk-action]");
   await expect(hunks).toHaveCount(2);
+  await expectAccessible(page, "with the git panel and a diff open");
   // The diff bar keeps one action; Stage hunk shows on hover and on focus.
   await expect(diff.locator("header").getByRole("button")).toHaveText(["Open file"]);
   await expect(hunks.first()).toHaveCSS("opacity", "0");
@@ -120,6 +121,7 @@ test("stage a file and one hunk, commit, and switch to a new branch", async ({ p
 
   await panel.getByTestId("git-branch").click();
   await panel.getByRole("button", { name: "New branch…" }).click();
+  await expectAccessible(page, "with the branch list open");
   await panel.getByRole("textbox", { name: "New branch name" }).fill("feature/e2e");
   await panel.getByRole("button", { name: "Create and switch" }).click();
   await expect(panel.getByTestId("git-branch")).toHaveAccessibleName("Branch: feature/e2e");

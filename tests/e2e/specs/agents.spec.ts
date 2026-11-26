@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import type { Page } from "@playwright/test";
-import { addProject, clickWhenArmed, expect, loadProject, test } from "../test";
+import { addProject, clickWhenArmed, expect, expectAccessible, loadProject, tabTo, test } from "../test";
 
 // The daemon runs with --fake-agent: every session asks to run `ls -la` and to
 // edit README.md, then waits; each reply asks to run `git status`. A task's
@@ -84,6 +84,7 @@ test("start an agent and answer its requests from the keyboard", async ({ page }
   await page.keyboard.press("Alt+Shift+A");
   await expect(run).toBeFocused();
   for (const cap of await run.locator("kbd").all()) await expect(cap).toBeVisible();
+  await expectAccessible(page, "with a request waiting");
   await arm(page);
   await expect(run.getByRole("button", { name: "Allow" })).toHaveAttribute("aria-disabled", "false");
   await page.keyboard.press("y");
@@ -128,6 +129,7 @@ test("start an agent and answer its requests from the keyboard", async ({ page }
   // Denied with a message: the agent got the message, yet the step says Denied, not failed.
   await expect(transcript.locator(".step summary", { hasText: "Denied" })).toHaveText(/Edit README\.md\s*Denied/);
   await expect(transcript.locator(".step.failed")).toHaveCount(0);
+  await expectAccessible(page, "with the transcript open");
 });
 
 test("a working agent's text streams in under a live row until the turn ends", async ({ page }) => {
@@ -399,31 +401,54 @@ test("a task's three workers wait in Reviews to be kept, discarded or sent back"
 });
 
 // One agent in its own copy: no coordinator, one worktree, kept from Reviews.
-test("one agent works on its own copy and its change is kept from Reviews", async ({ page }) => {
+test("one agent works on its own copy and its change is kept from Reviews, all from the keyboard", async ({ page }) => {
   const dir = await openGitProject(page, "ovra-agents-own-");
   await page.getByRole("textbox", { name: "Describe a task" }).fill("Write the notes");
-  await page.getByTestId("agent-mode").click();
-  await page.getByRole("menuitemradio", { name: /^One agent, own copy/ }).click();
+  // The mode menu: Tab to it, open it with Enter, pick with the arrows.
+  await page.keyboard.press("Tab");
+  await expect(page.getByTestId("agent-mode")).toBeFocused();
+  await page.keyboard.press("Enter");
+  const own = page.getByRole("menuitemradio", { name: /^One agent, own copy/ });
+  await expect(page.getByRole("menuitemradio", { checked: true })).toBeFocused();
+  await expectAccessible(page, "with the mode menu open");
+  await expect(async () => {
+    await page.keyboard.press("ArrowDown");
+    await expect(own).toBeFocused({ timeout: 100 });
+  }).toPass({ intervals: [0] });
+  await page.keyboard.press("Enter");
   await expect(page.locator("#agent-mode-hint")).toContainText("Works on its own copy");
-  await page.getByRole("button", { name: "Start", exact: true }).click();
+  // The choice gives focus back to the menu button; Start is further on.
+  await expect(page.getByTestId("agent-mode")).toBeFocused();
+  await tabTo(page, page.getByRole("button", { name: "Start", exact: true }));
+  await page.keyboard.press("Enter");
 
   const approvals = page.getByTestId("approvals");
   const card = approvals.getByRole("group", { name: "Write NOTES.md" });
   await expect(card).toBeVisible();
+  await page.keyboard.press("Alt+Shift+A");
+  await expect(card).toBeFocused();
   await arm(page);
-  await card.getByRole("button", { name: "Allow" }).click();
+  await expect(card.getByRole("button", { name: "Allow" })).toHaveAttribute("aria-disabled", "false");
+  await page.keyboard.press("y");
+  await expect(approvals).toContainText("Nothing waits for your approval.");
   // It wrote its own copy, not the project's folder.
   expect(readIfThere(join(dir, "NOTES.md"))).toBeNull();
 
   await page.keyboard.press("Alt+Shift+R");
   const inbox = page.getByTestId("inbox");
+  await expect(inbox.getByRole("heading", { name: "Reviews", exact: true })).toBeFocused();
   await expect(inbox.getByRole("navigation", { name: "Review items" }).getByRole("button")).toHaveCount(1);
   const item = inbox.getByTestId("inbox-item");
   await expect(item.getByTestId("inbox-diff")).toContainText("Notes from a worker.");
+  await expectAccessible(page, "in Reviews with an item open");
   // "Explain these changes": a read-only agent's plain words, above the file's diff.
-  await item.getByTestId("inbox-explain").click();
+  await tabTo(page, item.getByTestId("inbox-explain"));
+  await page.keyboard.press("Enter");
   await expect(item.getByTestId("inbox-file-explained")).toHaveText("Adds a line about the agent's work.");
-  await item.getByRole("button", { name: "Keep changes" }).click();
+  // Keep is a few Tab presses away, and Enter presses it.
+  const keep = item.getByRole("button", { name: "Keep changes" });
+  await tabTo(page, keep);
+  await page.keyboard.press("Enter");
   await expect.poll(() => readIfThere(join(dir, "NOTES.md"))).toBe("Notes from a worker.\n");
 });
 
@@ -642,6 +667,7 @@ test("Focus shows only the agents' work and answers approvals there", async ({ p
   // The card is on screen: no toast repeats it.
   await expect(page.getByTestId("toast").filter({ hasText: "approval" })).toHaveCount(0);
   await expect(approvals.getByTestId("approval-always")).toHaveCount(0);
+  await expectAccessible(page, "in Focus");
 
   await page.keyboard.press("Alt+Shift+A");
   await expect(run).toBeFocused();

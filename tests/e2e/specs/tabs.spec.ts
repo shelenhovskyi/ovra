@@ -50,7 +50,7 @@ test("tabs switch with the keyboard, keep undo and focus, and ask before closing
   await expect(content).toContainText("edited");
 
   // Closing asks in a modal: Tab stays inside, Cancel keeps everything, Save writes and closes.
-  await tabs.getByRole("button", { name: "Close a.txt (unsaved changes)" }).click();
+  await tabs.getByRole("button", { name: "Close a.txt (unsaved changes)", includeHidden: true }).click();
   const question = page.getByRole("dialog", { name: "Save changes to a.txt before closing?" });
   await expect(question.getByRole("button", { name: "Save", exact: true })).toBeFocused();
   for (let i = 0; i < 4; i++) await page.keyboard.press("Tab");
@@ -59,7 +59,7 @@ test("tabs switch with the keyboard, keep undo and focus, and ask before closing
   await expect(question).toBeHidden();
   await expect(tabs.getByRole("tab")).toHaveCount(2);
 
-  await tabs.getByRole("button", { name: "Close a.txt (unsaved changes)" }).click();
+  await tabs.getByRole("button", { name: "Close a.txt (unsaved changes)", includeHidden: true }).click();
   await question.getByRole("button", { name: "Save", exact: true }).click();
   await expect(tabs.getByRole("tab")).toHaveText(["b.txt"]);
   await expect.poll(() => readFileSync(join(dir, "a.txt"), "utf8")).toBe("edited alpha\n");
@@ -109,7 +109,7 @@ test("a single click previews in one tab, a double click keeps it, pinned tabs o
 
   // Pinning moves the tab first and keeps it.
   await tabs.getByRole("tab", { name: /c\.txt/ }).hover();
-  await tabs.getByRole("button", { name: "Pin c.txt" }).click();
+  await tabs.getByRole("button", { name: "Pin c.txt", includeHidden: true }).click();
   await expect(tabs.getByRole("tab")).toHaveText(["c.txt", "b.txt"]);
   await expect(tabs.getByRole("tab", { name: "c.txt, pinned" })).toBeVisible();
 
@@ -177,9 +177,9 @@ test("the keyboard keeps a preview tab, and a focused tab shows its actions", as
   await tabs.getByRole("tab", { name: "b.txt", exact: true }).focus();
   await page.keyboard.press("ArrowLeft");
   await expect(tabs.getByRole("tab", { name: "a.txt", exact: true })).toBeFocused();
-  await expect(tabs.getByRole("button", { name: "Pin a.txt" })).toHaveCSS("opacity", "1");
-  await expect(tabs.getByRole("button", { name: "Close a.txt" })).toHaveCSS("opacity", "1");
-  await expect(tabs.getByRole("button", { name: "Pin b.txt" })).toHaveCSS("opacity", "0");
+  await expect(tabs.getByRole("button", { name: "Pin a.txt", includeHidden: true })).toHaveCSS("opacity", "1");
+  await expect(tabs.getByRole("button", { name: "Close a.txt", includeHidden: true })).toHaveCSS("opacity", "1");
+  await expect(tabs.getByRole("button", { name: "Pin b.txt", includeHidden: true })).toHaveCSS("opacity", "0");
 });
 
 test("Edit sits in the file's bar and switches modes, and focus follows into the viewer", async ({ page }) => {
@@ -203,7 +203,7 @@ test("Edit sits in the file's bar and switches modes, and focus follows into the
   await expect(page.locator("#ovra-tabpanel .content")).toBeFocused();
 
   // The close question names the file by its path.
-  await tabs.getByRole("button", { name: /Close notes\.txt/ }).click();
+  await tabs.getByRole("button", { name: /Close notes\.txt/, includeHidden: true }).click();
   await expect(page.getByRole("dialog", { name: "Save changes to sub/notes.txt before closing?" })).toBeVisible();
 });
 
