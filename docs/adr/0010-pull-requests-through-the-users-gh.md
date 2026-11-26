@@ -25,7 +25,7 @@ installed and signed in to, as ADR 0006 does for `claude`.
   sandbox keeps hiding `gh`'s configuration and token variables.
 - A new crate, `crates/forge`, implements the `Forge` service trait. It is
   the only place that starts processes using the person's GitHub login;
-  it is security code and needs a separate human review.
+  it is security code and needs an independent reviewer agent's verdict.
 - The pull request's commit is built from the reviewed snapshot on top of
   the fetched base branch, as the person, without hooks, and pushed with
   `--no-verify` and never with `--force`, so the agent's code does not run

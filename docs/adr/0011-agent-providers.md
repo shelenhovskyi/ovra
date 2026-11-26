@@ -90,7 +90,8 @@ Agent SDK, which ADR 0006 avoids.
   (`agents.rs`, `agents.ts`), `services.rs` (`AgentSpec`, `SandboxProfile`),
   `scripts/crate-graph.json` (new `ovra-acp-client`).
 - A new crate boundary (`ovra-acp-client`), an MCP surface reachable over a
-  socket, and new sandbox rules need the human reviews CLAUDE.md lists.
+  socket, and new sandbox rules need the reviews and owner decisions
+  CLAUDE.md lists.
 - Features only Claude reports (cost, billing source, subagents, the
   policy hook) become optional in the UI; a provider without them shows
   less, never wrong data.

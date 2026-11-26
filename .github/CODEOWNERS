@@ -1,4 +1,6 @@
-# Security-sensitive code needs a human review.
+# Security-sensitive code. An independent reviewer agent's verdict is enough to
+# land a change here; the owner is asked only when a change weakens security
+# (see CLAUDE.md, "Rules"). Ownership stays for GitHub's review routing.
 /crates/sandbox*/   @shelenhovskyi
 /crates/netproxy/   @shelenhovskyi
 /crates/secrets/    @shelenhovskyi

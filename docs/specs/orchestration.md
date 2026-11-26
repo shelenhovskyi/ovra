@@ -49,7 +49,8 @@ direct session.
 ## IDE tools (MCP)
 
 Defined in `crates/mcp-server/src/tools.json`, reviewed and approved by the
-owner on 2026-11-24; changes need a human review again. Who may call what:
+owner on 2026-11-24; changes need an independent reviewer agent's verdict,
+and a tool that gives agents more reach needs the owner. Who may call what:
 
 | Tool                                                                      | Coordinator               | Worker     |
 | ------------------------------------------------------------------------- | ------------------------- | ---------- |

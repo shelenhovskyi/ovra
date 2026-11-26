@@ -94,7 +94,7 @@ The same file Claude Code and Codex read, so one file serves all three.
   `spawn_agent` result (or the worker's status, if it was queued) says
   which step failed with the last 50 lines of its log, so the coordinator
   can retry, start it anyway (`spawn_agent` gains `skip_setup`, a
-  `tools.json` change that needs a human review), or tell the person. The person sees the same in the worker's row, with Retry and
+  `tools.json` change that needs an independent security review), or tell the person. The person sees the same in the worker's row, with Retry and
   Start anyway.
 - Without the file nothing runs, as today. A broken file is an error the
   Agents panel shows; the worker starts without setup and its first

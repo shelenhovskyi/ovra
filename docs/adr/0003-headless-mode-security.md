@@ -19,4 +19,5 @@ over HTTP. Any web page in the user's browser could try to reach it.
 ## Consequences
 
 Remote use needs an explicit tunnel (for example SSH port forwarding). Any
-change to these rules is security code and needs human review.
+change to these rules is security code: it needs an independent reviewer
+agent's verdict, and loosening them needs the owner.

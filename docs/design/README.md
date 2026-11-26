@@ -81,7 +81,7 @@ Taken as the reasonable default (reversible; see each page):
   "Always allow"): for Bash, that exact command and nothing longer, with one
   line beside it: "Runs what this project's scripts say; the sandbox still
   applies." Settings > Rules marks it "exactly" and "From an approval". Its code
-  still needs a human security review.
+  still needs an independent security review.
 
 Open for the owner:
 

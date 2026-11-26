@@ -11,7 +11,10 @@ running Claude Code, several in parallel, each in its own git worktree. The
 maintainer sets the tasks, decides the architecture, reviews results and is
 responsible for everything that lands on `main`. Agent commits are authored by
 Claude and carry a `Co-Authored-By: Claude …` trailer. Changes the maintainer
-reviewed line by line also carry a `Reviewed-by:` trailer.
+reviewed line by line also carry a `Reviewed-by:` trailer. Security-sensitive
+code (sandbox, network proxy, secrets, permissions, CSP) is reviewed by a
+separate reviewer agent with a fresh context, not by the agent that wrote it;
+the maintainer decides every change that weakens security.
 
 The process is in the open:
 

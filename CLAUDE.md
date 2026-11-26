@@ -58,7 +58,8 @@ Before every push: `just test && just e2e && just lint` must pass.
 - `crates/lsp` - `LanguageServers`: language servers found on `PATH`, run
   through the sandbox (ADR 0007); the core filters their messages.
 - `crates/mcp-server` - `IdeTools`: Ovra's MCP tools for agents
-  (`src/tools.json` changes need human review).
+  (`src/tools.json` is security code; a tool that gives agents more reach is
+  a security loosening and needs the owner).
 - `crates/transport` - JSON frames and the WebSocket endpoint (`ws` feature).
 - `crates/daemon` - headless binary: wires services into the core, serves
   WebSocket + static UI.
@@ -161,7 +162,14 @@ Ask the owner only before:
   to a commit only when the owner reviewed that diff and said so; never on
   your own. `AI_POLICY.md` promises that this trailer means a human review.
 - Security code (policies, sandbox, CSP, Tauri capabilities, extension
-  manifests, netproxy, secrets, WIT) needs a separate human review.
+  manifests, netproxy, secrets, WIT, `tools.json`, `crates/forge`,
+  `crates/transport/src/ws.rs`) needs a verdict from an independent reviewer
+  agent (`.claude/agents/reviewer.md`, fresh context, not the author) before
+  it lands. A human review is not required. The owner is asked only when a
+  change weakens security (CSP, sandbox, permissions, secrets, network
+  access) or falls under "Ask the owner only before" above; tightening
+  security needs no ask. The reviewer's verdict does not earn a `Reviewed-by:`
+  trailer.
 
 ## Test speed
 
