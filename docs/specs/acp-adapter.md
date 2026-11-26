@@ -53,7 +53,9 @@ Ovra.
    "Always allow" stays Ovra's own rule, never the agent's
    `allow_always`, so the decision stays in Ovra's policy file. Policies
    apply where the agent asks; without `enforced_policy` the provider runs
-   only in isolated mode (ADR 0011), which the core already enforces.
+   only in isolated mode (ADR 0011). The adapter always reports
+   `enforced_policy: false`; the core's refusal of direct mode for such
+   providers is the first task of step 9, before anything wires it in.
 4. **Sandbox and lists come from the descriptor.** The descriptor holds
    the program name, its ACP arguments (`--acp`), the state folders and
    files, the hosts and the environment variables (`ProviderLists`, step 5),
@@ -85,5 +87,5 @@ Ovra.
 
 Three or four commits of under ~400 lines each: v1 types with the session
 driver over pipes, the process layer through the sandbox, the fake agent and
-integration tests. The adapter starts processes through the sandbox, so its driver and
-the router get the independent reviewer's verdict before they land.
+integration tests. The adapter starts processes through the sandbox, so its
+driver gets the independent reviewer's verdict before it lands.
