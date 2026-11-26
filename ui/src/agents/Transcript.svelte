@@ -28,6 +28,7 @@ import {
 import { ideResult } from "./tool-results";
 
 /**
+ * `agent`: the provider's display name, such as `Claude`, for the speaker label.
  * `billing`: who pays for the session, which says what its cost means.
  * `workerName`: a task's worker by its session id, so tool lines name
  * workers as the person knows them instead of by id.
@@ -39,6 +40,7 @@ import { ideResult } from "./tool-results";
  */
 let {
   messages,
+  agent = "Agent",
   billing = null,
   root = null,
   workerName = () => undefined,
@@ -48,6 +50,7 @@ let {
   denied: answeredNo = () => false,
 }: {
   messages: AgentMessage[];
+  agent?: string;
   billing?: Billing | null;
   root?: string | null;
   workerName?: (session: string) => string | undefined;
@@ -110,13 +113,13 @@ function lines(text: string): string {
   return n === 1 ? "1 line" : `${n} lines`;
 }
 
-/** The last thing Claude said, for the live region. */
+/** The last thing the agent said, for the live region. */
 const spoken = $derived.by(() => {
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i];
     if (message?.kind === "assistant_text") {
       const text = message.text.trim();
-      return `Claude: ${text.length > MAX_SPOKEN ? `${text.slice(0, MAX_SPOKEN)}…` : text}`;
+      return `${agent}: ${text.length > MAX_SPOKEN ? `${text.slice(0, MAX_SPOKEN)}…` : text}`;
     }
   }
   return "";
@@ -202,7 +205,7 @@ const lastError = $derived.by(() => {
         <!-- Ovra's tool answered the agent in JSON with ids: the sentence, the raw answer folded. -->
         <p>{plain}</p>
         <details class="raw">
-          <summary class="detail">What Claude got</summary>
+          <summary class="detail">What {agent} got</summary>
           <pre>{clip(step.result.output)}</pre>
         </details>
       {:else if step.result?.output && !denied}
@@ -253,7 +256,7 @@ const lastError = $derived.by(() => {
               {#each entry.notes as { line, rest }, n (n)}
                 {#if entry.notes.length > 1}<p>{noteLine(line)}</p>{/if}
                 {#if rest}
-                  <p class="detail">Message sent to Claude:</p>
+                  <p class="detail">Message sent to {agent}:</p>
                   <pre>{clip(rest)}</pre>
                 {/if}
               {/each}
@@ -269,7 +272,7 @@ const lastError = $derived.by(() => {
           <span class="who">{FROM[message.from]}</span>
           <p>{message.text}</p>
         {:else if message.kind === "assistant_text"}
-          <span class="who">{sub}Claude</span>
+          <span class="who">{sub}{agent}</span>
           <p>{message.text}</p>
         {:else if message.kind === "turn_end"}
           <!-- A thin divider, not a row: the full numbers on hover. -->
@@ -287,7 +290,7 @@ const lastError = $derived.by(() => {
       </li>
     {/if}
   {/each}
-  {#if status}<LiveActivity {status} {messages} {partial} {root} />{/if}
+  {#if status}<LiveActivity {agent} {status} {messages} {partial} {root} />{/if}
 </ol>
 {#if detached}
   <button type="button" class="jump" data-testid="jump-to-latest" onclick={jump}

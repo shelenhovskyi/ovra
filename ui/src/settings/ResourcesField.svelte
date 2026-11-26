@@ -1,5 +1,5 @@
 <script lang="ts">
-// Settings > Claude: whether the agents list shows each agent's memory and
+// Settings > Agents: whether the agents list shows each agent's memory and
 // CPU. Off by default; why a worker waits shows either way.
 import { agentPrefs } from "../agents/prefs.svelte";
 </script>

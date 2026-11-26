@@ -125,6 +125,7 @@ it("folds Ovra's notes in a row into one quiet line, and a tool's raw answer beh
   app = mount(Transcript, {
     target: document.body,
     props: {
+      agent: "Claude beta",
       messages: [
         { kind: "tool_use", id: "t1", name: "mcp__ovra__spawn_agent", input: { name: "docs", task: "Write docs." } },
         {
@@ -167,7 +168,7 @@ it("folds Ovra's notes in a row into one quiet line, and a tool's raw answer beh
     "Worker docs started on its own copy of the project (branch ovra/t1/docs)",
   );
   const raw = body?.querySelector("details");
-  expect(raw?.querySelector("summary")?.textContent).toBe("What Claude got");
+  expect(raw?.querySelector("summary")?.textContent).toBe("What Claude beta got");
   expect(raw?.hasAttribute("open")).toBe(false);
 });
 

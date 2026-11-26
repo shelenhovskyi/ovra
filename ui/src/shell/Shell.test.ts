@@ -359,7 +359,7 @@ describe("Shell", () => {
         document.getElementById(item.getAttribute("aria-describedby") ?? "")?.textContent,
       ]);
       expect(described).toEqual([
-        ["Settings…", "Ctrl+,", "Rules, network, Claude and more"],
+        ["Settings…", "Ctrl+,", "Rules, network, agents and more"],
         ["Audit log", "Ctrl+Alt+L", "Everything agents did, and who approved it"],
         ["Agent browser", "Ctrl+Shift+B", "The web browser an agent uses"],
         ["Keyboard shortcuts", null, "Every command with a shortcut"],
@@ -432,7 +432,7 @@ describe("Shell", () => {
       flushSync();
       const view = target.querySelector("main [data-testid=settings]");
       const panes = [...(view?.querySelectorAll("nav button") ?? [])].map((b) => b.textContent);
-      expect(panes).toEqual(["Editor", "Claude", "Notifications", "Keyboard", "Accessibility", "About"]);
+      expect(panes).toEqual(["Editor", "Agents", "Notifications", "Keyboard", "Accessibility", "About"]);
       key(view, "Escape");
       flushSync();
       expect(target.querySelector("[data-testid=settings]")).toBeNull();

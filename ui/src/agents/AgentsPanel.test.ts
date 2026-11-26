@@ -103,7 +103,7 @@ describe("AgentsPanel", () => {
     expect(buttons).toEqual(["One agent, here", "Add context", "Start"]);
     // Who pays, in the footer line (it opens Claude's setup).
     expect(target.querySelector("[data-testid=agents-footer]")?.textContent).toBe("Claude · Claude plan");
-    expect(target.querySelector("label[for=agent-prompt]")?.textContent).toBe("Give Claude a task");
+    expect(target.querySelector("label[for=agent-prompt]")?.textContent).toBe("Describe a task");
     const hint = () => target.querySelector("#agent-mode-hint")?.textContent;
     expect(hint()).toBe("Works in this folder. Asks before risky steps.");
     target.querySelector<HTMLButtonElement>("[data-testid=agent-mode]")?.click();
@@ -604,6 +604,24 @@ describe("AgentsPanel", () => {
       "lint Did not start: the worktree could not be made",
       "docs · docs notes Failed: claude was not found",
     ]);
+  });
+
+  it("names the provider from agents.providers where it is about one agent, and says Reply otherwise", async () => {
+    const core = new FakeAgentCore();
+    core.providers = core.providers.map((p) => ({ ...p, name: "Claude beta" }));
+    core.addSession("p1", "Fix it", { state: "working" });
+    core.transcripts.set("s1", [{ kind: "assistant_text", text: "Looking." }]);
+    await setup(core);
+    expect(target.querySelector("[data-testid=agents-footer]")?.textContent).toBe("Claude beta · Claude plan");
+    selectRow("Fix it");
+    await settle();
+    expect(transcript()).toEqual(["Claude beta Looking."]);
+    const reply = () => target.querySelector<HTMLTextAreaElement>("#agent-reply");
+    expect(reply()?.placeholder).toBe("Claude beta is working…");
+    expect(target.querySelector("label[for=agent-reply]")?.textContent).toBe("Reply");
+    core.status("s1", { state: "idle" });
+    await settle();
+    expect(reply()?.placeholder).toBe("Reply");
   });
 
   it("starts a session in the open project and streams its transcript", async () => {

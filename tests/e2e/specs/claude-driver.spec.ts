@@ -46,7 +46,7 @@ async function start(page: Page, prompt: string): Promise<void> {
   await projects.getByRole("button", { name: "Open", exact: true }).click();
   await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();
   // The recording's prompts, word for word: fake-claude checks every line.
-  await page.getByRole("textbox", { name: "Give Claude a task" }).fill(prompt);
+  await page.getByRole("textbox", { name: "Describe a task" }).fill(prompt);
   await page.getByRole("button", { name: "Start", exact: true }).click();
 }
 
@@ -72,7 +72,7 @@ test("a recorded Claude session runs through the real driver", async ({ page }) 
   await expect(session.getByRole("status")).toHaveText("Done");
 
   await session
-    .getByRole("textbox", { name: "Reply to Claude" })
+    .getByRole("textbox", { name: "Reply" })
     .fill("Now run `echo ok > done.txt` with the Bash tool once, then say done.");
   await session.getByRole("button", { name: "Send" }).click();
   await allow(page, /^Run echo ok > done\.txt$/);
@@ -99,7 +99,7 @@ test("an interrupted turn says the person stopped it, and the session goes on", 
   await expect(transcript.getByRole("button", { name: "Retry" })).toHaveCount(0);
   await expect(session.getByRole("status")).toHaveText("Done");
 
-  await session.getByRole("textbox", { name: "Reply to Claude" }).fill("Never mind. Reply with just the word: ready");
+  await session.getByRole("textbox", { name: "Reply" }).fill("Never mind. Reply with just the word: ready");
   await session.getByRole("button", { name: "Send" }).click();
   await expect(transcript).toContainText(/Claude\s*ready/);
   await stop(page);

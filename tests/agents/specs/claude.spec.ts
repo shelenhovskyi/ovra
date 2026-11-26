@@ -38,12 +38,12 @@ async function open(page: Page, dir: string): Promise<void> {
   await projects.getByRole("button", { name: "Open", exact: true }).click();
   await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();
   // A ready Claude shows no setup card, only the box to start a task.
-  await expect(page.getByRole("textbox", { name: "Give Claude a task" })).toBeEnabled();
+  await expect(page.getByRole("textbox", { name: "Describe a task" })).toBeEnabled();
   await expect(page.getByTestId("claude-setup")).toHaveCount(0);
 }
 
 async function startSession(page: Page, prompt: string): Promise<Locator> {
-  await page.getByRole("textbox", { name: "Give Claude a task" }).fill(prompt);
+  await page.getByRole("textbox", { name: "Describe a task" }).fill(prompt);
   await page.getByRole("button", { name: "Start", exact: true }).click();
   return page.getByTestId("agent-session");
 }
@@ -90,7 +90,7 @@ async function waitingForYou(session: Locator): Promise<void> {
 }
 
 async function reply(session: Locator, text: string): Promise<void> {
-  await session.getByRole("textbox", { name: "Reply to Claude" }).fill(text);
+  await session.getByRole("textbox", { name: "Reply" }).fill(text);
   await session.getByRole("button", { name: "Send" }).click();
 }
 

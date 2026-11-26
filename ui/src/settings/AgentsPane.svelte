@@ -1,5 +1,5 @@
 <script lang="ts">
-// Claude in plain facts, for Settings > Claude and the start screen: when
+// Claude in plain facts, for Settings > Agents and the start screen: when
 // Claude is ready, who pays, the version and the program that runs, with
 // quiet ways to check again or choose another path; repair (install, sign
 // in, find the program) only when something is wrong. A billing warning

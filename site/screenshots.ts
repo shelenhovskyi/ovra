@@ -77,7 +77,7 @@ export default async function screenshots(session: Session): Promise<void> {
   await page.keyboard.press("Control+Backquote");
 
   // Agents: a fake Claude session waiting for approval to run a command.
-  await page.getByRole("textbox", { name: "Give Claude a task" }).fill("Add a test for RelPath::parse");
+  await page.getByRole("textbox", { name: "Describe a task" }).fill("Add a test for RelPath::parse");
   await page.getByRole("button", { name: "Start", exact: true }).click();
   const run = page.getByTestId("approvals").getByRole("group", { name: "Run ls -la" });
   await run.waitFor();

@@ -349,9 +349,9 @@ async function showApprovals(): Promise<void> {
       <div class="sidebar-view" hidden={!workspace.project || workspace.sidebar !== "search"}><Search /></div>
       <div class="sidebar-view" hidden={!workspace.project || workspace.sidebar !== "git"}><Git /></div>
       {#if !workspace.project}
-        <!-- The start screen's second column: whether Claude is ready, before any project is open. -->
+        <!-- The start screen's second column: whether the agents are ready, before any project is open. -->
         <section class="claude-column" aria-labelledby="start-claude">
-          <h2 id="start-claude">Claude</h2>
+          <h2 id="start-claude">Agents</h2>
           {#key claudeCheck}<AgentsPane />{/key}
         </section>
       {/if}

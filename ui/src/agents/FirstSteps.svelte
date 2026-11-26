@@ -1,15 +1,16 @@
 <script lang="ts">
-// The first three steps, ticked off by doing them: Claude is ready, give it
+// The first three steps, ticked off by doing them: the agent is ready, give it
 // a task, then answer a request or review what it changed. Inline in the
 // task list, never over anything (least of all an approval); shown until
 // all three are done or the person hides it, then never again.
 import Icon from "../shell/Icon.svelte";
 import { hints } from "./hints.svelte";
 
-let { ready, started }: { ready: boolean; started: boolean } = $props();
+/** `agent`: the provider's display name, such as `Claude`. */
+let { agent, ready, started }: { agent: string; ready: boolean; started: boolean } = $props();
 
 const steps = $derived([
-  { text: "Claude is ready", done: ready },
+  { text: `${agent} is ready`, done: ready },
   { text: "Type a task and press Start", done: started || hints.has("started") },
   { text: "Allow a request, then review the changes", done: hints.has("answered") || hints.has("reviewed") },
 ]);

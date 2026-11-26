@@ -91,11 +91,11 @@ describe("account texts", () => {
 });
 
 describe("accounts in the agents panel", () => {
-  it("opens the account form and the path field from the palette's Claude commands", async () => {
+  it("opens the account form and the path field from the palette's Agents commands", async () => {
     await show(new FakeAgentCore());
     const run = async (title: string) => {
       const command = listCommands().find((c) => c.title === title);
-      expect(command?.category).toBe("Claude");
+      expect(command?.category).toBe("Agents");
       await command?.run();
       await settle();
     };

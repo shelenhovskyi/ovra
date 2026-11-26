@@ -47,6 +47,7 @@ import AgentSetup from "./setup/AgentSetup.svelte";
 import { claudeAccounts, DEFAULT_ACCOUNT } from "./setup/claude-accounts.svelte";
 import ProjectTrust from "./setup/ProjectTrust.svelte";
 import { isBusy, isEnded } from "./status";
+import { providers } from "./providers.svelte";
 import { inFolder } from "./steps";
 import Transcript from "./Transcript.svelte";
 import { REPORT_DIR, reportFile, reportOf, reportPath, taskPrompt } from "./report";
@@ -56,6 +57,7 @@ const { transport, workspace } = useOvra();
 const sessions = agentSessions(transport);
 const picks = browserPicks(transport);
 const accounts = claudeAccounts(transport);
+const names = providers(transport);
 const approvals = approvalQueue(transport);
 const drafts = contextDrafts(transport);
 const browsers = sessionBrowsers(transport);
@@ -78,7 +80,7 @@ let prompt = $state("");
 let reply = $state("");
 let busy = $state(false);
 let error = $state<string | null>(null);
-/** Why the last start failed; `setup` points to the Claude card. */
+/** Why the last start failed; `setup` points to the agent's setup card. */
 let startError = $state<{ text: string; setup: boolean } | null>(null);
 /** Started from the form and not yet past starting: its failure is a start error. */
 let launched = $state<SessionId | null>(null);
@@ -87,7 +89,7 @@ let launchedPrompt = "";
 /** How the next task runs; the last choice is kept per project. */
 let mode = $state<TaskMode>("here");
 let promptField = $state<HTMLTextAreaElement>();
-/** Claude's setup card is open although Claude is ready (from the start form's Claude button). */
+/** The agent's setup card is open although the agent is ready (from the start form's footer button). */
 let setupOpen = $state(false);
 let replyField = $state<HTMLTextAreaElement>();
 /** The @ menus and chips of the start box and the reply box. */
@@ -219,7 +221,7 @@ const startBlock = $derived(
           : null,
 );
 const usable = $derived(accounts.signedIn);
-/** Who pays for the next task, in two or three words; it opens Claude's setup. */
+/** Who pays for the next task, in two or three words; it opens the agent's setup. */
 const billing = $derived.by(() => {
   const state = accounts.state(account ?? accounts.preferred);
   const paid = state?.setup.billing;
@@ -406,7 +408,7 @@ $effect(() => {
   const failed = list.find((s) => s.id === launched);
   if (!failed || failed.status.state === "starting") return;
   if (failed.status.state === "failed") {
-    startError = { text: `Claude could not start: ${failed.status.message}`, setup: true };
+    startError = { text: `${names.name(failed.agent)} could not start: ${failed.status.message}`, setup: true };
     untrack(() => {
       if (selected === failed.id) selected = null;
       if (!prompt) prompt = launchedPrompt;
@@ -436,18 +438,18 @@ $effect(() => {
 
 $effect(() => {
   const off = [
-    registerCommand({ id: "agents.new_session", title: "New task for Claude", keys: "Mod+N", run: newTask }),
+    registerCommand({ id: "agents.new_session", title: "New task", keys: "Mod+N", run: newTask }),
     registerCommand({
       id: "agents.add_account",
       title: "Use another account…",
-      category: "Claude",
+      category: "Agents",
       keywords: ["account", "sign in", "work", "personal"],
       run: () => askSetup("account"),
     }),
     registerCommand({
       id: "agents.set_claude_path",
       title: "Set path to claude…",
-      category: "Claude",
+      category: "Agents",
       keywords: ["executable", "install", "binary"],
       run: () => askSetup("path"),
     }),
@@ -477,7 +479,7 @@ async function openSetup(): Promise<void> {
   document.querySelector("[data-testid=claude-setup]")?.scrollIntoView?.({ block: "nearest" });
 }
 
-/** Opens Claude's setup card in the task list with the path field or the account form. */
+/** Opens the agent's setup card in the task list with the path field or the account form. */
 async function askSetup(what: "path" | "account"): Promise<void> {
   selected = null;
   setupAsks[what] = true;
@@ -1139,6 +1141,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
       >
       <Transcript
         messages={messages ?? []}
+        agent={names.name(current.agent)}
         billing={current.billing}
         root={folder(current.id)}
         {workerName}
@@ -1155,11 +1158,11 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
             void send();
           }}
         >
-          <label for="agent-reply" class="visually-hidden">Reply to Claude</label>
+          <label for="agent-reply" class="visually-hidden">Reply</label>
           <textarea
             id="agent-reply"
             rows="2"
-            placeholder={canReply ? "Reply to Claude" : "Claude is working…"}
+            placeholder={canReply ? "Reply" : `${names.name(current.agent)} is working…`}
             bind:this={replyField}
             bind:value={reply}
             oninput={() => replyContext?.refresh()}
@@ -1316,7 +1319,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
       {#if error}
         <p class="error" role="alert">{error}</p>
       {/if}
-      <FirstSteps ready={usable !== undefined} started={list.length > 0} />
+      <FirstSteps agent={names.name()} ready={usable !== undefined} started={list.length > 0} />
       <AgentSetup open={setupOpen} />
       <ProjectTrust />
     </div>
@@ -1337,11 +1340,11 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
         if (!(to instanceof Node && event.currentTarget.contains(to))) startFocus = false;
       }}
     >
-      <label for="agent-prompt" class="label" class:visually-hidden={foldStart}>Give Claude a task</label>
+      <label for="agent-prompt" class="label" class:visually-hidden={foldStart}>Describe a task</label>
       <textarea
         id="agent-prompt"
         rows={foldStart ? 1 : 2}
-        placeholder={foldStart ? "Give Claude a task…" : "Describe a change, or ask about the code"}
+        placeholder={foldStart ? "Describe a task…" : "Describe a change, or ask about the code"}
         bind:this={promptField}
         bind:value={prompt}
         aria-describedby="agent-mode-hint"
@@ -1387,7 +1390,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
               style:bottom="{menuAt.bottom}px"
               role="menu"
               tabindex="-1"
-              aria-label="How Claude works on it"
+              aria-label="How the agent works on it"
               bind:this={modeList}
               onkeydown={onModeKey}
               onfocusout={(event) => {
@@ -1425,7 +1428,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
       {#if blocked}
         <p class="blocked" role="note" data-testid="agent-account-blocked">
           <span
-            >{accounts.list.length > 1 ? accounts.name(account ?? accounts.projectAccount) : "Claude"} is signed out.</span
+            >{accounts.list.length > 1 ? accounts.name(account ?? accounts.projectAccount) : names.name()} is signed out.</span
           >
           {#if usable}
             <button type="button" class="quiet" onclick={() => (account = usable.account.id)}
@@ -1450,21 +1453,21 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
       {#if startError}
         <p class="error" role="alert" data-testid="agent-start-error">
           {startError.text}{#if startError.setup}{" "}<button type="button" class="quiet fix" onclick={openSetup}
-              >Check Claude</button
+              >Check {names.name()}</button
             >{/if}
         </p>
       {/if}
     </form>
-    <!-- Who pays for the next task, always in sight; it opens Claude's setup. -->
+    <!-- Who pays for the next task, always in sight; it opens the agent's setup. -->
     <p class="foot">
       <button
         type="button"
         class="quiet"
         class:warn={billingKey}
-        title="Claude: setup, accounts, billing"
+        title="{names.name()}: setup, accounts, billing"
         aria-expanded={setupOpen}
         data-testid="agents-footer"
-        onclick={() => (setupOpen ? (setupOpen = false) : openSetup())}>Claude · {billing}</button
+        onclick={() => (setupOpen ? (setupOpen = false) : openSetup())}>{names.name()} · {billing}</button
       >
     </p>
   {/if}

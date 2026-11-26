@@ -1,6 +1,6 @@
 // The person's agents-list preferences, kept in the page's storage so they
 // survive a reload. Storage errors only mean a choice lasts until the
-// window closes. Settings > Claude changes them.
+// window closes. Settings > Agents changes them.
 
 const KEY = "ovra.agents.prefs";
 

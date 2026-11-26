@@ -57,7 +57,7 @@ async function openGitProject(page: Page, prefix: string): Promise<string> {
 
 test("start an agent and answer its requests from the keyboard", async ({ page }) => {
   await openProject(page, "ovra-agents-keys-");
-  await page.getByRole("textbox", { name: "Give Claude a task" }).fill("Fix the typo");
+  await page.getByRole("textbox", { name: "Describe a task" }).fill("Fix the typo");
   await page.keyboard.press("ControlOrMeta+Enter");
 
   const approvals = page.getByTestId("approvals");
@@ -69,7 +69,7 @@ test("start an agent and answer its requests from the keyboard", async ({ page }
   // The card is in sight, so no toast repeats it.
   await expect(page.getByTestId("toast")).toHaveCount(0);
   // The task opens, ready for a reply; nothing moves focus to the request.
-  await expect(page.getByRole("textbox", { name: "Reply to Claude" })).toBeFocused();
+  await expect(page.getByRole("textbox", { name: "Reply" })).toBeFocused();
   // In a 1280x720 window the request, the header and the reply box all fit:
   // Send is not cut off, and the header is one line.
   const agents = page.getByTestId("agents");
@@ -96,7 +96,7 @@ test("start an agent and answer its requests from the keyboard", async ({ page }
   await expect(approvals.getByTestId("approvals-notice")).toHaveText(
     "New request: press Alt+Shift+A to read it first.",
   );
-  await expect(page.getByRole("textbox", { name: "Reply to Claude" })).toHaveValue("");
+  await expect(page.getByRole("textbox", { name: "Reply" })).toHaveValue("");
   await expect(edit).toBeVisible();
   await page.keyboard.press("Alt+Shift+A");
   await expect(edit).toBeFocused();
@@ -131,7 +131,7 @@ test("start an agent and answer its requests from the keyboard", async ({ page }
 test("a working agent's text streams in under a live row until the turn ends", async ({ page }) => {
   await openProject(page, "ovra-agents-stream-");
   // The fake agent stays mid-sentence for prompts that start with "Stream".
-  await page.getByRole("textbox", { name: "Give Claude a task" }).fill("Stream the notes");
+  await page.getByRole("textbox", { name: "Describe a task" }).fill("Stream the notes");
   await page.keyboard.press("ControlOrMeta+Enter");
 
   const transcript = page.getByTestId("transcript");
@@ -153,7 +153,7 @@ test("in a short window, the shortcut shows the whole request and the title coun
   // About 200% zoom on a laptop: approvals sit under the main area.
   await page.setViewportSize({ width: 640, height: 400 });
   await openProject(page, "ovra-agents-short-");
-  await page.getByRole("textbox", { name: "Give Claude a task" }).fill("Fix the typo");
+  await page.getByRole("textbox", { name: "Describe a task" }).fill("Fix the typo");
   await page.keyboard.press("ControlOrMeta+Enter");
 
   const approvals = page.getByTestId("approvals");
@@ -185,7 +185,7 @@ test("in a short window, the shortcut shows the whole request and the title coun
 test("at 1024x700 the request's answers are in sight and not covered", async ({ page }) => {
   await page.setViewportSize({ width: 1024, height: 700 });
   await openProject(page, "ovra-agents-small-");
-  await page.getByRole("textbox", { name: "Give Claude a task" }).fill("Fix the typo");
+  await page.getByRole("textbox", { name: "Describe a task" }).fill("Fix the typo");
   await page.keyboard.press("ControlOrMeta+Enter");
   const approvals = page.getByTestId("approvals");
   const run = approvals.getByRole("group", { name: "Run ls -la" });
@@ -226,7 +226,7 @@ test("at 1024x700 the request's answers are in sight and not covered", async ({ 
 
 test("reply to an agent, allow with the mouse and stop it while it waits", async ({ page }) => {
   await openProject(page, "ovra-agents-reply-");
-  await page.getByRole("textbox", { name: "Give Claude a task" }).fill("Tidy up");
+  await page.getByRole("textbox", { name: "Describe a task" }).fill("Tidy up");
   await page.getByRole("button", { name: "Start", exact: true }).click();
 
   const approvals = page.getByTestId("approvals");
@@ -252,7 +252,7 @@ test("reply to an agent, allow with the mouse and stop it while it waits", async
   const session = page.getByTestId("agent-session");
   await expect(session.getByRole("status")).toHaveText("Done");
 
-  await session.getByRole("textbox", { name: "Reply to Claude" }).fill("Check the status too");
+  await session.getByRole("textbox", { name: "Reply" }).fill("Check the status too");
   await session.getByRole("button", { name: "Send" }).click();
   const status = approvals.getByRole("group", { name: "Run git status" });
   await expect(status).toBeVisible();
@@ -262,7 +262,7 @@ test("reply to an agent, allow with the mouse and stop it while it waits", async
   await session.getByRole("button", { name: "Stop" }).click();
   await expect(session.getByRole("status")).toHaveText("Stopped");
   await expect(status).toBeHidden();
-  await expect(session.getByRole("textbox", { name: "Reply to Claude" })).toBeHidden();
+  await expect(session.getByRole("textbox", { name: "Reply" })).toBeHidden();
   // The list says so too; Close takes it off.
   await session.getByRole("button", { name: "Tasks" }).click();
   const agents = page.getByTestId("agents-panel");
@@ -293,7 +293,7 @@ test("a task's three workers wait in Reviews to be kept, discarded or sent back"
   // Workers need a git repository for their worktrees.
   const dir = await openGitProject(page, "ovra-agents-task-");
 
-  await page.getByRole("textbox", { name: "Give Claude a task" }).fill("Write the notes");
+  await page.getByRole("textbox", { name: "Describe a task" }).fill("Write the notes");
   await page.getByTestId("agent-mode").click();
   await page.getByRole("menuitemradio", { name: /^Plan and split/ }).click();
   await page.getByRole("button", { name: "Start", exact: true }).click();
@@ -368,7 +368,7 @@ test("a task's three workers wait in Reviews to be kept, discarded or sent back"
 
 test("a direct session's protected files and git hooks need a look before approve", async ({ page }) => {
   const dir = await openGitProject(page, "ovra-agents-protected-");
-  await page.getByRole("textbox", { name: "Give Claude a task" }).fill("Fix the typo");
+  await page.getByRole("textbox", { name: "Describe a task" }).fill("Fix the typo");
   await page.getByRole("button", { name: "Start", exact: true }).click();
   const approvals = page.getByTestId("approvals");
   for (const name of ["Run ls -la", "Edit README.md"]) {
@@ -419,7 +419,7 @@ test("a direct session's protected files and git hooks need a look before approv
 test("always allow adds a rule, and the next identical request is allowed by it", async ({ page }) => {
   // Tasks that start with "Sandboxed" run `npm test` twice in a fake sandbox with a limited network.
   await openProject(page, "ovra-agents-always-");
-  await page.getByRole("textbox", { name: "Give Claude a task" }).fill("Sandboxed: run the tests");
+  await page.getByRole("textbox", { name: "Describe a task" }).fill("Sandboxed: run the tests");
   await page.keyboard.press("ControlOrMeta+Enter");
   const approvals = page.getByTestId("approvals");
   const run = approvals.getByRole("group", { name: "Run npm test" });
@@ -452,7 +452,7 @@ test("a research agent changes nothing and its report is saved as a doc", async 
   const dir = await openGitProject(page, "ovra-agents-research-");
   await page.getByTestId("agent-mode").click();
   await page.getByRole("menuitemradio", { name: /^Research/ }).click();
-  await page.getByRole("textbox", { name: "Give Claude a task" }).fill("How does the readme read?");
+  await page.getByRole("textbox", { name: "Describe a task" }).fill("How does the readme read?");
   await page.getByRole("button", { name: "Start", exact: true }).click();
   // The fake agent asks to run `ls -la` and edit README.md: research refuses
   // both without asking, so nothing waits for an answer.
@@ -468,7 +468,7 @@ test("a research agent changes nothing and its report is saved as a doc", async 
 
 test("add a file with @ and send it with the task", async ({ page }) => {
   await openProject(page, "ovra-agents-context-");
-  const field = page.getByRole("textbox", { name: "Give Claude a task" });
+  const field = page.getByRole("textbox", { name: "Describe a task" });
   await field.fill("Fix the typo in ");
   await field.press("End");
   await page.keyboard.type("@READ");
@@ -498,7 +498,7 @@ test("keep the computer awake while an agent works", async ({ page }) => {
   await expect(awake).toHaveAttribute("aria-pressed", "true");
   await expect(awake).not.toHaveClass(held);
   // The fake daemon holds a fake: nothing keeps the test machine awake.
-  await page.getByRole("textbox", { name: "Give Claude a task" }).fill("Fix the typo");
+  await page.getByRole("textbox", { name: "Describe a task" }).fill("Fix the typo");
   await page.keyboard.press("ControlOrMeta+Enter");
   await expect(page.getByTestId("approvals").getByRole("group", { name: "Run ls -la" })).toBeVisible();
   await expect(awake).toHaveClass(held);

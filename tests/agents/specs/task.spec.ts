@@ -59,7 +59,7 @@ test("a coordinator splits a small task between two workers whose work waits for
   await projects.getByRole("textbox", { name: "Open a folder" }).fill(dir);
   await projects.getByRole("button", { name: "Open", exact: true }).click();
   await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "Give Claude a task" })).toBeEnabled();
+  await expect(page.getByRole("textbox", { name: "Describe a task" })).toBeEnabled();
   await expect(page.getByTestId("claude-setup")).toHaveCount(0);
   const projectId = (await core<{ id: string; root: string }[]>(page, "projects.list", undefined)).find(
     (p) => p.root === dir,
@@ -67,7 +67,7 @@ test("a coordinator splits a small task between two workers whose work waits for
   if (!projectId) throw new Error(`no project for ${dir}`);
 
   await page
-    .getByRole("textbox", { name: "Give Claude a task" })
+    .getByRole("textbox", { name: "Describe a task" })
     .fill(
       "Do not read any files. Start exactly two workers with spawn_agent: one named alpha whose task is " +
         '"Create the file alpha.txt containing the single word alpha, then call request_review", and one ' +
