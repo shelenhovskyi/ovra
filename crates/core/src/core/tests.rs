@@ -838,8 +838,8 @@ async fn paths_the_person_changed_outside_the_frames_are_never_the_agents_alone(
     let direct = &core.inner.sessions.direct;
     let begun = direct.begin(&project, &session, "/w".into()).await;
     assert!(begun.is_ok(), "{begun:?}");
-    let make = serde_json::json!({"command": "make"});
-    direct.tool_started(&session, "t1", "Bash", &make).await;
+    let make = crate::fakes::tool("Bash", serde_json::json!({"command": "make"}));
+    direct.tool_started(&session, "t1", &make).await;
     // A drop is imported while the agent's shell call runs.
     wt.put("/w", "img/a.png", "png");
     wt.put("/w", "out.o", "built");

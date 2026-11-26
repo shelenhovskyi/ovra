@@ -19,6 +19,7 @@ use crate::protocol::audit::{
 use crate::protocol::projects::ProjectId;
 use crate::protocol::secrets::SecretValue;
 use crate::protocol::{ProtocolError, Response};
+use crate::services::ToolRequest;
 
 /// Appends `event` and shows it to live viewers. A log that cannot be
 /// written does not stop the work it records, as with the session store;
@@ -94,8 +95,7 @@ type Lane = VecDeque<Decided>;
 
 struct Decided {
     session: Option<SessionId>,
-    tool: String,
-    input: serde_json::Value,
+    tool: ToolRequest,
     allowed: bool,
     by: DecidedBy,
     done: oneshot::Sender<()>,
@@ -140,8 +140,7 @@ pub(crate) fn tool_decided(
     core: &Core,
     project: &ProjectId,
     session: Option<&SessionId>,
-    tool: &str,
-    input: &serde_json::Value,
+    tool: &ToolRequest,
     allowed: bool,
     by: DecidedBy,
 ) -> oneshot::Receiver<()> {
@@ -153,8 +152,7 @@ pub(crate) fn tool_decided(
         .or_default()
         .push_back(Decided {
             session: session.cloned(),
-            tool: tool.to_owned(),
-            input: input.clone(),
+            tool: tool.clone(),
             allowed,
             by,
             done,
@@ -237,8 +235,8 @@ fn drain(core: Core, project: ProjectId) -> impl Future<Output = ()> + Send + 's
             };
             let known = known_secrets(&core, &project).await;
             let event = AuditEvent::ToolDecided {
-                tool: input::cut_name(&next.tool, known.as_deref()),
-                input: input::input(&next.tool, &next.input, known.as_deref()),
+                tool: input::cut_name(&next.tool.name, known.as_deref()),
+                input: input::input(&next.tool, known.as_deref()),
                 allowed: next.allowed,
                 by: next.by,
             };

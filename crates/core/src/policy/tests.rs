@@ -2,9 +2,33 @@ use std::path::Path;
 
 use serde_json::json;
 
-use super::{always_rule, check, decide, program, text};
+use super::{check, program, text};
 use crate::protocol::agents::{SandboxNetwork, SandboxReport};
 use crate::protocol::policy::{Policy, PolicyAction, PolicyRule};
+
+/// [`super::decide`] for a call of one of Claude's tools, as its runtime
+/// maps it.
+fn decide(
+    policy: &Policy,
+    tool: &str,
+    input: &serde_json::Value,
+    work_dir: &Path,
+    sandbox: Option<&SandboxReport>,
+) -> Option<(PolicyAction, String)> {
+    let call = crate::fakes::tool(tool, input.clone()).call;
+    super::decide(policy, tool, &call, work_dir, sandbox)
+}
+
+/// [`super::always_rule`] for a call of one of Claude's tools.
+fn always_rule(
+    tool: &str,
+    input: &serde_json::Value,
+    work_dir: &Path,
+    sandbox: Option<&SandboxReport>,
+) -> Option<PolicyRule> {
+    let call = crate::fakes::tool(tool, input.clone()).call;
+    super::always_rule(tool, &call, work_dir, sandbox)
+}
 
 fn rule(tool: &str, pattern: Option<&str>, action: PolicyAction) -> PolicyRule {
     PolicyRule {
@@ -44,6 +68,46 @@ fn judge(sandbox: Option<&SandboxReport>, tool: &str, input: serde_json::Value) 
         Some((action, rule)) => format!("{action:?} {rule}"),
         None => "ask".to_owned(),
     }
+}
+
+#[test]
+fn rules_read_the_calls_shared_fields_and_still_name_its_tool() {
+    use crate::protocol::agents::{ToolCall, ToolKind};
+    let proxy = sandboxed(SandboxNetwork::Proxy);
+    let edit = |paths: &[&str]| ToolCall {
+        kind: ToolKind::Edit,
+        paths: paths.iter().map(|p| format!("{WORK}/{p}")).collect(),
+        ..ToolCall::default()
+    };
+    let judged = |tool: &str, call: &ToolCall| match super::decide(
+        &policy(),
+        tool,
+        call,
+        Path::new(WORK),
+        Some(&proxy),
+    ) {
+        Some((action, rule)) => format!("{action:?} {rule}"),
+        None => "ask".to_owned(),
+    };
+    // The match is tested against the shared fields, not the input.
+    let shell = ToolCall {
+        kind: ToolKind::Execute,
+        command: Some("git push".into()),
+        ..ToolCall::default()
+    };
+    assert_eq!(judged("Bash", &shell), "Deny Bash(git push)");
+    // A call with several files: auto only when it covers each of them, a
+    // deny when it covers any.
+    assert_eq!(judged("Edit", &edit(&["docs/a.md"])), "Auto Edit(docs/**)");
+    assert_eq!(judged("Edit", &edit(&["docs/a.md", "src/b.rs"])), "ask");
+    assert_eq!(
+        judged("Edit", &edit(&["docs/a.md", "docs/secret.md"])),
+        "Deny Edit(docs/secret.md)"
+    );
+    assert_eq!(judged("Edit", &edit(&[])), "ask", "no file: no match");
+    // A rule keeps its meaning: `Edit(...)` is about `Edit` calls only.
+    assert_eq!(judged("Write", &edit(&["docs/a.md"])), "ask");
+    assert_eq!(judged("run_shell_command", &shell), "ask");
 }
 
 #[test]

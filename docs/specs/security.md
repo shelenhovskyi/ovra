@@ -532,6 +532,13 @@ rules for each project:
   main argument. Only `Bash`, `WebFetch` and the file tools below take a
   `match`; `policy.set` refuses one on any other tool, because it could
   never match.
+  - Rules keep Claude's syntax, and a rule matches only calls of the tool
+    it names. The main argument comes from the call's shared fields
+    (ADR 0011), which the runtime fills: the `command` of an `execute`
+    call for `Bash`, its `paths` for the file tools, its `url` for
+    `WebFetch`.
+  - A file rule and a call that names several files: `auto` applies only
+    when it matches every one, a `deny` or `ask` when it matches any.
 - For `Bash`, `match` is a command prefix, matched on word boundaries
   (`npm test` matches `npm test -- -u`, not `npm testx`).
   - With `"exact": true` it is the whole command instead: `npm test`

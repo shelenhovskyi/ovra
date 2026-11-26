@@ -5,10 +5,8 @@
 
 use std::path::{Component, Path, PathBuf};
 
-use serde_json::Value;
-
 use crate::Core;
-use crate::protocol::agents::{SandboxNetwork, SandboxReport};
+use crate::protocol::agents::{SandboxNetwork, SandboxReport, ToolCall, ToolKind};
 use crate::protocol::audit::{AuditEvent, DecidedBy};
 use crate::protocol::permissions::{
     Decision, PermissionAnswer, PermissionId, PermissionRequest, PermissionsEvent,
@@ -18,14 +16,30 @@ use crate::protocol::policy::{
 };
 use crate::protocol::{ErrorCode, ProtocolError, Response};
 
-/// Tools whose main argument is a file, and the input field naming it.
-const FILE_TOOLS: [(&str, &str); 5] = [
-    ("Read", "file_path"),
-    ("Edit", "file_path"),
-    ("MultiEdit", "file_path"),
-    ("Write", "file_path"),
-    ("NotebookEdit", "notebook_path"),
+/// Rules are written in Claude's syntax (`Bash(git *)`, `Edit(src/**)`,
+/// `WebFetch(docs.rs)`): the tools whose rules take a `match`, and what it
+/// is tested against, by the call's kind: the command of an `execute`
+/// call, the paths of a `read` or `edit` call, the URL of a `fetch` call.
+/// The last column says whether "Always allow" offers a rule for the tool.
+/// A rule still names the tool: it matches only calls of that name.
+const MATCHED_TOOLS: [(&str, ToolKind, bool); 7] = [
+    ("Bash", ToolKind::Execute, true),
+    ("WebFetch", ToolKind::Fetch, true),
+    ("Read", ToolKind::Read, false),
+    ("Edit", ToolKind::Edit, true),
+    ("MultiEdit", ToolKind::Edit, false),
+    ("Write", ToolKind::Edit, true),
+    ("NotebookEdit", ToolKind::Edit, false),
 ];
+
+/// What a rule's `match` is tested against for calls of `tool`; `None`
+/// when a rule for it takes no match.
+fn matched_kind(tool: &str) -> Option<ToolKind> {
+    MATCHED_TOOLS
+        .iter()
+        .find(|(name, ..)| *name == tool)
+        .map(|(_, kind, _)| *kind)
+}
 
 /// Shell syntax that runs more than the matched command: such a command
 /// never matches an `auto` rule.
@@ -210,7 +224,8 @@ fn check(rule: &PolicyRule) -> Result<(), ProtocolError> {
     if rule.tool.starts_with(crate::orchestration::IDE_TOOL_PREFIX) {
         return bad("Ovra's own tools follow their role's rules, not policies");
     }
-    if rule.exact && (rule.tool != "Bash" || rule.pattern.is_none()) {
+    let kind = matched_kind(&rule.tool);
+    if rule.exact && (kind != Some(ToolKind::Execute) || rule.pattern.is_none()) {
         return bad("only a Bash rule with a match can match the exact command");
     }
     // An exact deny or ask would let `npm test -- -u` through a rule
@@ -226,19 +241,20 @@ fn check(rule: &PolicyRule) -> Result<(), ProtocolError> {
     if pattern.trim().is_empty() {
         return bad("the match is empty; leave it out to match every call");
     }
-    if rule.tool == "Bash" {
-        return Ok(());
-    }
-    if rule.tool == "WebFetch" {
-        return match crate::netproxy::parse_host(pattern) {
-            Ok(host) if host == *pattern => Ok(()),
-            _ => bad("a WebFetch match is one host in lower case, such as docs.rs"),
-        };
-    }
-    if file_field(&rule.tool).is_none() {
-        return bad(
-            "only Bash, WebFetch and file tools take a match; leave it out to match every call",
-        );
+    match kind {
+        Some(ToolKind::Execute) => return Ok(()),
+        Some(ToolKind::Fetch) => {
+            return match crate::netproxy::parse_host(pattern) {
+                Ok(host) if host == *pattern => Ok(()),
+                _ => bad("a WebFetch match is one host in lower case, such as docs.rs"),
+            };
+        }
+        Some(ToolKind::Read | ToolKind::Edit) => {}
+        _ => {
+            return bad(
+                "only Bash, WebFetch and file tools take a match; leave it out to match every call",
+            );
+        }
     }
     let segments: Vec<&str> = pattern.split(['/', '\\']).collect();
     if pattern.starts_with('/')
@@ -262,19 +278,24 @@ fn check(rule: &PolicyRule) -> Result<(), ProtocolError> {
 /// runs other commands, or a host where anyone can receive data.
 pub(crate) fn always_rule(
     tool: &str,
-    input: &Value,
+    call: &ToolCall,
     work_dir: &Path,
     sandbox: Option<&SandboxReport>,
 ) -> Option<PolicyRule> {
     if !sandbox.is_some_and(|s| s.network != SandboxNetwork::Open) {
         return None;
     }
-    let text = |field: &str| input.get(field).and_then(Value::as_str);
-    let pattern = match tool {
-        "Bash" => command_scope(text("command")?)?,
+    let (_, kind, _) = MATCHED_TOOLS
+        .iter()
+        .find(|(name, _, always)| *name == tool && *always)?;
+    let pattern = match kind {
+        ToolKind::Execute => command_scope(call.command.as_deref()?)?,
         // The exact file: a glob could cover a protected path.
-        "Edit" | "Write" => {
-            let path = inside(work_dir, Path::new(text("file_path")?))?;
+        ToolKind::Edit => {
+            let [path] = call.paths.as_slice() else {
+                return None;
+            };
+            let path = inside(work_dir, Path::new(path))?;
             let special = path.contains(['*', '?', '[', ':']);
             let kept = special
                 || short_name(&path)
@@ -282,8 +303,8 @@ pub(crate) fn always_rule(
                 || runs_commands(&path);
             (!kept).then_some(path)?
         }
-        "WebFetch" => {
-            let host = url_host(text("url")?)?;
+        ToolKind::Fetch => {
+            let host = url_host(call.url.as_deref()?)?;
             let named = host.parse::<std::net::IpAddr>().is_err() && host.contains('.');
             (named && !crate::netproxy::is_broad(&host)).then_some(host)?
         }
@@ -294,10 +315,10 @@ pub(crate) fn always_rule(
         pattern: Some(pattern),
         action: PolicyAction::Auto,
         // The command offered, not every command it starts.
-        exact: tool == "Bash",
+        exact: *kind == ToolKind::Execute,
         from_approval: true,
     };
-    let fits = check(&rule).is_ok() && matches(&rule, input, work_dir, PolicyAction::Auto);
+    let fits = check(&rule).is_ok() && matches(&rule, call, work_dir, PolicyAction::Auto);
     fits.then_some(rule)
 }
 
@@ -461,7 +482,7 @@ fn added(
     let store = core.project_store();
     let mut policy = store.policy(&request.project)?;
     // Without a sandbox only deny and ask rules decide.
-    if decide(&policy, &request.tool, &request.input, cwd, None).is_some() {
+    if decide(&policy, &request.tool, &request.call, cwd, None).is_some() {
         return Err(ProtocolError::new(
             ErrorCode::BadRequest,
             "a project rule now asks about this call; nothing was added",
@@ -504,7 +525,7 @@ pub(crate) fn text(rule: &PolicyRule) -> String {
 pub(crate) fn decide(
     policy: &Policy,
     tool: &str,
-    input: &Value,
+    call: &ToolCall,
     work_dir: &Path,
     sandbox: Option<&SandboxReport>,
 ) -> Option<(PolicyAction, String)> {
@@ -513,7 +534,7 @@ pub(crate) fn decide(
             .rules
             .iter()
             .filter(|r| r.action == action && r.tool == tool)
-            .find(|r| matches(r, input, work_dir, action))
+            .find(|r| matches(r, call, work_dir, action))
             .map(|r| (action, text(r)))
     };
     if let Some(denied) = matching(PolicyAction::Deny) {
@@ -532,12 +553,16 @@ pub(crate) fn decide(
     None
 }
 
-fn matches(rule: &PolicyRule, input: &Value, work_dir: &Path, action: PolicyAction) -> bool {
+/// Whether `rule`, which names the call's tool, matches `call`: its
+/// `match` is tested against the field the rule's tool takes it for
+/// ([`MATCHED_TOOLS`]).
+fn matches(rule: &PolicyRule, call: &ToolCall, work_dir: &Path, action: PolicyAction) -> bool {
     let Some(pattern) = &rule.pattern else {
         return true;
     };
-    if rule.tool == "Bash" {
-        let Some(command) = input.get("command").and_then(Value::as_str) else {
+    let kind = matched_kind(&rule.tool);
+    if kind == Some(ToolKind::Execute) {
+        let Some(command) = call.command.as_deref() else {
             return false;
         };
         let fits = |part: &str| {
@@ -556,9 +581,8 @@ fn matches(rule: &PolicyRule, input: &Value, work_dir: &Path, action: PolicyActi
             command.split(['\n', ';', '&', '|']).any(fits)
         };
     }
-    if rule.tool == "WebFetch" {
-        let url = input.get("url").and_then(Value::as_str);
-        return match url.and_then(url_host) {
+    if kind == Some(ToolKind::Fetch) {
+        return match call.url.as_deref().and_then(url_host) {
             // `auto` allows the host it names and nothing else.
             Some(host) if action == PolicyAction::Auto => host == *pattern,
             // A deny or ask covers the host's subdomains too.
@@ -568,23 +592,20 @@ fn matches(rule: &PolicyRule, input: &Value, work_dir: &Path, action: PolicyActi
             None => action != PolicyAction::Auto,
         };
     }
-    let Some(field) = file_field(&rule.tool) else {
+    if !matches!(kind, Some(ToolKind::Read | ToolKind::Edit)) || call.paths.is_empty() {
         return false;
-    };
-    let Some(path) = input.get(field).and_then(Value::as_str) else {
-        return false;
-    };
-    match inside(work_dir, Path::new(path)) {
+    }
+    let fits = |path: &String| match inside(work_dir, Path::new(path)) {
         Some(rel) => glob(pattern, &rel),
         None => false,
+    };
+    // `auto` allows a call only when it allows every file the call names;
+    // a deny or ask holds when it covers any of them.
+    if action == PolicyAction::Auto {
+        call.paths.iter().all(fits)
+    } else {
+        call.paths.iter().any(fits)
     }
-}
-
-fn file_field(tool: &str) -> Option<&'static str> {
-    FILE_TOOLS
-        .iter()
-        .find(|(name, _)| *name == tool)
-        .map(|(_, field)| *field)
 }
 
 /// The host an `http` or `https` URL names, as the netproxy writes hosts;

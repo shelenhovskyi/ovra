@@ -247,7 +247,7 @@ impl Harness {
 
     async fn started(&self, id: &str, tool: &str, input: Value) {
         self.direct
-            .tool_started(&self.session, id, tool, &input)
+            .tool_started(&self.session, id, &crate::fakes::tool(tool, input.clone()))
             .await;
     }
 
@@ -330,11 +330,11 @@ async fn to_an_earlier_session_a_later_ones_changes_are_outside() {
     let s2 = session("s2");
     assert!(h.direct.begin(&h.project, &s2, DIR.into()).await.is_ok());
     h.direct
-        .tool_started(&s2, "t2", "Write", &write_input("a.rs"))
+        .tool_started(&s2, "t2", &crate::fakes::tool("Write", write_input("a.rs")))
         .await;
     h.put("a.rs", "first + second\n");
     h.direct
-        .tool_started(&s2, "t3", "Write", &write_input("b.rs"))
+        .tool_started(&s2, "t3", &crate::fakes::tool("Write", write_input("b.rs")))
         .await;
     h.put("b.rs", "second\n");
     assert!(h.direct.tool_ended(&s2, "t2") && h.direct.tool_ended(&s2, "t3"));
@@ -471,11 +471,13 @@ async fn a_tool_waiting_for_approval_does_not_claim_what_the_person_edits_meanwh
     let h = Harness::start(&[("a.rs", "a\n")]).await;
     let input = json!({"command": "cargo fmt"});
     h.started("t1", "Bash", input.clone()).await;
-    h.direct.tool_waiting(&h.session, "Bash", &input).await;
+    h.direct
+        .tool_waiting(&h.session, &crate::fakes::tool("Bash", input.clone()))
+        .await;
     // The approval card is open; the person keeps working.
     h.put("a.rs", "mine\n");
     h.direct
-        .tool_answered(&h.session, "Bash", &input, true)
+        .tool_answered(&h.session, &crate::fakes::tool("Bash", input.clone()), true)
         .await;
     h.put("fmt.rs", "formatted\n");
     h.ended("t1").await;
@@ -484,8 +486,12 @@ async fn a_tool_waiting_for_approval_does_not_claim_what_the_person_edits_meanwh
     // A denied tool never runs.
     let rm = json!({"command": "rm a.rs"});
     h.started("t2", "Bash", rm.clone()).await;
-    h.direct.tool_waiting(&h.session, "Bash", &rm).await;
-    h.direct.tool_answered(&h.session, "Bash", &rm, false).await;
+    h.direct
+        .tool_waiting(&h.session, &crate::fakes::tool("Bash", rm.clone()))
+        .await;
+    h.direct
+        .tool_answered(&h.session, &crate::fakes::tool("Bash", rm.clone()), false)
+        .await;
     h.put("later.rs", "mine\n");
     h.ended("t2").await;
     assert_eq!(
@@ -702,6 +708,37 @@ async fn file_tools_outside_the_project_and_other_tools_claim_nothing() {
     );
     assert!(h.reject().await.is_empty());
     assert_eq!(h.text("c.rs").as_deref(), Some("mine\n"));
+}
+
+#[tokio::test]
+async fn any_agents_file_calls_claim_the_files_they_name_by_kind() {
+    use crate::protocol::agents::{ToolCall, ToolKind};
+    let h = Harness::start(&[("a.rs", "a\n")]).await;
+    // Another agent's move names both files; its name means nothing here.
+    let call = |kind, paths: &[&str]| ToolRequest {
+        name: "move_file".into(),
+        input: json!({}),
+        call: ToolCall {
+            kind,
+            paths: paths.iter().map(|p| (*p).to_owned()).collect(),
+            ..ToolCall::default()
+        },
+        written: None,
+    };
+    let moved = call(ToolKind::Move, &["a.rs", "b.rs"]);
+    h.direct.tool_started(&h.session, "t1", &moved).await;
+    h.put("a.rs", "changed\n");
+    h.put("b.rs", "new\n");
+    h.ended("t1").await;
+    // A read named the same way claims nothing.
+    let read = call(ToolKind::Read, &["c.rs"]);
+    h.direct.tool_started(&h.session, "t2", &read).await;
+    h.put("c.rs", "mine\n");
+    h.ended("t2").await;
+    assert_eq!(
+        h.by().await,
+        by(&[("a.rs", Agent), ("b.rs", Agent), ("c.rs", Outside)])
+    );
 }
 
 #[test]

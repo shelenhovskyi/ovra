@@ -176,9 +176,14 @@ fn a_failed_append_warns_without_the_entrys_content() {
 mod inputs {
     use serde_json::json;
 
-    use super::super::input::{MAX_INPUT_BYTES, REDACTED, cut_name, input};
+    use super::super::input::{MAX_INPUT_BYTES, REDACTED, cut_name};
     use crate::protocol::audit::AuditInput;
     use crate::protocol::secrets::SecretValue;
+
+    /// A call of one of Claude's tools, as its runtime maps it, as kept.
+    fn input(tool: &str, value: &serde_json::Value, known: Option<&[SecretValue]>) -> AuditInput {
+        super::super::input::input(&crate::fakes::tool(tool, value.clone()), known)
+    }
 
     fn text(tool: &str, value: serde_json::Value) -> String {
         match input(tool, &value, Some(&[])) {
@@ -225,6 +230,35 @@ mod inputs {
                 sha256: None
             }
         );
+    }
+
+    #[test]
+    fn any_agents_edit_of_one_file_keeps_its_path_and_a_hash() {
+        use crate::protocol::agents::{ToolCall, ToolKind};
+        use crate::services::ToolRequest;
+        let edit = |paths: &[&str]| ToolRequest {
+            name: "replace".into(),
+            input: json!({"target": paths, "text": "ghp_secretsecretsecret"}),
+            call: ToolCall {
+                kind: ToolKind::Edit,
+                paths: paths.iter().map(|p| (*p).to_owned()).collect(),
+                ..ToolCall::default()
+            },
+            written: Some("ghp_secretsecretsecret".into()),
+        };
+        let kept = |paths: &[&str]| super::super::input::input(&edit(paths), Some(&[]));
+        assert_eq!(
+            kept(&["src/a.rs"]),
+            AuditInput::File {
+                path: "src/a.rs".into(),
+                sha256: Some(sha("ghp_secretsecretsecret")),
+            }
+        );
+        // Several files do not fit one path: the input is kept, redacted.
+        let AuditInput::Json { text } = kept(&["a", "b"]) else {
+            panic!("several files are kept as JSON");
+        };
+        assert!(!text.contains("ghp_secret"), "{text}");
     }
 
     fn sha(text: &str) -> String {
@@ -921,7 +955,14 @@ mod keychain {
     async fn decide(core: &Core, command: &str) {
         let input = bash(command);
         let by = DecidedBy::Person;
-        let recorded = tool_decided(core, &project("p1"), None, "Bash", &input, true, by);
+        let recorded = tool_decided(
+            core,
+            &project("p1"),
+            None,
+            &crate::fakes::tool("Bash", input.clone()),
+            true,
+            by,
+        );
         recorded.await.unwrap_or_else(|e| panic!("{e}"));
     }
 
@@ -933,7 +974,14 @@ mod keychain {
         let core = core(&keychain, &log);
         let input = bash("echo known-value-123");
         let by = DecidedBy::Person;
-        let recorded = tool_decided(&core, &project("p1"), None, "Bash", &input, true, by);
+        let recorded = tool_decided(
+            &core,
+            &project("p1"),
+            None,
+            &crate::fakes::tool("Bash", input.clone()),
+            true,
+            by,
+        );
         keychain.entered.notified().await;
         tokio::time::advance(KEYCHAIN_TIMEOUT).await;
         recorded.await.unwrap_or_else(|e| panic!("{e}"));
@@ -1062,7 +1110,14 @@ mod keychain {
 
     fn decided(core: &Core, project: &ProjectId, command: &str) -> oneshot::Receiver<()> {
         let by = DecidedBy::Person;
-        tool_decided(core, project, None, "Bash", &bash(command), true, by)
+        tool_decided(
+            core,
+            project,
+            None,
+            &crate::fakes::tool("Bash", bash(command)),
+            true,
+            by,
+        )
     }
 
     #[tokio::test(start_paused = true)]

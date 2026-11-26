@@ -9,8 +9,10 @@ use std::fmt::Write as _;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+use crate::protocol::agents::ToolKind;
 use crate::protocol::audit::AuditInput;
 use crate::protocol::secrets::SecretValue;
+use crate::services::ToolRequest;
 
 /// The most bytes of JSON (or of a path) an entry keeps.
 pub(crate) const MAX_INPUT_BYTES: usize = 4096;
@@ -38,14 +40,6 @@ const BUILT_IN_TOOLS: [&str; 18] = [
     "WebFetch",
     "WebSearch",
     "Write",
-];
-
-/// File tools: their path field and the field with what they write.
-const FILE_TOOLS: [(&str, &str, &str); 4] = [
-    ("Write", "file_path", "content"),
-    ("Edit", "file_path", "new_string"),
-    ("MultiEdit", "file_path", "edits"),
-    ("NotebookEdit", "notebook_path", "new_source"),
 ];
 
 /// How known tokens start; each needs at least [`MIN_TOKEN_TAIL`] more
@@ -110,19 +104,20 @@ const SECRET_FIELD_ENDS: [&str; 10] = [
 
 /// `known` holds the values of the project's secrets; `None` when they
 /// could not be read, and then nothing the agent wrote is kept but a hash.
-pub(crate) fn input(tool: &str, input: &Value, known: Option<&[SecretValue]>) -> AuditInput {
+///
+/// An `edit` call of one file is kept as that file and the hash of what it
+/// writes (`ToolRequest::written`); every other call as its input.
+pub(crate) fn input(tool: &ToolRequest, known: Option<&[SecretValue]>) -> AuditInput {
     let known = known.map(Known::new);
-    if let Some((_, path, content)) = FILE_TOOLS.iter().find(|(name, ..)| *name == tool) {
-        let path = input.get(*path).and_then(Value::as_str).unwrap_or("");
+    let call = &tool.call;
+    if call.kind == ToolKind::Edit && call.paths.len() <= 1 {
+        let path = call.paths.first().map_or("", String::as_str);
         return AuditInput::File {
             path: match &known {
                 Some(known) => cut(redact_string(path, known)),
                 None => REDACTED.to_owned(),
             },
-            sha256: input.get(*content).map(|content| match content {
-                Value::String(text) => sha256(text.as_bytes()),
-                other => sha256(other.to_string().as_bytes()),
-            }),
+            sha256: tool.written.as_deref().map(|text| sha256(text.as_bytes())),
         };
     }
     let Some(known) = known else {
@@ -130,7 +125,7 @@ pub(crate) fn input(tool: &str, input: &Value, known: Option<&[SecretValue]>) ->
             text: REDACTED.to_owned(),
         };
     };
-    let mut kept = input.clone();
+    let mut kept = tool.input.clone();
     redact(&mut kept, &known);
     AuditInput::Json {
         text: cut(kept.to_string()),

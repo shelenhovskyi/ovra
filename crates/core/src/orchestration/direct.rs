@@ -9,12 +9,12 @@
 //! conflict, and is left alone.
 //!
 //! How the evidence is gathered. Looks at the tree split the session into
-//! intervals. While any file-changing tool of the agent runs (`Write`,
-//! `Edit`, `MultiEdit`, `NotebookEdit`, `Bash`), an interval is open; it
-//! starts with a look at the tree (`pre`, a tree id written from a temporary
-//! index) and ends with another (`post`). What changed
-//! from `pre` to the end belongs to the agent if a `Bash` call ran in the
-//! interval, or if a file tool named the file; the rest changed outside it.
+//! intervals. While any file-changing tool of the agent runs (an `edit`,
+//! `delete`, `move` or `execute` call; Claude: `Write`, `Edit`, `Bash`, ...),
+//! an interval is open; it starts with a look at the tree (`pre`, a tree id
+//! written from a temporary index) and ends with another (`post`). What
+//! changed from `pre` to the end belongs to the agent if an `execute` call ran in the
+//! interval, or if a file call named the file; the rest changed outside it.
 //! Between intervals only the person (or a formatter, or git) changes files:
 //! each new interval and each review first compares the tree with the last
 //! `post` and marks what differs as changed outside. An agent file changed
@@ -35,11 +35,11 @@ use serde_json::Value;
 
 use crate::path::RelPath;
 use crate::protected;
-use crate::protocol::agents::SessionId;
+use crate::protocol::agents::{SessionId, ToolCall, ToolKind};
 use crate::protocol::projects::ProjectId;
 use crate::protocol::review::{ChangedBy, FileChange};
 use crate::protocol::{ErrorCode, ProtocolError};
-use crate::services::{Delta, Result, Worktrees};
+use crate::services::{Delta, Result, ToolRequest, Worktrees};
 
 /// Direct sessions with changes still to review, by session. At most one
 /// of a project's is active (its agent runs): the "direct writer" lock.
@@ -284,29 +284,23 @@ impl Direct {
         base
     }
 
-    /// The `PreToolUse` hook: the agent is about to run a tool. `input` is
-    /// the tool's input. Waits for the `pre` look when it opens an
-    /// interval; errors are swallowed because the tool must still run (its
-    /// changes then look changed outside).
-    pub(crate) async fn tool_started(
-        &self,
-        session: &SessionId,
-        id: &str,
-        name: &str,
-        input: &Value,
-    ) {
+    /// The agent is about to run `tool` (Claude: the `PreToolUse` hook).
+    /// Waits for the `pre` look when it opens an interval; errors are
+    /// swallowed because the tool must still run (its changes then look
+    /// changed outside).
+    pub(crate) async fn tool_started(&self, session: &SessionId, id: &str, tool: &ToolRequest) {
         let worktrees = &*self.worktrees;
         let Some((_, writer)) = self.find(session) else {
             return;
         };
-        let Some(kind) = Kind::of(&writer.dir, name, input) else {
+        let Some(kind) = Kind::of(&writer.dir, &tool.call) else {
             return;
         };
         let mut tracker = writer.lock(worktrees).await;
         if let Some(t) = tracker.as_mut() {
             let tool = Tool {
-                name: name.to_owned(),
-                input: input.clone(),
+                name: tool.name.clone(),
+                input: tool.input.clone(),
                 kind,
                 waiting: false,
             };
@@ -318,7 +312,7 @@ impl Direct {
     /// The tool asks the person: it is not running until they answer.
     /// Permission requests do not carry the tool call's id, so the tool is
     /// found by name and input.
-    pub(crate) async fn tool_waiting(&self, session: &SessionId, name: &str, input: &Value) {
+    pub(crate) async fn tool_waiting(&self, session: &SessionId, tool: &ToolRequest) {
         let worktrees = &*self.worktrees;
         let Some((_, writer)) = self.find(session) else {
             return;
@@ -327,7 +321,7 @@ impl Direct {
         let Some(t) = tracker.as_mut() else {
             return;
         };
-        if let Some(id) = t.find(name, input, false)
+        if let Some(id) = t.find(&tool.name, &tool.input, false)
             && let Some(tool) = t.tools.get_mut(&id)
         {
             tool.waiting = true;
@@ -340,8 +334,7 @@ impl Direct {
     pub(crate) async fn tool_answered(
         &self,
         session: &SessionId,
-        name: &str,
-        input: &Value,
+        tool: &ToolRequest,
         allowed: bool,
     ) {
         let worktrees = &*self.worktrees;
@@ -352,7 +345,7 @@ impl Direct {
         let Some(t) = tracker.as_mut() else {
             return;
         };
-        let Some(id) = t.find(name, input, true) else {
+        let Some(id) = t.find(&tool.name, &tool.input, true) else {
             return;
         };
         if allowed {
@@ -649,27 +642,21 @@ fn not_direct() -> ProtocolError {
 enum Kind {
     /// Any file: everything that changes while it runs is the agent's.
     Shell,
-    /// The one file it names, relative to the project root. `None` when the
-    /// path is outside the project: then nothing is the agent's.
-    File(Option<String>),
+    /// The files it names, relative to the project root. Paths outside the
+    /// project are left out: nothing there is the agent's.
+    Files(Vec<String>),
 }
 
-/// Tools that change one named file, and the input field naming it.
-const FILE_TOOLS: [(&str, &str); 4] = [
-    ("Write", "file_path"),
-    ("Edit", "file_path"),
-    ("MultiEdit", "file_path"),
-    ("NotebookEdit", "notebook_path"),
-];
-
 impl Kind {
-    fn of(dir: &Path, name: &str, input: &Value) -> Option<Self> {
-        if name == "Bash" {
-            return Some(Self::Shell);
+    /// `None` for a call that changes no file: reads, searches, fetches.
+    fn of(dir: &Path, call: &ToolCall) -> Option<Self> {
+        match call.kind {
+            ToolKind::Execute => Some(Self::Shell),
+            ToolKind::Edit | ToolKind::Delete | ToolKind::Move => Some(Self::Files(
+                call.paths.iter().filter_map(|p| relative(dir, p)).collect(),
+            )),
+            _ => None,
         }
-        let (_, field) = FILE_TOOLS.iter().find(|(tool, _)| *tool == name)?;
-        let path = input.get(field).and_then(Value::as_str);
-        Some(Self::File(path.and_then(|p| relative(dir, p))))
     }
 }
 
@@ -862,10 +849,7 @@ impl Tracker {
         if let Some(open) = self.open.as_mut() {
             match &tool.kind {
                 Kind::Shell => open.shell = true,
-                Kind::File(Some(path)) => {
-                    open.files.insert(path.clone());
-                }
-                Kind::File(None) => {}
+                Kind::Files(paths) => open.files.extend(paths.iter().cloned()),
             }
         }
     }

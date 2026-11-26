@@ -631,7 +631,7 @@ impl AgentHost {
         Ok(crate::policy::decide(
             &policy,
             &tool.name,
-            &tool.input,
+            &tool.call,
             &cwd.ok_or(())?,
             sandbox.as_ref(),
         ))
@@ -680,15 +680,7 @@ impl AgentHost {
         by: DecidedBy,
     ) -> impl Future<Output = ()> + use<> {
         let recorded = self.sessions.core().map(|core| {
-            crate::audit::tool_decided(
-                &core,
-                &self.project,
-                Some(&self.session),
-                &tool.name,
-                &tool.input,
-                allowed,
-                by,
-            )
+            crate::audit::tool_decided(&core, &self.project, Some(&self.session), tool, allowed, by)
         });
         async move {
             if let Some(recorded) = recorded {
@@ -759,7 +751,7 @@ impl AgentHost {
         if let Some(id) = id {
             self.sessions
                 .direct
-                .tool_started(&self.session, id, &tool.name, &tool.input)
+                .tool_started(&self.session, id, tool)
                 .await;
         }
         verdict
@@ -888,7 +880,7 @@ impl AgentHost {
                 // between the two).
                 self.sessions
                     .direct
-                    .tool_answered(&self.session, &tool.name, &tool.input, false)
+                    .tool_answered(&self.session, &tool, false)
                     .await;
                 let answer = PermissionAnswer::deny(format!(
                     "The project's policy refuses this ({rule}). Ask the person if it is needed."
@@ -921,7 +913,7 @@ impl AgentHost {
             let cwd = s.launch().map(|l| l.cwd);
             let sandbox = s.info().sandbox;
             let always = cwd.as_deref().filter(|_| open).and_then(|cwd| {
-                crate::policy::always_rule(&tool.name, &tool.input, cwd, sandbox.as_ref())
+                crate::policy::always_rule(&tool.name, &tool.call, cwd, sandbox.as_ref())
             });
             Ok(s.permissions.register(PermissionRequest {
                 id: PermissionId(String::new()),
@@ -952,9 +944,7 @@ impl AgentHost {
             settled: false,
         };
         let direct = &self.sessions.direct;
-        direct
-            .tool_waiting(&self.session, &tool.name, &tool.input)
-            .await;
+        direct.tool_waiting(&self.session, &tool).await;
         self.sink
             .emit(PermissionsEvent::Requested(Box::new(request)));
         self.set_status(AgentStatus::WaitingForApproval);
@@ -968,9 +958,7 @@ impl AgentHost {
         // Queued at once, so the entry survives the future being dropped.
         let allowed = answer.decision == Decision::Allow;
         let recorded = self.audit_tool(&tool, allowed, by);
-        direct
-            .tool_answered(&self.session, &tool.name, &tool.input, allowed)
-            .await;
+        direct.tool_answered(&self.session, &tool, allowed).await;
         // Ignored while other requests of the session still wait.
         self.set_status(AgentStatus::Working);
         waiting.settled = true;
