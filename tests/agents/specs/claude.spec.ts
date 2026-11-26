@@ -166,9 +166,9 @@ test("a hook asks before a write outside the project even when settings allow it
   // Trust is at the bottom of the full list, never on the card itself.
   await trust.getByRole("button", { name: "Review and trust…" }).click();
   await trust.getByTestId("trust-details").getByRole("button", { name: "Trust project" }).click();
-  await expect(trust.getByRole("heading")).toHaveText("Trusted project settings");
+  await expect(trust.getByRole("button", { name: "Details" })).toBeVisible();
   await trust.getByRole("button", { name: "Details" }).click();
-  await expect(trust.getByRole("heading")).toHaveText("Project settings are on");
+  await expect(trust.getByRole("button", { name: "Hide", exact: true })).toBeVisible();
 
   const session = await startSession(
     page,

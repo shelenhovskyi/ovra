@@ -4,16 +4,19 @@
 // settings, hooks, agents, commands and skills. A project without settings
 // of its own shows no card: the `projects.review_trust` command opens it
 // (the language servers' "Turn on" does). With settings, the card leads
-// with counts and every warning line; "Review and trust…" opens the full
-// lists, and Trust sits at their bottom, so nobody trusts what they did not
-// see listed. Settings that changed since (a git pull, say) do not load
-// until the user trusts them again.
+// with one plain sentence and the warning lines (short, counted, never
+// hidden); "Review and trust…" opens the full lists, and Trust sits at their
+// bottom, so nobody trusts what they did not see listed. Once trusted, the
+// card folds to one line with the warning count; its toggle stays in the
+// heading row, open or not. Settings that changed since (a git pull, say)
+// do not load until the user trusts them again.
 import { tick, untrack } from "svelte";
 import { registerCommand } from "../../keys/commands";
 import type { ProjectConfigReview } from "../../lib/protocol";
 import { CoreError } from "../../lib/transport";
 import { languageServers } from "../../lsp/servers.svelte";
 import { useOvra } from "../../shell/context";
+import Icon from "../../shell/Icon.svelte";
 import {
   changeSummary,
   changes,
@@ -21,7 +24,6 @@ import {
   KIND_LABELS,
   type Row,
   runsCode,
-  summary,
   TRUST_ARM_MS,
   touchesConfig,
   warnings,
@@ -36,7 +38,10 @@ const lsp = languageServers(transport);
 let section = $state<HTMLElement>();
 
 let review = $state<ProjectConfigReview | null>(null);
+/** The card is open (a trusted one folds to a line), or the "no settings" card is asked for. */
 let details = $state(false);
+/** The full lists are open. */
+let lists = $state(false);
 let more = $state<Record<string, boolean>>({});
 let busy = $state(false);
 let error = $state<string | null>(null);
@@ -68,10 +73,8 @@ const risk = $derived(
     : warnings(items, project?.trusted ? "trusted" : "untrusted"),
 );
 const counts = $derived(
-  changed
-    ? changeSummary(diff) ||
-        "The list is the same, but file contents changed (a hook script, a skill or an environment value, for example)."
-    : summary(items),
+  changeSummary(diff) ||
+    "The list is the same, but file contents changed (a hook script, a skill or an environment value, for example).",
 );
 const shownGroups = $derived(
   groups(
@@ -93,7 +96,7 @@ const heading = $derived(
     : project?.trusted
       ? empty
         ? "Project trusted · no Claude settings of its own"
-        : "Project settings are on"
+        : "Project's own settings are on"
       : empty
         ? "No Claude settings in this project"
         : "This project has its own Claude settings",
@@ -103,11 +106,13 @@ const lead = $derived(
     ? "Claude runs without them until you trust the changes."
     : project?.trusted
       ? "Claude uses this project's own commands, hooks and skills. If they change, Ovra asks again."
-      : "Trusting lets Claude use this project's own commands, hooks and skills, and starts language servers.",
+      : "Trusting lets Claude use this project's own commands, hooks and skills, and starts language servers. Trust only a project whose authors you trust; Claude works without it.",
 );
 const sandbox = $derived(lsp.status?.sandbox);
 /** Trusted and unchanged: nothing to decide, so one quiet line until Details opens. */
 const settled = $derived(project?.trusted === true && review !== null && !changed && !empty && !details);
+/** A decision is pending: the lists lead to a Trust button. */
+const deciding = $derived(changed || project?.trusted !== true);
 const warningCount = $derived([risk.broad, risk.code, risk.env, risk.unreadable].filter(Boolean).length);
 
 // The language servers' footer links here: trusting is what starts them.
@@ -117,6 +122,7 @@ $effect(() =>
     title: "Review and trust this project",
     run: async () => {
       details = true;
+      lists = true;
       await tick();
       section?.scrollIntoView({ block: "nearest" });
       // Never a Trust button: the Enter that ran this command must not trust.
@@ -126,6 +132,14 @@ $effect(() =>
   }),
 );
 
+/** Opens or closes the lists; opened, they are scrolled into view. */
+async function toggleLists(): Promise<void> {
+  lists = !lists;
+  if (!lists) return;
+  await tick();
+  section?.querySelector("#trust-details")?.scrollIntoView?.({ block: "start", behavior: "smooth" });
+}
+
 function rearm(): void {
   shownAt = Date.now();
   now = shownAt;
@@ -134,7 +148,7 @@ function rearm(): void {
 
 // Whatever changes what the card shows (or where it puts the buttons) arms them again.
 $effect(() => {
-  void [project?.id, project?.trusted, review?.current.fingerprint, changed, empty, details];
+  void [project?.id, project?.trusted, review?.current.fingerprint, changed, empty, details, lists];
   untrack(rearm);
 });
 
@@ -162,6 +176,7 @@ $effect(() => {
   const id = project?.id;
   untrack(() => {
     details = false;
+    lists = false;
     more = {};
     review = null;
     error = null;
@@ -213,6 +228,7 @@ function trust(trusted: boolean): Promise<void> {
       });
       if (workspace.project?.id === id) workspace.project = updated.data;
       details = false;
+      lists = false;
     } catch (err) {
       error = text(err);
     } finally {
@@ -264,118 +280,128 @@ function trust(trusted: boolean): Promise<void> {
             : " without a sandbox on this computer"}.
         </p>
       {/if}
-    {:else if settled}
+    {:else}
       <div class="row">
-        <h3 id="trust-heading" tabindex="-1">Trusted project settings</h3>
-        <span class="actions">
-          {#if warningCount > 0}
-            {@const words = warningCount === 1 ? " warning" : " warnings"}
-            <span class="chip" title="Warnings: see Details" data-testid="trust-warning-count"
-              ><span aria-hidden="true">⚠</span> {warningCount}<span class="visually-hidden">{words}</span></span
-            >
-          {/if}
+        <h3 id="trust-heading" tabindex="-1">{heading}</h3>
+        {#if project.trusted && !changed}
+          <!-- Open or folded, the toggle stays here, where the eye left it. -->
           <button
             type="button"
-            class="link"
-            aria-expanded="false"
-            aria-controls="trust-details"
-            onclick={() => (details = true)}>Details</button
+            class="link toggle"
+            aria-expanded={!settled}
+            aria-controls="trust-body"
+            onclick={() => (details = !details)}
           >
-        </span>
-      </div>
-    {:else}
-      <h3 id="trust-heading" tabindex="-1">{heading}</h3>
-      <p class="detail">{lead}</p>
-      <p data-testid="trust-summary">{counts}</p>
-      <!-- "⚠" marks warnings by shape, not only by colour. -->
-      {#if risk.broad}
-        <p class="warning" role="note" data-testid="broad-rules">⚠ {risk.broad}</p>
-      {/if}
-      {#if risk.code}
-        <p class="warning" role="note" data-testid="trust-runs-code">⚠ {risk.code}</p>
-      {/if}
-      {#if risk.env}
-        <p class="warning" role="note" data-testid="trust-risky-env">⚠ {risk.env}</p>
-      {/if}
-      {#if risk.unreadable}
-        <p class="warning" role="note" data-testid="trust-unreadable">⚠ {risk.unreadable}</p>
-      {/if}
-      {#if !project.trusted && !sandbox}
-        <p class="warning" role="note" data-testid="trust-no-sandbox">
-          ⚠ Language servers will run this project's code without a sandbox on this computer.
-        </p>
-      {/if}
-      <div class="row">
-        <button
-          type="button"
-          class="link"
-          aria-expanded={details}
-          aria-controls="trust-details"
-          onclick={() => (details = !details)}
-          >{details ? "Hide details" : project.trusted && !changed ? "Show details" : "Review and trust…"}</button
-        >
-        {#if project.trusted}
-          <span class="actions">
-            <button type="button" disabled={busy} onclick={() => trust(false)}>Stop trusting</button>
-          </span>
+            {#if settled && warningCount > 0}
+              {@const words = warningCount === 1 ? " warning" : " warnings"}
+              <span class="chip" title={`${warningCount}${words}: see Details`} data-testid="trust-warning-count"
+                ><span aria-hidden="true">⚠</span> {warningCount}<span class="visually-hidden">{words}</span></span
+              >
+            {/if}
+            {settled ? "Details" : "Hide"}
+          </button>
         {/if}
       </div>
-      {#if details}
-        <div id="trust-details" class="details" data-testid="trust-details">
-          <p class="detail" data-testid="trust-language-servers">
-            {project.trusted ? "Ovra starts" : "Trusting also lets Ovra start"} language servers for the files you edit.
-            They run the project's code (build scripts, for example){#if sandbox}{" "}in the <span title={sandbox}>sandbox</span>, which keeps them to the project and their cache, without
-              network{:else}, without a sandbox on this computer{/if}. Stop trusting stops them.
-          </p>
-          <p class="detail">
-            {changed ? "Lines with + load once you trust them; lines with − no longer load." : ""}
-            Changes apply to sessions started afterwards.
-          </p>
-          {#each shownGroups as group (group.kind)}
-            <details class="group" data-kind={group.kind} open={weight(group.kind) > 0}>
-              <summary>
-                {KIND_LABELS[group.kind]}
-                {#if runsCode(group.kind)}<strong>· runs code</strong>{/if}
-              </summary>
-              {#each group.files as file (file.path)}
-                {@const key = `${group.kind}\u0000${file.path}`}
-                {@const rows = more[key] ? file.rows : file.rows.slice(0, SHOWN)}
-                <div class="file">
-                  <span class="path">{file.path}</span>
-                  <ul>
-                    {#each rows as row, n (n)}
-                      <li class={row.sign}>
-                        {#if row.sign}<span class="sign" aria-label={row.sign === "added" ? "Added" : "Removed"}
-                            >{row.sign === "added" ? "+" : "−"}</span
-                          >{/if}
-                        <code>{row.text}</code>
-                      </li>
-                    {/each}
-                  </ul>
-                  {#if rows.length < file.rows.length}
-                    <button type="button" class="link" onclick={() => (more[key] = true)}
-                      >+{file.rows.length - rows.length} more</button
-                    >
-                  {/if}
-                </div>
+      {#if !settled}
+        <div id="trust-body" class="body">
+          <p class="detail">{lead}</p>
+          {#if changed}
+            <p data-testid="trust-summary">{counts}</p>
+          {/if}
+          <!-- "⚠" marks warnings by shape, not only by colour. -->
+          {#if risk.broad}
+            <p class="warning" role="note" data-testid="broad-rules">⚠ {risk.broad}</p>
+          {/if}
+          {#if risk.code}
+            <p class="warning" role="note" data-testid="trust-runs-code">⚠ {risk.code}</p>
+          {/if}
+          {#if risk.env}
+            <p class="warning" role="note" data-testid="trust-risky-env">⚠ {risk.env}</p>
+          {/if}
+          {#if risk.unreadable}
+            <p class="warning" role="note" data-testid="trust-unreadable">⚠ {risk.unreadable}</p>
+          {/if}
+          {#if !project.trusted && !sandbox}
+            <p class="warning" role="note" data-testid="trust-no-sandbox">
+              ⚠ Language servers will run this project's code without a sandbox on this computer.
+            </p>
+          {/if}
+          <div class="row">
+            <button
+              type="button"
+              class="link disclose"
+              aria-expanded={lists}
+              aria-controls="trust-details"
+              onclick={toggleLists}
+              ><span class="chevron"><Icon name={lists ? "chevron" : "chevron-right"} small /></span>{project.trusted &&
+              !changed
+                ? "What's included"
+                : "Review and trust…"}</button
+            >
+            {#if project.trusted}
+              <button type="button" disabled={busy} onclick={() => trust(false)}>Stop trusting</button>
+            {/if}
+          </div>
+          {#if lists}
+            <div id="trust-details" class="details" data-testid="trust-details">
+              {#if changed}
+                <p class="detail">Lines with + load once you trust them; lines with − no longer load.</p>
+              {/if}
+              {#each shownGroups as group (group.kind)}
+                <!-- Deciding: every group open, so Trust comes after all of it. -->
+                <details class="group" data-kind={group.kind} open={deciding || weight(group.kind) > 0}>
+                  <summary>
+                    {KIND_LABELS[group.kind]} <span class="count">{group.count}</span>
+                    {#if runsCode(group.kind)}<strong>· runs code</strong>{/if}
+                  </summary>
+                  {#each group.files as file (file.path)}
+                    {@const key = `${group.kind}\u0000${file.path}`}
+                    {@const rows = more[key] ? file.rows : file.rows.slice(0, SHOWN)}
+                    <div class="file">
+                      <span class="path">{file.path}</span>
+                      <ul>
+                        {#each rows as row, n (n)}
+                          <li class={row.sign}>
+                            {#if row.sign}<span class="sign" aria-label={row.sign === "added" ? "Added" : "Removed"}
+                                >{row.sign === "added" ? "+" : "−"}</span
+                              >{/if}
+                            <code>{row.text}</code>
+                          </li>
+                        {/each}
+                      </ul>
+                      {#if rows.length < file.rows.length}
+                        <button type="button" class="link" onclick={() => (more[key] = true)}
+                          >+{file.rows.length - rows.length} more</button
+                        >
+                      {/if}
+                    </div>
+                  {/each}
+                </details>
               {/each}
-            </details>
-          {/each}
-          {#if changed || !project.trusted}
-            <!-- Trust at the bottom of the lists: what it loads was in front of the person first. -->
-            <div class="row end">
-              <button
-                type="button"
-                class="primary"
-                disabled={busy}
-                aria-disabled={!armed}
-                title={armed ? undefined : EARLY}
-                onkeydown={noRepeat}
-                onclick={trustPress}>{changed ? "Trust the new settings" : "Trust project"}</button
-              >
+              <p class="detail note" data-testid="trust-language-servers">
+                {project.trusted ? "Ovra starts" : "Trusting also lets Ovra start"} language servers for the files you
+                edit. They run the project's code (build scripts, for example){#if sandbox}{" "}in the <span
+                    title={sandbox}>sandbox</span
+                  >, which keeps them to the project and their cache, without network{:else}, without a sandbox on
+                  this computer{/if}. Stop trusting stops them. Changes apply to sessions started afterwards.
+              </p>
+              {#if changed || !project.trusted}
+                <!-- Trust at the bottom of the lists: what it loads was in front of the person first. -->
+                <div class="row end">
+                  <button
+                    type="button"
+                    class="primary"
+                    disabled={busy}
+                    aria-disabled={!armed}
+                    title={armed ? undefined : EARLY}
+                    onkeydown={noRepeat}
+                    onclick={trustPress}>{changed ? "Trust the new settings" : "Trust project"}</button
+                  >
+                </div>
+                <!-- Says why an early press did nothing; goes once the buttons are ready. -->
+                <p class="wait" aria-live="polite" data-testid="trust-wait">{early && !armed ? EARLY : ""}</p>
+              {/if}
             </div>
-            <!-- Says why an early press did nothing; goes once the buttons are ready. -->
-            <p class="wait" aria-live="polite" data-testid="trust-wait">{early && !armed ? EARLY : ""}</p>
           {/if}
         </div>
       {/if}
@@ -388,7 +414,7 @@ function trust(trusted: boolean): Promise<void> {
 
 <style>
   .trust {
-    padding: 12px;
+    padding: 10px 12px;
     display: flex;
     flex-direction: column;
     gap: 6px;
@@ -398,7 +424,7 @@ function trust(trusted: boolean): Promise<void> {
   }
   /* Nothing to decide: one quiet line, no card. */
   .trust.quiet {
-    padding: 4px 8px;
+    padding: 4px 12px;
     background: none;
     color: var(--text-2);
   }
@@ -406,6 +432,7 @@ function trust(trusted: boolean): Promise<void> {
     margin: 0;
     font-size: 14px;
     font-weight: 600;
+    line-height: 24px;
   }
   .quiet h3 {
     font-size: 13px;
@@ -424,8 +451,9 @@ function trust(trusted: boolean): Promise<void> {
     justify-content: flex-end;
     margin-top: 4px;
   }
-  .actions {
+  .body {
     display: flex;
+    flex-direction: column;
     gap: 6px;
   }
   p,
@@ -457,12 +485,11 @@ function trust(trusted: boolean): Promise<void> {
   strong {
     margin-left: 4px;
   }
+  /* No scroll box of its own: only the panel scrolls, so nothing passes by unseen. */
   .details {
     display: flex;
     flex-direction: column;
     gap: 6px;
-    max-height: 40vh;
-    overflow: auto;
   }
   summary {
     cursor: pointer;
@@ -503,9 +530,34 @@ function trust(trusted: boolean): Promise<void> {
     align-self: flex-start;
     padding: 0 4px;
   }
-  .quiet button.link {
+  .quiet button.link,
+  button.toggle {
     flex: none;
     white-space: nowrap;
+  }
+  /* The chip and its label share one button, so they line up and click as one. */
+  button.toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 24px;
+    padding: 0 6px;
+  }
+  button.disclose {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 0 6px 0 0;
+  }
+  .chevron {
+    display: inline-flex;
+  }
+  .count {
+    color: var(--text-3);
+    font-variant-numeric: tabular-nums;
+  }
+  .note {
+    font-size: 12px;
   }
   /* Quiet, with an edge so it can be found. */
   .quiet button.link.edge {
@@ -524,8 +576,8 @@ function trust(trusted: boolean): Promise<void> {
   .chip {
     display: inline-flex;
     align-items: center;
-    height: 22px;
-    padding: 0 8px;
+    height: 20px;
+    padding: 0 6px;
     font-size: 12px;
     font-weight: 500;
     color: var(--warn);

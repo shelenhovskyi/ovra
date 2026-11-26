@@ -14,7 +14,7 @@ export const KIND_LABELS: Record<ConfigKind, string> = {
   helpers: "Helper commands",
   plugins: "Plugins, which can bring their own hooks and servers",
   env: "Environment variables",
-  broad_allow_rules: "Whole tools or any command allowed without asking you",
+  broad_allow_rules: "Broad rules: allowed without asking you",
   allow_rules: "Actions allowed without asking you",
   settings: "Other settings",
   agents: "Custom subagents",
@@ -151,9 +151,9 @@ export type TrustState = "untrusted" | "trusted" | "changed";
 export const TRUST_ARM_MS = 500;
 
 export type Warnings = {
-  /** Rules that let Claude act without Ovra's approvals, named. */
+  /** Rules that let Claude act without Ovra's approvals, counted. */
   broad: string | null;
-  /** What runs commands on the user's computer, counted, and quoted when short. */
+  /** What runs commands on the user's computer, counted. */
   code: string | null;
   /** Environment variables that can redirect Claude or run code, named. */
   env: string | null;
@@ -193,13 +193,15 @@ function named(names: string[], extra: number, max = 3): string {
   return list(more > 0 ? [...shown, `${more} more`] : shown);
 }
 
-/** Commands quoted in the code warning: only as many as stay readable. */
-const QUOTED = 2;
+/** A rule that lets Claude run any shell command: `Bash`, `Bash(*)`, `Bash(:*)`. */
+const ANY_COMMAND = /^Bash(\((\*|:\*)?\))?$/;
 
 /**
- * The risk in short lines, shown before the user can trust. Settings not
- * trusted yet are spoken of as what happens once trusted; for changed
- * settings, `items` are what was added and the lines say "new".
+ * The risk in short, plain lines, shown before the user can trust. They
+ * count instead of quoting rules and commands: the lists, which the Trust
+ * button sits under, name each one. Settings not trusted yet are spoken of
+ * as what happens once trusted; for changed settings, `items` are what was
+ * added and the lines say "new".
  */
 export function warnings(items: { path: string; kind: ConfigKind; entries: string[] }[], state: TrustState): Warnings {
   const fresh = state === "changed";
@@ -207,8 +209,8 @@ export function warnings(items: { path: string; kind: ConfigKind; entries: strin
   const lead = once ? `${once.charAt(0).toUpperCase()}${once.slice(1)}, ` : "";
 
   const rules = items.filter((item) => item.kind === "broad_allow_rules").flatMap((item) => item.entries);
-  const shownRules = rules.filter((rule) => !CUT.test(rule));
-  const hiddenRules = count("broad_allow_rules", rules) - shownRules.length;
+  const ruleCount = count("broad_allow_rules", rules);
+  const anyCommand = rules.some((rule) => ANY_COMMAND.test(rule.trim()));
 
   const code = tally(items.filter((item) => runsCode(item.kind)));
   const total = code.reduce((sum, [, n]) => sum + n, 0);
@@ -216,12 +218,6 @@ export function warnings(items: { path: string; kind: ConfigKind; entries: strin
     const [one, many] = CODE_NOUNS[kind] ?? ["item", "items"];
     return plural(n, fresh ? `new ${one}` : one, fresh ? `new ${many}` : many);
   });
-  // Plugins are names, not commands: quote only what hooks and helpers run, and only when that is all of it.
-  const commands = items
-    .filter((item) => item.kind === "hooks" || item.kind === "helpers")
-    .flatMap((item) => item.entries);
-  const quoted =
-    commands.length === total && total <= QUOTED ? `: ${commands.map((c) => `"${clip(c, 80)}"`).join(" and ")}` : "";
   const run = once ? "will run" : total === 1 ? "runs" : "run";
 
   const vars = items.filter((item) => item.kind === "env").flatMap((item) => item.entries);
@@ -242,10 +238,10 @@ export function warnings(items: { path: string; kind: ConfigKind; entries: strin
 
   return {
     broad:
-      rules.length > 0
-        ? `${lead}Claude ${once ? "will use" : "uses"} ${named(shownRules, hiddenRules)} without asking you.`
+      ruleCount > 0
+        ? `${lead}Claude ${once ? "will use" : "uses"} ${plural(ruleCount, fresh ? "new tool or command" : "tool or command", fresh ? "new tools and commands" : "tools and commands")} without asking you${anyCommand ? ", including any shell command" : ""}.`
         : null,
-    code: total > 0 ? `${lead}${list(parts)} ${run} commands on your computer${quoted}.` : null,
+    code: total > 0 ? `${lead}${list(parts)} ${run} commands on your computer.` : null,
     env: env.length > 0 ? env.join(" ") : null,
     unreadable:
       files.length > 0
@@ -255,15 +251,20 @@ export function warnings(items: { path: string; kind: ConfigKind; entries: strin
 }
 
 export type Row = { text: string; sign?: "added" | "removed" };
-export type Group = { kind: ConfigKind; files: { path: string; rows: Row[] }[] };
+/** One kind of setting in the lists; `count` is how many entries its files stand for. */
+export type Group = { kind: ConfigKind; count: number; files: { path: string; rows: Row[] }[] };
 
 /** The details, one group per kind, riskiest first, each listing its files. */
 export function groups(items: { path: string; kind: ConfigKind; rows: Row[] }[]): Group[] {
   const byKind = new Map<ConfigKind, Group>();
   for (const item of items) {
-    const group = byKind.get(item.kind) ?? { kind: item.kind, files: [] };
+    const group = byKind.get(item.kind) ?? { kind: item.kind, count: 0, files: [] };
     byKind.set(item.kind, group);
     group.files.push({ path: item.path, rows: item.rows });
+    group.count += count(
+      item.kind,
+      item.rows.map((row) => row.text),
+    );
   }
   return [...byKind.values()].sort((a, b) => ORDER.indexOf(a.kind) - ORDER.indexOf(b.kind));
 }

