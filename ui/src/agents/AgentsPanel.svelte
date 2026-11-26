@@ -157,6 +157,8 @@ const taskChanges = $derived.by((): WorkerChanges[] => {
   return sessions.workers(current.id).map((id) => ({
     worker: workerName(id) ?? id,
     paths: sessions.changes(id).flatMap((f) => (f.from ? [f.path, f.from] : [f.path])),
+    // As the core: an ended worker's claims, or a discarded one's, no longer count.
+    active: !isEnded(sessions.byId.get(id)?.status ?? { state: "idle" }) && sessions.reviews.get(id)?.state !== "rejected",
   }));
 });
 /** Files two workers of the open task claim or change: the Board tab says so. */
