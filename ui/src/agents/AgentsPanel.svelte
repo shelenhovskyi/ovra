@@ -200,7 +200,7 @@ const fallback = $derived.by((): AccountState | undefined => {
 });
 /** The account a new task would start with is known to be signed out. */
 const blocked = $derived(accounts.signedOut(account ?? accounts.projectAccount));
-/** Every place is taken: One agent, here would be refused (Plan and split queues its workers). */
+/** Every place is taken: One agent, here waits in line (Plan and split queues its workers). */
 const atCap = $derived(mode === "here" && capacity !== undefined && capacity.working >= capacity.limit);
 /** Research has places of its own (ADR 0013); all taken, or none in Settings. */
 const researchFull = $derived(
@@ -212,13 +212,11 @@ const startBlock = $derived(
     ? "The account is signed out"
     : noGit
       ? "Plan and split needs git"
-      : atCap
-        ? `All ${capacity?.limit} agents are busy`
-        : researchFull
-          ? capacity?.research_limit === 0
-            ? "Research is off in Settings"
-            : `All ${capacity?.research_limit} research agents are busy`
-          : null,
+      : researchFull
+        ? capacity?.research_limit === 0
+          ? "Research is off in Settings"
+          : `All ${capacity?.research_limit} research agents are busy`
+        : null,
 );
 const usable = $derived(accounts.signedIn);
 /** Who pays for the next task, in two or three words; it opens the agent's setup. */
@@ -824,9 +822,9 @@ function rowMenu(event: KeyboardEvent | MouseEvent, s: SessionInfo): void {
     { label: "Open", run: () => open(s.id) },
     "separator",
     !isEnded(s.status) &&
-      sessions.status(s.id) !== "Done" &&
-      s.status.state !== "queued" && {
-        label: "Stop",
+      sessions.status(s.id) !== "Done" && {
+        // A waiting session never started: stopping it takes it out of line.
+        label: s.status.state === "queued" ? "Cancel" : "Stop",
         run: () => stop(s.id),
       },
     closable(s) && {
@@ -972,8 +970,10 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
               disabled={busy}
               title={sessions.roles.get(current.id)?.kind === "coordinator"
                 ? "Ends the task and its workers"
-                : "Ends the session"}
-              onclick={() => stop(current.id)}>Stop</button
+                : current.status.state === "queued"
+                  ? "Takes it out of line; it never starts"
+                  : "Ends the session"}
+              onclick={() => stop(current.id)}>{current.status.state === "queued" ? "Cancel" : "Stop"}</button
             >
           {/if}
           {#if closable(current)}
@@ -1417,7 +1417,12 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
         <button
           type="submit"
           class="primary"
-          title={startBlock ?? (prompt.trim() ? "Enter starts · Shift+Enter: new line" : "Type a task first")}
+          title={startBlock ??
+            (!prompt.trim()
+              ? "Type a task first"
+              : atCap
+                ? "Starts when an agent finishes"
+                : "Enter starts · Shift+Enter: new line")}
           disabled={busy || startBlock !== null || !prompt.trim()}>Start</button
         >
       </div>
@@ -1443,10 +1448,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
         </p>
       {:else if atCap}
         <p class="blocked calm" role="note" data-testid="agent-at-cap">
-          <span
-            >All {capacity?.limit} agents are busy: one must finish first. Plan and split waits for a free one.</span
-          >
-          <button type="button" class="quiet" onclick={() => pickMode("split")}>Use Plan and split</button>
+          <span>All {capacity?.limit} agents are busy. This starts when one finishes.</span>
         </p>
       {/if}
       {/if}

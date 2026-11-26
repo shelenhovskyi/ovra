@@ -379,14 +379,19 @@ pub(crate) struct NewSession {
 /// Starts a session and returns it as it is now.
 pub(crate) async fn start(ctx: &Ctx<'_>, new: NewSession) -> Result<SessionInfo> {
     check_text(&new.prompt)?;
-    // Workers wait for a place instead (`crate::orchestration`), and
-    // coordinators do not take one.
-    let place = match new.tools {
-        None => check_room(ctx, &new.project, new.mode)?,
-        Some(_) => None,
+    // Coordinators take no place, workers wait for one when asked to; a
+    // person's start past the cap waits too (`docs/specs/review-check.md`),
+    // a research session's is refused.
+    let (place, queued) = match new.tools {
+        None => match check_room(ctx, &new.project, new.mode)? {
+            Room::Free(place) => (place, new.queued),
+            Room::Full => (None, true),
+        },
+        Some(_) => (None, new.queued),
     };
     let target = prepare(
         ctx,
+        None,
         &new.project,
         new.mode,
         new.tools,
@@ -403,10 +408,10 @@ pub(crate) async fn start(ctx: &Ctx<'_>, new: NewSession) -> Result<SessionInfo>
     let base = baseline(ctx, &new.project, &id, new.mode, &launch).await?;
     let mut parts = vec![(new.prompt.clone(), new.from)];
     parts.extend(new.context.map(|text| (text, MessageFrom::Ovra)));
-    let waits = new.queued || new.preparing;
-    let (status, queued) = if new.preparing {
+    let waits = queued || new.preparing;
+    let (status, first) = if new.preparing {
         (AgentStatus::Preparing, Some(parts.clone()))
-    } else if new.queued {
+    } else if queued {
         (AgentStatus::Queued, Some(parts.clone()))
     } else {
         (AgentStatus::Starting, None)
@@ -430,13 +435,13 @@ pub(crate) async fn start(ctx: &Ctx<'_>, new: NewSession) -> Result<SessionInfo>
     };
     // With its folder and role from the start, so that it counts in its
     // role, and its first message if it waits.
-    ctx.sessions.insert(info, launch.clone(), queued);
+    ctx.sessions.insert(info, launch.clone(), first);
     drop(place);
     if waits {
         // Told before anything can start it.
         ctx.sink.emit(AgentsEvent::Status {
             session: id.clone(),
-            project: new.project,
+            project: new.project.clone(),
             status,
         });
         if let Some(core) = ctx.sessions.core() {
@@ -445,7 +450,16 @@ pub(crate) async fn start(ctx: &Ctx<'_>, new: NewSession) -> Result<SessionInfo>
     }
     review_from(ctx, &id, &launch, base).await;
     if waits {
-        return ctx.sessions.find(&id, |s| s.info());
+        let info = ctx.sessions.find(&id, |s| s.info());
+        // A place may have freed since the person's start found none; a
+        // worker's spawn does this once its worktree is set up.
+        if queued
+            && new.tools.is_none()
+            && let Some(core) = ctx.sessions.core()
+        {
+            crate::orchestration::start_queued(&core, &new.project);
+        }
+        return info;
     }
     let target = trusted_in(ctx, target, &launch.cwd).await;
     run(ctx, &id, target, launch, parts, None).await
@@ -467,7 +481,15 @@ pub(crate) async fn start_queued(
     );
     let tools = launch.as_ref().and_then(|l| l.tools);
     let account = info.account.as_deref().unwrap_or(DEFAULT_ACCOUNT);
-    let prepared = prepare(ctx, &info.project, info.mode, tools, Some(account)).await;
+    let prepared = prepare(
+        ctx,
+        Some(&id),
+        &info.project,
+        info.mode,
+        tools,
+        Some(account),
+    )
+    .await;
     let (target, launch) = match (prepared, launch) {
         (Ok(target), Some(launch)) => (target, launch),
         (Err(err), _) => {
@@ -496,17 +518,13 @@ pub(crate) async fn start_queued(
 /// as many agents working as it may: research sessions against their own
 /// cap (ADR 0013). Hold the place until the session is in the list with its
 /// status, where it counts itself.
-fn check_room(
-    ctx: &Ctx<'_>,
-    project: &ProjectId,
-    mode: SessionMode,
-) -> Result<Option<crate::orchestration::Reservation>> {
+fn check_room(ctx: &Ctx<'_>, project: &ProjectId, mode: SessionMode) -> Result<Room> {
     let Some(core) = ctx.sessions.core() else {
-        return Ok(None);
+        return Ok(Room::Free(None));
     };
     if mode == SessionMode::Research {
         return crate::orchestration::reserve_research(&core, project)
-            .map(Some)
+            .map(|place| Room::Free(Some(place)))
             .map_err(|(working, limit)| {
                 conflict(&match limit {
                     0 => "research agents are turned off in Settings".to_owned(),
@@ -517,15 +535,19 @@ fn check_room(
                 })
             });
     }
-    crate::orchestration::reserve(&core, project)
-        .map(Some)
-        .map_err(|working| {
-            conflict(&format!(
-                "{working} agents are already working in this project, the most at once. \
-                 Start this when one of them finishes, or stop one. Settings > Claude sets \
-                 how many may work at once."
-            ))
-        })
+    Ok(match crate::orchestration::reserve(&core, project) {
+        Some(place) => Room::Free(Some(place)),
+        None => Room::Full,
+    })
+}
+
+/// Whether a person's start found a place.
+enum Room {
+    /// Hold the place until the session is in the list with its status,
+    /// where it counts itself; `None` without orchestration.
+    Free(Option<crate::orchestration::Reservation>),
+    /// The project has as many agents working as it may: the start waits.
+    Full,
 }
 
 /// The project a session may start in, with what the runtime needs to know.
@@ -536,9 +558,11 @@ struct Target {
 }
 
 /// `account`: the session's own ([`NewSession::account`]); a resume passes
-/// the one it ran with, which must still exist.
+/// the one it ran with, which must still exist. `id`: the session, if it is
+/// in the list already (queued), so its own writer lock does not refuse it.
 async fn prepare(
     ctx: &Ctx<'_>,
+    id: Option<&SessionId>,
     project: &ProjectId,
     mode: SessionMode,
     tools: Option<ToolRole>,
@@ -552,7 +576,7 @@ async fn prepare(
     // A coordinator only reads the main checkout, so it does not take the
     // direct writer's place (docs/specs/orchestration.md).
     let writes_main = mode == SessionMode::Direct && tools != Some(ToolRole::Coordinator);
-    if writes_main && ctx.sessions.direct_writer(project) {
+    if writes_main && ctx.sessions.direct_writer(project, id) {
         return Err(conflict(
             "another agent already works in this project's main checkout",
         ));
@@ -630,7 +654,16 @@ pub(crate) async fn resume(ctx: &Ctx<'_>, session: SessionId, parts: Parts) -> R
     let tools = launch.as_ref().and_then(|l| l.tools);
     let place = match tools {
         Some(ToolRole::Coordinator) => None,
-        _ => check_room(ctx, &info.project, info.mode)?,
+        // A resume does not wait: the person picks the moment.
+        _ => match check_room(ctx, &info.project, info.mode)? {
+            Room::Free(place) => place,
+            Room::Full => {
+                return Err(conflict(
+                    "every agent place in this project is taken. Continue this when one of \
+                     them finishes, or stop one. Settings > Claude sets how many may work at once.",
+                ));
+            }
+        },
     };
     // Its conversation lives in its account's folder: no other account
     // can continue it.
@@ -645,7 +678,7 @@ pub(crate) async fn resume(ctx: &Ctx<'_>, session: SessionId, parts: Parts) -> R
             "this session's Claude account was removed; add it again to continue the session",
         ));
     }
-    let target = prepare(ctx, &info.project, info.mode, tools, Some(account)).await?;
+    let target = prepare(ctx, None, &info.project, info.mode, tools, Some(account)).await?;
     let launch = launch.unwrap_or(Launch {
         cwd: PathBuf::from(&target.project.root),
         tools: None,

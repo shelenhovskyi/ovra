@@ -289,7 +289,7 @@ describe("AgentsPanel", () => {
       { session: later.id, name: "tests", branch: "ovra/t1/tests", worktree: "/wt/tests", kept: null },
     );
     core.emit({ type: "orchestration.changed", data: { project: "p1", task: "t1" } });
-    core.capacity = { working: 1, limit: 3, queued: 1, research_working: 0, research_limit: 2 };
+    core.capacity = { working: 1, limit: 3, queued: 1, research_working: 0, research_limit: 2, waiting: [] };
     core.status(docs.id, { state: "working" });
     core.status(later.id, { state: "queued" });
     await settle();
@@ -368,7 +368,7 @@ describe("AgentsPanel", () => {
       kept: null,
     });
     core.emit({ type: "orchestration.changed", data: { project: "p1", task: "t1" } });
-    core.capacity = { working: 3, limit: 3, queued: 1, research_working: 0, research_limit: 2 };
+    core.capacity = { working: 3, limit: 3, queued: 1, research_working: 0, research_limit: 2, waiting: [] };
     core.status(docs.id, { state: "queued" });
     await settle();
     // The coordinator takes no place, but the count does not hide that it works.
@@ -379,16 +379,16 @@ describe("AgentsPanel", () => {
     await settle();
     expect(count()).toBe("3 of 3 · 1 queued");
     // A review asked for or decided changes the count without a change of state.
-    core.capacity = { working: 2, limit: 3, queued: 1, research_working: 0, research_limit: 2 };
+    core.capacity = { working: 2, limit: 3, queued: 1, research_working: 0, research_limit: 2, waiting: [] };
     core.emit({ type: "review.changed", data: { project: "p1", id: "r1" } });
     await settle();
     expect(count()).toBe("2 of 3 · 1 queued");
     // So does a new limit from Settings.
-    core.capacity = { working: 2, limit: 5, queued: 1, research_working: 0, research_limit: 2 };
+    core.capacity = { working: 2, limit: 5, queued: 1, research_working: 0, research_limit: 2, waiting: [] };
     core.emit({ type: "agents.limit_changed", data: { limit: 5, default: 3, min: 1, max: 8 } });
     await settle();
     expect(count()).toBe("2 of 5 · 1 queued");
-    core.capacity = { working: 3, limit: 3, queued: 1, research_working: 0, research_limit: 2 };
+    core.capacity = { working: 3, limit: 3, queued: 1, research_working: 0, research_limit: 2, waiting: [] };
     // Working sessions come before a task whose worker only waits.
     expect(target.querySelectorAll(".sessions .state")[1]?.textContent).toBe("Workers are waiting for a free agent");
     core.status(docs.id, { state: "working" });
@@ -1185,29 +1185,49 @@ describe("AgentsPanel", () => {
     off();
   });
 
-  it("says when every agent waits for the person, and why One agent, here cannot start at the cap", async () => {
+  it("says when every agent waits for the person, and that One agent, here waits in line at the cap", async () => {
     const core = new FakeAgentCore();
     for (const n of [1, 2, 3]) core.addSession("p1", `Task ${n}`, { state: "waiting_for_approval" });
-    core.capacity = { working: 3, limit: 3, queued: 0, research_working: 0, research_limit: 2 };
+    core.capacity = { working: 3, limit: 3, queued: 0, research_working: 0, research_limit: 2, waiting: [] };
     await setup(core);
     const count = () => target.querySelector("[data-testid=agents-capacity]");
     expect(count()?.textContent?.trim()).toBe("3 need you");
     expect(count()?.getAttribute("title")).toBe("All 3 agents wait for your answer");
     type(target.querySelector("#agent-prompt"), "Fix the typo");
     flushSync();
-    // Said before the press, not refused after it.
-    expect(startButton()?.disabled).toBe(true);
-    expect(startButton()?.title).toBe("All 3 agents are busy");
-    expect(target.querySelector("[data-testid=agent-at-cap]")?.textContent?.replace(/\s+/g, " ").trim()).toBe(
-      "All 3 agents are busy: one must finish first. Plan and split waits for a free one. Use Plan and split",
-    );
-    // Plan and split queues its workers.
-    button("Use Plan and split")?.click();
-    flushSync();
+    // Said before the press: it waits for a place instead of being refused.
     expect(startButton()?.disabled).toBe(false);
+    expect(startButton()?.title).toBe("Starts when an agent finishes");
+    expect(target.querySelector("[data-testid=agent-at-cap]")?.textContent?.replace(/\s+/g, " ").trim()).toBe(
+      "All 3 agents are busy. This starts when one finishes.",
+    );
     core.status("s1", { state: "working" });
     await settle();
     expect(count()?.textContent?.trim()).toBe("3 of 3");
+  });
+
+  it("shows a waiting start's place in line, and Cancel takes it out", async () => {
+    const core = new FakeAgentCore();
+    const first = core.addSession("p1", "First", { state: "queued" });
+    const second = core.addSession("p1", "Second", { state: "queued" });
+    core.capacity = {
+      working: 3,
+      limit: 3,
+      queued: 2,
+      research_working: 0,
+      research_limit: 2,
+      waiting: [first.id, second.id],
+    };
+    await setup(core);
+    const row = (title: string) =>
+      [...target.querySelectorAll<HTMLElement>(".sessions [data-session]")].find((r) => r.textContent?.includes(title));
+    expect(row("First")?.textContent).toContain("Waiting, 1st in line");
+    expect(row("Second")?.textContent).toContain("Waiting, 2nd in line");
+    row("Second")?.click();
+    await settle();
+    button("Cancel")?.click();
+    await settle();
+    expect(core.stopped).toContain(second.id);
   });
 
   it("unfolds a folded Agents column for New task, from its command and Mod+N", async () => {

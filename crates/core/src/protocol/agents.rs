@@ -177,7 +177,7 @@ pub struct Checkpoint {
 }
 
 /// How many agents of a project work at once, of how many it may run.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentCapacity {
     /// Sessions that do work now: direct sessions and workers that have not
     /// ended. Coordinators only plan and wait for their workers, and a
@@ -186,7 +186,8 @@ pub struct AgentCapacity {
     pub working: u32,
     /// The most that may work at once.
     pub limit: u32,
-    /// Workers waiting for a free place (`queued`).
+    /// Sessions waiting for a free place (`queued`), and workers still
+    /// being set up to wait.
     pub queued: u32,
     /// Research sessions that work now (ADR 0013): counted apart from
     /// `working`, against `research_limit`.
@@ -194,6 +195,9 @@ pub struct AgentCapacity {
     pub research_working: u32,
     #[serde(default)]
     pub research_limit: u32,
+    /// The waiting sessions, in the order they start.
+    #[serde(default)]
+    pub waiting: Vec<SessionId>,
 }
 
 /// Tokens and cost of one turn, as the agent reports them, or their sum.

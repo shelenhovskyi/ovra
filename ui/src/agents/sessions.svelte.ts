@@ -263,6 +263,10 @@ export class AgentSessions {
     // A free place does not start it while the computer is short of memory or CPU.
     const pressure = this.pressure.get(info.project);
     if (info.status.state === "queued" && pressure) return waitingLabel(pressure);
+    if (info.status.state === "queued") {
+      const place = this.capacity.get(info.project)?.waiting.indexOf(id) ?? -1;
+      if (place >= 0) return `Waiting, ${ordinal(place + 1)} in line`;
+    }
     return failedLabel(info.status, transcript) ?? statusLabel(info.status);
   }
 
@@ -560,4 +564,11 @@ function readClosed(project: ProjectId): SessionId[] {
 /** A session's name for people: its title, or its id while the title is unknown. */
 function sessionName(info: SessionInfo | undefined, id: SessionId): string {
   return info?.title || `Session ${id}`;
+}
+
+/** 1st, 2nd, 3rd, 4th, ... 11th, 12th, 13th, 21st. */
+function ordinal(n: number): string {
+  const teen = n % 100 >= 11 && n % 100 <= 13;
+  const suffix = teen ? "th" : (({ 1: "st", 2: "nd", 3: "rd" } as Record<number, string>)[n % 10] ?? "th");
+  return `${n}${suffix}`;
 }

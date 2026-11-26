@@ -41,7 +41,7 @@ pub(crate) use prepare::work_env;
 pub(crate) use saved::restore;
 pub(crate) use slots::{
     Reservation, capacity, research_view as research_limit, reserve, reserve_research, set_limit,
-    set_research_limit, start_next_queued, view as limit,
+    set_research_limit, start_next_queued, start_queued, view as limit,
 };
 pub(crate) use tasks::unless_cleaned;
 

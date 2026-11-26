@@ -85,9 +85,11 @@ export class FakeAgentCore implements Transport {
   /** What the user trusted, per project. */
   trustedConfig = new Map<ProjectId, ProjectAgentConfig>();
   /** What `agents.capacity` answers. */
-  capacity: AgentCapacity = { working: 0, limit: 3, queued: 0, research_working: 0, research_limit: 2 };
+  capacity: AgentCapacity = { working: 0, limit: 3, queued: 0, research_working: 0, research_limit: 2, waiting: [] };
   /** Files `fs.create` made and `fs.write_file` wrote, by path. */
   files = new Map<string, string>();
+  /** Sessions `agents.stop` was called for, in order. */
+  stopped: SessionId[] = [];
   /** `git.status` answers that the project is not a git repository. */
   noRepo = false;
   /** The project's files, for the @ menu (`fs.list_files`). */
@@ -201,9 +203,11 @@ export class FakeAgentCore implements Transport {
         return { type: "agents.transcript", data: this.transcripts.get(request.params.session) ?? [] };
       case "agents.capacity":
         return { type: "agents.capacity", data: { ...this.capacity } };
+      case "agents.stop":
+        this.stopped.push(request.params.session);
+        return { type: "ok" };
       case "agents.send":
       case "browser.attach":
-      case "agents.stop":
       case "agents.interrupt":
         return { type: "ok" };
       case "agents.resume": {

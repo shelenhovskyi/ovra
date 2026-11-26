@@ -85,7 +85,7 @@ pub(crate) async fn handle(core: &Core, request: GitRequest) -> Result<Response,
         }),
         GitRequest::Switch { project, branch } => {
             check_branch_name(&branch)?;
-            if core.sessions().direct_writer(&project) {
+            if core.sessions().direct_writer(&project, None) {
                 return Err(ProtocolError::new(
                     ErrorCode::Conflict,
                     "an agent session is changing this project's files; \

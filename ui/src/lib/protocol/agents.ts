@@ -60,11 +60,13 @@ export type AgentCapacity = {
   /** Direct sessions and workers that have not ended; not coordinators, nor workers idle after asking for review. */
   working: number;
   limit: number;
-  /** Workers waiting for a free place. */
+  /** Sessions waiting for a free place, and workers still being set up to wait. */
   queued: number;
   /** Research sessions that work now, counted apart from `working`. */
   research_working: number;
   research_limit: number;
+  /** The waiting sessions, in the order they start. */
+  waiting: SessionId[];
 };
 
 export type SessionInfo = {

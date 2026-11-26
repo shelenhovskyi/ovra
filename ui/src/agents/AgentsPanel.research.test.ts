@@ -63,7 +63,7 @@ const button = (name: string) =>
 describe("AgentsPanel research", () => {
   it("starts research apart from the other agents and saves or hands on its report", async () => {
     const core = new FakeAgentCore();
-    core.capacity = { working: 3, limit: 3, queued: 0, research_working: 1, research_limit: 2 };
+    core.capacity = { working: 3, limit: 3, queued: 0, research_working: 1, research_limit: 2, waiting: [] };
     await setup(core);
     choose("Research");
     await settle();
@@ -122,13 +122,13 @@ describe("AgentsPanel research", () => {
 
   it("says when research is off or full instead of starting it", async () => {
     const core = new FakeAgentCore();
-    core.capacity = { working: 0, limit: 3, queued: 0, research_working: 0, research_limit: 0 };
+    core.capacity = { working: 0, limit: 3, queued: 0, research_working: 0, research_limit: 0, waiting: [] };
     await setup(core);
     choose("Research");
     type(target.querySelector("#agent-prompt"), "Look");
     await settle();
     expect(startButton()?.title).toBe("Research is off in Settings");
-    core.capacity = { working: 0, limit: 3, queued: 0, research_working: 2, research_limit: 2 };
+    core.capacity = { working: 0, limit: 3, queued: 0, research_working: 2, research_limit: 2, waiting: [] };
     core.emit({ type: "agents.research_limit_changed", data: { limit: 2, default: 2, min: 0, max: 5 } });
     await settle();
     expect(startButton()?.title).toBe("All 2 research agents are busy");

@@ -62,6 +62,19 @@ export type ReviewItem = {
   git_unchecked: boolean;
   /** The pull request a worker's item was published as; absent without one. */
   pull_request?: PullRequest;
+  /** The project's check, run in a worker's worktree when it asked for review; absent without one. */
+  check?: ReviewCheck;
+};
+
+export type ReviewCheckState = "running" | "passed" | "failed";
+
+/** One run of the project's check (`.ovra/check.json`); its output comes from `review.check_log`. */
+export type ReviewCheck = {
+  state: ReviewCheckState;
+  /** The command as the person wrote it. */
+  command: string;
+  /** Why it failed, in words. */
+  detail?: string;
 };
 
 /** A changed file of the git folder or hooks folder, such as `.git/hooks/pre-commit`. */
@@ -95,14 +108,18 @@ export type ReviewRequest =
   /** Puts back the person's versions from just before the last take. */
   | { method: "review.undo_take"; params: { id: ReviewId } }
   /** The same session continues with the comment; a decided item stays decided. */
-  | { method: "review.comment"; params: { id: ReviewId; text: string } };
+  | { method: "review.comment"; params: { id: ReviewId; text: string } }
+  /** The last lines of the item's check output. */
+  | { method: "review.check_log"; params: { id: ReviewId } };
 
 export type ReviewResponse =
   | { type: "review.list"; data: ReviewItem[] }
   /** For a worker's item, and a direct one with protected files, the item's fingerprint the diff was read with. */
   | { type: "review.diff"; data: { path: string; patch: string; fingerprint?: string | null } }
   /** After approve, reject or undo; `conflicts` are files left for the person, `restored` what a reject restored or an undo put back. */
-  | { type: "review.done"; data: { item: ReviewItem; conflicts: string[]; restored: string[] } };
+  | { type: "review.done"; data: { item: ReviewItem; conflicts: string[]; restored: string[] } }
+  /** Stdout and stderr merged, oldest first. */
+  | { type: "review.check_log"; data: { lines: string[] } };
 
 /** Re-fetch the list. */
 export type ReviewEvent = { type: "review.changed"; data: { project: ProjectId; id: ReviewId } };

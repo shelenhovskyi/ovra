@@ -2659,19 +2659,11 @@ async fn workers_past_the_projects_cap_wait_and_start_when_a_place_frees() {
     let started = || f.agent.started.lock().map(|s| s.len()).unwrap_or(0);
     assert_eq!(started(), 5, "two coordinators and three workers");
 
-    // A person's start is refused, a message to a waiting worker too.
-    let direct = json!({"method": "agents.start", "params": {
-        "project": "p1", "agent": "claude", "mode": "direct", "prompt": "fix it"}});
-    let Err(refused) = call(&f.core, direct).await else {
-        panic!("a fourth agent started");
-    };
+    // A message to a waiting worker is refused.
     let Err(sent) = f.core.send_message(&b, &waits, "hello") else {
         panic!("a waiting worker took a message");
     };
-    insta::assert_snapshot!(format!("{}\n{}", refused.message, sent.message), @"
-    3 agents are already working in this project, the most at once. Start this when one of them finishes, or stop one. Settings > Claude sets how many may work at once.
-    the agent waits for a free place and starts when another agent finishes
-    ");
+    insta::assert_snapshot!(sent.message, @"the agent waits for a free place and starts when another agent finishes");
 
     // A stopped waiting worker never starts; a stopped working one makes
     // room for the oldest waiting one, with its task as first message.
@@ -3370,5 +3362,49 @@ async fn a_message_too_long_to_carry_the_board_goes_alone_and_the_entries_wait()
             .boards
             .values()
             .all(|b| !b.pending.contains_key(&sid("s3")))
+
+#[tokio::test]
+async fn a_persons_start_past_the_cap_waits_in_line_and_can_be_cancelled() {
+    let f = fx(say()).await;
+    let mut rx = f.core.subscribe();
+    let set = json!({"method": "agents.set_limit", "params": {"limit": 1}});
+    ok(&f.core, set).await;
+    start_task(&f.core, 3).await;
+    let boss = caller("s1", ToolRole::Coordinator);
+    let one = f.core.spawn_agent(&boss, "one", "x", false).await;
+    let one = one.unwrap_or_else(|e| panic!("{e}")).session;
+    let started = || f.agent.started.lock().map(|s| s.len()).unwrap_or(0);
+    assert_eq!(started(), 2, "the coordinator and its worker");
+
+    let direct = json!({"method": "agents.start", "params": {
+        "project": "p1", "agent": "claude", "mode": "direct", "prompt": "fix it"}});
+    let start = |core: Core, request: serde_json::Value| async move {
+        match ok(&core, request).await {
+            Response::Agents(AgentsResponse::Session(s)) => s,
+            other => panic!("unexpected {other:?}"),
+        }
+    };
+    let cancelled = start(f.core.clone(), direct.clone()).await;
+    assert_eq!(cancelled.status, AgentStatus::Queued);
+    assert_eq!(capacity(&f.core).await.waiting, [cancelled.id.clone()]);
+    // Cancel: stopped while it waits, it never starts.
+    let stop = json!({"method": "agents.stop", "params": {"session": cancelled.id.0}});
+    ok(&f.core, stop).await;
+    until(&mut rx, &cancelled.id.0, AgentStatus::Stopped).await;
+    assert!(capacity(&f.core).await.waiting.is_empty());
+
+    // The next one starts on its own, with its prompt, once a place frees.
+    let waits = start(f.core.clone(), direct).await;
+    assert_eq!(waits.status, AgentStatus::Queued);
+    assert!(f.core.stop_agent(&boss, &one).is_ok());
+    until(&mut rx, &waits.id.0, AgentStatus::Idle).await;
+    assert_eq!(started(), 3);
+    let first = transcript(&f.core, &waits.id.0).await.into_iter().next();
+    assert_eq!(
+        first,
+        Some(AgentMessage::UserText {
+            text: "fix it".into(),
+            from: MessageFrom::Person
+        })
     );
 }

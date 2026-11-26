@@ -273,11 +273,13 @@ impl Sessions {
         }
     }
 
-    /// Whether a session that writes the main checkout of `project` runs:
-    /// a direct session other than a coordinator, which only reads.
-    pub(crate) fn direct_writer(&self, project: &ProjectId) -> bool {
+    /// Whether a session that writes the main checkout of `project` runs or
+    /// waits to: a direct session other than a coordinator, which only
+    /// reads, and other than `besides`.
+    pub(crate) fn direct_writer(&self, project: &ProjectId, besides: Option<&SessionId>) -> bool {
         lock(&self.list).iter().any(|s| {
             !s.info.status.is_ended()
+                && Some(&s.info.id) != besides
                 && &s.info.project == project
                 && s.info.mode == SessionMode::Direct
                 && s.launch.as_ref().and_then(|l| l.tools) != Some(ToolRole::Coordinator)

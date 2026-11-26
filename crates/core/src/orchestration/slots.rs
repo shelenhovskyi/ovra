@@ -1,10 +1,11 @@
 //! One cap for the whole project (CLAUDE.md, ADR 0006 rules): at most
 //! [`limit`] agents work at once, whichever task they belong to. A
-//! worker beyond it waits `queued` and starts when a place frees; a person's
-//! start beyond it is refused. Both are checked and their place taken under
-//! the one lock, so starts at the same moment never pass the cap together.
-//! Research sessions (ADR 0013) have a cap of their own, from the user's
-//! settings, and never count against the other.
+//! worker or a person's start beyond it waits `queued` and starts when a
+//! place frees, oldest first (`docs/specs/review-check.md`). Both are
+//! checked and their place taken under the one lock, so starts at the same
+//! moment never pass the cap together. Research sessions (ADR 0013) have a
+//! cap of their own, from the user's settings, and never count against the
+//! other.
 
 use super::{State, prepare, tasks};
 use crate::Core;
@@ -90,6 +91,7 @@ pub(crate) fn capacity(core: &Core, project: &ProjectId) -> AgentCapacity {
     let guard = state.lock();
     let (working, queued) = count(core, &guard, project);
     let research = research_count(core, &guard, project);
+    drop(guard);
     let n = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
     AgentCapacity {
         working: n(working),
@@ -97,6 +99,7 @@ pub(crate) fn capacity(core: &Core, project: &ProjectId) -> AgentCapacity {
         queued: n(queued),
         research_working: n(research),
         research_limit: research_limit(core),
+        waiting: waiting(core, project),
     }
 }
 
@@ -172,6 +175,17 @@ fn research_count(core: &Core, state: &State, project: &ProjectId) -> usize {
     working + state.reserved_research.get(project).copied().unwrap_or(0)
 }
 
+/// The queued sessions of `project` in the order [`start`] takes them
+/// ([`crate::agents::Sessions::dequeue`]: oldest first).
+fn waiting(core: &Core, project: &ProjectId) -> Vec<crate::protocol::agents::SessionId> {
+    core.sessions()
+        .active(project)
+        .into_iter()
+        .filter(|(_, status, _, _)| *status == AgentStatus::Queued)
+        .map(|(id, _, _, _)| id)
+        .collect()
+}
+
 /// Agents of `project` that work, and workers that wait for a place.
 /// Coordinators do not count: they only plan and wait for their workers,
 /// and counting them would let three tasks block each other's workers for
@@ -211,18 +225,16 @@ pub(crate) struct Reservation {
     research: bool,
 }
 
-/// Takes a place in `project` for a person's start, or says how many
-/// agents work there if none is free.
-pub(crate) fn reserve(core: &Core, project: &ProjectId) -> Result<Reservation, usize> {
+/// Takes a place in `project` for a person's start; `None` if none is free.
+pub(crate) fn reserve(core: &Core, project: &ProjectId) -> Option<Reservation> {
     let limit = limit(core);
     let state = core.orchestration_state();
     let mut guard = state.lock();
-    let working = count(core, &guard, project).0;
-    if working >= limit {
-        return Err(working);
+    if count(core, &guard, project).0 >= limit {
+        return None;
     }
     *guard.reserved.entry(project.clone()).or_default() += 1;
-    Ok(Reservation {
+    Some(Reservation {
         core: core.clone(),
         project: project.clone(),
         research: false,
@@ -273,11 +285,12 @@ impl Drop for Reservation {
     }
 }
 
-/// Starts queued workers of `project`, oldest first, while there is room.
-/// Each was asked for by the coordinator of a task a person started.
+/// Starts queued sessions of `project`, oldest first, while there is room.
+/// Each was started by a person, or asked for by the coordinator of a task
+/// a person started.
 /// None starts while the computer is short of memory or CPU
 /// ([`resources::holds_back`]).
-pub(super) fn start_queued(core: &Core, project: &ProjectId) {
+pub(crate) fn start_queued(core: &Core, project: &ProjectId) {
     if resources::holds_back(core) {
         return;
     }

@@ -112,6 +112,30 @@ pub struct ReviewItem {
     /// The pull request a worker's item was published as (`pr.create`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pull_request: Option<Box<PullRequest>>,
+    /// The project's check (`.ovra/check.json`) run in a worker's worktree
+    /// when it asked for review (`docs/specs/review-check.md`); `None`
+    /// without a check, or once the worker worked again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub check: Option<ReviewCheck>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReviewCheckState {
+    Running,
+    Passed,
+    Failed,
+}
+
+/// One run of the project's check, its output in `review.check_log`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReviewCheck {
+    pub state: ReviewCheckState,
+    /// The command as the person wrote it, joined with spaces.
+    pub command: String,
+    /// Why it failed, in words ("exit code 1", "timed out after 600 s").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
 }
 
 /// A changed file of the git folder or hooks folder, by the name
@@ -184,6 +208,10 @@ pub enum ReviewRequest {
     /// changes open a new item. Answers `ok`.
     #[serde(rename = "review.comment")]
     Comment { id: ReviewId, text: String },
+    /// The output of the item's check (`ReviewItem::check`), its last
+    /// lines. Answers `review.check_log`.
+    #[serde(rename = "review.check_log")]
+    CheckLog { id: ReviewId },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -211,6 +239,9 @@ pub enum ReviewResponse {
         #[serde(default)]
         restored: Vec<String>,
     },
+    /// Stdout and stderr merged, oldest first, without line endings.
+    #[serde(rename = "review.check_log")]
+    CheckLog { lines: Vec<String> },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
