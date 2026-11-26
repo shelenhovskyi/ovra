@@ -50,6 +50,8 @@ let dismissed = $state<number | null>(null);
 let active = $state(0);
 let error = $state<string | null>(null);
 let files = $state<string[] | null>(null);
+/** The project's file list is on its way. */
+let loading = $state(false);
 let place = $state({ left: 0, bottom: 0, width: 280 });
 
 function base(path: string): string {
@@ -113,9 +115,16 @@ let said = $state("");
 $effect(() => {
   if (at && files === null) {
     files = [];
+    loading = true;
     void projectFiles(transport, project).then(
-      (list) => (files = list),
-      () => (files = null),
+      (list) => {
+        files = list;
+        loading = false;
+      },
+      () => {
+        files = null;
+        loading = false;
+      },
     );
   }
 });
@@ -206,8 +215,9 @@ export function keydown(event: KeyboardEvent): boolean {
       case "Tab": {
         if (event.shiftKey) return false;
         const chosen = options[active];
-        // With no match, Enter sends the message as typed and Tab moves on.
-        if (!chosen) return false;
+        // While files load, a key waits for them; with no match, Enter sends
+        // the message as typed and Tab moves on.
+        if (!chosen) return loading ? take() : false;
         choose(chosen);
         return take();
       }
@@ -267,7 +277,7 @@ function choose(option: Suggestion): void {
   >
     {#if options.length === 0}
       <li class="none" role="option" aria-selected="false" aria-disabled="true">
-        {files === null || files.length > 0 || at?.query ? "No matches" : "Looking…"}
+        {loading ? "Looking…" : "No matches"}
       </li>
     {/if}
     {#each options as option, i (`${option.what.kind} ${option.detail}`)}
@@ -354,8 +364,12 @@ function choose(option: Suggestion): void {
     opacity: 0.7;
   }
   .at-menu .name {
-    flex: none;
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
     font-weight: 500;
+    white-space: nowrap;
+    text-overflow: ellipsis;
   }
   .at-menu .detail {
     min-width: 0;
@@ -406,9 +420,20 @@ function choose(option: Suggestion): void {
     white-space: nowrap;
   }
   .ctx-chip button {
+    color: inherit;
+    background: transparent;
+    border: 0;
+    border-radius: var(--radius);
     height: 20px;
     padding: 0 4px;
     font-size: 12px;
+  }
+  .ctx-chip button:hover {
+    background: var(--s4);
+  }
+  .ctx-chip .include {
+    font-weight: 500;
+    color: var(--warn);
   }
   .ctx-chip .remove {
     display: inline-flex;
