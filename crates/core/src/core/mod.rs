@@ -487,6 +487,7 @@ impl Core {
             Request::Context(r) => crate::context::handle(self, r).await,
             Request::Remote(r) => crate::remote::handle(self, r),
             Request::Setup(r) => crate::setup::handle(self, r).await,
+            Request::Catalog(r) => crate::catalog::handle(self, r).await,
         }
     }
 

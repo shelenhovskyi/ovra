@@ -9,6 +9,7 @@ pub mod agents;
 pub mod audit;
 pub mod board;
 pub mod browser;
+pub mod catalog;
 pub mod context;
 pub mod fs;
 pub mod git;
@@ -61,6 +62,7 @@ pub enum Request {
     Context(context::ContextRequest),
     Remote(remote::RemoteRequest),
     Setup(setup::SetupRequest),
+    Catalog(catalog::CatalogRequest),
 }
 
 /// The core's answer to a [`Request`]. Wire form: `{"type": "<domain>.<name>", "data": ...}`.
@@ -90,6 +92,7 @@ pub enum Response {
     Context(context::ContextResponse),
     Remote(remote::RemoteResponse),
     Setup(setup::SetupResponse),
+    Catalog(catalog::CatalogResponse),
     /// The request succeeded and has nothing to return.
     Ok(OkResponse),
 }

@@ -9,6 +9,7 @@
 mod agents;
 mod audit;
 mod browser;
+mod catalog;
 pub mod child_path;
 mod companion;
 mod context;

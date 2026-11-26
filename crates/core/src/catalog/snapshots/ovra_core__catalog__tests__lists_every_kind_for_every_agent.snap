@@ -1,0 +1,255 @@
+---
+source: crates/core/src/catalog/tests.rs
+expression: items
+---
+[
+  {
+    "kind": "rules",
+    "name": "CLAUDE.md",
+    "description": "Always write English.",
+    "path": "CLAUDE.md",
+    "agents": [
+      "claude"
+    ],
+    "loads": "always",
+    "fields": [],
+    "files": [],
+    "problem": null
+  },
+  {
+    "kind": "rules",
+    "name": ".claude/rules/tests.md",
+    "description": "Keep tests fast.",
+    "path": ".claude/rules/tests.md",
+    "agents": [
+      "claude"
+    ],
+    "loads": "when_trusted",
+    "fields": [],
+    "files": [],
+    "problem": null
+  },
+  {
+    "kind": "rules",
+    "name": "AGENTS.md",
+    "description": "Shared rules.",
+    "path": "AGENTS.md",
+    "agents": [
+      "codex"
+    ],
+    "loads": "agent",
+    "fields": [],
+    "files": [],
+    "problem": null
+  },
+  {
+    "kind": "rules",
+    "name": "GEMINI.md",
+    "description": "Gemini rules.",
+    "path": "GEMINI.md",
+    "agents": [
+      "gemini"
+    ],
+    "loads": "agent",
+    "fields": [],
+    "files": [],
+    "problem": null
+  },
+  {
+    "kind": "skill",
+    "name": "bare",
+    "description": null,
+    "path": ".claude/skills/bare/SKILL.md",
+    "agents": [
+      "claude"
+    ],
+    "loads": "when_trusted",
+    "fields": [],
+    "files": [],
+    "problem": "No description: Claude reads it to decide when to use the skill."
+  },
+  {
+    "kind": "skill",
+    "name": "release",
+    "description": "Cuts a release when asked.",
+    "path": ".claude/skills/release/SKILL.md",
+    "agents": [
+      "claude"
+    ],
+    "loads": "when_trusted",
+    "fields": [
+      {
+        "name": "allowed-tools",
+        "value": "Bash"
+      }
+    ],
+    "files": [
+      ".claude/skills/release/scripts/tag.sh"
+    ],
+    "problem": null
+  },
+  {
+    "kind": "subagent",
+    "name": "reviewer",
+    "description": "Reviews diffs.",
+    "path": ".claude/agents/reviewer.md",
+    "agents": [
+      "claude"
+    ],
+    "loads": "when_trusted",
+    "fields": [
+      {
+        "name": "tools",
+        "value": "Read, Grep"
+      },
+      {
+        "name": "model",
+        "value": "opus"
+      }
+    ],
+    "files": [],
+    "problem": null
+  },
+  {
+    "kind": "command",
+    "name": "/ship",
+    "description": "Commit and push the work.",
+    "path": ".claude/commands/git/ship.md",
+    "agents": [
+      "claude"
+    ],
+    "loads": "when_trusted",
+    "fields": [
+      {
+        "name": "folder",
+        "value": "git"
+      }
+    ],
+    "files": [],
+    "problem": null
+  },
+  {
+    "kind": "command",
+    "name": "/git:ship",
+    "description": "Ships it",
+    "path": ".gemini/commands/git/ship.toml",
+    "agents": [
+      "gemini"
+    ],
+    "loads": "agent",
+    "fields": [],
+    "files": [],
+    "problem": null
+  },
+  {
+    "kind": "hook",
+    "name": "PreToolUse",
+    "description": "./check.sh",
+    "path": ".claude/settings.json",
+    "agents": [
+      "claude"
+    ],
+    "loads": "when_trusted",
+    "fields": [
+      {
+        "name": "matcher",
+        "value": "Bash"
+      },
+      {
+        "name": "timeout",
+        "value": "30 s"
+      }
+    ],
+    "files": [],
+    "problem": null
+  },
+  {
+    "kind": "hook",
+    "name": "Stop",
+    "description": "Did you run the tests?",
+    "path": ".claude/settings.json",
+    "agents": [
+      "claude"
+    ],
+    "loads": "when_trusted",
+    "fields": [
+      {
+        "name": "type",
+        "value": "prompt"
+      }
+    ],
+    "files": [],
+    "problem": null
+  },
+  {
+    "kind": "mcp_server",
+    "name": "db",
+    "description": "npx db-mcp --ro",
+    "path": ".mcp.json",
+    "agents": [
+      "claude"
+    ],
+    "loads": "not_in_ovra",
+    "fields": [
+      {
+        "name": "env",
+        "value": "DB_TOKEN"
+      }
+    ],
+    "files": [],
+    "problem": null
+  },
+  {
+    "kind": "mcp_server",
+    "name": "docs",
+    "description": "https://docs.example/mcp",
+    "path": ".mcp.json",
+    "agents": [
+      "claude"
+    ],
+    "loads": "not_in_ovra",
+    "fields": [
+      {
+        "name": "type",
+        "value": "http"
+      },
+      {
+        "name": "headers",
+        "value": "Authorization"
+      }
+    ],
+    "files": [],
+    "problem": null
+  },
+  {
+    "kind": "mcp_server",
+    "name": "search",
+    "description": "https://search.example/mcp",
+    "path": ".gemini/settings.json",
+    "agents": [
+      "gemini"
+    ],
+    "loads": "agent",
+    "fields": [],
+    "files": [],
+    "problem": "Turned off in this file."
+  },
+  {
+    "kind": "mcp_server",
+    "name": "files",
+    "description": "files-mcp",
+    "path": ".codex/config.toml",
+    "agents": [
+      "codex"
+    ],
+    "loads": "agent",
+    "fields": [
+      {
+        "name": "env",
+        "value": "KEY"
+      }
+    ],
+    "files": [],
+    "problem": null
+  }
+]

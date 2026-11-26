@@ -1,0 +1,39 @@
+---
+source: crates/core/src/protocol/catalog.rs
+expression: "serde_json::json!({\n    \"request\":\n    Request::Catalog(CatalogRequest::List\n    { project: ProjectId(\"p1\".into()) }), \"response\":\n    Response::Catalog(CatalogResponse::Items(Catalog { items: vec![item] })),\n})"
+---
+{
+  "request": {
+    "method": "catalog.list",
+    "params": {
+      "project": "p1"
+    }
+  },
+  "response": {
+    "data": {
+      "items": [
+        {
+          "agents": [
+            "claude"
+          ],
+          "description": "Cuts a release",
+          "fields": [
+            {
+              "name": "allowed-tools",
+              "value": "Bash"
+            }
+          ],
+          "files": [
+            ".claude/skills/release/run.sh"
+          ],
+          "kind": "skill",
+          "loads": "when_trusted",
+          "name": "release",
+          "path": ".claude/skills/release/SKILL.md",
+          "problem": null
+        }
+      ]
+    },
+    "type": "catalog.items"
+  }
+}

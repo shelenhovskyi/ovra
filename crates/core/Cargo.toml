@@ -17,6 +17,7 @@ serde.workspace = true
 serde_json.workspace = true
 sha2 = "0.10"
 tokio = { workspace = true, features = ["rt", "sync", "time"] }
+toml = { version = "1", default-features = false, features = ["parse", "serde"] }
 tracing.workspace = true
 zeroize = "1"
 

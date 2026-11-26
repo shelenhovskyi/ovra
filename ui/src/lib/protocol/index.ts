@@ -4,6 +4,7 @@ import type { AgentsEvent, AgentsRequest, AgentsResponse, CheckpointMethod, Chec
 import type { AuditLogEvent, AuditRequest, AuditResponse } from "./audit";
 import type { BoardEvent, BoardRequest, BoardResponse, BoardResponseFor } from "./board";
 import type { BrowserEvent, BrowserRequest, BrowserResponse, BrowserResponseFor } from "./browser";
+import type { CatalogRequest, CatalogResponse } from "./catalog";
 import type { ContextRequest, ContextResponse, ContextResponseFor } from "./context";
 import type { FsEvent, FsRequest, FsResponse } from "./fs";
 import type { GitRequest, GitResponse, GitResponseFor } from "./git";
@@ -30,6 +31,7 @@ export type * from "./agents";
 export type * from "./audit";
 export type * from "./board";
 export type * from "./browser";
+export type * from "./catalog";
 export type * from "./context";
 export type * from "./fs";
 export type * from "./git";
@@ -83,7 +85,8 @@ export type Request =
   | ContextRequest
   | BoardRequest
   | RemoteRequest
-  | SetupRequest;
+  | SetupRequest
+  | CatalogRequest;
 
 export type Response =
   | InfoResponse
@@ -109,6 +112,7 @@ export type Response =
   | BoardResponse
   | RemoteResponse
   | SetupResponse
+  | CatalogResponse
   | { type: "ok" };
 
 export type CoreEvent =
@@ -286,4 +290,6 @@ type LaterResponseFor<R extends Request> = R extends ServersRequest
                 ? RemoteResponseFor<R["method"]>
                 : R extends SetupRequest
                   ? SetupResponse
-                  : never;
+                  : R extends CatalogRequest
+                    ? CatalogResponse
+                    : never;
