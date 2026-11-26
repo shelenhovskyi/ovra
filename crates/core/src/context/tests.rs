@@ -387,3 +387,27 @@ fn long_attachment_names_keep_their_extension() {
     assert_eq!(name.chars().count(), 80);
     assert!(name.ends_with("aaa.png"));
 }
+
+#[test]
+fn agent_and_cli_logins_look_secret() {
+    for path in [
+        ".ovra-attachments/.claude/.credentials.json",
+        ".ovra-attachments/.codex/auth.json",
+        ".ovra-attachments/gh/hosts.yml",
+        ".ovra-attachments/gcloud/application_default_credentials.json",
+        ".ovra-attachments/.gemini/oauth_creds.json",
+        ".ovra-attachments/home/.pypirc",
+        ".ovra-attachments/home/.vault-token",
+        ".ovra-attachments/.ssh2/id_dsa",
+        ".ovra-attachments/keys/me.ppk",
+        ".ovra-attachments/keys/vault.kdbx",
+        ".ovra-attachments/android/release.jks",
+        ".ovra-attachments/android/release.keystore",
+    ] {
+        assert_eq!(
+            super::path_warning(path),
+            Some(ContextWarning::SecretFile),
+            "{path}"
+        );
+    }
+}
