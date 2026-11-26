@@ -16,6 +16,8 @@ it("opens web pages, and project files only from the project's own checkout", ()
   expect(chatLink("javascript:alert(1)", root, root)).toBeNull();
   expect(chatLink("file:///etc/passwd", root, root)).toBeNull();
   expect(chatLink("src/%E0%A4%A.rs", root, root)).toBeNull();
+  expect(chatLink("#intro", root, root)).toBeNull();
+  expect(chatLink("src/a.rs#x", root, root)).toEqual({ kind: "file", path: "src/a.rs", line: null });
 });
 
 it("finds absolute links in a folder with spaces and non-Latin letters", () => {

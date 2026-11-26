@@ -25,6 +25,9 @@ export function chatLink(href: string, projectRoot: string | null, sessionRoot: 
   const spot = /(?::(\d+)(?::\d+)?|#L(\d+))$/.exec(target);
   const line = spot ? Number(spot[1] ?? spot[2]) : null;
   if (spot) target = target.slice(0, spot.index);
+  // A query or an anchor in the file is not part of its name.
+  target = target.split(/[?#]/)[0] ?? "";
+  if (target === "") return null;
   // Other schemes (javascript:, file:, C:) and host-relative links go nowhere.
   if (/^[a-z][a-z0-9+.-]*:|^\/\/|\\/i.test(target)) return null;
   if (target.startsWith("/")) {
