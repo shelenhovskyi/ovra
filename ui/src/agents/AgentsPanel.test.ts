@@ -1530,6 +1530,10 @@ describe("@ context", () => {
       await settle();
       expect(chips()).toEqual(["lib.rs", "shot.png"]);
     });
+    // It is an image: the chip shows it.
+    expect(target.querySelector<HTMLImageElement>("[data-testid=context-thumb]")?.src).toBe(
+      "data:image/png;base64,iVBO",
+    );
     // The first copy says why the folder is in the project.
     expect(target.querySelector("[data-testid=context-copied-note]")?.textContent).toContain("Git ignores the folder");
     // A key pasted from elsewhere is copied into the project only after Copy
@@ -1559,7 +1563,7 @@ describe("@ context", () => {
     await settle();
     expect(core.sent("agents.start")[0]?.params.context).toEqual([
       { kind: "file", path: "src/lib.rs", confirmed: false },
-      { kind: "file", path: ".ovra-attachments/shot.png", confirmed: false },
+      { kind: "image", path: ".ovra-attachments/shot.png", confirmed: false },
       { kind: "file", path: ".ovra-attachments/crash.log", confirmed: false },
     ]);
   });

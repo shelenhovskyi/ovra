@@ -3,8 +3,11 @@
 // project is only named, as when it is picked with @. A file from elsewhere
 // is copied into the project's attachments folder first, which git
 // ignores, because the agent reads only the project: the drop or the paste
-// is the person's explicit action, as a drop on the file tree is.
+// is the person's explicit action, as a drop on the file tree is. An image
+// small enough for a model becomes an image chip with a thumbnail: an agent
+// that sees images gets the image itself.
 
+import { SvelteMap } from "svelte/reactivity";
 import { PATHS_DRAG_TYPE } from "../lib/drag";
 import type { ContextWhat, ProjectId } from "../lib/protocol";
 import type { Transport, WindowDrop } from "../lib/transport";
@@ -25,13 +28,53 @@ export function relativeTo(root: string, path: string): string | null {
   return rel.split("/").some((part) => part === "" || part === "." || part === "..") ? null : rel;
 }
 
-/** A project path as an item: a folder when the core can list it, else a file. */
+/** One image, at most, that goes to the agent as an image (the core's limit); a larger one stays a file. */
+export const MAX_IMAGE_BYTES = 3_750_000;
+
+/** Whether `path` names an image an agent can be shown. */
+export function isImageName(path: string): boolean {
+  return /\.(png|jpe?g|gif|webp)$/i.test(path);
+}
+
+/** Thumbnails kept at most: each is the whole image. */
+const MAX_THUMBNAILS = 16;
+
+/** Thumbnails of image chips as data URLs, by project and path, oldest first. */
+const thumbnails = new SvelteMap<string, string>();
+
+/** The thumbnail of the image at `path`, once its chip was added. */
+export function thumbnail(project: ProjectId, path: string): string | undefined {
+  return thumbnails.get(`${project}\n${path}`);
+}
+
+/**
+ * A project path as an item: a folder when the core can list it, an image
+ * when it is one a model takes (its thumbnail kept for the chip), else a file.
+ */
 export async function itemFor(transport: Transport, project: ProjectId, path: string): Promise<ContextWhat> {
   try {
     await transport.call({ method: "fs.list_dir", params: { project, path } });
     return { kind: "folder", path };
   } catch {
+    if (isImageName(path) && (await readThumbnail(transport, project, path))) return { kind: "image", path };
     return { kind: "file", path };
+  }
+}
+
+/** Keeps the image's thumbnail; false when it cannot be read or is too large to go as an image. */
+async function readThumbnail(transport: Transport, project: ProjectId, path: string): Promise<boolean> {
+  try {
+    const read = await transport.call({ method: "fs.read_file", params: { project, path } });
+    const { body, size } = read.data;
+    if (body.kind !== "binary" || size > MAX_IMAGE_BYTES || !body.mime.startsWith("image/")) return false;
+    const key = `${project}\n${path}`;
+    thumbnails.delete(key);
+    thumbnails.set(key, `data:${body.mime};base64,${body.base64}`);
+    // Only the latest ones: a chip whose thumbnail went shows the image icon.
+    for (const old of [...thumbnails.keys()].slice(0, -MAX_THUMBNAILS)) thumbnails.delete(old);
+    return true;
+  } catch {
+    return false;
   }
 }
 

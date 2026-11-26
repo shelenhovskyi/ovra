@@ -108,6 +108,8 @@ export function describeItem(what: ContextWhat): Pick<Chip, "label" | "title" | 
         title: `Failed check ${what.name} of pull request #${what.pr}\n${preview(what.text.split("\n").slice(-6).join("\n"))}`,
         icon: "error",
       };
+    case "image":
+      return { label: base(what.path), title: what.path, icon: "image" };
   }
 }
 

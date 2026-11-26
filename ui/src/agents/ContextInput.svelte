@@ -11,7 +11,17 @@ import { recentFiles } from "../palette/recent-files.svelte";
 import { useOvra } from "../shell/context";
 import Icon from "../shell/Icon.svelte";
 import type { IconName } from "../shell/icons";
-import { attachFiles, copyDrop, dropZone, insidePaths, itemFor, pastedFiles, secretLooking } from "./attach";
+import {
+  attachFiles,
+  copyDrop,
+  dropZone,
+  insidePaths,
+  isImageName,
+  itemFor,
+  pastedFiles,
+  secretLooking,
+  thumbnail,
+} from "./attach";
 import {
   atQuery,
   contextDrafts,
@@ -495,11 +505,16 @@ function choose(option: Row): void {
   const box = field;
   const caret = typed.start + name.length;
   queueMicrotask(() => box?.setSelectionRange(caret, caret));
-  const what = option.what;
+  const picked = option.what;
   const load = option.load;
   if (load) said = `Reading ${option.label}…`;
+  // A picked image goes as one when it is small enough, like a dropped one.
+  const what =
+    picked?.kind === "file" && isImageName(picked.path)
+      ? itemFor(transport, project, picked.path)
+      : picked && Promise.resolve(picked);
   const added = what
-    ? drafts.add(project, target, what)
+    ? what.then((item) => drafts.add(project, target, item))
     : load
       ? load().then((read) => drafts.add(project, target, read))
       : null;
@@ -576,14 +591,20 @@ function choose(option: Row): void {
     {#each chips as chip (chip.key)}
       {@const waits = chip.warning !== null && !chip.confirmed}
       {@const included = chip.warning !== null && chip.confirmed}
+      {@const thumb = chip.what.kind === "image" ? thumbnail(project, chip.what.path) : undefined}
       <li
         class="ctx-chip"
         class:waits
         class:included
+        class:image={thumb !== undefined}
         data-testid="context-chip"
         title={included ? `${chip.title}\nSent anyway` : chip.title}
       >
-        <Icon name={chip.icon} small />
+        {#if thumb}
+          <img class="thumb" src={thumb} alt="" data-testid="context-thumb" />
+        {:else}
+          <Icon name={chip.icon} small />
+        {/if}
         <span class="label">{chip.label}</span>
         {#if waits && chip.warning}
           <span class="why">{WARNINGS[chip.warning]}</span>
@@ -678,6 +699,17 @@ function choose(option: Row): void {
     color: var(--text-2);
     background: var(--s3);
     border-radius: var(--radius);
+  }
+  .ctx-chip.image {
+    height: 40px;
+    padding-left: 3px;
+  }
+  .ctx-chip .thumb {
+    width: 34px;
+    height: 34px;
+    object-fit: cover;
+    border-radius: calc(var(--radius) - 1px);
+    background: var(--s4);
   }
   .ctx-chip .label {
     min-width: 0;
