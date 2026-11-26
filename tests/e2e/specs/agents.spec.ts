@@ -512,3 +512,37 @@ test("keep the computer awake while an agent works", async ({ page }) => {
   await awake.click();
   await expect(awake).toHaveAttribute("aria-pressed", "false");
 });
+
+test("Focus shows only the agents' work and answers approvals there", async ({ page }) => {
+  await openProject(page, "ovra-agents-focus-");
+  await page.getByRole("textbox", { name: "Give Claude a task" }).fill("Fix the typo");
+  await page.keyboard.press("ControlOrMeta+Enter");
+  const approvals = page.getByTestId("approvals");
+  const run = approvals.getByRole("group", { name: "Run ls -la" });
+  await expect(run).toBeVisible();
+
+  await page.keyboard.press("ControlOrMeta+Shift+Period");
+  await expect(page.getByTestId("focus-bar")).toBeVisible();
+  // No code, tree or terminal: only the agents' work.
+  await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeHidden();
+  await expect(page.getByTestId("focus-progress")).toContainText("Fix the typo");
+  await expect(run).toBeVisible();
+  // The card is on screen: no toast repeats it.
+  await expect(page.getByTestId("toast")).toHaveCount(0);
+  await expect(approvals.getByTestId("approval-always")).toHaveCount(0);
+
+  await page.keyboard.press("Alt+Shift+A");
+  await expect(run).toBeFocused();
+  await arm(page);
+  await page.keyboard.press("y");
+  const edit = approvals.getByRole("group", { name: "Edit README.md" });
+  await expect(edit).toBeVisible();
+  await page.keyboard.press("Alt+Shift+A");
+  await arm(page);
+  await page.keyboard.press("n");
+  await expect(page.getByTestId("focus-nothing")).toHaveText("Nothing waits for you.");
+
+  await page.getByTestId("focus-open-ide").click();
+  await expect(page.getByTestId("focus-bar")).toHaveCount(0);
+  await expect(page.getByRole("treeitem", { name: /README\.md/ })).toBeVisible();
+});
