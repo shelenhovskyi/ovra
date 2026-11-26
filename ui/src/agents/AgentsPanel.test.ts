@@ -3,10 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { browserPicks } from "../browser/picks.svelte";
 import { handleOpenFor } from "../inbox/open";
 import { listCommands, registerCommand } from "../keys/commands";
-import type { FileChange, Pick, ReviewItem } from "../lib/protocol";
+import type { BoardEntry, FileChange, Pick, ReviewItem } from "../lib/protocol";
 import { closeContextMenu, contextMenu } from "../menu/context-menu.svelte";
 import { Workspace } from "../shell/workspace.svelte";
+import { askAgent } from "./context.svelte";
 import { FakeAgentCore } from "./fake-core";
+import { agentPrefs } from "./prefs.svelte";
 import TestHost from "./TestHost.svelte";
 
 let app: Record<string, unknown> | null = null;
@@ -95,8 +97,10 @@ const button = (name: string) =>
 describe("AgentsPanel", () => {
   it("offers one Start button and a mode menu that says what each way to work means", async () => {
     await setup();
-    const buttons = [...target.querySelectorAll("form.new button")].map((b) => b.textContent?.trim());
-    expect(buttons).toEqual(["One agent, here", "Start"]);
+    const buttons = [...target.querySelectorAll("form.new button")].map(
+      (b) => b.textContent?.trim() || b.getAttribute("aria-label"),
+    );
+    expect(buttons).toEqual(["One agent, here", "Add context", "Start"]);
     // Who pays, in the footer line (it opens Claude's setup).
     expect(target.querySelector("[data-testid=agents-footer]")?.textContent).toBe("Claude · Claude plan");
     expect(target.querySelector("label[for=agent-prompt]")?.textContent).toBe("Give Claude a task");
@@ -111,6 +115,7 @@ describe("AgentsPanel", () => {
     expect(options).toEqual([
       ["One agent, hereWorks in this folder. Asks before risky steps.", "true"],
       ["Plan and splitUp to 3 agents, each on its own copy. You review before anything is merged.", "false"],
+      ["ResearchReads the project and searches the web. Changes nothing.", "false"],
     ]);
     expect(document.activeElement?.getAttribute("aria-checked")).toBe("true");
     // Arrow keys move in the menu; the pick closes it.
@@ -284,7 +289,7 @@ describe("AgentsPanel", () => {
       { session: later.id, name: "tests", branch: "ovra/t1/tests", worktree: "/wt/tests", kept: null },
     );
     core.emit({ type: "orchestration.changed", data: { project: "p1", task: "t1" } });
-    core.capacity = { working: 1, limit: 3, queued: 1 };
+    core.capacity = { working: 1, limit: 3, queued: 1, research_working: 0, research_limit: 2 };
     core.status(docs.id, { state: "working" });
     core.status(later.id, { state: "queued" });
     await settle();
@@ -309,6 +314,11 @@ describe("AgentsPanel", () => {
     await settle();
     const row = (title: string) =>
       [...target.querySelectorAll(".sessions .row-button")].find((b) => b.textContent?.includes(title));
+    // Hidden until the person asks for it in Settings; why a worker waits shows either way.
+    expect(row("docs")?.querySelector("[data-testid=agent-resources]")).toBeNull();
+    expect(row("tests")?.querySelector(".state")?.textContent).toBe("Waiting: low memory");
+    agentPrefs.showResources = true;
+    await settle();
     const taken = row("docs")?.querySelector("[data-testid=agent-resources]");
     expect(taken?.textContent).toBe("1.2 GB · 35% CPU · 2.4 GB on disk");
     expect(taken?.getAttribute("title")?.split("\n")).toEqual([
@@ -337,6 +347,7 @@ describe("AgentsPanel", () => {
     expect(row("tests")?.querySelector(".state")?.textContent).toBe("Waiting for a free agent");
     expect(row("docs")?.querySelector("[data-testid=agent-resources]")).toBeNull();
     expect(count()).toBe("1 of 3 · 1 queued · 1 planning");
+    agentPrefs.showResources = false;
   });
 
   it("names a task's workers and lists them under their coordinator", async () => {
@@ -357,7 +368,7 @@ describe("AgentsPanel", () => {
       kept: null,
     });
     core.emit({ type: "orchestration.changed", data: { project: "p1", task: "t1" } });
-    core.capacity = { working: 3, limit: 3, queued: 1 };
+    core.capacity = { working: 3, limit: 3, queued: 1, research_working: 0, research_limit: 2 };
     core.status(docs.id, { state: "queued" });
     await settle();
     // The coordinator takes no place, but the count does not hide that it works.
@@ -368,16 +379,16 @@ describe("AgentsPanel", () => {
     await settle();
     expect(count()).toBe("3 of 3 · 1 queued");
     // A review asked for or decided changes the count without a change of state.
-    core.capacity = { working: 2, limit: 3, queued: 1 };
+    core.capacity = { working: 2, limit: 3, queued: 1, research_working: 0, research_limit: 2 };
     core.emit({ type: "review.changed", data: { project: "p1", id: "r1" } });
     await settle();
     expect(count()).toBe("2 of 3 · 1 queued");
     // So does a new limit from Settings.
-    core.capacity = { working: 2, limit: 5, queued: 1 };
+    core.capacity = { working: 2, limit: 5, queued: 1, research_working: 0, research_limit: 2 };
     core.emit({ type: "agents.limit_changed", data: { limit: 5, default: 3, min: 1, max: 8 } });
     await settle();
     expect(count()).toBe("2 of 5 · 1 queued");
-    core.capacity = { working: 3, limit: 3, queued: 1 };
+    core.capacity = { working: 3, limit: 3, queued: 1, research_working: 0, research_limit: 2 };
     // Working sessions come before a task whose worker only waits.
     expect(target.querySelectorAll(".sessions .state")[1]?.textContent).toBe("Workers are waiting for a free agent");
     core.status(docs.id, { state: "working" });
@@ -453,6 +464,79 @@ describe("AgentsPanel", () => {
     await settle();
     expect(core.sent("agents.stop").map((c) => c.params)).toEqual([{ session: "s1" }]);
     expect(rows()).toEqual([]);
+  });
+
+  it("shows a question for the person quietly on the task's row and Board, and answers it there", async () => {
+    const core = new FakeAgentCore();
+    core.addSession("p1", "Rename the flag", { state: "idle" });
+    core.tasks.push({
+      id: "t1",
+      project: "p1",
+      coordinator: "s1",
+      workers: [],
+      limits: { max_workers: 3, budget_micro_usd: null },
+      spent_micro_usd: 0,
+    });
+    const lint = { kind: "worker", name: "lint" } as const;
+    core.boards.set("t1", [
+      { id: "b1", author: lint, body: { kind: "claim", worker: "lint", paths: ["src/flag.ts"], note: "" } },
+    ]);
+    await setup(core);
+    const row = () => target.querySelector(".sessions .row-button")?.textContent?.replace(/\s+/g, " ").trim();
+    expect(row()).toBe("Rename the flag Done");
+    // A worker asks the person: the row says so, nothing pops up.
+    const question: BoardEntry = {
+      id: "b2",
+      author: lint,
+      body: { kind: "question", to: { kind: "person" }, text: "Keep the old flag?" },
+    };
+    core.boards.get("t1")?.push(question);
+    core.emit({ type: "board.changed", data: { project: "p1", task: "t1", entry: question } });
+    await settle();
+    expect(row()).toBe("Rename the flag Done Answer");
+    target.querySelector<HTMLButtonElement>(".sessions .row-button")?.click();
+    await settle();
+    target.querySelector<HTMLButtonElement>("[data-testid=agent-board-tab]")?.click();
+    await settle();
+    expect(target.querySelector("[data-testid=agent-board-tab]")?.textContent).toBe("Board (1)");
+    // The task working again keeps the Board open.
+    core.status("s1", { state: "working" });
+    await settle();
+    expect(target.querySelector("[data-testid=task-board]")).not.toBeNull();
+    // Left and Right move between the tabs.
+    target
+      .querySelector<HTMLElement>("[role=tablist]")
+      ?.dispatchEvent(
+        new KeyboardEvent("keydown", { code: "ArrowLeft", key: "ArrowLeft", bubbles: true, cancelable: true }),
+      );
+    await settle();
+    expect(target.querySelector("[data-testid=task-board]")).toBeNull();
+    expect(document.activeElement?.id).toBe("task-tab-talk");
+    target.querySelector<HTMLButtonElement>("[data-testid=agent-board-tab]")?.click();
+    await settle();
+    expect(target.querySelector("[data-testid=board-summary]")?.textContent).toBe(
+      "lint holds 1 path · 1 question for you",
+    );
+    expect(
+      [...target.querySelectorAll("[data-testid=board-entry]")].map((e) => e.textContent?.replace(/\s+/g, " ").trim()),
+    ).toEqual(["lint · Takes src/flag.ts", "lint · Asks you Keep the old flag?"]);
+    type(target.querySelector<HTMLTextAreaElement>("[data-testid=board-question] textarea"), "No, drop it.");
+    flushSync();
+    target.querySelector<HTMLButtonElement>("[data-testid=board-question] button")?.click();
+    await settle();
+    expect(core.sent("board.answer").map((c) => c.params)).toEqual([
+      { task: "t1", question: "b2", text: "No, drop it." },
+    ]);
+    expect(target.querySelector("[data-testid=board-question]")).toBeNull();
+    expect(target.querySelector("[data-testid=agent-board-tab]")?.textContent).toBe("Board");
+    // The person's own note goes on the board too.
+    type(target.querySelector<HTMLTextAreaElement>(".board .note textarea"), "Keep the tests fast.");
+    target
+      .querySelector<HTMLTextAreaElement>(".board .note textarea")
+      ?.dispatchEvent(new KeyboardEvent("keydown", { code: "Enter", key: "Enter", bubbles: true, cancelable: true }));
+    await settle();
+    expect(core.sent("board.post").map((c) => c.params)).toEqual([{ task: "t1", text: "Keep the tests fast." }]);
+    expect(target.querySelectorAll("[data-testid=board-entry]")).toHaveLength(4);
   });
 
   it("lists a task's workers in the order it started them", async () => {
@@ -1047,7 +1131,7 @@ describe("AgentsPanel", () => {
   it("says when every agent waits for the person, and why One agent, here cannot start at the cap", async () => {
     const core = new FakeAgentCore();
     for (const n of [1, 2, 3]) core.addSession("p1", `Task ${n}`, { state: "waiting_for_approval" });
-    core.capacity = { working: 3, limit: 3, queued: 0 };
+    core.capacity = { working: 3, limit: 3, queued: 0, research_working: 0, research_limit: 2 };
     await setup(core);
     const count = () => target.querySelector("[data-testid=agents-capacity]");
     expect(count()?.textContent?.trim()).toBe("3 need you");
@@ -1089,6 +1173,93 @@ describe("AgentsPanel", () => {
     expect(unfold).toHaveBeenCalledOnce();
     off();
     column.remove();
+  });
+});
+
+describe("@ context", () => {
+  // The file list is cached per project for the whole run, as in the palette.
+  const FILES = [".env", "README.md", "src/lib.rs", "src/main.rs"];
+  const field = () => target.querySelector<HTMLTextAreaElement>("#agent-prompt");
+  const key = (code: string) =>
+    document.activeElement?.dispatchEvent(
+      new KeyboardEvent("keydown", { code, key: code, bubbles: true, cancelable: true }),
+    );
+  const options = () =>
+    [...target.querySelectorAll("[data-testid=context-menu] [role=option] .name")].map((o) => o.textContent);
+  const chips = () =>
+    [...target.querySelectorAll("[data-testid=context-chip]")].map((c) => c.textContent?.replace(/\s+/g, " ").trim());
+
+  it("finds a file after @, adds it as a chip and starts the task with it", async () => {
+    const core = new FakeAgentCore();
+    core.listed = FILES;
+    await setup(core);
+    type(field(), "Fix @lib");
+    await settle();
+    expect(options()[0]).toBe("lib.rs");
+    expect(field()?.getAttribute("aria-expanded")).toBe("true");
+    key("Enter");
+    await settle();
+    expect(field()?.value).toBe("Fix ");
+    expect(chips()).toEqual(["lib.rs"]);
+    expect(core.sent("agents.start")).toHaveLength(0);
+    // Escape keeps a typed @ as text; Backspace in an empty box removes the last chip.
+    type(field(), "@src");
+    await settle();
+    key("Escape");
+    await settle();
+    expect(options()).toEqual([]);
+    type(field(), "Fix the parser");
+    key("Enter");
+    await settle();
+    expect(core.sent("agents.start")[0]?.params.context).toEqual([
+      { kind: "file", path: "src/lib.rs", confirmed: false },
+    ]);
+    expect(chips()).toEqual([]);
+  });
+
+  it("holds a chip that may hold a secret until the person chooses Include", async () => {
+    const core = new FakeAgentCore();
+    core.listed = FILES;
+    core.contextNotes.set(".env", "secret_file");
+    await setup(core);
+    type(field(), "@.env");
+    await settle();
+    key("Enter");
+    await settle();
+    expect(chips()).toEqual([".env May hold secrets Include"]);
+    type(field(), "Use the keys");
+    key("Enter");
+    await settle();
+    expect(core.sent("agents.start")).toHaveLength(0);
+    expect(target.textContent).toContain("Choose Include or remove the marked item first.");
+    [...target.querySelectorAll<HTMLButtonElement>("[data-testid=context-chip] button")]
+      .find((b) => b.textContent === "Include")
+      ?.click();
+    field()?.focus();
+    key("Enter");
+    await settle();
+    expect(core.sent("agents.start")[0]?.params.context).toEqual([{ kind: "file", path: ".env", confirmed: true }]);
+  });
+
+  it("takes Ask agent from another area into the box and focuses it", async () => {
+    const core = await setup();
+    askAgent({ kind: "terminal", title: "zsh", text: "test failed" });
+    await settle();
+    expect(chips()).toEqual(["Terminal"]);
+    expect(document.activeElement).toBe(field());
+    // Chips belong to their project's box.
+    workspace.project = { id: "p2", name: "other", root: "/other", last_opened_ms: null, trusted: false };
+    await settle();
+    expect(chips()).toEqual([]);
+    workspace.project = { id: "p1", name: "demo", root: "/demo", last_opened_ms: null, trusted: false };
+    await settle();
+    expect(chips()).toEqual(["Terminal"]);
+    field()?.focus();
+    // Backspace in the empty box takes it out again.
+    key("Backspace");
+    await settle();
+    expect(chips()).toEqual([]);
+    expect(core.sent("context.check")).toHaveLength(1);
   });
 });
 

@@ -54,7 +54,7 @@ async function show(pane: PaneId, answers: Partial<Record<Request["method"], unk
 }
 
 const ACCOUNTS = {
-  accounts: [{ account: { id: "default", name: "Personal", config_dir: null }, setup: READY }],
+  accounts: [{ account: { provider: "claude", id: "default", name: "Personal", config_dir: null }, setup: READY }],
   found: [],
   project_account: null,
 };

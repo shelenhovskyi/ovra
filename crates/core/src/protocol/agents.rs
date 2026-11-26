@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::context::ContextItem;
 use super::projects::ProjectId;
 
 /// Assigned by the core when a session starts.
@@ -9,12 +10,62 @@ use super::projects::ProjectId;
 #[serde(transparent)]
 pub struct SessionId(pub String);
 
-/// Which agent runs the session.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// Which agent runs the session: a provider (ADR 0011). One variant per
+/// provider an adapter knows, so code that must treat providers apart
+/// does not compile until it does.
+/// The default is what settings and sessions saved before ADR 0011 ran
+/// with.
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentKind {
     /// The user's installed Claude Code (ADR 0006).
+    #[default]
     Claude,
+}
+
+/// A provider the runtime can start sessions of, and what it can do
+/// (`agents.providers`, ADR 0011).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderInfo {
+    pub id: AgentKind,
+    /// What the UI calls it, such as `Claude`.
+    pub name: String,
+    pub capabilities: Capabilities,
+}
+
+/// What a provider's sessions can do. The core refuses what one cannot
+/// serve, and the UI leaves out what it cannot do.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Capabilities {
+    /// Asks before each tool call that needs a person's approval.
+    pub approvals: bool,
+    /// Ovra's policies hold even in modes that skip approvals (a hook);
+    /// without it the agent alone decides when to ask.
+    pub enforced_policy: bool,
+    /// Reaches Ovra's IDE tools (coordinator, workers, servers, browser).
+    pub ide_tools: bool,
+    /// Can run as a read-only coordinator.
+    pub read_only_role: bool,
+    /// Continues an ended session (`agents.resume`).
+    pub resume: bool,
+    /// Branches a session into a new one.
+    pub fork: bool,
+    /// Stops a turn and stays alive (`agents.interrupt`).
+    pub interrupt: bool,
+    /// Streams the text it is writing (`agents.text_delta`).
+    pub text_deltas: bool,
+    /// Reports its subagents' messages.
+    pub subagents: bool,
+    /// Reports tokens used.
+    pub usage: bool,
+    /// Reports what a turn cost.
+    pub cost: bool,
+    /// Says who pays (`agents.billing`).
+    pub billing: bool,
+    /// Runs accounts with configuration folders of their own.
+    pub accounts: bool,
 }
 
 /// Where the agent works (ADR 0005).
@@ -25,6 +76,9 @@ pub enum SessionMode {
     Direct,
     /// In its own git worktree (phase 3).
     Isolated,
+    /// Reads the main checkout and searches the web, changes nothing; has
+    /// its own cap (ADR 0013).
+    Research,
 }
 
 /// The state of a session. Closed set: the UI shows exactly these.
@@ -88,7 +142,7 @@ pub struct SessionInfo {
     /// a `sandbox` that is set counts as reported.
     #[serde(default)]
     pub sandbox_reported: bool,
-    /// The Claude account it runs with ([`ClaudeAccount::id`]); `None` for
+    /// The Claude account it runs with ([`Account::id`]); `None` for
     /// the default account, and for sessions saved before accounts existed.
     #[serde(default)]
     pub account: Option<String>,
@@ -101,6 +155,10 @@ pub struct SessionInfo {
     /// no turn started since.
     #[serde(default)]
     pub can_undo_go_back: bool,
+    /// A research session started without `WebSearch` (`agents.start`'s
+    /// `no_web`): it only reads the project.
+    #[serde(default)]
+    pub no_web: bool,
 }
 
 /// A turn of a direct session whose files can be set back to how they
@@ -130,6 +188,12 @@ pub struct AgentCapacity {
     pub limit: u32,
     /// Workers waiting for a free place (`queued`).
     pub queued: u32,
+    /// Research sessions that work now (ADR 0013): counted apart from
+    /// `working`, against `research_limit`.
+    #[serde(default)]
+    pub research_working: u32,
+    #[serde(default)]
+    pub research_limit: u32,
 }
 
 /// Tokens and cost of one turn, as the agent reports them, or their sum.
@@ -281,15 +345,18 @@ pub struct AgentSettings {
     /// Absolute path of the `claude` executable; `None` searches for it.
     pub claude_path: Option<String>,
     /// The Claude accounts the user added. The default account is
-    /// [`ClaudeAccount::default_account`] unless an entry with its id
+    /// [`Account::default_account`] unless an entry with its id
     /// renames it.
-    pub accounts: Vec<ClaudeAccount>,
-    /// Each project's account ([`ClaudeAccount::id`]) for sessions started
+    pub accounts: Vec<Account>,
+    /// Each project's account ([`Account::id`]) for sessions started
     /// without one; a project not listed uses the default account.
     pub project_accounts: std::collections::BTreeMap<ProjectId, String>,
     /// How many agents may work at once in one project
     /// ([`AgentLimit`]); `None` is the default.
     pub max_working: Option<u32>,
+    /// How many research sessions may work at once in one project (ADR
+    /// 0013); `None` is the default.
+    pub research_limit: Option<u32>,
 }
 
 /// How many agents may work at once in each project, and the range the
@@ -304,13 +371,13 @@ pub struct AgentLimit {
 
 impl AgentSettings {
     /// Every account, the default one first.
-    pub fn all_accounts(&self) -> Vec<ClaudeAccount> {
+    pub fn all_accounts(&self) -> Vec<Account> {
         let default = self
             .accounts
             .iter()
             .find(|a| a.id == DEFAULT_ACCOUNT)
             .cloned()
-            .unwrap_or_else(ClaudeAccount::default_account);
+            .unwrap_or_else(Account::default_account);
         std::iter::once(default)
             .chain(
                 self.accounts
@@ -322,7 +389,7 @@ impl AgentSettings {
     }
 
     /// The account `id`, or the default account for `None`.
-    pub fn account(&self, id: Option<&str>) -> Option<ClaudeAccount> {
+    pub fn account(&self, id: Option<&str>) -> Option<Account> {
         let id = id.unwrap_or(DEFAULT_ACCOUNT);
         self.all_accounts().into_iter().find(|a| a.id == id)
     }
@@ -332,11 +399,15 @@ impl AgentSettings {
 /// a configuration folder of Ovra's choosing.
 pub const DEFAULT_ACCOUNT: &str = "default";
 
-/// A Claude account: a Claude Code configuration folder with its own
-/// sign-in, settings and transcripts. `claude` gets the folder as
-/// `CLAUDE_CONFIG_DIR` (ADR 0006); Ovra never reads what is inside.
+/// An account of one provider: for Claude, a Claude Code configuration
+/// folder with its own sign-in, settings and transcripts, which `claude`
+/// gets as `CLAUDE_CONFIG_DIR` (ADR 0006). Ovra never reads what is
+/// inside.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ClaudeAccount {
+pub struct Account {
+    /// Whose account it is; accounts saved before ADR 0011 are Claude's.
+    #[serde(default)]
+    pub provider: AgentKind,
     /// Chosen by the core when the account is added; [`DEFAULT_ACCOUNT`]
     /// for the default one.
     pub id: String,
@@ -349,9 +420,10 @@ pub struct ClaudeAccount {
     pub config_dir: Option<String>,
 }
 
-impl ClaudeAccount {
+impl Account {
     pub fn default_account() -> Self {
         Self {
+            provider: AgentKind::Claude,
             id: DEFAULT_ACCOUNT.to_owned(),
             name: "Default".to_owned(),
             config_dir: None,
@@ -362,7 +434,7 @@ impl ClaudeAccount {
 /// One account and whether it is ready to run sessions.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AccountState {
-    pub account: ClaudeAccount,
+    pub account: Account,
     /// Its `claude`, checked with its folder: found, supported, signed in,
     /// and who pays.
     pub setup: AgentSetup,
@@ -460,6 +532,9 @@ impl ConfigKind {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "method", content = "params")]
 pub enum AgentsRequest {
+    /// The providers the runtime can start, with their capabilities.
+    #[serde(rename = "agents.providers")]
+    Providers,
     /// Checks that the agent is installed, supported and signed in.
     #[serde(rename = "agents.setup")]
     Setup { agent: AgentKind },
@@ -478,7 +553,7 @@ pub enum AgentsRequest {
     /// Adds an account (an empty `id`) or changes one, then answers
     /// `agents.accounts`. The default account keeps its folder.
     #[serde(rename = "agents.save_account")]
-    SaveAccount { account: ClaudeAccount },
+    SaveAccount { account: Account },
     /// Removes an account; projects that used it go back to the default
     /// one. Answers `agents.accounts`.
     #[serde(rename = "agents.remove_account")]
@@ -506,10 +581,22 @@ pub enum AgentsRequest {
         /// The Claude account; `None` uses the project's.
         #[serde(default)]
         account: Option<String>,
+        /// What the person added with `@`; it follows the prompt as Ovra's.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        context: Vec<ContextItem>,
+        /// Research only: no `WebSearch` either, for prompts that carry
+        /// other people's text (ADR 0013).
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        no_web: bool,
     },
     /// Sends the next message. Answers `ok`.
     #[serde(rename = "agents.send")]
-    Send { session: SessionId, text: String },
+    Send {
+        session: SessionId,
+        text: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        context: Vec<ContextItem>,
+    },
     /// Continues an ended session, also one from before a restart, with a
     /// new prompt. Answers `agents.session`.
     #[serde(rename = "agents.resume")]
@@ -535,6 +622,15 @@ pub enum AgentsRequest {
     /// if it rose. Answers `agents.limit` and sends `agents.limit_changed`.
     #[serde(rename = "agents.set_limit")]
     SetLimit { limit: u32 },
+    /// How many research sessions may work at once in each project
+    /// (ADR 0013), apart from the agents of `agents.limit`.
+    #[serde(rename = "agents.research_limit")]
+    ResearchLimit,
+    /// Sets it; refused (`bad_request`) outside [`AgentLimit`]'s range.
+    /// Answers `agents.research_limit` and sends
+    /// `agents.research_limit_changed`.
+    #[serde(rename = "agents.set_research_limit")]
+    SetResearchLimit { limit: u32 },
     /// The turns of a direct session that can be gone back to, newest first.
     #[serde(rename = "agents.checkpoints")]
     Checkpoints { session: SessionId },
@@ -553,6 +649,8 @@ pub enum AgentsRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
 pub enum AgentsResponse {
+    #[serde(rename = "agents.providers")]
+    Providers(Vec<ProviderInfo>),
     #[serde(rename = "agents.setup")]
     Setup(AgentSetup),
     #[serde(rename = "agents.accounts")]
@@ -569,6 +667,8 @@ pub enum AgentsResponse {
     Capacity(AgentCapacity),
     #[serde(rename = "agents.limit")]
     Limit(AgentLimit),
+    #[serde(rename = "agents.research_limit")]
+    ResearchLimit(AgentLimit),
     #[serde(rename = "agents.checkpoints")]
     Checkpoints(Vec<Checkpoint>),
     #[serde(rename = "agents.went_back")]
@@ -596,6 +696,9 @@ pub enum AgentsEvent {
     /// for capacities again.
     #[serde(rename = "agents.limit_changed")]
     LimitChanged(AgentLimit),
+    /// The same for research sessions (`agents.research_limit`).
+    #[serde(rename = "agents.research_limit_changed")]
+    ResearchLimitChanged(AgentLimit),
     #[serde(rename = "agents.message")]
     Message {
         session: SessionId,

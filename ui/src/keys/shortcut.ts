@@ -34,6 +34,8 @@ const BROWSER_SAFE: Record<string, string> = {
   "Ctrl+Shift+G": "Alt+Shift+G",
   "Mod+N": "Alt+N",
   "Mod+Shift+T": "Alt+Shift+T",
+  // Ctrl+H is the browser's history; Replace in file keeps its other key.
+  "Mod+H": "Mod+Alt+F",
   // Alt+digit switches browser tabs on Linux too.
   "Mod+1": "Mod+Alt+1",
   "Mod+2": "Mod+Alt+2",

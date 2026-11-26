@@ -34,7 +34,19 @@ export function runMenuCommand(id: string): void {
   pressed = undefined;
   if (echo) return;
   const command = listCommands().find((c) => c.id === id);
-  if (command) void runCommand(command);
+  if (command && allowed(command, document)) void runCommand(command);
+}
+
+/**
+ * Whether `command` may run now. While a modal dialog is open (the palette,
+ * the close question) only the commands it names in `data-commands` (an id
+ * prefix such as `palette.`) do; the rest would act behind it.
+ */
+function allowed(command: Command, doc: Document): boolean {
+  const modal = doc.querySelector<HTMLElement>("[aria-modal='true']");
+  if (!modal) return true;
+  const own = modal.dataset.commands;
+  return own !== undefined && command.id.startsWith(own);
 }
 
 /**
@@ -46,10 +58,12 @@ export function installKeybindings(target: Window, apple = isApple(), browser = 
     if (event.isComposing) return;
     const command = findCommand(event, listCommands(), apple, browser);
     if (!command) return;
+    // Also when it does not run here: the menu bar's echo of the key must not run it either.
     pressed = { id: command.id, at: Date.now() };
     if (event.defaultPrevented) return;
+    // Behind a modal the key is not the browser's either (Mod+S would save the page).
     event.preventDefault();
-    void runCommand(command);
+    if (allowed(command, target.document)) void runCommand(command);
   };
   // Bubble phase: a focused widget that handles the key itself (CodeMirror on
   // Mod-s) calls preventDefault first, and the command does not run twice.

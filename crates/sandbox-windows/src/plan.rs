@@ -206,6 +206,14 @@ impl Plan {
         if !profile.expose.is_empty() {
             return Err(invalid("the Windows sandbox cannot run server pods yet"));
         }
+        // Grants stay on a folder after its sessions (the project's SID is
+        // the same for each), so an earlier direct session's write access
+        // would still apply: a read-only folder needs a SID of its own first.
+        if profile.work_dir_read_only {
+            return Err(invalid(
+                "the Windows sandbox cannot keep a folder read-only yet, so research agents cannot run in it",
+            ));
+        }
         // It would show `~/.claude` instead of the account's folder.
         if profile.claude_dir.is_some() {
             return Err(invalid(

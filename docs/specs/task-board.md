@@ -1,9 +1,8 @@
 # Task board
 
-Status: draft for the owner's review. ADR 0012; builds on
-`docs/specs/orchestration.md` and `docs/research/agent-messaging.md`.
-The owner chose the shared board on 2026-11-25; the items marked
-"Decision" below wait for their answer, each with a recommended option.
+Status: approved by the owner on 2026-11-25 with the recommended option
+of B1-B3; questions to the person stay quiet (no toasts). ADR 0012; builds
+on `docs/specs/orchestration.md` and `docs/research/agent-messaging.md`.
 
 ## What it is for
 
@@ -64,21 +63,20 @@ becomes the new worker's first claim.
   board: a question to it is answered by the core with "worker X waits
   idle; ask the coordinator", and the entry stays for whoever resumes it.
 - The coordinator gets every entry, also when idle: it is the task's
-  planner and is woken today by Ovra's notes. **Decision B1:** wake the
-  coordinator for every entry (recommended: only for questions to it,
-  overlaps and `ovra` entries; the rest waits for its next turn).
+  planner. **B1:** an idle coordinator is woken only for questions to
+  it, overlaps and `ovra` entries; the rest waits for its next turn.
 - Mid-turn delivery inside a long turn (a `PostToolUse` hook answer with
   `additionalContext`) is a later step; it needs a check on the CLI first.
 
 ## Questions for the person
 
-`ask(to: "person")` shows the question in the agents panel and in the
-attention list like an approval, with a desktop notification. The person
+`ask(to: "person")` shows the question quietly: on the task's board and
+under "Waiting on you" next to approvals, with no toast and no desktop
+notification of its own. The person
 answers from the UI (`board.answer`); the answer is marked as theirs
 because it comes from the UI. The asker keeps working while it waits.
-**Decision B2:** may workers ask the person directly (recommended: yes,
-the coordinator sees the question and the answer), or only the
-coordinator?
+**B2:** workers may ask the person directly; the coordinator sees the
+question and the answer.
 
 ## Limits
 
@@ -110,6 +108,29 @@ coordinator?
   `<untrusted>` marks.
 - Entries go into the audit log and persist with the task.
 
+## Built so far, and what is left
+
+The first cut (2026-11-26) has the entries, the six tools, delivery, the
+limits, persistence and the Board tab. Decisions made while building it:
+
+- What waits for an agent is sent as one Ovra message when its next turn
+  starts (its status turns working), not merged into the message that
+  starts it; what cannot be sent (a queued or stopping session) waits on.
+- An answer to the coordinator's question waits for its next turn (B1).
+- The chain limit counts questions and answers between the same two
+  agents since the person or the coordinator last wrote; other entries do
+  not end the run, and talk with the person is not limited.
+- `read_board` returns at most 20 entries or 16 KB a call, with `next`.
+- A claim path is at most 256 bytes with at most 8 runs of `*`; matching
+  is row by row with a step budget per search.
+
+Left for later: entries in the audit log; a time on each entry; the watch
+tick comparing a new change with other workers' claims (it compares
+changes only); saving boards apart from the rest of the orchestration
+state; approval cards that name a preceding entry; the task row's "who
+changes what" view; the e2e test; keeping two sends that race to one
+agent from carrying the same entry twice.
+
 ## Protocol (`board.*`)
 
 - `board.list {task, since}` → entries and `next`.
@@ -124,9 +145,8 @@ coordinator?
 - Opening the task shows the board: a timeline of entries with their
   authors, a box to post or answer, and "who changes what" (file →
   workers, from claims and changes) with overlaps marked.
-- **Decision B3:** where the board lives (recommended: a "Board" tab in the
-  task view of the agents panel, next to its workers; the alternative is a
-  panel of its own).
+- **B3:** the board is a "Board" tab in the task view of the agents
+  panel, next to its workers.
 
 ## Tests
 

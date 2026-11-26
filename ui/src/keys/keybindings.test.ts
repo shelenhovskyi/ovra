@@ -136,4 +136,30 @@ describe("keybindings", () => {
     runMenuCommand("t.find");
     expect(run).not.toHaveBeenCalled();
   });
+
+  it("runs only a modal dialog's own commands while it is open", () => {
+    const run = vi.fn();
+    cleanups.push(registerCommand({ id: "t.split", title: "Split", keys: "Mod+\\", run: () => run("split") }));
+    cleanups.push(registerCommand({ id: "palette.files", title: "Files", keys: "Mod+P", run: () => run("files") }));
+    cleanups.push(installKeybindings(window, false, false));
+    const dialog = document.createElement("div");
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("aria-modal", "true");
+    document.body.append(dialog);
+    cleanups.push(() => dialog.remove());
+
+    // The close question: nothing behind it runs, and the browser does not get the key either.
+    const split = keydown({ key: "\\", code: "Backslash", ctrlKey: true });
+    keydown({ key: "p", code: "KeyP", ctrlKey: true });
+    runMenuCommand("t.split");
+    expect([run.mock.calls, split.defaultPrevented]).toEqual([[], true]);
+
+    // The palette: its own commands switch its mode.
+    dialog.dataset.commands = "palette.";
+    keydown({ key: "\\", code: "Backslash", ctrlKey: true });
+    keydown({ key: "p", code: "KeyP", ctrlKey: true });
+    dialog.remove();
+    keydown({ key: "\\", code: "Backslash", ctrlKey: true });
+    expect(run.mock.calls).toEqual([["files"], ["split"]]);
+  });
 });

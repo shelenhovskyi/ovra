@@ -26,6 +26,9 @@ struct Spawn {
     name: String,
     #[serde(default)]
     skip_setup: bool,
+    /// The worker's first claim on the board.
+    #[serde(default)]
+    files: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -78,18 +81,33 @@ pub(crate) async fn call(
     name: &str,
     arguments: Value,
 ) -> Result<String, String> {
+    if let Some(answer) = crate::board::call(core, caller, name, arguments.clone()) {
+        return answer;
+    }
     match name {
         "spawn_agent" => {
             let Spawn {
                 task,
                 name,
                 skip_setup,
+                files,
             } = parse(arguments)?;
             let worker = core
                 .spawn_agent(caller, &name, &task, skip_setup)
                 .await
                 .map_err(failed)?;
-            Ok(text(&worker_json(&worker)))
+            let mut answer = worker_json(&worker);
+            if !files.is_empty() {
+                // The worker runs already: a refused claim is the
+                // coordinator's to fix, not a failed spawn.
+                answer["claim"] = match core.board_claim(caller, Some(&name), &files, "") {
+                    Ok(claimed) => {
+                        json!({"entry": claimed.entry.id, "overlaps": claimed.overlaps.len()})
+                    }
+                    Err(e) => json!({"refused": failed(e)}),
+                };
+            }
+            Ok(escaped(&text(&answer)))
         }
         "list_agents" => {
             let Nothing {} = parse(arguments)?;

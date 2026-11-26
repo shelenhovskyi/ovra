@@ -8,10 +8,13 @@
 //! lock, never the other way round; sessions call in here only without
 //! holding theirs.
 
+mod board;
 pub(crate) mod direct;
 mod ide;
 mod overlap;
 mod policy;
+mod prepare;
+mod publish;
 mod review;
 mod saved;
 mod setup;
@@ -34,9 +37,11 @@ use crate::protocol::review::{ReviewEvent, ReviewRequest};
 use crate::protocol::{ErrorCode, ProtocolError, Response};
 use crate::services::SessionStore;
 
+pub(crate) use prepare::work_env;
 pub(crate) use saved::restore;
 pub(crate) use slots::{
-    Reservation, capacity, reserve, set_limit, start_next_queued, view as limit,
+    Reservation, capacity, research_view as research_limit, reserve, reserve_research, set_limit,
+    set_research_limit, start_next_queued, view as limit,
 };
 pub(crate) use tasks::unless_cleaned;
 
@@ -73,6 +78,8 @@ struct State {
     holds: BTreeSet<SessionId>,
     /// Workers whose worktree is watched while they run ([`watch`]).
     watches: BTreeSet<SessionId>,
+    /// Each task's board ([`board`]).
+    boards: BTreeMap<crate::protocol::orchestration::TaskId, board::Board>,
     /// Each worker's changed paths as [`overlap`] last saw them; not saved.
     changed: BTreeMap<SessionId, BTreeSet<String>>,
     /// Worker pairs [`overlap`] already told of; not saved.
@@ -83,6 +90,13 @@ struct State {
     /// How many agents may work at once ([`slots::limit`]), once read from
     /// the settings; not saved here.
     limit: Option<usize>,
+    /// The same for research sessions ([`slots::reserve_research`]).
+    reserved_research: BTreeMap<ProjectId, usize>,
+    /// Workers whose worktree is being prepared ([`prepare`]).
+    setups: BTreeMap<SessionId, tokio::task::AbortHandle>,
+    /// Pull requests whose checks are polled ([`publish`]).
+    polls: BTreeMap<crate::protocol::review::ReviewId, publish::Poll>,
+    polls_made: u64,
 }
 
 impl Orchestration {
@@ -109,6 +123,34 @@ impl Orchestration {
 
 pub(crate) async fn review(core: &Core, request: ReviewRequest) -> Result<Response> {
     review::handle(core, request).await
+}
+
+pub(crate) async fn pull_request(
+    core: &Core,
+    request: crate::protocol::pr::PrRequest,
+) -> Result<Response> {
+    publish::handle(core, request).await
+}
+
+pub(crate) use board::Waiting as BoardWaiting;
+
+/// What waits for `session` on its task's board, as the text that goes
+/// with the message starting its next turn; it stays queued until
+/// [`board_delivered`].
+pub(crate) fn board_waiting(core: &Core, session: &SessionId) -> Option<BoardWaiting> {
+    board::waiting(core, session)
+}
+
+/// The message carrying `waiting` reached `session`: off the queue.
+pub(crate) fn board_delivered(core: &Core, session: &SessionId, waiting: BoardWaiting) {
+    board::delivered(core, session, waiting);
+}
+
+pub(crate) fn board(
+    core: &Core,
+    request: crate::protocol::board::BoardRequest,
+) -> Result<Response> {
+    board::handle(core, request)
 }
 
 pub(crate) async fn orchestration(core: &Core, request: OrchestrationRequest) -> Result<Response> {
@@ -152,6 +194,7 @@ pub(crate) fn on_status(core: &Core, session: &SessionId, status: &AgentStatus) 
     }
     if status.is_ended() {
         watch::stop(core, session);
+        prepare::abort(core, session);
     }
     if *status == AgentStatus::Stopped {
         tasks::stop_workers_of(core, session);
@@ -182,6 +225,9 @@ pub(crate) fn on_status(core: &Core, session: &SessionId, status: &AgentStatus) 
     if let Ok(runtime) = tokio::runtime::Handle::try_current() {
         let (core, session) = (core.clone(), session.clone());
         runtime.spawn(async move { overlap::check(&core, &session).await });
+    }
+    if *status == AgentStatus::Idle {
+        prepare::count_disk(core, session);
     }
     // A finished turn or session may have changed files or spent money.
     let (review, task) = {

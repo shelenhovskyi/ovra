@@ -89,6 +89,29 @@ describe("file actions in the tree", () => {
     expect(t.row("/")).toBeNull();
   });
 
+  it("starts a new folder from the header, and cuts, copies, pastes and trashes from the palette", async () => {
+    const t = await mountTree(["src/a.ts", "b.ts"]);
+    const run = (id: string) =>
+      listCommands()
+        .find((c) => c.id === id)
+        ?.run();
+    t.target.querySelector<HTMLButtonElement>('[aria-label="New folder"]')?.click();
+    await settle();
+    expect(t.row("/")?.getAttribute("aria-label")).toBe("New folder");
+    t.press(t.input(), "Escape");
+
+    t.row("b.ts")?.click();
+    await run("tree.copy");
+    t.row("src")?.click();
+    await settle();
+    await run("tree.paste");
+    await settle();
+    expect(t.core.calls.find((c) => c.method === "fs.copy")?.params).toMatchObject({ from: "b.ts", to: "src/b.ts" });
+    await run("tree.trash");
+    expect(t.target.querySelector("[role=alertdialog]")?.textContent).toContain("Move “b.ts” to Trash?");
+    expect(listCommands().find((c) => c.id === "tree.trash")?.keywords).toContain("delete");
+  });
+
   it("opens a row's menu on right-click or Shift+F10 and the project's below the rows", async () => {
     const t = await mountTree(["src/a.ts", "b.ts"]);
     const labels = () =>
@@ -176,11 +199,41 @@ describe("file actions in the tree", () => {
     t.press(document.activeElement, "Escape");
     expect(dialog()).toBeNull();
 
+    // Tab stays on its two buttons; focus going elsewhere drops the question.
+    t.press(t.tree, "Delete");
+    t.press(document.activeElement, "Tab");
+    expect(document.activeElement?.textContent).toBe("Cancel");
+    t.press(document.activeElement, "Tab");
+    expect(document.activeElement?.textContent).toBe("Move to Trash");
+    const elsewhere = document.body.appendChild(document.createElement("button"));
+    elsewhere.focus();
+    flushSync();
+    expect(dialog()).toBeNull();
+    expect(document.activeElement).toBe(elsewhere);
+
+    t.tree.focus();
     t.press(t.tree, "Delete");
     (document.activeElement as HTMLButtonElement).click();
     await settle();
     expect(t.row("a.ts")).toBeNull();
     expect(t.core.calls.find((c) => c.method === "fs.trash")?.params).toEqual({ project: "p1", paths: ["a.ts"] });
+  });
+
+  it("extends the selection with Shift+End and Shift+Home, and selects every row with Ctrl+A", async () => {
+    const t = await mountTree(["a.ts", "b.ts", "c.ts", "d.ts"]);
+    const key = (code: string, mods: KeyboardEventInit = {}) => {
+      t.tree.dispatchEvent(new KeyboardEvent("keydown", { code, key: code, bubbles: true, ...mods }));
+      flushSync();
+    };
+    const selected = () =>
+      [...t.target.querySelectorAll('[aria-selected="true"]')].map((r) => r.getAttribute("data-path"));
+    t.row("b.ts")?.click();
+    key("End", { shiftKey: true });
+    expect(selected()).toEqual(["b.ts", "c.ts", "d.ts"]);
+    key("Home", { shiftKey: true });
+    expect(selected()).toEqual(["a.ts", "b.ts"]);
+    key("KeyA", { ctrlKey: true });
+    expect(selected()).toEqual(["a.ts", "b.ts", "c.ts", "d.ts"]);
   });
 
   it("selects several rows with Ctrl+click, Shift+click and Shift+Arrow, and acts on all of them", async () => {

@@ -1,4 +1,5 @@
 import type { SessionId } from "./agents";
+import type { ContextItem } from "./context";
 import type { ProjectId } from "./projects";
 import type { ReviewId } from "./review";
 
@@ -24,6 +25,8 @@ export type Worker = {
   setup?: SetupProgress | null;
   /** Its worktree's size on disk; null until counted (absent from older cores). */
   disk?: DiskUsage | null;
+  /** Why it waits queued although a place may be free (too little disk space for its worktree); absent from older cores. */
+  waiting?: string | null;
 };
 
 /** Where a worktree's setup steps (`.ovra/worktree.json`) are. */
@@ -44,6 +47,14 @@ export type DiskUsage = {
   bytes: number;
   /** true: all counted, an upper bound ("up to"); false: counting stopped early ("more than"). */
   complete: boolean;
+};
+
+/** A folder under Ovra's worktrees folder that no task knows; kept until the person removes it. */
+export type Leftover = {
+  /** Absolute path. */
+  path: string;
+  /** null when it could not be counted. */
+  disk: DiskUsage | null;
 };
 
 /** A worker the coordinator asked for that could not start. */
@@ -71,13 +82,21 @@ export type ShowTarget =
   | { kind: "review"; id: ReviewId };
 
 export type OrchestrationRequest =
-  | { method: "orchestration.start"; params: { project: ProjectId; prompt: string; limits?: TaskLimits } }
+  | {
+      method: "orchestration.start";
+      params: { project: ProjectId; prompt: string; limits?: TaskLimits; context?: ContextItem[] };
+    }
   | { method: "orchestration.list"; params: { project: ProjectId } }
-  | { method: "orchestration.stop"; params: { task: TaskId } };
+  | { method: "orchestration.stop"; params: { task: TaskId } }
+  /** Retry, or with `skip_setup` Start anyway, a worker whose setup failed. */
+  | { method: "orchestration.retry_setup"; params: { session: SessionId; skip_setup?: boolean } }
+  | { method: "orchestration.leftovers"; params: { project: ProjectId } }
+  | { method: "orchestration.remove_leftover"; params: { project: ProjectId; path: string } };
 
 export type OrchestrationResponse =
   | { type: "orchestration.task"; data: Task }
-  | { type: "orchestration.list"; data: Task[] };
+  | { type: "orchestration.list"; data: Task[] }
+  | { type: "orchestration.leftovers"; data: Leftover[] };
 
 export type OrchestrationEvent =
   | { type: "orchestration.changed"; data: { project: ProjectId; task: TaskId } }

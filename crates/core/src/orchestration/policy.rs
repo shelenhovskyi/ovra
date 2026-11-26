@@ -21,11 +21,17 @@ const COORDINATOR_TOOLS: [&str; 5] = [
     "stop_agent",
 ];
 
-/// Tools every session with IDE tools may call; the `server_*` ones act
-/// on the caller's own work dir only, the `browser_*` ones on its own
-/// session's browser.
-const SHARED_TOOLS: [&str; 19] = [
+/// Tools every session with IDE tools may call; the board's act on the
+/// caller's own task, the `server_*` ones on the caller's own work dir
+/// only, the `browser_*` ones on its own session's browser.
+const SHARED_TOOLS: [&str; 25] = [
     "request_review",
+    "claim",
+    "release",
+    "ask",
+    "answer",
+    "post",
+    "read_board",
     "open_in_ui",
     "server_list",
     "server_start",

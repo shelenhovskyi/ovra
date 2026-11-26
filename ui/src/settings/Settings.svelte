@@ -10,6 +10,7 @@ import { formatShortcut, inBrowserTab, isApple, liveKeys } from "../keys/shortcu
 import type { CoreInfo } from "../lib/protocol";
 import NetworkPanel from "../network/NetworkPanel.svelte";
 import PolicyPanel from "../policy/PolicyPanel.svelte";
+import KeepAwakeField from "../power/KeepAwakeField.svelte";
 import ServersPanel from "../servers/ServersPanel.svelte";
 import { useOvra } from "../shell/context";
 import ViewFrame from "../shell/ViewFrame.svelte";
@@ -18,6 +19,7 @@ import AgentLimitField from "./AgentLimitField.svelte";
 import ClaudePane from "./ClaudePane.svelte";
 import EditorPane from "./EditorPane.svelte";
 import { type PaneId, panesFor, settings } from "./panes.svelte";
+import ResourcesField from "./ResourcesField.svelte";
 import TrustPane from "./TrustPane.svelte";
 
 const { transport, workspace } = useOvra();
@@ -52,7 +54,7 @@ let keyFilter = $state("");
 
 /**
  * Every key, grouped by where it works: the commands' shortcuts work
- * everywhere, then the keys panels declared for one place, by place.
+ * everywhere unless they name a place, then the keys of one place, by place.
  */
 const keyGroups = $derived.by(() => {
   void pane;
@@ -66,7 +68,7 @@ const keyGroups = $derived.by(() => {
               title: c.title,
               binding: c.keys,
               keys: formatShortcut(liveKeys(c.keys, inBrowserTab()), apple),
-              where: EVERYWHERE,
+              where: c.where ?? EVERYWHERE,
             },
           ]
         : [],
@@ -165,6 +167,9 @@ function onListKeydown(event: KeyboardEvent): void {
         {:else if pane.id === "claude"}
           <ClaudePane />
           <AgentLimitField />
+          <AgentLimitField research />
+          <ResourcesField />
+          <KeepAwakeField />
         {:else if pane.id === "rules"}
           <PolicyPanel />
         {:else if pane.id === "network"}

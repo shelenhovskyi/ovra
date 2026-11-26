@@ -2,6 +2,7 @@ import { flushSync, mount, tick, unmount } from "svelte";
 import { afterEach, expect, it, vi } from "vitest";
 import type { TextSpot } from "../shell/workspace.svelte";
 import { FakeSearchCore, file } from "./fake-search";
+import type { OpenBuffer } from "./replace";
 import SearchPanel from "./SearchPanel.svelte";
 
 let app: Record<string, unknown> | null = null;
@@ -119,4 +120,52 @@ it("replaces all matches after asking, then searches again", async () => {
   );
   expect(core.disk.get("a.txt")).toBe("pin pin\n");
   expect(core.methods().at(-1)).toBe("search.start");
+});
+
+it("starts Replace in the empty search text, says what Replace all left unsaved, and leaves on Escape", async () => {
+  const core = new FakeSearchCore();
+  core.disk.set("a.txt", "needle\n");
+  let open = "needle\n";
+  const buffer: OpenBuffer = {
+    loaded: Promise.resolve(),
+    status: "ready",
+    get text() {
+      return open;
+    },
+    edit: ({ changes }) => {
+      for (const change of changes) open = open.slice(0, change.from) + change.insert + open.slice(change.to);
+      return true;
+    },
+  };
+  const onleave = vi.fn();
+  const props = { transport: core, project: "p1", onopen: () => {}, onleave };
+  app = mount(SearchPanel, {
+    target,
+    props: { ...props, buffer: (path: string) => (path === "b.txt" ? buffer : undefined) },
+  });
+  await (app as { focusReplace: () => Promise<void> }).focusReplace();
+  const input = target.querySelector<HTMLInputElement>("input[type=search]");
+  if (!input) throw new Error("no search input");
+  expect(document.activeElement).toBe(input);
+  input.value = "needle";
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+  input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  for (let i = 0; i < 4; i++) await Promise.resolve();
+  core.results(1, file("a.txt", [1, "needle", [[0, 6]]]), file("b.txt", [1, "needle", [[0, 6]]]));
+  core.done(1);
+  flushSync();
+  const replace = target.querySelector<HTMLInputElement>("input[aria-label='Replace with']");
+  replace?.dispatchEvent(new KeyboardEvent("keydown", { code: "Enter", key: "Enter", bubbles: true }));
+  flushSync();
+  (document.activeElement as HTMLButtonElement).click();
+  const note = () => target.querySelector("[data-testid=replace-note]")?.textContent;
+  await vi.waitFor(() => expect(note()).toBe("Replaced 2 matches in 2 files. 1 open file has unsaved changes."));
+  // The search again finds nothing: not a reason to check the spelling.
+  core.done(2);
+  flushSync();
+  expect(target.textContent).not.toContain("No results");
+
+  replace?.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", key: "Escape", bubbles: true }));
+  input.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", key: "Escape", bubbles: true }));
+  expect(onleave).toHaveBeenCalledTimes(2);
 });

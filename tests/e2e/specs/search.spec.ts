@@ -65,11 +65,15 @@ test("Mod+Shift+H replaces in files: open files stay unsaved, others are written
   await page.keyboard.press("Enter");
   await expect(search.getByRole("alertdialog")).toContainText("Replace 3 matches in 2 files?");
   await page.keyboard.press("Enter");
-  await expect(page.getByTestId("replace-note")).toHaveText("Replaced 3 matches in 2 files.");
+  await expect(page.getByTestId("replace-note")).toHaveText(
+    "Replaced 3 matches in 2 files. 1 open file has unsaved changes.",
+  );
 
   await expect.poll(() => readFileSync(join(dir, "closed.txt"), "utf8")).toBe("an new (new)\n");
   expect(readFileSync(join(dir, "open.txt"), "utf8")).toBe("old\n");
   await expect(page.getByTestId("main").locator(".cm-content")).toHaveText("new");
   await expect(page.getByRole("tab", { name: "open.txt, unsaved changes" })).toBeVisible();
-  await expect(page.getByTestId("search-summary")).toHaveText("No results.");
+  // The search again finds nothing; the note above says why, so no "No results" state.
+  await expect(page.getByTestId("search-summary")).toHaveText("");
+  await expect(search.getByText("Check the spelling")).toHaveCount(0);
 });

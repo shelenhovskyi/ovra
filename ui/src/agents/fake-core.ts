@@ -8,6 +8,8 @@ import type {
   AgentMessage,
   AgentSetup,
   AgentStatus,
+  BoardEntry,
+  ContextWarning,
   CoreEvent,
   PermissionRequest,
   Project,
@@ -30,6 +32,8 @@ export class FakeAgentCore implements Transport {
   pending: PermissionRequest[] = [];
   /** Tasks `orchestration.start` made; a test adds their workers. */
   tasks: Task[] = [];
+  /** Each task's board; `board.post` and `board.answer` add the person's entries. */
+  boards = new Map<string, BoardEntry[]>();
   /** What `review.list` answers, newest first. */
   reviews: ReviewItem[] = [];
   /** What `projects.list` answers. */
@@ -46,7 +50,7 @@ export class FakeAgentCore implements Transport {
   /** The accounts `agents.accounts` reports; the default one first. */
   accounts: AccountState[] = [
     {
-      account: { id: "default", name: "Default", config_dir: null },
+      account: { provider: "claude", id: "default", name: "Default", config_dir: null },
       setup: { ...this.setup },
     },
   ];
@@ -58,9 +62,15 @@ export class FakeAgentCore implements Transport {
   /** What the user trusted, per project. */
   trustedConfig = new Map<ProjectId, ProjectAgentConfig>();
   /** What `agents.capacity` answers. */
-  capacity: AgentCapacity = { working: 0, limit: 3, queued: 0 };
+  capacity: AgentCapacity = { working: 0, limit: 3, queued: 0, research_working: 0, research_limit: 2 };
+  /** Files `fs.create` made and `fs.write_file` wrote, by path. */
+  files = new Map<string, string>();
   /** `git.status` answers that the project is not a git repository. */
   noRepo = false;
+  /** The project's files, for the @ menu (`fs.list_files`). */
+  listed: string[] = [];
+  /** What `context.check` answers for an item's path or text. */
+  contextNotes = new Map<string, ContextWarning>();
   /** Makes the next call of this method fail with this error. */
   failNext = new Map<Request["method"], CoreError>();
   private listeners = new Set<(event: CoreEvent) => void>();
@@ -120,6 +130,7 @@ export class FakeAgentCore implements Transport {
         const { project, prompt } = request.params;
         const info = this.addSession(project, prompt.split("\n")[0] ?? "");
         info.account = request.params.account ?? null;
+        info.mode = request.params.mode;
         this.status(info.id, { state: "starting" });
         this.message(info.id, { kind: "user_text", text: prompt, from: "person" });
         return { type: "agents.session", data: { ...info } };
@@ -141,6 +152,28 @@ export class FakeAgentCore implements Transport {
       }
       case "orchestration.list":
         return { type: "orchestration.list", data: this.tasks.filter((t) => t.project === request.params.project) };
+      case "board.list": {
+        const entries = this.boards.get(request.params.task) ?? [];
+        return {
+          type: "board.entries",
+          data: { entries: entries.slice(request.params.since ?? 0), next: entries.length, open_for_person: [] },
+        };
+      }
+      case "board.post":
+      case "board.answer": {
+        const entries = this.boards.get(request.params.task) ?? [];
+        const { params } = request;
+        const entry: BoardEntry = {
+          id: `b${entries.length + 1}`,
+          author: { kind: "person" },
+          body:
+            "question" in params
+              ? { kind: "answer", question: params.question, text: params.text }
+              : { kind: "note", text: params.text },
+        };
+        this.boards.set(params.task, [...entries, entry]);
+        return { type: "board.entry", data: entry };
+      }
       case "agents.transcript":
         return { type: "agents.transcript", data: this.transcripts.get(request.params.session) ?? [] };
       case "agents.capacity":
@@ -197,6 +230,14 @@ export class FakeAgentCore implements Transport {
       }
       case "open.url":
         return { type: "ok" };
+      case "fs.create":
+        if (this.files.has(request.params.path))
+          throw new CoreError({ code: "conflict", message: `${request.params.path} exists` });
+        this.files.set(request.params.path, "");
+        return { type: "ok" };
+      case "fs.write_file":
+        this.files.set(request.params.path, request.params.text);
+        return { type: "fs.written", data: { mtime_ms: 1 } };
       case "git.status":
         if (this.noRepo) return { type: "git.no_repo" };
         return {
@@ -210,6 +251,18 @@ export class FakeAgentCore implements Transport {
             operation: null,
             files: [],
             truncated: 0,
+          },
+        };
+      case "fs.list_files":
+        return { type: "fs.files", data: { paths: [...this.listed], total: this.listed.length, version: 1 } };
+      case "context.check":
+        return {
+          type: "context.checked",
+          data: {
+            notes: request.params.items.map((item) => {
+              const key = "path" in item ? item.path : "text" in item ? item.text : "";
+              return this.contextNotes.get(key) ?? null;
+            }),
           },
         };
       case "review.list":

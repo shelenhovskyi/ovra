@@ -10,11 +10,12 @@ type Target = Pick<Workspace, "project" | "openPath">;
 
 /** Registers the file commands; returns a function that unregisters them. */
 export function registerFileCommands(workspace: Target, transport: Transport): () => void {
-  const copyPath = async () => {
+  /** Copies the open file's path, from the file system's root (`absolute`) or the project's. */
+  const copyPath = (absolute: boolean) => async () => {
     const root = workspace.project?.root;
     const path = workspace.openPath;
     if (root === undefined || !path) return;
-    await navigator.clipboard.writeText(absolutePath(root, path));
+    await navigator.clipboard.writeText(absolute ? absolutePath(root, path) : path);
   };
   const openExternal = async () => {
     const project = workspace.project?.id;
@@ -29,7 +30,13 @@ export function registerFileCommands(workspace: Target, transport: Transport): (
     }
   };
   const unregister = [
-    registerCommand({ id: "file.copy_path", title: "Copy path", category: "File", run: copyPath }),
+    registerCommand({ id: "file.copy_path", title: "Copy path of open file", category: "File", run: copyPath(true) }),
+    registerCommand({
+      id: "file.copy_relative_path",
+      title: "Copy relative path of open file",
+      category: "File",
+      run: copyPath(false),
+    }),
     registerCommand({
       id: "file.open_external",
       title: "Open in external app",

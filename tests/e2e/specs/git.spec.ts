@@ -154,3 +154,43 @@ test("set up git in a folder without it", async ({ page }) => {
   await page.keyboard.press("ControlOrMeta+Shift+E");
   await expect(page.getByRole("treeitem", { name: /README\.md/ })).toHaveAttribute("data-git", "untracked");
 });
+
+test("an agent suggests commits that the person makes, and sums up a pull", async ({ page }) => {
+  const dir = repo();
+  writeFileSync(join(dir, "README.md"), "Hello, world\n");
+  writeFileSync(join(dir, "new.txt"), "new\n");
+  await open(page, dir);
+  await page.keyboard.press("Alt+Shift+G");
+  const panel = page.getByTestId("git");
+
+  // One quiet button; its menu has only what applies (no conflicts here).
+  await panel.getByRole("button", { name: "Agent actions" }).click();
+  const menu = panel.getByRole("menu", { name: "Agent actions" });
+  await expect(menu.getByRole("menuitem")).toHaveText(["Suggest commits", "Summarize what's new"]);
+  await expect(menu.getByRole("menuitem").first()).toBeFocused();
+  await page.keyboard.press("Enter");
+
+  // The fake agent answers with two commits; nothing is committed until the person says so.
+  const plan = panel.getByRole("region", { name: "Suggested commits" });
+  await expect(plan.getByRole("heading")).toHaveText("2 suggested commits");
+  expect(git(dir, "log", "--format=%s")).toBe("First commit\n");
+  await plan.getByRole("textbox", { name: "Message of commit 2" }).fill("Add new.txt");
+  await plan.getByRole("button", { name: "Commit all" }).click();
+  await expect(plan).toBeHidden();
+  expect(git(dir, "log", "--format=%s")).toBe("Add new.txt\ndocs: greet the world\nFirst commit\n");
+  expect(git(dir, "status", "--porcelain")).toBe("");
+
+  // After a merge from elsewhere, the agent sums up what came in.
+  git(dir, "switch", "-q", "-c", "other", "HEAD~2");
+  writeFileSync(join(dir, "other.txt"), "other\n");
+  git(dir, "add", "-A");
+  git(dir, "commit", "-q", "-m", "Add other.txt");
+  git(dir, "switch", "-q", "main");
+  git(dir, "merge", "-q", "--no-edit", "other");
+  await panel.getByRole("button", { name: "Agent actions" }).click();
+  await menu.getByRole("menuitem", { name: "Summarize what's new" }).click();
+  const news = panel.getByRole("region", { name: "What's new" });
+  await expect(news.getByRole("listitem").first()).toHaveText("A new file, other.txt, came in.");
+  await news.getByRole("button", { name: "Dismiss" }).click();
+  await expect(news).toBeHidden();
+});

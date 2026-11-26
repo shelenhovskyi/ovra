@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use super::{Result, Workspace, conflict, forbidden, not_found, review, slots};
+use super::{Result, Workspace, conflict, forbidden, not_found, prepare, review, slots};
 use crate::Core;
 use crate::agents::{self, NewSession};
 use crate::protocol::agents::{AgentKind, AgentStatus, MessageFrom, SessionId, SessionMode};
@@ -12,7 +12,7 @@ use crate::protocol::orchestration::{
 };
 use crate::protocol::projects::ProjectId;
 use crate::protocol::{ErrorCode, OkResponse, ProtocolError, Response};
-use crate::services::ToolRole;
+use crate::services::{IncludedFile, ToolRole};
 
 /// Most workers a task may run at once, whatever it asks for: each is a
 /// `claude` process with its own worktree.
@@ -42,6 +42,9 @@ pub(super) struct Entry {
     /// Someone stopped the coordinator; only then are worktrees removed.
     #[serde(default)]
     ended: bool,
+    /// Its workers' worktrees: ports, copied files, how far prepared.
+    #[serde(default)]
+    pub(super) prep: Vec<prepare::Prep>,
 }
 
 /// A worker being set up.
@@ -50,6 +53,8 @@ struct Starting {
     name: String,
     /// It will wait for a place in the project.
     queued: bool,
+    /// The first of its ports.
+    pub(super) port: u16,
 }
 
 impl Entry {
@@ -64,6 +69,12 @@ impl Entry {
         (queued, self.starting.len() - queued)
     }
 
+    /// The first ports of its workers' blocks, those being set up too.
+    pub(super) fn ports(&self) -> impl Iterator<Item = u16> + '_ {
+        let made = self.prep.iter().map(|p| p.port);
+        made.chain(self.starting.iter().map(|s| s.port))
+    }
+
     fn sessions(&self) -> impl Iterator<Item = &SessionId> {
         std::iter::once(&self.coordinator).chain(self.workers.iter().map(|w| &w.session))
     }
@@ -75,8 +86,10 @@ pub(super) async fn handle(core: &Core, request: OrchestrationRequest) -> Result
             project,
             prompt,
             limits,
+            context,
         } => {
-            let task = start(core, project, prompt, limits).await?;
+            let context = crate::context::message(core, &project, None, &context).await?;
+            let task = start(core, project, prompt, context, limits).await?;
             Ok(Response::Orchestration(OrchestrationResponse::Task(task)))
         }
         OrchestrationRequest::List { project } => {
@@ -112,6 +125,24 @@ pub(super) async fn handle(core: &Core, request: OrchestrationRequest) -> Result
             }
             Ok(Response::Ok(OkResponse::Ok))
         }
+        OrchestrationRequest::RetrySetup {
+            session,
+            skip_setup,
+        } => {
+            // Prepared in the background; its worker's status follows.
+            let _launching = prepare::retry(core, &session, skip_setup)?;
+            Ok(Response::Ok(OkResponse::Ok))
+        }
+        OrchestrationRequest::Leftovers { project } => {
+            let leftovers = prepare::leftovers(core, &project).await?;
+            Ok(Response::Orchestration(OrchestrationResponse::Leftovers(
+                leftovers,
+            )))
+        }
+        OrchestrationRequest::RemoveLeftover { project, path } => {
+            prepare::remove_leftover(core, &project, &path).await?;
+            Ok(Response::Ok(OkResponse::Ok))
+        }
     }
 }
 
@@ -121,6 +152,7 @@ async fn start(
     core: &Core,
     project: ProjectId,
     prompt: String,
+    context: Option<String>,
     limits: TaskLimits,
 ) -> Result<Task> {
     if limits.max_workers == 0 || limits.max_workers > MAX_WORKERS_CAP {
@@ -143,15 +175,18 @@ async fn start(
         ));
     }
     let new = NewSession {
+        no_web: false,
         project: project.clone(),
         agent: AgentKind::Claude,
         mode: SessionMode::Direct,
         prompt,
+        context,
         cwd: None,
         tools: Some(ToolRole::Coordinator),
         from: MessageFrom::Person,
         account: None,
         queued: false,
+        preparing: false,
     };
     let coordinator = agents::start(&core.agents_ctx(), new).await?.id;
     let entry = {
@@ -168,6 +203,7 @@ async fn start(
             starting: Vec::new(),
             cleaned: Vec::new(),
             ended: false,
+            prep: Vec::new(),
         };
         state.tasks.push(entry.clone());
         orchestration.save(&state);
@@ -180,7 +216,7 @@ async fn start(
     Ok(view(core, &entry))
 }
 
-fn find(core: &Core, task: &TaskId) -> Result<Entry> {
+pub(super) fn find(core: &Core, task: &TaskId) -> Result<Entry> {
     core.orchestration_state()
         .lock()
         .tasks
@@ -368,27 +404,36 @@ fn dollars(micro: u64) -> String {
     format!("{}.{:02}", micro / 1_000_000, micro % 1_000_000 / 10_000)
 }
 
-/// Whether `name` fits a branch name and the UI: `^[a-z0-9][a-z0-9-]{0,39}$`.
+/// Whether `name` fits a branch name and the UI (`^[a-z0-9][a-z0-9-]{0,39}$`)
+/// and the board can address it.
 fn valid_name(name: &str) -> bool {
     let mut chars = name.chars();
     let lower = |c: char| c.is_ascii_lowercase() || c.is_ascii_digit();
-    name.len() <= 40 && chars.next().is_some_and(lower) && chars.all(|c| lower(c) || c == '-')
+    // The board's `ask` names the person and the coordinator so.
+    let reserved = matches!(name, "person" | "coordinator");
+    !reserved
+        && name.len() <= 40
+        && chars.next().is_some_and(lower)
+        && chars.all(|c| lower(c) || c == '-')
 }
 
 /// Starts a worker of `coordinator`'s task in a new worktree of the main
 /// checkout's current state, on branch `ovra/<task>/<name>`. While the
 /// project has as many agents working as it may, the worker waits `queued`
-/// in its worktree and starts when a place frees.
+/// in its worktree and starts when a place frees. Its worktree is prepared
+/// first (`prepare`), unless `skip_setup`; a failed setup answers which
+/// step failed, and a spawn with the same name then retries it.
 pub(super) async fn spawn(
     core: &Core,
     coordinator: &SessionId,
     name: String,
     prompt: String,
+    skip_setup: bool,
 ) -> Result<Worker> {
     if !valid_name(&name) {
         return Err(ProtocolError::new(
             ErrorCode::BadRequest,
-            "a worker's name is 1 to 40 lowercase letters, digits and dashes, starting with a letter or digit",
+            "a worker's name is 1 to 40 lowercase letters, digits and dashes, starting with a letter or digit, and not person or coordinator",
         ));
     }
     agents::check_text(&prompt)?;
@@ -403,7 +448,14 @@ pub(super) async fn spawn(
         ));
     };
     let limit = slots::limit(core);
-    let (entry, queued) = {
+    if let Some(worker) = failed_setup(core, coordinator, &name) {
+        if let Some(launching) = prepare::retry(core, &worker.session, skip_setup)? {
+            prepare::joined(launching).await?;
+        }
+        return worker_now(core, &worker.session).ok_or_else(|| not_found("the worker"));
+    }
+    let low = prepare::low_disk(core, &worktrees_dir).await;
+    let (entry, queued, port) = {
         let mut guard = state.lock();
         let asked = asked_for_review(&guard.reviews);
         let project = guard
@@ -412,9 +464,15 @@ pub(super) async fn spawn(
             .find(|t| &t.coordinator == coordinator)
             .map(|t| t.project.clone());
         // While the computer is short of memory or CPU, it waits too.
-        let queued = project.is_some_and(|p| {
-            slots::count(core, &guard, &p).0 >= limit || crate::resources::holds_back(core)
-        });
+        let queued = low.is_some()
+            || project.is_some_and(|p| {
+                slots::count(core, &guard, &p).0 >= limit || crate::resources::holds_back(core)
+            });
+        let port = prepare::free_port(&guard).ok_or_else(|| {
+            conflict(
+                "every block of ports for worktrees is taken; finish or clean up workers first",
+            )
+        })?;
         let entry = guard
             .tasks
             .iter_mut()
@@ -433,32 +491,45 @@ pub(super) async fn spawn(
         entry.starting.push(Starting {
             name: name.clone(),
             queued,
+            port,
         });
-        (entry.clone(), queued)
+        (entry.clone(), queued, port)
     };
-    let result = create_worker(core, &entry, &worktrees_dir, &name, prompt, queued).await;
-    let mut guard = state.lock();
-    if let Some(task) = guard.tasks.iter_mut().find(|t| t.id == entry.id) {
-        task.starting.retain(|s| s.name != name);
-        task.failed.retain(|f| f.name != name);
-        match &result {
-            Ok((worker, _)) => task.workers.push(worker.clone()),
-            // The person sees it with the task, not only the coordinator.
-            Err(err) => task.failed.push(FailedWorker {
-                name: name.clone(),
-                reason: err.message.clone(),
-            }),
+    let new = NewWorker {
+        name: &name,
+        prompt,
+        queued,
+        low,
+        port,
+        skip_setup,
+    };
+    let result = create_worker(core, &entry, &worktrees_dir, new).await;
+    {
+        let mut guard = state.lock();
+        if let Some(task) = guard.tasks.iter_mut().find(|t| t.id == entry.id) {
+            task.starting.retain(|s| s.name != name);
+            task.failed.retain(|f| f.name != name);
+            match &result {
+                Ok((worker, _, prep)) => {
+                    task.workers.push(worker.clone());
+                    task.prep.push(prep.clone());
+                }
+                // The person sees it with the task, not only the coordinator.
+                Err(err) => task.failed.push(FailedWorker {
+                    name: name.clone(),
+                    reason: err.message.clone(),
+                }),
+            }
         }
+        state.save(&guard);
     }
-    state.save(&guard);
-    drop(guard);
     if result.is_err() {
         core.emit(OrchestrationEvent::Changed {
             project: entry.project.clone(),
             task: entry.id.clone(),
         });
     }
-    let (worker, workspace) = result?;
+    let (worker, workspace, _) = result?;
     review::set_workspace(core, &worker.session, workspace);
     super::watch::start(core, &worker.session);
     // The person stopped the task while this worker was set up: it must not
@@ -480,18 +551,65 @@ pub(super) async fn spawn(
     if queued {
         // A place may have freed while it was set up.
         slots::start_queued(core, &entry.project);
+        return Ok(worker);
     }
-    Ok(worker)
+    if asked_to_stop {
+        return Ok(worker);
+    }
+    let launching = {
+        let mut guard = state.lock();
+        prepare::spawn_launch(core, &mut guard, &worker.session)
+    };
+    prepare::joined(launching).await?;
+    Ok(worker_now(core, &worker.session).unwrap_or(worker))
 }
 
+/// The worker of `coordinator`'s task named `name`, if its setup failed.
+fn failed_setup(core: &Core, coordinator: &SessionId, name: &str) -> Option<Worker> {
+    let state = core.orchestration_state().lock();
+    let task = state.tasks.iter().find(|t| &t.coordinator == coordinator)?;
+    let worker = task.workers.iter().find(|w| w.name == name)?;
+    prepare::failed(&state, &worker.session).then(|| worker.clone())
+}
+
+/// The worker `session` as its task has it now.
+fn worker_now(core: &Core, session: &SessionId) -> Option<Worker> {
+    core.orchestration_state()
+        .lock()
+        .tasks
+        .iter()
+        .flat_map(|t| &t.workers)
+        .find(|w| &w.session == session)
+        .cloned()
+}
+
+/// What [`create_worker`] makes.
+struct NewWorker<'a> {
+    name: &'a str,
+    prompt: String,
+    queued: bool,
+    /// Why its worktree waits for disk space, if it does.
+    low: Option<String>,
+    port: u16,
+    skip_setup: bool,
+}
+
+/// A worker's session, waiting `preparing` or `queued`, and its worktree
+/// unless that waits for disk space.
 async fn create_worker(
     core: &Core,
     task: &Entry,
     worktrees_dir: &std::path::Path,
-    name: &str,
-    prompt: String,
-    queued: bool,
-) -> Result<(Worker, Workspace)> {
+    new: NewWorker<'_>,
+) -> Result<(Worker, Workspace, prepare::Prep)> {
+    let NewWorker {
+        name,
+        prompt,
+        queued,
+        low,
+        port,
+        skip_setup,
+    } = new;
     let root = core.root(&task.project)?;
     let worktrees = core.worktrees();
     let base = worktrees.snapshot(root.clone()).await?;
@@ -500,7 +618,25 @@ async fn create_worker(
         .join(&task.id.0)
         .join(name);
     let branch = format!("ovra/{}/{name}", task.id.0);
-    let info = worktrees.create(root.clone(), dir, branch, base).await?;
+    let reason = format!("Ovra: {}/{name}", task.id.0);
+    let made = match low {
+        Some(_) => None,
+        None => Some(
+            prepare::make(
+                core,
+                &root,
+                dir.clone(),
+                branch.clone(),
+                base.clone(),
+                reason,
+            )
+            .await?,
+        ),
+    };
+    let (path, branch, base) = match &made {
+        Some(made) => (made.path.clone(), made.branch.clone(), made.base.clone()),
+        None => (dir, branch, base),
+    };
     // Before the worker runs: the project's hooks and config at its start.
     let git = worktrees
         .git_files(root.clone())
@@ -516,39 +652,55 @@ async fn create_worker(
         .flatten()
         .unwrap_or_else(|| crate::protocol::agents::DEFAULT_ACCOUNT.to_owned());
     let new = NewSession {
+        no_web: false,
         project: task.project.clone(),
         agent: AgentKind::Claude,
         mode: SessionMode::Isolated,
         prompt,
-        cwd: Some(info.path.clone()),
+        context: None,
+        cwd: Some(path.clone()),
         tools: Some(ToolRole::Worker),
         from: MessageFrom::Coordinator,
         account: Some(account),
         queued,
+        preparing: !queued,
     };
     let session = match agents::start(&core.agents_ctx(), new).await {
         Ok(session) => session.id,
         Err(err) => {
             // Nothing ran in it; a worktree left behind would only confuse.
-            let _ = worktrees.remove(root, info.path, Vec::new()).await;
+            if let Some(made) = made {
+                let _ = remove(core, &root, made.path, made.included).await;
+            }
             return Err(err);
         }
     };
+    let mut prep = prepare::Prep::new(session.clone(), port, base.clone());
+    prep.ready = skip_setup;
+    if low.is_some() {
+        prep.disk_checked = Some(tokio::time::Instant::now());
+    }
+    if let Some(made) = made {
+        prep.made = true;
+        prep.included = made.included;
+        prep.note = made.note;
+    }
     let worker = Worker {
         session,
         name: name.to_owned(),
-        branch: info.branch,
-        worktree: info.path.to_string_lossy().into_owned(),
+        branch,
+        worktree: path.to_string_lossy().into_owned(),
         kept: None,
         setup: None,
         disk: None,
+        waiting: low,
     };
     let workspace = Workspace {
-        dir: info.path,
-        base: info.base,
+        dir: path,
+        base,
         git,
     };
-    Ok((worker, workspace))
+    Ok((worker, workspace, prep))
 }
 
 /// Runs [`clean_up`] again once the worker's worktree is idle.
@@ -576,7 +728,7 @@ fn retry_when_idle(core: &Core, project: &ProjectId, session: &SessionId) {
 /// too, unless it holds other commits. On any doubt nothing is removed.
 pub(super) async fn clean_up(core: &Core, project: &ProjectId) {
     let state = core.orchestration_state();
-    let candidates: Vec<(TaskId, Worker)> = state
+    let candidates: Vec<(TaskId, Worker, Vec<IncludedFile>)> = state
         .lock()
         .tasks
         .iter()
@@ -585,7 +737,11 @@ pub(super) async fn clean_up(core: &Core, project: &ProjectId) {
             t.workers
                 .iter()
                 .filter(|w| !t.cleaned.contains(&w.session))
-                .map(|w| (t.id.clone(), w.clone()))
+                .map(|w| {
+                    let prep = t.prep.iter().find(|p| p.session == w.session);
+                    let included = prep.map(|p| p.included.clone()).unwrap_or_default();
+                    (t.id.clone(), w.clone(), included)
+                })
         })
         .collect();
     if candidates.is_empty() {
@@ -594,7 +750,7 @@ pub(super) async fn clean_up(core: &Core, project: &ProjectId) {
     let Ok(root) = core.root(project) else {
         return;
     };
-    for (task, worker) in candidates {
+    for (task, worker, included) in candidates {
         // Marked first, together with the check that it ended: from here
         // on it cannot be resumed (see `unless_cleaned`), so what `settled`
         // finds stays true while the worktree goes.
@@ -615,7 +771,7 @@ pub(super) async fn clean_up(core: &Core, project: &ProjectId) {
         };
         let (removed, kept) = match settled {
             None => (false, None),
-            Some(base) => match worktrees.remove(root.clone(), dir, Vec::new()).await {
+            Some(base) => match remove(core, &root, dir, included).await {
                 Ok(()) => {
                     // Its start is a snapshot and its decisions are kept as
                     // snapshots; a branch with more than that stays.
@@ -633,7 +789,10 @@ pub(super) async fn clean_up(core: &Core, project: &ProjectId) {
         let mut guard = state.lock();
         let mut changed = removed;
         if let Some(entry) = guard.tasks.iter_mut().find(|t| t.id == task) {
-            if !removed {
+            if removed {
+                // Its ports are free again.
+                entry.prep.retain(|p| p.session != worker.session);
+            } else {
                 entry.cleaned.retain(|s| s != &worker.session);
             }
             if let Some(w) = entry
@@ -655,6 +814,27 @@ pub(super) async fn clean_up(core: &Core, project: &ProjectId) {
             });
         }
     }
+}
+
+/// Removes the worktree at `dir`, unlocked just before; locked again if it
+/// stays.
+pub(super) async fn remove(
+    core: &Core,
+    root: &std::path::Path,
+    dir: PathBuf,
+    included: Vec<IncludedFile>,
+) -> Result<()> {
+    let worktrees = core.worktrees();
+    let _ = worktrees.unlock(root.to_owned(), dir.clone()).await;
+    let removed = worktrees
+        .remove(root.to_owned(), dir.clone(), included)
+        .await;
+    if removed.is_err() {
+        let _ = worktrees
+            .lock(root.to_owned(), dir, "Ovra: kept".to_owned())
+            .await;
+    }
+    removed
 }
 
 /// Marks `worker` of `task` cleaned if it has ended and is not marked yet.

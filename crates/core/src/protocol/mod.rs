@@ -7,7 +7,9 @@
 
 pub mod agents;
 pub mod audit;
+pub mod board;
 pub mod browser;
+pub mod context;
 pub mod fs;
 pub mod git;
 pub mod info;
@@ -17,6 +19,7 @@ pub mod open;
 pub mod orchestration;
 pub mod permissions;
 pub mod policy;
+pub mod power;
 pub mod pr;
 pub mod projects;
 pub mod resources;
@@ -41,6 +44,7 @@ pub enum Request {
     Permissions(permissions::PermissionsRequest),
     Review(review::ReviewRequest),
     Orchestration(orchestration::OrchestrationRequest),
+    Board(board::BoardRequest),
     Search(search::SearchRequest),
     Policy(policy::PolicyRequest),
     Secrets(secrets::SecretsRequest),
@@ -51,6 +55,8 @@ pub enum Request {
     Servers(servers::ServersRequest),
     Browser(browser::BrowserRequest),
     Pr(pr::PrRequest),
+    Power(power::PowerRequest),
+    Context(context::ContextRequest),
 }
 
 /// The core's answer to a [`Request`]. Wire form: `{"type": "<domain>.<name>", "data": ...}`.
@@ -65,6 +71,7 @@ pub enum Response {
     Permissions(permissions::PermissionsResponse),
     Review(review::ReviewResponse),
     Orchestration(orchestration::OrchestrationResponse),
+    Board(board::BoardResponse),
     Search(search::SearchResponse),
     Policy(policy::PolicyResponse),
     Secrets(secrets::SecretsResponse),
@@ -75,6 +82,8 @@ pub enum Response {
     Servers(servers::ServersResponse),
     Browser(browser::BrowserResponse),
     Pr(pr::PrResponse),
+    Power(power::PowerResponse),
+    Context(context::ContextResponse),
     /// The request succeeded and has nothing to return.
     Ok(OkResponse),
 }
@@ -97,6 +106,7 @@ pub enum Event {
     Permissions(permissions::PermissionsEvent),
     Review(review::ReviewEvent),
     Orchestration(orchestration::OrchestrationEvent),
+    Board(board::BoardEvent),
     Search(search::SearchEvent),
     Policy(policy::PolicyEvent),
     Secrets(secrets::SecretsEvent),
@@ -107,6 +117,7 @@ pub enum Event {
     Browser(browser::BrowserEvent),
     Pr(pr::PrEvent),
     Resources(resources::ResourcesEvent),
+    Power(power::PowerEvent),
 }
 
 /// An error returned instead of a [`Response`].
@@ -192,6 +203,12 @@ impl From<review::ReviewEvent> for Event {
     }
 }
 
+impl From<board::BoardEvent> for Event {
+    fn from(e: board::BoardEvent) -> Self {
+        Self::Board(e)
+    }
+}
+
 impl From<orchestration::OrchestrationEvent> for Event {
     fn from(e: orchestration::OrchestrationEvent) -> Self {
         Self::Orchestration(e)
@@ -255,5 +272,11 @@ impl From<pr::PrEvent> for Event {
 impl From<resources::ResourcesEvent> for Event {
     fn from(e: resources::ResourcesEvent) -> Self {
         Self::Resources(e)
+    }
+}
+
+impl From<power::PowerEvent> for Event {
+    fn from(e: power::PowerEvent) -> Self {
+        Self::Power(e)
     }
 }

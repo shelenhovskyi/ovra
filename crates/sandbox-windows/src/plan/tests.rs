@@ -125,6 +125,7 @@ fn a_direct_session_behind_a_proxy() {
         project: None,
         work_env: None,
         work_dir: work.clone(),
+        work_dir_read_only: false,
         read: Vec::new(),
         write: Vec::new(),
         expose: Vec::new(),
@@ -155,6 +156,7 @@ fn a_worker_reads_its_git_folder() {
         project: None,
         work_env: None,
         work_dir: work.clone(),
+        work_dir_read_only: false,
         read: vec![main_git],
         write: Vec::new(),
         expose: Vec::new(),
@@ -165,6 +167,30 @@ fn a_worker_reads_its_git_folder() {
     assert!(plan.grants.contains(&(work.clone(), Right::Modify)));
     assert!(plan.denied.contains(&work.join(".git")));
     assert!(plan.grants.iter().all(|(p, _)| *p != root.0.join("data")));
+}
+
+#[test]
+fn a_read_only_folder_is_refused_until_it_can_be_kept_read_only() {
+    let root = Root::new("research");
+    let work = root.dir("projects/app");
+    let claude = root.file("sys/bin/claude.exe");
+    let setup = root.setup(&["sys/bin"]);
+    let profile = SandboxProfile {
+        kind: ovra_core::services::ProfileKind::Agent,
+        claude_dir: None,
+        work_dir: work.clone(),
+        work_dir_read_only: true,
+        read: Vec::new(),
+        write: Vec::new(),
+        expose: Vec::new(),
+        forward: Vec::new(),
+        project: None,
+        work_env: None,
+        network: ProfileNetwork::Blocked,
+    };
+    let refused = Plan::new(&setup, &profile, &claude).err().unwrap();
+    assert!(refused.message.contains("read-only"), "{}", refused.message);
+    assert!(!work.join(".claude").exists());
 }
 
 #[test]
@@ -179,6 +205,7 @@ fn folders_holding_the_home_folder_or_ovras_data_are_refused() {
             project: None,
             work_env: None,
             work_dir: work.clone(),
+            work_dir_read_only: false,
             read: Vec::new(),
             write: Vec::new(),
             expose: Vec::new(),
@@ -208,6 +235,7 @@ fn a_protected_path_that_is_a_link_refuses_the_session() {
         project: None,
         work_env: None,
         work_dir: work,
+        work_dir_read_only: false,
         read: Vec::new(),
         write: Vec::new(),
         expose: Vec::new(),
@@ -230,6 +258,7 @@ fn variable_names_match_without_case() {
         project: None,
         work_env: None,
         work_dir: work.clone(),
+        work_dir_read_only: false,
         read: Vec::new(),
         write: Vec::new(),
         expose: Vec::new(),
@@ -283,6 +312,7 @@ fn a_helper_installed_in_the_home_folder_can_be_started() {
         project: None,
         work_env: None,
         work_dir: work,
+        work_dir_read_only: false,
         read: Vec::new(),
         write: Vec::new(),
         expose: Vec::new(),
@@ -307,6 +337,7 @@ fn secret_folders_stay_hidden_whatever_the_case_of_their_name() {
         project: None,
         work_env: None,
         work_dir: work,
+        work_dir_read_only: false,
         read: Vec::new(),
         write: Vec::new(),
         expose: Vec::new(),
@@ -322,6 +353,7 @@ fn secret_folders_stay_hidden_whatever_the_case_of_their_name() {
         project: None,
         work_env: None,
         work_dir: home_claude,
+        work_dir_read_only: false,
         read: Vec::new(),
         write: Vec::new(),
         expose: Vec::new(),
@@ -343,6 +375,7 @@ fn server_pods_are_refused_and_forwards_left_out() {
         project: None,
         work_env: None,
         work_dir: work,
+        work_dir_read_only: false,
         read: Vec::new(),
         write: Vec::new(),
         expose: Vec::new(),
@@ -367,6 +400,7 @@ fn an_account_with_its_own_folder_is_refused() {
         project: None,
         work_env: None,
         work_dir: work,
+        work_dir_read_only: false,
         read: Vec::new(),
         write: Vec::new(),
         expose: Vec::new(),

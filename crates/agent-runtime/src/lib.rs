@@ -17,7 +17,8 @@ use std::process::Stdio;
 use std::sync::Arc;
 
 use ovra_core::protocol::agents::{
-    AgentSetup, AgentStatus, ProjectAgentConfig, SandboxNetwork, SandboxReport,
+    AgentKind, AgentSetup, AgentStatus, Capabilities, ProjectAgentConfig, ProviderInfo,
+    SandboxNetwork, SandboxReport,
 };
 use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::{
@@ -85,7 +86,33 @@ impl ClaudeCli {
     }
 }
 
+/// What Claude sessions through the CLI can do (ADR 0006, ADR 0011):
+/// everything Ovra knows how to use.
+const CLAUDE: Capabilities = Capabilities {
+    approvals: true,
+    enforced_policy: true,
+    ide_tools: true,
+    read_only_role: true,
+    resume: true,
+    fork: true,
+    interrupt: true,
+    text_deltas: true,
+    subagents: true,
+    usage: true,
+    cost: true,
+    billing: true,
+    accounts: true,
+};
+
 impl AgentRuntime for ClaudeCli {
+    fn providers(&self) -> Vec<ProviderInfo> {
+        vec![ProviderInfo {
+            id: AgentKind::Claude,
+            name: "Claude".to_owned(),
+            capabilities: CLAUDE,
+        }]
+    }
+
     /// Starts a new Claude session with an id Ovra chooses, or continues
     /// `spec.resume`, which keeps its id. Either way the core learns the id.
     fn start(&self, spec: AgentSpec, host: AgentHost) -> Result<Box<dyn RunningAgent>> {
@@ -142,7 +169,13 @@ async fn session(
     }
     let line = launch::line(
         &executable,
-        launch::args(&conversation, spec.trusted, spec.tools),
+        launch::args(
+            &conversation,
+            spec.trusted,
+            spec.tools,
+            spec.mode == ovra_core::protocol::agents::SessionMode::Research,
+            !spec.no_web,
+        ),
         &spec.cwd,
         spec.config_dir.as_deref(),
     );

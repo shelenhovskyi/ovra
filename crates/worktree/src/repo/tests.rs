@@ -603,3 +603,77 @@ fn a_refused_switch_names_a_few_files_and_says_what_to_do() {
     );
     assert_eq!(super::refused_switch("fatal: odd"), "fatal: odd");
 }
+
+#[tokio::test]
+async fn pulled_lists_the_commits_a_merge_brought_with_bodies_and_files() {
+    let repo = Repo::new(&[("a.txt", "a\n")]);
+    let root = &repo.root;
+    let g = GitRepo::new();
+    // No ORIG_HEAD yet: nothing to summarize.
+    let none = ok(g.pulled(root.clone()).await);
+    assert_eq!((none.from, none.commits.len()), (None, 0));
+
+    let start = git(root, &["rev-parse", "HEAD"]);
+    git(root, &["switch", "--quiet", "-c", "other"]);
+    put(root, "a.txt", "a\nb\n");
+    put(root, "bin.dat", "\0\x01");
+    git(root, &["add", "--all"]);
+    git(
+        root,
+        &["commit", "--quiet", "-m", "Add b\n\nBecause.\nTwo lines."],
+    );
+    put(root, "c.txt", "c\n");
+    git(root, &["add", "--all"]);
+    git(root, &["commit", "--quiet", "-m", "Add c"]);
+    git(root, &["switch", "--quiet", "main"]);
+    git(root, &["merge", "--quiet", "--ff-only", "other"]);
+
+    let pulled = ok(g.pulled(root.clone()).await);
+    assert_eq!(pulled.from.as_deref(), Some(start.as_str()));
+    assert_eq!(pulled.truncated, 0);
+    let shown: Vec<_> = pulled
+        .commits
+        .iter()
+        .map(|c| {
+            let files: Vec<_> = c
+                .files
+                .iter()
+                .map(|f| (f.path.as_str(), f.added, f.removed))
+                .collect();
+            (c.commit.summary.as_str(), c.body.as_str(), files)
+        })
+        .collect();
+    assert_eq!(
+        shown,
+        [
+            ("Add c", "", vec![("c.txt", Some(1), Some(0))]),
+            (
+                "Add b",
+                "Because.\nTwo lines.",
+                vec![("a.txt", Some(1), Some(0)), ("bin.dat", None, None)]
+            ),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn pulled_in_a_project_folder_lists_only_its_commits_and_paths() {
+    let repo = Repo::new(&[("sub/a.txt", "a\n"), ("other.txt", "o\n")]);
+    let root = &repo.root;
+    let start = git(root, &["rev-parse", "HEAD"]);
+    put(root, "other.txt", "o2\n");
+    git(root, &["commit", "--quiet", "-am", "Outside only"]);
+    put(root, "sub/a.txt", "a2\n");
+    git(root, &["commit", "--quiet", "-am", "Inside"]);
+    git(root, &["reset", "--quiet", "--hard", &start]);
+    git(root, &["merge", "--quiet", "--ff-only", "HEAD@{1}"]);
+
+    let pulled = ok(GitRepo::new().pulled(root.join("sub")).await);
+    let shown: Vec<_> = pulled
+        .commits
+        .iter()
+        .map(|c| (c.commit.summary.as_str(), c.files[0].path.as_str()))
+        .collect();
+    assert_eq!(shown, [("Inside", "a.txt")]);
+    assert_eq!(pulled.truncated, 0);
+}

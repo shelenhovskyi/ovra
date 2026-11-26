@@ -2,7 +2,15 @@
 // reachable from the palette and the context menu, not only from its keys.
 
 import { gotoLine, openSearchPanel } from "@codemirror/search";
-import type { EditorView } from "@codemirror/view";
+import { EditorState } from "@codemirror/state";
+import type { Command, EditorView } from "@codemirror/view";
+import { isApple } from "../keys/shortcut";
+
+/**
+ * Replace in file: Ctrl+H as in VS Code, Cmd+Alt+F on Apple keyboards, where
+ * Cmd+H hides the app. The editor answers Mod+Alt+F on every keyboard.
+ */
+export const REPLACE_KEYS = isApple() ? "Mod+Alt+F" : "Mod+H";
 
 export type SearchAction = "find" | "replace" | "go_to_line";
 
@@ -23,11 +31,32 @@ export function shownView(): EditorView | null {
   return shown;
 }
 
+/** The panels' words in sentence case, as the rest of the app writes them (quiet-style.md). */
+export const searchPhrases = EditorState.phrases.of({
+  next: "Next",
+  previous: "Previous",
+  all: "All",
+  "match case": "Match case",
+  regexp: "Regex",
+  "by word": "By word",
+  replace: "Replace",
+  "replace all": "Replace all",
+  go: "Go",
+  close: "Close",
+});
+
+/** CodeMirror's go-to-line field, named for screen readers (its visible label does not name it). */
+export const goToLine: Command = (view) => {
+  const done = gotoLine(view);
+  view.dom.querySelector(".cm-goto-line input")?.setAttribute("aria-label", "Go to line");
+  return done;
+};
+
 /** Opens the search panel (with the replace field focused for "replace") or the go-to-line field. */
 export function runSearch(action: SearchAction, view: EditorView | null = shown): void {
   if (!view) return;
   if (action === "go_to_line") {
-    gotoLine(view);
+    goToLine(view);
     return;
   }
   openSearchPanel(view);

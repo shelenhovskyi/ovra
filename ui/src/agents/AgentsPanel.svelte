@@ -15,21 +15,28 @@ registerContextKeys(
 // box under it; a row opens its transcript, where the person replies, stops
 // and closes it. Enter sends from a text field (Ctrl+Enter or Cmd+Enter
 // too); Shift+Enter starts a new line.
+import KeepAwakeButton from "../power/KeepAwakeButton.svelte";
 import { tick, untrack } from "svelte";
 import { describeTool } from "../approvals/describe";
 import { approvalQueue } from "../approvals/queue.svelte";
+import Board from "../board/Board.svelte";
+import { taskBoards } from "../board/boards.svelte";
+import { sessionBrowsers } from "../browser/browser.svelte";
 import { browserPicks, pickLabel } from "../browser/picks.svelte";
 import { listCommands, registerCommand } from "../keys/commands";
-import type { AccountState, FileChange, SessionId, SessionInfo } from "../lib/protocol";
+import type { AccountState, ContextItem, FileChange, SessionId, SessionInfo } from "../lib/protocol";
 import { CoreError } from "../lib/transport";
 import { isMenuKey, type MenuEntry, openContextMenu } from "../menu/context-menu.svelte";
 import { projectSandbox } from "../settings/sandbox";
 import { useOvra } from "../shell/context";
 import Icon from "../shell/Icon.svelte";
 import { menuTarget } from "../shell/menu";
+import ContextInput from "./ContextInput.svelte";
+import { agentAsks, contextDrafts, type Suggestion } from "./context.svelte";
 import { signedOutError } from "./errors";
 import FirstSteps from "./FirstSteps.svelte";
 import { hints } from "./hints.svelte";
+import { agentPrefs } from "./prefs.svelte";
 import { pressureNote, resourcesLine, resourcesTip } from "./resources";
 import { listWarning, sandboxGaps, sandboxLine, sandboxState } from "./sandbox";
 import { agentSessions, openReviews, usageText } from "./sessions.svelte";
@@ -43,6 +50,7 @@ import { billedShort, paidText } from "./setup/texts";
 import { isBusy, isEnded } from "./status";
 import { inFolder } from "./steps";
 import Transcript from "./Transcript.svelte";
+import { REPORT_DIR, reportFile, reportOf, reportPath, taskPrompt } from "./report";
 import { rememberedMode, rememberMode, type TaskMode } from "./task-mode";
 
 const { transport, workspace } = useOvra();
@@ -50,6 +58,9 @@ const sessions = agentSessions(transport);
 const picks = browserPicks(transport);
 const accounts = claudeAccounts(transport);
 const approvals = approvalQueue(transport);
+const drafts = contextDrafts(transport);
+const browsers = sessionBrowsers(transport);
+const boards = taskBoards(transport);
 
 /** `more`: what choosing it means, in the menu; the hint under the box adds the sandbox. */
 const MODES: { id: TaskMode; label: string; more: string }[] = [
@@ -59,6 +70,7 @@ const MODES: { id: TaskMode; label: string; more: string }[] = [
     label: "Plan and split",
     more: "Up to 3 agents, each on its own copy. You review before anything is merged.",
   },
+  { id: "research", label: "Research", more: "Reads the project and searches the web. Changes nothing." },
 ];
 
 /** The session whose transcript is open; null shows the list. */
@@ -79,12 +91,17 @@ let promptField = $state<HTMLTextAreaElement>();
 /** Claude's setup card is open although Claude is ready (from the start form's Claude button). */
 let setupOpen = $state(false);
 let replyField = $state<HTMLTextAreaElement>();
+/** The @ menus and chips of the start box and the reply box. */
+let taskContext = $state<ContextInput>();
+let replyContext = $state<ContextInput>();
 /** The account the picker shows; null while there is only one. */
 let account = $state<string | null>(null);
 /** Transcripts asked for to tell a failed turn from a done one. */
 const asked = new Set<SessionId>();
 
 const project = $derived(workspace.project);
+/** The new-task box's chips are the project's own. */
+const newBox = $derived(`new:${workspace.project?.id ?? ""}`);
 const list = $derived(project ? sessions.shown(project.id) : []);
 /** How many of the project's agents work, of how many may. */
 const capacity = $derived(project ? sessions.capacity.get(project.id) : undefined);
@@ -94,8 +111,44 @@ const pressure = $derived(project ? sessions.pressure.get(project.id) : undefine
 const unsandboxed = $derived(listWarning(list));
 const current = $derived(list.find((s) => s.id === selected) ?? null);
 const messages = $derived(current ? sessions.transcripts.get(current.id) : undefined);
+/** The open task's board, if the open session is a task's coordinator. */
+const currentTask = $derived.by(() => {
+  const role = current ? sessions.roles.get(current.id) : undefined;
+  return role?.kind === "coordinator" ? role.task : null;
+});
+/** A task shows its conversation or its board; a task opens on its conversation. */
+let tab = $state<"talk" | "board">("talk");
+/** The open session's id: unlike `current`, it changes only when another session opens. */
+const currentId = $derived(current?.id ?? null);
+$effect.pre(() => {
+  void currentId;
+  tab = "talk";
+});
+
+/** Left and Right move between a task's tabs, as in any tab list. */
+function tabKeys(event: KeyboardEvent): void {
+  if (event.code !== "ArrowLeft" && event.code !== "ArrowRight") return;
+  event.preventDefault();
+  tab = tab === "talk" ? "board" : "talk";
+  void tick().then(() => document.getElementById(`task-tab-${tab}`)?.focus());
+}
+// Every listed task's board is watched, so a question for the person shows on its row.
+$effect(() => {
+  for (const s of list) {
+    const role = sessions.roles.get(s.id);
+    if (role?.kind === "coordinator") boards.watch(role.task);
+  }
+});
 /** Elements picked in the session's browser, sent with the next reply. */
 const chips = $derived(current ? picks.of(current.id) : []);
+/** The open session's browser pages, offered as screenshots in the reply's @ menu. */
+const pageSuggestions = $derived(
+  current
+    ? browsers.of(current.id).map(
+        (page): Suggestion => ({ what: { kind: "page", page: page.id }, label: "Screenshot", detail: page.title || page.url }),
+      )
+    : [],
+);
 const sandbox = $derived(current ? sandboxLine(sandboxState(current), isEnded(current.status)) : null);
 const gaps = $derived(current ? sandboxGaps(sandboxState(current), isEnded(current.status)) : null);
 /** How the project's newest session that said so runs: the next one most likely runs the same way. */
@@ -108,7 +161,9 @@ const modeSandbox = $derived(unsandboxed ? "" : sandboxWord);
 const modeHint = $derived(
   mode === "here"
     ? `Works in this folder${modeSandbox}. Asks before risky steps.`
-    : `Up to 3 agents on their own copies${modeSandbox}. You review first.`,
+    : mode === "research"
+      ? `Reads this folder and searches the web${modeSandbox}. Changes nothing.`
+      : `Up to 3 agents on their own copies${modeSandbox}. You review first.`,
 );
 /** The mode menu is open. */
 let modeMenu = $state(false);
@@ -123,7 +178,13 @@ let startFocus = $state(false);
  * focused or holding text, so the list and the requests keep the room.
  */
 const foldStart = $derived(
-  list.length > 0 && approvals.pending.length > 0 && !startFocus && !modeMenu && !prompt.trim() && !startError,
+  list.length > 0 &&
+    approvals.pending.length > 0 &&
+    !startFocus &&
+    !modeMenu &&
+    !prompt.trim() &&
+    !startError &&
+    drafts.of(newBox).length === 0,
 );
 let modeList = $state<HTMLElement>();
 /** Projects known not to be git repositories: Plan and split cannot run there. */
@@ -140,6 +201,10 @@ const fallback = $derived.by((): AccountState | undefined => {
 const blocked = $derived(accounts.signedOut(account ?? accounts.projectAccount));
 /** Every place is taken: One agent, here would be refused (Plan and split queues its workers). */
 const atCap = $derived(mode === "here" && capacity !== undefined && capacity.working >= capacity.limit);
+/** Research has places of its own (ADR 0013); all taken, or none in Settings. */
+const researchFull = $derived(
+  mode === "research" && capacity !== undefined && capacity.research_working >= capacity.research_limit,
+);
 /** Why Start cannot work right now, said before the press instead of after it. */
 const startBlock = $derived(
   blocked
@@ -148,7 +213,11 @@ const startBlock = $derived(
       ? "Plan and split needs git"
       : atCap
         ? `All ${capacity?.limit} agents are busy`
-        : null,
+        : researchFull
+          ? capacity?.research_limit === 0
+            ? "Research is off in Settings"
+            : `All ${capacity?.research_limit} research agents are busy`
+          : null,
 );
 const usable = $derived(accounts.signedIn);
 /** Who pays for the next task, in two or three words; it opens Claude's setup. */
@@ -230,6 +299,63 @@ const changed = $derived(
     ? sessions.changes(current.id)
     : [],
 );
+/** An idle research session's answer, for Save as doc and Turn into task. */
+const report = $derived(
+  current && current.mode === "research" && !isBusy(current.status) ? reportOf(messages) : null,
+);
+/** Where the open session's report was saved, while that report is the one shown. */
+let savedReport = $state<{ session: SessionId; report: string; path: string } | null>(null);
+const saved = $derived(
+  savedReport && current && savedReport.session === current.id && savedReport.report === report
+    ? savedReport.path
+    : null,
+);
+/** The question the report answers: the person's first message. */
+const question = $derived.by(() => {
+  const first = messages?.find((m) => m.kind === "user_text" && m.from === "person");
+  return first?.kind === "user_text" ? first.text : (current?.title ?? "Research");
+});
+
+/** Save as doc: a new file under docs/research/, written by the person's press, then opened. */
+function saveReport(): Promise<void> {
+  const id = current?.id;
+  const text = report;
+  const at = project?.id;
+  if (!id || !text || !at) return Promise.resolve();
+  return run(async () => {
+    const now = new Date();
+    for (let n = 1; n <= 20; n++) {
+      const path = reportPath(question, now, n);
+      try {
+        await transport.call({ method: "fs.create", params: { project: at, path } });
+      } catch (err) {
+        if (err instanceof CoreError && err.error.code === "conflict") continue;
+        throw err;
+      }
+      await transport.call({
+        method: "fs.write_file",
+        params: { project: at, path, text: reportFile(question, text), expected_mtime_ms: null },
+      });
+      savedReport = { session: id, report: text, path };
+      workspace.openFile(path, "edit");
+      return;
+    }
+    throw new Error(`every name for this report in ${REPORT_DIR} is taken`);
+  });
+}
+
+/** Turn into task: the form switches to Plan and split with the findings quoted; the person says what to do and starts it. */
+async function toTask(): Promise<void> {
+  if (!report) return;
+  prompt = taskPrompt(question, report);
+  mode = "split";
+  if (project) rememberMode(project.id, "split");
+  selected = null;
+  await tick();
+  promptField?.focus();
+  promptField?.setSelectionRange(prompt.length, prompt.length);
+}
+
 /** A task's workers, or a worker itself, whose changes wait in Reviews. */
 const waiting = $derived.by(() => {
   const kind = current ? sessions.roles.get(current.id)?.kind : undefined;
@@ -359,15 +485,39 @@ async function askSetup(what: "path" | "account"): Promise<void> {
   await openSetup();
 }
 
-/** From a folded Agents column, New task unfolds it first, through the shell's own command. */
-async function newTask(): Promise<void> {
+// Ask agent (the editor, a problem, the terminal): the item goes to the
+// open box, the reply of the shown task or else a new task.
+$effect(() => {
+  const waiting = agentAsks.waiting;
+  const id = project?.id;
+  if (waiting.length === 0 || !id) return;
+  untrack(() => {
+    agentAsks.waiting = [];
+    const replying = current !== null && !isEnded(current.status) && !signedOut;
+    const target = replying && current ? current.id : newBox;
+    if (!replying) selected = null;
+    for (const what of waiting)
+      drafts.add(id, target, what).catch((err: unknown) => {
+        error = `Could not add it: ${text(err)}`;
+      });
+    void showBox(target === newBox ? () => promptField : () => replyField);
+  });
+});
+
+/** Shows the panel, if folded, and focuses the field `field` returns. */
+async function showBox(field: () => HTMLTextAreaElement | undefined): Promise<void> {
   if (document.querySelector("[data-testid=agents] .strip"))
     await listCommands()
       .find((c) => c.id === "layout.toggle_agents")
       ?.run();
-  selected = null;
   await tick();
-  promptField?.focus();
+  field()?.focus();
+}
+
+/** From a folded Agents column, New task unfolds it first, through the shell's own command. */
+async function newTask(): Promise<void> {
+  selected = null;
+  await showBox(() => promptField);
 }
 
 function open(id: SessionId | null): void {
@@ -418,10 +568,11 @@ function step(id: SessionId): string | null {
  */
 function chip(s: SessionInfo): { text: string; tone: "warn" | "ok" } | null {
   if (s.status.state === "waiting_for_approval") return { text: "Approve", tone: "warn" };
+  const role = sessions.roles.get(s.id);
+  if (role?.kind === "coordinator" && boards.openForPerson(role.task).length > 0) return { text: "Answer", tone: "warn" };
   if (isBusy(s.status)) return null;
   const inTask = sessions.waitingInTask(s.id);
   if (inTask > 0) return { text: inTask > 1 ? `Review ${inTask}` : "Review", tone: "ok" };
-  const role = sessions.roles.get(s.id);
   const told = role?.kind === "worker" && list.some((t) => t.id === role.coordinator && chip(t)?.tone === "ok");
   return sessions.waitsForReview(s.id) && !told ? { text: "Review", tone: "ok" } : null;
 }
@@ -509,13 +660,16 @@ async function run(action: () => Promise<void>): Promise<void> {
 }
 
 /** Starts `body` with the account `use` (null: the project's) and opens it. */
-async function begin(body: string, how: TaskMode, use: string | null): Promise<SessionId> {
+async function begin(body: string, how: TaskMode, use: string | null, context: ContextItem[] = []): Promise<SessionId> {
   const id = project?.id;
   if (!id) throw new Error("No project is open");
   // A task's coordinator and workers use the project's account: make it
   // the picked one before the task starts.
   if (use && use !== accounts.projectAccount) await accounts.setProject(id, use);
-  const started = how === "here" ? (await sessions.start(id, body, use)).id : await sessions.startTask(id, body);
+  const started =
+    how === "split"
+      ? await sessions.startTask(id, body, context)
+      : (await sessions.start(id, body, use, how === "research" ? "research" : "direct", context)).id;
   selected = started;
   await tick();
   replyField?.focus();
@@ -525,13 +679,18 @@ async function begin(body: string, how: TaskMode, use: string | null): Promise<S
 async function start(): Promise<void> {
   const body = prompt.trim();
   if (!project || !body || busy || blocked) return;
+  if (drafts.unconfirmed(newBox).length > 0) {
+    startError = { text: "Choose Include or remove the marked item first.", setup: false };
+    return;
+  }
   busy = true;
   startError = null;
   try {
-    launched = await begin(body, mode, account);
+    launched = await begin(body, mode, account, drafts.items(newBox));
     hints.mark("started");
     launchedPrompt = body;
     prompt = "";
+    drafts.clear(newBox);
   } catch (err) {
     // A conflict (another agent already works here) is not a setup problem.
     const setup = !(err instanceof CoreError && err.error.code === "conflict");
@@ -545,7 +704,8 @@ async function start(): Promise<void> {
 function retry(old: SessionInfo, use: AccountState): Promise<void> {
   const first = sessions.transcripts.get(old.id)?.find((m) => m.kind === "user_text" && m.from === "person");
   const body = first?.kind === "user_text" ? first.text : old.title;
-  const how: TaskMode = sessions.roles.get(old.id)?.kind === "coordinator" ? "split" : "here";
+  const how: TaskMode =
+    sessions.roles.get(old.id)?.kind === "coordinator" ? "split" : old.mode === "research" ? "research" : "here";
   return run(async () => {
     await begin(body, how, use.account.id);
     await sessions.close(old.id);
@@ -556,11 +716,16 @@ function send(): Promise<void> {
   const id = current?.id;
   const body = reply.trim();
   if (!id || !body) return Promise.resolve();
+  if (drafts.unconfirmed(id).length > 0) {
+    error = "Choose Include or remove the marked item first.";
+    return Promise.resolve();
+  }
   return run(async () => {
     // The session's next message carries the picks.
     await picks.attach(id);
-    await sessions.send(id, body);
+    await sessions.send(id, body, drafts.items(id));
     reply = "";
+    drafts.clear(id);
   });
 }
 
@@ -713,6 +878,17 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
   <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d={path} /></svg>
 {/snippet}
 
+{#snippet addContext(run: () => void)}
+  <button
+    type="button"
+    class="quiet add-context"
+    aria-label="Add context"
+    title="Add a file, selection, problem or terminal output (@)"
+    data-testid="add-context"
+    onclick={run}><Icon name="at" small /></button
+  >
+{/snippet}
+
 {#snippet confirmClose(id: SessionId)}
   {@const workers = sessions.workers(id).length}
   {@const kept = sessions.waitingInTask(id)}
@@ -745,13 +921,16 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
           ? `${needYou} ${needYou === 1 ? "needs" : "need"} you`
           : `${capacity.working} of ${capacity.limit}`}{capacity.queued > 0 ? ` · ${capacity.queued} queued` : ""}{planning
           ? ` · ${planning} planning`
-          : ""}{pressure ? ` · ${pressureNote(pressure)}` : ""}
+          : ""}{capacity.research_working > 0 ? ` · ${capacity.research_working} researching` : ""}{pressure
+            ? ` · ${pressureNote(pressure)}`
+            : ""}
       </span>
       <span class="slots" aria-hidden="true">
         {#each { length: capacity.limit } as _, n (n)}<i class:on={n < capacity.working}></i>{/each}
       </span>
     {/if}
     <span class="end">
+      <KeepAwakeButton />
       {#if current}
         <button
           type="button"
@@ -889,6 +1068,25 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
               <button type="button" class="quiet" onclick={() => current && openReviews([current.id])}>Review</button>
             </div>
           </section>
+        {:else if report}
+          <!-- A research session changes nothing: its answer is the outcome. -->
+          <div class="card outcome" data-testid="agent-report">
+            <span class="line">{saved ? `Saved as ${saved}` : "Research changes no files."}</span>
+            <div class="row">
+              {#if saved}
+                <button type="button" class="quiet" onclick={() => saved && workspace.openFile(saved, "edit")}
+                  >Open</button
+                >
+              {:else}
+                <button type="button" class="quiet" data-testid="report-save" onclick={() => void saveReport()}
+                  >Save as doc</button
+                >
+              {/if}
+              <button type="button" class="quiet" data-testid="report-task" onclick={() => void toTask()}
+                >Turn into task</button
+              >
+            </div>
+          </div>
         {:else if waiting > 0}
           <div class="card outcome waits" data-testid="agent-reviews">
             <span>{waiting === 1 ? "1 change waits" : `${waiting} changes wait`} for your review.</span>
@@ -905,6 +1103,41 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
           </div>
         {/if}
       </div>
+      {#if currentTask}
+        {@const questions = boards.openForPerson(currentTask).length}
+        <div class="tabs" role="tablist" aria-label="Task" tabindex="-1" onkeydown={tabKeys}>
+          <button
+            type="button"
+            role="tab"
+            id="task-tab-talk"
+            class="quiet"
+            aria-selected={tab === "talk"}
+            aria-controls="task-panel-talk"
+            tabindex={tab === "talk" ? 0 : -1}
+            onclick={() => (tab = "talk")}>Conversation</button
+          >
+          <button
+            type="button"
+            role="tab"
+            id="task-tab-board"
+            class="quiet"
+            aria-selected={tab === "board"}
+            aria-controls="task-panel-board"
+            tabindex={tab === "board" ? 0 : -1}
+            data-testid="agent-board-tab"
+            onclick={() => (tab = "board")}>Board{questions > 0 ? ` (${questions})` : ""}</button
+          >
+        </div>
+      {/if}
+      {#if currentTask && tab === "board"}
+        <Board task={currentTask} id="task-panel-board" labelledby="task-tab-board" />
+      {:else}
+      <div
+        class="talk"
+        role={currentTask ? "tabpanel" : undefined}
+        id={currentTask ? "task-panel-talk" : undefined}
+        aria-labelledby={currentTask ? "task-tab-talk" : undefined}
+      >
       <Transcript
         messages={messages ?? []}
         billing={current.billing}
@@ -930,8 +1163,21 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
             placeholder={canReply ? "Reply to Claude" : "Claude is working…"}
             bind:this={replyField}
             bind:value={reply}
-            onkeydown={(event) => submitOnEnter(event, send)}
+            oninput={() => replyContext?.refresh()}
+            onclick={() => replyContext?.refresh()}
+            onkeydown={(event) => {
+              if (!replyContext?.keydown(event)) submitOnEnter(event, send);
+            }}
           ></textarea>
+          <ContextInput
+            bind:this={replyContext}
+            field={replyField}
+            bind:value={reply}
+            project={current.project}
+            target={current.id}
+            extra={pageSuggestions}
+            id="agent-reply-context"
+          />
           {#if chips.length > 0}
             <ul class="chips" aria-label="Picked elements, sent with the reply">
               {#each chips as { pick } (pick.pick_id)}
@@ -947,6 +1193,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
             </ul>
           {/if}
           <div class="row">
+            {@render addContext(() => replyContext?.start())}
             <span class="line">{canReply ? "Shift+Enter: new line" : ""}</span>
             <button type="submit" class="primary" disabled={busy || !canReply || !reply.trim()}>Send</button>
           </div>
@@ -973,6 +1220,8 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
           </div>
         </form>
       {/if}
+      </div>
+      {/if}
     </div>
   {:else}
     <div class="scroll">
@@ -985,7 +1234,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
             {@const action = chip(session)}
             {@const parts = role?.kind === "coordinator" ? progress(session.id) : null}
             {@const now = session.status.state === "working" ? step(session.id) : null}
-            {@const taken = sessions.resources.get(session.id)}
+            {@const taken = agentPrefs.showResources ? sessions.resources.get(session.id) : undefined}
             {@const disk = role?.kind === "worker" ? role.disk : null}
             <li class:worker={role?.kind === "worker"}>
               <!-- One Tab stop for the list (arrows move, Delete closes, Shift+F10 opens its menu). -->
@@ -1009,7 +1258,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
                         session.id,
                       )}{/if}</span>
                   {#if taken && resourcesLine(taken)}
-                    <!-- Quiet: what it takes of the computer; the split on hover. -->
+                    <!-- Only when asked for (Settings): what it takes of the computer; the split on hover. -->
                     <span class="taken" data-testid="agent-resources" title={resourcesTip(taken, disk)}
                       >{resourcesLine(taken, disk)}</span
                     >
@@ -1097,8 +1346,20 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
         bind:this={promptField}
         bind:value={prompt}
         aria-describedby="agent-mode-hint"
-        onkeydown={(event) => submitOnEnter(event, start)}
+        oninput={() => taskContext?.refresh()}
+        onclick={() => taskContext?.refresh()}
+        onkeydown={(event) => {
+          if (!taskContext?.keydown(event)) submitOnEnter(event, start);
+        }}
       ></textarea>
+      <ContextInput
+        bind:this={taskContext}
+        field={promptField}
+        bind:value={prompt}
+        project={project.id}
+        target={newBox}
+        id="agent-prompt-context"
+      />
       {#if !foldStart}
       <div class="row">
         <!-- How the task runs: a menu button whose options say what each one means. -->
@@ -1149,6 +1410,7 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
             </div>
           {/if}
         </span>
+        {@render addContext(() => taskContext?.start())}
         <AccountPicker project={project.id} bind:account />
         <button
           type="submit"
@@ -1335,6 +1597,21 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
     font-weight: 500;
     color: var(--accent-ink);
     background: var(--accent);
+  }
+
+  /* A task's Conversation and Board */
+  .tabs {
+    display: flex;
+    gap: 4px;
+    padding: 0 16px 8px;
+  }
+  /* The conversation keeps the detail's own layout. */
+  .talk {
+    display: contents;
+  }
+  .tabs [aria-selected="true"] {
+    color: var(--text);
+    background: var(--s3);
   }
 
   /* The list */
@@ -1721,6 +1998,13 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
   }
   .compose .row {
     flex-wrap: wrap;
+  }
+  .add-context {
+    width: 28px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
   .compose .row .primary {
     margin-left: auto;

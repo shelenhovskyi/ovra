@@ -18,7 +18,18 @@ use ovra_sandbox_linux::{Bubblewrap, HELPER_FLAG, Protected, Setup};
 const HELPER: &str = env!("CARGO_BIN_EXE_ovra-sandbox-helper");
 
 const PROTECTED: Protected = Protected {
-    work_dir: &[".claude", "**/CLAUDE.md", ".envrc", ".vscode", ".idea"],
+    work_dir: &[
+        ".claude",
+        "**/CLAUDE.md",
+        ".envrc",
+        ".vscode",
+        ".idea",
+        ".codex",
+        ".gemini",
+        ".cursor",
+        ".opencode",
+        ".zed",
+    ],
 };
 
 struct Dir(PathBuf);
@@ -107,6 +118,7 @@ fn profile(work_dir: &Path, network: ProfileNetwork) -> SandboxProfile {
         project: None,
         work_env: None,
         work_dir: work_dir.to_path_buf(),
+        work_dir_read_only: false,
         read: Vec::new(),
         write: Vec::new(),
         expose: Vec::new(),
@@ -680,15 +692,26 @@ fn folders_made_for_a_session_go_away_when_it_ends() {
     };
     let profile = profile(&project, ProfileNetwork::Blocked);
     let checks = "made for the session: test -d .vscode
-        write into it: echo x > .vscode/tasks.json";
+        write into it: echo x > .vscode/tasks.json
+        made for another agent: test -d .codex
+        write into its config: echo x > .codex/config.toml";
     assert_eq!(
         run(&sandbox, &profile, &script(checks)),
-        "made for the session: yes\nwrite into it: no\n"
+        "made for the session: yes\nwrite into it: no\nmade for another agent: yes\nwrite into its config: no\n"
     );
     // The cleaner removes them one by one; a folder still there when the
     // next session plans counts as the user's.
     let all_gone = || {
-        for made in [".claude", ".vscode", ".idea", ".devcontainer"] {
+        for made in [
+            ".claude",
+            ".codex",
+            ".gemini",
+            ".cursor",
+            ".opencode",
+            ".vscode",
+            ".idea",
+            ".zed",
+        ] {
             assert!(gone(&project.join(made)), "{made}");
         }
     };
@@ -825,4 +848,74 @@ fn cleaners_down_to(root: &Path, n: usize) -> bool {
         }
         std::thread::yield_now();
     }
+}
+
+#[test]
+fn a_research_session_reads_its_project_and_writes_none_of_it() {
+    let root = Dir::new("research");
+    let home = root.0.join("home");
+    let project = root.0.join("project");
+    root.file("home/.ssh/id_ed25519", "secret");
+    root.file("project/README.md", "hello");
+    root.file("project/src/lib.rs", "fn main() {}");
+    git(&project, &["init", "-q"]);
+    let data = root.0.join("data");
+    root.file("data/store.db", "projects");
+    let Some(sandbox) = sandbox(&home, vec![data.clone()]) else {
+        return;
+    };
+    let checks = format!(
+        "read the project: cat README.md
+        search the project: grep -r main src
+        write the project: echo x > new.txt
+        change a file: echo x >> README.md
+        make a folder: mkdir docs
+        remove a file: rm src/lib.rs
+        write git config: echo x >> .git/config
+        make agent settings: mkdir -p .claude
+        read ssh keys: cat {home}/.ssh/id_ed25519
+        read the data folder: cat {data}/store.db
+        write the private tmp: echo x > /tmp/x",
+        home = home.display(),
+        data = data.display(),
+    );
+    let mut profile = profile(&project, ProfileNetwork::Open);
+    profile.work_dir_read_only = true;
+    let out = run(&sandbox, &profile, &script(&checks));
+    insta::assert_snapshot!(out);
+    assert!(!project.join("new.txt").exists());
+    assert!(!project.join(".claude").exists());
+    assert_eq!(
+        fs::read_to_string(project.join("README.md")).unwrap(),
+        "hello"
+    );
+}
+
+#[test]
+fn a_research_project_inside_the_home_folder_stays_read_only() {
+    // Landlock lets the home folder be written; the read-only bind alone
+    // must hold for a project inside it.
+    let root = Dir::new("research-home");
+    let home = root.0.join("home");
+    let project = home.join("code/app");
+    root.file("home/code/app/README.md", "hello");
+    let Some(sandbox) = sandbox(&home, Vec::new()) else {
+        return;
+    };
+    let mut profile = profile(&project, ProfileNetwork::Open);
+    profile.work_dir_read_only = true;
+    let out = run(
+        &sandbox,
+        &profile,
+        &script(
+            "read the project: cat README.md
+            write the project: echo x > new.txt
+            change a file: echo x >> README.md",
+        ),
+    );
+    assert_eq!(
+        out,
+        "read the project: yes\nwrite the project: no\nchange a file: no\n"
+    );
+    assert!(!project.join("new.txt").exists());
 }

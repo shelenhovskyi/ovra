@@ -1,9 +1,9 @@
-// How the person last started a task in each project ("One agent, here" or
-// "Plan and split"), kept in the page's storage so a reload keeps the choice.
+// How the person last started a task in each project ("One agent, here",
+// "Plan and split" or "Research"), kept in the page's storage so a reload keeps the choice.
 
 import type { ProjectId } from "../lib/protocol";
 
-export type TaskMode = "here" | "split";
+export type TaskMode = "here" | "split" | "research";
 
 const KEY = "ovra.task-mode.";
 
@@ -19,7 +19,8 @@ function storage(): Storage | null {
 /** The mode last chosen in `project`, "here" when none was. */
 export function rememberedMode(project: ProjectId, store = storage()): TaskMode {
   try {
-    return store?.getItem(KEY + project) === "split" ? "split" : "here";
+    const kept = store?.getItem(KEY + project);
+    return kept === "split" || kept === "research" ? kept : "here";
   } catch {
     return "here";
   }

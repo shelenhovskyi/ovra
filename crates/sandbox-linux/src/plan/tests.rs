@@ -119,9 +119,10 @@ fn profile(work_dir: &Path) -> SandboxProfile {
     SandboxProfile {
         kind: ovra_core::services::ProfileKind::Agent,
         claude_dir: None,
-        project: None,
+        project: Some(ProjectId("p1".into())),
         work_env: None,
         work_dir: work_dir.to_path_buf(),
+        work_dir_read_only: false,
         read: Vec::new(),
         write: Vec::new(),
         expose: Vec::new(),
@@ -197,6 +198,11 @@ fn a_worker_reads_its_git_folder_behind_a_proxy() {
         address: socket.display().to_string(),
         ca_bundle: Some(bundle),
     };
+    profile.work_env = Some(WorkEnv {
+        port: 41010,
+        worktree_root: worktree.clone(),
+        main_root: root.0.join("projects/app"),
+    });
     let plan = Plan::new(&setup, &profile).unwrap();
     let line = plan.line(
         Path::new("/usr/bin/bwrap"),
@@ -208,6 +214,38 @@ fn a_worker_reads_its_git_folder_behind_a_proxy() {
     insta::assert_snapshot!(root.show(&line.unwrap()));
     // Its git folder stays read-only with the rest of the repository's.
     assert!(!own.join("config.worktree").exists());
+}
+
+/// The folder `plan` binds at `~/.npm`.
+fn npm_cache(plan: &Plan) -> PathBuf {
+    let found = plan.mounts.iter().find_map(|m| match m {
+        Mount::Private { from, at } if at.ends_with(".npm") => Some(from.clone()),
+        _ => None,
+    });
+    found.unwrap()
+}
+
+#[test]
+fn the_work_dirs_of_one_project_share_its_package_caches() {
+    let root = Root::new("caches");
+    root.dir("home/.npm");
+    let setup = root.setup("/usr/bin");
+    let main = root.dir("projects/b-c");
+    let worktree = root.dir("data/worktrees/p1/t/w1");
+    let other = root.dir("projects/b_c");
+    let of = |dir: &Path, project: Option<&str>| {
+        let mut profile = profile(dir);
+        profile.project = project.map(|p| ProjectId(p.into()));
+        npm_cache(&Plan::new(&setup, &profile).unwrap())
+    };
+    let shared = of(&main, Some("p1"));
+    assert_eq!(of(&worktree, Some("p1")), shared);
+    assert!(shared.starts_with(&setup.caches));
+    assert_ne!(of(&other, Some("p2")), shared);
+    // Without a project, each folder has its own, even where their paths
+    // differ only in punctuation.
+    assert_ne!(of(&main, None), of(&other, None));
+    assert_ne!(of(&main, None), shared);
 }
 
 #[test]
@@ -491,10 +529,16 @@ fn missing_protected_files_are_made_empty_and_kept_read_only_for_the_session() {
     std::fs::write(project.join(".envrc"), "use flake").unwrap();
     let mut setup = root.setup("/usr/bin");
     setup.protected = Protected {
-        work_dir: &[".mcp.json", "**/CLAUDE.md", "**/AGENTS.md", ".envrc"],
+        work_dir: &[
+            ".mcp.json",
+            "**/CLAUDE.md",
+            "**/AGENTS.md",
+            ".envrc",
+            ".worktreeinclude",
+        ],
     };
     let plan = Plan::new(&setup, &profile(&project)).unwrap();
-    for name in [".mcp.json", "CLAUDE.md"] {
+    for name in [".mcp.json", "CLAUDE.md", ".worktreeinclude"] {
         let path = project.join(name);
         assert_eq!(std::fs::read(&path).unwrap(), b"", "{name}");
         assert!(plan.mounts.contains(&Mount::Ro(path)), "{name}");
@@ -503,7 +547,11 @@ fn missing_protected_files_are_made_empty_and_kept_read_only_for_the_session() {
     // does not name is never made.
     assert_eq!(
         plan.temporary,
-        [project.join("CLAUDE.md"), project.join(".mcp.json")]
+        [
+            project.join("CLAUDE.md"),
+            project.join(".mcp.json"),
+            project.join(".worktreeinclude")
+        ]
     );
     assert!(!project.join("CLAUDE.local.md").exists());
     assert!(plan.mounts.contains(&Mount::Ro(project.join(".envrc"))));
@@ -677,3 +725,41 @@ fn ports_a_sandbox_cannot_keep_to_itself_are_refused() {
 }
 
 mod server;
+
+#[test]
+fn a_research_session_sees_the_project_read_only_and_makes_nothing_in_it() {
+    let root = Root::new("research");
+    let project = root.dir("project");
+    root.file("project/src/main.rs");
+    root.file("project/data/worktrees/w/CLAUDE.md");
+    let mut setup = root.setup("/usr/bin");
+    setup.protected = Protected {
+        work_dir: &[".claude", ".ovra", ".mcp.json"],
+    };
+    setup.hidden = vec![project.join("data")];
+    let mut profile = profile(&project);
+    profile.work_dir_read_only = true;
+    let plan = Plan::new(&setup, &profile).unwrap();
+    assert!(plan.mounts.contains(&Mount::Ro(project.clone())));
+    assert!(!plan.writable.iter().any(|w| w.starts_with(&project)));
+    assert!(!plan.mounts.iter().any(
+        |m| matches!(m, Mount::Rw(p) | Mount::Private { at: p, .. } if p.starts_with(&project))
+    ));
+    // Ovra's data folder inside it stays hidden.
+    assert!(plan.mounts.contains(&Mount::Tmpfs(project.join("data"))));
+    // No protected folder or file was made for it.
+    assert!(!project.join(".claude").exists());
+    assert!(!project.join(".ovra").exists());
+    assert!(!project.join(".mcp.json").exists());
+    assert!(plan.temporary.is_empty());
+}
+
+#[test]
+fn every_folder_made_is_on_the_protected_list() {
+    for name in super::FOLDERS_MADE {
+        assert!(
+            ovra_core::protected::PROTECTED_IN_WORK_DIR.contains(&name),
+            "{name} is made only when it is protected"
+        );
+    }
+}

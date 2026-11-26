@@ -118,9 +118,9 @@ impl Setup {
 const GAPS: [&str; 5] = [
     "git config values that name project files",
     "submodules added during a session",
-    "package caches shared by similar project paths",
     "other mounts of the home folder stay readable",
-    "new CLAUDE.md or AGENTS.md files in subfolders",
+    "new agent instruction files in subfolders (CLAUDE.md, AGENTS.md, ...)",
+    "other agents' missing top-level files (opencode.json, .aider.conf.yml)",
 ];
 
 /// The Linux sandbox: bubblewrap, plus Landlock and seccomp in the helper.
@@ -212,6 +212,7 @@ impl Bubblewrap {
             project: None,
             work_env: None,
             work_dir: work.clone(),
+            work_dir_read_only: false,
             read: Vec::new(),
             write: Vec::new(),
             expose: Vec::new(),
@@ -343,9 +344,9 @@ mod tests {
             [
                 "git config values that name project files",
                 "submodules added during a session",
-                "package caches shared by similar project paths",
                 "other mounts of the home folder stay readable",
-                "new CLAUDE.md or AGENTS.md files in subfolders",
+                "new agent instruction files in subfolders (CLAUDE.md, AGENTS.md, ...)",
+                "other agents' missing top-level files (opencode.json, .aider.conf.yml)",
             ]
         );
     }
@@ -389,6 +390,7 @@ mod tests {
             project: None,
             work_env: None,
             work_dir: "/".into(),
+            work_dir_read_only: false,
             read: Vec::new(),
             write: Vec::new(),
             expose: Vec::new(),

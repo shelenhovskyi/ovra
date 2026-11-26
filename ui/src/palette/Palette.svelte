@@ -3,6 +3,7 @@
 // projects (see `mode.svelte.ts`), or a folder path to open. The shell mounts it while
 // `workspace.paletteOpen` is true; it closes by setting it to false.
 import { tick } from "svelte";
+import { focusMain } from "../editor/open-files.svelte";
 import { runCommand } from "../keys/keybindings";
 import { formatShortcut, inBrowserTab, isApple, liveKeys } from "../keys/shortcut";
 import { useOvra } from "../shell/context";
@@ -145,6 +146,8 @@ $effect(() => {
       if (previous instanceof HTMLElement && previous.isConnected && previous !== document.body) previous.focus();
       // Opened with focus nowhere, on the start screen: back to its first project rather than the page.
       else if (!workspace.project) void focusStartScreen();
+      // Otherwise the open file, so Escape never leaves focus on the page.
+      else void focusMain();
     });
   };
 });
@@ -222,7 +225,7 @@ function onfocusout(event: FocusEvent): void {
 </script>
 
 <div class="backdrop">
-  <div class="palette" role="dialog" aria-modal="true" aria-label="Command palette" {onfocusout}>
+  <div class="palette" role="dialog" aria-modal="true" aria-label="Command palette" data-commands="palette." {onfocusout}>
     <input
       bind:this={input}
       bind:value={query}

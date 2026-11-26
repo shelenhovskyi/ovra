@@ -22,7 +22,7 @@ export const FILTERS = {
   tools: { label: "Tool calls", kinds: ["tool_decided"] },
   sessions: { label: "Agent starts", kinds: ["session_started"] },
   settings: { label: "Trust and policy", kinds: ["trust_changed", "policy_changed", "rule_added"] },
-  reviews: { label: "Reviews", kinds: ["review_decided"] },
+  reviews: { label: "Reviews", kinds: ["review_decided", "branch_pushed", "pull_request_opened"] },
   network: { label: "Network and secrets", kinds: ["network_refused", "secret_used", "browser_navigation"] },
   servers: {
     label: "Servers",
@@ -104,7 +104,11 @@ export function describe(entry: AuditEntry): Described {
   const event = entry.event;
   switch (event.kind) {
     case "session_started": {
-      const where = event.mode === "direct" ? "In the project folder" : "In its own copy of the project";
+      const where = {
+        direct: "In the project folder",
+        research: "Reading the project folder, changing nothing",
+        isolated: "In its own copy of the project",
+      }[event.mode];
       const settings = event.trusted ? "with the project's agent settings" : "without the project's agent settings";
       const sandbox = event.sandbox ? `sandbox ${event.sandbox.name}, network ${event.sandbox.network}` : "no sandbox";
       return {
@@ -167,6 +171,22 @@ export function describe(entry: AuditEntry): Described {
         title: `Review ${REVIEW[event.action]}`,
         detail: `Review ${event.review}, decided by a person.`,
         input: null,
+        raw: null,
+        tone: "plain",
+      };
+    case "branch_pushed":
+      return {
+        title: `Pushed to ${event.remote}/${event.branch}`,
+        detail: `The reviewed changes of review ${event.review}, pushed by a person.`,
+        input: null,
+        raw: event.commit,
+        tone: "plain",
+      };
+    case "pull_request_opened":
+      return {
+        title: `Pull request #${event.number} opened`,
+        detail: `From review ${event.review}, on ${event.remote}, by a person.`,
+        input: event.url,
         raw: null,
         tone: "plain",
       };

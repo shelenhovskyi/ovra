@@ -4,10 +4,13 @@
 // the panel keeps the shells and their scrollback.
 import type { Terminal } from "@xterm/xterm";
 import { tick } from "svelte";
+import { askAgent, registerContextSource } from "../agents/context.svelte";
 import { registerCommand } from "../keys/commands";
 import { formatShortcut, inBrowserTab, isApple, liveKeys } from "../keys/shortcut";
+import { openContextMenu } from "../menu/context-menu.svelte";
 import { useOvra } from "../shell/context";
 import Icon from "../shell/Icon.svelte";
+import { terminalText } from "./agent-context";
 import { handleOpenTerminalIn } from "./open-in";
 import { loadScreenReader, saveScreenReader } from "./prefs";
 import { exitNotice, LOST_NOTICE, type TerminalSession, TerminalSessions } from "./sessions.svelte";
@@ -32,6 +35,42 @@ let returnFocus: HTMLElement | null = null;
 const project = $derived(workspace.project);
 const tabs = $derived(project ? sessions.of(project.id) : []);
 const active = $derived(project ? sessions.active(project.id) : undefined);
+
+/** The active terminal's selection or last lines as an agent task's context. */
+function output(): { title: string; text: string; selected: boolean } | null {
+  const terminal = active ? xterms.get(active.key) : undefined;
+  if (!active || !terminal) return null;
+  const found = terminalText(terminal);
+  return found.text.trim() ? { title: active.title, ...found } : null;
+}
+
+$effect(() =>
+  registerContextSource("terminal", () => {
+    const found = output();
+    if (!found) return [];
+    const what = { kind: "terminal" as const, title: found.title, text: found.text };
+    return [
+      { what, label: "Terminal", detail: found.selected ? `${found.title}, selected` : `${found.title}, last lines` },
+    ];
+  }),
+);
+
+/** The terminal's menu: Copy with a selection, and Ask agent. */
+function terminalMenu(event: MouseEvent, session: TerminalSession): void {
+  const terminal = xterms.get(session.key);
+  if (!terminal) return;
+  const found = terminalText(terminal);
+  if (!found.text.trim()) return;
+  event.preventDefault();
+  const board = typeof navigator !== "undefined" ? navigator.clipboard : undefined;
+  openContextMenu(event, [
+    found.selected && board && { label: "Copy", keys: "Mod+C", run: () => board.writeText(terminal.getSelection()) },
+    {
+      label: "Ask agent",
+      run: () => askAgent({ kind: "terminal", title: session.title, text: found.text }),
+    },
+  ]);
+}
 
 function label(keys: string): string {
   return formatShortcut(liveKeys(keys, inBrowserTab()), isApple());
@@ -249,12 +288,15 @@ $effect(() => {
     {/if}
     {#each sessions.sessions as session (session.key)}
       {@const shown = session === active && session.project === project?.id}
+      <!-- The menu (Copy, Ask agent) is for the pointer; keys go to the shell. -->
+      <!-- svelte-ignore a11y_interactive_supports_focus -->
       <div
         class="panel"
         role="tabpanel"
         id="terminal-panel-{session.key}"
         aria-labelledby="terminal-tab-{session.key}"
         hidden={!shown}
+        oncontextmenu={(event) => terminalMenu(event, session)}
       >
         {#if session.state.kind === "failed"}
           <p class="failed" role="alert">Could not start the terminal: {session.state.message}</p>

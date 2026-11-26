@@ -8,7 +8,7 @@ import { absolutePath } from "../editor/context-menu";
 import type { EntryKind, ProjectId } from "../lib/protocol";
 import { CoreError, type Transport } from "../lib/transport";
 import { draftPath, joinPath, parentOf, type TreeModel } from "./model";
-import { baseName, copyName, moveTarget, nameProblem } from "./ops";
+import { baseName, copyName, moveTarget, nameProblem, trashQuestion } from "./ops";
 import { topLevel } from "./selection";
 
 const NOTICE_MS = 5000;
@@ -24,7 +24,11 @@ type Pair = { from: string; to: string };
 type Done =
   | { kind: "create"; path: string; entry: EntryKind }
   | { kind: "copy"; pairs: Pair[] }
-  | { kind: "move"; pairs: Pair[] };
+  | { kind: "move"; pairs: Pair[] }
+  /** A barrier: Ovra cannot take a trash back, so undo stops here instead of reaching past it. */
+  | { kind: "trash"; paths: string[] };
+/** What undo and redo can take back or do again. */
+type Step = Exclude<Done, { kind: "trash" }>;
 
 export type Edit = { kind: "new"; dir: string; entry: EntryKind } | { kind: "rename"; path: string; entry: EntryKind };
 
@@ -41,6 +45,8 @@ export type ActionsHost = {
   open: (path: string) => void;
   moved?: (from: string, to: string) => void;
   trashed?: (paths: string[]) => void;
+  /** The open files under `paths` with unsaved changes. */
+  unsaved?: (paths: string[]) => string[];
   copy?: (text: string) => Promise<void>;
 };
 
@@ -50,6 +56,9 @@ export class FileActions {
   problem = $state<string | null>(null);
   /** The paths waiting for a Move to Trash answer. */
   confirming = $state<string[] | null>(null);
+  /** The Move to Trash question, and what would be lost with it. */
+  question = $state("");
+  warning = $state<string | null>(null);
   clip = $state<Clip | null>(null);
   /** A failed action, shown briefly. */
   notice = $state<string | null>(null);
@@ -66,6 +75,7 @@ export class FileActions {
 
   /** Starts naming a new file or folder in `dir`. */
   async startNew(dir: string, entry: EntryKind): Promise<void> {
+    this.dismiss();
     this.cancel(false);
     this.before = this.host.selected();
     if (dir !== "") await this.host.model.expand(dir);
@@ -75,6 +85,7 @@ export class FileActions {
   }
 
   startRename(path: string): void {
+    this.dismiss();
     this.cancel(false);
     const name = baseName(path);
     const entry = this.host.model.entries(parentOf(path))?.find((e) => e.name === name);
@@ -163,6 +174,7 @@ export class FileActions {
     const siblings = model.entries(dir) ?? [];
     const entry = siblings.find((e) => e.name === baseName(path));
     if (!entry) return;
+    this.dismiss();
     const to = joinPath(
       dir,
       copyName(
@@ -183,8 +195,21 @@ export class FileActions {
 
   /** Asks before moving `paths` to the trash; a folder takes what is selected in it along. */
   askTrash(paths: string[]): void {
+    this.dismiss();
     this.cancel(false);
-    this.confirming = topLevel(paths);
+    const top = topLevel(paths);
+    const only = top.length === 1 && this.kindOf(top[0] as string) === "dir" ? (top[0] as string) : null;
+    // Only a loaded folder can say what is in it without asking the core.
+    const items = only === null ? undefined : this.host.model.entries(only)?.filter((e) => e.git !== "deleted").length;
+    const unsaved = this.host.unsaved?.(top) ?? [];
+    this.question = trashQuestion(top, items);
+    this.warning =
+      unsaved.length === 0
+        ? null
+        : unsaved.length === 1
+          ? `“${baseName(unsaved[0] as string)}” has unsaved changes.`
+          : `${unsaved.length} files have unsaved changes.`;
+    this.confirming = top;
   }
 
   async confirmTrash(): Promise<void> {
@@ -194,6 +219,8 @@ export class FileActions {
     const { transport, project, model } = this.host;
     try {
       await transport.call({ method: "fs.trash", params: { project, paths } });
+      this.record({ kind: "trash", paths });
+      model.removed(paths);
       for (const dir of new Set(paths.map(parentOf))) await model.reload(dir);
       this.host.trashed?.(paths);
       // Ovra cannot take a trash back yet; say where the files are.
@@ -204,10 +231,11 @@ export class FileActions {
     this.host.select(this.host.selected());
   }
 
-  cancelTrash(): void {
+  /** Drops the question; `refocus` puts focus back on its row, unless focus went elsewhere. */
+  cancelTrash(refocus = true): void {
     const paths = this.confirming;
     this.confirming = null;
-    this.host.select(paths?.[0] ?? null);
+    if (paths && refocus) this.host.select(paths[0] ?? null);
   }
 
   /** Moves `paths` into the folder `dir` (`""` is the project folder); one already there stays. */
@@ -217,6 +245,7 @@ export class FileActions {
       return to === null ? [] : [{ from, to }];
     });
     if (moves.length === 0) return [];
+    this.dismiss();
     const { transport, project, model } = this.host;
     const done: Pair[] = [];
     try {
@@ -263,6 +292,7 @@ export class FileActions {
   async paste(dir: string): Promise<Pair[]> {
     const clip = this.clip;
     if (!clip) return [];
+    this.dismiss();
     if (!clip.cut) return this.copyInto(clip.paths, dir);
     const done = await this.move(clip.paths, dir);
     if (done.length > 0) this.clip = null;
@@ -336,27 +366,33 @@ export class FileActions {
   }
 
   private async step(from: Done[], to: Done[], verb: "undo" | "redo"): Promise<void> {
-    const op = from.pop();
+    this.dismiss();
+    const op = from.at(-1);
     if (!op) return this.tell(`Nothing to ${verb}`);
+    // Redo never meets a trash: it is no step undo can take.
+    if (op.kind === "trash") return this.tell("Can't undo Move to Trash. Restore it from the Trash.");
+    from.pop();
     // A failed step is dropped: what it would change has changed since.
     try {
       await (verb === "undo" ? this.revert(op) : this.reapply(op));
       to.push(op);
+      this.tell(`${verb === "undo" ? "Undid" : "Redid"} ${describeOp(op)}`);
     } catch (err) {
       this.fail(err, `Could not ${verb}: `);
     }
   }
 
-  private async revert(op: Done): Promise<void> {
+  private async revert(op: Step): Promise<void> {
     if (op.kind === "move") return this.renameAll(op.pairs.map(({ from, to }) => ({ from: to, to: from })).reverse());
     const paths = op.kind === "create" ? [op.path] : op.pairs.map((p) => p.to);
     const { transport, project, model } = this.host;
     await transport.call({ method: "fs.trash", params: { project, paths } });
+    model.removed(paths);
     for (const dir of new Set(paths.map(parentOf))) await model.reload(dir);
     this.host.trashed?.(paths);
   }
 
-  private async reapply(op: Done): Promise<void> {
+  private async reapply(op: Step): Promise<void> {
     const { transport, project, model } = this.host;
     if (op.kind === "move") return this.renameAll(op.pairs);
     if (op.kind === "create") {
@@ -384,7 +420,16 @@ export class FileActions {
     await this.show(pairs.at(-1)?.to as string);
   }
 
-  private tell(text: string): void {
+  /** The next action clears what the last one said. */
+  private dismiss(): void {
+    clearTimeout(this.timer);
+    clearTimeout(this.infoTimer);
+    this.notice = null;
+    this.info = null;
+  }
+
+  /** Shows a brief note that is no failure. */
+  tell(text: string): void {
     this.info = text;
     clearTimeout(this.infoTimer);
     this.infoTimer = setTimeout(() => (this.info = null), NOTICE_MS);
@@ -396,4 +441,14 @@ export class FileActions {
     clearTimeout(this.timer);
     this.timer = setTimeout(() => (this.notice = null), NOTICE_MS);
   }
+}
+
+/** What an undo or redo step did, for its notice: "rename of a.ts", "move of 3 items". */
+function describeOp(op: Step): string {
+  if (op.kind === "create") return `new ${op.entry === "dir" ? "folder" : "file"} ${baseName(op.path)}`;
+  const [first] = op.pairs;
+  const what = op.pairs.length === 1 && first ? baseName(first.from) : `${op.pairs.length} items`;
+  if (op.kind === "copy") return `copy of ${what}`;
+  const rename = op.pairs.length === 1 && first && parentOf(first.from) === parentOf(first.to);
+  return `${rename ? "rename" : "move"} of ${what}`;
 }

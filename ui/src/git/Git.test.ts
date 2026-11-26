@@ -558,3 +558,127 @@ it("is one Tab stop per list, with keys for row actions and the close-tab key fo
   expect(focusedRow()).toBe("a.ts");
   off();
 });
+
+it("lets an agent suggest commits that the person edits and makes, and draft a message", async () => {
+  const core = new FakeGitCore();
+  core.status = repo({
+    files: [changed("a.ts", { staged: "modified", unstaged: null }), changed("b.ts"), changed("c.ts")],
+  });
+  await setup(core);
+  core.agentAnswer =
+    'Two commits.\n```json\n{"commits": [{"message": "feat: a and b", "files": ["a.ts", "b.ts"]},' +
+    ' {"message": "fix: c", "files": ["c.ts"]}]}\n```';
+
+  click("[data-testid=git-assist]");
+  await settle();
+  const items = [...target.querySelectorAll("[role=menuitem]")].map((i) => i.textContent);
+  expect(items).toEqual(["Suggest commits", "Write commit message", "Summarize what's new"]);
+  click("[data-testid=git-assist-commits]");
+  await settle();
+  const start = core.calls.find((c) => c.method === "agents.start");
+  expect(start?.params).toMatchObject({ project: "p1", mode: "research" });
+  expect(core.methods()).toContain("agents.stop");
+  expect(text("[data-testid=git-assist-plan] h3")).toBe("2 suggested commits");
+
+  // The person rewords the second message, then commits both.
+  const second = target.querySelectorAll<HTMLTextAreaElement>("[data-testid=git-assist-plan] textarea")[1];
+  if (!second) throw new Error("no second message");
+  second.value = "fix: c properly";
+  second.dispatchEvent(new Event("input", { bubbles: true }));
+  click("[data-testid=git-assist-commit-all]");
+  // Two commits, each an unstage, a stage and a commit with their reloads.
+  for (let i = 0; i < 4; i++) await settle();
+  const commits = core.calls.filter((c) => c.method === "git.commit").map((c) => c.params.message);
+  expect(commits).toEqual(["feat: a and b", "fix: c properly"]);
+  expect(core.commits.slice(0, 2).map((c) => c.summary)).toEqual(["fix: c properly", "feat: a and b"]);
+  expect($("[data-testid=git-assist-plan]")).toBeNull();
+  expect(text("[data-testid=git-announce]")).toBe("Made 2 commits.");
+
+  // A drafted message lands in the box, with Undo for the text it replaced.
+  core.status = repo({ files: [changed("d.ts", { staged: "added", unstaged: null })] });
+  core.changedFiles();
+  await settle();
+  const box = $<HTMLTextAreaElement>("[data-testid=git] .commit textarea");
+  if (!box) throw new Error("no message box");
+  box.value = "wip";
+  box.dispatchEvent(new Event("input", { bubbles: true }));
+  core.agentAnswer = "```text\nfeat: add d\n```";
+  click("[data-testid=git-assist]");
+  await settle();
+  click("[data-testid=git-assist-message]");
+  await settle();
+  expect(box.value).toBe("feat: add d");
+  click("[data-testid=git-draft-replaced] button");
+  await settle();
+  expect(box.value).toBe("wip");
+
+  // An answer that names files without changes is not offered.
+  core.agentAnswer = '```json\n{"commits": [{"message": "x", "files": ["nope.ts"]}]}\n```';
+  click("[data-testid=git-assist]");
+  await settle();
+  click("[data-testid=git-assist-commits]");
+  await settle();
+  expect(text("[data-testid=git-assist-error] p")).toBe(
+    "The agent's suggestion could not be used: it names nope.ts, which has no changes. Try again, or commit by hand.",
+  );
+});
+
+it("stops an agent action cleanly, hears a failure before the start answers, and asks again on moved-on changes", async () => {
+  const core = new FakeGitCore();
+  core.status = repo({ files: [changed("a.ts"), changed("b.ts")] });
+  await setup(core);
+  const run = async () => {
+    click("[data-testid=git-assist]");
+    await settle();
+    click("[data-testid=git-assist-commits]");
+    await settle();
+  };
+
+  // Stop while the diffs are read: no agent starts at all.
+  let release = () => {};
+  core.holdNext.set("git.diff", (r) => {
+    release = r;
+  });
+  await run();
+  expect(text("[data-testid=git-assist-running] p")).toBe("Suggesting commits…");
+  click("[data-testid=git-assist-running] button");
+  release();
+  await settle();
+  expect(core.methods()).not.toContain("agents.start");
+  expect($("[data-testid=git-assist-running]")).toBeNull();
+
+  // The session fails before its start has answered: the panel still hears it.
+  core.holdNext.set("agents.start", (r) => {
+    core.emit({
+      type: "agents.status",
+      data: { session: "s1", project: "p1", status: { state: "failed", message: "claude is signed out" } },
+    });
+    r();
+  });
+  await run();
+  expect(text("[data-testid=git-assist-error] p")).toBe("The agent stopped: claude is signed out");
+
+  // A plan; typing in its message keeps focus there.
+  core.agentAnswer = '```json\n{"commits": [{"message": "feat: a", "files": ["a.ts", "b.ts"]}]}\n```';
+  await run();
+  const box = $<HTMLTextAreaElement>("[data-testid=git-assist-plan] textarea");
+  if (!box) throw new Error("no plan");
+  box.focus();
+  for (const typed of ["feat: a!", "feat: a!!"]) {
+    box.value = typed;
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+    await settle();
+    expect(document.activeElement).toBe(box);
+  }
+  // The files changed again meanwhile: the first press only asks.
+  core.changedFiles();
+  await settle();
+  click("[data-testid=git-assist-commit-all]");
+  await settle();
+  expect(text("[data-testid=git-assist-commit-all]")).toBe("Commit anyway");
+  expect(core.methods()).not.toContain("git.commit");
+  click("[data-testid=git-assist-commit-all]");
+  for (let i = 0; i < 3; i++) await settle();
+  expect(core.calls.filter((c) => c.method === "git.commit").map((c) => c.params.message)).toEqual(["feat: a!!"]);
+  expect(text("[data-testid=git-announce]")).toBe("Made 1 commit.");
+});

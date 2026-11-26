@@ -2,13 +2,13 @@
 // (personal, work, ...). One instance per transport, shared by the setup
 // card and the account picker of the start form (`claudeAccounts(transport)`).
 
-import type { AccountState, AccountsOverview, ClaudeAccount, ProjectId } from "../../lib/protocol";
+import type { Account, AccountState, AccountsOverview, ProjectId } from "../../lib/protocol";
 import type { Transport } from "../../lib/transport";
 
 /** The id of the account that runs claude as the user set it up. */
 export const DEFAULT_ACCOUNT = "default";
 
-export class ClaudeAccounts {
+export class Accounts {
   overview = $state<AccountsOverview | null>(null);
   /** The project `overview.project_account` belongs to. */
   private project: ProjectId | null = null;
@@ -71,7 +71,7 @@ export class ClaudeAccounts {
   }
 
   /** Adds (`id: ""`) or changes an account, then checks them again. */
-  async save(account: ClaudeAccount): Promise<void> {
+  async save(account: Account): Promise<void> {
     await this.transport.call({ method: "agents.save_account", params: { account } });
     await this.load();
   }
@@ -95,12 +95,12 @@ export class ClaudeAccounts {
   }
 }
 
-const instances = new WeakMap<Transport, ClaudeAccounts>();
+const instances = new WeakMap<Transport, Accounts>();
 
-export function claudeAccounts(transport: Transport): ClaudeAccounts {
+export function claudeAccounts(transport: Transport): Accounts {
   let accounts = instances.get(transport);
   if (!accounts) {
-    accounts = new ClaudeAccounts(transport);
+    accounts = new Accounts(transport);
     instances.set(transport, accounts);
   }
   return accounts;

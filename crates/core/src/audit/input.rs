@@ -312,6 +312,16 @@ fn redact_known(text: &str, known: &Known) -> String {
     out
 }
 
+/// Whether `text` holds a token-like word, a secret header's value or one
+/// of the `known` values (the `@` context's check, `crate::context`).
+pub(crate) fn holds_secret(text: &str, known: &[SecretValue]) -> bool {
+    redact_text(text) != text
+        || known
+            .iter()
+            .map(SecretValue::expose)
+            .any(|value| !value.is_empty() && text.contains(value))
+}
+
 /// `text` without header values and token-like words.
 pub(crate) fn redact_text(text: &str) -> String {
     redact_tokens(&redact_headers(text))

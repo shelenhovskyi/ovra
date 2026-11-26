@@ -67,7 +67,8 @@ struct Session {
     /// The network of this run's agent: its browser goes through the same
     /// netproxy.
     network: Option<ProfileNetwork>,
-    /// The first message of a `queued` session, until it starts.
+    /// The first message of a `queued` or `preparing` session, until it
+    /// starts.
     queued: Option<Parts>,
     /// The pid of this run's agent process, as the runtime reported it.
     pid: Option<u32>,
@@ -150,6 +151,8 @@ impl Sessions {
                 queued: None,
                 pid: None,
             };
+            // What a go-back restored is no longer known (`Direct`).
+            session.info.can_undo_go_back = false;
             if !session.info.status.is_ended() {
                 session.info.status = AgentStatus::Stopped;
                 let _ = store.save(&session.stored());
@@ -217,6 +220,10 @@ impl Sessions {
             }
             !forget
         });
+        drop(list);
+        if let Some(core) = self.core() {
+            crate::power::sessions_changed(&core);
+        }
     }
 
     pub(crate) fn list(&self, project: &ProjectId) -> Vec<SessionInfo> {
@@ -277,18 +284,26 @@ impl Sessions {
         })
     }
 
+    /// Whether any session of any project is queued, starting, working or
+    /// waiting for a person: what keeps the computer awake.
+    pub(crate) fn any_working(&self) -> bool {
+        lock(&self.list)
+            .iter()
+            .any(|s| !s.info.status.is_ended() && s.info.status != AgentStatus::Idle)
+    }
+
     /// Sessions of `project` that have not ended, with their state and
     /// which IDE tools they have.
     pub(crate) fn active(
         &self,
         project: &ProjectId,
-    ) -> Vec<(SessionId, AgentStatus, Option<ToolRole>)> {
+    ) -> Vec<(SessionId, AgentStatus, Option<ToolRole>, SessionMode)> {
         lock(&self.list)
             .iter()
             .filter(|s| &s.info.project == project && !s.info.status.is_ended())
             .map(|s| {
                 let role = s.launch.as_ref().and_then(|l| l.tools);
-                (s.info.id.clone(), s.info.status.clone(), role)
+                (s.info.id.clone(), s.info.status.clone(), role, s.info.mode)
             })
             .collect()
     }
@@ -310,19 +325,44 @@ impl Sessions {
             .collect()
     }
 
-    /// Moves the oldest `queued` session of `project` to `starting`, without
-    /// telling anyone yet, and hands over its first message.
-    pub(crate) fn dequeue(&self, project: &ProjectId) -> Option<(SessionId, Parts)> {
+    /// Moves the session `id` between `queued` and `preparing` (`to`),
+    /// keeping its first message, without telling anyone yet. False if it
+    /// is in neither state.
+    pub(crate) fn wait(&self, id: &SessionId, to: AgentStatus) -> bool {
         let mut list = lock(&self.list);
-        let session = list
-            .iter_mut()
-            .find(|s| &s.info.project == project && s.info.status == AgentStatus::Queued)?;
+        let Some(session) = list.iter_mut().find(|s| &s.info.id == id) else {
+            return false;
+        };
+        let waiting = |s: &AgentStatus| matches!(s, AgentStatus::Queued | AgentStatus::Preparing);
+        if !waiting(&session.info.status) || !waiting(&to) {
+            return false;
+        }
+        session.info.status = to;
+        let _ = self.store.save(&session.stored());
+        true
+    }
+
+    /// Moves the `queued` or `preparing` session `id` to `starting`,
+    /// without telling anyone yet, and hands over its first message.
+    pub(crate) fn take_waiting(&self, id: &SessionId) -> Option<Parts> {
+        let mut list = lock(&self.list);
+        let session = list.iter_mut().find(|s| {
+            &s.info.id == id
+                && matches!(s.info.status, AgentStatus::Queued | AgentStatus::Preparing)
+        })?;
         session.info.status = AgentStatus::Starting;
         let _ = self.store.save(&session.stored());
-        Some((
-            session.info.id.clone(),
-            session.queued.take().unwrap_or_default(),
-        ))
+        Some(session.queued.take().unwrap_or_default())
+    }
+
+    /// Soon takes the snapshots of the turn edges `id` reported
+    /// ([`Direct::turn_started`]), so that they show the tree as it was
+    /// then. Needs no runtime: the next look at the session takes them.
+    pub(crate) fn record_turns(self: &Arc<Self>, id: &SessionId) {
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            let (sessions, id) = (self.clone(), id.clone());
+            runtime.spawn(async move { sessions.direct.catch_up(&id).await });
+        }
     }
 
     /// Sessions of `project` that have not ended.
@@ -425,6 +465,20 @@ impl SessionView<'_> {
     }
     pub(crate) fn run(&self) -> u64 {
         self.session.run
+    }
+    /// The next message to the agent is in the transcript: answers the
+    /// number of its turn. A go-back can no longer be undone.
+    fn turn_started(&mut self) -> u32 {
+        if std::mem::take(&mut self.session.info.can_undo_go_back) {
+            self.save();
+        }
+        self.session.transcript.turns()
+    }
+    /// Files were set back to before turn `undone_from` (`None`: put back).
+    fn went_back(&mut self, undone_from: Option<u32>, can_undo: bool) {
+        self.session.info.undone_from = undone_from;
+        self.session.info.can_undo_go_back = can_undo;
+        self.save();
     }
     /// Starts an ended session over for `agents.resume`.
     pub(crate) fn restart(&mut self) {
@@ -678,6 +732,10 @@ impl AgentHost {
             .get("tool_input")
             .cloned()
             .unwrap_or(serde_json::Value::Null);
+        if let Some(why) = self.outside_research(name) {
+            self.audit_tool(name, &input, false, DecidedBy::Role).await;
+            return BeforeTool::Deny(why);
+        }
         // Ovra's own tools follow their role rules (`Self::ask`).
         let mut verdict = BeforeTool::Proceed;
         if !name.starts_with(crate::orchestration::IDE_TOOL_PREFIX) {
@@ -755,10 +813,16 @@ impl AgentHost {
         let ended = status.is_ended();
         if ended {
             self.sessions.direct.session_ended(&self.session);
+            self.sessions.record_turns(&self.session);
         }
-        if self.set_status(status) && ended {
+        let idle = status == AgentStatus::Idle;
+        let changed = self.set_status(status);
+        if changed && ended {
             let dropped = self.sessions.permissions.drop_session(&self.session);
             self.resolved(dropped, Decision::Deny);
+        }
+        if changed && idle && self.sessions.direct.turn_ended(&self.session) {
+            self.sessions.record_turns(&self.session);
         }
     }
 
@@ -783,6 +847,7 @@ impl AgentHost {
             if let Some(core) = self.sessions.core() {
                 crate::resources::wake(&core);
                 crate::orchestration::on_status(&core, &self.session, &status);
+                crate::power::sessions_changed(&core);
                 if status.is_ended() {
                     crate::servers::session_ended(&core, &self.session, run);
                     crate::browser::session_ended(&core, &self.session);
@@ -809,6 +874,10 @@ impl AgentHost {
         title: Option<String>,
         reason: Option<PermissionReason>,
     ) -> PermissionAnswer {
+        if let Some(why) = self.outside_research(&tool) {
+            let answer = PermissionAnswer::deny(why);
+            return self.decided(&tool, &input, answer, DecidedBy::Role).await;
+        }
         if let Some(name) = tool.strip_prefix(crate::orchestration::IDE_TOOL_PREFIX) {
             // Ovra's own tools are decided by role and limits, never asked.
             return match self.sessions.core() {
@@ -842,6 +911,13 @@ impl AgentHost {
                 let by = DecidedBy::Policy { rule };
                 return self
                     .decided(&tool, &input, PermissionAnswer::allow(), by)
+                    .await;
+            }
+            // A research session's web search runs on Anthropic's side and
+            // touches nothing here (ADR 0013).
+            Ok(None) if tool == WEB_SEARCH && self.is_research() => {
+                return self
+                    .decided(&tool, &input, PermissionAnswer::allow(), DecidedBy::Role)
                     .await;
             }
             // Unreadable policy: ask, never decide on its own.
@@ -918,6 +994,44 @@ impl AgentHost {
         waiting.settled = true;
         recorded.await;
         answer
+    }
+}
+
+/// The only tools a research session may use (ADR 0013); the runtime offers
+/// no others, and the core refuses any other one it is asked about.
+pub(crate) const RESEARCH_TOOLS: [&str; 4] = ["Read", "Grep", "Glob", WEB_SEARCH];
+const WEB_SEARCH: &str = "WebSearch";
+
+impl AgentHost {
+    fn is_research(&self) -> bool {
+        // A session that is gone is no research session.
+        self.sessions
+            .find(&self.session, |s| s.info().mode == SessionMode::Research)
+            .unwrap_or(false)
+    }
+
+    /// Why `tool` is refused, if this is a research session and the tool is
+    /// not one of [`RESEARCH_TOOLS`].
+    fn outside_research(&self, tool: &str) -> Option<String> {
+        let Ok((research, no_web)) = self.sessions.find(&self.session, |s| {
+            let info = s.info();
+            (info.mode == SessionMode::Research, info.no_web)
+        }) else {
+            // Fails closed: a session that is gone runs nothing.
+            return Some("The session has ended.".to_owned());
+        };
+        let allowed = RESEARCH_TOOLS.contains(&tool) && !(no_web && tool == WEB_SEARCH);
+        (research && !allowed).then(|| {
+            let can = if no_web {
+                "only reads the project"
+            } else {
+                "only reads the project and searches the web"
+            };
+            format!(
+                "A research session {can}; {tool} is not available. Put what should change \
+                 in your report instead."
+            )
+        })
     }
 }
 

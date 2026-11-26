@@ -68,6 +68,13 @@ struct Writer {
     saved: Mutex<Vec<String>>,
     /// What the last reject reverted, so the person can undo it.
     undo: Mutex<Option<Undo>>,
+    /// The session's turns: checkpoints, the last go-back, the note.
+    turns: Mutex<turns::Turns>,
+    /// Turn edges reported and not yet recorded, in order. Reported
+    /// synchronously like tool results, and recorded before anything else
+    /// touches the tracker, so an agent tool never runs before its turn's
+    /// before snapshot.
+    edges: Mutex<Vec<turns::Edge>>,
 }
 
 /// Enough to put back what a reject reverted.
@@ -104,6 +111,10 @@ impl Writer {
                 t.tools.clear();
                 t.open = None;
             }
+        }
+        let edges = std::mem::take(&mut *lock(&self.edges));
+        for edge in edges {
+            self.record(worktrees, tracker.as_mut(), edge).await;
         }
         tracker
     }
@@ -229,6 +240,8 @@ impl Direct {
             ended: Mutex::new(Vec::new()),
             saved: Mutex::new(Vec::new()),
             undo: Mutex::new(None),
+            turns: Mutex::new(turns::Turns::default()),
+            edges: Mutex::new(Vec::new()),
         });
         writers.insert(session.clone(), writer);
         Ok(Claim::New(guard))
@@ -262,6 +275,7 @@ impl Direct {
         tracker: &mut Option<Tracker>,
     ) -> Option<String> {
         let base = self.worktrees.snapshot(writer.dir.clone()).await.ok();
+        lock(&writer.turns).decided();
         if *lock(&writer.active) {
             *tracker = base.clone().map(Tracker::new);
         } else {
@@ -376,10 +390,12 @@ impl Direct {
     /// The session ended, which frees the direct-writer lock. Tools still
     /// running are dropped with their interval, so what they changed counts
     /// as changed outside. The session stays for review if it changed files.
+    /// Its running turn ends with it.
     pub(crate) fn session_ended(&self, session: &SessionId) {
         if let Some((_, writer)) = self.find(session) {
             *lock(&writer.active) = false;
         }
+        self.turn_ended(session);
     }
 
     /// The session's changes since its baseline, each marked with who made
@@ -497,6 +513,7 @@ impl Direct {
             .collect();
         let restored = reverted.iter().map(|p| p.as_str().to_owned()).collect();
         let old = tracker.take().ok_or_else(not_direct)?;
+        lock(&writer.turns).decided();
         *lock(&writer.undo) = Some(Undo {
             snapshot: snapshot.clone(),
             reverted,
@@ -714,6 +731,13 @@ struct Tracker {
     agent: BTreeMap<String, bool>,
     /// Files changed outside the agent since the baseline.
     outside: BTreeSet<String>,
+    /// Counts the turns' before snapshots taken with this tracker
+    /// ([`turns::Turn::epoch`]).
+    epoch: u64,
+    /// The `epoch` at which each file was last seen changed outside the
+    /// agent (or might have been): a go-back keeps it if that was at or
+    /// after the checkpoint's.
+    touched: BTreeMap<String, u64>,
 }
 
 /// What differs from `from` to `to`; nothing, without asking git, when both
@@ -748,6 +772,17 @@ impl Tracker {
             open: None,
             agent: BTreeMap::new(),
             outside: BTreeSet::new(),
+            epoch: 0,
+            touched: BTreeMap::new(),
+        }
+    }
+
+    /// Nothing is known about what changed: every agent file may have been
+    /// changed by someone else too.
+    fn taint_all(&mut self) {
+        for (path, tainted) in &mut self.agent {
+            *tainted = true;
+            self.touched.insert(path.clone(), self.epoch);
         }
     }
 
@@ -788,7 +823,7 @@ impl Tracker {
                 }
             }
             // Unknown: whatever the agent wrote may have changed since.
-            Err(_) => self.agent.values_mut().for_each(|t| *t = true),
+            Err(_) => self.taint_all(),
         }
     }
 
@@ -803,6 +838,7 @@ impl Tracker {
     }
 
     fn changed_outside(&mut self, path: String) {
+        self.touched.insert(path.clone(), self.epoch);
         match self.agent.get_mut(&path) {
             Some(tainted) => *tainted = true,
             None => {
@@ -853,7 +889,7 @@ impl Tracker {
         };
         let Some(changed) = changed else {
             // Nothing is known about the interval: it was all outside.
-            self.agent.values_mut().for_each(|t| *t = true);
+            self.taint_all();
             self.last = post;
             return;
         };
@@ -867,6 +903,7 @@ impl Tracker {
                 .any(|p| open.saved.iter().any(|s| covers(s, p)));
             for path in paths {
                 if mine && saved {
+                    self.touched.insert(path.clone(), self.epoch);
                     self.agent.insert(path, true);
                 } else if mine {
                     let before = self.outside.contains(&path);
@@ -964,6 +1001,8 @@ fn names(files: &[FileChange], by: ChangedBy) -> Vec<String> {
         .map(|f| f.path.clone())
         .collect()
 }
+
+mod turns;
 
 #[cfg(test)]
 mod tests;

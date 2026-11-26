@@ -259,6 +259,18 @@ describe("Palette", async () => {
     await vi.waitFor(() => expect(document.activeElement?.textContent).toBe("demo-app"));
   });
 
+  it("puts focus in the open file when it closes with focus nowhere in a project", async () => {
+    const panel = document.body.appendChild(document.createElement("div"));
+    panel.id = "ovra-tabpanel";
+    panel.tabIndex = -1;
+    cleanups.push(() => panel.remove());
+    (document.activeElement as HTMLElement | null)?.blur();
+    const project = { id: "p", name: "demo", root: "/demo", last_opened_ms: null, trusted: false };
+    const { input } = await open("commands", unused, project);
+    key(input, "Escape");
+    await vi.waitFor(() => expect(document.activeElement).toBe(panel));
+  });
+
   it("keeps editing and queues an Enter typed before the files load", async () => {
     const paths = ["src/main.rs", "docs/page-1.md", "docs/page-2.md"];
     let answer: (() => void) | undefined;

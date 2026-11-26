@@ -118,13 +118,15 @@ fn contract(store: &dyn ProjectStore, folders: &Folders) {
     assert_eq!(store.agent_settings(), Ok(AgentSettings::default()));
     let settings = AgentSettings {
         claude_path: Some("/opt/claude".into()),
-        accounts: vec![ovra_core::protocol::agents::ClaudeAccount {
+        accounts: vec![ovra_core::protocol::agents::Account {
+            provider: ovra_core::protocol::agents::AgentKind::Claude,
             id: "account-1".into(),
             name: "Work".into(),
             config_dir: Some("/home/me/.claude-work".into()),
         }],
         project_accounts: [(a.id.clone(), "account-1".into())].into(),
         max_working: Some(5),
+        research_limit: Some(4),
     };
     store
         .set_agent_settings(settings.clone())

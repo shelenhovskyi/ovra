@@ -2,7 +2,9 @@
 
 import type { AgentsEvent, AgentsRequest, AgentsResponse, CheckpointMethod, CheckpointResponseFor } from "./agents";
 import type { AuditLogEvent, AuditRequest, AuditResponse } from "./audit";
+import type { BoardEvent, BoardRequest, BoardResponse, BoardResponseFor } from "./board";
 import type { BrowserEvent, BrowserRequest, BrowserResponse, BrowserResponseFor } from "./browser";
+import type { ContextRequest, ContextResponse } from "./context";
 import type { FsEvent, FsRequest, FsResponse } from "./fs";
 import type { GitRequest, GitResponse, GitResponseFor } from "./git";
 import type { InfoEvent, InfoRequest, InfoResponse } from "./info";
@@ -12,6 +14,7 @@ import type { OpenRequest } from "./open";
 import type { OrchestrationEvent, OrchestrationRequest, OrchestrationResponse } from "./orchestration";
 import type { PermissionsEvent, PermissionsRequest, PermissionsResponse } from "./permissions";
 import type { PolicyEvent, PolicyRequest, PolicyResponse } from "./policy";
+import type { PowerEvent, PowerRequest, PowerResponse } from "./power";
 import type { PrEvent, PrRequest, PrResponse, PrResponseFor } from "./pr";
 import type { ProjectsEvent, ProjectsRequest, ProjectsResponse } from "./projects";
 import type { ResourcesEvent } from "./resources";
@@ -23,7 +26,9 @@ import type { TerminalsEvent, TerminalsRequest, TerminalsResponse } from "./term
 
 export type * from "./agents";
 export type * from "./audit";
+export type * from "./board";
 export type * from "./browser";
+export type * from "./context";
 export type * from "./fs";
 export type * from "./git";
 // `review.ts` has its own `GitChange` (a review item's changed git file); the
@@ -39,6 +44,7 @@ export type * from "./open";
 export type * from "./orchestration";
 export type * from "./permissions";
 export type * from "./policy";
+export type * from "./power";
 export type * from "./pr";
 export type * from "./projects";
 export type * from "./resources";
@@ -68,7 +74,10 @@ export type Request =
   | LspRequest
   | ServersRequest
   | BrowserRequest
-  | PrRequest;
+  | PrRequest
+  | PowerRequest
+  | ContextRequest
+  | BoardRequest;
 
 export type Response =
   | InfoResponse
@@ -89,6 +98,9 @@ export type Response =
   | ServersResponse
   | BrowserResponse
   | PrResponse
+  | PowerResponse
+  | ContextResponse
+  | BoardResponse
   | { type: "ok" };
 
 export type CoreEvent =
@@ -109,7 +121,9 @@ export type CoreEvent =
   | ServersEvent
   | BrowserEvent
   | PrEvent
-  | ResourcesEvent;
+  | ResourcesEvent
+  | PowerEvent
+  | BoardEvent;
 
 export type ErrorCode = "bad_request" | "not_found" | "conflict" | "forbidden" | "unavailable" | "internal";
 
@@ -160,36 +174,42 @@ export type ResponseFor<R extends Request> = R extends { method: "info.get" }
                             ? Extract<Response, { type: "agents.session" }>
                             : R extends { method: "agents.transcript" }
                               ? Extract<Response, { type: "agents.transcript" }>
-                              : R extends { method: "agents.setup" | "agents.set_path" }
-                                ? Extract<Response, { type: "agents.setup" }>
-                                : R extends {
-                                      method: "agents.accounts" | "agents.save_account" | "agents.remove_account";
-                                    }
-                                  ? Extract<Response, { type: "agents.accounts" }>
-                                  : R extends { method: "agents.project_config" }
-                                    ? Extract<Response, { type: "agents.project_config" }>
-                                    : R extends { method: "agents.capacity" }
-                                      ? Extract<Response, { type: "agents.capacity" }>
-                                      : R extends { method: "agents.limit" | "agents.set_limit" }
-                                        ? Extract<Response, { type: "agents.limit" }>
-                                        : R extends { method: "permissions.pending" }
-                                          ? Extract<Response, { type: "permissions.pending" }>
-                                          : R extends {
-                                                method:
-                                                  | "terminals.input"
-                                                  | "terminals.resize"
-                                                  | "terminals.close"
-                                                  | "agents.send"
-                                                  | "agents.interrupt"
-                                                  | "agents.stop"
-                                                  | "agents.set_project_account"
-                                                  | "permissions.answer"
-                                                  | "review.comment"
-                                                  | "orchestration.stop"
-                                                  | "search.cancel";
-                                              }
-                                            ? { type: "ok" }
-                                            : PhaseThreeResponseFor<R>;
+                              : R extends { method: "agents.providers" }
+                                ? Extract<Response, { type: "agents.providers" }>
+                                : R extends { method: "agents.setup" | "agents.set_path" }
+                                  ? Extract<Response, { type: "agents.setup" }>
+                                  : R extends {
+                                        method: "agents.accounts" | "agents.save_account" | "agents.remove_account";
+                                      }
+                                    ? Extract<Response, { type: "agents.accounts" }>
+                                    : R extends { method: "agents.project_config" }
+                                      ? Extract<Response, { type: "agents.project_config" }>
+                                      : R extends { method: "agents.capacity" }
+                                        ? Extract<Response, { type: "agents.capacity" }>
+                                        : R extends { method: "agents.limit" | "agents.set_limit" }
+                                          ? Extract<Response, { type: "agents.limit" }>
+                                          : R extends { method: "agents.research_limit" | "agents.set_research_limit" }
+                                            ? Extract<Response, { type: "agents.research_limit" }>
+                                            : R extends { method: "permissions.pending" }
+                                              ? Extract<Response, { type: "permissions.pending" }>
+                                              : R extends {
+                                                    method:
+                                                      | "terminals.input"
+                                                      | "terminals.resize"
+                                                      | "terminals.close"
+                                                      | "agents.send"
+                                                      | "agents.interrupt"
+                                                      | "agents.stop"
+                                                      | "agents.set_project_account"
+                                                      | "permissions.answer"
+                                                      | "review.comment"
+                                                      | "orchestration.stop"
+                                                      | "orchestration.retry_setup"
+                                                      | "orchestration.remove_leftover"
+                                                      | "search.cancel";
+                                                  }
+                                                ? { type: "ok" }
+                                                : PhaseThreeResponseFor<R>;
 
 /** `ResponseFor` for the review and orchestration domains. */
 type PhaseThreeResponseFor<R extends Request> = R extends { method: "review.list" }
@@ -210,32 +230,40 @@ type PhaseThreeResponseFor<R extends Request> = R extends { method: "review.list
         ? Extract<Response, { type: "orchestration.task" }>
         : R extends { method: "orchestration.list" }
           ? Extract<Response, { type: "orchestration.list" }>
-          : R extends { method: "search.start" }
-            ? Extract<Response, { type: "search.started" }>
-            : R extends { method: "policy.get" | "policy.set" }
-              ? Extract<Response, { type: "policy.policy" }>
-              : R extends { method: "secrets.list" }
-                ? Extract<Response, { type: "secrets.list" }>
-                : R extends { method: "secrets.set" | "secrets.remove" }
-                  ? { type: "ok" }
-                  : R extends { method: "audit.list" }
-                    ? Extract<Response, { type: "audit.entries" }>
-                    : R extends { method: "netproxy.get_allowlist" | "netproxy.set_allowlist" }
-                      ? Extract<Response, { type: "netproxy.allowlist" }>
-                      : R extends GitRequest
-                        ? GitResponseFor<R["method"]>
-                        : R extends { method: "lsp.status" }
-                          ? Extract<Response, { type: "lsp.status" }>
-                          : R extends { method: "lsp.start" }
-                            ? Extract<Response, { type: "lsp.server" }>
-                            : R extends { method: "lsp.send" | "lsp.stop" }
-                              ? { type: "ok" }
-                              : R extends ServersRequest
-                                ? ServersResponseFor<R["method"]>
-                                : R extends BrowserRequest
-                                  ? BrowserResponseFor<R["method"]>
-                                  : R extends { method: CheckpointMethod }
-                                    ? CheckpointResponseFor<R["method"]>
-                                    : R extends PrRequest
-                                      ? PrResponseFor<R["method"]>
-                                      : never;
+          : R extends { method: "orchestration.leftovers" }
+            ? Extract<Response, { type: "orchestration.leftovers" }>
+            : R extends { method: "search.start" }
+              ? Extract<Response, { type: "search.started" }>
+              : R extends { method: "policy.get" | "policy.set" }
+                ? Extract<Response, { type: "policy.policy" }>
+                : R extends { method: "secrets.list" }
+                  ? Extract<Response, { type: "secrets.list" }>
+                  : R extends { method: "secrets.set" | "secrets.remove" }
+                    ? { type: "ok" }
+                    : R extends { method: "audit.list" }
+                      ? Extract<Response, { type: "audit.entries" }>
+                      : R extends { method: "netproxy.get_allowlist" | "netproxy.set_allowlist" }
+                        ? Extract<Response, { type: "netproxy.allowlist" }>
+                        : R extends GitRequest
+                          ? GitResponseFor<R["method"]>
+                          : R extends { method: "lsp.status" }
+                            ? Extract<Response, { type: "lsp.status" }>
+                            : R extends { method: "lsp.start" }
+                              ? Extract<Response, { type: "lsp.server" }>
+                              : R extends { method: "lsp.send" | "lsp.stop" }
+                                ? { type: "ok" }
+                                : R extends ServersRequest
+                                  ? ServersResponseFor<R["method"]>
+                                  : R extends BrowserRequest
+                                    ? BrowserResponseFor<R["method"]>
+                                    : R extends { method: CheckpointMethod }
+                                      ? CheckpointResponseFor<R["method"]>
+                                      : R extends PrRequest
+                                        ? PrResponseFor<R["method"]>
+                                        : R extends PowerRequest
+                                          ? PowerResponse
+                                          : R extends ContextRequest
+                                            ? ContextResponse
+                                            : R extends BoardRequest
+                                              ? BoardResponseFor<R["method"]>
+                                              : never;

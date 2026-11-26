@@ -896,7 +896,13 @@ async fn a_cmd_script_gets_the_whole_command_line() {
     let script = dir.path().join("claude.cmd");
     std::fs::write(&script, "@echo off\r\necho %*> \"%~dp0claude.args\"\r\n")
         .unwrap_or_else(|e| panic!("{e}"));
-    let args = launch::args(&launch::Conversation::New("id".into()), false, None);
+    let args = launch::args(
+        &launch::Conversation::New("id".into()),
+        false,
+        None,
+        false,
+        true,
+    );
     let status = tokio::process::Command::new(&script)
         .args(&args)
         .status()
@@ -995,4 +1001,16 @@ async fn messages_for_the_ovra_mcp_server_reach_the_ide_tools() {
             .unwrap_or_else(|e| panic!("{e}")),
         None => panic!("the session did not start"),
     }
+}
+
+#[test]
+fn claude_is_the_one_provider_and_can_do_everything() {
+    let sandbox = Arc::new(ovra_core::fakes::FakeSandbox::available());
+    let providers = ClaudeCli::new(None, sandbox).providers();
+    assert_eq!(providers.len(), 1);
+    assert_eq!(
+        providers[0].id,
+        ovra_core::protocol::agents::AgentKind::Claude
+    );
+    assert_eq!(providers[0].capabilities, CLAUDE);
 }

@@ -38,6 +38,9 @@ const OK: Response = Response::Ok(OkResponse::Ok);
 pub(crate) async fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Response> {
     let sessions = ctx.sessions;
     match request {
+        AgentsRequest::Providers => Ok(Response::Agents(AgentsResponse::Providers(
+            ctx.runtime.providers(),
+        ))),
         AgentsRequest::Setup { agent: _ } => {
             let path = ctx.projects.agent_settings()?.claude_path;
             let setup = ctx.runtime.setup(path.map(PathBuf::from), None).await;
@@ -113,23 +116,39 @@ pub(crate) async fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Resp
             mode,
             prompt,
             account,
+            context,
+            no_web,
         } => {
+            if no_web && mode != SessionMode::Research {
+                return Err(ProtocolError::new(
+                    ErrorCode::BadRequest,
+                    "only a research session can be started without web search",
+                ));
+            }
             if mode == SessionMode::Isolated {
                 return Err(ProtocolError::new(
                     ErrorCode::Unavailable,
                     "isolated sessions are started by a coordinator (orchestration.start)",
                 ));
             }
+            let context = match sessions.core() {
+                Some(core) => crate::context::message(&core, &project, None, &context).await?,
+                None if context.is_empty() => None,
+                None => return Err(shutting_down()),
+            };
             let new = NewSession {
                 project,
                 agent,
                 mode,
                 prompt,
+                context,
                 cwd: None,
                 tools: None,
                 from: MessageFrom::Person,
                 account,
                 queued: false,
+                preparing: false,
+                no_web,
             };
             let info = start(ctx, new).await?;
             Ok(Response::Agents(AgentsResponse::Session(info)))
@@ -138,13 +157,27 @@ pub(crate) async fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Resp
             let info = resume(ctx, session, vec![(prompt, MessageFrom::Person)]).await?;
             Ok(Response::Agents(AgentsResponse::Session(info)))
         }
-        AgentsRequest::Send { session, text } => {
-            // The person's picks go with their next message, in Ovra's words.
+        AgentsRequest::Send {
+            session,
+            text,
+            context,
+        } => {
+            // The person's context and picks go with their next message, in
+            // Ovra's words.
             let core = sessions.core();
+            let added = match &core {
+                Some(core) => {
+                    let project = sessions.find(&session, |s| s.info().project)?;
+                    crate::context::message(core, &project, Some(&session), &context).await?
+                }
+                None if context.is_empty() => None,
+                None => return Err(shutting_down()),
+            };
             let picks = core
                 .as_ref()
                 .and_then(|c| crate::browser::pending(c, &session));
             let mut parts = vec![(text, MessageFrom::Person)];
+            parts.extend(added.map(|t| (t, MessageFrom::Ovra)));
             parts.extend(picks.as_ref().map(|(t, _)| (t.clone(), MessageFrom::Ovra)));
             send(ctx, session.clone(), parts)?;
             if let (Some(core), Some((_, count))) = (&core, picks) {
@@ -197,16 +230,124 @@ pub(crate) async fn agents(ctx: &Ctx<'_>, request: AgentsRequest) -> Result<Resp
             };
             Ok(Response::Agents(AgentsResponse::Limit(limit)))
         }
-        AgentsRequest::Checkpoints { session }
-        | AgentsRequest::GoBack { session, .. }
-        | AgentsRequest::UndoGoBack { session } => {
-            // Checkpoints come with CP.A (`docs/specs/checkpoints.md`).
-            sessions.find(&session, |_| ())?;
-            Err(ProtocolError::new(
-                ErrorCode::Unavailable,
-                "going back to an earlier turn is not available yet",
-            ))
+        AgentsRequest::ResearchLimit | AgentsRequest::SetResearchLimit { .. } => {
+            let core = sessions.core().ok_or_else(|| {
+                ProtocolError::new(ErrorCode::Unavailable, "Ovra is shutting down")
+            })?;
+            let limit = match request {
+                AgentsRequest::SetResearchLimit { limit } => {
+                    crate::orchestration::set_research_limit(&core, limit)?
+                }
+                _ => crate::orchestration::research_limit(&core),
+            };
+            Ok(Response::Agents(AgentsResponse::ResearchLimit(limit)))
         }
+        AgentsRequest::Checkpoints { session } => {
+            writes_main(ctx, &session)?;
+            let list = sessions.direct.checkpoints(&session).await?;
+            Ok(Response::Agents(AgentsResponse::Checkpoints(list)))
+        }
+        AgentsRequest::GoBack { session, turn } => {
+            writes_main(ctx, &session)?;
+            let (restored, conflicts) = sessions.direct.go_back(&session, turn).await?;
+            let can_undo = !restored.is_empty();
+            if can_undo {
+                sessions.find(&session, |s| s.went_back(Some(turn), true))?;
+            }
+            Ok(Response::Agents(AgentsResponse::WentBack {
+                restored,
+                conflicts,
+                can_undo,
+            }))
+        }
+        AgentsRequest::UndoGoBack { session } => {
+            writes_main(ctx, &session)?;
+            let (restored, conflicts) = sessions.direct.undo_go_back(&session).await?;
+            sessions.find(&session, |s| s.went_back(None, false))?;
+            Ok(Response::Agents(AgentsResponse::UndidGoBack {
+                restored,
+                conflicts,
+            }))
+        }
+    }
+}
+
+/// Checkpoints are kept for direct sessions that change the main checkout
+/// (`docs/specs/checkpoints.md`).
+fn writes_main(ctx: &Ctx<'_>, session: &SessionId) -> Result<()> {
+    let (mode, launch) = ctx
+        .sessions
+        .find(session, |s| (s.info().mode, s.launch()))?;
+    let refused = match (mode, launch.and_then(|l| l.tools)) {
+        (SessionMode::Isolated, _) => {
+            "going back to an earlier turn is for direct sessions; a worker's changes wait \
+             for review in its own worktree"
+        }
+        (_, Some(ToolRole::Coordinator)) => "a coordinator does not change files",
+        _ => return Ok(()),
+    };
+    Err(ProtocolError::new(ErrorCode::BadRequest, refused))
+}
+
+/// `parts` after the note a go-back left for the agent, if any.
+fn with_note(ctx: &Ctx<'_>, session: &SessionId, parts: Parts) -> Parts {
+    let note = ctx.sessions.direct.note(session);
+    note.map(|n| (n, MessageFrom::Ovra))
+        .into_iter()
+        .chain(parts)
+        .collect()
+}
+
+/// `parts` and then what waits for the agent on its task's board, so one
+/// message starts the turn with the sender's words first. The entries stay
+/// queued until [`delivered`]: a message that would be too long with them
+/// goes without them.
+fn with_board(
+    ctx: &Ctx<'_>,
+    session: &SessionId,
+    parts: Parts,
+) -> (Parts, Option<crate::orchestration::BoardWaiting>) {
+    let waiting = ctx
+        .sessions
+        .core()
+        .and_then(|core| crate::orchestration::board_waiting(&core, session));
+    let Some(waiting) = waiting else {
+        return (parts, None);
+    };
+    let mut with = parts.clone();
+    with.push((waiting.text.clone(), MessageFrom::Ovra));
+    if joined(&with).is_ok() {
+        (with, Some(waiting))
+    } else {
+        (parts, None)
+    }
+}
+
+/// The board entries a message carried reached the agent.
+fn delivered(
+    ctx: &Ctx<'_>,
+    session: &SessionId,
+    waiting: Option<crate::orchestration::BoardWaiting>,
+) {
+    if let (Some(core), Some(waiting)) = (ctx.sessions.core(), waiting) {
+        crate::orchestration::board_delivered(&core, session, waiting);
+    }
+}
+
+/// `parts`, now in the transcript, start a turn: direct mode takes its
+/// before snapshot.
+fn turn_started(ctx: &Ctx<'_>, session: &SessionId, parts: &Parts) {
+    let Ok(turn) = ctx.sessions.find(session, |s| s.turn_started()) else {
+        return;
+    };
+    let message = parts
+        .iter()
+        .find(|(_, from)| *from != MessageFrom::Ovra)
+        .or(parts.first())
+        .map(|(text, _)| title(text))
+        .unwrap_or_default();
+    if ctx.sessions.direct.turn_started(session, turn, message) {
+        ctx.sessions.record_turns(session);
     }
 }
 
@@ -216,16 +357,23 @@ pub(crate) struct NewSession {
     pub(crate) agent: AgentKind,
     pub(crate) mode: SessionMode,
     pub(crate) prompt: String,
+    /// Ovra's message after the prompt: the person's `@` context.
+    pub(crate) context: Option<String>,
     /// Where it works; `None` for the project root.
     pub(crate) cwd: Option<PathBuf>,
     pub(crate) tools: Option<ToolRole>,
     /// Who wrote `prompt`.
     pub(crate) from: MessageFrom,
-    /// The Claude account ([`crate::protocol::agents::ClaudeAccount::id`]);
+    /// The Claude account ([`crate::protocol::agents::Account::id`]);
     /// `None` uses the project's.
     pub(crate) account: Option<String>,
+    /// A research session without `WebSearch`.
+    pub(crate) no_web: bool,
     /// Waits `queued` for [`start_queued`] instead of starting now.
     pub(crate) queued: bool,
+    /// Waits `preparing` while its worktree is set up, then
+    /// [`start_queued`] starts it; overrides `queued`.
+    pub(crate) preparing: bool,
 }
 
 /// Starts a session and returns it as it is now.
@@ -234,7 +382,7 @@ pub(crate) async fn start(ctx: &Ctx<'_>, new: NewSession) -> Result<SessionInfo>
     // Workers wait for a place instead (`crate::orchestration`), and
     // coordinators do not take one.
     let place = match new.tools {
-        None => check_room(ctx, &new.project)?,
+        None => check_room(ctx, &new.project, new.mode)?,
         Some(_) => None,
     };
     let target = prepare(
@@ -253,8 +401,12 @@ pub(crate) async fn start(ctx: &Ctx<'_>, new: NewSession) -> Result<SessionInfo>
     };
     let id = ctx.sessions.next_id();
     let base = baseline(ctx, &new.project, &id, new.mode, &launch).await?;
-    let parts = vec![(new.prompt.clone(), new.from)];
-    let (status, queued) = if new.queued {
+    let mut parts = vec![(new.prompt.clone(), new.from)];
+    parts.extend(new.context.map(|text| (text, MessageFrom::Ovra)));
+    let waits = new.queued || new.preparing;
+    let (status, queued) = if new.preparing {
+        (AgentStatus::Preparing, Some(parts.clone()))
+    } else if new.queued {
         (AgentStatus::Queued, Some(parts.clone()))
     } else {
         (AgentStatus::Starting, None)
@@ -274,12 +426,13 @@ pub(crate) async fn start(ctx: &Ctx<'_>, new: NewSession) -> Result<SessionInfo>
         account: target.account.id.clone(),
         undone_from: None,
         can_undo_go_back: false,
+        no_web: new.no_web,
     };
     // With its folder and role from the start, so that it counts in its
     // role, and its first message if it waits.
     ctx.sessions.insert(info, launch.clone(), queued);
     drop(place);
-    if new.queued {
+    if waits {
         // Told before anything can start it.
         ctx.sink.emit(AgentsEvent::Status {
             session: id.clone(),
@@ -291,15 +444,15 @@ pub(crate) async fn start(ctx: &Ctx<'_>, new: NewSession) -> Result<SessionInfo>
         }
     }
     review_from(ctx, &id, &launch, base).await;
-    if new.queued {
+    if waits {
         return ctx.sessions.find(&id, |s| s.info());
     }
     let target = trusted_in(ctx, target, &launch.cwd).await;
     run(ctx, &id, target, launch, parts, None).await
 }
 
-/// Starts the queued session `id`, which [`Sessions::dequeue`] moved to
-/// `starting`, with `parts`, its first message.
+/// Starts the waiting session `id`, which [`Sessions::take_waiting`] moved
+/// to `starting`, with `parts`, its first message.
 pub(crate) async fn start_queued(
     ctx: &Ctx<'_>,
     id: SessionId,
@@ -340,15 +493,30 @@ pub(crate) async fn start_queued(
 }
 
 /// Takes a place for a person's start, or refuses it while the project has
-/// as many agents working as it may. Hold the place until the session is
-/// in the list with its status, where it counts itself.
+/// as many agents working as it may: research sessions against their own
+/// cap (ADR 0013). Hold the place until the session is in the list with its
+/// status, where it counts itself.
 fn check_room(
     ctx: &Ctx<'_>,
     project: &ProjectId,
+    mode: SessionMode,
 ) -> Result<Option<crate::orchestration::Reservation>> {
     let Some(core) = ctx.sessions.core() else {
         return Ok(None);
     };
+    if mode == SessionMode::Research {
+        return crate::orchestration::reserve_research(&core, project)
+            .map(Some)
+            .map_err(|(working, limit)| {
+                conflict(&match limit {
+                    0 => "research agents are turned off in Settings".to_owned(),
+                    _ => format!(
+                        "{working} research agents are already working in this project, the \
+                         most at once (Settings). Start this when one of them finishes, or stop one."
+                    ),
+                })
+            });
+    }
     crate::orchestration::reserve(&core, project)
         .map(Some)
         .map_err(|working| {
@@ -462,7 +630,7 @@ pub(crate) async fn resume(ctx: &Ctx<'_>, session: SessionId, parts: Parts) -> R
     let tools = launch.as_ref().and_then(|l| l.tools);
     let place = match tools {
         Some(ToolRole::Coordinator) => None,
-        _ => check_room(ctx, &info.project)?,
+        _ => check_room(ctx, &info.project, info.mode)?,
     };
     // Its conversation lives in its account's folder: no other account
     // can continue it.
@@ -515,9 +683,10 @@ pub(crate) fn profile(
         project: Some(project.id.clone()),
         work_env: None,
         work_dir: cwd.to_path_buf(),
+        work_dir_read_only: mode == SessionMode::Research,
         read: match mode {
             SessionMode::Isolated => vec![PathBuf::from(&project.root).join(".git")],
-            SessionMode::Direct => Vec::new(),
+            SessionMode::Direct | SessionMode::Research => Vec::new(),
         },
         write: Vec::new(),
         expose: Vec::new(),
@@ -535,6 +704,8 @@ async fn run(
     parts: Parts,
     resume: Option<String>,
 ) -> Result<SessionInfo> {
+    let parts = with_note(ctx, id, parts);
+    let (parts, board) = with_board(ctx, id, parts);
     let prompt = joined(&parts)?;
     let sessions = ctx.sessions;
     let project = target.project.id.clone();
@@ -558,12 +729,13 @@ async fn run(
         sessions.clone(),
         ctx.sink.clone(),
     );
-    for (text, from) in parts {
+    for (text, from) in parts.clone() {
         host.message(AgentMessage::UserText { text, from });
     }
-    let (agent, mode) = sessions.find(id, |s| {
+    turn_started(ctx, id, &parts);
+    let (agent, mode, no_web) = sessions.find(id, |s| {
         let info = s.info();
-        (info.agent, info.mode)
+        (info.agent, info.mode, info.no_web)
     })?;
     let network = sessions
         .net_start(
@@ -587,15 +759,18 @@ async fn run(
         }
     };
     let core = sessions.core();
+    // A research session has no tool that could reach a server.
     let forward = match &core {
-        Some(core) => crate::servers::forward(core, &launch.cwd).await,
-        None => Vec::new(),
+        Some(core) if mode != SessionMode::Research => {
+            crate::servers::forward(core, &launch.cwd).await
+        }
+        _ => Vec::new(),
     };
     if let Some(core) = &core {
         crate::servers::session_started(core, id);
     }
     let config_dir = target.account.config_dir.map(PathBuf::from);
-    let sandbox = profile(
+    let mut sandbox = profile(
         &target.project,
         mode,
         &launch.cwd,
@@ -603,6 +778,10 @@ async fn run(
         forward,
         config_dir.clone(),
     );
+    // A worker's ports and roots (`docs/specs/worktree-setup.md`).
+    sandbox.work_env = core
+        .as_ref()
+        .and_then(|core| crate::orchestration::work_env(core, &launch.cwd));
     sessions.find(id, |s| s.set_network(sandbox.network.clone()))?;
     let spec = AgentSpec {
         session: id.clone(),
@@ -616,9 +795,13 @@ async fn run(
         trusted: target.trusted,
         resume,
         sandbox,
+        no_web,
     };
     match ctx.runtime.start(spec, host.clone()) {
-        Ok(process) => sessions.find(id, |s| s.set_process(Arc::from(process)))?,
+        Ok(process) => {
+            delivered(ctx, id, board);
+            sessions.find(id, |s| s.set_process(Arc::from(process)))?;
+        }
         Err(err) => {
             host.status(AgentStatus::Failed {
                 message: err.message.clone(),
@@ -680,9 +863,13 @@ pub(crate) async fn trust(
     ctx.projects.set_trusted(project, Some(current))
 }
 
-/// Sends `parts` as the running session's next message.
+/// Sends `parts` as the running session's next message; empty `parts`
+/// send only what waits for it on its task's board, if anything.
 pub(crate) fn send(ctx: &Ctx<'_>, session: SessionId, parts: Parts) -> Result<()> {
-    let text = joined(&parts)?;
+    let only_board = parts.is_empty();
+    if !only_board {
+        joined(&parts)?;
+    }
     let sessions = ctx.sessions;
     let (process, info, stopping) =
         sessions.find(&session, |s| (s.process(), s.info(), s.stopping()))?;
@@ -694,14 +881,33 @@ pub(crate) fn send(ctx: &Ctx<'_>, session: SessionId, parts: Parts) -> Result<()
                 "the agent waits for a free place and starts when another agent finishes",
             ));
         }
+        None if info.status == AgentStatus::Preparing => {
+            return Err(conflict(
+                "the agent's worktree is being prepared; it starts when that is done",
+            ));
+        }
         None => return Err(conflict("the session has ended")),
     };
-    let host = AgentHost::new(session, info.project, sessions.clone(), ctx.sink.clone());
-    for (text, from) in parts {
+    let parts = with_note(ctx, &session, parts);
+    let (parts, board) = with_board(ctx, &session, parts);
+    if only_board && board.is_none() {
+        return Ok(());
+    }
+    let text = joined(&parts)?;
+    let host = AgentHost::new(
+        session.clone(),
+        info.project,
+        sessions.clone(),
+        ctx.sink.clone(),
+    );
+    for (text, from) in parts.clone() {
         host.message(AgentMessage::UserText { text, from });
     }
+    turn_started(ctx, &session, &parts);
     host.set_status(AgentStatus::Working);
-    process.send(text)
+    process.send(text)?;
+    delivered(ctx, &session, board);
+    Ok(())
 }
 
 /// Denies what the agent waits for and asks it to end; the runtime then
@@ -782,4 +988,8 @@ fn title(prompt: &str) -> String {
         Some((cut, _)) => format!("{}…", &line[..cut]),
         None => line.to_owned(),
     }
+}
+
+fn shutting_down() -> ProtocolError {
+    ProtocolError::new(ErrorCode::Unavailable, "Ovra is shutting down")
 }

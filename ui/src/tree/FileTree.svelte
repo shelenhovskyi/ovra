@@ -9,6 +9,8 @@ registerContextKeys(
     { keys: "F2", title: "Rename" },
     { keys: trashKeys(), title: "Move to the trash" },
     { keys: "Shift+Up/Down", title: "Select a range of rows (Mod+click adds one)" },
+    { keys: "Shift+Home/End/PageUp/PageDown", title: "Select up to the first or last row, or by a page" },
+    { keys: "Mod+A", title: "Select every shown row" },
     { keys: "Mod+X", title: "Cut" },
     { keys: "Mod+C", title: "Copy, also as paths for other apps" },
     { keys: "Mod+V", title: "Paste into the folder" },
@@ -26,6 +28,8 @@ registerContextKeys(
 // tree and `aria-activedescendant` names the active row, which is always
 // rendered. Folders load lazily; fs events mark listings stale and only the
 // ones on screen reload.
+import { untrack } from "svelte";
+import { tabs, unsavedText } from "../editor/open-files.svelte";
 import { listCommands, registerCommand } from "../keys/commands";
 import type { GitStatus, ProjectId } from "../lib/protocol";
 import type { Transport } from "../lib/transport";
@@ -37,9 +41,9 @@ import { FileActions } from "./actions.svelte";
 import { folderFor, registerFileCommands } from "./commands";
 import { HoverExpander } from "./hover-expand";
 import { rootMenu, rowMenu, selectionMenu } from "./menu";
-import { ancestorsOf, type Filter, parentOf, type Row, TreeModel, typeaheadMatch, visibleRange } from "./model";
+import { ancestorsOf, type Filter, isGone, parentOf, type Row, TreeModel, typeaheadMatch, visibleRange } from "./model";
 import NameInput from "./NameInput.svelte";
-import { keyAction, moveTarget, stemRange, trashQuestion } from "./ops";
+import { keyAction, moveTarget, stemRange } from "./ops";
 import { ExpandedSaver, loadExpanded } from "./persist";
 import { clickKind, rangeOf, toggled, topLevel } from "./selection";
 import TrashConfirm from "./TrashConfirm.svelte";
@@ -123,6 +127,10 @@ const actions = new FileActions({
   open: (path) => onopen(path, "edit"),
   moved: (from, to) => onmoved?.(from, to),
   trashed: (paths) => ontrashed?.(paths),
+  unsaved: (paths) =>
+    [...new Set(tabs.groups.flatMap((g) => g.files))].filter(
+      (f) => paths.some((p) => f === p || f.startsWith(`${p}/`)) && unsavedText(project, f) !== null,
+    ),
 });
 
 /** Takes new rows, keeping the selection and the rows under the user's eyes in place. */
@@ -213,7 +221,12 @@ $effect(() => {
       title: "Go to previous changed file in the tree",
       run: () => nextChange(-1),
     }),
-    registerFileCommands(actions, activeRow, () => onreveal?.()),
+    registerFileCommands(
+      actions,
+      activeRow,
+      () => onDisk,
+      () => onreveal?.(),
+    ),
   ];
   return () => {
     off();
@@ -225,12 +238,36 @@ $effect(() => {
   };
 });
 
+/** The row the trash question is about: the active one if it is asked about, else the first. */
+let trashIndex = $derived.by(() => {
+  const paths = actions.confirming;
+  if (!paths) return -1;
+  return current !== null && paths.includes(current) ? activeIndex : rows.findIndex((r) => r.path === paths[0]);
+});
+let trashCard = $state(0);
+/** The question sits below its row, or above it when there is no room below. */
+let trashTop = $derived.by(() => {
+  const base = viewport?.offsetTop ?? 0;
+  if (trashIndex < 0) return base;
+  const rowTop = trashIndex * ROW_HEIGHT - scrollTop;
+  const below = rowTop + ROW_HEIGHT;
+  return base + (below + trashCard > height && rowTop >= trashCard ? rowTop - trashCard : below);
+});
+
+// Keep the row being asked about in view.
+$effect(() => {
+  if (trashIndex >= 0) untrack(() => scrollTo(trashIndex));
+});
+
 let range = $derived(visibleRange(scrollTop, height, ROW_HEIGHT, rows.length, OVERSCAN));
 let current = $derived(selected ?? openPath);
 let activeIndex = $derived(current === null ? -1 : rows.findIndex((r) => r.path === current));
 /** The selected paths: the picked rows, or else the active one. */
 let chosen = $derived(picked.length > 0 ? picked : current !== null && activeIndex >= 0 ? [current] : []);
 let chosenSet = $derived(new Set(chosen));
+let gonePaths = $derived(new Set(rows.filter(isGone).map((r) => r.path)));
+/** The selected paths file actions work on: a deleted file is not on disk. */
+let onDisk = $derived(chosen.filter((path) => !gonePaths.has(path)));
 /** Rows cut and not pasted yet: they look dimmed, and so does what is in a cut folder. */
 let cutPaths = $derived(actions.clip?.cut ? actions.clip.paths : []);
 const isCut = (path: string) => cutPaths.some((p) => path === p || path.startsWith(`${p}/`));
@@ -366,7 +403,8 @@ function oncontextmenu(e: MouseEvent): void {
     return;
   }
   selectPath(path);
-  openContextMenu(at, rowMenu(actions, { path, kind: el.hasAttribute("aria-expanded") ? "dir" : "file" }));
+  const row = rows.find((r) => r.path === path);
+  openContextMenu(at, rowMenu(actions, row ?? { path, kind: el.hasAttribute("aria-expanded") ? "dir" : "file" }));
 }
 
 /** The active row's menu (the project's without one), under the row. */
@@ -428,6 +466,12 @@ function onrowclick(e: MouseEvent, row: Row): void {
   viewport?.focus();
 }
 
+/** Mod+A: selects every shown row, keeping the active one. */
+function selectAll(): void {
+  picked = rows.filter((r) => !r.draft).map((r) => r.path);
+  anchor = current;
+}
+
 /** Shift+Arrow: moves the active row and selects the range from the anchor to it. */
 function extendTo(index: number): void {
   const row = rows[index];
@@ -445,6 +489,11 @@ function select(index: number, center = false): void {
   picked = [];
   anchor = row.path;
   lost = null;
+  scrollTo(index, center);
+}
+
+/** Scrolls the row at `index` into view, or to the middle. */
+function scrollTo(index: number, center = false): void {
   if (!viewport) return;
   const top = index * ROW_HEIGHT;
   const view = viewport.clientHeight;
@@ -525,14 +574,18 @@ function onkeydown(e: KeyboardEvent): void {
   const page = Math.max(1, Math.floor(height / ROW_HEIGHT) - 1);
   const action = e.target instanceof HTMLInputElement ? null : keyAction(e);
   const real = row && !row.draft ? row : null;
+  // A deleted file is not on disk: file actions skip it.
+  const acts = action === "rename" || action === "trash" || action === "cut" || action === "copy";
+  if (acts && real && onDisk.length === 0) actions.tell("Deleted. Restore it in Git.");
   // Rename works on one row only.
-  if (action === "rename" && real && picked.length <= 1) actions.startRename(real.path);
-  else if (action === "trash" && real) actions.askTrash(chosen);
-  else if (action === "cut" && real) actions.cut(chosen);
-  else if (action === "copy" && real) void actions.copy(chosen);
+  else if (action === "rename" && real && picked.length <= 1) actions.startRename(real.path);
+  else if (action === "trash" && real) actions.askTrash(onDisk);
+  else if (action === "cut" && real) actions.cut(onDisk);
+  else if (action === "copy" && real) void actions.copy(onDisk);
   else if (action === "paste") void actions.paste(folderFor(real));
   else if (action === "undo") void actions.undo();
   else if (action === "redo") void actions.redo();
+  else if (action === "select_all") selectAll();
   if (action) {
     e.preventDefault();
     return;
@@ -555,16 +608,16 @@ function onkeydown(e: KeyboardEvent): void {
       anchor = current;
       break;
     case "PageDown":
-      select(Math.min(rows.length - 1, Math.max(0, index) + page));
+      (e.shiftKey ? extendTo : select)(Math.min(rows.length - 1, Math.max(0, index) + page));
       break;
     case "PageUp":
-      select(Math.max(0, index - page));
+      (e.shiftKey ? extendTo : select)(Math.max(0, index - page));
       break;
     case "Home":
-      select(0);
+      (e.shiftKey ? extendTo : select)(0);
       break;
     case "End":
-      select(rows.length - 1);
+      (e.shiftKey ? extendTo : select)(rows.length - 1);
       break;
     case "ArrowRight":
       if (row?.kind !== "dir") return;
@@ -591,6 +644,24 @@ function onkeydown(e: KeyboardEvent): void {
 <div class="panel">
   <div class="toolbar" {oncontextmenu} role="presentation">
     <span class="title" aria-hidden="true">Files</span>
+    <button
+      type="button"
+      class="icon"
+      onclick={() => void actions.startNew(folderFor(activeRow()), "file")}
+      aria-label="New file"
+      title="New file"
+    >
+      <Icon name="new-file" small />
+    </button>
+    <button
+      type="button"
+      class="icon"
+      onclick={() => void actions.startNew(folderFor(activeRow()), "dir")}
+      aria-label="New folder"
+      title="New folder"
+    >
+      <Icon name="folder" small />
+    </button>
     <button type="button" class="icon" onclick={collapseAll} aria-label="Collapse all" title="Collapse all folders">
       <Icon name="collapse-all" small />
     </button>
@@ -611,9 +682,12 @@ function onkeydown(e: KeyboardEvent): void {
   <WatchLimitNotice {unwatched} />
   {#if actions.confirming !== null}
     <TrashConfirm
-      question={trashQuestion(actions.confirming)}
+      question={actions.question}
+      warning={actions.warning}
+      top={trashTop}
+      oncard={(h) => (trashCard = h)}
       onconfirm={() => void actions.confirmTrash()}
-      oncancel={() => actions.cancelTrash()}
+      oncancel={(refocus) => actions.cancelTrash(refocus)}
     />
   {/if}
   {#if actions.notice}<p class="note error" role="alert">{actions.notice}</p>{/if}
@@ -724,6 +798,7 @@ function onkeydown(e: KeyboardEvent): void {
 
 <style>
   .panel {
+    position: relative;
     display: flex;
     flex-direction: column;
     height: 100%;

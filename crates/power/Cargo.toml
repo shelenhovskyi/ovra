@@ -1,0 +1,15 @@
+[package]
+name = "ovra-power"
+description = "Keeps the computer from sleeping while agents work (implements ovra_core::services::KeepAwake)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+ovra-core.workspace = true
+keepawake = "0.6"
+
+[lints]
+workspace = true

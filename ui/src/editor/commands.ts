@@ -1,8 +1,11 @@
 // Commands owned by the editor that work in any mode.
 
+import { toggleComment } from "@codemirror/commands";
 import { registerCommand } from "../keys/commands";
+import { formatShortcut, inBrowserTab, isApple, liveKeys } from "../keys/shortcut";
 import { showList } from "../palette/mode.svelte";
 import type { Workspace } from "../shell/workspace.svelte";
+import { registerEditorContext } from "./agent-context";
 import { foldCommands } from "./folding";
 import { editorReady, goToChange, readBlame, showChangeAtCursor, toggleBlame } from "./git/extension";
 import type { LspAction } from "./lsp/actions";
@@ -22,7 +25,7 @@ import {
   tabs,
 } from "./open-files.svelte";
 import { editorPrefs } from "./prefs.svelte";
-import { runSearch, type SearchAction, shownView } from "./search";
+import { REPLACE_KEYS, runSearch, type SearchAction, shownView } from "./search";
 import { symbolSource } from "./symbols";
 
 type Target = Pick<
@@ -76,7 +79,7 @@ export async function toggle(workspace: Target): Promise<void> {
  * first (the markers live there), and the action waits for its changes. A
  * file that cannot be edited says why instead, as Mod+E does.
  */
-function inEditor(workspace: Target, action: () => unknown): () => Promise<void> {
+function inEditor(workspace: Target, action: () => unknown, switched?: string): () => Promise<void> {
   // A function, so the check after `toggle` is not narrowed away.
   const editing = () => workspace.mode === "edit";
   return async () => {
@@ -84,6 +87,9 @@ function inEditor(workspace: Target, action: () => unknown): () => Promise<void>
       const ready = editorReady();
       await toggle(workspace);
       if (!editing()) return;
+      // Said when the person asked only to look, not to edit.
+      if (switched)
+        tabs.notice = `${switched} View (${formatShortcut(liveKeys("Mod+E", inBrowserTab()), isApple())}) goes back.`;
       await ready;
     }
     await action();
@@ -111,11 +117,11 @@ const LSP_ACTIONS: [LspAction, string, string?][] = [
 
 /**
  * CodeMirror's panels, with the keys VS Code uses. Inside the editor its own
- * keymap answers Mod+F; Ctrl+G is bound there too (buffers.svelte.ts).
+ * keymap answers Mod+F; Ctrl+G and Mod+Alt+F are bound there too (buffers.svelte.ts).
  */
 const SEARCH_ACTIONS: [SearchAction, string, string][] = [
   ["find", "Find in file", "Mod+F"],
-  ["replace", "Replace in file", "Mod+Alt+F"],
+  ["replace", "Replace in file", REPLACE_KEYS],
   ["go_to_line", "Go to line…", "Ctrl+G"],
 ];
 
@@ -141,6 +147,7 @@ export function registerEditorCommands(workspace: Target): () => void {
   const readCursorBlame = inEditor(workspace, readBlame);
   const showChange = inEditor(workspace, showChangeAtCursor);
   const unregister = [
+    registerEditorContext(workspace),
     registerCommand({
       id: "editor.toggle",
       title: "Toggle editing the open file",
@@ -284,6 +291,7 @@ export function registerEditorCommands(workspace: Target): () => void {
         id: `editor.lsp_${action}`,
         title: `Language: ${title}`,
         keys,
+        where: "Editor",
         run: inEditor(workspace, () => tabs.current?.lsp?.action(action)),
       }),
     ),
@@ -306,8 +314,24 @@ export function registerEditorCommands(workspace: Target): () => void {
         }),
       }),
     ),
+    // In the text the editor's keymap answers Mod+/ itself; this is the palette's way in.
+    registerCommand({
+      id: "editor.toggle_comment",
+      title: "Comment or uncomment lines",
+      keys: "Mod+/",
+      where: "Editor",
+      run: inEditor(workspace, () => {
+        const view = shownView();
+        if (view) toggleComment(view);
+      }),
+    }),
     ...SEARCH_ACTIONS.map(([action, title, keys]) =>
-      registerCommand({ id: `editor.${action}`, title, keys, run: inEditor(workspace, () => runSearch(action)) }),
+      registerCommand({
+        id: `editor.${action}`,
+        title,
+        keys,
+        run: inEditor(workspace, () => runSearch(action), "Switched to Edit."),
+      }),
     ),
   ];
   return () => {

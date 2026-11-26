@@ -274,7 +274,7 @@ export class OpenFiles {
     this.closed = this.closed.filter((path) => !gone(path));
     const closing = this.files.filter((path) => gone(path) && !this.unsaved(path));
     for (const path of this.files)
-      if (gone(path) && !closing.includes(path)) void this.buffers.get(path)?.diskChanged();
+      if (gone(path) && !closing.includes(path)) void this.buffers.get(path)?.diskChanged(true);
     if (closing.length === 0) return this.active;
     const stays = (path: string) => !closing.includes(path);
     if (this.active && !stays(this.active)) {

@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+</head>
+<body>
+<title>Ovra Focus Mode</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout concept: a quiet gallery around one Mac window in Focus. No code:
+   one narrow column of what waits for you, what runs, what comes next and
+   what is done. The same column is the phone companion's home screen.
+   Tokens are the Quiet ones (docs/design/tokens.md). Dark-first. */
+:root {
+  --page: #0a0c0f; --s0: #111318; --s1: #15181d; --s2: #1a1d23; --s3: #22262e; --s4: #2b3039;
+  --text: #e4e7ec; --text-2: #9ba3ae; --text-3: #6a727e;
+  --accent: #5fbfdc; --accent-soft: rgba(95, 191, 220, .13); --accent-ink: #05161c;
+  --warn: #e2b360; --warn-soft: rgba(226, 179, 96, .13);
+  --ok: #78c597; --ok-soft: rgba(120, 197, 151, .12);
+  --separator: rgba(255, 255, 255, .08);
+  --shadow: 0 30px 80px -20px rgba(0, 0, 0, .7), 0 0 0 1px rgba(255, 255, 255, .05);
+  --font: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", Roboto, "Noto Sans", sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, "Cascadia Mono", Consolas, "DejaVu Sans Mono", monospace;
+  --r-sm: 6px; --r-md: 8px; --r-lg: 12px; --r-xl: 28px;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --page: #dfe3e9; --s0: #e8ebef; --s1: #f4f6f8; --s2: #ffffff; --s3: #e8ebef; --s4: #ffffff;
+    --text: #171a20; --text-2: #576170; --text-3: #8b94a1;
+    --accent: #08769c; --accent-soft: rgba(8, 118, 156, .1); --accent-ink: #ffffff;
+    --warn: #8a5806; --warn-soft: rgba(196, 135, 30, .13); --ok: #1d7a50; --ok-soft: rgba(35, 136, 90, .1);
+    --separator: rgba(0, 0, 0, .1);
+    --shadow: 0 30px 70px -24px rgba(30, 40, 60, .35), 0 0 0 1px rgba(20, 30, 50, .07);
+    color-scheme: light;
+  }
+}
+:root[data-theme="light"] {
+  --page: #dfe3e9; --s0: #e8ebef; --s1: #f4f6f8; --s2: #ffffff; --s3: #e8ebef; --s4: #ffffff;
+  --text: #171a20; --text-2: #576170; --text-3: #8b94a1;
+  --accent: #08769c; --accent-soft: rgba(8, 118, 156, .1); --accent-ink: #ffffff;
+  --warn: #8a5806; --warn-soft: rgba(196, 135, 30, .13); --ok: #1d7a50; --ok-soft: rgba(35, 136, 90, .1);
+  --separator: rgba(0, 0, 0, .1);
+  --shadow: 0 30px 70px -24px rgba(30, 40, 60, .35), 0 0 0 1px rgba(20, 30, 50, .07);
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--page); color: var(--text);
+  font: 400 14px/20px var(--font); -webkit-font-smoothing: antialiased;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 20px 40px;
+}
+button { font: inherit; color: inherit; background: none; border: 0; cursor: default; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: var(--r-sm); }
+kbd { font: 500 11px/16px var(--font); color: var(--text-3); padding: 0 5px; border-radius: 4px; background: var(--s3); }
+.mono { font-family: var(--mono); font-size: 12px; }
+.i { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+.page { max-width: 1180px; margin: 0 auto; display: grid; gap: 18px; }
+.top { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.top h1 { margin: 0; font-size: 14px; font-weight: 600; }
+.top h1 .sub { color: var(--text-2); font-weight: 400; }
+.spacer { flex: 1; }
+.tabs { display: flex; flex-wrap: wrap; gap: 2px; padding: 2px; border-radius: var(--r-md); background: var(--s1); }
+.tabs button { padding: 4px 10px; border-radius: var(--r-sm); color: var(--text-2); }
+.tabs button[aria-selected="true"], .tabs button[aria-pressed="true"] { background: var(--s3); color: var(--text); }
+
+/* frames */
+.stage { display: grid; justify-items: center; overflow-x: auto; }
+.win { width: 100%; min-width: 360px; height: 680px; border-radius: var(--r-lg); background: var(--s1); box-shadow: var(--shadow);
+  display: grid; grid-template-rows: 44px 1fr; overflow: hidden; }
+.stage.phone .win { width: 390px; min-width: 0; max-width: 100%; height: 780px; border-radius: var(--r-xl); grid-template-rows: 54px 1fr; }
+.tb { display: flex; align-items: center; gap: 10px; padding: 0 12px; background: var(--s0); user-select: none; }
+.lights { display: flex; gap: 8px; margin-right: 6px; }
+.lights i { width: 12px; height: 12px; border-radius: 50%; background: var(--s4); }
+.proj { color: var(--text-2); }
+.stage.phone .lights, .stage.phone .ide { display: none; }
+.stage.phone .tb { padding: 14px 18px 0; }
+.chip { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; border-radius: 12px;
+  background: var(--accent-soft); color: var(--accent); font-size: 12px; }
+.btn { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 12px; border-radius: var(--r-sm); background: var(--s3); }
+.btn.pri { background: var(--accent); color: var(--accent-ink); font-weight: 500; }
+.btn.link { background: none; color: var(--text-2); padding: 0 6px; }
+.btn[disabled] { opacity: .5; }
+.stage.phone .btn { min-height: 44px; padding: 0 16px; }
+
+/* the column */
+.scroll { overflow-y: auto; }
+.col { width: min(100%, 980px); margin: 0 auto; padding: 22px 20px 28px; display: grid; gap: 22px; align-content: start; }
+.goal h2 { margin: 0; font-size: 17px; line-height: 24px; font-weight: 600; text-wrap: balance; }
+.goal p { margin: 2px 0 0; color: var(--text-2); }
+section { display: grid; gap: 8px; }
+.label { display: flex; align-items: baseline; gap: 8px; color: var(--text-2); font-size: 12px; font-weight: 600; letter-spacing: .02em; }
+.label .n { font-weight: 400; color: var(--text-3); font-variant-numeric: tabular-nums; }
+
+.card { border-radius: var(--r-lg); background: var(--s2); padding: 14px 16px; display: grid; gap: 10px; }
+.card.ask { box-shadow: inset 0 0 0 1px var(--warn-soft); }
+.card .who { display: flex; gap: 8px; color: var(--text-3); font-size: 12px; }
+.card h3 { margin: 0; font-size: 14px; line-height: 20px; font-weight: 600; text-wrap: pretty; }
+.card .facts { margin: 0; color: var(--text-2); font-size: 12px; display: flex; gap: 6px; align-items: center; }
+.card pre { margin: 0; padding: 8px 10px; border-radius: var(--r-sm); background: var(--s1); font: 12px/18px var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.opts { display: grid; gap: 6px; }
+.opt { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 2px 10px; text-align: left; padding: 9px 12px; border-radius: var(--r-md); background: var(--s3); }
+.opt small { grid-column: 1; color: var(--text-2); font-size: 12px; line-height: 16px; }
+.opt .tag { grid-row: 1; grid-column: 2; font-size: 11px; color: var(--accent); }
+.opt.rec { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
+.acts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.reply { flex: 1 1 180px; min-height: 28px; border-radius: var(--r-sm); background: var(--s1); color: var(--text-3); display: flex; align-items: center; padding: 0 10px; }
+.note { color: var(--text-3); font-size: 12px; }
+.answered { display: flex; gap: 8px; align-items: center; padding: 10px 14px; border-radius: var(--r-md); background: var(--s2); color: var(--text-2); }
+.answered b { color: var(--text); font-weight: 500; }
+.answered .i { color: var(--ok); }
+
+.quiet { display: grid; gap: 4px; justify-items: center; text-align: center; padding: 18px; border-radius: var(--r-lg); background: var(--s2); }
+.quiet b { font-weight: 600; }
+.quiet .sub { color: var(--text-2); }
+.compose { display: flex; gap: 8px; align-items: center; padding: 8px 8px 8px 14px; border-radius: var(--r-lg); background: var(--s2); color: var(--text-3); }
+.compose .hint { flex: 1; }
+.rows { display: grid; }
+.row { display: grid; grid-template-columns: 16px 1fr auto; gap: 10px; align-items: baseline; padding: 7px 2px; }
+.row + .row { box-shadow: 0 -1px 0 var(--separator); }
+.row .t { min-width: 0; }
+.row .t span { color: var(--text-2); }
+.row .m { color: var(--text-3); font-size: 12px; font-variant-numeric: tabular-nums; }
+.mark { width: 8px; height: 8px; border-radius: 50%; align-self: center; justify-self: center; }
+.mark.run { background: var(--accent); }
+.mark.wait { background: var(--warn); }
+.mark.next { box-shadow: inset 0 0 0 1.5px var(--text-3); }
+.mark.done { background: var(--ok); }
+.split { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 22px 32px; align-items: start; }
+.split > div { display: grid; gap: 22px; min-width: 0; }
+.stage.phone .split { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 760px) { .split { grid-template-columns: minmax(0, 1fr); } }
+
+/* notes */
+.notes { max-width: 760px; display: grid; gap: 8px; color: var(--text-2); }
+.notes h2 { margin: 0; color: var(--text); font-size: 14px; font-weight: 600; }
+.notes p { margin: 0; }
+.notes b { color: var(--text); font-weight: 600; }
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+    <symbol id="i-code" viewBox="0 0 24 24"><path d="m16 18 6-6-6-6"/><path d="m8 6-6 6 6 6"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></symbol>
+  </defs>
+</svg>
+
+<div class="page">
+  <header class="top">
+    <h1>Ovra <span class="sub">· Focus, agents only</span></h1>
+    <div class="tabs" role="tablist" aria-label="States" id="stateTabs">
+      <button type="button" role="tab" data-s="ask" aria-selected="true">1 · Waiting on you</button>
+      <button type="button" role="tab" data-s="answered" aria-selected="false">2 · Answered</button>
+      <button type="button" role="tab" data-s="calm" aria-selected="false">3 · Nothing waits</button>
+    </div>
+    <div class="spacer"></div>
+    <div class="tabs" id="frameTabs">
+      <button type="button" data-f="mac" aria-pressed="true">Mac</button>
+      <button type="button" data-f="phone" aria-pressed="false">Phone</button>
+    </div>
+    <div class="tabs" id="themeTabs">
+      <button type="button" data-t="system" aria-pressed="true">System</button>
+      <button type="button" data-t="dark" aria-pressed="false">Dark</button>
+      <button type="button" data-t="light" aria-pressed="false">Light</button>
+    </div>
+  </header>
+
+  <div class="stage" id="stage">
+    <div class="win">
+      <div class="tb">
+        <div class="lights" aria-hidden="true"><i></i><i></i><i></i></div>
+        <span class="proj">demo-app</span>
+        <span class="chip"><svg class="i" aria-hidden="true"><use href="#i-target"/></svg>Focus</span>
+        <span class="spacer"></span>
+        <button type="button" class="btn ide" title="Open the IDE  ⇧⌘.">
+          <svg class="i" aria-hidden="true"><use href="#i-code"/></svg>Open IDE
+        </button>
+      </div>
+      <div class="scroll"><div class="col" id="col"></div></div>
+    </div>
+  </div>
+
+  <section class="notes" id="notes" aria-live="polite"></section>
+</div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+let state = "ask";
+let armed = false;
+
+const goal = `<div class="goal"><h2>Make sync survive a flaky network</h2>
+  <p>Task · 3 agents · started 40 min ago</p></div>`;
+
+const question = `<div class="card ask">
+  <div class="who"><span>Question</span><span>from “Retry backoff”</span></div>
+  <h3>After how many failed pushes should sync give up?</h3>
+  <div class="opts">
+    <button type="button" class="opt rec" data-answer="Give up after 5 tries">
+      Give up after 5 tries<span class="tag">Recommended</span>
+      <small>About 30 s in total with backoff; matches the current request timeout.</small>
+    </button>
+    <button type="button" class="opt" data-answer="Keep trying every minute">
+      Keep trying every minute<small>Never gives up; the app shows “Offline” meanwhile.</small>
+    </button>
+  </div>
+  <div class="acts"><span class="reply">Answer in your words…</span><button type="button" class="btn link">Later</button></div>
+</div>`;
+
+const approval = `<div class="card ask">
+  <div class="who"><span>Approval</span><span>from “Fix sync”, which waits for it</span></div>
+  <h3>Run a command</h3>
+  <pre>pnpm test src/sync.test.ts</pre>
+  <p class="facts"><svg class="i" aria-hidden="true"><use href="#i-shield"/></svg>In the sandbox · no network · in its own copy of the project</p>
+  <div class="acts">
+    <button type="button" class="btn" id="allow" ${armed ? "" : "disabled"}>Allow once</button>
+    <button type="button" class="btn">Deny</button>
+    <span class="spacer"></span><button type="button" class="btn link">Later</button>
+  </div>
+  <p class="note">No recommendation here: an agent does not advise on its own permissions. Always allow is in the IDE.</p>
+</div>`;
+
+const review = `<div class="card">
+  <div class="who"><span>Ready to review</span><span>from “Offline banner”</span></div>
+  <h3>Shows “Offline” in the header while sync cannot reach the server</h3>
+  <p class="facts">2 files changed · tests pass</p>
+  <div class="acts"><button type="button" class="btn pri">See changes</button><button type="button" class="btn link">Later</button></div>
+</div>`;
+
+const rows = (list) => `<div class="rows">${list.map(([k, t, s, m]) =>
+  `<div class="row"><span class="mark ${k}"></span><div class="t">${t}${s ? ` <span>· ${s}</span>` : ""}</div><span class="m">${m || ""}</span></div>`).join("")}</div>`;
+
+const sec = (name, n, body) => `<section><div class="label">${name}<span class="n">${n}</span></div>${body}</section>`;
+
+function view() {
+  const waitingCards = state === "ask" ? [question, approval] : state === "answered" ? [approval, review] : [];
+  const answered = state === "answered"
+    ? `<div class="answered"><svg class="i" aria-hidden="true"><use href="#i-check"/></svg><span>You answered “Retry backoff”: <b>Give up after 5 tries</b></span><span class="spacer"></span><button type="button" class="btn link">Undo</button></div>`
+    : "";
+  const progress = state === "calm"
+    ? [["run", "Fix sync", "running the tests", "12 min"], ["run", "Retry backoff", "writing the backoff", "8 min"]]
+    : state === "answered"
+      ? [["wait", "Fix sync", "waits for your approval", "12 min"], ["run", "Retry backoff", "writing the backoff", "8 min"]]
+      : [["wait", "Fix sync", "waits for your approval", "12 min"], ["wait", "Retry backoff", "waits for your answer", "8 min"]];
+  const next = state === "calm"
+    ? [["next", "Update the sync docs"], ["next", "Remove the old retry flag"]]
+    : [["next", "Update the sync docs", "", "after Retry backoff"], ["next", "Remove the old retry flag"]];
+  const done = state === "calm"
+    ? [["done", "Offline banner", "kept", "2 files"], ["done", "Find why pushes time out", "answered", ""], ["done", "Add a sync test", "kept", "1 file"]]
+    : [["done", "Find why pushes time out", "answered", ""], ["done", "Add a sync test", "kept", "1 file"]];
+
+  let left = "";
+  if (waitingCards.length) left += sec("Waiting on you", waitingCards.length, answered + waitingCards.join(""));
+  else left += `<div class="quiet"><b>Nothing waits for you.</b><span class="sub">2 agents working. You will see it here when one needs you.</span></div>`;
+  const right = sec("In progress", progress.length, rows(progress)) + sec("Next", next.length, rows(next)) + sec("Done", done.length, rows(done));
+  let html = `${goal}<div class="split"><div>${left}</div><div>${right}</div></div>`;
+  html += `<div class="compose"><span class="hint">Tell the agents what to do next…</span><button type="button" class="btn pri" aria-label="Start"><svg class="i" aria-hidden="true"><use href="#i-send"/></svg></button></div>`;
+  $("#col").innerHTML = html;
+
+  for (const b of document.querySelectorAll("[data-answer]")) b.addEventListener("click", () => setState("answered"));
+  armed = false;
+  setTimeout(() => {
+    armed = true;
+    const a = $("#allow");
+    if (a) a.disabled = false;
+  }, 500);
+}
+
+const notes = {
+  ask: ["Waiting on you", [
+    ["No code, tree or terminal. ", "Two columns on the Mac, one on the phone: what waits for you, then what runs, what comes next by the plan and what is done. Open IDE (or ⇧⌘.) is one click away and comes back to this view."],
+    ["Questions come with answers. ", "An agent's question shows its options, one marked Recommended with a one-line reason. One tap answers; “Answer in your words” stays for anything else."],
+    ["Approvals stay explicit. ", "Allow once and Deny have equal weight, nothing is pre-selected, and the buttons arm after 500 ms. Agents do not recommend on their own permissions; Always allow is only in the IDE."],
+  ]],
+  answered: ["Answered", [
+    ["The answer becomes one line ", "with Undo for a few seconds, and “Retry backoff” goes back to work. Nothing else moves on the screen."],
+    ["Finished work waits for a look. ", "A ready review shows the agent's one-line summary. See changes opens the diff in the IDE; Keep and Discard stay where the changes are visible."],
+  ]],
+  calm: ["Nothing waits", [
+    ["The calm state. ", "No counters ticking, no moving lines. Rows change their words when an agent moves on."],
+    ["Phone. ", "Switch the frame to Phone: the companion app uses this same column, with the phone's limits (no Always allow, no Keep or Discard)."],
+  ]],
+};
+
+function setState(s) {
+  state = s;
+  for (const b of document.querySelectorAll("#stateTabs button")) b.setAttribute("aria-selected", String(b.dataset.s === s));
+  const [h, ps] = notes[s];
+  $("#notes").innerHTML = `<h2>${h}</h2>${ps.map(([b, t]) => `<p><b>${b}</b>${t}</p>`).join("")}`;
+  view();
+}
+
+for (const b of document.querySelectorAll("#stateTabs button")) b.addEventListener("click", () => setState(b.dataset.s));
+for (const b of document.querySelectorAll("#frameTabs button")) {
+  b.addEventListener("click", () => {
+    for (const x of document.querySelectorAll("#frameTabs button")) x.setAttribute("aria-pressed", String(x === b));
+    $("#stage").classList.toggle("phone", b.dataset.f === "phone");
+  });
+}
+for (const b of document.querySelectorAll("#themeTabs button")) {
+  b.addEventListener("click", () => {
+    for (const x of document.querySelectorAll("#themeTabs button")) x.setAttribute("aria-pressed", String(x === b));
+    if (b.dataset.t === "system") document.documentElement.removeAttribute("data-theme");
+    else document.documentElement.setAttribute("data-theme", b.dataset.t);
+  });
+}
+
+setState("ask");
+</script>
+</body>
+</html>

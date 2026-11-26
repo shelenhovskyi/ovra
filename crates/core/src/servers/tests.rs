@@ -677,3 +677,48 @@ async fn without_a_servers_service_starts_are_unavailable() {
 }
 
 mod tools;
+
+#[tokio::test]
+async fn steps_run_once_in_the_work_dirs_pod_and_its_proxy_ends_after() {
+    let f = fx().await;
+    let dir = PathBuf::from(WORKTREES).join("p1").join("t1").join("w");
+    let step = crate::services::SetupStep {
+        line: crate::services::CommandLine {
+            program: "true".into(),
+            args: Vec::new(),
+            env: Vec::new(),
+            cwd: dir.clone(),
+        },
+        timeout: std::time::Duration::from_secs(600),
+    };
+    #[derive(Debug)]
+    struct Quiet;
+    impl crate::services::SetupSink for Quiet {
+        fn step(&self, _: usize) {}
+        fn output(&self, _: usize, _: Vec<String>) {}
+    }
+    let end = super::run_steps(
+        &f.core,
+        &ProjectId("p1".into()),
+        &SessionId("s9".into()),
+        dir.clone(),
+        vec![step],
+        Arc::new(Quiet),
+    )
+    .await;
+    assert_eq!(end.ok(), Some(crate::services::SetupEnd::Done));
+    let setups = f.dev.setups.lock().map(|s| s.clone()).unwrap_or_default();
+    assert_eq!(setups.len(), 1);
+    assert_eq!(setups[0].0.work_dir, dir);
+    assert!(matches!(
+        setups[0].0.profile.network,
+        crate::services::ProfileNetwork::Proxy { .. }
+    ));
+    assert!(
+        f.net
+            .running
+            .lock()
+            .map(|r| r.is_empty())
+            .unwrap_or_default()
+    );
+}

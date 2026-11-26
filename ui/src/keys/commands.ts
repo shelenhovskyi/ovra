@@ -8,6 +8,11 @@ export type Command = {
   title: string;
   /** Default shortcut, e.g. `Mod+P` (Mod is Cmd on macOS, Ctrl elsewhere). */
   keys?: string;
+  /**
+   * The one place `keys` is meant for, such as `Editor`, as Settings > Keyboard
+   * groups it (as `ContextKey.where`); unset for keys that work everywhere.
+   */
+  where?: string;
   /** Group shown beside the title in the palette (Git, View, Settings); else taken from the id's area. */
   category?: string;
   /** Other words the palette matches, e.g. `preferences` for Settings. */

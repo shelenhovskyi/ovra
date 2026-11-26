@@ -152,6 +152,7 @@ mod tests {
                 account: None,
                 undone_from: None,
                 can_undo_go_back: false,
+                no_web: false,
             },
             agent_session: None,
         }
@@ -174,6 +175,9 @@ mod tests {
         }
         a.agent_session = Some("claude-1".into());
         a.info.status = AgentStatus::Stopped;
+        // A research session started without the web keeps that.
+        a.info.mode = SessionMode::Research;
+        a.info.no_web = true;
         store.save(&a).expect("update a");
 
         let loaded = store.load(2).expect("load");

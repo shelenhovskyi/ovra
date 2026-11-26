@@ -17,10 +17,14 @@ registerContextKeys(
 
 <script lang="ts">
 // Sidebar git view for the open project, and its palette commands: show
-// the panel, set up git, stage all, commit, new branch, switch branch.
+// the panel, set up git, stage all, commit, new branch, switch branch, and
+// the agent actions.
 import { tick } from "svelte";
 import { registerCommand } from "../keys/commands";
 import { useOvra } from "../shell/context";
+import { ACTION_LABEL } from "./AgentActions.svelte";
+import type { AssistAction } from "./assist";
+import { Assist, assistFor } from "./assist.svelte";
 import { focusDiffRow, focusFirstRow, focusMessage } from "./focus";
 import GitPanel from "./GitPanel.svelte";
 import { fileLists, type GitModel, gitModel } from "./model.svelte";
@@ -58,6 +62,23 @@ function sayOutside(text: string): void {
 function focusPanel(): void {
   const panel = document.querySelector<HTMLElement>("[data-testid=git]");
   (panel?.querySelector<HTMLElement>("textarea") ?? panel?.querySelector<HTMLElement>("button"))?.focus();
+}
+
+/** Shows the panel and starts `action`, or says why it does not apply now. */
+async function runAssist(action: AssistAction): Promise<void> {
+  if (!workspace.project) {
+    sayOutside("Open a project first. Git shows the changes in a project's folder.");
+    return;
+  }
+  const model = await showPanel();
+  const assist = assistFor(workspace.project.id);
+  const status = model?.state.kind === "ready" ? model.state.status : null;
+  if (!model || !assist || !Assist.available(status).includes(action)) {
+    if (model) model.notice = `${ACTION_LABEL[action]} does not apply now.`;
+    focusPanel();
+    return;
+  }
+  await assist.run(action);
 }
 
 $effect(() => {
@@ -134,6 +155,14 @@ $effect(() => {
         else focusPanel();
       },
     }),
+    ...(["commits", "message", "pulled", "conflicts"] as const).map((action) =>
+      registerCommand({
+        id: `git.assist_${action}`,
+        title: `Git: ${ACTION_LABEL[action].toLowerCase()}`,
+        keywords: ["agent", "ai"],
+        run: () => runAssist(action),
+      }),
+    ),
   ];
   return () => {
     for (const unregister of off) unregister();

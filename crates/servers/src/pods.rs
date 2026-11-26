@@ -1,5 +1,6 @@
 //! Ovra's side of the pods: one sandboxed pod-init per work dir, driven
-//! over its control socket, and the states and readiness of its servers.
+//! over its control socket, the states and readiness of its servers, and
+//! the work dir's setup steps.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -11,12 +12,13 @@ use ovra_core::protocol::servers::{ServerId, ServerStatus};
 use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::{
     CommandLine, DevServerSpec, PodConn, PodSpec, Result, Sandbox, SandboxStatus, ServerSink,
+    SetupEnd, SetupSink, SetupStep,
 };
 use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _, AsyncWriteExt as _, BufReader};
 use tokio::process::Child;
 use tokio::runtime::Handle;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
-use tokio::sync::watch;
+use tokio::sync::{oneshot, watch};
 
 use crate::control::{Event, LISTENING, Lines, MAX_CONTROL_LINE, Request, Sig, Spawn, encode};
 use crate::init::POD_FLAG;
@@ -64,6 +66,47 @@ struct Pod {
     /// The pid of the process it was launched as, for counting its memory
     /// and CPU with its servers'.
     pid: Option<u32>,
+    /// The setup running here, which keeps the pod between its steps.
+    setup: Option<Setup>,
+}
+
+struct Setup {
+    sink: Arc<dyn SetupSink>,
+    /// The running step: its spawn name, its index and where its end goes.
+    step: Option<(String, usize, oneshot::Sender<StepEnd>)>,
+}
+
+/// How one setup step ended.
+enum StepEnd {
+    Exited(Option<i32>),
+    /// It never ran, or its pod ended under it.
+    Failed(String),
+}
+
+impl Pod {
+    /// The setup's sink and the index of the step spawned as `name`.
+    fn step(&self, name: &str) -> Option<(Arc<dyn SetupSink>, usize)> {
+        let setup = self.setup.as_ref()?;
+        let (_, index, _) = setup.step.as_ref().filter(|(n, ..)| n == name)?;
+        Some((setup.sink.clone(), *index))
+    }
+
+    /// Ends the step spawned as `name`, if it is the running one.
+    fn end_step(&mut self, name: &str, end: StepEnd) {
+        let Some(setup) = self.setup.as_mut() else {
+            return;
+        };
+        if setup.step.as_ref().is_some_and(|(n, ..)| n == name)
+            && let Some((_, _, done)) = setup.step.take()
+        {
+            let _ = done.send(end);
+        }
+    }
+
+    /// Whether nothing keeps the pod: no server and no setup.
+    fn idle(&self) -> bool {
+        self.servers.is_empty() && self.setup.is_none()
+    }
 }
 
 struct Running {
@@ -156,12 +199,7 @@ impl Pods {
         server: DevServerSpec,
         sink: Arc<dyn ServerSink>,
     ) -> Result<()> {
-        if let SandboxStatus::Unavailable { reason } = self.sandbox.status() {
-            return Err(ProtocolError::new(
-                ErrorCode::Unavailable,
-                format!("servers run only in a sandbox: {reason}"),
-            ));
-        }
+        self.sandboxed()?;
         if server.port == BRIDGE_PORT {
             let message = format!("port {BRIDGE_PORT} is the sandbox's own; pick another");
             return Err(ProtocolError::new(ErrorCode::BadRequest, message));
@@ -183,18 +221,9 @@ impl Pods {
         }
         state.spawns += 1;
         let name = state.spawns.to_string();
-        let spawn = Spawn::new(name.clone(), &server.line, server.port)
+        let spawn = Spawn::new(name.clone(), &server.line, Some(server.port))
             .map_err(|e| ProtocolError::new(ErrorCode::BadRequest, e))?;
-        let state = &mut *state;
-        let target = match state.pods.entry(pod.work_dir.clone()) {
-            std::collections::btree_map::Entry::Occupied(e) => e.into_mut(),
-            std::collections::btree_map::Entry::Vacant(e) => {
-                let (opened, alive) = self.open(&runtime, pod)?;
-                let entry = (pod.work_dir.clone(), alive);
-                state.alive.insert(opened.dir.clone(), entry);
-                e.insert(opened)
-            }
-        };
+        let target = self.pod(&mut state, &runtime, pod)?;
         let _ = target.control.send(Request::Spawn(spawn));
         let running = Running {
             id: server.id,
@@ -205,6 +234,94 @@ impl Pods {
         };
         target.servers.insert(name, running);
         Ok(())
+    }
+
+    fn sandboxed(&self) -> Result<()> {
+        match self.sandbox.status() {
+            SandboxStatus::Unavailable { reason } => Err(ProtocolError::new(
+                ErrorCode::Unavailable,
+                format!("servers run only in a sandbox: {reason}"),
+            )),
+            SandboxStatus::Available { .. } => Ok(()),
+        }
+    }
+
+    /// The pod of `spec.work_dir`, opened if none runs.
+    fn pod<'a>(
+        &self,
+        state: &'a mut State,
+        runtime: &Handle,
+        spec: &PodSpec,
+    ) -> Result<&'a mut Pod> {
+        Ok(match state.pods.entry(spec.work_dir.clone()) {
+            std::collections::btree_map::Entry::Occupied(e) => e.into_mut(),
+            std::collections::btree_map::Entry::Vacant(e) => {
+                let (opened, alive) = self.open(runtime, spec)?;
+                let entry = (spec.work_dir.clone(), alive);
+                state.alive.insert(opened.dir.clone(), entry);
+                e.insert(opened)
+            }
+        })
+    }
+
+    /// Runs `steps` one after another in the pod of `spec.work_dir`, each
+    /// in the work dir's root and killed after its timeout. The pod stays
+    /// while they run; dropping the future kills the running step.
+    pub(crate) async fn setup(
+        &self,
+        spec: PodSpec,
+        steps: Vec<SetupStep>,
+        sink: Arc<dyn SetupSink>,
+    ) -> Result<SetupEnd> {
+        self.sandboxed()?;
+        let runtime = Handle::try_current().map_err(|e| internal(e.to_string()))?;
+        let lease = {
+            let mut state = lock(&self.state);
+            let pod = self.pod(&mut state, &runtime, &spec)?;
+            if pod.setup.is_some() {
+                let message = "the work dir's setup is running";
+                return Err(ProtocolError::new(ErrorCode::Conflict, message));
+            }
+            pod.setup = Some(Setup {
+                sink: sink.clone(),
+                step: None,
+            });
+            Lease {
+                state: self.state.clone(),
+                work_dir: spec.work_dir.clone(),
+                dir: pod.dir.clone(),
+            }
+        };
+        for (index, step) in steps.into_iter().enumerate() {
+            sink.step(index);
+            let line = CommandLine {
+                cwd: spec.work_dir.clone(),
+                ..step.line
+            };
+            let failed = |reason: String| SetupEnd::Failed {
+                step: index,
+                code: None,
+                reason: Some(reason),
+            };
+            let end = match lease.spawn(index, &line) {
+                Ok(end) => end,
+                Err(reason) => return Ok(failed(reason)),
+            };
+            match tokio::time::timeout(step.timeout, end).await {
+                Err(_) => return Ok(SetupEnd::TimedOut { step: index }),
+                Ok(Ok(StepEnd::Exited(Some(0)))) => {}
+                Ok(Ok(StepEnd::Exited(code))) => {
+                    return Ok(SetupEnd::Failed {
+                        step: index,
+                        code,
+                        reason: None,
+                    });
+                }
+                Ok(Ok(StepEnd::Failed(reason))) => return Ok(failed(reason)),
+                Ok(Err(_)) => return Ok(failed("the pod ended".into())),
+            }
+        }
+        Ok(SetupEnd::Done)
     }
 
     /// A new pod for `spec.work_dir`, its pod-init started, and the
@@ -234,6 +351,7 @@ impl Pods {
             control,
             servers: BTreeMap::new(),
             pid,
+            setup: None,
         };
         Ok((pod, alive))
     }
@@ -331,6 +449,60 @@ impl Drop for Pods {
     }
 }
 
+/// A setup's hold on its pod. Dropped, it kills the running step and lets
+/// the pod end unless servers run in it.
+struct Lease {
+    state: Arc<Mutex<State>>,
+    work_dir: PathBuf,
+    /// Its pod's folder: a later pod of the work dir is not its own.
+    dir: PathBuf,
+}
+
+impl Lease {
+    /// Spawns step `index` as `line`; resolves when it ends.
+    fn spawn(
+        &self,
+        index: usize,
+        line: &CommandLine,
+    ) -> std::result::Result<oneshot::Receiver<StepEnd>, String> {
+        let mut state = lock(&self.state);
+        state.spawns += 1;
+        let name = state.spawns.to_string();
+        let spawn = Spawn::new(name.clone(), line, None)?;
+        let pod = state.pods.get_mut(&self.work_dir);
+        let Some(pod) = pod.filter(|p| p.dir == self.dir) else {
+            return Err("the pod ended".into());
+        };
+        let Some(setup) = pod.setup.as_mut() else {
+            return Err("the pod ended".into());
+        };
+        let (done, end) = oneshot::channel();
+        setup.step = Some((name, index, done));
+        let _ = pod.control.send(Request::Spawn(spawn));
+        Ok(end)
+    }
+}
+
+impl Drop for Lease {
+    fn drop(&mut self) {
+        let mut state = lock(&self.state);
+        let Some(pod) = state.pods.get_mut(&self.work_dir) else {
+            return;
+        };
+        if pod.dir != self.dir {
+            return;
+        }
+        if let Some((id, ..)) = pod.setup.take().and_then(|s| s.step) {
+            let _ = pod.control.send(Request::Signal { id, sig: Sig::Kill });
+        }
+        // Without servers its control closes: pod-init kills what is left
+        // and exits.
+        if pod.idle() {
+            state.pods.remove(&self.work_dir);
+        }
+    }
+}
+
 /// What servers may do when pod-init cannot confine them (`confine`).
 const NO_LAYER: &str = "servers may make, remove or rename entries in their pod's folder";
 
@@ -391,8 +563,12 @@ async fn drive(
             _ => None,
         }
     };
+    let (servers, setup) = ended.map(|p| (p.servers, p.setup)).unwrap_or_default();
+    if let Some((_, _, done)) = setup.and_then(|s| s.step) {
+        let _ = done.send(StepEnd::Failed(reason.clone()));
+    }
     let failed = ServerStatus::Failed { reason };
-    for (_, server) in ended.map(|p| p.servers).unwrap_or_default() {
+    for (_, server) in servers {
         server.status(failed.clone()).send();
     }
     // Its control is closed: pod-init ends its servers and exits.
@@ -490,6 +666,7 @@ fn handle(
     event: Event,
 ) -> bool {
     let mut reports = Vec::new();
+    let mut steps = Vec::new();
     let over = {
         let mut guard = lock(state);
         let Some(pod) = guard.pods.get_mut(work_dir).filter(|p| p.dir == dir) else {
@@ -503,6 +680,8 @@ fn handle(
                     if next == Next::Ready {
                         reports.push(server.status(ServerStatus::Ready));
                     }
+                } else if let Some((sink, index)) = pod.step(&id) {
+                    steps.push((sink, index, line));
                 }
             }
             Event::Listening { id, port } => {
@@ -520,21 +699,28 @@ fn handle(
             Event::Exited { id, code } => {
                 if let Some(server) = pod.servers.remove(&id) {
                     reports.push(server.status(ServerStatus::Exited { code }));
+                } else {
+                    pod.end_step(&id, StepEnd::Exited(code));
                 }
             }
             Event::Failed { id, reason } => {
                 if let Some(server) = pod.servers.remove(&id) {
                     reports.push(server.status(ServerStatus::Failed { reason }));
+                } else {
+                    pod.end_step(&id, StepEnd::Failed(reason));
                 }
             }
         }
-        let over = pod.servers.is_empty();
+        let over = pod.idle();
         if over {
             guard.pods.remove(work_dir);
         }
         over
     };
     reports.into_iter().for_each(Report::send);
+    for (sink, index, line) in steps {
+        sink.output(index, vec![line]);
+    }
     over
 }
 
@@ -634,6 +820,7 @@ mod tests {
             control,
             servers: BTreeMap::from([("2".to_owned(), running)]),
             pid: None,
+            setup: None,
         };
         let state = Mutex::new(State {
             pods: BTreeMap::from([(PathBuf::from("/w"), pod)]),

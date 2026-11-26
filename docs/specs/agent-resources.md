@@ -76,6 +76,9 @@ applies as before.
 
 ## UI
 
+- Off by default (owner, 2026-11-25: usage numbers distract): Settings >
+  Claude > "Show resource usage" turns the line below on, kept per user in
+  the page's storage. Balancing and the reasons below work either way.
 - Each running session in the agents list gets one quiet line:
   `1.2 GB · 35% CPU` (plus `· 2.4 GB on disk` for a worker once its
   worktree was counted). Hover shows the split: agent and its commands, dev

@@ -169,6 +169,12 @@ GIT_SSL_CAINFO
 PATH
 --env
 TMPDIR
+--env
+OVRA_PORT
+--env
+OVRA_WORKTREE_ROOT
+--env
+OVRA_MAIN_ROOT
 --
 /usr/bin/dash
 -p
@@ -190,6 +196,9 @@ env GIT_SSL_CAINFO = Some("ROOT/data/proxy/ca.pem")
 env SSL_CERT_DIR = None
 env PATH = Some("/usr/bin")
 env TMPDIR = Some("/tmp")
+env OVRA_PORT = Some("41010")
+env OVRA_WORKTREE_ROOT = Some("ROOT/data/worktrees/app/t/w1")
+env OVRA_MAIN_ROOT = Some("ROOT/projects/app")
 env GITHUB_TOKEN = None
 env SSH_AUTH_SOCK = None
 env CLAUDE_CODE_OAUTH_TOKEN = None

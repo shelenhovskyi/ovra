@@ -1,0 +1,67 @@
+---
+source: crates/core/src/protocol/context.rs
+assertion_line: 106
+expression: "serde_json::json!({\n    \"requests\":\n    [Request::Context(ContextRequest::Check\n    {\n        project: ProjectId(\"p1\".into()), session:\n        Some(SessionId(\"s1\".into())), items:\n        vec![item(ContextWhat::File { path: \"src/lib.rs\".into() }),\n        item(ContextWhat::Folder { path: \"src\".into() }), ContextItem\n        {\n            what: ContextWhat::Selection\n            {\n                path: \".env\".into(), from_line: 1, to_line: 2, text:\n                \"A=1\".into(),\n            }, confirmed: true,\n        },\n        item(ContextWhat::Problem\n        {\n            path: \"src/lib.rs\".into(), line: 3, severity: \"error\".into(),\n            message: \"unused\".into(), source: Some(\"rustc\".into()),\n        }),\n        item(ContextWhat::Terminal\n        { title: \"zsh\".into(), text: \"ok\".into() }),\n        item(ContextWhat::Page { page: PageId(\"g1\".into()) }),],\n    })], \"responses\":\n    [Response::Context(ContextResponse::Checked\n    { notes: vec![None, Some(ContextWarning::SecretFile)], })],\n})"
+---
+{
+  "requests": [
+    {
+      "method": "context.check",
+      "params": {
+        "items": [
+          {
+            "confirmed": false,
+            "kind": "file",
+            "path": "src/lib.rs"
+          },
+          {
+            "confirmed": false,
+            "kind": "folder",
+            "path": "src"
+          },
+          {
+            "confirmed": true,
+            "from_line": 1,
+            "kind": "selection",
+            "path": ".env",
+            "text": "A=1",
+            "to_line": 2
+          },
+          {
+            "confirmed": false,
+            "kind": "problem",
+            "line": 3,
+            "message": "unused",
+            "path": "src/lib.rs",
+            "severity": "error",
+            "source": "rustc"
+          },
+          {
+            "confirmed": false,
+            "kind": "terminal",
+            "text": "ok",
+            "title": "zsh"
+          },
+          {
+            "confirmed": false,
+            "kind": "page",
+            "page": "g1"
+          }
+        ],
+        "project": "p1",
+        "session": "s1"
+      }
+    }
+  ],
+  "responses": [
+    {
+      "data": {
+        "notes": [
+          null,
+          "secret_file"
+        ]
+      },
+      "type": "context.checked"
+    }
+  ]
+}

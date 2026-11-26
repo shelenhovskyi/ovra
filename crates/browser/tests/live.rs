@@ -126,6 +126,7 @@ async fn the_real_chromium_over_the_pipe() {
         project: None,
         work_env: None,
         work_dir: work,
+        work_dir_read_only: false,
         read: Vec::new(),
         write: Vec::new(),
         expose: Vec::new(),

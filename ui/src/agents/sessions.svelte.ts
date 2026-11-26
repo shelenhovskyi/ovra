@@ -9,6 +9,7 @@ import type {
   AgentCapacity,
   AgentMessage,
   Billing,
+  ContextItem,
   CoreEvent,
   DiskUsage,
   FailedWorker,
@@ -284,6 +285,22 @@ export class AgentSessions {
     this.saveClosed(info.project);
   }
 
+  /**
+   * Hides a session another panel started for a purpose of its own (the git
+   * panel's agent actions), at once and in whatever state it is: that panel
+   * shows the result and stops the session itself.
+   */
+  hide(project: ProjectId, id: SessionId): void {
+    this.closed.add(id);
+    try {
+      const kept = new Set(readClosed(project));
+      kept.add(id);
+      localStorage.setItem(closedKey(project), JSON.stringify([...kept]));
+    } catch {
+      // Storage may be full or blocked: hidden for this window only.
+    }
+  }
+
   private saveClosed(project: ProjectId): void {
     const ids = this.inProject(project)
       .map((s) => s.id)
@@ -313,8 +330,11 @@ export class AgentSessions {
 
   /** Starts a task: a coordinator that splits the work among workers in
    * their own worktrees. Resolves with the coordinator's session. */
-  async startTask(project: ProjectId, prompt: string): Promise<SessionId> {
-    const { data } = await this.transport.call({ method: "orchestration.start", params: { project, prompt } });
+  async startTask(project: ProjectId, prompt: string, context: ContextItem[] = []): Promise<SessionId> {
+    const { data } = await this.transport.call({
+      method: "orchestration.start",
+      params: { project, prompt, ...(context.length > 0 ? { context } : {}) },
+    });
     await this.load(project);
     return data.coordinator;
   }
@@ -324,12 +344,18 @@ export class AgentSessions {
     this.transcripts.set(session, data);
   }
 
-  /** `account`: a Claude account's id; null uses the project's. */
-  async start(project: ProjectId, prompt: string, account: string | null = null): Promise<SessionInfo> {
+  /** `account`: a Claude account's id; null uses the project's. `research` only reads and searches (ADR 0013). */
+  async start(
+    project: ProjectId,
+    prompt: string,
+    account: string | null = null,
+    mode: "direct" | "research" = "direct",
+    context: ContextItem[] = [],
+  ): Promise<SessionInfo> {
     // Messages may arrive before the reply: collect them from the start.
     const { data } = await this.transport.call({
       method: "agents.start",
-      params: { project, agent: "claude", mode: "direct", prompt, account },
+      params: { project, agent: "claude", mode, prompt, account, ...(context.length > 0 ? { context } : {}) },
     });
     const known = this.byId.get(data.id);
     // agents.sandbox may also have come before the reply: keep what it said.
@@ -338,8 +364,9 @@ export class AgentSessions {
     return data;
   }
 
-  async send(session: SessionId, text: string): Promise<void> {
-    await this.transport.call({ method: "agents.send", params: { session, text } });
+  async send(session: SessionId, text: string, context: ContextItem[] = []): Promise<void> {
+    const params = { session, text, ...(context.length > 0 ? { context } : {}) };
+    await this.transport.call({ method: "agents.send", params });
   }
 
   /** Ends the current turn; the agent's pending requests are denied and it waits for a message. */
@@ -375,7 +402,7 @@ export class AgentSessions {
       // A worker that asked for review stops counting, and counts again once it is decided.
       if (this.loaded.has(event.data.project))
         void Promise.all([this.loadReviews(event.data.project), this.loadCapacity(event.data.project)]);
-    } else if (event.type === "agents.limit_changed") {
+    } else if (event.type === "agents.limit_changed" || event.type === "agents.research_limit_changed") {
       // "2 of 3 working" names the limit.
       for (const project of this.loaded) void this.loadCapacity(project);
     } else if (event.type === "resources.sample") {

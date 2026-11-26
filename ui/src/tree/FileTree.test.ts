@@ -161,11 +161,14 @@ describe("FileTree", () => {
     expect(description(t.row("dist"))).toBe("ignored");
   });
 
-  it("shows deleted files struck through and unopenable, and where a renamed file came from", async () => {
+  it("shows deleted files only when changed, struck through and unopenable, and where a renamed file came from", async () => {
     const dirs = dirsFromPaths(["gone.ts", "new.ts"], { "gone.ts": "deleted", "new.ts": "renamed" });
     const renamed = dirs.get("")?.find((e) => e.name === "new.ts");
     if (renamed) renamed.renamed_from = "old/name.ts";
     const t = mountTree(new FakeCore(dirs));
+    await settle();
+    expect(document.querySelector('[data-path="gone.ts"]')).toBeNull();
+    document.querySelector<HTMLButtonElement>('[aria-label="Changed only"]')?.click();
     await settle();
     const description = (el: HTMLElement) =>
       document.getElementById(el.getAttribute("aria-describedby") ?? "")?.textContent ?? null;
@@ -173,6 +176,11 @@ describe("FileTree", () => {
     expect(t.row("gone.ts").querySelector(".name.git-deleted")).not.toBeNull();
     t.row("gone.ts").click();
     expect(t.opened).toEqual([]);
+    // Nothing on disk to rename.
+    t.tree().dispatchEvent(new KeyboardEvent("keydown", { key: "F2", code: "F2", bubbles: true }));
+    await settle();
+    expect(document.querySelector("input")).toBeNull();
+    expect(document.querySelector('[role="status"]')?.textContent).toBe("Deleted. Restore it in Git.");
     expect(description(t.row("new.ts"))).toBe("renamed, from old/name.ts");
     // The letter in the tooltip, besides the dot's colour.
     expect(t.row("new.ts").title).toBe("new.ts (R: renamed, from old/name.ts)");

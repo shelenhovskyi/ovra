@@ -50,6 +50,21 @@ describe("Notifier", () => {
     expect(notifier.toasts.map((t) => t.text)).toEqual(["lint failed", "Add notes: 1 change to review"]);
   });
 
+  it("shows only errors while Focus is on; the system still speaks in the background", () => {
+    const { api, shown } = system(true, false);
+    const notifier = new Notifier(api);
+    notifier.notify({ level: "attention", key: "approvals", text: "1 request needs approval" });
+    notifier.quietForFocus(true);
+    expect(notifier.toasts).toEqual([]);
+    notifier.notify({ level: "info", text: "Fix sync is done" });
+    notifier.notify({ level: "error", text: "Could not start the agent" });
+    expect(notifier.toasts.map((t) => t.text)).toEqual(["Could not start the agent"]);
+    expect(shown.map((n) => n.body)).toContain("Fix sync is done");
+    notifier.quietForFocus(false);
+    notifier.notify({ level: "info", text: "Add a test is done" });
+    expect(notifier.toasts.map((t) => t.text)).toEqual(["Could not start the agent", "Add a test is done"]);
+  });
+
   it("uses system notifications only when allowed and Ovra is in the background", () => {
     const back = system(true, false);
     new Notifier(back.api).notify({ level: "info", text: "done" }, "Agent");

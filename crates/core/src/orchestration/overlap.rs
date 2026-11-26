@@ -83,6 +83,18 @@ pub(super) async fn check(core: &Core, session: &SessionId) {
     if found.is_empty() {
         return;
     }
+    // The board keeps Ovra's words, as people read them there.
+    let mut seen = String::new();
+    for (other, paths) in &found {
+        let _ = write!(
+            seen,
+            "Workers {} and {} both changed {}. ",
+            me.name,
+            other.name,
+            named(paths)
+        );
+    }
+    super::board::record(core, &task.id, seen.trim_end().to_owned());
     let ctx = core.agents_ctx();
     let coordinator_running = core
         .sessions()

@@ -21,8 +21,8 @@ use crate::search::{self, Searches};
 use crate::servers::DevServerState;
 use crate::services::{
     AgentRuntime, AuditLog, Browser, DevServers, EventSink, Forge, FsService, GitService, IdeTools,
-    LanguageServers, NetProxy, Opener, ProjectStore, ResourceMonitor, Secrets, SessionStore,
-    TerminalService, Unavailable, Worktrees,
+    KeepAwake, LanguageServers, NetProxy, Opener, ProjectStore, ResourceMonitor, Secrets,
+    SessionStore, TerminalService, Unavailable, Worktrees,
 };
 
 const EVENT_CAPACITY: usize = 1024;
@@ -49,6 +49,7 @@ pub struct CoreBuilder {
     browser: Arc<dyn Browser>,
     forge: Arc<dyn Forge>,
     resources: Option<Arc<dyn ResourceMonitor>>,
+    keep_awake: Arc<dyn KeepAwake>,
 }
 
 impl CoreBuilder {
@@ -158,6 +159,12 @@ impl CoreBuilder {
         self
     }
 
+    /// Keeps the computer awake while agents work (`power.*`).
+    pub fn keep_awake(mut self, keep_awake: Arc<dyn KeepAwake>) -> Self {
+        self.keep_awake = keep_awake;
+        self
+    }
+
     pub fn build(self) -> Core {
         let (events, _) = broadcast::channel(EVENT_CAPACITY);
         let kept = self.sessions.clone();
@@ -190,6 +197,7 @@ impl CoreBuilder {
                 lsp: self.lsp,
                 lsp_servers: crate::lsp::Servers::default(),
                 audit_state: crate::audit::State::default(),
+                power: crate::power::State::new(self.keep_awake),
             }),
             events,
         };
@@ -237,6 +245,7 @@ struct Inner {
     browser: crate::browser::BrowserState,
     forge: Arc<dyn Forge>,
     resources: crate::resources::Resources,
+    power: crate::power::State,
 }
 
 /// A [`Core`] that does not keep it alive; sessions hold one so their IDE
@@ -318,6 +327,7 @@ impl Core {
             browser: Arc::new(Unavailable("the agent browser")),
             forge: Arc::new(Unavailable("pull requests")),
             resources: None,
+            keep_awake: Arc::new(Unavailable("keeping the computer awake")),
         }
     }
 
@@ -400,6 +410,7 @@ impl Core {
             Request::Permissions(r) => agents::handle_permissions(&self.agents_ctx(), r),
             Request::Review(r) => orchestration::review(self, r).await,
             Request::Orchestration(r) => orchestration::orchestration(self, r).await,
+            Request::Board(r) => orchestration::board(self, r),
             Request::Search(r) => search::handle(self, r),
             Request::Policy(r) => crate::policy::handle(self, r),
             Request::Secrets(r) => crate::secrets::handle(self, r).await,
@@ -410,6 +421,8 @@ impl Core {
             Request::Servers(r) => crate::servers::handle(self, r).await,
             Request::Browser(r) => crate::browser::handle(self, r).await,
             Request::Pr(r) => crate::pr::handle(self, r).await,
+            Request::Power(r) => crate::power::handle(self, r),
+            Request::Context(r) => crate::context::handle(self, r).await,
         }
     }
 
@@ -460,6 +473,10 @@ impl Core {
 
     pub(crate) fn lsp_servers(&self) -> &crate::lsp::Servers {
         &self.inner.lsp_servers
+    }
+
+    pub(crate) fn power(&self) -> &crate::power::State {
+        &self.inner.power
     }
 
     pub(crate) fn audit_state(&self) -> &crate::audit::State {
@@ -558,6 +575,11 @@ impl Core {
         }
         *open.entry(id.clone()).or_insert(0) += 1;
         Ok(())
+    }
+
+    /// Whether a window or a running session holds the project open.
+    pub(crate) fn is_open(&self, id: &ProjectId) -> bool {
+        lock(&self.inner.open).contains_key(id)
     }
 
     /// Drops a reference; the last one stops watching.

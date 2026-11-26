@@ -10,6 +10,7 @@ mod browser;
 mod forge;
 mod git;
 mod lsp;
+mod power;
 mod servers;
 mod worktrees;
 
@@ -31,6 +32,7 @@ pub use browser::{FAKE_PNG, FakeBrowser, FakePage};
 pub use forge::MemoryForge;
 pub use git::MemoryGit;
 pub use lsp::{FakeLanguageServers, FakeServer, HostRecord};
+pub use power::FakeKeepAwake;
 pub use servers::{FakeDevServer, FakeDevServers};
 pub use worktrees::MemoryWorktrees;
 
@@ -1037,6 +1039,31 @@ pub fn fake_pid(session: &SessionId) -> u32 {
 }
 
 impl AgentRuntime for ScriptedAgent {
+    /// Claude, able to do everything, like the runtime it stands in for.
+    fn providers(&self) -> Vec<crate::protocol::agents::ProviderInfo> {
+        use crate::protocol::agents::{AgentKind, Capabilities, ProviderInfo};
+        let all = Capabilities {
+            approvals: true,
+            enforced_policy: true,
+            ide_tools: true,
+            read_only_role: true,
+            resume: true,
+            fork: true,
+            interrupt: true,
+            text_deltas: true,
+            subagents: true,
+            usage: true,
+            cost: true,
+            billing: true,
+            accounts: true,
+        };
+        vec![ProviderInfo {
+            id: AgentKind::Claude,
+            name: "Claude".to_owned(),
+            capabilities: all,
+        }]
+    }
+
     fn start(&self, spec: AgentSpec, host: AgentHost) -> Result<Box<dyn RunningAgent>> {
         let own = spec
             .resume

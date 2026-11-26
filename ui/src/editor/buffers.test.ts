@@ -6,6 +6,7 @@ import { type Buffer, Buffers } from "./buffers.svelte";
 import { Drafts } from "./drafts.svelte";
 import { FakeCore, MemoryStorage } from "./fake-core";
 import type { HighlightClient } from "./highlight/client";
+import { indentLabel, indentTab } from "./indent";
 import { editorPrefs } from "./prefs.svelte";
 
 // jsdom has no layout; CodeMirror measures text ranges when it draws the selection.
@@ -97,6 +98,24 @@ describe("Buffer", () => {
     expect([wrapped(), view.state.tabSize]).toEqual([false, 2]);
     editorPrefs.tabSize = 4;
     a.applyPrefs();
+  });
+
+  test("indents as the file does, else as the preferences say, and the status bar says the same", async () => {
+    const { core, view, show } = setup();
+    editorPrefs.tabSize = 2;
+    core.put("four.rs", "fn a() {\n    b();\n}\n");
+    await show("four.rs");
+    expect([indentLabel(view.state), view.state.tabSize]).toEqual(["Spaces: 4", 4]);
+    view.dispatch({ selection: { anchor: view.state.doc.length } });
+    indentTab(view);
+    expect(view.state.doc.toString().endsWith("}\n    ")).toBe(true);
+    core.put("flat.txt", "no indentation\n");
+    await show("flat.txt");
+    expect(indentLabel(view.state)).toBe("Spaces: 2");
+    core.put("tabs.go", "func a() {\n\tb()\n}\n");
+    await show("tabs.go");
+    expect(indentLabel(view.state)).toBe("Tab");
+    editorPrefs.tabSize = 4;
   });
 
   test("undo history and unsaved text survive switching to another tab and back", async () => {
@@ -239,6 +258,19 @@ describe("Buffer", () => {
     expect(core.writes.at(-1)?.expected).toBe(101);
     expect(await a.save(true)).toBe(true);
     expect([a.deleted, a.conflict]).toEqual([false, false]);
+  });
+
+  test("a file the person moved to the Trash says so, also after the watcher reports it", async () => {
+    const { core, show, type } = setup();
+    core.put("a.txt", "one");
+    const a = await show("a.txt");
+    type(" mine");
+    core.files.delete("a.txt");
+    await a.diskChanged(true);
+    await a.diskChanged();
+    expect([a.deleted, a.trashed]).toEqual([true, true]);
+    expect(await a.save(true)).toBe(true);
+    expect([a.deleted, a.trashed]).toEqual([false, false]);
   });
 
   test("binary files and read errors are not editable", async () => {

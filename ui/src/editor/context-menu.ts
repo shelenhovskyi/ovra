@@ -4,8 +4,9 @@
 import { selectAll } from "@codemirror/commands";
 import type { EditorView } from "@codemirror/view";
 import { commandItem, type MenuEntry } from "../menu/context-menu.svelte";
+import { askAbout } from "./agent-context";
 import { canRun } from "./lsp/actions";
-import { runSearch } from "./search";
+import { REPLACE_KEYS, runSearch } from "./search";
 
 /** `path` under the project's `root`, written the way the root is (backslashes on Windows). */
 export function absolutePath(root: string, path: string): string {
@@ -67,7 +68,7 @@ export function editorMenu(view: EditorView, root: string | null, path: string, 
     { label: "Select all", keys: "Mod+A", run: () => void selectAll(view) },
     "separator",
     { label: "Find", keys: "Mod+F", run: search("find") },
-    { label: "Replace", keys: "Mod+Alt+F", run: search("replace") },
+    { label: "Replace", keys: REPLACE_KEYS, run: search("replace") },
     { label: "Go to line", keys: "Ctrl+G", run: search("go_to_line") },
     commandItem("editor.go_to_symbol", "Go to symbol"),
     canSplit && commandItem("editor.split_right", "Split right"),
@@ -76,6 +77,9 @@ export function editorMenu(view: EditorView, root: string | null, path: string, 
     canRun(view, "references") && commandItem("editor.lsp_references", "Find references"),
     canRun(view, "rename") && !state.readOnly && commandItem("editor.lsp_rename", "Rename symbol"),
     canRun(view, "format") && !state.readOnly && commandItem("editor.lsp_format", "Format document"),
+    "separator",
+    // The selection, else the problem at the cursor, else the file.
+    { label: "Ask agent", run: () => askAbout(view, path) },
     "separator",
     ...pathEntries(root, path),
   ];

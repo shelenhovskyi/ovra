@@ -83,6 +83,7 @@ describe("platform words and keys", () => {
     expect(keyAction(key("KeyX", { ctrlKey: true }), false)).toBe("cut");
     expect(keyAction(key("KeyC", { metaKey: true }), true)).toBe("copy");
     expect(keyAction(key("KeyV", { ctrlKey: true }), false)).toBe("paste");
+    expect(keyAction(key("KeyA", { metaKey: true }), true)).toBe("select_all");
     expect(keyAction(key("KeyV", { ctrlKey: true }), true)).toBeNull();
     expect(keyAction(key("KeyC", { ctrlKey: true, shiftKey: true }), false)).toBeNull();
     expect(keyAction(key("KeyC"), false)).toBeNull();

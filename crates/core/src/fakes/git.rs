@@ -7,7 +7,8 @@ use std::sync::Mutex;
 use super::lock;
 use crate::path::RelPath;
 use crate::protocol::git::{
-    Blame, BranchInfo, CommitInfo, Committed, FileDiff, GitFileText, GitRev, Hunk, RepoStatus,
+    Blame, BranchInfo, CommitInfo, Committed, FileDiff, GitFileText, GitRev, Hunk, Pulled,
+    RepoStatus,
 };
 use crate::protocol::{ErrorCode, ProtocolError};
 use crate::services::{BoxFuture, GitService, Result};
@@ -20,6 +21,8 @@ pub struct MemoryGit {
     pub status: Mutex<Option<RepoStatus>>,
     pub branches: Mutex<Vec<BranchInfo>>,
     pub diff: Mutex<FileDiff>,
+    /// What `pulled` answers.
+    pub pulled: Mutex<Pulled>,
     pub calls: Mutex<Vec<String>>,
     /// When set, every changing call fails with `conflict` and this message.
     pub refuse: Mutex<Option<String>>,
@@ -182,5 +185,9 @@ impl GitService for MemoryGit {
     }
     fn log(&self, root: PathBuf, limit: u32) -> BoxFuture<'_, Result<Vec<CommitInfo>>> {
         self.read("log", &root, &limit.to_string(), vec![commit("first")])
+    }
+    fn pulled(&self, root: PathBuf) -> BoxFuture<'_, Result<Pulled>> {
+        let pulled = lock(&self.pulled).clone();
+        self.read("pulled", &root, "", pulled)
     }
 }

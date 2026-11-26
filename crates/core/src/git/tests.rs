@@ -319,6 +319,25 @@ async fn log_limits_are_clamped() {
 }
 
 #[tokio::test]
+async fn pulled_answers_what_the_service_found_in_the_project() {
+    let f = fixture().await;
+    let pulled = crate::protocol::git::Pulled {
+        from: Some("c0".to_owned()),
+        commits: Vec::new(),
+        truncated: 3,
+    };
+    *f.git
+        .pulled
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = pulled.clone();
+    let answer = call(&f.core, git("pulled", json!({})))
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(answer, Response::Git(GitResponse::Pulled(pulled)));
+    assert_eq!(f.git.calls(), [format!("pulled {ROOT} ")]);
+}
+
+#[tokio::test]
 async fn without_a_git_service_requests_are_unavailable() {
     let core = Core::builder("test")
         .projects(Arc::new(MemoryProjects::default()))

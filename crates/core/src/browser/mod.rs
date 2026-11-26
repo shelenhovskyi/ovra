@@ -226,6 +226,7 @@ fn profile(core: &Core, session: &SessionId) -> Result<SandboxProfile> {
             project: None,
             work_env: None,
             work_dir: PathBuf::new(),
+            work_dir_read_only: false,
             read: Vec::new(),
             write: Vec::new(),
             expose: Vec::new(),

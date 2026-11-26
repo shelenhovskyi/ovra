@@ -256,6 +256,37 @@ async fn list(core: &Core, place: &Place) -> ServerList {
     }
 }
 
+/// Runs `steps` once, in order, in the pod of the work dir `dir` (the
+/// worker `session`'s worktree), for a worktree's setup
+/// (`docs/specs/worktree-setup.md`): builds the pod's spec, starts its
+/// netproxy if no server runs there, calls [`DevServers::setup`], and ends
+/// the netproxy afterwards unless a server of that pod runs by then.
+pub(crate) async fn run_steps(
+    core: &Core,
+    project: &ProjectId,
+    session: &SessionId,
+    dir: PathBuf,
+    steps: Vec<crate::services::SetupStep>,
+    sink: Arc<dyn crate::services::SetupSink>,
+) -> Result<crate::services::SetupEnd> {
+    let servers = core.dev_servers();
+    if let SandboxStatus::Unavailable { reason } = servers.dev.status() {
+        return Err(ProtocolError::new(ErrorCode::Unavailable, reason));
+    }
+    let place = Place {
+        project: project.clone(),
+        session: Some(session.clone()),
+        dir,
+    };
+    let pod = {
+        let _one = servers.starting.lock().await;
+        pods::pod(core, &place, &[]).await?
+    };
+    let end = servers.dev.setup(&pod, steps, sink).await;
+    pods::end_pod_if_idle(servers, &mut servers.lock(), &place);
+    end
+}
+
 /// Starts the defined server `name` in `place`, which must not run.
 async fn start(core: &Core, place: Place, name: &str, by: StartedBy) -> Result<ServerInfo> {
     let servers = core.dev_servers();

@@ -13,6 +13,10 @@ import AuditLog from "../audit/AuditLog.svelte";
 import BrowserPane from "../browser/BrowserPane.svelte";
 import FileStatus from "../editor/FileStatus.svelte";
 import { persistOpenFiles } from "../editor/open-files.svelte";
+import FocusBar from "../focus/FocusBar.svelte";
+import FocusView from "../focus/FocusView.svelte";
+import { FOCUS_KEYS } from "../focus/keys";
+import { focusMode } from "../focus/mode.svelte";
 import Git from "../git/Git.svelte";
 import GitDiff from "../git/GitDiff.svelte";
 import Inbox from "../inbox/Inbox.svelte";
@@ -149,6 +153,23 @@ const status = $derived.by((): { text: string; ok: boolean } => {
 $effect(() => {
   const offSettings = registerSettingsCommands();
   const off = [
+    registerCommand({
+      id: "focus.toggle",
+      title: "Focus: agents only",
+      category: "View",
+      keywords: ["zen", "distraction", "quiet", "ide"],
+      keys: FOCUS_KEYS,
+      run: async () => {
+        focusMode.toggle();
+        if (!workspace.project) return;
+        // What had focus may be hidden now: put it where the person can go on.
+        await tick();
+        const to = focusMode.on
+          ? document.querySelector<HTMLElement>("[data-testid=focus-open-ide]")
+          : document.getElementById("ovra-tabpanel");
+        to?.focus();
+      },
+    }),
     registerCommand({ id: "layout.swap", title: "Swap side panels", category: "View", run: () => layout.swap() }),
     registerCommand({ id: "layout.reset", title: "Reset layout", category: "View", run: () => layout.resetAll() }),
     registerCommand({
@@ -186,6 +207,8 @@ $effect(() => {
 });
 
 const view = $derived(VIEWS[workspace.sidebar]);
+/** Focus (docs/specs/focus-mode.md) shows once a project is open; the IDE stays mounted under it. */
+const focusing = $derived(focusMode.on && !!workspace.project);
 const capacity = $derived(workspace.project ? sessions.capacity.get(workspace.project.id) : undefined);
 /** The requests that waited when the person folded Agents; a new one unfolds it again. */
 let seenWhenFolded = $state<string[]>([]);
@@ -310,8 +333,9 @@ async function showApprovals(): Promise<void> {
   class="shell"
   class:start={!workspace.project}
   class:viewing={!workspace.project && !!mainView.current}
-  class:solo class:rail-right={layout.swapped} style={grid}>
+  class:solo class:rail-right={layout.swapped} class:focus={focusing} style={grid}>
   <div class="title-area">
+    {#if focusing}<FocusBar />{/if}
     <TitleBar {layout} shown={{ side: !folded.side, agents: !folded.agents }} {waiting} {toggle} {showApprovals} inbox={reviews} />
   </div>
   <div class="rail-area"><Rail {layout} /></div>
@@ -428,7 +452,7 @@ async function showApprovals(): Promise<void> {
     </div>
   </main>
   <aside class="panel agents" data-testid="agents" aria-label="Agents and approvals">
-    {#if folded.agents}
+    {#if folded.agents && !focusing}
       <div class="strip">
         <button
           type="button"
@@ -450,9 +474,11 @@ async function showApprovals(): Promise<void> {
          then Agents, whose list or transcript scrolls above a reply box that
          stays in sight. Agents draws its own header; folding and swapping
          are the title bar's and the palette's. -->
-    <div class="body column" hidden={folded.agents}>
-      <Approvals />
-      <AgentsPanel />
+    <div class="body column" hidden={folded.agents && !focusing}>
+      <Approvals offerAlways={!focusing} />
+      {#if focusing}<FocusView />{/if}
+      <!-- Hidden, not unmounted, in Focus: its commands, drafts and transcripts stay. -->
+      <div class="agents-panel" hidden={focusing}><AgentsPanel /></div>
     </div>
   </aside>
   <!-- Only what needs a person: the connection when it is lost (screen
@@ -617,6 +643,68 @@ async function showApprovals(): Promise<void> {
   }
   .strip button {
     color: var(--text-2);
+  }
+  .agents-panel {
+    display: contents;
+  }
+  .agents-panel[hidden] {
+    display: none;
+  }
+
+  /* Focus: only the agents' work, in one centred grid; the IDE stays mounted, hidden. */
+  .shell.focus {
+    height: 100%;
+    overflow: clip;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 36px minmax(0, 1fr) 28px;
+    grid-template-areas:
+      "title"
+      "agents"
+      "footer";
+  }
+  .focus .rail-area,
+  .focus .side,
+  .focus .handle,
+  .focus main,
+  .focus .title-area > :global(header.title) {
+    display: none;
+  }
+  .focus .agents {
+    background: var(--s1);
+    overflow-y: auto;
+  }
+  .focus .column {
+    display: grid;
+    flex: none;
+    box-sizing: border-box;
+    width: min(100%, 980px);
+    margin: 0 auto;
+    padding: 24px 20px 32px;
+    overflow: visible;
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+    grid-template-areas:
+      "head head"
+      "approvals status"
+      "reviews status"
+      ". status";
+    grid-template-rows: auto auto auto 1fr;
+    gap: 16px 32px;
+    align-content: start;
+  }
+  .focus .column > :global(section.approvals:not(.idle)) {
+    grid-area: approvals;
+    max-height: none;
+    padding: 0;
+  }
+  @media (max-width: 760px) {
+    .focus .column {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-areas:
+        "head"
+        "approvals"
+        "reviews"
+        "status";
+    }
   }
   .strip button {
     position: relative;

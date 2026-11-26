@@ -8,6 +8,9 @@ import type { GitOperation, ProjectId } from "../lib/protocol";
 import { useOvra } from "../shell/context";
 import EmptyState from "../shell/EmptyState.svelte";
 import Icon from "../shell/Icon.svelte";
+import AgentActions from "./AgentActions.svelte";
+import AssistCard from "./AssistCard.svelte";
+import { Assist } from "./assist.svelte";
 import Branches from "./Branches.svelte";
 import CommitBox from "./CommitBox.svelte";
 import FileSection from "./FileSection.svelte";
@@ -19,7 +22,12 @@ const { transport, workspace } = useOvra();
 
 // svelte-ignore state_referenced_locally
 const model = new GitModel(transport, project);
-$effect(() => () => model.dispose());
+// svelte-ignore state_referenced_locally
+const assist = new Assist(transport, model);
+$effect(() => () => {
+  assist.dispose();
+  model.dispose();
+});
 
 let terminalNote = $state("");
 
@@ -140,7 +148,11 @@ function ago(seconds: number, now = Date.now() / 1000): string {
       line="Git is set up. Add files, then commit them to keep a first version."
     />
   {:else if status}
-    <Branches {model} {status} />
+    <div class="top">
+      <Branches {model} {status} />
+      <AgentActions {assist} {status} />
+    </div>
+    <AssistCard {assist} />
     {#if firstCommit}
       <div class="first" data-testid="git-first-commit">
         <p>Git is set up. Commit your files to keep a first version.</p>
@@ -152,7 +164,7 @@ function ago(seconds: number, now = Date.now() / 1000): string {
         {OPERATION[status.operation]} Resolve, stage and commit to finish.
       </p>
     {/if}
-    <CommitBox {model} {status} />
+    <CommitBox {model} {status} {assist} />
     {#if model.discarded}
       <div class="undo" role="group" aria-label="Undo discard">
         <p>Discarded the changes to {describePaths(model.discarded.paths)}.</p>
@@ -234,6 +246,14 @@ function ago(seconds: number, now = Date.now() / 1000): string {
 </section>
 
 <style>
+  .top {
+    display: flex;
+    align-items: flex-start;
+    gap: 4px;
+  }
+  .top > :global(:first-child) {
+    flex: 1;
+  }
   .git {
     display: flex;
     flex-direction: column;

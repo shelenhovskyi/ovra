@@ -33,6 +33,7 @@ import {
 } from "@codemirror/state";
 import { drawSelection, EditorView, highlightActiveLine, type KeyBinding, keymap, lineNumbers } from "@codemirror/view";
 import { SvelteMap } from "svelte/reactivity";
+import { isApple, matchesShortcut, parseShortcut } from "../keys/shortcut";
 import type { FileContent, ProjectId } from "../lib/protocol";
 import { CoreError, type Transport } from "../lib/transport";
 import type { AutoSaver } from "./autosave";
@@ -43,30 +44,42 @@ import { GitFile } from "./git/file";
 import type { HighlightClient, HighlightedDoc } from "./highlight/client";
 import { treeSitterHighlighting } from "./highlight/extension";
 import type { LanguageSource } from "./highlight/protocol";
-import { dedentLines, indentation, indentLines, indentTab, newlineKeepIndent } from "./indent";
+import { dedentLines, fileIndentation, indentLines, indentTab, newlineKeepIndent } from "./indent";
 import { commentTokens, type Language, languageFor, languageSource } from "./languages";
 import { editorPrefs } from "./prefs.svelte";
-import { lineEndingOf } from "./status.svelte";
+import { goToLine, runSearch, searchPhrases } from "./search";
+import { detectIndent, lineEndingOf } from "./status.svelte";
 import { theme } from "./theme";
 
 /**
- * The keys of every editor; `save` runs on Mod-s. CodeMirror's bindings that
+ * A binding for exactly `keys` (as in `Command.keys`), matched like the
+ * global shortcuts: no extra modifier, physical key on non-Latin layouts.
+ */
+export function exactKey(keys: string, run: (view: EditorView) => boolean): KeyBinding {
+  const shortcut = parseShortcut(keys, isApple());
+  return { any: (view, event) => shortcut !== null && matchesShortcut(event, shortcut) && run(view) };
+}
+
+/**
+ * The keys of every editor; `save` runs on Mod+S. CodeMirror's bindings that
  * would take a global shortcut keep only their Mac key: block comment
  * (Alt+Shift+A goes to approvals in a browser tab) and find previous on
  * Mod-Shift-g (Ctrl+Shift+G shows Git; Shift-F3 still finds previous).
- * Indenting and Enter follow the tab size preferences (`./indent`).
+ * Indenting and Enter follow the tab size preferences (`./indent`); go to
+ * line names its field (`./search`).
  */
 export function editorKeymap(save: () => void): KeyBinding[] {
   const macOnly = (binding: KeyBinding): KeyBinding => ({ ...binding, key: undefined, shift: undefined });
-  const ownIndent = new Map<KeyBinding["run"], KeyBinding["run"]>([
+  const ownRun = new Map<KeyBinding["run"], KeyBinding["run"]>([
     [indentMore, indentLines],
     [indentLess, dedentLines],
     [insertNewlineAndIndent, newlineKeepIndent],
+    [gotoLine, goToLine],
   ]);
   const ownKey = (binding: KeyBinding): KeyBinding[] => {
     if (binding.run === toggleBlockComment) return [macOnly(binding)];
-    const indent = binding.run && ownIndent.get(binding.run);
-    if (indent) return [{ ...binding, run: indent }];
+    const run = binding.run && ownRun.get(binding.run);
+    if (run) return [{ ...binding, run }];
     if (binding.key !== "Mod-g") return [binding];
     return [
       { ...binding, shift: undefined },
@@ -74,16 +87,19 @@ export function editorKeymap(save: () => void): KeyBinding[] {
     ];
   };
   return [
-    {
-      key: "Mod-s",
-      preventDefault: true,
-      run: () => {
-        save();
-        return true;
-      },
-    },
+    // Exactly Mod+S: CodeMirror's `Mod-s` also matches with Shift held, and
+    // would take Save all (Mod+Shift+S) from the global shortcuts.
+    exactKey("Mod+S", () => {
+      save();
+      return true;
+    }),
+    // Replace's other key, where Mod+H is the global one (./search).
+    exactKey("Mod+Alt+F", (view) => {
+      runSearch("replace", view);
+      return true;
+    }),
     // Go to line on every platform, as in VS Code (CodeMirror's Mod-g finds the next match).
-    { key: "Ctrl-g", run: gotoLine, preventDefault: true },
+    { key: "Ctrl-g", run: goToLine, preventDefault: true },
     { key: "Tab", run: indentTab, shift: dedentLines },
     ...foldKeys,
     ...defaultKeymap.flatMap(ownKey),
@@ -107,6 +123,8 @@ const DRAFT_DELAY_MS = 300;
  */
 const HEAVY_TEXT_CHARS = 1024 * 1024;
 const HEAVY_LINE_CHARS = 10_000;
+/** Lines read to tell a file's indentation (detectIndent reads no more). */
+const INDENT_SAMPLE = 2000;
 
 /** Whether `text` is too big, or has too long a line, for the costly extensions. */
 function isHeavy(text: string): boolean {
@@ -141,6 +159,8 @@ export class Buffer {
   unsaved = $state<string | null>(null);
   /** The file is gone from disk; saving recreates it. */
   deleted = $state(false);
+  /** It is gone because the person moved it to the Trash, not because something else deleted it. */
+  trashed = $state(false);
   /** The text is too large or has too long a line: no highlighting (see `isHeavy`). */
   heavy = $state(false);
   /** The file's line breaks; CodeMirror keeps "\n" inside, saving writes these. */
@@ -169,6 +189,8 @@ export class Buffer {
   private readonly label = new Compartment();
   /** Line wrapping, tab size and indent style, as `editorPrefs` says. */
   private readonly prefs = new Compartment();
+  /** The file's own indentation when it was read ("Tab", "Spaces: N"); it wins over the preferences. */
+  private fileIndent: string | null = null;
 
   constructor(
     private readonly options: Options,
@@ -242,7 +264,7 @@ export class Buffer {
 
   /** Follows the editor preferences (word wrap, tab size) as they are now. */
   applyPrefs(): void {
-    const effects = this.prefs.reconfigure(prefsExtension());
+    const effects = this.prefs.reconfigure(prefsExtension(this.fileIndent));
     this.mirror?.dispatch({ effects });
     if (this.view) this.view.dispatch({ effects });
     else if (this.state) this.state = this.state.update({ effects }).state;
@@ -300,6 +322,7 @@ export class Buffer {
       this.saved = doc;
       this.conflict = false;
       this.deleted = false;
+      this.trashed = false;
       this.error = null;
       this.changed();
       this.git.changed();
@@ -321,16 +344,19 @@ export class Buffer {
     if (file?.body.kind === "text") this.replace(file.body.text, file.mtime_ms);
   }
 
-  /** Called when the file may have changed on disk. */
-  async diskChanged(): Promise<void> {
+  /** Called when the file may have changed on disk; `trashed` when the person moved it to the Trash. */
+  async diskChanged(trashed = false): Promise<void> {
     if (this.status !== "ready") return;
     const file = await this.read(true);
     if (file === "not_found") {
       this.deleted = true;
+      // The watcher's later report of the same removal does not make it a stranger's.
+      if (trashed) this.trashed = true;
       this.conflict = this.dirty;
       return;
     }
     this.deleted = false;
+    this.trashed = false;
     if (file) this.error = null;
     if (file?.body.kind !== "text" || file.mtime_ms === this.mtime) return;
     if (this.dirty) this.conflict = true;
@@ -391,6 +417,7 @@ export class Buffer {
     this.lineEnding = lineEndingOf(text);
     this.conflict = false;
     this.deleted = false;
+    this.trashed = false;
     this.error = null;
     if (this.view) {
       const scroll = this.view.scrollDOM.scrollTop;
@@ -442,6 +469,7 @@ export class Buffer {
   private create(text: string, cursor = 0): EditorState {
     this.highlight?.close();
     this.heavy = isHeavy(text);
+    this.fileIndent = detectIndent(text.split("\n", INDENT_SAMPLE), "") || null;
     const highlighter = this.source && !this.heavy && this.options.highlighter();
     this.highlight = this.source && highlighter ? highlighter.open(this.source, text) : null;
     return EditorState.create({
@@ -499,9 +527,10 @@ export class Buffer {
       }),
       // Named, so a screen reader says which file the text box edits.
       this.label.of(this.labelExtension()),
-      this.prefs.of(prefsExtension()),
+      this.prefs.of(prefsExtension(this.fileIndent)),
       commentData(this.language),
       theme,
+      searchPhrases,
       this.highlight ? treeSitterHighlighting(this.highlight, { edits: !mirror }) : [],
       // Language features live in the buffer's own view.
       mirror ? [] : this.server.of(this.serverExtension),
@@ -631,10 +660,11 @@ function commentData(language: Language | null): Extension {
   return tokens ? EditorState.languageData.of(() => [{ commentTokens: tokens }]) : [];
 }
 
-function prefsExtension(): Extension {
+/** Word wrap, and the indentation of `fileIndent` (detected at load) or else the preferences. */
+function prefsExtension(fileIndent: string | null): Extension {
   return [
     editorPrefs.wordWrap ? EditorView.lineWrapping : [],
-    indentation(editorPrefs.tabSize, editorPrefs.insertSpaces),
+    fileIndentation(fileIndent, editorPrefs.tabSize, editorPrefs.insertSpaces),
   ];
 }
 

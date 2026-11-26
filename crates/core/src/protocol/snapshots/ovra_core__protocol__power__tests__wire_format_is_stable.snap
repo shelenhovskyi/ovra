@@ -1,0 +1,36 @@
+---
+source: crates/core/src/protocol/power.rs
+expression: "serde_json::json!({\n    \"requests\":\n    [Request::Power(PowerRequest::Get),\n    Request::Power(PowerRequest::SetMode { mode: KeepAwakeMode::Always }),],\n    \"responses\": [Response::Power(PowerResponse::State(state.clone()))],\n    \"events\":\n    [Event::from(PowerEvent::Changed(PowerState\n    {\n        mode: KeepAwakeMode::Off, awake: false, problem:\n        Some(\"no logind\".into()),\n    }))],\n})"
+---
+{
+  "events": [
+    {
+      "data": {
+        "awake": false,
+        "mode": "off",
+        "problem": "no logind"
+      },
+      "type": "power.changed"
+    }
+  ],
+  "requests": [
+    {
+      "method": "power.get"
+    },
+    {
+      "method": "power.set_mode",
+      "params": {
+        "mode": "always"
+      }
+    }
+  ],
+  "responses": [
+    {
+      "data": {
+        "awake": true,
+        "mode": "while_agents_work"
+      },
+      "type": "power.state"
+    }
+  ]
+}

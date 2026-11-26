@@ -1,0 +1,15 @@
+---
+source: crates/sandbox-linux/tests/sandbox.rs
+expression: out
+---
+read the project: yes
+search the project: yes
+write the project: no
+change a file: no
+make a folder: no
+remove a file: no
+write git config: no
+make agent settings: no
+read ssh keys: no
+read the data folder: no
+write the private tmp: yes

@@ -4,6 +4,7 @@ import { registerCommand } from "../keys/commands";
 import { formatShortcut, isApple, liveKeys } from "../keys/shortcut";
 import type { CoreEvent, FileBody, Request } from "../lib/protocol";
 import { CoreError, type Transport } from "../lib/transport";
+import { closeContextMenu, contextMenu } from "../menu/context-menu.svelte";
 import { Workspace } from "../shell/workspace.svelte";
 import { RENDER_ALL_BELOW } from "./lines";
 import TestHost from "./TestHost.svelte";
@@ -115,6 +116,25 @@ describe("Viewer", () => {
       for (const button of buttons) button.click();
       expect(ran).toEqual(["task", "file", "search"]);
     } finally {
+      for (const unregister of off) unregister();
+    }
+  });
+
+  it("offers Find and Go to line in its menu, as the editor's menu does", async () => {
+    const off = [
+      registerCommand({ id: "editor.find", title: "Find in file", keys: "Mod+F", run: () => {} }),
+      registerCommand({ id: "editor.go_to_line", title: "Go to line…", keys: "Ctrl+G", run: () => {} }),
+    ];
+    try {
+      const { target } = show({ "a.txt": { kind: "text", text: "hi" } }, "a.txt");
+      await settle();
+      target
+        .querySelector(".content")
+        ?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+      const items = contextMenu.open?.entries.map((entry) => (entry === "separator" ? "-" : entry.label));
+      expect(items).toEqual(["Select all", "-", "Find", "Go to line"]);
+    } finally {
+      closeContextMenu(false);
       for (const unregister of off) unregister();
     }
   });

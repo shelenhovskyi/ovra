@@ -39,8 +39,11 @@ Agent SDK, which ADR 0006 avoids.
     rules files, known tool names, and its capabilities.
   - A native adapter for another agent is added only when ACP misses
     something essential for it (a candidate: `codex app-server`).
-- **Providers.** `AgentKind` becomes an open provider id (`claude` for all
-  existing sessions and settings). `agents.providers` lists the adapters'
+- **Providers.** `AgentKind` is the provider id (`claude` for all existing
+  sessions and settings). It stays an enum with one variant per provider
+  an adapter knows (amended 2026-11-26, step 3): the wire format is the
+  same as an open id, and code that must treat providers apart does not
+  compile until it does. `agents.providers` lists the adapters'
   descriptors and capabilities: `approvals`, `enforced_policy`,
   `ide_tools`, `read_only_role`, `resume`, `fork`, `interrupt`,
   `text_deltas`, `subagents`, `usage`, `cost`, `billing`, `accounts`. The
@@ -90,7 +93,8 @@ Agent SDK, which ADR 0006 avoids.
   (`agents.rs`, `agents.ts`), `services.rs` (`AgentSpec`, `SandboxProfile`),
   `scripts/crate-graph.json` (new `ovra-acp-client`).
 - A new crate boundary (`ovra-acp-client`), an MCP surface reachable over a
-  socket, and new sandbox rules need the human reviews CLAUDE.md lists.
+  socket, and new sandbox rules need the reviews and owner decisions
+  CLAUDE.md lists.
 - Features only Claude reports (cost, billing source, subagents, the
   policy hook) become optional in the UI; a provider without them shows
   less, never wrong data.

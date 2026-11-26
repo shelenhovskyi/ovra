@@ -147,7 +147,7 @@ stops and says so instead of overwriting.
 | PR.D | `ui/src/inbox`                       | dialog, chip, checks list, Update, Send log                   |
 
 `crates/forge` is security code (it handles the person's credentials) and
-needs a separate human review.
+needs an independent reviewer agent's verdict.
 
 ## Tests
 

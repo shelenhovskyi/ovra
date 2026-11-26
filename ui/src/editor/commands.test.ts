@@ -7,6 +7,7 @@ import { registerEditorCommands } from "./commands";
 import { Drafts } from "./drafts.svelte";
 import { FakeCore, MemoryStorage } from "./fake-core";
 import { OpenFiles, tabs, unsavedText } from "./open-files.svelte";
+import { hideView, showView } from "./search";
 
 afterEach(() => {
   tabs.current = null;
@@ -161,6 +162,22 @@ test("editor.save in view mode saves unsaved text and otherwise does nothing", a
   unregister();
 });
 
+test("find in view mode switches to editing and says so", async () => {
+  const { core, files, workspace, unregister } = setup();
+  core.put("a.rs", "fn a() {}");
+  workspace.openFile("a.rs");
+  const done = run("editor.find");
+  const buffer = files.buffers.open("a.rs");
+  await buffer.loaded;
+  const view = new EditorView({ parent: document.body });
+  buffer.attach(view);
+  await done;
+  expect([workspace.mode, tabs.notice]).toEqual(["edit", "Switched to Edit. View (Ctrl+E) goes back."]);
+  buffer.detach();
+  view.destroy();
+  unregister();
+});
+
 test("git change commands in view mode switch the file to editing and then act", async () => {
   const { core, files, workspace, unregister } = setup();
   core.put("a.rs", "fn a() {}");
@@ -206,11 +223,36 @@ test("find, replace and go to line have VS Code's keys, which no other editor co
   const keys = (id: string) => commands.find((c) => c.id === id)?.keys;
   expect([keys("editor.find"), keys("editor.replace"), keys("editor.go_to_line")]).toEqual([
     "Mod+F",
-    "Mod+Alt+F",
+    "Mod+H",
     "Ctrl+G",
   ]);
   const all = commands.flatMap((c) => (c.keys ? [c.keys] : []));
   expect(new Set(all).size).toBe(all.length);
+  // Settings > Keyboard lists the keys meant for the text under Editor.
+  const where = (id: string) => commands.find((c) => c.id === id)?.where;
+  expect([where("editor.lsp_rename"), where("editor.toggle_comment"), where("editor.save")]).toEqual([
+    "Editor",
+    "Editor",
+    undefined,
+  ]);
+  unregister();
+});
+
+test("comment lines from the palette comments the cursor line of the shown file", async () => {
+  const { core, files, workspace, unregister } = setup();
+  core.put("a.rs", "fn a() {}");
+  workspace.openFile("a.rs");
+  workspace.mode = "edit";
+  const buffer = files.buffers.open("a.rs");
+  await buffer.loaded;
+  const view = new EditorView({ parent: document.body });
+  buffer.attach(view);
+  showView(view);
+  await run("editor.toggle_comment");
+  expect(view.state.doc.toString()).toBe("// fn a() {}");
+  hideView(view);
+  buffer.detach();
+  view.destroy();
   unregister();
 });
 

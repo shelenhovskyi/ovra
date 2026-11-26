@@ -10,6 +10,7 @@ mod agents;
 mod audit;
 mod browser;
 pub mod child_path;
+mod context;
 mod core;
 #[cfg(any(test, feature = "fakes"))]
 pub mod fakes;
@@ -19,6 +20,7 @@ pub mod netproxy;
 mod orchestration;
 pub mod path;
 mod policy;
+mod power;
 mod pr;
 pub mod protected;
 pub mod protocol;

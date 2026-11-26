@@ -1,5 +1,6 @@
 import { flushSync, mount, unmount } from "svelte";
 import { afterEach, expect, it } from "vitest";
+import { agentPrefs } from "../agents/prefs.svelte";
 import { listCommands, registerCommand } from "../keys/commands";
 import { registerContextKeys } from "../keys/context-keys";
 import type { ConfigItem, CoreEvent, ProjectConfigReview, Request, Response } from "../lib/protocol";
@@ -86,7 +87,9 @@ it("lists every key by where it works, keys of one place too, and filters them",
     registerContextKeys([
       { keys: "Y", title: "Allow once", where: "Approvals" },
       { keys: "S", title: "Stage", where: "Git" },
+      { keys: "Shift+F10", title: "Open the menu", where: "Editor" },
     ]),
+    registerCommand({ id: "t.rename", title: "Rename symbol", keys: "F2", where: "Editor", run: () => {} }),
     () => {
       unmount(app);
       target.remove();
@@ -104,6 +107,7 @@ it("lists every key by where it works, keys of one place too, and filters them",
   expect(groups()).toEqual([
     ["Everywhere", ["Open settingsCtrl+,"]],
     ["Approvals", ["Allow onceY"]],
+    ["Editor", ["Rename symbolF2", "Open the menuShift+F10"]],
     ["Git", ["StageS"]],
   ]);
   expect(target.querySelector("section.pane")?.textContent).toContain("Letters follow your Latin layout");
@@ -119,7 +123,7 @@ it("lists every key by where it works, keys of one place too, and filters them",
   flushSync();
   expect(filter.value).toBe("");
   expect(mainView.current).toBe("settings");
-  expect(groups()).toHaveLength(3);
+  expect(groups()).toHaveLength(4);
 });
 
 it("shows only the open project's Claude settings, and re-reads them when they may have changed", async () => {
@@ -250,4 +254,68 @@ it("sets how many agents work at once and shows what the core kept", async () =>
   expect(sent).toEqual([5, 12]);
   expect(field()?.value).toBe("5");
   expect(target.querySelector("[data-testid=agent-limit] [role=alert]")?.textContent).toContain("from 1 to 8");
+});
+
+it("turns the agents' resource usage on and off, off at first", async () => {
+  const target = document.createElement("div");
+  document.body.append(target);
+  const app = mount(TestHost, { target, props: { transport, workspace: new Workspace() } });
+  cleanup.push(registerSettingsCommands(), () => {
+    unmount(app);
+    target.remove();
+    agentPrefs.showResources = false;
+  });
+  await listCommands()
+    .find((c) => c.id === "settings.claude")
+    ?.run();
+  await settle();
+  const toggle = target.querySelector<HTMLInputElement>("[data-testid=show-resources]");
+  expect(toggle?.checked).toBe(false);
+  toggle?.click();
+  await settle();
+  expect(agentPrefs.showResources).toBe(true);
+});
+
+it("sets how many research agents work at once, apart from the other agents", async () => {
+  const sent: number[] = [];
+  let limit = { limit: 2, default: 2, min: 0, max: 5 };
+  const core: Transport = {
+    call: ((request: Request) => {
+      if (request.method === "agents.limit")
+        return Promise.resolve({ type: "agents.limit", data: { limit: 3, default: 3, min: 1, max: 8 } });
+      if (request.method === "agents.research_limit")
+        return Promise.resolve({ type: "agents.research_limit", data: limit });
+      if (request.method === "agents.set_research_limit") {
+        sent.push(request.params.limit);
+        limit = { ...limit, limit: request.params.limit };
+        return Promise.resolve({ type: "agents.research_limit", data: limit });
+      }
+      return transport.call(request);
+    }) as Transport["call"],
+    onEvent: () => () => {},
+  };
+  const target = document.createElement("div");
+  document.body.append(target);
+  const app = mount(TestHost, { target, props: { transport: core, workspace: new Workspace() } });
+  cleanup.push(registerSettingsCommands(), () => {
+    unmount(app);
+    target.remove();
+  });
+  await listCommands()
+    .find((c) => c.id === "settings.claude")
+    ?.run();
+  await settle();
+  const box = () => target.querySelector("[data-testid=research-limit]");
+  const field = () => box()?.querySelector<HTMLInputElement>("input");
+  expect(box()?.textContent).toContain("Research agents at once");
+  expect(box()?.textContent).toContain("0 turns research off");
+  expect(field()?.value).toBe("2");
+  expect(target.querySelector<HTMLInputElement>("[data-testid=agent-limit] input")?.value).toBe("3");
+  const input = field();
+  if (!input) throw new Error("no field");
+  input.value = "0";
+  input.dispatchEvent(new Event("change", { bubbles: true }));
+  await settle();
+  expect(sent).toEqual([0]);
+  expect(field()?.value).toBe("0");
 });

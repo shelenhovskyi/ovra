@@ -7,7 +7,7 @@ import { isApple as apple } from "../keys/shortcut";
 const fold = apple() ? "Mod+Alt" : "Ctrl+Shift";
 registerContextKeys(
   [
-    { keys: "Mod+/", title: "Comment or uncomment lines" },
+    { keys: "Shift+F10", title: "Open the menu at the cursor (also the Menu key)" },
     { keys: "Shift+F8", title: "Go to previous problem" },
     { keys: `${fold}+[`, title: "Fold at cursor" },
     { keys: `${fold}+]`, title: "Unfold at cursor" },
@@ -35,7 +35,8 @@ import { editorMenu } from "./context-menu";
 import { answerClose, tabs } from "./open-files.svelte";
 import { editorPrefs } from "./prefs.svelte";
 import { hideView, showView } from "./search";
-import { clearFacts, cursorOf, detectIndent, type FileFacts, publishFacts } from "./status.svelte";
+import { indentLabel } from "./indent";
+import { clearFacts, cursorOf, type FileFacts, publishFacts } from "./status.svelte";
 
 const { workspace } = useOvra();
 const viewKeys = formatShortcut(liveKeys("Mod+E", inBrowserTab()), isApple());
@@ -57,7 +58,7 @@ $effect(() => {
     dispatchTransactions: (transactions, target) => {
       target.update(transactions);
       if (shownView === target) track(target, transactions.some((t) => t.docChanged));
-      if (shownView === target && workspace.focused) publish(target, transactions.some((t) => t.docChanged));
+      if (shownView === target && workspace.focused) publish(target);
     },
   });
   view = created;
@@ -113,7 +114,7 @@ $effect(() => {
   const lsp = tabs.current?.lsp;
   if (!target || !next || !workspace.focused) return;
   untrack(() => {
-    publish(target, true);
+    publish(target);
     showView(target);
     // Showing a file is what starts its language server (ADR 0007).
     lsp?.showing(next, target);
@@ -136,22 +137,19 @@ $effect(() => {
   if (shownView) untrack(() => shownView && track(shownView, false));
 });
 
-/** The status bar's facts (status.svelte.ts); the indentation is read again only when the text changes. */
+/** The status bar's facts (status.svelte.ts). */
 const facts = {};
 /** The view, once it shows `shown`. */
 let shownView = $state.raw<EditorView | null>(null);
-let indent = "";
-/** What Tab inserts, for a text with no indentation to go by. */
-const ownIndent = () => (editorPrefs.insertSpaces ? `Spaces: ${editorPrefs.tabSize}` : "Tab");
 /** Untracked: an effect that dispatches (word wrap, a reveal) must not come to depend on it. */
-function publish(target: EditorView, docChanged: boolean): void {
+function publish(target: EditorView): void {
   untrack(() => {
     const state = target.state;
-    if (docChanged) indent = detectIndent(state.doc.iterLines(), ownIndent());
     const next: FileFacts = {
       cursor: cursorOf(state),
       language: shown?.heavy ? "Plain text (large file)" : (shown?.language?.name ?? "Plain text"),
-      indent,
+      // What Tab inserts: the file's own indentation, or the preferences (buffers.svelte.ts).
+      indent: indentLabel(state),
       // The file's own line breaks, which saving keeps.
       lineEnding: shown?.lineEnding ?? "LF",
     };
@@ -280,7 +278,7 @@ function discard(path: string): void {
     </div>
     {#if buffer.deleted}
       <div class="notice" role="alert">
-        {buffer.path} was deleted on disk.
+        {buffer.path} {buffer.trashed ? "was moved to Trash" : "was deleted on disk"}.
         <button type="button" onclick={() => save(true)}>Save as a new file</button>
         <button type="button" onclick={() => buffer && discard(buffer.path)}>Close without saving</button>
       </div>
@@ -318,6 +316,7 @@ function discard(path: string): void {
     flex-direction: column;
     height: 100%;
     background: var(--s2);
+    container-type: inline-size;
   }
   .bar {
     display: flex;
@@ -347,6 +346,7 @@ function discard(path: string): void {
     border: 1px solid transparent;
     border-radius: var(--radius-sm);
     cursor: pointer;
+    white-space: nowrap;
   }
   button:hover:not(:disabled) {
     color: var(--text);
@@ -366,6 +366,12 @@ function discard(path: string): void {
   kbd {
     font: 12px var(--mono);
     color: var(--text-2);
+  }
+  /* A narrow editor group (a split at 1280 px): the bar keeps one line; the key stays in the title. */
+  @container (max-width: 520px) {
+    .bar kbd {
+      display: none;
+    }
   }
   .notice {
     display: flex;

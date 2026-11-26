@@ -102,6 +102,21 @@ pub enum AuditEvent {
         language: String,
         reason: Option<String>,
     },
+    /// The person pushed a worker's reviewed changes as `commit` to
+    /// `branch` on `remote` (`pr.create`, `pr.update`).
+    BranchPushed {
+        review: ReviewId,
+        remote: String,
+        branch: String,
+        commit: String,
+    },
+    /// The person opened pull request `number` of a worker's item.
+    PullRequestOpened {
+        review: ReviewId,
+        remote: String,
+        number: u64,
+        url: String,
+    },
     /// Whether a session's browser may load `origin`, which is neither a
     /// granted server nor decided before for the session (ADR 0009).
     BrowserNavigation {

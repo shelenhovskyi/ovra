@@ -68,7 +68,9 @@ async function run(action: () => Promise<void>): Promise<boolean> {
 }
 
 async function add(accountName: string, configDir: string): Promise<void> {
-  const saved = await run(() => accounts.save({ id: "", name: accountName, config_dir: configDir }));
+  const saved = await run(() =>
+    accounts.save({ provider: "claude", id: "", name: accountName, config_dir: configDir }),
+  );
   if (saved) {
     adding = false;
     name = "";

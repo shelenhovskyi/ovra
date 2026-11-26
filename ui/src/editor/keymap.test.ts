@@ -9,8 +9,9 @@ import {
   renameKeymap,
   signatureKeymap,
 } from "@codemirror/lsp-client";
-import type { KeyBinding } from "@codemirror/view";
-import { describe, expect, it } from "vitest";
+import { EditorState } from "@codemirror/state";
+import { EditorView, type KeyBinding, keymap } from "@codemirror/view";
+import { describe, expect, it, vi } from "vitest";
 import { liveKeys, parseShortcut, type Shortcut } from "../keys/shortcut";
 import { editorKeymap } from "./buffers.svelte";
 import { actionKeys } from "./lsp/actions";
@@ -22,7 +23,16 @@ const sources = import.meta.glob<string>(["../**/*.ts", "../**/*.svelte", "!../*
 });
 
 /** The editor's own commands, which its keymap runs itself: the same action either way. */
-const SAME_ACTION = new Set(["Mod+S", "Mod+F", "Mod+Alt+F", "Ctrl+G", "Shift+F12", "Shift+Alt+F", "Mod+Shift+M"]);
+const SAME_ACTION = new Set([
+  "Mod+S",
+  "Mod+F",
+  "Mod+Alt+F",
+  "Ctrl+G",
+  "Shift+F12",
+  "Shift+Alt+F",
+  "Mod+Shift+M",
+  "Mod+/",
+]);
 
 /** Every `keys` given to `registerCommand`, as a literal or a constant of the same file. */
 function globalShortcuts(): { id: string; keys: string }[] {
@@ -108,5 +118,30 @@ describe("editor keymaps", () => {
       }
     }
     expect([...new Set(clashes)]).toEqual([]);
+  });
+
+  it("save on exactly Mod+S, leaving Mod+Shift+S to Save all", () => {
+    const save = vi.fn();
+    const view = new EditorView({
+      state: EditorState.create({ extensions: keymap.of(editorKeymap(save)) }),
+      parent: document.body,
+    });
+    const press = (init: KeyboardEventInit) => {
+      const event = new KeyboardEvent("keydown", { keyCode: 83, code: "KeyS", cancelable: true, ...init });
+      view.contentDOM.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+    // CodeMirror alone reads Shift with a lower-case key as Mod-s.
+    expect(press({ key: "s", ctrlKey: true, shiftKey: true })).toBe(false);
+    expect(press({ key: "S", ctrlKey: true, shiftKey: true })).toBe(false);
+    expect(save).not.toHaveBeenCalled();
+    expect(press({ key: "s", ctrlKey: true })).toBe(true);
+    // A Ukrainian layout: the physical S key still saves.
+    expect(press({ key: String.fromCharCode(0x456), ctrlKey: true })).toBe(true);
+    expect(save).toHaveBeenCalledTimes(2);
+    // Replace's other key opens the panel at its replace field.
+    expect(press({ key: "f", code: "KeyF", keyCode: 70, ctrlKey: true, altKey: true })).toBe(true);
+    expect(document.activeElement?.getAttribute("name")).toBe("replace");
+    view.destroy();
   });
 });

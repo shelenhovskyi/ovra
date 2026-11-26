@@ -77,13 +77,13 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-async function setup(prepare: (core: FakeAgentCore) => void = () => {}) {
+async function setup(prepare: (core: FakeAgentCore) => void = () => {}, offerAlways = true) {
   const core = new FakeAgentCore();
   prepare(core);
   core.addSession("p1", "Fix the typo", { state: "working" });
   const workspace = new Workspace();
   workspace.project = { id: "p1", name: "demo", root: "/demo", last_opened_ms: null, trusted: false };
-  app = mount(TestHost, { target, props: { transport: core, workspace } });
+  app = mount(TestHost, { target, props: { transport: core, workspace, offerAlways } });
   core.status("s1", { state: "working" }); // the session becomes known, then its title
   await settle();
   return core;
@@ -994,6 +994,16 @@ describe("Always allow", () => {
     expect(words(always() ?? undefined)).toBe("Always allow src/a.ts here");
     expect(target.querySelector("[data-testid=approval-always-note]")).toBeNull();
     expect(always()?.hasAttribute("aria-describedby")).toBe(false);
+  });
+
+  it("is not offered in Focus, which says where it is", async () => {
+    const core = await setup(() => {}, false);
+    core.ask({ ...bash("perm1", "npm test"), always: rule });
+    await settle();
+    expect(always()).toBeNull();
+    expect(cards()[0]?.querySelector("[data-testid=approval-always-elsewhere]")?.textContent).toBe(
+      "Always allow is in the IDE.",
+    );
   });
 
   it("is not offered when the core offers no rule or a path is not inside the folder", async () => {

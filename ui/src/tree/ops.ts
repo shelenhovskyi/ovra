@@ -34,11 +34,12 @@ export function nameProblem(
   return same.kind === "dir" ? null : `“${same.name}” is a file`;
 }
 
-/** The one question before `paths` go to the trash. */
-export function trashQuestion(paths: string[]): string {
-  return paths.length === 1
-    ? `Move “${baseName(paths[0] as string)}” to Trash?`
-    : `Move ${paths.length} items to Trash?`;
+/** The one question before `paths` go to the trash; `items` is what a lone folder holds, when known. */
+export function trashQuestion(paths: string[], items?: number): string {
+  if (paths.length !== 1) return `Move ${paths.length} items to Trash?`;
+  const name = `“${baseName(paths[0] as string)}”`;
+  if (!items) return `Move ${name} to Trash?`;
+  return `Move ${name} and the ${items === 1 ? "item" : `${items} items`} in it to Trash?`;
 }
 
 /** The part of `name` a rename selects first: all but the extension of a file. */
@@ -98,9 +99,9 @@ export function trashKeys(apple = isApple()): string {
 
 type Keys = Pick<KeyboardEvent, "code" | "ctrlKey" | "metaKey" | "altKey" | "shiftKey">;
 
-export type KeyAction = "rename" | "trash" | "cut" | "copy" | "paste" | "undo" | "redo";
+export type KeyAction = "rename" | "trash" | "cut" | "copy" | "paste" | "undo" | "redo" | "select_all";
 
-const CLIP_KEYS: Record<string, KeyAction> = { KeyX: "cut", KeyC: "copy", KeyV: "paste" };
+const CLIP_KEYS: Record<string, KeyAction> = { KeyX: "cut", KeyC: "copy", KeyV: "paste", KeyA: "select_all" };
 
 /** Which file action a key on the tree asks for, matched on the physical key. */
 export function keyAction(e: Keys, apple = isApple()): KeyAction | null {

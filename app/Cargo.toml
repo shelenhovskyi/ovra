@@ -21,6 +21,7 @@ insta.workspace = true
 ovra-core.workspace = true
 ovra-fs-index.workspace = true
 ovra-opener.workspace = true
+ovra-power.workspace = true
 ovra-pty.workspace = true
 ovra-agent-runtime.workspace = true
 ovra-worktree.workspace = true

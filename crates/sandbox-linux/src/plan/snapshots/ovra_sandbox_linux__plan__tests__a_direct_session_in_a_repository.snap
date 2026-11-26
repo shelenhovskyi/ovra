@@ -45,8 +45,8 @@ ROOT/data/sandbox-made/-ROOT-projects-app
 --ro-bind ROOT/home/.cargo
 --ro-bind ROOT/home/.local/bin
 --ro-bind /dev/null ROOT/home/.cargo/credentials.toml
---bind ROOT/data/sandbox-caches/-ROOT-projects-app/-cargo-registry ROOT/home/.cargo/registry
---bind ROOT/data/sandbox-caches/-ROOT-projects-app/-cargo-git ROOT/home/.cargo/git
+--bind ROOT/data/sandbox-caches/p-f5f849dca255a577b897e3534bd4462d/-cargo-registry ROOT/home/.cargo/registry
+--bind ROOT/data/sandbox-caches/p-f5f849dca255a577b897e3534bd4462d/-cargo-git ROOT/home/.cargo/git
 --bind ROOT/projects/app
 --bind ROOT/projects/app/docs
 --bind ROOT/projects/app/docs/guide

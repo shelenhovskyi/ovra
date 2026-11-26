@@ -19,8 +19,8 @@ pub use crate::agents::{AgentHost, BeforeTool};
 pub use crate::lsp::ServerHost;
 use crate::path::RelPath;
 use crate::protocol::agents::{
-    AgentKind, AgentMessage, AgentSettings, AgentSetup, ProjectAgentConfig, SessionId, SessionInfo,
-    SessionMode, SetupState,
+    AgentKind, AgentMessage, AgentSettings, AgentSetup, ProjectAgentConfig, ProviderInfo,
+    SessionId, SessionInfo, SessionMode, SetupState,
 };
 use crate::protocol::audit::{AuditEntry, AuditEvent, AuditRange};
 use crate::protocol::browser::{
@@ -28,7 +28,8 @@ use crate::protocol::browser::{
 };
 use crate::protocol::fs::{DirListing, FileContent, FileList};
 use crate::protocol::git::{
-    Blame, BranchInfo, CommitInfo, Committed, FileDiff, GitFileText, GitRev, Hunk, RepoStatus,
+    Blame, BranchInfo, CommitInfo, Committed, FileDiff, GitFileText, GitRev, Hunk, Pulled,
+    RepoStatus,
 };
 use crate::protocol::lsp::KnownServer;
 use crate::protocol::netproxy::{Allowlist, NetproxyEvent};
@@ -184,6 +185,15 @@ pub trait Opener: Send + Sync + Debug {
     fn reveal(&self, root: &Path, path: &RelPath) -> Result<()>;
 }
 
+/// Keeps the computer from sleeping while it is idle (implemented by
+/// `ovra-power`). Only idle system sleep is held off: the display may
+/// sleep, and the OS releases the hold when the process ends.
+pub trait KeepAwake: Send + Sync + Debug {
+    /// Holds (`true`) or releases (`false`) the hold. Asking for the state
+    /// it is already in does nothing.
+    fn set_awake(&self, awake: bool) -> Result<()>;
+}
+
 /// Shells in pseudo-terminals (implemented by `ovra-pty`).
 pub trait TerminalService: Send + Sync + Debug {
     /// Starts the user's shell in `cwd` and emits `terminals.output` and
@@ -226,6 +236,8 @@ pub struct AgentSpec {
     pub resume: Option<String>,
     /// What the session may touch if the runtime sandboxes it.
     pub sandbox: SandboxProfile,
+    /// A research session without `WebSearch` ([`SessionInfo::no_web`]).
+    pub no_web: bool,
 }
 
 /// A program to start: plain data, so the core can pass it around without
@@ -246,6 +258,9 @@ pub struct CommandLine {
 pub struct SandboxProfile {
     /// The session's folder, readable and writable.
     pub work_dir: PathBuf,
+    /// `work_dir` is readable only, and the sandbox makes nothing in it (a
+    /// research session, ADR 0013).
+    pub work_dir_read_only: bool,
     /// More folders it may read but not write.
     pub read: Vec<PathBuf>,
     /// More folders it may write.
@@ -915,6 +930,11 @@ pub trait Secrets: Send + Sync + Debug {
 /// Starts agent sessions (implemented by `ovra-agent-runtime`). One runtime
 /// serves every session of the agents it supports.
 pub trait AgentRuntime: Send + Sync + Debug {
+    /// The providers this runtime starts sessions of, with what they can
+    /// do (ADR 0011). A runtime that names none starts none.
+    fn providers(&self) -> Vec<ProviderInfo> {
+        Vec::new()
+    }
     /// Starts a session and returns at once; the agent then works in the
     /// background and reports through `host` until it ends.
     fn start(&self, spec: AgentSpec, host: AgentHost) -> Result<Box<dyn RunningAgent>>;
@@ -1152,6 +1172,18 @@ pub trait Worktrees: Send + Sync + Debug {
     fn lock(&self, root: PathBuf, dir: PathBuf, reason: String) -> BoxFuture<'_, Result<()>>;
     /// Undoes [`Worktrees::lock`]; an unlocked worktree is fine.
     fn unlock(&self, root: PathBuf, dir: PathBuf) -> BoxFuture<'_, Result<()>>;
+    /// Bytes free for Ovra on the volume that holds `dir`, which exists;
+    /// a new worktree waits while it is low (`docs/specs/worktree-setup.md`).
+    /// `Unavailable` where it cannot be asked, which waits for nothing.
+    fn free_space(&self, dir: PathBuf) -> BoxFuture<'_, Result<u64>> {
+        let _ = dir;
+        Box::pin(async {
+            Err(ProtocolError::new(
+                ErrorCode::Unavailable,
+                "free disk space is not known here",
+            ))
+        })
+    }
     /// Lets go of every snapshot of the repository at `root` (its main
     /// checkout and its worktrees) except those in `keep`, so that git can
     /// collect them. The core calls it when reviews no longer need them.
@@ -1329,6 +1361,8 @@ pub trait GitService: Send + Sync + Debug {
     -> BoxFuture<'_, Result<GitFileText>>;
     fn blame(&self, root: PathBuf, path: RelPath) -> BoxFuture<'_, Result<Blame>>;
     fn log(&self, root: PathBuf, limit: u32) -> BoxFuture<'_, Result<Vec<CommitInfo>>>;
+    /// `ORIG_HEAD..HEAD`, as `git.pulled` describes it.
+    fn pulled(&self, root: PathBuf) -> BoxFuture<'_, Result<Pulled>>;
 }
 
 /// Placeholder for services a front end has not wired in.
@@ -1395,6 +1429,9 @@ impl GitService for Unavailable {
         self.later()
     }
     fn log(&self, _: PathBuf, _: u32) -> BoxFuture<'_, Result<Vec<CommitInfo>>> {
+        self.later()
+    }
+    fn pulled(&self, _: PathBuf) -> BoxFuture<'_, Result<Pulled>> {
         self.later()
     }
 }
@@ -1503,6 +1540,12 @@ impl Opener for Unavailable {
     }
     fn reveal(&self, _: &Path, _: &RelPath) -> Result<()> {
         self.err()
+    }
+}
+
+impl KeepAwake for Unavailable {
+    fn set_awake(&self, awake: bool) -> Result<()> {
+        if awake { self.err() } else { Ok(()) }
     }
 }
 

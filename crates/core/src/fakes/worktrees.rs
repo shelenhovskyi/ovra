@@ -40,6 +40,8 @@ pub struct MemoryWorktrees {
     pub to_include: Mutex<Included>,
     /// Locked worktrees and their reasons.
     pub locked: Mutex<BTreeMap<PathBuf, String>>,
+    /// What `free_space` reports; `None` answers unavailable.
+    pub free: Mutex<Option<u64>>,
     /// What `git_files` reports, by directory; empty by default.
     pub git_files: Mutex<BTreeMap<PathBuf, GitFiles>>,
     /// When set, `snapshot` lets other tasks run first, as a real one that
@@ -486,6 +488,18 @@ impl Worktrees for MemoryWorktrees {
         Box::pin(async move {
             lock(&self.locked).remove(&dir);
             Ok(())
+        })
+    }
+
+    fn free_space(&self, _dir: PathBuf) -> BoxFuture<'_, Result<u64>> {
+        let free = *lock(&self.free);
+        Box::pin(async move {
+            free.ok_or_else(|| {
+                crate::protocol::ProtocolError::new(
+                    crate::protocol::ErrorCode::Unavailable,
+                    "no free space set",
+                )
+            })
         })
     }
 }

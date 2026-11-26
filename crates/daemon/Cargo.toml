@@ -20,6 +20,7 @@ fake-agent = ["ovra-core/fakes", "dep:serde_json"]
 ovra-core.workspace = true
 ovra-fs-index.workspace = true
 ovra-opener.workspace = true
+ovra-power.workspace = true
 ovra-pty.workspace = true
 ovra-agent-runtime.workspace = true
 ovra-worktree.workspace = true

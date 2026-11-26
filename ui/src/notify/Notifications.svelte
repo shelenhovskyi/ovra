@@ -6,6 +6,7 @@
 // approvals wait, so a request is never hidden.
 import { tick, untrack } from "svelte";
 import { approvalQueue } from "../approvals/queue.svelte";
+import { focusMode } from "../focus/mode.svelte";
 import { registerCommand } from "../keys/commands";
 import type { PermissionId } from "../lib/protocol";
 import { useOvra } from "../shell/context";
@@ -16,7 +17,7 @@ import { Notifier, overlaps, type SystemNotifications, type Toast } from "./noti
 
 let { system }: { system?: SystemNotifications } = $props();
 
-const { transport } = useOvra();
+const { transport, workspace } = useOvra();
 // svelte-ignore state_referenced_locally
 const notifier = new Notifier(system);
 
@@ -31,6 +32,13 @@ $effect(() => watchAgents(transport, notifier, review));
 $effect(() => {
   const open = mainView.current === "reviews";
   untrack(() => notifier.stepAsideForReviews(open));
+});
+
+// Focus (docs/specs/focus-mode.md): its cards say what waits, so only errors get a toast.
+// It shows only with a project open; the start screen keeps its toasts.
+$effect(() => {
+  const on = focusMode.on && !!workspace.project;
+  untrack(() => notifier.quietForFocus(on));
 });
 
 // Seen from another tab or window too: "(2) Ovra" while two requests wait.

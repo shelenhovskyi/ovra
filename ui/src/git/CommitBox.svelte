@@ -5,13 +5,34 @@
 import { tick } from "svelte";
 import { formatShortcut, isApple } from "../keys/shortcut";
 import type { RepoStatus } from "../lib/protocol";
+import type { Assist } from "./assist.svelte";
 import type { GitModel } from "./model.svelte";
 
-let { model, status }: { model: GitModel; status: RepoStatus } = $props();
+let { model, status, assist }: { model: GitModel; status: RepoStatus; assist: Assist } = $props();
 
 const shortcut = formatShortcut("Mod+Enter", isApple());
 let text = $state("");
 let amend = $state(false);
+/** The person's own text that an agent's draft replaced, for Undo. */
+let replaced = $state<string | null>(null);
+let box = $state<HTMLTextAreaElement>();
+
+// An agent drafted a message: it goes in the box, for the person to edit and commit.
+$effect(() => {
+  const draft = assist.draft;
+  if (draft == null) return;
+  assist.draft = null;
+  replaced = text.trim() && text !== draft ? text : null;
+  text = draft;
+  void tick().then(() => box?.focus());
+});
+
+function undoDraft(): void {
+  if (replaced === null) return;
+  text = replaced;
+  replaced = null;
+  box?.focus();
+}
 
 const staged = $derived(status.files.filter((f) => f.staged !== null && f.unstaged !== "conflicted").length);
 const why = $derived.by(() => {
@@ -34,6 +55,7 @@ async function commit(): Promise<void> {
   }
   if (await model.commit(text.trim(), amend)) {
     text = "";
+    replaced = null;
     amend = false;
   }
 }
@@ -55,8 +77,15 @@ function onkeydown(event: KeyboardEvent): void {
       placeholder={`${shortcut} commits`}
       aria-keyshortcuts={isApple() ? "Meta+Enter" : "Control+Enter"}
       bind:value={text}
+      bind:this={box}
     ></textarea>
   </label>
+  {#if replaced !== null}
+    <p class="hint" data-testid="git-draft-replaced">
+      An agent replaced your message.
+      <button type="button" class="link" onclick={undoDraft}>Undo</button>
+    </p>
+  {/if}
   {#if status.head}
     <label class="check">
       <input type="checkbox" bind:checked={amend} />
@@ -180,6 +209,18 @@ function onkeydown(event: KeyboardEvent): void {
     overflow-wrap: anywhere;
     background: var(--s3);
     border-radius: var(--radius-sm);
+  }
+  .link {
+    padding: 0;
+    font: inherit;
+    color: var(--accent);
+    background: none;
+    border: none;
+    cursor: default;
+  }
+  .link:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
   }
   details {
     font-size: 13px;

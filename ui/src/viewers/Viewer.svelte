@@ -14,7 +14,7 @@ import { clearFacts, detectIndent, lineEndingOf, publishFacts } from "../editor/
 import { formatShortcut, inBrowserTab, isApple, liveKeys } from "../keys/shortcut";
 import { CoreError } from "../lib/transport";
 import { languageServers } from "../lsp/servers.svelte";
-import { isMenuKey, openContextMenu } from "../menu/context-menu.svelte";
+import { commandItem, isMenuKey, openContextMenu } from "../menu/context-menu.svelte";
 import { useOvra } from "../shell/context";
 import ImageView from "./ImageView.svelte";
 import Lines from "./Lines.svelte";
@@ -70,7 +70,8 @@ $effect(() => {
   publishFacts(facts, {
     cursor: null,
     language: languageFor(path)?.name ?? "Plain text",
-    indent: detectIndent(textLines),
+    // What Edit would insert (editor/buffers.svelte.ts): the file's own indentation, else the preferences.
+    indent: detectIndent(textLines, editorPrefs.insertSpaces ? `Spaces: ${editorPrefs.tabSize}` : "Tab"),
     lineEnding: lineEndingOf(view.text),
   });
   return () => clearFacts(facts);
@@ -126,7 +127,10 @@ function ontyping(event: KeyboardEvent): void {
     : "This file cannot be edited here.";
 }
 
-/** Copy, Select all and the file's path; Shift+F10 or the ContextMenu key open it too. */
+/**
+ * Copy, Select all, Find and Go to line (in Edit, as the editor's own menu
+ * has them) and the file's path; Shift+F10 or the ContextMenu key open it too.
+ */
 function openMenu(event: MouseEvent | KeyboardEvent): void {
   const path = workspace.openPath;
   const area = content;
@@ -136,6 +140,9 @@ function openMenu(event: MouseEvent | KeyboardEvent): void {
   openContextMenu(event, [
     board && text !== "" && { label: "Copy", keys: "Mod+C", run: () => board.writeText(text) },
     { label: "Select all", keys: "Mod+A", run: () => window.getSelection()?.selectAllChildren(area) },
+    "separator",
+    editable && commandItem("editor.find", "Find"),
+    editable && commandItem("editor.go_to_line", "Go to line"),
     "separator",
     ...pathEntries(workspace.project?.root ?? null, path),
   ]);
@@ -246,6 +253,7 @@ async function openExternal() {
     display: flex;
     flex-direction: column;
     background: var(--s2);
+    container-type: inline-size;
   }
   .bar {
     display: flex;
@@ -280,6 +288,7 @@ async function openExternal() {
     border: 1px solid transparent;
     border-radius: var(--radius-sm);
     cursor: pointer;
+    white-space: nowrap;
   }
   button:hover {
     color: var(--text);
@@ -295,6 +304,13 @@ async function openExternal() {
   kbd {
     font: 12px var(--mono);
     color: var(--text-2);
+  }
+  /* A narrow editor group (a split at 1280 px): the bar keeps one line; the key stays in the title. */
+  @container (max-width: 520px) {
+    .bar kbd,
+    .lsp-hint {
+      display: none;
+    }
   }
   .lsp-hint {
     color: var(--text-2);
