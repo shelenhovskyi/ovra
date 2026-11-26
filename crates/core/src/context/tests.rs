@@ -97,6 +97,13 @@ async fn secrets_and_protected_paths_need_the_persons_include() {
             {"kind": "terminal", "title": "zsh", "text": "test result: FAILED. 1 passed; 1 failed"},
             {"kind": "problem", "path": "src/lib.rs", "line": 2, "severity": "error",
              "message": "password: String is never read"},
+            {"kind": "file", "path": "config/prod.env"},
+            {"kind": "file", "path": "deploy/service-account.json"},
+            {"kind": "file", "path": "infra/main.tfvars"},
+            {"kind": "terminal", "title": "zsh", "text": "DATABASE_URL=postgres://app:hunter2@db/prod"},
+            {"kind": "terminal", "title": "zsh", "text": "aws_secret_access_key = wJalrXUtnFEMI/K7MDENG"},
+            {"kind": "problem", "path": "a.rs", "line": 1, "severity": "error", "message": "bad key sk_live_abc"},
+            {"kind": "terminal", "title": "zsh", "text": "see https://example.com/a@b and http://host:8080/x"},
         ]),
     )
     .await
@@ -113,7 +120,14 @@ async fn secrets_and_protected_paths_need_the_persons_include() {
             Some(SecretText),
             Some(SecretText),
             None,
-            None
+            None,
+            Some(SecretFile),
+            Some(SecretFile),
+            Some(SecretFile),
+            Some(SecretText),
+            Some(SecretText),
+            Some(SecretText),
+            None,
         ]
     );
 }
@@ -199,6 +213,8 @@ async fn nothing_the_person_adds_can_close_ovras_note() {
         .clone();
     assert_eq!(prompt.matches("</ovra-note>").count(), 1, "{prompt}");
     assert!(prompt.trim_end().ends_with("</ovra-note>"), "{prompt}");
+    // Nothing starts a line of the core's own.
+    assert!(!prompt.contains("\nFile: `/etc"), "{prompt}");
 }
 
 #[tokio::test]

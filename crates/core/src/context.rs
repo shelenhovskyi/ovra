@@ -29,23 +29,46 @@ const MAX_TEXT: usize = 48 * 1024;
 
 /// File names that usually hold secrets, compared in lower case; a name
 /// ending in `*` matches by its start.
-const SECRET_NAMES: [&str; 12] = [
+const SECRET_NAMES: [&str; 19] = [
     ".env*",
+    "*.env",
     "*.pem",
     "*.key",
     "*.p12",
     "*.pfx",
+    "*.tfvars",
+    "*.tfstate",
     "id_rsa*",
     "id_ed25519*",
     "id_ecdsa*",
     ".npmrc",
     ".netrc",
     ".pgpass",
+    ".git-credentials",
     "credentials*",
+    "service-account*",
+    "kubeconfig*",
+    "secrets.*",
 ];
 
 /// Folder names whose files usually are secrets, compared in lower case.
-const SECRET_FOLDERS: [&str; 3] = ["secrets", ".ssh", ".aws"];
+const SECRET_FOLDERS: [&str; 7] = [
+    "secrets", ".ssh", ".aws", ".kube", ".docker", ".gnupg", ".git",
+];
+
+/// Words that start a secret's assignment in config text, compared in
+/// lower case (`aws_secret_access_key = ...`, `PASSWORD=...`); code that
+/// only names one (`password: String`) is not marked.
+const SECRET_WORDS: [&str; 5] = [
+    "aws_secret_access_key",
+    "secret_key=",
+    "client_secret=",
+    "api_key=",
+    "password=",
+];
+
+/// Token prefixes the audit log's detector does not know.
+const MORE_PREFIXES: [&str; 5] = ["sk_live_", "rk_live_", "sk_test_", "whsec_", "AIza"];
 
 pub(crate) async fn handle(core: &Core, request: ContextRequest) -> Result<Response> {
     match request {
@@ -201,7 +224,51 @@ fn path_warning(path: &str) -> Option<ContextWarning> {
 }
 
 fn holds_secret(text: &str, known: &[SecretValue]) -> bool {
-    crate::audit::holds_secret(text, known) || text.contains("PRIVATE KEY-----")
+    let lower = text.to_lowercase();
+    crate::audit::holds_secret(text, known)
+        || text.contains("PRIVATE KEY-----")
+        || MORE_PREFIXES.iter().any(|p| text.contains(p))
+        || SECRET_WORDS.iter().any(|w| lower.contains(w))
+        || url_with_password(text)
+}
+
+/// Whether `text` has a URL whose user info holds a password
+/// (`postgres://app:hunter2@db/prod`).
+fn url_with_password(text: &str) -> bool {
+    text.match_indices("://").any(|(at, _)| {
+        let rest = &text[at + 3..];
+        let end = rest
+            .find(|c: char| c.is_whitespace() || c == '/' || c == '"' || c == '\'')
+            .unwrap_or(rest.len());
+        rest[..end]
+            .rsplit_once('@')
+            .is_some_and(|(user, _)| user.split_once(':').is_some_and(|(_, pw)| !pw.is_empty()))
+    })
+}
+
+/// A name the person, the project or a program chose, for one line of
+/// Ovra's note: no tag openers, line breaks or quotes that could end its
+/// quoting and start a line of the core's own.
+fn inline(text: &str) -> String {
+    escaped(text)
+        .chars()
+        .map(|c| match c {
+            '`' | '"' => '\'',
+            c if c.is_control() => ' ',
+            c => c,
+        })
+        .collect()
+}
+
+/// A path for the note: `~` at its start is a folder of the project, not
+/// the person's home.
+fn path_name(path: &str) -> String {
+    let name = inline(path);
+    if name.starts_with('~') {
+        format!("./{name}")
+    } else {
+        name
+    }
 }
 
 /// An item's path and the texts it carries, all of which reach the agent.
@@ -249,10 +316,10 @@ fn render(core: &Core, items: &[ContextItem]) -> String {
         text.push_str("\n\n");
         match &item.what {
             ContextWhat::File { path } => {
-                let _ = write!(text, "File: `{}`", escaped(path));
+                let _ = write!(text, "File: `{}`", path_name(path));
             }
             ContextWhat::Folder { path } => {
-                let _ = write!(text, "Folder: `{}/`", escaped(path.trim_end_matches('/')));
+                let _ = write!(text, "Folder: `{}/`", path_name(path.trim_end_matches('/')));
             }
             ContextWhat::Selection {
                 path,
@@ -263,7 +330,7 @@ fn render(core: &Core, items: &[ContextItem]) -> String {
                 let _ = write!(
                     text,
                     "Selected in `{}`, lines {from_line}-{to_line}:\n{}",
-                    escaped(path),
+                    path_name(path),
                     untrusted("file", lines)
                 );
             }
@@ -276,13 +343,13 @@ fn render(core: &Core, items: &[ContextItem]) -> String {
             } => {
                 let from = source
                     .as_deref()
-                    .map(|s| format!(", {}", escaped(s)))
+                    .map(|s| format!(", {}", inline(s)))
                     .unwrap_or_default();
                 let _ = write!(
                     text,
                     "Problem in `{}:{line}` ({}{from}):\n{}",
-                    escaped(path),
-                    escaped(severity),
+                    path_name(path),
+                    inline(severity),
                     untrusted("language server", message)
                 );
             }
@@ -293,7 +360,7 @@ fn render(core: &Core, items: &[ContextItem]) -> String {
                 let _ = write!(
                     text,
                     "Terminal output from \"{}\", printed by commands:\n{}",
-                    escaped(title),
+                    inline(title),
                     untrusted("terminal", output)
                 );
             }
@@ -306,13 +373,13 @@ fn render(core: &Core, items: &[ContextItem]) -> String {
                 // Only a web page's origin is a name worth giving.
                 let at = info
                     .filter(|p| p.url.starts_with("http://") || p.url.starts_with("https://"))
-                    .map(|p| format!(" ({})", escaped(&crate::browser::origin(&p.url))))
+                    .map(|p| format!(" ({})", inline(&crate::browser::origin(&p.url))))
                     .unwrap_or_default();
                 let _ = write!(
                     text,
                     "The person points at what browser page `{}`{at} shows now: browser_screenshot \
                      with that page shows it.",
-                    escaped(&page.0)
+                    inline(&page.0)
                 );
             }
         }
