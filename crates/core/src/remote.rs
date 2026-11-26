@@ -3,17 +3,24 @@
 //! (`companion::allows`).
 
 use crate::Core;
-use crate::protocol::remote::{RemoteRequest, RemoteResponse};
+use crate::protocol::remote::{RemoteEvent, RemoteRequest, RemoteResponse};
 use crate::protocol::{OkResponse, ProtocolError, Response};
 
 pub(crate) fn handle(core: &Core, request: RemoteRequest) -> Result<Response, ProtocolError> {
     let remote = core.remote();
     Ok(match request {
         RemoteRequest::Status => Response::Remote(RemoteResponse::Status(remote.status()?)),
-        RemoteRequest::Enable { address } => Response::Remote(RemoteResponse::Status(
-            remote.enable(core.clone(), address)?,
-        )),
-        RemoteRequest::Disable => Response::Remote(RemoteResponse::Status(remote.disable()?)),
+        // Other windows follow `remote.changed`.
+        RemoteRequest::Enable { address } => {
+            let status = remote.enable(core.clone(), address)?;
+            core.emit(RemoteEvent::Changed(status.clone()));
+            Response::Remote(RemoteResponse::Status(status))
+        }
+        RemoteRequest::Disable => {
+            let status = remote.disable()?;
+            core.emit(RemoteEvent::Changed(status.clone()));
+            Response::Remote(RemoteResponse::Status(status))
+        }
         RemoteRequest::StartPairing => {
             Response::Remote(RemoteResponse::Pairing(remote.start_pairing()?))
         }
@@ -37,7 +44,7 @@ mod tests {
 
     use crate::Core;
     use crate::fakes::FakeRemote;
-    use crate::protocol::remote::RemoteResponse;
+    use crate::protocol::remote::{RemoteEvent, RemoteResponse};
     use crate::protocol::{ErrorCode, Request, Response};
 
     async fn call(core: &Core, value: serde_json::Value) -> Result<Response, ErrorCode> {
@@ -49,6 +56,7 @@ mod tests {
     async fn the_desktop_turns_phone_access_on_pairs_and_forgets() {
         let remote = Arc::new(FakeRemote::default());
         let core = Core::builder("test").remote(remote.clone()).build();
+        let mut events = core.subscribe();
         assert_eq!(
             call(&core, json!({"method": "remote.start_pairing"}))
                 .await
@@ -57,6 +65,10 @@ mod tests {
         );
         match call(&core, json!({"method": "remote.enable", "params": {}})).await {
             Ok(Response::Remote(RemoteResponse::Status(s))) => assert!(s.enabled),
+            other => panic!("unexpected {other:?}"),
+        }
+        match events.try_recv() {
+            Ok(crate::protocol::Event::Remote(RemoteEvent::Changed(s))) => assert!(s.enabled),
             other => panic!("unexpected {other:?}"),
         }
         match call(&core, json!({"method": "remote.start_pairing"})).await {

@@ -39,12 +39,20 @@ pub type Assets = Arc<dyn Fn(&str) -> Option<Asset> + Send + Sync>;
 pub fn assets_from_dir(dir: PathBuf) -> Assets {
     Arc::new(move |path: &str| {
         let path = path.trim_start_matches('/');
-        if path.contains('\\') || path.split('/').any(|p| p.is_empty() || p == "..") {
-            return None;
-        }
-        let bytes = std::fs::read(dir.join(path)).ok()?;
+        let bytes = std::fs::read(dir.join(inside(path)?)).ok()?;
         Some(Asset::new(path, bytes))
     })
+}
+
+/// `path` as a relative path of plain names only: no `..`, root, drive
+/// (`C:`) or backslash, which could leave the folder on some system.
+fn inside(path: &str) -> Option<&Path> {
+    let plain = !path.is_empty()
+        && !path.contains(['\\', ':'])
+        && Path::new(path)
+            .components()
+            .all(|c| matches!(c, std::path::Component::Normal(_)));
+    plain.then(|| Path::new(path))
 }
 
 /// The real [`RemoteAccess`].
@@ -119,7 +127,8 @@ pub(crate) struct Window {
 
 pub(crate) struct Waiting {
     pub(crate) id: String,
-    pub(crate) answer: oneshot::Sender<bool>,
+    /// Taken by the answer; the request stays until the pairing ends.
+    pub(crate) answer: Option<oneshot::Sender<bool>>,
 }
 
 pub(crate) fn now_ms() -> u64 {
@@ -212,45 +221,70 @@ impl RemoteServer {
         address: Option<String>,
     ) -> std::result::Result<(), String> {
         let mut state = lock(&self.shared.state);
+        // Only turning it on starts the idle clock; a restart does not.
+        if enabled && !state.settings.enabled {
+            state.settings.enabled_at_ms = now_ms();
+        }
         state.settings.enabled = enabled;
         if enabled {
             state.settings.address = address;
-            state.settings.enabled_at_ms = now_ms();
         }
         save_settings(&self.shared.dir, &state.settings)
     }
 
     fn status_of(&self, state: &State) -> RemoteStatus {
-        RemoteStatus {
-            enabled: state.settings.enabled,
-            url: state.running.as_ref().map(Running::origin),
-            addresses: net::private_addresses(self.shared.loopback)
-                .iter()
-                .map(IpAddr::to_string)
-                .collect(),
-            connected: state.connected.len() as u32,
-            problem: state.problem.clone(),
-        }
+        self.shared.status_of(state)
     }
 
-    fn emit_changed(&self) {
-        let state = lock(&self.shared.state);
-        let status = self.status_of(&state);
-        if let Some(running) = &state.running {
-            running.core.emit(RemoteEvent::Changed(status));
-        }
-    }
-
+    /// Stops listening; the caller says so (`remote.changed`), the core
+    /// for requests and [`maintain`] for its own.
     fn stop(&self) {
         let running = lock(&self.shared.state).running.take();
         if let Some(running) = running {
             running.stop.cancel();
             let _ = self.shared.kicks.send("*".into());
-            running.core.emit(RemoteEvent::Changed(
-                self.status_of(&lock(&self.shared.state)),
-            ));
         }
         lock(&self.shared.state).pairing = None;
+    }
+}
+
+/// While listening, once an hour: forgets phones unseen for 30 days,
+/// turns phone access off after [`IDLE_OFF_MS`] without a phone, and
+/// starts again with a new leaf before the old one runs out.
+async fn maintain(shared: Arc<Shared>, stop: CancellationToken) {
+    let started = Instant::now();
+    let mut hourly = tokio::time::interval(Duration::from_secs(60 * 60));
+    hourly.tick().await;
+    loop {
+        tokio::select! {
+            () = stop.cancelled() => return,
+            _ = hourly.tick() => {}
+        }
+        let server = RemoteServer {
+            shared: shared.clone(),
+        };
+        let (core, address) = {
+            let mut state = shared.lock();
+            state.devices.expire(now_ms());
+            let Some(running) = &state.running else {
+                return;
+            };
+            (running.core.clone(), state.settings.address.clone())
+        };
+        if server.idle_too_long() {
+            tracing::info!("phone access turned off: no phone for 7 days");
+            if let Ok(status) = server.disable() {
+                core.emit(RemoteEvent::Changed(status));
+            }
+            return;
+        }
+        if started.elapsed() > ca::RENEW_AFTER {
+            match server.enable(core.clone(), address) {
+                Ok(status) => core.emit(RemoteEvent::Changed(status)),
+                Err(e) => tracing::warn!(error = %e, "phone access did not renew its certificate"),
+            }
+            return;
+        }
     }
 }
 
@@ -317,9 +351,9 @@ impl RemoteAccess for RemoteServer {
         }
         self.set_enabled(true, address)
             .map_err(|e| err(ErrorCode::Internal, e))?;
-        server::spawn(self.shared.clone(), listener, tls, stop);
+        server::spawn(self.shared.clone(), listener, tls, stop.clone());
+        tokio::spawn(maintain(self.shared.clone(), stop));
         tracing::info!(%ip, port, "phone access listening");
-        self.emit_changed();
         self.status()
     }
 
@@ -361,14 +395,16 @@ impl RemoteAccess for RemoteServer {
 
     fn answer_pairing(&self, id: &str, allow: bool) -> Result<()> {
         let mut state = lock(&self.shared.state);
-        let waiting = state
+        let answer = state
             .pairing
             .as_mut()
-            .and_then(|w| w.waiting.take_if(|w| w.id == id));
-        let Some(waiting) = waiting else {
+            .and_then(|w| w.waiting.as_mut())
+            .filter(|w| w.id == id)
+            .and_then(|w| w.answer.take());
+        let Some(answer) = answer else {
             return Err(err(ErrorCode::NotFound, "no phone waits for this answer"));
         };
-        let _ = waiting.answer.send(allow);
+        let _ = answer.send(allow);
         Ok(())
     }
 
@@ -399,6 +435,7 @@ impl RemoteAccess for RemoteServer {
                 format!("device {device} not found"),
             ));
         }
+        tracing::info!(device, "phone forgotten");
         let _ = self.shared.kicks.send(device.to_owned());
         let core = lock(&self.shared.state)
             .running
@@ -412,6 +449,19 @@ impl RemoteAccess for RemoteServer {
 }
 
 impl Shared {
+    fn status_of(&self, state: &State) -> RemoteStatus {
+        RemoteStatus {
+            enabled: state.settings.enabled,
+            url: state.running.as_ref().map(Running::origin),
+            addresses: net::private_addresses(self.loopback)
+                .iter()
+                .map(IpAddr::to_string)
+                .collect(),
+            connected: state.connected.len() as u32,
+            problem: state.problem.clone(),
+        }
+    }
+
     pub(crate) fn lock(&self) -> std::sync::MutexGuard<'_, State> {
         lock(&self.state)
     }
@@ -441,7 +491,7 @@ impl Shared {
             window.secret = auth::random_token();
             window.waiting = Some(Waiting {
                 id: id.clone(),
-                answer: tx,
+                answer: Some(tx),
             });
             (core, auth::code(secret, key))
         };
@@ -455,23 +505,43 @@ impl Shared {
             .ok()
             .and_then(std::result::Result::ok)
             .unwrap_or(false);
-        let device = {
+        let (device, closed) = {
             let mut state = self.lock();
-            state.pairing = None;
-            if !allowed {
-                None
-            } else {
-                let device = devices::Stored {
+            // Only this request's window: the person may have opened a new
+            // one meanwhile.
+            let closed = state
+                .pairing
+                .as_ref()
+                .and_then(|w| w.waiting.as_ref())
+                .is_some_and(|w| w.id == id);
+            if closed {
+                state.pairing = None;
+            }
+            let device = allowed
+                .then(|| devices::Stored {
                     id: auth::random_token()[..16].to_owned(),
                     name: name.to_owned(),
                     key: key.to_owned(),
                     paired_at_ms: now_ms(),
                     seen_at_ms: None,
-                };
-                state.devices.add(device.clone()).ok().map(|()| device)
-            }
+                })
+                .and_then(|device| {
+                    let gone = state.devices.add(device.clone()).ok()?;
+                    // A phone dropped for the newcomer loses its sessions too.
+                    for id in gone {
+                        let _ = self.kicks.send(id);
+                    }
+                    Some(device)
+                });
+            (device, closed)
         };
-        core.emit(RemoteEvent::PairingClosed);
+        if closed {
+            core.emit(RemoteEvent::PairingClosed);
+        }
+        match &device {
+            Some(d) => tracing::info!(device = %d.id, name = %d.name, "phone paired"),
+            None => tracing::info!(name, "phone not paired"),
+        }
         if device.is_some() {
             core.emit(RemoteEvent::DevicesChanged);
         }
@@ -482,14 +552,17 @@ impl Shared {
         let core = {
             let mut state = self.lock();
             if on {
+                tracing::info!(device, "phone connected");
                 state.connected.push(device.to_owned());
                 state.devices.seen(device, now_ms());
             } else if let Some(i) = state.connected.iter().position(|d| d == device) {
                 state.connected.remove(i);
             }
-            state.running.as_ref().map(|r| r.core.clone())
+            let status = self.status_of(&state);
+            state.running.as_ref().map(|r| (r.core.clone(), status))
         };
-        if let Some(core) = core {
+        if let Some((core, status)) = core {
+            core.emit(RemoteEvent::Changed(status));
             core.emit(RemoteEvent::DevicesChanged);
         }
     }

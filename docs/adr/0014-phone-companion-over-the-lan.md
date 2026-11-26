@@ -56,7 +56,13 @@ has none and keeps code on the person's computer.
   contents an agent read or wrote reach the phone. Stripping them would
   protect little, since a phone may ask the agent to print a file; the
   phone gets no direct way to read files, diffs or terminals.
-- Every connect, pairing, forget and every answer from a phone goes to the
-  audit log with the device name.
+- Every answer from a phone goes to the audit log with the device name.
+  Connects, pairings and forgets are logged by the daemon only for now:
+  the audit log is per project, and an Ovra-wide entry needs its own
+  protocol change (follow-up).
+- `100.64.0.0/10` is also the carrier-grade NAT range. A computer that an
+  ISP connects straight into that range would let the ISP's other
+  customers reach the listener; the address picker shows the address, and
+  pairing still needs the person's Allow.
 - Code in `crates/remote`, the companion allowlist and the CA are security
   code: an independent reviewer checks them before they land.

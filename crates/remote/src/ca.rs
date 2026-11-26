@@ -20,13 +20,17 @@ use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs
 
 const CA_LIFE: Duration = Duration::days(3650);
 const LEAF_LIFE: Duration = Duration::days(30);
+/// The listener starts again with a new leaf after this long, well before
+/// the leaf runs out.
+pub(crate) const RENEW_AFTER: std::time::Duration =
+    std::time::Duration::from_secs(20 * 24 * 60 * 60);
 const SKEW: Duration = Duration::hours(1);
 /// The only DNS name the CA may sign for; `.invalid` never resolves
 /// (RFC 6761), so in practice it signs for IP addresses only.
 const ONLY_NAME: &str = "ovra.invalid";
 
 /// The address ranges a phone-access leaf may name: private IPv4, the
-/// shared range Tailscale uses, IPv6 unique-local and link-local.
+/// shared range Tailscale uses and IPv6 unique-local, as `net::is_private`.
 pub(crate) fn private_ranges() -> Vec<CidrSubnet> {
     vec![
         CidrSubnet::V4([10, 0, 0, 0], [255, 0, 0, 0]),
@@ -36,10 +40,6 @@ pub(crate) fn private_ranges() -> Vec<CidrSubnet> {
         CidrSubnet::V6(
             [0xfc, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
             [0xfe, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-        ),
-        CidrSubnet::V6(
-            [0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            [0xff, 0xc0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         ),
     ]
 }
@@ -100,12 +100,17 @@ impl Ca {
             let der = CertificateDer::from_pem_slice(pem.as_bytes()).map_err(|e| e.to_string())?;
             return Ok(Self { issuer, der });
         }
+        // None yet, or half of one left by a crash: start over. The
+        // certificate goes last, so it never exists without its key.
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+        let _ = std::fs::remove_file(&cert_path);
         let params = params();
         let key = KeyPair::generate().map_err(|e| e.to_string())?;
         let cert = params.self_signed(&key).map_err(|e| e.to_string())?;
         write_private(&key_path, &key.serialize_pem())?;
-        std::fs::write(&cert_path, cert.pem()).map_err(|e| e.to_string())?;
+        let tmp = dir.join("ca.pem.tmp");
+        std::fs::write(&tmp, cert.pem()).map_err(|e| e.to_string())?;
+        std::fs::rename(&tmp, &cert_path).map_err(|e| e.to_string())?;
         Ok(Self {
             der: cert.der().clone(),
             issuer: Issuer::new(params, key),
@@ -156,9 +161,12 @@ impl Ca {
     }
 }
 
-/// Writes `text` to a new file only this user can read.
+/// Writes `text` to a new file only this user can read, in place of
+/// `path`.
 fn write_private(path: &PathBuf, text: &str) -> Result<(), String> {
     use std::io::Write;
+    let tmp = path.with_extension("key.tmp");
+    let _ = std::fs::remove_file(&tmp);
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]
@@ -166,8 +174,10 @@ fn write_private(path: &PathBuf, text: &str) -> Result<(), String> {
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600);
     }
-    let mut file = options.open(path).map_err(|e| e.to_string())?;
-    file.write_all(text.as_bytes()).map_err(|e| e.to_string())
+    let mut file = options.open(&tmp).map_err(|e| e.to_string())?;
+    file.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
+    drop(file);
+    std::fs::rename(&tmp, path).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
@@ -180,6 +190,10 @@ mod tests {
         let first = Ca::load_or_create(dir.path()).expect("ca");
         let again = Ca::load_or_create(dir.path()).expect("ca");
         assert_eq!(first.fingerprint(), again.fingerprint());
+        // A key left without its certificate is replaced, not a dead end.
+        std::fs::remove_file(dir.path().join("ca.pem")).expect("remove");
+        let fresh = Ca::load_or_create(dir.path()).expect("ca");
+        assert_ne!(fresh.fingerprint(), first.fingerprint());
         assert_eq!(first.fingerprint().split(' ').count(), 16);
         assert!(
             first

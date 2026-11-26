@@ -11,9 +11,12 @@ use ring::signature::{ECDSA_P256_SHA256_FIXED, UnparsedPublicKey};
 /// 32 random bytes, base64url.
 pub(crate) fn random_token() -> String {
     let mut bytes = [0u8; 32];
-    // The system's generator does not fail on supported platforms; if it
-    // ever does, a zero token is refused by `challenge_ok`.
-    let _ = SystemRandom::new().fill(&mut bytes);
+    // The system's generator does not fail on supported platforms; a
+    // predictable secret would be worse than stopping.
+    #[allow(clippy::expect_used)]
+    SystemRandom::new()
+        .fill(&mut bytes)
+        .expect("the system's random generator failed");
     URL_SAFE_NO_PAD.encode(bytes)
 }
 

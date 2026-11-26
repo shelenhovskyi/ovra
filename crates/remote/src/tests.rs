@@ -271,3 +271,37 @@ async fn plain_http_hands_out_the_certificate_only_while_pairing() {
     let status = s.server.disable().expect("disable");
     assert!(!status.enabled && status.url.is_none());
 }
+
+#[test]
+fn app_files_stay_inside_their_folder() {
+    assert!(crate::inside("").is_none());
+    assert!(crate::inside("../x").is_none());
+    assert!(crate::inside("C:x").is_none());
+    assert!(crate::inside("a\\b").is_none());
+    assert!(crate::inside("assets/app.js").is_some());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_new_code_replaces_an_old_one_without_being_closed_by_it() {
+    let s = setup();
+    let old = secret_of(&s.server.start_pairing().expect("pairing").url);
+    let mut events = s.core.subscribe();
+    let body = json!({"secret": old, "key": TestKey::new().public(), "name": "old"}).to_string();
+    let head = format!(
+        "POST /api/pair HTTP/1.1\r\nHost: {}\r\nContent-Type: application/json",
+        s.host
+    );
+    let stream = tls(&s).await;
+    let waiting = tokio::spawn(async move { http(stream, &head, &body, "x").await.0 });
+    pairing_request(&mut events).await;
+
+    // The person opens a new code while the old phone still waits.
+    let new = secret_of(&s.server.start_pairing().expect("pairing").url);
+    assert_eq!(waiting.await.expect("post"), 403);
+    assert!(
+        s.server.shared.lock().pairing.is_some(),
+        "the new code still works"
+    );
+    let (status, _) = pair(&s, &new, &TestKey::new(), true).await;
+    assert_eq!(status, 200);
+}

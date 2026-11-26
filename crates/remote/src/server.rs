@@ -2,8 +2,11 @@
 //! only to hand out Ovra's CA certificate while a pairing window is open.
 
 use std::collections::HashMap;
+use std::future::Future;
 use std::net::{IpAddr, SocketAddr};
-use std::sync::Arc;
+use std::pin::Pin;
+use std::sync::{Arc, Mutex as StdMutex, PoisonError};
+use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
 use axum::Router;
@@ -19,8 +22,10 @@ use futures_util::{SinkExt, StreamExt};
 use ovra_core::Core;
 use ovra_core::protocol::info::InfoEvent;
 use serde::Deserialize;
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::mpsc;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc};
+use tokio::time::Sleep;
 use tokio_rustls::TlsAcceptor;
 use tokio_rustls::rustls::ServerConfig;
 use tokio_rustls::server::TlsStream;
@@ -35,6 +40,15 @@ const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_FRAME: usize = 1 << 20;
 const PAIRS_PER_MINUTE: u32 = 10;
 const HANDSHAKES_PER_MINUTE: u32 = 30;
+/// Connections open at once, in all and from one address.
+const MAX_CONNECTIONS: usize = 64;
+const MAX_PER_ADDRESS: usize = 8;
+/// A connection that neither reads nor writes for this long is closed;
+/// sessions ping more often.
+const IDLE: Duration = Duration::from_secs(90);
+const PING_EVERY: Duration = Duration::from_secs(30);
+/// Requests one phone may have running at once.
+const MAX_IN_FLIGHT: usize = 32;
 const CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; \
     img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; \
     form-action 'none'";
@@ -92,7 +106,116 @@ struct Peer {
     tls: bool,
 }
 
-type Io = Either<TlsStream<TcpStream>, TcpStream>;
+type Inner = Either<TlsStream<TcpStream>, TcpStream>;
+
+/// A connection's slots: one of [`MAX_CONNECTIONS`] and one of its
+/// address's [`MAX_PER_ADDRESS`], given back when it closes.
+struct Slots {
+    _all: OwnedSemaphorePermit,
+    ip: IpAddr,
+    by_ip: Arc<StdMutex<HashMap<IpAddr, usize>>>,
+}
+
+impl Slots {
+    fn take(
+        all: &Arc<Semaphore>,
+        by_ip: &Arc<StdMutex<HashMap<IpAddr, usize>>>,
+        ip: IpAddr,
+    ) -> Option<Self> {
+        let permit = all.clone().try_acquire_owned().ok()?;
+        let mut counts = by_ip.lock().unwrap_or_else(PoisonError::into_inner);
+        let count = counts.entry(ip).or_insert(0);
+        if *count >= MAX_PER_ADDRESS {
+            return None;
+        }
+        *count += 1;
+        Some(Self {
+            _all: permit,
+            ip,
+            by_ip: by_ip.clone(),
+        })
+    }
+}
+
+impl Drop for Slots {
+    fn drop(&mut self) {
+        let mut counts = self.by_ip.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(count) = counts.get_mut(&self.ip) {
+            *count -= 1;
+            if *count == 0 {
+                counts.remove(&self.ip);
+            }
+        }
+    }
+}
+
+/// A connection that holds its slots and fails once idle for [`IDLE`].
+struct Io {
+    inner: Inner,
+    idle: Pin<Box<Sleep>>,
+    _slots: Slots,
+}
+
+impl Io {
+    fn new(inner: Inner, slots: Slots) -> Self {
+        Self {
+            inner,
+            idle: Box::pin(tokio::time::sleep(IDLE)),
+            _slots: slots,
+        }
+    }
+
+    fn active(&mut self) {
+        self.idle.as_mut().reset(tokio::time::Instant::now() + IDLE);
+    }
+
+    fn timed_out<T>(&mut self, cx: &mut Context<'_>) -> Poll<std::io::Result<T>> {
+        match self.idle.as_mut().poll(cx) {
+            Poll::Ready(()) => Poll::Ready(Err(std::io::ErrorKind::TimedOut.into())),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+impl AsyncRead for Io {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        match Pin::new(&mut self.inner).poll_read(cx, buf) {
+            Poll::Ready(r) => {
+                self.active();
+                Poll::Ready(r)
+            }
+            Poll::Pending => self.timed_out(cx),
+        }
+    }
+}
+
+impl AsyncWrite for Io {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        match Pin::new(&mut self.inner).poll_write(cx, buf) {
+            Poll::Ready(r) => {
+                self.active();
+                Poll::Ready(r)
+            }
+            Poll::Pending => self.timed_out(cx),
+        }
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
+}
 
 struct PhoneListener {
     rx: mpsc::Receiver<(Io, Peer)>,
@@ -176,6 +299,8 @@ async fn accept_loop(
     tx: mpsc::Sender<(Io, Peer)>,
     stop: CancellationToken,
 ) {
+    let all = Arc::new(Semaphore::new(MAX_CONNECTIONS));
+    let by_ip = Arc::new(StdMutex::new(HashMap::new()));
     loop {
         let (stream, addr) = tokio::select! {
             () = stop.cancelled() => return,
@@ -187,6 +312,10 @@ async fn accept_loop(
                 }
             },
         };
+        // Over the limit: closed at once, before any work.
+        let Some(slots) = Slots::take(&all, &by_ip, addr.ip()) else {
+            continue;
+        };
         let (tls, tx) = (tls.clone(), tx.clone());
         tokio::spawn(async move {
             let mut first = [0u8; 1];
@@ -196,11 +325,17 @@ async fn accept_loop(
             }
             let next = if first[0] == 0x16 {
                 match tokio::time::timeout(HANDSHAKE_TIMEOUT, tls.accept(stream)).await {
-                    Ok(Ok(stream)) => (Either::Left(stream), Peer { addr, tls: true }),
+                    Ok(Ok(stream)) => (
+                        Io::new(Either::Left(stream), slots),
+                        Peer { addr, tls: true },
+                    ),
                     _ => return,
                 }
             } else {
-                (Either::Right(stream), Peer { addr, tls: false })
+                (
+                    Io::new(Either::Right(stream), slots),
+                    Peer { addr, tls: false },
+                )
             };
             let _ = tx.send(next).await;
         });
@@ -407,8 +542,12 @@ async fn session(
         Ok(Some(Ok(Message::Text(text)))) => serde_json::from_str::<Proof>(&text).ok(),
         _ => None,
     };
+    // Subscribed before the device is looked up, so a forget from now on
+    // reaches this session.
+    let mut kicks = shared.kicks.subscribe();
     let device = proof.and_then(|proof| {
-        let state = shared.lock();
+        let mut state = shared.lock();
+        state.devices.expire(crate::now_ms());
         let stored = state.devices.get(&proof.device)?;
         auth::verify(
             &stored.key,
@@ -422,7 +561,6 @@ async fn session(
         let _ = socket.send(Message::Text(refused.into())).await;
         return;
     };
-    let mut kicks = shared.kicks.subscribe();
     let welcome = serde_json::json!({"paired": device.name}).to_string();
     if socket.send(Message::Text(welcome.into())).await.is_err() {
         return;
@@ -454,9 +592,15 @@ async fn serve(
     let mut running = FuturesUnordered::new();
     let expires = tokio::time::sleep(SESSION_LIFE);
     tokio::pin!(expires);
+    let mut ping = tokio::time::interval(PING_EVERY);
     loop {
         tokio::select! {
-            incoming = rx.next() => match incoming {
+            _ = ping.tick() => {
+                if tx.send(Message::Ping(Vec::new().into())).await.is_err() {
+                    break;
+                }
+            },
+            incoming = rx.next(), if running.len() < MAX_IN_FLIGHT => match incoming {
                 Some(Ok(Message::Text(text))) => {
                     running.push(async move { ovra_transport::dispatch(client, &text).await });
                 }
@@ -512,5 +656,21 @@ mod tests {
         assert!(!limits.take(ip, true));
         assert!(limits.take(ip, false), "handshakes count apart");
         assert!(limits.take("192.168.1.6".parse().expect("ip"), true));
+    }
+
+    #[test]
+    fn one_address_cannot_take_every_connection() {
+        let all = Arc::new(Semaphore::new(MAX_CONNECTIONS));
+        let by_ip = Arc::new(StdMutex::new(HashMap::new()));
+        let ip: IpAddr = "192.168.1.5".parse().expect("ip");
+        let held: Vec<_> = (0..MAX_PER_ADDRESS)
+            .map(|_| Slots::take(&all, &by_ip, ip).expect("slot"))
+            .collect();
+        assert!(Slots::take(&all, &by_ip, ip).is_none());
+        assert_eq!(all.available_permits(), MAX_CONNECTIONS - MAX_PER_ADDRESS);
+        assert!(Slots::take(&all, &by_ip, "192.168.1.6".parse().expect("ip")).is_some());
+        drop(held);
+        assert!(Slots::take(&all, &by_ip, ip).is_some());
+        assert!(by_ip.lock().expect("lock").get(&ip).is_none_or(|n| *n == 0));
     }
 }

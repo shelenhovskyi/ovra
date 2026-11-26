@@ -47,8 +47,9 @@ impl Devices {
     }
 
     /// Adds a phone; the oldest one goes when there are already
-    /// [`MAX_DEVICES`].
-    pub(crate) fn add(&mut self, device: Stored) -> Result<(), String> {
+    /// [`MAX_DEVICES`]. Returns the ids of the phones that went.
+    pub(crate) fn add(&mut self, device: Stored) -> Result<Vec<String>, String> {
+        let mut gone = Vec::new();
         while self.list.len() >= MAX_DEVICES {
             let oldest = self
                 .list
@@ -57,10 +58,10 @@ impl Devices {
                 .min_by_key(|(_, d)| d.seen_at_ms.unwrap_or(d.paired_at_ms))
                 .map(|(i, _)| i)
                 .unwrap_or(0);
-            self.list.remove(oldest);
+            gone.push(self.list.remove(oldest).id);
         }
         self.list.push(device);
-        self.save()
+        self.save().map(|()| gone)
     }
 
     pub(crate) fn forget(&mut self, id: &str) -> Result<bool, String> {
@@ -117,9 +118,15 @@ mod tests {
         let dir = tempfile::tempdir().expect("dir");
         let path = dir.path().join("devices.json");
         let mut devices = Devices::load(path.clone(), 0);
-        for n in 0..6 {
-            devices.add(phone(&format!("d{n}"), n)).expect("add");
+        for n in 0..5 {
+            assert!(
+                devices
+                    .add(phone(&format!("d{n}"), n))
+                    .expect("add")
+                    .is_empty()
+            );
         }
+        assert_eq!(devices.add(phone("d5", 5)).expect("add"), ["d0"]);
         assert_eq!(devices.list().len(), MAX_DEVICES);
         assert!(devices.get("d0").is_none(), "the oldest went");
         devices.seen("d1", FORGET_AFTER_MS);
