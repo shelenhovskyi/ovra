@@ -11,8 +11,12 @@ function daemonUrl(): string {
   return raw;
 }
 
-/** Without the machine's global config, so its hooks or signing cannot interfere. */
-const GIT_ENV = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
+/**
+ * Without the machine's global config, so its hooks or signing cannot interfere,
+ * and without optional locks: `git status` and `git diff` here would otherwise
+ * hold index.lock for a moment, and a stage or commit Ovra runs then fails.
+ */
+const GIT_ENV = { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", GIT_OPTIONAL_LOCKS: "0" };
 
 function git(dir: string, ...args: string[]): string {
   return execFileSync("git", args, { cwd: dir, encoding: "utf8", env: GIT_ENV });
@@ -137,10 +141,17 @@ test("the editor marks changed lines against the index", async ({ page }) => {
   await expect(marker).toHaveCount(1);
   await expect(marker).toBeVisible();
   expect((await marker.boundingBox())?.width).toBeGreaterThan(0);
+  // The line's own text: the inline blame joins the active line once git answers.
+  const activeLine = () =>
+    main.locator(".cm-activeLine").evaluate((line) => {
+      const copy = line.cloneNode(true) as Element;
+      for (const blame of copy.querySelectorAll(".cm-git-inline-blame")) blame.remove();
+      return copy.textContent;
+    });
   // The cursor is on line 2; the next change wraps around to line 1.
-  await expect(main.locator(".cm-activeLine")).toHaveText("line 1");
+  await expect.poll(activeLine).toBe("line 1");
   await page.keyboard.press("Alt+F5");
-  await expect(main.locator(".cm-activeLine")).toHaveText("added line");
+  await expect.poll(activeLine).toBe("added line");
 });
 
 test("set up git in a folder without it", async ({ page }) => {
