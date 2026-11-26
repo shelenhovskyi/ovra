@@ -428,7 +428,16 @@ impl Worktrees for GitWorktrees {
         message: String,
         author: Option<CommitAuthor>,
     ) -> BoxFuture<'_, Result<Picked>> {
-        blocking(move || pick::pick(&root, &base, &start, &reviewed, &message, author.as_ref()))
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let guard = pick::StopOnDrop(stop.clone());
+        let work = blocking(move || {
+            let author = author.as_ref();
+            pick::pick(&root, &base, &start, &reviewed, &message, author, &stop)
+        });
+        Box::pin(async move {
+            let _stops_when_dropped = guard;
+            work.await
+        })
     }
 
     fn include(&self, root: PathBuf, dir: PathBuf) -> BoxFuture<'_, Result<Included>> {

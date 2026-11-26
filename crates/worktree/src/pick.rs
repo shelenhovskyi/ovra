@@ -3,7 +3,8 @@
 
 use std::collections::BTreeSet;
 use std::path::Path;
-use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use ovra_core::services::{CommitAuthor, Picked, Result};
@@ -12,6 +13,24 @@ use crate::git::{self, Ended, Git, internal};
 
 /// How long signing may take: gpg can wait for a passphrase Ovra cannot give.
 const SIGN_LIMIT: Duration = Duration::from_secs(120);
+
+/// How long the merge may take, however large the repository.
+const MERGE_LIMIT: Duration = Duration::from_secs(300);
+
+/// Sets its flag when dropped: a pick whose call was dropped (the person
+/// closed the dialog, the request was cancelled) stops its git and gpg.
+#[derive(Debug)]
+pub(crate) struct StopOnDrop(pub(crate) Arc<AtomicBool>);
+
+impl Drop for StopOnDrop {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Relaxed);
+    }
+}
+
+fn stopped(what: &str) -> ovra_core::protocol::ProtocolError {
+    internal(format!("git {what} was stopped"))
+}
 
 /// `git merge-tree --write-tree` with `start` as the merge base, `base` as
 /// ours and `reviewed` as theirs; then `commit-tree` on `base`. Neither runs
@@ -23,6 +42,7 @@ pub(crate) fn pick(
     reviewed: &str,
     message: &str,
     author: Option<&CommitAuthor>,
+    stop: &AtomicBool,
 ) -> Result<Picked> {
     let base = git::commit_id(root, base)?;
     let start = git::commit_id(root, start)?;
@@ -31,7 +51,16 @@ pub(crate) fn pick(
         .args(["--write-tree", "-z", "--name-only", "--no-messages"])
         .arg(format!("--merge-base={start}"))
         .args([&base, &reviewed])
-        .output()?;
+        .output_until(stop, MERGE_LIMIT)?;
+    let out = match out {
+        Ended::Exited(out) => out,
+        Ended::Stopped(_) => return Err(stopped("merge-tree")),
+        Ended::TimedOut(_) => {
+            return Err(internal(
+                "git merge-tree was still running after 5 minutes and was stopped",
+            ));
+        }
+    };
     // `<tree>NUL<conflicted path>NUL...`; exit 1 means conflicts.
     let mut fields = git::fields(&out.stdout);
     let tree = match out.status.code() {
@@ -64,9 +93,10 @@ pub(crate) fn pick(
                 .env(&format!("GIT_{who}_EMAIL"), &author.email);
         }
     }
-    let out = match commit.output_until(&AtomicBool::new(false), SIGN_LIMIT)? {
+    let out = match commit.output_until(stop, SIGN_LIMIT)? {
         Ended::Exited(out) => out,
-        Ended::Stopped(_) | Ended::TimedOut(_) => {
+        Ended::Stopped(_) => return Err(stopped("commit-tree")),
+        Ended::TimedOut(_) => {
             return Err(internal(
                 "git commit-tree was still running after 2 minutes and was stopped: \
                  gpg may be waiting for a passphrase",
@@ -224,6 +254,72 @@ mod tests {
         let picked = w.pick(root.clone(), base, start, reviewed, "x".into(), None);
         assert!(matches!(picked.await, Ok(Picked::Commit(_))));
         assert!(!ran.exists(), "{:?}", std::fs::read_to_string(&ran));
+    }
+
+    /// Whether process `pid` still runs (a zombie does not).
+    #[cfg(target_os = "linux")]
+    fn runs(pid: &str) -> bool {
+        let stat = std::fs::read_to_string(format!("/proc/{pid}/stat"));
+        stat.is_ok_and(|s| s.rsplit(')').next().is_some_and(|r| !r.starts_with(" Z")))
+    }
+
+    /// Dropping the call ends its git and the gpg git started.
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn a_dropped_pick_stops_its_git_and_gpg() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let repo = Repo::new(&[("a.txt", "a\n")]);
+        let root = &repo.root;
+        let w = GitWorktrees::new();
+        let (start, wt) = repo.worker(&w).await;
+        put(&wt, "a.txt", "worker\n");
+        let reviewed = w
+            .snapshot(wt.clone())
+            .await
+            .unwrap_or_else(|e| panic!("{e:?}"));
+        let pid = repo.tmp.path().join("gpg.pid");
+        // gpg waiting for a passphrase nobody gives.
+        let gpg = repo.tmp.path().join("fake-gpg");
+        let script = format!(
+            "#!/bin/sh\necho $$ > '{}.tmp'\nmv '{0}.tmp' '{0}'\nexec sleep 30\n",
+            pid.display()
+        );
+        std::fs::write(&gpg, script).unwrap_or_else(|e| panic!("{e}"));
+        std::fs::set_permissions(&gpg, std::fs::Permissions::from_mode(0o755))
+            .unwrap_or_else(|e| panic!("{e}"));
+        git(root, &["config", "gpg.program", &gpg.to_string_lossy()]);
+        git(root, &["config", "gpg.format", "openpgp"]);
+        git(root, &["config", "user.signingkey", "test"]);
+        git(root, &["config", "commit.gpgsign", "true"]);
+        let base = git(root, &["rev-parse", "HEAD"]);
+
+        let mut picked = w.pick(root.clone(), base, start, reviewed, "x".into(), None);
+        let waiting = std::time::Instant::now();
+        let gpg_pid = loop {
+            if let Ok(pid) = std::fs::read_to_string(&pid) {
+                break pid.trim().to_owned();
+            }
+            assert!(waiting.elapsed().as_secs() < 2, "gpg never started");
+            let poll = futures_poll(&mut picked);
+            assert!(poll.is_none(), "the pick ended: {poll:?}");
+            tokio::task::yield_now().await;
+        };
+        assert!(runs(&gpg_pid));
+        drop(picked);
+        while runs(&gpg_pid) {
+            assert!(waiting.elapsed().as_secs() < 2, "gpg still runs");
+            tokio::task::yield_now().await;
+        }
+    }
+
+    /// Polls `future` once without waiting.
+    #[cfg(target_os = "linux")]
+    fn futures_poll<T>(future: &mut ovra_core::services::BoxFuture<'_, T>) -> Option<T> {
+        let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
+        match future.as_mut().poll(&mut cx) {
+            std::task::Poll::Ready(v) => Some(v),
+            std::task::Poll::Pending => None,
+        }
     }
 
     #[tokio::test]
