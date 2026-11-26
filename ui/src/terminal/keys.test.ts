@@ -48,7 +48,7 @@ describe("clipboardKey", () => {
     expect(clipboardKey(press("ψ", "KeyC", { ctrl: true, shift: true }), false)).toBe("copy");
     expect(clipboardKey(press("ω", "KeyV", { ctrl: true, shift: true }), false)).toBe("paste");
     expect(clipboardKey(press("Insert", "Insert", { ctrl: true }), false)).toBe("copy");
-    expect(clipboardKey(press("Insert", "Insert", { shift: true }), false)).toBe("paste");
+    expect(clipboardKey(press("Insert", "Insert", { shift: true }), false)).toBe("system-paste");
     // Ctrl+C and Ctrl+V stay the shell's.
     expect(clipboardKey(press("c", "KeyC", { ctrl: true }), false)).toBeNull();
     expect(clipboardKey(press("v", "KeyV", { ctrl: true }), false)).toBeNull();

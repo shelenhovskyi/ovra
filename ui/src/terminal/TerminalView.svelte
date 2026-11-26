@@ -95,6 +95,8 @@ $effect(() =>
         return false;
       }
       const clip = clipboardKey(event, apple);
+      // Not prevented: the browser's own paste follows and xterm takes it, no clipboard read needed.
+      if (clip === "system-paste") return false;
       // Off Apple keyboards the copy key never reaches the shell, also with nothing selected.
       if (clip === "paste" || (clip === "copy" && (copySelection(t) || !apple))) {
         event.preventDefault();

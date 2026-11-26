@@ -26,12 +26,15 @@ export function isCommandKey(event: KeyEventLike, apple: boolean, browser: boole
  * the shell off Apple keyboards, so there it is Ctrl+Shift+C and Ctrl+Shift+V
  * (and Ctrl+Insert, Shift+Insert), as in other terminals. On Apple keyboards
  * Cmd+C copies; Cmd+V is the system's paste, which xterm.js already takes.
+ * Shift+Insert is the system's paste too: `system-paste` means the key is
+ * kept from the shell but not prevented, so the browser pastes and xterm.js
+ * takes the paste event, which works where reading the clipboard is denied.
  * Matched on `code`, so the keys work on any layout.
  */
 export function clipboardKey(
   event: Pick<KeyboardEvent, "code" | "ctrlKey" | "shiftKey" | "altKey" | "metaKey">,
   apple: boolean,
-): "copy" | "paste" | null {
+): "copy" | "paste" | "system-paste" | null {
   const { code, ctrlKey: ctrl, shiftKey: shift, altKey: alt, metaKey: meta } = event;
   if (alt) return null;
   if (apple) return meta && !ctrl && !shift && code === "KeyC" ? "copy" : null;
@@ -39,7 +42,7 @@ export function clipboardKey(
   if (ctrl && shift && code === "KeyC") return "copy";
   if (ctrl && shift && code === "KeyV") return "paste";
   if (ctrl && !shift && code === "Insert") return "copy";
-  if (shift && !ctrl && code === "Insert") return "paste";
+  if (shift && !ctrl && code === "Insert") return "system-paste";
   return null;
 }
 
