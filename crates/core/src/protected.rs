@@ -127,12 +127,13 @@ pub(crate) fn changes(path: &str, from: Option<&str>) -> bool {
 /// Files the Linux sandbox makes empty and read-only at the top of a work
 /// dir while a session runs, when they are missing, and removes after it
 /// (`crates/sandbox-linux`, `FILES_MADE`).
-const PLACEHOLDERS: [&str; 5] = [
+const PLACEHOLDERS: [&str; 6] = [
     "CLAUDE.md",
     "CLAUDE.local.md",
     "AGENTS.md",
     ".mcp.json",
     ".envrc",
+    ".worktreeinclude",
 ];
 
 /// Git's empty blob, in SHA-1 and SHA-256 repositories, as a regular file.
@@ -174,6 +175,12 @@ mod tests {
             version: version.into(),
         };
         let empty = EMPTY_FILE[0];
+        // Every file the Linux sandbox makes, the newest one too.
+        assert!(is_placeholder(&delta(
+            ".worktreeinclude",
+            ChangeKind::Added,
+            empty
+        )));
         for path in PLACEHOLDERS {
             assert!(
                 is_placeholder(&delta(path, ChangeKind::Added, empty)),
@@ -200,6 +207,8 @@ mod tests {
             ("CLAUDE.md", ChangeKind::Modified, empty),
             ("CLAUDE.md", ChangeKind::Deleted, ""),
             ("src/CLAUDE.md", ChangeKind::Added, empty),
+            ("sub/.worktreeinclude", ChangeKind::Added, empty),
+            (".worktreeinclude", ChangeKind::Added, "100644 0123"),
             ("claude.md", ChangeKind::Added, empty),
             (".claude", ChangeKind::Added, empty),
         ] {

@@ -27,9 +27,10 @@ pub(crate) fn remote_name(remote: Option<String>) -> Result<String, ProtocolErro
     let remote = remote.unwrap_or_else(|| DEFAULT_REMOTE.to_owned());
     let plain = |c: char| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.');
     if remote.is_empty() || remote.starts_with(['-', '.']) || !remote.chars().all(plain) {
+        // Not echoed: a caller may have passed a URL with a token in it.
         return Err(ProtocolError::new(
             ErrorCode::BadRequest,
-            format!("{remote:?} is not a remote's name"),
+            "a remote must be given by its name, such as origin",
         ));
     }
     Ok(remote)
@@ -76,6 +77,18 @@ mod tests {
                 json!({"method": "pr.status", "params": {"project": "p1", "remote": remote}});
             assert_eq!(call(&core, asked).await.err(), Some(ErrorCode::BadRequest));
         }
+        let secret = "https://x:ghp_SECRET@github.com/o/r";
+        let refused = core
+            .handle(Request::Pr(crate::protocol::pr::PrRequest::Status {
+                project: crate::protocol::projects::ProjectId("p1".into()),
+                remote: Some(secret.into()),
+            }))
+            .await;
+        let message = refused.err().map(|e| e.message).unwrap_or_default();
+        assert!(
+            !message.contains("SECRET") && !message.is_empty(),
+            "{message}"
+        );
         let prepare = json!({"method": "pr.prepare", "params": {"id": "r1"}});
         assert_eq!(call(&core, prepare).await.err(), Some(ErrorCode::NotFound));
     }
