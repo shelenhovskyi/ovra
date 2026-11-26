@@ -119,10 +119,9 @@ function onEnter(event: KeyboardEvent, send: () => void): void {
   <ol class="entries" aria-label="Entries">
     {#each entries as entry (entry.id)}
       <li data-testid="board-entry" data-kind={entry.body.kind}>
-        {@const time = entryTime(entry, new Date())}
         <span class="who"
-          >{authorName(entry.author)} · {entryHead(entry, entries)}{#if time}<time
-              datetime={new Date(entry.at_ms ?? 0).toISOString()}>{time}</time
+          >{authorName(entry.author)} · {entryHead(entry, entries)}{#if entry.at_ms !== undefined}<time
+              datetime={new Date(entry.at_ms).toISOString()}>{entryTime(entry, new Date())}</time
             >{/if}</span
         >
         <p>{entryText(entry)}</p>

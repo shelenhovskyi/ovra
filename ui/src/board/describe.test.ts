@@ -37,9 +37,10 @@ describe("board entries in words", () => {
 
   it("says when an entry was written, with the day once it is not today", () => {
     const now = new Date(2026, 10, 26, 18, 0);
-    const at = (d: Date): BoardEntry => ({ ...entries[0], at_ms: d.getTime() });
+    const note: BoardEntry = { id: "b9", author: lint, body: { kind: "note", text: "done" } };
+    const at = (d: Date): BoardEntry => ({ ...note, at_ms: d.getTime() });
     expect(entryTime(at(new Date(2026, 10, 26, 9, 5)), now)).toBe("09:05");
     expect(entryTime(at(new Date(2026, 10, 25, 23, 59)), now)).toBe("Nov 25, 23:59");
-    expect(entryTime(entries[0], now)).toBe("");
+    expect(entryTime(note, now)).toBe("");
   });
 });
