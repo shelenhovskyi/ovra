@@ -1,0 +1,77 @@
+---
+source: crates/acp-client/src/tests.rs
+expression: ends
+---
+[
+  {
+    "kind": "error",
+    "message": "The turn stopped: it reached its token limit."
+  },
+  {
+    "kind": "turn_end",
+    "usage": {
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "cost_micro_usd": null
+    }
+  },
+  {
+    "kind": "error",
+    "message": "The turn stopped: it reached its turn limit."
+  },
+  {
+    "kind": "turn_end",
+    "usage": {
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "cost_micro_usd": null
+    }
+  },
+  {
+    "kind": "error",
+    "message": "The agent refused to go on."
+  },
+  {
+    "kind": "turn_end",
+    "usage": {
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "cost_micro_usd": null
+    }
+  },
+  {
+    "kind": "interrupted"
+  },
+  {
+    "kind": "turn_end",
+    "usage": {
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "cost_micro_usd": null
+    }
+  },
+  {
+    "kind": "error",
+    "message": "Quota exceeded"
+  },
+  {
+    "kind": "turn_end",
+    "usage": {
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "cost_micro_usd": null
+    }
+  },
+  {
+    "kind": "error",
+    "message": "The agent ended the turn without a stop reason: missing field `stopReason`"
+  },
+  {
+    "kind": "turn_end",
+    "usage": {
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "cost_micro_usd": null
+    }
+  }
+]

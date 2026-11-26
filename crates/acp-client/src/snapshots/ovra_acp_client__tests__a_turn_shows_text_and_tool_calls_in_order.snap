@@ -1,0 +1,47 @@
+---
+source: crates/acp-client/src/tests.rs
+expression: transcript
+---
+[
+  {
+    "kind": "user_text",
+    "text": "Read a.rs",
+    "from": "person"
+  },
+  {
+    "kind": "assistant_text",
+    "text": "Let me look."
+  },
+  {
+    "kind": "tool_use",
+    "id": "c1",
+    "name": "Read a.rs",
+    "input": {
+      "path": "/w/a.rs"
+    },
+    "call": {
+      "kind": "read",
+      "paths": [
+        "/w/a.rs"
+      ]
+    }
+  },
+  {
+    "kind": "tool_result",
+    "tool_use_id": "c1",
+    "output": "fn main() {}",
+    "is_error": false
+  },
+  {
+    "kind": "assistant_text",
+    "text": "It is empty."
+  },
+  {
+    "kind": "turn_end",
+    "usage": {
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "cost_micro_usd": null
+    }
+  }
+]

@@ -11,9 +11,12 @@ publish = false
 ovra-core.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+tokio = { workspace = true, features = ["io-util", "macros", "process", "rt", "sync", "time"] }
 
 [dev-dependencies]
+ovra-core = { workspace = true, features = ["fakes"] }
 insta.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
 
 [lints]
 workspace = true

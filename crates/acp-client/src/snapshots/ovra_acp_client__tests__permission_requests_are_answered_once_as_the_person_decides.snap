@@ -1,0 +1,43 @@
+---
+source: crates/acp-client/src/tests.rs
+expression: transcript
+---
+[
+  {
+    "kind": "user_text",
+    "text": "go",
+    "from": "person"
+  },
+  {
+    "kind": "tool_use",
+    "id": "c1",
+    "name": "ls",
+    "input": {
+      "command": "ls"
+    },
+    "call": {
+      "kind": "execute",
+      "command": "ls"
+    }
+  },
+  {
+    "kind": "tool_use",
+    "id": "c2",
+    "name": "ls -a",
+    "input": {
+      "command": "ls"
+    },
+    "call": {
+      "kind": "execute",
+      "command": "ls"
+    }
+  },
+  {
+    "kind": "turn_end",
+    "usage": {
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "cost_micro_usd": null
+    }
+  }
+]

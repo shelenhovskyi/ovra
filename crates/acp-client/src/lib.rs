@@ -4,14 +4,19 @@
 //! Contract: `ovra_core::services::AgentRuntime`; fake:
 //! `ovra_core::fakes::ScriptedAgent`.
 
+#[cfg_attr(not(test), expect(dead_code, reason = "the process layer runs it"))]
+mod driver;
 #[cfg_attr(not(test), expect(dead_code, reason = "the session driver uses it"))]
 mod tools;
-#[expect(dead_code, reason = "the session driver uses it")]
+#[cfg_attr(not(test), expect(dead_code, reason = "the session driver uses it"))]
 mod v1;
 
 use ovra_core::protocol::agents::ProviderInfo;
 use ovra_core::protocol::{ErrorCode, ProtocolError};
 use ovra_core::services::{AgentHost, AgentRuntime, AgentSpec, Result, RunningAgent};
+use tokio::sync::mpsc;
+
+use crate::driver::Command;
 
 /// Starts sessions of the ACP agents it describes.
 #[derive(Debug, Default)]
@@ -38,20 +43,31 @@ impl AgentRuntime for AcpAgents {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use ovra_core::protocol::agents::{AgentKind, Capabilities};
+/// The handle the core keeps; dropping it stops the session.
+#[cfg_attr(not(test), expect(dead_code, reason = "the process layer returns it"))]
+#[derive(Debug)]
+struct AcpProcess(mpsc::UnboundedSender<Command>);
 
-    use super::*;
-
-    #[test]
-    fn lists_the_agents_it_describes() {
-        assert!(AcpAgents::default().providers().is_empty());
-        let agent = ProviderInfo {
-            id: AgentKind::Claude,
-            name: "Some agent".into(),
-            capabilities: Capabilities::default(),
-        };
-        assert_eq!(AcpAgents::new(vec![agent.clone()]).providers(), vec![agent]);
+impl AcpProcess {
+    #[cfg_attr(not(test), expect(dead_code, reason = "the process layer returns it"))]
+    fn command(&self, command: Command) -> Result<()> {
+        self.0
+            .send(command)
+            .map_err(|_| ProtocolError::new(ErrorCode::Conflict, "the session has ended"))
     }
 }
+
+impl RunningAgent for AcpProcess {
+    fn send(&self, text: String) -> Result<()> {
+        self.command(Command::Send(text))
+    }
+    fn interrupt(&self) -> Result<()> {
+        self.command(Command::Interrupt)
+    }
+    fn stop(&self) {
+        let _ = self.command(Command::Stop);
+    }
+}
+
+#[cfg(test)]
+mod tests;

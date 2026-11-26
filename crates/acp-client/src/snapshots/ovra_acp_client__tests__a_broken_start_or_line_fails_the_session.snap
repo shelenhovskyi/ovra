@@ -1,0 +1,8 @@
+---
+source: crates/acp-client/src/tests.rs
+expression: "messages.join(\"\\n\")"
+---
+the agent speaks ACP version 2; Ovra speaks version 1
+the agent did not initialize: no
+the agent did not start the session: Authentication required
+the agent wrote a line that is not JSON: expected value at line 1 column 1
