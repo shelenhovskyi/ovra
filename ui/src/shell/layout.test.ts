@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_WIDTH, Layout, MIN_WIDTH } from "./layout.svelte";
+import { DEFAULT_WIDTH, Layout, MIN_DOCK, MIN_WIDTH } from "./layout.svelte";
 
 function memory(initial: Record<string, string> = {}): Storage {
   const data = new Map(Object.entries(initial));
@@ -73,5 +73,23 @@ describe("Layout", () => {
     const layout = new Layout(failing);
     expect(() => layout.swap()).not.toThrow();
     expect(layout.swapped).toBe(true);
+  });
+
+  it("keeps the bottom dock's height within the main area and remembers it", () => {
+    const store = memory();
+    const layout = new Layout(store);
+    expect(layout.dock).toBeNull();
+    layout.resizeDock(300, 800);
+    expect(new Layout(store).dock).toBe(300);
+    // The files above keep 160 px, and the dock is never shorter than its minimum.
+    layout.resizeDock(5000, 800);
+    expect(layout.dock).toBe(640);
+    layout.resizeDock(10, 800);
+    expect(layout.dock).toBe(MIN_DOCK);
+    layout.resizeDock(null, 800);
+    expect(new Layout(store).dock).toBeNull();
+    layout.resizeDock(300, 800);
+    layout.resetAll();
+    expect(new Layout(store).dock).toBeNull();
   });
 });

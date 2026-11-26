@@ -1,6 +1,7 @@
 // The window's layout: how wide the two side panels are (the rail's panel and
 // Agents), whether each is folded to a strip, and which side each sits on;
-// and the share of the main area the left editor group takes when split.
+// the share of the main area the left editor group takes when split; and the
+// height of the bottom dock (terminals, servers, problems).
 // Kept in the page's storage like the last project; a broken or blocked
 // storage only costs the restore.
 
@@ -19,11 +20,16 @@ const STRIP = 48;
 
 const KEY = "ovra.layout";
 
+/** The bottom dock is at least this tall... */
+export const MIN_DOCK = 120;
+/** ...and leaves the files above it this much of the main area. */
+export const MIN_ABOVE_DOCK = 160;
+
 /** The left editor group's share of the main area stays within these. */
 const MIN_GROUPS = 0.1;
 const MAX_GROUPS = 0.9;
 
-type Saved = { side: PanelState; agents: PanelState; swapped: boolean; groups?: number };
+type Saved = { side: PanelState; agents: PanelState; swapped: boolean; groups?: number; dock?: number };
 type PanelState = { width: number; collapsed: boolean };
 
 function storage(): Storage | null {
@@ -54,6 +60,8 @@ export class Layout {
   swapped = $state(false);
   /** The left editor group's share of the main area while it is split. */
   groups = $state(0.5);
+  /** The bottom dock's height in pixels; null for the default share of the main area. */
+  dock = $state<number | null>(null);
   /** The window's width, kept up to date by the shell: it bounds the panels. */
   viewport = $state(typeof window === "undefined" ? 1440 : window.innerWidth);
   readonly #store: Storage | null;
@@ -70,6 +78,8 @@ export class Layout {
     this.agents = readPanel(saved.agents, "agents");
     this.swapped = saved.swapped === true;
     if (typeof saved.groups === "number" && Number.isFinite(saved.groups)) this.resizeGroups(saved.groups, false);
+    if (typeof saved.dock === "number" && Number.isFinite(saved.dock))
+      this.dock = Math.max(MIN_DOCK, Math.round(saved.dock));
   }
 
   /** The panel on the left of the main area. */
@@ -105,6 +115,18 @@ export class Layout {
     this.agents = { width: DEFAULT_WIDTH.agents, collapsed: false };
     this.swapped = false;
     this.groups = 0.5;
+    this.dock = null;
+    this.#save();
+  }
+
+  /** The tallest the dock may be in a main area `room` pixels tall. */
+  dockMax(room: number): number {
+    return Math.max(MIN_DOCK, Math.floor(room - MIN_ABOVE_DOCK));
+  }
+
+  /** Sets the dock's height within what a main area `room` pixels tall allows; null goes back to the default. */
+  resizeDock(height: number | null, room: number): void {
+    this.dock = height === null ? null : Math.round(Math.min(this.dockMax(room), Math.max(MIN_DOCK, height)));
     this.#save();
   }
 
@@ -131,6 +153,7 @@ export class Layout {
         agents: { ...this.agents },
         swapped: this.swapped,
         groups: this.groups,
+        ...(this.dock === null ? {} : { dock: this.dock }),
       };
       this.#store?.setItem(KEY, JSON.stringify(saved));
     } catch {

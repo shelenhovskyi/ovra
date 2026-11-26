@@ -45,7 +45,7 @@ import { provideOvra } from "./context";
 import EditorGroup from "./EditorGroup.svelte";
 import Icon from "./Icon.svelte";
 import { rememberProject, restoreProject } from "./last-project";
-import { Layout, MIN_WIDTH, type Panel } from "./layout.svelte";
+import { Layout, MIN_DOCK, MIN_WIDTH, type Panel } from "./layout.svelte";
 import { mainView, VIEW_TITLES } from "./main-view.svelte";
 import Rail from "./Rail.svelte";
 import Splitter from "./Splitter.svelte";
@@ -279,6 +279,26 @@ const groupsRoom = $derived(Math.max(0, groupsWidth - GROUP_HANDLE));
 /** The tracks of the tab row and the files while the main area is split; both use them, so tabs sit above their file. */
 const groupColumns = $derived(`minmax(0, ${layout.groups}fr) ${GROUP_HANDLE}px minmax(0, ${1 - layout.groups}fr)`);
 
+/** The main area's height bounds the bottom dock's; the dock's own is where its handle starts. */
+let mainHeight = $state(0);
+let dockHeight = $state(0);
+let mainBox = $state<HTMLElement>();
+let dockBox = $state<HTMLElement>();
+$effect(() => {
+  const main = mainBox;
+  const dock = dockBox;
+  if (!main || !dock || typeof ResizeObserver === "undefined") return;
+  const observer = new ResizeObserver(() => {
+    mainHeight = main.clientHeight;
+    dockHeight = dock.clientHeight;
+  });
+  observer.observe(main);
+  observer.observe(dock);
+  return () => observer.disconnect();
+});
+const dockMax = $derived(layout.dockMax(mainHeight));
+const dockBasis = $derived(layout.dock === null ? undefined : `${Math.min(layout.dock, dockMax)}px`);
+
 function resizeGroups(width: number): void {
   if (groupsRoom <= 0) return;
   layout.resizeGroups(Math.min(Math.max(width, MIN_WIDTH), groupsRoom - MIN_WIDTH) / groupsRoom);
@@ -374,7 +394,7 @@ async function showApprovals(): Promise<void> {
       </div>
     {/if}
   {/each}
-  <main data-testid="main" hidden={!workspace.project && !mainView.current}>
+  <main data-testid="main" hidden={!workspace.project && !mainView.current} bind:this={mainBox}>
     <!-- The open files' tabs stay in sight under a view (Settings, Audit log,
          Reviews), which shows as one more tab: a file's tab brings it back. -->
     <div
@@ -449,7 +469,18 @@ async function showApprovals(): Promise<void> {
     <Inbox inbox={reviews} />
     <BrowserPane />
     <!-- The bottom dock: terminals and, next to them, the dev servers that run and the problems. -->
-    <div class="dock">
+    <div class="dock" style:flex-basis={dockBasis} bind:this={dockBox}>
+      <div class="dock-handle">
+        <Splitter
+          label="Resize the bottom panel"
+          width={dockHeight}
+          min={MIN_DOCK}
+          max={dockMax}
+          edge="bottom"
+          onresize={(height) => layout.resizeDock(height, mainHeight)}
+          onreset={() => layout.resizeDock(null, mainHeight)}
+        />
+      </div>
       <Terminals />
       <ServersDock />
       <ProblemsDock />
@@ -878,6 +909,7 @@ async function showApprovals(): Promise<void> {
      The dock is a panel, in the side panels' tone under a hairline, so it never
      reads as more of the file above it. */
   .dock {
+    position: relative;
     display: flex;
     flex: 0 0 40%;
     min-height: 120px;
@@ -887,8 +919,17 @@ async function showApprovals(): Promise<void> {
   .dock > :global(section:not([hidden]) ~ section:not([hidden])) {
     border-left: 1px solid var(--separator);
   }
-  .dock:not(:has(> :not([hidden]))) {
+  .dock:not(:has(> section:not([hidden]))) {
     display: none;
+  }
+  /* Centred on the dock's top hairline, over the file above as much as over the dock. */
+  .dock-handle {
+    position: absolute;
+    top: -5px;
+    left: 0;
+    right: 0;
+    height: 9px;
+    z-index: 5;
   }
   .dock > :global(section) {
     flex: 1 1 0;
