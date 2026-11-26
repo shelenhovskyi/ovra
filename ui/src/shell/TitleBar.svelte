@@ -129,7 +129,7 @@ function tip(panel: Panel): string {
       {@render panelToggle("side")}
       <ProjectSwitcher project={workspace.project} />
       {#if branch}
-        <button type="button" class="branch" title="Switch branch" onclick={switchBranch}
+        <button type="button" class="branch tip" data-tip="Switch branch" onclick={switchBranch}
           ><Icon name="branch" small /><span class="name">{branch}</span><span class="visually-hidden">
             (switch branch)</span
           ></button
@@ -177,8 +177,11 @@ function tip(panel: Panel): string {
     user-select: none;
   }
   /* The desktop app's overlay title bar: room for the window's traffic lights.
-     Their position is in app/tauri.conf.json: tao centres the buttons in a
-     box "button + y" tall, so y = this bar's height (36 px) - 14 = 22. */
+     Their position is in app/tauri.conf.json. tao moves only the buttons'
+     container, so y is not their centre: measured on a Retina Mac, y = 22
+     puts the buttons' middle 19.75 pt from the window's top. The bar is
+     40 px tall there (Shell's --title-h), so its middle is 20 px down and the
+     lights, icons and names share one line. Change both together. */
   :global([data-chrome="overlay"]) .title {
     padding-left: 80px;
   }
@@ -299,6 +302,7 @@ function tip(panel: Panel): string {
     transition: none;
   }
   .branch {
+    position: relative;
     display: inline-flex;
     align-items: center;
     gap: 6px;
@@ -319,7 +323,6 @@ function tip(panel: Panel): string {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font: 13px var(--mono);
   }
   .search {
     display: flex;

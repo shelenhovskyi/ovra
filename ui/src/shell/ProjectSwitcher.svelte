@@ -146,9 +146,9 @@ $effect(() => {
   <button
     type="button"
     id="project-button"
-    class="project"
+    class="project tip"
     data-testid="project-name"
-    title={project.root}
+    data-tip={project.root}
     aria-haspopup="menu"
     aria-expanded={open}
     aria-controls={open ? "project-menu" : undefined}
@@ -238,6 +238,7 @@ $effect(() => {
     cursor: pointer;
   }
   .project {
+    position: relative;
     display: flex;
     align-items: center;
     gap: 6px;

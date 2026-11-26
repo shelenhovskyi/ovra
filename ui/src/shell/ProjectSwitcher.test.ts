@@ -83,6 +83,13 @@ describe("ProjectSwitcher", () => {
     expect(document.activeElement).toBe(items()[0]);
   });
 
+  it("shows the project's folder in the title bar's own tooltip, not the system one over the bar", async () => {
+    const { button } = await mountSwitcher();
+    expect(button()?.classList.contains("tip")).toBe(true);
+    expect(button()?.dataset.tip).toBe("/work/demo-app");
+    expect(button()?.hasAttribute("title")).toBe(false);
+  });
+
   it("switches to a recent project and gives focus back to the button", async () => {
     const { workspace, button, items } = await mountSwitcher();
     workspace.openPath = "README.md";

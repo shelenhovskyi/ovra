@@ -529,6 +529,10 @@ async function showApprovals(): Promise<void> {
 
 <style>
   .shell {
+    /* The title bar's height. The desktop app's overlay title bar on macOS is
+       taller: the traffic lights sit 20 px from the window's top (see
+       TitleBar), so the bar's middle lines up with theirs. */
+    --title-h: 36px;
     position: relative;
     display: grid;
     height: 100%;
@@ -536,11 +540,14 @@ async function showApprovals(): Promise<void> {
     overflow: clip;
     background: var(--s0);
     grid-template-columns: var(--tracks);
-    grid-template-rows: 36px minmax(0, 1fr) 28px;
+    grid-template-rows: var(--title-h) minmax(0, 1fr) 28px;
     grid-template-areas:
       "title title title title title title"
       var(--shell-row)
       "footer footer footer footer footer footer";
+  }
+  :global([data-chrome="overlay"]) .shell {
+    --title-h: 40px;
   }
   .title-area {
     grid-area: title;
@@ -662,7 +669,7 @@ async function showApprovals(): Promise<void> {
     height: 100%;
     overflow: clip;
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: 36px minmax(0, 1fr) 28px;
+    grid-template-rows: var(--title-h) minmax(0, 1fr) 28px;
     grid-template-areas:
       "title"
       "agents"
@@ -967,7 +974,7 @@ async function showApprovals(): Promise<void> {
     .shell.start {
       grid-template-columns: 52px minmax(0, 220px) minmax(0, 1fr);
       /* Both rows give way in a short window, so nothing falls under the window's edge. */
-      grid-template-rows: 36px minmax(0, 1fr) minmax(0, 50%) 28px;
+      grid-template-rows: var(--title-h) minmax(0, 1fr) minmax(0, 50%) 28px;
       grid-template-areas:
         "title title title"
         "rail side main"
@@ -1009,7 +1016,7 @@ async function showApprovals(): Promise<void> {
       overflow-x: clip;
       overflow-y: visible;
       grid-template-columns: minmax(0, 1fr);
-      grid-template-rows: 36px 44px minmax(320px, 70vh) minmax(200px, 40vh) minmax(200px, 40vh) 28px;
+      grid-template-rows: var(--title-h) 44px minmax(320px, 70vh) minmax(200px, 40vh) minmax(200px, 40vh) 28px;
       grid-template-areas:
         "title"
         "rail"
