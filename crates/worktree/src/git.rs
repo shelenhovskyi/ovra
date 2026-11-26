@@ -108,9 +108,10 @@ impl Git {
 
     fn build(dir: &Path, subcommand: &str, ours: bool, no_hooks: bool) -> Self {
         let mut command = Command::new(program());
-        if let Some(path) = ovra_core::child_path::login() {
-            command.env("PATH", path);
-        }
+        command.env(
+            "PATH",
+            ovra_core::child_path::absolute(std::env::var_os("PATH")),
+        );
         if ours {
             command.args(["--literal-pathspecs", "-c", "core.quotepath=off"]);
         }
@@ -686,14 +687,18 @@ mod tests {
     #[test]
     fn git_and_the_filters_it_runs_get_the_login_shells_path() {
         // Each test runs in its own process (nextest), so this stays here.
-        // `git-lfs` from Homebrew is found only on the login shell's PATH.
-        ovra_core::child_path::set_login("/opt/homebrew/bin:/usr/bin".into());
+        // `git-lfs` from Homebrew is found only on the login shell's PATH;
+        // an empty entry or `.` would find an agent's `gpg` in the work dir.
+        let abs = std::env::temp_dir();
+        let login = std::env::join_paths([abs.as_path(), Path::new(""), Path::new(".")])
+            .unwrap_or_else(|e| panic!("{e}"));
+        ovra_core::child_path::set_login(login);
         let git = Git::new(Path::new("."), "status");
         let path = git
             .command
             .get_envs()
             .find(|(name, _)| *name == "PATH")
             .and_then(|(_, value)| value);
-        assert_eq!(path, Some(OsStr::new("/opt/homebrew/bin:/usr/bin")));
+        assert_eq!(path, Some(abs.as_os_str()));
     }
 }

@@ -68,13 +68,6 @@ fn absolute_dirs(path: Option<&OsString>) -> Vec<PathBuf> {
     .unwrap_or_default()
 }
 
-/// The `PATH` children get: only the absolute directories of `path`. An
-/// empty entry or `.` would let git start `ssh` or a helper from the
-/// project folder, its working directory.
-fn child_path(path: Option<&OsString>) -> OsString {
-    std::env::join_paths(absolute_dirs(path)).unwrap_or_default()
-}
-
 /// `name` in an absolute directory of `path` or of the installers' usual
 /// ones. On Windows only `<name>.exe`: a `.cmd` would run through `cmd`.
 fn find_in(name: &str, path: Option<&OsString>) -> Option<PathBuf> {
@@ -140,7 +133,10 @@ pub(crate) async fn run(
     #[cfg(unix)]
     command.process_group(0);
     command
-        .env("PATH", child_path(search_path().as_ref()))
+        .env(
+            "PATH",
+            ovra_core::child_path::absolute(std::env::var_os("PATH")),
+        )
         .args(args)
         .envs(QUIET)
         .current_dir(dir)
@@ -220,18 +216,6 @@ mod tests {
             find_in("Cargo.toml", Some(&relative)),
             Some(PathBuf::from("./Cargo.toml"))
         );
-    }
-
-    #[test]
-    fn children_get_only_the_absolute_directories_of_the_path() {
-        let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
-        let sep = if cfg!(windows) { ";" } else { ":" };
-        let abs = dir.path().to_string_lossy().into_owned();
-        let path = OsString::from(format!("{sep}.{sep}{abs}{sep}bin{sep}{sep}{abs}"));
-        let want = std::env::join_paths([dir.path(), dir.path()]);
-        assert_eq!(child_path(Some(&path)), want.unwrap_or_default());
-        assert_eq!(child_path(Some(&OsString::from("."))), OsString::new());
-        assert_eq!(child_path(None), OsString::new());
     }
 
     #[test]

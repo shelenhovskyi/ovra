@@ -28,6 +28,21 @@ pub fn or_inherited(inherited: Option<OsString>) -> Option<OsString> {
     login().map(OsStr::to_owned).or(inherited)
 }
 
+/// The `PATH` a program Ovra starts outside the sandbox gets: only the
+/// absolute directories of the login shell's `PATH`, else of `inherited`.
+/// An empty entry or `.` would let it start a helper (`ssh`, `gpg`,
+/// `git-lfs`) from its working directory, which an agent may have written.
+pub fn absolute(inherited: Option<OsString>) -> OsString {
+    let dirs: Vec<_> = or_inherited(inherited)
+        .map(|p| {
+            std::env::split_paths(&p)
+                .filter(|d| d.is_absolute())
+                .collect()
+        })
+        .unwrap_or_default();
+    std::env::join_paths(dirs).unwrap_or_default()
+}
+
 /// The variables to set on a program started from a (possibly wrapped)
 /// command line: `PATH` from the login shell first, then the line's own,
 /// so a sandbox's `PATH` in the line wins.
@@ -42,6 +57,18 @@ pub fn env(line: &[(OsString, Option<OsString>)]) -> Vec<(OsString, Option<OsStr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn children_get_only_the_absolute_directories_of_the_path() {
+        let sep = if cfg!(windows) { ";" } else { ":" };
+        let abs = std::env::temp_dir();
+        let text = abs.to_string_lossy();
+        let path = OsString::from(format!("{sep}.{sep}{text}{sep}bin{sep}{sep}{text}"));
+        let want = std::env::join_paths([&abs, &abs]).unwrap_or_default();
+        assert_eq!(absolute(Some(path)), want);
+        assert_eq!(absolute(Some(".".into())), OsString::new());
+        assert_eq!(absolute(None), OsString::new());
+    }
 
     // Each test runs in its own process (nextest), so the global starts empty.
     #[test]
