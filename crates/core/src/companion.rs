@@ -67,6 +67,7 @@ pub(crate) fn allows(request: &Request) -> bool {
         Request::Review(r) => match r {
             ReviewRequest::List { .. } => true,
             ReviewRequest::Diff { .. }
+            | ReviewRequest::CheckLog { .. }
             | ReviewRequest::Approve { .. }
             | ReviewRequest::Reject { .. }
             | ReviewRequest::UndoReject { .. }
