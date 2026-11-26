@@ -751,7 +751,19 @@ pub(super) async fn remove_leftover(core: &Core, project: &ProjectId, path: &str
         ));
     }
     let root = core.root(project)?;
-    tasks::remove(core, &root, PathBuf::from(path), Vec::new()).await
+    // No task knows the folder, so no record says what .worktreeinclude
+    // copied into it: such files count as the worker's and keep it.
+    let removed = tasks::remove(core, &root, PathBuf::from(path), Vec::new()).await;
+    removed.map_err(|mut err| {
+        if err.code == ErrorCode::Conflict {
+            err.message = format!(
+                "{}. Ovra has no record of what it copied into this folder, so it does not \
+                 delete these files; if you do not need them, delete {path} yourself",
+                err.message
+            );
+        }
+        err
+    })
 }
 
 #[cfg(test)]

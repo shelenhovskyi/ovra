@@ -553,6 +553,19 @@ async fn leftover_worktrees_are_listed_and_removed_only_when_asked() {
             .map(|r| r.is_empty())
             .unwrap_or_default()
     );
+    // Copies no record lists count as the worker's: the refusal names
+    // them and says the person can delete the folder.
+    let kept = "the worktree holds ignored files no snapshot keeps: .env, sub/.env";
+    *f.wt.refuse_remove.lock().unwrap_or_else(|e| e.into_inner()) = Some(kept.into());
+    let refused = call(&f.core, remove(&path)).await.err();
+    let message = refused.map(|e| e.message).unwrap_or_default();
+    assert!(message.starts_with(kept), "{message}");
+    assert!(
+        message.ends_with(&format!("delete {path} yourself")),
+        "{message}"
+    );
+    *f.wt.refuse_remove.lock().unwrap_or_else(|e| e.into_inner()) = None;
+
     ok(&f.core, remove(&path)).await;
     assert!(!f.wt.has(&old) && f.wt.has(dir("w")));
 }
