@@ -44,7 +44,9 @@ Agents never commit: a worker's git folder is read-only
    it does not, fetch the base (`base`, default the branch the main
    checkout's branch tracks, else `main`) and build on that; the push then
    needs the branch to be missing still.
-4. Pick the worker's changes (from its start snapshot to the new snapshot)
+4. Pick the worker's changes (from its start snapshot, or from the snapshot
+   of its own last push or the person's last push when the branch is still
+   there, to the new snapshot)
    onto that commit with `git merge-tree` and commit the tree as the
    person, without hooks. A conflict, or nothing left to push, is
    answered to the agent with the files and what to do.

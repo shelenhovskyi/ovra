@@ -71,6 +71,10 @@ pub(super) struct Entry {
     /// retry goes on from it instead of being refused by the lease.
     #[serde(default)]
     pub(super) pending_push: Option<super::publish::PendingPush>,
+    /// The worker's last own push (`push`): the next one, and an Update of
+    /// its pull request, pick from its snapshot onto it.
+    #[serde(default)]
+    pub(super) agent_pushed: Option<super::push::AgentPush>,
 }
 
 /// Open, or published and so still the worker's live work.
@@ -143,6 +147,7 @@ pub(crate) fn set_workspace(core: &Core, session: &SessionId, workspace: Workspa
         pull_request: None,
         published_from: None,
         pending_push: None,
+        agent_pushed: None,
     });
     orchestration.save(&state);
 }
@@ -1321,6 +1326,7 @@ fn open_after(core: &Core, decided: &Entry) -> Entry {
         pull_request: None,
         published_from: None,
         pending_push: None,
+        agent_pushed: None,
         ..decided.clone()
     };
     // New work ends the undo of the decided item's last replace.

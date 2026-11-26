@@ -74,7 +74,7 @@ export function matchHint(tool: string): string {
   if (name === "WebFetch")
     return "One host, such as docs.rs. Deny and Ask also cover its subdomains and URLs whose host is unclear; Auto covers that host only. With a deny rule present, URLs Ovra cannot read, including private addresses such as 192.168.1.1, are denied too.";
   if (name === "Push")
-    return "A remote and a branch, such as origin fix-login, or origin ovra/* for every branch below ovra/. Shared branches such as main are pushed to without asking only by an Auto rule that names them exactly.";
+    return "A remote and a branch, such as origin fix-login, or origin ovra/*. A rule ending in /* or without a match lets each worker push to its own branch only; any other branch, and shared ones such as main, are pushed to without asking only by an Auto rule that names them exactly.";
   if (name !== "") return `${name} takes no match: the rule covers every call.`;
   return `Only Bash, WebFetch and the file tools (${FILE_TOOLS.join(", ")}) take a match.`;
 }
@@ -170,7 +170,7 @@ export function caveats(rule: PolicyRule): string[] {
     );
     if (rule.tool === "Push") {
       notes.push(
-        "Shared branches such as main still ask unless the rule names the branch exactly. Changes to protected files, such as workflows, never go out this way.",
+        "A wide rule covers each worker's own branch only; other branches, and shared ones such as main, still ask unless the rule names the branch exactly. Changes to protected files, such as workflows, never go out this way.",
       );
     }
     if (rule.tool === "Bash") {

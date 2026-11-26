@@ -1071,7 +1071,7 @@ fn push_rules_decide_pushes_and_never_a_tool_of_that_name() {
 }
 
 #[test]
-fn always_allow_offers_ovras_branches_or_the_branch_and_never_a_shared_one() {
+fn always_allow_offers_ovras_branches_and_never_another_one() {
     use super::{PushTarget, always_push};
     let contained = sandboxed(SandboxNetwork::Proxy);
     let offered = |branch: &str, protected: bool| {
@@ -1086,10 +1086,7 @@ fn always_allow_offers_ovras_branches_or_the_branch_and_never_a_shared_one() {
         offered("ovra/t1/w", false).as_deref(),
         Some("Push(origin ovra/*)")
     );
-    assert_eq!(
-        offered("fix-login", false).as_deref(),
-        Some("Push(origin fix-login)")
-    );
+    assert_eq!(offered("fix-login", false), None);
     assert_eq!(offered("main", true), None);
     let target = PushTarget {
         remote: "origin",

@@ -120,7 +120,7 @@ describe("policy rules", () => {
       expect(push(bad)?.field, bad).toBe("match");
     expect(matchHint("push")).toContain("origin ovra/*");
     const auto = caveats({ tool: "Push", match: "origin ovra/*", action: "auto" });
-    expect(auto.some((n) => n.includes("Shared branches such as main still ask"))).toBe(true);
+    expect(auto.some((n) => n.includes("each worker's own branch only"))).toBe(true);
     expect(caveats({ tool: "Push", action: "deny" })).toEqual([]);
     expect(toolWarning("Push")).toBeNull();
   });

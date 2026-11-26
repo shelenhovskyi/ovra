@@ -868,9 +868,9 @@ fn push_matches(rule: &PolicyRule, target: &PushTarget<'_>, action: PolicyAction
     }
 }
 
-/// The rule "Always allow" offers for a push no rule decided: every one of
-/// Ovra's agent branches on the remote, else the branch itself. None for a
-/// protected branch, or where `auto` never counts.
+/// The rule "Always allow" offers for a push no rule decided: Ovra's agent
+/// branches on the remote, which lets each worker push to its own. None
+/// for a protected or another branch, or where `auto` never counts.
 pub(crate) fn always_push(
     target: &PushTarget<'_>,
     sandbox: Option<&SandboxReport>,
@@ -878,14 +878,14 @@ pub(crate) fn always_push(
     if target.protected || !sandbox.is_some_and(|s| s.network != SandboxNetwork::Open) {
         return None;
     }
-    let branch = if target.branch.starts_with(AGENT_BRANCHES) {
-        format!("{AGENT_BRANCHES}*")
-    } else {
-        target.branch.to_owned()
-    };
+    // Only a worker's own branch is offered one, and that is always
+    // Ovra's `ovra/<task>/<name>`.
+    if !target.branch.starts_with(AGENT_BRANCHES) {
+        return None;
+    }
     let rule = PolicyRule {
         tool: PUSH_TOOL.to_owned(),
-        pattern: Some(format!("{} {branch}", target.remote)),
+        pattern: Some(format!("{} {AGENT_BRANCHES}*", target.remote)),
         action: PolicyAction::Auto,
         exact: false,
         from_approval: true,

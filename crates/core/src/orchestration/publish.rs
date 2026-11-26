@@ -536,6 +536,13 @@ async fn update(core: &Core, id: &ReviewId, seen: Seen) -> Result<PullRequest> {
         .and_then(|s| s.lines().next())
         .map_or_else(|| "Update after review".to_owned(), |s| cut(s, 72));
     let against = format!("{}/{}", pr.remote, pr.branch);
+    // After the worker's own push the head holds its changes up to that
+    // push's snapshot; picking from older ones again would conflict.
+    let from = entry
+        .agent_pushed
+        .as_ref()
+        .and_then(|p| p.start_for(&pr.remote, &pr.branch, &head))
+        .unwrap_or(from);
     let commit = pick(
         core,
         root.clone(),

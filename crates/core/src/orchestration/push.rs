@@ -23,6 +23,25 @@ const MAX_TITLE: usize = 72;
 /// The longest commit message.
 const MAX_MESSAGE: usize = 20_000;
 
+/// A worker's push, kept on its item: what went where, from which
+/// snapshot of its worktree.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(super) struct AgentPush {
+    pub(super) remote: String,
+    pub(super) branch: String,
+    pub(super) commit: String,
+    pub(super) snapshot: String,
+}
+
+impl AgentPush {
+    /// The snapshot to pick from onto `head` of `remote`/`branch`: this
+    /// push's when the branch is still where it left it.
+    pub(super) fn start_for(&self, remote: &str, branch: &str, head: &str) -> Option<String> {
+        (self.remote == remote && self.branch == branch && self.commit == head)
+            .then(|| self.snapshot.clone())
+    }
+}
+
 /// What a worker's `push` asks for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PushArgs {
@@ -150,11 +169,25 @@ async fn push(core: &Core, caller: &ToolCaller, args: PushArgs) -> Result<Pushed
         Err(e) => return Err(e),
     };
     let against = format!("{remote}/{}", base.as_deref().unwrap_or(&branch));
+    // On top of its own last push, only what changed since goes in: the
+    // head already holds the rest, and picking it again would conflict.
+    // The same for the item's pull request as the person last pushed it.
+    let published = || {
+        let pr = entry.pull_request.as_ref()?;
+        let same = pr.remote == remote && pr.branch == branch && pr.pushed == onto;
+        same.then(|| entry.published_from.clone()).flatten()
+    };
+    let start = entry
+        .agent_pushed
+        .as_ref()
+        .and_then(|p| p.start_for(&remote, &branch, &onto))
+        .or_else(published)
+        .unwrap_or_else(|| entry.workspace.base.clone());
     let commit = publish::pick(
         core,
         root.clone(),
         onto.clone(),
-        entry.workspace.base.clone(),
+        start,
         snapshot.clone(),
         message.clone(),
         &against,
@@ -222,6 +255,13 @@ async fn push(core: &Core, caller: &ToolCaller, args: PushArgs) -> Result<Pushed
         commit: commit.clone(),
     };
     crate::audit::record(core, &entry.project, Some(&entry.session), pushed);
+    let last = AgentPush {
+        remote: remote.clone(),
+        branch: branch.clone(),
+        commit: commit.clone(),
+        snapshot: snapshot.clone(),
+    };
+    review::update(core, &entry.id, |e| e.agent_pushed = Some(last))?;
     // The item's pull request follows its branch, so the person's next
     // Update builds on this push instead of failing on the lease.
     let pr_branch = entry

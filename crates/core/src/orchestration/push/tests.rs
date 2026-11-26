@@ -383,3 +383,36 @@ async fn review_trailers_hidden_text_and_remotes_without_a_host_are_refused() {
     assert_eq!(local.err().map(|e| e.code), Some(ErrorCode::Forbidden));
     assert!(lock(&f.forge.pushed).is_empty());
 }
+
+#[tokio::test]
+async fn a_file_changed_again_after_a_push_goes_out_in_the_next_push_and_update() {
+    let f = fx().await;
+    let (_, pr) = opened(&f).await;
+    ok(&f.core, allow_ovra_branches()).await;
+    let worker = caller(ToolRole::Worker);
+    for text in ["two v2\n", "two v3\n"] {
+        f.wt.put(dir(), "b.rs", text);
+        let pushed = f.core.push_work(&worker, args(Some(&pr.branch))).await;
+        let pushed = pushed.unwrap_or_else(|e| panic!("{e}"));
+        let files = files_of(&f.wt, &pushed.commit).await;
+        assert!(
+            files.contains(&("b.rs".to_owned(), text.to_owned())),
+            "{files:?}"
+        );
+    }
+    let id = {
+        let state = f.core.orchestration_state().lock();
+        state
+            .reviews
+            .iter()
+            .find(|r| r.session.0 == "s2")
+            .map(|r| r.id.0.clone())
+    };
+    let id = id.unwrap_or_default();
+    f.wt.put(dir(), "b.rs", "two v4\n");
+    let item = super::super::publish::tests::item(&f.core).await;
+    let update =
+        json!({"method": "pr.update", "params": {"id": id, "fingerprint": item.fingerprint}});
+    let updated = call(&f.core, update).await;
+    assert!(updated.is_ok(), "{updated:?}");
+}
