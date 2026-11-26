@@ -217,6 +217,15 @@ pub(crate) fn revert_hunk(dir: &Path, path: &RelPath, hunk: &Hunk) -> Result<()>
             "{path} is not a plain file any more; look at its diff again"
         )));
     }
+    // `git apply` takes a hunk at another line too: a file that changed
+    // since the person looked could lose a copy of the lines elsewhere.
+    let text = std::fs::read(dir.join(path.as_str()))
+        .map_err(|e| conflict(format!("{path} could not be read: {e}")))?;
+    if !at_its_place(&text, hunk) {
+        return Err(conflict(format!(
+            "{path} changed since its diff was shown; look at its diff again"
+        )));
+    }
     let out = Git::new(&dirs.top, "apply")
         .args(["--reverse", "--whitespace=nowarn"])
         .input(patch(&format!("{}{path}", dirs.prefix), hunk))
@@ -228,6 +237,23 @@ pub(crate) fn revert_hunk(dir: &Path, path: &RelPath, hunk: &Hunk) -> Result<()>
         )));
     }
     Ok(())
+}
+
+/// Whether the new side of `hunk` is what `text` holds at the hunk's
+/// lines, so that taking it back changes the lines the person saw.
+fn at_its_place(text: &[u8], hunk: &Hunk) -> bool {
+    let new_side: Vec<&[u8]> = hunk
+        .lines
+        .iter()
+        .filter(|l| l.starts_with(' ') || l.starts_with('+'))
+        .map(|l| &l.as_bytes()[1..])
+        .collect();
+    if new_side.is_empty() {
+        return true;
+    }
+    let start = (hunk.new_start as usize).saturating_sub(1);
+    let mut lines = text.split(|b| *b == b'\n').skip(start);
+    new_side.iter().all(|want| lines.next() == Some(*want))
 }
 
 pub(super) fn stage_hunk(root: &Path, path: &RelPath, hunk: &Hunk, unstage: bool) -> Result<()> {
@@ -248,4 +274,30 @@ pub(super) fn stage_hunk(root: &Path, path: &RelPath, hunk: &Hunk, unstage: bool
         )));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_hunk_is_taken_back_only_at_the_lines_the_person_saw() {
+        let hunk = Hunk {
+            old_start: 2,
+            old_lines: 2,
+            new_start: 2,
+            new_lines: 2,
+            header: String::new(),
+            lines: [" a", "-b", "+B"].map(String::from).to_vec(),
+        };
+        assert!(at_its_place(b"x\na\nB\ny\n", &hunk));
+        // The same lines moved down: git would apply them there.
+        assert!(!at_its_place(b"x\nz\na\nB\ny\n", &hunk));
+        assert!(!at_its_place(b"x\na\n", &hunk));
+        let crlf = Hunk {
+            lines: [" a\r", "-b\r", "+B\r"].map(String::from).to_vec(),
+            ..hunk
+        };
+        assert!(at_its_place(b"x\r\na\r\nB\r\n", &crlf));
+    }
 }
