@@ -10,12 +10,7 @@
     "ovra-agent-runtime": ["ovra-core"],
     "ovra-worktree": ["ovra-core"],
     "ovra-mcp-server": ["ovra-core"],
-    "ovra-sandbox": [
-      "ovra-core",
-      "ovra-sandbox-linux",
-      "ovra-sandbox-macos",
-      "ovra-sandbox-windows"
-    ],
+    "ovra-sandbox": ["ovra-core", "ovra-sandbox-linux", "ovra-sandbox-macos", "ovra-sandbox-windows"],
     "ovra-sandbox-linux": ["ovra-core"],
     "ovra-sandbox-windows": ["ovra-core"],
     "ovra-sandbox-macos": ["ovra-core"],

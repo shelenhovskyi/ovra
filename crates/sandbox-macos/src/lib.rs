@@ -110,11 +110,13 @@ impl Setup {
 /// What the macOS sandbox does not cover, as sessions report it
 /// (`docs/specs/sandbox-macos.md`, "Known gaps"). Keep it in step with
 /// that list.
-const GAPS: [&str; 6] = [
-    "keychain items command-line tools may read",
+const GAPS: [&str; 8] = [
+    "the keychain: items command-line tools may read or change, the gh login among them",
+    "other apps' preferences (read)",
     "whether a file exists, and its size, anywhere on the Mac",
     "the session's proxy port, for other users of this Mac",
-    "processes an agent leaves running after its session",
+    "processes an agent leaves running after its session, which keep its port",
+    "a dev build of Ovra inside a writable work dir",
     "git config values that name project files",
     "the session's own folders in the agent's settings (todos, logs, ...)",
 ];
@@ -132,6 +134,11 @@ impl Seatbelt {
     /// [`TRY_VAR`]).
     pub fn detect(setup: Setup) -> Self {
         let tried = std::env::var_os(TRY_VAR).is_some_and(|v| v == "try");
+        Self::detect_as(setup, tried)
+    }
+
+    /// [`Seatbelt::detect`], `tried` saying whether [`TRY_VAR`] asks for it.
+    fn detect_as(setup: Setup, tried: bool) -> Self {
         let status = if !VERIFIED && !tried {
             SandboxStatus::Unavailable {
                 reason: "the macOS sandbox has not been tested on a Mac yet".into(),
@@ -246,7 +253,7 @@ mod tests {
             hidden: Vec::new(),
             protected: &[],
         };
-        let sandbox = Seatbelt::detect(setup);
+        let sandbox = Seatbelt::detect_as(setup, false);
         // Outside macOS it never is; on a Mac not before it is verified.
         assert!(matches!(
             sandbox.status(),

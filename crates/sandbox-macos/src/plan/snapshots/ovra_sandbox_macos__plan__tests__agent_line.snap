@@ -39,6 +39,9 @@ expression: root.show(&line)
 --env NVM_DIR
 --env GOPATH
 --env OVRA_FAKE_CLAUDE_FIXTURE
+--env GIT_CONFIG_COUNT
+--env GIT_CONFIG_KEY_0
+--env GIT_CONFIG_VALUE_0
 --env PATH
 --env npm_config_cache
 --env PIP_CACHE_DIR
@@ -56,12 +59,15 @@ ROOT/home/.local/share/claude/versions/2.0
 -p
 env:
   -CLAUDECODE
+  GIT_CONFIG_COUNT=1
+  GIT_CONFIG_KEY_0=credential.helper
+  GIT_CONFIG_VALUE_0=
   PATH=ROOT/home/.cargo/bin:ROOT/home/.docker/bin:ROOT/usr/bin
   CARGO_HOME=ROOT/data/sandbox-caches/p-f5f849dca255a577b897e3534bd4462d/cargo
   npm_config_cache=ROOT/data/sandbox-caches/p-f5f849dca255a577b897e3534bd4462d/npm
   PIP_CACHE_DIR=ROOT/data/sandbox-caches/p-f5f849dca255a577b897e3534bd4462d/pip
   npm_config_store_dir=ROOT/data/sandbox-caches/p-f5f849dca255a577b897e3534bd4462d/pnpm
-  TMPDIR=ROOT/data/sandbox-temp/p-f5f849dca255a577b897e3534bd4462d
+  TMPDIR=ROOT/data/sandbox-temp/f-d79a19e67084fe98d811c63bc5543441
   SSL_CERT_FILE=ROOT/tmp/ca.pem
   NODE_EXTRA_CA_CERTS=ROOT/tmp/ca.pem
   REQUESTS_CA_BUNDLE=ROOT/tmp/ca.pem

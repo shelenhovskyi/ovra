@@ -138,8 +138,10 @@ const NEVER: [&str; 11] = [
 /// disks, the data volume under its own name, and shared temporary
 /// folders (`/tmp` and `/var` are links into `/private`). Unreadable
 /// unless the plan gives a folder in them back.
-const SYSTEM_HIDDEN: [&str; 5] = [
+const SYSTEM_HIDDEN: [&str; 6] = [
     "/Volumes",
+    // Any file by its volume and inode number.
+    "/.vol",
     "/System/Volumes/Data",
     "/private/tmp",
     "/private/var/tmp",
@@ -297,9 +299,19 @@ impl Plan {
             }
         }
         plan.kept = env_kept(lists);
+        // No git credential helper: the keychain would hand out the
+        // person's GitHub login (the profile also refuses to run
+        // `git-credential-osxkeychain`).
+        for (name, value) in [
+            ("GIT_CONFIG_COUNT", "1"),
+            ("GIT_CONFIG_KEY_0", "credential.helper"),
+            ("GIT_CONFIG_VALUE_0", ""),
+        ] {
+            plan.set.push((name.into(), Some(value.into())));
+        }
         plan.home_tools(setup, &home, &program);
-        let key = cache_key(profile.project.as_ref(), &work_dir);
-        let temp = plan.private(setup, &key)?;
+        let caches = cache_key(profile.project.as_ref(), &work_dir);
+        let temp = plan.private(setup, &caches, &cache_key(None, &work_dir))?;
         plan.sockets = Some(temp);
         match &profile.network {
             ProfileNetwork::Blocked => {}
@@ -553,6 +565,7 @@ impl Plan {
                 .strip_prefix(home)
                 .is_ok_and(|rest| rest.components().count() >= 3)
                 && !parent.ends_with("bin")
+                && !parent.starts_with(home.join(".config"))
         });
         match own_folder {
             Some(folder) => self.read_tool(home, folder),
@@ -582,20 +595,22 @@ impl Plan {
         self.read.push(path);
     }
 
-    /// The project's own package caches and temporary folder, in Ovra's
-    /// data folder; returns the temporary folder.
-    fn private(&mut self, setup: &Setup, key: &str) -> Result<PathBuf> {
+    /// The project's own package caches (`caches`) and the work dir's own
+    /// temporary folder (`temp`), in Ovra's data folder; returns the
+    /// temporary folder. The temporary folder is not shared with other
+    /// work dirs of the project: Unix sockets there are reachable.
+    fn private(&mut self, setup: &Setup, caches: &str, temp: &str) -> Result<PathBuf> {
         let made = |dir: PathBuf| -> Result<PathBuf> {
             fs::create_dir_all(&dir)
                 .map_err(|e| invalid(format!("cannot make {}: {e}", dir.display())))?;
             real(&dir)
         };
         for (name, folder) in CACHES {
-            let dir = made(setup.caches.join(key).join(folder))?;
+            let dir = made(setup.caches.join(caches).join(folder))?;
             self.set.push((name.into(), Some(dir.clone().into())));
             self.write.push(dir);
         }
-        let temp = made(setup.temp.join(key))?;
+        let temp = made(setup.temp.join(temp))?;
         self.set.push(("TMPDIR".into(), Some(temp.clone().into())));
         self.write.push(temp.clone());
         Ok(temp)

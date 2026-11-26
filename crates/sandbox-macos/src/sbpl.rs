@@ -34,7 +34,8 @@ pub(crate) const PORT_MARK: &str = "@OVRA_PROXY_PORT@";
 /// `launchd` jobs) and no DNS: names are resolved by the netproxy.
 const BASE: &str = r#"(version 1)
 (deny default)
-(allow process-exec)
+(allow process-exec
+  (require-not (regex #"/git-credential-osxkeychain$")))
 (allow process-fork)
 (allow signal (target same-sandbox))
 (allow process-info* (target same-sandbox))
@@ -51,8 +52,11 @@ const BASE: &str = r#"(version 1)
   (literal "/dev/tty")
   (literal "/dev/ptmx")
   (literal "/dev/dtracehelper")
-  (regex #"^/dev/ttys[0-9]+$")
   (regex #"^/dev/fd/[0-9]+$"))
+(allow file-read* file-write* file-ioctl
+  (require-all
+    (regex #"^/dev/ttys[0-9]+$")
+    (extension "com.apple.sandbox.pty")))
 (allow mach-lookup
   (global-name "com.apple.system.opendirectoryd.libinfo")
   (global-name "com.apple.system.opendirectoryd.membership")
@@ -195,11 +199,15 @@ fn regex(pattern: &Pattern) -> Result<String> {
 }
 
 /// `text` as a regex that matches it literally, each ASCII letter in
-/// either case.
+/// either case, and `s` and `k` also as the letters APFS folds to them
+/// (U+017F long s, U+212A Kelvin sign), written as alternatives because
+/// the regex works on bytes.
 fn fold(text: &str) -> String {
     let mut out = String::with_capacity(text.len() * 2);
     for c in text.chars() {
         match c {
+            's' | 'S' => out.push_str("(s|S|\u{17f})"),
+            'k' | 'K' => out.push_str("(k|K|\u{212a})"),
             'a'..='z' | 'A'..='Z' => {
                 let _ = write!(
                     out,
@@ -232,6 +240,7 @@ mod tests {
     #[test]
     fn a_pattern_matches_its_path_in_any_case_and_nothing_else_by_accident() {
         assert_eq!(fold("a.B"), "[aA][.][bB]");
+        assert_eq!(fold("sk"), "(s|S|\u{17f})(k|K|\u{212a})");
         assert_eq!(fold("x^y]"), r"[xX]\^[yY][]]");
         let named = Pattern::Named {
             root: "/w".into(),
