@@ -40,6 +40,11 @@ export function looksSecret(path: string): boolean {
   return SECRET.test(path);
 }
 
+/** Whether `text` holds something that looks like a token: such a diff goes into a prompt by name only. */
+export function hasToken(text: string): boolean {
+  return TOKEN.test(text);
+}
+
 const encoder = new TextEncoder();
 
 /** The UTF-8 size of `text`, as the core counts a message. */
@@ -111,7 +116,7 @@ export function diffsSection(diffs: readonly FileDiff[], budget = DIFF_BUDGET): 
       continue;
     }
     const { text, cut: wasCut } = diffText(diff, Math.min(FILE_BUDGET, left));
-    if (TOKEN.test(text)) {
+    if (hasToken(text)) {
       if (!hidden.includes(diff.path)) hidden.push(diff.path);
       continue;
     }
