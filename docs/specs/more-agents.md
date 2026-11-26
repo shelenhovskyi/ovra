@@ -1,6 +1,7 @@
 # Gemini CLI and Codex as Ovra agents
 
-Status: proposed 2026-11-26; steps 8 to 10 of
+Status: approved 2026-11-26 (the owner's 30-minute rule; the macOS
+question answered by the owner, below); steps 8 to 10 of
 `docs/research/provider-agnostic.md` (migration plan), under ADR 0011 (all
 six decisions accepted as recommended). Builds on the generic ACP adapter
 (`docs/specs/acp-adapter.md`, on `main`).
@@ -102,13 +103,13 @@ macOS sandbox (see "Open question").
    independent reviewer's verdict before it lands. Until it lands, ACP
    workers run without IDE tools and their turn's end asks for review.
 
-## Open question for the owner
+## macOS
 
 ACP agents run only inside Ovra's sandbox, and macOS has none yet, so on a
-Mac Gemini and Codex refuse to start. Options: wait for a macOS sandbox
-(Seatbelt), built as its own `platform:macos` task, which would also
-sandbox Claude on a Mac (recommended); or let them run on a Mac in their
-worktree with only their own built-in sandbox, which loosens ADR 0011.
+Mac Gemini and Codex refuse to start. The owner chose (2026-11-26) to build
+a macOS sandbox (Seatbelt) as its own `platform:macos` task, which will
+also sandbox Claude on a Mac, over letting them run there with only their
+own built-in sandbox.
 
 Decided 2026-11-26: the owner chose Ovra's own macOS sandbox
 (`docs/specs/sandbox-macos.md`). Until it is verified on a Mac it reports

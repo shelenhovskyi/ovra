@@ -384,6 +384,32 @@ test("a task's three workers wait in Reviews to be kept, discarded or sent back"
   await expect(diff).toContainText("Notes reworked after your comment.");
 });
 
+// One agent in its own copy: no coordinator, one worktree, kept from Reviews.
+test("one agent works on its own copy and its change is kept from Reviews", async ({ page }) => {
+  const dir = await openGitProject(page, "ovra-agents-own-");
+  await page.getByRole("textbox", { name: "Describe a task" }).fill("Write the notes");
+  await page.getByTestId("agent-mode").click();
+  await page.getByRole("menuitemradio", { name: /^One agent, own copy/ }).click();
+  await expect(page.locator("#agent-mode-hint")).toContainText("Works on its own copy");
+  await page.getByRole("button", { name: "Start", exact: true }).click();
+
+  const approvals = page.getByTestId("approvals");
+  const card = approvals.getByRole("group", { name: "Write NOTES.md" });
+  await expect(card).toBeVisible();
+  await arm(page);
+  await card.getByRole("button", { name: "Allow" }).click();
+  // It wrote its own copy, not the project's folder.
+  expect(readIfThere(join(dir, "NOTES.md"))).toBeNull();
+
+  await page.keyboard.press("Alt+Shift+R");
+  const inbox = page.getByTestId("inbox");
+  await expect(inbox.getByRole("navigation", { name: "Review items" }).getByRole("button")).toHaveCount(1);
+  const item = inbox.getByTestId("inbox-item");
+  await expect(item.getByTestId("inbox-diff")).toContainText("Notes from a worker.");
+  await item.getByRole("button", { name: "Keep changes" }).click();
+  await expect.poll(() => readIfThere(join(dir, "NOTES.md"))).toBe("Notes from a worker.\n");
+});
+
 // The daemon's fake forge has the project's own branches on `origin`, and
 // gives each pull request three checks: build passed, test failed, lint runs.
 test("a worker's changes open as a draft pull request whose checks show on the item", async ({ page }) => {
