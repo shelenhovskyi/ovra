@@ -270,3 +270,19 @@ async fn a_flood_reaches_a_subscriber_whole() {
     pty.close(&id).expect("close");
     exit_code(&mut rx, &id).await;
 }
+
+#[test]
+fn ids_of_one_run_share_a_suffix_another_run_does_not_know() {
+    let pty = Pty::new();
+    let first = pty
+        .open(here(), SIZE, Core::new("test").sink())
+        .expect("open");
+    assert!(first.0.starts_with("t1-") && first.0.len() > 3, "{first:?}");
+    // A front end that kept the id of an earlier run's first terminal.
+    let earlier = TerminalId("t1".into());
+    assert_eq!(
+        pty.scrollback(&earlier).expect_err("unknown").code,
+        ErrorCode::NotFound
+    );
+    pty.close(&first).expect("close");
+}

@@ -31,6 +31,10 @@ use crate::scrollback::Scrollback;
 pub struct Pty {
     terminals: Arc<Mutex<HashMap<TerminalId, Terminal>>>,
     opened: AtomicU64,
+    /// Ends every id, so ids differ between runs: a front end that kept an
+    /// id across an app restart gets `not_found`, not another shell. Empty
+    /// in tests.
+    run: String,
     /// Program and arguments to run instead of the user's shell.
     #[cfg(test)]
     program: Option<Vec<String>>,
@@ -57,7 +61,13 @@ impl std::fmt::Debug for Session {
 
 impl Pty {
     pub fn new() -> Self {
-        Self::default()
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.subsec_nanos());
+        Self {
+            run: format!("-{:x}{nanos:x}", std::process::id()),
+            ..Self::default()
+        }
     }
 
     #[cfg(test)]
@@ -161,8 +171,9 @@ impl TerminalService for Pty {
         };
 
         let id = TerminalId(format!(
-            "t{}",
-            self.opened.fetch_add(1, Ordering::Relaxed) + 1
+            "t{}{}",
+            self.opened.fetch_add(1, Ordering::Relaxed) + 1,
+            self.run
         ));
         let killer = child.clone_killer();
         let output = Arc::new(Mutex::new(Scrollback::default()));
