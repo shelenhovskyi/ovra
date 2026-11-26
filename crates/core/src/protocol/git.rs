@@ -160,6 +160,13 @@ pub enum GitRequest {
     /// the main checkout. A person's action, not an agent tool.
     #[serde(rename = "git.pull")]
     Pull { project: ProjectId },
+    /// Fetches the current branch's upstream and records where it is, as
+    /// `git fetch` would: nothing in the working tree or HEAD moves, so the
+    /// panel can show "Get N commits". The panel sends it on its own while
+    /// it is open; `bad_request` for a branch without upstream. A person's
+    /// window only, not an agent tool. Emits `fs.git_changed`.
+    #[serde(rename = "git.fetch")]
+    Fetch { project: ProjectId },
     /// Sends the current branch's commits to its upstream, never forced and
     /// without hooks (`Forge::push`); the panel's "Send commits".
     /// `bad_request` for a branch without upstream, `conflict` when the

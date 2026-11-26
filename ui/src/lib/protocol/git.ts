@@ -83,6 +83,11 @@ export type GitRequest =
    * `conflict` when both have new commits, changes would be overwritten, or an agent writes the checkout.
    */
   | { method: "git.pull"; params: { project: ProjectId } }
+  /**
+   * Fetches the current branch's upstream and records where it is; HEAD and the files stay.
+   * The panel sends it on its own so "Get N commits" shows. Emits `fs.git_changed`.
+   */
+  | { method: "git.fetch"; params: { project: ProjectId } }
   /** Sends the current branch's commits to its upstream, never forced ("Send commits"). */
   | { method: "git.push"; params: { project: ProjectId } }
   /**

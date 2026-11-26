@@ -26,6 +26,10 @@ const LOG_LIMIT = 20;
 
 /** After this long a commit or a branch switch says it still runs, and offers Cancel. */
 export const SLOW_MS = 1500;
+/** How often the panel asks the remote for new commits while the window is shown. */
+export const FETCH_EVERY_MS = 3 * 60_000;
+/** Coming back to the window fetches again only once this long has passed. */
+export const FETCH_AGAIN_MS = 60_000;
 
 export const CHANGE_LETTER: Record<GitChange, string> = {
   added: "A",
@@ -158,6 +162,9 @@ export class GitModel {
 
   private loading: Promise<void> | null = null;
   private again = false;
+  /** When the last `git.fetch` started; 0 before the first. */
+  private fetchedAt = 0;
+  private fetching = false;
   private disposed = false;
   private readonly offs: (() => void)[];
 
@@ -177,9 +184,53 @@ export class GitModel {
         if (status === "open" && !wasOpen) this.changed();
         wasOpen = status === "open";
       }) ?? (() => {}),
+      this.fetchWhenShown(),
     ];
     live.set(project, this);
-    void this.refresh();
+    void this.refresh().then(() => this.fetch());
+  }
+
+  /**
+   * Asks the remote for new commits now and then, so "Get N commits" shows without a terminal:
+   * every `FETCH_EVERY_MS` while the window is shown, and when the person comes back to it.
+   */
+  private fetchWhenShown(): () => void {
+    if (typeof window === "undefined") return () => {};
+    const shown = () => document.visibilityState === "visible";
+    const timer = setInterval(() => {
+      if (shown()) void this.fetch(FETCH_AGAIN_MS);
+    }, FETCH_EVERY_MS);
+    const back = () => {
+      if (shown()) void this.fetch(FETCH_AGAIN_MS);
+    };
+    window.addEventListener("focus", back);
+    document.addEventListener("visibilitychange", back);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", back);
+      document.removeEventListener("visibilitychange", back);
+    };
+  }
+
+  /**
+   * `git.fetch` of the branch's upstream, unless one ran less than `gap` ms ago or the branch has
+   * none. Quiet: the network may be away, and nothing the person asked for failed. The core
+   * announces `fs.git_changed`, which reloads the status; reloading here too covers a lost event.
+   */
+  async fetch(gap = 0): Promise<void> {
+    const status = this.state.kind === "ready" ? this.state.status : null;
+    if (!status?.upstream || this.fetching || this.busy || this.disposed) return;
+    if (this.fetchedAt > 0 && Date.now() - this.fetchedAt < gap) return;
+    this.fetching = true;
+    this.fetchedAt = Date.now();
+    try {
+      await this.call({ method: "git.fetch", params: { project: this.project } });
+    } catch {
+      return;
+    } finally {
+      this.fetching = false;
+    }
+    if (!this.disposed) await this.refresh();
   }
 
   dispose(): void {

@@ -422,6 +422,46 @@ async fn pull_fetches_the_upstream_through_the_forge_and_fast_forwards_only() {
 }
 
 #[tokio::test]
+async fn fetch_records_the_upstream_and_moves_nothing_else() {
+    let f = fixture().await;
+    tracking(&f, "c0", "c7");
+    // A direct session writes the files, which a fetch leaves alone.
+    call(
+        &f.core,
+        json!({"method": "agents.start", "params": {
+            "project": "p1", "agent": "claude", "mode": "direct", "prompt": "go"}}),
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{e}"));
+    let mut rx = f.core.subscribe();
+    let done = call(&f.core, git("fetch", json!({}))).await;
+    assert_eq!(done, Ok(Response::Ok(OkResponse::Ok)));
+    let calls = f.git.calls();
+    assert_eq!(
+        calls[calls.len() - 3..],
+        [
+            format!("upstream {ROOT} "),
+            format!("status {ROOT} "),
+            format!("record_upstream {ROOT} c7"),
+        ]
+    );
+    let changed = std::iter::from_fn(|| rx.try_recv().ok())
+        .filter_map(|e| serde_json::to_value(e).ok())
+        .any(|e| e == json!({"type": "fs.git_changed", "data": {"project": "p1"}}));
+    assert!(changed, "the panel is told to read the status again");
+    // A branch without upstream has nothing to fetch.
+    *f.git.status.lock().unwrap_or_else(|e| e.into_inner()) = Some(RepoStatus {
+        branch: Some("topic".into()),
+        head: Some("c0".into()),
+        ..RepoStatus::default()
+    });
+    assert_eq!(
+        code(&f.core, git("fetch", json!({}))).await,
+        ErrorCode::BadRequest
+    );
+}
+
+#[tokio::test]
 async fn push_goes_on_top_of_the_remote_branch_and_needs_an_upstream() {
     let f = fixture().await;
     tracking(&f, "c2", "c0");

@@ -157,6 +157,17 @@ pub(crate) async fn handle(core: &Core, request: GitRequest) -> Result<Response,
             }
             ok()
         }
+        GitRequest::Fetch { project } => {
+            // Only refs move, so a direct session may run meanwhile.
+            let root = core.root(&project)?;
+            let (expect, _) = upstream(core, &root).await?;
+            let RemoteBranch { remote, branch } = expect.clone();
+            let commit = core.forge().fetch(root.clone(), remote, branch).await?;
+            git.record_upstream(root, expect, commit).await?;
+            // The watcher follows the index and HEAD, not remote refs.
+            core.emit(FsEvent::GitChanged { project });
+            ok()
+        }
         GitRequest::Push { project } => {
             let root = core.root(&project)?;
             let (expect, head) = upstream(core, &root).await?;

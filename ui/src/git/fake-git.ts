@@ -48,6 +48,8 @@ export class FakeGitCore implements Transport {
   failNext = new Map<Request["method"], CoreError>();
   /** Holds the next call of this method until the test calls the function it is given. */
   holdNext = new Map<Request["method"], (release: () => void) => void>();
+  /** How many new commits the next `git.fetch` finds on the upstream; null: it finds none new. */
+  fetchFinds: number | null = null;
   /** What `git.pulled` answers. */
   pulled: Pulled = { from: null, commits: [], truncated: 0 };
   /**
@@ -187,6 +189,10 @@ export class FakeGitCore implements Transport {
       }
       case "git.pulled":
         return { type: "git.pulled", data: structuredClone(this.pulled) };
+      case "git.fetch":
+        if (this.fetchFinds !== null) status.behind = this.fetchFinds;
+        this.fetchFinds = null;
+        return { type: "ok" };
       case "git.pull":
         status.behind = 0;
         return { type: "ok" };

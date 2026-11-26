@@ -1,7 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 import { CoreError } from "../lib/transport";
 import { changed, FakeGitCore, repo } from "./fake-git";
-import { branchNameProblem, fileLists, GitModel, gitModel, SLOW_MS } from "./model.svelte";
+import {
+  branchNameProblem,
+  FETCH_AGAIN_MS,
+  FETCH_EVERY_MS,
+  fileLists,
+  GitModel,
+  gitModel,
+  SLOW_MS,
+} from "./model.svelte";
 
 async function loaded(core = new FakeGitCore()) {
   const model = new GitModel(core, "p1");
@@ -28,6 +36,45 @@ describe("GitModel", () => {
       kind: "error",
       message: "Git is not available here: git is not installed",
     });
+  });
+
+  it("fetches the upstream on open, now and then and on coming back, quietly", async () => {
+    vi.useFakeTimers();
+    try {
+      const core = new FakeGitCore();
+      core.status = repo({ upstream: "origin/main" });
+      core.fetchFinds = 2;
+      const { model } = await loaded(core);
+      await vi.advanceTimersByTimeAsync(0);
+      const fetches = () => core.calls.filter((c) => c.method === "git.fetch").length;
+      expect(fetches()).toBe(1);
+      // What the fetch found shows as new commits.
+      expect(model.state.kind === "ready" && model.state.status.behind).toBe(2);
+      // Back to the window soon after: no second fetch yet.
+      window.dispatchEvent(new Event("focus"));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fetches()).toBe(1);
+      await vi.advanceTimersByTimeAsync(FETCH_AGAIN_MS);
+      window.dispatchEvent(new Event("focus"));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fetches()).toBe(2);
+      // A failed fetch says nothing; the next one runs on time.
+      core.failNext.set("git.fetch", new CoreError({ code: "unavailable", message: "no network" }));
+      await vi.advanceTimersByTimeAsync(FETCH_EVERY_MS);
+      expect(fetches()).toBe(3);
+      expect(model.error).toBeNull();
+      model.dispose();
+      await vi.advanceTimersByTimeAsync(FETCH_EVERY_MS);
+      expect(fetches()).toBe(3);
+
+      // No upstream: nothing to ask.
+      const local = await loaded();
+      await vi.advanceTimersByTimeAsync(FETCH_EVERY_MS);
+      expect(local.core.methods()).not.toContain("git.fetch");
+      local.model.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("reloads once for a burst of git_changed and file events of its project only", async () => {
