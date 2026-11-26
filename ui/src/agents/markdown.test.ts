@@ -36,3 +36,10 @@ it("shows where a link goes and keeps task-list boxes read-only", () => {
   expect(doc.querySelector("a")?.getAttribute("title")).toBe("https://example.com");
   expect(doc.querySelector("input")?.hasAttribute("disabled")).toBe(true);
 });
+
+it("keeps no target for links Ovra would not follow", () => {
+  const doc = new DOMParser().parseFromString(renderChat("[m](mailto:a@b.c) [x](xmpp:a) [i](irc://h/c)"), "text/html");
+  const links = [...doc.querySelectorAll("a")];
+  expect(links.length).toBe(3);
+  for (const a of links) expect(a.hasAttribute("href")).toBe(false);
+});

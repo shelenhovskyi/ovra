@@ -13,6 +13,15 @@ export type Link =
  * schemes, paths above the root).
  */
 export function resolveLink(from: string, href: string): Link {
+  try {
+    return resolve(from, href);
+  } catch {
+    // A malformed escape (`%E0%A4%A`): nowhere to go.
+    return { kind: "external" };
+  }
+}
+
+function resolve(from: string, href: string): Link {
   if (href.startsWith("#")) return { kind: "anchor", id: decodeURIComponent(href.slice(1)) };
   if (/^https?:\/\/[^/]/i.test(href)) return { kind: "web", url: href };
   if (/^[a-z][a-z0-9+.-]*:/i.test(href) || href.startsWith("//")) return { kind: "external" };

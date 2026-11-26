@@ -561,7 +561,8 @@ function folder(id: SessionId): string | null {
 function openLink(id: SessionId, href: string): void {
   const link = chatLink(href, project?.root ?? null, folder(id));
   if (link?.kind === "web") void transport.call({ method: "open.url", params: { url: link.url } }).catch(() => {});
-  else if (link?.kind === "file") workspace.openFile(link.path);
+  else if (link?.kind === "file")
+    workspace.openFile(link.path, "view", link.line ? { line: link.line, from: 0, to: 0 } : undefined);
 }
 
 /** What a working session does now: its newest tool call, in words. */

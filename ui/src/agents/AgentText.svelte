@@ -31,7 +31,16 @@ function onclick(event: MouseEvent): void {
 
 <!-- Links are buttons for the mouse; the keyboard reaches them as links (Enter clicks). -->
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-<div class="md" data-testid="agent-text" bind:this={root} {onclick}>
+<div
+  class="md"
+  data-testid="agent-text"
+  bind:this={root}
+  {onclick}
+  onauxclick={(event) => {
+    // A middle click would open the link in a new window, past onlink.
+    if ((event.target as Element).closest("a")) event.preventDefault();
+  }}
+>
   <!-- Safe: renderChat escapes raw HTML and keeps only an allowlist of tags and attributes. -->
   {@html html}
 </div>

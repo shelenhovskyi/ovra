@@ -1068,6 +1068,28 @@ describe("AgentsPanel", () => {
     expect(form()?.classList.contains("folded")).toBe(false);
   });
 
+  it("opens links the agent wrote: web pages in the browser, project files in the editor", async () => {
+    const core = new FakeAgentCore();
+    core.addSession("p1", "Fix the typo", { state: "idle" });
+    await setup(core);
+    selectRow("Fix the typo");
+    await settle();
+    core.message("s1", {
+      kind: "assistant_text",
+      text: "[docs](https://example.com/d) [main](src/main.rs:12) [bad](javascript:alert(1)) [etc](/etc/passwd)",
+    });
+    await settle();
+    const link = (name: string) =>
+      [...target.querySelectorAll<HTMLAnchorElement>("[data-testid=agent-text] a")].find((a) => a.textContent === name);
+    for (const name of ["bad", "etc"]) link(name)?.click();
+    expect(core.sent("open.url")).toEqual([]);
+    expect(workspace.openPath).toBeNull();
+    link("docs")?.click();
+    expect(core.sent("open.url").map((c) => c.params.url)).toEqual(["https://example.com/d"]);
+    link("main")?.click();
+    expect([workspace.openPath, workspace.reveal?.line]).toEqual(["src/main.rs", 12]);
+  });
+
   it("says how many messages came while scrolled up, under the transcript rather than over it", async () => {
     const core = new FakeAgentCore();
     core.addSession("p1", "Fix the typo", { state: "working" });

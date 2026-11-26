@@ -78,9 +78,13 @@ function clean(parent: Element): void {
       node.removeAttribute("class");
     }
     if (node.localName === "a") {
+      // Only links Ovra would follow keep a target: web pages and plain paths,
+      // not mailto:, irc: and the like, which a middle click could hand the OS.
       const href = node.getAttribute("href") ?? "";
+      const web = /^https?:\/\//i.test(href);
+      const path = !/^[a-z][a-z0-9+.-]*:|^\/\//i.test(href);
       // Shown on hover, so the person sees where a link really goes.
-      if (href) node.setAttribute("title", href);
+      if (href && (web || path)) node.setAttribute("title", href);
       else node.removeAttribute("href");
     }
     clean(node);

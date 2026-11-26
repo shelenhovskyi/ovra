@@ -27,6 +27,7 @@ describe("resolveLink", () => {
     expect(resolveLink("a.md", "https:///etc/passwd")).toEqual({ kind: "external" });
     expect(resolveLink("a.md", "mailto:x@y.z")).toEqual({ kind: "external" });
     expect(resolveLink("a.md", "//evil.test/x")).toEqual({ kind: "external" });
+    expect(resolveLink("a.md", "src/%E0%A4%A.rs")).toEqual({ kind: "external" });
     expect(resolveLink("docs/a.md", "../../etc/passwd")).toEqual({ kind: "external" });
     expect(resolveLink("a.md", "?q=1")).toEqual({ kind: "external" });
   });
