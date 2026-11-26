@@ -43,7 +43,11 @@ describe("LiveActivity", () => {
     vi.advanceTimersByTime(4000);
     flushSync();
     expect(live()).toBe("Thinking · 4s");
-    props.messages = [...props.messages, { kind: "tool_use", id: "t1", name: "Bash", input: { command: "npm test" } }];
+    const call = { kind: "execute", command: "npm test" } as const;
+    props.messages = [
+      ...props.messages,
+      { kind: "tool_use", id: "t1", name: "Bash", input: { command: "npm test" }, call },
+    ];
     flushSync();
     // A new step counts from zero.
     expect(live()).toBe("Running: npm test");

@@ -116,7 +116,7 @@ export function watchAgents(transport: Transport, notifier: Notifier, review: (i
     }
     const text =
       pending.size === 1
-        ? `${name(first.session)} needs approval: ${describeTool(first.tool, first.input).action}`
+        ? `${name(first.session)} needs approval: ${describeTool(first.tool, first.input, first.call).action}`
         : `${pending.size} requests need approval`;
     notifier.notify(
       { key: APPROVALS_KEY, level: "attention", text, action: { label: "Review", run: () => review(first.id) } },

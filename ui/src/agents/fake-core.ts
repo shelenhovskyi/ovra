@@ -1,6 +1,7 @@
 // Test-only fake of the core's agents and permissions: records calls, answers
 // them like the core and lets a test push events.
 
+import { claudeCall } from "../approvals/claude-calls";
 import type {
   AccountState,
   AccountsOverview,
@@ -27,6 +28,11 @@ import type {
   Task,
 } from "../lib/protocol";
 import { CoreError, type Transport } from "../lib/transport";
+
+const mapped = (message: AgentMessage): AgentMessage =>
+  message.kind === "tool_use" && !message.call
+    ? { ...message, call: claudeCall(message.name, message.input) }
+    : message;
 
 export class FakeAgentCore implements Transport {
   calls: Request[] = [];
@@ -138,7 +144,9 @@ export class FakeAgentCore implements Transport {
     this.emit({ type: "agents.status", data: { session, project: info?.project ?? "p1", status } });
   }
 
-  message(session: SessionId, message: AgentMessage): void {
+  /** A tool call without `call` gets it as the Claude runtime maps it, as from a real core. */
+  message(session: SessionId, given: AgentMessage): void {
+    const message = mapped(given);
     this.transcripts.set(session, [...(this.transcripts.get(session) ?? []), message]);
     this.emit({ type: "agents.message", data: { session, message } });
   }
@@ -150,7 +158,9 @@ export class FakeAgentCore implements Transport {
     this.emit({ type: "agents.sandbox", data: { session, sandbox } });
   }
 
-  ask(request: PermissionRequest): void {
+  /** A request without `call` gets it as the Claude runtime maps it. */
+  ask(given: PermissionRequest): void {
+    const request = { ...given, call: given.call ?? claudeCall(given.tool, given.input) };
     this.pending.push(request);
     this.emit({ type: "permissions.requested", data: request });
   }
@@ -208,7 +218,7 @@ export class FakeAgentCore implements Transport {
         return { type: "board.entry", data: entry };
       }
       case "agents.transcript":
-        return { type: "agents.transcript", data: this.transcripts.get(request.params.session) ?? [] };
+        return { type: "agents.transcript", data: (this.transcripts.get(request.params.session) ?? []).map(mapped) };
       case "agents.capacity":
         return { type: "agents.capacity", data: { ...this.capacity } };
       case "agents.stop":

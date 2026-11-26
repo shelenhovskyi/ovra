@@ -1,11 +1,16 @@
 // Plain-language summaries of what a tool call would do, for approval cards,
-// transcripts and notifications. Unknown tools show their raw input.
+// transcripts and notifications, by the call's kind (any agent's). Unknown
+// tools show their raw input.
+
+import type { ToolCall } from "../lib/protocol";
 
 type Detail = { label: string; text: string };
 
 export type ToolSummary = {
   /** One line, e.g. `Run ls -la` or `Edit README.md`. */
   action: string;
+  /** What `action` ends with when that is code or a path (`ls -la`, `README.md`), shown in mono; else empty. */
+  object: string;
   /** What a person should read before allowing it. */
   details: Detail[];
 };
@@ -27,50 +32,60 @@ function raw(input: unknown): Detail {
   return { label: "Input", text: JSON.stringify(input, null, 2) ?? String(input) };
 }
 
-export function describeTool(tool: string, input: unknown): ToolSummary {
-  const command = str(input, "command");
-  const file = str(input, "file_path") ?? str(input, "notebook_path");
+/**
+ * Tools whose verb says more than their kind's (`Write` is an edit that
+ * replaces the whole file, `Glob` a search by name); display only.
+ */
+const VERBS: Record<string, string> = { Write: "Write", Glob: "Find files" };
+
+/**
+ * `call` is what the call does in shared terms (absent: `other`); the agent's
+ * own name and input only add wording and details.
+ */
+export function describeTool(tool: string, input: unknown, call: ToolCall | undefined): ToolSummary {
+  const kind = call?.kind ?? "other";
+  const file = call?.paths?.[0];
   const pick = (...keys: string[]): Detail[] =>
     keys.flatMap((key) => {
       const text = str(input, key);
       return text === undefined ? [] : [{ label: key.replace(/_/g, " "), text }];
     });
+  const done = (verb: string, object: string, details: Detail[]): ToolSummary => ({
+    action: `${verb} ${object}`,
+    object,
+    details,
+  });
 
   const ide = isIdeTool(tool) ? describeIdeTool(tool.slice(IDE_PREFIX.length), input) : null;
-  if (ide) return { action: ide, details: pick("task", "text", "summary", "path") };
-  if (tool === "Bash" && command !== undefined) {
-    return { action: `Run ${oneLine(command)}`, details: pick("command", "description") };
+  if (ide) return { action: ide, object: "", details: pick("task", "text", "summary", "path") };
+  if (kind === "execute" && call?.command !== undefined) {
+    const command = call.command;
+    return done("Run", oneLine(command), [{ label: "command", text: command }, ...pick("description")]);
   }
-  if ((tool === "Edit" || tool === "MultiEdit" || tool === "NotebookEdit") && file !== undefined) {
+  if (kind === "edit" && file !== undefined) {
+    const verb = VERBS[tool] ?? "Edit";
+    const head = { label: "file", text: file };
+    if (verb === "Write") return done(verb, file, [head, ...pick("content")]);
     const edits = pick("old_string", "new_string", "new_source");
-    return {
-      action: `Edit ${file}`,
-      details:
-        edits.length > 0 ? [{ label: "file", text: file }, ...edits] : [{ label: "file", text: file }, raw(input)],
-    };
+    return done(verb, file, edits.length > 0 ? [head, ...edits] : [head, raw(input)]);
   }
-  if (tool === "Agent" || tool === "Task") {
+  if (kind === "subagent") {
     const what = str(input, "description") ?? str(input, "prompt");
     return {
       action: what ? `Start a helper agent: ${oneLine(what)}` : "Start a helper agent",
+      object: "",
       details: pick("description", "prompt"),
     };
   }
-  if (tool === "Write" && file !== undefined) {
-    return { action: `Write ${file}`, details: [{ label: "file", text: file }, ...pick("content")] };
+  if (kind === "read" && file !== undefined) return done("Read", file, [{ label: "file", text: file }]);
+  const pattern = str(input, "pattern");
+  if (kind === "search" && pattern !== undefined) {
+    return done(VERBS[tool] ?? "Search", oneLine(pattern), pick("pattern", "path"));
   }
-  if (tool === "Read" && file !== undefined)
-    return { action: `Read ${file}`, details: [{ label: "file", text: file }] };
-  if ((tool === "Glob" || tool === "Grep") && str(input, "pattern") !== undefined) {
-    return {
-      action: `${tool === "Glob" ? "Find files" : "Search"} ${oneLine(str(input, "pattern") ?? "")}`,
-      details: pick("pattern", "path"),
-    };
+  if (kind === "fetch" && call?.url !== undefined) {
+    return done("Fetch", oneLine(call.url), [{ label: "url", text: call.url }, ...pick("prompt")]);
   }
-  if (tool === "WebFetch" && str(input, "url") !== undefined) {
-    return { action: `Fetch ${oneLine(str(input, "url") ?? "")}`, details: pick("url", "prompt") };
-  }
-  return { action: `Use ${tool}`, details: [raw(input)] };
+  return { action: `Use ${tool}`, object: "", details: [raw(input)] };
 }
 
 const IDE_PREFIX = "mcp__ovra__";

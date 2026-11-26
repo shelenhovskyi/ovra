@@ -7,7 +7,7 @@
 // new messages only while scrolled to within 60 px of the end.
 import { untrack } from "svelte";
 import { describeTool } from "../approvals/describe";
-import type { AgentMessage, AgentStatus, Billing, MessageFrom } from "../lib/protocol";
+import type { AgentMessage, AgentStatus, Billing, MessageFrom, ToolCall } from "../lib/protocol";
 import Icon from "../shell/Icon.svelte";
 import { turnsOf, turnsText } from "./checkpoints";
 import { isAuthFailure, isInterrupt, withoutEchoes } from "./errors";
@@ -92,20 +92,15 @@ function clip(text: string): string {
 }
 
 /** A tool call in words, with a worker's id replaced by its name and files relative to the session's folder. */
-function describe(tool: string, given: unknown) {
-  const input = inFolder(given, root);
+function describe(tool: string, input: unknown, call: ToolCall | undefined) {
   const fields = typeof input === "object" && input !== null ? (input as Record<string, unknown>) : null;
   const name = typeof fields?.agent_id === "string" ? workerName(fields.agent_id) : undefined;
-  return describeTool(tool, name ? { ...fields, agent_id: name } : input);
+  return describeTool(tool, name ? { ...fields, agent_id: name } : input, inFolder(call, root));
 }
 
 /** The file a step works on, in full, for its tooltip. */
 function fileOf(step: Step): string | null {
-  const input = step.use?.input;
-  if (typeof input !== "object" || input === null) return null;
-  const { file_path, notebook_path } = input as Record<string, unknown>;
-  const path = file_path ?? notebook_path;
-  return typeof path === "string" ? path : null;
+  return step.use?.call?.paths?.[0] ?? null;
 }
 
 const capital = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
@@ -228,9 +223,9 @@ const lastError = $derived.by(() => {
   {@const failed = step.result?.is_error ?? false}
   {@const said = failed && step.use !== null && answeredNo(step.use)}
   {@const denied = said || (failed && (step.result?.output.startsWith(REJECTED) ?? false))}
-  {@const summary = step.use ? describe(step.use.name, step.use.input) : null}
+  {@const summary = step.use ? describe(step.use.name, step.use.input, step.use.call) : null}
   {@const plain = step.use && step.result && !failed ? ideResult(step.use.name, step.result.output) : null}
-  {@const parts = verbAndObject(step, stepLabel(step, summary?.action ?? ""))}
+  {@const parts = verbAndObject(stepLabel(step, summary?.action ?? ""), summary?.object ?? "")}
   {@const meta = failed ? "" : stepMeta(step)}
   {@const file = fileOf(step)}
   <details class="step" class:failed={failed && !denied} class:sub={sub !== ""}>

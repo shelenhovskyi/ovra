@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { cardBody } from "./body";
+import { claudeCall } from "./claude-calls";
 import { describeTool } from "./describe";
 
-const body = (tool: string, input: unknown) => cardBody(tool, input, describeTool(tool, input));
+const body = (tool: string, input: unknown) => {
+  const call = claudeCall(tool, input);
+  return cardBody(input, call, describeTool(tool, input, call));
+};
 
 describe("cardBody", () => {
   it("shows a command once and its description as plain text", () => {

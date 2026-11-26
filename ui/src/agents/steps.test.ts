@@ -1,9 +1,27 @@
 import { describe, expect, it } from "vitest";
+import { claudeCall } from "../approvals/claude-calls";
 import { describeTool } from "../approvals/describe";
 import type { AgentMessage } from "../lib/protocol";
-import { elapsed, entries, foldLabel, inFolder, liveStep, noteLine, stepLabel, stepMeta, turnCost } from "./steps";
+import {
+  elapsed,
+  entries,
+  foldLabel,
+  inFolder,
+  liveStep,
+  noteLine,
+  stepIcon,
+  stepLabel,
+  stepMeta,
+  turnCost,
+} from "./steps";
 
-const use = (id: string, name: string, input: unknown): AgentMessage => ({ kind: "tool_use", id, name, input });
+const use = (id: string, name: string, input: unknown): AgentMessage => ({
+  kind: "tool_use",
+  id,
+  name,
+  input,
+  call: claudeCall(name, input),
+});
 const result = (id: string, is_error = false): AgentMessage => ({
   kind: "tool_result",
   tool_use_id: id,
@@ -45,7 +63,7 @@ describe("steps", () => {
     const labels = shown.flatMap((e) =>
       e.kind === "steps"
         ? e.steps.map((s) =>
-            stepLabel(s, s.use?.kind === "tool_use" ? describeTool(s.use.name, s.use.input).action : ""),
+            stepLabel(s, s.use?.kind === "tool_use" ? describeTool(s.use.name, s.use.input, s.use.call).action : ""),
           )
         : [],
     );
@@ -53,7 +71,11 @@ describe("steps", () => {
     expect(labels).toEqual(["Ran npm test", "Search .ovra/**", "Tool finished"]);
     const spawn = use("t3", "mcp__ovra__spawn_agent", { name: "research-speed", task: "A long task." });
     const [step] = entries([spawn, result("t3")]);
-    const action = describeTool("mcp__ovra__spawn_agent", { name: "research-speed", task: "A long task." }).action;
+    const action = describeTool(
+      "mcp__ovra__spawn_agent",
+      { name: "research-speed", task: "A long task." },
+      undefined,
+    ).action;
     expect(step?.kind === "steps" && stepLabel(step.steps[0] ?? { use: null, result: null }, action)).toBe(
       "Started worker research-speed",
     );
@@ -76,18 +98,44 @@ describe("steps", () => {
   });
 });
 
+describe("any agent's steps", () => {
+  it("fold, label and show by the call's kind, whatever the tool is named", () => {
+    const call = (id: string, name: string, kind: "read" | "search" | "execute", extra = {}): AgentMessage => ({
+      kind: "tool_use",
+      id,
+      name,
+      input: {},
+      call: { kind, ...extra },
+    });
+    const shown = entries([
+      call("t1", "read_file", "read", { paths: ["a.md"] }),
+      result("t1"),
+      call("t2", "glob", "search"),
+      result("t2"),
+      call("t3", "run_shell_command", "execute", { command: "make" }),
+      result("t3"),
+    ]);
+    expect(shown.map((e) => (e.kind === "steps" ? e.steps.length : 0))).toEqual([2, 1]);
+    const [fold, run] = shown;
+    expect(fold?.kind === "steps" && foldLabel(fold.steps)).toBe("Read 1 file, searched once");
+    expect(run?.kind === "steps" && run.steps[0] && stepIcon(run.steps[0])).toBe("terminal");
+    expect(liveStep(working, [call("t4", "run_shell_command", "execute", { command: "make" })], false)).toBe(
+      "Running: make",
+    );
+  });
+});
+
 describe("paths in steps", () => {
   it("shows a file in the session's folder relative to it, and others as they are", () => {
-    const input = { file_path: "/tmp/ux/demo-app/src/README.md", old_string: "a" };
-    expect(inFolder(input, "/tmp/ux/demo-app")).toEqual({ file_path: "src/README.md", old_string: "a" });
-    expect(inFolder({ notebook_path: "/wt/docs/a.ipynb" }, "/wt/docs/")).toEqual({ notebook_path: "a.ipynb" });
+    const edits = (...paths: string[]) => ({ kind: "edit" as const, paths });
+    expect(inFolder(edits("/tmp/ux/demo-app/src/README.md"), "/tmp/ux/demo-app")).toEqual(edits("src/README.md"));
+    expect(inFolder(edits("/wt/docs/a.ipynb", "/wt/docs/b.md"), "/wt/docs/")).toEqual(edits("a.ipynb", "b.md"));
     // Not inside it, a prefix that is not a folder, no folder known, no path.
-    expect(inFolder({ file_path: "/etc/hosts" }, "/tmp/ux/demo-app")).toEqual({ file_path: "/etc/hosts" });
-    expect(inFolder({ file_path: "/tmp/ux/demo-apple/x" }, "/tmp/ux/demo-app")).toEqual({
-      file_path: "/tmp/ux/demo-apple/x",
-    });
-    expect(inFolder({ file_path: "/a/b" }, null)).toEqual({ file_path: "/a/b" });
-    expect(inFolder("ls", "/a")).toBe("ls");
+    expect(inFolder(edits("/etc/hosts"), "/tmp/ux/demo-app")).toEqual(edits("/etc/hosts"));
+    expect(inFolder(edits("/tmp/ux/demo-apple/x"), "/tmp/ux/demo-app")).toEqual(edits("/tmp/ux/demo-apple/x"));
+    expect(inFolder(edits("/a/b"), null)).toEqual(edits("/a/b"));
+    expect(inFolder({ kind: "execute", command: "ls" }, "/a")).toEqual({ kind: "execute", command: "ls" });
+    expect(inFolder(undefined, "/a")).toBeUndefined();
     const edit = use("t1", "Edit", { file_path: "/w/src/x.ts", old_string: "a", new_string: "b" });
     expect(liveStep(working, [edit], false, "/w")).toBe("Editing src/x.ts");
   });

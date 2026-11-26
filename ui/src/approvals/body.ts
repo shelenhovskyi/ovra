@@ -3,6 +3,7 @@
 // command's description is plain text, and nothing is cut: a command the
 // title shortens is shown whole.
 
+import type { ToolCall } from "../lib/protocol";
 import type { ToolSummary } from "./describe";
 
 export type Part =
@@ -31,11 +32,11 @@ function diff(edit: unknown): Part | null {
 
 const sentence = (label: string): string => label.charAt(0).toUpperCase() + label.slice(1);
 
-/** The card's body for a request whose title is `summary.action`. */
-export function cardBody(tool: string, input: unknown, summary: ToolSummary): Part[] {
+/** The card's body for a call (`call`: its shared terms) whose title is `summary.action`. */
+export function cardBody(input: unknown, call: ToolCall | undefined, summary: ToolSummary): Part[] {
   const record = typeof input === "object" && input !== null ? (input as Record<string, unknown>) : {};
-  if (tool === "Bash" && typeof record.command === "string") {
-    const command = record.command;
+  if (call?.kind === "execute" && call.command !== undefined) {
+    const command = call.command;
     const description = str(input, "description");
     return [
       // The title has it on one line; anything it changed or cut is shown whole.
@@ -43,18 +44,19 @@ export function cardBody(tool: string, input: unknown, summary: ToolSummary): Pa
       ...(description ? [{ kind: "note", text: description } as const] : []),
     ];
   }
-  const file = str(input, "file_path") ?? str(input, "notebook_path");
+  const edit = call?.kind === "edit" && call.paths?.[0] !== undefined;
   // A notebook cell put in or taken out is not a replacement: its raw input says which.
-  const replaces = tool !== "NotebookEdit" || record.edit_mode === undefined || record.edit_mode === "replace";
-  if ((tool === "Edit" || tool === "MultiEdit" || tool === "NotebookEdit") && file !== undefined && replaces) {
+  const replaces = record.edit_mode === undefined || record.edit_mode === "replace";
+  if (edit && replaces) {
     const each: unknown[] = Array.isArray(record.edits) ? record.edits : [input];
     const edits = each.map(diff).filter((e): e is Part => e !== null);
     const all = each.some((e) => typeof e === "object" && e !== null && "replace_all" in e && e.replace_all === true);
     if (edits.length > 0 && edits.length === each.length) {
       return [...edits, ...(all ? [{ kind: "note", text: "Replaces every match in the file." } as const] : [])];
     }
+    // A whole file written.
+    if (typeof record.content === "string") return [{ kind: "code", text: record.content }];
   }
-  if (tool === "Write" && typeof record.content === "string") return [{ kind: "code", text: record.content }];
   if (!replaces) return [{ kind: "fields", fields: [{ label: "Input", text: JSON.stringify(input, null, 2) }] }];
   // The field the title ends with (its object, whole) is not said again.
   const fields = summary.details

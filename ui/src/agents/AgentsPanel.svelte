@@ -561,7 +561,8 @@ function step(id: SessionId): string | null {
   const transcript = sessions.transcripts.get(id) ?? [];
   for (let i = transcript.length - 1; i >= 0; i--) {
     const message = transcript[i];
-    if (message?.kind === "tool_use") return describeTool(message.name, inFolder(message.input, folder(id))).action;
+    if (message?.kind === "tool_use")
+      return describeTool(message.name, message.input, inFolder(message.call, folder(id))).action;
     if (message?.kind === "user_text") return null;
   }
   return null;

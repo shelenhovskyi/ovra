@@ -4,7 +4,7 @@
 // failures always keep a step of their own.
 
 import { describeTool } from "../approvals/describe";
-import type { AgentMessage, AgentStatus, Billing, TurnUsage } from "../lib/protocol";
+import type { AgentMessage, AgentStatus, Billing, ToolCall, ToolKind, TurnUsage } from "../lib/protocol";
 import type { IconName } from "../shell/icons";
 
 type ToolUse = Extract<AgentMessage, { kind: "tool_use" }>;
@@ -94,9 +94,10 @@ export function notesLabel(notes: Note[]): string {
 }
 
 /** Tools that only look: in a row they fold into one line. */
-const LOOKS = new Set(["Read", "Glob", "Grep", "WebSearch", "LS"]);
+const LOOKS: ReadonlySet<ToolKind> = new Set(["read", "search"]);
+const kindOf = (step: Step): ToolKind => step.use?.call?.kind ?? "other";
 const looks = (step: Step): boolean =>
-  step.use !== null && LOOKS.has(step.use.name) && !step.result?.is_error && !step.use.parent;
+  step.use !== null && LOOKS.has(kindOf(step)) && !step.result?.is_error && !step.use.parent;
 
 /**
  * Messages in order, each tool call merged with its result (by
@@ -141,7 +142,7 @@ export function entries(messages: AgentMessage[]): Entry[] {
 
 /** `Read 6 files, searched 2 times`, for a fold of reads and searches. */
 export function foldLabel(steps: Step[]): string {
-  const reads = steps.filter((s) => s.use?.name === "Read").length;
+  const reads = steps.filter((s) => kindOf(s) === "read").length;
   const searches = steps.length - reads;
   const parts = [
     reads > 0 ? `read ${reads} ${reads === 1 ? "file" : "files"}` : "",
@@ -151,32 +152,26 @@ export function foldLabel(steps: Step[]): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-/** A step's label as a verb and the thing it acted on (`Ran` + `npm test`); the object is empty for other tools. */
-export function verbAndObject(step: Step, label: string): { verb: string; object: string } {
-  const plain = { verb: label, object: "" };
-  if (
-    !step.use ||
-    !["Bash", "Edit", "MultiEdit", "NotebookEdit", "Write", "Read", "Glob", "Grep", "WebFetch"].includes(step.use.name)
-  )
-    return plain;
-  const two = /^(Found|Find) files /.exec(label);
-  const at = two ? two[0].length - 1 : label.indexOf(" ");
-  return at < 0 ? plain : { verb: label.slice(0, at), object: label.slice(at + 1) };
+/**
+ * A step's label as a verb and the thing it acted on (`Ran` + `npm test`).
+ * `object` is its call's (`describeTool`); empty for calls that act on no
+ * code or path.
+ */
+export function verbAndObject(label: string, object: string): { verb: string; object: string } {
+  if (object === "" || !label.endsWith(` ${object}`)) return { verb: label, object: "" };
+  return { verb: label.slice(0, label.length - object.length - 1), object };
 }
 
 const lineCount = (text: unknown): number => (typeof text === "string" && text !== "" ? text.split("\n").length : 0);
 
 /** A step's numbers, right-aligned on its line: lines added and removed by an edit or a write. */
 export function stepMeta(step: Step): string {
+  if (kindOf(step) !== "edit") return "";
   const input = (step.use?.input ?? {}) as Record<string, unknown>;
-  switch (step.use?.name) {
-    case "Edit":
-      return `+${lineCount(input.new_string)} −${lineCount(input.old_string)}`;
-    case "Write":
-      return `+${lineCount(input.content)}`;
-    default:
-      return "";
-  }
+  if (typeof input.new_string === "string" || typeof input.old_string === "string")
+    return `+${lineCount(input.new_string)} −${lineCount(input.old_string)}`;
+  // A whole file written.
+  return typeof input.content === "string" ? `+${lineCount(input.content)}` : "";
 }
 
 /**
@@ -231,9 +226,9 @@ const NOW: Record<string, string> = {
 };
 
 /** A step's summary without what follows a colon (a worker's task, a review summary). */
-function short(tool: string, action: string): string {
+function short(kind: ToolKind, action: string): string {
   const colon = action.indexOf(": ");
-  return colon < 0 || tool === "Bash" ? action : action.slice(0, colon);
+  return colon < 0 || kind === "execute" ? action : action.slice(0, colon);
 }
 
 function reword(action: string, words: Record<string, string>): string {
@@ -249,27 +244,21 @@ function reword(action: string, words: Record<string, string>): string {
  */
 export function stepLabel(step: Step, action: string): string {
   if (!step.use) return step.result?.is_error ? "Tool failed" : "Tool finished";
-  const few = short(step.use.name, action);
+  const few = short(kindOf(step), action);
   // A call that failed did not do what it says: no past tense.
   return step.result && !step.result.is_error ? reword(few, PAST) : few;
 }
 
 export function stepIcon(step: Step): IconName {
-  switch (step.use?.name) {
-    case "Bash":
+  switch (kindOf(step)) {
+    case "execute":
       return "terminal";
-    case "Edit":
-    case "MultiEdit":
-    case "NotebookEdit":
-    case "Write":
-    case "Read":
+    case "edit":
+    case "read":
       return "files";
-    case "Glob":
-    case "Grep":
-    case "WebSearch":
+    case "search":
       return "search";
-    case "Agent":
-    case "Task":
+    case "subagent":
       return "agent";
     default:
       return step.use?.name.startsWith("mcp__ovra__") ? "agent" : "more";
@@ -295,30 +284,23 @@ export function liveStep(
     if (!m || m.kind === "turn_end" || m.kind === "user_text") break;
     if (m.kind === "tool_result") done.add(m.tool_use_id);
     else if (m.kind === "tool_use" && !done.has(m.id))
-      return reword(short(m.name, describeTool(m.name, inFolder(m.input, root)).action), NOW);
+      return reword(short(m.call?.kind ?? "other", describeTool(m.name, m.input, inFolder(m.call, root)).action), NOW);
   }
   return writing ? "Writing" : "Thinking";
 }
 
-/** The input fields that name a file the tool works on. */
-const PATH_FIELDS = ["file_path", "notebook_path"];
-
 /**
- * A tool call's input with the file it works on relative to `root`, the
- * session's folder (the project, or a worker's copy): Claude sends absolute
- * paths, whose start says nothing and pushes the file name out of sight.
+ * A tool call with the files it names relative to `root`, the session's
+ * folder (the project, or a worker's copy): agents send absolute paths,
+ * whose start says nothing and pushes the file name out of sight.
  */
-export function inFolder(input: unknown, root: string | null): unknown {
-  if (!root || typeof input !== "object" || input === null) return input;
+export function inFolder(call: ToolCall | undefined, root: string | null): ToolCall | undefined {
+  if (!root || !call?.paths) return call;
   const base = root.endsWith("/") ? root : `${root}/`;
-  const fields = input as Record<string, unknown>;
-  const out = { ...fields };
-  for (const key of PATH_FIELDS) {
-    const path = fields[key];
-    if (typeof path === "string" && path.startsWith(base) && path.length > base.length)
-      out[key] = path.slice(base.length);
-  }
-  return out;
+  const paths = call.paths.map((path) =>
+    path.startsWith(base) && path.length > base.length ? path.slice(base.length) : path,
+  );
+  return { ...call, paths };
 }
 
 /** `4s`, `2m 05s`. */

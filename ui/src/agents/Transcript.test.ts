@@ -104,7 +104,13 @@ it("names files relative to the session's folder, with the whole path on hover",
     props: {
       root: "/tmp/ovra-ux/demo-app",
       messages: [
-        { kind: "tool_use", id: "t1", name: "Edit", input: { file_path, old_string: "teh", new_string: "the" } },
+        {
+          kind: "tool_use",
+          id: "t1",
+          name: "Edit",
+          input: { file_path, old_string: "teh", new_string: "the" },
+          call: { kind: "edit", paths: [file_path] },
+        },
         { kind: "tool_result", tool_use_id: "t1", output: "ok", is_error: false },
       ],
     },
@@ -177,7 +183,13 @@ it("says Not run for a refusal it only knows from the CLI's words, and not faile
     target: document.body,
     props: {
       messages: [
-        { kind: "tool_use", id: "t1", name: "Bash", input: { command: "rm -rf build" } },
+        {
+          kind: "tool_use",
+          id: "t1",
+          name: "Bash",
+          input: { command: "rm -rf build" },
+          call: { kind: "execute", command: "rm -rf build" },
+        },
         {
           kind: "tool_result",
           tool_use_id: "t1",

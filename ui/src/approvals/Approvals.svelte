@@ -43,7 +43,7 @@ import type { Decision, PermissionId, PermissionRequest, Project, ProjectId, Ses
 import { useOvra } from "../shell/context";
 import { typed } from "../shell/menu";
 import { cardBody } from "./body";
-import { describeTool } from "./describe";
+import { describeTool, type ToolSummary } from "./describe";
 import { ARM_MS, approvalQueue, HOLD_MS } from "./queue.svelte";
 import { type PathScope, pathScopes, sameFolder } from "./scope";
 
@@ -663,14 +663,11 @@ function alwaysOf(request: PermissionRequest, scopes: PathScope[]): string | nul
   return rule.match;
 }
 
-/** Tools whose object is code or a path: it shows in a mono pill after the verb. */
-const MONO = new Set(["Bash", "Edit", "MultiEdit", "NotebookEdit", "Write", "Read", "Glob", "Grep", "WebFetch"]);
-
-/** `Run` and `npm test`; other tools keep their whole summary as the verb. */
-function verbAndObject(tool: string, action: string): { verb: string; object: string } {
-  const space = action.startsWith("Find files ") ? "Find files".length : action.indexOf(" ");
-  if (!MONO.has(tool) || space < 0) return { verb: action, object: "" };
-  return { verb: action.slice(0, space), object: action.slice(space + 1) };
+/** `Run` and `npm test`: an object that is code or a path shows in a mono pill after the verb; other calls keep their whole summary as the verb. */
+function verbAndObject(summary: ToolSummary): { verb: string; object: string } {
+  const { action, object } = summary;
+  if (object === "" || !action.endsWith(` ${object}`)) return { verb: action, object: "" };
+  return { verb: action.slice(0, action.length - object.length - 1), object };
 }
 </script>
 
@@ -771,13 +768,13 @@ function verbAndObject(tool: string, action: string): { verb: string; object: st
         <ul class="cards">
     {#each group.stacks as stack (stack[0]?.id)}
       {@const request = stack[0] as PermissionRequest}
-      {@const summary = describeTool(request.tool, request.input)}
-      {@const what = verbAndObject(request.tool, summary.action)}
+      {@const summary = describeTool(request.tool, request.input, request.call)}
+      {@const what = verbAndObject(summary)}
       {@const ready = armed(request.id)}
       {@const domId = `approval-${request.id}`}
       {@const folder = folderOf(request, project)}
       {@const scopes = pathScopes(request.input, folder.path)}
-      {@const parts = cardBody(request.tool, request.input, summary)}
+      {@const parts = cardBody(request.input, request.call, summary)}
       {@const named = scopes.find((s) => s.path === what.object)}
       {@const always = alwaysOf(request, scopes)}
       {@const gaps = gapsOf(request.session)}
@@ -859,13 +856,13 @@ function verbAndObject(tool: string, action: string): { verb: string; object: st
               >Show details</button
             >
           {/if}
-          {#if gaps || role?.kind === "worker" || agentNote || request.tool === "Bash"}
+          {#if gaps || role?.kind === "worker" || agentNote || request.call?.kind === "execute"}
             <!-- Context, not the request itself: one click away. -->
             <details class="extra" data-testid={gaps ? "approval-sandbox-gaps" : "approval-extra"}>
               <summary>{@render icon("m9 6 6 6-6 6")}{gaps ? "Sandbox has gaps" : "Details"}</summary>
               {#if gaps}<p>{gaps}</p>{/if}
               {#if role?.kind === "worker"}<p data-testid="approval-worker-copy">{workerCopy(request.session)}</p>{/if}
-              {#if request.tool === "Bash"}<p>Paths in commands are not checked.</p>{/if}
+              {#if request.call?.kind === "execute"}<p>Paths in commands are not checked.</p>{/if}
               {#if agentNote}<p>Agent's note: {agentNote}</p>{/if}
             </details>
           {/if}
@@ -904,12 +901,12 @@ function verbAndObject(tool: string, action: string): { verb: string; object: st
                 type="button"
                 class="quiet always"
                 aria-disabled={!allowable(request.id)}
-                aria-describedby={request.tool === "Bash" ? `approval-always-note-${request.id}` : undefined}
+                aria-describedby={request.call?.kind === "execute" ? `approval-always-note-${request.id}` : undefined}
                 data-testid="approval-always"
                 onclick={(event) => answerByClick(event, request, "allow", true)}
                 >Always allow <code>{always}</code> here</button
               >
-              {#if request.tool === "Bash"}
+              {#if request.call?.kind === "execute"}
                 <!-- The command is exact, but what it runs is not: npm test runs package.json's scripts. -->
                 <span class="always-note" id={`approval-always-note-${request.id}`} data-testid="approval-always-note"
                   >{ALWAYS_BASH_NOTE}</span
