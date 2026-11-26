@@ -6,6 +6,7 @@ import type {
   CommitInfo,
   CoreEvent,
   FileDiff,
+  Pulled,
   RepoStatus,
   Request,
   ResponseFor,
@@ -47,6 +48,14 @@ export class FakeGitCore implements Transport {
   failNext = new Map<Request["method"], CoreError>();
   /** Holds the next call of this method until the test calls the function it is given. */
   holdNext = new Map<Request["method"], (release: () => void) => void>();
+  /** What `git.pulled` answers. */
+  pulled: Pulled = { from: null, commits: [], truncated: 0 };
+  /**
+   * The agent's answer to the next `agents.start`: sent as an assistant message and the
+   * turn's end right after the start answers. Null: the agent stays at work.
+   */
+  agentAnswer: string | null = null;
+  private sessions = 0;
   private discards = new Map<string, StatusFile[]>();
   private listeners = new Set<(event: CoreEvent) => void>();
 
@@ -74,9 +83,28 @@ export class FakeGitCore implements Transport {
     for (const listener of this.listeners) listener(event);
   }
 
+  /** Tells the panel the repository changed, as the core does. */
+  changedFiles(): void {
+    this.emit({ type: "fs.git_changed", data: { project: "p1" } } as CoreEvent);
+  }
+
   /** The methods called, in order. */
   methods(): string[] {
     return this.calls.map((call) => call.method);
+  }
+
+  /** Starts a fake agent session that answers with `agentAnswer` once the start has answered. */
+  private startAgent(): unknown {
+    const session = `s${++this.sessions}`;
+    const answer = this.agentAnswer;
+    if (answer !== null)
+      // Before the caller sees the answer: messages can come first.
+      queueMicrotask(() => {
+        this.emit({ type: "agents.message", data: { session, message: { kind: "assistant_text", text: answer } } });
+        const usage = { input_tokens: 0, output_tokens: 0, cost_micro_usd: null };
+        this.emit({ type: "agents.message", data: { session, message: { kind: "turn_end", usage } } });
+      });
+    return { type: "agents.session", data: { id: session } };
   }
 
   private file(path: string): StatusFile | undefined {
@@ -85,6 +113,7 @@ export class FakeGitCore implements Transport {
 
   private answer(request: Request): unknown {
     const status = this.status;
+    if (request.method === "agents.start") return this.startAgent();
     if (request.method === "git.status")
       return status ? { type: "git.status", data: structuredClone(status) } : { type: "git.no_repo" };
     if (request.method === "git.init") {
@@ -156,6 +185,8 @@ export class FakeGitCore implements Transport {
         const empty = { path: request.params.path, from: null, binary: false, hunks: [], truncated: false };
         return { type: "git.diff", data: structuredClone(this.diffs.get(key) ?? empty) };
       }
+      case "git.pulled":
+        return { type: "git.pulled", data: structuredClone(this.pulled) };
       case "git.log":
         return { type: "git.log", data: { commits: this.commits.slice(0, request.params.limit ?? 50) } };
       default:
