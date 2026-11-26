@@ -88,7 +88,11 @@ describe("Layout", () => {
     expect(layout.dock).toBe(MIN_DOCK);
     layout.resizeDock(null, 800);
     expect(new Layout(store).dock).toBeNull();
+    expect(layout.dockHeight(800)).toBeNull();
     layout.resizeDock(300, 800);
+    expect(layout.dockHeight(400)).toBe(240);
+    // Before the main area is measured the saved height stands, not the minimum.
+    expect(layout.dockHeight(null)).toBe(300);
     layout.resetAll();
     expect(new Layout(store).dock).toBeNull();
   });

@@ -124,6 +124,16 @@ export class Layout {
     return Math.max(MIN_DOCK, Math.floor(room - MIN_ABOVE_DOCK));
   }
 
+  /**
+   * The dock's height in a main area `room` pixels tall; null for the default
+   * share. Not clamped while `room` is not measured yet (null), so the first
+   * frame does not open the dock's terminals at the minimum and resize them.
+   */
+  dockHeight(room: number | null): number | null {
+    if (this.dock === null || room === null) return this.dock;
+    return Math.min(this.dock, this.dockMax(room));
+  }
+
   /** Sets the dock's height within what a main area `room` pixels tall allows; null goes back to the default. */
   resizeDock(height: number | null, room: number): void {
     this.dock = height === null ? null : Math.round(Math.min(this.dockMax(room), Math.max(MIN_DOCK, height)));

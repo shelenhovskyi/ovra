@@ -279,25 +279,33 @@ const groupsRoom = $derived(Math.max(0, groupsWidth - GROUP_HANDLE));
 /** The tracks of the tab row and the files while the main area is split; both use them, so tabs sit above their file. */
 const groupColumns = $derived(`minmax(0, ${layout.groups}fr) ${GROUP_HANDLE}px minmax(0, ${1 - layout.groups}fr)`);
 
-/** The main area's height bounds the bottom dock's; the dock's own is where its handle starts. */
-let mainHeight = $state(0);
+/**
+ * The main area's height bounds the bottom dock's; the dock's own is where its
+ * handle starts. Null while not measured (or hidden), so the dock is not
+ * clamped to its minimum before the first measurement.
+ */
+let mainHeight = $state<number | null>(null);
 let dockHeight = $state(0);
 let mainBox = $state<HTMLElement>();
 let dockBox = $state<HTMLElement>();
 $effect(() => {
   const main = mainBox;
   const dock = dockBox;
-  if (!main || !dock || typeof ResizeObserver === "undefined") return;
-  const observer = new ResizeObserver(() => {
-    mainHeight = main.clientHeight;
+  if (!main || !dock) return;
+  const measure = () => {
+    mainHeight = main.clientHeight || null;
     dockHeight = dock.clientHeight;
-  });
+  };
+  measure();
+  if (typeof ResizeObserver === "undefined") return;
+  const observer = new ResizeObserver(measure);
   observer.observe(main);
   observer.observe(dock);
   return () => observer.disconnect();
 });
-const dockMax = $derived(layout.dockMax(mainHeight));
-const dockBasis = $derived(layout.dock === null ? undefined : `${Math.min(layout.dock, dockMax)}px`);
+const dockMax = $derived(layout.dockMax(mainHeight ?? 0));
+const dockSize = $derived(layout.dockHeight(mainHeight));
+const dockBasis = $derived(dockSize === null ? undefined : `${dockSize}px`);
 
 function resizeGroups(width: number): void {
   if (groupsRoom <= 0) return;
@@ -473,12 +481,12 @@ async function showApprovals(): Promise<void> {
       <div class="dock-handle">
         <Splitter
           label="Resize the bottom panel"
-          width={layout.dock === null ? dockHeight : Math.min(layout.dock, dockMax)}
+          width={dockSize ?? dockHeight}
           min={MIN_DOCK}
           max={dockMax}
           edge="bottom"
-          onresize={(height) => layout.resizeDock(height, mainHeight)}
-          onreset={() => layout.resizeDock(null, mainHeight)}
+          onresize={(height) => layout.resizeDock(height, mainHeight ?? 0)}
+          onreset={() => layout.resizeDock(null, mainHeight ?? 0)}
         />
       </div>
       <Terminals />
