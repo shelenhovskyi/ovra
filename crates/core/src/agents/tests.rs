@@ -1658,4 +1658,18 @@ async fn a_research_session_without_the_web_cannot_search() {
         host.before_tool(&read).await,
         crate::agents::BeforeTool::Proceed
     );
+    // A resume keeps it.
+    let mut rx = core.subscribe();
+    ok(
+        &core,
+        json!({"method": "agents.stop", "params": {"session": "s1"}}),
+    )
+    .await;
+    until(&mut rx, AgentStatus::Stopped).await;
+    ok(
+        &core,
+        json!({"method": "agents.resume", "params": {"session": "s1", "prompt": "more"}}),
+    )
+    .await;
+    assert!(lock_started(&agent, 1).no_web);
 }

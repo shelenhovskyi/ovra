@@ -1022,9 +1022,14 @@ impl AgentHost {
         };
         let allowed = RESEARCH_TOOLS.contains(&tool) && !(no_web && tool == WEB_SEARCH);
         (research && !allowed).then(|| {
+            let can = if no_web {
+                "only reads the project"
+            } else {
+                "only reads the project and searches the web"
+            };
             format!(
-                "A research session only reads the project and searches the web; {tool} is \
-                 not available. Put what should change in your report instead."
+                "A research session {can}; {tool} is not available. Put what should change \
+                 in your report instead."
             )
         })
     }
