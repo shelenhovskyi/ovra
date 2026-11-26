@@ -1,8 +1,10 @@
 // Copies files and folders dropped from the system's file manager onto the
 // tree into the project. The app keeps the dropped paths; the tree only
 // names the drop's id and the folder under the pointer (`importDrop`). A
-// name that exists already is asked about first: Replace (the old one goes
-// to the Trash), Keep both, or Cancel.
+// name that looks like a secret store is asked about first (Copy anyway or
+// Cancel: a copy in the project is there for every agent), and so is a name
+// that exists already: Replace (the old one goes to the Trash), Keep both,
+// or Cancel.
 
 import type { ProjectId } from "../lib/protocol";
 import type { DropClash, Point, Transport, WindowDrop } from "../lib/transport";
@@ -12,13 +14,19 @@ type Host = {
   project: ProjectId;
   /** The folder a drop at `at` goes into (`""` is the project folder), or null when it is not on the tree. */
   dirAt: (at: Point) => string | null;
+  /** The names among the dropped paths that look like secrets (`secretLooking`). */
+  secretNames: (paths: string[]) => Promise<string[]>;
   /** The copied entries, to select and reveal. */
   copied: (paths: string[]) => void;
   fail: (message: string) => void;
   tell: (message: string) => void;
 };
 
-export type ClashAsk = { drop: WindowDrop; dir: string; text: string };
+/** A question about a drop: a secret-looking name, or names that exist already. */
+export type DropAsk = { kind: "secret" | "clash"; drop: WindowDrop; dir: string; text: string };
+
+/** The person's answer: "copy" to a secret question, a clash answer to a clash, null cancels. */
+export type DropAnswer = "copy" | Exclude<DropClash, "ask"> | null;
 
 const quoted = (name: string) => `“${name}”`;
 
@@ -29,6 +37,17 @@ export function clashQuestion(names: string[], dir: string): string {
   if (names.length === 1) return `${quoted(first as string)} already exists in ${where}.`;
   const more = names.length - 1;
   return `${quoted(first as string)} and ${more} more ${more === 1 ? "item" : "items"} already exist in ${where}.`;
+}
+
+/** "“.env” may hold secrets. …" for the secret-looking names of a drop. */
+export function secretQuestion(names: string[]): string {
+  const [first] = names;
+  const more = names.length - 1;
+  const who =
+    more === 0
+      ? quoted(first as string)
+      : `${quoted(first as string)} and ${more} more ${more === 1 ? "item" : "items"}`;
+  return `${who} may hold secrets. A copy in the project can be read by every agent.`;
 }
 
 /** Says which links were left out of a copy, or null when none were. */
@@ -42,8 +61,8 @@ export function skippedNote(links: string[]): string | null {
 export class DropImporter {
   /** The folder files dragged in from outside would drop into. */
   over = $state<string | null>(null);
-  /** The clash the person is asked about. */
-  asking = $state<ClashAsk | null>(null);
+  /** The question the person is asked about a drop. */
+  asking = $state<DropAsk | null>(null);
   private busy = false;
 
   constructor(private readonly host: Host) {}
@@ -57,20 +76,39 @@ export class DropImporter {
     this.over = at ? this.host.dirAt(at) : null;
   }
 
-  /** A drop onto the window: imports it when it landed on the tree. */
+  /** A drop onto the window: imports it when it landed on the tree, after Copy anyway for secret-looking names. */
   async drop(drop: WindowDrop): Promise<void> {
     this.over = null;
     const dir = this.host.dirAt(drop);
     if (dir === null || this.busy) return;
     this.asking = null;
+    this.busy = true;
+    let risky: string[];
+    try {
+      risky = await this.host.secretNames(drop.paths);
+    } catch (err) {
+      this.host.fail(err instanceof Error ? err.message : String(err));
+      return;
+    } finally {
+      this.busy = false;
+    }
+    if (risky.length > 0) {
+      this.asking = { kind: "secret", drop, dir, text: secretQuestion(risky) };
+      return;
+    }
     await this.run(drop, dir, "ask");
   }
 
-  /** The person's answer to the clash question; null cancels. */
-  async answer(clash: Exclude<DropClash, "ask"> | null): Promise<void> {
+  /** The person's answer to the question asked. */
+  async answer(choice: DropAnswer): Promise<void> {
     const ask = this.asking;
     this.asking = null;
-    if (ask && clash) await this.run(ask.drop, ask.dir, clash);
+    if (!ask || choice === null) return;
+    if (ask.kind === "secret") {
+      if (choice === "copy") await this.run(ask.drop, ask.dir, "ask");
+    } else if (choice !== "copy") {
+      await this.run(ask.drop, ask.dir, choice);
+    }
   }
 
   private async run(drop: WindowDrop, dir: string, clash: DropClash): Promise<void> {
@@ -80,7 +118,7 @@ export class DropImporter {
     try {
       const done = await transport.importDrop(drop.id, project, dir, clash);
       if (done.kind === "clashes") {
-        this.asking = { drop, dir, text: clashQuestion(done.names, dir) };
+        this.asking = { kind: "clash", drop, dir, text: clashQuestion(done.names, dir) };
         return;
       }
       if (done.paths.length > 0) this.host.copied(done.paths);

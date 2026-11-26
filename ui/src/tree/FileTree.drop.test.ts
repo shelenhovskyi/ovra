@@ -1,5 +1,6 @@
 import { flushSync, mount, unmount } from "svelte";
 import { afterEach, describe, expect, it } from "vitest";
+import type { Request, ResponseFor } from "../lib/protocol";
 import type { DropClash, DropImport, Point, WindowDrop } from "../lib/transport";
 import FileTree from "./FileTree.svelte";
 import { dirsFromPaths, FakeCore } from "./fake-core";
@@ -15,6 +16,14 @@ class WindowCore extends FakeCore {
   imports: { dir: string; clash: DropClash }[] = [];
   private over = new Set<(at: Point | null) => void>();
   private drops = new Set<(drop: WindowDrop) => void>();
+  /** Like the core's chip check: `.env` looks like a secret store. */
+  override async call<R extends Request>(request: R): Promise<ResponseFor<R>> {
+    if (request.method !== "context.check") return super.call(request);
+    const notes = request.params.items.map((item) =>
+      "path" in item && item.path.endsWith(".env") ? "secret_file" : null,
+    );
+    return { type: "context.checked", data: { notes } } as ResponseFor<R>;
+  }
   onDragOver(listener: (at: Point | null) => void): () => void {
     this.over.add(listener);
     return () => this.over.delete(listener);
@@ -32,8 +41,8 @@ class WindowCore extends FakeCore {
   drag(at: Point | null): void {
     for (const listener of this.over) listener(at);
   }
-  drop(): void {
-    for (const listener of this.drops) listener({ id: "d1", paths: ["/out/a.png"], x: 1, y: 1 });
+  drop(paths = ["/out/a.png"]): void {
+    for (const listener of this.drops) listener({ id: "d1", paths, x: 1, y: 1 });
   }
 }
 
@@ -71,10 +80,12 @@ describe("FileTree: files dropped from outside", () => {
     core.drag({ x: 1, y: 1 });
     flushSync();
     expect(row("src").classList.contains("drop")).toBe(true);
+    expect(target.querySelector(".drop-hint")?.textContent).toBe("Copy into src");
     under = document.body;
     core.drag({ x: 1, y: 1 });
     flushSync();
     expect(row("src").classList.contains("drop")).toBe(false);
+    expect(target.querySelector(".drop-hint")).toBeNull();
 
     under = row("src");
     core.drop();
@@ -91,6 +102,33 @@ describe("FileTree: files dropped from outside", () => {
     ]);
     expect(target.querySelector("[role=alertdialog]")).toBeNull();
     expect(row("src/a copy.png").getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("asks before copying a file that may hold secrets, and Cancel is the default", async () => {
+    const core = new WindowCore(dirsFromPaths(["src/a.png"]));
+    const target = document.body.appendChild(document.createElement("div"));
+    const app = mount(FileTree, { target, props: { transport: core, project: "p1", onopen: () => {} } });
+    cleanup = () => unmount(app);
+    await settle();
+    const src = target.querySelector<HTMLElement>('[data-path="src"]');
+    document.elementFromPoint = () => src;
+
+    core.drop(["/home/me/app/.env", "/out/a.png"]);
+    await settle();
+    const dialog = target.querySelector("[role=alertdialog]");
+    expect(dialog?.textContent).toContain("“.env” may hold secrets.");
+    expect(core.imports).toEqual([]);
+    expect(document.activeElement?.textContent).toBe("Cancel");
+    (document.activeElement as HTMLButtonElement).click();
+    await settle();
+    expect(core.imports).toEqual([]);
+
+    core.drop(["/home/me/app/.env"]);
+    await settle();
+    const copy = [...target.querySelectorAll("button")].find((b) => b.textContent === "Copy anyway");
+    copy?.click();
+    await settle();
+    expect(core.imports[0]).toEqual({ dir: "src", clash: "ask" });
   });
 
   it("ignores a drop outside the tree", async () => {

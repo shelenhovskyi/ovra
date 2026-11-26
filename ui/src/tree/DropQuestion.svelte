@@ -1,23 +1,26 @@
 <script lang="ts">
-// Asks what to do when dropped files have names that exist already. Keep
-// both has focus, so Enter never replaces; Tab cycles the three buttons, and
-// Escape or focus going elsewhere cancels.
-import type { DropClash } from "../lib/transport";
+// Asks about a drop from outside: names that exist already (Replace, Keep
+// both, Cancel) or names that look like secrets (Copy anyway, Cancel). The
+// safe answer has focus, so Enter never replaces or copies a secret; Tab
+// cycles the buttons, and Escape or focus going elsewhere cancels.
+import type { DropAnswer } from "./drop-import.svelte";
 
 let {
+  kind,
   question,
   onanswer,
 }: {
+  kind: "clash" | "secret";
   question: string;
   /** null: cancel. */
-  onanswer: (clash: Exclude<DropClash, "ask"> | null) => void;
+  onanswer: (answer: DropAnswer) => void;
 } = $props();
 
 let card: HTMLDivElement | undefined = $state();
-let keep: HTMLButtonElement | undefined = $state();
+let safe: HTMLButtonElement | undefined = $state();
 
 $effect(() => {
-  keep?.focus();
+  safe?.focus();
 });
 
 function onkeydown(e: KeyboardEvent): void {
@@ -40,12 +43,25 @@ function onfocusout(e: FocusEvent): void {
 }
 </script>
 
-<div class="confirm" role="alertdialog" aria-label="Replace files" tabindex="-1" bind:this={card} {onkeydown} {onfocusout}>
+<div
+  class="confirm"
+  role="alertdialog"
+  aria-label={kind === "clash" ? "Replace files" : "Copy files that may hold secrets"}
+  tabindex="-1"
+  bind:this={card}
+  {onkeydown}
+  {onfocusout}
+>
   <p>{question}</p>
   <div class="buttons">
-    <button type="button" class="danger" onclick={() => onanswer("replace")}>Replace</button>
-    <button type="button" class="plain" bind:this={keep} onclick={() => onanswer("keep_both")}>Keep both</button>
-    <button type="button" class="quiet" onclick={() => onanswer(null)}>Cancel</button>
+    {#if kind === "clash"}
+      <button type="button" class="danger" onclick={() => onanswer("replace")}>Replace</button>
+      <button type="button" class="plain" bind:this={safe} onclick={() => onanswer("keep_both")}>Keep both</button>
+      <button type="button" class="quiet" onclick={() => onanswer(null)}>Cancel</button>
+    {:else}
+      <button type="button" class="danger" onclick={() => onanswer("copy")}>Copy anyway</button>
+      <button type="button" class="plain" bind:this={safe} onclick={() => onanswer(null)}>Cancel</button>
+    {/if}
   </div>
 </div>
 
