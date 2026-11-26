@@ -49,9 +49,16 @@ const IDLE: Duration = Duration::from_secs(90);
 const PING_EVERY: Duration = Duration::from_secs(30);
 /// Requests one phone may have running at once.
 const MAX_IN_FLIGHT: usize = 32;
-const CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; \
-    img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; \
-    form-action 'none'";
+/// The app's CSP. `connect-src` names the WebSocket's `wss://` origin as
+/// well, since older Safari does not count it as `'self'`.
+fn csp(origin: &str) -> String {
+    let wss = origin.replacen("https://", "wss://", 1);
+    format!(
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; \
+         img-src 'self' data:; connect-src 'self' {wss}; frame-ancestors 'none'; \
+         base-uri 'none'; form-action 'none'"
+    )
+}
 
 /// One file of the mobile app.
 #[derive(Debug, Clone)]
@@ -400,10 +407,10 @@ async fn guard(
     }
     let mut response = next.run(request).await;
     let headers = response.headers_mut();
-    headers.insert(
-        header::CONTENT_SECURITY_POLICY,
-        HeaderValue::from_static(CSP),
-    );
+    // The origin is an IP address and port, always a valid header value.
+    if let Ok(csp) = HeaderValue::from_str(&csp(&origin)) {
+        headers.insert(header::CONTENT_SECURITY_POLICY, csp);
+    }
     headers.insert(
         header::X_CONTENT_TYPE_OPTIONS,
         HeaderValue::from_static("nosniff"),
@@ -638,6 +645,25 @@ async fn serve(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_csp_lets_the_app_reach_its_own_socket_only() {
+        let csp = csp("https://192.168.1.20:52044");
+        assert!(
+            csp.contains("connect-src 'self' wss://192.168.1.20:52044;"),
+            "{csp}"
+        );
+        assert!(csp.contains("default-src 'self';"));
+    }
+
+    #[test]
+    fn app_files_get_their_types() {
+        let mime = |path: &str| Asset::new(path, Vec::new()).mime;
+        assert_eq!(mime("sw.js"), "text/javascript");
+        assert_eq!(mime("mobile.webmanifest"), "application/manifest+json");
+        assert_eq!(mime("phone-icon-256.png"), "image/png");
+        assert_eq!(mime("mobile.html"), "text/html; charset=utf-8");
+    }
 
     #[test]
     fn names_are_one_short_printable_line() {

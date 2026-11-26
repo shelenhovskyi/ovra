@@ -250,7 +250,10 @@ async fn an_unknown_key_or_a_strange_origin_or_host_gets_nothing() {
     let (status, csp, body) =
         http(tls(&s).await, &get(&s.host), "", "content-security-policy").await;
     assert_eq!(status, 200);
-    assert!(csp.expect("csp").contains("frame-ancestors 'none'"));
+    let csp = csp.expect("csp");
+    assert!(csp.contains("frame-ancestors 'none'"));
+    let wss = s.origin.replacen("https://", "wss://", 1);
+    assert!(csp.contains(&format!("connect-src 'self' {wss};")), "{csp}");
     assert_eq!(body, b"<p>phone</p>");
 }
 
