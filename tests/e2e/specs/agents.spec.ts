@@ -299,6 +299,20 @@ test("a starter task starts in one press and ends with a three-line summary", as
   await expect(agents.getByTestId("agent-starters")).toBeHidden();
 });
 
+test("an answer's numbered items each start their own agent in one press", async ({ page }) => {
+  await openGitProject(page, "ovra-agents-items-");
+  const agents = page.getByTestId("agents-panel");
+  await page.getByRole("textbox", { name: "Describe a task" }).fill("Find bugs");
+  await page.getByRole("button", { name: "Start", exact: true }).click();
+  const items = agents.getByTestId("agent-items");
+  await items.getByRole("checkbox", { name: /Race in watch\.rs/ }).check();
+  await items.getByRole("checkbox", { name: /Typo in README\.md/ }).check();
+  await items.getByRole("button", { name: "Do 1 and 2" }).click();
+  await expect(items.getByTestId("agent-items-line")).toContainText("Started items 1 and 2");
+  await agents.getByRole("button", { name: "Tasks" }).click();
+  await expect(agents.locator(".row-button", { hasText: "Item" })).toHaveCount(2);
+});
+
 // The phase 3 gate (3.E): a task, three workers, three diffs in Reviews; keep
 // one, discard one, comment on one.
 test("a task's three workers wait in Reviews to be kept, discarded or sent back", async ({ page }) => {

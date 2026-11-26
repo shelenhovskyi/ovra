@@ -60,6 +60,8 @@ import Transcript from "./Transcript.svelte";
 import WorkerSetup from "./WorkerSetup.svelte";
 import { secretLooking } from "./worktrees";
 import { REPORT_DIR, reportFile, reportOf, reportPath, taskPrompt } from "./report";
+import { itemPrompt, listItems } from "./items";
+import ItemTasks from "./ItemTasks.svelte";
 import { type Starter, starterMode } from "./starters";
 import { sessionSummary } from "./summary";
 import TaskSummary from "./TaskSummary.svelte";
@@ -313,10 +315,10 @@ $effect(() => {
   if (prompt.trim()) typeFirst = false;
 });
 
-// Asked once a mode that works on copies is chosen.
+// Asked once a mode that works on copies is chosen, or an answer lists items to hand out.
 $effect(() => {
   const id = project?.id;
-  if (!id || (how !== "split" && how !== "own")) return;
+  if (!id || (how !== "split" && how !== "own" && !hasItems)) return;
   untrack(() => checkGit(id));
 });
 
@@ -428,6 +430,54 @@ async function toTask(): Promise<void> {
   await tick();
   promptField?.focus();
   promptField?.setSelectionRange(prompt.length, prompt.length);
+}
+
+/** The numbered items of an idle session's last answer, which the person can hand to agents of their own. */
+const lastAnswer = $derived(current && !isBusy(current.status) ? reportOf(messages) : null);
+const items = $derived(lastAnswer ? listItems(lastAnswer) : []);
+const hasItems = $derived(items.length > 0);
+/** The items already started from the open session's answer, while it is the one shown. */
+let startedItems = $state<{ session: SessionId; answer: string; ns: number[] } | null>(null);
+const itemsStarted = $derived(
+  startedItems && current && startedItems.session === current.id && startedItems.answer === lastAnswer
+    ? startedItems.ns
+    : null,
+);
+/** Places free under the agent limit; agents already in line take theirs first. */
+const freePlaces = $derived(capacity ? Math.max(0, capacity.limit - capacity.working - capacity.queued) : undefined);
+const itemsBlock = $derived(
+  agent === "claude" && accounts.signedOut(account ?? accounts.projectAccount)
+    ? "The account is signed out."
+    : project && noRepo === project.id
+      ? "Needs git: each item works on its own copy of the project."
+      : null,
+);
+
+/**
+ * Do 1, 3 and 5: each picked item starts its own agent in its own copy, with
+ * the agent and account the task form has picked. Beyond the agent limit
+ * the core queues them; the open session stays open.
+ */
+function startItems(ns: number[]): Promise<void> {
+  const id = current?.id;
+  const at = project?.id;
+  const from = lastAnswer;
+  const asked = question;
+  const picked = items.filter((item) => ns.includes(item.n));
+  if (!id || !at || !from || picked.length === 0) return Promise.resolve();
+  return run(async () => {
+    const use = agent === "claude" ? account : null;
+    if (use && use !== accounts.projectAccount) await accounts.setProject(at, use);
+    const done: number[] = [];
+    try {
+      for (const item of picked) {
+        await sessions.startSolo(at, itemPrompt(asked, item, picked.length - 1), agent);
+        done.push(item.n);
+      }
+    } finally {
+      if (done.length > 0) startedItems = { session: id, answer: from, ns: done };
+    }
+  });
 }
 
 /** A task's workers, or a worker itself, whose changes wait in Reviews. */
@@ -1334,6 +1384,11 @@ const stoppable = $derived(current !== null && !isEnded(current.status) && sessi
               >Review</button
             >
           </div>
+        {/if}
+        {#if items.length > 0}
+          {#key current.id}
+            <ItemTasks {items} free={freePlaces} why={itemsBlock} started={itemsStarted} onstart={(ns) => void startItems(ns)} />
+          {/key}
         {/if}
       </div>
       {#if currentTask}

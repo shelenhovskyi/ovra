@@ -580,6 +580,16 @@ fn agents(args: &Args) -> Arc<dyn AgentRuntime> {
             "Explain the conflicts",
             say("Both sides changed the same line; keep the one you want and stage the file."),
         ),
+        // An answer that lists numbered items, which the person can hand to
+        // agents of their own (ui/src/agents/items.ts).
+        (
+            "Find bugs",
+            say(
+                "Found two:\n\n1. **Race** in `watch.rs`\n2. Typo in README.md\n\nWant me to fix them?",
+            ),
+        ),
+        // Each item handed on from that answer ends at once, asking nothing.
+        ("Item ", say("Done.")),
         // The agents screen's "Write a README" starter: an answer that ends
         // with the three-line summary (agents/roles/task.md).
         (
@@ -646,7 +656,7 @@ struct FakeAgent {
     sandboxed: ovra_core::fakes::ScriptedAgent,
     /// For tasks that start with "Stream".
     streaming: ovra_core::fakes::ScriptedAgent,
-    /// For the git panel's agent actions and the "Write a README" starter, by the start of their prompt.
+    /// For the git panel's agent actions, the "Write a README" starter and "Find bugs", by the start of their prompt.
     git_actions: Vec<(&'static str, ovra_core::fakes::ScriptedAgent)>,
     /// For tasks that start with "Checkpoint".
     checkpoints: ovra_core::fakes::ScriptedAgent,
