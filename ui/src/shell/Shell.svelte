@@ -473,7 +473,7 @@ async function showApprovals(): Promise<void> {
       <div class="dock-handle">
         <Splitter
           label="Resize the bottom panel"
-          width={dockHeight}
+          width={layout.dock === null ? dockHeight : Math.min(layout.dock, dockMax)}
           min={MIN_DOCK}
           max={dockMax}
           edge="bottom"
