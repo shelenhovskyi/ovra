@@ -302,3 +302,19 @@ async fn a_project_whose_secrets_cannot_be_removed_stays() {
         .await;
     assert!(listed.is_ok(), "the project is still there: {listed:?}");
 }
+
+#[test]
+fn every_provider_has_its_own_hosts_refused() {
+    use crate::protocol::agents::AgentKind;
+    // Every variant in turn: the match is exhaustive, so a new provider
+    // does not compile here until it is chained in, and then fails below
+    // until it is in `PROVIDERS` (its own hosts never take a secret by omission).
+    let next = |agent: AgentKind| match agent {
+        AgentKind::Claude => None,
+    };
+    let mut agent = Some(AgentKind::default());
+    while let Some(this) = agent {
+        assert!(super::PROVIDERS.contains(&this), "{this:?}");
+        agent = next(this);
+    }
+}

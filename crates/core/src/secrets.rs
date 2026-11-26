@@ -3,6 +3,7 @@
 //! safely, then runs the keychain call on a blocking thread.
 
 use crate::Core;
+use crate::protocol::agents::AgentKind;
 use crate::protocol::projects::ProjectId;
 use crate::protocol::secrets::{
     SecretInfo, SecretList, SecretValue, SecretsEvent, SecretsRequest, SecretsResponse,
@@ -14,8 +15,13 @@ const MAX_HEADER: usize = 64;
 const MAX_PREFIX: usize = 64;
 const MAX_VALUE: usize = 16 * 1024;
 
+/// Every provider whose own hosts no secret is sent to. A new provider
+/// goes here and in [`own_host`].
+const PROVIDERS: [AgentKind; 1] = [AgentKind::Claude];
+
 /// Domains `claude` itself talks to; the proxy must never decrypt them
-/// (ADR 0006). Their subdomains are refused too.
+/// (ADR 0006). Their subdomains are refused too, and so are the cloud
+/// providers' model endpoints it can use ([`own_host`]).
 const CLAUDE_DOMAINS: [&str; 3] = ["anthropic.com", "claude.ai", "claude.com"];
 
 /// Headers that frame or route a request; a secret never replaces them.
@@ -195,17 +201,36 @@ fn host_ok(host: &str) -> Result<(), &'static str> {
     {
         return Err("the host is a DNS name, not an IP address");
     }
-    let claude = CLAUDE_DOMAINS
-        .iter()
-        .any(|d| name == *d || name.ends_with(&format!(".{d}")));
-    let aws = name.ends_with(".amazonaws.com") || name.ends_with(".amazonaws.com.cn");
-    let cloud_model = (aws && labels.iter().any(|l| l.starts_with("bedrock")))
-        || name.ends_with("aiplatform.googleapis.com")
-        || name.ends_with(".services.ai.azure.com");
-    if claude || cloud_model {
-        return Err("Claude's own hosts carry its login; a secret is never sent to them");
+    // A project's secrets reach every session of it, whatever its
+    // provider: no provider's own host takes one.
+    match PROVIDERS
+        .into_iter()
+        .find_map(|agent| own_host(agent, name, &labels))
+    {
+        Some(why) => Err(why),
+        None => Ok(()),
     }
-    Ok(())
+}
+
+/// Why `name` (split into `labels`) is one of `agent`'s own hosts, which
+/// carry its login, if it is: the proxy never decrypts them (ADR 0006,
+/// ADR 0011). Their subdomains count too.
+fn own_host(agent: AgentKind, name: &str, labels: &[&str]) -> Option<&'static str> {
+    let own = match agent {
+        AgentKind::Claude => {
+            let claude = CLAUDE_DOMAINS
+                .iter()
+                .any(|d| name == *d || name.ends_with(&format!(".{d}")));
+            let aws = name.ends_with(".amazonaws.com") || name.ends_with(".amazonaws.com.cn");
+            let cloud_model = (aws && labels.iter().any(|l| l.starts_with("bedrock")))
+                || name.ends_with("aiplatform.googleapis.com")
+                || name.ends_with(".services.ai.azure.com");
+            claude || cloud_model
+        }
+    };
+    own.then_some(match agent {
+        AgentKind::Claude => "Claude's own hosts carry its login; a secret is never sent to them",
+    })
 }
 
 fn header_ok(header: &str) -> Result<(), &'static str> {
