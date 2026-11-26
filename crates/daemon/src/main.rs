@@ -12,13 +12,15 @@ use clap::Parser;
 use ovra_agent_runtime::ClaudeCli;
 use ovra_core::Core;
 use ovra_core::services::{
-    AgentRuntime, Browser, DevServers, Forge, KeepAwake, LanguageServers, ResourceMonitor, Secrets,
+    AgentRuntime, Browser, DevServers, Forge, KeepAwake, LanguageServers, RemoteAccess,
+    ResourceMonitor, Secrets,
 };
 use ovra_forge::GhForge;
 use ovra_fs_index::FsIndex;
 use ovra_mcp_server::IdeServer;
 use ovra_opener::SystemOpener;
 use ovra_pty::Pty;
+use ovra_remote::RemoteServer;
 use ovra_resources::SysResources;
 use ovra_secrets::KeychainSecrets;
 use ovra_servers::PodServers;
@@ -106,11 +108,7 @@ async fn serve() -> anyhow::Result<()> {
     let secrets: Arc<dyn Secrets> = Arc::new(KeychainSecrets::new(&args.data_dir));
     // Dropped last, after the core and its pods.
     let (dev_servers, _servers_dir) = dev_servers(&args)?;
-    // Phone access (ADR 0014) serves the mobile app from the same build.
-    let remote = Arc::new(ovra_remote::RemoteServer::new(
-        &args.data_dir.join("remote"),
-        ovra_remote::assets_from_dir(args.ui_dir.clone()),
-    ));
+    let (remote, restore) = phone_access(&args);
     let core = Core::builder("headless")
         .secrets(secrets.clone())
         .projects(store.clone())
@@ -131,9 +129,11 @@ async fn serve() -> anyhow::Result<()> {
         .forge(forge(&args))
         .resources(resources(&args))
         .keep_awake(keep_awake(&args))
-        .remote(remote.clone())
+        .remote(remote)
         .build();
-    remote.restore(core.clone());
+    if let Some(server) = restore {
+        server.restore(core.clone());
+    }
     let app = ws::router(
         core,
         Access {
@@ -152,6 +152,30 @@ async fn serve() -> anyhow::Result<()> {
         })
         .await?;
     Ok(())
+}
+
+/// Phone access (ADR 0014), serving the mobile app from the same build,
+/// and the server to turn back on once the core exists.
+fn real_phone_access(args: &Args) -> (Arc<dyn RemoteAccess>, Option<Arc<RemoteServer>>) {
+    let server = Arc::new(RemoteServer::new(
+        &args.data_dir.join("remote"),
+        ovra_remote::assets_from_dir(args.ui_dir.clone()),
+    ));
+    (server.clone(), Some(server))
+}
+
+#[cfg(not(feature = "fake-agent"))]
+fn phone_access(args: &Args) -> (Arc<dyn RemoteAccess>, Option<Arc<RemoteServer>>) {
+    real_phone_access(args)
+}
+
+/// With the fake agent, phone access that listens nowhere.
+#[cfg(feature = "fake-agent")]
+fn phone_access(args: &Args) -> (Arc<dyn RemoteAccess>, Option<Arc<RemoteServer>>) {
+    if args.fake_agent {
+        return (Arc::new(ovra_core::fakes::FakeRemote::default()), None);
+    }
+    real_phone_access(args)
 }
 
 #[cfg(not(feature = "fake-agent"))]
