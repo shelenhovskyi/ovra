@@ -26,8 +26,7 @@ pub(super) fn status(root: &Path) -> Result<Option<RepoStatus>> {
     if !dirs.prefix.is_empty() {
         run = run.args(["--", "."]);
     }
-    let mut status = parse(&run.run()?, &dirs.prefix);
-    status.files.retain(|f| !placeholder(root, f));
+    let mut status = parse(&run.run()?, &dirs.prefix, |f| !placeholder(root, f));
     status.operation = operation(&dirs);
     if status.branch.is_some() && status.upstream.is_none() {
         status.publish_to = super::publish_remote(root)?;
@@ -78,7 +77,7 @@ fn change(code: u8) -> Option<GitChange> {
 
 /// Porcelain v2 `-z` output; paths in it are from the top of the
 /// repository and become relative to the project at `prefix`.
-fn parse(out: &[u8], prefix: &str) -> RepoStatus {
+fn parse(out: &[u8], prefix: &str, keep: impl Fn(&StatusFile) -> bool) -> RepoStatus {
     let mut status = RepoStatus::default();
     let mut fields = out
         .split(|b| *b == 0)
@@ -116,11 +115,7 @@ fn parse(out: &[u8], prefix: &str) -> RepoStatus {
         let Some(path) = path.and_then(|p| p.strip_prefix(prefix)) else {
             continue;
         };
-        if status.files.len() >= MAX_STATUS_FILES as usize {
-            status.truncated += 1;
-            continue;
-        }
-        status.files.push(StatusFile {
+        let file = StatusFile {
             path: path.to_owned(),
             from: from
                 .as_deref()
@@ -128,7 +123,16 @@ fn parse(out: &[u8], prefix: &str) -> RepoStatus {
                 .map(str::to_owned),
             staged,
             unstaged,
-        });
+        };
+        // Left out before counting, so "and N more" counts only real files.
+        if !keep(&file) {
+            continue;
+        }
+        if status.files.len() >= MAX_STATUS_FILES as usize {
+            status.truncated += 1;
+            continue;
+        }
+        status.files.push(file);
     }
     status
 }
@@ -154,5 +158,24 @@ fn branch_header(status: &mut RepoStatus, header: &str) {
             status.behind = count('-');
         }
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn left_out_files_do_not_count_toward_the_cut() {
+        let max = MAX_STATUS_FILES as usize;
+        let mut out = Vec::new();
+        // A left-out file first, then exactly as many real files as fit.
+        out.extend_from_slice(b"? CLAUDE.md\0");
+        for n in 0..max {
+            out.extend_from_slice(format!("? f{n}\0").as_bytes());
+        }
+        let status = parse(&out, "", |f| f.path != "CLAUDE.md");
+        assert_eq!(status.files.len(), max);
+        assert_eq!(status.truncated, 0);
     }
 }
